@@ -6,6 +6,7 @@ import type { AgentDefinition } from '@ia-flow/shared';
 import AgentCard from '@/features/agents/AgentCard.vue';
 import AgentEditorModal from '@/features/agents/AgentEditorModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import ScopeGroup from '@/ui/ScopeGroup.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useProjectsStore } from '@/features/projects/store';
@@ -14,20 +15,20 @@ import {
   createAgent as apiCreateAgent,
   deleteAgent as apiDeleteAgent,
   fetchAgentsReadOnly,
-  reorderAgents as apiReorderAgents,
   updateAgent as apiUpdateAgent,
   type Scope,
 } from '@/features/project-config/crudApi';
 import type { SystemPromptDef } from '@ia-flow/shared';
 import { useToastStore } from '@/stores/toast';
 
-function byPosition(a: AgentDefinition, b: AgentDefinition): number {
-  return (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
+// Alfabético, y no por `position`: desde la migración 059 el orden de los
+// agentes no decide NADA —quién corre y en qué orden lo deciden las reglas— así
+// que ordenar por un campo que no se puede cambiar desde acá daría una lista
+// con un orden aparentemente significativo que en realidad es arbitrario.
+function byId(a: AgentDefinition, b: AgentDefinition): number {
+  return a.id.localeCompare(b.id);
 }
 
-function isEnabled(agent: AgentDefinition): boolean {
-  return agent.enabled !== false;
-}
 
 // scope='project' (default) → project detail view. Shows globals (read-only)
 // + this project's own agents (editable). Writes always target the project.
@@ -127,49 +128,25 @@ watch(() => projectStore.config?.agents, () => { if (isProject.value) void loadA
 // In global scope, keep the sysprompt list synced with the global store.
 watch(() => globalStore.config?.systemPrompts, () => { if (!isProject.value) void loadAvailable(); });
 
-// Orden aplicado localmente mientras el reorder viaja al server, para que
-// soltar una tarjeta se vea instantáneo en vez de esperar el refetch. Se
-// limpia cuando los datos frescos ya reflejan el mismo orden.
-const orderOverride = ref<string[] | null>(null);
-
-function applyOverride(list: AgentDefinition[]): AgentDefinition[] {
-  const override = orderOverride.value;
-  if (!override) return list;
-  const rank = new Map(override.map((id, i) => [id, i]));
-  return list
-    .slice()
-    .sort(
-      (a, b) =>
-        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-}
-
 const globalAgents = computed(() =>
   isProject.value
-    ? availableAgents.value.filter((a) => a.projectId == null).sort(byPosition)
+    ? availableAgents.value.filter((a) => a.projectId == null).sort(byId)
     : []
 );
-const globalEnabled = computed(() => globalAgents.value.filter(isEnabled));
-const globalDisabled = computed(() => globalAgents.value.filter((a) => !isEnabled(a)));
-
 // Lista editable en este scope: los agentes propios del proyecto, o los
 // globales cuando estamos en la vista General.
 const ownAgents = computed(() =>
-  applyOverride(
-    (isProject.value
-      ? availableAgents.value.filter((a) => a.projectId != null)
-      : configStore.value.config?.agents ?? []
-    )
-      .slice()
-      .sort(byPosition),
-  ),
+  (isProject.value
+    ? availableAgents.value.filter((a) => a.projectId != null)
+    : configStore.value.config?.agents ?? []
+  )
+    .slice()
+    .sort(byId),
 );
-const ownEnabled = computed(() => ownAgents.value.filter(isEnabled));
-const ownDisabled = computed(() => ownAgents.value.filter((a) => !isEnabled(a)));
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
 // ─── Ruta ↔ editor ──────────────────────────────────────────────────────
-// Qué agente está abierto vive en la URL (:agentId — 'new' para alta),
+// Qué agente está abierto vive en la URL (:detailId — 'new' para alta),
 // no en un ref local: así el detalle es deep-linkable y el sidebar de
 // AppShell no se pierde (el editor ya no es un overlay position:fixed).
 const route = useRoute();
@@ -183,7 +160,7 @@ const editingAgent = ref<AgentDefinition | null>(null);
 const editingReadOnly = ref(false);
 
 function resolveAgentFromRoute() {
-  const id = route.params.agentId as string | undefined;
+  const id = route.params.detailId as string | undefined;
   if (!id) {
     agentModalOpen.value = false;
     return;
@@ -222,14 +199,14 @@ function resolveAgentFromRoute() {
 
 const catalogReady = computed(() => (isProject.value ? projectCatalogLoaded.value : globalStore.config != null));
 
-watch(() => route.params.agentId, resolveAgentFromRoute, { immediate: true });
+watch(() => route.params.detailId, resolveAgentFromRoute, { immediate: true });
 watch([ownAgents, globalAgents, catalogReady], resolveAgentFromRoute);
 
 function pushAgentId(agentId: string | undefined) {
   if (!route.name) return;
   const params = { ...route.params };
-  if (agentId === undefined) delete params.agentId;
-  else params.agentId = agentId;
+  if (agentId === undefined) delete params.detailId;
+  else params.detailId = agentId;
   void router.push({ name: route.name, params });
 }
 
@@ -291,94 +268,6 @@ async function deleteAgent(agentId: string) {
   }
 }
 
-// `setPositions` asigna position = índice dentro de la lista que se manda,
-// así que hay que mandar SIEMPRE el scope completo: si sólo mandáramos los
-// habilitados, los deshabilitados quedarían con posiciones viejas que se
-// intercalan con las nuevas y reaparecerían al frente al re-habilitarlos.
-// Los deshabilitados van al final, que es donde la UI los muestra.
-async function persistOrder(enabled: AgentDefinition[], disabled: AgentDefinition[]) {
-  const scope = currentScope();
-  if (!scope) return;
-  const ids = [...enabled, ...disabled].map((a) => a.id);
-  orderOverride.value = ids;
-  try {
-    await apiReorderAgents(scope, ids);
-    await refresh();
-  } catch (e) {
-    toastStore.error(`Error al reordenar: ${extractErrorMessage(e)}`);
-  } finally {
-    orderOverride.value = null;
-  }
-}
-
-// Reordering only applies to the enabled list — un agente deshabilitado no
-// participa de la selección, así que su orden relativo no significa nada.
-async function moveAgent(index: number, direction: -1 | 1) {
-  const target = index + direction;
-  if (target < 0 || target >= ownEnabled.value.length) return;
-  const reordered = ownEnabled.value.slice();
-  [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
-  await persistOrder(reordered, ownDisabled.value);
-}
-
-async function toggleEnabled(agent: AgentDefinition) {
-  const scope = currentScope();
-  if (!scope) return;
-  const next = { ...agent, enabled: !isEnabled(agent) };
-  try {
-    await apiUpdateAgent(scope, next);
-    // Reordena para que el agente caiga en el grupo correcto: habilitar lo
-    // manda al final de los activos; deshabilitar, al final del scope.
-    const rest = ownAgents.value.filter((a) => a.id !== agent.id);
-    const enabled = rest.filter(isEnabled);
-    const disabled = rest.filter((a) => !isEnabled(a));
-    if (next.enabled) enabled.push(next);
-    else disabled.push(next);
-    await persistOrder(enabled, disabled);
-    toastStore.success(
-      `Agente '${agent.id}' ${next.enabled ? 'habilitado' : 'deshabilitado'}`,
-    );
-  } catch (e) {
-    toastStore.error(`Error: ${extractErrorMessage(e)}`);
-  }
-}
-
-// ─── Drag & drop (HTML5 nativo, sin dependencias) ──────────────────────────
-const dragIndex = ref<number | null>(null);
-const dropIndex = ref<number | null>(null);
-
-function onDragStart(index: number, event: DragEvent) {
-  dragIndex.value = index;
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
-    // Firefox exige setData para iniciar el drag.
-    event.dataTransfer.setData('text/plain', String(index));
-  }
-}
-
-function onDragOver(index: number, event: DragEvent) {
-  if (dragIndex.value === null) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-  dropIndex.value = index;
-}
-
-async function onDrop(index: number) {
-  const from = dragIndex.value;
-  dragIndex.value = null;
-  dropIndex.value = null;
-  if (from === null || from === index) return;
-  const reordered = ownEnabled.value.slice();
-  const [moved] = reordered.splice(from, 1);
-  reordered.splice(index, 0, moved);
-  await persistOrder(reordered, ownDisabled.value);
-}
-
-function onDragEnd() {
-  dragIndex.value = null;
-  dropIndex.value = null;
-}
-
 interface PendingConfirm {
   title: string;
   message: string;
@@ -402,7 +291,12 @@ function confirmDelete(agent: AgentDefinition) {
       ? `¿Eliminar '${agent.id}'? Solo se quita de este proyecto.`
       : `¿Eliminar el agente '${agent.id}'? Esta acción no se puede deshacer.`,
     confirmLabel: 'Eliminar',
-    onConfirm: () => deleteAgent(agent.id),
+    // Cierra el editor: se borra DESDE el detalle, así que dejarlo abierto
+    // sobre un agente que ya no existe es peor que volver al listado.
+    onConfirm: async () => {
+      await deleteAgent(agent.id);
+      closeAgentModal();
+    },
   });
 }
 </script>
@@ -412,27 +306,31 @@ function confirmDelete(agent: AgentDefinition) {
        resolveAgentFromRoute: agentModalOpen ahora lo maneja la URL. -->
   <section v-if="!agentModalOpen" class="settings-section">
     <div class="section-header">
-      <div>
+      <div class="section-head-text">
         <h2>Agentes</h2>
-        <p class="section-desc" style="margin: 0.25rem 0 0;">
+        <p class="section-desc">
           <template v-if="isProject">
             Agentes disponibles para este proyecto. Los globales se muestran para referencia;
-            para modificarlos, edítalos desde General.
+            para modificarlos, edítalos desde General. <b>Cuándo</b> corre cada uno lo decide una
+            regla, en Pipeline.
           </template>
           <template v-else>
-            Biblioteca de definiciones de agentes reutilizables. Cada agente tiene un id,
-            provider, prompt y output. Son referenciados por id desde los statuses.
+            Biblioteca de definiciones reutilizables: cada agente tiene un id, provider,
+            prompt, tools y salidas. <b>Cuándo</b> corre cada uno no se define acá — lo decide
+            una regla, en Pipeline.
           </template>
         </p>
       </div>
-      <button
-        v-if="!sourceReadOnly"
-        type="button"
-        class="btn-add-repo"
-        @click="openNewAgent"
-      >
-        + Agregar agente {{ isProject ? 'del proyecto' : '' }}
-      </button>
+      <div class="section-head-actions">
+        <button
+          v-if="!sourceReadOnly"
+          type="button"
+          class="btn btn--primary"
+          @click="openNewAgent"
+        >
+          + Agregar agente
+        </button>
+      </div>
     </div>
 
     <p v-if="sourceReadOnly" class="readonly-banner">
@@ -441,9 +339,8 @@ function confirmDelete(agent: AgentDefinition) {
     </p>
 
     <p v-if="totalCount" class="order-hint">
-      El orden importa: el engine ejecuta el primer agente <b>habilitado</b> cuyos criterios
-      (repo · status · condiciones) hagan match con el issue.
-      <b>Arrastra</b> una tarjeta para cambiar su prioridad.
+      Un agente no corre por estar en esta lista: corre cuando una <b>regla</b> lo nombra.
+      Un agente que ninguna regla nombra nunca se ejecuta.
     </p>
 
     <div v-if="!totalCount" class="repos-empty">
@@ -456,97 +353,49 @@ function confirmDelete(agent: AgentDefinition) {
       </template>
     </div>
 
-    <!-- Activos (editables en este scope) -->
-    <div v-if="ownEnabled.length" class="agent-group">
-      <h3 class="agent-group__title">
-        {{ isProject ? 'Del proyecto · activos' : 'Activos' }}
-        <span class="agent-group__hint">({{ ownEnabled.length }} · en orden de evaluación)</span>
-      </h3>
+    <!-- Los dos grupos usan la MISMA pieza que Pipeline, Acciones, Tools y
+         System Prompts (`ScopeGroup`): "qué puedo tocar acá" es la primera
+         pregunta de las cinco pantallas, y cuando cada una la contestaba con su
+         propio `<h3>` la respuesta se veía distinta en cada una. -->
+    <ScopeGroup
+      v-if="ownAgents.length"
+      variant="own"
+      :label="isProject ? 'De este proyecto' : 'De este ámbito'"
+      :count="ownAgents.length"
+    >
       <div class="agent-list" data-kbd-list="agents">
         <AgentCard
-          v-for="(agent, idx) in ownEnabled"
+          v-for="agent in ownAgents"
           :key="`own-${agent.id}`"
           :agent="agent"
-          :order="idx + 1"
           :readonly="sourceReadOnly"
-          :can-move-up="idx > 0"
-          :can-move-down="idx < ownEnabled.length - 1"
-          :dragging="dragIndex === idx"
-          :drop-target="dropIndex === idx && dragIndex !== idx"
           data-kbd-item
           tabindex="0"
-          :draggable="!sourceReadOnly"
-          @dragstart="onDragStart(idx, $event)"
-          @dragover="onDragOver(idx, $event)"
-          @drop.prevent="onDrop(idx)"
-          @dragend="onDragEnd"
           @edit="openEditAgent(agent)"
-          @toggle="toggleEnabled(agent)"
-          @delete="confirmDelete(agent)"
-          @move="(d) => moveAgent(idx, d)"
         />
       </div>
-    </div>
+    </ScopeGroup>
 
-    <!-- Deshabilitados: fuera de la selección del engine -->
-    <div v-if="ownDisabled.length" class="agent-group agent-group--off">
-      <h3 class="agent-group__title">
-        Deshabilitados
-        <span class="agent-group__hint">({{ ownDisabled.length }} · el engine nunca los elige)</span>
-      </h3>
-      <div class="agent-list" data-kbd-list="agents-disabled">
+    <ScopeGroup
+      v-if="isProject && globalAgents.length"
+      variant="inherited"
+      label="Globales"
+      :count="globalAgents.length"
+      edit-hint="General → Agentes"
+    >
+      <div class="agent-list">
+        <!-- Sin `order`: ese número era la posición dentro de ESTE listado, y
+             desde la migración 059 el orden de los agentes no decide nada —
+             quién corre y en qué orden lo decide una regla. -->
         <AgentCard
-          v-for="agent in ownDisabled"
-          :key="`off-${agent.id}`"
+          v-for="agent in globalAgents"
+          :key="`global-${agent.id}`"
           :agent="agent"
-          disabled
-          :readonly="sourceReadOnly"
-          data-kbd-item
-          tabindex="0"
+          readonly
           @edit="openEditAgent(agent)"
-          @toggle="toggleEnabled(agent)"
-          @delete="confirmDelete(agent)"
         />
       </div>
-    </div>
-
-    <!-- scope=project: globales, read-only acá -->
-    <template v-if="isProject">
-      <div v-if="globalEnabled.length" class="agent-group">
-        <h3 class="agent-group__title">
-          Globales <span class="agent-group__hint">(read-only aquí)</span>
-        </h3>
-        <div class="agent-list">
-          <AgentCard
-            v-for="(agent, idx) in globalEnabled"
-            :key="`global-${agent.id}`"
-            :agent="agent"
-            :order="idx + 1"
-            readonly
-            show-scope-badge
-            @edit="openEditAgent(agent)"
-          />
-        </div>
-      </div>
-
-      <div v-if="globalDisabled.length" class="agent-group agent-group--off">
-        <h3 class="agent-group__title">
-          Globales deshabilitados
-          <span class="agent-group__hint">(read-only aquí)</span>
-        </h3>
-        <div class="agent-list">
-          <AgentCard
-            v-for="agent in globalDisabled"
-            :key="`global-off-${agent.id}`"
-            :agent="agent"
-            readonly
-            disabled
-            show-scope-badge
-            @edit="openEditAgent(agent)"
-          />
-        </div>
-      </div>
-    </template>
+    </ScopeGroup>
   </section>
 
   <AgentEditorModal
@@ -557,6 +406,7 @@ function confirmDelete(agent: AgentDefinition) {
     :available-system-prompts="availableSysprompts"
     @close="closeAgentModal"
     @save="handleAgentSave"
+    @delete="confirmDelete"
   />
 
   <ConfirmDialog
@@ -571,50 +421,13 @@ function confirmDelete(agent: AgentDefinition) {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
-.section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
-.btn-add-repo {
-  flex-shrink: 0;
-  padding: 0.35rem 0.8rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.btn-add-repo:hover { background: var(--accent); }
 
 .repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
-.agent-group { margin-top: 0.75rem; }
-.agent-group--off {
-  margin-top: 1.1rem;
-  padding-top: 0.75rem;
-  border-top: 1px dashed var(--border-mute);
-}
-.agent-group__title {
-  margin: 0 0 0.4rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--fg-mute);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.agent-group__hint {
-  font-size: 0.7rem;
-  color: var(--fg-dim);
-  text-transform: none;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
-.agent-list { display: flex; flex-direction: column; gap: 0.6rem; }
+/* El encabezado de cada grupo lo pone `ScopeGroup` — la misma pieza que
+   Pipeline, Acciones, Tools y System Prompts. */
+.agent-list { display: flex; flex-direction: column; gap: 0.3rem; }
 .order-hint {
   margin: 0 0 0.6rem;
   font-size: var(--fs-body-sm);
@@ -628,5 +441,20 @@ function confirmDelete(agent: AgentDefinition) {
   background: var(--yellow-bg);
   color: var(--warn);
   font-size: var(--fs-body-sm);
+}
+
+@media (max-width: 768px) {
+  /* El boton de agregar quedaba 14px afuera: es un flex sin `wrap` con el
+     texto de la seccion al lado. Se apila. */
+  .section-header { flex-wrap: wrap; }
+  .section-header > * { min-width: 0; }
+}
+
+@media (max-width: 640px) {
+  .settings-section { padding: 0.75rem; }
+  /* Ya apilado por la regla de arriba, el boton queda solo en su fila con
+     medio ancho de aire al lado. Que la ocupe entera: es la unica accion de
+     la pantalla y asi tiene el area de toque que le corresponde. */
+  .section-head-actions .btn { width: 100%; }
 }
 </style>

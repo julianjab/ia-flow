@@ -37,7 +37,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   // oldest→newest, matching the order formatComments
   // (apps/server/src/variables/task.ts) renders in, so no reverse needed.
   const data = await gql<any>(
-    `query($issueId: ID!) {
+    `query GetIssueComments($issueId: ID!) {
       node(id: $issueId) {
         ... on Issue {
           comments(last: 50) {
@@ -82,7 +82,7 @@ export async function markCommentsUsed(
   await Promise.all(
     comments.map((c) =>
       gql(
-        `mutation($id: ID!, $body: String!) {
+        `mutation MarkCommentUsed($id: ID!, $body: String!) {
           updateIssueComment(input: { id: $id, body: $body }) {
             issueComment { id }
           }
@@ -98,7 +98,7 @@ export async function markCommentsUsed(
 
 export async function updateIssueBody(issueId: string, newBody: string): Promise<void> {
   await gql(
-    `mutation($issueId: ID!, $body: String!) {
+    `mutation UpdateIssueBody($issueId: ID!, $body: String!) {
       updateIssue(input: { id: $issueId, body: $body }) {
         issue { id }
       }
@@ -109,7 +109,7 @@ export async function updateIssueBody(issueId: string, newBody: string): Promise
 
 export async function addIssueComment(issueId: string, body: string): Promise<string> {
   const data = await gql<any>(
-    `mutation($issueId: ID!, $body: String!) {
+    `mutation AddIssueComment($issueId: ID!, $body: String!) {
       addComment(input: { subjectId: $issueId, body: $body }) {
         commentEdge { node { id } }
       }
@@ -209,7 +209,7 @@ export async function addBlockedBy(
   blockingIssueNodeId: string,
 ): Promise<void> {
   await gql(
-    `mutation($issueId: ID!, $blockingIssueId: ID!) {
+    `mutation AddBlockedBy($issueId: ID!, $blockingIssueId: ID!) {
       addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingIssueId }) {
         issue { id }
       }
@@ -227,4 +227,55 @@ export async function getBlockingIssues(
     `/repos/${owner}/${repo}/issues/${issueNumber}/dependencies/blocked_by`,
   )) as any[]
   return (data ?? []).map((i: any) => ({ number: i.number, state: i.state, title: i.title }))
+}
+
+// ─── Mover un issue de repositorio ────────────────────────────────────────
+
+/**
+ * Transfiere el issue a otro repo del MISMO owner (`transferIssue` de la API
+ * v4). Es la operación que arregla la causa —un issue ruteado al repo
+ * equivocado— en vez del síntoma: al terminar, el campo `Repository` nativo
+ * apunta al repo correcto y el fallback de `resolveRepos` devuelve lo que
+ * corresponde sin que el board necesite un campo custom `Repos`.
+ *
+ * Ojo con lo que NO se conserva: el transfer **cambia el número y el node id
+ * del issue** (GitHub crea uno nuevo en el destino y deja un redirect en el
+ * origen). Por eso el caller no puede seguir operando con las coordenadas que
+ * tenía — devolvemos las nuevas y el run se cierra acá, para que el próximo
+ * scan reconstruya la task desde el board ya transferido.
+ *
+ * `createLabelsIfMissing` evita que el transfer pierda labels que el repo
+ * destino todavía no tiene: sin eso GitHub las descarta en silencio, y las
+ * labels de este pipeline (`blocked`, `reviewed`) son parte de la selección.
+ */
+export async function transferIssue(
+  issueId: string,
+  owner: string,
+  repo: string,
+): Promise<{ id: string; number: number; url: string }> {
+  const repoData = await gql<{ repository: { id: string } | null }>(
+    `query ResolveRepositoryId($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) { id }
+    }`,
+    { owner, name: repo },
+  )
+  const repositoryId = repoData.repository?.id
+  if (!repositoryId) {
+    throw new Error(`El repo '${owner}/${repo}' no existe o la credencial de GitHub no lo ve`)
+  }
+  const data = await gql<{
+    transferIssue: { issue: { id: string; number: number; url: string } }
+  }>(
+    `mutation TransferIssue($issueId: ID!, $repositoryId: ID!) {
+      transferIssue(input: {
+        issueId: $issueId,
+        repositoryId: $repositoryId,
+        createLabelsIfMissing: true
+      }) {
+        issue { id number url }
+      }
+    }`,
+    { issueId, repositoryId },
+  )
+  return data.transferIssue.issue
 }

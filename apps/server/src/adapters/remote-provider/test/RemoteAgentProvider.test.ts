@@ -151,10 +151,12 @@ describe('RemoteAgentProvider.canAccept', () => {
           title: 'x',
           status: 'Build',
           projectId: 'subscriptions',
-          type: 'feature',
+          type: 'functional',
+          description: '',
+          created_at: '2026-01-01T00:00:00.000Z',
           repos: ['subscriptions'],
           assignees: ['julianjab', 'otro'],
-        } as AdmissionRequest['task'],
+        },
       }),
     )
 
@@ -163,7 +165,9 @@ describe('RemoteAgentProvider.canAccept', () => {
     expect(params.getAll('assignee')).toEqual(['julianjab', 'otro'])
     expect(params.get('agentId')).toBe('subscriptions-implementer')
     expect(params.get('projectId')).toBe('subscriptions')
-    expect(params.get('taskType')).toBe('feature')
+    // 'feature' no es un Task['type'] válido — el cast que había antes lo
+    // tapaba. Los dos valores del enum son 'functional' y 'technical'.
+    expect(params.get('taskType')).toBe('functional')
   })
 
   it('assignees conocido-vacío viaja como marcador, distinto de no saber', async () => {
@@ -179,7 +183,16 @@ describe('RemoteAgentProvider.canAccept', () => {
     const provider = new RemoteAgentProvider(registration())
     await provider.canAccept(
       admissionReq({
-        task: { id: 't1', title: 'x', status: 'Build', assignees: [] } as AdmissionRequest['task'],
+        task: {
+          id: 't1',
+          title: 'x',
+          status: 'Build',
+          type: 'functional',
+          description: '',
+          created_at: '2026-01-01T00:00:00.000Z',
+          repos: [],
+          assignees: [],
+        },
       }),
     )
     await provider.canAccept(admissionReq())

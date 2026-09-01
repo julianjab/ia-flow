@@ -12,6 +12,7 @@ import {
   slackReviewBlockedReason,
 } from '@ia-flow/shared';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import { useIntegrations } from '@/composables/useIntegrations';
 import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
 import TaskTags from '@/components/TaskTags.vue';
 import {
@@ -58,6 +59,12 @@ interface TaskRow {
   hasDevLinks: boolean
   /** Hilo de Slack donde ya se pidió review, resuelto por el source. */
   slackThreadUrl?: string
+  /** Logins asignados al issue, tal como los expone el provider. */
+  assignees: string[]
+  /** Repo dueño del issue, según el provider. No es lo que el operador declaró
+   * en el board — es un hecho de la plataforma, y el último recurso para saber
+   * de qué repo habla esta tarea. */
+  repoName?: string
 }
 
 
@@ -75,6 +82,11 @@ const reposModalSaving = ref(false);
 
 const repoEntries = ref<DbRepoEntry[]>([]);
 const availableRepoNames = ref<string[]>([]);
+// Sin Slack no hay botón de review en la tarjeta: el pedido fallaría con un 503
+// y el operador no tendría dónde ver por qué. Los campos de config se apagan
+// solos desde `SlackReviewFields`.
+const { integrations } = useIntegrations();
+
 const slackBusyId = ref<string | null>(null);
 const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
 const slackSettingsSaving = ref(false);
@@ -124,7 +136,16 @@ const filters = ref<TaskFilters>(
     ? taskFiltersFromQuery(route.query)
     : loadStoredFilters(activeProjectId.value),
 );
-const filteredItems = computed(() => filterTasks(projectItems.value, filters.value));
+// `blocked` no vive en `TaskRow` porque los blockers se resuelven aparte, por
+// item y en paralelo (`loadBlockersFor`) — se inyecta acá, al momento de
+// filtrar, en vez de bakearlo en `toRow` en frío.
+const rowsWithBlocked = computed(() =>
+  projectItems.value.map((item) => ({
+    ...item,
+    blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
+  })),
+);
+const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.value));
 
 // Un status seleccionado que el provider ya no lista sigue dibujándose: sin
 // esto el chip desaparece y el operador no tiene cómo apagar el filtro que
@@ -137,11 +158,38 @@ const statusChips = computed<string[]>(() => {
   return chips;
 });
 
+// Igual criterio que `statusChips`: el universo sale de lo cargado (no hay
+// endpoint que liste "los repos/assignees del board"), más lo ya
+// seleccionado, para que un valor filtrado no desaparezca de la lista.
+const repoChips = computed<string[]>(() => {
+  const chips = new Set(availableRepoNames.value);
+  for (const item of projectItems.value) {
+    for (const r of item.repos.split(',').map((r) => r.trim()).filter(Boolean)) chips.add(r);
+  }
+  for (const r of filters.value.repos) chips.add(r);
+  return [...chips].sort();
+});
+
+const assigneeChips = computed<string[]>(() => {
+  const chips = new Set<string>();
+  for (const item of projectItems.value) for (const a of item.assignees) chips.add(a);
+  for (const a of filters.value.assignees) chips.add(a);
+  return [...chips].sort();
+});
+
 watch(
   filters,
   (value) => {
     storeFilters(activeProjectId.value, value);
-    const { status: _s, pr: _p, branch: _b, merged: _m, ...rest } = route.query;
+    const {
+      status: _s,
+      repo: _r,
+      assigned: _a,
+      pr: _p,
+      rama: _rm,
+      bloqueada: _bl,
+      ...rest
+    } = route.query;
     void router.replace({ query: { ...rest, ...taskFiltersToQuery(value) } });
   },
   { deep: true },
@@ -181,6 +229,8 @@ function toRow(item: SourceItem): TaskRow {
     hasDevLinks: Array.isArray(meta.pullRequests) || branch !== undefined,
     pullRequestsKnown: meta.pullRequestsKnown !== false,
     slackThreadUrl: meta.slackThreadUrl as string | undefined,
+    assignees: Array.isArray(meta.assignees) ? (meta.assignees as string[]) : [],
+    repoName: meta.repoName as string | undefined,
   }
 }
 
@@ -264,7 +314,20 @@ async function loadBlockersFor(projectId: string, itemId: string) {
 }
 
 function currentReposOf(item: TaskRow): string[] {
-  return item.repos.split(',').map((r) => r.trim()).filter(Boolean);
+  const explicit = item.repos.split(',').map((r) => r.trim()).filter(Boolean);
+  if (explicit.length) return explicit;
+  // El campo "Repos" del board es manual y puede quedar sin llenar. Cuando lo
+  // está, el repo se infiere de lo que la plataforma YA sabe, de lo más
+  // específico a lo más general:
+  //   1. el `headRepo` de sus PRs — puede ser otro repo que el del issue;
+  //   2. el repo dueño del issue (`repoName`), que existe siempre.
+  // Sin (2) una tarea sin PR todavía —el caso normal recién arrancada— decía
+  // "sin repos" con su rama a la vista, y el board entero se veía sin repo.
+  const fromPrs = [
+    ...new Set(item.pullRequests.map((pr) => pr.headRepo).filter((r): r is string => !!r)),
+  ];
+  if (fromPrs.length) return fromPrs;
+  return item.repoName ? [item.repoName] : [];
 }
 
 function openReposModal(item: TaskRow) {
@@ -400,7 +463,12 @@ watch(activeProjectId, (pid) => {
       @save="saveSlackSettings"
     />
 
-    <TaskFiltersBar v-model="filters" :statuses="statusChips" />
+    <TaskFiltersBar
+      v-model="filters"
+      :statuses="statusChips"
+      :repos="repoChips"
+      :assignees="assigneeChips"
+    />
 
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
          la accion que lo resuelve. -->
@@ -480,7 +548,7 @@ watch(activeProjectId, (pid) => {
             show-empty-repos
           />
           <button
-            v-if="item.hasDevLinks"
+            v-if="item.hasDevLinks && integrations.slack.enabled"
             type="button"
             class="btn btn--ghost task-slack-btn"
             :disabled="!!slackBlockedReason(item) || slackBusyId === item.id"
@@ -524,21 +592,6 @@ watch(activeProjectId, (pid) => {
 </template>
 
 <style scoped>
-.settings-section {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-  padding: 1rem;
-}
-.section-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.9rem;
-}
-.section-head-text { min-width: 0; }
-.section-head-actions { display: flex; align-items: center; gap: 0.6rem; flex: 0 0 auto; }
 /* El contador va pegado a Actualizar porque responde a la misma pregunta que
    ese botón: qué estoy viendo, y de cuánto. */
 .task-count {
@@ -546,20 +599,6 @@ watch(activeProjectId, (pid) => {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   white-space: nowrap;
-}
-/* h1–h6 ya son --font-display / 700 por theme.css: acá sólo la caja alta y el
-   tracking que pide el patrón "header de sección". */
-.settings-section h2 {
-  margin: 0;
-  font-size: var(--fs-body);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-hd);
-}
-.section-desc {
-  margin: 0.25rem 0 0;
-  font-size: var(--fs-chrome);
-  color: var(--fg-dim);
-  line-height: 1.5;
 }
 .btn-glyph { color: var(--fg-dim); }
 .btn:hover:not(:disabled) .btn-glyph { color: var(--accent); }

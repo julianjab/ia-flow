@@ -451,10 +451,6 @@ export const ProviderConfigSchema = z.object({
   tmuxClaude: TerminalProviderSettingsSchema.optional(),
   itermClaude: TerminalProviderSettingsSchema.optional(),
   repoMappings: RepoMappingSchema.optional(),
-  // Global switch for the Haiku file simplifier in read_file. When false,
-  // large files are truncated instead of summarized. Per-agent providerConfig
-  // (`fileSimplifierEnabled`) overrides this. Defaults to true.
-  fileSimplifierEnabled: z.boolean().optional(),
 })
 
 // Static YAML shape for IGlobalSettingsRepository — a single object (not an
@@ -520,7 +516,79 @@ export const ProjectSettingsSchema = z.object({
   slackReviewChannel: z.string().nullish(),
   slackReviewers: z.array(SlackMemberRefSchema).nullish(),
   slackReviewMessage: SlackReviewMessageSchema.nullish(),
+  /**
+   * Reglas GLOBALES que este proyecto no quiere correr.
+   *
+   * ── Qué problema resuelve ────────────────────────────────────────────────
+   *
+   * Una regla global la ven TODOS los proyectos: `IRuleRepository.visibleTo`
+   * devuelve las del proyecto más las globales, y el matcher las ordena por
+   * especificidad, así que una global dispara sobre los issues de cualquiera.
+   * Eso es lo que se quiere para el 90% del roster —y por eso el pipeline se
+   * define una vez— pero deja sin respuesta la pregunta obvia: *este proyecto
+   * no*.
+   *
+   * Hasta acá las únicas dos salidas eran malas: apagar la regla en General
+   * (que la apaga para TODOS) o estrecharle el `when` con una condición por
+   * cada proyecto que no la quiere — o sea, hacer que la regla global sepa de
+   * sus excepciones, que es exactamente lo que no escala.
+   *
+   * ── Por qué acá y no un `enabled` por proyecto en la regla ───────────────
+   *
+   * Porque no es una propiedad de la regla: la misma regla sigue corriendo en
+   * los otros N proyectos. Es una decisión DEL PROYECTO sobre lo que hereda,
+   * igual que `systemPrompts` o el cap de dispatches. Una columna en `rules`
+   * habría necesitado una fila por (proyecto, regla) para guardar un booleano,
+   * y habría dejado el `enabled` de la regla con dos significados.
+   *
+   * `.nullish()` y no `.optional()` por lo mismo que los campos de Slack de
+   * arriba: `settings` se mergea por key, así que vaciar la lista desde la UI
+   * persiste un `null` — y con `.optional()` ese null hacía fallar el
+   * `safeParse` del objeto ENTERO, llevándose puesto el resto de los settings.
+   */
+  disabledRuleIds: z.array(z.string()).nullish(),
 })
+
+/**
+ * ¿Este proyecto apagó esta regla heredada?
+ *
+ * Son DOS condiciones y las dos importan: el id está en la lista **y** la
+ * regla es global. Lo segundo es lo que evita que apagar una global se lleve
+ * puesta una regla propia que casualmente comparta id — una propia ya tiene su
+ * `enabled`, que es donde se apaga.
+ *
+ * Es una función y no un `includes` suelto porque la usan tres consumidores
+ * —el repositorio que arma lo visible, la vista de pipeline y la UI del
+ * toggle— y repetir la regla en cada uno es como se desincronizan.
+ */
+export function isRuleDisabledInProject(
+  settings: { disabledRuleIds?: string[] | null } | null | undefined,
+  rule: { id: string; projectId?: string | null },
+): boolean {
+  if (rule.projectId != null) return false
+  return settings?.disabledRuleIds?.includes(rule.id) ?? false
+}
+
+/**
+ * La otra mitad de `isRuleDisabledInProject`: cómo queda la lista al prender o
+ * apagar UNA regla.
+ *
+ * Toma la lista y una intención, no una lista nueva, y por eso el que escribe
+ * es el server: `disabledRuleIds` la comparten todas las reglas del proyecto,
+ * así que si el cliente mandara su copia entera, dos pestañas apagando reglas
+ * distintas se pisarían — la segunda escribiría un estado ya viejo y desharía
+ * la baja de la primera sin que nada fallara.
+ *
+ * Idempotente en las dos direcciones: apagar dos veces no duplica el id, y
+ * prender algo que no estaba no cambia nada.
+ */
+export function toggleDisabledRuleId(
+  current: readonly string[],
+  ruleId: string,
+  enabled: boolean,
+): string[] {
+  return enabled ? current.filter((id) => id !== ruleId) : [...new Set([...current, ruleId])]
+}
 
 // `dataType` que un source publica en `getFields()` para un campo MULTI-VALOR
 // (hoy: `Labels`). Cruza el wire — el server lo emite en /source/fields y el
@@ -696,8 +764,6 @@ export const AgentActivationSchema = z.object({
   // asimetría es intencional: el caso de uso es un agente caro (un e2e-tester)
   // que no debe correr sobre un cambio que no lo amerita.
   whenText: z.string().optional(),
-  // Un agente deshabilitado nunca es candidato, sin importar los filtros.
-  enabled: z.boolean().optional(),
   // Orden de evaluación. Menor gana el desempate cuando varios agentes
   // matchean los mismos criterios.
   position: z.number().optional(),
@@ -833,6 +899,49 @@ export function resolveCommentTarget(
   return exitComment(exit) ?? agentDefault ?? DEFAULT_COMMENT_TARGET
 }
 
+/**
+ * Un campo del contrato de salida de un agente.
+ *
+ * Deliberadamente NO es JSON Schema completo: lo que un agente le pasa al que
+ * sigue son unos pocos valores planos, y aceptar objetos anidados invitaría a
+ * mover estructura por acá en vez de por el issue —que es donde el pipeline la
+ * guarda de forma durable y auditable—. Si algún día hace falta, se amplía;
+ * empezar amplio no se puede deshacer.
+ */
+export const AgentOutputFieldSchema = z.object({
+  type: z.enum(['string', 'number', 'boolean']).default('string'),
+  /** Qué tiene que poner el agente ahí. Va a la descripción del parámetro, así
+   *  que es lo único que el modelo lee para saber qué se espera — sin esto ve
+   *  un nombre pelado, el mismo problema que tenía una salida sin `when`. */
+  description: z.string().optional(),
+  /** Restringe los valores aceptados. Mismo patrón que `select_exit`: el
+   *  operador declara el espacio, el modelo elige adentro. */
+  enum: z.array(z.string()).optional(),
+  /** Ausente ⇒ obligatorio. Un contrato donde todo es opcional no es un
+   *  contrato. */
+  optional: z.boolean().optional(),
+})
+export type AgentOutputField = z.infer<typeof AgentOutputFieldSchema>
+
+/**
+ * El contrato de salida estructurada de un agente: `campo → forma`.
+ *
+ * Declararlo hace tres cosas: le ofrece al agente la tool `submit_output` con
+ * ese schema exacto, vuelve OBLIGATORIO llamarla antes de cerrar, y publica el
+ * payload para que una regla lo pase al paso siguiente
+ * (`{{steps.<paso>.output.<campo>}}`).
+ *
+ * **Por qué una tool y no `output_config.format` de la API.** El canal de
+ * tools es lo único que funciona igual en sync y en async — es literalmente
+ * por eso que el provider de terminal inyecta el MCP sintético
+ * `ia-flow-tools`. `output_config` sólo existe en `anthropic-api`, así que un
+ * contrato declarado no haría nada en tmux/iterm; además se comería el mensaje
+ * final, que es lo que el engine publica como comentario del issue, y no deja
+ * reintentar con feedback cuando el payload no sirve.
+ */
+export const AgentOutputSchema = z.record(z.string().min(1), AgentOutputFieldSchema)
+export type AgentOutput = z.infer<typeof AgentOutputSchema>
+
 export const AgentOutcomesSchema = z.object({
   // Hook, no destino: corre siempre al arrancar el run. Por eso NO entra en
   // `exits` — no hay nada que elegir.
@@ -891,10 +1000,38 @@ export const AgentDefinitionSchema = z
     // `undefined` o `0` = sin límite propio (sólo aplican el cap del
     // proyecto y el del provider).
     maxConcurrentDispatches: z.number().int().nonnegative().optional(),
+    /**
+     * Corre igual cuando el issue está bloqueado por otro.
+     *
+     * Sobrevivió a la migración 059 mientras el resto de la activación se fue
+     * a `rules` porque NO es un criterio de match: es una tolerancia del
+     * trabajo que el agente hace. Un refinador puede refinar un issue
+     * bloqueado; un implementador no debería implementarlo. Ponerlo en la
+     * regla obligaría a repetirlo en cada regla que corra al mismo agente.
+     */
+    allowBlocked: z.boolean().optional(),
+    /** Proyecto dueño de la fila; `null` = agente global. NO es activación —
+     *  es de qué lista lo edita el operador y qué overlay lo ve
+     *  (`IAgentRepository.visibleTo`). Filtrar POR proyecto ahora lo hace la
+     *  regla, con `matchScope`. */
+    projectId: z.string().nullable().optional(),
+    /** Orden en la lista del editor, dentro de su ámbito. Sobrevive por lo
+     *  mismo que `projectId`: es presentación, no criterio de match. */
+    position: z.number().optional(),
+    /**
+     * Contrato de salida estructurada — ver `AgentOutputSchema`.
+     *
+     * Es opt-in y sin default: la enorme mayoría de los agentes cierra con
+     * prosa y eso alcanza. Se declara cuando otro paso necesita LEER lo que
+     * éste produjo, y declararlo lo vuelve obligatorio (el run falla si el
+     * agente cierra sin llamar a `submit_output`) — un contrato que se puede
+     * incumplir en silencio deja al paso siguiente trabajando con un encargo
+     * mutilado, que es peor que no tener contrato.
+     */
+    output: AgentOutputSchema.optional(),
   })
-  // Criterios de activación + outcomes: son parte de la definición del agente,
-  // no de una tabla de statuses. Ver AgentActivationSchema / AgentOutcomesSchema.
-  .extend(AgentActivationSchema.shape)
+  // El agente declara QUÉ hace y cómo termina. El CUÁNDO se fue a `rules` en
+  // la migración 059 — ver RuleSchema.
   .extend(AgentOutcomesSchema.shape)
 
 // Un status ya no cablea agentes: es solo una etapa del pipeline. Qué agente
@@ -978,6 +1115,40 @@ export const FailureClassSchema = z.enum([
   'unknown', //           failed, but none of the above matched
 ])
 
+/**
+ * Qué corrió en esta fila.
+ *
+ * Abierto a propósito (`string` y no un enum cerrado): los kinds salen del
+ * registro de acciones (`registerAction`), así que un handler nuevo tiene que
+ * poder escribir su fila sin que este schema lo autorice antes. La UI agrupa
+ * lo que conoce y muestra el resto por su nombre.
+ *
+ * `'agent'` es el default de las filas viejas: todo lo que había en
+ * `execution_logs` antes de la migración 065 era un run de agente.
+ */
+export const ExecutionKindSchema = z.string()
+export type ExecutionKind = z.infer<typeof ExecutionKindSchema>
+
+/**
+ * Una ejecución: un run de agente, o una acción que una regla corrió.
+ *
+ * Las dos viven en la misma tabla porque son la misma pregunta del operador
+ * —"¿qué hizo el pipeline?"— y separarlas obligaba a la pantalla a unir dos
+ * listas por timestamp. Lo que las distingue es `kind`.
+ *
+ * **Los campos de agente son `''` en una fila que no es de agente**
+ * (`agentId`, `providerId`, y `taskId`/`taskTitle` cuando el evento no trae
+ * issue). Sus columnas son NOT NULL desde la migración 001, y SQLite no sabe
+ * sacar un NOT NULL sin reconstruir la tabla entera: rehacer una tabla de 30+
+ * columnas con datos vivos es peor negocio que un centinela documentado.
+ */
+/** Llamadas y errores de UNA tool dentro de un run (o sumadas en una ventana). */
+export const ToolTallySchema = z.object({
+  calls: z.number(),
+  errors: z.number(),
+})
+export type ToolTally = z.infer<typeof ToolTallySchema>
+
 export const ExecutionLogSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -1022,11 +1193,28 @@ export const ExecutionLogSchema = z.object({
   // Correlates this row with `daemon.log` lines and `/api/hook-events`
   // payloads, which already carry the same runId.
   runId: z.string().nullable().optional(),
-  // SHA-256 (first 12 hex chars) of the resolved prompt + system blocks the
-  // agent actually ran with. Two runs of "the same" agent are only
-  // comparable when this matches — it's what lets a regression be pinned to
-  // a specific prompt edit instead of to the agent id in the abstract.
+  // SHA-256 (first 12 hex chars) de la CONFIGURACIÓN del agente con la que
+  // corrió: prompt crudo, system prompts resueltos, tools, provider y
+  // salidas (`hashAgentConfig`). Dos runs "del mismo" agente sólo son
+  // comparables cuando esto coincide — es lo que permite atribuir una
+  // regresión a una edición concreta y no al id del agente en abstracto.
   agentPromptHash: z.string().nullable().optional(),
+
+  // ─── Telemetría de costo (migración 067) ─────────────────────────────────
+  // Hash de SÓLO los bloques de system prompt resueltos. `agentPromptHash` ya
+  // los incluye, pero mezclado con el resto de la config: cuando cambia, no
+  // dice si lo que se editó fue el agente o un system prompt compartido por
+  // todo el roster. Con los dos hashes la pregunta se contesta cruzándolos.
+  systemPromptHash: z.string().nullable().optional(),
+  // Modelo que sirvió el run. Sin él los tokens no tienen precio: 3M de
+  // entrada en Haiku y 3M en Opus no son comparables. Para runs de terminal
+  // sale de la transcripción de Claude Code; null si no se pudo observar.
+  model: z.string().nullable().optional(),
+  // Llamadas y errores por tool. `toolCalls`/`toolErrors` dicen cuánto; esto
+  // dice EN QUÉ: 50 `fs_read` es un problema de descubrimiento del repo, 10
+  // errores de `bash_run` es la policy. Chico por construcción (una entrada
+  // por tool, no por llamada), así que cabe como JSON en la fila.
+  toolBreakdown: z.record(z.string(), ToolTallySchema).nullable().optional(),
 
   // ─── Contrato de cierre (migración 048) ─────────────────────────────────
   // Lo que hace falta para cerrar el run sin el registry en memoria: si el
@@ -1036,13 +1224,15 @@ export const ExecutionLogSchema = z.object({
   // la fila alcanza para reconstruir la entrada pendiente.
   //
   // `initialStatus` es contra lo que se compara el status fresco para saber
-  // si el prompt ya movió la tarea por su cuenta. `onFinish`/`onError` se
-  // congelan acá —en vez de releerse del AgentDefinition al cerrar— porque
+  // si el prompt ya movió la tarea por su cuenta. `exits` se congela acá
+  // —en vez de releerse del AgentDefinition al cerrar— porque
   // el agente se puede editar mientras el run corre: se aplica lo que el run
   // pactó al arrancar, no lo que el agente dice hoy.
   initialStatus: z.string().nullable().optional(),
-  onFinish: z.string().nullable().optional(),
-  onError: z.string().nullable().optional(),
+  // El mapa de salidas con el que el run arrancó. Reemplaza a `onFinish` /
+  // `onError`, que la migración 050 colapsó acá — el schema se había quedado
+  // atrás y el repositorio venía escribiendo un campo que el tipo no declaraba.
+  exits: z.record(z.string(), z.unknown()).nullable().optional(),
   // Quién cerró la fila: `true` = un tool del agente (complete_task /
   // fail_task), que ya publicó su comentario y aplicó su transición. Es la
   // clave de idempotencia del cierre. `outcome` no sirve para esto: la
@@ -1061,6 +1251,40 @@ export const ExecutionLogSchema = z.object({
   // assignee. La distinción importa: son "no sé" y "nadie", y colapsarlas haría
   // que un filtro por "sin asignar" mienta sobre todo el histórico viejo.
   assignees: z.array(z.string()).nullable().optional(),
+
+  // ─── La cadena que lo causó (migración 065) ─────────────────────────────
+  // Una ejecución dejó de ser "un run de agente": es cualquier cosa que una
+  // regla ejecutó. `kind` distingue las filas, y los tres campos de abajo son
+  // la causa que antes sólo vivía en memoria y en una línea de log que rota.
+  kind: ExecutionKindSchema.optional(),
+  /**
+   * La regla que la disparó. `null` en un dispatch que no vino de una regla
+   * (un run manual, un sub-agente) — igual que `RunningAgent.ruleId`.
+   */
+  ruleId: z.string().nullable().optional(),
+  /**
+   * El evento que la causó. Es la clave que agrupa: todas las filas de un
+   * mismo disparo de regla comparten `(eventId, ruleId)`, así que la
+   * notificación y el agente que corrieron juntos se leen juntos sin
+   * inventar una tabla padre.
+   */
+  eventId: z.string().nullable().optional(),
+  eventType: z.string().nullable().optional(),
+  /** Índice dentro del `do[]` de la regla — el orden en que se ejecutaron. */
+  position: z.number().nullable().optional(),
+  /**
+   * El run que la lanzó, para lo que sí es una jerarquía: un sub-agente de
+   * `run_agent` cuelga de su padre. `parentRunId` ya existía pero sólo en el
+   * registry en memoria, así que un reinicio le borraba el padre a un hijo
+   * que seguía corriendo.
+   */
+  parentId: z.string().nullable().optional(),
+  /**
+   * El run anterior cuyo checkpoint retomó ésta — distinto de `parentId`
+   * (jerarquía de sub-agente): acá el run anterior es la MISMA task, no un
+   * padre delegando en un hijo. `null` cuando arrancó de cero.
+   */
+  resumedFromRunId: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -1078,6 +1302,13 @@ export const ExecutionLogFiltersSchema = z.object({
   // está entre sus assignees. Mismo contrato multi-valor que el resto —
   // repetir el query param es OR.
   assignee: z.union([z.string(), z.array(z.string())]).optional(),
+  // `kind: 'agent'` es lo que devuelve la lista de siempre. Sin filtro entran
+  // también las acciones, que es el listado nuevo del pipeline completo.
+  kind: z.union([ExecutionKindSchema, z.array(ExecutionKindSchema)]).optional(),
+  eventId: z.string().optional(),
+  // Multi-select como los demás: mirar dos reglas juntas es la misma pregunta
+  // que mirar dos agentes juntos.
+  ruleId: z.union([z.string(), z.array(z.string())]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),
@@ -1099,6 +1330,11 @@ export const ExecutionStatsFiltersSchema = z.object({
   to: z.string().optional(),
 })
 
+// Los campos de eficiencia llevan `.default(...)`: son aditivos, y un panel que
+// se cae entero porque el server todavía no los manda es peor que uno que
+// muestra "—" en dos columnas. El default sólo cubre la lectura — el tipo de
+// salida los sigue exigiendo, así que el server no puede omitirlos por
+// descuido.
 export const AgentHealthSchema = z.object({
   agentId: z.string(),
   /** Finished runs only — a run still in flight has no outcome to count. */
@@ -1116,15 +1352,62 @@ export const AgentHealthSchema = z.object({
    *  here — so these need not sum to `runs`. */
   failureClasses: z.record(z.string(), z.number()),
   avgDurationMs: z.number().nullable(),
+  /** El run más lento del percentil 95. El promedio esconde justo el outlier
+   *  que se quiere encontrar: un run de 40 vueltas entre 20 normales casi no
+   *  mueve la media, pero es el que hay que mirar. Null cuando ningún run de
+   *  la ventana registró duración. */
+  p95DurationMs: z.number().nullable().default(null),
+  /** Tokens de entrada FRESCOS — `input_tokens` de la API, que excluye lo
+   *  servido desde cache. Es la parte que se paga a precio pleno. */
   tokensIn: z.number(),
   tokensOut: z.number(),
+  /** Entrada servida desde el cache de prompts (≈0.1x el precio de `tokensIn`). */
+  cacheReadTokens: z.number().default(0),
+  /** Entrada escrita al cache (≈1.25x). Un valor alto frente a `cacheReadTokens`
+   *  significa que el prefijo se re-escribe en vez de reusarse — TTL vencido, o
+   *  un prefijo que cambia entre requests. */
+  cacheCreationTokens: z.number().default(0),
+  /** cacheRead / (cacheRead + tokensIn) — qué fracción de la entrada se sirvió
+   *  del cache. La métrica de costo con más señal del panel: separa "este
+   *  agente trabaja mucho" de "este agente paga mal". Null cuando la ventana
+   *  no tiene tokens observables (los runs de terminal no los reportan). */
+  cacheHitRate: z.number().nullable().default(null),
+  /** Vueltas del loop de tools, sumadas. Con `tokensIn` da el costo por vuelta,
+   *  que es lo que distingue un agente que itera mucho de uno cuyo historial
+   *  se re-manda sin cachear. */
+  iters: z.number().default(0),
   toolCalls: z.number(),
   toolErrors: z.number(),
+  /** Histograma del `stop_reason` de la API. Sólo clases no nulas. `max_tokens`
+   *  acá señala presupuesto corto, que `truncated` cuenta sin decir por qué. */
+  stopReasons: z.record(z.string(), z.number()).default({}),
   lastRunAt: z.string().nullable(),
-  /** Distinct prompt hashes seen in the window. >1 means the agent's prompt
-   *  changed mid-window, so its aggregate rate mixes two different agents in
-   *  everything but name — the panel warns instead of quietly averaging. */
+  /** Hashes de configuración distintos en la ventana. >1 significa que el
+   *  agente se editó mientras corría, así que su tasa agregada mezcla dos
+   *  agentes distintos en todo menos el nombre — el panel avisa en vez de
+   *  promediar en silencio.
+   *
+   *  El hash sale de `hashAgentConfig` (prompt crudo + system + tools +
+   *  provider + salidas), NO del prompt que cada run mandó: ése lleva las
+   *  variables ya resueltas y daba un hash por run. */
   promptVersions: z.number(),
+  /** Hashes distintos de los system prompts resueltos en la ventana. Cruzado
+   *  con `promptVersions` dice QUÉ cambió: si éste se movió y aquél no, la
+   *  edición fue en un system prompt compartido, no en el agente. */
+  systemPromptVersions: z.number().default(0),
+  /** Costo estimado en USD de los runs con tokens observables, a precio de
+   *  lista del modelo de cada run. Null cuando ningún run trae modelo o el
+   *  modelo no está en la tabla de precios — un 0 ahí leería como "gratis".
+   *  Es la columna que convierte la tabla en una lista de prioridades: los
+   *  tokens sin modelo no se pueden comparar entre agentes. */
+  costUsd: z.number().nullable().default(null),
+  /** Runs por modelo. Más de una clave significa que el agente cambió de
+   *  modelo en la ventana (o corre con `whenText` entre providers), y sus
+   *  tokens promedian cosas de precio distinto. */
+  models: z.record(z.string(), z.number()).default({}),
+  /** Llamadas y errores sumados por tool. Es lo que le da sentido a
+   *  `toolCalls`: 68 llamadas no dicen nada, 50 `fs_read` sí. */
+  toolBreakdown: z.record(z.string(), ToolTallySchema).default({}),
 })
 
 export const ExecutionStatsSchema = z.object({
@@ -1138,8 +1421,15 @@ export const ExecutionStatsSchema = z.object({
     truncated: z.number(),
     successRate: z.number().nullable(),
     failureClasses: z.record(z.string(), z.number()),
+    stopReasons: z.record(z.string(), z.number()).default({}),
     tokensIn: z.number(),
     tokensOut: z.number(),
+    cacheReadTokens: z.number().default(0),
+    cacheCreationTokens: z.number().default(0),
+    cacheHitRate: z.number().nullable().default(null),
+    iters: z.number().default(0),
+    /** Suma de los `costUsd` por agente; null si ninguno pudo estimarse. */
+    costUsd: z.number().nullable().default(null),
   }),
   agents: z.array(AgentHealthSchema),
 })
@@ -1152,14 +1442,37 @@ export const ExecutionStatsSchema = z.object({
 // Success rate per prompt version. This is the cut that makes a regression
 // attributable: same agent id, different prompt, different rate. Without it,
 // editing a prompt just moves an average nobody can decompose.
-export const PromptVersionStatsSchema = z.object({
-  /** null groups every run from before prompt hashing existed. */
-  promptHash: z.string().nullable(),
+// Lo que se compara entre dos versiones. Además de la tasa de éxito lleva el
+// costo por run: una edición del prompt que no cambia la tasa pero duplica
+// las vueltas es una regresión igual, y la tasa sola no la ve.
+const VersionStatsFields = {
   runs: z.number(),
   success: z.number(),
   successRate: z.number().nullable(),
   firstSeen: z.string(),
   lastSeen: z.string(),
+  /** Vueltas del loop, sumadas. Con `runs` da vueltas por run. */
+  iters: z.number().default(0),
+  /** Entrada fresca sumada (precio pleno). */
+  tokensIn: z.number().default(0),
+  cacheHitRate: z.number().nullable().default(null),
+  /** Costo estimado; null cuando ningún run de la versión trae modelo. */
+  costUsd: z.number().nullable().default(null),
+}
+
+export const PromptVersionStatsSchema = z.object({
+  /** null groups every run from before prompt hashing existed. */
+  promptHash: z.string().nullable(),
+  ...VersionStatsFields,
+})
+
+// Misma comparación, cortada por el hash de los system prompts. Una fila
+// acá que se mueve mientras `byPromptVersion` muestra la misma cantidad de
+// versiones señala una edición en un prompt COMPARTIDO — afecta a todo el
+// roster, no a este agente.
+export const SystemPromptVersionStatsSchema = z.object({
+  systemPromptHash: z.string().nullable(),
+  ...VersionStatsFields,
 })
 
 export const DailyRunStatsSchema = z.object({
@@ -1185,11 +1498,13 @@ export const AgentDetailSchema = z.object({
   agentId: z.string(),
   health: AgentHealthSchema,
   byPromptVersion: z.array(PromptVersionStatsSchema),
+  bySystemPromptVersion: z.array(SystemPromptVersionStatsSchema).default([]),
   byDay: z.array(DailyRunStatsSchema),
   recentFailures: z.array(RecentFailureSchema),
 })
 
 export type PromptVersionStats = z.infer<typeof PromptVersionStatsSchema>
+export type SystemPromptVersionStats = z.infer<typeof SystemPromptVersionStatsSchema>
 export type DailyRunStats = z.infer<typeof DailyRunStatsSchema>
 export type RecentFailure = z.infer<typeof RecentFailureSchema>
 export type AgentDetail = z.infer<typeof AgentDetailSchema>
@@ -1239,13 +1554,38 @@ export const ServerLogFiltersSchema = z.object({
   // the full filtered set before pagination so column re-ordering stays
   // correct across pages.
   sortBy: ServerLogSortBySchema.optional(),
+  // ── Filtros sobre `extras` ───────────────────────────────────────────────
+  // Todos siguen la misma regla y el mismo camino en la ruta: la línea entra
+  // sólo si su `extras[campo]` está entre los valores pedidos. Una línea que no
+  // trae el campo NO entra — la infraestructura (migraciones, watcher, WS) no
+  // pertenece a ningún agente ni a ninguna tarea, así que preguntar por una es
+  // pedir explícitamente lo que sí tiene dueño.
+  //
+  // Multi-select con la misma forma que `module`: un string para una consulta
+  // de un valor, un array para varios.
+  //
   // Filters entries whose extras.projectId matches. Only orchestrator/
   // provider logs currently carry projectId — infra events without it are
   // dropped when this filter is set.
-  projectId: z.string().optional(),
+  projectId: z.union([z.string(), z.array(z.string())]).optional(),
   // Filters entries whose extras.runId matches — the correlation id shared
   // by every log line and the execution_logs row of a single agent run.
-  runId: z.string().optional(),
+  runId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.agentId` — qué agente escribió la línea. */
+  agentId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.taskId` — sobre qué issue. Es el mismo id que la columna
+   *  `taskId` de `execution_logs`, así que un filtro se copia de un lado al
+   *  otro sin traducir nada. */
+  taskId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.ruleId` — qué regla lo produjo. Es lo único que correlaciona las
+   *  líneas de una ACCIÓN: no hay `runId` que estampar porque una acción no es
+   *  un run del agente, así que sus handlers loguean la regla. */
+  ruleId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.task` — el título de la tarea, tal cual lo manda `logCtx` en
+   *  `AnthropicApiProvider.run` (junto a `taskId`, que es el id opaco). Sólo
+   *  el camino sync lo estampa hoy — un agente async (tmux/iterm) no tiene
+   *  este campo en sus líneas. */
+  task: z.union([z.string(), z.array(z.string())]).optional(),
   // Filters entries whose extras.source matches — the IA_FLOW_INSTANCE_ID of
   // the process that emitted the line (unset = the main daemon itself; a
   // headless container like "subscriptions-pipeline" tags every line it
@@ -1321,6 +1661,11 @@ export const HookEventSchema = z.object({
   stopReason: z.string().optional(),
   sessionId: z.string().optional(),
   source: z.string().optional(),
+  // Path del JSONL donde Claude Code escribe la sesión que corre este run.
+  // Es la única fuente de `usage` de un run de terminal: el CLI no lo
+  // reporta por ningún otro canal, y `complete_task` lo llama el modelo, que
+  // no conoce su propia cuenta de tokens. Lo manda cada hook que lo tiene.
+  transcriptPath: z.string().optional(),
 })
 export type HookEvent = z.infer<typeof HookEventSchema>
 
@@ -1386,3 +1731,30 @@ export const WebhookStatusSchema = z.object({
 export type WebhookDaemonMode = z.infer<typeof WebhookDaemonModeSchema>
 export type WebhookProjectStatus = z.infer<typeof WebhookProjectStatusSchema>
 export type WebhookStatus = z.infer<typeof WebhookStatusSchema>
+
+// ─── Integraciones opcionales ────────────────────────────────────────────────
+//
+// Qué sistemas externos puede usar ESTE proceso. Lo publica
+// `GET /api/integrations` y lo consume la web para no ofrecer controles que no
+// pueden funcionar: un picker de canales de Slack que siempre vuelve vacío
+// parece un bug, y el operador no tiene forma de saber que falta un token.
+//
+// Cada integración declara `enabled` y, cuando está apagada, el `reason` — el
+// motivo es lo que convierte "no anda" en algo accionable. Una integración
+// nueva (Linear, Sentry) agrega su propia clave; no hay una lista genérica de
+// flags porque cada una tiene las capacidades que tiene.
+export const SlackIntegrationStatusSchema = z.object({
+  /** Hay `SLACK_BOT_TOKEN`: se puede hablar (tools, directorio, review). */
+  enabled: z.boolean(),
+  /** Hay `SLACK_SIGNING_SECRET`: se puede escuchar (Events API entrante). */
+  webhook: z.boolean(),
+  reason: z.string().optional(),
+  webhookReason: z.string().optional(),
+})
+
+export const IntegrationsStatusSchema = z.object({
+  slack: SlackIntegrationStatusSchema,
+})
+
+export type SlackIntegrationStatus = z.infer<typeof SlackIntegrationStatusSchema>
+export type IntegrationsStatus = z.infer<typeof IntegrationsStatusSchema>

@@ -1,0 +1,137 @@
+import { describe, expect, test } from 'bun:test'
+import { condToOp, evalWhen } from './when.js'
+
+describe('evalWhen — comportamiento heredado', () => {
+  test('sin condiciones matchea todo', () => {
+    expect(evalWhen({ status: 'Ready' }, undefined)).toBe(true)
+    expect(evalWhen({ status: 'Ready' }, [])).toBe(true)
+  })
+
+  test('el formato Record legacy es todo-AND', () => {
+    const task = { status: 'Ready', type: 'functional' }
+    expect(evalWhen(task, { status: 'Ready', type: 'functional' })).toBe(true)
+    expect(evalWhen(task, { status: 'Ready', type: 'technical' })).toBe(false)
+  })
+
+  test('los grupos parten en cada logic=or: AND adentro, OR entre grupos', () => {
+    const task = { status: 'Ready', type: 'technical' }
+    expect(
+      evalWhen(task, [
+        { field: 'status', op: '=', value: 'Done' },
+        { field: 'type', op: '=', value: 'technical', logic: 'or' },
+      ]),
+    ).toBe(true)
+    expect(
+      evalWhen(task, [
+        { field: 'status', op: '=', value: 'Ready' },
+        { field: 'type', op: '=', value: 'functional' },
+      ]),
+    ).toBe(false)
+  })
+
+  test('$null y $not_null tratan array vacío como vacío', () => {
+    expect(evalWhen({ repos: [] }, [{ field: 'repos', op: '$null' }])).toBe(true)
+    expect(evalWhen({ repos: ['api'] }, [{ field: 'repos', op: '$not_null' }])).toBe(true)
+    expect(evalWhen({ branch: '' }, [{ field: 'branch', op: '$null' }])).toBe(true)
+  })
+
+  test('los arrays usan pertenencia, también para !=', () => {
+    const task = { labels: ['bug', 'p1'] }
+    expect(evalWhen(task, [{ field: 'labels', op: '=', value: 'bug' }])).toBe(true)
+    expect(evalWhen(task, [{ field: 'labels', op: '!=', value: 'bug' }])).toBe(false)
+    expect(evalWhen(task, [{ field: 'labels', op: '!=', value: 'wontfix' }])).toBe(true)
+  })
+
+  test('resuelve por alias y por fields', () => {
+    const task = { repos: ['api'], fields: { Stage: 'qa' } }
+    expect(evalWhen(task, [{ field: 'repository', op: '=', value: 'api' }])).toBe(true)
+    expect(evalWhen(task, [{ field: 'Stage', op: '=', value: 'qa' }])).toBe(true)
+    expect(evalWhen({ type: 'bug' }, [{ field: 'task type', op: '=', value: 'bug' }])).toBe(true)
+  })
+})
+
+describe('evalWhen — paths anidados', () => {
+  const event = { pr: { number: 42, isDraft: false, head: { ref: 'feat/x' } } }
+
+  test('resuelve un camino con puntos sobre el payload', () => {
+    expect(evalWhen(event, [{ field: 'pr.head.ref', op: '=', value: 'feat/x' }])).toBe(true)
+    expect(evalWhen(event, [{ field: 'pr.head.ref', op: '=', value: 'main' }])).toBe(false)
+  })
+
+  test('un camino que no existe no explota', () => {
+    expect(evalWhen(event, [{ field: 'pr.base.ref', op: '=', value: 'main' }])).toBe(false)
+    expect(evalWhen(event, [{ field: 'a.b.c.d', op: '$null' }])).toBe(true)
+  })
+
+  test('la clave plana gana sobre el camino', () => {
+    // Precedencia preservada: si alguien tiene una clave literal con punto,
+    // sigue ganando sobre la resolución por camino.
+    expect(evalWhen({ 'pr.number': '7', pr: { number: 42 } }, { 'pr.number': '7' })).toBe(true)
+  })
+})
+
+describe('evalWhen — operadores nuevos', () => {
+  test('comparación numérica', () => {
+    const pr = { additions: 640 }
+    expect(evalWhen(pr, [{ field: 'additions', op: '>', value: '500' }])).toBe(true)
+    expect(evalWhen(pr, [{ field: 'additions', op: '<', value: '500' }])).toBe(false)
+    expect(evalWhen(pr, [{ field: 'additions', op: '>=', value: '640' }])).toBe(true)
+    expect(evalWhen(pr, [{ field: 'additions', op: '<=', value: '640' }])).toBe(true)
+  })
+
+  test('un valor no numérico no degrada a comparación de strings', () => {
+    // '10' < '9' es true lexicográficamente — que es exactamente el resultado
+    // sorprendente que este caso existe para prevenir.
+    expect(evalWhen({ status: 'Ready' }, [{ field: 'status', op: '>', value: '5' }])).toBe(false)
+    expect(evalWhen({ n: '10' }, [{ field: 'n', op: '>', value: '9' }])).toBe(true)
+  })
+
+  test('$contains es substring case-insensitive en strings', () => {
+    const task = { title: 'Arreglar el login de Staging' }
+    expect(evalWhen(task, [{ field: 'title', op: '$contains', value: 'login' }])).toBe(true)
+    expect(evalWhen(task, [{ field: 'title', op: '$contains', value: 'STAGING' }])).toBe(true)
+    expect(evalWhen(task, [{ field: 'title', op: '$contains', value: 'deploy' }])).toBe(false)
+  })
+
+  test('$contains es pertenencia en arrays', () => {
+    expect(
+      evalWhen({ labels: ['Bug'] }, [{ field: 'labels', op: '$contains', value: 'bug' }]),
+    ).toBe(true)
+  })
+
+  test('$matches aplica una regex', () => {
+    const task = { branch: 'feat/ABC-123' }
+    expect(evalWhen(task, [{ field: 'branch', op: '$matches', value: '^feat/' }])).toBe(true)
+    expect(evalWhen(task, [{ field: 'branch', op: '$matches', value: '^fix/' }])).toBe(false)
+  })
+
+  test('una regex inválida no matchea en vez de tirar', () => {
+    expect(() =>
+      evalWhen({ branch: 'x' }, [{ field: 'branch', op: '$matches', value: '([' }]),
+    ).not.toThrow()
+    expect(evalWhen({ branch: 'x' }, [{ field: 'branch', op: '$matches', value: '([' }])).toBe(
+      false,
+    )
+  })
+
+  test('el formato Record legacy acepta los mismos ops codificados', () => {
+    expect(evalWhen({ additions: 640 }, { additions: '$gt:500' })).toBe(true)
+    expect(evalWhen({ title: 'un Bug' }, { title: '$contains:bug' })).toBe(true)
+  })
+})
+
+describe('condToOp', () => {
+  test('codifica cada operador con su prefijo', () => {
+    expect(condToOp({ op: '=', value: 'Ready' })).toBe('Ready')
+    expect(condToOp({ op: '!=', value: 'Ready' })).toBe('$ne:Ready')
+    expect(condToOp({ op: '>', value: '500' })).toBe('$gt:500')
+    expect(condToOp({ op: '<=', value: '10' })).toBe('$lte:10')
+    expect(condToOp({ op: '$contains', value: 'bug' })).toBe('$contains:bug')
+    expect(condToOp({ op: '$matches', value: '^feat/' })).toBe('$matches:^feat/')
+  })
+
+  test('los operadores sin argumento pasan derecho', () => {
+    expect(condToOp({ op: '$null' })).toBe('$null')
+    expect(condToOp({ op: '$not_null' })).toBe('$not_null')
+  })
+})

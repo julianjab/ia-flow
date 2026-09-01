@@ -45,11 +45,15 @@ const routes: RouteRecordRaw[] = [
 
       { path: 'general', redirect: '/general/agentes' },
       {
-        // :agentId opcional — entrar al detalle de un agente (o agentId=new
-        // para crear uno) queda reflejado en la URL en vez de vivir solo en
-        // el ref local de AgentesSection (que lo lee vía useRoute(), no como
-        // prop — por eso el `props` de acá sigue mapeando sólo `tab`).
-        path: 'general/:tab/:agentId?',
+        // :detailId opcional — entrar al detalle de la fila abierta (o
+        // `new` para crear una) queda reflejado en la URL en vez de vivir
+        // solo en un ref local de la sección, que lo lee vía useRoute() y no
+        // como prop (por eso el `props` de acá sigue mapeando sólo `tab`).
+        // El nombre es genérico y no `:agentId` porque las tabs son
+        // excluyentes y ya hay dos secciones que abren detalle así —agentes
+        // y pipeline—: un param por sección serían dos opcionales seguidos,
+        // que el router no puede desambiguar.
+        path: 'general/:tab/:detailId?',
         name: 'general',
         component: GeneralView,
         props: (route) => ({ tab: route.params.tab }),
@@ -58,7 +62,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'projects', name: 'projects', component: ProjectsListView },
       { path: 'projects/:id', redirect: (to) => `/projects/${to.params.id}/overview` },
       {
-        path: 'projects/:id/:tab/:agentId?',
+        path: 'projects/:id/:tab/:detailId?',
         name: 'projects.detail',
         component: ProjectDetailView,
         props: (route) => ({ id: route.params.id, tab: route.params.tab }),

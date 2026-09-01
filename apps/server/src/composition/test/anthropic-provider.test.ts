@@ -53,6 +53,7 @@ async function runWithSystemPrompt(
   const { calls } = stubFetch()
   const input: ProviderInput = {
     step: 'refine-functional',
+    taskId: 't1',
     taskTitle: 'Add login',
     taskDescription: 'desc',
     taskType: 'feat',
@@ -86,6 +87,7 @@ async function runOnce(
   }) as unknown as typeof fetch
   const input: ProviderInput = {
     step: 'refine-functional',
+    taskId: 't1',
     taskTitle: 't',
     taskDescription: 'd',
     taskType: 'feat',

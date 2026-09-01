@@ -84,7 +84,7 @@ export async function getProjectMeta(projectUrl: string): Promise<ProjectMeta> {
   const isOrg = !!orgMatch
 
   const query = isOrg
-    ? `query($org: String!, $num: Int!) {
+    ? `query ResolveOrgProjectFields($org: String!, $num: Int!) {
         organization(login: $org) {
           projectV2(number: $num) {
             id
@@ -97,7 +97,7 @@ export async function getProjectMeta(projectUrl: string): Promise<ProjectMeta> {
           }
         }
       }`
-    : `query($user: String!, $num: Int!) {
+    : `query ResolveUserProjectFields($user: String!, $num: Int!) {
         user(login: $user) {
           projectV2(number: $num) {
             id
@@ -234,7 +234,7 @@ export async function listProjectItems(
   // regenerar la selección ya sin ese campo.
   const data = await withDevLinksFallback(() =>
     gql<any>(
-      `query($projectId: ID!) {
+      `query ListProjectItems($projectId: ID!) {
         node(id: $projectId) {
           ... on ProjectV2 {
             items(first: 100) {
@@ -295,7 +295,7 @@ export async function getProjectItemById(
   try {
     const data = await withDevLinksFallback(() =>
       gql<any>(
-        `query($itemId: ID!) {
+        `query GetProjectItemById($itemId: ID!) {
           node(id: $itemId) {
             ... on ProjectV2Item {
               ${projectItemNodeFields()}
@@ -329,7 +329,7 @@ export async function updateItemStatus(
   }
 
   await gql(
-    `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+    `mutation UpdateProjectItemStatus($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
       updateProjectV2ItemFieldValue(input: {
         projectId: $projectId
         itemId: $itemId
@@ -350,7 +350,7 @@ export async function updateItemStatus(
 
 export async function updateComment(commentId: string, body: string): Promise<void> {
   await gql(
-    `mutation($commentId: ID!, $body: String!) {
+    `mutation UpdateComment($commentId: ID!, $body: String!) {
       updateIssueComment(input: { id: $commentId, body: $body }) {
         issueComment { id }
       }
@@ -363,7 +363,7 @@ export async function updateComment(commentId: string, body: string): Promise<vo
 
 export async function deleteComment(commentId: string): Promise<void> {
   await gql(
-    `mutation($commentId: ID!) {
+    `mutation DeleteComment($commentId: ID!) {
       deleteIssueComment(input: { id: $commentId }) { clientMutationId }
     }`,
     { commentId },
@@ -377,7 +377,7 @@ const VALIDATION_MARKER = '<!-- ia-flow:validation -->'
 
 export async function findValidationComment(issueId: string): Promise<string | null> {
   const data = await gql<any>(
-    `query($issueId: ID!) {
+    `query FindValidationComment($issueId: ID!) {
       node(id: $issueId) {
         ... on Issue {
           comments(first: 50) {
@@ -422,7 +422,7 @@ export async function createProjectDraftIssue(
   body: string,
 ): Promise<{ itemId: string; draftIssueId: string; databaseId: number }> {
   const data = await gql<any>(
-    `mutation($projectId: ID!, $title: String!, $body: String!) {
+    `mutation CreateProjectDraftIssue($projectId: ID!, $title: String!, $body: String!) {
       addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
         projectItem {
           id
@@ -445,7 +445,7 @@ export async function updateProjectDraftIssue(
   patch: { title?: string; body?: string },
 ): Promise<void> {
   await gql(
-    `mutation($id: ID!, $title: String, $body: String) {
+    `mutation UpdateProjectDraftIssue($id: ID!, $title: String, $body: String) {
       updateProjectV2DraftIssue(input: { draftIssueId: $id, title: $title, body: $body }) {
         draftIssue { id }
       }
@@ -458,7 +458,7 @@ export async function updateProjectDraftIssue(
 
 export async function deleteProjectItem(projectId: string, itemId: string): Promise<void> {
   await gql(
-    `mutation($projectId: ID!, $itemId: ID!) {
+    `mutation DeleteProjectItem($projectId: ID!, $itemId: ID!) {
       deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
         deletedItemId
       }
@@ -474,7 +474,7 @@ export async function addProjectItem(
   issueId: string,
 ): Promise<{ itemId: string }> {
   const data = await gql<any>(
-    `mutation($projectId: ID!, $contentId: ID!) {
+    `mutation AddProjectItem($projectId: ID!, $contentId: ID!) {
       addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
         item { id }
       }
@@ -493,7 +493,7 @@ export async function setProjectTextField(
   text: string,
 ): Promise<void> {
   await gql(
-    `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $text: String!) {
+    `mutation SetProjectTextField($projectId: ID!, $itemId: ID!, $fieldId: ID!, $text: String!) {
       updateProjectV2ItemFieldValue(input: {
         projectId: $projectId
         itemId: $itemId
@@ -513,7 +513,7 @@ export async function clearItemWorking(
   field: ProjectField,
 ): Promise<void> {
   await gql(
-    `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+    `mutation ClearItemWorking($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
       clearProjectV2ItemFieldValue(input: {
         projectId: $projectId
         itemId: $itemId
@@ -539,7 +539,7 @@ export async function removeStatusOptions(
   if (remaining.length === field.options.length) return // nothing to remove
 
   await gql(
-    `mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+    `mutation RemoveStatusOptions($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
       updateProjectV2Field(input: {
         fieldId: $fieldId
         singleSelectOptions: $options
@@ -561,7 +561,7 @@ export async function getItemSingleSelectValue(
   fieldName: string,
 ): Promise<string | null> {
   const data = await gql<any>(
-    `query($id: ID!, $name: String!) {
+    `query GetItemSingleSelectValue($id: ID!, $name: String!) {
       node(id: $id) {
         ... on ProjectV2Item {
           fieldValueByName(name: $name) {

@@ -162,3 +162,65 @@ export interface IToolRegistry {
   get(name: string): ITool | undefined
   list(): ITool[]
 }
+
+/**
+ * Cola de mensajes que entran a un run en curso.
+ *
+ * Interfaz angosta a propósito: el engine sólo necesita leer lo pendiente de
+ * una task y marcarlo entregado. De dónde vino cada mensaje (Slack, la API) y
+ * dónde se persiste es asunto del adapter.
+ */
+export interface RunMessagePort {
+  pending(taskId: string): Promise<Array<{ id: string; body: string; author?: string }>>
+  markDelivered(ids: string[], runId: string): Promise<void>
+}
+
+/**
+ * Guarda dónde va un run en vuelo, para que un reinicio no se lleve el trabajo.
+ *
+ * Es distinto de `PauseCheckpointPort`: aquél cuelga el estado de una ESPERA
+ * cuando el run se detuvo a propósito; éste lo persiste **mientras corre**, sin
+ * que nadie haya pedido nada. Comparten el formato del estado y nada más — uno
+ * escribe una vez al final, el otro pisa una fila en cada vuelta.
+ *
+ * El `state` es opaco: lo produce el provider (ver `ProviderInput.saveCheckpoint`)
+ * y este contrato no modela su forma.
+ */
+export interface RunCheckpointPort {
+  save(input: {
+    runId: string
+    taskId: string
+    agentId?: string
+    projectId?: string
+    state: unknown
+    /** Arrastra el contador de reanudaciones al primer save de un run que
+     *  reanuda otro. Sólo cuenta en el INSERT. */
+    attempts?: number
+  }): Promise<void>
+  /** Lo que dejó el último run de esta task, si no llegó a cerrar. */
+  getByTask(taskId: string): Promise<{
+    runId: string
+    agentId?: string
+    state: unknown
+    attempts: number
+    updatedAt: string
+  } | null>
+  /** Un run que terminó no tiene estado que conservar. También se llama sobre
+   *  la fila vieja cuando otro run la reanuda. */
+  delete(runId: string): Promise<void>
+}
+
+/**
+ * Cuelga el checkpoint de la espera que la tool `pause_until` ya armó.
+ *
+ * Son dos pasos y no uno porque el checkpoint no existe cuando la tool corre:
+ * lo produce el loop al cortar, una vuelta después. La tool arma la espera
+ * (así queda persistida aunque el proceso muera en el medio) y el engine le
+ * agrega el estado cuando lo tiene.
+ */
+export interface PauseCheckpointPort {
+  attachCheckpoint(
+    taskId: string,
+    checkpoint: { messages: unknown[]; reason?: string },
+  ): Promise<void>
+}

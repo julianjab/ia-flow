@@ -1,4 +1,4 @@
-import { recordHookToolResult } from '@ia-flow/agent-engine'
+import { recordHookToolResult, recordHookTranscript } from '@ia-flow/agent-engine'
 import { HookEventSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { createLogger } from '../logger.js'
@@ -52,6 +52,7 @@ export function createHookEventsRouter() {
       sessionId,
       source,
       isError,
+      transcriptPath,
     } = parsed.data
 
     if (!event || event === 'tool.call') {
@@ -80,7 +81,7 @@ export function createHookEventsRouter() {
       // this hook is the only place the engine ever learns a tool ran. Tally
       // it so the run's execution log gets tool_calls/tool_errors like a
       // sync run does — see packages/agent-engine/src/run-telemetry.ts.
-      recordHookToolResult(runId, isError)
+      recordHookToolResult(runId, isError, { toolName, transcriptPath })
     } else if (event === 'tool.pre') {
       // `debug`, no `info`: es el mismo tool_use que llega como `tool.call`
       // un instante después — en `info` triplicaba la traza de cada tool sin
@@ -108,8 +109,10 @@ export function createHookEventsRouter() {
       log.info({ event: 'agent.prompt', runId, prompt }, 'User prompt')
     } else if (event === 'agent.stop' || event === 'subagent.stop') {
       log.info({ event, runId, stopReason }, 'Agent stop')
+      if (transcriptPath) recordHookTranscript(runId, transcriptPath)
     } else if (event === 'agent.session_start') {
       log.info({ event: 'agent.session_start', runId, sessionId, source }, 'Session start')
+      if (transcriptPath) recordHookTranscript(runId, transcriptPath)
     }
 
     return c.json({ ok: true })

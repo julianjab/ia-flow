@@ -5,7 +5,11 @@ import {
   removePendingTask,
   setPendingTaskRehydrator,
 } from '@ia-flow/agent-engine'
-import { type TaskSource, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
+import {
+  type TaskSource,
+  type TransferTarget,
+  mergeSourceFieldsIntoTask,
+} from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
 
@@ -20,6 +24,7 @@ interface FakeCalls {
   setFields: Array<{ task: Task; fields: Record<string, string> }>
   setLabels: Array<{ task: Task; labels: string[] }>
   applyTransition: Array<{ task: Task; status: string }>
+  transferToRepo: Array<{ task: Task; target: TransferTarget }>
 }
 
 function makeFakeManager(calls: FakeCalls): TaskSource {
@@ -52,6 +57,14 @@ function makeFakeManager(calls: FakeCalls): TaskSource {
     async getCurrentStatus(task) {
       return task.status
     },
+    async transferToRepo(task, target) {
+      calls.transferToRepo.push({ task, target })
+      return {
+        repo: target.name,
+        issueNumber: 4321,
+        issueUrl: `https://github.com/acme/${target.name}/issues/4321`,
+      }
+    },
   }
 }
 
@@ -80,6 +93,7 @@ beforeEach(() => {
     setFields: [],
     setLabels: [],
     applyTransition: [],
+    transferToRepo: [],
   }
   broadcasts = []
   registerPendingTask(TASK_ID, {
@@ -384,6 +398,7 @@ describe('el cierre de un run se acepta siempre', () => {
       setFields: [],
       setLabels: [],
       applyTransition: [],
+      transferToRepo: [],
     }
     let finalized = 0
     setPendingTaskRehydrator(async () => ({
@@ -502,11 +517,164 @@ describe('fail_task llamado dos veces en el mismo run', () => {
       where_failed: 'acá',
       validations: [],
     }
-    await tool.execute(input)
-    await tool.execute(input)
+    await tool.execute(input, { repoPaths: {} })
+    await tool.execute(input, { repoPaths: {} })
 
     expect(calls.postComment).toHaveLength(1)
     expect(calls.postError).toHaveLength(1)
     expect(calls.applyTransition).toHaveLength(1)
+  })
+})
+
+describe('transfer_task_repo', () => {
+  const REPO_PATHS = { subscriptions: '/tmp/subs', 'platform-infrastructure': '/tmp/infra' }
+  const CTX = {
+    repoPaths: REPO_PATHS,
+    projectRepos: [
+      { name: 'subscriptions', githubOwner: 'acme', githubRepo: 'subscriptions' },
+      { name: 'platform-infrastructure', githubOwner: 'acme', githubRepo: 'platform-infra' },
+    ],
+  }
+
+  function registerWith(repos: string[]) {
+    removePendingTask(TASK_ID)
+    registerPendingTask(TASK_ID, {
+      task: { ...baseTask(), repos },
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Refine',
+      exits: { success: 'Refined', error: '$set:Labels=+blocked' },
+    })
+  }
+
+  it('mueve el issue y cierra el run SIN aplicar ninguna salida', async () => {
+    registerWith(['subscriptions'])
+    const tool = getTool('transfer_task_repo')!
+
+    const result = await tool.execute(
+      {
+        task_id: TASK_ID,
+        repo: 'platform-infrastructure',
+        reason: 'los manifiestos k8s viven ahí',
+      },
+      CTX,
+    )
+
+    expect(calls.transferToRepo).toHaveLength(1)
+    // Resuelve las COORDENADAS del roster, no el nombre que escribió el modelo.
+    expect(calls.transferToRepo[0].target).toEqual({
+      name: 'platform-infrastructure',
+      githubOwner: 'acme',
+      githubRepo: 'platform-infra',
+    })
+    expect(result).toContain('platform-infrastructure')
+    expect(result).toContain('4321')
+    // El status no se toca: la tarea se queda donde está para que el próximo
+    // scan la re-despache ya en el repo nuevo.
+    expect(calls.applyTransition).toHaveLength(0)
+    // Y la pending task queda soltada — es lo que hace que Agent.ts saltee la
+    // transición por defecto (`finalizedByTool`).
+    expect(getPendingTask(TASK_ID)).toBeUndefined()
+  })
+
+  it('rechaza un repo que el proyecto no declara', async () => {
+    registerWith(['subscriptions'])
+    const tool = getTool('transfer_task_repo')!
+
+    await expect(
+      tool.execute({ task_id: TASK_ID, repo: 'ia-flow-inbox', reason: 'x' }, CTX),
+    ).rejects.toThrow(/no es un repo de este proyecto/)
+    expect(calls.transferToRepo).toHaveLength(0)
+    expect(getPendingTask(TASK_ID)).toBeDefined()
+  })
+
+  it('rechaza mover la tarea al repo en el que ya está', async () => {
+    registerWith(['subscriptions'])
+    const tool = getTool('transfer_task_repo')!
+
+    await expect(
+      tool.execute({ task_id: TASK_ID, repo: 'subscriptions', reason: 'x' }, CTX),
+    ).rejects.toThrow(/ya está en/)
+    expect(calls.transferToRepo).toHaveLength(0)
+  })
+
+  it('sin roster no valida el destino, pero igual transfiere', async () => {
+    registerWith(['subscriptions'])
+    const tool = getTool('transfer_task_repo')!
+
+    await tool.execute({ task_id: TASK_ID, repo: 'cualquier-cosa', reason: 'x' }, { repoPaths: {} })
+    expect(calls.transferToRepo).toHaveLength(1)
+  })
+
+  // El roster y los clones locales NO son lo mismo: `repoPaths` deja afuera
+  // los repos sin bajar, y en un run remoto el agent-host lo reescribe con los
+  // del workspace de la tarea. Validar contra él rechazaba destinos válidos.
+  it('acepta un repo del roster aunque no tenga clone local', async () => {
+    registerWith(['subscriptions'])
+    const tool = getTool('transfer_task_repo')!
+
+    await tool.execute(
+      { task_id: TASK_ID, repo: 'eks', reason: 'los manifiestos viven ahí' },
+      // Lo que ve un run remoto: repoPaths reescrito con el repo de la tarea,
+      // pero el roster completo del proyecto intacto.
+      {
+        repoPaths: { subscriptions: '/state/repos/la-haus/subscriptions' },
+        projectRepos: [{ name: 'subscriptions' }, { name: 'eks' }],
+      },
+    )
+
+    expect(calls.transferToRepo).toHaveLength(1)
+    expect(calls.transferToRepo[0].target.name).toBe('eks')
+  })
+
+  // El marker se limpia antes de transferir (el de Labels necesita las
+  // coordenadas viejas). Si el transfer tira sin haber movido nada, el run
+  // sigue vivo: dejar el issue sin marca lo haría re-despachar en paralelo.
+  it('repone la marca de trabajando cuando el transfer falla', async () => {
+    removePendingTask(TASK_ID)
+    const working: boolean[] = []
+    const manager: TaskSource = {
+      ...makeFakeManager(calls),
+      async setAgentWorking(task, w) {
+        working.push(w)
+        return task
+      },
+      async transferToRepo() {
+        throw new Error('el repo destino no existe')
+      },
+    }
+    registerPendingTask(TASK_ID, {
+      task: { ...baseTask(), repos: ['subscriptions'] },
+      manager,
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Refine',
+      exits: { success: 'Refined' },
+    })
+    const tool = getTool('transfer_task_repo')!
+
+    await expect(
+      tool.execute({ task_id: TASK_ID, repo: 'platform-infrastructure', reason: 'x' }, CTX),
+    ).rejects.toThrow(/no existe/)
+
+    expect(working).toEqual([false, true])
+    // Y el run sigue vivo: la pending task no se soltó.
+    expect(getPendingTask(TASK_ID)).toBeDefined()
+  })
+
+  it('falla claro cuando el source no sabe transferir', async () => {
+    removePendingTask(TASK_ID)
+    const { transferToRepo, ...withoutTransfer } = makeFakeManager(calls)
+    registerPendingTask(TASK_ID, {
+      task: { ...baseTask(), repos: ['subscriptions'] },
+      manager: withoutTransfer as TaskSource,
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Refine',
+      exits: { success: 'Refined' },
+    })
+    const tool = getTool('transfer_task_repo')!
+
+    await expect(
+      tool.execute({ task_id: TASK_ID, repo: 'platform-infrastructure', reason: 'x' }, CTX),
+    ).rejects.toThrow(/no sabe mover un issue de repositorio/)
   })
 })

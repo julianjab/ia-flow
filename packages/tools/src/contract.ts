@@ -1,5 +1,5 @@
 import type { ProviderKind } from '@ia-flow/ai-providers'
-import type { BashRunConfig } from '@ia-flow/shared'
+import type { AgentOutput, BashRunConfig } from '@ia-flow/shared'
 
 // ─── Tool engine types ──────────────────────────────────────────────────────
 
@@ -12,8 +12,9 @@ export interface ToolContext {
    */
   sourceContext?: unknown
   /**
-   * Per-agent override for the Haiku file simplifier in read_file. `undefined`
-   * means "no override"; fs tools fall back to the global providerConfig setting.
+   * Per-agent override for the Haiku `focus` of `fs_read`. `undefined` means
+   * "no override"; the tool then reads the global `IA_FLOW_FILE_SIMPLIFIER`
+   * switch (absent = enabled).
    */
   fileSimplifierEnabled?: boolean
   /**
@@ -42,6 +43,20 @@ export interface ToolContext {
   agentId?: string
   projectId?: string
   /**
+   * Nombres de los repos que el PROYECTO declara — el roster, no los clones.
+   *
+   * Va aparte de `repoPaths` porque no son lo mismo y confundirlos rompe:
+   * `repoPaths` sólo lleva los repos con path local resuelto, y en un run
+   * remoto el agent-host lo reescribe con los del workspace de ESA tarea. Un
+   * repo del proyecto sin clonar no aparece en ninguno de los dos, así que
+   * usar `repoPaths` como "los repos del proyecto" rechaza destinos válidos.
+   * Lo consume `transfer_task_repo` para validar a dónde puede mover una tarea
+   * y para resolver sus coordenadas de GitHub — el nombre local y el
+   * `githubRepo` real no tienen por qué coincidir. Ausente ⇒ no hay contra qué
+   * validar (contexto ad-hoc o de test).
+   */
+  projectRepos?: Array<{ name: string; githubOwner?: string; githubRepo?: string }>
+  /**
    * Id de la EJECUCIÓN (fila de `execution_logs`) a la que pertenece esta
    * llamada. Viaja en la URL del servidor MCP (`?run=`) que el provider de
    * terminal le arma a la sesión, así que identifica al run concreto y no
@@ -54,6 +69,15 @@ export interface ToolContext {
    * escribe el modelo, que no distingue un run del siguiente.
    */
   runId?: string
+  /**
+   * Cuántos `run_agent` de profundidad lleva esta cadena de delegación. El
+   * agente de más arriba es 0; cada hijo recibe el del padre + 1.
+   *
+   * Existe aparte de `EngineEvent.depth` porque la tool NO pasa por el bus:
+   * ese contador cubre el camino por eventos y éste el de la delegación
+   * directa. Sin él, A → B → A es un loop sin fondo. Ausente ⇒ 0.
+   */
+  agentDepth?: number
   /**
    * Compiled policy for the current dispatch. Built once by the orchestrator
    * via `compilePolicy(agent.tools)` and threaded end-to-end. Consumed by
@@ -76,6 +100,30 @@ export interface ToolContext {
    * no kind restriction is enforced (ad-hoc/test contexts).
    */
   providerKind?: ProviderKind
+  /**
+   * Canal de control del loop, para las tools que necesitan cambiar su curso
+   * en vez de sólo devolver texto.
+   *
+   * Lo construye `executeLoop` por run y no viaja en el `ProviderInput`: es
+   * estado de ESTA vuelta del loop, no config del dispatch. Ausente cuando la
+   * tool corre fuera de un loop (el MCP async, un test).
+   */
+  control?: LoopControl
+}
+
+/** Lo único que una tool puede pedirle al loop. Angosto a propósito: cuanto
+ *  más pueda pedir una tool, más difícil es razonar sobre dónde termina un
+ *  run. */
+export interface LoopControl {
+  /**
+   * Cortá el turno acá y devolvé la conversación como checkpoint.
+   *
+   * El corte NO es inmediato: el loop lo lee al tope de la vuelta siguiente,
+   * después de haber agregado el `tool_result` de esta llamada. Eso es lo que
+   * hace que el checkpoint sea reanudable — cortar en el medio dejaría un
+   * `tool_use` sin respuesta, y el próximo request con esa historia falla.
+   */
+  requestPause(reason?: string): void
 }
 
 export interface Tool<TInput = unknown> {
@@ -140,6 +188,12 @@ export interface ToolDefinitionsOptions {
    *  Lleva el `when` de cada una, no sólo el nombre: es lo que termina siendo la
    *  descripción del enum. `back-to-build` a secas no le dice nada al modelo. */
   selectableExits?: Array<{ name: string; when?: string }>
+  /** Contrato de salida estructurada del agente de ESTE dispatch
+   *  (`AgentDefinition.output`). Alimenta el input_schema de `submit_output`:
+   *  el modelo sólo puede escribir los campos que el operador declaró, con la
+   *  forma que declaró. Vacío ⇒ el agente no produce salida y la tool ni se le
+   *  ofrece — mismo criterio que `selectableExits`. */
+  outputFields?: AgentOutput
 }
 
 export interface LoopOptions {
@@ -167,6 +221,47 @@ export interface LoopOptions {
    * whole turn). Defaults to false. Bounded to a single retry per run.
    */
   retryTruncatedToolUse?: boolean
+  /**
+   * Mensajes que entraron al run DESDE AFUERA — alguien escribiendo en el
+   * hilo de Slack de la tarea, o un `POST /api/tasks/:id/messages`.
+   *
+   * Se drena al tope de cada turno, antes de llamar a la API, y lo que
+   * devuelve se agrega como un mensaje de usuario. Es lo que permite dirigir
+   * un agente en vuelo ("che, mirá también X") sin cortar el run.
+   *
+   * Ausente = nadie inyecta nada, que es el comportamiento de siempre.
+   */
+  drainMessages?: () => Promise<InjectedMessage[]>
+  /**
+   * Se llama DESPUÉS de que el loop incorporó los mensajes, no antes: un run
+   * que muere entre el drenaje y el turno tiene que poder volver a leerlos.
+   */
+  onMessagesDelivered?: (ids: string[]) => Promise<void>
+  /**
+   * Persiste dónde va el run, para no perderlo si el proceso muere.
+   *
+   * Se llama una vez por vuelta, con la conversación tal como está por
+   * mandarse a la API — el "último request enviado". El destino la PISA (es un
+   * upsert por run), así que esto no acumula: no es un historial de versiones,
+   * es una foto que se reemplaza.
+   *
+   * Su fallo NO puede voltear el run: perder un checkpoint degrada la
+   * recuperación, pero tirar acá tiraría el trabajo que el checkpoint existe
+   * para salvar. Se loguea y se sigue.
+   *
+   * Ausente = no se guarda nada, que es el comportamiento de siempre (y el de
+   * cualquier provider que no lo necesite).
+   */
+  saveCheckpoint?: (state: { messages: unknown[] }) => Promise<void>
+}
+
+/** Un mensaje inyectado en un run en curso. Forma mínima a propósito: el loop
+ *  no necesita saber de dónde vino ni cuándo, sólo qué decir y con qué id
+ *  marcarlo como entregado. */
+export interface InjectedMessage {
+  id: string
+  body: string
+  author?: string
 }
 
 /** Token usage accumulated across every `fetchApi` call a single
@@ -194,6 +289,18 @@ export interface LoopResult {
    *  the signal that an agent is missing a tool or lacks a bash permission,
    *  which a bare `stopReason` never shows. */
   toolErrors: number
+  /** Los mismos dos contadores, por nombre de tool. */
+  toolBreakdown: Record<string, { calls: number; errors: number }>
+  /**
+   * El loop cortó porque una tool pidió pausa, y ésta es la conversación tal
+   * como quedó — la historia completa, con el `tool_result` de la llamada que
+   * pidió el corte ya adentro.
+   *
+   * Es lo que hace reanudable la pausa: volver a entrar al loop con estos
+   * mensajes como `initialMessages` continúa exactamente donde iba, sin
+   * reconstruir nada. Ausente en un run que terminó normal.
+   */
+  checkpoint?: { messages: unknown[]; reason?: string }
   /**
    * The full raw Anthropic API response (`JSON.stringify`d, capped — see
    * `RAW_RESPONSE_LOG_CAP` in engine.ts) for the call that ended the loop.
@@ -228,12 +335,6 @@ export interface CompiledPolicy {
 // apps/server's composition/container.ts supplies the concrete (DB-backed)
 // implementations at startup via the matching `setXxxPort` in engine.ts /
 // workspace/ / github/ — this package never imports apps/server.
-
-/** Narrow view of the system-prompt store, consumed by `compactHistory` to
- *  fetch the Haiku compaction prompt. */
-export interface SystemPromptPort {
-  getById(id: string): { text: string } | null | undefined
-}
 
 /** Narrow view of `WorkspaceManager`, consumed by `workspace_reset`. */
 export interface WorkspaceManagerPort {

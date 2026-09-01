@@ -14,6 +14,7 @@ import type { ITaskSource } from '@ia-flow/issue-sources'
 import { selectCommentWindow } from '@ia-flow/issue-sources'
 import type {
   AgentDefinition,
+  AgentExit,
   AgentToolEntry,
   McpServers,
   ProjectConfig,
@@ -33,8 +34,17 @@ import type {
   IExecutionLogRepository,
   IMcpCatalogRepository,
   IProviderRegistry,
+  PauseCheckpointPort,
+  RunCheckpointPort,
+  RunMessagePort,
 } from './contract.js'
-import { buildFinishPatch, hashPrompt, safeInsertLog, safeUpdateLog } from './execution-log.js'
+import {
+  buildFinishPatch,
+  hashAgentConfig,
+  hashSystemPrompt,
+  safeInsertLog,
+  safeUpdateLog,
+} from './execution-log.js'
 import { buildGitContext } from './git-context.js'
 import {
   type LinkedBranchNamer,
@@ -46,10 +56,11 @@ import {
   getPendingTask,
   registerPendingTask,
   removePendingTask,
+  subKey,
   waitForFinish,
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
-import { resolveExitCommentTarget, selectableExits } from './run-outcome.js'
+import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
@@ -73,6 +84,58 @@ export interface AgentRunInput {
   resolvedProviderId: string
   manager: ITaskSource
   config: ProjectConfig
+  /**
+   * El checkpoint de una pausa que se está reanudando.
+   *
+   * Ausente en un dispatch normal. Cuando viene, el provider entra al loop con
+   * estos mensajes en vez del prompt.
+   */
+  resumeCheckpoint?: {
+    messages: unknown[]
+    reason?: string
+    /** Cuántas reanudaciones lleva ya esta cadena. Viaja para que el primer
+     *  save de ESTE run lo arrastre: si se reseteara, el tope no frenaría
+     *  nada. */
+    attempts?: number
+    /** El run cuyo checkpoint es éste — trazabilidad pura, va directo a
+     *  `execution_logs.resumed_from_run_id` (ver AgentOrchestrator.loadResume). */
+    fromRunId?: string
+  }
+  /** La regla que lanzó este dispatch, si vino de una. Sólo trazabilidad: es
+   *  lo que permite dibujar el run sobre su regla en la UI de Pipeline. */
+  ruleId?: string
+  /** El evento que causó el dispatch. Es la clave que agrupa este run con las
+   *  otras acciones del mismo disparo de regla en `execution_logs` — sin él,
+   *  la fila del agente no se puede juntar con la notificación que corrió un
+   *  segundo antes. */
+  eventId?: string
+  eventType?: string
+  /** Índice de la acción `agent` dentro del `do[]` de su regla. */
+  position?: number
+  /** El run del agente padre, cuando este run lo lanzó un `run_agent`.
+   *  Presente ⇒ es un sub-agente: no cuenta contra el cap de dispatch del
+   *  proyecto y no vuelve a tomar el lock de la task (lo tiene el padre). */
+  parentRunId?: string
+  /** Profundidad de delegación. 0 es el agente de más arriba. */
+  agentDepth?: number
+  /**
+   * Redirecciones de salida declaradas por la regla que lanzó el dispatch.
+   *
+   * Cambian a DÓNDE va una salida, nunca QUÉ salidas existen: el enum de
+   * `select_exit` se sigue calculando del agente. Ver `resolveEffectiveExits`.
+   */
+  exitOverrides?: Record<string, AgentExit>
+  /**
+   * Por qué corre el agente ESTA vez, puesto por la regla que lo despertó y
+   * ya rendido contra el evento (ver `AgentActionSchema.brief`).
+   *
+   * Va al user turn y no a los system prompts a propósito: el system describe
+   * lo que el agente ES —estable entre runs, y lo que la API cachea—, mientras
+   * que el motivo cambia en cada disparo. Meterlo arriba invalidaría el
+   * prefijo cacheado en cada run y le daría al modelo una instrucción efímera
+   * con voz de regla permanente.
+   */
+  brief?: string
   /** Repo layout resuelto por `resolveRunContext` — reemplaza los campos
    *  sueltos (`projectRepos`/`repoPaths`/`primaryPath`/...) que antes se
    *  threadeaban uno por uno; `run` los saca de acá. */
@@ -92,6 +155,14 @@ export interface AgentRunState {
    *  traduce a `deferred` para que el issue se reintente en vez de que corra
    *  la salida de error del agente. */
   deferredAtCapacity?: boolean
+  /** Lo que produjo el run. Lo lee `runSubAgent` para devolvérselo al padre
+   *  como `tool_result` — un dispatch normal lo ignora, porque su resultado
+   *  ya viaja por los outcomes y los comentarios. */
+  output?: string
+  /** Lo que el agente entregó por `submit_output`, si declaró un contrato de
+   *  salida. Es lo que una regla publica como `{{steps.<paso>.output.<campo>}}`
+   *  para el paso siguiente. */
+  structuredOutput?: Record<string, unknown>
   /**
    * Limpieza del terreno que preparó el provider, si lo pidió (hoy: el
    * worktree de un run terminal). El orquestador la invoca en su `finally`,
@@ -99,6 +170,15 @@ export interface AgentRunState {
    * cableado el caso particular de tmux/iterm.
    */
   releaseWorkspace?: () => Promise<void>
+  /**
+   * El id del run, para que el orquestador pueda limpiar en su `finally` lo
+   * que quedó indexado por run — hoy, el checkpoint.
+   *
+   * Lo escribe `Agent.run` en cuanto lo genera: el orquestador no puede
+   * derivarlo, y sin esto el checkpoint de un run que terminó se quedaría en
+   * disco para siempre.
+   */
+  runId?: string
 }
 
 // Replaces ${VAR} placeholders in every string value inside an McpServers map
@@ -169,6 +249,15 @@ export class Agent {
     private compilePolicyPort?: CompilePolicy,
     private linkedBranchNamer: LinkedBranchNamer = defaultLinkedBranchNamer,
     private resolveVariable: ResolveVariable = () => undefined,
+    // Cola de mensajes inyectados en un run en curso. Ausente = nadie inyecta
+    // nada y el loop no drena, que es el comportamiento previo a este canal.
+    private runMessages?: RunMessagePort,
+    // Cuelga el checkpoint de la espera que la tool ya armó. Ausente = las
+    // pausas no persisten estado y el run se comporta como uno truncado.
+    private pausePort?: PauseCheckpointPort,
+    // Persiste dónde va el run en cada vuelta. Ausente = no se guarda nada y
+    // un reinicio se lleva el trabajo, que es el comportamiento previo.
+    private runCheckpoints?: RunCheckpointPort,
   ) {}
 
   async resolveMcpCatalog(agentDef: {
@@ -242,7 +331,18 @@ export class Agent {
     // handed to the provider so every log line for this run carries the
     // same `runId`.
     const runId = crypto.randomUUID().slice(0, 8)
+    // Se publica en el estado compartido para que el `finally` del orquestador
+    // pueda borrar el checkpoint de este run sin poder derivar su id.
+    runState.runId = runId
     const logId = runId
+    // Un sub-agente corre sobre la MISMA task que su padre, así que no puede
+    // compartir la clave del registry: registrarlo pisaría la entrada del
+    // padre y con ella su cancel, su executionId y sus tools de cierre.
+    //
+    // Que un `getPendingTask(task.id)` desde el hijo resuelva al PADRE es lo
+    // correcto y no un efecto colateral: el dueño del ciclo de vida de la
+    // tarea es el padre. El hijo devuelve su resultado por `tool_result`.
+    const registryKey = input.parentRunId ? subKey(task.id, runId) : task.id
     // Telemetry constants for this run, hoisted above the try so the catch
     // branches record the same columns the happy paths do — a failed run is
     // exactly the one whose duration and tool counters matter.
@@ -250,11 +350,21 @@ export class Agent {
     // row's own `startedAt` is an ISO string written for humans).
     const startedAtMs = Date.now()
     const toolsAvailable = (agentDef.tools ?? []).length
+    // Las salidas que este run va a APLICAR: las del agente, con el destino
+    // que la regla haya redirigido. `selectableExits` (más abajo) sigue
+    // saliendo de `agentDef.exits` — la regla redirige destinos, no amplía el
+    // vocabulario que el modelo puede pedir.
+    //
+    // Declarado ANTES del `try` porque el `catch` lo lee para decidir si
+    // postear el error: un `const` adentro del try es block-scoped y el catch
+    // lo vería como ReferenceError, tapando la excepción original.
+    const exits = resolveEffectiveExits(agentDef.exits, input.exitOverrides)
     // Identifies the exact prompt this run executed, so a later regression
     // can be attributed to a prompt edit rather than to the agent id alone.
     // Only known once the prompt is resolved inside the try — a run that
     // throws before that point legitimately has none.
     let agentPromptHash: string | undefined
+    let systemPromptHash: string | undefined
     // Declared outside the try so the catch below can read
     // `controller.signal.aborted` to disambiguate our manual cancel from an
     // upstream abort.
@@ -345,7 +455,20 @@ export class Agent {
         hasWriteAccess: workspaceRequest.needsWrite,
         branch: task.branch,
       })
-      const finalPrompt = gitContext ? `${gitContext}\n\n${resolvedPrompt}` : resolvedPrompt
+      // Orden del user turn: git context → brief → prompt del agente.
+      //
+      // El brief va ANTES del prompt porque enmarca cómo leerlo: "atendé este
+      // comentario" y "construí esto desde cero" mandan al mismo agente a
+      // hacer cosas distintas con el mismo método, y leer primero el método y
+      // después el encargo obliga a reinterpretar hacia atrás. Va DESPUÉS del
+      // git context porque aquél es terreno (qué branch, qué worktree), no
+      // instrucción.
+      const briefBlock = input.brief?.trim()
+        ? `## Por qué estás corriendo\n\n${input.brief.trim()}`
+        : undefined
+      const finalPrompt = [gitContext, briefBlock, resolvedPrompt]
+        .filter((part): part is string => Boolean(part))
+        .join('\n\n')
 
       // Cancellation plumbing: the polling manager calls entry.cancel() when
       // it detects the source-side status has drifted from the one at
@@ -353,10 +476,11 @@ export class Agent {
       // for tmux we kill the session once it's known.
 
       // Register before run so in-process tools can resolve the manager
-      registerPendingTask(task.id, {
+      registerPendingTask(registryKey, {
         task,
         manager,
-        exits: agentDef.exits,
+        exits,
+        outputFields: agentDef.output,
         commentTarget: agentDef.comment,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
@@ -373,8 +497,11 @@ export class Agent {
         // reconciliación de arranque para distinguir una fila viva de una
         // colgada de un proceso anterior sobre la misma tarea.
         executionId: logId,
+        ruleId: input.ruleId,
+        parentRunId: input.parentRunId,
+        agentDepth: input.agentDepth ?? 0,
         cancel: async () => {
-          const entryPending = getPendingTask(task.id)
+          const entryPending = getPendingTask(registryKey)
           if (entryPending) entryPending.cancelled = true
           controller.abort()
           try {
@@ -386,7 +513,25 @@ export class Agent {
         },
       })
 
-      agentPromptHash = hashPrompt(finalPrompt, JSON.stringify(systemPromptBlocks ?? null))
+      // Hashea la CONFIGURACIÓN del agente, no el prompt que este run mandó.
+      // `finalPrompt` lleva el git context, el brief y las variables ya
+      // resueltas (título del issue, sus comentarios), así que cambia con cada
+      // task: hashearlo daba un valor único por run y volvía a `promptVersions`
+      // un contador de runs disfrazado. Ver hashAgentConfig.
+      agentPromptHash = hashAgentConfig({
+        prompt: agentDef.prompt,
+        systemPromptBlocks,
+        tools: agentDef.tools,
+        variables: agentDef.variables,
+        provider: agentDef.provider,
+        providerConfig: agentDef.providerConfig,
+        saveOutput: agentDef.save_output,
+        output: agentDef.output,
+        exits: agentDef.exits,
+      })
+      // Aparte del de config, para que el detalle pueda decir si lo que
+      // cambió fue el agente o un system prompt compartido.
+      systemPromptHash = hashSystemPrompt(systemPromptBlocks)
 
       safeInsertLog(this.executionLogRepo, {
         id: logId,
@@ -402,11 +547,22 @@ export class Agent {
         stopReason: null,
         runId,
         agentPromptHash,
+        systemPromptHash,
         // Contrato de cierre: con esto, la fila alcanza para cerrar el run
         // aunque el registry en memoria ya no exista (reinicio del proceso,
         // watchdog que soltó la entrada). Ver la migración 048.
         initialStatus,
-        exits: agentDef.exits ?? null,
+        exits: exits ?? null,
+        // La causa, sobre la fila (migración 065). Antes vivía sólo en el
+        // registry en memoria, así que un reinicio dejaba el run sin saber qué
+        // lo había disparado ni de quién colgaba.
+        kind: 'agent',
+        ruleId: input.ruleId ?? null,
+        eventId: input.eventId ?? null,
+        eventType: input.eventType ?? null,
+        position: input.position ?? null,
+        parentId: input.parentRunId ?? null,
+        resumedFromRunId: input.resumeCheckpoint?.fromRunId ?? null,
         // Foto de quién tenía el issue cuando arrancó este run — es lo que
         // permite filtrar ejecuciones por usuario después (migración 057). Se
         // congela acá y no se relee al cerrar por lo mismo que onFinish/onError:
@@ -418,6 +574,8 @@ export class Agent {
         step: 'implement',
         agentId: agentDef.id,
         projectId: task.projectId,
+        // Lo que ve `run_agent` para frenar una cadena circular de delegación.
+        agentDepth: input.agentDepth ?? 0,
         runId,
         taskId: task.id,
         taskTitle: task.title,
@@ -429,6 +587,12 @@ export class Agent {
         repoPaths: effectiveRepoPaths,
         workspace: workspaceRequest,
         prompt: finalPrompt,
+        // Un run que reanuda una pausa entra con la conversación que el
+        // checkpoint guardó, no con el prompt: retomar desde el prompt
+        // perdería todo lo que el agente ya había averiguado, que es lo que
+        // la pausa existe para conservar. El prompt igual viaja — lo usan los
+        // providers de terminal, que no tienen checkpoint.
+        resumeMessages: input.resumeCheckpoint?.messages,
         systemPromptBlocks,
         // Async/terminal providers render this as a curl appendix (they don't
         // consume `policy`), so they only need the plain tool names. Default
@@ -438,6 +602,7 @@ export class Agent {
         // appendix instead of just the internal lifecycle ones.
         tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
         selectableExits: selectableExits(agentDef.exits),
+        outputFields: agentDef.output,
         providerConfig: await this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: effectiveCwd,
@@ -446,6 +611,27 @@ export class Agent {
         writePaths: effectiveWritePaths,
         policy: this.compilePolicyPort?.({ tools: agentDef.tools }),
         signal: controller.signal,
+        // La cola de mensajes de ESTA task. Sin port cableado (tests, un
+        // proceso sin store) los hooks quedan `undefined` y el loop no drena
+        // nada, que es el comportamiento de siempre.
+        drainMessages: this.runMessages ? () => this.runMessages!.pending(task.id) : undefined,
+        onMessagesDelivered: this.runMessages
+          ? (ids) => this.runMessages!.markDelivered(ids, runId)
+          : undefined,
+        // Dónde va el run, persistido por vuelta. El engine sólo provee el
+        // canal: qué se guarda lo decide el provider, y uno de terminal ni
+        // siquiera lo llama.
+        saveCheckpoint: this.runCheckpoints
+          ? (state) =>
+              this.runCheckpoints!.save({
+                runId,
+                taskId: task.id,
+                agentId: agentDef.id,
+                projectId: task.projectId,
+                state,
+                attempts: input.resumeCheckpoint?.attempts,
+              })
+          : undefined,
       })
 
       // Mark any human comments this run read as "used" so they don't get
@@ -473,6 +659,25 @@ export class Agent {
       }
 
       // PASO 5 — finaliza según el resultado.
+      //
+      // Ojo con `output.content` acá: en un provider ASYNC, `provider.run()`
+      // resolvió cuando la sesión se LANZÓ, no cuando el agente terminó. Su
+      // contenido no es el resultado del run, así que lo que se publica hacia
+      // una regla (`runState.output`) se setea abajo, en cada rama: la sync lo
+      // toma de acá, la async de lo que llega por `waitForFinish`.
+      //
+      // El contrato de salida (`agentDef.output`) se verifica por el mismo
+      // motivo, y en el mismo lugar: exigirlo antes de saber si el agente
+      // trabajó haría fallar todo run de terminal a los segundos del
+      // lanzamiento — y encima el `throw` saltearía el registro de
+      // `killSession` y del watchdog, dejando la sesión huérfana.
+      const declaresOutput = Boolean(agentDef.output && Object.keys(agentDef.output).length > 0)
+      const missingOutput = () =>
+        new Error(
+          `El agente declara salida estructurada (${Object.keys(agentDef.output ?? {}).join(', ')}) ` +
+            'y cerró el run sin llamar a `submit_output`.',
+        )
+
       if (output.mode === 'tmux') {
         // Wire the provider-agnostic session handle: persist its coordinates
         // so the row in execution_logs can be looked up / cancelled later,
@@ -483,7 +688,7 @@ export class Agent {
         if (output.session) {
           const handle = output.session
           sessionHandle = handle
-          const entryPending = getPendingTask(task.id)
+          const entryPending = getPendingTask(registryKey)
           if (entryPending) {
             entryPending.killSession = () => handle.close()
             const unwatch = watchSession(handle, (reason) => {
@@ -505,7 +710,7 @@ export class Agent {
                   { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
                   'Liveness desconocida sostenida — suelto el run sin transición; su cierre igual se acepta',
                 )
-                removePendingTask(task.id, {
+                removePendingTask(registryKey, {
                   cancelled: true,
                   reason: 'watchdog: liveness desconocida sostenida — sin confirmar muerte',
                 })
@@ -516,7 +721,7 @@ export class Agent {
                 { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
                 'Session died before agent finalized — cancelling run',
               )
-              removePendingTask(task.id, {
+              removePendingTask(registryKey, {
                 cancelled: true,
                 reason: 'watchdog: sesión confirmada muerta',
               })
@@ -552,6 +757,12 @@ export class Agent {
           }
         }
         if (finish) {
+          // Lo que el agente produjo. Viaja en el `finish` y no se relee del
+          // registry porque la entrada ya la borró el tool de cierre.
+          if (finish.structuredOutput) runState.structuredOutput = finish.structuredOutput
+          if (declaresOutput && !finish.structuredOutput && !finish.cancelled) {
+            throw missingOutput()
+          }
           task = finish.task
           if (finish.cancelled) {
             log.info(
@@ -566,6 +777,7 @@ export class Agent {
                 metrics: output.metrics,
                 toolsAvailable,
                 agentPromptHash,
+                systemPromptHash,
               }),
               finishedAt: new Date().toISOString(),
               outcome: 'cancelled',
@@ -589,6 +801,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -597,15 +810,28 @@ export class Agent {
         }
       } else {
         // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
-        const pendingAfterRun = getPendingTask(task.id)
+        const pendingAfterRun = getPendingTask(registryKey)
         const cancelled = pendingAfterRun?.cancelled === true
         const finalizedByTool = pendingAfterRun === undefined
         // La salida que el agente eligió con `select_exit`. Se lee ANTES de
         // soltar la entrada: en sync el que cierra es el engine, así que es lo
         // único que sobrevive del run para decidir por qué arista cerrar.
         const chosenExit = pendingAfterRun?.chosenExit
+        // Por lo mismo que `chosenExit`: se lee ANTES de soltar la entrada.
+        // Acá `output.content` SÍ es lo que produjo el agente — el loop de
+        // tools terminó.
+        runState.output = output.content
+        if (pendingAfterRun?.structuredOutput) {
+          runState.structuredOutput = pendingAfterRun.structuredOutput
+        }
         task = pendingAfterRun?.task ?? task
-        removePendingTask(task.id)
+        removePendingTask(registryKey)
+        // El throw va DESPUÉS de soltar la entrada: si no, el run fallado se
+        // llevaría puesto el lock de la task y los slots del agente, del
+        // proyecto y del provider hasta el próximo reinicio.
+        if (declaresOutput && !runState.structuredOutput && !cancelled) {
+          throw missingOutput()
+        }
 
         if (cancelled) {
           log.info(
@@ -620,6 +846,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'cancelled',
@@ -656,6 +883,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -664,6 +892,38 @@ export class Agent {
           try {
             await manager.setAgentWorking(task, false)
           } catch {}
+          return task
+        }
+
+        // Pausa: una tool pidió el corte y el loop devolvió la conversación.
+        // Se resuelve ANTES que `truncated` porque también es un final "sin
+        // terminar", pero de los dos es el único deliberado — tratarlo como
+        // truncado revertiría la task y publicaría un aviso de fallo por algo
+        // que el agente hizo a propósito.
+        if (output.checkpoint) {
+          log.info(
+            { taskId: task.id, agent: agentDef.id, reason: output.checkpoint.reason },
+            'Run pausado — el checkpoint queda colgado de la espera',
+          )
+          // El flag `working` NO se limpia: la task sigue en manos de este
+          // agente, sólo que dormido. Limpiarlo dejaría que el próximo scan la
+          // tome con otro agente y pise el worktree del pausado.
+          await this.pausePort?.attachCheckpoint(task.id, output.checkpoint)
+          safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'success',
+              stopReason: 'paused',
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+              systemPromptHash,
+            }),
+            finishedAt: new Date().toISOString(),
+            outcome: 'success',
+            stopReason: 'paused',
+          })
           return task
         }
 
@@ -687,6 +947,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'truncated',
@@ -725,13 +986,10 @@ export class Agent {
           await manager.postComment?.(
             task,
             notice,
-            resolveExitCommentTarget(
-              { exits: agentDef.exits, commentTarget: agentDef.comment },
-              ERROR_EXIT,
-            ),
+            resolveExitCommentTarget({ exits, commentTarget: agentDef.comment }, ERROR_EXIT),
           )
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
-        } else if (agentDef.exits) {
+        } else if (exits) {
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the
@@ -743,7 +1001,7 @@ export class Agent {
               task,
               `# ${agentDef.id}\n\n${output.content.trim()}`,
               resolveExitCommentTarget(
-                { exits: agentDef.exits, chosenExit, commentTarget: agentDef.comment },
+                { exits, chosenExit, commentTarget: agentDef.comment },
                 SUCCESS_EXIT,
               ),
             )
@@ -757,17 +1015,18 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
             stopReason: output.stopReason,
           })
-          task = await lifecycle.end(task, { exits: agentDef.exits, chosenExit })
+          task = await lifecycle.end(task, { exits, chosenExit })
         }
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      const pendingEntry = getPendingTask(task.id)
+      const pendingEntry = getPendingTask(registryKey)
       // Authoritative signal for "we cancelled it ourselves": the polling
       // divergence gate and graceful shutdown both go through entry.cancel().
       const explicitlyCancelled = pendingEntry?.cancelled === true || controller.signal.aborted
@@ -779,7 +1038,7 @@ export class Agent {
       // error, porque justamente NO es un error: nada del trabajo se intentó.
       const atCapacity = err instanceof ProviderAtCapacityError && !explicitlyCancelled
       task = pendingEntry?.task ?? task
-      removePendingTask(task.id)
+      removePendingTask(registryKey)
 
       if (atCapacity) {
         runState.deferredAtCapacity = true
@@ -807,6 +1066,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -840,6 +1100,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -868,6 +1129,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -904,6 +1166,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'error',
@@ -928,13 +1191,14 @@ export class Agent {
           metrics: undefined,
           toolsAvailable,
           agentPromptHash,
+          systemPromptHash,
         }),
         finishedAt: new Date().toISOString(),
         outcome: 'error',
         errorMsg: errMsg,
       })
       task = await manager.setAgentWorking(task, false)
-      if (agentDef.exits?.[ERROR_EXIT]) {
+      if (exits?.[ERROR_EXIT]) {
         await manager.postError?.(task, errMsg)
       }
       task = await lifecycle.fail(task, agentDef, errMsg)

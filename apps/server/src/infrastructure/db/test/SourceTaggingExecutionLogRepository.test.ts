@@ -38,8 +38,10 @@ class FakeRepo implements IExecutionLogRepository {
   getById(id: string): ExecutionLog | null {
     return this.inserted.find((e) => e.id === id) ?? null
   }
-  sweepOrphaned(_reason: string): number {
-    return 0
+  sweepOrphaned(_reason: string): ExecutionLog[] {
+    // El port devuelve las filas que cerró, no cuántas: los decoradores las
+    // necesitan para espejar y para emitir por WS.
+    return []
   }
   listDistinctSources(): string[] {
     return ['tagged-source']
@@ -75,7 +77,7 @@ describe('SourceTaggingExecutionLogRepository', () => {
     expect(repo.list({})).toEqual(inner.inserted)
     expect(repo.listActive()).toEqual(inner.inserted)
     expect(repo.getById('exec-1')).toEqual(inner.inserted[0])
-    expect(repo.sweepOrphaned('boot')).toBe(0)
+    expect(repo.sweepOrphaned('boot')).toEqual([])
     expect(repo.listDistinctSources()).toEqual(['tagged-source'])
   })
 })

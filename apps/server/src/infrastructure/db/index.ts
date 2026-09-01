@@ -56,6 +56,18 @@ export { SqliteProjectRepository } from './sqlite/SqliteProjectRepository.js'
 export { SqliteProviderRegistrationRepository } from './sqlite/SqliteProviderRegistrationRepository.js'
 export { SqlitePromptRepository } from './sqlite/SqlitePromptRepository.js'
 export { SqliteRepoRepository } from './sqlite/SqliteRepoRepository.js'
+export { SqliteProcessedEventRepository } from './sqlite/SqliteProcessedEventRepository.js'
+export { SqliteActionRepository } from './sqlite/SqliteActionRepository.js'
+export { SqliteRuleRepository } from './sqlite/SqliteRuleRepository.js'
+export { ProjectScopedRuleRepository } from './ProjectScopedRuleRepository.js'
+export { SqliteToolRepository } from './sqlite/SqliteToolRepository.js'
+export { SqliteSeenItemRepository } from './sqlite/SqliteSeenItemRepository.js'
+export { SqliteRunCheckpointRepository } from './sqlite/SqliteRunCheckpointRepository.js'
+export {
+  SqliteRunMessageRepository,
+  SqliteWaitRepository,
+} from './sqlite/SqliteWaitRepository.js'
+export { YamlRuleRepository } from './yaml/YamlRuleRepository.js'
 export { SqliteStatusRepository } from './sqlite/SqliteStatusRepository.js'
 export { SqliteSystemPromptRepository } from './sqlite/SqliteSystemPromptRepository.js'
 export { YamlAgentMemoryRepository } from './yaml/YamlAgentMemoryRepository.js'

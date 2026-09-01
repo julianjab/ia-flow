@@ -32,7 +32,7 @@ describe('RemoteExecutionLogRepository', () => {
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       calls.push({ url: String(url), init })
       return new Response('{}', { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', 'secret')
     const entry = fakeEntry()
@@ -53,7 +53,7 @@ describe('RemoteExecutionLogRepository', () => {
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       calls.push({ init })
       return new Response('{}', { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
     const entry = fakeEntry()
@@ -75,7 +75,7 @@ describe('RemoteExecutionLogRepository', () => {
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       calls.push({ init })
       return new Response('{}', { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     // No prior insert() call — e.g. this process restarted after inserting,
     // losing its in-memory cache.
@@ -96,7 +96,7 @@ describe('RemoteExecutionLogRepository', () => {
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       calls.push({ init })
       return new Response('{}', { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
     const entry = fakeEntry()
@@ -115,7 +115,7 @@ describe('RemoteExecutionLogRepository', () => {
   test('a rejected fetch never throws out of insert/update (fire-and-forget)', () => {
     globalThis.fetch = (async () => {
       throw new Error('network down')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', 'secret')
     expect(() => repo.insert(fakeEntry())).not.toThrow()
@@ -185,7 +185,7 @@ describe('RemoteExecutionLogRepository — ruido del forward caído', () => {
     // destino no se cae de a un request, se cae entero.
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
     const seen = captureLogs()
 
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
@@ -201,7 +201,7 @@ describe('RemoteExecutionLogRepository — ruido del forward caído', () => {
     globalThis.fetch = (async () => {
       if (!up) throw new Error('ECONNREFUSED')
       return new Response('{}', { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
     const seen = captureLogs()
 
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)

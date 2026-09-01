@@ -6,7 +6,7 @@ import WhenConditionsEditor from '../WhenConditionsEditor.vue'
 describe('WhenConditionsEditor', () => {
   it('renders no rows for an empty model', () => {
     const wrapper = mount(WhenConditionsEditor, { props: { modelValue: [] } })
-    expect(wrapper.findAll('.wce-row')).toHaveLength(0)
+    expect(wrapper.findAll('.cre-row')).toHaveLength(0)
   })
 
   it('renders one row per existing condition and no logic badge on the first', () => {
@@ -18,15 +18,15 @@ describe('WhenConditionsEditor', () => {
         ],
       },
     })
-    expect(wrapper.findAll('.wce-row')).toHaveLength(2)
-    expect(wrapper.findAll('.wce-logic-badge')).toHaveLength(1)
-    expect(wrapper.get('.wce-logic-badge').text()).toBe('OR')
+    expect(wrapper.findAll('.cre-row')).toHaveLength(2)
+    expect(wrapper.findAll('.cre-logic')).toHaveLength(1)
+    expect(wrapper.get('.cre-logic').text()).toBe('OR')
   })
 
   it('adds a condition and emits update:modelValue', async () => {
     const wrapper = mount(WhenConditionsEditor, { props: { modelValue: [] } })
-    await wrapper.get('.wce-add').trigger('click')
-    expect(wrapper.findAll('.wce-row')).toHaveLength(1)
+    await wrapper.get('.ff-add').trigger('click')
+    expect(wrapper.findAll('.cre-row')).toHaveLength(1)
     const events = wrapper.emitted('update:modelValue')
     // Empty field is filtered out until the user types something.
     expect(events?.at(-1)?.[0]).toEqual([])
@@ -34,8 +34,8 @@ describe('WhenConditionsEditor', () => {
 
   it('emits a WhenCondition once a field and value are filled in', async () => {
     const wrapper = mount(WhenConditionsEditor, { props: { modelValue: [] } })
-    await wrapper.get('.wce-add').trigger('click')
-    await wrapper.get('.wce-cell-field .wce-field').setValue('status')
+    await wrapper.get('.ff-add').trigger('click')
+    await wrapper.get('.cre-cell--field .ff-field').setValue('status')
     const events = wrapper.emitted('update:modelValue')
     const last = events?.at(-1)?.[0] as { field: string; op: string }[]
     expect(last).toEqual([{ field: 'status', op: '=', value: '' }])
@@ -45,7 +45,7 @@ describe('WhenConditionsEditor', () => {
     const wrapper = mount(WhenConditionsEditor, {
       props: { modelValue: [{ field: 'status', op: '=', value: 'Refined' }] },
     })
-    await wrapper.get('.wce-remove').trigger('click')
+    await wrapper.get('.ff-drop').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([])
   })
 
@@ -58,7 +58,7 @@ describe('WhenConditionsEditor', () => {
         ],
       },
     })
-    expect(wrapper.find('.wce-cell-field select.wce-field').exists()).toBe(true)
+    expect(wrapper.find('.cre-cell--field select.ff-field').exists()).toBe(true)
   })
 })
 
@@ -71,25 +71,25 @@ describe('WhenConditionsEditor — agregar condiciones', () => {
       props: { modelValue: [] as WhenCondition[] },
     })
 
-    await wrapper.get('.wce-add').trigger('click')
-    expect(wrapper.findAll('.wce-row')).toHaveLength(1)
+    await wrapper.get('.ff-add').trigger('click')
+    expect(wrapper.findAll('.cre-row')).toHaveLength(1)
 
     // El padre reenvía lo que se emitió (vacío, porque la fila está incompleta).
     const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as WhenCondition[]
     expect(emitted).toEqual([])
     await wrapper.setProps({ modelValue: emitted })
 
-    expect(wrapper.findAll('.wce-row')).toHaveLength(1)
+    expect(wrapper.findAll('.cre-row')).toHaveLength(1)
   })
 
   it('permite completar la condición recién agregada y recién ahí la emite', async () => {
     const wrapper = mount(WhenConditionsEditor, {
       props: { modelValue: [] as WhenCondition[] },
     })
-    await wrapper.get('.wce-add').trigger('click')
+    await wrapper.get('.ff-add').trigger('click')
     await wrapper.setProps({ modelValue: [] })
 
-    await wrapper.get('.wce-cell-field .wce-field').setValue('labels')
+    await wrapper.get('.cre-cell--field .ff-field').setValue('labels')
     const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as WhenCondition[]
     expect(emitted).toEqual([{ field: 'labels', op: '=', value: '' }])
   })
@@ -98,15 +98,15 @@ describe('WhenConditionsEditor — agregar condiciones', () => {
     const wrapper = mount(WhenConditionsEditor, {
       props: { modelValue: [] as WhenCondition[] },
     })
-    await wrapper.get('.wce-add').trigger('click')
+    await wrapper.get('.ff-add').trigger('click')
 
     await wrapper.setProps({
       modelValue: [{ field: 'type', op: '=', value: 'technical' }] as WhenCondition[],
     })
 
-    const rows = wrapper.findAll('.wce-row')
+    const rows = wrapper.findAll('.cre-row')
     expect(rows).toHaveLength(1)
-    expect((rows[0].find('.wce-cell-field .wce-field').element as HTMLInputElement).value).toBe(
+    expect((rows[0].find('.cre-cell--field .ff-field').element as HTMLInputElement).value).toBe(
       'type',
     )
   })
@@ -124,7 +124,7 @@ describe('WhenConditionsEditor — valores fuera del catálogo', () => {
         projectFields: [{ name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] }],
       },
     })
-    const select = wrapper.get('.wce-cell-field select.wce-field')
+    const select = wrapper.get('.cre-cell--field select.ff-field')
     expect(select.findAll('option').map((o) => o.attributes('value'))).toContain('assignees')
     expect((select.element as HTMLSelectElement).value).toBe('assignees')
   })
@@ -136,7 +136,7 @@ describe('WhenConditionsEditor — valores fuera del catálogo', () => {
         projectFields: [{ name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] }],
       },
     })
-    const select = wrapper.get('.wce-cell-value select.wce-field')
+    const select = wrapper.get('.cre-cell--value select.ff-field')
     expect((select.element as HTMLSelectElement).value).toBe('agent:e2e')
   })
 })

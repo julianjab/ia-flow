@@ -21,6 +21,7 @@
 import { listPendingTasks, removePendingTask } from '@ia-flow/agent-engine'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { reconcileOrphanedRuns } from '../adapters/pending-task-rehydrator.js'
 import {
   anthropicApiProvider,
   broadcast,
@@ -29,6 +30,7 @@ import {
   githubCredentials,
   providerRegistry,
   remoteProviderHealth,
+  slack,
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink } from '../logger.js'
@@ -93,6 +95,28 @@ broadcast.setFn(() => {})
 
 await runMigrations()
 
+// Reconcilia las filas que quedaron abiertas del proceso anterior — mismo
+// mecanismo que el flavor `full` (ver server.ts). Sin esto, cada restart deja
+// la fila `execution_logs` del run anterior `pending` para siempre (sin
+// `session_id`, así que se cierra sola) mientras `loadResume` igual arranca
+// un run nuevo con su propio `runId` desde el checkpoint — el resultado es
+// una fila huérfana más por cada restart.
+{
+  const { closed, kept } = await reconcileOrphanedRuns({
+    executionLogRepo,
+    reason: 'orphaned: runner restart before finalize',
+  })
+  if (closed > 0) {
+    log.warn({ closed }, 'Closed orphaned execution_logs rows from previous run')
+  }
+  if (kept.length > 0) {
+    log.warn(
+      { kept: kept.map((r) => ({ id: r.id, taskId: r.taskId, session: r.sessionId })) },
+      'Runs con sesión async del proceso anterior: se dejan abiertos para que su agente pueda cerrarlos',
+    )
+  }
+}
+
 // Las env vars que el operador guardó desde Configuración viven en la SQLite
 // de ESTE proceso, y hasta acá nadie las había leído: el flavor mostraba la
 // pantalla (`api: full` la publica) marcando las variables como "configurada"
@@ -115,6 +139,12 @@ await runMigrations()
 // igual en el flavor `full`; no es de este cambio.
 const beforeDb = new Set(Object.keys(process.env))
 envRepo.loadIntoProcess()
+
+// Recién ahora `Bun.env` tiene el `SLACK_BOT_TOKEN` que el operador guardó en
+// la DB, y ese token es el interruptor de Slack: sin este segundo vistazo las
+// tools `slack_*` no se registrarían hasta que alguien vuelva a guardar la
+// variable. Ver packages/slack/CLAUDE.md.
+slack.sync()
 const addedByDb = Object.keys(process.env).filter((k) => !beforeDb.has(k))
 // Las que el YAML (o cualquier otra fuente del entorno) dejó ganar. No es un
 // error: es la precedencia. Pero es lo primero que alguien busca cuando editó
@@ -202,6 +232,22 @@ async function shutdown(signal: string) {
   if (shuttingDown) return
   shuttingDown = true
   log.warn({ signal }, 'shutdown pedido')
+
+  // Lo que quedó abierto de runs sync (donde el abort no llegó al sitio de
+  // finalize) se cierra acá — mismo motivo que en el flavor `full`. Sin
+  // sondear: estamos en el handler de la señal, con un grace limitado antes
+  // del SIGKILL.
+  try {
+    const { closed } = await reconcileOrphanedRuns({
+      executionLogRepo,
+      reason: `orphaned: runner ${signal} before finalize`,
+      probe: async () => 'unknown',
+    })
+    if (closed > 0)
+      log.warn({ closed }, 'Closed remaining orphaned execution_logs rows on shutdown')
+  } catch (err) {
+    log.warn({ err }, 'Sweep during shutdown failed')
+  }
 
   // El forward al server principal puede ser un POST en vuelo: sin este await
   // el otro lado nunca se entera de que el run cerró, y el próximo boot no

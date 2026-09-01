@@ -6,65 +6,113 @@ import type { PullRequestRef } from '@ia-flow/shared'
 //
 // Criterio común, el mismo que usan los caps del engine y la selección de
 // agentes: **vacío = sin restricción**. Un eje sin selección no filtra nada,
-// nunca "no matchea nada".
+// nunca "no matchea nada". Dentro de un eje multi-valor los valores son OR
+// (mismo criterio que "resultado" en Ejecuciones/Logs); entre ejes es AND.
 
-/** Tri-estado del filtro de PR mergeado: apagado / sólo mergeadas / esconderlas. */
-export type MergedFilter = 'off' | 'only' | 'hide'
+/** Estado del/de los PR de la tarea. `sin-pr` sólo lo afirma un provider que
+ *  SABE hablar de PRs — ver `pullRequestsKnown`. */
+export type PrStatusValue = 'abierto' | 'draft' | 'mergeado' | 'cerrado' | 'sin-pr'
+export const PR_STATUS_VALUES: PrStatusValue[] = [
+  'abierto',
+  'draft',
+  'mergeado',
+  'cerrado',
+  'sin-pr',
+]
+
+export type BranchValue = 'con-branch' | 'sin-branch'
+export const BRANCH_VALUES: BranchValue[] = ['con-branch', 'sin-branch']
+
+/** `si` ⇒ tiene al menos un blocker (issue dependiente sin cerrar) sin resolver. */
+export type BlockedValue = 'si' | 'no'
+export const BLOCKED_VALUES: BlockedValue[] = ['si', 'no']
 
 export interface TaskFilters {
   /** Statuses aceptados. Vacío ⇒ cualquiera. Se comparan case-insensitive. */
   statuses: string[]
-  /** Sólo tareas con al menos un PR conocido. */
-  hasPr: boolean
-  /** Sólo tareas con branch remota linkeada. */
-  hasBranch: boolean
-  merged: MergedFilter
+  /** Repos aceptados (`task.repos` puede traer más de uno). Vacío ⇒ cualquiera. */
+  repos: string[]
+  /** Logins aceptados. Vacío ⇒ cualquiera. */
+  assignees: string[]
+  prStatus: PrStatusValue[]
+  branch: BranchValue[]
+  blocked: BlockedValue[]
 }
 
 /** Los campos del `TaskRow` que alimentan los predicados — nada más. */
 export interface FilterableTask {
   status: string
+  repos?: string
+  assignees?: string[]
   branch?: string
   pullRequests: PullRequestRef[]
   /** false ⇒ el provider no sabe de PRs; no afirmamos ni "tiene" ni "no tiene". */
   pullRequestsKnown: boolean
+  /** Se resuelve fuera de este módulo (fetch por item, async) — ver `TareasSection`. */
+  blocked?: boolean
 }
 
 export const EMPTY_TASK_FILTERS: TaskFilters = {
   statuses: [],
-  hasPr: false,
-  hasBranch: false,
-  merged: 'off',
+  repos: [],
+  assignees: [],
+  prStatus: [],
+  branch: [],
+  blocked: [],
 }
 
 export function hasActiveTaskFilters(f: TaskFilters): boolean {
-  return f.statuses.length > 0 || f.hasPr || f.hasBranch || f.merged !== 'off'
+  return (
+    f.statuses.length > 0 ||
+    f.repos.length > 0 ||
+    f.assignees.length > 0 ||
+    f.prStatus.length > 0 ||
+    f.branch.length > 0 ||
+    f.blocked.length > 0
+  )
 }
 
-/** Un PR mergeado sólo cuenta si el provider habla de PRs (ver `pullRequestsKnown`). */
-function isMerged(task: FilterableTask): boolean {
-  return task.pullRequestsKnown && task.pullRequests.some((pr) => pr.state === 'merged')
+/** `task.repos` es un string que puede traer más de uno (épicas multi-repo). */
+function taskRepos(task: FilterableTask): string[] {
+  return (task.repos ?? '').split(/[,\s]+/).filter(Boolean)
 }
 
-function hasPr(task: FilterableTask): boolean {
-  return task.pullRequestsKnown && task.pullRequests.length > 0
+const PR_STATUS_PREDICATES: Record<PrStatusValue, (task: FilterableTask) => boolean> = {
+  mergeado: (t) => t.pullRequestsKnown && t.pullRequests.some((pr) => pr.state === 'merged'),
+  cerrado: (t) => t.pullRequestsKnown && t.pullRequests.some((pr) => pr.state === 'closed'),
+  abierto: (t) =>
+    t.pullRequestsKnown && t.pullRequests.some((pr) => pr.state === 'open' && !pr.isDraft),
+  draft: (t) =>
+    t.pullRequestsKnown && t.pullRequests.some((pr) => pr.state === 'open' && pr.isDraft),
+  'sin-pr': (t) => t.pullRequestsKnown && t.pullRequests.length === 0,
 }
 
-/**
- * Aplica todos los ejes en AND. Los items con `pullRequestsKnown === false`
- * (local-fs y cualquier selección degradada) no satisfacen `hasPr` ni
- * `merged: 'only'` — no afirmamos lo que el provider no sabe. `merged: 'hide'`
- * en cambio los conserva: esconder lo que no podemos afirmar mergeado dejaría
- * esos proyectos con el listado vacío, que es peor que dejar una fila de más.
- */
+/** Aplica todos los ejes en AND; dentro de `prStatus`/`branch` los valores son OR. */
 export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters): T[] {
-  const wanted = new Set(f.statuses.map((s) => s.toLowerCase()))
+  const wantedStatus = new Set(f.statuses.map((s) => s.toLowerCase()))
+  const wantedRepos = new Set(f.repos.map((r) => r.toLowerCase()))
+  const wantedAssignees = new Set(f.assignees.map((a) => a.toLowerCase()))
   return tasks.filter((task) => {
-    if (wanted.size > 0 && !wanted.has((task.status ?? '').toLowerCase())) return false
-    if (f.hasPr && !hasPr(task)) return false
-    if (f.hasBranch && !task.branch) return false
-    if (f.merged === 'only' && !isMerged(task)) return false
-    if (f.merged === 'hide' && isMerged(task)) return false
+    if (wantedStatus.size > 0 && !wantedStatus.has((task.status ?? '').toLowerCase())) return false
+    if (wantedRepos.size > 0 && !taskRepos(task).some((r) => wantedRepos.has(r.toLowerCase())))
+      return false
+    if (
+      wantedAssignees.size > 0 &&
+      !(task.assignees ?? []).some((a) => wantedAssignees.has(a.toLowerCase()))
+    )
+      return false
+    if (f.prStatus.length > 0 && !f.prStatus.some((v) => PR_STATUS_PREDICATES[v](task)))
+      return false
+    if (
+      f.branch.length > 0 &&
+      !f.branch.some((v) => (v === 'con-branch' ? !!task.branch : !task.branch))
+    )
+      return false
+    if (
+      f.blocked.length > 0 &&
+      !f.blocked.some((v) => (v === 'si' ? !!task.blocked : !task.blocked))
+    )
+      return false
     return true
   })
 }
@@ -77,8 +125,6 @@ export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters
 /** Forma en la que vue-router entrega `route.query`. */
 export type QueryRecord = Record<string, string | (string | null)[] | null | undefined>
 
-const MERGED_VALUES: MergedFilter[] = ['only', 'hide']
-
 function queryStrArr(query: QueryRecord, key: string): string[] {
   const raw = query[key]
   if (typeof raw === 'string') return raw ? [raw] : []
@@ -87,17 +133,20 @@ function queryStrArr(query: QueryRecord, key: string): string[] {
   return []
 }
 
-function queryFlag(query: QueryRecord, key: string): boolean {
-  return queryStrArr(query, key)[0] === '1'
-}
-
 export function taskFiltersFromQuery(query: QueryRecord): TaskFilters {
-  const merged = queryStrArr(query, 'merged')[0]
   return {
     statuses: queryStrArr(query, 'status'),
-    hasPr: queryFlag(query, 'pr'),
-    hasBranch: queryFlag(query, 'branch'),
-    merged: MERGED_VALUES.includes(merged as MergedFilter) ? (merged as MergedFilter) : 'off',
+    repos: queryStrArr(query, 'repo'),
+    assignees: queryStrArr(query, 'assigned'),
+    prStatus: queryStrArr(query, 'pr').filter((v): v is PrStatusValue =>
+      PR_STATUS_VALUES.includes(v as PrStatusValue),
+    ),
+    branch: queryStrArr(query, 'rama').filter((v): v is BranchValue =>
+      BRANCH_VALUES.includes(v as BranchValue),
+    ),
+    blocked: queryStrArr(query, 'bloqueada').filter((v): v is BlockedValue =>
+      BLOCKED_VALUES.includes(v as BlockedValue),
+    ),
   }
 }
 
@@ -105,9 +154,11 @@ export function taskFiltersFromQuery(query: QueryRecord): TaskFilters {
 export function taskFiltersToQuery(f: TaskFilters): Record<string, string | string[]> {
   const query: Record<string, string | string[]> = {}
   if (f.statuses.length > 0) query.status = [...f.statuses]
-  if (f.hasPr) query.pr = '1'
-  if (f.hasBranch) query.branch = '1'
-  if (f.merged !== 'off') query.merged = f.merged
+  if (f.repos.length > 0) query.repo = [...f.repos]
+  if (f.assignees.length > 0) query.assigned = [...f.assignees]
+  if (f.prStatus.length > 0) query.pr = [...f.prStatus]
+  if (f.branch.length > 0) query.rama = [...f.branch]
+  if (f.blocked.length > 0) query.bloqueada = [...f.blocked]
   return query
 }
 

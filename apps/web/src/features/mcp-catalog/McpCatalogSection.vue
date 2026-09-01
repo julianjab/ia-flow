@@ -5,6 +5,8 @@ import { onMounted, reactive, ref } from 'vue';
 import type { McpCatalogEntry, McpServerConfig } from '@ia-flow/shared';
 import { McpCatalogEntrySchema } from '@ia-flow/shared';
 import McpServersEditor from '@/features/providers/McpServersEditor.vue';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import EditableCard from '@/ui/EditableCard.vue';
 import { useToastStore } from '@/stores/toast';
 import {
   createMcpCatalogEntry,
@@ -104,11 +106,22 @@ async function save() {
   }
 }
 
-async function remove(id: string) {
-  if (!confirm(`¿Eliminar la entrada '${id}'?`)) return;
+function remove(id: string) {
+  pendingConfirm.value = {
+    title: 'Eliminar entrada',
+    message: `¿Eliminar la entrada '${id}'?`,
+    confirmLabel: 'Eliminar',
+    onConfirm: () => doRemove(id),
+  };
+}
+
+async function doRemove(id: string) {
   try {
     await deleteMcpCatalogEntry(id);
     toastStore.success('Entrada eliminada');
+    // Se borra DESDE el editor, así que dejarlo abierto sobre una entrada que
+    // ya no existe es peor que volver al listado.
+    if (editing.value === id) editing.value = null;
     await load();
   } catch (err) {
     toastStore.error(`No se pudo eliminar: ${String(err)}`);
@@ -121,6 +134,23 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
   if (!draft.config) return {};
   const key = draft.id.trim() || 'server';
   return { [key]: draft.config };
+}
+
+/** Confirmación in-app en vez de `confirm()` nativo: los botones del nativo los
+ *  pinta el sistema operativo en el idioma del DISPOSITIVO, así que en un
+ *  teléfono en inglés el mensaje sale en español con "OK / Cancel" abajo. */
+const pendingConfirm = ref<{
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+} | null>(null);
+
+async function runConfirm() {
+  const c = pendingConfirm.value;
+  if (!c) return;
+  pendingConfirm.value = null;
+  await c.onConfirm();
 }
 </script>
 
@@ -140,19 +170,16 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
     <p v-if="loading" class="muted">Cargando…</p>
 
     <ul v-if="!loading && entries.length" class="entry-list">
-      <li v-for="entry in entries" :key="entry.id" class="entry">
-        <div class="entry-main">
+      <li v-for="entry in entries" :key="entry.id">
+        <!-- Sin ✕ en la fila: borrar vive en el editor de abajo. -->
+        <EditableCard clickable @edit="startEdit(entry)">
           <div class="entry-head">
             <span class="entry-id">{{ entry.id }}</span>
             <span class="entry-name">{{ entry.name }}</span>
           </div>
           <p v-if="entry.description" class="entry-desc">{{ entry.description }}</p>
           <code class="entry-config">{{ JSON.stringify(entry.config) }}</code>
-        </div>
-        <div class="entry-actions">
-          <button type="button" class="btn-secondary" @click="startEdit(entry)">Editar</button>
-          <button type="button" class="btn-danger" @click="remove(entry.id)">Eliminar</button>
-        </div>
+        </EditableCard>
       </li>
     </ul>
     <p v-else-if="!loading" class="muted">Sin entradas todavía.</p>
@@ -179,11 +206,31 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
         />
       </div>
       <div class="editor-actions">
+        <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
+             deshace, y desde el editor se ve QUÉ entrada se está por borrar. -->
+        <button
+          v-if="editing !== 'new'"
+          type="button"
+          class="btn-delete"
+          @click="remove(editing!)"
+        >Eliminar</button>
+        <span class="editor-actions-spacer" />
         <button type="button" class="btn-secondary" @click="cancel">Cancelar</button>
         <button type="button" class="btn-primary" @click="save">Guardar</button>
       </div>
     </div>
   </section>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
+
 </template>
 
 <style scoped>
@@ -193,30 +240,22 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
 .hint { margin: 0.25rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
 .muted { color: var(--fg-dim); font-size: 0.85rem; }
 .entry-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-.entry {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-alt);
-}
-.entry-main { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
-.entry-head { display: flex; gap: 0.5rem; align-items: baseline; }
-.entry-id { font-family: monospace; font-weight: 600; color: var(--info); }
+/* La caja, el hover y el ✕ los pone `EditableCard`; acá sólo el contenido. */
+.entry-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.entry-id { font-family: var(--font-mono); font-weight: 600; color: var(--info); }
 .entry-name { font-weight: 500; color: var(--fg); }
-.entry-desc { margin: 0; font-size: 0.8rem; color: var(--fg-mute); }
+.entry-desc { margin: 0; font-size: var(--fs-body-sm); color: var(--fg-mute); }
 .entry-config {
   display: block;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   color: var(--fg-dim);
   background: var(--panel-hi);
-  padding: 0.35rem 0.5rem;
-  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   white-space: pre;
 }
-.entry-actions { display: flex; flex-direction: column; gap: 0.35rem; }
 .editor {
   border: 1px solid var(--border-hi);
   border-radius: 8px;
@@ -236,6 +275,17 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
 }
 .field input:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 .editor-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.editor-actions-spacer { flex: 1; }
+.btn-delete {
+  padding: 0.4rem 0.8rem;
+  background: var(--panel);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-body-sm);
+}
+.btn-delete:hover { background: var(--red-bg); }
 .btn-primary {
   padding: 0.4rem 0.9rem;
   background: var(--accent);
@@ -256,14 +306,11 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
   font-size: 0.8rem;
 }
 .btn-secondary:hover { background: var(--panel-alt); }
-.btn-danger {
-  padding: 0.4rem 0.8rem;
-  background: var(--panel);
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.8rem;
+@media (max-width: 768px) {
+  /* Un flex sin `wrap`: el botón de la derecha queda fuera de la pantalla y
+     empuja la página. Envolver es lo correcto acá — es un encabezado, no una
+     tabla cuyas columnas haya que alinear entre filas. */
+  .section-head { flex-wrap: wrap; row-gap: 0.35rem; }
+  .section-head > * { min-width: 0; }
 }
-.btn-danger:hover { background: var(--red-bg); }
 </style>

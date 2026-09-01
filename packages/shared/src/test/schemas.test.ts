@@ -7,6 +7,7 @@ import {
   AnthropicApiSettingsSchema,
   ApiContractSchema,
   ExecutionLogSchema,
+  ExecutionStatsSchema,
   FileToModifySchema,
   FunctionalPRDSchema,
   ImpactedRepoSchema,
@@ -37,6 +38,8 @@ import {
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
+  isRuleDisabledInProject,
+  toggleDisabledRuleId,
 } from '../schemas.js'
 
 // ─── WhenConditionSchema ─────────────────────────────────────────────────────
@@ -74,59 +77,6 @@ describe('WhenConditionSchema', () => {
 
   it('requires op', () => {
     expect(() => WhenConditionSchema.parse({ field: 'type' })).toThrow()
-  })
-})
-
-// ─── AgentDefinitionSchema — when field ─────────────────────────────────────
-
-describe('AgentDefinitionSchema — when field', () => {
-  it('parses entry without when (default agent)', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'my-agent', provider: 'p', prompt: 'q' })
-    expect(result.id).toBe('my-agent')
-    expect(result.when).toBeUndefined()
-  })
-
-  it('accepts legacy Record<string,string> when', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      when: { type: 'functional', status: '$not_null' },
-    })
-    expect(result.when).toEqual({ type: 'functional', status: '$not_null' })
-  })
-
-  it('accepts new array when format', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      when: [
-        { field: 'type', op: '=', value: 'functional' },
-        { field: 'type', op: '=', value: 'technical', logic: 'or' },
-      ],
-    })
-    expect(Array.isArray(result.when)).toBe(true)
-    expect((result.when as any[])[1].logic).toBe('or')
-  })
-
-  it('accepts all transition fields', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      onProcess: '$set:status=refining',
-      exits: { success: '$set:status=done,type=technical', error: 'queued' },
-    })
-    expect(result.onProcess).toBe('$set:status=refining')
-    expect(result.exits?.success).toBe('$set:status=done,type=technical')
-    expect(result.exits?.error).toBe('queued')
-  })
-
-  it('omits undefined optional fields', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
-    expect(result.onProcess).toBeUndefined()
-    expect(result.exits).toBeUndefined()
   })
 })
 
@@ -199,22 +149,6 @@ describe('AgentDefinitionSchema — provider (string | AgentProviderChoice[])', 
       prompt: 'q',
     })
     expect(Array.isArray(result.provider)).toBe(true)
-  })
-
-  it('acepta whenText como hermano de when, a nivel de agente', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      when: [{ field: 'type', op: '=', value: 'functional' }],
-      whenText: 'para issues de producto',
-    })
-    expect(result.whenText).toBe('para issues de producto')
-  })
-
-  it('whenText es opcional — ausente por default', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
-    expect(result.whenText).toBeUndefined()
   })
 })
 
@@ -304,46 +238,6 @@ describe('StatusConfigSchema', () => {
 })
 
 // ─── AgentActivationSchema ────────────────────────────────────────────────────
-
-describe('AgentDefinitionSchema — criterios de activación', () => {
-  const base = { id: 'a', provider: 'p', prompt: 'q' }
-
-  it('deja los cuatro criterios sin definir por default (= sin restricción)', () => {
-    const result = AgentDefinitionSchema.parse(base)
-    expect(result.projectId).toBeUndefined()
-    expect(result.repoName).toBeUndefined()
-    expect(result.statusName).toBeUndefined()
-    expect(result.when).toBeUndefined()
-  })
-
-  it('acepta null explícito en project/repo/status', () => {
-    const result = AgentDefinitionSchema.parse({
-      ...base,
-      projectId: null,
-      repoName: null,
-      statusName: null,
-    })
-    expect(result.projectId).toBeNull()
-    expect(result.repoName).toBeNull()
-    expect(result.statusName).toBeNull()
-  })
-
-  it('acepta activación completa con enabled y position', () => {
-    const result = AgentDefinitionSchema.parse({
-      ...base,
-      projectId: 'proj-1',
-      repoName: 'backend',
-      statusName: 'Build',
-      when: [{ field: 'labels', op: '!=', value: 'ci-checked' }],
-      enabled: false,
-      position: 7,
-    })
-    expect(result.repoName).toBe('backend')
-    expect(result.statusName).toBe('Build')
-    expect(result.enabled).toBe(false)
-    expect(result.position).toBe(7)
-  })
-})
 
 // ─── AcceptanceCriterionSchema ────────────────────────────────────────────────
 
@@ -1080,7 +974,6 @@ describe('ProjectConfigSchema', () => {
     expect(result.statuses).toHaveLength(2)
     expect(result.statuses![1].allowBlocked).toBe(true)
     expect(result.agents![1].exits?.success).toBe('$set:status=refining')
-    expect(result.agents![2].statusName).toBe('approved')
   })
 })
 
@@ -1187,5 +1080,154 @@ describe('ProviderLimitSchema', () => {
   it('rechaza negativos y fraccionarios', () => {
     expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: -1 })).toThrow()
     expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: 1.5 })).toThrow()
+  })
+})
+
+describe('isRuleDisabledInProject', () => {
+  it('una global listada por el proyecto está dada de baja', () => {
+    expect(
+      isRuleDisabledInProject({ disabledRuleIds: ['r1'] }, { id: 'r1', projectId: null }),
+    ).toBe(true)
+  })
+
+  it('una regla PROPIA del proyecto no se apaga por acá', () => {
+    // Una propia ya tiene su `enabled`, que es donde el operador lo busca.
+    // Sin este corte, dar de baja una global se llevaría puesta una propia que
+    // casualmente comparta id.
+    expect(
+      isRuleDisabledInProject({ disabledRuleIds: ['r1'] }, { id: 'r1', projectId: 'p1' }),
+    ).toBe(false)
+  })
+
+  it('sin lista no hay nada dado de baja', () => {
+    expect(isRuleDisabledInProject(undefined, { id: 'r1', projectId: null })).toBe(false)
+    expect(isRuleDisabledInProject({ disabledRuleIds: null }, { id: 'r1', projectId: null })).toBe(
+      false,
+    )
+  })
+
+  it('una global que no está en la lista corre', () => {
+    expect(isRuleDisabledInProject({ disabledRuleIds: ['otra'] }, { id: 'r1' })).toBe(false)
+  })
+})
+
+describe('ProjectSettingsSchema.disabledRuleIds', () => {
+  it('acepta null sin llevarse puesto el resto del bag', () => {
+    // `settings` se mergea por key: vaciar la lista desde la UI persiste un
+    // null, y con `.optional()` ese null hacía fallar el objeto ENTERO — se
+    // perdían el cap de dispatches y la config de Slack de paso.
+    const parsed = ProjectSettingsSchema.safeParse({
+      disabledRuleIds: null,
+      maxConcurrentDispatches: 3,
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.maxConcurrentDispatches).toBe(3)
+  })
+})
+
+describe('toggleDisabledRuleId', () => {
+  it('apagar agrega el id', () => {
+    expect(toggleDisabledRuleId([], 'r1', false)).toEqual(['r1'])
+  })
+
+  it('apagar dos veces no lo duplica', () => {
+    // El endpoint es un PUT: repetirlo tiene que dar el mismo estado.
+    expect(toggleDisabledRuleId(['r1'], 'r1', false)).toEqual(['r1'])
+  })
+
+  it('prender lo saca', () => {
+    expect(toggleDisabledRuleId(['r1', 'r2'], 'r1', true)).toEqual(['r2'])
+  })
+
+  it('prender algo que no estaba no cambia nada', () => {
+    expect(toggleDisabledRuleId(['r2'], 'r1', true)).toEqual(['r2'])
+  })
+
+  it('no muta la lista que recibe', () => {
+    const current = ['r1']
+    toggleDisabledRuleId(current, 'r2', false)
+    expect(current).toEqual(['r1'])
+  })
+})
+
+// Regresión: la web valida cada respuesta con `.parse()`, así que un campo
+// nuevo y requerido en el schema convierte a CUALQUIER server desactualizado
+// en un panel de "Salud por agente" completamente roto — no en dos columnas
+// vacías. Las métricas de eficiencia se agregaron después, y llevan default
+// justamente para que ese despliegue a medias degrade en vez de caerse.
+describe('ExecutionStatsSchema — compatibilidad con un server viejo', () => {
+  const legacyPayload = {
+    from: null,
+    to: null,
+    totals: {
+      runs: 3,
+      success: 3,
+      error: 0,
+      cancelled: 0,
+      truncated: 0,
+      successRate: 1,
+      failureClasses: {},
+      tokensIn: 500,
+      tokensOut: 50,
+    },
+    agents: [
+      {
+        agentId: 'refiner',
+        runs: 3,
+        success: 3,
+        error: 0,
+        cancelled: 0,
+        truncated: 0,
+        successRate: 1,
+        failureClasses: {},
+        avgDurationMs: 1000,
+        tokensIn: 500,
+        tokensOut: 50,
+        toolCalls: 9,
+        toolErrors: 0,
+        lastRunAt: '2026-01-01T00:00:00.000Z',
+        promptVersions: 1,
+      },
+    ],
+  }
+
+  it('parsea una respuesta sin ninguna de las métricas de eficiencia', () => {
+    expect(() => ExecutionStatsSchema.parse(legacyPayload)).not.toThrow()
+  })
+
+  it('rellena los campos ausentes con neutros, no con ceros que mientan', () => {
+    const parsed = ExecutionStatsSchema.parse(legacyPayload)
+    const agent = parsed.agents[0]!
+    // Null y no 0: "no lo sé" no es "0%", que pintaría de rojo un agente sano.
+    expect(agent.cacheHitRate).toBeNull()
+    expect(agent.p95DurationMs).toBeNull()
+    // Estos sí son contadores: ausente y cero son lo mismo en una suma.
+    expect(agent.cacheReadTokens).toBe(0)
+    expect(agent.cacheCreationTokens).toBe(0)
+    expect(agent.iters).toBe(0)
+    expect(agent.stopReasons).toEqual({})
+    expect(parsed.totals.cacheHitRate).toBeNull()
+    expect(parsed.totals.iters).toBe(0)
+  })
+
+  it('conserva los valores cuando el server SÍ los manda', () => {
+    const parsed = ExecutionStatsSchema.parse({
+      ...legacyPayload,
+      agents: [
+        {
+          ...legacyPayload.agents[0],
+          cacheReadTokens: 9000,
+          cacheHitRate: 0.9,
+          iters: 30,
+          stopReasons: { max_tokens: 2 },
+          p95DurationMs: 8000,
+        },
+      ],
+    })
+    const agent = parsed.agents[0]!
+    expect(agent.cacheHitRate).toBe(0.9)
+    expect(agent.iters).toBe(30)
+    expect(agent.stopReasons).toEqual({ max_tokens: 2 })
+    expect(agent.p95DurationMs).toBe(8000)
   })
 })

@@ -1,15 +1,12 @@
-// Resuelve todo lo que un dispatch necesita antes de correr: qué agente aplica
-// (vía `selectAgent`) y cómo se ve el layout de repos del proyecto (todos los
-// repos para que las fs tools naveguen, más el repo primario que define cwd y
-// workflow).
+// Resuelve el layout de repos que un dispatch necesita antes de correr: todos
+// los repos del proyecto para que las fs tools naveguen, más el repo primario
+// que define cwd y workflow.
 //
-// Reemplaza al antiguo `chain-context.ts`: ya no hay cadena de agentes por
-// status: un dispatch = un agente. Devuelve `null` (después de loguear) en las
-// tres condiciones de salida temprana: ningún agente matchea, o el repo
-// primario del issue no está registrado en el proyecto.
+// Ya NO elige el agente: desde la migración 059 lo elige una regla, y acá
+// llega hecho. Lo que queda son los dos guards que dependen del par
+// (agente, task): multi-repo con un agente que escribe, y repo primario sin
+// registrar. Devuelve `null` —después de loguear— en cualquiera de los dos.
 import type { AgentDefinition, RepoWorkflow, Task } from '@ia-flow/shared'
-import { summarizeRejections } from './agent-selection.js'
-import { type AgentTextClassifier, selectAgentGated } from './agent-text-gate.js'
 import type { DbRepoEntry, IRepoRepository } from './contract.js'
 import { createLogger } from './logger.js'
 import { hasWriteTools } from './write-access.js'
@@ -31,48 +28,21 @@ export interface RunContext {
 
 export interface ResolveRunContextInput {
   task: Task
-  /** Candidatos visibles para el proyecto del task (project-scoped + globales). */
-  agents: AgentDefinition[]
+  /** El agente que la regla eligió. No hay selección acá: la decisión ya se
+   *  tomó contra el evento, y volver a decidir podría correr otro. */
+  agent: AgentDefinition
   repoRepo: IRepoRepository
   expandHome: (p: string) => string
-  /** Evalúa el `whenText` de los candidatos (ver agent-text-gate.ts). Ausente
-   *  = ese filtro no se aplica y la selección es la estructural de siempre. */
-  classifyAgent?: AgentTextClassifier
 }
 
-// Async sólo por el gate de `whenText`, que consulta a un modelo. Un roster sin
-// ningún agente con `whenText` (o sin `classifyAgent` inyectado) no hace ni una
-// llamada: `selectAgentGated` corta antes de tocar el clasificador.
+// Sigue siendo async por la firma de sus callers, aunque ya no haga I/O: el
+// gate semántico que la hacía esperar a un modelo se mudó al matcher de reglas.
 export async function resolveRunContext({
   task,
-  agents,
+  agent,
   repoRepo,
   expandHome,
-  classifyAgent,
 }: ResolveRunContextInput): Promise<RunContext | null> {
-  const { agent, rejected } = await selectAgentGated({
-    task,
-    agents,
-    status: task.status,
-    classify: classifyAgent,
-  })
-
-  if (!agent) {
-    log.debug(
-      {
-        status: task.status,
-        taskId: task.id,
-        projectId: task.projectId,
-        title: task.title,
-        type: task.type,
-        repos: task.repos,
-        rejected: summarizeRejections(rejected),
-      },
-      'Ningún agente matchea los criterios de activación — skipping',
-    )
-    return null
-  }
-
   // All project repos → name→path map so fs tools can resolve any repo
   // in the project (not just those on the task). The agent learns names
   // via `{{project.repos}}` in its prompt and navigates via read_file /

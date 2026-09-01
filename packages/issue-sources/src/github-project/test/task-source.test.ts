@@ -51,7 +51,14 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-type StubCall = { url: string; body: unknown }
+type StubCall = {
+  url: string
+  // El body es siempre el JSON de una mutation de GraphQL; tiparlo como
+  // `unknown` obligaba a castear en cada assertion.
+  // GraphQL manda `{ query, variables }`; el REST de labels manda `{ labels }`.
+  // Un Record abierto cubre las dos sin obligar a castear en cada assertion.
+  body: Record<string, unknown> | null
+}
 
 function stubFetch(responseBody: unknown = { data: {} }): { calls: StubCall[] } {
   const calls: StubCall[] = []
@@ -170,8 +177,8 @@ describe('setAgentWorking', () => {
     await manager.setAgentWorking(TASK, true)
 
     expect(calls.length).toBe(1)
-    expect(calls[0].body.variables.fieldId).toBe('f_agente')
-    expect(calls[0].body.variables.optionId).toBe('opt_run')
+    expect((calls[0]?.body?.variables as Record<string, unknown>)?.fieldId).toBe('f_agente')
+    expect((calls[0]?.body?.variables as Record<string, unknown>)?.optionId).toBe('opt_run')
   })
 
   it('no toca la fuente cuando el proyecto declaró que no usa marca', async () => {
@@ -337,5 +344,269 @@ describe('setFields — campo multi-valor Labels', () => {
     const labelCall = calls.find((c) => c.url.includes('/issues/42/labels'))
     expect(labelCall?.body).toEqual({ labels: ['agent:build', 'bug', 'agent:review'] })
     expect(updated.labels).toEqual(['agent:build', 'bug', 'agent:review'])
+  })
+})
+
+// ─── setFields — un campo que el board no tiene ──────────────────────────────
+//
+// Antes esto logueaba un warn y seguía, pero `mergeSourceFieldsIntoTask` igual
+// escribía el valor en la task en memoria: el agente veía éxito y en GitHub no
+// pasaba nada. Un `$set:Repos=…` contra un board sin ese campo se perdía entero
+// y en silencio.
+
+describe('setFields — campo ausente en el board', () => {
+  it('tira en vez de saltear en silencio, y nombra los campos disponibles', async () => {
+    stubFetch()
+    const manager = makeManager()
+
+    await expect(manager.setFields(TASK, { Repos: 'platform-infrastructure' })).rejects.toThrow(
+      /no tiene el campo 'Repos'/,
+    )
+  })
+
+  it('el mensaje lista los campos que el board sí tiene', async () => {
+    stubFetch()
+    const manager = makeManager()
+
+    const err = await manager.setFields(TASK, { Repos: 'infra' }).catch((e: Error) => e)
+
+    expect((err as Error).message).toContain('Status, Working')
+  })
+
+  it('no escribe NADA cuando uno de los campos falta', async () => {
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
+    const manager = makeManager()
+
+    await expect(manager.setFields(TASK, { Status: 'Done', Repos: 'infra' })).rejects.toThrow()
+
+    // Todo o nada: los campos se resuelven antes de escribir ninguno, así que
+    // un `$set:` mixto no deja el outcome a medias.
+    expect(calls.length).toBe(0)
+  })
+})
+
+// ─── transferToRepo ──────────────────────────────────────────────────────────
+
+const META_WITH_REPOS: ProjectMeta = {
+  ...META,
+  fields: { ...META.fields, Repos: { id: 'f_repos', name: 'Repos', dataType: 'TEXT' } },
+}
+
+describe('transferToRepo', () => {
+  function stubTransfer(): { calls: StubCall[] } {
+    const calls: StubCall[] = []
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : null
+      calls.push({ url: url as string, body })
+      const query = String((body as { query?: string } | null)?.query ?? '')
+      const data = query.includes('transferIssue')
+        ? {
+            transferIssue: {
+              issue: {
+                id: 'I_new',
+                number: 7,
+                url: 'https://github.com/acme/infra/issues/7',
+              },
+            },
+          }
+        : { repository: { id: 'R_infra' } }
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    return { calls }
+  }
+
+  it('resuelve el id del repo destino y transfiere, devolviendo las coordenadas nuevas', async () => {
+    const { calls } = stubTransfer()
+    const broadcasts: object[] = []
+    const manager = makeManager({
+      repoName: 'subscriptions',
+      onBroadcast: (m) => broadcasts.push(m),
+    })
+
+    const result = await manager.transferToRepo(TASK, { name: 'infra' })
+
+    expect(result).toEqual({
+      repo: 'infra',
+      issueNumber: 7,
+      issueUrl: 'https://github.com/acme/infra/issues/7',
+    })
+    // Dos llamadas: el lookup del repositoryId y la mutation.
+    expect(calls).toHaveLength(2)
+    expect(String(calls[0].body?.query)).toContain('repository(')
+    expect(calls[0].body?.variables).toEqual({ owner: 'acme', name: 'infra' })
+    expect(String(calls[1].body?.query)).toContain('transferIssue')
+    expect(calls[1].body?.variables).toEqual({ issueId: 'I_issue1', repositoryId: 'R_infra' })
+    expect(broadcasts).toHaveLength(1)
+  })
+
+  it('no toca el item del board — la card sobrevive al transfer donde está', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await manager.transferToRepo(TASK, { name: 'infra' })
+
+    expect(calls.some((c) => String(c.body?.query).includes('updateProjectV2ItemFieldValue'))).toBe(
+      false,
+    )
+  })
+
+  // Estar ya en el destino no es un error: es lo que queda si un intento
+  // anterior transfirió y murió antes de reconciliar el campo `Repos`.
+  // Tratarlo como fallo trababa esa inconsistencia para siempre.
+  it('ya en el destino sin número de issue conocido: falla en vez de inventar la URL', async () => {
+    stubTransfer()
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra' })
+
+    await expect(
+      manager.transferToRepo({ ...TASK, issueNumber: undefined }, { name: 'infra' }),
+    ).rejects.toThrow(/no se conoce el número de su issue/)
+  })
+
+  it('ya en el destino: no re-transfiere, pero reconcilia el campo Repos', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra', issueNumber: 7 })
+
+    const result = await manager.transferToRepo(TASK, { name: 'Infra' })
+
+    expect(result.repo).toBe('Infra')
+    expect(calls.some((c) => String(c.body?.query).includes('transferIssue'))).toBe(false)
+    expect(calls.some((c) => String(c.body?.query).includes('updateProjectV2ItemFieldValue'))).toBe(
+      true,
+    )
+  })
+
+  // `resolveRepos` le da PRECEDENCIA al campo custom `Repos` sobre el
+  // `Repository` nativo. Sin reconciliarlo, un board que lo usa seguiría
+  // reportando el repo viejo y el agente pediría el mismo transfer para
+  // siempre.
+  it('sincroniza el campo custom Repos cuando el board lo tiene', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'subscriptions' })
+
+    await manager.transferToRepo(TASK, { name: 'infra' })
+
+    const fieldWrite = calls.find((c) =>
+      String(c.body?.query).includes('updateProjectV2ItemFieldValue'),
+    )
+    expect(fieldWrite).toBeDefined()
+    expect((fieldWrite?.body?.variables as Record<string, unknown>).text).toBe('infra')
+  })
+
+  // El transfer ya movió el issue cuando esto corre: tirar acá dejaría al run
+  // cerrándose por el camino de error sobre el issue viejo, que después del
+  // transfer es un stub.
+  it('un fallo al sincronizar Repos NO tumba un transfer ya hecho', async () => {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : null
+      const query = String((body as { query?: string } | null)?.query ?? '')
+      if (query.includes('updateProjectV2ItemFieldValue')) {
+        return new Response(JSON.stringify({ errors: [{ message: 'campo de otro tipo' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      const data = query.includes('transferIssue')
+        ? { transferIssue: { issue: { id: 'I_new', number: 7, url: 'https://x/7' } } }
+        : { repository: { id: 'R_infra' } }
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'subscriptions' })
+
+    const result = await manager.transferToRepo(TASK, { name: 'infra' })
+
+    expect(result.repo).toBe('infra')
+    expect(result.issueNumber).toBe(7)
+  })
+
+  // El nombre local del repo en ia-flow y el repo real de GitHub no tienen por
+  // qué coincidir. Mandar el local apunta a `owner/<nombre-local>`: o no existe,
+  // o —peor— es otro repo homónimo.
+  it('usa githubOwner/githubRepo del destino, no su nombre local', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await manager.transferToRepo(TASK, {
+      name: 'infra',
+      githubOwner: 'otra-org',
+      githubRepo: 'platform-infrastructure',
+    })
+
+    expect(calls[0].body?.variables).toEqual({ owner: 'otra-org', name: 'platform-infrastructure' })
+  })
+
+  it('rechaza una tarea con varios repos — un transfer mueve un issue solo', async () => {
+    stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await expect(
+      manager.transferToRepo({ ...TASK, repos: ['web', 'api'] }, { name: 'infra' }),
+    ).rejects.toThrow(/varios repos/)
+  })
+
+  // Con un `Repos` que no es TEXT el reconcile fallaría siempre, y como
+  // `resolveRepos` le da precedencia la tarea pediría el mismo transfer en cada
+  // scan. Se corta ANTES de mover nada.
+  it('no transfiere si el campo Repos del board no es de texto', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({
+      meta: {
+        ...META,
+        fields: {
+          ...META.fields,
+          Repos: { id: 'f_repos', name: 'Repos', dataType: 'SINGLE_SELECT' },
+        },
+      },
+      repoName: 'subscriptions',
+    })
+
+    await expect(manager.transferToRepo(TASK, { name: 'infra' })).rejects.toThrow(
+      /es SINGLE_SELECT, no TEXT/,
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  it('falla claro si el repo destino no existe para la credencial', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ data: { repository: null } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await expect(manager.transferToRepo(TASK, { name: 'no-existe' })).rejects.toThrow(
+      /no existe o la credencial/,
+    )
+  })
+})
+
+// `Repository` y `Assignees` NO son columnas del board (viven en el issue), así
+// que nunca están en `meta.fields` — pero `GitHubProjectSource.getFields` los
+// ofrece igual en el editor de outcomes. Hacerlos fallar rompería config que la
+// propia UI dejó armar, y "agregalo al board" es imposible para ellos.
+describe('setFields — built-ins del issue, no columnas del board', () => {
+  it('no tira por Assignees aunque no esté en meta.fields', async () => {
+    const { calls } = stubFetch()
+    const manager = makeManager()
+
+    await manager.setFields(TASK, { Assignees: 'julianjab' })
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('sigue tirando por un campo que de verdad falta', async () => {
+    stubFetch()
+    const manager = makeManager()
+
+    await expect(manager.setFields(TASK, { Assignees: 'x', Inventado: 'y' })).rejects.toThrow(
+      /no tiene el campo 'Inventado'/,
+    )
   })
 })

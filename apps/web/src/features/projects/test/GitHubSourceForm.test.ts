@@ -66,7 +66,10 @@ describe('GitHubSourceForm — marca de agente trabajando', () => {
   it('sobre Labels pide una sola label y deriva los dos tokens', async () => {
     const wrapper = mountForm({ workingMarker: { field: 'Labels', on: '', off: '' } })
 
+    // El ComboBox confirma al salir del campo, no por tecla: un nombre de
+    // label a medio escribir no es una marca.
     await wrapper.get('[data-testid="working-marker-label"] input').setValue('ia-flow:working')
+    await wrapper.get('[data-testid="working-marker-label"] input').trigger('blur')
 
     expect(lastEmit(wrapper).workingMarker).toEqual({
       field: 'Labels',

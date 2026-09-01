@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WorkspaceManager } from '../WorkspaceManager.js'
 import {
@@ -883,23 +884,44 @@ describe('getOrCreateWorktree — terreno ocupado', () => {
   })
 
   it('el MISMO worktree listado por git con symlinks resueltos no se confunde con otro', async () => {
-    // macOS: git lista `/private/tmp/...` donde nosotros decimos `/tmp/...`.
-    const asGitSeesIt = WT.replace(/^\/tmp\//, '/private/tmp/')
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n\nworktree ${asGitSeesIt}\nbranch refs/heads/${BR}\n`)
-      }
-      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
-      return ok()
-    })
-    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+    // git reporta los paths de `worktree list` YA resueltos, así que cuando la
+    // base cuelga de un symlink él la nombra distinto que nosotros. El caso
+    // real es macOS, donde `/tmp` es un symlink a `/private/tmp`.
+    //
+    // Se monta un symlink DE VERDAD en vez de simular ese par de paths: hasta
+    // que este test entró a CI (esta rama sumó `bun run test` completo al
+    // workflow) sólo corría en Mac, y hardcodear `/tmp` → `/private/tmp` lo
+    // hacía fallar siempre en Linux — donde `/private` no existe y los dos
+    // paths SON distintos. Con un symlink real prueba lo mismo en los dos.
+    const realBase = mkdtempSync(join(tmpdir(), 'ia-flow-wt-real-'))
+    const linkBase = `${realBase}-link`
+    symlinkSync(realBase, linkBase, 'dir')
 
-    // Lo reusa (no lanza "ya está checkouteada en otro worktree", ni crea uno nuevo).
-    const res = await mgr.getOrCreateWorktree(TASK, REPO)
-    expect(res.path).toBe(WT)
-    expect(shell.ran(['git', 'worktree', 'add'])).toBe(false)
+    try {
+      const name = worktreeNameFor({ id: TASK })
+      const viaLink = worktreePathFor(REPO, name, linkBase)
+      const asGitSeesIt = worktreePathFor(REPO, name, realBase)
+      expect(viaLink).not.toBe(asGitSeesIt) // si no, el test no probaría nada
+
+      const shell = new StubShell(async (args) => {
+        if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+        if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+        if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+          return ok(`worktree ${REPO}\n\nworktree ${asGitSeesIt}\nbranch refs/heads/${BR}\n`)
+        }
+        if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+        return ok()
+      })
+      const mgr = new WorkspaceManager(shell, { worktreeBase: linkBase })
+
+      // Lo reusa (no lanza "ya está checkouteada en otro worktree", ni crea uno nuevo).
+      const res = await mgr.getOrCreateWorktree(TASK, REPO)
+      expect(res.path).toBe(viaLink)
+      expect(shell.ran(['git', 'worktree', 'add'])).toBe(false)
+    } finally {
+      rmSync(linkBase, { force: true })
+      rmSync(realBase, { recursive: true, force: true })
+    }
   })
 
   it('dos worktrees top-level inexistentes que difieren en el primer carácter NO son el mismo', async () => {

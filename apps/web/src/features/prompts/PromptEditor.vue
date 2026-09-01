@@ -313,4 +313,21 @@ function onDrop(event: DragEvent): void {
   margin: 0.5rem 0 0;
   text-align: center;
 }
+
+@media (max-width: 640px) {
+  /* El panel de variables mide 190px fijos al lado del textarea: en 390px eso
+     deja el prompt en ~150px de ancho, o sea cuatro palabras por línea. Se
+     apila — el prompt primero, que es lo que se está escribiendo, y las
+     variables abajo (el chip inserta con click, no sólo arrastrando, así que
+     no pierden nada al no estar al lado). */
+  .prompt-editor { flex-direction: column; align-items: stretch; }
+  .chips-panel { width: auto; }
+  /* Sin tope, la lista completa de variables empuja el resto del formulario
+     fuera de la pantalla; con `--fill` lo hereda del contenedor, que acá ya
+     no existe porque no hay dos columnas que igualar. */
+  .prompt-editor--fill { max-height: none; }
+  .prompt-editor--fill .chips-scroll { max-height: 260px; }
+  /* Las variables se ven mejor en filas cortas que en una columna angosta. */
+  .chip-list { flex-direction: row; flex-wrap: wrap; }
+}
 </style>

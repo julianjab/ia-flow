@@ -67,7 +67,7 @@ export function resolveLogFile(env: LogEnv): string | null {
   return join(env.IA_FLOW_LOG_DIR ?? join(configDir, 'logs'), 'agent-host.log')
 }
 
-const LOG_FILE = resolveLogFile(Bun.env)
+const LOG_FILE = resolveLogFile(Bun.env as LogEnv)
 
 /**
  * El archivo es un extra, no un requisito: un directorio que no se puede
@@ -165,7 +165,7 @@ export function flushOtel(): Promise<void> {
   return otelProvider?.forceFlush().catch(() => {}) ?? Promise.resolve()
 }
 
-export function otelStream(env: OtelEnv = Bun.env): Writable | null {
+export function otelStream(env: OtelEnv = Bun.env as OtelEnv): Writable | null {
   if (!env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() && !env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT?.trim()) {
     return null
   }

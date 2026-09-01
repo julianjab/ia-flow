@@ -3,7 +3,6 @@ import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { agentRepo, configRepo, projectRepo, repoRepo } from '../composition/container.js'
-import { repoNameError } from './agents-crud-validation.js'
 
 // configRepo.getConfig is @memoize'd (short TTL, see SqliteProjectConfigRepo)
 // to collapse TaskDispatcher's per-item calls within one scan cycle — but it
@@ -59,8 +58,6 @@ export function createAgentsCrudRouter() {
       if (existing)
         return c.json({ error: `Agent '${parsed.id}' already exists in this scope` }, 409)
       const candidate = { ...parsed, projectId: s.target }
-      const repoErr = repoNameError(candidate, validRepoNames(candidate.projectId))
-      if (repoErr) return c.json({ error: repoErr }, 400)
       // Append al final del scope. Ojo: NO se puede usar `inScope.length` —
       // las posiciones no están normalizadas a 0..n-1 (la migración 036 las
       // asignó desde un contador global que atraviesa proyectos y globales),
@@ -115,8 +112,6 @@ export function createAgentsCrudRouter() {
       const parsed = AgentDefinitionSchema.parse(await c.req.json())
       if (parsed.id !== id) return c.json({ error: 'Body id does not match URL id' }, 400)
       const candidate = { ...parsed, projectId: s.target }
-      const repoErr = repoNameError(candidate, validRepoNames(candidate.projectId))
-      if (repoErr) return c.json({ error: repoErr }, 400)
       // Preserva la posición actual: editar el prompt de un agente no debe
       // cambiar su prioridad de selección. Usar el índice en `inScope` sería
       // un bug silencioso — es el rango, no la posición, y las dos numeraciones

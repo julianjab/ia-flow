@@ -119,18 +119,20 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </script>
 
 <template>
-  <section class="prt-section">
-    <div class="prt-header">
-      <div>
-        <h2>Repos del proyecto</h2>
-        <p class="prt-desc">
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>Repos</h2>
+        <p class="section-desc">
           Repos disponibles para este proyecto. Cada entrada tiene dos roles:
           <br>· <strong>Contexto</strong> — el agente lee el <em>path local</em> antes de actuar.
           <br>· <strong>Selección en tareas</strong> — el <em>nombre</em> es lo que aparece en el campo Repos de cada tarea.
           <br>La <em>descripción</em> se expone a los agentes vía <code v-pre>{{project.repos}}</code>.
         </p>
       </div>
-      <button class="prt-btn-add" type="button" @click="openAdd">+ Agregar</button>
+      <div class="section-head-actions">
+        <button type="button" class="btn btn--primary" @click="openAdd">+ Agregar</button>
+      </div>
     </div>
 
     <div class="prt-legend">
@@ -145,16 +147,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
     <div class="prt-list">
       <template v-for="{ name, entry } in repoList" :key="name">
+        <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
         <EditableCard
           v-if="expandedRepoName !== name"
           :clickable="true"
           @edit="toggleExpand(name)"
-          @delete="askConfirm({
-            title: 'Eliminar repo',
-            message: `¿Eliminar el repo '${name}' de este proyecto?`,
-            confirmLabel: 'Eliminar',
-            onConfirm: () => handleDelete(name),
-          })"
         >
           <div class="prt-card-main">
             <span class="prt-name">{{ name }}</span>
@@ -177,6 +174,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
           :entry="entry"
           @save="(newName, newEntry) => handleInlineSave(name, newName, newEntry)"
           @cancel="expandedRepoName = null"
+          @delete="askConfirm({
+            title: 'Eliminar repo',
+            message: `¿Eliminar el repo '${name}' de este proyecto?`,
+            confirmLabel: 'Eliminar',
+            onConfirm: async () => { await handleDelete(name); expandedRepoName = null },
+          })"
         />
       </template>
     </div>
@@ -202,34 +205,9 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.prt-section {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.25rem;
-}
-.prt-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-.prt-header h2 { margin: 0 0 0.25rem; font-size: 1.05rem; }
-.prt-desc { margin: 0; color: var(--fg-dim); font-size: 0.85rem; line-height: 1.5; }
-.prt-btn-add {
-  flex-shrink: 0;
-  padding: 0.4rem 0.9rem;
-  background: var(--fg);
-  color: var(--panel);
-  border: none;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.prt-btn-add:hover { background: #000; }
+/* La caja, el encabezado y el botón salen de `theme.css` (`.settings-section`,
+   `.section-header`, `.btn`): esta pantalla tenía su propia copia con otro
+   radio, otro padding y un `background: #000` hardcodeado en el hover. */
 
 .prt-legend {
   display: flex;

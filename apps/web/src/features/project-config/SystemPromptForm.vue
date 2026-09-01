@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { apiBase } from '@/features/servers/selection';
+import { fetchVariables } from '@/features/project-config/api';
 import { onMounted, ref } from 'vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
@@ -15,6 +15,11 @@ const props = defineProps<{
   modelValue: SystemPromptDraft;
   idHint?: string;
   variant?: 'new' | 'edit';
+  /** El prompt es global y se está mirando desde un proyecto: se lee entero,
+   *  no se guarda. El cuerpo va dentro de un `<fieldset disabled>` para que el
+   *  navegador desactive todo control anidado —incluido el panel de IA y el
+   *  editor de prompt— sin que cada uno reciba un prop. */
+  readonly?: boolean;
   // Forwarded to PromptField → AiAssistPanel so its "referenciar system prompts"
   // list matches the scope of the parent (globals only in General, overlay in
   // a project view).
@@ -25,6 +30,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: SystemPromptDraft];
   save: [];
   cancel: [];
+  delete: [];
 }>();
 
 const variableGroups = ref<VariableGroup[]>([]);
@@ -70,10 +76,8 @@ function applyAiFields(fields: Record<string, unknown>) {
 
 onMounted(async () => {
   try {
-    const API_BASE = apiBase();
-    const res = await fetch(`${API_BASE}/api/variables?context=system-prompt`);
-    if (res.ok) {
-      const defs: VariableDefinition[] = await res.json();
+    {
+      const defs: VariableDefinition[] = await fetchVariables('system-prompt');
       const byGroup = new Map<string, VariableDefinition[]>();
       for (const v of defs) {
         const g = v.group ?? 'system';
@@ -109,7 +113,12 @@ function updateText(v: string) {
 
 <template>
   <div class="sp-form" :class="{ 'sp-form--edit': variant === 'edit' }">
-    <div class="sp-form-header">
+    <p v-if="readonly" class="sp-ro-note">
+      Es un system prompt <b>global</b>: los agentes de este proyecto lo pueden referenciar, pero
+      se edita en <b>General → System Prompts</b>.
+    </p>
+    <fieldset class="sp-form-fields" :disabled="readonly">
+    <div v-if="!readonly" class="sp-form-header">
       <button type="button" class="btn-ai-form" :class="{ active: aiOpen }" @click="aiOpen = !aiOpen">
         ✨ IA — Prellenar formulario
       </button>
@@ -148,14 +157,38 @@ function updateText(v: string) {
         @clear-pending-proposal="pendingTextProposal = null"
       />
     </div>
+    </fieldset>
     <div class="sp-form-actions">
-      <button class="btn-cancel-sm" @click="emit('cancel')">Cancelar</button>
-      <button class="btn-save-sm" @click="emit('save')">Guardar</button>
+      <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
+           deshace, y desde el formulario se ve QUÉ prompt se está por borrar. -->
+      <button v-if="variant === 'edit' && !readonly" class="btn-delete-sm" @click="emit('delete')">Eliminar</button>
+      <span class="sp-form-actions-spacer" />
+      <button class="btn-cancel-sm" @click="emit('cancel')">
+        {{ readonly ? 'Cerrar' : 'Cancelar' }}
+      </button>
+      <button v-if="!readonly" class="btn-save-sm" @click="emit('save')">Guardar</button>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* `fieldset` y no `div`: `disabled` desactiva todo control anidado sin
+   propagar un prop por `PromptField` y `AiAssistPanel`. Hay que neutralizarle
+   el chrome que trae por default. */
+.sp-form-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.sp-ro-note {
+  margin: 0 0 0.5rem;
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+}
+
 .sp-form {
   background: var(--panel-alt);
   border: 1px solid var(--border);
@@ -184,6 +217,17 @@ function updateText(v: string) {
 .btn-ai-form:hover { border-color: var(--magenta); color: var(--magenta); }
 .btn-ai-form.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
 .sp-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
+.sp-form-actions-spacer { flex: 1; }
+.btn-delete-sm {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--danger);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.btn-delete-sm:hover { background: var(--red-bg); }
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
 .field-label { font-size: 0.8rem; font-weight: 500; color: var(--fg-mute); }
 .field-hint { font-size: 0.72rem; color: var(--fg-dim); }

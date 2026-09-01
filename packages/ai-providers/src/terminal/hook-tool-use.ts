@@ -86,6 +86,12 @@ function stringify(v: unknown): string | undefined {
 const sessionId = typeof obj.session_id === 'string' ? obj.session_id : 'no-session'
 const parentToolUseId =
   typeof obj.parent_tool_use_id === 'string' ? obj.parent_tool_use_id : undefined
+// Claude Code lo manda en TODOS sus hooks. Es la única fuente de usage y de
+// modelo de un run de terminal, así que viaja en cada evento que lo tiene y el
+// daemon lo lee al cerrar el run.
+const transcriptPath =
+  typeof obj.transcript_path === 'string' && obj.transcript_path ? obj.transcript_path : undefined
+const withTranscript = transcriptPath !== undefined ? { transcriptPath } : {}
 
 let body: Record<string, unknown>
 
@@ -128,7 +134,12 @@ if (hookName === 'PreToolUse') {
   body = { event: 'agent.prompt', runId, prompt: truncate(promptRaw) }
 } else if (hookName === 'Stop') {
   const stopReason = stringify(obj.stop_reason ?? obj.reason)
-  body = { event: 'agent.stop', runId, ...(stopReason !== undefined ? { stopReason } : {}) }
+  body = {
+    event: 'agent.stop',
+    runId,
+    ...(stopReason !== undefined ? { stopReason } : {}),
+    ...withTranscript,
+  }
 } else if (hookName === 'SubagentStop') {
   const stopReason = stringify(obj.stop_reason ?? obj.reason)
   body = { event: 'subagent.stop', runId, ...(stopReason !== undefined ? { stopReason } : {}) }
@@ -139,6 +150,7 @@ if (hookName === 'PreToolUse') {
     runId,
     sessionId,
     ...(source !== undefined ? { source } : {}),
+    ...withTranscript,
   }
 } else {
   // PostToolUse (default / legacy — no event field so hook-events router uses
@@ -160,6 +172,7 @@ if (hookName === 'PreToolUse') {
     ...(result !== undefined ? { result } : {}),
     ...(isError !== undefined ? { isError } : {}),
     ...(parentToolUseId !== undefined ? { parentToolUseId } : {}),
+    ...withTranscript,
   }
 }
 

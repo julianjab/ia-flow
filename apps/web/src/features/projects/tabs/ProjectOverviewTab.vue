@@ -12,6 +12,7 @@ import {
 } from '@/features/projects/api';
 import { fetchProjectHealth, type SourceHealthResponse } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 
 const props = defineProps<{ project: Project | null }>();
 
@@ -83,10 +84,20 @@ async function save() {
   }
 }
 
-async function archive() {
+function archive() {
   if (!props.project) return;
   const { id, name } = props.project;
-  if (!window.confirm(`¿Archivar el proyecto '${name}'?`)) return;
+  pendingConfirm.value = {
+    title: 'Archivar proyecto',
+    message: `¿Archivar el proyecto '${name}'?`,
+    confirmLabel: 'Archivar',
+    // El id viaja al callback en vez de releerse de props: entre que se abre
+    // el diálogo y se confirma, el proyecto activo pudo cambiar.
+    onConfirm: () => doArchive(id),
+  };
+}
+
+async function doArchive(id: string) {
   try {
     await projectsStore.archive(id);
     // Route away before toast: once the list refetches without this project,
@@ -145,6 +156,23 @@ async function confirmDelete() {
   } finally {
     deleting.value = false;
   }
+}
+
+/** Confirmación in-app en vez de `confirm()` nativo: los botones del nativo los
+ *  pinta el sistema operativo en el idioma del DISPOSITIVO, así que en un
+ *  teléfono en inglés el mensaje sale en español con "OK / Cancel" abajo. */
+const pendingConfirm = ref<{
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+} | null>(null);
+
+async function runConfirm() {
+  const c = pendingConfirm.value;
+  if (!c) return;
+  pendingConfirm.value = null;
+  await c.onConfirm();
 }
 </script>
 
@@ -210,11 +238,14 @@ async function confirmDelete() {
     </div>
 
     <div class="pot-actions">
-      <button class="pot-btn pot-btn--primary" :disabled="!dirty || saving" @click="save">
+      <!-- Los tres niveles del sistema, en orden de peso: guardar (primario),
+           archivar (peligroso pero reversible, contorno) y borrar (destructivo,
+           relleno). Ver DESIGN_SYSTEM.md → Botones. -->
+      <button class="btn btn--primary" :disabled="!dirty || saving" @click="save">
         {{ saving ? 'Guardando…' : 'Guardar' }}
       </button>
-      <button class="pot-btn pot-btn--danger" @click="archive">Archivar proyecto</button>
-      <button class="pot-btn pot-btn--destructive" @click="openDeleteDialog">
+      <button class="btn btn--danger" @click="archive">Archivar proyecto</button>
+      <button class="btn btn--destructive" @click="openDeleteDialog">
         Eliminar permanentemente…
       </button>
     </div>
@@ -274,11 +305,11 @@ async function confirmDelete() {
           </label>
         </div>
         <footer class="pot-modal__footer">
-          <button class="pot-btn" @click="deleteOpen = false" :disabled="deleting">
+          <button class="btn" @click="deleteOpen = false" :disabled="deleting">
             Cancelar
           </button>
           <button
-            class="pot-btn pot-btn--destructive"
+            class="btn btn--destructive"
             :disabled="!deleteConfirmed || deleting"
             @click="confirmDelete"
           >
@@ -289,6 +320,17 @@ async function confirmDelete() {
     </div>
   </section>
   <div v-else class="pot-empty">Proyecto no encontrado.</div>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
+
 </template>
 
 <style scoped>
@@ -327,12 +369,32 @@ async function confirmDelete() {
 .pot-health__warn-item { opacity: 0.85; }
 .pot-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* `minmax(0, 1fr)` y no `1fr`: el minimo implicito de una pista de grid es
+     `auto`, o sea el ancho de su contenido. Con `1fr` pelado, un input o una
+     URL larga estiran la columna y el grid entero se sale de la pantalla —
+     que es lo que pasaba acá. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.85rem;
 }
-.pot-field { display: flex; flex-direction: column; gap: 0.35rem; }
+@media (max-width: 640px) {
+  /* Una columna: dos campos de formulario lado a lado en 390px dejan ~180px
+     para cada input, que no alcanza para leer una URL ni un path. */
+  .pot-grid { grid-template-columns: 1fr; }
+  /* `--full` ya no significa nada con una sola columna, pero la regla sigue
+     siendo valida y explicita. */
+  .pot-field--full { grid-column: 1; }
+  /* Los botones de accion se apilan en vez de salirse. */
+  .pot-actions { flex-wrap: wrap; }
+  .pot-actions > * { flex: 1 1 auto; }
+}
+/* `min-width: 0` para que el campo pueda encoger dentro de su pista: sin eso
+   su minimo es el de su contenido y `minmax(0, …)` no alcanza. */
+.pot-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .pot-field--full { grid-column: 1 / -1; }
 .pot-field__label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
+/* URLs y paths son tokens sin espacios: sin esto su ancho minimo empuja igual. */
+.pot-field, .pot-field * { overflow-wrap: anywhere; }
+.pot-input { max-width: 100%; box-sizing: border-box; }
 .pot-source {
   display: flex;
   align-items: center;
@@ -366,18 +428,6 @@ async function confirmDelete() {
 .pot-input--mono { font-family: ui-monospace, SFMono-Regular, monospace; }
 .pot-input:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 .pot-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
-.pot-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.pot-btn--primary { background: var(--fg); color: var(--panel); }
-.pot-btn--danger { background: var(--panel); color: var(--danger); border-color: var(--danger); }
-.pot-btn--destructive { background: var(--danger); color: var(--panel); border-color: var(--danger); }
-.pot-btn--destructive:not(:disabled):hover { background: var(--danger); }
-.pot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ─── Cascade-delete modal ──────────────────────────────────────────────── */
 .pot-modal-backdrop {

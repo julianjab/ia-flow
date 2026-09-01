@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
@@ -57,6 +57,9 @@ type SectionId =
   | 'agent-host-logs'
   | 'proyectos'
   | 'agentes'
+  | 'pipeline'
+  | 'acciones'
+  | 'tools'
   | 'system-prompts'
   | 'providers'
   | 'mcp-catalog'
@@ -71,6 +74,9 @@ const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'tareas',         label: 'tareas' },
   { id: 'board',          label: 'board' },
   { id: 'agentes',        label: 'agentes' },
+  { id: 'pipeline',       label: 'pipeline' },
+  { id: 'acciones',       label: 'acciones' },
+  { id: 'tools',          label: 'tools' },
   { id: 'system-prompts', label: 'system prompts' },
   { id: 'repos',          label: 'repos' },
   { id: 'provider',       label: 'provider' },
@@ -141,10 +147,31 @@ const TAB_GROUP_LABELS: Record<string, string> = {
 
 // Desktop: sidebar expanded by default (no hamburger-only rail).
 // Mobile: collapsed by default (overlay, opened via topbar toggle).
-const isMobile = () =>
-  typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
-const sidebarCollapsed = ref(isMobile());
+//
+// El breakpoint se escucha, no se lee una sola vez al montar: en desktop el
+// panel colapsado mide 0px y NO hay forma de reabrirlo (el ☰ y el backdrop
+// son `display: none` fuera de mobile), así que un colapso hecho en mobile
+// dejaba el menú desaparecido para siempre al agrandar la ventana. Cruzar el
+// breakpoint reimpone el default de cada lado.
+const MOBILE_QUERY = '(max-width: 768px)';
+const mobileMq =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(MOBILE_QUERY)
+    : null;
+const mobile = ref(mobileMq?.matches ?? false);
+const isMobile = () => mobile.value;
+const sidebarCollapsed = ref(mobile.value);
 function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
+
+function onBreakpointChange(e: MediaQueryListEvent) {
+  if (e.matches === mobile.value) return;
+  mobile.value = e.matches;
+  sidebarCollapsed.value = e.matches;
+}
+if (mobileMq) {
+  mobileMq.addEventListener('change', onBreakpointChange);
+  onUnmounted(() => mobileMq.removeEventListener('change', onBreakpointChange));
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -160,6 +187,9 @@ const SECTION_PATH: Record<SectionId, string> = {
   'agent-host-logs': '/agent-host/logs',
   proyectos:        '/projects',
   agentes:          '/general/agentes',
+  pipeline:         '/general/pipeline',
+  acciones:         '/general/acciones',
+  tools:            '/general/tools',
   'system-prompts': '/general/system-prompts',
   providers:        '/general/providers',
   'mcp-catalog':    '/general/mcp-catalog',
@@ -249,6 +279,9 @@ const TABS = computed<
   { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },
 
   { id: 'agentes',          label: 'agentes',        icon: '', group: 'global' },
+  { id: 'pipeline',         label: 'pipeline',       icon: '', group: 'global' },
+  { id: 'acciones',         label: 'acciones',       icon: '', group: 'global' },
+  { id: 'tools',            label: 'tools',          icon: '', group: 'global' },
   { id: 'system-prompts',   label: 'system prompts', icon: '', group: 'global' },
   { id: 'providers',        label: 'providers',      icon: '', group: 'global' },
   { id: 'mcp-catalog',      label: 'mcp catalog',    icon: '', group: 'global' },
@@ -319,13 +352,8 @@ watch(
 
 <template>
   <section class="app-shell">
-    <!-- Window chrome — mac-lights on the left, breadcrumb centre, chip right. -->
+    <!-- Window chrome — breadcrumb centre, chip right. -->
     <header class="app-shell__chrome">
-      <div class="app-shell__lights" aria-hidden="true">
-        <span class="app-shell__light app-shell__light--r" />
-        <span class="app-shell__light app-shell__light--y" />
-        <span class="app-shell__light app-shell__light--g" />
-      </div>
       <button
         type="button"
         class="app-shell__toggle"
@@ -391,11 +419,6 @@ watch(
   height: var(--chrome-h);
   box-sizing: border-box;
 }
-.app-shell__lights { display: flex; gap: 0.35rem; }
-.app-shell__light { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-.app-shell__light--r { background: #ff5f57; }
-.app-shell__light--y { background: #febc2e; }
-.app-shell__light--g { background: #28c840; }
 .app-shell__toggle {
   display: none;
   background: transparent;
@@ -459,5 +482,39 @@ watch(
   .app-shell__toggle { display: inline-flex; align-items: center; justify-content: center; }
   .app-shell__title { display: none; }
   .app-shell__main { padding: 0.75rem 0.75rem 2rem; }
+
+  /* Los chips de la derecha no entraban en 390px y empujaban la página a
+     484px. Como el header es `sticky` y vive en el shell, ese desborde le daba
+     scroll horizontal a TODAS las vistas.
+
+     La solución NO es dejarlo envolver: `height` es fija —y tiene que serlo,
+     porque el `top` del sidebar abierto se calcula contra ella— así que una
+     segunda fila se renderiza FUERA de la caja, montada sobre el contenido.
+     Lo que se achica es el contenido.
+
+     `min-width: 0` es lo que permite encogerlos: sin eso el mínimo de un hijo
+     de flex es el de su contenido, y ni `overflow: hidden` alcanza. */
+  .app-shell__chrome { gap: 0.4rem; padding: 0.4rem 0.5rem; overflow: hidden; }
+  .app-shell__chrome > * { min-width: 0; flex-shrink: 1; }
+
+  /* El nombre del server se trunca en vez de empujar: cuál daemon mirás
+     importa, pero el largo del label no. */
+  .app-shell__server {
+    margin-left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 45vw;
+  }
+}
+
+/* En lo angosto, de los chips sobra la ETIQUETA — el glifo y el número son el
+   dato ("◆ 4682/5000" se entiende sin el "gh api"; "○ 0" sin el "corriendo").
+
+   `:deep()` porque los chips son componentes hijos y este bloque es `scoped`:
+   sin eso la regla nunca los alcanza. */
+@media (max-width: 560px) {
+  .app-shell__chrome :deep(.chip__label) { display: none; }
+  .app-shell__chrome :deep(.chip) { padding: 0 0.45rem; }
 }
 </style>

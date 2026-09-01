@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
-import type { AgentDefinition, StatusConfig } from '@ia-flow/shared';
+import type { StatusConfig } from '@ia-flow/shared';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import EditableCard from '@/ui/EditableCard.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
-import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import {
   fetchProjectStatuses,
   type StatusOption,
@@ -27,23 +27,11 @@ const editingStatus = ref<StatusConfig | null>(null);
 const sourceStatuses = ref<StatusOption[]>([]);
 const statusNameLocked = ref(false);
 
-// Union: globals + this project's own agents (server-side overlay). A status
-// no longer owns its agents (see StatusConfigSchema) — instead each agent
-// declares its own `statusName`, so the list here is derived by filtering
-// the project's agent pipeline, not read off the status config.
-const availableAgents = ref<AgentDefinition[]>([]);
-
-function agentsForStatus(statusName: string): AgentDefinition[] {
-  return availableAgents.value
-    .filter((a) => a.statusName?.toLowerCase() === statusName.toLowerCase())
-    .sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER));
-}
-
 // Status names come 100% from the project's source. The server-side factory
 // picks the right ProjectSource per project kind (github, local, ...); the
 // UI has no kind-specific branches. Per-status config (position, etc.) is
-// looked up from the DB by name — allowBlocked lives on the agent now (see
-// AgentActivationSection), not here.
+// looked up from the DB by name. Qué corre en cada status NO se resuelve acá:
+// desde la migración 059 lo decide una regla, y la respuesta vive en Pipeline.
 const allStatuses = computed(() => {
   const configMap = new Map(
     (projectConfigStore.config?.statuses ?? []).map((s) => [s.name.toLowerCase(), s]),
@@ -51,7 +39,6 @@ const allStatuses = computed(() => {
   return sourceStatuses.value.map(({ name }) => ({
     name,
     config: configMap.get(name.toLowerCase()) ?? null,
-    agents: agentsForStatus(name),
   }));
 });
 
@@ -59,6 +46,26 @@ function openConfigureStatus(name: string, config: StatusConfig | null) {
   editingStatus.value = config ?? ({ name } as StatusConfig);
   statusNameLocked.value = true;
   statusModalOpen.value = true;
+}
+
+/** Sólo se puede borrar lo que ESTE proyecto configuró: el status en sí lo
+ *  define la fuente y no es nuestro para borrar. */
+const editingIsConfigured = computed(() =>
+  (projectConfigStore.config?.statuses ?? []).some(
+    (s) => s.name.toLowerCase() === (editingStatus.value?.name ?? '').toLowerCase(),
+  ),
+);
+
+function askDeleteStatus(statusName: string) {
+  askConfirm({
+    title: 'Eliminar configuración de status',
+    message: `¿Eliminar la configuración del status '${statusName}'?`,
+    confirmLabel: 'Eliminar',
+    onConfirm: async () => {
+      await deleteStatus(statusName);
+      statusModalOpen.value = false;
+    },
+  });
 }
 
 async function deleteStatus(statusName: string) {
@@ -110,28 +117,13 @@ async function loadSourceStatuses() {
   }
 }
 
-async function loadAvailableAgents() {
-  const pid = projectsStore.activeProjectId;
-  if (!pid) {
-    availableAgents.value = [];
-    return;
-  }
-  try {
-    availableAgents.value = await fetchAvailableAgents(pid);
-  } catch {
-    availableAgents.value = [];
-  }
-}
-
 onMounted(() => {
   void loadSourceStatuses();
-  void loadAvailableAgents();
 });
 
 // Reload source-derived data whenever the user switches projects.
 watch(() => projectsStore.activeProjectId, () => {
   void loadSourceStatuses();
-  void loadAvailableAgents();
 });
 
 interface PendingConfirm {
@@ -155,9 +147,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
   <section class="settings-section">
     <h2>Statuses</h2>
     <p class="section-desc">
-      Statuses activos en el proyecto. Los agentes que corren en cada uno se configuran desde
-      su propio editor (Activación → Status) — acá se ven de sólo lectura, en el orden en que
-      el engine los evalúa.
+      Las etapas del proyecto, tal como las devuelve la fuente. Acá se les da nombre y orden
+      para mostrarlas; <b>qué corre en cada una lo deciden las reglas</b>, en Pipeline.
     </p>
 
     <div v-if="!allStatuses.length" class="repos-empty">
@@ -165,51 +156,28 @@ function cancelConfirm() { pendingConfirm.value = null; }
     </div>
 
     <div v-else class="status-cards">
-      <div
-        v-for="{ name, config: sc, agents } in allStatuses"
+      <!-- Sin ✕ en la fila: borrar la configuración vive en el modal, que es
+           donde se ve qué se está por borrar. -->
+      <EditableCard
+        v-for="{ name, config: sc } in allStatuses"
         :key="name"
         class="status-card"
-        :class="{ 'status-card--configured': !!agents.length }"
-        @click="openConfigureStatus(name, sc)"
+        clickable
+        @edit="openConfigureStatus(name, sc)"
       >
-        <div class="status-card-header">
-          <span class="status-card-name">{{ name }}</span>
-          <button
-            v-if="sc"
-            type="button"
-            class="btn-delete"
-            title="Eliminar configuración"
-            @click.stop="askConfirm({
-              title: 'Eliminar configuración de status',
-              message: `¿Eliminar la configuración del status '${name}'?`,
-              confirmLabel: 'Eliminar',
-              onConfirm: () => deleteStatus(name),
-            })"
-          >✕</button>
-        </div>
-
-        <div v-if="agents.length" class="status-card-body">
+        <span class="status-card-name">{{ name }}</span>
+        <div class="status-card-body">
           <router-link
-            v-for="(agent, i) in agents"
-            :key="agent.id"
-            :to="{ name: 'projects.detail', params: { id: projectsStore.activeProjectId, tab: 'agentes' } }"
-            class="sc-agent-row"
-            :class="{ 'sc-agent-row--first': i === 0 }"
-            :title="`Editar agente '${agent.id}' desde la pestaña Agentes`"
+            :to="{
+              name: 'projects.detail',
+              params: { id: projectsStore.activeProjectId, tab: 'pipeline' },
+            }"
+            class="sc-rules-link"
             @click.stop
-          >
-            <span class="sc-agent-order">{{ i === 0 ? '▸' : `#${i + 1}` }}</span>
-            <span class="sc-agent-name">{{ agent.id }}</span>
-            <span v-if="agent.enabled === false" class="sc-agent-off">deshabilitado</span>
-            <span v-if="i === 0" class="sc-agent-hint">correría primero</span>
-          </router-link>
-        </div>
-
-        <div v-else class="status-card-empty">
-          <span>Sin agentes configurados</span>
+          >Ver qué corre acá →</router-link>
           <span class="sc-add-hint">+ Configurar status</span>
         </div>
-      </div>
+      </EditableCard>
     </div>
   </section>
 
@@ -218,8 +186,10 @@ function cancelConfirm() { pendingConfirm.value = null; }
     :status-config="editingStatus"
     :status-options="sourceStatuses.map((s) => s.name)"
     :name-locked="statusNameLocked"
+    :deletable="editingIsConfigured"
     @close="statusModalOpen = false"
     @save="handleStatusSave"
+    @delete="askDeleteStatus"
   />
 
   <ConfirmDialog
@@ -234,42 +204,17 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 
-.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
-.btn-delete {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--danger);
-  background: var(--panel);
-  color: var(--danger);
-  font-size: 0.8rem;
-  cursor: pointer;
-  line-height: 1;
-}
-.btn-delete:hover { background: var(--red-bg); }
+.repos-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); padding: 0.5rem 0; }
 
-.status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.25rem; }
-.status-card {
-  border: 1px solid var(--border);
-  padding: 0.85rem 1rem;
-  background: var(--panel-alt);
-  cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  min-height: 90px;
-}
-.status-card:hover { border-color: var(--accent); background: var(--panel); }
-.status-card--configured { background: var(--panel); border-color: var(--border-hi); }
-.status-card-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.status-card-name { font-size: 0.88rem; font-weight: 700; color: var(--fg); }
+.status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem; }
+/* La caja, el hover y el ✕ los pone `EditableCard`; acá sólo el contenido. */
+.status-card { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+.status-card-name { font-size: var(--fs-body-sm); font-weight: 700; color: var(--fg); }
 .status-card-body { display: flex; flex-direction: column; gap: 0.2rem; }
-.status-card-empty { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; justify-content: center; }
-.status-card-empty > span:first-child { font-size: 0.75rem; color: var(--fg-dim); }
-.sc-add-hint { font-size: 0.72rem; color: var(--accent); font-weight: 500; }
+.sc-rules-link { font-size: var(--fs-micro); color: var(--ai); text-decoration: none; }
+.sc-rules-link:hover { text-decoration: underline; background: none; }
+.sc-add-hint { font-size: var(--fs-micro); color: var(--accent); font-weight: 500; }
 
 .sc-agent-row {
   display: flex;

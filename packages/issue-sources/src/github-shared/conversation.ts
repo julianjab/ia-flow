@@ -159,7 +159,7 @@ export async function postToTarget(
 /** Responde DENTRO del hilo, que es donde el reviewer va a buscar la respuesta. */
 export async function replyToReviewThread(threadId: string, body: string): Promise<void> {
   await gql(
-    `mutation($threadId: ID!, $body: String!) {
+    `mutation ReplyToReviewThread($threadId: ID!, $body: String!) {
       addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
         comment { id }
       }
@@ -173,7 +173,7 @@ export async function replyToReviewThread(threadId: string, body: string): Promi
  *  en vez de un marker HTML escondido en el body. */
 export async function resolveReviewThread(threadId: string): Promise<void> {
   await gql(
-    `mutation($threadId: ID!) {
+    `mutation ResolveReviewThread($threadId: ID!) {
       resolveReviewThread(input: { threadId: $threadId }) {
         thread { id isResolved }
       }

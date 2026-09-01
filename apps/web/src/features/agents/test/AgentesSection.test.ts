@@ -6,21 +6,22 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import AgentEditorModal from '../AgentEditorModal.vue'
 import AgentesSection from '../AgentesSection.vue'
 
-// AgentesSection ahora lee/escribe el agente abierto vía :agentId en la URL
+// AgentesSection ahora lee/escribe el agente abierto vía :detailId en la URL
 // (ver resolveAgentFromRoute) en vez de un ref local — necesita un router
 // real montado, no solo un stub, para que useRoute()/useRouter() funcionen.
 const testRouter = createRouter({
   history: createMemoryHistory(),
-  routes: [{ path: '/general/:tab/:agentId?', name: 'general', component: { template: '<div/>' } }],
+  routes: [
+    { path: '/general/:tab/:detailId?', name: 'general', component: { template: '<div/>' } },
+  ],
 })
 
-function agent(id: string, position: number, enabled?: boolean): AgentDefinition {
+function agent(id: string, position: number): AgentDefinition {
   return {
     id,
     provider: 'terminal-claude',
     prompt: `prompt ${id}`,
     position,
-    enabled,
   } as AgentDefinition
 }
 
@@ -83,67 +84,58 @@ describe('AgentesSection', () => {
     fetchAgentsReadOnly.mockResolvedValue(false)
   })
 
-  it('separa los deshabilitados en su propia sección', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false), agent('c', 2, true)])
-    expect(idsIn(wrapper, 'agents')).toEqual(['a', 'c'])
-    expect(idsIn(wrapper, 'agents-disabled')).toEqual(['b'])
+  // Alfabético, no por `position`: desde la migración 059 el orden de esta
+  // lista no decide nada —quién corre lo deciden las reglas— así que ordenar
+  // por un campo que ya no significa nada daría un orden aparentemente
+  // significativo que en realidad es arbitrario.
+  it('lista los agentes del scope alfabéticamente, ignorando position', async () => {
+    const wrapper = await mountSection([agent('c', 0), agent('a', 1), agent('b', 2)])
+    expect(idsIn(wrapper, 'agents')).toEqual(['a', 'b', 'c'])
   })
 
-  it('reordena por drag & drop mandando el scope completo, deshabilitados al final', async () => {
-    // `setPositions` asigna position = índice del array recibido: mandar sólo
-    // los habilitados dejaría a 'b' con una posición vieja intercalada.
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false), agent('c', 2)])
+  // El drag escribía `agent.position`, que ningún camino de selección lee desde
+  // que las reglas decidieron el orden. Arrastrar tarjetas que no ordenan nada
+  // es peor que no poder arrastrarlas.
+  it('no ofrece reordenar: el orden de los agentes ya no decide nada', async () => {
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1), agent('c', 2)])
     const cards = wrapper.findAll('[data-kbd-list="agents"] .agent-card')
+
+    expect(wrapper.find('.agent-drag-handle').exists()).toBe(false)
+    expect(wrapper.find('.btn-move').exists()).toBe(false)
+    expect(wrapper.find('.agent-order').exists()).toBe(false)
+
     await cards[1].trigger('dragstart')
-    await cards[0].trigger('dragover')
     await cards[0].trigger('drop')
     await flushPromises()
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['c', 'a', 'b'])
+    expect(reorderAgents).not.toHaveBeenCalled()
   })
 
-  it('deshabilita desde la lista y manda el agente al final del scope', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('c', 1)])
-    const toggles = wrapper.findAll('[data-kbd-list="agents"] .btn-toggle')
-    expect(toggles[0].text()).toBe('Deshabilitar')
-    await toggles[0].trigger('click')
-    await flushPromises()
-    expect(updateAgent).toHaveBeenCalledWith(
-      { kind: 'global' },
-      expect.objectContaining({ id: 'a', enabled: false }),
-    )
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['c', 'a'])
-  })
-
-  it('vuelve a habilitar desde la sección de deshabilitados', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false)])
-    const toggle = wrapper.get('[data-kbd-list="agents-disabled"] .btn-toggle')
-    expect(toggle.text()).toBe('Habilitar')
-    await toggle.trigger('click')
-    await flushPromises()
-    expect(updateAgent).toHaveBeenCalledWith(
-      { kind: 'global' },
-      expect.objectContaining({ id: 'b', enabled: true }),
-    )
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['a', 'b'])
-  })
-
-  it('cuando el scope es read-only, oculta "+ Agregar agente" y las acciones de cada tarjeta', async () => {
+  it('cuando el scope es read-only, oculta "+ Agregar agente" y muestra el banner', async () => {
     fetchAgentsReadOnly.mockResolvedValue(true)
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false)])
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1)])
 
-    expect(wrapper.find('.btn-add-repo').exists()).toBe(false)
+    expect(wrapper.find('.section-head-actions .btn--primary').exists()).toBe(false)
     expect(wrapper.find('.readonly-banner').exists()).toBe(true)
-    expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(false)
-    expect(wrapper.find('[data-kbd-list="agents-disabled"] .agent-actions').exists()).toBe(false)
   })
 
   it('cuando el scope es editable, muestra "+ Agregar agente" y no el banner', async () => {
     fetchAgentsReadOnly.mockResolvedValue(false)
     const wrapper = await mountSection([agent('a', 0)])
 
-    expect(wrapper.find('.btn-add-repo').exists()).toBe(true)
+    expect(wrapper.find('.section-head-actions .btn--primary').exists()).toBe(true)
     expect(wrapper.find('.readonly-banner').exists()).toBe(false)
-    expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(true)
+  })
+
+  it('la tarjeta no tiene acciones en NINGÚN scope', async () => {
+    // Lo único que había era el toggle de habilitar/deshabilitar, y un agente
+    // ya no declara si corre — lo decide la regla que lo dispara. Alta y baja
+    // viven en el detalle; el resto, en Pipeline.
+    fetchAgentsReadOnly.mockResolvedValue(false)
+    const wrapper = await mountSection([agent('a', 0)])
+
+    expect(wrapper.findAll('[data-kbd-list="agents"] .editable-card__actions button')).toHaveLength(
+      0,
+    )
   })
 
   it('aunque el scope sea read-only, el click en una tarjeta propia abre el editor en modo lectura', async () => {
@@ -153,7 +145,7 @@ describe('AgentesSection', () => {
     await wrapper.get('[data-kbd-list="agents"] .agent-card').trigger('click')
     await flushPromises()
 
-    expect(testRouter.currentRoute.value.params.agentId).toBe('a')
+    expect(testRouter.currentRoute.value.params.detailId).toBe('a')
     const modal = wrapper.findComponent(AgentEditorModal)
     expect(modal.props('open')).toBe(true)
     expect(modal.props('agent')).toMatchObject({ id: 'a' })
@@ -170,7 +162,7 @@ describe('AgentesSection', () => {
     expect(wrapper.findComponent(AgentEditorModal).props('readonly')).toBe(false)
   })
 
-  it('un :agentId que no existe (ya con el catálogo cargado) avisa y vuelve a la lista', async () => {
+  it('un :detailId que no existe (ya con el catálogo cargado) avisa y vuelve a la lista', async () => {
     const wrapper = await mountSection([agent('a', 0)])
 
     await testRouter.push('/general/agentes/nope')
@@ -178,7 +170,7 @@ describe('AgentesSection', () => {
 
     expect(wrapper.findComponent(AgentEditorModal).props('open')).toBe(false)
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining('nope'))
-    expect(testRouter.currentRoute.value.params.agentId).toBeUndefined()
+    expect(testRouter.currentRoute.value.params.detailId).toBeUndefined()
     expect(wrapper.find('.settings-section').exists()).toBe(true)
   })
 })

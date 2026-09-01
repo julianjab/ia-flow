@@ -42,6 +42,7 @@ setPreloadedConfig({
   projects: cfg.projects,
   repos: cfg.repos,
   agents: cfg.agents,
+  rules: cfg.rules,
   mcp: cfg.mcp,
   remoteProviders: cfg.settings?.remoteProviders ?? true,
   // Default apagado: un roster headless que sólo lee y escribe por el MCP de

@@ -44,6 +44,19 @@ export interface DivergenceReconcilerDeps {
   /** Surfaced instead of thrown — a reconciliation tick must never take the
    *  daemon down. */
   onError?: (err: unknown) => void
+  /**
+   * ¿Esta task está pausada esperando a una persona?
+   *
+   * Un run pausado sigue figurando como pending —el flag `working` no se
+   * limpia a propósito, para que nadie más tome la task— pero su status SÍ
+   * puede moverse mientras espera: quien pidió la pausa suele moverlo. Sin
+   * este gate, el reconciliador leería ese movimiento como deriva externa y
+   * cancelaría una pausa que alguien pidió a propósito.
+   *
+   * Ausente = ninguna task está pausada, que es el comportamiento previo a
+   * las pausas.
+   */
+  isPaused?: (taskId: string) => Promise<boolean>
 }
 
 export class DivergenceReconciler {
@@ -142,6 +155,13 @@ export class DivergenceReconciler {
     // agent's own legitimate move as external drift and self-cancel.
     const baseline = pending.reconciliationStatus ?? pending.initialStatus
     if (item.status.toLowerCase() === baseline.toLowerCase()) return
+
+    // Una pausa NO es deriva: el run se detuvo a propósito y espera a una
+    // persona, que muy probablemente movió el status al pedirla.
+    if (await this.deps.isPaused?.(taskId)) {
+      log.debug({ taskId, from: baseline, to: item.status }, 'Task pausada — no se cancela')
+      return
+    }
 
     log.info(
       { taskId, from: baseline, to: item.status },

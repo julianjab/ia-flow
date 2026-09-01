@@ -77,14 +77,84 @@ Escala: `--fs-micro` · `--fs-chrome` · `--fs-body-sm` · `--fs-body`. Siempre 
 Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son globales:
 
 - `.panel` / `.panel__header` (`--dim`) — card con header en caja alta.
-- `.btn` + `.btn--primary` / `.btn--danger` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.**
-- `.uc-label` — label en caja alta, mono, con tracking.
+- `.settings-section` + `.section-header` / `.section-head-text` / `.section-head-actions` / `.section-desc` — **la caja de una pantalla de configuración.** Es la que usan Tareas, Board, Agentes, Pipeline, Acciones, Tools, System Prompts y Repos, y por eso las ocho tienen el mismo alto de caja, el mismo `h2` y el mismo espacio hasta la primera fila. Vivía copiada `scoped` en nueve componentes hasta que las copias derivaron (radios de 8/10px que el reset pisa, dos tamaños de `h2`, tres márgenes de descripción distintos): **no la vuelvas a declarar en un componente.**
+- `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
+- `.btn` + `.btn--primary` / `.btn--danger` / `.btn--destructive` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.** Ver "Botones" más abajo para cuál va en cada caso.
+- `.uc-label` — **el label de un campo**, y de cualquier dato con nombre (celda de tile, fila de
+  meta). Caja alta, mono, con tracking, en `--fg-dim`. Ocho componentes se declaraban su propia
+  copia idéntica (`.af-lbl`, `.cre-lbl`, `.wce-lbl`, `.na-lbl`, `.rse-lbl`, `.ts-lbl`…) porque la
+  global estaba un escalón más apagada (`--fg-dimmer`, la ranura de los placeholders); se corrigió
+  el token y se borraron las copias. **No la vuelvas a declarar.**
+- `ui/form-fields.css` — **el kit de campo denso**: la caja (`.ff-field`), el hint (`.ff-hint`), el
+  error (`.ff-error`), la fila de par clave/valor (`.ff-list-*`) y los botones de alta y baja de una
+  lista (`.ff-add` / `.ff-drop`). Se importa con `<style scoped src="@/ui/form-fields.css">`, así el
+  scope sigue siendo por componente. Es lo que usan los forms de acción, el editor de condiciones y
+  el ámbito de una regla y los settings de provider; los forms de source todavía tienen su propia
+  copia con otro prefijo (deuda, ver abajo). **Un formulario nuevo lo importa en vez de reinventar
+  el input.**
+- `ui/ConditionRowsEditor.vue` — la fila `campo · operador · valor`, con badge AND/OR opcional
+  (`logic`), catálogo de valores por fila (`valueOptions`) y ops unarios (`opTakesValue`). Es la
+  única: el `when` de un agente, el de una regla y las reglas de admisión de un agent-host la
+  comparten. El conector vive **dentro** de la fila, no en un array paralelo.
 - `.mono` — opt-in de la familia mono en un nodo suelto.
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
 - `.hairline` — separador de 1px.
 - `.select-row` / `.select-row--active` — fila de menú con video inverso.
 - `.live-dot` — 7px con blink, para un run en vuelo. `.cursor-block` para el cursor de terminal.
 - `[data-kbd-item]` — marcá la fila navegable y el foco lo pinta `theme.css`; no escribas tu propio `:focus-visible`.
+
+## Botones
+
+Una sola caja (`.btn`) y cuatro variantes. Lo que cambia entre ellas **no es el tamaño ni la forma: es el peso visual**, y el peso codifica cuánto cuesta deshacer la acción.
+
+| Clase | Se ve | Cuándo |
+| --- | --- | --- |
+| `.btn` | contorno `--border-hi` sobre `--panel-hi`, texto `--fg-mute` | Lo neutro: `Cancelar`, `Cerrar`, un filtro, un toggle. **Es el default** — si dudás, es éste. |
+| `.btn .btn--primary` | relleno `--accent`, texto `--panel` | **Uno por pantalla.** La acción que la pantalla existe para hacer: `Guardar`, `+ Agregar agente`, `Crear`. Dos primarios en la misma fila es que ninguno lo es. |
+| `.btn .btn--danger` | contorno `--danger`, texto `--danger`, fondo `--red-bg` en hover | Peligroso pero **reversible**: `Archivar proyecto`, `Quitar de la lista`, `Revertir`. |
+| `.btn .btn--destructive` | relleno `--danger`, texto `--panel` | Destructivo y **sin vuelta atrás**: `Eliminar permanentemente…`. Es el único botón que pesa más que el primario de su pantalla, y tiene que costar apuntarle. Va siempre detrás de una confirmación. |
+| `.btn .btn--ghost` | sin borde ni fondo, texto `--fg-dim` | Acción terciaria dentro de una fila o un header, donde un borde más sería ruido. |
+
+Reglas que no se ven en la tabla:
+
+- **Orden en una fila de acciones: neutro → primario → peligroso.** El destructivo va último y separado; nunca pegado al primario, porque el gesto para uno queda a un pixel del otro.
+- **El sufijo `…` significa "abre una confirmación"**, no "esto borra". `Eliminar permanentemente…` pregunta; `Eliminar permanentemente` (dentro del diálogo) ejecuta.
+- **Deshabilitado, no escondido**, cuando la acción existe pero todavía no aplica (`Guardar` sin cambios): `.btn:disabled` ya lo atenúa. Se esconde sólo lo que en ese ámbito **no existe** (ver `ScopeGroup`: en un detalle heredado no hay `Guardar`, y por eso no se dibuja apagado).
+- **El texto nombra la acción, no el widget.** `Archivar proyecto`, no `OK`.
+- **Un ✕ o un ↺ dentro de una fila no es un `.btn`** — lo dibuja `EditableCard` (slot `actions`), que ya les da la caja de `--row-h`.
+
+**Deuda conocida:** hay ~30 clases de botón por componente (`ts-btn`, `na-btn`, `rem-btn`, `pspt-btn`, `btn-save-sm`…) que reinventan esta caja con otros paddings y radios. No agregues una más; cuando toques un componente que tenga la suya, migrala.
+
+## Campos — deuda conocida
+
+Los labels y la fila de condiciones ya están unificados (ver las primitivas de arriba). Lo que
+falta, en orden de lo que más se ve:
+
+| Familia | Estado |
+| --- | --- |
+| Forms de **source** (`projects/sources/`) | cinco hermanos del mismo modal, cinco prefijos (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`) — y `GitHubIssuesSourceForm` perdió el `border-radius` que sí tienen los otros cuatro |
+| Forms de **provider por agente** (`agents/providerForms/`) | `.pc-grid`/`.pc-field` copiados verbatim entre dos, y `.jpf-*` en el tercero. Los de settings del provider (`providers/*SettingsForm.vue`) ya están migrados |
+| Textarea de **JSON** | tres copias (`.jsf-textarea`, `.jpf-textarea`, `ff-textarea`); las dos primeras con `ui-monospace, SFMono-Regular` escrito a mano en vez de `--font-mono` |
+| Input de texto plano | diez archivos con `padding: 0.5rem 0.65rem; border: 1px solid var(--border-hi); border-radius: 6px` copiado — `6px` no es token y `--border-hi` es el borde de **foco**, no el de reposo |
+| Listas `+ agregar` / `✕` | seis vocabularios (`.ff-*`, `.oe-*`, `.tp-*`, `.btn-add-mcp`, `.srs-*`, `.loe-x`); el de `ToolParamsEditor` (`.btn` densificado) es el correcto |
+| `EntornoSection.vue` | v3 entero: `box-shadow` azul fuera de la paleta, `'SF Mono'` literal, `.save-button` propio |
+
+Cuando toques uno de esos archivos, migralo al kit — no le agregues un campo más con el prefijo
+viejo.
+
+## Ámbito: lo propio y lo heredado
+
+Cinco dominios se configuran en dos niveles —agentes, reglas (Pipeline), acciones, tools y system prompts— con la misma convención: `projectId: null` es **global** y lo ve todo el mundo; `projectId: 'X'` es de X. Un proyecto ve la **unión**: lo suyo más lo global.
+
+La primera pregunta de esas pantallas no es "¿qué hay acá?" sino **"¿qué puedo tocar acá?"**, así que la respuesta es estructural y no un cartel:
+
+- **Dos grupos, siempre en el mismo orden:** lo propio arriba, lo heredado abajo. Los dibuja `ScopeGroup` (`variant="own" | "inherited"`), con el contador al lado del título y, en el heredado, el badge `solo lectura aquí` más una línea que dice **dónde sí se edita** (`edit-hint="General → Pipeline"`). Sin esa línea, "no se puede" es un callejón sin salida.
+- **Los encabezados aparecen sólo si hay dos ámbitos que distinguir.** En General —donde las globales *son* las propias— serían chrome que no informa nada.
+- **Lo heredado se lista completo y se abre.** No es una nota al pie: son reglas y agentes que están corriendo sobre este proyecto. La fila es clickeable y lleva al **mismo** detalle que la de una propia.
+- **El detalle heredado se lee entero, no se toca.** El cuerpo del formulario va dentro de un `<fieldset :disabled>` —el navegador desactiva todo control anidado sin que cada sub-editor reciba un prop— y el pie ofrece `Cerrar` en vez de `Cancelar`/`Guardar`. Un formulario editable que descarta lo escrito es una promesa falsa; esconder sólo el botón Guardar no alcanza.
+- **Nunca deshabilites la fila para "avisar" que es heredada.** Se atenúa (`muted`) y se marca con el tag `global`; el camino a leerla queda abierto.
+
+Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default: `border: 0; margin: 0; padding: 0; min-inline-size: 0` — sin lo último no se encoge dentro de un contenedor flex.
 
 ## Trampas conocidas
 
@@ -94,7 +164,7 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 
 ## Patrones de vista
 
-- **Header de sección:** título en `--font-display`, caja alta, `letter-spacing: var(--tracking-hd)`, mismo tamaño que el cuerpo — la jerarquía la da la caja alta y el tracking, no el tamaño. Sub-copy en `--fg-dim`.
+- **Header de sección:** título en `--font-display`, caja alta, `letter-spacing: var(--tracking-hd)`, mismo tamaño que el cuerpo — la jerarquía la da la caja alta y el tracking, no el tamaño. Sub-copy en `--fg-dim`. Usá `.section-header` con `.section-head-text` (el texto, que se encoge) y `.section-head-actions` (los botones, que no): sin eso un título largo empuja el botón primario fuera de la caja.
 - **Sub-navegación:** en el sidebar (`SettingsSidebar.vue`, prop `children`). **No** tab strips arriba del contenido.
 - **Tabla:** grid con `grid-template-columns` en `ch`, filas de `--row-h`, hairline `--border-mute` entre filas.
 - **Card de lista:** borde `--border`, hover que cambia superficie a `--panel-hi` y marca el borde izquierdo con la ranura del dominio (`--info` para algo navegable). El foco lo pone `[data-kbd-item]`.
@@ -116,8 +186,13 @@ Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje l
 - [ ] Leí `theme.css` y este archivo.
 - [ ] Uso tokens, no hex ni tamaños sueltos (`grep -n '#[0-9a-fA-F]\{3,6\}' <file>` sale vacío).
 - [ ] Reutilicé una primitiva (`.btn`, `.panel`, `.uc-label`, `.kbd`) en vez de reinventarla.
+- [ ] Los botones usan `.btn` + variante; hay como mucho un `--primary` en la pantalla, y el destructivo va último y detrás de una confirmación.
 - [ ] Radios por token; ningún `0` ni `6px` a mano.
 - [ ] Las filas y chips miden `--row-h` o un múltiplo.
+- [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
+- [ ] Los campos usan `ui/form-fields.css` y los labels son `.uc-label` — no declaré mi propio
+      `.xx-lbl` ni mi propio `.xx-field`.
+- [ ] Si la pantalla se configura en dos ámbitos: lo propio y lo heredado están en dos `ScopeGroup`, lo heredado abre el mismo detalle, y ese detalle no ofrece guardar.
 - [ ] Mono sólo en lo copiable; prosa en Sans.
 - [ ] Si hay `<a>` que no es link de texto, su `:hover` redefine `background`.
 - [ ] Contraste ≥ 4.5:1 en la paleta oscura.

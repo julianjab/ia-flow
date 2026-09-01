@@ -16,6 +16,7 @@ import {
   ERROR_EXIT,
   SUCCESS_EXIT,
   type Task,
+  exitComment,
   exitSet,
   exitWhen,
   resolveCommentTarget,
@@ -142,4 +143,92 @@ export function selectableExits(
   return Object.keys(exits)
     .filter((k) => k !== SUCCESS_EXIT && k !== ERROR_EXIT)
     .map((name) => ({ name, when: exitWhen(exits[name]) }))
+}
+
+/**
+ * Las salidas efectivas de un run: las del agente, con el destino que la regla
+ * haya redirigido.
+ *
+ * **El agente es dueño del VOCABULARIO; la regla, del DESTINO.** Un `set` es
+ * el nombre de una columna de ESTE board, o sea ruteo — el mismo dato que la
+ * migración 059 sacó del agente cuando se llevó `statusName` a las reglas. Sin
+ * este override, reusar un roster contra un segundo board obliga a clonar los
+ * agentes enteros nada más que por el mapeo.
+ *
+ * Merge por clave y sólo sobre claves que el agente YA declara. Una clave
+ * desconocida se descarta con un warn en vez de agregarse: `selectableExits`
+ * se calcula del agente, así que una salida que existiera acá y no allá sería
+ * elegible por `resolveExit` pero invisible en el enum de `select_exit` — un
+ * estado que nadie puede alcanzar a propósito ni diagnosticar cuando pasa.
+ *
+ * `success`/`error` sí se pueden redirigir aunque no sean elegibles: las elige
+ * el engine por cómo terminó el run, no el modelo.
+ *
+ * El merge es **campo a campo, y del override sólo se toma el `set`**. Ver
+ * `redirect`.
+ */
+export function resolveEffectiveExits(
+  agentExits: Record<string, AgentExit> | undefined,
+  overrides: Record<string, AgentExit> | undefined,
+): Record<string, AgentExit> | undefined {
+  if (!overrides || Object.keys(overrides).length === 0) return agentExits
+  if (!agentExits) {
+    log.warn(
+      { overrides: Object.keys(overrides) },
+      'La regla redirige salidas pero el agente no declara ninguna — se ignoran',
+    )
+    return agentExits
+  }
+
+  const merged = { ...agentExits }
+  const unknown: string[] = []
+  for (const [name, override] of Object.entries(overrides)) {
+    if (name in merged) merged[name] = redirect(merged[name], override, name)
+    else unknown.push(name)
+  }
+  if (unknown.length) {
+    log.warn(
+      { unknown, declared: Object.keys(agentExits) },
+      'La regla redirige salidas que el agente no declara — se ignoran (una regla ' +
+        'elige el destino de una salida, no inventa salidas nuevas)',
+    )
+  }
+  return merged
+}
+
+/**
+ * Aplica un destino nuevo sobre una salida del agente, conservando el resto.
+ *
+ * Reemplazar la entrada entera era el bug: el override llega casi siempre en
+ * forma corta (un string, que es lo único que el editor de reglas produce), así
+ * que un agente que declaraba `{ set, when, comment }` perdía `when` y
+ * `comment` al redirigirse. Y no son detalles: `when` es la descripción que el
+ * modelo lee en el enum de `select_exit`, y `comment` decide dónde queda
+ * registrado el hallazgo — un e2e-tester redirigido habría dejado su reporte en
+ * el PR en vez del issue, que es justo el caso que motivó que `comment` exista
+ * por salida.
+ *
+ * Los dos son del AGENTE, no de la regla, así que del override se toma **sólo**
+ * el `set`. Un `when`/`comment` en el override se ignora con un warn en vez de
+ * en silencio: declarar config que no se aplica es el modo de falla que este
+ * merge existe para evitar.
+ */
+function redirect(agentExit: AgentExit, override: AgentExit, name: string): AgentExit {
+  const dest = exitSet(override)
+  if (!dest) {
+    // Un override sin destino no dice nada: dejar la salida como está es lo
+    // correcto, y mucho mejor que aplicar un `set` vacío que movería el issue
+    // a ningún lado.
+    log.warn({ exit: name }, 'La regla redirige una salida sin destino — se ignora')
+    return agentExit
+  }
+  if (typeof override !== 'string' && (exitWhen(override) || exitComment(override))) {
+    log.warn(
+      { exit: name },
+      '`when`/`comment` de un override de salida se ignoran: son del agente ' +
+        '(el `when` es lo que el modelo lee para elegirla, el `comment` dónde ' +
+        'queda el hallazgo). La regla sólo cambia el destino.',
+    )
+  }
+  return typeof agentExit === 'string' ? dest : { ...agentExit, set: dest }
 }

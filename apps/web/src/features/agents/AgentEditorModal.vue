@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { apiBase } from '@/features/servers/selection';
+import { fetchMcpCatalog, fetchToolCatalog } from '@/features/agents/api';
 import { ref, computed, watch } from 'vue';
-import AgentActivationSection from '@/features/agents/AgentActivationSection.vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
+import SystemPromptsSection from '@/features/agents/SystemPromptsSection.vue';
+import AgentPromptSection from '@/features/agents/AgentPromptSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
+import OutputContractEditor from '@/features/agents/OutputContractEditor.vue';
 import ToolsEditor from '@/features/agents/ToolsEditor.vue';
 import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition, AgentOutcomes, AgentProviderChoice, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
+import type { AgentDefinition, AgentOutcomes, AgentOutput, AgentProviderChoice, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
@@ -40,6 +42,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   save: [agent: AgentDefinition];
+  delete: [agent: AgentDefinition];
 }>();
 
 const projectConfigStore = useProjectConfigStore();
@@ -85,7 +88,6 @@ watch(() => [props.open, activationProjectId.value], ([open]) => {
   if (open) void loadOutcomesCatalogs();
 });
 
-const API_BASE = apiBase();
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
@@ -100,10 +102,15 @@ const variables          = ref<KV[]>([]);
 const tools               = ref<AgentToolEntry[] | undefined>(undefined);
 const selectedSysprompts = ref<string[]>([]);
 // `AgentDefinition.systemPrompts` puede traer entradas `{text}` inline
-// (puestas a mano en un deploy YAML headless) mezcladas con ids — este
-// editor solo administra la parte string vía checkboxes, así que preserva
-// cualquier `{text}` tal cual para no perderlo al guardar (ver onSave).
-const preservedSystemPromptRefs = ref<SystemPromptRef[]>([]);
+// (la única forma que funciona en un deploy YAML headless — ver
+// SystemPromptsSection) mezcladas con ids de catálogo. Tipado angosto a
+// `{text}` porque acá sólo viven las no-string (ver el filter de abajo y
+// SystemPromptsSection, que las edita como bloques de texto suelto).
+const preservedSystemPromptRefs = ref<Exclude<SystemPromptRef, string>[]>([]);
+// Puesta por el AI-assist form-fill de AgentDefinitionSection (vía
+// `propose-prompt`) cuando ya había un prompt distinto — AgentPromptSection
+// la muestra como diff, no la pisa (ver PromptField `pending-proposal`).
+const pendingPromptProposal = ref<string | null>(null);
 const providerConfigDraft = ref<Record<string, unknown>>({});
 const selectedMcpCatalogIds = ref<string[]>([]);
 const availableMcpCatalog = ref<McpCatalogEntry[]>([]);
@@ -114,19 +121,17 @@ const saving             = ref(false);
 //   null → engine deriva del set de tools · true → siempre · false → nunca.
 const requiresBranch = ref<boolean | null>(null);
 
-// ─── Activation criteria (see AgentActivationSchema) ─────────────────────
-const repoName = ref<string | null>(null);
-const statusName = ref<string | null>(null);
-const when = ref<WhenCondition[]>([]);
-// Quinto filtro, hermano de `when` (ver AgentActivationSchema.whenText): a
-// diferencia de las condiciones exactas, lo evalua un modelo leyendo el issue.
-const whenText = ref<string | undefined>(undefined);
-const enabled = ref(true);
+// La activación se fue a `rules` (migración 059): el agente ya no declara
+// CUÁNDO corre. `allowBlocked` se quedó porque no es un criterio de match sino
+// una tolerancia del trabajo que el agente hace — ver AgentDefinitionSchema.
 const allowBlocked = ref(false);
 const maxConcurrentDispatches = ref<number | null>(null);
 
 // ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
 const outcomes = ref<AgentOutcomes>({});
+// `AgentDefinition.output` — contrato de salida estructurada. Vive aparte de
+// `outcomes` porque no es una transición: es lo que este agente ENTREGA.
+const outputContract = ref<AgentOutput | undefined>(undefined);
 
 const agentVariableGroups = useAgentVariableGroups();
 
@@ -146,26 +151,22 @@ const availableSysprompts = computed<SystemPromptDef[]>(() =>
 // adentro?" sin abrirla — si no hay nada configurado, decirlo explícitamente
 // en vez de dejar el resumen vacío.
 
-const activationSummary = computed(() => {
-  const parts = [
-    statusName.value ?? 'cualquier status',
-    repoName.value ?? 'cualquier repo',
-  ];
-  if (when.value.length) {
-    parts.push(`${when.value.length} condición${when.value.length === 1 ? '' : 'es'}`);
-  }
-  if (whenText.value) parts.push('criterio en texto libre');
-  if (allowBlocked.value) parts.push('permite bloqueados');
-  // "Habilitado" ya se ve siempre en el pill del header — no lo dupliques acá.
-  return parts.join(' · ');
-});
-
+// "Definición" ya no incluye el prompt (sección propia) — el resumen es
+// puramente id + provider.
 const definitionSummary = computed(() => {
   const choices = providerChoices.value;
   const first = providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—';
-  const name = choices.length > 1 ? `${first} +${choices.length - 1} más` : first;
-  return prompt.value.trim() ? name : `${name} · sin prompt`;
+  return choices.length > 1 ? `${first} +${choices.length - 1} más` : first;
 });
+
+const systemPromptsSummary = computed(() => {
+  const parts: string[] = [];
+  if (selectedSysprompts.value.length) parts.push(`${selectedSysprompts.value.length} del catálogo`);
+  if (preservedSystemPromptRefs.value.length) parts.push(`${preservedSystemPromptRefs.value.length} inline`);
+  return parts.length ? parts.join(' · ') : 'sin selección';
+});
+
+const promptSummary = computed(() => (prompt.value.trim() ? 'con contenido' : 'sin prompt'));
 
 const toolsSummary = computed(() => {
   const t = (tools.value ?? []).length;
@@ -219,17 +220,28 @@ const advancedSummary = computed(() =>
 // resuelve su propio "¿hay algo que atender acá?" para el punto de estado;
 // `danger` para Definición sin prompt es el único caso bloqueante hoy. ────
 
-type SectionKey = 'activacion' | 'definicion' | 'herramientas' | 'outcomes' | 'avanzado';
+type SectionKey = 'definicion' | 'systemprompts' | 'prompt' | 'herramientas' | 'outcomes' | 'avanzado';
 type SectionDot = 'good' | 'neutral' | 'danger';
 
-const activeSection = ref<SectionKey>('activacion');
+const activeSection = ref<SectionKey>('definicion');
 
 const sections = computed<{ key: SectionKey; title: string; summary: string; dot: SectionDot }[]>(() => [
-  { key: 'activacion', title: 'Activación', summary: activationSummary.value, dot: 'good' },
   {
     key: 'definicion',
     title: 'Definición',
     summary: definitionSummary.value,
+    dot: agentId.value.trim() && providerChoices.value.length ? 'good' : 'danger',
+  },
+  {
+    key: 'systemprompts',
+    title: 'System Prompts',
+    summary: systemPromptsSummary.value,
+    dot: (selectedSysprompts.value.length || preservedSystemPromptRefs.value.length) ? 'good' : 'neutral',
+  },
+  {
+    key: 'prompt',
+    title: 'Prompt',
+    summary: promptSummary.value,
     dot: prompt.value.trim() ? 'good' : 'danger',
   },
   {
@@ -254,17 +266,6 @@ const sections = computed<{ key: SectionKey; title: string; summary: string; dot
 const scopeLabel = computed(() =>
   activationScope.value === 'global' ? 'cualquier proyecto' : (activationProjectName.value ?? 'este proyecto'),
 );
-
-const whenSummaryText = computed(() => {
-  if (!when.value.length) return null;
-  const joiner = when.value.some((c) => c.logic === 'or') ? ' o ' : ' y ';
-  return when.value
-    .map((c) => {
-      const opText = c.op === '=' ? '=' : c.op === '!=' ? '≠' : c.op === '$null' ? 'es nulo' : 'no es nulo';
-      return c.value ? `${c.field} ${opText} ${c.value}` : `${c.field} ${opText}`;
-    })
-    .join(joiner);
-});
 
 const providerDisplayName = computed(() => {
   const choices = providerChoices.value;
@@ -295,7 +296,8 @@ watch(availableSysprompts, (list) => {
 watch(() => props.open, async (open) => {
   if (!open) return;
   errors.value = [];
-  activeSection.value = 'activacion';
+  activeSection.value = 'definicion';
+  pendingPromptProposal.value = null;
   const a = props.agent;
   if (a) {
     agentId.value             = a.id;
@@ -306,18 +308,16 @@ watch(() => props.open, async (open) => {
     variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
     tools.value                = a.tools ? [...a.tools] : undefined;
     selectedSysprompts.value   = (a.systemPrompts ?? []).filter((r): r is string => typeof r === 'string');
-    preservedSystemPromptRefs.value = (a.systemPrompts ?? []).filter((r) => typeof r !== 'string');
+    preservedSystemPromptRefs.value = (a.systemPrompts ?? []).filter(
+      (r): r is Exclude<SystemPromptRef, string> => typeof r !== 'string',
+    );
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
     requiresBranch.value = a.requiresBranch ?? null;
-    repoName.value = a.repoName ?? null;
-    statusName.value = a.statusName ?? null;
-    when.value = normalizeWhen(a.when);
-    whenText.value = a.whenText;
-    enabled.value = a.enabled ?? true;
     allowBlocked.value = a.allowBlocked ?? false;
     maxConcurrentDispatches.value = a.maxConcurrentDispatches ?? null;
     outcomes.value = { onProcess: a.onProcess, exits: a.exits };
+    outputContract.value = a.output;
   } else {
     agentId.value             = '';
     providerChoices.value = [{ providerId: providers.value[0]?.id ?? 'anthropic-api' }];
@@ -331,29 +331,27 @@ watch(() => props.open, async (open) => {
     providerConfigDraft.value = {};
     selectedMcpCatalogIds.value = [];
     requiresBranch.value = null;
-    repoName.value = null;
-    statusName.value = null;
-    when.value = [];
-    whenText.value = undefined;
-    enabled.value = true;
     allowBlocked.value = false;
     maxConcurrentDispatches.value = null;
     outcomes.value = {};
+    outputContract.value = undefined;
   }
 
   if (!availableTools.value.length) {
     try {
-      const res = await fetch(`${API_BASE}/api/tools`);
-      if (res.ok) availableTools.value = await res.json();
+      // Acotado al ámbito del editor: un agente de proyecto ve las globales
+      // más las definidas por SU proyecto, y uno global sólo las globales.
+      // Sin esto el picker ofrecía las tools definidas de otro proyecto — el
+      // agente las puede nombrar, pero su acción no le pertenece.
+      const q = props.scope === 'project' && projectsStore.activeProjectId
+        ? `?projectId=${encodeURIComponent(projectsStore.activeProjectId)}`
+        : '?scope=global';
+      availableTools.value = await fetchToolCatalog(q);
     } catch { /* server may not be running */ }
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/mcp-catalog`);
-    if (res.ok) {
-      const data = await res.json() as { entries: McpCatalogEntry[] };
-      availableMcpCatalog.value = data.entries;
-    }
+    availableMcpCatalog.value = await fetchMcpCatalog();
   } catch { /* server may not be running */ }
 });
 
@@ -393,15 +391,26 @@ function kvToRecord(list: KV[]): Record<string, string> {
 
 function validate(): boolean {
   errors.value = [];
-  if (!agentId.value.trim()) errors.value.push('El id es requerido.');
-  if (/\s/.test(agentId.value)) errors.value.push('El id no puede tener espacios.');
+  let firstErrorSection: SectionKey | null = null;
+  if (!agentId.value.trim()) {
+    errors.value.push('El id es requerido.');
+    firstErrorSection ??= 'definicion';
+  }
+  if (/\s/.test(agentId.value)) {
+    errors.value.push('El id no puede tener espacios.');
+    firstErrorSection ??= 'definicion';
+  }
   if (!providerChoices.value.length || providerChoices.value.some((c) => !c.providerId.trim())) {
     errors.value.push('El provider es requerido — tildá al menos uno.');
+    firstErrorSection ??= 'definicion';
   }
-  if (!prompt.value.trim()) errors.value.push('El prompt es requerido.');
-  // Los tres campos validados viven en "Definición" — si el error cayó en
-  // otra sección del rail, el usuario nunca lo vería.
-  if (errors.value.length) activeSection.value = 'definicion';
+  if (!prompt.value.trim()) {
+    errors.value.push('El prompt es requerido.');
+    firstErrorSection ??= 'prompt';
+  }
+  // Salta a la sección del rail donde vive el primer error — si no, el
+  // usuario ve la lista de errores sin saber en qué pestaña resolverlos.
+  if (firstErrorSection) activeSection.value = firstErrorSection;
   return errors.value.length === 0;
 }
 
@@ -434,14 +443,10 @@ function onSave() {
   if (selectedMcpCatalogIds.value.length)
     agent.mcpCatalogIds = [...selectedMcpCatalogIds.value];
   if (requiresBranch.value !== null) agent.requiresBranch = requiresBranch.value;
-  if (repoName.value) agent.repoName = repoName.value;
-  if (statusName.value) agent.statusName = statusName.value;
-  if (when.value.length) agent.when = when.value;
-  if (whenText.value) agent.whenText = whenText.value;
   if (allowBlocked.value) agent.allowBlocked = true;
   if (maxConcurrentDispatches.value) agent.maxConcurrentDispatches = maxConcurrentDispatches.value;
-  agent.enabled = enabled.value;
   Object.assign(agent, outcomes.value);
+  if (outputContract.value) agent.output = outputContract.value;
   emit('save', agent);
 }
 
@@ -459,14 +464,15 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
       <div class="page-head">
         <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ title }}</h3>
-        <button
-          type="button"
-          class="enabled-pill"
-          :class="enabled ? 'enabled-pill--on' : 'enabled-pill--off'"
-          :disabled="readonly"
-          @click="enabled = !enabled"
-        >{{ enabled ? 'Habilitado' : 'Deshabilitado' }}</button>
         <div class="page-head-spacer"></div>
+        <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
+             deshace, y desde el detalle se ve exactamente QUÉ agente se está
+             por borrar. -->
+        <button
+          v-if="!readonly && !isNew && agent"
+          class="btn btn--danger"
+          @click="emit('delete', agent)"
+        >Eliminar</button>
         <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
         <button
           v-if="!readonly"
@@ -503,27 +509,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
         <!-- ── Panel principal — una sección a la vez. ── -->
         <div class="page-main">
 
-          <!-- Activación primero: responde "¿cuándo corre?" antes que "¿cómo?". -->
-          <section v-show="activeSection === 'activacion'" class="section">
-            <AgentActivationSection
-              :scope="activationScope"
-              :project-id="activationProjectId"
-              :project-name="activationProjectName"
-              :repo-name="repoName"
-              :status-name="statusName"
-              :when="when"
-              :when-text="whenText"
-              :allow-blocked="allowBlocked"
-              :max-concurrent-dispatches="maxConcurrentDispatches"
-              @update:repo-name="repoName = $event"
-              @update:status-name="statusName = $event"
-              @update:when="when = $event"
-              @update:when-text="whenText = $event"
-              @update:allow-blocked="allowBlocked = $event"
-              @update:max-concurrent-dispatches="maxConcurrentDispatches = $event"
-            />
-          </section>
-
           <section v-show="activeSection === 'definicion'" class="section">
             <AgentDefinitionSection
               :agent-id="agentId"
@@ -541,9 +526,34 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               @update:provider-choices="providerChoices = $event"
               @update:provider-config="providerConfigDraft = $event"
               @update:prompt="prompt = $event"
+              @propose-prompt="pendingPromptProposal = $event"
               @update:variables="variables = $event"
               @update:selected-sysprompts="selectedSysprompts = $event"
               @apply-tools="applyToolNames"
+            />
+          </section>
+
+          <section v-show="activeSection === 'systemprompts'" class="section">
+            <SystemPromptsSection
+              :selected-sysprompts="selectedSysprompts"
+              :available-sysprompts="availableSysprompts"
+              :inline-prompts="preservedSystemPromptRefs.map((r) => r.text)"
+              @update:selected-sysprompts="selectedSysprompts = $event"
+              @update:inline-prompts="preservedSystemPromptRefs = $event.map((text) => ({ text }))"
+            />
+          </section>
+
+          <section v-show="activeSection === 'prompt'" class="section">
+            <AgentPromptSection
+              :prompt="prompt"
+              :variables="variables"
+              :agent-variable-groups="agentVariableGroups"
+              :agent-id="agentId"
+              :available-sysprompts="availableSysprompts"
+              :pending-prompt-proposal="pendingPromptProposal"
+              @update:prompt="prompt = $event"
+              @update:variables="variables = $event"
+              @clear-pending-proposal="pendingPromptProposal = null"
             />
           </section>
 
@@ -588,6 +598,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :project-fields="outcomesProjectFields"
               :status-options="outcomesStatusOptions"
             />
+
+            <div class="field">
+              <span class="label">Salida estructurada</span>
+              <OutputContractEditor v-model="outputContract" />
+            </div>
           </section>
 
           <section v-show="activeSection === 'avanzado'" class="section">
@@ -633,7 +648,8 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           <div class="summary-card">
             <h4>Cómo se comporta</h4>
             <p class="summary-sentence">
-              Corre para <b>{{ scopeLabel }}</b><span v-if="repoName"> · repo <code>{{ repoName }}</code></span><span v-if="statusName"> · status <code>{{ statusName }}</code></span><span v-if="whenSummaryText"> cuando <code>{{ whenSummaryText }}</code></span>.
+              Disponible para <b>{{ scopeLabel }}</b>. Lo dispara una <b>regla</b>, no su propia
+              configuración — ver la sección Reglas.
               <span v-if="allowBlocked"> Puede tomar tareas <b>bloqueadas</b>.</span>
               Usa <b>{{ providerDisplayName }}</b><span v-if="providerConfigDraft.model"> con <b>{{ providerConfigDraft.model }}</b></span><span v-if="providerConfigDraft.effort"> effort <b>{{ providerConfigDraft.effort }}</b></span>.
               <span v-if="outcomes.exits?.success"> Al terminar bien: <code>{{ outcomes.exits.success }}</code>.</span>
@@ -695,25 +711,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   line-height: 1;
 }
 .back-btn:hover { color: var(--fg-mute); }
-
-.enabled-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.enabled-pill::before { content: '●'; font-size: 0.6rem; }
-.enabled-pill--on { background: var(--green-bg); color: var(--accent); border-color: var(--accent); }
-.enabled-pill--off { background: var(--panel-hi); color: var(--fg-dim); border-color: var(--border-hi); }
-.enabled-pill:disabled { cursor: not-allowed; opacity: 0.75; }
 
 .page-shell {
   flex: 1;
@@ -894,5 +891,71 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   background: var(--yellow-bg);
   color: var(--warn);
   font-size: 0.8rem;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  /* El editor era una grilla de tres columnas con dos de ellas fijas
+     (240 + 1fr + 300): sus mínimos suman 540px, así que en 390px el panel
+     del medio —el único donde se edita algo— quedaba en cero y el
+     `overflow: hidden` recortaba el resto. Se apila en una sola columna. */
+  .page-shell {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  /* `min-height: 70vh` sólo servía para que las tres columnas tuvieran alto
+     contra el cual scrollear; apilado deja un hueco vacío bajo el resumen. */
+  .page { min-height: 0; }
+
+  /* Cada panel traía su propio `overflow-y: auto`. Apilados eso son tres
+     scrolls anidados dentro del de la página: en touch no hay forma de saber
+     cuál se está moviendo. Scrollea la página y nada más. */
+  .rail,
+  .page-main,
+  .summary-rail { overflow: visible; }
+
+  /* El rail deja de ser columna y pasa a ser una tira de pestañas que se
+     desliza. El subtítulo se cae: es lo que hace que cada ítem mida 240px,
+     y el título ya nombra la sección. */
+  .rail {
+    flex-direction: row;
+    gap: 0.35rem;
+    padding: 0.5rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .rail-item { flex: 0 0 auto; }
+  .rail-sub { display: none; }
+
+  .page-main { padding: 1rem 0.85rem; }
+
+  .summary-rail {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  /* Back + título + Cancelar + Guardar no entran en una línea de 390px, y
+     el head es un flex sin `wrap`: los dos botones se comían el título. El
+     spacer —que ya existía para empujarlos a la derecha— pasa a ser el
+     salto de línea, y abajo los botones se reparten el ancho (que además es
+     el tamaño de toque que corresponde a la acción principal). */
+  .page-head {
+    flex-wrap: wrap;
+    gap: 0.5rem 0.6rem;
+    padding: 0.6rem 0.75rem;
+  }
+  .page-head h3 {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .page-head-spacer { flex: 0 0 100%; height: 0; }
+  .page-head .btn { flex: 1 1 0; }
 }
 </style>

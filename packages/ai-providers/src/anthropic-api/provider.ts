@@ -43,6 +43,13 @@ const AnthropicApiAgentConfigSchema = z
     thinkingBudgetTokens: z.number().int().min(1024).optional(),
     mcpServers: McpServersSchema.optional(),
     fileSimplifierEnabled: z.boolean().optional(),
+    // Por default las tools de cada MCP van DIFERIDAS: el request declara el
+    // toolset con `defer_loading` y una tool de búsqueda, y el modelo carga
+    // sólo las que necesita. Un MCP como el de GitHub anuncia decenas de
+    // schemas que pesaban en cada vuelta del loop sin usarse. `true` apaga
+    // eso y carga todo el catálogo desde el primer request — para un agente
+    // que usa el MCP entero o cuyo prompt no lo prepara para buscar.
+    eagerMcpTools: z.boolean().optional(),
   })
   .strict()
 
@@ -386,6 +393,7 @@ export class AnthropicApiProvider implements IAgentProvider {
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
+    const deferMcpTools = apiMcpServers !== undefined && pc?.eagerMcpTools !== true
 
     // Betas fijas del agente (`cfg.anthropicBeta`, editable vía
     // providers.json) más las que este request activa condicionalmente.
@@ -393,18 +401,24 @@ export class AnthropicApiProvider implements IAgentProvider {
     if (resolvedTaskBudget != null) extraBetas.push('task-budgets-2026-03-13')
     if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
 
-    const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
-      ...block,
-      cache_control: { type: 'ephemeral' as const },
-    }))
-
-    const systemBlocks = [
-      ...agentBlocks,
-      ...cfg.systemPrompt.map((block) => ({
-        ...block,
-        cache_control: { type: 'ephemeral' as const },
-      })),
-    ]
+    // UN solo breakpoint de cache, en el ÚLTIMO bloque.
+    //
+    // El caching de la API es prefix match: el breakpoint cachea todo lo que
+    // viene ANTES, así que marcar cada bloque no compra nada — y cuesta. El
+    // tope es de 4 `cache_control` por request, y marcando uno por bloque ese
+    // presupuesto lo consume la cantidad de entradas de `systemPrompts` (las
+    // del proyecto MÁS las del agente): un roster que mueve su prompt estable
+    // al system —que es exactamente donde tiene que estar para cachearse—
+    // llega a 5 bloques sin darse cuenta y el request se cae con 400.
+    //
+    // Con un breakpoint al final, la cantidad de bloques deja de importar y
+    // quedan 3 libres para lo que venga (tools, un breakpoint en messages).
+    const allSystemBlocks = [...(input.systemPromptBlocks ?? []), ...cfg.systemPrompt]
+    const systemBlocks = allSystemBlocks.map((block, i) =>
+      i === allSystemBlocks.length - 1
+        ? { ...block, cache_control: { type: 'ephemeral' as const } }
+        : { ...block },
+    )
 
     const headers = buildAnthropicHeaders({
       betas: cfg.anthropicBeta,
@@ -438,6 +452,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       providerKind: 'sync',
       toolNames: policy ? [...policy.toolNames] : [],
       selectableExits: input.selectableExits,
+      outputFields: input.outputFields,
     })
 
     const toolCtx: ToolContext = {
@@ -457,6 +472,16 @@ export class AnthropicApiProvider implements IAgentProvider {
       // otro nombrándola.
       agentId: input.agentId,
       projectId: input.projectId,
+      // El roster del proyecto, que viaja en el WorkspaceRequest (`repos` ahí
+      // es `projectRepos` entero, no sólo los de la tarea) y por lo tanto
+      // sobrevive el salto a un agent-host remoto.
+      projectRepos: input.workspace?.repos.map((r) => ({
+        name: r.name,
+        githubOwner: r.githubOwner,
+        githubRepo: r.githubRepo,
+      })),
+      // Freno de la cadena de delegación, para `run_agent`.
+      agentDepth: input.agentDepth,
       // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
       // from here; no entry means bash_run refuses everything.
       policy,
@@ -477,6 +502,7 @@ export class AnthropicApiProvider implements IAgentProvider {
         repos: Object.keys(toolCtx.repoPaths),
         writePaths: toolCtx.writePaths ?? [],
         mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
+        deferMcpTools,
       },
       'Agent run started',
     )
@@ -517,17 +543,37 @@ export class AnthropicApiProvider implements IAgentProvider {
         system: systemBlocks,
         messages,
         stream: useStream,
+        // Auto-cache A NIVEL REQUEST, además del breakpoint explícito al final
+        // del system. Ése cubre el prefijo estable (tools + system); éste hace
+        // que la API ponga un breakpoint en el último bloque cacheable de
+        // `messages` y lo corra sola en cada vuelta. Sin él, un run de 30
+        // vueltas re-pagaba el historial entero a precio pleno 30 veces — era
+        // el 41% de cache hit del reviewer en el panel de salud. Compone con
+        // el marker de system porque ése NO está en el último bloque del
+        // request, y consume un solo slot de los 4.
+        cache_control: { type: 'ephemeral' },
       }
       // mcp-client-2025-11-20 requires exactly one MCPToolset per server named
       // in mcp_servers — omitting it 400s. No per-tool allow/deny is
       // configured here (default_config/configs), so this preserves the
       // previous (deprecated mcp-client-2025-04-04) behavior of exposing
       // every tool the server advertises.
+      //
+      // Diferidas por default (ver `eagerMcpTools`): `default_config` vale
+      // para todas las tools del server, y la tool de búsqueda es lo que le
+      // permite al modelo encontrarlas. Las tools propias del engine NO se
+      // difieren — son pocas, ya filtradas por el `tools[]` del agente, y la
+      // API exige al menos una sin diferir. Las descubiertas se anexan al
+      // final del contexto, así que el prefijo cacheado no se toca.
       const mcpToolsets = apiMcpServers?.map((s) => ({
         type: 'mcp_toolset',
         mcp_server_name: s.name,
+        ...(deferMcpTools ? { default_config: { defer_loading: true } } : {}),
       }))
-      const allTools = [...toolDefs, ...(mcpToolsets ?? [])]
+      const toolSearch = deferMcpTools
+        ? [{ type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' }]
+        : []
+      const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])]
       if (allTools.length > 0) body.tools = allTools
       // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled`
       // mode instead of the provider-level default (usually `adaptive`,
@@ -666,12 +712,20 @@ export class AnthropicApiProvider implements IAgentProvider {
       stopReason,
       truncated,
       rawResponse,
+      checkpoint,
       usage,
       toolCalls,
       toolErrors,
+      toolBreakdown,
     } = await toolExecution.executeLoop(
       fetchApi,
-      [{ role: 'user', content: input.prompt }],
+      // Un run que se reanuda entra con la conversación que el checkpoint
+      // guardó, no con el prompt: retomar desde el prompt perdería todo lo
+      // que el agente ya había averiguado, que es justamente lo que la pausa
+      // existe para conservar.
+      (input.resumeMessages as Array<{ role: 'user' | 'assistant'; content: unknown }>) ?? [
+        { role: 'user', content: input.prompt },
+      ],
       toolCtx,
       {
         onToolCall: (name, inp, toolUseId) =>
@@ -694,6 +748,12 @@ export class AnthropicApiProvider implements IAgentProvider {
         logContext: logCtx,
         maxPauseTurnRetries: resolvedMaxPauseTurnRetries,
         retryTruncatedToolUse: resolvedRetryTruncatedToolUse,
+        // Se pasan tal cual vinieron en el input: el provider no sabe de dónde
+        // salen los mensajes (Slack, la API, un test) ni dónde se marcan
+        // entregados — sólo que el loop los tiene que drenar.
+        drainMessages: input.drainMessages,
+        onMessagesDelivered: input.onMessagesDelivered,
+        saveCheckpoint: input.saveCheckpoint,
       },
     )
 
@@ -729,7 +789,10 @@ export class AnthropicApiProvider implements IAgentProvider {
       truncated,
       stopReason,
       rawResponse,
-      metrics: { usage, iters, toolCalls, toolErrors },
+      // Presente sólo cuando una tool pidió pausa. Quien lo recibe decide qué
+      // hacer: el engine lo cuelga de la espera para poder reanudar.
+      checkpoint,
+      metrics: { usage, iters, toolCalls, toolErrors, toolBreakdown, model: resolvedModel },
     }
   }
 }

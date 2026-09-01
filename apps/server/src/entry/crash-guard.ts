@@ -147,10 +147,19 @@ export async function handleFatal(
 export function installCrashGuard(deps: CrashGuardDeps): () => void {
   const onException = (err: unknown) => void handleFatal('uncaughtException', err, deps)
   const onRejection = (err: unknown) => void handleFatal('unhandledRejection', err, deps)
-  process.on('uncaughtException', onException)
-  process.on('unhandledRejection', onRejection)
+  // `bun-types` declara `process.on` sólo con sus propias sobrecargas y no con
+  // las de Node, así que ninguna matchea estos dos eventos y TS reporta la
+  // última que conoce (`memoryPressure`) — un mensaje que no señala a la causa.
+  // El cast es al emisor de Node, que es lo que Bun implementa en runtime; no
+  // afloja el tipado de los handlers, que siguen chequeados arriba.
+  const emitter = process as unknown as {
+    on(event: string, listener: (arg: unknown) => void): void
+    off(event: string, listener: (arg: unknown) => void): void
+  }
+  emitter.on('uncaughtException', onException)
+  emitter.on('unhandledRejection', onRejection)
   return () => {
-    process.off('uncaughtException', onException)
-    process.off('unhandledRejection', onRejection)
+    emitter.off('uncaughtException', onException)
+    emitter.off('unhandledRejection', onRejection)
   }
 }

@@ -389,6 +389,10 @@ function elapsed(iso: string): string {
 @media (max-width: 900px) {
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split { grid-template-columns: 1fr; }
+  /* El `minmax(0, …)` deja que la COLUMNA encoja, pero el panel adentro sigue
+     con su ancho mínimo de contenido (433px). Sin este `min-width: 0` la
+     columna se achica y el panel se le sale igual. */
+  .split > .panel, .panel { min-width: 0; }
 }
 
 /* Panel + header — global .panel/.panel__header used here as scoped-friendly. */
@@ -520,4 +524,16 @@ function elapsed(iso: string): string {
 .log__project { color: var(--magenta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log__task { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log__dur { color: var(--fg-dimmer); text-align: right; }
+
+@media (max-width: 768px) {
+  /* Una tabla no se apila: `3ch 1fr 22ch 12ch` es info tabular, y apilarla la
+     vuelve una lista de pares que no se puede escanear. Scrollea dentro de su
+     caja para que la PÁGINA no scrollee — que es lo que rompía la lectura en
+     el celular. */
+  .table, .log { overflow-x: auto; }
+  /* La grilla del log es `9ch 3ch 14ch 14ch 1fr 12ch` con gaps: ~54ch. Un
+     min-width menor deja que el `1fr` se comprima y las columnas se pisen. */
+  .table__head, .table__row { min-width: 46ch; }
+  .log__head, .log__row { min-width: 54ch; }
+}
 </style>

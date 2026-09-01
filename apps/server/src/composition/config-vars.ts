@@ -27,7 +27,7 @@ const ALWAYS = [
 /** Credenciales del modelo. Las declara quien las lee: `buildAnthropicAuthHeader`
  *  (packages/ai-providers/src/anthropic-api/auth.ts) prueba el token OAuth y
  *  después la API key. */
-const ANTHROPIC_VARS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']
+const ANTHROPIC_VARS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'IA_FLOW_FILE_SIMPLIFIER']
 
 const REMOTE_PROVIDER_VARS = [
   'IA_FLOW_REMOTE_HEALTH_INTERVAL_MS',
@@ -53,9 +53,11 @@ export function relevantConfigVars(): Set<string> {
   // que ganó. Es el caso que motivó todo esto.
   for (const name of githubCredentials.describeConfig()) names.add(name)
 
-  // Slack sólo si su cliente tiene con qué hablar — su token es la única
-  // config que tiene, así que ofrecerlo es lo que lo habilita.
+  // Slack se ofrece SIEMPRE, aunque esté apagado: su token es justamente el
+  // interruptor (ver packages/slack/CLAUDE.md), así que esconder el campo
+  // cuando falta lo dejaría imposible de prender desde esta pantalla.
   names.add('SLACK_BOT_TOKEN')
+  names.add('SLACK_SIGNING_SECRET')
 
   // El escape hatch del MCP de Figma. El camino normal es `bun run auth:figma`
   // (deja una sesión OAuth que se renueva sola y no vive en el env); este

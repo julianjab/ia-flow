@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { apiBase } from '@/features/servers/selection';
+import { fetchToolCatalog, type ToolCatalogEntry } from '@/features/agents/api';
 // ToolsEditor — reemplaza PermissionsEditor.vue (issue #58 DSL) y la sección
 // "Tools (legacy)". Un solo modelo: `tools[]` es una lista plana de nombres
 // de tool; `bash_run` es la única entry con forma de objeto, con su propia
@@ -10,11 +10,7 @@ import { apiBase } from '@/features/servers/selection';
 import { computed, onMounted, ref, watch } from 'vue'
 import type { AgentToolEntry, BashRunConfig } from '@ia-flow/shared'
 
-interface ToolDef {
-  name: string
-  description: string
-  aliases: string[]
-}
+type ToolDef = ToolCatalogEntry
 
 const props = defineProps<{
   tools: AgentToolEntry[] | undefined
@@ -24,14 +20,11 @@ const emit = defineEmits<{
   'update:tools': [tools: AgentToolEntry[] | undefined]
 }>()
 
-const API_BASE = apiBase();
-
 const catalog = ref<ToolDef[]>([])
 
 onMounted(async () => {
   try {
-    const res = await fetch(`${API_BASE}/api/tools`)
-    if (res.ok) catalog.value = (await res.json()) as ToolDef[]
+    catalog.value = await fetchToolCatalog()
   } catch {
     // server may not be running — the editor stays empty
   }

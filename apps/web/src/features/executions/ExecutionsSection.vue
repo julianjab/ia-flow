@@ -11,6 +11,8 @@ import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
 import { useToastStore } from '@/stores/toast';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import FilterQueryInput from '@/ui/FilterQueryInput.vue';
+import { type FilterFieldDef, type FilterToken, type FilterValue, isDateValue } from '@/ui/filter-query';
 import {
   type AgentDefinition,
   ExecutionLogSchema,
@@ -19,6 +21,7 @@ import {
 } from '@ia-flow/shared';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 import AgentHealthPanel from './AgentHealthPanel.vue';
+import AgentHealthPage from './AgentHealthPage.vue';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -61,7 +64,11 @@ function projectNameFor(id: string): string {
 }
 
 function openRunInLogs(exec: ExecutionLog) {
-  void router.push({ path: '/general/logs', query: { runId: exec.id } });
+  // Para una acción el `runId` no existe en ningún log: se manda la regla, que
+  // es por lo que sus líneas se pueden encontrar.
+  const query =
+    isAction(exec) && exec.ruleId ? { ruleId: exec.ruleId } : { runId: exec.id };
+  void router.push({ path: '/general/logs', query });
 }
 
 // Server-side filters — the watchers below refetch when any of these change.
@@ -83,23 +90,21 @@ const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
 // is "show me the runs behind this number", not free browsing by class.
 const failureClassFilter = ref<string>('');
 // Client-side "pending" flag. 'pending' isn't part of OutcomeSchema — it
-// stands for `outcome IS NULL` (an in-flight or orphaned run) — so the
-// server can't filter by it via the `outcome IN (...)` clause. Kept as a
-// local toggle applied over the already-loaded page. Independent from
-// outcomeFilter: activating both at once (e.g. 'error' + 'pending') will
-// return empty because the server has already filtered out anything with
-// outcome === null. Rare enough to accept without extra UI plumbing.
+// stands for `outcome IS NULL` (an in-flight or orphaned run) — so el servidor
+// no lo puede filtrar con su `outcome IN (...)`.
+//
+// Junto a otros outcomes es un OR, no un AND: `resultado:error` +
+// `resultado:pending` es "lo que falló, más lo que todavía corre". Para eso, con
+// pending activo NO se manda `outcome` al servidor y el conjunto entero se
+// resuelve en cliente — mandarlo dejaría fuera de la página justamente las filas
+// sin outcome, y la combinación devolvía SIEMPRE vacío. Con la fila de chips el
+// gesto era raro; el input presenta los cinco valores como la misma dimensión,
+// así que invita a hacerlo.
 const pendingFilter = ref(false);
 const fromFilter = ref('');
 const toFilter = ref('');
 const limit = ref(DEFAULT_LIMIT);
 
-function toggleInSet<T>(current: Set<T>, value: T): Set<T> {
-  const next = new Set(current);
-  if (next.has(value)) next.delete(value);
-  else next.add(value);
-  return next;
-}
 
 // Client-side filter: filters the already-loaded page by title/taskId.
 // Debounced to avoid re-running the computed on every keystroke; we hold the
@@ -139,6 +144,25 @@ async function loadAllSources() {
 // usuarios del board", así que los chips salen de lo que las filas cargadas
 // traen, más lo que ya esté filtrado (para que el chip activo no desaparezca
 // cuando el filtro deja fuera a todos los demás).
+// La regla que disparó la fila y qué corrió (`agent`, `script`, `http`, …).
+// Mismo patrón que providers/assignees: no hay endpoint que liste el universo,
+// así que salen de las filas cargadas más lo que ya esté filtrado.
+const ruleFilter = ref<Set<string>>(new Set());
+const kindFilter = ref<Set<string>>(new Set());
+const discoveredRules = ref<Set<string>>(new Set());
+const discoveredKinds = ref<Set<string>>(new Set());
+const rules = computed<string[]>(() => {
+  const s = new Set(discoveredRules.value);
+  for (const r of ruleFilter.value) s.add(r);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
+const kinds = computed<string[]>(() => {
+  // 'agent' siempre: es el kind de todo run, y es el que sirve para pedir "sólo
+  // los runs" — el listado de siempre, sin las acciones.
+  const s = new Set(['agent', ...discoveredKinds.value]);
+  for (const k of kindFilter.value) s.add(k);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
 const discoveredAssignees = ref<Set<string>>(new Set());
 const assignees = computed<string[]>(() => {
   const s = new Set(discoveredAssignees.value);
@@ -188,13 +212,155 @@ function issueUrlFor(taskId: string): string | null {
   return issueUrlByTaskId.value[taskId] ?? null;
 }
 
+const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
+  'success', 'error', 'cancelled', 'truncated', 'pending',
+];
+
+// ─── Los filtros, como un solo input `campo:valor` ────────────────────────
+//
+// Los refs de arriba siguen siendo la fuente de verdad —los leen `buildFilters`,
+// los watchers que refetchean y el sync con la URL—, y el input es una VISTA de
+// ellos. Al revés (tokens como estado y refs derivados) habría obligado a
+// reescribir todo eso para ganar lo mismo.
+//
+// Cada dimensión es una entrada de este array: es lo que reemplazó a un bloque
+// de ~20 líneas de template por cada grupo de chips.
+const FILTER_FIELDS_BASE: Array<{
+  key: string;
+  hint?: string;
+  values?: () => FilterValue[];
+  free?: boolean;
+  validate?: (value: string) => boolean;
+}> = [
+  // `free` en todo lo que se DESCUBRE. Su lista no es un universo sino "lo que
+  // vimos": los agentes salen de un fetch que puede fallar o llegar tarde, y
+  // providers/containers/assignees de las filas ya cargadas. Con lista cerrada,
+  // vacía = imposible de filtrar — que es exactamente lo que pasaba con
+  // `agente:` mientras la lista no estuviera. Sugerir lo conocido y aceptar lo
+  // que no: un valor que no existe devuelve cero filas, que es una respuesta
+  // legible, mientras que un campo que no deja escribir no tiene arreglo.
+  //
+  // `resultado` sí es cerrado: es un enum que el servidor valida, así que un
+  // valor inventado sería un 400 en vez de una lista vacía.
+  { key: 'agente', hint: 'quién corrió', values: () => agents.value.map((a) => a.id), free: true },
+  { key: 'proveedor', hint: 'dónde corrió', values: () => providers.value, free: true },
+  { key: 'resultado', hint: 'cómo terminó', values: () => [...OUTCOME_ORDER] },
+  { key: 'container', hint: 'qué proceso lo despachó', values: () => sources.value, free: true },
+  { key: 'assignee', hint: 'quién tenía el issue', values: () => assignees.value, free: true },
+  { key: 'regla', hint: 'qué regla lo disparó', values: () => rules.value, free: true },
+  { key: 'tipo', hint: 'agente o qué acción', values: () => kinds.value, free: true },
+  { key: 'fallo', hint: 'clase de error', free: true },
+  { key: 'tarea', hint: 'título o id', free: true },
+  { key: 'desde', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
+  { key: 'hasta', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
+];
+
+const filterFields = computed<FilterFieldDef[]>(() => {
+  const defs = FILTER_FIELDS_BASE.map((f) => ({
+    key: f.key,
+    hint: f.hint,
+    values: f.values?.(),
+    free: f.free,
+    validate: f.validate,
+  }));
+  // El proyecto sólo filtra en la pestaña global: en la de un proyecto la vista
+  // ya está acotada a uno, y ofrecer el campo sugeriría que se puede salir.
+  if (!isGlobal.value) return defs;
+  return [
+    // Se busca y se muestra por nombre, se filtra por id: el id de un proyecto
+    // es opaco y nadie lo reconoce en una lista.
+    {
+      key: 'proyecto',
+      hint: 'de qué board',
+      values: allProjects.value.map((p) => ({ value: p.id, label: p.name })),
+    },
+    ...defs,
+  ];
+});
+
+/** Escribe el Set sólo si CAMBIÓ. Un `new Set()` con el mismo contenido es otra
+ *  identidad, y los watchers que refetchean miran identidad: sin esto, tocar
+ *  cualquier token dispara una consulta por cada dimensión que no cambió. */
+/** Prende o apaga un token desde afuera del input — hoy, los conteos del
+ *  resumen. Escribe por el mismo `set` que el input, así que no hay un segundo
+ *  camino que mantener sincronizado. */
+function toggleToken(field: string, value: string): void {
+  const has = filterTokens.value.some((t) => t.field === field && t.value === value);
+  filterTokens.value = has
+    ? filterTokens.value.filter((t) => !(t.field === field && t.value === value))
+    : [...filterTokens.value, { field, value }];
+}
+
+function hasToken(field: string, value: string): boolean {
+  return filterTokens.value.some((t) => t.field === field && t.value === value);
+}
+
+function assignSet<T>(target: { value: Set<T> }, values: T[]): void {
+  const next = new Set(values);
+  if (next.size === target.value.size && values.every((v) => target.value.has(v))) return;
+  target.value = next;
+}
+
+function setTokens(field: string, values: string[]): FilterToken[] {
+  return values.map((value) => ({ field, value }));
+}
+
+const filterTokens = computed<FilterToken[]>({
+  get: () => [
+    ...setTokens('proyecto', Array.from(projectFilter.value)),
+    ...setTokens('agente', Array.from(agentFilter.value)),
+    ...setTokens('proveedor', Array.from(providerFilter.value)),
+    ...setTokens('resultado', [
+      ...Array.from(outcomeFilter.value),
+      ...(pendingFilter.value ? ['pending'] : []),
+    ]),
+    ...setTokens('container', Array.from(sourceFilter.value)),
+    ...setTokens('assignee', Array.from(assigneeFilter.value)),
+    ...setTokens('regla', Array.from(ruleFilter.value)),
+    ...setTokens('tipo', Array.from(kindFilter.value)),
+    ...setTokens('fallo', failureClassFilter.value ? [failureClassFilter.value] : []),
+    ...setTokens('tarea', taskTextInput.value ? [taskTextInput.value] : []),
+    ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
+    ...setTokens('hasta', toFilter.value ? [toFilter.value] : []),
+  ],
+  set: (tokens) => {
+    const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
+    assignSet(projectFilter, of('proyecto'));
+    assignSet(agentFilter, of('agente'));
+    assignSet(providerFilter, of('proveedor'));
+    assignSet(sourceFilter, of('container'));
+    assignSet(assigneeFilter, of('assignee'));
+    assignSet(ruleFilter, of('regla'));
+    assignSet(kindFilter, of('tipo'));
+    const outcomes = of('resultado');
+    // `pending` no es parte de OutcomeSchema —es `outcome IS NULL`— así que
+    // sale del mismo campo pero vive en su propio flag, filtrado en cliente.
+    pendingFilter.value = outcomes.includes('pending');
+    assignSet(outcomeFilter, outcomes.filter((o): o is OutcomeValue => o !== 'pending'));
+    // Los de un solo valor se quedan con el último: escribir `desde:` dos veces
+    // es corregirse, no pedir un rango imposible.
+    failureClassFilter.value = of('fallo').at(-1) ?? '';
+    // El token ya es la confirmación explícita: se aplica de una, sin esperar
+    // el debounce que existía para no filtrar en cada tecla.
+    const taskText = of('tarea').at(-1) ?? '';
+    taskTextInput.value = taskText;
+    taskTextApplied.value = taskText.trim().toLowerCase();
+    fromFilter.value = of('desde').at(-1) ?? '';
+    toFilter.value = of('hasta').at(-1) ?? '';
+  },
+});
+
 const filteredExecutions = computed<ExecutionLog[]>(() => {
   let result = executions.value;
   // Client-side "pending" filter: keep only rows where the server has not
   // yet recorded an outcome. Applied before the text filter so both narrow
   // the same base set.
   if (pendingFilter.value) {
-    result = result.filter((e) => e.outcome === null);
+    const withOutcome = outcomeFilter.value;
+    result = result.filter(
+      (e) =>
+        e.outcome === null || (withOutcome.size > 0 && withOutcome.has(e.outcome as OutcomeValue)),
+    );
   }
   const q = taskTextApplied.value;
   if (!q) return result;
@@ -260,31 +426,242 @@ const sortedExecutions = computed<ExecutionLog[]>(() => {
   return arr;
 });
 
-// Outcome counts across the loaded page — powers the summary chip row.
-const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
-  'success', 'error', 'cancelled', 'truncated', 'pending',
-];
+// Un disparo de regla es UNA fila, y sus acciones se abren.
+//
+// Desde la migración 065 una ejecución puede ser una acción (`script`, `http`,
+// `emit`) y no sólo un run de agente, y las que corrieron por el MISMO evento
+// comparten `(eventId, ruleId)`. Mostrarlas sueltas triplicaba la lista con el
+// mismo título repetido: lo que el operador escanea es "qué le pasó a esta
+// tarea", y eso es el disparo entero, no cada entrada del `do[]`.
+//
+// Por eso el disparo colapsa a una fila resumen —la regla, cuándo empezó,
+// cuánto duró en total, cómo terminó— y las acciones cuelgan de ahí sólo si la
+// abrís. La jerarquía real queda dicha sin costo visual: el padre es la REGLA,
+// nunca la primera acción (anidar el run bajo el `script` que corrió antes leía
+// como si el script lo hubiera lanzado, y son hermanas).
+//
+// Un disparo de una sola fila NO se colapsa: un resumen de un solo hijo son dos
+// renglones para decir lo que se lee en uno. Igual que una fila sin `eventId`
+// (un run manual, uno anterior a la migración), sale plana.
+type FiringRow = {
+  key: string;
+  ruleId: string | null;
+  eventType: string | null;
+  projectId: string;
+  taskId: string;
+  taskTitle: string;
+  startedAt: string;
+  finishedAt: string | null;
+  outcome: ExecutionLog['outcome'];
+  providerId: string;
+  count: number;
+  /** La única fila viva del disparo, si hay exactamente una: es a quién detiene
+   *  el botón del resumen. Con dos corriendo no se adivina — hay que abrir. */
+  running: ExecutionLog | null;
+  children: ExecutionLog[];
+};
+/** Una fila del listado: o el resumen de un disparo, o una ejecución. */
+type ExecRow = { key: string; firing?: FiringRow; exec?: ExecutionLog; nested: boolean };
+
+/** Qué mostrar como resultado del disparo entero. Mientras algo sigue vivo el
+ *  disparo está `pending` aunque una acción ya haya fallado: todavía no
+ *  terminó. Ya cerrado, gana el peor — un `script` en rojo importa aunque el
+ *  agente después haya salido bien. */
+function firingOutcome(rows: ExecutionLog[]): ExecutionLog['outcome'] {
+  if (rows.some((r) => !r.finishedAt)) return null;
+  let worst: ExecutionLog['outcome'] = 'success';
+  for (const r of rows) {
+    const rank = OUTCOME_RANK[r.outcome ?? 'pending'] ?? 99;
+    if (rank > (OUTCOME_RANK[worst ?? 'pending'] ?? 99)) worst = r.outcome;
+  }
+  return worst;
+}
+
+function toFiring(key: string, group: ExecutionLog[]): FiringRow {
+  const byPosition = [...group].sort((a, b) => positionOf(a) - positionOf(b));
+  const head = byPosition[0];
+  // El disparo empezó cuando arrancó su primera acción y terminó cuando cerró
+  // la última — no cuando lo hizo la fila que el orden del listado dejó arriba.
+  const startedAt = group.reduce((min, r) => (r.startedAt < min ? r.startedAt : min), head.startedAt);
+  const unfinished = group.filter((r) => !r.finishedAt);
+  const finishedAt = unfinished.length
+    ? null
+    : group.reduce<string | null>((max, r) => (max && max > (r.finishedAt ?? '') ? max : r.finishedAt), null);
+  // El proveedor del run de agente: es el dato que el operador busca acá, y un
+  // `script` no tiene ninguno.
+  const agentRow = byPosition.find((r) => (r.kind ?? 'agent') === 'agent');
+  return {
+    key,
+    ruleId: head.ruleId ?? null,
+    eventType: head.eventType ?? null,
+    projectId: head.projectId,
+    taskId: head.taskId,
+    taskTitle: head.taskTitle,
+    startedAt,
+    finishedAt,
+    outcome: firingOutcome(group),
+    providerId: agentRow?.providerId ?? '',
+    count: group.length,
+    running: unfinished.length === 1 ? unfinished[0] : null,
+    children: byPosition,
+  };
+}
+
+/** Los disparos abiertos. Se guardan por clave del disparo y no por fila: las
+ *  filas se recrean en cada refetch, así que una key de fila cerraría lo que el
+ *  operador dejó abierto cada vez que llega un WS. */
+const expandedFirings = ref<Set<string>>(new Set());
+function isFiringOpen(key: string): boolean {
+  return expandedFirings.value.has(key);
+}
+function toggleFiring(key: string) {
+  const next = new Set(expandedFirings.value);
+  if (!next.delete(key)) next.add(key);
+  expandedFirings.value = next;
+}
+
+const groupedExecutions = computed<ExecRow[]>(() => {
+  const out: ExecRow[] = [];
+  const seen = new Set<string>();
+  for (const exec of sortedExecutions.value) {
+    const key = exec.eventId ? `${exec.eventId}::${exec.ruleId ?? ''}` : null;
+    if (!key) {
+      out.push({ key: exec.id, exec, nested: false });
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const group = sortedExecutions.value.filter(
+      (e) => e.eventId && `${e.eventId}::${e.ruleId ?? ''}` === key,
+    );
+    if (group.length === 1) {
+      out.push({ key: group[0].id, exec: group[0], nested: false });
+      continue;
+    }
+    const firing = toFiring(key, group);
+    out.push({ key: `firing:${key}`, firing, nested: false });
+    if (!isFiringOpen(key)) continue;
+    // Adentro manda `position`: el orden REAL en que el `do[]` las ejecutó.
+    for (const child of firing.children) out.push({ key: child.id, exec: child, nested: true });
+  }
+  return out;
+});
+
+/** El lugar de la fila dentro del `do[]` de su regla. Sin posición va al final
+ *  y no al principio: un `?? 0` la empataría con la primera acción y decidiría
+ *  el empate el sort del listado, no el orden en que las cosas pasaron. */
+function positionOf(exec: ExecutionLog): number {
+  return exec.position ?? Number.MAX_SAFE_INTEGER;
+}
+
+/** Qué corrió en esta fila, para la etiqueta. `agent` no se etiqueta: es el
+ *  caso normal y ya se ve por su agente y su provider. */
+/**
+ * Qué mostrar en el detalle, según QUÉ se ejecutó.
+ *
+ * Un run de agente y una acción comparten tabla pero no comparten columnas: una
+ * acción `script` no tiene provider, ni assignees, ni `stopReason`, ni sesión, y
+ * dibujarlas vacías hace que el detalle mienta sobre lo que se sabe. Al revés,
+ * la regla y el lugar en el `do[]` son lo ÚNICO que ubica a una acción y no
+ * tenían dónde verse.
+ *
+ * Una fila sin valor no se dibuja: la lista de campos es una decisión de qué es
+ * relevante, no un volcado de la fila — para eso está el JSON completo, que
+ * sigue abajo y no esconde nada.
+ */
+type DetailRow = {
+  label: string;
+  value: string;
+  pre?: boolean;
+  title?: string;
+  /** Cuando está, la fila se dibuja como link — salta al run que la produjo
+   *  (mismo mecanismo que el `?runId=` de la URL: `toggleRow`). */
+  jumpToRunId?: string;
+};
+
+function isAction(exec: ExecutionLog): boolean {
+  return (exec.kind ?? 'agent') !== 'agent';
+}
+
+function detailRows(exec: ExecutionLog): DetailRow[] {
+  const rows: DetailRow[] = [];
+  const add = (label: string, value: string | null | undefined, extra?: Partial<DetailRow>) => {
+    if (value) rows.push({ label, value, ...extra });
+  };
+  if (isAction(exec)) {
+    add('tipo', exec.kind);
+    // El recorder guarda el nombre de la acción acá — una inline no tiene.
+    add('acción', exec.agentId);
+    add('regla', exec.ruleId);
+    add('evento', exec.eventType);
+    if (exec.position !== null && exec.position !== undefined) {
+      add('posición en el do[]', String(exec.position));
+    }
+    add('eventId', exec.eventId);
+    // Un evento sin issue (un `slack.message`) no tiene tarea: la columna
+    // guarda '' porque es NOT NULL, no porque haya una tarea vacía.
+    add('taskId', exec.taskId);
+    // `errorMsg` guarda DOS cosas según cómo terminó: el detalle que la acción
+    // reportó, o el error. Etiquetarlo siempre como error haría leer un
+    // `success` con "errorMsg: 200 OK".
+    add(exec.outcome === 'error' ? 'error' : 'detalle', exec.errorMsg, { pre: true });
+  } else {
+    add('taskId', exec.taskId);
+    add('agentId', exec.agentId);
+    add('providerId', exec.providerId);
+    add('source', exec.source);
+    add('assignees', exec.assignees?.length ? exec.assignees.join(', ') : null);
+    // De qué disparo vino, cuando vino de uno. Un run manual no tiene regla.
+    add('regla', exec.ruleId);
+    add('evento', exec.eventType);
+    add('errorMsg', exec.errorMsg, { pre: true });
+    add('stopReason', exec.stopReason);
+    // De qué run retomó el checkpoint — distinto de una jerarquía de
+    // sub-agente (eso lo cuenta el propio `parentId`, hoy sin fila acá): esto
+    // es la MISMA task continuando una conversación cortada por un restart o
+    // una pausa.
+    if (exec.resumedFromRunId) {
+      rows.push({
+        label: 'reanudado de',
+        value: exec.resumedFromRunId,
+        title: 'Ir al run anterior',
+        jumpToRunId: exec.resumedFromRunId,
+      });
+    }
+  }
+  rows.push({
+    label: 'startedAt',
+    value: formatDate(exec.startedAt),
+    title: exec.startedAt,
+  });
+  rows.push({
+    label: 'finishedAt',
+    value: exec.finishedAt ? formatDate(exec.finishedAt) : '—',
+    title: exec.finishedAt ?? '',
+  });
+  return rows;
+}
+
+function kindLabel(exec: ExecutionLog): string | null {
+  const kind = exec.kind ?? 'agent';
+  return kind === 'agent' ? null : kind;
+}
+
+// Outcome counts across the loaded page — powers the summary row.
 const outcomeCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = { success: 0, error: 0, cancelled: 0, truncated: 0, pending: 0 };
   for (const e of executions.value) counts[e.outcome ?? 'pending']++;
   return counts;
 });
-function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated' | 'pending') {
-  // 'pending' represents `outcome IS NULL` — not part of OutcomeSchema, so
-  // the server can't filter by it. Toggle the client-side flag instead of
-  // refetching; the computed above picks it up on the loaded page.
-  if (oc === 'pending') {
-    pendingFilter.value = !pendingFilter.value;
-    return;
-  }
-  outcomeFilter.value = toggleInSet(outcomeFilter.value, oc);
-}
 
 // Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
 // for older entries. Full ISO available on hover. Locale falls back to the
 // browser's default so a Spanish machine shows "ene" and a US one shows "Jan"
 // — everything is rendered in the operator's local timezone.
-const monthFormatter = new Intl.DateTimeFormat(undefined, { month: 'short' });
+// Locale FIJO y no el del dispositivo: la app está en español, así que un
+// teléfono en inglés daría 'Aug 30, 1:53 PM' en medio de una UI en español.
+// Con i18n de verdad esto pasa a seguir la preferencia del usuario.
+const monthFormatter = new Intl.DateTimeFormat('es', { month: 'short' });
 function formatDateCompact(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -334,9 +711,15 @@ async function load() {
       ...(providerFilter.value.size > 0
         ? { providerId: Array.from(providerFilter.value) }
         : {}),
-      ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
+      // Con `pending` activo el filtro de outcome se resuelve entero en
+      // cliente: ver `filteredExecutions`.
+      ...(outcomeFilter.value.size > 0 && !pendingFilter.value
+        ? { outcome: Array.from(outcomeFilter.value) }
+        : {}),
       ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
       ...(assigneeFilter.value.size > 0 ? { assignee: Array.from(assigneeFilter.value) } : {}),
+      ...(ruleFilter.value.size > 0 ? { ruleId: Array.from(ruleFilter.value) } : {}),
+      ...(kindFilter.value.size > 0 ? { kind: Array.from(kindFilter.value) } : {}),
       ...(failureClassFilter.value
         ? { failureClass: failureClassFilter.value as never }
         : {}),
@@ -350,6 +733,12 @@ async function load() {
     if (nextDiscovered.size !== discoveredProviders.value.size) {
       discoveredProviders.value = nextDiscovered;
     }
+    const nextRules = new Set(discoveredRules.value);
+    for (const e of executions.value) if (e.ruleId) nextRules.add(e.ruleId);
+    if (nextRules.size !== discoveredRules.value.size) discoveredRules.value = nextRules;
+    const nextKinds = new Set(discoveredKinds.value);
+    for (const e of executions.value) if (e.kind) nextKinds.add(e.kind);
+    if (nextKinds.size !== discoveredKinds.value.size) discoveredKinds.value = nextKinds;
     const nextDiscoveredAssignees = new Set(discoveredAssignees.value);
     for (const e of executions.value) for (const a of e.assignees ?? []) nextDiscoveredAssignees.add(a);
     if (nextDiscoveredAssignees.size !== discoveredAssignees.value.size) {
@@ -395,9 +784,16 @@ async function loadRelatedLogs(exec: ExecutionLog) {
     // Newer runs stamp every log line with `runId === exec.id`. Fall back to
     // taskId for pre-migration executions where the correlation id didn't
     // exist yet.
+    //
+    // Una ACCIÓN no tiene `runId`: no es un run del agente y su id lo arma el
+    // recorder (`evento:regla:posición`), que no aparece en ninguna línea. Lo
+    // que sus handlers sí loguean es la REGLA, así que se correlaciona por ahí
+    // dentro de la ventana de la acción — que dura milisegundos, así que no
+    // arrastra las líneas de otro disparo de la misma regla.
     const forThisRun = entries.filter((e) => {
       const extras = e.extras;
       if (!extras) return false;
+      if (isAction(exec)) return Boolean(exec.ruleId) && extras.ruleId === exec.ruleId;
       if (extras.runId === exec.id) return true;
       if (!extras.runId && extras.taskId === exec.taskId) return true;
       return false;
@@ -584,6 +980,20 @@ const selectedExec = computed(() =>
 function closeDetail() {
   expandedId.value = null;
 }
+
+// Salta al detalle de otro run (hoy sólo lo usa `resumedFromRunId`). Si ese
+// run no está en la página cargada, `selectedExec` da null y el drawer no
+// tiene qué mostrar — se avisa en vez de abrir un panel vacío.
+function jumpToRun(runId: string) {
+  if (!executions.value.some((e) => e.id === runId)) {
+    toastStore.error(`El run ${runId} no está en esta página — ajustá el filtro o cargá más`);
+    return;
+  }
+  expandedId.value = runId;
+  const exec = executions.value.find((e) => e.id === runId);
+  if (exec && !fetchedRunIds.value.has(exec.id)) void loadRelatedLogs(exec);
+  autoScroll.value = true;
+}
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && expandedId.value !== null) closeDetail();
 }
@@ -672,13 +1082,13 @@ function copyJson(exec: ExecutionLog) {
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es');
 }
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString(undefined, { hour12: false });
+  return d.toLocaleTimeString('es', { hour12: false });
 }
 
 function formatDuration(startedAt: string, finishedAt: string | null): string {
@@ -718,7 +1128,7 @@ function outcomeLabel(outcome: ExecutionLog['outcome']): string {
 function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
   switch (level) {
     case 'trace': return { bg: 'var(--fg-dim)', fg: 'var(--panel)' };
-    case 'debug': return { bg: 'var(--info)', fg: 'var(--accent)' };
+    case 'debug': return { bg: 'var(--info)', fg: 'var(--panel)' };
     case 'info':  return { bg: 'var(--accent)', fg: 'var(--panel)' };
     case 'warn':  return { bg: 'var(--warn)', fg: 'var(--panel)' };
     case 'error': return { bg: 'var(--danger)', fg: 'var(--panel)' };
@@ -860,9 +1270,49 @@ function onHealthDrill(payload: { agentId: string; failureClass: string }): void
   pendingFilter.value = false;
 }
 
-function clearFailureClass(): void {
-  failureClassFilter.value = '';
+// ─── Página de un agente ─────────────────────────────────────────────────
+// Qué agente está abierto vive en la URL (`:detailId`), igual que el editor
+// de agentes y el de reglas: deep-linkable, y el sidebar no se pierde. Con un
+// id en la ruta esta sección deja de ser el listado y pasa a ser la página.
+const detailAgentId = computed<string | null>(() => {
+  const id = route.params?.detailId;
+  return typeof id === 'string' && id ? id : null;
+});
+
+function pushDetailId(agentId: string | undefined): void {
+  if (!route.name) return;
+  const params = { ...route.params };
+  if (agentId === undefined) delete params.detailId;
+  else params.detailId = agentId;
+  void router.push({ name: route.name, params });
 }
+
+function openAgentPage(agentId: string): void {
+  pushDetailId(agentId);
+}
+
+function closeAgentPage(): void {
+  pushDetailId(undefined);
+}
+
+// Un drill desde la página vuelve al listado con el filtro puesto.
+function onPageDrill(payload: { agentId: string; failureClass: string }): void {
+  onHealthDrill(payload);
+  closeAgentPage();
+}
+
+// Link al editor del agente. Se arma acá y no en la página porque es esta
+// sección la que sabe en qué scope está; la página no importa la feature de
+// agentes (feature → feature está prohibido).
+const agentEditorPath = computed<string | null>(() => {
+  const id = detailAgentId.value;
+  if (!id) return null;
+  const enc = encodeURIComponent(id);
+  if (isGlobal.value) return `/general/agentes/${enc}`;
+  const pid = activeProjectId.value;
+  return pid ? `/projects/${encodeURIComponent(pid)}/agentes/${enc}` : null;
+});
+
 
 // In global scope the active project is irrelevant, so skip.
 watch(activeProjectId, () => {
@@ -880,6 +1330,10 @@ watch(activeProjectId, () => {
   discoveredProviders.value = new Set();
   discoveredSources.value = new Set();
   discoveredAssignees.value = new Set();
+  ruleFilter.value = new Set();
+  kindFilter.value = new Set();
+  discoveredRules.value = new Set();
+  discoveredKinds.value = new Set();
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
@@ -895,13 +1349,40 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, providerFilter, sourceFilter, assigneeFilter, outcomeFilter, failureClassFilter, fromFilter, toFilter, limit, projectFilter],
+  [
+    agentFilter,
+    providerFilter,
+    sourceFilter,
+    assigneeFilter,
+    outcomeFilter,
+    failureClassFilter,
+    ruleFilter,
+    kindFilter,
+    fromFilter,
+    toFilter,
+    limit,
+    projectFilter,
+  ],
   () => { void load(); },
 );
+
+// `pending` solo no toca al servidor. Pero junto a otros outcomes SÍ cambia lo
+// que se pide (deja de mandarse `outcome`), así que ahí hay que recargar.
+watch(pendingFilter, () => {
+  if (outcomeFilter.value.size > 0) void load();
+});
 </script>
 
 <template>
-  <section class="settings-section">
+  <AgentHealthPage
+    v-if="detailAgentId"
+    :agent-id="detailAgentId"
+    :project-id="isGlobal ? null : activeProjectId"
+    :editor-path="agentEditorPath"
+    @close="closeAgentPage"
+    @drill="onPageDrill"
+  />
+  <section v-else class="settings-section">
     <div class="section-header">
       <div>
         <h2>Ejecuciones</h2>
@@ -945,170 +1426,37 @@ watch(
     <AgentHealthPanel
       :project-id="isGlobal ? null : activeProjectId"
       @drill="onHealthDrill"
+      @open="openAgentPage"
     />
 
-    <p v-if="failureClassFilter" class="drill-note">
-      Filtrando por fallo <code>{{ failureClassFilter }}</code>
-      <button type="button" class="drill-clear" @click="clearFailureClass()">limpiar</button>
-    </p>
-
-    <div class="filters">
-      <div class="filter-row">
-        <label class="filter">
-          <span>Desde</span>
-          <input type="date" v-model="fromFilter" />
-        </label>
-
-        <label class="filter">
-          <span>Hasta</span>
-          <input type="date" v-model="toFilter" />
-        </label>
-
-        <label class="filter filter--grow">
-          <span>Tarea</span>
-          <input
-            type="text"
-            v-model="taskTextInput"
-            placeholder="Filtrar por título o taskId…"
-          />
-        </label>
-      </div>
-
-      <div v-if="isGlobal && allProjects.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Proyectos
-          <span class="filter-hint">
-            {{ projectFilter.size > 0
-              ? `${projectFilter.size}/${allProjects.length} activos`
-              : `todos (${allProjects.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="p in allProjects"
-            :key="p.id"
-            type="button"
-            class="chip chip--project"
-            :class="{ 'chip--active': projectFilter.size === 0 || projectFilter.has(p.id) }"
-            :aria-pressed="projectFilter.has(p.id)"
-            :data-testid="`executions-filter-project-chip-${p.id}`"
-            @click="projectFilter = toggleInSet(projectFilter, p.id)"
-          >{{ p.name }}</button>
-        </div>
-      </div>
-
-      <div v-if="agents.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Agentes
-          <span class="filter-hint">
-            {{ agentFilter.size > 0
-              ? `${agentFilter.size}/${agents.length} activos`
-              : `todos (${agents.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="a in agents"
-            :key="a.id"
-            type="button"
-            class="chip chip--agent"
-            :class="{ 'chip--active': agentFilter.size === 0 || agentFilter.has(a.id) }"
-            :aria-pressed="agentFilter.has(a.id)"
-            :data-testid="`executions-filter-agent-chip-${a.id}`"
-            @click="agentFilter = toggleInSet(agentFilter, a.id)"
-          >{{ a.id }}</button>
-        </div>
-      </div>
-
-      <div v-if="providers.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Providers
-          <span class="filter-hint">
-            {{ providerFilter.size > 0
-              ? `${providerFilter.size}/${providers.length} activos`
-              : `todos (${providers.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="p in providers"
-            :key="p"
-            type="button"
-            class="chip chip--provider"
-            :class="{ 'chip--active': providerFilter.size === 0 || providerFilter.has(p) }"
-            :aria-pressed="providerFilter.has(p)"
-            :data-testid="`executions-filter-provider-chip-${p}`"
-            @click="providerFilter = toggleInSet(providerFilter, p)"
-          >{{ p }}</button>
-        </div>
-      </div>
-
-      <div v-if="sources.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Container
-          <span class="filter-hint">
-            {{ sourceFilter.size > 0
-              ? `${sourceFilter.size}/${sources.length} activos`
-              : `todos (${sources.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="src in sources"
-            :key="src"
-            type="button"
-            class="chip chip--provider"
-            :class="{ 'chip--active': sourceFilter.size === 0 || sourceFilter.has(src) }"
-            :aria-pressed="sourceFilter.has(src)"
-            :data-testid="`executions-filter-source-chip-${src}`"
-            @click="sourceFilter = toggleInSet(sourceFilter, src)"
-          >{{ src }}</button>
-        </div>
-      </div>
-
-      <div v-if="assignees.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Assignee
-          <span class="filter-hint">
-            {{ assigneeFilter.size > 0
-              ? `${assigneeFilter.size}/${assignees.length} activos`
-              : `todos (${assignees.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="a in assignees"
-            :key="a"
-            type="button"
-            class="chip chip--provider"
-            :class="{ 'chip--active': assigneeFilter.size === 0 || assigneeFilter.has(a) }"
-            :aria-pressed="assigneeFilter.has(a)"
-            :data-testid="`executions-filter-assignee-chip-${a}`"
-            @click="assigneeFilter = toggleInSet(assigneeFilter, a)"
-          >{{ a }}</button>
-        </div>
-      </div>
-    </div>
+    <FilterQueryInput
+      v-model="filterTokens"
+      :fields="filterFields"
+      default-field="tarea"
+      testid="executions-filter"
+      placeholder="Filtrar… un campo (agente, resultado, tarea…) o texto plano busca por título/id"
+    />
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
+    <!-- El conteo ES el filtro: clickearlo prende el token `resultado:<x>`, el
+         mismo que se escribe en el input. Un atajo, no un segundo camino. -->
     <div class="exec-summary" aria-label="Resumen por outcome">
       <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
       <button
         v-for="oc in OUTCOME_ORDER"
         :key="oc"
         type="button"
-        class="exec-summary__chip"
+        class="exec-summary__count"
         :class="[
-          `exec-summary__chip--${oc}`,
-          { 'exec-summary__chip--zero': outcomeCounts[oc] === 0 },
+          `exec-summary__count--${oc}`,
+          { 'exec-summary__count--zero': outcomeCounts[oc] === 0 },
         ]"
-        :aria-pressed="oc === 'pending' ? pendingFilter : outcomeFilter.has(oc as OutcomeValue)"
+        :aria-pressed="hasToken('resultado', oc)"
+        :title="`Filtrar por resultado:${oc}`"
         :data-testid="`executions-summary-${oc}`"
-        @click="selectSummaryOutcome(oc)"
-      >
-        {{ oc }} <b>{{ outcomeCounts[oc] }}</b>
-      </button>
+        @click="toggleToken('resultado', oc)"
+      >{{ oc }} <b>{{ outcomeCounts[oc] }}</b></button>
     </div>
 
     <div class="exec-list-wrapper">
@@ -1130,7 +1478,7 @@ watch(
           class="exec-meta exec-provider exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'providerId' }"
           @click="selectExecColumn('providerId')"
-        >Provider{{ execSortArrow('providerId') }}</button>
+        >Proveedor{{ execSortArrow('providerId') }}</button>
         <button
           type="button"
           class="exec-meta exec-date exec-header-btn"
@@ -1148,7 +1496,7 @@ watch(
           class="exec-outcome-col exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'outcome' }"
           @click="selectExecColumn('outcome')"
-        >Outcome{{ execSortArrow('outcome') }}</button>
+        >Resultado{{ execSortArrow('outcome') }}</button>
         <span class="exec-chevron"></span>
         <span class="exec-stop-spacer" aria-hidden="true"></span>
       </div>
@@ -1159,67 +1507,151 @@ watch(
       </p>
 
       <ul v-else class="exec-list" data-kbd-list="executions">
+      <template v-for="row in groupedExecutions" :key="row.key">
         <li
-          v-for="exec in sortedExecutions"
-          :key="exec.id"
-          class="exec-card"
-          :class="{ 'exec-card--open': expandedId === exec.id }"
+          v-if="row.firing"
+          class="exec-card exec-card--firing"
+          :class="{ 'exec-card--open': isFiringOpen(row.firing.key) }"
         >
           <div class="exec-card-inner">
             <button
               type="button"
               class="exec-row"
               data-kbd-item
-              @click="toggleRow(exec.id)"
-              :aria-expanded="expandedId === exec.id"
+              :aria-expanded="isFiringOpen(row.firing.key)"
+              :title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
+              @click="toggleFiring(row.firing.key)"
             >
               <span
                 v-if="isGlobal"
                 class="exec-project-tag"
-                :title="`Proyecto: ${projectNameFor(exec.projectId)}`"
-              >{{ projectNameFor(exec.projectId) }}</span>
+                :title="`Proyecto: ${projectNameFor(row.firing.projectId)}`"
+              >{{ projectNameFor(row.firing.projectId) }}</span>
               <span class="exec-title">
+                <span class="exec-caret" aria-hidden="true">{{ isFiringOpen(row.firing.key) ? '▾' : '▸' }}</span>
                 <a
-                  v-if="issueUrlFor(exec.taskId)"
-                  :href="issueUrlFor(exec.taskId)!"
+                  v-if="issueUrlFor(row.firing.taskId)"
+                  :href="issueUrlFor(row.firing.taskId)!"
                   target="_blank"
                   rel="noopener noreferrer"
                   @click.stop
-                >{{ exec.taskTitle }} ↗</a>
-                <template v-else>{{ exec.taskTitle }}</template>
+                >{{ row.firing.taskTitle }} ↗</a>
+                <template v-else>{{ row.firing.taskTitle }}</template>
               </span>
-              <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
-              <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
-              <span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`">{{ exec.source }}</span>
-              <span
-                v-if="exec.cancelRequestedAt"
-                class="exec-cancel-requested"
-                :title="`Cancelación solicitada: ${exec.cancelRequestedAt}`"
-              >cancelación solicitada</span>
-              <span class="exec-meta exec-date" :title="exec.startedAt">{{ formatDateCompact(exec.startedAt) }}</span>
-              <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
+              <span class="exec-kind">{{ row.firing.count }} acciones</span>
+              <span class="exec-meta exec-agent">{{ row.firing.ruleId ?? '' }}</span>
+              <span class="exec-meta exec-provider">{{ row.firing.providerId }}</span>
+              <span class="exec-meta exec-date" :title="row.firing.startedAt">{{ formatDateCompact(row.firing.startedAt) }}</span>
+              <span class="exec-meta exec-duration">{{ formatDuration(row.firing.startedAt, row.firing.finishedAt) }}</span>
               <span
                 class="exec-outcome"
                 :style="{
-                  background: outcomeColor(exec.outcome).bg,
-                  color: outcomeColor(exec.outcome).fg,
+                  background: outcomeColor(row.firing.outcome).bg,
+                  color: outcomeColor(row.firing.outcome).fg,
                 }"
-              >{{ outcomeLabel(exec.outcome) }}</span>
+              >{{ outcomeLabel(row.firing.outcome) }}</span>
+              <span class="exec-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="exec-stop-slot">
+              <button
+                v-if="row.firing.running"
+                type="button"
+                class="exec-stop-btn"
+                :disabled="isCancelling(row.firing.running.id)"
+                :data-testid="`executions-stop-${row.firing.running.id}`"
+                title="Detener ejecución"
+                @click.stop="confirmCancelExecution(row.firing.running!)"
+              >{{ isCancelling(row.firing.running.id) ? '…' : '■ Detener' }}</button>
+            </div>
+          </div>
+        </li>
+        <li
+          v-else
+          class="exec-card"
+          :class="{ 'exec-card--open': expandedId === row.exec!.id, 'exec-card--nested': row.nested }"
+        >
+          <div class="exec-card-inner">
+            <button
+              type="button"
+              class="exec-row"
+              data-kbd-item
+              @click="toggleRow(row.exec!.id)"
+              :aria-expanded="expandedId === row.exec!.id"
+            >
+              <!-- En un hijo el tag queda invisible pero PRESENTE: sacarlo del
+                   todo correría sus columnas respecto de las del resumen. -->
+              <span
+                v-if="isGlobal"
+                class="exec-project-tag"
+                :class="{ 'exec-project-tag--ghost': row.nested }"
+                :title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
+              >{{ projectNameFor(row.exec!.projectId) }}</span>
+              <!-- La acción de un disparo NO repite el título ni el proyecto:
+                   los dice el resumen del que cuelga, y repetirlos tres veces
+                   es lo que hacía ilegible la lista. La columna ancha dice QUÉ
+                   es (un agente o una acción, y de qué tipo); el nombre queda
+                   en la columna del agente, que es donde el encabezado lo
+                   anuncia y donde el ojo ya lo busca. -->
+              <span v-if="row.nested" class="exec-title exec-title--action">
+                <span class="exec-kind">{{ kindLabel(row.exec!) ? 'acción' : 'agente' }}</span>
+                <span v-if="kindLabel(row.exec!)" class="exec-action-kind">{{ kindLabel(row.exec!) }}</span>
+              </span>
+              <template v-else>
+                <span class="exec-title">
+                  <a
+                    v-if="issueUrlFor(row.exec!.taskId)"
+                    :href="issueUrlFor(row.exec!.taskId)!"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click.stop
+                  >{{ row.exec!.taskTitle }} ↗</a>
+                  <template v-else>{{ row.exec!.taskTitle }}</template>
+                </span>
+                <span
+                  v-if="kindLabel(row.exec!)"
+                  class="exec-kind"
+                  :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
+                >{{ kindLabel(row.exec!) }}</span>
+              </template>
+              <!-- En un hijo NO cae al `ruleId`: la regla ya la dijo el resumen,
+                   y repetirla en cada acción es lo que hacía parecer que la
+                   notificación la había corrido el agente. Una acción inline no
+                   tiene nombre y la columna queda vacía. -->
+              <span class="exec-meta exec-agent">{{
+                row.nested ? row.exec!.agentId : row.exec!.agentId || row.exec!.ruleId || ''
+              }}</span>
+              <span class="exec-meta exec-provider">{{ row.exec!.providerId }}</span>
+              <span v-if="row.exec!.source" class="exec-meta exec-source" :title="`Corrió en: ${row.exec!.source}`">{{ row.exec!.source }}</span>
+              <span
+                v-if="row.exec!.cancelRequestedAt"
+                class="exec-cancel-requested"
+                :title="`Cancelación solicitada: ${row.exec!.cancelRequestedAt}`"
+              >cancelación solicitada</span>
+              <span class="exec-meta exec-date" :title="row.exec!.startedAt">{{ formatDateCompact(row.exec!.startedAt) }}</span>
+              <span class="exec-meta exec-duration">{{ formatDuration(row.exec!.startedAt, row.exec!.finishedAt) }}</span>
+              <span
+                class="exec-outcome"
+                :style="{
+                  background: outcomeColor(row.exec!.outcome).bg,
+                  color: outcomeColor(row.exec!.outcome).fg,
+                }"
+              >{{ outcomeLabel(row.exec!.outcome) }}</span>
               <span class="exec-chevron" aria-hidden="true">›</span>
             </button>
             <div class="exec-stop-slot">
               <button
-                v-if="!exec.finishedAt"
+                v-if="!row.exec!.finishedAt"
                 type="button"
                 class="exec-stop-btn"
-                :disabled="isCancelling(exec.id)"
-                :data-testid="`executions-stop-${exec.id}`"
+                :disabled="isCancelling(row.exec!.id)"
+                :data-testid="`executions-stop-${row.exec!.id}`"
                 title="Detener ejecución"
-                @click.stop="confirmCancelExecution(exec)"
-              >{{ isCancelling(exec.id) ? '…' : '■ Detener' }}</button>
+                @click.stop="confirmCancelExecution(row.exec!)"
+              >{{ isCancelling(row.exec!.id) ? '…' : '■ Detener' }}</button>
             </div>
           </div>
         </li>
+      </template>
       </ul>
     </div>
 
@@ -1240,7 +1672,7 @@ watch(
       >
         <header class="exec-drawer__header">
           <div class="exec-drawer__title">
-            <h3>Ejecución</h3>
+            <h3>{{ isAction(selectedExec) ? 'Acción' : 'Ejecución' }}</h3>
             <span
               class="exec-outcome"
               :style="{
@@ -1288,37 +1720,17 @@ watch(
             <template v-else>{{ selectedExec.taskTitle }}</template>
           </p>
 
-          <div class="detail-row">
-            <span class="detail-label">taskId</span>
-            <code class="detail-value">{{ selectedExec.taskId }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">agentId</span>
-            <code class="detail-value">{{ selectedExec.agentId }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">providerId</span>
-            <code class="detail-value">{{ selectedExec.providerId }}</code>
-          </div>
-          <div v-if="selectedExec.assignees?.length" class="detail-row">
-            <span class="detail-label">assignees</span>
-            <code class="detail-value">{{ selectedExec.assignees.join(', ') }}</code>
-          </div>
-          <div v-if="selectedExec.errorMsg" class="detail-row">
-            <span class="detail-label">errorMsg</span>
-            <pre class="detail-value detail-value--pre">{{ selectedExec.errorMsg }}</pre>
-          </div>
-          <div v-if="selectedExec.stopReason" class="detail-row">
-            <span class="detail-label">stopReason</span>
-            <code class="detail-value">{{ selectedExec.stopReason }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">startedAt</span>
-            <code class="detail-value" :title="selectedExec.startedAt">{{ formatDate(selectedExec.startedAt) }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">finishedAt</span>
-            <code class="detail-value" :title="selectedExec.finishedAt ?? ''">{{ selectedExec.finishedAt ? formatDate(selectedExec.finishedAt) : '—' }}</code>
+          <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
+            <span class="detail-label">{{ row.label }}</span>
+            <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
+            <button
+              v-else-if="row.jumpToRunId"
+              type="button"
+              class="detail-value detail-value--link"
+              :title="row.title"
+              @click="jumpToRun(row.jumpToRunId)"
+            >{{ row.value }}</button>
+            <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
           </div>
 
           <div class="detail-json-block">
@@ -1339,7 +1751,7 @@ watch(
           <div class="related-block">
             <div class="related-header">
               <span class="detail-label">
-                Tool calls y eventos del servidor
+                {{ isAction(selectedExec) ? 'Líneas del daemon de esta regla' : 'Tool calls y eventos del servidor' }}
                 <span
                   v-if="relatedLogs[selectedExec.id]"
                   class="related-count"
@@ -1390,7 +1802,8 @@ watch(
               v-else-if="relatedLogs[selectedExec.id] && relatedLogs[selectedExec.id].length === 0"
               class="related-empty"
             >
-              No se encontraron entradas en <code>daemon.log</code> para esta ejecución.
+              No se encontraron entradas en <code>daemon.log</code> para
+              {{ isAction(selectedExec) ? 'esta acción' : 'esta ejecución' }}.
               Los agentes async (tmux/iterm) no emiten <code>tool.call</code>/<code>tool.result</code>
               — sus tool calls quedan registrados por Claude Code, no por el daemon.
             </div>
@@ -1558,22 +1971,6 @@ watch(
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-.drill-note { font-size: 0.78rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
-.drill-note code { color: var(--warn); }
-.drill-clear {
-  margin-left: 0.5rem;
-  border: 1px solid var(--border-hi);
-  background: transparent;
-  color: var(--fg-dim);
-  border-radius: 999px;
-  padding: 0 0.45rem;
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .live-toggle {
   display: inline-flex;
@@ -1608,7 +2005,6 @@ watch(
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.45; }
 }
-.section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
 .btn-primary {
   flex-shrink: 0;
@@ -1649,85 +2045,6 @@ watch(
 .btn-copy:hover { background: var(--panel-hi); }
 .btn-copy:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.filters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.65rem 0.75rem;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 0.85rem;
-}
-.filter-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
-.filter { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--fg-mute); min-width: 130px; }
-.filter--grow { flex: 1; min-width: 200px; }
-.filter--chips { gap: 0.3rem; }
-.filter-label { font-weight: 500; color: var(--fg-dim); font-size: 0.78rem; }
-.filter-hint { font-weight: 400; color: var(--fg-dim); margin-left: 0.25rem; font-size: 0.72rem; }
-.filter span { font-weight: 500; color: var(--fg-dim); }
-.filter select, .filter input {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
-  font-size: 0.85rem;
-  background: var(--panel);
-  color: var(--fg);
-}
-
-.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-.chip {
-  padding: 0.2rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-size: 0.75rem;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.chip:hover { background: var(--panel-hi); }
-.chip--active { font-weight: 600; background: var(--fg); color: var(--panel); border-color: var(--fg); }
-.chip--agent {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  color: var(--info);
-  border-color: var(--info);
-  background: var(--panel-hi);
-}
-.chip--agent:hover { background: var(--panel-hi); }
-.chip--agent.chip--active {
-  background: var(--info);
-  color: var(--panel);
-  border-color: var(--info);
-}
-.chip--project {
-  font-size: 0.72rem;
-  color: var(--warn);
-  border-color: var(--warn);
-  background: var(--yellow-bg);
-}
-.chip--project:hover { background: var(--yellow-bg); }
-.chip--project.chip--active {
-  background: var(--warn);
-  color: var(--panel);
-  border-color: var(--warn);
-}
-.chip--provider {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  color: var(--info);
-  border-color: var(--info);
-  background: var(--panel-hi);
-}
-.chip--provider:hover { background: var(--info); }
-.chip--provider.chip--active {
-  background: var(--info);
-  color: var(--panel);
-  border-color: var(--info);
-}
-
 .empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 .items-error {
   padding: 0.6rem 0.85rem;
@@ -1753,28 +2070,26 @@ watch(
   flex-wrap: wrap;
 }
 .exec-summary__total { color: var(--fg-dim); margin-right: 0.4rem; }
-.exec-summary__chip {
-  padding: 0.15rem 0.55rem;
+.exec-summary__count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
   cursor: pointer;
-  font-size: 0.72rem;
-  text-transform: lowercase;
-  line-height: 1.2;
-  transition: transform 0.08s ease;
 }
-.exec-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
-.exec-summary__chip:hover { transform: translateY(-1px); }
-.exec-summary__chip[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
-.exec-summary__chip--success   { background: transparent; color: var(--accent); border-color: var(--border); }
-.exec-summary__chip--error     { background: transparent; color: var(--danger); border-color: var(--border); }
-.exec-summary__chip--cancelled { background: transparent; color: var(--fg-mute); border-color: var(--border); }
-.exec-summary__chip--truncated { background: transparent; color: var(--warn); border-color: var(--border); }
-/* 'pending' inherits `cursor: pointer` from `.exec-summary__chip` — it now
-   toggles a client-side filter (outcome === null) instead of being a no-op. */
-.exec-summary__chip--pending   { background: transparent; color: var(--fg-dim); border-color: var(--border); }
-.exec-summary__chip--zero { opacity: 0.4; }
-.exec-summary__chip--zero:hover { opacity: 0.7; }
+.exec-summary__count:hover { background: var(--panel-hi); }
+.exec-summary__count[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
+.exec-summary__count b { font-weight: 700; }
+.exec-summary__count--success   { color: var(--accent); }
+.exec-summary__count--error     { color: var(--danger); }
+.exec-summary__count--cancelled { color: var(--fg-mute); }
+.exec-summary__count--truncated { color: var(--warn); }
+.exec-summary__count--pending   { color: var(--fg-dim); }
+.exec-summary__count--zero { opacity: 0.4; }
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 .exec-list-wrapper { position: relative; }
@@ -1918,6 +2233,43 @@ watch(
   color: var(--fg);
 }
 .exec-row:hover { background: var(--panel-alt); }
+
+/* El resumen de un disparo de regla. Se dibuja como una fila normal —misma
+   grilla, mismo outcome, misma altura— porque para escanear la lista ES la
+   fila; lo único que la marca es el caret y un fondo apenas distinto. */
+.exec-card--firing { background: var(--panel-alt); }
+.exec-caret {
+  display: inline-block;
+  width: 0.9rem;
+  flex-shrink: 0;
+  color: var(--fg-dim);
+  font-size: 0.75rem;
+}
+.exec-title--action { color: var(--fg-mute); display: flex; align-items: center; gap: 0.4rem; }
+.exec-action-kind { font-size: 0.75rem; color: var(--fg-dim); }
+.exec-project-tag--ghost { visibility: hidden; }
+
+/* Una acción abierta desde el resumen de su disparo. El sangrado más la guía a
+   la izquierda es lo que dice "esto lo lanzó aquella regla" — la regla es el
+   padre de las dos, ninguna acción lo es de su hermana. */
+.exec-card--nested { margin-left: 1.5rem; }
+.exec-card--nested .exec-card-inner {
+  border-left: 2px solid var(--border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* Qué corrió, cuando no fue un agente. Deliberadamente discreto: la fila
+   importante de un disparo suele ser el run, no la notificación. */
+.exec-kind {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: lowercase;
+}
 /* Reserved at a fixed width whether or not the button is rendered inside it,
    so `.exec-row`'s flex-basis stays identical across rows — otherwise rows
    with an active "Detener" button are narrower than finished rows and the
@@ -2015,6 +2367,8 @@ watch(
 .detail-label { min-width: 90px; color: var(--fg-dim); font-weight: 500; }
 .detail-value { color: var(--fg); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.78rem; word-break: break-all; }
 .detail-value--pre { white-space: pre-wrap; margin: 0; background: var(--panel); border: 1px solid var(--border); padding: 0.4rem 0.55rem; border-radius: 4px; flex: 1; }
+.detail-value--link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+.detail-value--link:hover { color: var(--fg); }
 
 .related-block {
   display: flex;
@@ -2046,16 +2400,16 @@ watch(
   margin: 0.25rem 0;
   padding: 0.3rem 0.7rem;
   background: var(--panel-alt);
-  color: var(--panel-alt);
-  border: none;
+  color: var(--fg);
+  border: 1px solid var(--border-hi);
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  transition: background 120ms;
+  transition: background 120ms, color 120ms;
 }
-.autoscroll-hint:hover { background: var(--fg); }
+.autoscroll-hint:hover { background: var(--fg); color: var(--panel-alt); }
 .pause-btn--paused {
   background: var(--yellow-bg);
   border-color: var(--warn);
@@ -2234,4 +2588,21 @@ watch(
 }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
+
+@media (max-width: 768px) {
+  /* `.exec-row` es un flex sin `wrap` cuyos hijos no encogen: medía 477px
+     dentro de una caja de 325. Envolver es lo correcto acá y no scrollear —a
+     diferencia de la tabla del dashboard— porque una ejecución se lee como una
+     ficha (agente, outcome, duración de ESE run), no comparando columnas entre
+     filas. */
+  /* Acá NO se envuelve, y el propio código dice por qué: las columnas tienen
+     ancho fijo "so header cells and row cells line up". Envolver desalinea el
+     header de las filas y rompe justo lo que hace legible la lista.
+     
+     Una tabla scrollea DENTRO de su caja: la página deja de moverse de lado y
+     comparar columnas entre filas sigue siendo posible. El ancho mínimo sale
+     de la suma de las columnas fijas más el spacer de 84px. */
+  .exec-list-wrapper { overflow-x: auto; }
+  .exec-list { min-width: 44rem; }
+}
 </style>

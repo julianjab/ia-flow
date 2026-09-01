@@ -32,7 +32,12 @@ describe('sanitizeState — qué gana entre la pantalla y el arranque en frío',
   })
 
   it('un estado guardado CON reglas gana sobre el YAML', () => {
-    const saved = { admissionRules: [{ field: 'agentId', op: 'equals', value: 'e2e' }] }
+    // Anotado: sin el tipo, TS infiere `field: string` y `op: string`, que no
+    // son asignables a las uniones de literales de `AdmissionRule` — y el
+    // `toEqual` de abajo no compila.
+    const saved: { admissionRules: AdmissionRule[] } = {
+      admissionRules: [{ field: 'agentId', op: 'equals', value: 'e2e' }],
+    }
     expect(sanitizeState(saved, cold).admissionRules).toEqual(saved.admissionRules)
   })
 

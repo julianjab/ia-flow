@@ -9,9 +9,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@ia-flow/shared": "workspace:*",
     "@ia-flow/ai-providers": "workspace:*",
     "@ia-flow/issue-sources": "workspace:*",
+    "@ia-flow/rules": "workspace:*",
+    "@ia-flow/shared": "workspace:*",
     "@ia-flow/workspace": "workspace:*"
   },
   "devDependencies": {

@@ -7,7 +7,7 @@ import {
   parseGithubRepoRef,
 } from '@/composables/parseGithubRepoRef';
 import { getOwners, getRepos, type GithubOwner } from '@/features/github/api';
-import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
 
 // Un solo campo para lo que antes eran dos (un <select> de owner y un
 // autocomplete de repo, duplicados en RepoConfigModal y RepoInlineForm):
@@ -33,6 +33,11 @@ const reposError = ref('');
 const loadedOwner = ref('');
 const inflightOwner = ref('');
 
+// Lo que se está tipeando AHORA, que no es lo mismo que el valor guardado: el
+// ComboBox sólo emite al confirmar, y las sugerencias de este campo tienen que
+// reaccionar mientras se escribe — es todo el punto de que existan.
+const typing = ref(formatGithubRepoSlug(props));
+
 // El owner tipeado, aunque el repo todavía no esté completo: es lo que decide
 // qué sugerencias mostrar mientras se escribe `julianjab/…`.
 //
@@ -42,7 +47,7 @@ const inflightOwner = ref('');
 // `options` pasaba a "repos de `j`" (vacío) apenas resolvía el primer
 // prefijo, matando el buscador de owners justo cuando se lo necesita.
 const typedOwner = computed(() =>
-  slug.value.includes('/') ? parseGithubOwner(slug.value) : '',
+  typing.value.includes('/') ? parseGithubOwner(typing.value) : '',
 );
 
 async function loadOwners() {
@@ -121,30 +126,37 @@ watch(
     if (incoming === lastEmitted.value) return;
     lastEmitted.value = incoming;
     slug.value = incoming;
+    typing.value = incoming;
   },
 );
 
 function onInput(value: string) {
   slug.value = value;
+  typing.value = value;
   const parsed = parseGithubRepoRef(value);
   lastEmitted.value = formatGithubRepoSlug(parsed ?? {});
   emit('update:modelValue', { owner: parsed?.owner ?? '', repo: parsed?.repo ?? '' });
 }
 
 const invalid = computed(() => !!slug.value.trim() && !parseGithubRepoRef(slug.value));
+// El ComboBox describe cada opción con un objeto; acá la lista son strings
+// pelados y el value ES lo que se muestra.
+const comboOptions = computed<ComboOption[]>(() => options.value.map((value) => ({ value })));
 </script>
 
 <template>
   <div class="grf">
-    <AutocompleteSelect
-      :id="id"
+    <ComboBox
+      allow-custom
+      :input-id="id"
       :model-value="slug"
-      :options="options"
+      :options="comboOptions"
       :loading="ownersLoading || reposLoading"
       :error="ownersError || reposError"
       placeholder="julianjab/accountant — o pegá la URL del repo"
       empty-text="Sin repos que coincidan"
-      @update:model-value="onInput"
+      @update:model-value="(v) => onInput(Array.isArray(v) ? (v[0] ?? '') : v)"
+      @search="(q) => (typing = q)"
     />
     <span v-if="invalid" class="grf-error">
       Falta el repo: usá <code>owner/repo</code> o https://github.com/owner/repo

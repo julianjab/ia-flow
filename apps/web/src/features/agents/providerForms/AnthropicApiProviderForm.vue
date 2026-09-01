@@ -13,6 +13,7 @@ export interface AnthropicApiProviderConfig {
   maxPauseTurnRetries?: number;
   retryTruncatedToolUse?: boolean;
   thinkingBudgetTokens?: number;
+  eagerMcpTools?: boolean;
 }
 
 const props = defineProps<{ modelValue: Record<string, unknown> }>();
@@ -64,6 +65,7 @@ const advancedCount = computed(() =>
     state.value.thinkingBudgetTokens,
     state.value.maxPauseTurnRetries,
     state.value.retryTruncatedToolUse,
+    state.value.eagerMcpTools,
   ].filter((v) => v !== undefined && v !== null).length,
 );
 // Si el agente ya trae algo cargado ahí, no lo escondas detrás de un click.
@@ -172,6 +174,17 @@ const advancedOpen = ref(advancedCount.value > 0);
         Reintentar tool_use cortado por max_tokens
       </label>
       <p class="field-hint">Si max_tokens corta un tool_use a mitad del JSON, reintenta una vez esa misma request con más tokens en vez de dar el run por truncado.</p>
+    </div>
+    <div class="pc-field pc-field--checkbox">
+      <label class="pc-check">
+        <input
+          type="checkbox"
+          :checked="state.eagerMcpTools ?? false"
+          @change="(e) => set('eagerMcpTools', checkboxInput(e))"
+        />
+        Cargar todas las tools MCP desde el inicio
+      </label>
+      <p class="field-hint">Por default las tools de cada servidor MCP van diferidas: el modelo las busca y carga sólo las que necesita, y el catálogo no pesa en cada vuelta. Marcalo para un agente que usa el catálogo entero o cuyo prompt no lo prepara para buscar.</p>
     </div>
   </div>
 </template>

@@ -13,8 +13,14 @@ import {
   taskFiltersToSearch,
 } from './taskFilters'
 
-function pr(state: PullRequestRef['state'], number = 1): PullRequestRef {
-  return { number, url: `https://github.com/acme/repo/pull/${number}`, state, isDraft: false }
+function pr(state: PullRequestRef['state'], over: Partial<PullRequestRef> = {}): PullRequestRef {
+  return {
+    number: 1,
+    url: `https://github.com/acme/repo/pull/${over.number ?? 1}`,
+    state,
+    isDraft: false,
+    ...over,
+  }
 }
 
 function task(over: Partial<FilterableTask> = {}): FilterableTask {
@@ -45,36 +51,80 @@ describe('filterTasks — status', () => {
   })
 })
 
-describe('filterTasks — mergeado (tri-estado)', () => {
-  const merged = task({ status: 'done', pullRequests: [pr('merged')] })
-  const open = task({ status: 'doing', pullRequests: [pr('open', 2)] })
-  const none = task({ status: 'refine' })
-
-  it('off no toca nada', () => {
-    expect(filterTasks([merged, open, none], withFilters({ merged: 'off' }))).toHaveLength(3)
-  })
-
-  it('hide esconde las que ya tienen un PR mergeado', () => {
-    expect(filterTasks([merged, open, none], withFilters({ merged: 'hide' }))).toEqual([open, none])
-  })
-
-  it('only deja únicamente las mergeadas', () => {
-    expect(filterTasks([merged, open, none], withFilters({ merged: 'only' }))).toEqual([merged])
+describe('filterTasks — repo', () => {
+  it('matchea contra cualquiera de los repos de la tarea, case-insensitive', () => {
+    const single = task({ repos: 'ia-flow' })
+    const multi = task({ repos: 'ia-flow, otro-repo' })
+    const none = task({ repos: 'algo-mas' })
+    const kept = filterTasks([single, multi, none], withFilters({ repos: ['OTRO-REPO'] }))
+    expect(kept).toEqual([multi])
   })
 })
 
-describe('filterTasks — dev links', () => {
-  it('"con PR" pide al menos un PR conocido', () => {
-    const conPr = task({ pullRequests: [pr('open')] })
-    const sinPr = task()
-    expect(filterTasks([conPr, sinPr], withFilters({ hasPr: true }))).toEqual([conPr])
+describe('filterTasks — assigned', () => {
+  it('matchea si el login está entre los assignees, case-insensitive', () => {
+    const mine = task({ assignees: ['juli'] })
+    const other = task({ assignees: ['pepe'] })
+    const none = task()
+    const kept = filterTasks([mine, other, none], withFilters({ assignees: ['JULI'] }))
+    expect(kept).toEqual([mine])
+  })
+})
+
+describe('filterTasks — pr_status', () => {
+  const merged = task({ status: 'done', pullRequests: [pr('merged')] })
+  const open = task({ status: 'doing', pullRequests: [pr('open', { number: 2 })] })
+  const draft = task({ status: 'doing', pullRequests: [pr('open', { number: 3, isDraft: true })] })
+  const closed = task({ status: 'doing', pullRequests: [pr('closed', { number: 4 })] })
+  const none = task({ status: 'refine' })
+
+  it('vacío no filtra nada', () => {
+    expect(
+      filterTasks([merged, open, draft, closed, none], withFilters({ prStatus: [] })),
+    ).toHaveLength(5)
   })
 
-  it('"con branch" pide branch linkeada', () => {
+  it('cada valor filtra su propio estado', () => {
+    expect(
+      filterTasks([merged, open, draft, closed, none], withFilters({ prStatus: ['mergeado'] })),
+    ).toEqual([merged])
+    expect(
+      filterTasks([merged, open, draft, closed, none], withFilters({ prStatus: ['abierto'] })),
+    ).toEqual([open])
+    expect(
+      filterTasks([merged, open, draft, closed, none], withFilters({ prStatus: ['draft'] })),
+    ).toEqual([draft])
+    expect(
+      filterTasks([merged, open, draft, closed, none], withFilters({ prStatus: ['cerrado'] })),
+    ).toEqual([closed])
+    expect(
+      filterTasks([merged, open, draft, closed, none], withFilters({ prStatus: ['sin-pr'] })),
+    ).toEqual([none])
+  })
+
+  it('dos valores del mismo eje son OR', () => {
+    const kept = filterTasks(
+      [merged, open, draft, closed, none],
+      withFilters({ prStatus: ['mergeado', 'abierto'] }),
+    )
+    expect(kept).toEqual([merged, open])
+  })
+})
+
+describe('filterTasks — branch', () => {
+  it('"con-branch" pide branch linkeada', () => {
     const conBranch = task({ branch: 'task/42' })
     const sinBranch = task()
-    expect(filterTasks([conBranch, sinBranch], withFilters({ hasBranch: true }))).toEqual([
+    expect(filterTasks([conBranch, sinBranch], withFilters({ branch: ['con-branch'] }))).toEqual([
       conBranch,
+    ])
+  })
+
+  it('"sin-branch" es el complemento', () => {
+    const conBranch = task({ branch: 'task/42' })
+    const sinBranch = task()
+    expect(filterTasks([conBranch, sinBranch], withFilters({ branch: ['sin-branch'] }))).toEqual([
+      sinBranch,
     ])
   })
 
@@ -84,25 +134,38 @@ describe('filterTasks — dev links', () => {
       task({ status: 'doing' }),
       task({ status: 'done', branch: 'task/3' }),
     ]
-    const kept = filterTasks(all, withFilters({ statuses: ['refine', 'doing'], hasBranch: true }))
+    const kept = filterTasks(
+      all,
+      withFilters({ statuses: ['refine', 'doing'], branch: ['con-branch'] }),
+    )
     expect(kept).toEqual([all[0]])
+  })
+})
+
+describe('filterTasks — blocked', () => {
+  it('"si" pide al menos un blocker sin resolver', () => {
+    const blocked = task({ blocked: true })
+    const free = task({ blocked: false })
+    expect(filterTasks([blocked, free], withFilters({ blocked: ['si'] }))).toEqual([blocked])
+  })
+
+  it('"no" es el complemento, y un blocked ausente cuenta como "no"', () => {
+    const blocked = task({ blocked: true })
+    const unknown = task()
+    expect(filterTasks([blocked, unknown], withFilters({ blocked: ['no'] }))).toEqual([unknown])
   })
 })
 
 describe('filterTasks — providers que no hablan de PRs', () => {
   const unknown = task({ pullRequestsKnown: false })
 
-  it('no cuenta como "con PR"', () => {
-    expect(filterTasks([unknown], withFilters({ hasPr: true }))).toEqual([])
-  })
-
-  it('no cuenta como mergeada', () => {
-    expect(filterTasks([unknown], withFilters({ merged: 'only' }))).toEqual([])
+  it('no cuenta como ningún pr_status, ni siquiera "sin-pr"', () => {
+    expect(filterTasks([unknown], withFilters({ prStatus: ['sin-pr'] }))).toEqual([])
+    expect(filterTasks([unknown], withFilters({ prStatus: ['mergeado'] }))).toEqual([])
   })
 
   it('con el filtro apagado sigue apareciendo — un "no sé" no es un "no tiene"', () => {
     expect(filterTasks([unknown], EMPTY_TASK_FILTERS)).toEqual([unknown])
-    expect(filterTasks([unknown], withFilters({ merged: 'hide' }))).toEqual([unknown])
   })
 })
 
@@ -114,20 +177,30 @@ describe('serialización', () => {
   })
 
   it('ida y vuelta por el querystring preserva la selección', () => {
-    const filters = withFilters({ statuses: ['refine', 'doing'], hasBranch: true, merged: 'hide' })
+    const filters = withFilters({
+      statuses: ['refine', 'doing'],
+      repos: ['ia-flow'],
+      assignees: ['juli'],
+      branch: ['con-branch'],
+      prStatus: ['abierto'],
+      blocked: ['si'],
+    })
     expect(taskFiltersFromSearch(taskFiltersToSearch(filters))).toEqual(filters)
   })
 
   it('lee la query tal como la entrega vue-router (repetida o simple)', () => {
-    expect(taskFiltersFromQuery({ status: ['refine', 'doing'], pr: '1', merged: 'only' })).toEqual(
-      withFilters({ statuses: ['refine', 'doing'], hasPr: true, merged: 'only' }),
+    expect(
+      taskFiltersFromQuery({ status: ['refine', 'doing'], pr: 'mergeado', repo: 'ia-flow' }),
+    ).toEqual(
+      withFilters({ statuses: ['refine', 'doing'], prStatus: ['mergeado'], repos: ['ia-flow'] }),
     )
     expect(taskFiltersFromQuery({ status: 'refine' })).toEqual(
       withFilters({ statuses: ['refine'] }),
     )
   })
 
-  it('un `merged` desconocido cae a off en vez de filtrar por basura', () => {
-    expect(taskFiltersFromQuery({ merged: 'quizas' }).merged).toBe('off')
+  it('un `pr`/`rama` desconocido se descarta en vez de filtrar por basura', () => {
+    expect(taskFiltersFromQuery({ pr: 'quizas' }).prStatus).toEqual([])
+    expect(taskFiltersFromQuery({ rama: 'quizas' }).branch).toEqual([])
   })
 })

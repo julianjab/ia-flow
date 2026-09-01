@@ -22,12 +22,13 @@ packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
 packages/github-auth/  Credenciales de GitHub: PAT / gh CLI / GitHub App (@ia-flow/github-auth)
 packages/figma-auth/   Credencial OAuth (PKCE) del MCP remoto de Figma (@ia-flow/figma-auth)
+packages/slack/        Slack entero y OPCIONAL: cliente, tools, directorio, review, Events API (@ia-flow/slack)
 scripts/               One-off ops scripts (GitHub Project setup, etc.)
 .claude/               Agents, commands, hooks, settings for this repo
 ```
 
 Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`,
-`github-auth → shared`, `figma-auth → shared`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
+`github-auth → shared`, `figma-auth → shared`, `slack → shared + tools + issue-sources + agent-engine`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
 consumen dos apps que no comparten nada más —`apps/server` y `apps/agent-host`—, que es
 la razón de que sean paquetes propios y no rincones de `agent-engine` o `issue-sources`.
 
@@ -334,14 +335,14 @@ un run de terminal tenga dos discos en juego, y que `bash_run` y `workspace_rese
 
 ### Las tools por `providerKinds`
 
-De las 31 registradas en `packages/tools/src`, casi todas se ofrecen a los dos mundos. Las
-excepciones son las que importan:
+De las 31 —26 en `packages/tools/src` y 5 en `packages/slack`, que se registran sólo si hay
+credencial—, casi todas se ofrecen a los dos mundos. Las excepciones son las que importan:
 
 | Alcance | Tools | Por qué |
 | --- | --- | --- |
 | Sólo `sync` | `bash_run`, `workspace_reset` | en async el CLI ya trae Bash nativo; exponerlas mandaría la ejecución al disco equivocado |
 | Sólo `async` | `complete_task` | en sync el run lo cierra el engine leyendo `stopReason`, no el modelo |
-| Ambos | las 28 restantes | `fs_*` (5), fuente de issues (7), GitHub (6), Slack (5), `memory_*` (5) |
+| Ambos | las 28 restantes | `fs_*` (5), fuente de issues (7), GitHub (6), Slack (5, ver §Slack), `memory_*` (5) |
 
 **`fs_*` en el camino async es el filo que queda**: se exponen (no declaran `providerKinds`), y
 `/api/mcp` los resuelve con `providerKind: 'async'`, así que **leen y escriben en el disco del
@@ -451,7 +452,202 @@ garantizada (una tool de lectura es capacidad sin uso — el MCP de GitHub ya la
 llamaba), mientras que contestar y resolver son decisiones que el agente sólo puede tomar después
 de arreglar el código.
 
-## Memoria de los agentes — lo único que sobrevive a un run
+## Sub-agentes — delegar, y cuándo esperar la respuesta
+
+Un agente que delega en otro es **dos cosas distintas** según si necesita leer lo que el
+otro produjo.
+
+**Sin esperar, ya funcionaba y no necesitó código**: el padre emite un evento y las reglas
+levantan a los hijos. Pero no hay retorno — es un pipeline, no una jerarquía, y para la
+mayoría de los casos alcanza.
+
+**Con respuesta**, hay dos caminos y ninguno reemplaza al otro:
+
+| | tool `run_agent` | `pause_until` + regla sobre `run.finished` |
+| --- | --- | --- |
+| El padre | bloquea; el resultado vuelve como `tool_result` | hace checkpoint y libera el slot |
+| Cuesta | retener slot, lock y worktree mientras espera | rehidratar — re-paga su input al despertar |
+| Sirve para | hijos de segundos a minutos | hijos largos, o en otra máquina |
+
+El segundo vino gratis con las esperas (fase 5) y no tiene código propio.
+
+### La trampa que ordena todo el diseño: deadlock por capacidad
+
+Con el cap del proyecto en N, **N padres bloqueados esperando a sus hijos ocupan los N
+slots y ningún hijo puede arrancar nunca**. El pipeline se congela entero y el síntoma es
+"todo diferido", que no señala a la causa.
+
+Lo que lo evita: **un hijo no consume el cap de dispatch del proyecto**
+(`PendingTask.parentRunId` → `SourceDispatcher.runningAgents`). Ese cap limita cuántos
+*issues* se trabajan a la vez, y un sub-agente no es un issue nuevo — es más trabajo sobre
+uno que ya está contado.
+
+Los caps de **agente** y de **provider** sí siguen contando: modelan un límite real (del
+roster y del upstream), no una política sobre cuántos issues atender, y ninguno se puede
+trabar así — el hijo siempre es un agente distinto del padre, así que su cap se libera solo.
+
+### Tres cosas que hay que saber antes de tocarlo
+
+**El lock por task es re-entrante por DELEGACIÓN, no por task.** El hijo trabaja sobre la
+misma task que su padre, así que `acquireTask` lo bloquearía contra su propio padre — por
+eso un run con `sub` no lo vuelve a tomar. Dos dispatches *sin parentesco* sobre la misma
+task siguen chocando, que es exactamente para lo que el lock existe.
+
+**El registry de pending tasks está indexado por task id**, y un hijo corre sobre la misma
+task: registrarlo con la misma clave pisaría la entrada del padre, con su `cancel` y su
+`executionId`. Un hijo se registra bajo `<taskId>#sub:<runId>`. La consecuencia es
+deliberada: un `getPendingTask(taskId)` desde el hijo resuelve al **padre**, porque el dueño
+del ciclo de vida de la tarea es el padre. El hijo devuelve por `tool_result`, no por los
+tools de cierre.
+
+**La profundidad se cuenta aparte de los eventos.** `EngineEvent.depth` frena las cadenas
+que pasan por el bus; `run_agent` no pasa por ahí, así que lleva su propio contador en
+`ToolContext.agentDepth` (`MAX_AGENT_DEPTH = 3`). Sin él, A → B → A es un loop sin fondo que
+consume presupuesto hasta que alguien lo mate a mano. Una cadena demasiado profunda devuelve
+`skipped` y no `deferred`: esperar no despeja la profundidad.
+
+### Lo que el hijo NO hereda
+
+**El contexto del padre.** Recibe la task con el `brief` como descripción, su propio prompt
+y sus propias tools. Eso no es una carencia — el aislamiento de contexto es la razón de ser
+de un sub-agente, y es por eso que `brief` es obligatorio: sin él el hijo no tiene con qué
+trabajar. **La memoria también es suya**: `memory_*` ya está namespaceada por
+`(agentId, projectId)`.
+
+**Un hijo que no corre no es un fallo del padre.** El motivo vuelve como texto
+(`El agente 'x' no pudo correr: …`) para que el padre decida —probar con otro, seguir sin
+él— en vez de tirar y llevarse puesto un run que iba bien. Por eso `runSubAgent` devuelve
+`{ ok, output | reason }` y no un `DispatchOutcome`, que es lo que le sirve al dispatcher
+pero no al padre.
+
+### El pago
+
+Como el hijo se resuelve por el mismo `resolveProvider`, puede tener un `provider: remote:`
+— o sea correr en el disco de **otro agent-host, con otro toolchain**. Un padre razonando
+sobre el monorepo que delega los tests a un `agent-host-flutter` sale gratis, sin una línea
+de coordinación.
+
+`run_agent` es `providerKinds: ['sync']`: en un provider de terminal el CLI ya trae su
+propio mecanismo de sub-agentes, y la tool despacharía en el proceso equivocado.
+
+## Esperas, pausas y checkpoints — qué sobrevive a un run
+
+"El run se detiene y sigue después" describe **dos cosas que no se parecen**, y tratarlas
+como una lleva al diseño equivocado:
+
+| | Espera (`wait_for_event`) | Pausa (`pause_until`) |
+| --- | --- | --- |
+| Quién decide | el AGENTE: terminó lo que podía hacer | lo interrumpieron a mitad del trabajo |
+| Hay posición que conservar | no | sí |
+| Cuesta | cero: libera slot, lock y worktree | retiene el worktree |
+| La fila en `waits` | `checkpoint = NULL` → `○` | `checkpoint` lleno → `⏸` |
+
+La unificación que hace que esto no sea un mecanismo aparte: **una pausa es una espera con
+un checkpoint colgado**. Misma tabla, mismo matcher; y un wait es una **regla efímera**, de
+un solo uso, con scope de task — se evalúa con el mismo `matchScope` + `evalWhen` que una
+regla, se consume al matchear y vence.
+
+**`on`/`when` son parámetros de las dos**, no una constante de la pausa. El default de
+`pause_until` —el próximo mensaje de la tarea— es lo correcto cuando el agente se pausa a sí
+mismo: no sabe qué va a destrabar la situación, así que espera a quien le habló. Pero cuando
+la orden viene de afuera, quien la manda sí sabe (*"pará hasta que se mergee el PR 5"* →
+`on: ['pr.merged'], when: [{field:'pr.number',op:'=',value:'5'}]`), y hardcodear el evento
+tiraba esa información. El default vive en `composition/container.ts`, no en la tool: la
+tool describe la intención y el store la completa.
+
+Las dos son `providerKinds: ['sync']`: en un provider de terminal el proceso del CLI sigue
+vivo y "parar" ahí significa otra cosa.
+
+### Despertar NO es correr
+
+`WaitHandler` (`packages/rules/src/wait-handler.ts`) se suscribe al bus **aparte** del motor
+de reglas —son dos preguntas distintas sobre el mismo evento: *"¿qué reglas aplican?"*
+(config permanente) y *"¿alguien estaba esperando esto?"* (runtime, un solo uso)— consume la
+espera y publica `wait.resumed`. **Ahí termina su trabajo.** Que el agente vuelva a correr
+lo decide **una regla**, igual que con cualquier otro evento; el engine no cablea "despertar"
+con "correr".
+
+Corolario operativo: un agente con `wait_for_event` **y sin una regla sobre `wait.resumed`**
+arma la espera, se despierta, consume la fila… y no vuelve nunca. Conviene también una regla
+sobre `wait.expired`, o un CI que nunca corre deja la task muerta en silencio.
+
+Se consume **antes** de reanudar, no después: si el reanudado tarda, un segundo delivery del
+mismo evento encontraría la espera viva y arrancaría un run duplicado. **El borrado ES la
+clave de idempotencia**; el costo del orden inverso —un reanudado que falla pierde la
+espera— es preferible a dos runs sobre la misma task.
+
+### El checkpoint: dónde va el run, en disco
+
+`run_checkpoints` (migración 066) guarda el estado de un run **en vuelo**, una fila por run,
+**pisada en cada vuelta**. No es un historial: sólo interesa el último request enviado.
+
+**Qué se guarda lo decide el provider**, no el engine: `ProviderInput.saveCheckpoint` es un
+canal y el `state` es opaco, misma filosofía que `canAccept` y `prepareWorkspace`.
+`anthropic-api` manda su array de mensajes; uno de terminal no lo llama — su proceso
+sobrevive por su cuenta y su recuperación es el `pending-task-rehydrator`. El loop guarda
+**después de compactar y antes del request**, así que lo persistido es exactamente lo que se
+mandó; un fallo al guardar **no voltea el run** (perder el checkpoint degrada la
+recuperación, tirar ahí tiraría el trabajo que existe para salvar).
+
+**Tabla propia y no un campo de `execution_logs`.** Aquélla es historia y vive para siempre;
+ésta es basura en cuanto el run termina, y se borra en el `finally` del orquestador — el
+único punto que corre una vez por run pase lo que pase. Además `update()` hace fan-out a los
+repos remotos (POSTearía la conversación entera por vuelta) y el listado lee con `SELECT *`.
+
+**Reanudar no necesita que nadie marque el dispatch como "resume".** El orquestador pregunta
+por el checkpoint de la task antes de correr: una fila viva significa que el run que la
+escribió NO cerró —se pausó, o el proceso murió—, así que **la presencia de la fila ES la
+señal**. El mismo camino sirve para la pausa y para el crash.
+
+Cinco gates, y **todos degradan a "arrancar de cero"** — que siempre es correcto, sólo más
+caro:
+
+| Gate | Por qué |
+| --- | --- |
+| Otro agente | la conversación es de quien la escribió; dársela a otro es darle un contexto que no es suyo |
+| > 3 intentos | un run que hace crashear al proceso se reanudaría al bootear, lo volvería a matar, y el reinicio quedaría en bucle |
+| > 24h | nadie lo borra cuando la task sale del pipeline: un issue que vuelve meses después reanudaría una conversación de otra era |
+| Sub-agente | corre sobre la misma task que su padre, así que `getByTask` le daría el checkpoint del PADRE |
+| El store falló | leer el checkpoint es una optimización, no un requisito |
+
+El contador de intentos **sólo cuenta en el INSERT**: si el upsert lo tocara, mediría en qué
+vuelta murió el proceso y no cuántas veces se reanudó. Y la fila vieja se borra **al
+reanudarla**, no al terminar: el run nuevo guarda bajo su propio `runId`, así que dejarla
+haría que `getByTask` la volviera a ofrecer para siempre.
+
+**El boot no necesita código propio** para recuperar un crash: `crashRecovery` limpia el flag
+`working`, el scan inicial vuelve a disparar la regla, y el checkpoint hace que ese dispatch
+reanude. Lo que todavía NO existe es una **orden de pausa externa** —cortar un run ajeno
+conservando su estado—: hoy lo único externo que corta un run es el cancel, que mata.
+
+## Archivos grandes — el `focus` de `fs_read`
+
+`fs_read` devuelve el archivo entero hasta 40 KB. Arriba de eso, sin más datos, corta y le
+dice al agente cuánto mide y cómo seguir (`offset`/`limit`, o `focus`). Con **`focus`** —una
+frase con lo que el agente necesita del archivo— Haiku extrae **sólo las partes que responden
+a eso, citadas textuales con su rango de líneas**, o dice "Not found" y lista qué sí contiene.
+El agente decide caso por caso qué quiere; el engine ya no resume nada a sus espaldas.
+
+Antes había un "simplificador" automático por tamaño (>15 KB) que resumía el archivo entero sin
+saber para qué se leía: en el run aac4283c dejó un `CLAUDE.md` de 174 KB en un 6 % y se comió
+las instrucciones del repo. El `focus` reemplaza eso.
+
+- **Los prompts de Haiku viven en código** (`packages/tools/src/fs/focus-prompt.ts` y
+  `compaction-prompt.ts`), no en la tabla de system prompts: son la otra mitad del contrato de
+  la tool —el formato de salida que `fs_read` promete— y un deploy sin la fila sembrada tenía la
+  feature apagada en silencio. `SystemPromptPort` ya no existe en `@ia-flow/tools`.
+- **Interruptor global: `IA_FLOW_FILE_SIMPLIFIER=0`** (editable en Configuración, grupo
+  Anthropic; en el runner, `settings.fileSimplifier: false`). Apagado, el `focus` se ignora y
+  vuelve la cabecera con la nota. El override por agente
+  (`providerConfig.fileSimplifierEnabled`) sigue ganando sobre el global. El campo homónimo de
+  `ProviderConfigSchema` se sacó: nunca llegó a `loadProviderConfig`, así que nunca apagó nada.
+- **Debajo de 15 KB el `focus` no llama a Haiku**: el archivo entra entero, que es más barato
+  que la vuelta. Haiku ve hasta 150 KB; más allá, el resultado avisa que la extracción es parcial.
+- **Un `focus` que falla no voltea el run**: sin credencial, o con Haiku caído, vuelve lo mismo
+  que sin `focus` con el motivo entre paréntesis. La llamada compartida está en
+  `packages/tools/src/haiku.ts`; usa `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` por llamada.
+
+## Memoria de los agentes — lo que se deja escrito a sí mismo
 
 Un dispatch arranca en frío: el agente ve el issue, sus comentarios y el repo, y nada de lo que
 él mismo aprendió la vez anterior. Las tools `memory_*` son un KV persistente donde puede dejarse
@@ -496,6 +692,49 @@ migración 056) o `IA_FLOW_AGENT_MEMORY_REPO=yaml`, que es **de solo lectura** �
 headless que le da a sus agentes un contexto fijo por archivo. Ahí las escrituras **tiran**: un
 agente que cree que guardó algo y no lo guardó es peor que uno que ve el error y sigue sin
 memoria.
+
+## Slack — un paquete que se puede no tener
+
+Todo lo de Slack vive en `@ia-flow/slack`: el cliente Web API, las cinco tools, el directorio del
+workspace, el pedido de review y el borde de la Events API. Antes estaba repartido entre
+`packages/tools/src/slack/`, `apps/server/src/adapters/slack/` y un use-case de `application/`, y
+esa dispersión era el problema: **no había forma de sacar Slack** sin recorrer tres capas de dos
+paquetes preguntándose qué más se rompía.
+
+Es plug-and-play en dos niveles, y los dos importan:
+
+- **En build.** Sacarlo de un deploy es borrar `installSlack(...)` de `composition/container.ts` y
+  la dependencia del `package.json`. El paquete no importa `apps/server`, y ninguna ruta importa un
+  módulo interno suyo: la única superficie es su `index.ts`.
+- **En runtime.** `SLACK_BOT_TOKEN` es el interruptor — no hay un `IA_FLOW_SLACK_ENABLED` aparte,
+  porque un flag que puede contradecir a la credencial inventa un estado inválido que después hay
+  que diagnosticar. Son **dos** interruptores porque son dos capacidades independientes:
+  `SLACK_BOT_TOKEN` habilita hablar y `SLACK_SIGNING_SECRET` escuchar.
+
+Apagado, cada pieza se apaga a su manera y ninguna explota: las tools **no se registran** (así no
+aparecen en `GET /api/tools` ni en el editor de agentes), el directorio devuelve vacío con su
+motivo, `/api/slack/*` contesta 503 y la web esconde los campos leyendo `GET /api/integrations`.
+
+**El registro de tools NO es un efecto de importar** — es `registerSlackTools()`, a diferencia del
+resto de `@ia-flow/tools`. La diferencia la ve el operador: una `slack_post_message` ofrecida por un
+proceso sin credencial es una tool que se puede tildar y siempre falla.
+
+**Se lee por uso, nunca se captura** (la misma regla que las credenciales de GitHub): el token se
+pega en Configuración, lo que escribe SQLite, y `envRepo.loadIntoProcess()` lo vuelca a `Bun.env`
+DESPUÉS de que el composition root se evaluó. Por eso `slack.enabled` es un getter y existe
+`slack.sync()`, que llaman los dos entrypoints tras cargar el env y la ruta de env-vars cuando
+alguien toca una variable del grupo `slack`.
+
+**El agent-host registra las suyas aparte** (`installSlackTools`): el loop de tools de un run remoto
+corre allá, con el `SLACK_BOT_TOKEN` de ESE host. Lo que no viaja es `request_slack_review` — el
+pedido lo resuelve el daemon, el único con los repos y la fuente.
+
+Lo que **no** se movió, y por qué: `SlackMemberRef`, `slackReviewChannel`, `buildSlackReviewMessage`
+y la entrada `slack.message` del `event-catalog` siguen en `@ia-flow/shared` porque cruzan la
+frontera server↔web, que es lo que `shared` ES; y las rutas Hono siguen en `apps/server/src/routes/`
+porque HTTP es de la app. Lo que el paquete les presta es lo que hay que SABER de Slack para
+servirlas (`verifySlackSignature`, `urlVerification`), que es justo lo que nadie debería
+re-derivar. Ver `packages/slack/CLAUDE.md`.
 
 ## Pedido de review en Slack
 
@@ -611,7 +850,7 @@ ahí crearía la arista `workspace → issue-sources` y obligaría al agent-host
 Projects V2 para conseguir un string con el que hacer `git clone`. GitHub es el raro porque es
 tres cosas a la vez (issue source + remote de git + servidor MCP); Linear va a ser sólo un issue
 source y su auth **sí** va adentro de `issue-sources`, como la de Slack ya vive junto a su
-cliente en `packages/tools/src/slack/`. Ver `packages/github-auth/CLAUDE.md`.
+cliente en `packages/slack/`. Ver `packages/github-auth/CLAUDE.md`.
 
 ## Cache transversal — `@memoize`
 

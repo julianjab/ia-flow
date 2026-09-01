@@ -7,8 +7,14 @@ import {
   resolveDaemonMode,
   triggerWebhookTarget,
 } from '@ia-flow/issue-sources'
+import { slackSigningSecret, urlVerification, verifySlackSignature } from '@ia-flow/slack'
 import { Hono } from 'hono'
-import { broadcast, projectRepo } from '../composition/container.js'
+import {
+  broadcast,
+  clearProcessedEvent,
+  ingestWebhookUseCase,
+  projectRepo,
+} from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('webhooks')
@@ -55,6 +61,10 @@ export function verifyGithubSignature(
   if (a.length !== b.length) return false
   return timingSafeEqual(a, b)
 }
+
+// El handshake, la firma y el sobre de Slack viven en `@ia-flow/slack`: son
+// conocimiento del sistema externo, no de esta ruta. Acá queda lo de HTTP —
+// leer el body crudo (la firma es sobre esos bytes exactos) y elegir el status.
 
 // Qué deliveries llegan a disparar un scan. Todo lo demás se acusa con 200 y
 // se descarta acá, en el borde.
@@ -106,6 +116,57 @@ export function createWebhooksRouter() {
   // Point a repository/organization webhook here (content type
   // `application/json`, secret = IA_FLOW_WEBHOOK_SECRET) with at least the
   // "Projects v2 item" events; issues/issue_comment are useful too.
+  // POST /api/webhooks/slack — Events API.
+  //
+  // El mensaje entra SIN scope: nadie sabe todavía de qué proyecto habla. Sólo
+  // lo ven las reglas globales (fail-closed en `matchScope`), y asignarle scope
+  // es el trabajo de un agente de triage que emite un evento ya ruteado.
+  router.post('/slack', async (c) => {
+    const secret = slackSigningSecret()
+    if (!secret) {
+      log.warn('Rejected Slack webhook: SLACK_SIGNING_SECRET is not configured')
+      return c.json({ error: 'SLACK_SIGNING_SECRET no está configurado' }, 503)
+    }
+    const raw = await c.req.text()
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw)
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400)
+    }
+
+    // El challenge se responde ANTES de verificar la firma: Slack lo manda al
+    // guardar la URL, y en ese momento todavía no hay nada firmado que validar.
+    const challenge = urlVerification(payload)
+    if (challenge) return c.text(challenge)
+
+    if (
+      !verifySlackSignature(
+        raw,
+        c.req.header('x-slack-request-timestamp'),
+        c.req.header('x-slack-signature'),
+        secret,
+      )
+    ) {
+      log.warn('Rejected Slack webhook: bad signature')
+      return c.json({ error: 'invalid signature' }, 401)
+    }
+
+    const result = await ingestWebhookUseCase.ingest({
+      event: (payload as { type?: string }).type ?? 'unknown',
+      payload: payload as Record<string, unknown>,
+    })
+    if (result.status === 'ignored') {
+      // Un bot, un subtipo, un mensaje sin texto. 200 para que Slack no
+      // marque la suscripción como fallando.
+      return c.json({ ok: true, ignored: true, reason: result.reason })
+    }
+
+    log.info({ type: result.type, outcome: result.outcome }, 'Mensaje de Slack publicado al bus')
+    return c.json({ ok: true, type: result.type, outcome: result.outcome })
+  })
+
   router.post('/github', async (c) => {
     const secret = webhookSecret()
     if (!secret) {
@@ -126,11 +187,10 @@ export function createWebhooksRouter() {
     // GitHub's handshake — answer 200 so the hook shows as healthy.
     if (event === 'ping') return c.json({ ok: true, pong: true })
 
-    // Todo lo que no pueda cambiar un issue muere acá: 200 (para que GitHub
-    // no marque el hook como fallando) pero sin scan ni broadcast. Ver
-    // ISSUE_EVENTS arriba para por qué esto no se resuelve del lado del
-    // registry.
-    if (!isIssueEvent(event)) {
+    // Lo que no pueda cambiar un issue NI producir un evento del bus muere
+    // acá: 200 (para que GitHub no marque el hook como fallando) pero sin scan
+    // ni broadcast.
+    if (!isIssueEvent(event) && !ingestWebhookUseCase.handles(event)) {
       return c.json({ ok: true, event, ignored: true, triggered: [] })
     }
 
@@ -141,6 +201,36 @@ export function createWebhooksRouter() {
       return c.json({ error: 'invalid JSON body' }, 400)
     }
 
+    if (!isIssueEvent(event)) {
+      // Sólo bus (pull_request, pull_request_review, check_suite, workflow_run):
+      // nunca cambian un item del board por sí solos, así que no hay nada que
+      // re-escanear.
+      const busResult = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
+      if (busResult.status === 'ignored') {
+        return c.json({
+          ok: true,
+          event,
+          ignored: true,
+          reason: busResult.reason,
+          triggered: [],
+        })
+      }
+      log.info(
+        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+        'Evento de GitHub publicado al bus',
+      )
+      return c.json({ ok: true, event, type: busResult.type, outcome: busResult.outcome })
+    }
+
+    // Publicar al bus y disparar el re-scan NO son alternativas — son las dos
+    // cosas, siempre que el evento sea de issue/board. El re-scan va PRIMERO
+    // porque `projects_v2_item`/`projects_v2` no tienen forma de resolver a
+    // qué proyecto de ia-flow pertenecen por `owner/repo` (su payload no trae
+    // `repository`) — el match por `project_node_id` ya lo hace
+    // `deliverWebhook`/`webhook-registry`, y su resultado (`triggered`) es lo
+    // que el traductor usa para poner scope. `issue_comment`/`issues` no lo
+    // necesitan (resuelven por `owner/repo` como siempre) pero no cuesta nada
+    // pasárselo también.
     const hint: WebhookHint = {
       ...githubHint(event, payload),
       ...(deliveryId ? { deliveryId } : {}),
@@ -156,7 +246,25 @@ export function createWebhooksRouter() {
       projectIds: triggered,
       at: new Date().toISOString(),
     })
-    return c.json({ ok: true, event, triggered })
+
+    const busResult = ingestWebhookUseCase.handles(event)
+      ? await ingestWebhookUseCase.ingest({ event, payload, deliveryId, projectIds: triggered })
+      : undefined
+    if (busResult?.status === 'published') {
+      log.info(
+        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+        'Evento de GitHub publicado al bus',
+      )
+    }
+
+    return c.json({
+      ok: true,
+      event,
+      triggered,
+      ...(busResult?.status === 'published'
+        ? { bus: { type: busResult.type, outcome: busResult.outcome } }
+        : {}),
+    })
   })
 
   // POST /api/webhooks/projects/:id — provider-agnostic nudge. Anything that
@@ -186,6 +294,25 @@ export function createWebhooksRouter() {
       )
     }
     return c.json({ ok: true, projectId: id, triggered: true })
+  })
+
+  // DELETE /api/webhooks/dedupe/:eventId — saca UN id del registro de dedupe
+  // (ver SqliteProcessedEventRepository.remove). Sirve para el caso operativo
+  // de "esto no matcheó ninguna regla y quiero reintentarlo YA" en vez de
+  // esperar las 24h de retención: un "Redeliver" desde GitHub con el mismo
+  // delivery id vuelve a evaluarse contra las reglas actuales. No re-publica
+  // nada por sí sola — sólo borra la marca; el próximo delivery real (o un
+  // Redeliver manual) es lo que dispara la reevaluación.
+  router.delete('/dedupe/:eventId', (c) => {
+    const secret = webhookSecret()
+    if (!secret) return c.json(NO_SECRET_BODY, 503)
+    const provided =
+      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+    if (!secretEquals(provided, secret)) return c.json({ error: 'invalid token' }, 401)
+
+    const eventId = c.req.param('eventId')
+    const removed = clearProcessedEvent(eventId)
+    return c.json({ ok: true, eventId, removed })
   })
 
   // GET /api/webhooks/status — what the daemon is listening on, per project.

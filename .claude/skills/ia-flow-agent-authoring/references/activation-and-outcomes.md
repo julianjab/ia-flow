@@ -148,12 +148,24 @@ el resultado es `OR` entre grupos. El formato legacy (`Record<string,string>`) e
 
 ### Operadores
 
+Son 10, del mismo evaluador que usan las esperas y las reglas
+(`packages/rules/src/when.ts` — `packages/issue-sources/src/dispatch/when.ts` sólo lo
+re-exporta; ver `references/events-and-waits.md`):
+
 | `op` | Semántica |
 | --- | --- |
 | `=` | Igualdad exacta (o pertenencia si el campo es array) |
 | `!=` | Distinto (o "no pertenece" si es array) |
+| `>` / `>=` / `<` / `<=` | Comparación numérica |
+| `$contains` | El campo (string o array) contiene el valor |
+| `$matches` | El campo matchea el valor como regex |
 | `$null` | Campo ausente, string vacío, o array vacío |
 | `$not_null` | Campo con valor / array no vacío |
+
+`$ne`/`$gt`/`$gte`/`$lt`/`$lte` **no son valores válidos de `op`** en la forma estructurada —
+son la codificación interna on-wire (`condToOp`) que usa la forma string legacy
+(`{additions: '$gt:500'}`). Escribir `op: '$gt'` en un array `when` no falla: cae a comparar por
+igualdad de string contra `value` y la condición simplemente no matchea nunca, en silencio.
 
 ### Resolución de `field`
 

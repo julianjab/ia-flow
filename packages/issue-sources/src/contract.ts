@@ -1,3 +1,4 @@
+import type { EventOutcome } from '@ia-flow/rules'
 import type { CommentTarget, StatusConfig, Task, TaskComment } from '@ia-flow/shared'
 
 export type { Task }
@@ -91,6 +92,25 @@ export interface PostErrorOptions {
   alreadyCommented?: boolean
 }
 
+/** A dónde se mueve una task. Lleva las COORDENADAS de GitHub y no sólo el
+ *  nombre porque los dos no tienen por qué coincidir: `name` es el nombre local
+ *  del repo en ia-flow (el del directorio) y `githubOwner`/`githubRepo` son los
+ *  reales. Mandar el nombre local a la API apunta a `owner/<nombre-local>`, que
+ *  o no existe o —peor— es otro repo homónimo. */
+export interface TransferTarget {
+  name: string
+  githubOwner?: string
+  githubRepo?: string
+}
+
+/** Coordenadas NUEVAS del issue después de un transfer — el número y el id
+ *  cambian, así que quien lo pidió no puede seguir usando los que tenía. */
+export interface TransferResult {
+  repo: string
+  issueNumber: number
+  issueUrl: string
+}
+
 export interface ITaskSource {
   applyTransition(task: Task, newStatus: string): Promise<Task>
   saveOutput(task: Task, content: string): Promise<Task>
@@ -167,6 +187,26 @@ export interface ITaskSource {
    */
   getLinkedBranchRef?(task: Task): { issueNodeId: string; owner: string; repoName: string } | null
   /**
+   * Mueve la task a otro repositorio del source.
+   *
+   * Existe porque el repo de una task NO es un dato que se pueda corregir
+   * escribiendo un campo: en `github-project` sale del `Repository` nativo del
+   * issue (ver `resolveRepos`), así que la única forma de re-rutear una tarea
+   * mal ubicada es mover el issue de verdad. Un agente que descubre —
+   * explorando— que el trabajo vive en otro repo llama a `transfer_task_repo`,
+   * y esto es lo que la tool necesita del source.
+   *
+   * **El run termina cuando esto vuelve.** El transfer cambia el número y el
+   * id del issue, así que todo lo que el prompt ya renderizó (`{{task.repos}}`,
+   * `{{task.issueUrl}}`, el número) queda viejo: seguir trabajando sería operar
+   * sobre coordenadas muertas. El próximo scan re-despacha la task con el repo
+   * correcto y el prompt correcto.
+   *
+   * Opcional: un source sin noción de repos (local-fs) simplemente no lo
+   * implementa y la tool se rechaza con el motivo.
+   */
+  transferToRepo?(task: Task, target: TransferTarget): Promise<TransferResult>
+  /**
    * Mark comments as read — see IIssueManager.markCommentsUsed. TaskDispatcher
    * attaches the underlying IIssueManager's implementation onto the
    * per-item TaskSource it hands to Agent.run, so the mark can happen from
@@ -183,6 +223,10 @@ export type TaskSource = ITaskSource
 // ─── IIssueManager — the polling/dispatch loop contract. ───────────────────
 
 export interface IIssueManager {
+  /** A qué proyecto pertenece. Lo necesita quien suscribe al manager al bus de
+   *  eventos: los handlers filtran por `scope.projectId`, y antes eso lo
+   *  garantizaba el cableado directo manager→dispatcher. */
+  readonly projectId: string
   // Ver DispatchOutcome más abajo: `void` sigue siendo válido para un manager
   // al que no le interesa la capacidad; sólo SourceDispatcher lee el valor.
   start(dispatch: (item: IssueItem) => Promise<DispatchOutcome | undefined>): Disposable
@@ -577,6 +621,12 @@ export interface PendingTaskInfo {
   // unset. This is what SourceIssueManager's divergence loop should compare
   // the source's live status against.
   reconciliationStatus?: string
+  /** Presente ⇒ esta entrada es un sub-agente lanzado con `run_agent`, no un
+   *  dispatch propio. Lo lee el cap del proyecto para no contarlo: ese cap
+   *  limita cuántos ISSUES se trabajan a la vez, y un hijo es más trabajo
+   *  sobre uno ya contado. Ver `PendingTask.parentRunId` en
+   *  @ia-flow/agent-engine para por qué contarlo produce deadlock. */
+  parentRunId?: string
   cancel?: () => Promise<void>
 }
 
@@ -596,8 +646,14 @@ export interface PendingTaskInfo {
  * La distinción skipped/deferred es la razón de ser de este tipo: antes todo
  * el camino devolvía `void`/`boolean` y un dispatch que no pudo correr por
  * capacidad se perdía silenciosamente hasta el próximo poll.
+ *
+ * Aliasea `EventOutcome` de `@ia-flow/rules`: cuando el dispatch pasó a viajar
+ * por el bus de eventos, el resultado de despachar un item y el de publicar un
+ * evento se volvieron el mismo concepto. Mantenerlos como dos tipos con el
+ * mismo shape sería una forma silenciosa de que uno gane un caso que el otro no
+ * maneja.
  */
-export type DispatchOutcome = 'dispatched' | 'skipped' | 'deferred'
+export type DispatchOutcome = EventOutcome
 
 export interface PendingTaskRegistryPort {
   getPendingTask(taskId: string): unknown

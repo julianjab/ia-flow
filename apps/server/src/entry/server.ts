@@ -19,11 +19,15 @@ import {
   itermClaudeProvider,
   providerRegistry,
   remoteProviderHealth,
+  slack,
   tmuxClaudeProvider,
 } from '../composition/container.js'
+import { actionRepo, toolRepo } from '../composition/container.js'
+import { applyEditableTools } from '../composition/editable-tools.js'
 import { setBroadcast, startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
+import { createApiAuthMiddleware } from '../routes/api-auth.js'
 import { mountApiRoutes } from '../routes/mount.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { resolveServerPort } from '../server-port.js'
@@ -87,6 +91,28 @@ setLogBroadcast(broadcastFn)
 // state — see adapters/github/api/rate-limit.ts.
 onRateLimitChange((snap) => broadcastFn({ type: 'github:rate-limit', ...snap }))
 
+// Auth de la API, en modo ABIERTO: sin `IA_FLOW_API_TOKEN` configurado deja
+// pasar, y con token exige el header.
+//
+// Al revés que en `runner-boot.ts`, que lo monta fail-closed. La diferencia no
+// es la ruta sino el despliegue: allá la API queda alcanzable desde cualquier
+// pod del cluster y no protegerla no es una opción; acá el punto de partida es
+// que NO hay auth ninguna, así que montarlo fail-closed rompería cada setup
+// local sin token.
+//
+// Antes de esto el `entry/server.ts` no montaba el guard EN NINGÚN modo: el
+// mecanismo estaba completo —el front ya manda `x-ia-flow-token`— y le faltaba
+// este cable. Ver `api-auth.ts` para qué acota y qué no.
+app.use('/api/*', createApiAuthMiddleware({ openWithoutToken: true }))
+
+// Las tools que salen de la config se aplican sobre el registry ANTES de montar
+// las rutas: `GET /api/tools` tiene que ver lo mismo que va a ver un dispatch.
+// Best-effort — una fila rota se saltea con un log y el resto se aplica.
+void applyEditableTools({
+  listTools: () => toolRepo.list(),
+  getAction: (id) => actionRepo.getById(id),
+})
+
 // Routes
 mountApiRoutes(app, broadcastFn)
 app.route('/api/webhooks', createWebhooksRouter())
@@ -127,6 +153,12 @@ await runMigrations()
 
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
+
+// Recién ahora `Bun.env` tiene el `SLACK_BOT_TOKEN` que el operador guardó en
+// la DB, y ese token es el interruptor de Slack: sin este segundo vistazo las
+// tools `slack_*` no se registrarían hasta que alguien vuelva a guardar la
+// variable. Ver packages/slack/CLAUDE.md.
+slack.sync()
 
 // Recién ahora `Bun.env` tiene lo que el operador guardó desde Configuración,
 // así que el sink OTLP puede leer su endpoint. No-op si ya se armó con el env

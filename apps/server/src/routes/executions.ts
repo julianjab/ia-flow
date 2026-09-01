@@ -1,7 +1,7 @@
 import { getPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import { ExecutionLogFiltersSchema, ExecutionStatsFiltersSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { executionLogRepo, executionStatsRepo } from '../composition/container.js'
+import { INSTANCE_ID, executionLogRepo, executionStatsRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('executions-route')
@@ -78,6 +78,11 @@ export function createExecutionsRouter() {
       source: many('source'),
       failureClass: many('failureClass'),
       assignee: many('assignee'),
+      // Los tres los resolvían el schema y el repo desde la migración 065, pero
+      // la ruta no los leía: eran filtros inalcanzables por HTTP.
+      kind: many('kind'),
+      ruleId: many('ruleId'),
+      eventId: q.eventId,
       from: q.from,
       to: q.to,
       limit: Number.isNaN(rawLimit) ? undefined : rawLimit,
@@ -122,17 +127,24 @@ export function createExecutionsRouter() {
     if (execution.finishedAt) {
       return c.json({ ok: true, alreadyFinished: true, execution })
     }
-    if (execution.source) {
-      // Forwarded row (source = the headless container's IA_FLOW_INSTANCE_ID)
-      // — this daemon has no `pendingTask` for it, so the orphan branch below
-      // would close it as cancelled while the agent keeps running in the
-      // OTHER process, and the next forwarded update would silently
-      // overwrite that lie. There's also no safe network path to reach into
-      // that container and actually stop it (its public port only proxies
-      // the webhook route — see scripts/webhook-proxy.ts — the full API has
-      // no auth of its own). So this only stamps an advisory marker instead
-      // of lying that the run stopped; the container keeps running until it
-      // finishes or someone stops it there.
+    if (execution.source && execution.source !== INSTANCE_ID) {
+      // Forwarded row (source = OTHER process's IA_FLOW_INSTANCE_ID) — this
+      // daemon has no `pendingTask` for it, so the orphan branch below would
+      // close it as cancelled while the agent keeps running in the OTHER
+      // process, and the next forwarded update would silently overwrite that
+      // lie. There's also no safe network path to reach into that container
+      // and actually stop it (its public port only proxies the webhook route
+      // — see scripts/webhook-proxy.ts — the full API has no auth of its
+      // own). So this only stamps an advisory marker instead of lying that
+      // the run stopped; the container keeps running until it finishes or
+      // someone stops it there.
+      //
+      // A row whose `source` equals THIS process's own INSTANCE_ID isn't
+      // forwarded from anywhere — every row this daemon inserts is
+      // self-tagged (SourceTaggingExecutionLogRepository), restart after
+      // restart, so a same-instance row falls through instead: it's either
+      // still live (pendingTask branch) or truly orphaned from a previous
+      // life of THIS process (orphan branch below can actually close it).
       executionLogRepo.update(execution.id, { cancelRequestedAt: new Date().toISOString() })
       log.info(
         { id: execution.id, source: execution.source },

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { relevantConfigVars } from '../composition/config-vars.js'
-import { envRepo, githubCredentials } from '../composition/container.js'
+import { envRepo, githubCredentials, slack } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
@@ -38,6 +38,15 @@ export const ENV_VAR_DEFINITIONS = {
     kind: 'password',
     group: 'anthropic',
     secret: true,
+  },
+  IA_FLOW_FILE_SIMPLIFIER: {
+    label: 'Extracción con Haiku en fs_read (focus)',
+    description:
+      'Cuando un agente lee un archivo grande con `focus`, Haiku extrae sólo las partes que pidió, citadas con sus líneas. En 0 el focus se ignora y el archivo vuelve crudo, cortado en 40 KB con la nota para paginar. Usa la misma credencial de Anthropic de arriba. Default 1.',
+    kind: 'select',
+    group: 'anthropic',
+    secret: false,
+    options: ['1', '0'],
   },
 
   // ── Figma ─────────────────────────────────────────────────────────────────
@@ -103,6 +112,14 @@ export const ENV_VAR_DEFINITIONS = {
     label: 'Slack Bot Token',
     description:
       'Token xoxb-... con scopes channels:history, groups:history, im:history, mpim:history.',
+    kind: 'password',
+    group: 'slack',
+    secret: true,
+  },
+  SLACK_SIGNING_SECRET: {
+    label: 'Slack Signing Secret',
+    description:
+      'Firma los deliveries de la Events API (POST /api/webhooks/slack). Sin esto el endpoint responde 503: un mensaje puede disparar agentes, así que no hay modo abierto.',
     kind: 'password',
     group: 'slack',
     secret: true,
@@ -367,6 +384,7 @@ export function createEnvVarsRouter() {
     const body = await c.req.json<Record<string, string>>()
     let daemonTouched = false
     let githubTouched = false
+    let slackTouched = false
     const invalid: string[] = []
     for (const [key, value] of Object.entries(body)) {
       // `ALL_KEYS` y NO `visibleKeys()`: escribir se valida contra el catálogo
@@ -395,6 +413,8 @@ export function createEnvVarsRouter() {
       // cubierta sola.
       if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'github')
         githubTouched = true
+      if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'slack')
+        slackTouched = true
     }
     // Swap the running managers so a mode/interval change applies now. The
     // secret is read per-request, so it needs no reload.
@@ -404,9 +424,19 @@ export function createEnvVarsRouter() {
     // credenciales deja un provider sin token para siempre y pegar el PAT acá
     // no cambia nada hasta reiniciar.
     if (githubTouched) githubCredentials.reset()
+    // El token de Slack es su interruptor: pegarlo tiene que registrar las
+    // tools `slack_*` (y borrarlo, sacarlas) sin reiniciar. Lo demás del
+    // paquete se lee por uso y no necesita aviso; el registry de tools es lo
+    // único con estado.
+    if (slackTouched) slack.sync()
     if (invalid.length)
       return c.json({ error: `valor inválido para: ${invalid.join(', ')}`, invalid }, 400)
-    return c.json({ ok: true, daemonReloaded: daemonTouched, githubAuthReset: githubTouched })
+    return c.json({
+      ok: true,
+      daemonReloaded: daemonTouched,
+      githubAuthReset: githubTouched,
+      slackSynced: slackTouched,
+    })
   })
 
   return router

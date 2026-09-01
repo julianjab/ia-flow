@@ -1,15 +1,17 @@
 import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
 import { SlackMemberRefSchema, SlackReviewMessageSchema, invalidateMemoized } from '@ia-flow/shared'
+import { SlackReviewError } from '@ia-flow/slack'
 import { Hono } from 'hono'
-import { SlackReviewError } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import {
   configRepo,
+  enqueueRunMessageUseCase,
   getSourceForProjectId,
   projectRepo,
   repoRepo,
-  requestSlackReviewUseCase,
+  runMessageRepo,
   settingsRepo,
+  slack,
   taskRepo,
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
@@ -211,6 +213,41 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     }
   })
 
+  // POST /api/tasks/:id/messages  { body, author?, source? }
+  //
+  // Inyecta un mensaje en el run de esta tarea. El loop lo drena al tope del
+  // próximo turno, así que dirigir un agente en vuelo no requiere cortarlo.
+  //
+  // Se acepta aunque NO haya un run corriendo: el mensaje queda pendiente y lo
+  // lee el próximo. Rechazarlo obligaría a quien escribe en el hilo a saber si
+  // el agente está despierto, que es exactamente lo que no puede saber.
+  router.post('/:id/messages', async (c) => {
+    const taskId = c.req.param('id')
+    let body: { body?: string; author?: string; source?: string }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400)
+    }
+    const text = (body.body ?? '').trim()
+    if (!text) return c.json({ error: '`body` es obligatorio' }, 400)
+
+    const message = await enqueueRunMessageUseCase.execute({
+      taskId,
+      body: text,
+      author: body.author,
+      source: body.source,
+    })
+
+    return c.json({ message }, 201)
+  })
+
+  // GET /api/tasks/:id/messages — los pendientes, para que la UI muestre que
+  // hay algo encolado que el agente todavía no leyó.
+  router.get('/:id/messages', async (c) => {
+    return c.json({ messages: await runMessageRepo.pending(c.req.param('id')) })
+  })
+
   // POST /api/tasks/:id/slack-review  { projectId, allowFailedCi? }
   // Pide review del PR de esta tarea en Slack. El 400 lleva el motivo tal cual
   // (sin PR, CI corriendo, sin reviewers) — es lo que la tarjeta muestra.
@@ -232,7 +269,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     }
 
     try {
-      const result = await requestSlackReviewUseCase.execute(
+      const result = await slack.reviewUseCase.execute(
         { projectId: body.projectId, taskId, allowFailedCi: body.allowFailedCi },
         source,
       )

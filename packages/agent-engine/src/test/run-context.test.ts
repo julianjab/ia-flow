@@ -42,7 +42,7 @@ describe('resolveRunContext — repo del task fuera del catálogo', () => {
     // justo el issue que tenía que desglosar.
     const ctx = await resolveRunContext({
       task,
-      agents: [agent({ tools: ['update_issue_body'] as unknown as AgentDefinition['tools'] })],
+      agent: agent({ tools: ['update_issue_body'] as unknown as AgentDefinition['tools'] }),
       repoRepo,
       expandHome,
     })
@@ -59,7 +59,7 @@ describe('resolveRunContext — repo del task fuera del catálogo', () => {
     // el worktree y el run fallaría más adelante, con un error peor de leer.
     const ctx = await resolveRunContext({
       task,
-      agents: [agent({ tools: ['fs_write', 'fs_read'] as unknown as AgentDefinition['tools'] })],
+      agent: agent({ tools: ['fs_write', 'fs_read'] as unknown as AgentDefinition['tools'] }),
       repoRepo,
       expandHome,
     })
@@ -70,7 +70,7 @@ describe('resolveRunContext — repo del task fuera del catálogo', () => {
   it('no se queja cuando el repo primario sí está registrado', async () => {
     const ctx = await resolveRunContext({
       task: { ...task, repos: ['subscriptions'] },
-      agents: [agent({ tools: ['fs_write'] as unknown as AgentDefinition['tools'] })],
+      agent: agent({ tools: ['fs_write'] as unknown as AgentDefinition['tools'] }),
       repoRepo,
       expandHome,
     })
@@ -86,7 +86,7 @@ describe('resolveRunContext — task con múltiples repos', () => {
   it('cancela el dispatch del agente que escribe', async () => {
     const ctx = await resolveRunContext({
       task: { ...task, repos: ['subscriptions', 'web-app'] },
-      agents: [agent({ tools: ['fs_write', 'bash_run'] as unknown as AgentDefinition['tools'] })],
+      agent: agent({ tools: ['fs_write', 'bash_run'] as unknown as AgentDefinition['tools'] }),
       repoRepo,
       expandHome,
     })
@@ -97,7 +97,7 @@ describe('resolveRunContext — task con múltiples repos', () => {
   it('deja correr al agente read-only — desglosar la épica es su trabajo', async () => {
     const ctx = await resolveRunContext({
       task: { ...task, repos: ['subscriptions', 'web-app'] },
-      agents: [agent({ tools: ['update_issue_body'] as unknown as AgentDefinition['tools'] })],
+      agent: agent({ tools: ['update_issue_body'] as unknown as AgentDefinition['tools'] }),
       repoRepo,
       expandHome,
     })

@@ -99,7 +99,16 @@ registerTool({
     const content = typeof input.content === 'string' ? input.content : ''
     await mkdir(dirname(abs), { recursive: true })
     await Bun.write(abs, content)
-    log.info({ path: input.path, bytes: content.length }, 'write_file')
+    log.info(
+      {
+        path: input.path,
+        bytes: content.length,
+        runId: ctx.runId,
+        agent: ctx.agentId,
+        taskId: ctx.taskId,
+      },
+      'write_file',
+    )
     return `Archivo escrito: ${input.path}`
   },
 })
@@ -156,7 +165,17 @@ registerTool({
       ? current.split(oldStr).join(newStr)
       : current.replace(oldStr, newStr)
     await Bun.write(abs, updated)
-    log.info({ path: input.path, replacements: replaceAll ? count : 1, replaceAll }, 'edit_file')
+    log.info(
+      {
+        path: input.path,
+        replacements: replaceAll ? count : 1,
+        replaceAll,
+        runId: ctx.runId,
+        agent: ctx.agentId,
+        taskId: ctx.taskId,
+      },
+      'edit_file',
+    )
     return `Edición aplicada: ${input.path}`
   },
 })

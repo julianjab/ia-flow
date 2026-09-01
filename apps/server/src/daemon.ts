@@ -1,13 +1,38 @@
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
 import {
+  type EventProducer,
+  IntervalEventProducer,
+  RuleEngineHandler,
+  WaitHandler,
+  matchesCron,
+  parseCron,
+  scheduleTickEvent,
+} from '@ia-flow/rules'
+import {
+  type EngineEvent,
+  WAIT_EXPIRED,
+  WAIT_RESUMED,
+  createEvent,
+  deriveEvent,
+} from '@ia-flow/shared'
+import { toRuleClassificationInput } from './application/rule-classification.js'
+import { registerActions, setActiveManagers } from './composition/actions.js'
+import {
+  actionRepo,
+  actionRunRecorder,
   broadcast,
   buildManagers,
-  dispatcher,
+  classifyAgent,
   divergenceReconciler,
+  eventBus,
   pollingPause,
+  publishScannedItemUseCase,
+  ruleRepo,
+  waitRepo,
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
+import { daemonUrl } from './server-port.js'
 
 const log = createLogger('daemon')
 
@@ -38,18 +63,230 @@ let managedKeys = new Set<string>()
 
 const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
 
+// El scan publica un evento y el motor de reglas decide quién reacciona. El
+// productor dejó de conocer a su consumidor, que es lo que permite que un
+// `pr.opened` o un `ci.finished` entren por el mismo lugar sin tocar esta
+// función.
+//
+// `publish` devuelve el outcome agregado porque `SourceDispatcher` lo necesita
+// para decidir si el item vuelve al backlog; el bus no traga el `deferred`.
 function startAll(managers: IIssueManager[]): Running[] {
+  // Los handlers de acción necesitan resolver el manager de un proyecto para
+  // poder correr un agente; se publican acá porque su ciclo de vida es el del
+  // daemon, no el del container.
+  setActiveManagers(managers)
   return managers.map((manager) => {
-    const disposable = manager.start((item: IssueItem) =>
-      dispatcher.dispatch(item, manager).catch((err) => {
-        log.error({ err, id: item.id }, 'Unhandled dispatch error')
-        // Un throw no es falta de capacidad: soltar el item (no reencolarlo)
-        // evita reintentar en loop un error que no se arregla solo.
-        return 'skipped' as const
-      }),
-    )
+    const disposable = manager.start((item: IssueItem) => publishScannedItemUseCase.execute(item))
     return { manager, disposable }
   })
+}
+
+// El motor de reglas es UN suscriptor para todo el proceso, no uno por manager:
+// el filtro por ámbito lo hace `matchScope` contra el scope del evento, no el
+// cableado. Por eso se registra una vez en el boot y sobrevive a los reloads.
+function registerRuleEngine(): void {
+  registerActions()
+  eventBus.subscribe(
+    new RuleEngineHandler({
+      // Por evento y no congelado: editar una regla en la UI tiene que
+      // aplicar sin reiniciar el daemon.
+      loadRules: (event) => ruleRepo.visibleTo(event.scope.projectId),
+      // El `whenText` de una regla: un modelo lee el evento y dice si cumple.
+      // Es el mismo clasificador que antes gateaba la activación de un agente
+      // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
+      // saltea la regla en vez de adivinar; ver RuleEngineHandler.
+      classifyRule: ({ rule, event }) => classifyAgent(toRuleClassificationInput(rule, event)),
+      // Una `ref` se resuelve contra las acciones VISIBLES en el ámbito del
+      // evento: las del proyecto más las globales. Por eso referenciar la
+      // acción de otro proyecto no funciona — no porque se chequee, sino
+      // porque nunca entra en el resultado.
+      resolveAction: async (actionId, event) => {
+        const visible = await actionRepo.visibleTo(event.scope.projectId)
+        const found = visible.find((a) => a.id === actionId)
+        // El nombre viaja al lado del cuerpo: es lo que la fila del listado
+        // muestra en la columna del agente para una acción.
+        return found ? { entry: found.body as never, name: found.name ?? found.id } : null
+      },
+      emit: async (cause, type, payload, scope) => {
+        // `deriveEvent` y no `createEvent`: hereda causationId y depth+1, que
+        // es lo único que impide que dos reglas que se emiten entre sí hagan
+        // un loop infinito.
+        await eventBus.publish(
+          deriveEvent(cause, {
+            type,
+            source: 'rule',
+            scope: scope ?? {},
+            payload: payload ?? {},
+          }),
+        )
+      },
+      // Cada acción deja su fila en `execution_logs`, al lado del run que
+      // corrió con ella. Sin esto, una acción `http` o `script` sólo existía
+      // en una línea de log que rota — ver ExecutionActionRecorder.
+      recorder: actionRunRecorder,
+      onError: (err, { rule, position, kind }) =>
+        log.error({ err, ruleId: rule.id, position, kind }, 'Rule action failed'),
+      onMatch: ({ event, matched, rejectedSummary }) => {
+        if (!matched.length) {
+          // Antes esto era mudo: un evento que no matcheaba ninguna regla
+          // desaparecía sin dejar rastro más allá del `outcome: skipped` del
+          // borde HTTP, que no dice POR QUÉ. `rejectedSummary` es justo el
+          // motivo por regla (disabled/type/scope/when/exclusive) — loguearlo
+          // acá es lo que responde "¿por qué no corrió?" sin tener que
+          // reproducir el evento a mano.
+          log.info(
+            {
+              type: event.type,
+              scope: event.scope,
+              rejected: rejectedSummary,
+              // Este evento queda igual marcado como procesado (el dedupe no
+              // sabe de matches, ver bus.ts) — si lo que rechazó fue el `when`
+              // y arreglaste la config, un reintento del mismo delivery id
+              // (ej. "Redeliver" en GitHub) va a pisarse contra el dedupe. Este
+              // curl lo saca de ahí para que la próxima entrega se reevalúe.
+              clearDedupe: `curl -X DELETE '${daemonUrl()}/api/webhooks/dedupe/${encodeURIComponent(event.id)}' -H 'x-ia-flow-token: <IA_FLOW_WEBHOOK_SECRET>'`,
+            },
+            'Rules NOT matched',
+          )
+          return
+        }
+        log.info(
+          { type: event.type, matched: matched.map((r) => r.id), rejected: rejectedSummary },
+          'Rules matched',
+        )
+      },
+    }),
+  )
+}
+
+// Las esperas se suscriben APARTE del motor de reglas: son dos preguntas
+// distintas sobre el mismo evento —"¿qué reglas aplican?" (config permanente)
+// y "¿alguien estaba esperando esto?" (estado de runtime, de un solo uso)— y
+// meterlas en un handler las acoplaría.
+function registerWaits(): void {
+  eventBus.subscribe(
+    new WaitHandler({
+      loadWaits: (projectId) => waitRepo.listByProject(projectId),
+      consume: (waitId) => waitRepo.consume(waitId),
+      resume: async (wait, event) => {
+        // Reanudar es publicar: `wait.resumed` lleva el evento que despertó
+        // dentro de su payload, así que la regla que corre al agente decide
+        // qué hacer con él igual que con cualquier otro evento. El engine no
+        // cablea "despertar" con "correr" — eso lo hace la config.
+        await eventBus.publish(
+          deriveEvent(event, {
+            type: WAIT_RESUMED,
+            source: 'engine',
+            scope: { projectId: wait.projectId, issueId: wait.taskId },
+            payload: {
+              waitId: wait.id,
+              agentId: wait.resumeWith ?? wait.agentId,
+              // Una PAUSA trae checkpoint; una espera común, no.
+              paused: wait.checkpoint != null,
+              cause: { type: event.type, payload: event.payload },
+            },
+          }),
+        )
+        return 'dispatched'
+      },
+      onError: (err, { waitId, event }) =>
+        log.error({ err, waitId, type: event.type }, 'Fallo al reanudar una espera'),
+    }),
+  )
+}
+
+/**
+ * Barrido de esperas vencidas.
+ *
+ * Emite `wait.expired` por cada una: qué hacer con un timeout lo decide una
+ * regla, no el engine. Sin esto, un CI que nunca corre porque el workflow
+ * tenía un error de sintaxis dejaría la task esperando para siempre.
+ */
+const waitSweepProducer = new IntervalEventProducer({
+  id: 'wait-sweep',
+  intervalMs: waitSweepIntervalMs(),
+  onError: (err) => log.error({ err }, 'Fallo el barrido de esperas vencidas'),
+  produce: async (at) => {
+    const events: EngineEvent[] = []
+    for (const wait of await waitRepo.listExpired(at.toISOString())) {
+      // Consumir primero, igual que al despertar: un barrido que se solapa
+      // con el anterior no puede emitir dos veces el mismo vencimiento.
+      if (!(await waitRepo.consume(wait.id))) continue
+      log.info({ waitId: wait.id, taskId: wait.taskId, on: wait.on }, 'Espera vencida')
+      events.push(
+        createEvent({
+          type: WAIT_EXPIRED,
+          source: 'engine',
+          scope: { projectId: wait.projectId, issueId: wait.taskId },
+          payload: {
+            waitId: wait.id,
+            agentId: wait.resumeWith ?? wait.agentId,
+            waitedFor: wait.on,
+            paused: wait.checkpoint != null,
+          },
+        }),
+      )
+    }
+    return events
+  },
+})
+
+/**
+ * Productor cron — `schedule.tick` por cada regla con `schedule`.
+ *
+ * Corre cada minuto, que es la granularidad de una expresión cron: menos no
+ * puede disparar nada nuevo, y más se saltearía minutos enteros.
+ *
+ * El id del evento incluye la regla y el minuto exacto, así que es idempotente
+ * por construcción: un tick que tarda más que el intervalo, o dos procesos a
+ * la vez, producen el mismo id y el dedupe del bus se come el segundo.
+ */
+const cronProducer = new IntervalEventProducer({
+  id: 'cron',
+  intervalMs: 60_000,
+  onError: (err) => log.error({ err }, 'Fallo el barrido de cron'),
+  produce: async (at) => {
+    const events: EngineEvent[] = []
+    for (const rule of await ruleRepo.list()) {
+      if (!rule.schedule || rule.enabled === false) continue
+      const spec = parseCron(rule.schedule)
+      if (!spec) {
+        // Se avisa en cada tick a propósito: el CRUD ya rechaza una expresión
+        // rota, así que llegar acá significa que la fila se escribió por otro
+        // camino, y un log una sola vez se pierde.
+        log.warn({ ruleId: rule.id, schedule: rule.schedule }, 'Expresión cron inválida')
+        continue
+      }
+      if (!matchesCron(spec, at)) continue
+      events.push(scheduleTickEvent(rule.id, at, rule.projectId))
+    }
+    return events
+  },
+})
+
+/** Cada cuánto se buscan esperas vencidas. Un minuto: el vencimiento no
+ *  necesita precisión —una espera de una hora tolera 60s de retraso— y un
+ *  intervalo corto sería una query por minuto sin nada que hacer. */
+function waitSweepIntervalMs(): number {
+  const raw = Number(Bun.env.IA_FLOW_WAIT_SWEEP_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 60_000
+}
+
+/**
+ * Los productores por iniciativa de este proceso.
+ *
+ * Agregar uno es agregarlo a esta lista — no hay más cableado. Los de INGRESO
+ * (webhooks) no están acá: su ciclo de vida es el del servidor HTTP y lo único
+ * propio que tienen es el normalizador, que la ruta invoca. Ver
+ * `EventProducer` en @ia-flow/rules para la diferencia.
+ */
+const PRODUCERS: EventProducer[] = [waitSweepProducer, cronProducer]
+
+function startProducers(): void {
+  for (const producer of PRODUCERS) {
+    producer.start((event) => eventBus.publish(event))
+    log.info({ producer: producer.id }, 'Productor de eventos arrancado')
+  }
 }
 
 export async function startDaemon(): Promise<void> {
@@ -70,6 +307,10 @@ export async function startDaemon(): Promise<void> {
   // before the restart doesn't get one free scan on the way up.
   const paused = pollingPause.hydrate()
   if (paused.length) log.info({ paused }, 'Polling pausado (persistido) para estos proyectos')
+  // Antes de levantar los managers: el motor de reglas tiene que estar
+  // suscripto para no perderse los eventos del scan de boot.
+  registerRuleEngine()
+  registerWaits()
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys
@@ -77,6 +318,7 @@ export async function startDaemon(): Promise<void> {
   // below. It doesn't depend on which managers are running, only on
   // pendingTasks + the live project/source config it re-resolves per tick.
   divergenceReconciler.start()
+  startProducers()
   log.info({ count: running.length }, 'Daemon started')
 }
 

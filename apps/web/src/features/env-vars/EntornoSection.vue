@@ -184,9 +184,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
 .input {
@@ -231,4 +228,20 @@ onMounted(async () => {
 .env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-dim); font-weight: 500; }
 .env-var-desc { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 .env-var-input { max-width: 480px; }
+
+@media (max-width: 768px) {
+  /* Se envuelve, no scrollea: es un formulario, y el nombre de la var con su
+     badge son un par — no columnas que se comparen entre filas. `.env-var-meta`
+     medía 429px en una caja de 325 porque un flex no encoge a sus hijos por
+     debajo del contenido sin `min-width: 0`. */
+  .env-var-row, .env-var-meta { flex-wrap: wrap; }
+  .env-var-meta > *, .env-var-row > * { min-width: 0; }
+  .env-var-input { max-width: 100%; }
+  /* Lo que faltaba: `flex-wrap` no sirve si UN hijo es más ancho que la caja.
+     Los nombres de env var son identificadores largos en mono
+     (`IA_FLOW_MAX_CONCURRENT_DISPATCHES`) y sin puntos de corte naturales el
+     navegador no los parte — el mínimo del texto empuja a todos sus padres.
+     `anywhere` es lo único que corta un token sin espacios. */
+  .env-var-meta, .env-var-meta * { overflow-wrap: anywhere; }
+}
 </style>

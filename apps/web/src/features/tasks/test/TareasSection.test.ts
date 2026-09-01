@@ -27,10 +27,15 @@ vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
+// Vacío por default; los tests de "bloqueada" cargan entradas por itemId.
+const blockersById: Record<string, Array<Record<string, unknown>>> = {}
 vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
-  fetchItemBlockers: vi.fn(async () => ({ kind: 'github-issues', blockers: [] })),
+  fetchItemBlockers: vi.fn(async (_projectId: string, itemId: string) => ({
+    kind: 'github-issues',
+    blockers: blockersById[itemId] ?? [],
+  })),
   setProjectItemField: vi.fn(async () => {}),
 }))
 
@@ -51,6 +56,7 @@ beforeEach(() => {
   routeQuery = {}
   routerReplace.mockClear()
   localStorage.clear()
+  for (const key of Object.keys(blockersById)) delete blockersById[key]
 })
 
 function githubItem(meta: Record<string, unknown>): SourceItem {
@@ -148,6 +154,52 @@ describe('TareasSection — dev links', () => {
     expect(row.findAll('.tag--branch')).toHaveLength(1)
     expect(row.findAll('.tag--pr')).toHaveLength(1)
     expect(wrapper.find('.btn-edit').exists()).toBe(false)
+  })
+
+  it('sin el campo Repos del board, el repo sale del PR', async () => {
+    const wrapper = await mountWith([
+      {
+        id: 'I_9',
+        title: 'Sin repos',
+        status: 'doing',
+        repos: '',
+        meta: {
+          issueNumber: 99,
+          repoName: 'subscriptions',
+          pullRequests: [
+            { number: 7, url: 'u', state: 'open', isDraft: false, headRepo: 'fork-de-alguien' },
+          ],
+        },
+      },
+    ])
+    expect(wrapper.findAll('.tag--repo').map((c) => c.text())).toEqual(['fork-de-alguien'])
+    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).not.toContain('sin repos')
+  })
+
+  it('sin campo Repos y sin PR todavía, el repo sale del issue', async () => {
+    const wrapper = await mountWith([
+      {
+        id: 'I_10',
+        title: 'Recién arrancada',
+        status: 'doing',
+        repos: '',
+        meta: {
+          issueNumber: 100,
+          repoName: 'subscriptions',
+          linkedBranch: 'feat/algo',
+          pullRequests: [],
+        },
+      },
+    ])
+    expect(wrapper.findAll('.tag--repo').map((c) => c.text())).toEqual(['subscriptions'])
+    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).not.toContain('sin repos')
+  })
+
+  it('un provider que no dice de qué repo es el issue sigue diciendo "sin repos"', async () => {
+    const wrapper = await mountWith([
+      { id: 'L_2', title: 'Local task', status: 'queued', repos: '' },
+    ])
+    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).toContain('sin repos')
   })
 })
 
@@ -289,87 +341,118 @@ function titles(wrapper: { findAll: (s: string) => Array<{ text: () => string }>
   return wrapper.findAll('.task-title').map((t) => t.text())
 }
 
+/** Escribe `campo:valor` en el input de filtros y elige la opción sugerida —
+ *  la misma interacción que Ejecuciones/Logs (`FilterQueryInput`). */
+async function applyFilter(
+  wrapper: Awaited<ReturnType<typeof mountWith>>,
+  field: string,
+  value: string,
+) {
+  await wrapper.get('[data-testid="task-filters-input"]').setValue(`${field}:${value}`)
+  await wrapper.get(`[data-testid="task-filters-option-${value}"]`).trigger('mousedown')
+}
+
+function removeFilter(
+  wrapper: Awaited<ReturnType<typeof mountWith>>,
+  field: string,
+  value: string,
+) {
+  return wrapper.get(`[data-testid="task-filters-token-${field}-${value}"]`).trigger('click')
+}
+
 describe('TareasSection — filtros del listado', () => {
   it('el header cuenta N de M y N refleja lo filtrado', async () => {
     const wrapper = await mountWith(BOARD)
     expect(wrapper.get('[data-testid="task-count"]').text()).toBe('3 de 3 tareas')
-    await wrapper.get('[data-testid="task-filter-merged"]').trigger('click')
-    expect(wrapper.get('[data-testid="task-count"]').text()).toBe('1 de 3 tareas')
+    await applyFilter(wrapper, 'pr', 'mergeado')
+    expect(wrapper.get('[data-testid="task-count"]').text()).toBe('2 de 3 tareas')
   })
 
-  it('"esconder mergeadas" deja sólo las que siguen vivas', async () => {
+  it('"pr:mergeado" deja sólo las que ya se mergearon', async () => {
     const wrapper = await mountWith(BOARD)
-    await wrapper.get('[data-testid="task-filter-merged"]').trigger('click')
-    expect(titles(wrapper)).toEqual(['Tarea I_3'])
-  })
-
-  it('el control de mergeado cicla en las dos direcciones', async () => {
-    const wrapper = await mountWith(BOARD)
-    const btn = wrapper.get('[data-testid="task-filter-merged"]')
-    await btn.trigger('click')
-    expect(btn.text()).toContain('esconder')
-    await btn.trigger('click')
-    expect(btn.text()).toContain('sólo')
+    await applyFilter(wrapper, 'pr', 'mergeado')
     expect(titles(wrapper)).toEqual(['Tarea I_1', 'Tarea I_2'])
-    await btn.trigger('click')
-    expect(btn.text()).toContain('todas')
+  })
+
+  it('sacar el token vuelve a mostrar todo', async () => {
+    const wrapper = await mountWith(BOARD)
+    await applyFilter(wrapper, 'pr', 'mergeado')
+    expect(titles(wrapper)).toHaveLength(2)
+    await removeFilter(wrapper, 'pr', 'mergeado')
     expect(titles(wrapper)).toHaveLength(3)
   })
 
   it('los filtros componen en AND', async () => {
     const wrapper = await mountWith(BOARD)
-    await wrapper.get('[data-testid="task-filter-status-doing"]').trigger('click')
-    await wrapper.get('[data-testid="task-filter-status-done"]').trigger('click')
-    await wrapper.get('[data-testid="task-filter-has-branch"]').trigger('click')
+    await applyFilter(wrapper, 'status', 'doing')
+    await applyFilter(wrapper, 'status', 'done')
+    await applyFilter(wrapper, 'rama', 'con-branch')
     expect(titles(wrapper)).toEqual(['Tarea I_3'])
   })
 
   it('deseleccionar el último status vuelve a "sin restricción"', async () => {
     const wrapper = await mountWith(BOARD)
-    const chip = wrapper.get('[data-testid="task-filter-status-doing"]')
-    await chip.trigger('click')
+    await applyFilter(wrapper, 'status', 'doing')
     expect(titles(wrapper)).toEqual(['Tarea I_3'])
-    await chip.trigger('click')
+    await removeFilter(wrapper, 'status', 'doing')
     expect(titles(wrapper)).toHaveLength(3)
   })
 
   it('un vacío por filtro se distingue de un board sin tareas', async () => {
     const wrapper = await mountWith(BOARD)
-    await wrapper.get('[data-testid="task-filter-has-pr"]').trigger('click')
-    await wrapper.get('[data-testid="task-filter-status-refine"]').trigger('click')
+    await applyFilter(wrapper, 'pr', 'sin-pr')
+    await applyFilter(wrapper, 'status', 'refine')
     expect(wrapper.find('.task-card').exists()).toBe(false)
     expect(wrapper.text()).toContain('coincide con los filtros activos')
     expect(wrapper.text()).not.toContain('No hay tareas para este proyecto')
   })
 
   it('hidrata desde la URL — el link compartido reproduce la vista', async () => {
-    routeQuery = { status: 'doing', merged: 'hide' }
+    routeQuery = { status: 'doing' }
     const wrapper = await mountWith(BOARD)
     expect(titles(wrapper)).toEqual(['Tarea I_3'])
-    expect(wrapper.get('[data-testid="task-filter-status-doing"]').attributes('aria-pressed')).toBe(
-      'true',
-    )
+    expect(wrapper.find('[data-testid="task-filters-token-status-doing"]').exists()).toBe(true)
   })
 
   it('escribe la selección en la URL', async () => {
     const wrapper = await mountWith(BOARD)
-    await wrapper.get('[data-testid="task-filter-has-pr"]').trigger('click')
-    expect(routerReplace).toHaveBeenCalledWith({ query: { pr: '1' } })
+    await applyFilter(wrapper, 'pr', 'mergeado')
+    expect(routerReplace).toHaveBeenCalledWith({ query: { pr: ['mergeado'] } })
   })
 
   it('sin query en la URL, una entrada en frío recupera lo último elegido', async () => {
-    localStorage.setItem('ia-flow:task-filters:p1', 'merged=hide')
+    localStorage.setItem('ia-flow:task-filters:p1', 'rama=con-branch')
     const wrapper = await mountWith(BOARD)
     expect(titles(wrapper)).toEqual(['Tarea I_3'])
   })
 
-  it('un provider sin noción de PRs no deja tareas fantasma bajo "Con PR"', async () => {
+  it('un provider sin noción de PRs no deja tareas fantasma bajo "pr:sin-pr"', async () => {
     const wrapper = await mountWith([
-      { id: 'L_1', title: 'Local task', status: 'doing', repos: 'algo' },
+      {
+        id: 'L_1',
+        title: 'Local task',
+        status: 'doing',
+        repos: 'algo',
+        meta: { pullRequestsKnown: false },
+      },
       ...BOARD,
     ])
     expect(titles(wrapper)).toContain('Local task')
-    await wrapper.get('[data-testid="task-filter-has-pr"]').trigger('click')
+    await applyFilter(wrapper, 'pr', 'sin-pr')
     expect(titles(wrapper)).not.toContain('Local task')
+  })
+
+  it('"bloqueada:si" deja sólo las tareas con blockers sin resolver', async () => {
+    blockersById.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
+    const wrapper = await mountWith(BOARD)
+    await applyFilter(wrapper, 'bloqueada', 'si')
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+  })
+
+  it('"bloqueada:no" es el complemento', async () => {
+    blockersById.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
+    const wrapper = await mountWith(BOARD)
+    await applyFilter(wrapper, 'bloqueada', 'no')
+    expect(titles(wrapper)).toEqual(['Tarea I_1', 'Tarea I_2'])
   })
 })

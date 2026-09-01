@@ -84,7 +84,11 @@ export {
   type GQLError,
   type GQLResponse,
 } from './github-shared/client.js'
-export { setGitHubCredentials, getGitHubToken } from './github-shared/credentials.js'
+export {
+  setGitHubCredentials,
+  getGitHubToken,
+  describeGitHubCredentials,
+} from './github-shared/credentials.js'
 export {
   getRateLimit,
   markRateLimited,

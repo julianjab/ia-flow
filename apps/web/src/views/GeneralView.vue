@@ -2,6 +2,9 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
+import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
+import RulesSection from '@/features/rules/RulesSection.vue';
+import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
 import ProvidersSection from '@/features/providers/ProvidersSection.vue';
@@ -17,9 +20,12 @@ const props = defineProps<{ tab: string }>();
 
 interface SectionMeta { label: string; hint: string; scope: 'global' | 'server' }
 const SECTIONS: Record<string, SectionMeta> = {
-  agentes:          { label: 'Agentes',        hint: 'Definiciones reutilizables que corren en cada status configurado.', scope: 'global' },
+  agentes:          { label: 'Agentes',        hint: 'Qué hace cada agente. Cuándo corre lo decide una regla.',           scope: 'global' },
+  pipeline:         { label: 'Pipeline',       hint: 'Qué evento dispara qué, y qué está corriendo ahora. Éstas ven todos los proyectos.', scope: 'global' },
   'system-prompts': { label: 'System Prompts', hint: 'Prompts base que los agentes reciben antes de la tarea.',          scope: 'global' },
   providers:        { label: 'Providers',      hint: 'Configuración por defecto de cada backend de LLM.',                scope: 'global' },
+  acciones:         { label: 'Acciones',      hint: 'Lo que una regla ejecuta. Definidas una vez, referenciadas desde varias.', scope: 'global' },
+  tools:            { label: 'Tools',          hint: 'Lo que un agente puede invocar. Las definidas ejecutan una acción; de las built-in se ajusta la descripción.', scope: 'global' },
   'mcp-catalog':    { label: 'MCP Catalog',    hint: 'Servidores MCP disponibles para que un agente los reclame.',       scope: 'global' },
   entorno:          { label: 'Entorno',        hint: 'Variables inyectadas a los procesos del daemon.',                  scope: 'global' },
   escaneo:          { label: 'Escaneo',        hint: 'Roots del filesystem que el daemon indexa.',                       scope: 'global' },
@@ -30,11 +36,16 @@ const SECTIONS: Record<string, SectionMeta> = {
 const activeTab = computed(() => (SECTIONS[props.tab] ? props.tab : 'agentes'));
 const meta = computed(() => SECTIONS[activeTab.value]);
 
-// Al entrar al detalle de un agente, ese editor pasa a ser la página — el
-// header "Agentes / Biblioteca de..." de este switcher no aplica ahí (ya lo
-// dice el propio editor en su topbar). Ver AgentesSection.resolveAgentFromRoute.
+// Al entrar a un detalle (un agente, una regla), ese editor pasa a ser la
+// página — el header "Agentes / Biblioteca de..." de este switcher no aplica
+// ahí, ya lo dice el propio editor en su topbar. Ver
+// AgentesSection.resolveAgentFromRoute, RulesSection.resolveRuleFromRoute y
+// la página de un agente en ExecutionsSection (salud por agente).
+const DETAIL_TABS = ['agentes', 'pipeline', 'ejecuciones'];
 const route = useRoute();
-const showHeader = computed(() => !(activeTab.value === 'agentes' && route.params.agentId));
+const showHeader = computed(
+  () => !(DETAIL_TABS.includes(activeTab.value) && route.params.detailId),
+);
 </script>
 
 <template>
@@ -46,8 +57,11 @@ const showHeader = computed(() => !(activeTab.value === 'agentes' && route.param
 
   <div class="gv-content">
     <AgentesSection             v-if="activeTab === 'agentes'" scope="global" />
+    <RulesSection               v-else-if="activeTab === 'pipeline'" :scope="{ kind: 'global' }" />
     <GlobalSystemPromptsSection v-else-if="activeTab === 'system-prompts'" />
     <ProvidersSection           v-else-if="activeTab === 'providers'" />
+    <NamedActionsSection        v-else-if="activeTab === 'acciones'" :scope="{ kind: 'global' }" />
+    <ToolsSection               v-else-if="activeTab === 'tools'" :scope="{ kind: 'global' }" />
     <McpCatalogSection          v-else-if="activeTab === 'mcp-catalog'" />
     <EntornoSection             v-else-if="activeTab === 'entorno'" />
     <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />

@@ -1,6 +1,7 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
 import type { ProviderKind } from '@ia-flow/ai-providers'
+import { HISTORY_COMPACTION_PROMPT } from './compaction-prompt.js'
 import type {
   LoopOptions,
   LoopResult,
@@ -9,8 +10,8 @@ import type {
   ToolContext,
   ToolDefinitionsOptions,
 } from './contract.js'
+import { askHaiku, haikuAuthHeader } from './haiku.js'
 import { createLogger } from './logger.js'
-import { getSystemPromptPort } from './ports.js'
 
 const log = createLogger('tool-loop')
 
@@ -33,6 +34,24 @@ export function registerTool(tool: Tool): void {
   if (tool.aliases) {
     for (const alias of tool.aliases) aliasIndex.set(alias, tool.name)
   }
+}
+
+/**
+ * Saca una tool del registry.
+ *
+ * Existe para las tools que salen de la CONFIG (`applyEditableTools`), que se
+ * pueden borrar en caliente: sin esto la entrada sobrevivía con su `execute`
+ * intacto y un agente que la tuviera en su `tools[]` la seguía corriendo hasta
+ * el próximo reinicio, aunque la UI ya la mostrara borrada.
+ *
+ * Los alias que apuntaban a ella se van con ella: un alias colgado resolvería
+ * a un nombre que ya no existe.
+ */
+export function unregisterTool(name: string): boolean {
+  for (const [alias, canonical] of aliasIndex) {
+    if (canonical === name) aliasIndex.delete(alias)
+  }
+  return registry.delete(name)
 }
 
 /**
@@ -87,6 +106,28 @@ export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
     if (!allowed) return true
     return allowed.has(t.name)
   })
+}
+
+/**
+ * Reemplaza la descripción de una tool ya registrada.
+ *
+ * Es lo ÚNICO que un override de configuración puede tocar de una built-in, y
+ * la razón es que las otras tres cosas no se pueden cambiar sin romper algo:
+ * el `name` es la clave que los agentes escriben en su `tools[]`, el
+ * `input_schema` es contra lo que está compilado el `execute`, y el `execute`
+ * es código.
+ *
+ * La descripción, en cambio, es prompt engineering: hoy afinarla exige un
+ * deploy, y es justo el tuning que más se quiere hacer sin uno.
+ *
+ * Devuelve `false` si no existe — el llamador decide si eso es un error (una
+ * override sobre una built-in removida en un update no lo es).
+ */
+export function setToolDescription(name: string, description: string): boolean {
+  const tool = registry.get(name) ?? registry.get(aliasIndex.get(name) ?? '')
+  if (!tool) return false
+  tool.description = description
+  return true
 }
 
 export function getTool(name: string): Tool | undefined {
@@ -168,9 +209,6 @@ function captureRawResponse(response: unknown): string {
     : json
 }
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
-const HISTORY_COMPACTION_PROMPT_ID = 'historyCompaction'
-
 async function compactHistory(
   messages: ApiMessage[],
   runLog: typeof log = log,
@@ -189,16 +227,9 @@ async function compactHistory(
     { historyBytes, messageCount: messages.length, top },
     'compactHistory input breakdown',
   )
-  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  const apiKey = Bun.env.ANTHROPIC_API_KEY
-  const authHeader: Record<string, string> | null = oauthToken
-    ? { Authorization: `Bearer ${oauthToken}` }
-    : apiKey
-      ? { 'x-api-key': apiKey }
-      : null
 
   // Fallback: truncate tool results to 500 chars each
-  if (!authHeader) {
+  if (!haikuAuthHeader()) {
     runLog.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
     return messages.map((msg) => {
       if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
@@ -215,24 +246,6 @@ async function compactHistory(
     })
   }
 
-  const systemPromptPort = getSystemPromptPort()
-  if (!systemPromptPort) {
-    runLog.warn(
-      { historyBytes },
-      'haiku compaction skipped: no SystemPromptPort wired — keeping history',
-    )
-    return messages
-  }
-  const prompt = systemPromptPort.getById(HISTORY_COMPACTION_PROMPT_ID)
-  if (!prompt) {
-    runLog.warn(
-      { historyBytes, promptId: HISTORY_COMPACTION_PROMPT_ID },
-      'haiku compaction skipped: system prompt not seeded — keeping history',
-    )
-    return messages
-  }
-  const compactionPrompt = prompt.text
-
   const toolResults: string[] = []
   for (const msg of messages) {
     if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
@@ -244,44 +257,19 @@ async function compactHistory(
   }
 
   const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
-  runLog.info(
-    {
-      model: HAIKU_MODEL,
-      historyBytes,
-      toolResultCount: toolResults.length,
-      userBytes: userContent.length,
-      systemBytes: compactionPrompt.length,
-    },
-    'haiku compaction request',
-  )
-
   const t0 = Date.now()
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        ...authHeader,
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: 4096,
-        system: compactionPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
+    const {
+      text: summary,
+      usage,
+      ms,
+    } = await askHaiku({
+      system: HISTORY_COMPACTION_PROMPT,
+      user: userContent,
+      maxTokens: 4096,
+      scope: { tool: 'compactHistory', historyBytes, toolResultCount: toolResults.length },
+      logger: runLog,
     })
-    const ms = Date.now() - t0
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      runLog.warn({ status: res.status, ms, err: errBody.slice(0, 500) }, 'haiku compaction failed')
-      throw new Error(`Haiku ${res.status}`)
-    }
-    const data = (await res.json()) as any
-    const summary = (data.content as any[])
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text as string)
-      .join('')
 
     // Keep: initial prompt + summary of findings as a plain user turn.
     // The summary can't be a `tool_result` — there's no matching `tool_use`
@@ -314,13 +302,12 @@ async function compactHistory(
     const afterBytes = JSON.stringify(compacted).length
     runLog.info(
       {
-        status: res.status,
         ms,
         summaryBytes: summary.length,
         beforeBytes: historyBytes,
         afterBytes,
         ratio: afterBytes / Math.max(historyBytes, 1),
-        usage: data.usage,
+        usage,
       },
       'haiku compaction response',
     )
@@ -360,6 +347,9 @@ export async function executeLoop(
     logContext,
     maxPauseTurnRetries = 0,
     retryTruncatedToolUse = false,
+    drainMessages,
+    onMessagesDelivered,
+    saveCheckpoint,
   } = opts
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
@@ -376,7 +366,16 @@ export async function executeLoop(
   }
   let toolCalls = 0
   let toolErrors = 0
-  const metrics = () => ({ usage, toolCalls, toolErrors })
+  // Por tool, además del total: es lo que distingue "explora a ciegas"
+  // (muchos fs_read) de "le falta un permiso" (errores de bash_run).
+  const toolBreakdown: Record<string, { calls: number; errors: number }> = {}
+  const tally = (name: string, isError: boolean): void => {
+    const entry = toolBreakdown[name] ?? { calls: 0, errors: 0 }
+    entry.calls++
+    if (isError) entry.errors++
+    toolBreakdown[name] = entry
+  }
+  const metrics = () => ({ usage, toolCalls, toolErrors, toolBreakdown })
   let pauseTurnRetries = 0
   let toolUseRetried = false
   // Text already generated in paused turns before a pause_turn retry —
@@ -391,12 +390,71 @@ export async function executeLoop(
   // below, which needs one call with a higher max_tokens). Cleared every
   // iteration so it never leaks past the call it was meant for.
   let nextFetchOverrides: FetchApiOverrides | undefined
+  // Canal de control del loop. Se construye acá —por run, no por dispatch—
+  // porque es estado de ESTA vuelta: una tool lo usa para pedir que el turno
+  // corte, y el loop lo lee al tope de la vuelta siguiente.
+  let pauseReason: string | undefined
+  let pauseRequested = false
+  const loopCtx: ToolContext = {
+    ...ctx,
+    control: {
+      requestPause: (reason) => {
+        pauseRequested = true
+        pauseReason = reason
+      },
+    },
+  }
 
   while (iters < HARD_ITER_CAP) {
     if (signal?.aborted) {
       throw new DOMException('Agent run aborted', 'AbortError')
     }
     iters++
+
+    // Mensajes que entraron desde afuera mientras el run corría. Se drenan
+    // ACÁ —antes del fetch, después del chequeo de abort— porque es el único
+    // punto del turno donde agregar contenido no rompe nada: a mitad de un
+    // `tool_use` pendiente, un mensaje de usuario intercalado invalida el
+    // siguiente request.
+    //
+    // Se marcan entregados DESPUÉS de incorporarlos: un run que muere entre
+    // el drenaje y el turno tiene que poder volver a leerlos.
+    if (drainMessages) {
+      try {
+        const injected = await drainMessages()
+        if (injected.length) {
+          messages.push({
+            role: 'user',
+            content: injected
+              .map((m) => (m.author ? `[${m.author}] ${m.body}` : m.body))
+              .join('\n\n'),
+          })
+          runLog.info({ count: injected.length }, 'Mensajes inyectados en el run')
+          await onMessagesDelivered?.(injected.map((m) => m.id))
+        }
+      } catch (err) {
+        // Un fallo del store no puede voltear el run: el agente sigue con lo
+        // que tenía, y el mensaje se vuelve a intentar el turno que viene.
+        runLog.warn({ err }, 'No se pudieron drenar los mensajes inyectados')
+      }
+    }
+
+    // El corte se lee ACÁ y no donde se pidió: la vuelta anterior ya agregó
+    // el `tool_result` de la llamada que lo pidió, así que la historia queda
+    // completa. Cortar en el medio dejaría un `tool_use` sin respuesta, y el
+    // próximo request con esa historia falla.
+    if (pauseRequested) {
+      runLog.info({ iters, reason: pauseReason }, 'Run pausado por pedido de una tool')
+      return {
+        text: pausedText,
+        iters,
+        stopReason: 'paused',
+        truncated: false,
+        checkpoint: { messages: [...messages], reason: pauseReason },
+        ...metrics(),
+      }
+    }
+
     const histSize = JSON.stringify(messages).length
     if (histSize > COMPACTION_BUDGET_CHARS) {
       const compacted = await compactHistory(messages, runLog)
@@ -404,6 +462,23 @@ export async function executeLoop(
         messages.splice(0, messages.length, ...compacted)
       }
     }
+
+    // El checkpoint se guarda ACÁ: después de compactar y justo antes del
+    // request, así que lo persistido es exactamente la conversación que se
+    // mandó. Guardarlo antes de compactar dejaría en disco una historia que
+    // este mismo run ya descartó.
+    //
+    // Un fallo del store no puede voltear el run — perder el checkpoint
+    // degrada la recuperación, tirar acá tiraría el trabajo que el checkpoint
+    // existe para salvar.
+    if (saveCheckpoint) {
+      try {
+        await saveCheckpoint({ messages: [...messages] })
+      } catch (err) {
+        runLog.warn({ err, iters }, 'No se pudo guardar el checkpoint del run')
+      }
+    }
+
     const response = await fetchApi(messages, nextFetchOverrides)
     nextFetchOverrides = undefined
     accumulateUsage(usage, response?.usage)
@@ -539,7 +614,7 @@ export async function executeLoop(
     const toolUseBlocks = contentBlocks.filter((b) => b.type === 'tool_use')
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
-        const tool = resolveExecutableTool(block.name, ctx)
+        const tool = resolveExecutableTool(block.name, loopCtx)
         toolCalls++
         onToolCall?.(block.name, block.input, block.id)
 
@@ -548,7 +623,7 @@ export async function executeLoop(
           result = `Error: tool '${block.name}' not found`
         } else {
           try {
-            result = await tool.execute(block.input, ctx)
+            result = await tool.execute(block.input, loopCtx)
           } catch (e) {
             result = `Error: ${e instanceof Error ? e.message : String(e)}`
           }
@@ -567,10 +642,20 @@ export async function executeLoop(
         // `Error:` is the prefix both failure paths above write (unknown
         // tool, or `execute` threw); a tool that returns its own error text
         // without it isn't counted, which is the conservative direction.
-        if (result.startsWith('Error:')) toolErrors++
+        const isError = result.startsWith('Error:')
+        if (isError) toolErrors++
+        tally(block.name, isError)
 
         onToolResult?.(block.name, result, block.id)
-        return { type: 'tool_result', tool_use_id: block.id, content: result }
+        // `is_error` es lo que la API entiende como fallo; el prefijo `Error:`
+        // en el texto es sólo para humanos y el modelo no lo distingue del
+        // contenido de un resultado exitoso.
+        return {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: result,
+          ...(isError ? { is_error: true } : {}),
+        }
       }),
     )
 

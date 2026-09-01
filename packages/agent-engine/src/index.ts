@@ -6,16 +6,6 @@ export { applyOutcome, condToOp, evalWhen, parseFieldAssignments } from './outco
 export { resolveExit, resolveExitCommentTarget, selectableExits } from './run-outcome.js'
 export type { OutcomeEntry } from './run-outcome.js'
 
-export { selectAgent, selectAgentCandidates, summarizeRejections } from './agent-selection.js'
-export type {
-  AgentCandidatesResult,
-  AgentSelectionInput,
-  AgentSelectionResult,
-  RejectedCandidate,
-  RejectionReason,
-} from './agent-selection.js'
-export { clearAgentTextVerdicts, selectAgentGated } from './agent-text-gate.js'
-export type { AgentTextClassifier, GatedAgentSelectionInput } from './agent-text-gate.js'
 export { resolveRunContext } from './run-context.js'
 export type { RunContext, ResolveRunContextInput } from './run-context.js'
 export {
@@ -50,11 +40,13 @@ export type { GitContextOptions } from './git-context.js'
 
 export {
   recordHookToolResult,
+  recordHookTranscript,
+  setTranscriptUsageReader,
   peekRunTelemetry,
   takeRunTelemetry,
   resetRunTelemetry,
 } from './run-telemetry.js'
-export type { RunToolTelemetry } from './run-telemetry.js'
+export type { RunToolTelemetry, TranscriptUsage } from './run-telemetry.js'
 export { classifyFailure } from './failure-taxonomy.js'
 export type { ClassifyFailureInput } from './failure-taxonomy.js'
 export { Agent, setSecretResolver } from './Agent.js'
@@ -65,3 +57,4 @@ export type { BranchNamerTaskLike, LinkedBranchNamer } from './linked-branch.js'
 export { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 export type { SystemPromptBlock } from './system-prompt-blocks.js'
 export { TaskDispatcher } from './TaskDispatcher.js'
+export type { DispatchOptions } from './TaskDispatcher.js'

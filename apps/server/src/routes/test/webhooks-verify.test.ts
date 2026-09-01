@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { createHmac } from 'crypto'
 import { githubHint, isIssueEvent, verifyGithubSignature } from '../webhooks.js'
 
+// El handshake y la firma de Slack se testean en `@ia-flow/slack`, junto al
+// código que los implementa — acá quedaba sólo el borde de GitHub.
+
 const sign = (body: string, secret: string) =>
   `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
 

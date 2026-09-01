@@ -19,6 +19,21 @@ vi.mock('@/features/github/api', () => ({
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+// Las sugerencias reales, sin el “usar «…»” del valor propio ni las notas:
+// eso es cromo del ComboBox y no lo que este campo decide mostrar.
+const opciones = (w: ReturnType<typeof mount>) =>
+  w.findAll('.cb-opt:not(.cb-opt--custom) .cb-opt__label').map((e) => e.text())
+
+// Con un solo valor el campo MUESTRA el valor: los chips son del multi.
+const elegido = (w: ReturnType<typeof mount>) => (w.get('input').element as HTMLInputElement).value
+
+// El ComboBox no emite por tecla: confirma al salir del campo. Es a propósito
+// — un `julianjab` a medio escribir no es un repo.
+const escribir = async (w: ReturnType<typeof mount>, v: string) => {
+  await w.get('input').setValue(v)
+  await w.get('input').trigger('blur')
+}
+
 const lastEmit = (wrapper: ReturnType<typeof mount>) => {
   const events = wrapper.emitted('update:modelValue') ?? []
   return events[events.length - 1]?.[0]
@@ -32,7 +47,7 @@ describe('GithubRepoField', () => {
 
   it('splits a pasted repo URL into owner and repo', async () => {
     const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
-    await wrapper.get('input').setValue('https://github.com/julianjab/accountant')
+    await escribir(wrapper, 'https://github.com/julianjab/accountant')
     expect(lastEmit(wrapper)).toEqual({ owner: 'julianjab', repo: 'accountant' })
   })
 
@@ -40,22 +55,19 @@ describe('GithubRepoField', () => {
     const wrapper = mount(GithubRepoField, {
       props: { owner: 'julianjab', repo: 'accountant' },
     })
-    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('julianjab/accountant')
+    expect(elegido(wrapper)).toBe('julianjab/accountant')
   })
 
   it('suggests owners until one is typed, then that owner repos', async () => {
     const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
     await flush()
     await wrapper.get('input').trigger('focus')
-    expect(wrapper.findAll('li').map((li) => li.text())).toEqual(['julianjab/', 'la-haus/'])
+    expect(opciones(wrapper)).toEqual(['julianjab/', 'la-haus/'])
 
     await wrapper.get('input').setValue('julianjab/')
     await flush()
     expect(getRepos).toHaveBeenCalledWith('julianjab')
-    expect(wrapper.findAll('li').map((li) => li.text())).toEqual([
-      'julianjab/accountant',
-      'julianjab/world-clock',
-    ])
+    expect(opciones(wrapper)).toEqual(['julianjab/accountant', 'julianjab/world-clock'])
   })
 
   it('asks GitHub for nothing until the owner is closed with a slash', async () => {
@@ -63,6 +75,7 @@ describe('GithubRepoField', () => {
     await flush()
     getRepos.mockClear()
 
+    await wrapper.get('input').trigger('focus')
     await wrapper.get('input').setValue('j')
     await wrapper.get('input').setValue('ju')
     await wrapper.get('input').setValue('julianjab')
@@ -70,8 +83,7 @@ describe('GithubRepoField', () => {
 
     expect(getRepos).not.toHaveBeenCalled()
     // Y el buscador de owners sigue vivo mientras tanto.
-    await wrapper.get('input').trigger('focus')
-    expect(wrapper.findAll('li').map((li) => li.text())).toEqual(['julianjab/'])
+    expect(opciones(wrapper)).toEqual(['julianjab/'])
   })
 
   it('fetches an owner repos once, not on every keystroke', async () => {
@@ -85,7 +97,7 @@ describe('GithubRepoField', () => {
 
   it('flags a half-typed ref instead of saving an owner with no repo', async () => {
     const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
-    await wrapper.get('input').setValue('julianjab')
+    await escribir(wrapper, 'julianjab')
     expect(wrapper.find('.grf-error').exists()).toBe(true)
     expect(lastEmit(wrapper)).toEqual({ owner: '', repo: '' })
   })
@@ -94,9 +106,9 @@ describe('GithubRepoField', () => {
     const wrapper = mount(GithubRepoField, {
       props: { owner: 'julianjab', repo: 'accountant' },
     })
-    await wrapper.get('input').setValue('julianjab/')
+    await escribir(wrapper, 'julianjab/')
     await wrapper.setProps({ owner: '', repo: '' })
-    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('julianjab/')
+    expect(elegido(wrapper)).toBe('julianjab/')
   })
 
   it('resyncs when the parent opens another repo card', async () => {
@@ -104,7 +116,7 @@ describe('GithubRepoField', () => {
       props: { owner: 'julianjab', repo: 'accountant' },
     })
     await wrapper.setProps({ owner: 'la-haus', repo: 'ia-flow' })
-    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('la-haus/ia-flow')
+    expect(elegido(wrapper)).toBe('la-haus/ia-flow')
   })
 
   it('drops a slow response for an owner that is no longer being typed', async () => {
@@ -124,10 +136,7 @@ describe('GithubRepoField', () => {
     await flush()
 
     await wrapper.get('input').trigger('focus')
-    expect(wrapper.findAll('li').map((li) => li.text())).toEqual([
-      'julianjab/accountant',
-      'julianjab/world-clock',
-    ])
+    expect(opciones(wrapper)).toEqual(['julianjab/accountant', 'julianjab/world-clock'])
   })
 
   it('never shows the previous owner repos while a new owner is loading', async () => {
@@ -144,7 +153,7 @@ describe('GithubRepoField', () => {
     // era ['la-haus/accountant', 'la-haus/world-clock'] — repos que no existen
     // en ese owner.
     expect(wrapper.text()).not.toContain('accountant')
-    expect(wrapper.get('.ac-state--loading').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Buscando')
   })
 
   it('reloads an owner the user came back to while another request was in flight', async () => {
@@ -168,10 +177,7 @@ describe('GithubRepoField', () => {
     await flush()
 
     await wrapper.get('input').trigger('focus')
-    expect(wrapper.findAll('li').map((li) => li.text())).toEqual([
-      'julianjab/accountant',
-      'julianjab/world-clock',
-    ])
+    expect(opciones(wrapper)).toEqual(['julianjab/accountant', 'julianjab/world-clock'])
   })
 
   it('clears the list when an owner lookup fails, instead of relabelling the previous one', async () => {
@@ -186,6 +192,6 @@ describe('GithubRepoField', () => {
     await wrapper.get('input').trigger('focus')
     // Sin limpiar, las sugerencias serían 'nope/accountant' y 'nope/world-clock':
     // los repos del owner anterior renombrados al que acaba de fallar.
-    expect(wrapper.findAll('li')).toHaveLength(0)
+    expect(opciones(wrapper)).toHaveLength(0)
   })
 })

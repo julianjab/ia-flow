@@ -11,8 +11,13 @@
 
 import { z } from 'zod'
 
-/** Quién es el portador del token. Para logs, UI y debugging de atribución
- *  — nunca para ramificar lógica de negocio. */
+/** Quién es el portador del token: logs, UI y debugging de atribución.
+ *
+ *  Ramificar sobre `mode` es legítimo **sólo** cuando la identidad cambia qué
+ *  se le puede pedir al upstream —el caso real es la REST de GitHub, donde
+ *  `/user` existe para un PAT y no para un installation token—, nunca para
+ *  decidir reglas de negocio. Y siempre sobre un modo ya resuelto: un provider
+ *  perezoso se describe como `pending` hasta su primer `getToken()`. */
 export interface CredentialDescription {
   /** Estrategia efectiva ya resuelta (`auto` nunca aparece acá). */
   mode: string

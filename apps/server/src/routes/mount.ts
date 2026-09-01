@@ -12,13 +12,16 @@
 import type { Hono } from 'hono'
 import { createGithubRouter } from '../adapters/github/routes.js'
 import { assistWithAiUseCase, systemPromptRepo } from '../composition/container.js'
+import { createActionsRouter } from './actions.js'
 import { createAgentsCrudRouter } from './agents-crud.js'
 import { createAgentsRouter } from './agents.js'
 import { createEnvVarsRouter } from './env-vars.js'
 import { createExecutionsRouter } from './executions.js'
 import { createHookEventsRouter } from './hook-events.js'
+import { createIntegrationsRouter } from './integrations.js'
 import { createMcpCatalogRouter } from './mcp-catalog.js'
 import { createMcpRouter } from './mcp.js'
+import { createPipelineRouter } from './pipeline.js'
 import { createProjectConfigRouter } from './project-config.js'
 import { createProjectSourceRouter } from './project-source.js'
 import { createProjectsRouter } from './projects.js'
@@ -26,11 +29,13 @@ import { createProviderRegistrationsRouter } from './provider-registrations.js'
 import { createProvidersRouter } from './providers.js'
 import { createRemoteExecutionsRouter } from './remote-executions.js'
 import { createRemoteLogsRouter } from './remote-logs.js'
+import { createRulesRouter } from './rules.js'
 import { createServerLogsRouter } from './server-logs.js'
 import { createSlackRouter } from './slack.js'
 import { createStatusesRouter } from './statuses.js'
 import { createSystemPromptsRouter } from './system-prompts.js'
 import { createReposRouter, createTasksRouter } from './tasks.js'
+import { createToolsCrudRouter } from './tools-crud.js'
 import { createToolsRouter } from './tools.js'
 import { createVariablesRouter } from './variables.js'
 import { createWebhooksRouter } from './webhooks.js'
@@ -52,9 +57,14 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/mcp', createMcpRouter())
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
   app.route('/api/agents-crud', createAgentsCrudRouter())
+  app.route('/api/rules', createRulesRouter())
+  app.route('/api/pipeline', createPipelineRouter())
+  app.route('/api/actions', createActionsRouter())
+  app.route('/api/tools-crud', createToolsCrudRouter())
   app.route('/api/system-prompts', createSystemPromptsRouter())
   app.route('/api/statuses', createStatusesRouter())
   app.route('/api/env-vars', createEnvVarsRouter())
+  app.route('/api/integrations', createIntegrationsRouter())
   app.route('/api/slack', createSlackRouter())
   app.route('/api/variables', createVariablesRouter())
   app.route('/api/mcp-catalog', createMcpCatalogRouter())

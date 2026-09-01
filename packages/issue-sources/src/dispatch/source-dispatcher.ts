@@ -69,7 +69,7 @@ export class SourceDispatcher extends IssueManager {
   private disposed = false
 
   constructor(
-    protected readonly projectId: string,
+    public readonly projectId: string,
     protected readonly source: ProjectSource,
     protected readonly broadcast: BroadcastFn,
     protected readonly pendingTasks: PendingTaskRegistryPort,
@@ -186,6 +186,12 @@ export class SourceDispatcher extends IssueManager {
   private runningAgents(): number {
     let n = 0
     for (const [, pending] of this.pendingTasks.listPendingTasks()) {
+      // Un sub-agente no ocupa slot: este cap limita cuántos ISSUES se
+      // trabajan a la vez, y un hijo es más trabajo sobre uno ya contado.
+      // Contarlo produce deadlock — N padres bloqueados esperando a sus hijos
+      // ocupan los N slots y ningún hijo arranca nunca. Ver `parentRunId` en
+      // @ia-flow/agent-engine.
+      if (pending.parentRunId) continue
       if (!pending.task.projectId || pending.task.projectId === this.projectId) n++
     }
     return n

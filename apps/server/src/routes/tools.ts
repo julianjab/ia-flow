@@ -1,34 +1,83 @@
 import { type ToolContext, getAllTools, getTool } from '@ia-flow/tools'
 import { Hono } from 'hono'
-import { repoRepo } from '../composition/container.js'
+import { repoRepo, toolRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 // Side-effect: importing @ia-flow/tools registers every built-in tool
-// (fs, write, exec, workspace, task, github, slack) into the process-wide
-// registry — same effect the 7 separate imports here used to have.
+// (fs, write, exec, workspace, task, github) into the process-wide registry.
+// Las de Slack NO entran por acá: las registra `installSlack` y sólo cuando hay
+// credencial, así que este catálogo no ofrece una tool que siempre falla.
 
 const log = createLogger('tools-route')
 
 // Exported for routes/mcp.ts — same execution context, different transport.
-export function buildToolContext(): ToolContext {
-  const repos = repoRepo.list()
+// `projectId` NO es decorativo: sin él, `projectRepos` sería el roster de TODOS
+// los proyectos, y `transfer_task_repo` valida su destino contra ese array — un
+// run async podría mover el issue a un repo de otro proyecto, incluido un repo
+// "inbox" que sólo está declarado en otro lado. El camino async lo tiene a mano
+// (`?project=` de la conexión MCP), así que se pasa.
+export function buildToolContext(projectId?: string): ToolContext {
+  const repos = projectId ? repoRepo.listByProject(projectId) : repoRepo.list()
   const repoPaths = Object.fromEntries(repos.filter((r) => r.path).map((r) => [r.name, r.path!]))
-  return { repoPaths }
+  // El roster va aparte de los paths: `repoPaths` deja afuera los repos sin
+  // clone local, y hay tools (`transfer_task_repo`) que necesitan saber qué
+  // repos declara el proyecto, no cuáles están bajados.
+  //
+  // Sin `projectId` se deja SIN roster en vez de publicar el de todos los
+  // proyectos: un array que parece el correcto pero no lo es haría que la
+  // validación de destino pasara por repos ajenos. Ausente es "no hay contra
+  // qué validar", que al menos está documentado como tal.
+  return {
+    repoPaths,
+    ...(projectId
+      ? {
+          projectRepos: repos.map((r) => ({
+            name: r.name,
+            githubOwner: r.githubOwner,
+            githubRepo: r.githubRepo,
+          })),
+        }
+      : {}),
+  }
 }
 
 export function createToolsRouter() {
   const app = new Hono()
 
-  // GET /api/tools — catálogo plano de tools registradas. La UI las agrupa
-  // visualmente por dominio (fs/task/workspace/github/slack/bash) del lado
-  // cliente; el server ya no tiene un concepto de "categoría" — un agente
-  // simplemente declara qué nombres de tool tiene en `tools[]`.
-  app.get('/', (c) => {
-    const tools = getAllTools().map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-      aliases: t.aliases ?? [],
-    }))
+  // GET /api/tools[?projectId=X | ?scope=global] — catálogo plano de tools
+  // registradas. La UI las agrupa visualmente por dominio
+  // (fs/task/workspace/github/slack/bash) del lado cliente; el server ya no
+  // tiene un concepto de "categoría" — un agente simplemente declara qué
+  // nombres de tool tiene en `tools[]`.
+  //
+  // El registry es UNO para todo el proceso —una tool definida de CUALQUIER
+  // proyecto está registrada—, así que el ámbito se filtra acá contra la tabla:
+  // sin esto el editor de un agente de A ofrecía las tools definidas de B, que
+  // el agente puede nombrar pero cuya acción no le pertenece.
+  //
+  // Sin ámbito devuelve TODO, siguiendo la convención del repo (vacío = sin
+  // restricción, ver `packages/rules/src/scope.ts`): este endpoint también es
+  // el catálogo plano del registry, y acotarlo por default le sacaría tools a
+  // consumidores que no tienen un ámbito que declarar.
+  app.get('/', async (c) => {
+    const projectId = c.req.query('projectId')
+    const scoped = projectId != null || c.req.query('scope') === 'global'
+    const foreign = scoped
+      ? new Set(
+          (await toolRepo.list())
+            // Sólo las de OTRO proyecto. Las globales las ve todo el mundo —
+            // son justamente las heredadas.
+            .filter((t) => t.projectId != null && t.projectId !== projectId)
+            .map((t) => t.name),
+        )
+      : new Set<string>()
+    const tools = getAllTools()
+      .filter((t) => !foreign.has(t.name))
+      .map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.input_schema,
+        aliases: t.aliases ?? [],
+      }))
     return c.json(tools)
   })
 

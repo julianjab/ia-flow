@@ -120,16 +120,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
     <div v-else-if="configStore.config?.systemPrompts?.length" class="sp-list">
       <template v-for="sp in configStore.config.systemPrompts" :key="sp.id">
+        <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
         <EditableCard
           v-if="expandedSpId !== sp.id"
           :clickable="true"
           @edit="toggleExpandSp(sp)"
-          @delete="askConfirm({
-            title: 'Eliminar system prompt',
-            message: `¿Eliminar '${sp.name}'?`,
-            confirmLabel: 'Eliminar',
-            onConfirm: () => deleteSp(sp.id),
-          })"
         >
           <div class="sp-card-header">
             <code class="sp-id">{{ sp.id }}</code>
@@ -146,6 +141,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
           :available-system-prompts="configStore.config?.systemPrompts ?? []"
           @save="saveSpEdit(sp)"
           @cancel="expandedSpId = null"
+          @delete="askConfirm({
+            title: 'Eliminar system prompt',
+            message: `¿Eliminar '${sp.name}'?`,
+            confirmLabel: 'Eliminar',
+            onConfirm: async () => { await deleteSp(sp.id); expandedSpId = null },
+          })"
         />
       </template>
     </div>
@@ -162,20 +163,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.settings-section {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.25rem;
-}
-.section-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-.section-desc { color: var(--fg-dim); font-size: 0.9rem; }
 .btn-add-repo {
   padding: 0.4rem 0.75rem;
   background: var(--fg);
@@ -197,4 +184,15 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .sp-id { background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
 .sp-name { font-weight: 600; }
 .sp-preview { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
+
+@media (max-width: 768px) {
+  /* Un flex sin `wrap`: el botón de la derecha queda fuera de la pantalla y
+     empuja la página. Envolver es lo correcto acá — es un encabezado, no una
+     tabla cuyas columnas haya que alinear entre filas. */
+  .sp-card-header { flex-wrap: wrap; row-gap: 0.35rem; }
+  .sp-card-header > * { min-width: 0; }
+  /* El nombre es un identificador sin espacios: sin `anywhere` su ancho
+     mínimo empuja igual, aunque el contenedor envuelva. */
+  .sp-card-header, .sp-card-header * { overflow-wrap: anywhere; }
+}
 </style>

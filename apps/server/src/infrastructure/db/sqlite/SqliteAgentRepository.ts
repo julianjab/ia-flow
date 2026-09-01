@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { AgentDefinition, AgentProvider, AgentToolEntry, WhenCondition } from '@ia-flow/shared'
+import type { AgentDefinition, AgentProvider, AgentToolEntry } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 
 // `provider` sigue siendo el string plano de siempre para la inmensa mayoría
@@ -35,21 +35,15 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
       ? (JSON.parse(r.mcp_catalog_ids as string) as string[])
       : undefined,
     projectId: (r.project_id as string | null) ?? null,
+    position: r.position != null ? (r.position as number) : undefined,
     // Tri-state: NULL en DB → undefined (engine deriva del set de tools).
     requiresBranch: r.requires_branch != null ? (r.requires_branch as number) !== 0 : undefined,
     // NULL en DB → undefined (sin cap propio) — ver capacity.ts.
     maxConcurrentDispatches:
       r.max_concurrent_dispatches != null ? (r.max_concurrent_dispatches as number) : undefined,
-    // ─── Activation criteria (AgentActivationSchema) ─────────────────────
-    repoName: (r.repo_name as string | null) ?? undefined,
-    statusName: (r.status_name as string | null) ?? undefined,
+    // Gate de dispatch, NO criterio de activación: sobrevivió a la migración
+    // 059 porque es una tolerancia del trabajo del agente, no un match.
     allowBlocked: (r.allow_blocked as number) !== 0,
-    when: r.when_conditions
-      ? (JSON.parse(r.when_conditions as string) as WhenCondition[] | Record<string, string>)
-      : undefined,
-    whenText: (r.when_text as string | null) ?? undefined,
-    enabled: (r.enabled as number) !== 0,
-    position: r.position != null ? (r.position as number) : undefined,
     // ─── Outcomes (AgentOutcomesSchema) ──────────────────────────────────
     onProcess: (r.on_process as string | null) ?? undefined,
     exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : undefined,
@@ -104,9 +98,9 @@ export class SqliteAgentRepository implements IAgentRepository {
       `INSERT INTO agents (
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
-         requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, exits, comment, enabled, max_concurrent_dispatches
+         requires_branch, allow_blocked, on_process, exits, comment, max_concurrent_dispatches
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -119,15 +113,10 @@ export class SqliteAgentRepository implements IAgentRepository {
          mcp_catalog_ids     = excluded.mcp_catalog_ids,
          project_id          = excluded.project_id,
          requires_branch     = excluded.requires_branch,
-         repo_name           = excluded.repo_name,
-         status_name         = excluded.status_name,
          allow_blocked       = excluded.allow_blocked,
-         when_conditions     = excluded.when_conditions,
-         when_text           = excluded.when_text,
          on_process          = excluded.on_process,
          exits               = excluded.exits,
          comment             = excluded.comment,
-         enabled             = excluded.enabled,
          max_concurrent_dispatches = excluded.max_concurrent_dispatches`,
       [
         agent.id,
@@ -144,15 +133,10 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.mcpCatalogIds?.length ? JSON.stringify(agent.mcpCatalogIds) : null,
         pid,
         agent.requiresBranch === false ? 0 : agent.requiresBranch === true ? 1 : null,
-        agent.repoName ?? null,
-        agent.statusName ?? null,
         agent.allowBlocked === true ? 1 : 0,
-        agent.when && Object.keys(agent.when).length ? JSON.stringify(agent.when) : null,
-        agent.whenText ?? null,
         agent.onProcess ?? null,
         agent.exits ? JSON.stringify(agent.exits) : null,
         agent.comment ?? null,
-        agent.enabled === false ? 0 : 1,
         agent.maxConcurrentDispatches ?? null,
       ],
     )

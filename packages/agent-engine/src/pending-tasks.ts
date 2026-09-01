@@ -1,5 +1,5 @@
 import type { TaskSource } from '@ia-flow/issue-sources'
-import type { AgentExit, CommentTarget, Task } from '@ia-flow/shared'
+import type { AgentExit, AgentOutput, CommentTarget, Task } from '@ia-flow/shared'
 
 type BroadcastFn = (msg: object) => void
 
@@ -15,6 +15,16 @@ export interface PendingTask {
    *  máquina de estados: elige entre las aristas ya declaradas, nunca un mapa
    *  de campos libre. Ver `resolveExit` en run-outcome.ts. */
   chosenExit?: string
+  /** Contrato de salida estructurada del agente (`AgentDefinition.output`).
+   *  Vive acá y no sólo en las opciones del schema porque `submit_output`
+   *  valida contra él al EJECUTAR, y `ToolContext` no lleva la config del
+   *  agente — sólo el runtime del run. */
+  outputFields?: AgentOutput
+  /** Lo que el agente entregó con `submit_output`, ya validado. Lo lee
+   *  `Agent.run` al terminar para publicarlo hacia la regla. Ausente con
+   *  `outputFields` declarado ⇒ el run falla: un contrato que se puede
+   *  incumplir en silencio deja al paso siguiente leyendo nada. */
+  structuredOutput?: Record<string, unknown>
   /** Destino por defecto de los comentarios de este agente
    *  (`AgentDefinition.comment`). Una salida puede pisarlo — ver
    *  `resolveExitCommentTarget` en run-outcome.ts. Ausente ⇒ `pr-else-issue`. */
@@ -80,6 +90,35 @@ export interface PendingTask {
    *  aplican la transición, cierran la fila— pero saben que el orquestador
    *  original ya no va a hacer nada con el resultado. */
   rehydrated?: boolean
+  /** La regla que lanzó este dispatch. Sólo trazabilidad — el engine no lee
+   *  este campo para decidir nada; existe para que la UI pueda dibujar el run
+   *  sobre la regla que lo originó, que es la pregunta "¿por qué está
+   *  corriendo esto?" contestada sin cruzar pantallas. */
+  ruleId?: string
+  /** El run del agente PADRE que lanzó éste con `run_agent`. Presente ⇒ esta
+   *  entrada es un sub-agente.
+   *
+   *  Lo que decide: un hijo **no cuenta contra el cap de dispatch del
+   *  proyecto** (`SourceDispatcher.runningAgents`). Ese cap limita cuántos
+   *  ISSUES se trabajan a la vez, y un sub-agente no es un issue nuevo — es
+   *  más trabajo sobre uno que ya está contado.
+   *
+   *  Sin esa exención hay **deadlock**: con el cap en 5, cinco padres
+   *  bloqueados esperando a sus hijos ocupan los cinco slots y ningún hijo
+   *  puede arrancar nunca. El pipeline se congela entero y el síntoma es
+   *  "todo diferido", que no señala a la causa.
+   *
+   *  Los caps de AGENTE y de PROVIDER sí siguen contando: ésos modelan un
+   *  límite real (del roster y del upstream), no una política sobre cuántos
+   *  issues atender, y ninguno de los dos se puede trabar así — el hijo
+   *  siempre es un agente distinto del padre (lo garantiza el freno de
+   *  profundidad), así que su cap se libera solo. */
+  parentRunId?: string
+  /** Cuántos `run_agent` de profundidad lleva esta cadena. El padre de más
+   *  arriba es 0. `EngineEvent.depth` cubre el camino por eventos; éste
+   *  cubre el de la tool, que no pasa por el bus — sin él, un agente que se
+   *  delega a sí mismo es un loop sin freno. */
+  agentDepth?: number
   /** Id de la fila de `execution_logs` a la que pertenece este run. Es la
    *  identidad estable del run: los tools de cierre la usan para no aplicar
    *  transiciones cuando ya hay OTRO run más nuevo abierto sobre la misma
@@ -145,6 +184,18 @@ function cacheKey(taskId: string, runId?: string): string {
   return runId ? `${taskId}::${runId}` : taskId
 }
 
+/**
+ * La clave con la que se registra un SUB-agente.
+ *
+ * Un hijo corre sobre la misma task que su padre, así que registrarlo bajo el
+ * id de la task pisaría la entrada del padre —con su `cancel`, su
+ * `executionId` y sus tools de cierre—. Exportada para que `Agent.run` y
+ * `resolve` usen la MISMA función y no dos literales que puedan divergir.
+ */
+export function subKey(taskId: string, runId: string): string {
+  return `${taskId}#sub:${runId}`
+}
+
 export interface FinishResult {
   /** Snapshot of the task at the moment the pending entry was removed —
    *  reflects mutations applied by complete_task / fail_task tools. */
@@ -161,6 +212,15 @@ export interface FinishResult {
    *  idénticos en la tabla y el próximo incidente hay que reconstruirlo a
    *  fuerza de logs. */
   reason?: string
+  /**
+   * Lo que el agente entregó con `submit_output`, tomado de la entrada JUSTO
+   * antes de soltarla.
+   *
+   * En async es el único camino: la entrada la borra el tool de cierre, así
+   * que para cuando `Agent.run` sale de `waitForFinish` ya no hay de dónde
+   * leerla. Mismo motivo por el que `task` viaja acá y no se re-consulta.
+   */
+  structuredOutput?: Record<string, unknown>
 }
 
 /**
@@ -254,6 +314,18 @@ export class PendingTaskRegistry {
    * interesa lo que este proceso está corriendo AHORA, no resucitar runs.
    */
   async resolve(taskId: string, runId?: string): Promise<ResolvedPendingTask | undefined> {
+    // Un sub-agente corre sobre la MISMA task que su padre, así que se registra
+    // bajo `<taskId>#sub:<runId>` para no pisar su entrada (ver `Agent.run`).
+    // Esa clave se deriva justo de los dos datos que un tool ya tiene, así que
+    // se prueba primero: sin esto, un tool llamado DESDE el hijo resolvía la
+    // entrada del PADRE —cuyo `runId` no coincide— y caía a rehidratación,
+    // devolviendo una entrada reconstruida sin la config del hijo. Para
+    // `submit_output` eso era fatal: no veía el `outputFields` del hijo, tiraba
+    // "este agente no declara salida estructurada", y después el run del hijo
+    // fallaba por no haber entregado el contrato que sí declaraba.
+    const sub = runId ? this.pending.get(subKey(taskId, runId)) : undefined
+    if (sub) return { entry: sub, freeze: sub.cancelled ? 'el run fue cancelado' : undefined }
+
     const hit = this.pending.get(taskId)
     // El hit en memoria vale sólo si es el run de QUIEN CIERRA. Si no lo es
     // —la sesión que el watchdog soltó por error llega con su cierre cuando
@@ -353,6 +425,7 @@ export class PendingTaskRegistry {
         cancelled: finish?.cancelled ?? info.cancelled === true,
         finalizedByTool: finish?.finalizedByTool ?? false,
         reason: finish?.reason,
+        structuredOutput: info.structuredOutput,
       })
     }
   }

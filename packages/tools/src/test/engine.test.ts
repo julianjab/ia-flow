@@ -233,6 +233,51 @@ describe('executeLoop — tool use', () => {
 
     expect(results[0]).toContain('boom')
   })
+
+  it('marca is_error en el tool_result de un fallo, y no en uno exitoso', async () => {
+    registerTool({
+      name: '__test_throw2__',
+      description: 'Throws',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => {
+        throw new Error('boom')
+      },
+    })
+    registerTool({
+      name: '__test_ok__',
+      description: 'Ok',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => 'fine',
+    })
+
+    let call = 0
+    // Se captura EN la llamada: el loop muta el mismo array después de que
+    // fetchApi devuelve, así que leerlo al final mostraría el turno siguiente.
+    let results: Array<Record<string, unknown>> = []
+    const fetchApi = async (messages: Array<{ role: string; content: unknown }>) => {
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id: 'tu_err', name: '__test_throw2__', input: {} },
+            { type: 'tool_use', id: 'tu_ok', name: '__test_ok__', input: {} },
+          ],
+        }
+      }
+      results = messages.at(-1)!.content as Array<Record<string, unknown>>
+      return endTurnResponse('ok')
+    }
+
+    await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {})
+
+    const err = results.find((r) => r.tool_use_id === 'tu_err')!
+    const ok = results.find((r) => r.tool_use_id === 'tu_ok')!
+    // `is_error` es lo que la API entiende como fallo; el prefijo `Error:` es
+    // sólo para humanos.
+    expect(err.is_error).toBe(true)
+    expect(ok.is_error).toBeUndefined()
+  })
 })
 
 // ─── executeLoop — task budget / truncation ─────────────────────────────────

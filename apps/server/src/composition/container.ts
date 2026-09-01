@@ -8,6 +8,7 @@ import {
   setLoggerFactory as setAgentEngineLoggerFactory,
   setPendingTaskRehydrator,
   setSecretResolver,
+  setTranscriptUsageReader,
 } from '@ia-flow/agent-engine'
 import {
   AnthropicApiProvider,
@@ -32,26 +33,28 @@ import {
   type ProjectSource,
   SourceDispatcher,
   createDefaultSourceFactory,
+  defaultToIssueItem,
   resolveCatchUp,
   resolveDaemonMode,
   resolveProjectFilter,
   setGitHubCredentials,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
+import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
+import { installSlack } from '@ia-flow/slack'
 import {
-  chatGetPermalink,
+  TASK_MESSAGE_EVENT,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
-  postMessage,
   setAgentMemoryPort,
   setGitTokenPort,
-  setLoadProviderConfig,
+  setPausePort,
   setRepoResolverPort,
-  setSlackReviewPort,
-  setSystemPromptPort,
+  setRunAgentPort,
   setLoggerFactory as setToolsLoggerFactory,
+  setWaitPort,
   setWorkspaceManagerPort,
 } from '@ia-flow/tools'
 import {
@@ -61,13 +64,19 @@ import {
   WorktreeWorkspaceProvisioner,
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
+import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.js'
+import { readTranscriptUsage } from '../adapters/claude-code/transcript-usage.js'
+import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
-import { SlackDirectory } from '../adapters/slack/SlackDirectory.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
-import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
+import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMessageUseCase.js'
+import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
+import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
+import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
+import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -78,27 +87,42 @@ import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepositor
 import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
 import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
+import type { IRuleRepository } from '../domain/ports/IRuleRepository.js'
+import type { IRunCheckpointRepository } from '../domain/ports/IRunCheckpointRepository.js'
+import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepository.js'
+import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import type { IToolRepository } from '../domain/ports/IToolRepository.js'
+import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
 import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
   CompositeExecutionLogRepository,
+  ProjectScopedRuleRepository,
   RemoteExecutionLogRepository,
   SourceTaggingExecutionLogRepository,
+  SqliteActionRepository,
   SqliteAgentMemoryRepository,
   SqliteAgentRepository,
   SqliteEnvVarRepository,
   SqliteExecutionLogRepository,
   SqliteGlobalSettingsRepository,
   SqliteMcpCatalogRepository,
+  SqliteProcessedEventRepository,
   SqliteProjectConfigRepo,
   SqliteProjectRepository,
   SqlitePromptRepository,
   SqliteProviderRegistrationRepository,
   SqliteRepoRepository,
+  SqliteRuleRepository,
+  SqliteRunCheckpointRepository,
+  SqliteRunMessageRepository,
+  SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
+  SqliteToolRepository,
+  SqliteWaitRepository,
   YamlAgentMemoryRepository,
   YamlAgentRepository,
   YamlGlobalSettingsRepository,
@@ -106,6 +130,7 @@ import {
   YamlProjectRepository,
   YamlPromptRepository,
   YamlRepoRepository,
+  YamlRuleRepository,
   YamlStatusRepository,
   YamlSystemPromptRepository,
   getDb,
@@ -116,6 +141,7 @@ import { IssueSourcesPollingGate } from '../infrastructure/polling/IssueSourcesP
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
+import { daemonUrl } from '../server-port.js'
 import { resolveVariable } from '../variables/index.js'
 import { getPreloadedConfig } from './preloaded.js'
 
@@ -131,6 +157,7 @@ setGithubAuthLoggerFactory(createLogger)
 setFigmaAuthLoggerFactory(createLogger)
 
 const log = createLogger('container')
+const busLog = createLogger('event-bus')
 
 // Lo que el entrypoint dejó resuelto. Vacío = el server completo de siempre.
 //
@@ -187,7 +214,7 @@ const CREDENTIAL_VARS: Record<string, CredentialVar> = {
   FIGMA_TOKEN: { resolve: () => figmaCredentials.getToken(), envFallback: true },
 }
 
-setSecretResolver(async (name) => {
+async function resolveSecret(name: string): Promise<string | undefined> {
   // `hasOwn` y no `CREDENTIAL_VARS[name]`: el nombre viene de un `${...}` de
   // config, y `${toString}` resolvería por el prototipo a una función que
   // devuelve '[object Object]' en vez de caer al env.
@@ -195,7 +222,29 @@ setSecretResolver(async (name) => {
   const { resolve, envFallback } = CREDENTIAL_VARS[name]
   const token = await resolve()
   return token ?? (envFallback ? Bun.env[name] : undefined)
-})
+}
+
+setSecretResolver(resolveSecret)
+
+// Cómo leer el usage de un run de terminal: la transcripción JSONL que
+// Claude Code escribe, cuyo path llega por los hooks. Mismo patrón que el
+// resolver de secretos — el engine no toca el disco, el daemon le presta el
+// lector.
+setTranscriptUsageReader(readTranscriptUsage)
+
+/** Expande `${SECRETO}` en un string de config. Lo usa la acción `http` para
+ *  que un token no viva en la fila de la regla: se resuelve por uso, nunca se
+ *  captura — misma regla que rige a los MCP. */
+export async function interpolateSecrets(input: string): Promise<string> {
+  const matches = [...input.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)]
+  if (!matches.length) return input
+  let out = input
+  for (const [placeholder, name] of matches) {
+    const value = await resolveSecret(name)
+    out = out.replaceAll(placeholder, value ?? '')
+  }
+  return out
+}
 
 // Narrow read-only view of the pending-task registry, satisfying
 // @ia-flow/issue-sources' PendingTaskRegistryPort without that package
@@ -221,6 +270,53 @@ class MutableBroadcast implements IBroadcast {
 }
 
 export const broadcast = new MutableBroadcast()
+
+// ─── Bus de eventos ───────────────────────────────────────────────────────
+// Una sola instancia por proceso. Los productores publican acá y los handlers
+// se registran en `daemon.ts` (uno por manager, y se desregistran en el reload
+// junto con el manager que los creó).
+// Dedupe por identidad del evento. Es lo que hace que el `id` sirva para algo:
+// GitHub y Slack reintentan deliveries, y un tick de cron que se solapa con el
+// anterior comparte minuto — sin esto, cada uno dispara las reglas dos veces.
+//
+// Perezoso porque el bus se declara ANTES que `db` en este módulo (el orden lo
+// impone el resto del cableado), y capturarlo acá lo leería sin asignar.
+let processedEventsRepo: SqliteProcessedEventRepository | null = null
+function processedEvents(): SqliteProcessedEventRepository {
+  processedEventsRepo ??= new SqliteProcessedEventRepository(db)
+  return processedEventsRepo
+}
+
+/** Saca un id del dedupe para que el próximo delivery con ese id se vuelva a
+ *  evaluar. Lo usa `routes/webhooks.ts` (`DELETE /api/webhooks/dedupe/:id`) —
+ *  ver el doc de `SqliteProcessedEventRepository.remove`. */
+export function clearProcessedEvent(eventId: string): boolean {
+  return processedEvents().remove(eventId)
+}
+
+export const eventBus = new InMemoryEventBus({
+  markProcessed: async (event) => processedEvents().markProcessed(event),
+  onDuplicate: (event) =>
+    busLog.debug(
+      {
+        type: event.type,
+        id: event.id,
+        // Curl listo para pegar: saca este id del dedupe (ver
+        // routes/webhooks.ts) para que el próximo Redeliver del mismo
+        // delivery vuelva a evaluarse contra las reglas actuales, sin
+        // esperar las 24h de retención. Requiere IA_FLOW_WEBHOOK_SECRET.
+        clearDedupe: `curl -X DELETE '${daemonUrl()}/api/webhooks/dedupe/${encodeURIComponent(event.id)}' -H 'x-ia-flow-token: <IA_FLOW_WEBHOOK_SECRET>'`,
+      },
+      'Evento duplicado — descartado',
+    ),
+  onError: (err, { event, handlerId }) =>
+    busLog.error({ err, handlerId, type: event.type, id: event.id }, 'Event handler failed'),
+  onDepthExceeded: (event) =>
+    busLog.error(
+      { type: event.type, id: event.id, depth: event.depth, causationId: event.causationId },
+      'Event depth exceeded — posible ciclo de reglas, evento descartado',
+    ),
+})
 
 // ─── DB ───────────────────────────────────────────────────────────────────
 
@@ -267,6 +363,37 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
     new YamlStatusRepository(Bun.env.IA_FLOW_STATUSES_FILE ?? join(CONFIG_DIR, 'statuses.yaml')),
   envVar: 'IA_FLOW_STATUS_REPO',
 })
+// El deploy headless define sus reglas en el `runner.yaml` y llegan precargadas
+// (ver `preloaded.ts`); ahí el repositorio es de sólo lectura. El server
+// completo usa SQLite. Mismo patrón que `agentRepo`, pero sin `pickRepo`: no
+// hay un YAML suelto que elegir por env var — o vino precargado, o es SQLite.
+// El decorador va por FUERA de las dos variantes: la baja por proyecto
+// (`settings.disabledRuleIds`) no depende del storage, así que envolver acá la
+// escribe una vez en vez de dos — ver ProjectScopedRuleRepository.
+export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
+  preloaded.rules ? new YamlRuleRepository(preloaded.rules) : new SqliteRuleRepository(db),
+  projectRepo,
+)
+
+// Sin variante YAML: una espera es estado de runtime, no config. Un deploy
+// headless las crea y las consume igual — lo que no tiene es un archivo donde
+// declararlas, porque no tendría sentido.
+export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
+
+// Aparte del anterior aunque compartan la migración que las creó: sus
+// consumidores son distintos —el loop del agente drena, la ruta encola— y
+// ninguno usa la otra mitad.
+export const runMessageRepo: IRunMessageRepository = new SqliteRunMessageRepository(db)
+
+// El estado de trabajo de un run en vuelo. Tabla propia y no un campo de
+// `execution_logs`: aquélla es historia y vive para siempre, ésta es basura en
+// cuanto el run termina — ver la migración 066 por las otras tres razones.
+export const runCheckpointRepo: IRunCheckpointRepository = new SqliteRunCheckpointRepository(db)
+
+// El board tal como lo dejó el scan anterior. Sin variante YAML: es estado de
+// runtime, no config — un deploy headless lo construye solo en su primer scan.
+export const seenItemRepo: ISeenItemRepository = new SqliteSeenItemRepository(db)
+
 export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsRepository>({
   sqlite: () => new SqliteGlobalSettingsRepository(db),
   yaml: () =>
@@ -342,7 +469,7 @@ export const providerRegistrationRepo = new SqliteProviderRegistrationRepository
 // wraps the result in SourceTaggingExecutionLogRepository so every row this
 // process inserts — local-only or forwarded — carries which container ran
 // it, powering the Ejecuciones/Logs "container" filter.
-const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
+export const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
 const remoteExecutionsUrl = Bun.env.IA_FLOW_REMOTE_EXECUTIONS_URL?.trim()
 // Trimmed the same way remoteLogSecret()/remoteExecutionsSecret() trim on
 // the receiving end (routes/remote-logs.ts, routes/remote-executions.ts) —
@@ -369,6 +496,12 @@ export const executionLogRepo = new BroadcastingExecutionLogRepository(
     : rawExecutionLogRepo,
   broadcast,
 )
+
+// Lo que hace que una acción de una regla quede escrita al lado del run que
+// corrió con ella. Sobre `executionLogRepo` y no sobre el local a secas: una
+// acción se ve en la UI por el mismo broadcast que un run, y se reenvía al
+// daemon principal por el mismo camino.
+export const actionRunRecorder = new ExecutionActionRecorder(executionLogRepo)
 
 // Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
 // module so it resolves the same way the legacy store.ts did.
@@ -510,7 +643,6 @@ export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(wor
 // The package's engine + built-in tools are DB-agnostic — they receive the
 // concrete (DB-backed) implementations as injected ports here, same
 // composition-root pattern as the AI providers below.
-setSystemPromptPort({ getById: (id) => systemPromptRepo.getById(id) })
 setRepoResolverPort({ resolveGithubRepo })
 // El port de memoria es async y el repo es sync (bun:sqlite): el adaptador
 // existe para que mover el store a algo remoto no obligue a tocar las tools.
@@ -521,6 +653,74 @@ setAgentMemoryPort({
   upsert: async (entry) => agentMemoryRepo.upsert(entry),
   deleteByKey: async (agentId, projectId, key) =>
     agentMemoryRepo.deleteByKey(agentId, projectId, key),
+})
+
+// El id lo genera el composition root y no la tool: la tool describe la
+// intención (qué evento, hasta cuándo) y el store decide cómo se identifica.
+setWaitPort({
+  create: async (input) => {
+    const wait = await waitRepo.create({
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      on: input.on,
+      when: input.when,
+      expiresAt: input.expiresAt,
+      createdByRun: input.createdByRun,
+      checkpoint: null,
+      createdAt: new Date().toISOString(),
+    })
+    return { id: wait.id }
+  },
+})
+
+// La pausa arma la espera ANTES de que exista el checkpoint: si el proceso
+// muere entre la tool y el corte del loop, queda una espera sin estado —
+// reanudable desde el prompt, que es peor que reanudar desde el checkpoint
+// pero mucho mejor que una task trabada sin nada que la despierte.
+setPausePort({
+  pause: async (input) => {
+    const wait = await waitRepo.create({
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      // El default, no la única opción: cuando el agente se pausa a sí mismo
+      // no sabe qué va a destrabar la situación, así que espera a quien le
+      // habló. Quien ordena una pausa desde afuera SÍ sabe ("hasta que se
+      // mergee el PR 5") y manda su propio `on`.
+      on: input.on?.length ? input.on : [TASK_MESSAGE_EVENT],
+      when: input.when,
+      expiresAt: input.expiresAt,
+      checkpoint: null,
+      createdAt: new Date().toISOString(),
+    })
+    return { id: wait.id }
+  },
+})
+
+// `run_agent` (la tool) sólo conoce el id de la tarea y el del hijo. La task y
+// su manager salen del run del PADRE, que está en vuelo — es el mismo dato con
+// el que el dispatcher lo despachó, y pedírselo al modelo sería dejarle
+// nombrar sobre qué tarea corre el hijo.
+setRunAgentPort({
+  runAgent: async ({ taskId, agentId, brief, parentRunId, parentDepth }) => {
+    const parent = getPendingTask(taskId)
+    if (!parent) {
+      return { ok: false, reason: `no encontré el run en curso de la tarea '${taskId}'` }
+    }
+    // El hijo NO hereda el contexto del padre: recibe la tarea con el brief
+    // como descripción. El aislamiento es la razón de ser de un sub-agente, no
+    // una carencia — por eso el brief es obligatorio en la tool.
+    return orchestrator.runSubAgent({
+      task: { ...parent.task, description: brief },
+      manager: parent.manager,
+      agentId,
+      parentRunId,
+      parentDepth,
+    })
+  },
 })
 
 // ─── AI providers (@ia-flow/ai-providers) ─────────────────────────────────
@@ -534,10 +734,6 @@ async function loadProviderConfigPort() {
   const { loadProviderConfig } = await import('../application/provider-config.js')
   return loadProviderConfig()
 }
-
-// Also feeds `fs_read`'s Haiku file-simplifier opt-out (`@ia-flow/tools`'s
-// fs/fs.ts reads the same on-disk providers.json).
-setLoadProviderConfig(loadProviderConfigPort)
 
 const toolExecution = { getToolDefinitions, executeLoop }
 
@@ -576,10 +772,11 @@ export const classifyProvider = createProviderClassifier({
   log: createLogger('provider-classifier'),
 })
 
-// Hermano del anterior, para el OTRO `whenText`: el del agente. Aquél elige
-// entre providers candidatos; éste responde sí/no sobre si el issue cumple el
-// criterio en texto libre de un agente — el quinto filtro de selección, ver
-// packages/agent-engine/src/agent-text-gate.ts.
+// Hermano del anterior, para el OTRO `whenText`: el de una regla. Aquél elige
+// entre providers candidatos; éste responde sí/no sobre si el evento cumple el
+// criterio en texto libre. Vivía en la selección de agentes hasta que la
+// migración 059 movió la activación a `rules`; el clasificador es el mismo, lo
+// que cambió es quién lo consulta (ver `classifyRule` en daemon.ts).
 export const classifyAgent = createAgentClassifier({
   log: createLogger('agent-classifier'),
 })
@@ -635,11 +832,38 @@ export const orchestrator = new AgentOrchestrator(
   },
   // `pendingSnapshot`: default (el registry compartido de capacity.ts).
   undefined,
-  // Gate semántico de `whenText` — el quinto filtro de selección de agente
-  // (ver packages/agent-engine/src/agent-text-gate.ts). Sin este inyectado el
-  // campo no filtra nada, así que el daemon es el único lugar donde el gate
-  // está realmente activo.
-  classifyAgent,
+  // La cola de mensajes de un run en curso, contra el mismo store que las
+  // esperas: son las dos caras de "qué sobrevive al final de un run".
+  {
+    pending: async (taskId) => {
+      const pending = await runMessageRepo.pending(taskId)
+      return pending.map((m) => ({ id: m.id, body: m.body, author: m.author }))
+    },
+    markDelivered: (ids, runId) => runMessageRepo.markDelivered(ids, runId),
+  },
+  // Cuelga el checkpoint de la espera que `pause_until` armó una vuelta
+  // antes. Si la espera no está (el proceso murió entre la tool y el corte),
+  // no se inventa una: sin ella no hay a qué volver, y crear una acá dejaría
+  // una pausa que nadie pidió.
+  {
+    attachCheckpoint: async (taskId, checkpoint) => {
+      const wait = await waitRepo.getByTask(taskId)
+      if (!wait) {
+        log.warn({ taskId }, 'Run pausado sin espera armada — el checkpoint se descarta')
+        return
+      }
+      await waitRepo.consume(wait.id)
+      await waitRepo.create({ ...wait, checkpoint })
+    },
+  },
+  // Dónde va el run, guardado por vuelta. El orquestador además lo borra en su
+  // `finally` — ver la migración 066 por qué esto no es un campo de
+  // `execution_logs`.
+  {
+    save: (input) => runCheckpointRepo.save(input),
+    getByTask: (taskId) => runCheckpointRepo.getByTask(taskId),
+    delete: (runId) => runCheckpointRepo.delete(runId),
+  },
 )
 
 export const dispatcher = new TaskDispatcher(
@@ -661,6 +885,12 @@ export const divergenceReconciler = new DivergenceReconciler({
     if (!project) return undefined
     return sourceFactory.get(project)
   },
+  // Una pausa no es deriva: el run se detuvo a propósito y quien la pidió
+  // suele haber movido el status al hacerlo.
+  isPaused: async (taskId) => {
+    const wait = await waitRepo.getByTask(taskId)
+    return wait?.checkpoint != null
+  },
   pendingTasks: pendingTasksPort,
 })
 
@@ -668,32 +898,117 @@ export const divergenceReconciler = new DivergenceReconciler({
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
 
-export const slackDirectory = new SlackDirectory()
+export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
+  runMessageRepo,
+  waitRepo,
+  eventBus,
+)
 
-export const requestSlackReviewUseCase = new RequestSlackReviewUseCase(repoRepo, projectRepo, {
-  postMessage: (input) => postMessage(input),
-  getPermalink: async (input) => (await chatGetPermalink(input)).permalink,
+/**
+ * Lo configurado + lo que corre, para la pantalla de Pipeline.
+ *
+ * Las tres dependencias son lecturas que ya existían sueltas; acá se juntan
+ * para que la UI reciba UN snapshot coherente en vez de correlacionar tres.
+ *
+ * Los statuses salen de la fuente, que es una llamada de red y puede fallar.
+ * Qué significa ese fallo lo decide el use-case, no este cableado.
+ */
+/** Acciones con nombre. Sin variante YAML todavía: el deploy headless las
+ *  define inline en sus reglas, igual que antes de que existieran. */
+export const actionRepo: IActionRepository = new SqliteActionRepository(db)
+
+/** Tools editables: las definidas por config y los overrides de descripción de
+ *  las built-in. Se aplican sobre el registry en el boot y en cada cambio del
+ *  CRUD — ver `composition/editable-tools.ts`. */
+export const toolRepo: IToolRepository = new SqliteToolRepository(db)
+
+export const getPipelineUseCase = new GetPipelineUseCase(ruleRepo, waitRepo, {
+  runningAgents: () =>
+    listPendingTasks().map(([, p]) => ({
+      taskId: p.task.id,
+      taskTitle: p.task.title,
+      issueNumber: p.task.issueNumber,
+      agentId: p.agentId,
+      ruleId: p.ruleId,
+      runId: p.runId,
+      executionId: p.executionId,
+      status: p.initialStatus,
+      projectId: p.projectId,
+      parentRunId: p.parentRunId,
+    })),
+  agentsFor: async (projectId) => (await configRepo.getConfig(projectId))?.agents ?? [],
+  statusesFor: async (projectId) => {
+    if (!projectId) return []
+    return (await getSourceForProjectId(projectId).getStatuses()).map((s) =>
+      typeof s === 'string' ? s : s.name,
+    )
+  },
+  reposFor: async (projectId) =>
+    projectId ? repoRepo.listByProject(projectId).map((r) => r.name) : [],
+  actionsFor: async (projectId) => (await actionRepo.visibleTo(projectId)).map((a) => a.id),
 })
 
-// `request_slack_review` (la tool) sólo conoce el id de la tarea. El proyecto
-// sale del run en vuelo: es el mismo dato con el que el dispatcher la despachó,
-// y no hay forma de inferirlo del id (los ids son opacos y por-fuente).
-setSlackReviewPort({
-  async requestReview({ taskId }) {
-    const pending = listPendingTasks().find(([id]) => id === taskId)?.[1]
-    const projectId = pending?.task.projectId
-    if (!projectId) return `No se pudo resolver el proyecto de la tarea '${taskId}'.`
-    const result = await requestSlackReviewUseCase.execute(
-      { projectId, taskId, allowFailedCi: true },
-      getSourceForProjectId(projectId),
-    )
-    const who = result.reviewers.map((r) => r.name ?? r.id).join(', ')
-    const where = result.kind === 're-review' ? 'en el hilo existente' : 'en un hilo nuevo'
-    return `Review pedido en ${result.channel} ${where} a ${who} (PR #${result.prNumber}).${
-      result.threadNotPersisted ? ` Aviso: ${result.threadNotPersisted}` : ''
-    }`
+export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemRepo, eventBus, {
+  onDiffError: (err, ctx) => log.warn({ err, ...ctx }, 'Fallo el diff de status — se sigue igual'),
+})
+
+/**
+ * Slack, montado entero desde su paquete.
+ *
+ * Es UNA llamada a propósito: `@ia-flow/slack` se lleva el cliente, las tools,
+ * el directorio, el pedido de review y el borde de la Events API, así que un
+ * deploy que no quiere Slack borra esta línea y la dependencia del
+ * `package.json` — no hay un segundo cable en otra capa. Y en caliente el
+ * interruptor es `SLACK_BOT_TOKEN`: sin él las tools ni se registran.
+ * Ver packages/slack/CLAUDE.md.
+ */
+export const slack = installSlack({
+  repoRepo,
+  projectRepo,
+  logger: createLogger,
+  // La tool `request_slack_review` sólo conoce el id de la tarea. El proyecto
+  // sale del run en vuelo: es el mismo dato con el que el dispatcher la
+  // despachó, y no hay forma de inferirlo del id (los ids son opacos y
+  // por-fuente).
+  runtime: {
+    resolveProjectId: (taskId) =>
+      listPendingTasks().find(([id]) => id === taskId)?.[1]?.task.projectId,
+    getSource: getSourceForProjectId,
   },
 })
+
+/**
+ * Los traductores de webhook, en orden de consulta.
+ *
+ * Ganar una fuente nueva (Linear, Sentry) es escribir su traductor en
+ * `adapters/<sistema>/` y sumarlo a esta lista — la ruta no se toca.
+ *
+ * `owner/repo` de GitHub → proyecto y repo de ia-flow. Un repo registrado en
+ * dos proyectos devuelve el primero: es una ambigüedad real del modelo (nada
+ * impide registrarlo dos veces) y elegir el primero es lo mismo que ya hace
+ * `/api/repos/lookup`.
+ */
+export const ingestWebhookUseCase = new IngestWebhookUseCase(
+  [
+    new GithubWebhookTranslator(
+      (owner, repo) => {
+        const first = repoRepo.findByGithubRepo(owner, repo)[0]
+        return first ? { projectId: first.projectId, repoName: first.name } : null
+      },
+      // 1 sola llamada (getItemById, nunca un scan) contra el mismo source
+      // que ya resuelve todo lo demás del proyecto.
+      async (projectId, nodeId) => {
+        const source = getSourceForProjectId(projectId)
+        if (!source.getItemById) return null
+        const raw = await source.getItemById(nodeId)
+        if (!raw) return null
+        return source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
+      },
+    ),
+    slack.translator,
+  ],
+  eventBus,
+)
 
 // ─── Manager construction ─────────────────────────────────────────────────
 //
@@ -778,13 +1093,16 @@ export function buildManagers(
     // Cheap pre-fetch gate for SourceIssueManager.runCycle (see its doc) —
     // re-checks agentRepo live each call instead of freezing a snapshot, so
     // a project that starts with zero agents starts scanning the moment one
-    // gets wired without needing buildManagers() to re-run. `.some(enabled)`,
-    // not just `.length > 0` — visibleTo() doesn't filter disabled agents,
-    // and a project whose only agents are disabled has as little to scan
-    // for as one with none at all.
-    const hasWiredAgents = () => agentRepo.visibleTo(project.id).some((a) => a.enabled !== false)
-    // Filtro general de proyecto (statusName/repoName/when), previo a
-    // selectAgent — ver packages/issue-sources/src/dispatch/project-filter.ts.
+    // gets wired without needing buildManagers() to re-run.
+    //
+    // Aproximación: desde la migración 059 lo que decide un dispatch es una
+    // REGLA habilitada, no un agente, así que el chequeo exacto sería sobre
+    // `ruleRepo`. Se queda en agentes porque este gate es sincrónico (corre
+    // antes de cada scan) y `ruleRepo` es async; el costo de la aproximación
+    // es un scan de más en un proyecto que tiene agentes pero ninguna regla.
+    const hasWiredAgents = () => agentRepo.visibleTo(project.id).length > 0
+    // Filtro general de proyecto (statusName/repoName/when), previo al
+    // matcher — ver packages/issue-sources/src/dispatch/project-filter.ts.
     // `undefined` cuando el proyecto no define `settings.{statusName,repoName,when}`.
     const filter = resolveProjectFilter(project.settings)
     // Cap de runs simultáneos del proyecto. Como `hasWiredAgents`, se releé

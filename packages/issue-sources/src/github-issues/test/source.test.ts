@@ -92,6 +92,7 @@ describe('GitHubIssueSource — dev links (branch + PRs)', () => {
                   isDraft: false,
                 },
               ],
+              pullRequestsKnown: true,
             },
           ],
         ])
@@ -130,7 +131,8 @@ describe('GitHubIssueSource — dev links (branch + PRs)', () => {
   test('getItems() leaves branch undefined when the issue has no linked branch', async () => {
     const api = fakeApi({
       listIssues: async () => [issue()],
-      getDevLinks: async () => new Map([['ISSUE_1', { pullRequests: [] }]]),
+      getDevLinks: async () =>
+        new Map([['ISSUE_1', { pullRequests: [], pullRequestsKnown: true }]]),
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const [raw] = await source.getItems()
@@ -156,7 +158,9 @@ describe('GitHubIssueSource — dev links (branch + PRs)', () => {
     const api = fakeApi({
       getById: async (id) => (id === 'ISSUE_1' ? issue() : null),
       getDevLinks: async () =>
-        new Map([['ISSUE_1', { branch: 'fix/from-get-by-id', pullRequests: [] }]]),
+        new Map([
+          ['ISSUE_1', { branch: 'fix/from-get-by-id', pullRequests: [], pullRequestsKnown: true }],
+        ]),
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const item = await source.getItemById('ISSUE_1')

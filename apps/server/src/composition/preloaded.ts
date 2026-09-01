@@ -12,12 +12,15 @@ import type { DbRepoEntry } from '@ia-flow/agent-engine'
 // un YAML. Declara **qué piezas** se pueden traer hechas; quién las trae, y de
 // dónde las sacó, es asunto del entrypoint. Sustituir el `runner.yaml` por otra
 // fuente mañana no toca una línea de `infrastructure/` ni de `composition/`.
-import type { AgentDefinition, McpCatalogEntry, Project } from '@ia-flow/shared'
+import type { AgentDefinition, McpCatalogEntry, Project, Rule } from '@ia-flow/shared'
 
 export interface PreloadedConfig {
   projects?: Project[]
   repos?: DbRepoEntry[]
   agents?: AgentDefinition[]
+  /** Qué dispara a cada agente. Desde la migración 059 un deploy sin esto no
+   *  corre nada: el agente ya no declara su activación. */
+  rules?: Rule[]
   mcp?: McpCatalogEntry[]
   /**
    * Si este proceso acepta que un agent-host se anuncie y sondea su salud.

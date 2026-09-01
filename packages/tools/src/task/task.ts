@@ -7,6 +7,7 @@ import {
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
+import type { AgentExit } from '@ia-flow/shared'
 import { ERROR_EXIT, SUCCESS_EXIT, exitSet, resolveCommentTarget } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
@@ -88,7 +89,10 @@ function closeWithoutRun(
  * colgado hasta el watchdog, que es peor que transicionar por la arista normal.
  */
 function pickExit(
-  entry: { exits?: Record<string, string>; chosenExit?: string },
+  // `AgentExit` y no `string`: la migración 050 admite la forma larga
+  // (`{ set, when, comment }`) además del atajo string. `exitSet` ya resuelve
+  // las dos — era sólo el tipo del parámetro el que se había quedado atrás.
+  entry: { exits?: Record<string, AgentExit>; chosenExit?: string },
   fallbackName: string,
 ): { outcome?: string; rejected?: string } {
   const exits = entry.exits
@@ -494,6 +498,168 @@ registerTool({
   },
 })
 
+// ─── transfer_task_repo ───────────────────────────────────────────────────────
+//
+// La escotilla para un issue ruteado al repo equivocado.
+//
+// Por qué es una tool y no un campo que se escribe: el repo de una task NO es
+// editable como dato. En `github-project` sale del `Repository` nativo del
+// issue (el fallback de `resolveRepos`, que acierta en la enorme mayoría de los
+// casos y por eso se deja como está), así que la única forma de corregirlo es
+// mover el issue de verdad. Antes de esto, un agente que descubría explorando
+// que el trabajo vivía en otro repo no tenía ninguna acción disponible: su
+// techo era `fail_task` → label `blocked` → un humano que lo re-ubicara a mano.
+//
+// Es TERMINAL, y no por prolijidad: el transfer cambia el número y el node id
+// del issue, así que todo lo que el prompt ya renderizó (`{{task.issueUrl}}`,
+// el número, `{{task.repos}}`) queda apuntando a coordenadas muertas. Cierra el
+// run como lo hace `complete_task` —soltando la pending task, que es lo que
+// hace que `Agent.ts` saltee la transición por defecto (`finalizedByTool`)— y
+// deja la tarea en su MISMO status. El próximo scan la re-despacha ya en el
+// repo correcto, con el prompt renderizado de nuevo.
+
+registerTool({
+  name: 'transfer_task_repo',
+  description: [
+    'Mueve el issue de esta tarea a OTRO repositorio, cuando la exploración muestra que el trabajo no vive en el repo actual.',
+    'Úsala sólo con evidencia concreta (el archivo/carpeta/servicio que la tarea toca no existe acá y sí pertenece a otro repo), no por una corazonada.',
+    'El repo destino tiene que ser uno de los que el proyecto declara — los que ves en {{project.repos}}.',
+    'TERMINA EL RUN: después de llamarla no hagas nada más sobre esta tarea (el número y la URL del issue cambian). El pipeline la vuelve a tomar sola, ya en el repo correcto.',
+  ].join(' '),
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+      },
+      repo: {
+        type: 'string',
+        description:
+          'Nombre del repo destino, tal como aparece en {{project.repos}} (sin el owner).',
+      },
+      reason: {
+        type: 'string',
+        description:
+          'Por qué este trabajo pertenece a ese repo y no al actual, con la evidencia que lo respalda. Queda en el log del run.',
+      },
+    },
+    required: ['task_id', 'repo', 'reason'],
+  },
+  async execute(input: any, ctx?: ToolContext): Promise<string> {
+    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
+    const entry = resolved?.entry
+    if (!entry) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+
+    const frozen = staleRunFreeze(entry, ctx)
+    if (frozen) throw new Error(`No se movió el repo: ${frozen}`)
+
+    const manager = entry.manager
+    if (!manager.transferToRepo) {
+      throw new Error('El source de esta tarea no sabe mover un issue de repositorio')
+    }
+
+    const target = String(input.repo ?? '').trim()
+    if (!target) throw new Error('Falta el repo destino')
+
+    const current = entry.task.repos ?? []
+    if (current.some((r) => r.toLowerCase() === target.toLowerCase())) {
+      throw new Error(`La tarea ya está en '${target}' — no hay nada que mover`)
+    }
+
+    // El destino tiene que ser un repo del proyecto. Además de evitar un
+    // transfer a un repo que ningún agente después va a poder clonar, es lo
+    // que corta el ping-pong: un repo "inbox" (deliberadamente NO declarado en
+    // el roster, para que no se ofrezca como destino) no puede ser elegido
+    // como llegada. Sin repos declarados no hay contra qué validar, y frenar
+    // ahí dejaría la tool inservible en esa config: se deja pasar.
+    //
+    // Contra `projectRepos` y NO contra `repoPaths`: este último sólo tiene
+    // los repos con clone local, y en un run remoto el agent-host lo reescribe
+    // con los del workspace de esta tarea — validar contra él rechazaba todo
+    // destino en remoto, y cualquier repo del proyecto todavía sin clonar.
+    const declared = ctx?.projectRepos ?? []
+    const match = declared.find((r) => r.name.toLowerCase() === target.toLowerCase())
+    if (declared.length && !match) {
+      throw new Error(
+        `'${target}' no es un repo de este proyecto. Declarados: ${declared.map((r) => r.name).join(', ')}`,
+      )
+    }
+
+    const logCtx = { taskId: entry.task.id, from: current.join(', ') || '(ninguno)', to: target }
+
+    if (!declared.length) {
+      // Sin roster la validación de arriba se saltea entera. Es un tradeoff
+      // deliberado (frenar dejaría la tool inservible), pero tiene que quedar
+      // visible: acá el destino no lo revisó nadie.
+      log.warn(logCtx, 'transfer_task_repo sin roster del proyecto — el destino no se validó')
+    }
+
+    // La marca de "agente trabajando" se limpia ANTES del transfer: cuando el
+    // marker vive en `Labels`, escribirla necesita el owner/repo/número del
+    // issue, y después de mover el issue esos tres cambiaron.
+    //
+    // Y si no se puede limpiar, NO se transfiere. Degradar a warn acá dejaba la
+    // tarea muerta en silencio: la marca viaja con el issue (las labels se
+    // preservan), después del transfer no hay coordenadas con qué borrarla, y
+    // `SourceDispatcher.shouldSkip` descarta todo item marcado — la tarea no
+    // se vuelve a despachar nunca. Devolverle el error al modelo deja el run
+    // vivo y el issue intacto, que es recuperable.
+    try {
+      entry.task = await manager.setAgentWorking(entry.task, false)
+    } catch (e) {
+      log.error({ ...logCtx, err: e }, 'No se pudo limpiar la marca — transfer abortado')
+      throw new Error(
+        `No se pudo limpiar la marca de "agente trabajando" antes de mover el issue (${(e as Error).message}). No se transfirió nada: con la marca puesta el issue quedaría fuera de todos los scans siguientes.`,
+      )
+    }
+
+    // Las coordenadas de GitHub salen del roster, no del nombre que escribió el
+    // modelo: `name` es el nombre local del repo y `githubRepo` el real, y
+    // cuando difieren mandar el local apunta a un repo que no existe.
+    let moved: Awaited<ReturnType<NonNullable<typeof manager.transferToRepo>>>
+    try {
+      moved = await manager.transferToRepo(entry.task, match ?? { name: target })
+    } catch (err) {
+      // El transfer tiene caminos que tiran SIN haber movido nada (la task
+      // declara varios repos, el `Repos` del board no es de texto, el repo
+      // destino no existe). En todos ellos el run sigue vivo y la pending task
+      // no se suelta — pero la marca ya se limpió, así que el próximo scan
+      // vería el issue libre y lo re-despacharía en paralelo. Se repone antes
+      // de devolverle el error al modelo.
+      try {
+        entry.task = await manager.setAgentWorking(entry.task, true)
+      } catch (e) {
+        log.error({ ...logCtx, err: e }, 'Transfer fallido y la marca quedó sin reponer')
+      }
+      throw err
+    }
+    entry.task = { ...entry.task, repos: [moved.repo] }
+    entry.broadcast({ type: 'task:updated', task: entry.task })
+    log.info(
+      { event: 'task.transferred', ...logCtx, issueUrl: moved.issueUrl, reason: input.reason },
+      'Tarea movida de repositorio',
+    )
+
+    try {
+      await entry.killSession?.()
+    } catch (e) {
+      log.warn({ ...logCtx, err: e }, 'killSession threw on transfer_task_repo')
+    }
+    // Suelta la pending task SIN aplicar ninguna salida: la tarea se queda en
+    // el status donde estaba, que es justo lo que hace que el próximo scan la
+    // vuelva a tomar — esta vez contra el repo correcto.
+    removePendingTask(input.task_id, { finalizedByTool: true })
+    resolved?.finalize?.('success')
+
+    return [
+      `Issue movido a '${moved.repo}': ${moved.issueUrl} (ahora es el #${moved.issueNumber}).`,
+      'La tarea queda en su mismo status y el pipeline la vuelve a tomar sola en el repo nuevo.',
+      'Este run terminó — no llames más tools sobre esta tarea; sus coordenadas viejas ya no existen.',
+    ].join(' ')
+  },
+})
+
 // ─── set_task_labels ──────────────────────────────────────────────────────────
 
 registerTool({
@@ -780,7 +946,10 @@ registerTool({
             event: 'agent.finalize',
             ...logCtx,
             outcome: picked.outcome,
-            exit: input.exit ?? entry.chosenExit,
+            // `select_exit` es el único camino para elegir salida — `fail_task`
+            // nunca aceptó un `exit` en su schema, así que leerlo del input era
+            // código muerto que además no tipaba.
+            exit: entry.chosenExit,
             rejected: picked.rejected,
             status: entry.task.status,
           },

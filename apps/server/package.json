@@ -19,6 +19,7 @@
     "@ia-flow/github-auth": "workspace:*",
     "@ia-flow/issue-sources": "workspace:*",
     "@ia-flow/shared": "workspace:*",
+    "@ia-flow/slack": "workspace:*",
     "@ia-flow/tools": "workspace:*",
     "@ia-flow/workspace": "workspace:*",
     "@opentelemetry/api": "^1.9.1",

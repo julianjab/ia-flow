@@ -38,6 +38,17 @@ import m054 from './054-repo-slack-review-message.js'
 import m055 from './055-agent-comment-target.js'
 import m056 from './056-agent-memories.js'
 import m057 from './057-execution-logs-assignees.js'
+import m058 from './058-rules-and-actions.js'
+import m059 from './059-activation-into-rules.js'
+import m060 from './060-waits-and-run-messages.js'
+import m061 from './061-seen-items.js'
+import m062 from './062-rules-schedule.js'
+import m063 from './063-named-actions.js'
+import m064 from './064-editable-tools.js'
+import m065 from './065-executions-pipeline.js'
+import m066 from './066-run-checkpoints.js'
+import m067 from './067-execution-logs-cost.js'
+import m068 from './068-execution-logs-resumed-from.js'
 
 const log = createLogger('migrations')
 
@@ -97,6 +108,17 @@ function loadMigrations(): Migration[] {
     m055,
     m056,
     m057,
+    m058,
+    m059,
+    m060,
+    m061,
+    m062,
+    m063,
+    m064,
+    m065,
+    m066,
+    m067,
+    m068,
   ]
 }
 

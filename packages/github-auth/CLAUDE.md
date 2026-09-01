@@ -19,7 +19,7 @@ Ponerlo en `issue-sources` significaría:
 
 La asimetría real: **GitHub es tres cosas a la vez** — issue source, remote de git y servidor
 MCP. Linear, cuando llegue, va a ser *sólo* un issue source y su auth va a vivir adentro de
-`issue-sources`. Slack ya tiene su token en `packages/tools/src/slack/client.ts`, que es donde
+`issue-sources`. Slack ya tiene su token en `packages/slack/src/client.ts`, que es donde
 está su cliente. No es inconsistencia: es que son cosas distintas.
 
 Misma justificación textual que el CLAUDE.md raíz da para `@ia-flow/workspace`: *"lo consumen

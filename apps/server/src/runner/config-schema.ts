@@ -3,6 +3,7 @@ import {
   McpCatalogEntrySchema,
   ProjectSchema,
   RepoDefSchema,
+  RuleSchema,
 } from '@ia-flow/shared'
 // Contrato del `runner.yaml` — el ÚNICO archivo que un deploy del engine
 // headless versiona.
@@ -62,6 +63,14 @@ export const RunnerSettingsSchema = z
     startupScan: z.boolean().optional(),
     /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
     crashRecovery: z.boolean().optional(),
+    /**
+     * Si `fs_read` puede pedirle a Haiku que extraiga de un archivo grande
+     * sólo lo que el agente declaró en `focus`. Default `true`. En `false` un
+     * `focus` se ignora y el archivo vuelve crudo, cortado en 40 KB con la
+     * nota para paginar. Es el interruptor de emergencia (costo, o un deploy
+     * sin credencial de Anthropic para el helper). → IA_FLOW_FILE_SIMPLIFIER
+     */
+    fileSimplifier: z.boolean().optional(),
     /**
      * Qué hacer ante un fallo no capturado. `survive` (default) cancela los
      * runs en vuelo y sigue vivo; `exit` cancela y además sale con código 1,
@@ -205,8 +214,8 @@ export type RunnerUpstream = z.infer<typeof RunnerUpstreamSchema>
 /**
  * El archivo completo.
  *
- * `projects`/`agents`/`mcp` son los MISMOS schemas que ya validan los cuatro
- * YAML de hoy — no hay un dialecto nuevo que aprender, sólo un archivo en vez
+ * `projects`/`agents`/`rules`/`mcp` son los MISMOS schemas que ya validan los
+ * cuatro YAML de hoy — no hay un dialecto nuevo que aprender, sólo un archivo en vez
  * de cuatro.
  *
  * `repos` es opcional y sus entradas pueden no tener `path`: con
@@ -230,6 +239,16 @@ export const RunnerConfigSchema = z
     projects: ProjectSchema.array().default([]),
     repos: RepoDefSchema.array().default([]),
     agents: AgentDefinitionSchema.array().default([]),
+    /**
+     * Qué dispara a cada agente.
+     *
+     * Obligatoria en la práctica desde la migración 059: el agente ya no
+     * declara su activación, así que un deploy sin reglas no corre NADA. El
+     * schema la deja vacía por default para no romper el parseo del archivo,
+     * y el loader avisa — un roster que no dispara es el fallo más caro de
+     * este sistema porque es silencioso.
+     */
+    rules: RuleSchema.array().default([]),
     mcp: McpCatalogEntrySchema.array().default([]),
   })
   .strict()

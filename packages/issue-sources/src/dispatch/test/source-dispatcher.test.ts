@@ -66,7 +66,10 @@ function makeItem(id: string, overrides: Partial<SourceItem> = {}): SourceItem {
 
 function makePendingRegistry(
   entries: Array<[string, PendingTaskInfo]> = [],
-): PendingTaskRegistryPort & { add: (id: string, projectId?: string) => void } {
+): PendingTaskRegistryPort & {
+  add: (id: string, projectId?: string) => void
+  addSub: (id: string, projectId?: string) => void
+} {
   const map = new Map(entries)
   return {
     getPendingTask: (id) => map.get(id),
@@ -76,6 +79,13 @@ function makePendingRegistry(
     // stops being an evaluation and becomes a running agent.
     add: (id, projectId = 'p1') =>
       map.set(id, { task: { projectId }, initialStatus: 'build' } as PendingTaskInfo),
+    /** Un sub-agente: mismo proyecto, pero lanzado por otro run. */
+    addSub: (id: string, projectId = 'p1') =>
+      map.set(id, {
+        task: { projectId },
+        initialStatus: 'build',
+        parentRunId: 'run-padre',
+      } as PendingTaskInfo),
   }
 }
 
@@ -94,6 +104,7 @@ describe('SourceDispatcher — boot scan', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     expect(dispatched.sort()).toEqual(['a', 'b'])
@@ -112,6 +123,7 @@ describe('SourceDispatcher — boot scan', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     emit([makeItem('c')])
@@ -139,6 +151,7 @@ describe('SourceDispatcher — project filter', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     expect(dispatched).toEqual(['a'])
@@ -166,6 +179,7 @@ describe('SourceDispatcher — catch-up flags', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     expect(onDaemonStartCalls).toBe(0)
@@ -189,7 +203,7 @@ describe('SourceDispatcher — catch-up flags', () => {
       undefined,
       { crashRecovery: true, initialScan: false },
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(onDaemonStartCalls).toBe(1)
     expect(getItemsCalls()).toBe(0)
@@ -208,7 +222,7 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
       'webhook',
       () => false,
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(getItemsCalls()).toBe(0)
     disposable.dispose()
@@ -227,7 +241,7 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
       'webhook',
       () => false,
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(getItemsCalls()).toBe(1)
     disposable.dispose()
@@ -242,7 +256,7 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
       makePendingRegistry(),
       'webhook',
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(getItemsCalls()).toBe(1)
     disposable.dispose()
@@ -275,6 +289,7 @@ describe('SourceDispatcher — capacity', () => {
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
       if (item.id === 'a') pending.add('a')
+      return undefined
     })
     await flush()
 
@@ -295,6 +310,49 @@ describe('SourceDispatcher — capacity', () => {
     disposable.dispose()
   }, 3000)
 
+  test('un sub-agente no ocupa slot del cap del proyecto', async () => {
+    // El deadlock que esto evita: con el cap en N, N padres bloqueados
+    // esperando a sus hijos ocupan los N slots y ningún hijo arranca nunca.
+    // El pipeline se congela entero y el síntoma es "todo diferido", que no
+    // señala a la causa.
+    //
+    // El principio: este cap limita cuántos ISSUES se trabajan a la vez, y un
+    // sub-agente no es un issue nuevo — es más trabajo sobre uno ya contado.
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      if (item.id === 'a') {
+        pending.add('a')
+        // El padre delega: aparece un hijo sobre la misma tarea.
+        pending.addSub('a#sub:xyz')
+      }
+      return undefined
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    // El padre sigue corriendo, así que 'b' se difiere — eso es correcto.
+    emit([makeItem('b')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    // Y cuando el padre termina, el hijo que sigue vivo NO retiene el slot:
+    // sin la exención, 'b' no arrancaría nunca.
+    pending.removePendingTask('a')
+    emit([makeItem('b')])
+    await flush()
+    expect(dispatched.sort()).toEqual(['a', 'b'])
+
+    disposable.dispose()
+  }, 3000)
+
   test('la saturación se loguea en el flanco, no una vez por ciclo', async () => {
     // Con el log por batch, un cap lleno escribía una línea por cada vuelta
     // de scan y por cada replay del backlog — 12.5k líneas repitiendo un
@@ -307,6 +365,7 @@ describe('SourceDispatcher — capacity', () => {
     const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
     const disposable = dispatcher.start(async (item: IssueItem) => {
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -334,6 +393,7 @@ describe('SourceDispatcher — capacity', () => {
     const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
     const disposable = dispatcher.start(async (item: IssueItem) => {
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -370,6 +430,7 @@ describe('SourceDispatcher — capacity', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
 
@@ -395,6 +456,7 @@ describe('SourceDispatcher — capacity', () => {
       // `blocked-*` mimics the blocker gate: returns without running an agent.
       if (item.id.startsWith('blocked-')) return
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -433,6 +495,7 @@ describe('SourceDispatcher — capacity', () => {
           release.current = resolve
         })
       }
+      return undefined
     })
     await flush()
     const callsAfterBootScan = getItemsCalls() // boot scan always fires once
@@ -479,6 +542,7 @@ describe('SourceDispatcher — cap por proyecto', () => {
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -507,6 +571,7 @@ describe('SourceDispatcher — cap por proyecto', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
 
@@ -537,6 +602,7 @@ describe('SourceDispatcher — cap por proyecto', () => {
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -767,7 +833,7 @@ describe('SourceDispatcher — mode: polling', () => {
       makePendingRegistry(),
       'polling',
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(captured.opts).not.toBeNull()
     expect(captured.opts?.mode).toBe('polling')

@@ -58,7 +58,6 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
             provider: 'anthropic-api',
             prompt: 'x',
             tools: [],
-            statusName: 'InProgress',
           },
         ],
         statuses: [{ name: 'InProgress' }],
@@ -113,7 +112,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     )
     const { orch, manager, update, setAgentWorking } = makeDeps(err)
 
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
 
     expect(update).toHaveBeenCalled()
     const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
@@ -141,7 +140,9 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     const { orch, manager, update } = makeDeps(err)
 
     // Normal error path rethrows once execution_logs is updated.
-    await expect(orch.runAgent(makeTask(), manager)).rejects.toThrow('operation aborted')
+    await expect(orch.runAgent(makeTask(), manager, 'implementer')).rejects.toThrow(
+      'operation aborted',
+    )
 
     const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
       outcome?: string
@@ -192,6 +193,11 @@ function okShell(): ShellRunner {
 
 interface WsDeps {
   agentTools?: string[]
+  /** Contrato de salida del agente (`AgentDefinition.output`). */
+  agentOutput?: Record<string, { type: 'string' }>
+  /** Prompt del agente. Default `'x'`; los tests que verifican el ORDEN del
+   *  user turn necesitan uno distinguible del resto del texto. */
+  agentPrompt?: string
   workspaceManager: WorkspaceManager
   captureInput?: (input: ProviderInput) => void
 }
@@ -222,9 +228,9 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSour
         {
           id: 'implementer',
           provider: 'anthropic-api',
-          prompt: 'x',
+          prompt: opts.agentPrompt ?? 'x',
           tools: opts.agentTools ?? [],
-          statusName: 'InProgress',
+          ...(opts.agentOutput ? { output: opts.agentOutput } : {}),
         },
       ],
       statuses: [{ name: 'InProgress' }],
@@ -287,7 +293,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
       },
     })
 
-    await orch.runAgent(makeWsTask('PVTI_ws_read'), manager)
+    await orch.runAgent(makeWsTask('PVTI_ws_read'), manager, 'implementer')
 
     expect(captured).toBeDefined()
     // No worktree materialized (read-only), so resolveScopes returns the base
@@ -308,13 +314,83 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     })
 
     const TASK_ID = 'PVTI_ws_write'
-    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')
 
     // Mismo nombre legible que resuelve el provisioner: sale del título de la
     // task, no del id opaco.
     const wt = worktreePathFor(REPO, worktreeNameFor({ id: TASK_ID, title: 'ws' }), BASE)
     expect(captured!.repoPaths.demo).toBe(wt)
     expect(captured!.writePaths).toEqual([wt])
+  })
+
+  // El brief es lo que le dice al agente POR QUÉ corre esta vez. Va al user
+  // turn (no al system, que es lo estable y lo que la API cachea) y antes del
+  // prompt, porque enmarca cómo leerlo.
+  it('el brief de la regla se antepone al prompt del agente, bajo su propio encabezado', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    let captured: ProviderInput | undefined
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      agentPrompt: 'PROMPT_DEL_AGENTE',
+      captureInput: (inp) => {
+        captured = inp
+      },
+    })
+
+    await orch.runAgent(makeWsTask('PVTI_ws_brief'), manager, 'implementer', {
+      brief: 'Llegó un comentario nuevo — atendé ese pedido.',
+    })
+
+    expect(captured!.prompt).toContain('## Por qué estás corriendo')
+    expect(captured!.prompt).toContain('Llegó un comentario nuevo')
+    expect(captured!.prompt.indexOf('Llegó un comentario nuevo')).toBeLessThan(
+      captured!.prompt.indexOf('PROMPT_DEL_AGENTE'),
+    )
+  })
+
+  it('sin brief el prompt queda exactamente como antes — ningún encabezado vacío', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    let captured: ProviderInput | undefined
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      captureInput: (inp) => {
+        captured = inp
+      },
+    })
+
+    await orch.runAgent(makeWsTask('PVTI_ws_nobrief'), manager, 'implementer')
+
+    expect(captured!.prompt).not.toContain('Por qué estás corriendo')
+  })
+
+  // Un contrato declarado y no entregado tiene que VOLTEAR el run. Cerrar bien
+  // publicando nada dejaría al paso siguiente de la regla leyendo un valor
+  // vacío, que es el agujero que el contrato existe para tapar.
+  it('un agente que declara salida y no la entrega falla el run', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      agentOutput: { brief: { type: 'string' } },
+    })
+
+    await expect(
+      orch.runAgent(makeWsTask('PVTI_ws_nosubmit'), manager, 'implementer'),
+    ).rejects.toThrow('submit_output')
+  })
+
+  // Y el lock tiene que quedar libre: si el run fallado se lo llevara puesto,
+  // el agente no vuelve a correr sobre esa task hasta el próximo reinicio.
+  it('ese fallo no deja la task trabada', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      agentOutput: { brief: { type: 'string' } },
+    })
+    const task = makeWsTask('PVTI_ws_nosubmit2')
+
+    await expect(orch.runAgent(task, manager, 'implementer')).rejects.toThrow()
+    // El segundo intento llega hasta el mismo error, no a "ya está corriendo".
+    await expect(orch.runAgent(task, manager, 'implementer')).rejects.toThrow('submit_output')
   })
 
   it('per-task mutex: a second runAgent while the lock is held throws "task <id> ya está corriendo"', async () => {
@@ -329,7 +405,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
         agentTools: ['read_file'],
         workspaceManager: wsm,
       })
-      await expect(orch.runAgent(makeWsTask(TASK_ID), manager)).rejects.toThrow(
+      await expect(orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')).rejects.toThrow(
         `task ${TASK_ID} ya está corriendo`,
       )
     } finally {
@@ -337,6 +413,68 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
       // instance would inherit the "locked" state.
       wsm.releaseTask(TASK_ID)
     }
+  })
+
+  it('un sub-agente NO vuelve a pedir el lock: es re-entrante por delegación', async () => {
+    // El hijo corre sobre la MISMA task que su padre, que ya tiene el lock.
+    // Sin la exención, `acquireTask` lo bloquearía contra su propio padre y
+    // toda delegación fallaría con "ya está corriendo".
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const TASK_ID = 'PVTI_ws_sub'
+
+    // El padre tiene el lock tomado.
+    wsm.acquireTask(TASK_ID, REPO)
+    try {
+      const { orch, manager } = makeWsDeps({
+        agentTools: ['read_file'],
+        workspaceManager: wsm,
+      })
+      const outcome = await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer', {
+        parentRunId: 'run-padre',
+        agentDepth: 1,
+      })
+      expect(outcome).toBe('dispatched')
+    } finally {
+      wsm.releaseTask(TASK_ID)
+    }
+  })
+
+  it('el lock sigue siendo exclusivo entre dispatches independientes', async () => {
+    // La contracara del test de arriba: la re-entrancia es POR DELEGACIÓN, no
+    // por task. Dos dispatches sin parentesco sobre la misma task siguen
+    // chocando, que es lo que el lock existe para evitar.
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const TASK_ID = 'PVTI_ws_still_exclusive'
+
+    wsm.acquireTask(TASK_ID, REPO)
+    try {
+      const { orch, manager } = makeWsDeps({
+        agentTools: ['read_file'],
+        workspaceManager: wsm,
+      })
+      await expect(orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')).rejects.toThrow(
+        `task ${TASK_ID} ya está corriendo`,
+      )
+    } finally {
+      wsm.releaseTask(TASK_ID)
+    }
+  })
+
+  it('corta una cadena de delegación demasiado profunda', async () => {
+    // `EngineEvent.depth` cubre el camino por eventos; la tool no pasa por el
+    // bus, así que sin este freno A → B → A es un loop sin fondo.
+    //
+    // `skipped` y no `deferred`: la profundidad no se despeja esperando.
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const { orch, manager } = makeWsDeps({
+      agentTools: ['read_file'],
+      workspaceManager: wsm,
+    })
+    const outcome = await orch.runAgent(makeWsTask('PVTI_ws_deep'), manager, 'implementer', {
+      parentRunId: 'run-padre',
+      agentDepth: 99,
+    })
+    expect(outcome).toBe('skipped')
   })
 
   it('releases the lock in `finally` so a follow-up runAgent on the same task succeeds', async () => {
@@ -348,9 +486,9 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     })
 
     // First run completes → releaseTask fires in `finally`.
-    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')
     // Second run must not throw "ya está corriendo".
-    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')
   })
 })
 
@@ -479,7 +617,6 @@ function makeTerminalWsDeps(opts: {
           provider: 'tmux-claude',
           prompt: 'x',
           tools: ['fs_write'],
-          statusName: 'InProgress',
         },
       ],
       statuses: [{ name: 'InProgress' }],
@@ -535,7 +672,7 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
       runnerOpts: { dirty: false, remoteAheadOut: '' },
     })
 
-    await orch.runAgent(makeCleanupTask(), manager)
+    await orch.runAgent(makeCleanupTask(), manager, 'implementer')
 
     // WorkspaceManager.removeWorktree issues `git worktree remove --force` and
     // `git branch -D <branch>` — we track both via shell.removeCalls.
@@ -550,7 +687,7 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
       runnerOpts: { dirty: true },
     })
 
-    await orch.runAgent(makeCleanupTask(), manager)
+    await orch.runAgent(makeCleanupTask(), manager, 'implementer')
 
     const anyRemoveCall = shell.removeCalls.some((c) => c[2] === 'remove')
     expect(anyRemoveCall).toBe(false)
@@ -562,7 +699,7 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
       workflow: 'branch',
     })
 
-    await orch.runAgent(makeCleanupTask(), manager)
+    await orch.runAgent(makeCleanupTask(), manager, 'implementer')
 
     expect(shell.removeCalls.length).toBe(0)
   })
@@ -617,7 +754,6 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
             provider: 'anthropic-api',
             prompt: 'x',
             tools: ['read_file'],
-            statusName: 'InProgress',
           },
         ],
         statuses: [{ name: 'InProgress' }],
@@ -667,7 +803,7 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
       projectId: 'p1',
     } as unknown as Task
 
-    const ok = await orch.runAgent(task, manager)
+    const ok = await orch.runAgent(task, manager, 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(upsertCalls).toEqual([{ ...noPathRepo, path: clonedPath }])
@@ -743,7 +879,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       broadcast,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
@@ -761,7 +897,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       broadcast,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['anthropic-api'])
@@ -779,7 +915,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       broadcast,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('skipped')
     expect(runCalls).toEqual([])
@@ -805,7 +941,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       classifyProvider,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
@@ -852,7 +988,6 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
             provider: 'remote:1',
             prompt: 'x',
             tools: [],
-            statusName: 'InProgress',
             onError: 'Failed',
           },
         ],
@@ -886,18 +1021,18 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
 
   it('difiere en vez de fallar', async () => {
     const { orch, manager } = setup()
-    expect(await orch.runAgent(makeTask(), manager)).toBe('deferred')
+    expect(await orch.runAgent(makeTask(), manager, 'implementer')).toBe('deferred')
   })
 
   it('NO corre el onError — el issue no se mueve por algo que no se intentó', async () => {
     const { orch, manager, transitions } = setup()
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
     expect(transitions).toEqual([])
   })
 
   it('limpia el flag de "agente trabajando" para que el reintento no quede trabado', async () => {
     const { orch, manager, cleared } = setup()
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
     expect(cleared()).toBe(true)
   })
 })
@@ -937,7 +1072,6 @@ describe('AgentOrchestrator.runAgent — el provider declarado no está registra
             provider: 'remote:mac',
             prompt: 'x',
             tools: [],
-            statusName: 'InProgress',
             onError: 'Failed',
           },
         ],
@@ -967,12 +1101,12 @@ describe('AgentOrchestrator.runAgent — el provider declarado no está registra
 
   it('difiere en vez de fallar', async () => {
     const { orch, manager } = setup()
-    expect(await orch.runAgent(makeTask(), manager)).toBe('deferred')
+    expect(await orch.runAgent(makeTask(), manager, 'implementer')).toBe('deferred')
   })
 
   it('NO corre el onError', async () => {
     const { orch, manager, transitions } = setup()
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
     expect(transitions).toEqual([])
   })
 })

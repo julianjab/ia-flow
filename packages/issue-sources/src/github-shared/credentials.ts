@@ -1,4 +1,4 @@
-import type { ICredentialProvider } from '@ia-flow/shared'
+import type { CredentialDescription, ICredentialProvider } from '@ia-flow/shared'
 
 // Misma indirección que `logger.ts`: este paquete no puede depender de
 // `@ia-flow/github-auth` (sería atarle a `issue-sources` una estrategia de
@@ -28,4 +28,25 @@ export async function getGitHubToken(scope?: {
 }): Promise<string | undefined> {
   if (provider) return provider.getToken(scope)
   return Bun.env.GITHUB_TOKEN || undefined
+}
+
+/**
+ * Con qué estrategia se está autenticando el proceso, o `null` si el host no
+ * cableó ninguna. No es telemetría: hay endpoints de la REST que existen para
+ * una identidad y no para otra —`/user` es del usuario, y un installation
+ * token de GitHub App no lo puede llamar—, así que quien elige el endpoint
+ * necesita saber con qué identidad va a pegarle.
+ *
+ * Es **async** y no un pasamanos a `describe()` por una razón concreta: el
+ * provider que cablea el server es `lazyGitHubCredentials`, que no resuelve su
+ * estrategia hasta el primer `getToken()` y hasta entonces se describe como
+ * `pending`. Ramificar sobre ese "todavía no sé" en un daemon recién booteado
+ * elegiría el camino de usuario con un installation token — exactamente el 403
+ * que esta función existe para evitar. Pedir el token primero fuerza la
+ * resolución; el token en sí se descarta.
+ */
+export async function describeGitHubCredentials(): Promise<CredentialDescription | null> {
+  if (!provider) return null
+  await provider.getToken()
+  return provider.describe()
 }

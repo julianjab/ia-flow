@@ -61,6 +61,7 @@ afterAll(async () => {
 function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
   return {
     step: 'refine-functional',
+    taskId: 't1',
     taskTitle: 'flag-test',
     taskDescription: 'd',
     taskType: 'feat',
@@ -124,6 +125,28 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(sys).toContain('No preguntes')
     expect(sys).toContain('complete_task')
     expect(sys).toContain('fail_task')
+  })
+
+  // Antes se descartaban: un agente que declaraba `systemPrompts` perdía TODO
+  // apenas el run caía en un provider de terminal, sin error y sin log — el
+  // agente corría con menos instrucciones de las que su definición declara.
+  it('escribe los systemPromptBlocks del agente en el sysprompt file', async () => {
+    const { syspromptFile } = await buildClaudeCommand(
+      {
+        ...baseInput(),
+        systemPromptBlocks: [
+          { type: 'text', text: 'Reglas del proyecto' },
+          { type: 'text', text: 'Rol del agente' },
+        ],
+      },
+      'tmux-claude',
+    )
+    const sys = await Bun.file(syspromptFile).text()
+    expect(sys).toContain('Reglas del proyecto')
+    expect(sys).toContain('Rol del agente')
+    // La nota del engine va última: describe el modo de ejecución, así que
+    // tiene que ganar sobre lo que el prompt del agente diga al respecto.
+    expect(sys.indexOf('Rol del agente')).toBeLessThan(sys.indexOf('Sesión desatendida'))
   })
 
   it('escribe env de terminal defaults en settings.json y pasa --settings (no export en el shell)', async () => {

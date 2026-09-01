@@ -33,6 +33,8 @@
   --red: #e0665c;
   --green: #7fb8ac;
   --green-hi: #9ecfc4;
+  /* El par de --green-hi: el hover del relleno rojo. */
+  --red-hi: #ea8078;
   --yellow: #d9a441;
   --blue: #6ea3c9;
   --magenta: #c98ecb;
@@ -235,12 +237,18 @@ a:hover {
 .mono {
   font-family: var(--font-mono);
 }
+/* El label de un campo, y de cualquier dato con nombre (una celda de tile, una
+   fila de meta). `--fg-dim` y no `--fg-dimmer` porque un label ES un "label
+   secundario" en la tabla de texto del DESIGN_SYSTEM, no una ausencia ni un
+   placeholder — que es la ranura de `--fg-dimmer`. Estaba un escalón más
+   apagada, y ésa es la razón por la que ocho formularios se declararon su
+   propia copia idéntica-pero-en-`--fg-dim` en vez de usar esta clase. */
 .uc-label {
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   letter-spacing: var(--tracking-lbl);
   text-transform: uppercase;
-  color: var(--fg-dimmer);
+  color: var(--fg-dim);
 }
 
 /* Button primitives — del mockup del editor de agentes. Nuevo código debería
@@ -297,6 +305,20 @@ a:hover {
   border-color: var(--border-hi);
   color: var(--fg);
 }
+/* Destructivo y sin vuelta atrás (borrar de verdad, no archivar). Relleno y no
+   contorno: es el único botón que pesa MÁS que el primario de su pantalla, y
+   tiene que costar apuntarle. `--danger` en contorno (`.btn--danger`) es para
+   lo reversible. */
+.btn--destructive {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--panel);
+  font-weight: 600;
+}
+.btn--destructive:hover {
+  background: var(--red-hi);
+  border-color: var(--red-hi);
+}
 .hairline {
   background: var(--border);
   height: 1px;
@@ -322,6 +344,69 @@ a:hover {
 }
 .panel__header--dim {
   color: var(--fg-dim);
+}
+
+/* La caja de una sección de configuración, y su encabezado.
+ *
+ * Vivía copiada, `scoped`, en NUEVE componentes, y las copias derivaron: cinco
+ * con un `border-radius: 8px` que el reset global pisa con `!important`, dos
+ * tamaños distintos de `h2`, tres márgenes distintos para la descripción. El
+ * resultado es que la misma lista tenía otro espaciado en cada pantalla —y
+ * dentro de un mismo dominio, otro en el ámbito global que en el de proyecto.
+ * Acá está la versión buena (la que tenía Tareas: caja alta en versalitas, con
+ * el tracking del sistema); las copias se borraron.
+ *
+ * Los grupos por ámbito de adentro los dibuja `ui/ScopeGroup.vue`. */
+.settings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 1rem;
+}
+.settings-section h2 {
+  margin: 0;
+  font-size: var(--fs-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-hd);
+}
+
+/* Título + acciones en una línea. El texto se encoge (`min-width: 0`) y los
+   botones no (`flex: 0 0 auto`): sin eso un título largo empuja el botón
+   primario fuera de la caja. */
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+  /* Envuelve en un celular en vez de desbordar. */
+  flex-wrap: wrap;
+}
+.section-head-text {
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+.section-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 0 0 auto;
+}
+
+.section-desc {
+  margin: 0.25rem 0 0.9rem;
+  font-size: var(--fs-chrome);
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+/* Dentro del encabezado el margen de abajo lo pone `.section-header`. */
+.section-header .section-desc {
+  margin-bottom: 0;
+}
+.section-desc code {
+  font-family: var(--font-mono);
+  background: var(--panel-hi);
+  padding: 0 0.25rem;
 }
 
 /* Video-inverse selection helper (used for menu rows). */

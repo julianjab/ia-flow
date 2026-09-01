@@ -12,7 +12,7 @@
 // de configurarlos que pueda divergir.
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { AgentDefinitionSchema, ProjectSchema, RepoDefSchema } from '@ia-flow/shared'
+import { AgentDefinitionSchema, ProjectSchema, RepoDefSchema, RuleSchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
 import type { z } from 'zod'
 import { type RunnerConfig, RunnerConfigSchema } from './config-schema.js'
@@ -22,7 +22,9 @@ import { type RunnerConfig, RunnerConfigSchema } from './config-schema.js'
 // en una const al importarse: bastaba con que el loader pidiera un logger para
 // que el nivel declarado en el YAML llegara tarde. Por eso `applyRunnerEnv`
 // devuelve su reporte en vez de loguearlo, y lo loguea el flavor, cuando el
-// logger ya nació con el nivel correcto.
+// logger ya nació con el nivel correcto. Por lo mismo, el warning de abajo va
+// por `console.warn` y no por un logger propio: crear uno acá reintroduciría
+// exactamente el import que este comentario dice que no existe.
 
 /** Path por convención dentro de la imagen. Se puede pasar otro por argv. */
 export const DEFAULT_RUNNER_CONFIG_PATH = '/app/config/runner.yaml'
@@ -61,6 +63,7 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
       ...readSectionDir(dir, 'agents', AgentDefinitionSchema),
       ...perProject.agents,
     ],
+    rules: [...cfg.rules, ...readSectionDir(dir, 'rules', RuleSchema)],
   }
 
   // El "al menos un proyecto" se chequea DESPUÉS del merge, no en el schema:
@@ -74,6 +77,18 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
         'Un runner sin fuente no tiene qué escanear.',
     )
   }
+  // Un roster sin reglas no dispara NADA desde la migración 059, que sacó la
+  // activación del agente. Es un warn y no un throw porque un deploy puede
+  // arrancar vacío a propósito (todavía no configuró nada); lo que no puede
+  // pasar es que el silencio sea indistinguible de "está andando".
+  if (merged.agents.length > 0 && merged.rules.length === 0) {
+    console.warn(
+      `[runner-config] El runner declara ${merged.agents.length} agente(s) pero ninguna regla ` +
+        `(${filePath}) — nada los va a disparar. Desde la migración 059 el CUÁNDO vive en ` +
+        '`rules:`, no en el agente.',
+    )
+  }
+
   return merged
 }
 
@@ -101,7 +116,7 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
  */
 function readSectionDir<T extends z.ZodTypeAny>(
   configDir: string,
-  section: 'agents' | 'repos' | 'projects',
+  section: 'agents' | 'repos' | 'projects' | 'rules',
   schema: T,
 ): z.infer<T>[] {
   const dir = join(configDir, section)
@@ -285,6 +300,7 @@ const SETTINGS_ENV: Record<string, string> = {
   webhookFallbackMs: 'IA_FLOW_WEBHOOK_FALLBACK_MS',
   startupScan: 'IA_FLOW_STARTUP_SCAN',
   crashRecovery: 'IA_FLOW_CRASH_RECOVERY',
+  fileSimplifier: 'IA_FLOW_FILE_SIMPLIFIER',
   fatalPolicy: 'IA_FLOW_FATAL_POLICY',
   otelEndpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
   otelHeaders: 'OTEL_EXPORTER_OTLP_HEADERS',

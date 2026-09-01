@@ -37,7 +37,11 @@ function onChange(val: string) {
 
 <style scoped>
 .model-select {
+  /* `flex: 1` sin `min-width: 0` no encoge: el mínimo de un elemento flex es
+     el de su contenido, y los nombres de modelo son largos. Es la causa de que
+     esta vista empujara la página 197px en un celular. */
   flex: 1;
+  min-width: 0;
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-hi);
   border-radius: 6px;

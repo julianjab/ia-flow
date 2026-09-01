@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useIntegrations } from '@/composables/useIntegrations';
 import { lookupChannel } from '@/composables/useSlackDirectory';
 import type { SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
 import { DEFAULT_SLACK_REVIEW_MESSAGES, SLACK_REVIEW_TEMPLATE_VARS } from '@ia-flow/shared';
@@ -15,6 +16,12 @@ import SlackMemberMultiSelect from './SlackMemberMultiSelect.vue';
 //
 // Vive en `ui/` porque lo comparten el editor inline y el modal de repos, y la
 // misma caja se reusa arriba del listado de tareas.
+//
+// **Sin Slack no se dibuja.** El guard está acá y no en cada uno de los tres
+// llamadores porque es la misma pregunta las tres veces, y una copia olvidada
+// dejaría un formulario que no puede funcionar. Lo consumen también los slots:
+// `SlackReviewSettings` monta esto como raíz, así que su botón de guardar se va
+// con la caja.
 
 const props = defineProps<{
   channel: string;
@@ -27,6 +34,8 @@ const props = defineProps<{
    *  quién los sobreescribe). Colapsado no se muestra. */
   description?: string;
 }>();
+
+const { integrations } = useIntegrations();
 
 const emit = defineEmits<{
   (e: 'update:channel', value: string): void;
@@ -81,7 +90,7 @@ const VARS = SLACK_REVIEW_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ');
 </script>
 
 <template>
-  <div class="srf">
+  <div v-if="integrations.slack.enabled" class="srf">
     <button type="button" class="srf-head" :aria-expanded="open" @click="open = !open">
       <span class="srf-glyph">{{ open ? '▾' : '▸' }}</span>
       <span class="uc-label">Review en Slack</span>

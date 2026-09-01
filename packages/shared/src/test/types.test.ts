@@ -8,7 +8,6 @@ import {
   WhenConditionSchema,
 } from '../schemas.js'
 import type {
-  AgentActivation,
   AgentDefinition,
   AgentOutcomes,
   AnthropicApiSettings,
@@ -41,54 +40,34 @@ describe('WhenCondition type', () => {
     expect('value' in cond).toBe(false)
     expect('logic' in cond).toBe(false)
   })
-})
+  describe('AgentDefinition — outcomes', () => {
+    const base = { id: 'my-agent', provider: 'anthropic-api', prompt: 'do the thing' }
 
-describe('AgentDefinition — activación y outcomes', () => {
-  const base = { id: 'my-agent', provider: 'anthropic-api', prompt: 'do the thing' }
-
-  it('agent with array when is typed correctly', () => {
-    const agent: AgentDefinition = AgentDefinitionSchema.parse({
-      ...base,
-      when: [
-        { field: 'type', op: '=', value: 'functional' },
-        { field: 'type', op: '=', value: 'technical', logic: 'or' },
-      ],
-      exits: { success: '$set:status=done' },
+    it('los outcomes tipan correctamente', () => {
+      const agent: AgentDefinition = AgentDefinitionSchema.parse({
+        ...base,
+        exits: { success: '$set:status=done' },
+      })
+      expect(agent.id).toBe('my-agent')
+      expect(agent.exits?.success).toBe('$set:status=done')
     })
-    expect(agent.id).toBe('my-agent')
-    expect(Array.isArray(agent.when)).toBe(true)
-    expect(agent.exits?.success).toBe('$set:status=done')
-  })
 
-  it('agent with legacy record when is typed correctly', () => {
-    const agent: AgentDefinition = AgentDefinitionSchema.parse({
-      ...base,
-      when: { type: 'functional' },
+    it('un agente sin outcomes los deja ausentes', () => {
+      // La activación ya no vive acá: desde la migración 059 el CUÁNDO es una
+      // fila de `rules` y el agente declara sólo QUÉ hace.
+      const agent: AgentDefinition = AgentDefinitionSchema.parse(base)
+      expect(agent.onProcess).toBeUndefined()
+      expect(agent.exits).toBeUndefined()
     })
-    expect(Array.isArray(agent.when)).toBe(false)
-    expect((agent.when as Record<string, string>)['type']).toBe('functional')
-  })
 
-  it('agent without activation fields is unrestricted (candidato en todo)', () => {
-    const agent: AgentDefinition = AgentDefinitionSchema.parse(base)
-    expect(agent.when).toBeUndefined()
-    expect(agent.repoName).toBeUndefined()
-    expect(agent.statusName).toBeUndefined()
-    expect(agent.onProcess).toBeUndefined()
-    expect(agent.exits).toBeUndefined()
-  })
-
-  it('AgentActivation / AgentOutcomes son subconjuntos asignables de AgentDefinition', () => {
-    const agent: AgentDefinition = AgentDefinitionSchema.parse({
-      ...base,
-      statusName: 'Build',
-      repoName: 'backend',
-      exits: { error: 'queued' },
+    it('AgentOutcomes es un subconjunto asignable de AgentDefinition', () => {
+      const agent: AgentDefinition = AgentDefinitionSchema.parse({
+        ...base,
+        exits: { error: 'queued' },
+      })
+      const outcomes: AgentOutcomes = agent
+      expect(outcomes.exits?.error).toBe('queued')
     })
-    const activation: AgentActivation = agent
-    const outcomes: AgentOutcomes = agent
-    expect(activation.statusName).toBe('Build')
-    expect(outcomes.exits?.error).toBe('queued')
   })
 })
 
@@ -174,7 +153,8 @@ describe('ProjectConfig type', () => {
     expect(config.project).toBeUndefined()
     expect(config.agents).toBeUndefined()
     expect(config.statuses).toBeUndefined()
-    expect(config.repos).toBeUndefined()
+    // `repos` no está en ProjectConfig desde la migración 011: viven en su
+    // propia tabla, no en el bag de config del proyecto.
   })
 })
 
