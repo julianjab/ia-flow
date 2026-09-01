@@ -37,6 +37,8 @@ import {
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
+  isRuleDisabledInProject,
+  toggleDisabledRuleId,
 } from '../schemas.js'
 
 // ─── WhenConditionSchema ─────────────────────────────────────────────────────
@@ -1077,5 +1079,72 @@ describe('ProviderLimitSchema', () => {
   it('rechaza negativos y fraccionarios', () => {
     expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: -1 })).toThrow()
     expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: 1.5 })).toThrow()
+  })
+})
+
+describe('isRuleDisabledInProject', () => {
+  it('una global listada por el proyecto está dada de baja', () => {
+    expect(
+      isRuleDisabledInProject({ disabledRuleIds: ['r1'] }, { id: 'r1', projectId: null }),
+    ).toBe(true)
+  })
+
+  it('una regla PROPIA del proyecto no se apaga por acá', () => {
+    // Una propia ya tiene su `enabled`, que es donde el operador lo busca.
+    // Sin este corte, dar de baja una global se llevaría puesta una propia que
+    // casualmente comparta id.
+    expect(
+      isRuleDisabledInProject({ disabledRuleIds: ['r1'] }, { id: 'r1', projectId: 'p1' }),
+    ).toBe(false)
+  })
+
+  it('sin lista no hay nada dado de baja', () => {
+    expect(isRuleDisabledInProject(undefined, { id: 'r1', projectId: null })).toBe(false)
+    expect(isRuleDisabledInProject({ disabledRuleIds: null }, { id: 'r1', projectId: null })).toBe(
+      false,
+    )
+  })
+
+  it('una global que no está en la lista corre', () => {
+    expect(isRuleDisabledInProject({ disabledRuleIds: ['otra'] }, { id: 'r1' })).toBe(false)
+  })
+})
+
+describe('ProjectSettingsSchema.disabledRuleIds', () => {
+  it('acepta null sin llevarse puesto el resto del bag', () => {
+    // `settings` se mergea por key: vaciar la lista desde la UI persiste un
+    // null, y con `.optional()` ese null hacía fallar el objeto ENTERO — se
+    // perdían el cap de dispatches y la config de Slack de paso.
+    const parsed = ProjectSettingsSchema.safeParse({
+      disabledRuleIds: null,
+      maxConcurrentDispatches: 3,
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.maxConcurrentDispatches).toBe(3)
+  })
+})
+
+describe('toggleDisabledRuleId', () => {
+  it('apagar agrega el id', () => {
+    expect(toggleDisabledRuleId([], 'r1', false)).toEqual(['r1'])
+  })
+
+  it('apagar dos veces no lo duplica', () => {
+    // El endpoint es un PUT: repetirlo tiene que dar el mismo estado.
+    expect(toggleDisabledRuleId(['r1'], 'r1', false)).toEqual(['r1'])
+  })
+
+  it('prender lo saca', () => {
+    expect(toggleDisabledRuleId(['r1', 'r2'], 'r1', true)).toEqual(['r2'])
+  })
+
+  it('prender algo que no estaba no cambia nada', () => {
+    expect(toggleDisabledRuleId(['r2'], 'r1', true)).toEqual(['r2'])
+  })
+
+  it('no muta la lista que recibe', () => {
+    const current = ['r1']
+    toggleDisabledRuleId(current, 'r2', false)
+    expect(current).toEqual(['r1'])
   })
 })
