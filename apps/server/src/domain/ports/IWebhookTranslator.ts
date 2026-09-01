@@ -8,6 +8,16 @@ export interface WebhookDelivery {
   /** El id del delivery, cuando la fuente manda uno (`X-GitHub-Delivery`, el
    *  `event_id` de Slack). Es lo que hace idempotente un reintento. */
   deliveryId?: string
+  /**
+   * Proyecto(s) de ia-flow que ya matchearon este delivery, cuando la RUTA ya
+   * lo sabe de otra fuente — hoy sólo `projects_v2_item`/`projects_v2`, cuyo
+   * payload no trae `owner/repo` (no hay `ScopeResolver` posible) pero SÍ pasa
+   * por `deliverWebhook`/`webhook-registry` antes de llegar acá, que ya hace
+   * el match por `project_node_id`. La ruta lo completa; el translator no lo
+   * calcula — evita resolver la MISMA pregunta dos veces con dos mecanismos
+   * distintos.
+   */
+  projectIds?: string[]
 }
 
 /**

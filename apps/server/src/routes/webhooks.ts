@@ -196,39 +196,36 @@ export function createWebhooksRouter() {
       return c.json({ error: 'invalid JSON body' }, 400)
     }
 
-    // Publicar al bus y disparar el re-scan NO son alternativas — son las dos
-    // cosas, cuando el delivery las pide las dos (`issue_comment`/`issues`).
-    // El bus es lo que le permite a una regla leer el contenido crudo del
-    // webhook (el body de un comentario, qué campo cambió); el re-scan sigue
-    // siendo lo que hace que el modo `webhook` (push puro, sin pull en ningún
-    // interval) descubra que el item cambió y dispare `issue.created`/
-    // `issue.status_changed`. Los eventos de PR y de CI, en cambio, sólo van
-    // al bus: nunca cambian un item del board por sí solos.
-    let busResult: Awaited<ReturnType<typeof ingestWebhookUseCase.ingest>> | undefined
-    if (ingestWebhookUseCase.handles(event)) {
-      busResult = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
-      if (busResult.status === 'published') {
-        log.info(
-          { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
-          'Evento de GitHub publicado al bus',
-        )
-      }
-    }
-
     if (!isIssueEvent(event)) {
-      // Sólo bus (pull_request, pull_request_review, check_suite, workflow_run).
-      if (!busResult || busResult.status === 'ignored') {
+      // Sólo bus (pull_request, pull_request_review, check_suite, workflow_run):
+      // nunca cambian un item del board por sí solos, así que no hay nada que
+      // re-escanear.
+      const busResult = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
+      if (busResult.status === 'ignored') {
         return c.json({
           ok: true,
           event,
           ignored: true,
-          reason: busResult?.reason,
+          reason: busResult.reason,
           triggered: [],
         })
       }
+      log.info(
+        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+        'Evento de GitHub publicado al bus',
+      )
       return c.json({ ok: true, event, type: busResult.type, outcome: busResult.outcome })
     }
 
+    // Publicar al bus y disparar el re-scan NO son alternativas — son las dos
+    // cosas, siempre que el evento sea de issue/board. El re-scan va PRIMERO
+    // porque `projects_v2_item`/`projects_v2` no tienen forma de resolver a
+    // qué proyecto de ia-flow pertenecen por `owner/repo` (su payload no trae
+    // `repository`) — el match por `project_node_id` ya lo hace
+    // `deliverWebhook`/`webhook-registry`, y su resultado (`triggered`) es lo
+    // que el traductor usa para poner scope. `issue_comment`/`issues` no lo
+    // necesitan (resuelven por `owner/repo` como siempre) pero no cuesta nada
+    // pasárselo también.
     const hint: WebhookHint = {
       ...githubHint(event, payload),
       ...(deliveryId ? { deliveryId } : {}),
@@ -244,6 +241,17 @@ export function createWebhooksRouter() {
       projectIds: triggered,
       at: new Date().toISOString(),
     })
+
+    const busResult = ingestWebhookUseCase.handles(event)
+      ? await ingestWebhookUseCase.ingest({ event, payload, deliveryId, projectIds: triggered })
+      : undefined
+    if (busResult?.status === 'published') {
+      log.info(
+        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+        'Evento de GitHub publicado al bus',
+      )
+    }
+
     return c.json({
       ok: true,
       event,

@@ -22,10 +22,13 @@ export const PR_SYNCHRONIZED = 'pr.synchronize'
 export const PR_READY = 'pr.ready_for_review'
 export const PR_REVIEW_SUBMITTED = 'pr.review_submitted'
 export const CI_FINISHED = 'ci.finished'
-/** `issue_comment`/`issues` — nombre nativo de GitHub, no un tipo curado.
- *  También siguen disparando el re-scan (`ISSUE_EVENTS` en `routes/webhooks.ts`). */
+/** `issue_comment`/`issues`/`projects_v2_item`/`projects_v2` — nombre nativo
+ *  de GitHub, no un tipo curado. También siguen disparando el re-scan
+ *  (`ISSUE_EVENTS` en `routes/webhooks.ts`). */
 export const ISSUE_COMMENT = 'issue_comment'
 export const ISSUES = 'issues'
+export const PROJECTS_V2_ITEM = 'projects_v2_item'
+export const PROJECTS_V2 = 'projects_v2'
 
 /** Resuelve a qué proyecto y repo de ia-flow pertenece un `owner/repo` de
  *  GitHub. Sin él, el evento queda sin scope y —fail-closed— sólo lo verían
@@ -44,6 +47,9 @@ interface RawPayload {
   workflow_run?: Record<string, unknown>
   issue?: Record<string, unknown>
   comment?: Record<string, unknown>
+  projects_v2_item?: Record<string, unknown>
+  projects_v2?: Record<string, unknown>
+  changes?: Record<string, unknown>
 }
 
 function ownerRepo(payload: RawPayload): { owner: string; repo: string } | null {
@@ -67,6 +73,14 @@ function scopeFor(
     ...(hit?.repoName ? { repos: [hit.repoName] } : {}),
     ...extra,
   }
+}
+
+/** `projects_v2_item`/`projects_v2` no traen `owner/repo` — el match por
+ *  `project_node_id` ya lo hizo la ruta (`deliverWebhook`, antes de llegar
+ *  acá) y lo pasa en `delivery.projectIds`. Un repo registrado en dos
+ *  proyectos devuelve el primero, mismo criterio que `scopeFor`. */
+function scopeForProjectIds(projectIds: string[] | undefined): EventScope {
+  return projectIds?.[0] ? { projectId: projectIds[0] } : {}
 }
 
 /** Los campos del PR que una regla querría condicionar, aplanados con nombres
@@ -262,6 +276,57 @@ export function issuesEvent(
   })
 }
 
+/**
+ * `projects_v2_item` → el evento tal cual. El scope NO sale de `owner/repo`
+ * (el payload no trae `repository`: un item de Projects puede venir de
+ * cualquier repo del proyecto) — sale de `projectIds`, que la ruta ya resolvió
+ * contra `webhook-registry` antes de llegar acá.
+ */
+export function projectItemEvent(
+  payload: RawPayload,
+  projectIds: string[] | undefined,
+  deliveryId?: string,
+): EngineEvent | null {
+  const item = payload.projects_v2_item
+  if (!item) return null
+
+  const itemId = typeof item.node_id === 'string' ? item.node_id : undefined
+  const fieldChange = payload.changes?.field_value as
+    | { field_name?: unknown; field_value?: unknown }
+    | undefined
+  return createEvent({
+    ...(deliveryId ? { id: `${deliveryId}:projects_v2_item:${payload.action}:${itemId}` } : {}),
+    type: 'projects_v2_item',
+    source: 'github',
+    scope: { ...scopeForProjectIds(projectIds), ...(itemId ? { issueId: itemId } : {}) },
+    payload: {
+      action: payload.action,
+      itemId,
+      fieldName: fieldChange?.field_name,
+      fieldValue: fieldChange?.field_value,
+    },
+  })
+}
+
+/** `projects_v2` → cambió el proyecto en sí (un campo agregado, etc), no un
+ *  item — no hay `issueId` que resolver acá. */
+export function projectEvent(
+  payload: RawPayload,
+  projectIds: string[] | undefined,
+  deliveryId?: string,
+): EngineEvent | null {
+  const project = payload.projects_v2
+  if (!project) return null
+
+  return createEvent({
+    ...(deliveryId ? { id: `${deliveryId}:projects_v2:${payload.action}` } : {}),
+    type: 'projects_v2',
+    source: 'github',
+    scope: scopeForProjectIds(projectIds),
+    payload: { action: payload.action },
+  })
+}
+
 /** Despacha al normalizador que corresponda. `null` = este delivery no produce
  *  ningún evento (una acción que no interesa, o un payload incompleto). */
 export function githubWebhookEvent(
@@ -269,6 +334,7 @@ export function githubWebhookEvent(
   payload: Record<string, unknown>,
   resolve: ScopeResolver,
   deliveryId?: string,
+  projectIds?: string[],
 ): EngineEvent | null {
   const raw = payload as RawPayload
   if (event === 'pull_request') return pullRequestEvent(raw, resolve, deliveryId)
@@ -277,20 +343,18 @@ export function githubWebhookEvent(
     return ciFinishedEvent(event, raw, resolve, deliveryId)
   if (event === 'issue_comment') return issueCommentEvent(raw, resolve, deliveryId)
   if (event === 'issues') return issuesEvent(raw, resolve, deliveryId)
+  if (event === 'projects_v2_item') return projectItemEvent(raw, projectIds, deliveryId)
+  if (event === 'projects_v2') return projectEvent(raw, projectIds, deliveryId)
   return null
 }
 
 /**
- * Los deliveries que producen un evento del bus. `issue_comment`/`issues`
- * TAMBIÉN siguen disparando el re-scan del board (`ISSUE_EVENTS` en
- * `routes/webhooks.ts`) — son las dos cosas, no una en vez de la otra: el
- * re-scan es lo que hace que el modo `webhook` (push puro, sin pull) descubra
- * que el item cambió; el bus es lo nuevo, para que una regla pueda leer el
- * contenido crudo del webhook.
- *
- * `projects_v2_item`/`projects_v2` quedan afuera por ahora: su payload no
- * trae `repository`, así que necesitan un resolver de scope distinto (por
- * `project_node_id`, no por `owner/repo`) que todavía no existe.
+ * Los deliveries que producen un evento del bus. Los cuatro de issue/board
+ * TAMBIÉN siguen disparando el re-scan (`ISSUE_EVENTS` en `routes/webhooks.ts`)
+ * — son las dos cosas, no una en vez de la otra: el re-scan es lo que hace
+ * que el modo `webhook` (push puro, sin pull) descubra que el item cambió; el
+ * bus es lo nuevo, para que una regla pueda leer el contenido crudo del
+ * webhook.
  */
 export const BUS_EVENTS = new Set([
   'pull_request',
@@ -299,15 +363,18 @@ export const BUS_EVENTS = new Set([
   'workflow_run',
   'issue_comment',
   'issues',
+  'projects_v2_item',
+  'projects_v2',
 ])
 
 export function isBusEvent(event: string): boolean {
   return BUS_EVENTS.has(event)
 }
 
-/** El `node_id` del issue/PR al que habla este delivery, cuando el payload lo
- *  trae directo — `check_suite`/`workflow_run` no tienen uno (hablan de un
- *  commit, no de un issue), así que quedan sin `item`. */
+/** El `node_id` del issue/PR/item al que habla este delivery, cuando el
+ *  payload lo trae directo — `check_suite`/`workflow_run` no tienen uno
+ *  (hablan de un commit, no de un issue) y `projects_v2` tampoco (habla del
+ *  proyecto en sí), así que quedan sin `item`. */
 function nodeIdFor(event: string, payload: RawPayload): string | undefined {
   const from = (obj: Record<string, unknown> | undefined) => {
     const id = obj?.node_id
@@ -315,6 +382,7 @@ function nodeIdFor(event: string, payload: RawPayload): string | undefined {
   }
   if (event === 'pull_request' || event === 'pull_request_review') return from(payload.pull_request)
   if (event === 'issue_comment' || event === 'issues') return from(payload.issue)
+  if (event === 'projects_v2_item') return from(payload.projects_v2_item)
   return undefined
 }
 
@@ -345,8 +413,8 @@ export class GithubWebhookTranslator implements IWebhookTranslator {
     return isBusEvent(event)
   }
 
-  translate({ event, payload, deliveryId }: WebhookDelivery): EngineEvent | null {
-    return githubWebhookEvent(event, payload, this.resolveScope, deliveryId)
+  translate({ event, payload, deliveryId, projectIds }: WebhookDelivery): EngineEvent | null {
+    return githubWebhookEvent(event, payload, this.resolveScope, deliveryId, projectIds)
   }
 
   async resolveItem(delivery: WebhookDelivery, event: EngineEvent): Promise<IssueItem | null> {

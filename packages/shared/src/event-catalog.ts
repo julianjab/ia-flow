@@ -71,10 +71,18 @@ export const EVENT_CATALOG: EventTypeDef[] = [
     source: 'github',
     fields: ['action', 'issueNumber', 'item'],
   },
-  // `projects_v2_item`/`projects_v2` todavía no publican al bus: su payload no
-  // trae `repository`, así que necesitan un resolver de scope por
-  // `project_node_id` que no existe todavía (siguen disparando el re-scan del
-  // board, sin cambios). Se agregan al catálogo cuando tengan productor.
+  {
+    type: 'projects_v2_item',
+    description: 'Un item del board de GitHub Projects cambió (status, campo, etc).',
+    source: 'github',
+    fields: ['action', 'itemId', 'fieldName', 'fieldValue', 'item'],
+  },
+  {
+    type: 'projects_v2',
+    description: 'Cambió la configuración del proyecto de GitHub Projects en sí (no un item).',
+    source: 'github',
+    fields: ['action'],
+  },
 
   // ─── Pull requests ───────────────────────────────────────────────────────
   {
