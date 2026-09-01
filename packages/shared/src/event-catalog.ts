@@ -58,27 +58,34 @@ export const EVENT_CATALOG: EventTypeDef[] = [
   },
 
   // ─── GitHub — issues y el board ──────────────────────────────────────────
+  // El tipo es `<evento>.<action>` tal cual GitHub los manda — no una
+  // taxonomía curada aparte. Éstas son las acciones más comunes; cualquier
+  // otra (`issue_comment.deleted`, `issues.assigned`, …) se publica igual con
+  // el mismo prefijo, aunque no esté listada acá (el catálogo es sólo para
+  // autocomplete, no autoritativo).
   {
-    type: 'issue_comment',
+    type: 'issue_comment.created',
     description:
       'Comentario nuevo en un issue de GitHub. `item` está resuelto cuando el issue pertenece a un proyecto conocido.',
     source: 'github',
     fields: ['action', 'body', 'author', 'commentUrl', 'issueNumber', 'item'],
   },
   {
-    type: 'issues',
-    description: 'Cambio en un issue de GitHub (abierto, cerrado, labels, etc).',
+    type: 'issues.opened',
+    description:
+      'Cambio en un issue de GitHub (abierto, cerrado, etc). `labelName`/`assignee` sólo vienen en labeled/unlabeled/assigned/unassigned.',
     source: 'github',
-    fields: ['action', 'issueNumber', 'item'],
+    fields: ['action', 'issueNumber', 'title', 'state', 'labelName', 'assignee', 'item'],
   },
   {
-    type: 'projects_v2_item',
-    description: 'Un item del board de GitHub Projects cambió (status, campo, etc).',
+    type: 'projects_v2_item.edited',
+    description:
+      'Un item del board de GitHub Projects cambió. GitHub avisa QUÉ campo, nunca a qué valor — para eso hay que mirar `item`.',
     source: 'github',
-    fields: ['action', 'itemId', 'fieldName', 'fieldValue', 'item'],
+    fields: ['action', 'itemId', 'fieldName', 'fieldType', 'item'],
   },
   {
-    type: 'projects_v2',
+    type: 'projects_v2.edited',
     description: 'Cambió la configuración del proyecto de GitHub Projects en sí (no un item).',
     source: 'github',
     fields: ['action'],

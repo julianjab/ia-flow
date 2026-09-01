@@ -22,13 +22,17 @@ export const PR_SYNCHRONIZED = 'pr.synchronize'
 export const PR_READY = 'pr.ready_for_review'
 export const PR_REVIEW_SUBMITTED = 'pr.review_submitted'
 export const CI_FINISHED = 'ci.finished'
-/** `issue_comment`/`issues`/`projects_v2_item`/`projects_v2` — nombre nativo
- *  de GitHub, no un tipo curado. También siguen disparando el re-scan
- *  (`ISSUE_EVENTS` en `routes/webhooks.ts`). */
-export const ISSUE_COMMENT = 'issue_comment'
-export const ISSUES = 'issues'
-export const PROJECTS_V2_ITEM = 'projects_v2_item'
-export const PROJECTS_V2 = 'projects_v2'
+/** `<evento>.<action>` — nombre nativo de GitHub + la acción tal cual la
+ *  manda, no un tipo curado aparte (`issue_comment.deleted`,
+ *  `issues.assigned`, etc. se publican igual, con el mismo prefijo). Estas
+ *  cuatro son ejemplos de la acción más común de cada evento — para
+ *  `describeEventType`/el catálogo, no para filtrar `handles()`, que sigue
+ *  mirando el nombre crudo del delivery (`isBusEvent`). También siguen
+ *  disparando el re-scan (`ISSUE_EVENTS` en `routes/webhooks.ts`). */
+export const ISSUE_COMMENT_CREATED = 'issue_comment.created'
+export const ISSUES_OPENED = 'issues.opened'
+export const PROJECTS_V2_ITEM_EDITED = 'projects_v2_item.edited'
+export const PROJECTS_V2_EDITED = 'projects_v2.edited'
 
 /** Resuelve a qué proyecto y repo de ia-flow pertenece un `owner/repo` de
  *  GitHub. Sin él, el evento queda sin scope y —fail-closed— sólo lo verían
@@ -50,6 +54,12 @@ interface RawPayload {
   projects_v2_item?: Record<string, unknown>
   projects_v2?: Record<string, unknown>
   changes?: Record<string, unknown>
+  // Sólo presentes en ciertas `action` de `issues` — confirmado contra los
+  // payload-examples reales de GitHub: `labeled`/`unlabeled` traen `label` a
+  // nivel raíz (no anidado en `issue`); `assigned`/`unassigned` traen
+  // `assignee` de la misma forma.
+  label?: { name?: string }
+  assignee?: { login?: string }
 }
 
 function ownerRepo(payload: RawPayload): { owner: string; repo: string } | null {
@@ -220,10 +230,13 @@ export function ciFinishedEvent(
 }
 
 /**
- * `issue_comment` → el evento tal cual, con el nombre nativo de GitHub — no se
- * inventa un tipo curado (`issue.comment_created`) para no tener que agregar
- * uno nuevo por cada `action` que aparezca. `action` viaja en el payload para
- * que una regla filtre `created`/`edited`/`deleted` con `when`.
+ * `issue_comment` → `issue_comment.<action>` (`.created`, `.edited`,
+ * `.deleted`) — el nombre nativo de GitHub más la acción, tal cual las manda,
+ * no una taxonomía curada aparte. Con la acción en el tipo, una regla
+ * escribe `on: ['issue_comment.created']` en vez de `on: ['issue_comment']` +
+ * un `when` sólo para descartar edits/deletes — mismo criterio que ya usan
+ * `pr.opened`/`pr.merged`. `action` sigue viajando en el payload también, por
+ * si una regla quiere escuchar el evento entero y despachar por él.
  */
 export function issueCommentEvent(
   payload: RawPayload,
@@ -234,11 +247,12 @@ export function issueCommentEvent(
   const comment = payload.comment
   if (!issue || !comment) return null
 
+  const type = `issue_comment.${payload.action}`
   const issueNumber = typeof issue.number === 'number' ? issue.number : undefined
   const nodeId = typeof issue.node_id === 'string' ? issue.node_id : undefined
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:issue_comment:${comment.id}` } : {}),
-    type: 'issue_comment',
+    ...(deliveryId ? { id: `${deliveryId}:${type}:${comment.id}` } : {}),
+    type,
     source: 'github',
     scope: scopeFor(payload, resolve, nodeId ? { issueId: nodeId } : {}),
     payload: {
@@ -251,7 +265,8 @@ export function issueCommentEvent(
   })
 }
 
-/** `issues` → el evento tal cual, mismo criterio que `issueCommentEvent`. */
+/** `issues` → `issues.<action>` (`.opened`, `.labeled`, `.closed`, …), mismo
+ *  criterio que `issueCommentEvent`. */
 export function issuesEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
@@ -260,11 +275,12 @@ export function issuesEvent(
   const issue = payload.issue
   if (!issue) return null
 
+  const type = `issues.${payload.action}`
   const issueNumber = typeof issue.number === 'number' ? issue.number : undefined
   const nodeId = typeof issue.node_id === 'string' ? issue.node_id : undefined
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:issues:${payload.action}:${issueNumber}` } : {}),
-    type: 'issues',
+    ...(deliveryId ? { id: `${deliveryId}:${type}:${issueNumber}` } : {}),
+    type,
     source: 'github',
     scope: scopeFor(payload, resolve, nodeId ? { issueId: nodeId } : {}),
     payload: {
@@ -272,6 +288,11 @@ export function issuesEvent(
       issueNumber,
       title: issue.title,
       state: issue.state,
+      // Sólo presentes en `labeled`/`unlabeled`/`assigned`/`unassigned` — el
+      // resto de las acciones los deja `undefined`, no ausentes (mismo
+      // criterio que `fieldName`/`fieldType` en `projectItemEvent`).
+      labelName: payload.label?.name,
+      assignee: payload.assignee?.login,
     },
   })
 }
@@ -291,25 +312,32 @@ export function projectItemEvent(
   if (!item) return null
 
   const itemId = typeof item.node_id === 'string' ? item.node_id : undefined
+  // GitHub NO manda el valor viejo/nuevo en este webhook, para ningún tipo de
+  // campo — sólo dice QUÉ campo cambió (`field_name`/`field_type`), nunca a
+  // qué. Confirmado contra un delivery real de `projects_v2_item.edited` con
+  // `field_type: 'labels'`: `changes.field_value` no tiene ninguna clave de
+  // valor. Para saber el valor actual hay que resolver `item` (`getItemById`)
+  // — es justo lo que ya hace `resolveItem`, no un campo que falte acá.
   const fieldChange = payload.changes?.field_value as
-    | { field_name?: unknown; field_value?: unknown }
+    | { field_name?: unknown; field_type?: unknown }
     | undefined
+  const type = `projects_v2_item.${payload.action}`
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:projects_v2_item:${payload.action}:${itemId}` } : {}),
-    type: 'projects_v2_item',
+    ...(deliveryId ? { id: `${deliveryId}:${type}:${itemId}` } : {}),
+    type,
     source: 'github',
     scope: { ...scopeForProjectIds(projectIds), ...(itemId ? { issueId: itemId } : {}) },
     payload: {
       action: payload.action,
       itemId,
       fieldName: fieldChange?.field_name,
-      fieldValue: fieldChange?.field_value,
+      fieldType: fieldChange?.field_type,
     },
   })
 }
 
-/** `projects_v2` → cambió el proyecto en sí (un campo agregado, etc), no un
- *  item — no hay `issueId` que resolver acá. */
+/** `projects_v2` → `projects_v2.<action>` — cambió el proyecto en sí (un
+ *  campo agregado, etc), no un item — no hay `issueId` que resolver acá. */
 export function projectEvent(
   payload: RawPayload,
   projectIds: string[] | undefined,
@@ -318,9 +346,10 @@ export function projectEvent(
   const project = payload.projects_v2
   if (!project) return null
 
+  const type = `projects_v2.${payload.action}`
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:projects_v2:${payload.action}` } : {}),
-    type: 'projects_v2',
+    ...(deliveryId ? { id: `${deliveryId}:${type}` } : {}),
+    type,
     source: 'github',
     scope: scopeForProjectIds(projectIds),
     payload: { action: payload.action },
