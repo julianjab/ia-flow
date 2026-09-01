@@ -110,6 +110,59 @@ function sortedClasses(classes: Record<string, number>): Array<[string, number]>
 function toggleExpanded(agentId: string): void {
   expandedAgentId.value = expandedAgentId.value === agentId ? null : agentId;
 }
+
+// ─── Eficiencia ──────────────────────────────────────────────────────────
+// Las tres columnas de abajo responden "por qué este agente cuesta lo que
+// cuesta", que el total de tokens no distingue: un agente caro puede serlo
+// porque trabaja mucho o porque paga mal cada vuelta.
+
+// Bandas del cache hit. Un prefijo estable (system + tools) debería servirse
+// casi entero del cache; por debajo de 0.5 el historial se está re-mandando a
+// precio pleno en cada vuelta.
+const CACHE_GOOD = 0.85;
+const CACHE_WARN = 0.5;
+
+function cacheClass(rate: number | null): string {
+  if (rate === null) return 'health--unknown';
+  if (rate >= CACHE_GOOD) return 'health--good';
+  if (rate >= CACHE_WARN) return 'health--warn';
+  return 'health--bad';
+}
+
+function cacheTitle(agent: {
+  cacheHitRate: number | null;
+  tokensIn: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}): string {
+  if (agent.cacheHitRate === null) {
+    return 'Sin tokens observables — los runs de terminal no los reportan.';
+  }
+  return (
+    `${compactTokens(agent.cacheReadTokens)} desde cache · ` +
+    `${compactTokens(agent.tokensIn)} frescos (precio pleno) · ` +
+    `${compactTokens(agent.cacheCreationTokens)} escritos al cache`
+  );
+}
+
+// Tokens frescos por vuelta del loop. Es el discriminante: muchas vueltas
+// baratas es un agente que trabaja; pocas vueltas carísimas es un historial
+// que se re-manda sin cachear.
+function freshPerIter(agent: { tokensIn: number; iters: number }): number | null {
+  return agent.iters > 0 ? agent.tokensIn / agent.iters : null;
+}
+
+function itersPerRun(agent: { iters: number; runs: number }): string {
+  if (agent.iters === 0 || agent.runs === 0) return '—';
+  return (agent.iters / agent.runs).toFixed(1);
+}
+
+// `max_tokens` es el único stop reason que nombra una causa accionable
+// (subir maxTokens, o acortar el trabajo por run). El resto es ruido en una
+// tabla que ya tiene la columna de fallos.
+function budgetStops(stopReasons: Record<string, number>): number {
+  return stopReasons.max_tokens ?? 0;
+}
 </script>
 
 <template>
@@ -147,7 +200,10 @@ function toggleExpanded(agentId: string): void {
       <p v-if="totals" class="health-totals">
         <strong>{{ totals.runs }}</strong> runs ·
         <strong>{{ percent(totals.successRate) }}</strong> ok ·
-        {{ compactTokens(totals.tokensIn + totals.tokensOut) }} tokens
+        {{ compactTokens(totals.tokensIn) }} frescos ·
+        <strong :class="cacheClass(totals.cacheHitRate)">
+          {{ percent(totals.cacheHitRate) }}
+        </strong> cache
       </p>
 
       <div class="health-table-wrap">
@@ -157,9 +213,17 @@ function toggleExpanded(agentId: string): void {
             <th>Agente</th>
             <th class="num">Ejecuciones</th>
             <th class="num">Éxito</th>
-            <th class="num">Duración</th>
+            <th class="num" title="Promedio · p95 — el p95 marca el outlier que el promedio diluye">
+              Duración
+            </th>
             <th class="num">Tools</th>
-            <th class="num">Tokens</th>
+            <th class="num" title="Vueltas del loop de tools por run">Iters</th>
+            <th class="num" title="Tokens de entrada frescos — los que se pagan a precio pleno">
+              Frescos
+            </th>
+            <th class="num" title="Fracción de la entrada servida desde el cache de prompts">
+              Cache
+            </th>
             <th>Fallos</th>
           </tr>
         </thead>
@@ -195,14 +259,51 @@ function toggleExpanded(agentId: string): void {
                 {{ percent(agent.successRate) }}
               </span>
             </td>
-            <td class="num">{{ duration(agent.avgDurationMs) }}</td>
+            <td class="num">
+              {{ duration(agent.avgDurationMs) }}
+              <span
+                v-if="agent.p95DurationMs !== null && agent.p95DurationMs !== agent.avgDurationMs"
+                class="sub-metric"
+                :title="`p95: el 5% más lento arranca en ${duration(agent.p95DurationMs)}`"
+              >
+                p95 {{ duration(agent.p95DurationMs) }}
+              </span>
+            </td>
             <td class="num">
               {{ agent.toolCalls || '—' }}
               <span v-if="agent.toolErrors > 0" class="tool-errors">
                 / {{ agent.toolErrors }} err
               </span>
             </td>
-            <td class="num">{{ compactTokens(agent.tokensIn + agent.tokensOut) }}</td>
+            <td class="num">
+              {{ itersPerRun(agent) }}
+              <span
+                v-if="budgetStops(agent.stopReasons) > 0"
+                class="tool-errors"
+                :title="`${budgetStops(agent.stopReasons)} runs cortados por max_tokens — se quedaron sin presupuesto`"
+              >
+                / {{ budgetStops(agent.stopReasons) }} budget
+              </span>
+            </td>
+            <td class="num">
+              {{ compactTokens(agent.tokensIn) }}
+              <span
+                v-if="freshPerIter(agent) !== null"
+                class="sub-metric"
+                title="Tokens frescos por vuelta del loop — si crece con las iteraciones, el historial no se está cacheando"
+              >
+                {{ compactTokens(Math.round(freshPerIter(agent)!)) }}/iter
+              </span>
+            </td>
+            <td class="num">
+              <span
+                class="health-badge"
+                :class="cacheClass(agent.cacheHitRate)"
+                :title="cacheTitle(agent)"
+              >
+                {{ percent(agent.cacheHitRate) }}
+              </span>
+            </td>
             <td>
               <span v-if="sortedClasses(agent.failureClasses).length === 0" class="dash">—</span>
               <button
@@ -218,7 +319,7 @@ function toggleExpanded(agentId: string): void {
             </td>
           </tr>
           <tr v-if="expandedAgentId === agent.agentId" class="detail-row">
-            <td colspan="7">
+            <td colspan="9">
               <AgentDetailPanel
                 :agent-id="agent.agentId"
                 :project-id="projectId ?? null"
@@ -301,6 +402,13 @@ function toggleExpanded(agentId: string): void {
 .health--warn { background: var(--warn); color: var(--panel); }
 .health--bad { background: var(--danger); color: var(--panel); }
 .health--unknown { background: var(--border); color: var(--fg-mute); }
+.sub-metric {
+  display: block;
+  font-size: 0.75em;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 .tool-errors { color: var(--danger); font-size: 0.72rem; }
 .agent-row { cursor: pointer; }
 .agent-row:hover td { background: var(--panel); }
