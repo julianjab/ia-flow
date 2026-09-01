@@ -80,6 +80,8 @@ export interface AgentConfigIdentity {
   provider?: unknown
   providerConfig?: unknown
   saveOutput?: unknown
+  /** Los outputFields del agente: cambian lo que produce, no sólo cómo. */
+  output?: unknown
   exits?: unknown
 }
 

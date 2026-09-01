@@ -516,6 +516,7 @@ export class Agent {
         provider: agentDef.provider,
         providerConfig: agentDef.providerConfig,
         saveOutput: agentDef.save_output,
+        output: agentDef.output,
         exits: agentDef.exits,
       })
 
