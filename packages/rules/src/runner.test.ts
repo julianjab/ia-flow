@@ -220,3 +220,109 @@ describe('runRule — recorder', () => {
     expect(events).toEqual(['start:a', 'end:a:run-1:true'])
   })
 })
+
+// El pipeline: lo que un paso deja, el siguiente lo lee. Es lo que convierte
+// el `do[]` de una lista de acciones independientes en una secuencia.
+describe('runRule — pasos encadenados', () => {
+  test('un paso nombrado le pasa su output al siguiente', async () => {
+    const visto: unknown[] = []
+    registerAction({
+      kind: 'produce',
+      configSchema: z.object({ action: z.literal('produce') }).passthrough(),
+      execute: async () => ({ ok: true, output: { brief: 'construí X' } }),
+    })
+    registerAction({
+      kind: 'consume',
+      configSchema: z.object({ action: z.literal('consume'), brief: z.string() }).passthrough(),
+      execute: async (_ctx, cfg) => {
+        visto.push((cfg as { brief: string }).brief)
+        return { ok: true }
+      },
+    })
+
+    await runRule(
+      rule([
+        { action: 'produce', id: 'triage' },
+        { action: 'consume', brief: '{{steps.triage.output.brief}}' },
+      ] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit },
+    )
+
+    expect(visto).toEqual(['construí X'])
+  })
+
+  // Sin nombre no hay a quién referenciar: un paso que nadie lee no deja rastro.
+  test('un paso SIN id no se publica', async () => {
+    const errores: string[] = []
+    registerAction({
+      kind: 'produce',
+      configSchema: z.object({ action: z.literal('produce') }).passthrough(),
+      execute: async () => ({ ok: true, output: 'algo' }),
+    })
+    registerAction({
+      kind: 'consume',
+      configSchema: z.object({ action: z.literal('consume'), brief: z.string() }).passthrough(),
+      execute: async () => ({ ok: true }),
+    })
+
+    await runRule(
+      rule([
+        { action: 'produce' },
+        { action: 'consume', brief: '{{steps.triage.output}}' },
+      ] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit, onError: (e) => errores.push((e as Error).message) },
+    )
+
+    expect(errores.join()).toContain('triage')
+  })
+
+  // Correr con un valor que no llegó es el modo de falla que este mecanismo
+  // tiene que NO tener.
+  test('una referencia rota no ejecuta la acción', async () => {
+    let corrio = false
+    registerAction({
+      kind: 'consume',
+      configSchema: z.object({ action: z.literal('consume'), brief: z.string() }).passthrough(),
+      execute: async () => {
+        corrio = true
+        return { ok: true }
+      },
+    })
+
+    await runRule(
+      rule([{ action: 'consume', brief: '{{steps.nope.output}}' }] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit },
+    )
+
+    expect(corrio).toBe(false)
+  })
+
+  // Un paso que falló no dejó un valor; ofrecerlo vacío sería el mismo hueco.
+  test('un paso que falló no publica output', async () => {
+    const errores: string[] = []
+    registerAction({
+      kind: 'produce',
+      configSchema: z.object({ action: z.literal('produce') }).passthrough(),
+      execute: async () => ({ ok: false, output: 'basura', skipped: true }),
+    })
+    registerAction({
+      kind: 'consume',
+      configSchema: z.object({ action: z.literal('consume'), brief: z.string() }).passthrough(),
+      execute: async () => ({ ok: true }),
+    })
+
+    await runRule(
+      rule([
+        { action: 'produce', id: 'triage' },
+        { action: 'consume', brief: '{{steps.triage.output}}' },
+      ] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit, onError: (e) => errores.push((e as Error).message) },
+    )
+
+    expect(errores.join()).toContain('triage')
+  })
+})

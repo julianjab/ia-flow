@@ -28,6 +28,7 @@ const ctx = (payload: Record<string, unknown> = {}): ActionContext =>
 function spyDispatch(
   outcome: DispatchOutcome = 'dispatched',
   extra: Partial<ConstructorParameters<typeof AgentAction>[0]> = {},
+  agentOutput?: unknown,
 ) {
   const calls: Array<string | undefined> = []
   const dispatched: Array<{ item: IssueItem; exits?: unknown }> = []
@@ -39,7 +40,7 @@ function spyDispatch(
       dispatch: async (item, _m, _a, _r, _e, brief, exits) => {
         calls.push(brief)
         dispatched.push({ item, exits })
-        return outcome
+        return { outcome, output: agentOutput }
       },
       ...extra,
     }),
@@ -192,5 +193,21 @@ describe('AgentAction — el dispatcher devuelve skipped', () => {
     const res = await action.execute(ctx(), { action: 'agent', agentId: 'implementer' } as never)
     expect(res.ok).toBe(true)
     expect(res.skipped).toBeFalsy()
+  })
+})
+
+// Lo que el agente produjo es lo que el paso siguiente va a leer como
+// `{{steps.<id>.output}}`.
+describe('AgentAction — output del paso', () => {
+  test('publica lo que devolvió el run', async () => {
+    const { action } = spyDispatch('dispatched', {}, { brief: 'construí X', next: 'implementer' })
+    const res = await action.execute(ctx(), { action: 'agent', agentId: 'triager' } as never)
+    expect(res.output).toEqual({ brief: 'construí X', next: 'implementer' })
+  })
+
+  test('un agente sin salida no publica nada', async () => {
+    const { action } = spyDispatch('dispatched')
+    const res = await action.execute(ctx(), { action: 'agent', agentId: 'triager' } as never)
+    expect(res.output).toBeUndefined()
   })
 })
