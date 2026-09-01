@@ -33,6 +33,20 @@ export interface ActionResult {
   /** Hubo trabajo pero no capacidad. Se propaga como `deferred` para que el
    *  item vuelva al backlog en vez de perderse. */
   deferred?: boolean
+  /**
+   * No había nada que hacer. **No es un fallo, y no corta el `do[]`.**
+   *
+   * La distinción es la misma que `DispatchOutcome` ya hace entre `skipped` y
+   * `deferred`, y hace falta por lo mismo: sin ella, "esto no aplica" y "esto
+   * se rompió" comparten el único canal que hay (`ok: false`), y el runner
+   * —que no puede distinguirlos— aborta las acciones siguientes y graba la
+   * fila en rojo.
+   *
+   * El caso concreto: un `ci.finished` de un PR que ningún issue del board
+   * linkea. No hay agente que correr y eso es correcto, pero una regla
+   * `do: [agent, emit]` perdía el `emit` y aparecía como fallada.
+   */
+  skipped?: boolean
 }
 
 export interface ActionHandler<C = unknown> {

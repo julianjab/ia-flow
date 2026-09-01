@@ -89,9 +89,13 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
     // `deferred` no es un fallo: es "hay trabajo, no hay capacidad". Se
     // registra como su propio outcome para que el listado no lo muestre en
     // rojo al lado de una llamada HTTP que de verdad se cayó.
+    // Ni `deferred` ni `skipped` son fallos: el primero es "hay trabajo, no hay
+    // capacidad" y el segundo "no había nada que hacer". Mostrarlos en rojo al
+    // lado de una llamada HTTP que de verdad se cayó haría el listado inútil
+    // justo cuando hay algo roto de verdad.
     const outcome: ExecutionLog['outcome'] = error
       ? 'error'
-      : result.deferred
+      : result.deferred || result.skipped
         ? 'cancelled'
         : result.ok
           ? 'success'

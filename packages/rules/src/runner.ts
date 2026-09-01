@@ -181,7 +181,10 @@ export async function runRule(
 
     if (result.deferred) deferred = true
     if (result.ok) ranSomething = true
-    if (!result.ok && !continueAfterFailure(entry)) break
+    // `skipped` no corta la secuencia: significa "no aplicaba", no "se rompió".
+    // Sin esta distinción una acción que legítimamente no tenía nada que hacer
+    // se llevaba puestas las que venían después — ver ActionResult.skipped.
+    if (!result.ok && !result.skipped && !continueAfterFailure(entry)) break
   }
 
   if (deferred) return 'deferred'

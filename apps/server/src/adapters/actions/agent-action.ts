@@ -91,7 +91,16 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       }
     }
     if (!item) {
-      return { ok: false, detail: 'el evento no trae un issue sobre el que correr' }
+      // `skipped` y no un fallo: un `pr.opened`/`ci.finished` de un PR que
+      // ningún issue del board linkea es un caso normal —alguien abrió un PR a
+      // mano—, y desde que `resolveItem` existe deja de ser raro. Marcarlo como
+      // error abortaría las acciones siguientes del `do[]` y pintaría la regla
+      // de rojo por algo que funcionó como tiene que funcionar.
+      return {
+        ok: false,
+        skipped: true,
+        detail: 'el evento no apunta a ningún issue de este proyecto',
+      }
     }
 
     const manager = this.deps.managerFor(projectId)
