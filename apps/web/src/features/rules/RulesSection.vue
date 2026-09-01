@@ -97,6 +97,23 @@ function isDisabledHere(rule: Rule): boolean {
   return disabledHere.value.includes(rule.id)
 }
 
+/**
+ * ¿Tiene sentido el interruptor para esta regla?
+ *
+ * Dos casos donde no, y en los dos se esconde en vez de mostrarse apagado: un
+ * control que no puede cambiar nada miente sobre lo que esta pantalla decide.
+ *
+ *  - Apagada en General (`enabled === false`): no corre en ningún lado, y
+ *    prenderla acá no es una decisión de este proyecto.
+ *  - Agendada (`schedule`): su tick lo emite el cron con el scope de la REGLA,
+ *    y el de una global es vacío — corre una vez para todo el proceso, no una
+ *    por proyecto. No hay un "acá" que apagar; el server rechaza el intento
+ *    con ese motivo.
+ */
+function canToggleHere(rule: Rule): boolean {
+  return Boolean(projectId.value) && !readOnly.value && rule.enabled !== false && !rule.schedule
+}
+
 const togglingId = ref<string | null>(null)
 
 /**
@@ -581,6 +598,10 @@ function onDrop(to: number) {
               <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
               <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
               <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
+              <!-- Sin este tag, la única fila sin interruptor de la lista no
+                   tiene explicación. Corre por cron, una vez para todo el
+                   proceso — ver `canToggleHere`. -->
+              <span v-if="rule.schedule" class="rs-tag cron">cron {{ rule.schedule }}</span>
             </div>
             <div class="rs-item-sentence">
               <RuleSentence :rule="rule" />
@@ -598,7 +619,7 @@ function onDrop(to: number) {
                  `:slotted(button)` como su ✕, y eso le pisaría la caja al
                  interruptor. Con el wrapper el botón deja de ser slotted. -->
             <template #actions>
-              <span v-if="projectId && !readOnly && rule.enabled !== false" class="rs-here">
+              <span v-if="canToggleHere(rule)" class="rs-here">
                 <ToggleSwitch
                   :model-value="!isDisabledHere(rule)"
                   :busy="togglingId === rule.id"
@@ -743,6 +764,7 @@ function onDrop(to: number) {
 }
 .rs-tag.repo { color: var(--info); border-color: var(--info); }
 .rs-tag.excl { color: var(--warn); border-color: var(--warn); }
+.rs-tag.cron { color: var(--info); border-color: var(--info); }
 
 .rs-here { display: inline-flex; align-items: center; }
 

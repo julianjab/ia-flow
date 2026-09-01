@@ -132,6 +132,23 @@ export function createRulesRouter() {
         400,
       )
     }
+    // Una global AGENDADA no dispara "en un proyecto": el productor de cron
+    // emite su tick con el scope de la regla, y el de una global es vacío
+    // (`scheduleTickEvent` → `scope: {}`). O sea que corre una vez para todo el
+    // proceso, y `visibleTo(undefined)` —el camino que toma ese evento— no
+    // tiene proyecto contra el cual filtrar.
+    //
+    // Se rechaza en vez de aceptarse y no hacer nada: guardar la baja dejaría
+    // el interruptor apagado mientras la regla sigue disparando, que es el
+    // fallo silencioso que este endpoint existe para no tener.
+    if (rule.schedule) {
+      return c.json(
+        {
+          error: `La regla ${id} corre por cron y no por proyecto — no hay un "acá" que apagar. Si su tick tiene que afectar sólo a algunos proyectos, que emita un evento con scope y la baja se hace sobre la regla que lo consume.`,
+        },
+        400,
+      )
+    }
 
     const current = disabledRuleIdsOf(projectId)
     const next = toggleDisabledRuleId(current, id, enabled)
