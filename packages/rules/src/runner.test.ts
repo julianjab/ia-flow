@@ -326,3 +326,38 @@ describe('runRule — pasos encadenados', () => {
     expect(errores.join()).toContain('triage')
   })
 })
+
+// El `id` nombra el PASO dentro de esta secuencia, no la acción reusable, así
+// que no puede vivir del otro lado de la ref.
+describe('runRule — una ref conserva el id del paso', () => {
+  test('publica su output bajo el id que puso la regla', async () => {
+    const visto: unknown[] = []
+    registerAction({
+      kind: 'produce',
+      configSchema: z.object({ action: z.literal('produce') }).passthrough(),
+      execute: async () => ({ ok: true, output: 'del catálogo' }),
+    })
+    registerAction({
+      kind: 'consume',
+      configSchema: z.object({ action: z.literal('consume'), brief: z.string() }).passthrough(),
+      execute: async (_ctx, cfg) => {
+        visto.push((cfg as { brief: string }).brief)
+        return { ok: true }
+      },
+    })
+
+    await runRule(
+      rule([
+        { action: 'ref', actionId: 'compartida', id: 't' },
+        { action: 'consume', brief: '{{steps.t.output}}' },
+      ] as unknown as RuleActionEntry[]),
+      ev(),
+      {
+        emit: noopEmit,
+        resolveAction: async () => ({ entry: { action: 'produce' } as never, name: 'compartida' }),
+      },
+    )
+
+    expect(visto).toEqual(['del catálogo'])
+  })
+})

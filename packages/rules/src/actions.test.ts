@@ -51,6 +51,21 @@ describe('validateActions — agentId dinámico', () => {
     expect(errs).toHaveLength(1)
   })
 
+  // La lista tiene que ser una decisión del operador tomada por adelantado. Si
+  // sale de un paso, la escribe el mismo modelo que después elige adentro.
+  test('una lista que sale de un paso no cuenta como declarada', () => {
+    registerAgent()
+    const errs = validateActions(
+      entries({
+        action: 'agent',
+        agentId: '{{steps.t.output.next}}',
+        allowAgents: ['{{steps.t.output.next}}'],
+      }),
+    )
+    expect(errs).toHaveLength(1)
+    expect(errs[0].message).toContain('allowAgents')
+  })
+
   test('un agentId literal no necesita nada', () => {
     registerAgent()
     expect(validateActions(entries({ action: 'agent', agentId: 'implementer' }))).toEqual([])

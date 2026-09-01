@@ -92,6 +92,22 @@ describe('resolveSteps', () => {
     expect(out.agentId).toBe('implementer')
   })
 
+  // Si la lista saliera de un paso, el mismo modelo escribiría la elección Y el
+  // espacio de elecciones: la compuerta se abriría a sí misma.
+  it('una lista que sale de un paso NO abre la compuerta', () => {
+    const e = errs({
+      action: 'agent',
+      agentId: '{{steps.triage.output.next}}',
+      allowAgents: ['{{steps.triage.output.next}}'],
+    })
+    expect(e.length).toBeGreaterThan(0)
+    expect(e.join()).toContain('agentId')
+  })
+
+  it('allowAgents tampoco se puede alimentar desde un agente', () => {
+    expect(errs({ allowAgents: ['{{steps.triage.output.next}}'] })[0]).toContain('allowAgents')
+  })
+
   it('una lista vacía no abre la compuerta', () => {
     const e = errs({ action: 'agent', agentId: '{{steps.triage.output.next}}', allowAgents: [] })
     expect(e[0]).toContain('agentId')
