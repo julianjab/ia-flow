@@ -1,4 +1,4 @@
-import type { ICredentialProvider } from '@ia-flow/shared'
+import type { CredentialDescription, ICredentialProvider } from '@ia-flow/shared'
 
 // Misma indirección que `logger.ts`: este paquete no puede depender de
 // `@ia-flow/github-auth` (sería atarle a `issue-sources` una estrategia de
@@ -28,4 +28,15 @@ export async function getGitHubToken(scope?: {
 }): Promise<string | undefined> {
   if (provider) return provider.getToken(scope)
   return Bun.env.GITHUB_TOKEN || undefined
+}
+
+/**
+ * Con qué estrategia se está autenticando el proceso, o `null` si el host no
+ * cableó ninguna. No es telemetría: hay endpoints de la REST que existen para
+ * una identidad y no para otra —`/user` es del usuario, y un installation
+ * token de GitHub App no lo puede llamar—, así que quien elige el endpoint
+ * necesita saber con qué identidad va a pegarle.
+ */
+export function describeGitHubCredentials(): CredentialDescription | null {
+  return provider?.describe() ?? null
 }
