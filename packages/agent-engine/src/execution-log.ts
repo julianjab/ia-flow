@@ -38,9 +38,7 @@ export function safeUpdateLog(
 
 /**
  * Identity of the prompt a run actually executed — the resolved prompt plus
- * the system blocks, hashed together. Two runs of "the same" agent are only
- * comparable when this matches, so it's what lets a regression be pinned to
- * a specific prompt edit rather than to the agent id in the abstract.
+ * the system blocks, hashed together.
  *
  * Truncated to 12 hex chars: this is a grouping key for a few thousand rows,
  * not a security primitive, and a short one stays readable in the UI.
@@ -49,6 +47,58 @@ export function hashPrompt(...parts: Array<string | undefined | null>): string {
   const hash = createHash('sha256')
   for (const part of parts) hash.update(part ?? '')
   return hash.digest('hex').slice(0, 12)
+}
+
+/**
+ * Serializa con las claves de cada objeto ORDENADAS, recursivamente.
+ *
+ * `JSON.stringify` conserva el orden de inserción, así que el mismo agente
+ * leído por dos caminos distintos (una fila de SQLite, un YAML de deploy, un
+ * PUT de la web) puede producir dos strings distintos para la MISMA config —
+ * y con eso, dos hashes. Sin esto el hash mediría cómo se construyó el objeto
+ * en memoria, no qué dice.
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value ?? null)
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`
+}
+
+/** La parte de un agente que define su COMPORTAMIENTO, para `hashAgentConfig`. */
+export interface AgentConfigIdentity {
+  /** El template CRUDO (`agentDef.prompt`), con los `{{...}}` sin resolver. */
+  prompt: string
+  /** Bloques ya resueltos: editar el texto de un system prompt COMPARTIDO
+   *  cambia el comportamiento tanto como editar el prompt propio, y por id
+   *  ese cambio sería invisible. */
+  systemPromptBlocks?: unknown
+  tools?: unknown
+  variables?: unknown
+  provider?: unknown
+  providerConfig?: unknown
+  saveOutput?: unknown
+  exits?: unknown
+}
+
+/**
+ * Identidad de la CONFIGURACIÓN de un agente — estable mientras nadie lo
+ * edite, y por eso lo que hace comparables dos runs entre sí.
+ *
+ * La distinción con `hashPrompt` es la que hace útil a `promptVersions`: el
+ * prompt que un run ejecuta lleva las variables ya sustituidas (el título del
+ * issue, sus comentarios, el branch de la task), así que hashearlo daba un
+ * valor distinto POR RUN — 34 runs de `implementer` producían 32 hashes, y
+ * "el prompt cambió 32 veces" era ruido, no una señal de regresión.
+ *
+ * Entra todo lo que cambia lo que el agente HACE (prompt, system, tools,
+ * provider, salidas). Queda afuera lo organizativo — `position`, `projectId`,
+ * `id` —: mover un agente de lugar no invalida la comparación de sus runs.
+ */
+export function hashAgentConfig(identity: AgentConfigIdentity): string {
+  return hashPrompt(canonicalJson(identity))
 }
 
 export interface FinishPatchInput {

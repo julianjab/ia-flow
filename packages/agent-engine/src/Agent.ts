@@ -38,7 +38,7 @@ import type {
   RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
-import { buildFinishPatch, hashPrompt, safeInsertLog, safeUpdateLog } from './execution-log.js'
+import { buildFinishPatch, hashAgentConfig, safeInsertLog, safeUpdateLog } from './execution-log.js'
 import { buildGitContext } from './git-context.js'
 import {
   type LinkedBranchNamer,
@@ -503,7 +503,21 @@ export class Agent {
         },
       })
 
-      agentPromptHash = hashPrompt(finalPrompt, JSON.stringify(systemPromptBlocks ?? null))
+      // Hashea la CONFIGURACIÓN del agente, no el prompt que este run mandó.
+      // `finalPrompt` lleva el git context, el brief y las variables ya
+      // resueltas (título del issue, sus comentarios), así que cambia con cada
+      // task: hashearlo daba un valor único por run y volvía a `promptVersions`
+      // un contador de runs disfrazado. Ver hashAgentConfig.
+      agentPromptHash = hashAgentConfig({
+        prompt: agentDef.prompt,
+        systemPromptBlocks,
+        tools: agentDef.tools,
+        variables: agentDef.variables,
+        provider: agentDef.provider,
+        providerConfig: agentDef.providerConfig,
+        saveOutput: agentDef.save_output,
+        exits: agentDef.exits,
+      })
 
       safeInsertLog(this.executionLogRepo, {
         id: logId,
