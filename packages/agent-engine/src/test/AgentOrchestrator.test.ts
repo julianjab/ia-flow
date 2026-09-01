@@ -193,6 +193,9 @@ function okShell(): ShellRunner {
 
 interface WsDeps {
   agentTools?: string[]
+  /** Prompt del agente. Default `'x'`; los tests que verifican el ORDEN del
+   *  user turn necesitan uno distinguible del resto del texto. */
+  agentPrompt?: string
   workspaceManager: WorkspaceManager
   captureInput?: (input: ProviderInput) => void
 }
@@ -223,7 +226,7 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSour
         {
           id: 'implementer',
           provider: 'anthropic-api',
-          prompt: 'x',
+          prompt: opts.agentPrompt ?? 'x',
           tools: opts.agentTools ?? [],
         },
       ],
@@ -315,6 +318,46 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     const wt = worktreePathFor(REPO, worktreeNameFor({ id: TASK_ID, title: 'ws' }), BASE)
     expect(captured!.repoPaths.demo).toBe(wt)
     expect(captured!.writePaths).toEqual([wt])
+  })
+
+  // El brief es lo que le dice al agente POR QUÉ corre esta vez. Va al user
+  // turn (no al system, que es lo estable y lo que la API cachea) y antes del
+  // prompt, porque enmarca cómo leerlo.
+  it('el brief de la regla se antepone al prompt del agente, bajo su propio encabezado', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    let captured: ProviderInput | undefined
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      agentPrompt: 'PROMPT_DEL_AGENTE',
+      captureInput: (inp) => {
+        captured = inp
+      },
+    })
+
+    await orch.runAgent(makeWsTask('PVTI_ws_brief'), manager, 'implementer', {
+      brief: 'Llegó un comentario nuevo — atendé ese pedido.',
+    })
+
+    expect(captured!.prompt).toContain('## Por qué estás corriendo')
+    expect(captured!.prompt).toContain('Llegó un comentario nuevo')
+    expect(captured!.prompt.indexOf('Llegó un comentario nuevo')).toBeLessThan(
+      captured!.prompt.indexOf('PROMPT_DEL_AGENTE'),
+    )
+  })
+
+  it('sin brief el prompt queda exactamente como antes — ningún encabezado vacío', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    let captured: ProviderInput | undefined
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      captureInput: (inp) => {
+        captured = inp
+      },
+    })
+
+    await orch.runAgent(makeWsTask('PVTI_ws_nobrief'), manager, 'implementer')
+
+    expect(captured!.prompt).not.toContain('Por qué estás corriendo')
   })
 
   it('per-task mutex: a second runAgent while the lock is held throws "task <id> ya está corriendo"', async () => {
