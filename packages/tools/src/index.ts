@@ -10,7 +10,7 @@ export {
   resolveTools,
   unregisterTool,
 } from './engine.js'
-export { setGitTokenPort, setSystemPromptPort } from './ports.js'
+export { setGitTokenPort } from './ports.js'
 export type { GitTokenPort } from './ports.js'
 export { compilePolicy } from './policy.js'
 export type { CompilePolicyInput } from './policy.js'
@@ -24,7 +24,7 @@ export type { Logger, LoggerFactory } from './logger.js'
 // helpers, port setters). Importing this package's index registers every
 // built-in tool, same as apps/server/src/routes/tools.ts did before the
 // move with its 7 separate side-effect imports.
-export { setLoadProviderConfig } from './fs/fs.js'
+export { FILE_SIMPLIFIER_ENV } from './fs/fs.js'
 import './fs/fs.js'
 import './write/write.js'
 import './exec/exec.js'

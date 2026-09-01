@@ -620,6 +620,33 @@ haría que `getByTask` la volviera a ofrecer para siempre.
 reanude. Lo que todavía NO existe es una **orden de pausa externa** —cortar un run ajeno
 conservando su estado—: hoy lo único externo que corta un run es el cancel, que mata.
 
+## Archivos grandes — el `focus` de `fs_read`
+
+`fs_read` devuelve el archivo entero hasta 40 KB. Arriba de eso, sin más datos, corta y le
+dice al agente cuánto mide y cómo seguir (`offset`/`limit`, o `focus`). Con **`focus`** —una
+frase con lo que el agente necesita del archivo— Haiku extrae **sólo las partes que responden
+a eso, citadas textuales con su rango de líneas**, o dice "Not found" y lista qué sí contiene.
+El agente decide caso por caso qué quiere; el engine ya no resume nada a sus espaldas.
+
+Antes había un "simplificador" automático por tamaño (>15 KB) que resumía el archivo entero sin
+saber para qué se leía: en el run aac4283c dejó un `CLAUDE.md` de 174 KB en un 6 % y se comió
+las instrucciones del repo. El `focus` reemplaza eso.
+
+- **Los prompts de Haiku viven en código** (`packages/tools/src/fs/focus-prompt.ts` y
+  `compaction-prompt.ts`), no en la tabla de system prompts: son la otra mitad del contrato de
+  la tool —el formato de salida que `fs_read` promete— y un deploy sin la fila sembrada tenía la
+  feature apagada en silencio. `SystemPromptPort` ya no existe en `@ia-flow/tools`.
+- **Interruptor global: `IA_FLOW_FILE_SIMPLIFIER=0`** (editable en Configuración, grupo
+  Anthropic; en el runner, `settings.fileSimplifier: false`). Apagado, el `focus` se ignora y
+  vuelve la cabecera con la nota. El override por agente
+  (`providerConfig.fileSimplifierEnabled`) sigue ganando sobre el global. El campo homónimo de
+  `ProviderConfigSchema` se sacó: nunca llegó a `loadProviderConfig`, así que nunca apagó nada.
+- **Debajo de 15 KB el `focus` no llama a Haiku**: el archivo entra entero, que es más barato
+  que la vuelta. Haiku ve hasta 150 KB; más allá, el resultado avisa que la extracción es parcial.
+- **Un `focus` que falla no voltea el run**: sin credencial, o con Haiku caído, vuelve lo mismo
+  que sin `focus` con el motivo entre paréntesis. La llamada compartida está en
+  `packages/tools/src/haiku.ts`; usa `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` por llamada.
+
 ## Memoria de los agentes — lo que se deja escrito a sí mismo
 
 Un dispatch arranca en frío: el agente ve el issue, sus comentarios y el repo, y nada de lo que

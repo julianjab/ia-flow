@@ -1,6 +1,7 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
 import type { ProviderKind } from '@ia-flow/ai-providers'
+import { HISTORY_COMPACTION_PROMPT } from './compaction-prompt.js'
 import type {
   LoopOptions,
   LoopResult,
@@ -9,8 +10,8 @@ import type {
   ToolContext,
   ToolDefinitionsOptions,
 } from './contract.js'
+import { askHaiku, haikuAuthHeader } from './haiku.js'
 import { createLogger } from './logger.js'
-import { getSystemPromptPort } from './ports.js'
 
 const log = createLogger('tool-loop')
 
@@ -208,9 +209,6 @@ function captureRawResponse(response: unknown): string {
     : json
 }
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
-const HISTORY_COMPACTION_PROMPT_ID = 'historyCompaction'
-
 async function compactHistory(
   messages: ApiMessage[],
   runLog: typeof log = log,
@@ -229,16 +227,9 @@ async function compactHistory(
     { historyBytes, messageCount: messages.length, top },
     'compactHistory input breakdown',
   )
-  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  const apiKey = Bun.env.ANTHROPIC_API_KEY
-  const authHeader: Record<string, string> | null = oauthToken
-    ? { Authorization: `Bearer ${oauthToken}` }
-    : apiKey
-      ? { 'x-api-key': apiKey }
-      : null
 
   // Fallback: truncate tool results to 500 chars each
-  if (!authHeader) {
+  if (!haikuAuthHeader()) {
     runLog.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
     return messages.map((msg) => {
       if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
@@ -255,24 +246,6 @@ async function compactHistory(
     })
   }
 
-  const systemPromptPort = getSystemPromptPort()
-  if (!systemPromptPort) {
-    runLog.warn(
-      { historyBytes },
-      'haiku compaction skipped: no SystemPromptPort wired — keeping history',
-    )
-    return messages
-  }
-  const prompt = systemPromptPort.getById(HISTORY_COMPACTION_PROMPT_ID)
-  if (!prompt) {
-    runLog.warn(
-      { historyBytes, promptId: HISTORY_COMPACTION_PROMPT_ID },
-      'haiku compaction skipped: system prompt not seeded — keeping history',
-    )
-    return messages
-  }
-  const compactionPrompt = prompt.text
-
   const toolResults: string[] = []
   for (const msg of messages) {
     if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
@@ -284,44 +257,18 @@ async function compactHistory(
   }
 
   const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
-  runLog.info(
-    {
-      model: HAIKU_MODEL,
-      historyBytes,
-      toolResultCount: toolResults.length,
-      userBytes: userContent.length,
-      systemBytes: compactionPrompt.length,
-    },
-    'haiku compaction request',
-  )
-
   const t0 = Date.now()
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        ...authHeader,
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: 4096,
-        system: compactionPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
+    const {
+      text: summary,
+      usage,
+      ms,
+    } = await askHaiku({
+      system: HISTORY_COMPACTION_PROMPT,
+      user: userContent,
+      maxTokens: 4096,
+      scope: { tool: 'compactHistory', historyBytes, toolResultCount: toolResults.length },
     })
-    const ms = Date.now() - t0
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      runLog.warn({ status: res.status, ms, err: errBody.slice(0, 500) }, 'haiku compaction failed')
-      throw new Error(`Haiku ${res.status}`)
-    }
-    const data = (await res.json()) as any
-    const summary = (data.content as any[])
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text as string)
-      .join('')
 
     // Keep: initial prompt + summary of findings as a plain user turn.
     // The summary can't be a `tool_result` — there's no matching `tool_use`
@@ -354,13 +301,12 @@ async function compactHistory(
     const afterBytes = JSON.stringify(compacted).length
     runLog.info(
       {
-        status: res.status,
         ms,
         summaryBytes: summary.length,
         beforeBytes: historyBytes,
         afterBytes,
         ratio: afterBytes / Math.max(historyBytes, 1),
-        usage: data.usage,
+        usage,
       },
       'haiku compaction response',
     )

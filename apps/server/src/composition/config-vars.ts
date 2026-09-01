@@ -27,7 +27,7 @@ const ALWAYS = [
 /** Credenciales del modelo. Las declara quien las lee: `buildAnthropicAuthHeader`
  *  (packages/ai-providers/src/anthropic-api/auth.ts) prueba el token OAuth y
  *  después la API key. */
-const ANTHROPIC_VARS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']
+const ANTHROPIC_VARS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'IA_FLOW_FILE_SIMPLIFIER']
 
 const REMOTE_PROVIDER_VARS = [
   'IA_FLOW_REMOTE_HEALTH_INTERVAL_MS',

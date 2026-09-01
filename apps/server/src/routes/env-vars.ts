@@ -39,6 +39,15 @@ export const ENV_VAR_DEFINITIONS = {
     group: 'anthropic',
     secret: true,
   },
+  IA_FLOW_FILE_SIMPLIFIER: {
+    label: 'Extracción con Haiku en fs_read (focus)',
+    description:
+      'Cuando un agente lee un archivo grande con `focus`, Haiku extrae sólo las partes que pidió, citadas con sus líneas. En 0 el focus se ignora y el archivo vuelve crudo, cortado en 40 KB con la nota para paginar. Usa la misma credencial de Anthropic de arriba. Default 1.',
+    kind: 'select',
+    group: 'anthropic',
+    secret: false,
+    options: ['1', '0'],
+  },
 
   // ── Figma ─────────────────────────────────────────────────────────────────
   FIGMA_MCP_TOKEN: {

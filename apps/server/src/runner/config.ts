@@ -300,6 +300,7 @@ const SETTINGS_ENV: Record<string, string> = {
   webhookFallbackMs: 'IA_FLOW_WEBHOOK_FALLBACK_MS',
   startupScan: 'IA_FLOW_STARTUP_SCAN',
   crashRecovery: 'IA_FLOW_CRASH_RECOVERY',
+  fileSimplifier: 'IA_FLOW_FILE_SIMPLIFIER',
   fatalPolicy: 'IA_FLOW_FATAL_POLICY',
   otelEndpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
   otelHeaders: 'OTEL_EXPORTER_OTLP_HEADERS',

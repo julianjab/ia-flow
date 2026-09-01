@@ -451,10 +451,6 @@ export const ProviderConfigSchema = z.object({
   tmuxClaude: TerminalProviderSettingsSchema.optional(),
   itermClaude: TerminalProviderSettingsSchema.optional(),
   repoMappings: RepoMappingSchema.optional(),
-  // Global switch for the Haiku file simplifier in read_file. When false,
-  // large files are truncated instead of summarized. Per-agent providerConfig
-  // (`fileSimplifierEnabled`) overrides this. Defaults to true.
-  fileSimplifierEnabled: z.boolean().optional(),
 })
 
 // Static YAML shape for IGlobalSettingsRepository — a single object (not an

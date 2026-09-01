@@ -12,8 +12,9 @@ export interface ToolContext {
    */
   sourceContext?: unknown
   /**
-   * Per-agent override for the Haiku file simplifier in read_file. `undefined`
-   * means "no override"; fs tools fall back to the global providerConfig setting.
+   * Per-agent override for the Haiku `focus` of `fs_read`. `undefined` means
+   * "no override"; the tool then reads the global `IA_FLOW_FILE_SIMPLIFIER`
+   * switch (absent = enabled).
    */
   fileSimplifierEnabled?: boolean
   /**
@@ -334,12 +335,6 @@ export interface CompiledPolicy {
 // apps/server's composition/container.ts supplies the concrete (DB-backed)
 // implementations at startup via the matching `setXxxPort` in engine.ts /
 // workspace/ / github/ — this package never imports apps/server.
-
-/** Narrow view of the system-prompt store, consumed by `compactHistory` to
- *  fetch the Haiku compaction prompt. */
-export interface SystemPromptPort {
-  getById(id: string): { text: string } | null | undefined
-}
 
 /** Narrow view of `WorkspaceManager`, consumed by `workspace_reset`. */
 export interface WorkspaceManagerPort {

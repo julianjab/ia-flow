@@ -2,135 +2,86 @@ import { existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { basename, join, relative, resolve } from 'node:path'
-import type { LoadProviderConfig } from '@ia-flow/ai-providers'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
+import { askHaiku } from '../haiku.js'
 import { createLogger } from '../logger.js'
-import { getSystemPromptPort } from '../ports.js'
+import { FILE_FOCUS_PROMPT } from './focus-prompt.js'
 import { isIgnored } from './gitignore.js'
 
 const log = createLogger('tool-fs')
 
-let loadProviderConfig: LoadProviderConfig | null = null
-
-/** Wired by apps/server's composition/container.ts at startup — same
- *  pattern as `workspace/`'s `setWorkspaceManagerPort`. Reuses
- *  `@ia-flow/ai-providers`'s `LoadProviderConfig` port shape (the provider
- *  and this tool read the same on-disk providers.json). */
-export function setLoadProviderConfig(fn: LoadProviderConfig | null): void {
-  loadProviderConfig = fn
-}
-
+/** Tope de lo que `fs_read` devuelve crudo. Arriba de esto, sin `focus`, va
+ *  la cabecera más una nota para paginar o enfocar. */
 const MAX_FILE_BYTES = 40_000
-const FILE_SIMPLIFIER_THRESHOLD = 15_000 // bytes — above this, summarize with Haiku
+/** Debajo de esto un `focus` no vale la vuelta a Haiku: el archivo entra
+ *  entero y el agente lo filtra solo. */
+const FILE_FOCUS_THRESHOLD = 15_000
+/** Lo que Haiku ve como máximo. Más allá, el resultado avisa que la
+ *  extracción es parcial. */
+const MAX_FOCUS_INPUT_BYTES = 150_000
 const MAX_GREP_RESULTS = 30
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+/**
+ * Interruptor global del `focus` con Haiku. `IA_FLOW_FILE_SIMPLIFIER=0`
+ * (o `false`/`no`/`off`) lo apaga; ausente = prendido. En el flavor runner
+ * lo setea `settings.fileSimplifier` del runner.yaml (`applyRunnerEnv`). Se
+ * lee por llamada, no al importar, por la misma razón que la credencial.
+ */
+export const FILE_SIMPLIFIER_ENV = 'IA_FLOW_FILE_SIMPLIFIER'
 
-const FILE_SIMPLIFIER_PROMPT_ID = 'fileSimplifier'
-
-async function simplifyWithHaiku(content: string, filePath: string): Promise<string> {
-  const systemPromptPort = getSystemPromptPort()
-
-  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  const apiKey = Bun.env.ANTHROPIC_API_KEY
-  const authHeader: Record<string, string> | null = oauthToken
-    ? { Authorization: `Bearer ${oauthToken}` }
-    : apiKey
-      ? { 'x-api-key': apiKey }
-      : null
-
-  if (!authHeader) {
-    log.warn({ filePath, contentBytes: content.length }, 'haiku simplifier skipped: no auth')
-    return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — no auth for simplifier]'
-  }
-
-  if (!systemPromptPort) {
-    log.warn({ filePath }, 'haiku simplifier skipped: no SystemPromptPort wired')
-    return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — simplifier prompt missing]'
-  }
-  const prompt = systemPromptPort.getById(FILE_SIMPLIFIER_PROMPT_ID)
-  if (!prompt) {
-    log.warn(
-      { filePath, promptId: FILE_SIMPLIFIER_PROMPT_ID },
-      'haiku simplifier skipped: system prompt not seeded',
-    )
-    return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — simplifier prompt missing]'
-  }
-  const systemPrompt = prompt.text
-  const userMessage = `File: ${filePath}\n\n${content.slice(0, 80_000)}`
-
-  log.info(
-    {
-      model: HAIKU_MODEL,
-      filePath,
-      contentBytes: content.length,
-      userBytes: userMessage.length,
-      systemBytes: systemPrompt.length,
-    },
-    'haiku simplifier request',
-  )
-
-  const t0 = Date.now()
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        ...authHeader,
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    })
-
-    const ms = Date.now() - t0
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      log.warn(
-        { filePath, status: res.status, ms, err: errBody.slice(0, 500) },
-        'haiku simplifier failed',
-      )
-      return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier unavailable]'
-    }
-
-    const data = (await res.json()) as any
-    const text = (data.content as any[])
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text as string)
-      .join('')
-
-    log.info(
-      {
-        filePath,
-        status: res.status,
-        ms,
-        inBytes: content.length,
-        outBytes: text.length,
-        ratio: text.length / Math.max(content.length, 1),
-        usage: data.usage,
-      },
-      'haiku simplifier response',
-    )
-    return `[simplified — ${content.length}B → ${text.length}B]\n${text}`
-  } catch (err) {
-    log.warn(
-      { filePath, ms: Date.now() - t0, err: err instanceof Error ? err.message : String(err) },
-      'haiku simplifier threw',
-    )
-    return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier failed — truncated]'
-  }
+function isFocusEnabled(ctx: ToolContext): boolean {
+  if (ctx.fileSimplifierEnabled !== undefined) return ctx.fileSimplifierEnabled
+  const raw = Bun.env[FILE_SIMPLIFIER_ENV]
+  if (raw === undefined || raw === '') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
 }
 
-async function isSimplifierEnabled(ctx: ToolContext): Promise<boolean> {
-  if (ctx.fileSimplifierEnabled !== undefined) return ctx.fileSimplifierEnabled
-  if (!loadProviderConfig) return true
-  const config = await loadProviderConfig()
-  return config.fileSimplifierEnabled ?? true
+function numberLines(content: string): string {
+  return content
+    .split('\n')
+    .map((l, i) => `${i + 1}\t${l}`)
+    .join('\n')
+}
+
+/** Sin `focus` y arriba del tope: la cabecera hasta `MAX_FILE_BYTES` y una
+ *  nota con el tamaño real, para que el agente pagine o enfoque. */
+function headWithNotice(content: string, path: string, reason?: string): string {
+  const total = content.split('\n').length
+  const head = content.slice(0, MAX_FILE_BYTES)
+  const shown = head.split('\n').length
+  const why = reason ? ` (${reason})` : ''
+  return (
+    head +
+    `\n\n[${path}: ${content.length} bytes, ${total} lines — showing lines 1-${shown}${why}. ` +
+    'Use offset/limit to page, or pass focus to get only the parts you need.]'
+  )
+}
+
+async function focusWithHaiku(content: string, path: string, focus: string): Promise<string> {
+  const partial = content.length > MAX_FOCUS_INPUT_BYTES
+  const analysed = partial ? content.slice(0, MAX_FOCUS_INPUT_BYTES) : content
+  const user = `File: ${path}\nReader needs: ${focus}\n\n${numberLines(analysed)}`
+  try {
+    const { text } = await askHaiku({
+      system: FILE_FOCUS_PROMPT,
+      user,
+      maxTokens: 8192,
+      scope: { tool: 'fs_read', filePath: path, contentBytes: content.length, focus },
+    })
+    const coverage = partial
+      ? ` — only the first ${analysed.split('\n').length} of ${content.split('\n').length} lines were analysed; use offset to read the rest`
+      : ''
+    return `[focus: ${focus} — ${content.length}B → ${text.length}B${coverage}]\n${text}`
+  } catch (err) {
+    // Un focus que no se pudo resolver no debe voltear el run: el agente
+    // recibe lo mismo que sin focus, con el motivo, y decide cómo seguir.
+    log.warn(
+      { filePath: path, err: err instanceof Error ? err.message : String(err) },
+      'fs_read focus failed, returning head',
+    )
+    return headWithNotice(content, path, 'focus unavailable')
+  }
 }
 
 function resolveRepoPaths(repoPaths: Record<string, string>): string[] {
@@ -171,13 +122,23 @@ registerTool({
   name: 'fs_read',
   aliases: ['read_file'],
   description:
-    'Read the contents of a file in one of the task repos. Use "<repo-name>/path/to/file" format.',
+    'Read a file in one of the task repos. Use "<repo-name>/path/to/file" format. ' +
+    'Small files come back whole. For a large file, pass `focus` describing what you need ' +
+    '(e.g. "the test conventions and the package layout") and you get only the matching ' +
+    'parts, quoted verbatim with their line ranges; without `focus`, a large file is cut at ' +
+    `${MAX_FILE_BYTES} bytes and you are told how to page with offset/limit.`,
   input_schema: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
         description: 'File path: "<repo-name>/relative/path" or absolute path',
+      },
+      focus: {
+        type: 'string',
+        description:
+          'What you need from the file, in one sentence. Only the parts that answer it are ' +
+          'returned, verbatim, with line ranges. Omit to read the file as-is.',
       },
       offset: {
         type: 'number',
@@ -194,26 +155,27 @@ registerTool({
     const s = await stat(abs)
     if (s.isDirectory()) return `Path is a directory. Use list_dir instead.`
 
-    let content = await readFile(abs, 'utf-8')
+    const content = await readFile(abs, 'utf-8')
 
     if (input.offset || input.limit) {
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
       const end = input.limit ? start + input.limit : lines.length
-      content = lines
+      return lines
         .slice(start, end)
         .map((l, i) => `${start + i + 1}\t${l}`)
         .join('\n')
-    } else if (Buffer.byteLength(content) > FILE_SIMPLIFIER_THRESHOLD) {
-      const enabled = await isSimplifierEnabled(ctx)
-      if (enabled) {
-        content = await simplifyWithHaiku(content, input.path)
-      } else {
-        content = content.slice(0, MAX_FILE_BYTES) + '\n[truncated — simplifier disabled]'
-      }
     }
 
-    return content
+    const focus = typeof input.focus === 'string' ? input.focus.trim() : ''
+    if (focus && Buffer.byteLength(content) > FILE_FOCUS_THRESHOLD) {
+      if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus)
+      return content.length > MAX_FILE_BYTES
+        ? headWithNotice(content, input.path, 'focus disabled')
+        : content
+    }
+
+    return content.length > MAX_FILE_BYTES ? headWithNotice(content, input.path) : content
   },
 })
 

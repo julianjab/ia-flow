@@ -50,11 +50,9 @@ import {
   getToolDefinitions,
   setAgentMemoryPort,
   setGitTokenPort,
-  setLoadProviderConfig,
   setPausePort,
   setRepoResolverPort,
   setRunAgentPort,
-  setSystemPromptPort,
   setLoggerFactory as setToolsLoggerFactory,
   setWaitPort,
   setWorkspaceManagerPort,
@@ -645,7 +643,6 @@ export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(wor
 // The package's engine + built-in tools are DB-agnostic — they receive the
 // concrete (DB-backed) implementations as injected ports here, same
 // composition-root pattern as the AI providers below.
-setSystemPromptPort({ getById: (id) => systemPromptRepo.getById(id) })
 setRepoResolverPort({ resolveGithubRepo })
 // El port de memoria es async y el repo es sync (bun:sqlite): el adaptador
 // existe para que mover el store a algo remoto no obligue a tocar las tools.
@@ -737,10 +734,6 @@ async function loadProviderConfigPort() {
   const { loadProviderConfig } = await import('../application/provider-config.js')
   return loadProviderConfig()
 }
-
-// Also feeds `fs_read`'s Haiku file-simplifier opt-out (`@ia-flow/tools`'s
-// fs/fs.ts reads the same on-disk providers.json).
-setLoadProviderConfig(loadProviderConfigPort)
 
 const toolExecution = { getToolDefinitions, executeLoop }
 

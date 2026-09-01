@@ -2,18 +2,6 @@
 // consume, wireados una vez por el composition root de cada app
 // (apps/server/src/composition/container.ts y
 // apps/agent-host/src/providers.ts).
-import type { SystemPromptPort } from './contract.js'
-
-let systemPromptPort: SystemPromptPort | null = null
-
-export function setSystemPromptPort(port: SystemPromptPort | null): void {
-  systemPromptPort = port
-}
-
-export function getSystemPromptPort(): SystemPromptPort | null {
-  return systemPromptPort
-}
-
 /**
  * Resuelve la credencial de GitHub con la que `bash_run` autentica los
  * comandos de red de git (`fetch`, `push`).

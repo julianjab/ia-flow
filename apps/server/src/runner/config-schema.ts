@@ -64,6 +64,14 @@ export const RunnerSettingsSchema = z
     /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
     crashRecovery: z.boolean().optional(),
     /**
+     * Si `fs_read` puede pedirle a Haiku que extraiga de un archivo grande
+     * sólo lo que el agente declaró en `focus`. Default `true`. En `false` un
+     * `focus` se ignora y el archivo vuelve crudo, cortado en 40 KB con la
+     * nota para paginar. Es el interruptor de emergencia (costo, o un deploy
+     * sin credencial de Anthropic para el helper). → IA_FLOW_FILE_SIMPLIFIER
+     */
+    fileSimplifier: z.boolean().optional(),
+    /**
      * Qué hacer ante un fallo no capturado. `survive` (default) cancela los
      * runs en vuelo y sigue vivo; `exit` cancela y además sale con código 1,
      * que es lo que quiere un deploy con `restart: unless-stopped`.
