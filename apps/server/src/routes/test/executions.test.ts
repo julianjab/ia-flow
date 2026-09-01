@@ -34,7 +34,11 @@ let pendingTask: { cancel?: () => Promise<void> } | undefined
 const getPendingTaskMock = mock(() => pendingTask)
 const removePendingTaskMock = mock(() => {})
 
-mock.module('../../composition/container.js', () => ({ executionLogRepo: fakeRepo }))
+mock.module('../../composition/container.js', () => ({
+  executionLogRepo: fakeRepo,
+  executionStatsRepo: {},
+  INSTANCE_ID: 'this-runner',
+}))
 mock.module('@ia-flow/agent-engine', () => ({
   getPendingTask: getPendingTaskMock,
   removePendingTask: removePendingTaskMock,
@@ -164,6 +168,25 @@ describe('executions router', () => {
       )
       // No pending-task plumbing touched — this daemon never had one for a remote row.
       expect(getPendingTaskMock).not.toHaveBeenCalled()
+    })
+
+    // Every row this daemon inserts is self-tagged with its own INSTANCE_ID
+    // (SourceTaggingExecutionLogRepository), restart after restart — so a row
+    // whose `source` matches ours isn't "forwarded from elsewhere", it's an
+    // orphan from a previous life of THIS process. It must fall through to
+    // the orphan-close branch instead of being stuck as advisory-only forever.
+    test('closes a same-instance orphaned row instead of treating it as remote-owned', async () => {
+      seed([makeExec({ id: 'e1', source: 'this-runner' })])
+      const res = await app.request('/e1/cancel', { method: 'POST' })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        ok: boolean
+        orphaned?: boolean
+        execution: ExecutionLog
+      }
+      expect(body.orphaned).toBe(true)
+      expect(body.execution.outcome).toBe('cancelled')
+      expect(body.execution.finishedAt).toEqual(expect.any(String))
     })
 
     test('cancels an in-flight pending task', async () => {
