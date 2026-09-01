@@ -305,3 +305,88 @@ describe('grep_files — fallback JS', () => {
     expect(jsResults.some((r) => r.startsWith('r/file.txt:3: '))).toBe(true)
   })
 })
+
+describe('fs_read — focus', () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = Bun.env.ANTHROPIC_API_KEY
+  const originalSwitch = Bun.env.IA_FLOW_FILE_SIMPLIFIER
+  let calls: Array<{ body: any }>
+
+  const big = Array.from({ length: 1200 }, (_, i) => `line ${i + 1}: ${'x'.repeat(30)}`).join('\n')
+
+  beforeEach(() => {
+    calls = []
+    Bun.env.ANTHROPIC_API_KEY = 'test-key'
+    delete Bun.env.IA_FLOW_FILE_SIMPLIFIER
+    globalThis.fetch = (async (_url: any, init: any) => {
+      const body = JSON.parse(init.body)
+      calls.push({ body })
+      return new Response(
+        JSON.stringify({ content: [{ type: 'text', text: '## lines 3-4\nextracted' }], usage: {} }),
+        { status: 200 },
+      )
+    }) as any
+    writeFileSync(join(repoRoot, 'big.txt'), big)
+    writeFileSync(join(repoRoot, 'small.txt'), 'hello\nworld')
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) delete Bun.env.ANTHROPIC_API_KEY
+    else Bun.env.ANTHROPIC_API_KEY = originalKey
+    if (originalSwitch === undefined) delete Bun.env.IA_FLOW_FILE_SIMPLIFIER
+    else Bun.env.IA_FLOW_FILE_SIMPLIFIER = originalSwitch
+  })
+
+  const read = (input: Record<string, unknown>, ctx: Record<string, unknown> = {}) =>
+    getTool('fs_read')!.execute(input, { repoPaths, ...ctx } as any)
+
+  it('returns a small file whole, focus or not', async () => {
+    expect(await read({ path: 'r/small.txt' })).toBe('hello\nworld')
+    expect(await read({ path: 'r/small.txt', focus: 'anything' })).toBe('hello\nworld')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('without focus cuts a large file at the cap and says how to page', async () => {
+    const out = await read({ path: 'r/big.txt' })
+    expect(calls).toHaveLength(0)
+    expect(out.startsWith('line 1:')).toBe(true)
+    expect(out).toContain(`${big.length} bytes, 1200 lines`)
+    expect(out).toContain('Use offset/limit to page, or pass focus')
+    expect(out.length).toBeLessThan(big.length)
+  })
+
+  it('with focus asks Haiku with the need and numbered lines', async () => {
+    const out = await read({ path: 'r/big.txt', focus: 'the third line' })
+    expect(calls).toHaveLength(1)
+    const user = calls[0]!.body.messages[0].content as string
+    expect(calls[0]!.body.model).toBe('claude-haiku-4-5-20251001')
+    expect(user).toContain('File: r/big.txt')
+    expect(user).toContain('Reader needs: the third line')
+    expect(user).toContain('\n3\tline 3:')
+    expect(out).toBe(`[focus: the third line — ${big.length}B → 22B]\n## lines 3-4\nextracted`)
+  })
+
+  it('IA_FLOW_FILE_SIMPLIFIER=0 ignores focus and returns the head', async () => {
+    Bun.env.IA_FLOW_FILE_SIMPLIFIER = '0'
+    const out = await read({ path: 'r/big.txt', focus: 'the third line' })
+    expect(calls).toHaveLength(0)
+    expect(out).toContain('(focus disabled)')
+  })
+
+  it('per-agent override wins over the env switch', async () => {
+    Bun.env.IA_FLOW_FILE_SIMPLIFIER = '0'
+    await read({ path: 'r/big.txt', focus: 'x' }, { fileSimplifierEnabled: true })
+    expect(calls).toHaveLength(1)
+  })
+
+  it('falls back to the head when Haiku fails or there is no auth', async () => {
+    globalThis.fetch = (async () => new Response('nope', { status: 500 })) as any
+    let out = await read({ path: 'r/big.txt', focus: 'x' })
+    expect(out).toContain('(focus unavailable)')
+
+    delete Bun.env.ANTHROPIC_API_KEY
+    out = await read({ path: 'r/big.txt', focus: 'x' })
+    expect(out).toContain('(focus unavailable)')
+  })
+})
