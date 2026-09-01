@@ -30,7 +30,7 @@ export async function getPrimaryLinkedBranch(
   const data = await gql<{
     node?: { linkedBranches?: { nodes?: LinkedBranchNode[] } } | null
   }>(
-    `query($id: ID!) {
+    `query GetPrimaryLinkedBranch($id: ID!) {
       node(id: $id) {
         ... on Issue {
           linkedBranches(first: 5) {
@@ -61,7 +61,7 @@ async function resolveRepoHead(
       defaultBranchRef?: { name: string; target?: { oid: string } | null } | null
     } | null
   }>(
-    `query($owner: String!, $name: String!) {
+    `query ResolveRepoHead($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) {
         id
         defaultBranchRef {
@@ -104,7 +104,7 @@ export async function createLinkedBranch(
     const data = await gql<{
       createLinkedBranch?: { linkedBranch?: { ref?: { name?: string } | null } | null } | null
     }>(
-      `mutation($issueId: ID!, $name: String!, $oid: GitObjectID!, $repositoryId: ID!) {
+      `mutation CreateLinkedBranch($issueId: ID!, $name: String!, $oid: GitObjectID!, $repositoryId: ID!) {
         createLinkedBranch(input: {
           issueId: $issueId
           name: $name

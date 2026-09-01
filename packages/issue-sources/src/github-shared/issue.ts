@@ -37,7 +37,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   // oldest→newest, matching the order formatComments
   // (apps/server/src/variables/task.ts) renders in, so no reverse needed.
   const data = await gql<any>(
-    `query($issueId: ID!) {
+    `query GetIssueComments($issueId: ID!) {
       node(id: $issueId) {
         ... on Issue {
           comments(last: 50) {
@@ -82,7 +82,7 @@ export async function markCommentsUsed(
   await Promise.all(
     comments.map((c) =>
       gql(
-        `mutation($id: ID!, $body: String!) {
+        `mutation MarkCommentUsed($id: ID!, $body: String!) {
           updateIssueComment(input: { id: $id, body: $body }) {
             issueComment { id }
           }
@@ -98,7 +98,7 @@ export async function markCommentsUsed(
 
 export async function updateIssueBody(issueId: string, newBody: string): Promise<void> {
   await gql(
-    `mutation($issueId: ID!, $body: String!) {
+    `mutation UpdateIssueBody($issueId: ID!, $body: String!) {
       updateIssue(input: { id: $issueId, body: $body }) {
         issue { id }
       }
@@ -109,7 +109,7 @@ export async function updateIssueBody(issueId: string, newBody: string): Promise
 
 export async function addIssueComment(issueId: string, body: string): Promise<string> {
   const data = await gql<any>(
-    `mutation($issueId: ID!, $body: String!) {
+    `mutation AddIssueComment($issueId: ID!, $body: String!) {
       addComment(input: { subjectId: $issueId, body: $body }) {
         commentEdge { node { id } }
       }
@@ -209,7 +209,7 @@ export async function addBlockedBy(
   blockingIssueNodeId: string,
 ): Promise<void> {
   await gql(
-    `mutation($issueId: ID!, $blockingIssueId: ID!) {
+    `mutation AddBlockedBy($issueId: ID!, $blockingIssueId: ID!) {
       addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingIssueId }) {
         issue { id }
       }
@@ -254,7 +254,7 @@ export async function transferIssue(
   repo: string,
 ): Promise<{ id: string; number: number; url: string }> {
   const repoData = await gql<{ repository: { id: string } | null }>(
-    `query($owner: String!, $name: String!) {
+    `query ResolveRepositoryId($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) { id }
     }`,
     { owner, name: repo },
@@ -266,7 +266,7 @@ export async function transferIssue(
   const data = await gql<{
     transferIssue: { issue: { id: string; number: number; url: string } }
   }>(
-    `mutation($issueId: ID!, $repositoryId: ID!) {
+    `mutation TransferIssue($issueId: ID!, $repositoryId: ID!) {
       transferIssue(input: {
         issueId: $issueId,
         repositoryId: $repositoryId,
