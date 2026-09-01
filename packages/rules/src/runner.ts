@@ -103,6 +103,7 @@ export async function runRule(
     event,
     rule,
     position: 0,
+    fromAgents: [],
     emit: (type, payload, scope) => deps.emit(event, type, payload, scope),
   }
   let ranSomething = false
@@ -159,6 +160,7 @@ export async function runRule(
     // siendo estricto (`method` es un enum, no `string | plantilla`) y lo que
     // se valida es el valor ya resuelto.
     let config: unknown = entry
+    let fromAgents: string[] = []
     if (referencesSteps(entry)) {
       const resolved = resolveSteps(entry, steps)
       if (resolved.errors.length) {
@@ -169,6 +171,9 @@ export async function runRule(
         continue
       }
       config = resolved.value
+      // Quién escribió lo que esta acción va a usar. Sólo los agentes: un
+      // script o un http los escribió el operador.
+      fromAgents = resolved.used.filter((u) => u.from === 'agent').map((u) => u.id)
     }
 
     const parsed = handler.configSchema.safeParse(config)
@@ -179,6 +184,7 @@ export async function runRule(
     }
 
     ctx.position = position
+    ctx.fromAgents = fromAgents
     const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
     let result: ActionResult = FAILED
     let thrown: unknown

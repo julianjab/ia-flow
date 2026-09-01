@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 
@@ -18,6 +18,20 @@ const BRIEF_PLACEHOLDER = `Llegó feedback nuevo sobre el PR #${VAR_PR} — aten
 
 const options = (): ComboOption[] => (props.agentIds ?? []).map((value) => ({ value }))
 const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v)
+const many = (v: string | string[]) => {
+  const list = Array.isArray(v) ? v : [v]
+  const clean = list.filter(Boolean)
+  // Lista vacía ⇒ `undefined`: un `[]` guardado dice "declaré los destinos" y
+  // no declara ninguno, y el gate lo rechaza igual — mejor no escribirlo.
+  return clean.length ? clean : undefined
+}
+
+/** El `agentId` sale de un paso anterior, así que lo elige un modelo y la
+ *  lista de destinos deja de ser opcional (el CRUD rechaza la regla sin ella).
+ *  El campo aparece sólo entonces: para un id literal sería ruido. */
+const dynamicAgentId = computed(() => str('agentId').includes('{{steps.'))
+const allowAgents = (): string[] =>
+  Array.isArray(props.entry.allowAgents) ? (props.entry.allowAgents as string[]) : []
 
 /** `emitOn` es un enum de un solo valor (`'exit'`), así que se edita como un
  *  check: un desplegable con una opción es una decisión disfrazada de menú. */
@@ -98,6 +112,25 @@ function removeExit(i: number) {
       @update:model-value="(v) => emit('patch', { agentId: one(v) })"
     />
   </div>
+
+  <label v-if="dynamicAgentId" class="ff-row">
+    <span class="uc-label">Destinos permitidos</span>
+    <ComboBox
+      allow-custom
+      multiple
+      class="ff-combo"
+      :model-value="allowAgents()"
+      :options="options()"
+      placeholder="implementer, reviewer"
+      empty-text="Ninguno conocido coincide — se guarda igual"
+      @update:model-value="(v) => emit('patch', { allowAgents: many(v) })"
+    />
+    <span class="ff-hint">
+      El <code>agentId</code> sale de un paso anterior, así que lo elige un modelo.
+      Declará acá entre qué agentes puede elegir: el operador declara el espacio,
+      el modelo elige adentro. Sin la lista, la regla no se guarda.
+    </span>
+  </label>
 
   <label class="ff-row">
     <span class="uc-label">Por qué corre</span>

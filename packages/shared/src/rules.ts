@@ -76,6 +76,21 @@ export const AgentActionSchema = z.object({
    * `resolveCommentTarget` (salida > agente > default).
    */
   exits: z.record(z.string(), AgentExitSchema).optional(),
+  /**
+   * Los agentes a los que este paso puede despachar cuando el `agentId` sale
+   * de un paso anterior.
+   *
+   * Sin esto, un `agentId: '{{steps.triage.output.next}}'` se rechaza: elegir
+   * el agente es elegir su prompt, sus tools, su policy de bash y su provider,
+   * y un refiner read-only nominando al implementer con shell es una escalada
+   * decidida por texto que escribió un modelo.
+   *
+   * Con la lista, el patrón es el que el sistema ya usa en `select_exit` y en
+   * el `enum` de un campo de `output`: **el operador declara el espacio, el
+   * modelo elige adentro**. El peor caso pasa a ser un agente del conjunto que
+   * el operador ya consideró aceptable para este paso.
+   */
+  allowAgents: z.array(z.string().min(1)).optional(),
 })
 
 /**

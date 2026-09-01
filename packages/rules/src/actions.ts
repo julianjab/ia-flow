@@ -21,6 +21,19 @@ export interface ActionContext {
    * del grupo en la UI.
    */
   position: number
+  /**
+   * Los pasos previos cuyo valor ESTA acción está usando y que produjo un
+   * agente — o sea, un modelo.
+   *
+   * No es telemetría: una acción que recibe texto escrito por un modelo tiene
+   * que poder enmarcarlo antes de dárselo a otro. Un brief del operador y uno
+   * que escribió un triager llegan al mismo lugar del prompt, y sin esta
+   * distinción el segundo hereda la voz del primero.
+   *
+   * Vacío cuando la acción no lee ningún paso, o cuando lo que lee lo produjo
+   * un script o un http.
+   */
+  fromAgents?: string[]
   /** Publica un evento derivado. Hereda `causationId` y `depth+1`, que es lo
    *  que permite que el tope del bus corte un ciclo de reglas. */
   emit(type: string, payload?: Record<string, unknown>, scope?: EngineEvent['scope']): Promise<void>
@@ -137,6 +150,30 @@ export function validateActions(actions: readonly RuleActionEntry[]): ActionVali
         position,
         kind,
         message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+      })
+      return
+    }
+
+    // Un `agentId` que sale de un paso anterior exige su lista de destinos.
+    //
+    // Va acá y no en un `superRefine` del schema porque `discriminatedUnion`
+    // no acepta un `ZodEffects` como miembro; y acá es además donde
+    // corresponde: es la validación de GUARDADO, y una regla que despacha a
+    // ciegas no debería poder existir en la base. Descubrirlo en el primer
+    // disparo sería el modo de falla silencioso de siempre.
+    const agent = entry as { agentId?: unknown; allowAgents?: unknown }
+    if (
+      kind === 'agent' &&
+      typeof agent.agentId === 'string' &&
+      agent.agentId.includes('{{steps.') &&
+      !(Array.isArray(agent.allowAgents) && agent.allowAgents.length > 0)
+    ) {
+      errors.push({
+        position,
+        kind,
+        message:
+          'allowAgents: un `agentId` que sale de un paso anterior exige la lista de destinos ' +
+          'posibles — el operador declara el espacio, el modelo elige adentro',
       })
     }
   })

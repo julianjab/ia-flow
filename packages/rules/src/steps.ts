@@ -44,6 +44,30 @@ export type Steps = Record<string, StepOutput>
  */
 const EXECUTION_FIELDS = new Set(['agentId', 'actionId', 'file', 'runtime', 'url', 'method'])
 
+/**
+ * El único campo de ejecución que un agente SÍ puede alimentar, y con qué
+ * condición: que la acción declare la lista de destinos posibles.
+ *
+ * Es el patrón que el sistema ya usa en `select_exit` y en el `enum` de un
+ * campo de `output` — **el operador declara el espacio, el modelo elige
+ * adentro**. Con la lista, un agente puede despachar al siguiente sin poder
+ * inventar a quién: el peor caso es un agente del conjunto que el operador ya
+ * consideró aceptable.
+ *
+ * Los demás campos de `EXECUTION_FIELDS` no tienen compuerta porque no tienen
+ * un espacio enumerable que valga la pena: una `url` o un `file` de una lista
+ * blanca ya se escriben directo, sin pasar por un modelo.
+ */
+const EXECUTION_FIELD_GATES: Record<string, string> = { agentId: 'allowAgents' }
+
+/** Si la config abrió la compuerta de ese campo declarando su lista. */
+function isGated(config: unknown, field: string): boolean {
+  const gate = EXECUTION_FIELD_GATES[field]
+  if (!gate) return false
+  const list = (config as Record<string, unknown> | null)?.[gate]
+  return Array.isArray(list) && list.length > 0
+}
+
 /** `{{steps.a.output.b}}` — con o sin espacios adentro de las llaves. */
 const STEP_REF = /\{\{\s*steps\.([^}\s]+)\s*\}\}/g
 /** La misma, anclada: el string ENTERO es una sola referencia. */
@@ -52,6 +76,10 @@ const WHOLE_STEP_REF = /^\{\{\s*steps\.([^}\s]+)\s*\}\}$/
 export interface ResolveStepsResult {
   value: unknown
   errors: string[]
+  /** Los pasos cuyo valor terminó usándose, con quién lo produjo. Lo lee el
+   *  runner para que una acción sepa si lo que recibió lo escribió un MODELO —
+   *  ver `ActionContext.fromAgents`. */
+  used: Array<{ id: string; from: RuleActionKind }>
 }
 
 /**
@@ -70,6 +98,7 @@ export interface ResolveStepsResult {
  */
 export function resolveSteps(config: unknown, steps: Steps): ResolveStepsResult {
   const errors: string[] = []
+  const used = new Map<string, RuleActionKind>()
 
   const walk = (value: unknown, field?: string): unknown => {
     if (typeof value === 'string') return resolveString(value, field)
@@ -116,13 +145,16 @@ export function resolveSteps(config: unknown, steps: Steps): ResolveStepsResult 
       )
       return undefined
     }
-    if (field && EXECUTION_FIELDS.has(field) && step.from === 'agent') {
+    if (field && EXECUTION_FIELDS.has(field) && step.from === 'agent' && !isGated(config, field)) {
+      const gate = EXECUTION_FIELD_GATES[field]
       errors.push(
         `'${field}' no puede salir de un agente ('${stepId}'): ese campo decide qué se ejecuta ` +
-          'o adónde se manda, y el valor lo escribió un modelo',
+          'o adónde se manda, y el valor lo escribió un modelo' +
+          (gate ? `. Declarando \`${gate}\` con los destinos posibles, sí puede` : ''),
       )
       return undefined
     }
+    used.set(stepId, step.from)
 
     let current: unknown = { output: step.output }
     for (const segment of rest) {
@@ -139,7 +171,8 @@ export function resolveSteps(config: unknown, steps: Steps): ResolveStepsResult 
     return current
   }
 
-  return { value: walk(config), errors }
+  const value = walk(config)
+  return { value, errors, used: [...used].map(([id, from]) => ({ id, from })) }
 }
 
 /** Si una config referencia algún paso. Evita recorrerla entera cuando no hay
