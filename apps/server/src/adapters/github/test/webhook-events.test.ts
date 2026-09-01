@@ -36,11 +36,18 @@ function pr(over: Record<string, unknown> = {}) {
 }
 
 describe('isBusEvent', () => {
-  it('acepta los cuatro que producen eventos, y nada más', () => {
-    for (const e of ['pull_request', 'pull_request_review', 'check_suite', 'workflow_run']) {
+  it('acepta los seis que producen eventos, y nada más', () => {
+    for (const e of [
+      'pull_request',
+      'pull_request_review',
+      'check_suite',
+      'workflow_run',
+      'issue_comment',
+      'issues',
+    ]) {
       expect(isBusEvent(e)).toBe(true)
     }
-    expect(isBusEvent('issues')).toBe(false)
+    expect(isBusEvent('projects_v2_item')).toBe(false)
     expect(isBusEvent('push')).toBe(false)
   })
 })

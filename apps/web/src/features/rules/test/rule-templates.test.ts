@@ -40,29 +40,18 @@ describe('RULE_TEMPLATES', () => {
 })
 
 describe('recurringRuleWarning', () => {
-  // El mismo pozo que el "filtro 0" de la activación vieja: la regla se guarda
-  // bien, corre bien, y re-dispara sobre el issue que ella misma acaba de
-  // mover. Nada da error.
-  it('avisa sobre issue.scanned sin ninguna condición', () => {
-    expect(recurringRuleWarning({ on: ['issue.scanned'] })).toContain('indefinidamente')
-  })
-
-  it('una condición alcanza para acotarla', () => {
-    expect(recurringRuleWarning({ on: ['issue.scanned'], when: [{ field: 'status' }] })).toBeNull()
-  })
-
-  it('un criterio en texto libre también', () => {
-    expect(recurringRuleWarning({ on: ['issue.scanned'], whenText: 'menciona pagos' })).toBeNull()
-  })
-
-  // Un `pr.opened` es un hecho de una vez: no se repite por sí solo, así que
-  // avisarlo sería ruido.
-  it('no avisa sobre eventos que no se repiten', () => {
+  // Hoy ningún evento del catálogo es recurrente — el scan sólo publica
+  // cuando algo cambió (`issue.created`/`issue.status_changed`) — así que la
+  // función no tiene nada que avisar todavía. El mecanismo sigue vivo para
+  // el día que un productor nuevo sí lo sea.
+  it('no avisa sobre ningún evento del catálogo hoy', () => {
+    expect(recurringRuleWarning({ on: ['issue.created'] })).toBeNull()
+    expect(recurringRuleWarning({ on: ['issue.status_changed'] })).toBeNull()
     expect(recurringRuleWarning({ on: ['pr.opened'] })).toBeNull()
     expect(recurringRuleWarning({ on: ['ci.finished'] })).toBeNull()
   })
 
-  it('un whenText en blanco no cuenta como condición', () => {
-    expect(recurringRuleWarning({ on: ['issue.scanned'], whenText: '   ' })).not.toBeNull()
+  it('un evento que no está en el catálogo tampoco avisa', () => {
+    expect(recurringRuleWarning({ on: ['algo.inventado'] })).toBeNull()
   })
 })

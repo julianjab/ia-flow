@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { ISSUE_CREATED, ISSUE_STATUS_CHANGED, SCHEDULE_TICK } from '@ia-flow/rules'
 import {
   EVENT_CATALOG,
-  ISSUE_SCANNED,
   RUN_FINISHED,
   TASK_MESSAGE_EVENT,
   WAIT_EXPIRED,
@@ -12,6 +11,8 @@ import {
 import { SLACK_MESSAGE } from '@ia-flow/slack'
 import {
   CI_FINISHED,
+  ISSUES,
+  ISSUE_COMMENT,
   PR_CLOSED,
   PR_MERGED,
   PR_OPENED,
@@ -33,9 +34,10 @@ import {
 
 /** Todas las constantes de tipo de evento que el proceso declara hoy. */
 const DECLARED: Record<string, string> = {
-  ISSUE_SCANNED,
   ISSUE_STATUS_CHANGED,
   ISSUE_CREATED,
+  ISSUE_COMMENT,
+  ISSUES,
   PR_OPENED,
   PR_SYNCHRONIZED,
   PR_READY,
@@ -82,10 +84,11 @@ describe('EVENT_CATALOG — deriva', () => {
     expect(new Set(tipos).size).toBe(tipos.length)
   })
 
-  // `issue.scanned` es el único que se re-emite solo, y de eso depende el aviso
-  // de regla recurrente del editor.
-  test('marca como recurrente exactamente al que lo es', () => {
+  // Hoy ningún evento del catálogo se re-emite solo: el scan sólo publica
+  // cuando algo cambió. El campo queda para el día que un productor nuevo sí
+  // lo necesite.
+  test('ningún evento del catálogo es recurrente hoy', () => {
     const recurrentes = EVENT_CATALOG.filter((e) => e.recurring).map((e) => e.type)
-    expect(recurrentes).toEqual([ISSUE_SCANNED])
+    expect(recurrentes).toEqual([])
   })
 })

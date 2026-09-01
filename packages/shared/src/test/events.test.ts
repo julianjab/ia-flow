@@ -1,17 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import {
-  EngineEventSchema,
-  EventScopeSchema,
-  ISSUE_SCANNED,
-  createEvent,
-  deriveEvent,
-} from '../events.js'
+import { EngineEventSchema, EventScopeSchema, createEvent, deriveEvent } from '../events.js'
 
 describe('EngineEventSchema', () => {
   it('acepta un evento mínimo y aplica el default de depth', () => {
     const parsed = EngineEventSchema.parse({
       id: 'e1',
-      type: ISSUE_SCANNED,
+      type: 'issue.created',
       occurredAt: '2026-01-01T00:00:00.000Z',
       source: 'engine',
       scope: {},
