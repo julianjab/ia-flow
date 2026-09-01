@@ -1304,6 +1304,11 @@ export const ExecutionStatsFiltersSchema = z.object({
   to: z.string().optional(),
 })
 
+// Los campos de eficiencia llevan `.default(...)`: son aditivos, y un panel que
+// se cae entero porque el server todavía no los manda es peor que uno que
+// muestra "—" en dos columnas. El default sólo cubre la lectura — el tipo de
+// salida los sigue exigiendo, así que el server no puede omitirlos por
+// descuido.
 export const AgentHealthSchema = z.object({
   agentId: z.string(),
   /** Finished runs only — a run still in flight has no outcome to count. */
@@ -1321,14 +1326,44 @@ export const AgentHealthSchema = z.object({
    *  here — so these need not sum to `runs`. */
   failureClasses: z.record(z.string(), z.number()),
   avgDurationMs: z.number().nullable(),
+  /** El run más lento del percentil 95. El promedio esconde justo el outlier
+   *  que se quiere encontrar: un run de 40 vueltas entre 20 normales casi no
+   *  mueve la media, pero es el que hay que mirar. Null cuando ningún run de
+   *  la ventana registró duración. */
+  p95DurationMs: z.number().nullable().default(null),
+  /** Tokens de entrada FRESCOS — `input_tokens` de la API, que excluye lo
+   *  servido desde cache. Es la parte que se paga a precio pleno. */
   tokensIn: z.number(),
   tokensOut: z.number(),
+  /** Entrada servida desde el cache de prompts (≈0.1x el precio de `tokensIn`). */
+  cacheReadTokens: z.number().default(0),
+  /** Entrada escrita al cache (≈1.25x). Un valor alto frente a `cacheReadTokens`
+   *  significa que el prefijo se re-escribe en vez de reusarse — TTL vencido, o
+   *  un prefijo que cambia entre requests. */
+  cacheCreationTokens: z.number().default(0),
+  /** cacheRead / (cacheRead + tokensIn) — qué fracción de la entrada se sirvió
+   *  del cache. La métrica de costo con más señal del panel: separa "este
+   *  agente trabaja mucho" de "este agente paga mal". Null cuando la ventana
+   *  no tiene tokens observables (los runs de terminal no los reportan). */
+  cacheHitRate: z.number().nullable().default(null),
+  /** Vueltas del loop de tools, sumadas. Con `tokensIn` da el costo por vuelta,
+   *  que es lo que distingue un agente que itera mucho de uno cuyo historial
+   *  se re-manda sin cachear. */
+  iters: z.number().default(0),
   toolCalls: z.number(),
   toolErrors: z.number(),
+  /** Histograma del `stop_reason` de la API. Sólo clases no nulas. `max_tokens`
+   *  acá señala presupuesto corto, que `truncated` cuenta sin decir por qué. */
+  stopReasons: z.record(z.string(), z.number()).default({}),
   lastRunAt: z.string().nullable(),
-  /** Distinct prompt hashes seen in the window. >1 means the agent's prompt
-   *  changed mid-window, so its aggregate rate mixes two different agents in
-   *  everything but name — the panel warns instead of quietly averaging. */
+  /** Hashes de configuración distintos en la ventana. >1 significa que el
+   *  agente se editó mientras corría, así que su tasa agregada mezcla dos
+   *  agentes distintos en todo menos el nombre — el panel avisa en vez de
+   *  promediar en silencio.
+   *
+   *  El hash sale de `hashAgentConfig` (prompt crudo + system + tools +
+   *  provider + salidas), NO del prompt que cada run mandó: ése lleva las
+   *  variables ya resueltas y daba un hash por run. */
   promptVersions: z.number(),
 })
 
@@ -1343,8 +1378,13 @@ export const ExecutionStatsSchema = z.object({
     truncated: z.number(),
     successRate: z.number().nullable(),
     failureClasses: z.record(z.string(), z.number()),
+    stopReasons: z.record(z.string(), z.number()).default({}),
     tokensIn: z.number(),
     tokensOut: z.number(),
+    cacheReadTokens: z.number().default(0),
+    cacheCreationTokens: z.number().default(0),
+    cacheHitRate: z.number().nullable().default(null),
+    iters: z.number().default(0),
   }),
   agents: z.array(AgentHealthSchema),
 })

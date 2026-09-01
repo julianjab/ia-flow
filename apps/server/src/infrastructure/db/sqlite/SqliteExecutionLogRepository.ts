@@ -433,6 +433,9 @@ export class SqliteExecutionLogRepository
                 AVG(duration_ms)                                      AS avgDurationMs,
                 COALESCE(SUM(tokens_in), 0)                           AS tokensIn,
                 COALESCE(SUM(tokens_out), 0)                          AS tokensOut,
+                COALESCE(SUM(cache_read_tokens), 0)                   AS cacheReadTokens,
+                COALESCE(SUM(cache_creation_tokens), 0)               AS cacheCreationTokens,
+                COALESCE(SUM(iters), 0)                               AS iters,
                 COALESCE(SUM(tool_calls), 0)                          AS toolCalls,
                 COALESCE(SUM(tool_errors), 0)                         AS toolErrors,
                 MAX(started_at)                                       AS lastRunAt,
@@ -459,12 +462,64 @@ export class SqliteExecutionLogRepository
       byAgent.set(row.agentId, bucket)
     }
 
+    // Misma forma que `classRows`, sobre stop_reason: por qué la API cortó la
+    // generación. `max_tokens` es el que importa — dice que el run se quedó sin
+    // presupuesto, algo que el contador `truncated` registra sin explicar.
+    const stopRows = this.db
+      .query(`SELECT agent_id AS agentId, stop_reason AS stopReason, COUNT(*) AS n
+              FROM execution_logs ${where} AND stop_reason IS NOT NULL
+              GROUP BY agent_id, stop_reason`)
+      .all(...(params as string[])) as Array<{
+      agentId: string
+      stopReason: string
+      n: number
+    }>
+
+    const stopsByAgent = new Map<string, Record<string, number>>()
+    for (const row of stopRows) {
+      const bucket = stopsByAgent.get(row.agentId) ?? {}
+      bucket[row.stopReason] = row.n
+      stopsByAgent.set(row.agentId, bucket)
+    }
+
+    // p95 de duración. SQLite no trae percentiles, así que se rankea cada run
+    // dentro de su agente con una window function y se toma el más rápido de
+    // los que caen en el 5% superior. `MIN` (y no `MAX`) porque el borde del
+    // percentil es el primero que entra, no el peor run entero.
+    const p95Rows = this.db
+      .query(`SELECT agentId, MIN(duration_ms) AS p95
+              FROM (
+                SELECT agent_id AS agentId,
+                       duration_ms,
+                       PERCENT_RANK() OVER (
+                         PARTITION BY agent_id ORDER BY duration_ms
+                       ) AS pr
+                FROM execution_logs ${where} AND duration_ms IS NOT NULL
+              )
+              WHERE pr >= 0.95
+              GROUP BY agentId`)
+      .all(...(params as string[])) as Array<{ agentId: string; p95: number | null }>
+
+    const p95ByAgent = new Map<string, number | null>(
+      p95Rows.map((r) => [r.agentId, r.p95 === null ? null : Math.round(Number(r.p95))]),
+    )
+
+    // cacheRead / (cacheRead + fresh). Null cuando no hay entrada observable:
+    // un roster de puros runs de terminal no reporta tokens, y un 0% ahí
+    // señalaría un problema de caching que no existe.
+    const hitRate = (cacheRead: number, fresh: number): number | null => {
+      const total = cacheRead + fresh
+      return total > 0 ? cacheRead / total : null
+    }
+
     const rate = (success: number, runs: number): number | null =>
       runs > 0 ? success / runs : null
 
     const agents: AgentHealth[] = rows.map((r) => {
       const runs = Number(r.runs ?? 0)
       const success = Number(r.success ?? 0)
+      const tokensIn = Number(r.tokensIn ?? 0)
+      const cacheReadTokens = Number(r.cacheReadTokens ?? 0)
       return {
         agentId: r.agentId as string,
         runs,
@@ -475,10 +530,16 @@ export class SqliteExecutionLogRepository
         successRate: rate(success, runs),
         failureClasses: byAgent.get(r.agentId as string) ?? {},
         avgDurationMs: r.avgDurationMs === null ? null : Math.round(Number(r.avgDurationMs)),
-        tokensIn: Number(r.tokensIn ?? 0),
+        p95DurationMs: p95ByAgent.get(r.agentId as string) ?? null,
+        tokensIn,
         tokensOut: Number(r.tokensOut ?? 0),
+        cacheReadTokens,
+        cacheCreationTokens: Number(r.cacheCreationTokens ?? 0),
+        cacheHitRate: hitRate(cacheReadTokens, tokensIn),
+        iters: Number(r.iters ?? 0),
         toolCalls: Number(r.toolCalls ?? 0),
         toolErrors: Number(r.toolErrors ?? 0),
+        stopReasons: stopsByAgent.get(r.agentId as string) ?? {},
         lastRunAt: (r.lastRunAt as string | null) ?? null,
         promptVersions: Number(r.promptVersions ?? 0),
       }
@@ -489,11 +550,17 @@ export class SqliteExecutionLogRepository
     const totalRuns = sum((a) => a.runs)
     const totalSuccess = sum((a) => a.success)
     const failureClasses: Record<string, number> = {}
+    const stopReasons: Record<string, number> = {}
     for (const agent of agents) {
       for (const [cls, n] of Object.entries(agent.failureClasses)) {
         failureClasses[cls] = (failureClasses[cls] ?? 0) + n
       }
+      for (const [reason, n] of Object.entries(agent.stopReasons)) {
+        stopReasons[reason] = (stopReasons[reason] ?? 0) + n
+      }
     }
+    const totalTokensIn = sum((a) => a.tokensIn)
+    const totalCacheRead = sum((a) => a.cacheReadTokens)
 
     return {
       from: filters.from ?? null,
@@ -506,8 +573,15 @@ export class SqliteExecutionLogRepository
         truncated: sum((a) => a.truncated),
         successRate: rate(totalSuccess, totalRuns),
         failureClasses,
-        tokensIn: sum((a) => a.tokensIn),
+        stopReasons,
+        tokensIn: totalTokensIn,
         tokensOut: sum((a) => a.tokensOut),
+        cacheReadTokens: totalCacheRead,
+        cacheCreationTokens: sum((a) => a.cacheCreationTokens),
+        // Se recalcula sobre los totales en vez de promediar los ratios por
+        // agente: un agente con 3 runs pesaría igual que uno con 300.
+        cacheHitRate: hitRate(totalCacheRead, totalTokensIn),
+        iters: sum((a) => a.iters),
       },
       agents,
     }
