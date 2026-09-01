@@ -14,6 +14,7 @@ import type { ITaskSource } from '@ia-flow/issue-sources'
 import { selectCommentWindow } from '@ia-flow/issue-sources'
 import type {
   AgentDefinition,
+  AgentExit,
   AgentToolEntry,
   McpServers,
   ProjectConfig,
@@ -52,7 +53,7 @@ import {
   waitForFinish,
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
-import { resolveExitCommentTarget, selectableExits } from './run-outcome.js'
+import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
@@ -107,6 +108,13 @@ export interface AgentRunInput {
   parentRunId?: string
   /** Profundidad de delegación. 0 es el agente de más arriba. */
   agentDepth?: number
+  /**
+   * Redirecciones de salida declaradas por la regla que lanzó el dispatch.
+   *
+   * Cambian a DÓNDE va una salida, nunca QUÉ salidas existen: el enum de
+   * `select_exit` se sigue calculando del agente. Ver `resolveEffectiveExits`.
+   */
+  exitOverrides?: Record<string, AgentExit>
   /**
    * Por qué corre el agente ESTA vez, puesto por la regla que lo despertó y
    * ya rendido contra el evento (ver `AgentActionSchema.brief`).
@@ -328,6 +336,15 @@ export class Agent {
     // row's own `startedAt` is an ISO string written for humans).
     const startedAtMs = Date.now()
     const toolsAvailable = (agentDef.tools ?? []).length
+    // Las salidas que este run va a APLICAR: las del agente, con el destino
+    // que la regla haya redirigido. `selectableExits` (más abajo) sigue
+    // saliendo de `agentDef.exits` — la regla redirige destinos, no amplía el
+    // vocabulario que el modelo puede pedir.
+    //
+    // Declarado ANTES del `try` porque el `catch` lo lee para decidir si
+    // postear el error: un `const` adentro del try es block-scoped y el catch
+    // lo vería como ReferenceError, tapando la excepción original.
+    const exits = resolveEffectiveExits(agentDef.exits, input.exitOverrides)
     // Identifies the exact prompt this run executed, so a later regression
     // can be attributed to a prompt edit rather than to the agent id alone.
     // Only known once the prompt is resolved inside the try — a run that
@@ -447,7 +464,7 @@ export class Agent {
       registerPendingTask(registryKey, {
         task,
         manager,
-        exits: agentDef.exits,
+        exits,
         commentTarget: agentDef.comment,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
@@ -500,7 +517,7 @@ export class Agent {
         // aunque el registry en memoria ya no exista (reinicio del proceso,
         // watchdog que soltó la entrada). Ver la migración 048.
         initialStatus,
-        exits: agentDef.exits ?? null,
+        exits: exits ?? null,
         // La causa, sobre la fila (migración 065). Antes vivía sólo en el
         // registry en memoria, así que un reinicio dejaba el run sin saber qué
         // lo había disparado ni de quién colgaba.
@@ -890,13 +907,10 @@ export class Agent {
           await manager.postComment?.(
             task,
             notice,
-            resolveExitCommentTarget(
-              { exits: agentDef.exits, commentTarget: agentDef.comment },
-              ERROR_EXIT,
-            ),
+            resolveExitCommentTarget({ exits, commentTarget: agentDef.comment }, ERROR_EXIT),
           )
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
-        } else if (agentDef.exits) {
+        } else if (exits) {
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the
@@ -908,7 +922,7 @@ export class Agent {
               task,
               `# ${agentDef.id}\n\n${output.content.trim()}`,
               resolveExitCommentTarget(
-                { exits: agentDef.exits, chosenExit, commentTarget: agentDef.comment },
+                { exits, chosenExit, commentTarget: agentDef.comment },
                 SUCCESS_EXIT,
               ),
             )
@@ -927,7 +941,7 @@ export class Agent {
             outcome: 'success',
             stopReason: output.stopReason,
           })
-          task = await lifecycle.end(task, { exits: agentDef.exits, chosenExit })
+          task = await lifecycle.end(task, { exits, chosenExit })
         }
       }
     } catch (err) {
@@ -1099,7 +1113,7 @@ export class Agent {
         errorMsg: errMsg,
       })
       task = await manager.setAgentWorking(task, false)
-      if (agentDef.exits?.[ERROR_EXIT]) {
+      if (exits?.[ERROR_EXIT]) {
         await manager.postError?.(task, errMsg)
       }
       task = await lifecycle.fail(task, agentDef, errMsg)

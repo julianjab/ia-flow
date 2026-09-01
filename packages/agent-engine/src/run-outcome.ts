@@ -143,3 +143,51 @@ export function selectableExits(
     .filter((k) => k !== SUCCESS_EXIT && k !== ERROR_EXIT)
     .map((name) => ({ name, when: exitWhen(exits[name]) }))
 }
+
+/**
+ * Las salidas efectivas de un run: las del agente, con el destino que la regla
+ * haya redirigido.
+ *
+ * **El agente es dueño del VOCABULARIO; la regla, del DESTINO.** Un `set` es
+ * el nombre de una columna de ESTE board, o sea ruteo — el mismo dato que la
+ * migración 059 sacó del agente cuando se llevó `statusName` a las reglas. Sin
+ * este override, reusar un roster contra un segundo board obliga a clonar los
+ * agentes enteros nada más que por el mapeo.
+ *
+ * Merge por clave y sólo sobre claves que el agente YA declara. Una clave
+ * desconocida se descarta con un warn en vez de agregarse: `selectableExits`
+ * se calcula del agente, así que una salida que existiera acá y no allá sería
+ * elegible por `resolveExit` pero invisible en el enum de `select_exit` — un
+ * estado que nadie puede alcanzar a propósito ni diagnosticar cuando pasa.
+ *
+ * `success`/`error` sí se pueden redirigir aunque no sean elegibles: las elige
+ * el engine por cómo terminó el run, no el modelo.
+ */
+export function resolveEffectiveExits(
+  agentExits: Record<string, AgentExit> | undefined,
+  overrides: Record<string, AgentExit> | undefined,
+): Record<string, AgentExit> | undefined {
+  if (!overrides || Object.keys(overrides).length === 0) return agentExits
+  if (!agentExits) {
+    log.warn(
+      { overrides: Object.keys(overrides) },
+      'La regla redirige salidas pero el agente no declara ninguna — se ignoran',
+    )
+    return agentExits
+  }
+
+  const merged = { ...agentExits }
+  const unknown: string[] = []
+  for (const [name, exit] of Object.entries(overrides)) {
+    if (name in merged) merged[name] = exit
+    else unknown.push(name)
+  }
+  if (unknown.length) {
+    log.warn(
+      { unknown, declared: Object.keys(agentExits) },
+      'La regla redirige salidas que el agente no declara — se ignoran (una regla ' +
+        'elige el destino de una salida, no inventa salidas nuevas)',
+    )
+  }
+  return merged
+}

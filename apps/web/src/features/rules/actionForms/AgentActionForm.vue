@@ -23,6 +23,49 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v)
 function toggleEmit(on: boolean) {
   emit('patch', on ? { emitOn: 'exit' } : { emitOn: undefined, emitType: undefined })
 }
+
+// ── Redirección de salidas ─────────────────────────────────────────────────
+//
+// Filas nombre→destino y no un textarea de JSON: la regla redirige el DESTINO
+// de una salida que el agente ya declara, y ése es siempre la forma corta (el
+// nombre de un status, o un `$set:`). Un editor de JSON invitaría a escribir
+// la forma larga —`when`, `comment`— que es del agente, no de la regla.
+type ExitRows = Array<[string, string]>
+
+const exitRows = (): ExitRows => {
+  const raw = props.entry.exits
+  if (!raw || typeof raw !== 'object') return []
+  return Object.entries(raw as Record<string, unknown>).map(([k, v]) => [
+    k,
+    typeof v === 'string' ? v : ((v as { set?: string })?.set ?? ''),
+  ])
+}
+
+/** Un record vacío se manda como `undefined`: `{}` guardado es una regla que
+ *  dice "redirijo salidas" y no redirige ninguna. */
+function patchExits(rows: ExitRows) {
+  const out: Record<string, string> = {}
+  for (const [name, dest] of rows) {
+    if (name.trim()) out[name.trim()] = dest
+  }
+  emit('patch', { exits: Object.keys(out).length ? out : undefined })
+}
+
+function setExitAt(i: number, name: string, dest: string) {
+  const rows = exitRows()
+  rows[i] = [name, dest]
+  patchExits(rows)
+}
+
+function addExit() {
+  patchExits([...exitRows(), ['', '']])
+}
+
+function removeExit(i: number) {
+  const rows = exitRows()
+  rows.splice(i, 1)
+  patchExits(rows)
+}
 </script>
 
 <template>
@@ -58,6 +101,33 @@ function toggleEmit(on: boolean) {
     </span>
   </label>
 
+  <div class="ff-row">
+    <span class="uc-label">Redirigir salidas</span>
+    <div v-for="(row, i) in exitRows()" :key="i" class="aaf-exit">
+      <input
+        class="ff-field ff-mono aaf-exit__name"
+        :value="row[0]"
+        placeholder="success"
+        @input="setExitAt(i, ($event.target as HTMLInputElement).value, row[1])"
+      />
+      <span class="aaf-exit__arrow">→</span>
+      <input
+        class="ff-field ff-mono"
+        :value="row[1]"
+        placeholder="QA Interna"
+        @input="setExitAt(i, row[0], ($event.target as HTMLInputElement).value)"
+      />
+      <button type="button" class="aaf-exit__del" title="Quitar" @click="removeExit(i)">✕</button>
+    </div>
+    <button type="button" class="aaf-exit__add" @click="addExit()">+ salida</button>
+    <span class="ff-hint">
+      Cambia a dónde va una salida que el agente YA declara — sirve para correr
+      el mismo roster contra otro board sin clonar los agentes. Una salida que
+      el agente no declara se ignora: la regla elige el destino, no inventa
+      salidas.
+    </span>
+  </div>
+
   <label class="ff-check">
     <input
       type="checkbox"
@@ -83,3 +153,38 @@ function toggleEmit(on: boolean) {
 </template>
 
 <style scoped src="@/ui/form-fields.css"></style>
+
+<style scoped>
+/* Fila nombre → destino. Alto de fila del sistema (22px), sin radios ni
+   colores propios: todo sale de theme.css. */
+.aaf-exit {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  margin-bottom: 2px;
+}
+.aaf-exit__name {
+  flex: 0 0 14ch;
+}
+.aaf-exit__arrow {
+  color: var(--fg-dim);
+  flex: 0 0 auto;
+}
+.aaf-exit__del,
+.aaf-exit__add {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font: inherit;
+  height: var(--row-h);
+  padding: 0 0.5ch;
+}
+.aaf-exit__del:hover,
+.aaf-exit__add:hover {
+  color: var(--fg);
+}
+.aaf-exit__add {
+  align-self: flex-start;
+}
+</style>

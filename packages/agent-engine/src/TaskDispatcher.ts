@@ -1,5 +1,6 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
+import type { AgentExit } from '@ia-flow/shared'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from './contract.js'
@@ -58,6 +59,9 @@ export class TaskDispatcher {
      *  acción `agent` de la regla. A diferencia de `ruleId` y `event`, esto
      *  NO es trazabilidad: se antepone al user turn y el modelo lo lee. */
     brief?: string,
+    /** Redirecciones de salida declaradas por la regla. El agente sigue siendo
+     *  dueño de QUÉ salidas existen; esto sólo cambia a dónde van. */
+    exits?: Record<string, AgentExit>,
   ): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
@@ -255,6 +259,7 @@ export class TaskDispatcher {
       eventType: event?.type,
       position: event?.position,
       brief,
+      exits,
     })
   }
 }

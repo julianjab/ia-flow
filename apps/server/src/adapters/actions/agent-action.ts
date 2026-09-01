@@ -5,7 +5,7 @@ import {
   type ActionResult,
   renderBrief,
 } from '@ia-flow/rules'
-import { AgentActionSchema, RUN_FINISHED } from '@ia-flow/shared'
+import { AgentActionSchema, type EngineEvent, RUN_FINISHED } from '@ia-flow/shared'
 import type { z } from 'zod'
 import { createLogger } from '../../logger.js'
 
@@ -25,7 +25,24 @@ export interface AgentActionDeps {
     event: { id: string; type: string; position: number },
     /** El `brief` de la acción, ya rendido contra el evento. */
     brief?: string,
+    /** Redirecciones de salida que la regla declaró para este disparo. */
+    exits?: AgentConfig['exits'],
   ): Promise<DispatchOutcome>
+  /**
+   * Resuelve el issue sobre el que correr, cuando el evento no lo trae.
+   *
+   * Sólo los eventos de la fuente (`issue.*`) llevan el item en el payload:
+   * los de GitHub —`pr.opened`, `pr.review_submitted`, `ci.finished`— traen el
+   * PR y el scope, porque el webhook habla de un PR y no sabe de qué issue del
+   * board cuelga. Sin esto, una regla sobre cualquiera de ellos con
+   * `action: agent` no dispara nada y contesta "el evento no trae un issue" —
+   * o sea que la mitad del catálogo de eventos es inservible para el uso más
+   * obvio que tiene.
+   *
+   * Opcional: sin implementar, el comportamiento es el de antes (sólo corren
+   * los eventos que traen item).
+   */
+  resolveItem?(projectId: string, scope: EngineEvent['scope']): Promise<IssueItem | undefined>
 }
 
 /**
@@ -55,7 +72,24 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       return { ok: false, detail: 'evento sin projectId — el agente necesita un proyecto' }
     }
 
-    const item = ctx.event.payload.item as IssueItem | undefined
+    // El item viene en el payload cuando el evento lo produjo el scan de la
+    // fuente. Si no, hay que ir a buscarlo — un `pr.review_submitted` sabe de
+    // qué PR habla, no de qué issue.
+    let item = ctx.event.payload.item as IssueItem | undefined
+    if (!item && this.deps.resolveItem) {
+      try {
+        item = await this.deps.resolveItem(projectId, ctx.event.scope)
+      } catch (err) {
+        // Diferido y no fallado, por lo mismo que el manager ausente: la
+        // fuente puede estar caída un momento, y correr el `onError` del
+        // agente comentaría un fallo de un run que nunca se intentó.
+        log.warn(
+          { projectId, ruleId: ctx.rule.id, err: (err as Error).message },
+          'resolveItem falló — difiriendo',
+        )
+        return { ok: false, deferred: true, detail: 'no se pudo resolver el issue del evento' }
+      }
+    }
     if (!item) {
       return { ok: false, detail: 'el evento no trae un issue sobre el que correr' }
     }
@@ -88,6 +122,7 @@ export class AgentAction implements ActionHandler<AgentConfig> {
         position: ctx.position,
       },
       brief,
+      config.exits,
     )
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 

@@ -9,8 +9,9 @@ import { registerAction } from '@ia-flow/rules'
 import { AgentAction } from '../adapters/actions/agent-action.js'
 import { EmitAction } from '../adapters/actions/emit-action.js'
 import { HttpAction } from '../adapters/actions/http-action.js'
+import { createResolveEventItem } from '../adapters/actions/resolve-event-item.js'
 import { ScriptAction } from '../adapters/actions/script-action.js'
-import { dispatcher, interpolateSecrets, repoRepo } from './container.js'
+import { dispatcher, getSourceForProjectId, interpolateSecrets, repoRepo } from './container.js'
 
 /** Los managers vivos, indexados por proyecto. Los publica `daemon.ts` en cada
  *  `startAll`/`reloadManagers`, porque su ciclo de vida es el del daemon y no
@@ -44,7 +45,11 @@ export function registerActions(): void {
         ruleId: string,
         event: { id: string; type: string; position: number },
         brief?: string,
-      ) => dispatcher.dispatch(item, manager, agentId, ruleId, event, brief),
+        exits?: Parameters<typeof dispatcher.dispatch>[6],
+      ) => dispatcher.dispatch(item, manager, agentId, ruleId, event, brief, exits),
+      // Los eventos de GitHub (`pr.*`, `ci.finished`) traen el PR, no el issue
+      // del board. Sin esto una regla sobre cualquiera de ellos no dispara.
+      resolveItem: createResolveEventItem({ sourceFor: getSourceForProjectId }),
     }),
   )
 

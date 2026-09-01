@@ -2,7 +2,7 @@ import { join } from 'path'
 import type { Admission, AdmissionRequest, IAgentProvider } from '@ia-flow/ai-providers'
 import { ADMIT, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
-import type { ProviderLimit, Task } from '@ia-flow/shared'
+import type { AgentExit, ProviderLimit, Task } from '@ia-flow/shared'
 import type { WorkspaceManager } from '@ia-flow/workspace'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
@@ -340,6 +340,8 @@ export class AgentOrchestrator {
       /** Por qué corre el agente esta vez. El único campo de `origin` que el
        *  MODELO ve: los demás son trazabilidad. */
       brief?: string
+      /** Redirecciones de salida declaradas por la regla. */
+      exits?: Record<string, AgentExit>
     },
     /** Provisto por `runSubAgent` para poder leer la salida del run. Un
      *  dispatch normal no lo pasa y el orquestador arma el suyo. */
@@ -545,6 +547,7 @@ export class AgentOrchestrator {
           parentRunId: origin?.parentRunId,
           agentDepth: origin?.agentDepth,
           brief: origin?.brief,
+          exitOverrides: origin?.exits,
         },
         runState,
       )

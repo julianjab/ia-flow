@@ -11,7 +11,7 @@
 // activación de un agente se pueda migrar a una fila de `rules` sin traducción
 // conceptual.
 import { z } from 'zod'
-import { WhenConditionSchema } from './schemas.js'
+import { AgentExitSchema, WhenConditionSchema } from './schemas.js'
 import { ScriptActionSchema } from './script-action.js'
 
 // ── Acciones ─────────────────────────────────────────────────────────────────
@@ -58,6 +58,24 @@ export const AgentActionSchema = z.object({
    * diferencia de quién lo escribe: allá un agente padre, acá el operador.
    */
   brief: z.string().optional(),
+  /**
+   * Redirige el destino de las salidas del agente, para ESTE disparo.
+   *
+   * El `set` de una salida es el nombre de una columna de este board — ruteo,
+   * exactamente el mismo dato que la migración 059 sacó del agente cuando se
+   * llevó `statusName` a las reglas. Sin esto, reusar un roster contra un
+   * segundo board obliga a clonar los agentes nada más que por el mapeo.
+   *
+   * **Merge por clave, y sólo sobre claves que el agente ya declara.** El
+   * agente es dueño del VOCABULARIO (qué salidas existen y qué significan, que
+   * es lo que va al enum de `select_exit`); la regla, del DESTINO. Una clave
+   * desconocida se descarta con un warn — ver `resolveEffectiveExits`.
+   *
+   * Casi ningún disparo lo necesita: el default es el `exits` del agente, que
+   * cubre a todo el roster sin escribir nada. Mismo patrón de tres niveles que
+   * `resolveCommentTarget` (salida > agente > default).
+   */
+  exits: z.record(z.string(), AgentExitSchema).optional(),
 })
 
 /**
