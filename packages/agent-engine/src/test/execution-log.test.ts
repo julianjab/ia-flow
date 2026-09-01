@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'bun:test'
-import { type AgentConfigIdentity, hashAgentConfig } from '../execution-log.js'
+import { afterEach, describe, expect, it } from 'bun:test'
+import {
+  type AgentConfigIdentity,
+  buildFinishPatch,
+  hashAgentConfig,
+  hashSystemPrompt,
+} from '../execution-log.js'
+import {
+  recordHookToolResult,
+  resetRunTelemetry,
+  setTranscriptUsageReader,
+} from '../run-telemetry.js'
 
 const base: AgentConfigIdentity = {
   prompt: 'Refiná el issue {{task.title}}:\n\n{{task.description}}',
@@ -72,5 +82,85 @@ describe('hashAgentConfig', () => {
 
   it('produce 12 chars hex', () => {
     expect(hashAgentConfig(base)).toMatch(/^[0-9a-f]{12}$/)
+  })
+})
+
+describe('hashSystemPrompt', () => {
+  it('cambia sólo cuando cambian los bloques de system prompt', () => {
+    const a = hashSystemPrompt(base.systemPromptBlocks)
+    expect(hashSystemPrompt([{ type: 'text', text: 'Sos un refinador.' }])).toBe(a)
+    expect(hashSystemPrompt([{ type: 'text', text: 'Sos un reviewer.' }])).not.toBe(a)
+    expect(a).toMatch(/^[0-9a-f]{12}$/)
+  })
+
+  it('un system prompt distinto NO mueve el hash del agente si el resto es igual', () => {
+    // La razón de tener dos hashes: hashAgentConfig SÍ cambia (incluye los
+    // bloques), y el detalle cruza los dos para saber qué se editó.
+    const other = { ...base, systemPromptBlocks: [{ type: 'text', text: 'Otro.' }] }
+    expect(hashAgentConfig(other)).not.toBe(hashAgentConfig(base))
+    expect(hashSystemPrompt(other.systemPromptBlocks)).not.toBe(
+      hashSystemPrompt(base.systemPromptBlocks),
+    )
+  })
+})
+
+describe('buildFinishPatch', () => {
+  afterEach(() => {
+    resetRunTelemetry()
+    setTranscriptUsageReader(undefined)
+  })
+
+  it('con métricas del provider persiste modelo, hashes y desglose por tool', () => {
+    const patch = buildFinishPatch({
+      outcome: 'success',
+      startedAtMs: Date.now() - 10,
+      runId: 'run-1',
+      agentPromptHash: 'aaa',
+      systemPromptHash: 'sss',
+      metrics: {
+        usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheCreationTokens: 40 },
+        iters: 3,
+        toolCalls: 2,
+        toolErrors: 1,
+        toolBreakdown: { fs_read: { calls: 1, errors: 0 }, bash_run: { calls: 1, errors: 1 } },
+        model: 'claude-sonnet-5',
+      },
+    })
+    expect(patch.model).toBe('claude-sonnet-5')
+    expect(patch.systemPromptHash).toBe('sss')
+    expect(patch.agentPromptHash).toBe('aaa')
+    expect(patch.tokensIn).toBe(10)
+    expect(patch.cacheReadTokens).toBe(30)
+    expect(patch.toolBreakdown).toEqual({
+      fs_read: { calls: 1, errors: 0 },
+      bash_run: { calls: 1, errors: 1 },
+    })
+  })
+
+  it('un run de terminal toma usage y modelo de la transcripción vía el hook tally', () => {
+    setTranscriptUsageReader(() => ({
+      usage: { inputTokens: 5, outputTokens: 6, cacheReadTokens: 7, cacheCreationTokens: 8 },
+      model: 'claude-opus-5',
+    }))
+    recordHookToolResult('run-2', false, { toolName: 'Bash', transcriptPath: '/t.jsonl' })
+    recordHookToolResult('run-2', true, { toolName: 'Bash' })
+
+    const patch = buildFinishPatch({ outcome: 'success', startedAtMs: Date.now(), runId: 'run-2' })
+    expect(patch.model).toBe('claude-opus-5')
+    expect(patch.tokensOut).toBe(6)
+    expect(patch.cacheCreationTokens).toBe(8)
+    expect(patch.toolCalls).toBe(2)
+    expect(patch.toolErrors).toBe(1)
+    expect(patch.toolBreakdown).toEqual({ Bash: { calls: 2, errors: 1 } })
+    // Sin loop propio no hay vueltas que contar.
+    expect(patch.iters).toBeNull()
+  })
+
+  it('sin nada observable deja null, no cero', () => {
+    const patch = buildFinishPatch({ outcome: 'error', startedAtMs: Date.now(), runId: 'run-3' })
+    expect(patch.model).toBeNull()
+    expect(patch.tokensIn).toBeNull()
+    expect(patch.toolBreakdown).toBeNull()
+    expect(patch.systemPromptHash).toBeNull()
   })
 })
