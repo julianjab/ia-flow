@@ -25,6 +25,13 @@ function lastEmitted(wrapper: ReturnType<typeof mountEditor>): RuleActionEntry[]
   return (events?.at(-1)?.[0] ?? []) as RuleActionEntry[]
 }
 
+/** `v-show` no saca el nodo del DOM — sólo le pisa `style.display` — así que
+ *  `.isVisible()` (pensado para `v-if`/CSS de verdad) no es confiable en
+ *  happy-dom, que no calcula layout. El estilo inline es la fuente de verdad. */
+function isShown(el: ReturnType<ReturnType<typeof mountEditor>['get']>): boolean {
+  return el.attributes('style')?.includes('display: none') !== true
+}
+
 describe('ActionsEditor', () => {
   it('sólo ofrece los tipos que el daemon sabe ejecutar', async () => {
     const wrapper = mountEditor(
@@ -124,5 +131,51 @@ describe('ActionsEditor', () => {
 
   it('avisa cuando la regla no tiene acciones', () => {
     expect(mountEditor([]).find('.ae-empty').exists()).toBe(true)
+  })
+
+  it('con 2+ acciones arrancan colapsadas, mostrando un resumen y sin el form', () => {
+    const wrapper = mountEditor([
+      { action: 'agent', agentId: 'triage' } as RuleActionEntry,
+      { action: 'http', url: 'https://hooks.internal/x', method: 'POST' } as RuleActionEntry,
+    ])
+    const bodies = wrapper.findAll('.ae-body')
+    expect(isShown(bodies[0])).toBe(false)
+    expect(isShown(bodies[1])).toBe(false)
+    expect(wrapper.findAll('.ae-summary').map((s) => s.text())).toEqual([
+      'triage',
+      'POST https://hooks.internal/x',
+    ])
+  })
+
+  it('con una sola acción arranca abierta, sin resumen', () => {
+    const wrapper = mountEditor([{ action: 'agent', agentId: 'triage' } as RuleActionEntry])
+    expect(isShown(wrapper.get('.ae-body'))).toBe(true)
+    expect(wrapper.find('.ae-summary').exists()).toBe(false)
+  })
+
+  it('togglear la cabecera abre la tarjeta y esconde el resumen', async () => {
+    const wrapper = mountEditor([
+      { action: 'agent', agentId: 'triage' } as RuleActionEntry,
+      { action: 'agent', agentId: 'reviewer' } as RuleActionEntry,
+    ])
+    await wrapper.findAll('.ae-toggle')[0].trigger('click')
+    expect(isShown(wrapper.findAll('.ae-body')[0])).toBe(true)
+    expect(wrapper.findAll('.ae-summary').map((s) => s.text())).toEqual(['reviewer'])
+  })
+
+  it('agregar una acción nueva la deja abierta aunque haya otras colapsadas', async () => {
+    const wrapper = mountEditor(
+      [
+        { action: 'agent', agentId: 'triage' } as RuleActionEntry,
+        { action: 'agent', agentId: 'reviewer' } as RuleActionEntry,
+      ],
+      ['agent', 'http'],
+    )
+    await wrapper.find('.ae-add').trigger('click')
+    await wrapper.setProps({ modelValue: lastEmitted(wrapper) })
+    const bodies = wrapper.findAll('.ae-body')
+    expect(isShown(bodies[0])).toBe(false)
+    expect(isShown(bodies[1])).toBe(false)
+    expect(isShown(bodies[2])).toBe(true)
   })
 })
