@@ -420,6 +420,21 @@ function copyJson(entry: ServerLogEntry) {
   void navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
 }
 
+// `extras.clearDedupe` es el curl que daemon.ts/container.ts arman al loguear
+// un evento deduplicado o sin ninguna regla matcheada (ver DELETE
+// /api/webhooks/dedupe/:eventId) — trae el id de la entrega ya embebido. Sólo
+// falta pegarle el secreto: no lo copiamos automático porque el front no
+// conoce IA_FLOW_WEBHOOK_SECRET (es un secreto write-only, igual que el resto
+// de las credenciales de este proyecto).
+function clearDedupeCurl(entry: ServerLogEntry): string | null {
+  const value = entry.extras?.clearDedupe;
+  return typeof value === 'string' ? value : null;
+}
+function copyClearDedupeCurl(entry: ServerLogEntry) {
+  const curl = clearDedupeCurl(entry);
+  if (curl) void navigator.clipboard.writeText(curl);
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es');
@@ -645,14 +660,26 @@ onMounted(() => {
         <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
           <div class="detail-header">
             <span class="detail-title">JSON completo</span>
-            <button
-              type="button"
-              class="btn-copy"
-              data-testid="server-logs-copy-json"
-              @click="copyJson(entry)"
-            >
-              Copiar JSON
-            </button>
+            <div class="detail-actions">
+              <button
+                v-if="clearDedupeCurl(entry)"
+                type="button"
+                class="btn-copy"
+                data-testid="server-logs-copy-clear-dedupe"
+                :title="clearDedupeCurl(entry) ?? ''"
+                @click="copyClearDedupeCurl(entry)"
+              >
+                Copiar curl (limpiar dedupe)
+              </button>
+              <button
+                type="button"
+                class="btn-copy"
+                data-testid="server-logs-copy-json"
+                @click="copyJson(entry)"
+              >
+                Copiar JSON
+              </button>
+            </div>
           </div>
           <pre class="detail-json">{{ JSON.stringify(entry, null, 2) }}</pre>
         </div>
@@ -885,6 +912,7 @@ onMounted(() => {
 }
 .detail-header { display: flex; justify-content: space-between; align-items: center; }
 .detail-title { font-size: 0.78rem; color: var(--fg-dim); font-weight: 500; }
+.detail-actions { display: flex; gap: 0.5rem; }
 .detail-json {
   margin: 0;
   padding: 0.6rem 0.75rem;
