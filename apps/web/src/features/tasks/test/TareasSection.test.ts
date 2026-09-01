@@ -155,6 +155,52 @@ describe('TareasSection — dev links', () => {
     expect(row.findAll('.tag--pr')).toHaveLength(1)
     expect(wrapper.find('.btn-edit').exists()).toBe(false)
   })
+
+  it('sin el campo Repos del board, el repo sale del PR', async () => {
+    const wrapper = await mountWith([
+      {
+        id: 'I_9',
+        title: 'Sin repos',
+        status: 'doing',
+        repos: '',
+        meta: {
+          issueNumber: 99,
+          repoName: 'subscriptions',
+          pullRequests: [
+            { number: 7, url: 'u', state: 'open', isDraft: false, headRepo: 'fork-de-alguien' },
+          ],
+        },
+      },
+    ])
+    expect(wrapper.findAll('.tag--repo').map((c) => c.text())).toEqual(['fork-de-alguien'])
+    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).not.toContain('sin repos')
+  })
+
+  it('sin campo Repos y sin PR todavía, el repo sale del issue', async () => {
+    const wrapper = await mountWith([
+      {
+        id: 'I_10',
+        title: 'Recién arrancada',
+        status: 'doing',
+        repos: '',
+        meta: {
+          issueNumber: 100,
+          repoName: 'subscriptions',
+          linkedBranch: 'feat/algo',
+          pullRequests: [],
+        },
+      },
+    ])
+    expect(wrapper.findAll('.tag--repo').map((c) => c.text())).toEqual(['subscriptions'])
+    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).not.toContain('sin repos')
+  })
+
+  it('un provider que no dice de qué repo es el issue sigue diciendo "sin repos"', async () => {
+    const wrapper = await mountWith([
+      { id: 'L_2', title: 'Local task', status: 'queued', repos: '' },
+    ])
+    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).toContain('sin repos')
+  })
 })
 
 describe('TareasSection — detalle', () => {

@@ -61,6 +61,10 @@ interface TaskRow {
   slackThreadUrl?: string
   /** Logins asignados al issue, tal como los expone el provider. */
   assignees: string[]
+  /** Repo dueño del issue, según el provider. No es lo que el operador declaró
+   * en el board — es un hecho de la plataforma, y el último recurso para saber
+   * de qué repo habla esta tarea. */
+  repoName?: string
 }
 
 
@@ -226,6 +230,7 @@ function toRow(item: SourceItem): TaskRow {
     pullRequestsKnown: meta.pullRequestsKnown !== false,
     slackThreadUrl: meta.slackThreadUrl as string | undefined,
     assignees: Array.isArray(meta.assignees) ? (meta.assignees as string[]) : [],
+    repoName: meta.repoName as string | undefined,
   }
 }
 
@@ -311,11 +316,18 @@ async function loadBlockersFor(projectId: string, itemId: string) {
 function currentReposOf(item: TaskRow): string[] {
   const explicit = item.repos.split(',').map((r) => r.trim()).filter(Boolean);
   if (explicit.length) return explicit;
-  // El campo "Repos" del board es manual y puede quedar sin llenar aunque el
-  // issue ya tenga trabajo linkeado: el PR sabe su propio repo (`headRepo`)
-  // sin que nadie lo tipee. Sin este fallback la tarjeta dice "sin repos" con
-  // un PR abierto a la vista, que es peor que inferirlo.
-  return [...new Set(item.pullRequests.map((pr) => pr.headRepo).filter((r): r is string => !!r))];
+  // El campo "Repos" del board es manual y puede quedar sin llenar. Cuando lo
+  // está, el repo se infiere de lo que la plataforma YA sabe, de lo más
+  // específico a lo más general:
+  //   1. el `headRepo` de sus PRs — puede ser otro repo que el del issue;
+  //   2. el repo dueño del issue (`repoName`), que existe siempre.
+  // Sin (2) una tarea sin PR todavía —el caso normal recién arrancada— decía
+  // "sin repos" con su rama a la vista, y el board entero se veía sin repo.
+  const fromPrs = [
+    ...new Set(item.pullRequests.map((pr) => pr.headRepo).filter((r): r is string => !!r)),
+  ];
+  if (fromPrs.length) return fromPrs;
+  return item.repoName ? [item.repoName] : [];
 }
 
 function openReposModal(item: TaskRow) {
