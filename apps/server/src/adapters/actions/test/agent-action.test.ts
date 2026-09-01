@@ -167,3 +167,30 @@ describe('AgentAction — eventos sin item en el payload', () => {
     expect(res.skipped).toBe(true)
   })
 })
+
+// El `skipped` del dispatcher es el mismo hecho que el del item sin resolver:
+// el item no aplicaba. Sin marcarlo, una regla `do: [agent, emit]` pierde el
+// `emit` y la fila queda en rojo.
+describe('AgentAction — el dispatcher devuelve skipped', () => {
+  test('lo propaga como skipped, no como fallo', async () => {
+    const { action } = spyDispatch('skipped')
+    const res = await action.execute(ctx(), { action: 'agent', agentId: 'implementer' } as never)
+    expect(res.ok).toBe(false)
+    expect(res.skipped).toBe(true)
+    expect(res.deferred).toBeFalsy()
+  })
+
+  test('`deferred` sigue siendo deferred y no skipped', async () => {
+    const { action } = spyDispatch('deferred')
+    const res = await action.execute(ctx(), { action: 'agent', agentId: 'implementer' } as never)
+    expect(res.deferred).toBe(true)
+    expect(res.skipped).toBeFalsy()
+  })
+
+  test('un dispatch normal sigue siendo ok', async () => {
+    const { action } = spyDispatch('dispatched')
+    const res = await action.execute(ctx(), { action: 'agent', agentId: 'implementer' } as never)
+    expect(res.ok).toBe(true)
+    expect(res.skipped).toBeFalsy()
+  })
+})
