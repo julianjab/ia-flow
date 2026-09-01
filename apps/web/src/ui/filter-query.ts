@@ -146,9 +146,25 @@ export function suggest(
  * que no existe devuelve vacío sin decir por qué, que es la peor forma de fallar
  * en un filtro.
  */
-export function tokenFromDraft(draft: string, fields: FilterFieldDef[]): FilterToken | null {
-  const { field, term } = splitDraft(draft)
-  if (field === null || !term) return null
+export function tokenFromDraft(
+  draft: string,
+  fields: FilterFieldDef[],
+  defaultField?: string,
+): FilterToken | null {
+  const split = splitDraft(draft)
+  let field = split.field
+  let term = split.term
+  // Sin `:` es texto plano. Con un campo default (`msg` en Logs, `tarea` en
+  // Ejecuciones) se trata como si lo hubiera escrito: así "timeout" filtra
+  // igual que "msg:timeout", sin obligar a nombrar el campo para el caso más
+  // común. Sin default, texto plano sigue sin ser un token — es el mismo
+  // borrador que ofrece campos en el menú.
+  if (field === null) {
+    if (!defaultField) return null
+    field = defaultField
+    term = draft.trim()
+  }
+  if (!term) return null
   const def = findField(fields, field)
   if (!def) return null
   // Lo escrito puede ser el valor o la etiqueta: los dos se ven en el menú.

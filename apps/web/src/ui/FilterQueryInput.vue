@@ -22,6 +22,9 @@ const props = withDefaults(
     fields: FilterFieldDef[];
     placeholder?: string;
     testid?: string;
+    /** Campo al que cae el texto plano (sin `:`) al confirmarlo — p.ej. `msg` en
+     *  Logs, `tarea` en Ejecuciones. Sin esto, texto plano no cierra token. */
+    defaultField?: string;
   }>(),
   { placeholder: 'Filtrar… (campo:valor)', testid: 'filter-query' },
 );
@@ -64,7 +67,7 @@ function apply(index: number) {
 }
 
 function commit(raw: string) {
-  const token = tokenFromDraft(raw, props.fields);
+  const token = tokenFromDraft(raw, props.fields, props.defaultField);
   if (!token) return;
   emit('update:modelValue', addToken(props.modelValue, token));
   draft.value = '';

@@ -551,8 +551,9 @@ onMounted(() => {
     <FilterQueryInput
       v-model="filterTokens"
       :fields="filterFields"
+      default-field="msg"
       testid="server-logs-filter"
-      placeholder="Filtrar… escribí un campo (nivel, modulo, msg…) y elegí su valor"
+      placeholder="Filtrar… un campo (nivel, modulo, msg…) o texto plano busca en el mensaje"
     />
 
     <div v-if="error" class="items-error">{{ error }}</div>

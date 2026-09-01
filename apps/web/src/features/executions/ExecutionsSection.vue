@@ -1345,8 +1345,9 @@ watch(pendingFilter, () => {
     <FilterQueryInput
       v-model="filterTokens"
       :fields="filterFields"
+      default-field="tarea"
       testid="executions-filter"
-      placeholder="Filtrar… escribí un campo (agente, resultado, tarea…) y elegí su valor"
+      placeholder="Filtrar… un campo (agente, resultado, tarea…) o texto plano busca por título/id"
     />
 
     <div v-if="error" class="items-error">{{ error }}</div>
