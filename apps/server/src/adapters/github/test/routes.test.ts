@@ -16,6 +16,19 @@ function withCredentials(mode: string) {
   })
 }
 
+/** Un provider perezoso: no sabe su modo hasta que alguien le pide un token —
+ *  la forma exacta de `lazyGitHubCredentials`, que es lo que cablea el server. */
+function withLazyCredentials(mode: string) {
+  let resolved = false
+  setGitHubCredentials({
+    getToken: async () => {
+      resolved = true
+      return 'tok'
+    },
+    describe: (): CredentialDescription => (resolved ? { mode } : { mode: 'pending' }),
+  })
+}
+
 /** Devuelve las rutas pedidas, en orden, y responde lo que diga `routes`. */
 function stubGitHub(routes: Record<string, unknown>) {
   const calls: string[] = []
@@ -35,6 +48,9 @@ function stubGitHub(routes: Record<string, unknown>) {
 
 afterEach(() => {
   globalThis.fetch = realFetch
+  // `setGitHubCredentials` es estado de módulo del paquete: sin devolverlo al
+  // fallback, cualquier test posterior del proceso hereda esta credencial.
+  setGitHubCredentials(null as never)
 })
 
 const INSTALLATION = {
@@ -74,6 +90,18 @@ describe('GET /owners — la identidad decide el endpoint', () => {
       ],
     })
     expect(calls.some((c) => c.startsWith('/installation/repositories'))).toBe(false)
+  })
+
+  it('un daemon recién booteado resuelve la credencial antes de elegir endpoint', async () => {
+    // El provider real es perezoso y se describe `pending` hasta el primer
+    // `getToken()`. Ramificar sobre ese "todavía no sé" pegaría a `/user`.
+    withLazyCredentials('github-app')
+    const calls = stubGitHub({ '/installation/repositories': INSTALLATION })
+
+    const res = await createGithubRouter().request('/owners?refresh=1')
+
+    expect(await res.json()).toEqual({ owners: [{ login: 'la-haus', type: 'org' }] })
+    expect(calls.some((c) => c.startsWith('/user'))).toBe(false)
   })
 })
 
