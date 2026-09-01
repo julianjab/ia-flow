@@ -742,6 +742,32 @@ describe('AnthropicApiProvider.run — request shaping', () => {
     expect(system[0].text).toBe('Agent-specific block')
   })
 
+  // La API rechaza un request con más de 4 `cache_control`. Marcando bloque
+  // por bloque, ese presupuesto lo gastaba la cantidad de entradas de
+  // `systemPrompts` — o sea que mover el prompt estable al system, que es lo
+  // que hace que se cachee, rompía el request al quinto bloque.
+  it('marks exactly one cache breakpoint, on the last system block', async () => {
+    const { body } = await requestFrom(
+      {
+        systemPromptBlocks: [
+          { type: 'text', text: 'A' },
+          { type: 'text', text: 'B' },
+          { type: 'text', text: 'C' },
+        ],
+      },
+      {
+        systemPrompt: [
+          { type: 'text', text: 'D' },
+          { type: 'text', text: 'E' },
+        ],
+      },
+    )
+    const system = body.system as Array<{ text: string; cache_control?: unknown }>
+    expect(system.map((b) => b.text)).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(system.filter((b) => b.cache_control).length).toBe(1)
+    expect(system.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
+  })
+
   it('omits thinking from the request body when the resolved settings have none', async () => {
     const { body } = await requestFrom({}, { thinking: undefined })
     expect(body.thinking).toBeUndefined()
