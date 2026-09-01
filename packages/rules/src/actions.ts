@@ -122,6 +122,17 @@ export interface ActionValidationError {
  * corre porque la config estaba mal es el modo de falla más caro de este
  * sistema, porque es silencioso.
  */
+/** Una lista de destinos utilizable: no vacía y sin referencias a pasos. Si
+ *  la lista saliera de un paso, la escribiría el mismo modelo que después
+ *  elige adentro — la compuerta se abriría a sí misma. */
+function isLiteralList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((v) => typeof v === 'string' && !v.includes('{{steps.'))
+  )
+}
+
 export function validateActions(actions: readonly RuleActionEntry[]): ActionValidationError[] {
   const errors: ActionValidationError[] = []
   actions.forEach((entry, position) => {
@@ -166,7 +177,7 @@ export function validateActions(actions: readonly RuleActionEntry[]): ActionVali
       kind === 'agent' &&
       typeof agent.agentId === 'string' &&
       agent.agentId.includes('{{steps.') &&
-      !(Array.isArray(agent.allowAgents) && agent.allowAgents.length > 0)
+      !isLiteralList(agent.allowAgents)
     ) {
       errors.push({
         position,

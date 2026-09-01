@@ -137,10 +137,17 @@ export async function runRule(
       // El `continueOnError` de la REF gana sobre el de la acción referenciada:
       // es una decisión de esta regla sobre esta secuencia, no una propiedad de
       // la acción, que puede ser opcional en una regla y crítica en otra.
+      //
+      // El `id` viaja por lo mismo, y además porque no puede vivir del otro
+      // lado: nombra el PASO dentro de esta secuencia, no la acción reusable.
+      // Sin arrastrarlo, un `{action: 'ref', id: 't'}` publicaba su output bajo
+      // el `id` del body de la acción con nombre (o bajo ninguno), y el paso
+      // siguiente fallaba con "'t' no corrió antes en esta regla".
       name = resolved.name ?? actionId
       entry = {
         ...resolved.entry,
         ...(raw.continueOnError !== undefined ? { continueOnError: raw.continueOnError } : {}),
+        ...((raw as { id?: string }).id !== undefined ? { id: (raw as { id?: string }).id } : {}),
       } as RuleActionEntry
     }
 

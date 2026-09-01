@@ -42,7 +42,18 @@ export type Steps = Record<string, StepOutput>
  * sistema ya usa en `select_exit`: el operador declara el espacio y el modelo
  * elige adentro.
  */
-const EXECUTION_FIELDS = new Set(['agentId', 'actionId', 'file', 'runtime', 'url', 'method'])
+const EXECUTION_FIELDS = new Set([
+  'agentId',
+  'actionId',
+  'file',
+  'runtime',
+  'url',
+  'method',
+  // La lista de destinos es la compuerta MISMA. Si pudiera salir de un agente,
+  // el mismo modelo escribiría la elección y el espacio de elecciones, y
+  // "el operador declara el espacio" dejaría de significar nada.
+  'allowAgents',
+])
 
 /**
  * El único campo de ejecución que un agente SÍ puede alimentar, y con qué
@@ -60,12 +71,22 @@ const EXECUTION_FIELDS = new Set(['agentId', 'actionId', 'file', 'runtime', 'url
  */
 const EXECUTION_FIELD_GATES: Record<string, string> = { agentId: 'allowAgents' }
 
-/** Si la config abrió la compuerta de ese campo declarando su lista. */
+/**
+ * Si la config abrió la compuerta de ese campo declarando su lista.
+ *
+ * La lista tiene que ser LITERAL. Un `allowAgents: ['{{steps.x.output.quien}}']`
+ * es un array no vacío y abriría la compuerta, pero lo escribiría el mismo
+ * modelo que después elige adentro — o sea que la compuerta se abriría a sí
+ * misma. `EXECUTION_FIELDS` ya impide que un AGENTE la alimente; esto cubre
+ * además el caso de un script, donde el valor no es peligroso pero la lista
+ * dejaría de ser una decisión del operador tomada por adelantado.
+ */
 function isGated(config: unknown, field: string): boolean {
   const gate = EXECUTION_FIELD_GATES[field]
   if (!gate) return false
   const list = (config as Record<string, unknown> | null)?.[gate]
-  return Array.isArray(list) && list.length > 0
+  if (!Array.isArray(list) || list.length === 0) return false
+  return list.every((v) => typeof v === 'string' && !v.includes('{{steps.'))
 }
 
 /** `{{steps.a.output.b}}` — con o sin espacios adentro de las llaves. */
