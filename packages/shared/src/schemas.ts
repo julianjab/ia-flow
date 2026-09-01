@@ -903,6 +903,49 @@ export function resolveCommentTarget(
   return exitComment(exit) ?? agentDefault ?? DEFAULT_COMMENT_TARGET
 }
 
+/**
+ * Un campo del contrato de salida de un agente.
+ *
+ * Deliberadamente NO es JSON Schema completo: lo que un agente le pasa al que
+ * sigue son unos pocos valores planos, y aceptar objetos anidados invitaría a
+ * mover estructura por acá en vez de por el issue —que es donde el pipeline la
+ * guarda de forma durable y auditable—. Si algún día hace falta, se amplía;
+ * empezar amplio no se puede deshacer.
+ */
+export const AgentOutputFieldSchema = z.object({
+  type: z.enum(['string', 'number', 'boolean']).default('string'),
+  /** Qué tiene que poner el agente ahí. Va a la descripción del parámetro, así
+   *  que es lo único que el modelo lee para saber qué se espera — sin esto ve
+   *  un nombre pelado, el mismo problema que tenía una salida sin `when`. */
+  description: z.string().optional(),
+  /** Restringe los valores aceptados. Mismo patrón que `select_exit`: el
+   *  operador declara el espacio, el modelo elige adentro. */
+  enum: z.array(z.string()).optional(),
+  /** Ausente ⇒ obligatorio. Un contrato donde todo es opcional no es un
+   *  contrato. */
+  optional: z.boolean().optional(),
+})
+export type AgentOutputField = z.infer<typeof AgentOutputFieldSchema>
+
+/**
+ * El contrato de salida estructurada de un agente: `campo → forma`.
+ *
+ * Declararlo hace tres cosas: le ofrece al agente la tool `submit_output` con
+ * ese schema exacto, vuelve OBLIGATORIO llamarla antes de cerrar, y publica el
+ * payload para que una regla lo pase al paso siguiente
+ * (`{{steps.<paso>.output.<campo>}}`).
+ *
+ * **Por qué una tool y no `output_config.format` de la API.** El canal de
+ * tools es lo único que funciona igual en sync y en async — es literalmente
+ * por eso que el provider de terminal inyecta el MCP sintético
+ * `ia-flow-tools`. `output_config` sólo existe en `anthropic-api`, así que un
+ * contrato declarado no haría nada en tmux/iterm; además se comería el mensaje
+ * final, que es lo que el engine publica como comentario del issue, y no deja
+ * reintentar con feedback cuando el payload no sirve.
+ */
+export const AgentOutputSchema = z.record(z.string().min(1), AgentOutputFieldSchema)
+export type AgentOutput = z.infer<typeof AgentOutputSchema>
+
 export const AgentOutcomesSchema = z.object({
   // Hook, no destino: corre siempre al arrancar el run. Por eso NO entra en
   // `exits` — no hay nada que elegir.
@@ -979,6 +1022,17 @@ export const AgentDefinitionSchema = z
     /** Orden en la lista del editor, dentro de su ámbito. Sobrevive por lo
      *  mismo que `projectId`: es presentación, no criterio de match. */
     position: z.number().optional(),
+    /**
+     * Contrato de salida estructurada — ver `AgentOutputSchema`.
+     *
+     * Es opt-in y sin default: la enorme mayoría de los agentes cierra con
+     * prosa y eso alcanza. Se declara cuando otro paso necesita LEER lo que
+     * éste produjo, y declararlo lo vuelve obligatorio (el run falla si el
+     * agente cierra sin llamar a `submit_output`) — un contrato que se puede
+     * incumplir en silencio deja al paso siguiente trabajando con un encargo
+     * mutilado, que es peor que no tener contrato.
+     */
+    output: AgentOutputSchema.optional(),
   })
   // El agente declara QUÉ hace y cómo termina. El CUÁNDO se fue a `rules` en
   // la migración 059 — ver RuleSchema.

@@ -149,6 +149,10 @@ export interface AgentRunState {
    *  como `tool_result` — un dispatch normal lo ignora, porque su resultado
    *  ya viaja por los outcomes y los comentarios. */
   output?: string
+  /** Lo que el agente entregó por `submit_output`, si declaró un contrato de
+   *  salida. Es lo que una regla publica como `{{steps.<paso>.output.<campo>}}`
+   *  para el paso siguiente. */
+  structuredOutput?: Record<string, unknown>
   /**
    * Limpieza del terreno que preparó el provider, si lo pidió (hoy: el
    * worktree de un run terminal). El orquestador la invoca en su `finally`,
@@ -465,6 +469,7 @@ export class Agent {
         task,
         manager,
         exits,
+        outputFields: agentDef.output,
         commentTarget: agentDef.comment,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
@@ -566,6 +571,7 @@ export class Agent {
         // appendix instead of just the internal lifecycle ones.
         tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
         selectableExits: selectableExits(agentDef.exits),
+        outputFields: agentDef.output,
         providerConfig: await this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: effectiveCwd,
@@ -623,6 +629,28 @@ export class Agent {
 
       // PASO 5 — finaliza según el resultado.
       runState.output = output.content
+
+      // La salida estructurada, si el agente declaró un contrato.
+      //
+      // Se lee del registry porque `submit_output` escribe ahí: la tool corre
+      // dentro del loop —o del otro lado del MCP, en un run async— y no tiene
+      // otro canal de vuelta. Es el mismo camino que `chosenExit`.
+      //
+      // Declarar el contrato lo vuelve OBLIGATORIO: si el agente cerró sin
+      // entregarlo, el run falla. La alternativa —cerrar bien y publicar nada—
+      // deja al paso siguiente leyendo un valor vacío y trabajando con un
+      // encargo mutilado, sin que nada lo señale. Un contrato que se puede
+      // incumplir en silencio no es un contrato.
+      if (agentDef.output && Object.keys(agentDef.output).length > 0) {
+        const submitted = getPendingTask(registryKey)?.structuredOutput
+        if (!submitted) {
+          throw new Error(
+            `El agente declara salida estructurada (${Object.keys(agentDef.output).join(', ')}) ` +
+              'y cerró el run sin llamar a `submit_output`.',
+          )
+        }
+        runState.structuredOutput = submitted
+      }
 
       if (output.mode === 'tmux') {
         // Wire the provider-agnostic session handle: persist its coordinates

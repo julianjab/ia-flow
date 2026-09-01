@@ -1,5 +1,5 @@
 import type { TaskSource } from '@ia-flow/issue-sources'
-import type { AgentExit, CommentTarget, Task } from '@ia-flow/shared'
+import type { AgentExit, AgentOutput, CommentTarget, Task } from '@ia-flow/shared'
 
 type BroadcastFn = (msg: object) => void
 
@@ -15,6 +15,16 @@ export interface PendingTask {
    *  máquina de estados: elige entre las aristas ya declaradas, nunca un mapa
    *  de campos libre. Ver `resolveExit` en run-outcome.ts. */
   chosenExit?: string
+  /** Contrato de salida estructurada del agente (`AgentDefinition.output`).
+   *  Vive acá y no sólo en las opciones del schema porque `submit_output`
+   *  valida contra él al EJECUTAR, y `ToolContext` no lleva la config del
+   *  agente — sólo el runtime del run. */
+  outputFields?: AgentOutput
+  /** Lo que el agente entregó con `submit_output`, ya validado. Lo lee
+   *  `Agent.run` al terminar para publicarlo hacia la regla. Ausente con
+   *  `outputFields` declarado ⇒ el run falla: un contrato que se puede
+   *  incumplir en silencio deja al paso siguiente leyendo nada. */
+  structuredOutput?: Record<string, unknown>
   /** Destino por defecto de los comentarios de este agente
    *  (`AgentDefinition.comment`). Una salida puede pisarlo — ver
    *  `resolveExitCommentTarget` en run-outcome.ts. Ausente ⇒ `pr-else-issue`. */

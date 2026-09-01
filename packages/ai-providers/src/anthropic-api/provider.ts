@@ -444,6 +444,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       providerKind: 'sync',
       toolNames: policy ? [...policy.toolNames] : [],
       selectableExits: input.selectableExits,
+      outputFields: input.outputFields,
     })
 
     const toolCtx: ToolContext = {

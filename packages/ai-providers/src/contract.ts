@@ -1,4 +1,5 @@
 import type {
+  AgentOutput,
   AgentProviderConfig,
   AnthropicApiSettings,
   ProviderConfig,
@@ -106,6 +107,9 @@ export interface ProviderInput {
    *  sólo puede nombrar aristas declaradas. Vacío/ausente ⇒ la tool no se
    *  ofrece. */
   selectableExits?: Array<{ name: string; when?: string }>
+  /** Contrato de salida estructurada del agente (`AgentDefinition.output`).
+   *  Alimenta el schema de `submit_output`. */
+  outputFields?: AgentOutput
   providerConfig?: AgentProviderConfig
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
@@ -391,6 +395,9 @@ export interface ToolDefinitionsOptions {
   /** Salidas elegibles del agente de ESTE dispatch, que alimentan el enum de
    *  `select_exit`. Ver la copia canónica en packages/tools/src/contract.ts. */
   selectableExits?: Array<{ name: string; when?: string }>
+  /** Contrato de salida estructurada del agente (`AgentDefinition.output`).
+   *  Alimenta el schema de `submit_output`. */
+  outputFields?: AgentOutput
 }
 
 /** The agentic tool-execution engine, injected so `anthropic-api` never

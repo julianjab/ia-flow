@@ -1,5 +1,8 @@
+import { selectableExits } from '@ia-flow/agent-engine'
+import type { ToolDefinitionsOptions } from '@ia-flow/tools'
 import { resolveExecutableTool, resolveTools } from '@ia-flow/tools'
 import { Hono } from 'hono'
+import { configRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { buildToolContext } from './tools.js'
 
@@ -65,7 +68,16 @@ export function createMcpRouter() {
         return c.body(null, 202)
 
       case 'tools/list': {
-        const tools = resolveTools({ providerKind: 'async', toolNames }).map((t) => ({
+        // Las tools que se ESPECIALIZAN por agente (`select_exit`,
+        // `submit_output`) necesitan la config del agente, no sólo su lista de
+        // nombres. En sync la trae el `ProviderInput`; acá hay que ir a
+        // buscarla con el `?agent=`/`?project=` que ya viaja en la conexión.
+        //
+        // Sin esto, `specialize` recibía `undefined` y `hideWhen` escondía la
+        // tool: `select_exit` sencillamente NO EXISTÍA para un agente de
+        // terminal, aunque su definición declarara salidas elegibles.
+        const perAgent = await agentToolOptions(c.req.query('agent'), c.req.query('project'))
+        const tools = resolveTools({ providerKind: 'async', toolNames, ...perAgent }).map((t) => ({
           name: t.name,
           description: t.description,
           inputSchema: t.input_schema,
@@ -124,4 +136,32 @@ export function createMcpRouter() {
   })
 
   return app
+}
+
+/**
+ * Lo que las tools especializadas por agente necesitan saber de él.
+ *
+ * Devuelve vacío ante cualquier tropiezo (sin `?agent=`, proyecto que no
+ * resuelve, agente que ya no está en el roster): el resultado es que esas
+ * tools no se ofrecen, que es exactamente el comportamiento de un agente que
+ * no declara nada. Fallar la conexión MCP entera por esto dejaría al agente
+ * sin NINGUNA tool.
+ */
+async function agentToolOptions(
+  agentId: string | undefined,
+  projectId: string | undefined,
+): Promise<Pick<ToolDefinitionsOptions, 'selectableExits' | 'outputFields'>> {
+  if (!agentId) return {}
+  try {
+    const config = await configRepo.getConfig(projectId)
+    const agent = (config?.agents ?? []).find((a) => a.id === agentId)
+    if (!agent) return {}
+    return { selectableExits: selectableExits(agent.exits), outputFields: agent.output }
+  } catch (err) {
+    log.warn(
+      { agentId, projectId, err: (err as Error).message },
+      'no se pudo resolver el agente para especializar sus tools — se ofrecen sin especializar',
+    )
+    return {}
+  }
 }

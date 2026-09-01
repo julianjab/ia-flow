@@ -1,5 +1,5 @@
 import type { ProviderKind } from '@ia-flow/ai-providers'
-import type { BashRunConfig } from '@ia-flow/shared'
+import type { AgentOutput, BashRunConfig } from '@ia-flow/shared'
 
 // ─── Tool engine types ──────────────────────────────────────────────────────
 
@@ -187,6 +187,12 @@ export interface ToolDefinitionsOptions {
    *  Lleva el `when` de cada una, no sólo el nombre: es lo que termina siendo la
    *  descripción del enum. `back-to-build` a secas no le dice nada al modelo. */
   selectableExits?: Array<{ name: string; when?: string }>
+  /** Contrato de salida estructurada del agente de ESTE dispatch
+   *  (`AgentDefinition.output`). Alimenta el input_schema de `submit_output`:
+   *  el modelo sólo puede escribir los campos que el operador declaró, con la
+   *  forma que declaró. Vacío ⇒ el agente no produce salida y la tool ni se le
+   *  ofrece — mismo criterio que `selectableExits`. */
+  outputFields?: AgentOutput
 }
 
 export interface LoopOptions {
