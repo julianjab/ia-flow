@@ -32,6 +32,7 @@ import {
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
+import { daemonUrl } from './server-port.js'
 
 const log = createLogger('daemon')
 
@@ -134,7 +135,17 @@ function registerRuleEngine(): void {
           // acá es lo que responde "¿por qué no corrió?" sin tener que
           // reproducir el evento a mano.
           log.info(
-            { type: event.type, scope: event.scope, rejected: rejectedSummary },
+            {
+              type: event.type,
+              scope: event.scope,
+              rejected: rejectedSummary,
+              // Este evento queda igual marcado como procesado (el dedupe no
+              // sabe de matches, ver bus.ts) — si lo que rechazó fue el `when`
+              // y arreglaste la config, un reintento del mismo delivery id
+              // (ej. "Redeliver" en GitHub) va a pisarse contra el dedupe. Este
+              // curl lo saca de ahí para que la próxima entrega se reevalúe.
+              clearDedupe: `curl -X DELETE '${daemonUrl()}/api/webhooks/dedupe/${encodeURIComponent(event.id)}' -H 'x-ia-flow-token: <IA_FLOW_WEBHOOK_SECRET>'`,
+            },
             'Rules NOT matched',
           )
           return

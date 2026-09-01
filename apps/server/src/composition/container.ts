@@ -141,6 +141,7 @@ import { IssueSourcesPollingGate } from '../infrastructure/polling/IssueSourcesP
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
+import { daemonUrl } from '../server-port.js'
 import { resolveVariable } from '../variables/index.js'
 import { getPreloadedConfig } from './preloaded.js'
 
@@ -280,10 +281,28 @@ function processedEvents(): SqliteProcessedEventRepository {
   return processedEventsRepo
 }
 
+/** Saca un id del dedupe para que el próximo delivery con ese id se vuelva a
+ *  evaluar. Lo usa `routes/webhooks.ts` (`DELETE /api/webhooks/dedupe/:id`) —
+ *  ver el doc de `SqliteProcessedEventRepository.remove`. */
+export function clearProcessedEvent(eventId: string): boolean {
+  return processedEvents().remove(eventId)
+}
+
 export const eventBus = new InMemoryEventBus({
   markProcessed: async (event) => processedEvents().markProcessed(event),
   onDuplicate: (event) =>
-    busLog.debug({ type: event.type, id: event.id }, 'Evento duplicado — descartado'),
+    busLog.debug(
+      {
+        type: event.type,
+        id: event.id,
+        // Curl listo para pegar: saca este id del dedupe (ver
+        // routes/webhooks.ts) para que el próximo Redeliver del mismo
+        // delivery vuelva a evaluarse contra las reglas actuales, sin
+        // esperar las 24h de retención. Requiere IA_FLOW_WEBHOOK_SECRET.
+        clearDedupe: `curl -X DELETE '${daemonUrl()}/api/webhooks/dedupe/${encodeURIComponent(event.id)}' -H 'x-ia-flow-token: <IA_FLOW_WEBHOOK_SECRET>'`,
+      },
+      'Evento duplicado — descartado',
+    ),
   onError: (err, { event, handlerId }) =>
     busLog.error({ err, handlerId, type: event.type, id: event.id }, 'Event handler failed'),
   onDepthExceeded: (event) =>

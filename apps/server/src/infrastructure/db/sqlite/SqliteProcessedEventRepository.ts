@@ -38,4 +38,20 @@ export class SqliteProcessedEventRepository {
   prune(now: string = new Date().toISOString()): number {
     return this.db.run('DELETE FROM processed_events WHERE expires_at <= ?', [now]).changes
   }
+
+  /**
+   * Saca UN id del registro de dedupe, a mano. `true` = había una fila y se
+   * borró.
+   *
+   * Existe para el caso operativo: un evento que no matcheó ninguna regla
+   * (`skipped` por falta de match, no por falta de capacidad) queda igual
+   * marcado como procesado durante `RETENTION_MS` — un "Redeliver" desde
+   * GitHub con el mismo delivery id se pisa acá antes de llegar a
+   * `matchRules`, así que reintentar no sirve para volver a evaluarlo. Esto
+   * le da al operador una salida sin esperar las 24h ni tocar la semántica
+   * del dedupe (que sigue protegiendo reintentos concurrentes reales).
+   */
+  remove(eventId: string): boolean {
+    return this.db.run('DELETE FROM processed_events WHERE event_id = ?', [eventId]).changes > 0
+  }
 }

@@ -9,7 +9,12 @@ import {
 } from '@ia-flow/issue-sources'
 import { slackSigningSecret, urlVerification, verifySlackSignature } from '@ia-flow/slack'
 import { Hono } from 'hono'
-import { broadcast, ingestWebhookUseCase, projectRepo } from '../composition/container.js'
+import {
+  broadcast,
+  clearProcessedEvent,
+  ingestWebhookUseCase,
+  projectRepo,
+} from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('webhooks')
@@ -289,6 +294,25 @@ export function createWebhooksRouter() {
       )
     }
     return c.json({ ok: true, projectId: id, triggered: true })
+  })
+
+  // DELETE /api/webhooks/dedupe/:eventId — saca UN id del registro de dedupe
+  // (ver SqliteProcessedEventRepository.remove). Sirve para el caso operativo
+  // de "esto no matcheó ninguna regla y quiero reintentarlo YA" en vez de
+  // esperar las 24h de retención: un "Redeliver" desde GitHub con el mismo
+  // delivery id vuelve a evaluarse contra las reglas actuales. No re-publica
+  // nada por sí sola — sólo borra la marca; el próximo delivery real (o un
+  // Redeliver manual) es lo que dispara la reevaluación.
+  router.delete('/dedupe/:eventId', (c) => {
+    const secret = webhookSecret()
+    if (!secret) return c.json(NO_SECRET_BODY, 503)
+    const provided =
+      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+    if (!secretEquals(provided, secret)) return c.json({ error: 'invalid token' }, 401)
+
+    const eventId = c.req.param('eventId')
+    const removed = clearProcessedEvent(eventId)
+    return c.json({ ok: true, eventId, removed })
   })
 
   // GET /api/webhooks/status — what the daemon is listening on, per project.
