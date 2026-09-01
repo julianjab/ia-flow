@@ -2,6 +2,8 @@
 import { fetchMcpCatalog, fetchToolCatalog } from '@/features/agents/api';
 import { ref, computed, watch } from 'vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
+import SystemPromptsSection from '@/features/agents/SystemPromptsSection.vue';
+import AgentPromptSection from '@/features/agents/AgentPromptSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
 import OutputContractEditor from '@/features/agents/OutputContractEditor.vue';
 import ToolsEditor from '@/features/agents/ToolsEditor.vue';
@@ -104,6 +106,10 @@ const selectedSysprompts = ref<string[]>([]);
 // editor solo administra la parte string vía checkboxes, así que preserva
 // cualquier `{text}` tal cual para no perderlo al guardar (ver onSave).
 const preservedSystemPromptRefs = ref<SystemPromptRef[]>([]);
+// Puesta por el AI-assist form-fill de AgentDefinitionSection (vía
+// `propose-prompt`) cuando ya había un prompt distinto — AgentPromptSection
+// la muestra como diff, no la pisa (ver PromptField `pending-proposal`).
+const pendingPromptProposal = ref<string | null>(null);
 const providerConfigDraft = ref<Record<string, unknown>>({});
 const selectedMcpCatalogIds = ref<string[]>([]);
 const availableMcpCatalog = ref<McpCatalogEntry[]>([]);
@@ -144,12 +150,20 @@ const availableSysprompts = computed<SystemPromptDef[]>(() =>
 // adentro?" sin abrirla — si no hay nada configurado, decirlo explícitamente
 // en vez de dejar el resumen vacío.
 
+// "Definición" ya no incluye el prompt (sección propia) — el resumen es
+// puramente id + provider.
 const definitionSummary = computed(() => {
   const choices = providerChoices.value;
   const first = providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—';
-  const name = choices.length > 1 ? `${first} +${choices.length - 1} más` : first;
-  return prompt.value.trim() ? name : `${name} · sin prompt`;
+  return choices.length > 1 ? `${first} +${choices.length - 1} más` : first;
 });
+
+const systemPromptsSummary = computed(() => {
+  const n = selectedSysprompts.value.length;
+  return n ? `${n} adjunto${n === 1 ? '' : 's'}` : 'sin selección';
+});
+
+const promptSummary = computed(() => (prompt.value.trim() ? 'con contenido' : 'sin prompt'));
 
 const toolsSummary = computed(() => {
   const t = (tools.value ?? []).length;
@@ -203,7 +217,7 @@ const advancedSummary = computed(() =>
 // resuelve su propio "¿hay algo que atender acá?" para el punto de estado;
 // `danger` para Definición sin prompt es el único caso bloqueante hoy. ────
 
-type SectionKey = 'definicion' | 'herramientas' | 'outcomes' | 'avanzado';
+type SectionKey = 'definicion' | 'systemprompts' | 'prompt' | 'herramientas' | 'outcomes' | 'avanzado';
 type SectionDot = 'good' | 'neutral' | 'danger';
 
 const activeSection = ref<SectionKey>('definicion');
@@ -213,6 +227,18 @@ const sections = computed<{ key: SectionKey; title: string; summary: string; dot
     key: 'definicion',
     title: 'Definición',
     summary: definitionSummary.value,
+    dot: agentId.value.trim() && providerChoices.value.length ? 'good' : 'danger',
+  },
+  {
+    key: 'systemprompts',
+    title: 'System Prompts',
+    summary: systemPromptsSummary.value,
+    dot: selectedSysprompts.value.length ? 'good' : 'neutral',
+  },
+  {
+    key: 'prompt',
+    title: 'Prompt',
+    summary: promptSummary.value,
     dot: prompt.value.trim() ? 'good' : 'danger',
   },
   {
@@ -268,6 +294,7 @@ watch(() => props.open, async (open) => {
   if (!open) return;
   errors.value = [];
   activeSection.value = 'definicion';
+  pendingPromptProposal.value = null;
   const a = props.agent;
   if (a) {
     agentId.value             = a.id;
@@ -359,15 +386,26 @@ function kvToRecord(list: KV[]): Record<string, string> {
 
 function validate(): boolean {
   errors.value = [];
-  if (!agentId.value.trim()) errors.value.push('El id es requerido.');
-  if (/\s/.test(agentId.value)) errors.value.push('El id no puede tener espacios.');
+  let firstErrorSection: SectionKey | null = null;
+  if (!agentId.value.trim()) {
+    errors.value.push('El id es requerido.');
+    firstErrorSection ??= 'definicion';
+  }
+  if (/\s/.test(agentId.value)) {
+    errors.value.push('El id no puede tener espacios.');
+    firstErrorSection ??= 'definicion';
+  }
   if (!providerChoices.value.length || providerChoices.value.some((c) => !c.providerId.trim())) {
     errors.value.push('El provider es requerido — tildá al menos uno.');
+    firstErrorSection ??= 'definicion';
   }
-  if (!prompt.value.trim()) errors.value.push('El prompt es requerido.');
-  // Los tres campos validados viven en "Definición" — si el error cayó en
-  // otra sección del rail, el usuario nunca lo vería.
-  if (errors.value.length) activeSection.value = 'definicion';
+  if (!prompt.value.trim()) {
+    errors.value.push('El prompt es requerido.');
+    firstErrorSection ??= 'prompt';
+  }
+  // Salta a la sección del rail donde vive el primer error — si no, el
+  // usuario ve la lista de errores sin saber en qué pestaña resolverlos.
+  if (firstErrorSection) activeSection.value = firstErrorSection;
   return errors.value.length === 0;
 }
 
@@ -483,9 +521,32 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               @update:provider-choices="providerChoices = $event"
               @update:provider-config="providerConfigDraft = $event"
               @update:prompt="prompt = $event"
+              @propose-prompt="pendingPromptProposal = $event"
               @update:variables="variables = $event"
               @update:selected-sysprompts="selectedSysprompts = $event"
               @apply-tools="applyToolNames"
+            />
+          </section>
+
+          <section v-show="activeSection === 'systemprompts'" class="section">
+            <SystemPromptsSection
+              :selected-sysprompts="selectedSysprompts"
+              :available-sysprompts="availableSysprompts"
+              @update:selected-sysprompts="selectedSysprompts = $event"
+            />
+          </section>
+
+          <section v-show="activeSection === 'prompt'" class="section">
+            <AgentPromptSection
+              :prompt="prompt"
+              :variables="variables"
+              :agent-variable-groups="agentVariableGroups"
+              :agent-id="agentId"
+              :available-sysprompts="availableSysprompts"
+              :pending-prompt-proposal="pendingPromptProposal"
+              @update:prompt="prompt = $event"
+              @update:variables="variables = $event"
+              @clear-pending-proposal="pendingPromptProposal = null"
             />
           </section>
 
