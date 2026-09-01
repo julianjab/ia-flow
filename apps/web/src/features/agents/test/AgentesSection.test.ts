@@ -110,13 +110,12 @@ describe('AgentesSection', () => {
     expect(reorderAgents).not.toHaveBeenCalled()
   })
 
-  it('cuando el scope es read-only, oculta "+ Agregar agente" y las acciones de cada tarjeta', async () => {
+  it('cuando el scope es read-only, oculta "+ Agregar agente" y muestra el banner', async () => {
     fetchAgentsReadOnly.mockResolvedValue(true)
     const wrapper = await mountSection([agent('a', 0), agent('b', 1)])
 
     expect(wrapper.find('.section-head-actions .btn--primary').exists()).toBe(false)
     expect(wrapper.find('.readonly-banner').exists()).toBe(true)
-    expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(false)
   })
 
   it('cuando el scope es editable, muestra "+ Agregar agente" y no el banner', async () => {
@@ -125,9 +124,18 @@ describe('AgentesSection', () => {
 
     expect(wrapper.find('.section-head-actions .btn--primary').exists()).toBe(true)
     expect(wrapper.find('.readonly-banner').exists()).toBe(false)
-    expect(
-      wrapper.findAll('[data-kbd-list="agents"] .editable-card__actions button').length,
-    ).toBeGreaterThan(0)
+  })
+
+  it('la tarjeta no tiene acciones en NINGÚN scope', async () => {
+    // Lo único que había era el toggle de habilitar/deshabilitar, y un agente
+    // ya no declara si corre — lo decide la regla que lo dispara. Alta y baja
+    // viven en el detalle; el resto, en Pipeline.
+    fetchAgentsReadOnly.mockResolvedValue(false)
+    const wrapper = await mountSection([agent('a', 0)])
+
+    expect(wrapper.findAll('[data-kbd-list="agents"] .editable-card__actions button')).toHaveLength(
+      0,
+    )
   })
 
   it('aunque el scope sea read-only, el click en una tarjeta propia abre el editor en modo lectura', async () => {
