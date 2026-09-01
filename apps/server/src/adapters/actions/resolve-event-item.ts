@@ -62,20 +62,37 @@ export function createResolveEventItem(deps: ResolveEventItemDeps) {
       // MISMO vocabulario que el item (el nombre ia-flow del repo, no
       // owner/repo), así que la intersección es directa.
       const byNumber = items.filter((it) => linksPr(it, prNumber))
-      const candidates =
-        scope.repos?.length && byNumber.length > 1
-          ? byNumber.filter((it) => touchesAnyRepo(it, scope.repos as string[]))
-          : byNumber
+
+      // El filtro por repo se aplica SIEMPRE que el scope lo traiga, no sólo
+      // al desempatar. Un único candidato es el caso frecuente y también el
+      // peligroso: si el board tiene un solo issue que linkea `repo-a#42` y
+      // llega el `#42` de `repo-b`, "hay uno solo" no lo vuelve el correcto.
+      //
+      // Fail-closed a propósito: un item sin repo declarado (ni campo `Repos`
+      // ni `meta.repoName`) no matchea y no corre nada. Correr sobre el issue
+      // equivocado deja comentarios y mueve una card que nadie tocó; no correr
+      // sólo posterga, porque el scan lo levanta por el camino normal.
+      const repos = scope.repos
+      const candidates = repos?.length
+        ? byNumber.filter((it) => touchesAnyRepo(it, repos))
+        : byNumber
 
       if (candidates.length === 1) return stamp(candidates[0], source, projectId)
 
       if (candidates.length > 1) {
-        // No se elige uno: un run sobre el issue equivocado deja comentarios y
-        // mueve una card que nadie tocó, y eso es peor que no correr nada. El
-        // próximo scan lo va a levantar por el camino normal.
         log.warn(
-          { projectId, prNumber, repos: scope.repos, candidatos: candidates.map((c) => c.id) },
+          { projectId, prNumber, repos, candidatos: candidates.map((c) => c.id) },
           'más de un issue linkea este PR — ambiguo, no se corre ningún agente',
+        )
+        return undefined
+      }
+
+      // Los dos "no hay ninguno" se loguean distinto: que el issue exista pero
+      // sea de otro repo es diagnosticable sólo si el mensaje lo dice.
+      if (byNumber.length > 0) {
+        log.debug(
+          { projectId, prNumber, repos, descartados: byNumber.map((c) => c.id) },
+          'el PR matchea por número pero ningún candidato es de los repos del evento',
         )
         return undefined
       }
