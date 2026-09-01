@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import KeyValueRows from '@/features/rules/actionForms/KeyValueRows.vue'
+import HintIcon from '@/ui/HintIcon.vue'
 
 // `http` — llamar a una API cuando la regla matchea.
 
@@ -66,7 +67,12 @@ function setTimeoutMs(raw: string) {
   </div>
 
   <div class="ff-row">
-    <span class="uc-label">Headers</span>
+    <span class="uc-label">
+      Headers
+      <HintIcon
+        :text="'{{event.payload...}} se reemplaza por el valor del evento. ${SECRETO} lo resuelve el daemon — el token no queda guardado en la regla.'"
+      />
+    </span>
     <KeyValueRows
       :model-value="headers()"
       key-placeholder="Authorization"
@@ -98,11 +104,6 @@ function setTimeoutMs(raw: string) {
       @input="setTimeoutMs(($event.target as HTMLInputElement).value)"
     />
   </label>
-
-  <p class="ff-hint">
-    <code v-pre>{{event.payload...}}</code> se reemplaza por el valor del evento.
-    <code>${SECRETO}</code> lo resuelve el daemon — el token no queda guardado en la regla.
-  </p>
 </template>
 
 <style scoped src="@/ui/form-fields.css"></style>

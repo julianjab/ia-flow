@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import type { Rule, RuleActionEntry, WhenCondition } from '@ia-flow/shared'
+import type { Rule, WhenCondition } from '@ia-flow/shared'
 import { computed } from 'vue'
+import { describeAction } from '@/features/rules/actionForms/registry'
 
 // Una regla es una oración: *cuando pasa X, si se cumple Y, hacé Z*. Escribirla
 // así y no como una fila de tabla es lo que permite ENTENDER sin abrir nada —
@@ -34,27 +35,7 @@ function condLabel(c: WhenCondition): string {
   return `${c.field} ${c.op ?? '='} ${c.value ?? ''}`.trim()
 }
 
-/** Cómo se lee una acción en la frase. Cada tipo dice lo suyo: un `agent` es
- *  un nombre, un `http` es un destino, un `emit` es un evento nuevo. */
-function actionLabel(a: RuleActionEntry): { kind: string; text: string } {
-  const e = a as unknown as Record<string, unknown>
-  if (a.action === 'agent') return { kind: 'agent', text: String(e.agentId ?? '—') }
-  if (a.action === 'http') {
-    return { kind: 'http', text: `${String(e.method ?? 'POST')} ${String(e.url ?? '—')}` }
-  }
-  if (a.action === 'emit') return { kind: 'emit', text: String(e.type ?? '—') }
-  // La ref se marca con ↗ y borde punteado: sin eso se lee igual que una
-  // acción inline y nadie sabe que al tocarla edita algo definido en otro
-  // lado, que además usan otras reglas.
-  if (a.action === 'ref') return { kind: 'ref', text: `↗ ${String(e.actionId ?? '—')}` }
-  // El schema es una unión cerrada, así que acá TS ya sabe que no queda nada.
-  // El fallback existe igual: una acción nueva en el server no puede dejar la
-  // frase vacía en un front que todavía no se actualizó.
-  const kind = String((a as { action?: string }).action ?? "acción")
-  return { kind, text: kind }
-}
-
-const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
+const actions = computed(() => (props.rule.do ?? []).map(describeAction))
 </script>
 
 <template>

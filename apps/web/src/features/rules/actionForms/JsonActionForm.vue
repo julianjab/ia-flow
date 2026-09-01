@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import JsonField from '@/features/rules/actionForms/JsonField.vue'
+import HintIcon from '@/ui/HintIcon.vue'
 
 // El fallback para un tipo de acción sin form dedicado.
 //
@@ -30,12 +31,13 @@ function setConfig(v: unknown) {
 
 <template>
   <div class="ff-row">
-    <span class="uc-label">Config (JSON)</span>
-    <JsonField :model-value="config()" :rows="6" @update:model-value="setConfig" />
-    <span class="ff-hint">
-      Este tipo de acción no tiene un formulario dedicado en esta versión de la web.
-      El server lo valida con el schema propio de la acción.
+    <span class="uc-label">
+      Config (JSON)
+      <HintIcon
+        text="Este tipo de acción no tiene un formulario dedicado en esta versión de la web. El server lo valida con el schema propio de la acción."
+      />
     </span>
+    <JsonField :model-value="config()" :rows="6" @update:model-value="setConfig" />
   </div>
 </template>
 

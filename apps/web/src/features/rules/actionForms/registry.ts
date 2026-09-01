@@ -1,3 +1,4 @@
+import type { RuleActionEntry } from '@ia-flow/shared'
 import type { Component } from 'vue'
 import AgentActionForm from './AgentActionForm.vue'
 import EmitActionForm from './EmitActionForm.vue'
@@ -46,6 +47,31 @@ const LABELS: Record<string, string> = {
 
 export function actionLabelFor(kind: string): string {
   return LABELS[kind] ?? kind
+}
+
+/**
+ * Cómo se lee una acción de un vistazo: un `agent` es un nombre, un `http` es
+ * un destino, un `emit` es un evento nuevo. La MISMA función arma la frase de
+ * `RuleSentence` (lectura) y el resumen de la fila colapsada en
+ * `ActionsEditor` (edición) — dos vistas de lo mismo no pueden divergir en
+ * cómo lo describen.
+ */
+export function describeAction(a: RuleActionEntry): { kind: string; text: string } {
+  const e = a as unknown as Record<string, unknown>
+  if (a.action === 'agent') return { kind: 'agent', text: String(e.agentId ?? '—') }
+  if (a.action === 'http') {
+    return { kind: 'http', text: `${String(e.method ?? 'POST')} ${String(e.url ?? '—')}` }
+  }
+  if (a.action === 'emit') return { kind: 'emit', text: String(e.type ?? '—') }
+  // La ref se marca con ↗: sin eso se lee igual que una acción inline y nadie
+  // sabe que al tocarla edita algo definido en otro lado, que además usan
+  // otras reglas.
+  if (a.action === 'ref') return { kind: 'ref', text: `↗ ${String(e.actionId ?? '—')}` }
+  // El schema es una unión cerrada, así que acá TS ya sabe que no queda nada.
+  // El fallback existe igual: una acción nueva en el server no puede dejar la
+  // frase vacía en un front que todavía no se actualizó.
+  const kind = String((a as { action?: string }).action ?? 'acción')
+  return { kind, text: kind }
 }
 
 /**

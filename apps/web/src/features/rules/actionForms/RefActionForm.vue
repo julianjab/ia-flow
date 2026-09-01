@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
+import HintIcon from '@/ui/HintIcon.vue'
 
 // `ref` — correr una acción definida aparte, por id.
 
@@ -15,7 +16,10 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v)
 <template>
   <!-- `div` y no `label`: ver el comentario en `AgentActionForm.vue`. -->
   <div class="ff-row">
-    <span class="uc-label">Acción</span>
+    <span class="uc-label">
+      Acción
+      <HintIcon text="Definida aparte y compartida: editarla cambia todas las reglas que la usan." />
+    </span>
     <ComboBox
       allow-custom
       class="ff-combo"
@@ -25,9 +29,6 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v)
       empty-text="Ninguna conocida coincide — se guarda igual"
       @update:model-value="(v) => emit('patch', { actionId: one(v) })"
     />
-    <span class="ff-hint">
-      Definida aparte y compartida: editarla cambia todas las reglas que la usan.
-    </span>
   </div>
 </template>
 

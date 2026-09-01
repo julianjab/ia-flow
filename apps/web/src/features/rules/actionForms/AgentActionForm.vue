@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
+import HintIcon from '@/ui/HintIcon.vue'
 
 // `agent` — correr un agente cuando la regla matchea.
 
@@ -114,7 +115,12 @@ function removeExit(i: number) {
   </div>
 
   <label v-if="dynamicAgentId" class="ff-row">
-    <span class="uc-label">Destinos permitidos</span>
+    <span class="uc-label">
+      Destinos permitidos
+      <HintIcon
+        text="El agentId sale de un paso anterior, así que lo elige un modelo. Declará acá entre qué agentes puede elegir: el operador declara el espacio, el modelo elige adentro. Sin la lista, la regla no se guarda."
+      />
+    </span>
     <ComboBox
       allow-custom
       multiple
@@ -125,15 +131,15 @@ function removeExit(i: number) {
       empty-text="Ninguno conocido coincide — se guarda igual"
       @update:model-value="(v) => emit('patch', { allowAgents: many(v) })"
     />
-    <span class="ff-hint">
-      El <code>agentId</code> sale de un paso anterior, así que lo elige un modelo.
-      Declará acá entre qué agentes puede elegir: el operador declara el espacio,
-      el modelo elige adentro. Sin la lista, la regla no se guarda.
-    </span>
   </label>
 
   <label class="ff-row">
-    <span class="uc-label">Por qué corre</span>
+    <span class="uc-label">
+      Por qué corre
+      <HintIcon
+        :text="`Se antepone al prompt del agente. Es lo único que la regla sabe y el agente no: qué lo despertó. Admite ${VAR_TYPE} y cualquier camino del payload (${VAR_PR}).`"
+      />
+    </span>
     <textarea
       class="ff-field ff-textarea"
       rows="3"
@@ -141,15 +147,15 @@ function removeExit(i: number) {
       :placeholder="BRIEF_PLACEHOLDER"
       @input="emit('patch', { brief: ($event.target as HTMLTextAreaElement).value || undefined })"
     ></textarea>
-    <span class="ff-hint">
-      Se antepone al prompt del agente. Es lo único que la regla sabe y el agente no:
-      qué lo despertó. Admite <code>{{ VAR_TYPE }}</code> y cualquier camino del
-      payload (<code>{{ VAR_PR }}</code>).
-    </span>
   </label>
 
   <div class="ff-row">
-    <span class="uc-label">Redirigir salidas</span>
+    <span class="uc-label">
+      Redirigir salidas
+      <HintIcon
+        text="Cambia a dónde va una salida que el agente YA declara — sirve para correr el mismo roster contra otro board sin clonar los agentes. Una salida que el agente no declara se ignora: la regla elige el destino, no inventa salidas."
+      />
+    </span>
     <div v-for="(row, i) in rows" :key="i" class="aaf-exit">
       <input
         v-model="row.name"
@@ -167,12 +173,6 @@ function removeExit(i: number) {
       <button type="button" class="aaf-exit__del" title="Quitar" @click="removeExit(i)">✕</button>
     </div>
     <button type="button" class="aaf-exit__add" @click="addExit()">+ salida</button>
-    <span class="ff-hint">
-      Cambia a dónde va una salida que el agente YA declara — sirve para correr
-      el mismo roster contra otro board sin clonar los agentes. Una salida que
-      el agente no declara se ignora: la regla elige el destino, no inventa
-      salidas.
-    </span>
   </div>
 
   <label class="ff-check">
@@ -185,17 +185,18 @@ function removeExit(i: number) {
   </label>
 
   <label v-if="entry.emitOn === 'exit'" class="ff-row">
-    <span class="uc-label">Tipo del evento</span>
+    <span class="uc-label">
+      Tipo del evento
+      <HintIcon
+        text="Vacío ⇒ run.finished. Es lo que convierte a un agente en normalizador: su salida entra al bus como un evento que otras reglas pueden ver."
+      />
+    </span>
     <input
       class="ff-field ff-mono"
       :value="str('emitType')"
       placeholder="run.finished"
       @input="emit('patch', { emitType: ($event.target as HTMLInputElement).value || undefined })"
     />
-    <span class="ff-hint">
-      Vacío ⇒ <code>run.finished</code>. Es lo que convierte a un agente en normalizador:
-      su salida entra al bus como un evento que otras reglas pueden ver.
-    </span>
   </label>
 </template>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import KeyValueRows from '@/features/rules/actionForms/KeyValueRows.vue'
+import HintIcon from '@/ui/HintIcon.vue'
 
 // `script` — correr un archivo del repo de la tarea.
 //
@@ -37,7 +38,12 @@ function setTimeoutMs(raw: string) {
 <template>
   <div class="ff-row ff-row-split">
     <label class="ff-sub ff-sub-narrow">
-      <span class="uc-label">Runtime</span>
+      <span class="uc-label">
+        Runtime
+        <HintIcon
+          text="Corre en el repo de la tarea del evento, y sólo en esta máquina — nunca viaja a un agent-host remoto. La capacidad viene apagada: el daemon necesita IA_FLOW_ENABLE_SCRIPT_ACTIONS=1 y un IA_FLOW_API_TOKEN puesto, o la acción falla con ese motivo."
+        />
+      </span>
       <select
         class="ff-field"
         :value="str('runtime') || 'bash'"
@@ -61,7 +67,12 @@ function setTimeoutMs(raw: string) {
   </p>
 
   <div class="ff-row">
-    <span class="uc-label">Argumentos</span>
+    <span class="uc-label">
+      Argumentos
+      <HintIcon
+        text="Van como argv, nunca por una shell: un valor con espacios o ; es un argumento y no un comando."
+      />
+    </span>
     <div class="ff-list">
       <div v-for="(arg, i) in args()" :key="i" class="ff-list-row">
         <input
@@ -79,14 +90,15 @@ function setTimeoutMs(raw: string) {
       </div>
       <button type="button" class="ff-add" @click="setArgs([...args(), ''])">+ argumento</button>
     </div>
-    <span class="ff-hint">
-      Van como argv, nunca por una shell: un valor con espacios o <code>;</code> es un
-      argumento y no un comando.
-    </span>
   </div>
 
   <div class="ff-row">
-    <span class="uc-label">Variables de entorno</span>
+    <span class="uc-label">
+      Variables de entorno
+      <HintIcon
+        text="El script recibe SÓLO éstas. No hereda el entorno del daemon — ni su GITHUB_TOKEN ni su ANTHROPIC_API_KEY."
+      />
+    </span>
     <KeyValueRows
       :model-value="env()"
       key-placeholder="PR_URL"
@@ -94,10 +106,6 @@ function setTimeoutMs(raw: string) {
       add-label="+ variable"
       @update:model-value="(v) => emit('patch', { env: Object.keys(v).length ? v : undefined })"
     />
-    <span class="ff-hint">
-      El script recibe SÓLO éstas. No hereda el entorno del daemon — ni su
-      <code>GITHUB_TOKEN</code> ni su <code>ANTHROPIC_API_KEY</code>.
-    </span>
   </div>
 
   <label class="ff-row ff-narrow">
@@ -111,13 +119,6 @@ function setTimeoutMs(raw: string) {
       @input="setTimeoutMs(($event.target as HTMLInputElement).value)"
     />
   </label>
-
-  <p class="ff-hint">
-    Corre en el repo de la tarea del evento, y sólo en esta máquina — nunca viaja a un
-    agent-host remoto. La capacidad viene apagada: el daemon necesita
-    <code>IA_FLOW_ENABLE_SCRIPT_ACTIONS=1</code> y un <code>IA_FLOW_API_TOKEN</code> puesto,
-    o la acción falla con ese motivo.
-  </p>
 </template>
 
 <style scoped src="@/ui/form-fields.css"></style>
