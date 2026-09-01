@@ -184,6 +184,18 @@ function cacheKey(taskId: string, runId?: string): string {
   return runId ? `${taskId}::${runId}` : taskId
 }
 
+/**
+ * La clave con la que se registra un SUB-agente.
+ *
+ * Un hijo corre sobre la misma task que su padre, así que registrarlo bajo el
+ * id de la task pisaría la entrada del padre —con su `cancel`, su
+ * `executionId` y sus tools de cierre—. Exportada para que `Agent.run` y
+ * `resolve` usen la MISMA función y no dos literales que puedan divergir.
+ */
+export function subKey(taskId: string, runId: string): string {
+  return `${taskId}#sub:${runId}`
+}
+
 export interface FinishResult {
   /** Snapshot of the task at the moment the pending entry was removed —
    *  reflects mutations applied by complete_task / fail_task tools. */
@@ -293,6 +305,18 @@ export class PendingTaskRegistry {
    * interesa lo que este proceso está corriendo AHORA, no resucitar runs.
    */
   async resolve(taskId: string, runId?: string): Promise<ResolvedPendingTask | undefined> {
+    // Un sub-agente corre sobre la MISMA task que su padre, así que se registra
+    // bajo `<taskId>#sub:<runId>` para no pisar su entrada (ver `Agent.run`).
+    // Esa clave se deriva justo de los dos datos que un tool ya tiene, así que
+    // se prueba primero: sin esto, un tool llamado DESDE el hijo resolvía la
+    // entrada del PADRE —cuyo `runId` no coincide— y caía a rehidratación,
+    // devolviendo una entrada reconstruida sin la config del hijo. Para
+    // `submit_output` eso era fatal: no veía el `outputFields` del hijo, tiraba
+    // "este agente no declara salida estructurada", y después el run del hijo
+    // fallaba por no haber entregado el contrato que sí declaraba.
+    const sub = runId ? this.pending.get(subKey(taskId, runId)) : undefined
+    if (sub) return { entry: sub, freeze: sub.cancelled ? 'el run fue cancelado' : undefined }
+
     const hit = this.pending.get(taskId)
     // El hit en memoria vale sólo si es el run de QUIEN CIERRA. Si no lo es
     // —la sesión que el watchdog soltó por error llega con su cierre cuando

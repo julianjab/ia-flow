@@ -50,6 +50,7 @@ import {
   getPendingTask,
   registerPendingTask,
   removePendingTask,
+  subKey,
   waitForFinish,
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
@@ -332,7 +333,7 @@ export class Agent {
     // Que un `getPendingTask(task.id)` desde el hijo resuelva al PADRE es lo
     // correcto y no un efecto colateral: el dueño del ciclo de vida de la
     // tarea es el padre. El hijo devuelve su resultado por `tool_result`.
-    const registryKey = input.parentRunId ? `${task.id}#sub:${runId}` : task.id
+    const registryKey = input.parentRunId ? subKey(task.id, runId) : task.id
     // Telemetry constants for this run, hoisted above the try so the catch
     // branches record the same columns the happy paths do — a failed run is
     // exactly the one whose duration and tool counters matter.
