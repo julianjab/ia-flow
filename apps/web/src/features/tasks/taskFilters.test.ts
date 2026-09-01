@@ -142,6 +142,20 @@ describe('filterTasks — branch', () => {
   })
 })
 
+describe('filterTasks — blocked', () => {
+  it('"si" pide al menos un blocker sin resolver', () => {
+    const blocked = task({ blocked: true })
+    const free = task({ blocked: false })
+    expect(filterTasks([blocked, free], withFilters({ blocked: ['si'] }))).toEqual([blocked])
+  })
+
+  it('"no" es el complemento, y un blocked ausente cuenta como "no"', () => {
+    const blocked = task({ blocked: true })
+    const unknown = task()
+    expect(filterTasks([blocked, unknown], withFilters({ blocked: ['no'] }))).toEqual([unknown])
+  })
+})
+
 describe('filterTasks — providers que no hablan de PRs', () => {
   const unknown = task({ pullRequestsKnown: false })
 
@@ -169,6 +183,7 @@ describe('serialización', () => {
       assignees: ['juli'],
       branch: ['con-branch'],
       prStatus: ['abierto'],
+      blocked: ['si'],
     })
     expect(taskFiltersFromSearch(taskFiltersToSearch(filters))).toEqual(filters)
   })

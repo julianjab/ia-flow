@@ -27,10 +27,15 @@ vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
+// Vacío por default; los tests de "bloqueada" cargan entradas por itemId.
+const blockersById: Record<string, Array<Record<string, unknown>>> = {}
 vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
-  fetchItemBlockers: vi.fn(async () => ({ kind: 'github-issues', blockers: [] })),
+  fetchItemBlockers: vi.fn(async (_projectId: string, itemId: string) => ({
+    kind: 'github-issues',
+    blockers: blockersById[itemId] ?? [],
+  })),
   setProjectItemField: vi.fn(async () => {}),
 }))
 
@@ -51,6 +56,7 @@ beforeEach(() => {
   routeQuery = {}
   routerReplace.mockClear()
   localStorage.clear()
+  for (const key of Object.keys(blockersById)) delete blockersById[key]
 })
 
 function githubItem(meta: Record<string, unknown>): SourceItem {
@@ -388,5 +394,19 @@ describe('TareasSection — filtros del listado', () => {
     expect(titles(wrapper)).toContain('Local task')
     await applyFilter(wrapper, 'pr', 'sin-pr')
     expect(titles(wrapper)).not.toContain('Local task')
+  })
+
+  it('"bloqueada:si" deja sólo las tareas con blockers sin resolver', async () => {
+    blockersById.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
+    const wrapper = await mountWith(BOARD)
+    await applyFilter(wrapper, 'bloqueada', 'si')
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+  })
+
+  it('"bloqueada:no" es el complemento', async () => {
+    blockersById.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
+    const wrapper = await mountWith(BOARD)
+    await applyFilter(wrapper, 'bloqueada', 'no')
+    expect(titles(wrapper)).toEqual(['Tarea I_1', 'Tarea I_2'])
   })
 })
