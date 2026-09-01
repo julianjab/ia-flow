@@ -40,8 +40,8 @@ const reposCache = new Map<string, { at: number; data: { repos: string[] } }>()
  * De paso la respuesta es más honesta: la App lista **exactamente** los repos a
  * los que la instalación llega, no todo lo que el owner tiene.
  */
-function usesInstallationToken(): boolean {
-  return describeGitHubCredentials()?.mode === 'github-app'
+async function usesInstallationToken(): Promise<boolean> {
+  return (await describeGitHubCredentials())?.mode === 'github-app'
 }
 
 interface InstallationRepo {
@@ -60,7 +60,7 @@ async function listInstallationRepos(): Promise<InstallationRepo[]> {
     }
     const batch = res.repositories ?? []
     out.push(...batch)
-    if (batch.length < 100 || out.length >= (res.total_count ?? out.length)) break
+    if (batch.length < 100 || out.length >= (res.total_count ?? Number.POSITIVE_INFINITY)) break
   }
   return out
 }
@@ -102,7 +102,7 @@ export function createGithubRouter() {
       return c.json(ownersCache.data)
     }
     try {
-      const owners = usesInstallationToken()
+      const owners = (await usesInstallationToken())
         ? await ownersFromInstallation()
         : await ownersFromViewer()
       ownersCache = { at: Date.now(), data: { owners } }
@@ -125,7 +125,7 @@ export function createGithubRouter() {
 
     try {
       let repos: string[] = []
-      if (usesInstallationToken()) {
+      if (await usesInstallationToken()) {
         // La instalación ya sabe a qué llega: filtrar su lista evita pegarle a
         // `/orgs/:owner/repos`, que devolvería repos que el token no puede leer.
         repos = (await listInstallationRepos())

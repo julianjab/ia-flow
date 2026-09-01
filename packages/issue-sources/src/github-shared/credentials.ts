@@ -36,7 +36,17 @@ export async function getGitHubToken(scope?: {
  * una identidad y no para otra —`/user` es del usuario, y un installation
  * token de GitHub App no lo puede llamar—, así que quien elige el endpoint
  * necesita saber con qué identidad va a pegarle.
+ *
+ * Es **async** y no un pasamanos a `describe()` por una razón concreta: el
+ * provider que cablea el server es `lazyGitHubCredentials`, que no resuelve su
+ * estrategia hasta el primer `getToken()` y hasta entonces se describe como
+ * `pending`. Ramificar sobre ese "todavía no sé" en un daemon recién booteado
+ * elegiría el camino de usuario con un installation token — exactamente el 403
+ * que esta función existe para evitar. Pedir el token primero fuerza la
+ * resolución; el token en sí se descarta.
  */
-export function describeGitHubCredentials(): CredentialDescription | null {
-  return provider?.describe() ?? null
+export async function describeGitHubCredentials(): Promise<CredentialDescription | null> {
+  if (!provider) return null
+  await provider.getToken()
+  return provider.describe()
 }
