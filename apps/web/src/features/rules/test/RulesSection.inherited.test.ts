@@ -130,6 +130,20 @@ describe('RulesSection — globales heredadas', () => {
     expect(w.findComponent(ToggleSwitch).exists()).toBe(false)
   })
 
+  it('una global agendada no ofrece el interruptor', async () => {
+    // El cron emite el tick con el scope de la REGLA, y el de una global es
+    // vacío: corre una vez para todo el proceso, no una por proyecto. Mostrar
+    // el interruptor lo dejaría apagado mientras la regla sigue disparando —
+    // el fallo silencioso que toda esta feature existe para no tener.
+    inherited = [rule({ schedule: '0 9 * * 1' })]
+
+    const w = await mountForProject()
+
+    expect(w.findComponent(ToggleSwitch).exists()).toBe(false)
+    // Y se dice por qué: si no, es la única fila sin interruptor y sin motivo.
+    expect(w.text()).toContain('cron 0 9 * * 1')
+  })
+
   it('la fila de tags no tiene ningún control', async () => {
     // Los tags describen la regla; lo accionable va a la zona de acciones de la
     // tarjeta. Mezclados, no había forma de saber cuál se podía clickear.
