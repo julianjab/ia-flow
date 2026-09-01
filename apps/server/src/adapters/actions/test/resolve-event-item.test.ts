@@ -66,6 +66,42 @@ describe('resolveEventItem', () => {
     expect(await resolver(source())('p1', { projectId: 'p1', prNumber: 999 })).toBeUndefined()
   })
 
+  // Varios repos mapean al mismo projectId y cada uno numera sus PRs desde 1,
+  // así que el número solo NO identifica un PR. Resolver el issue equivocado no
+  // es un no-op: el agente le comenta y le mueve el status.
+  test('desambigua por repo cuando dos issues linkean el mismo número', async () => {
+    const a = { ...ITEM, id: 'PVTI_a', repos: 'repo-a' } as SourceItem
+    const b = { ...ITEM, id: 'PVTI_b', repos: 'repo-b' } as SourceItem
+    const s = source({ getItems: async () => [a, b] })
+    const item = await resolver(s)('p1', { projectId: 'p1', prNumber: 482, repos: ['repo-b'] })
+    expect(item?.id).toBe('PVTI_b')
+  })
+
+  test('desambigua por el repo que hostea el issue cuando no hay campo Repos', async () => {
+    const a = { ...ITEM, id: 'PVTI_a', meta: { ...ITEM.meta, repoName: 'repo-a' } } as SourceItem
+    const b = { ...ITEM, id: 'PVTI_b', meta: { ...ITEM.meta, repoName: 'repo-b' } } as SourceItem
+    const s = source({ getItems: async () => [a, b] })
+    const item = await resolver(s)('p1', { projectId: 'p1', prNumber: 482, repos: ['repo-a'] })
+    expect(item?.id).toBe('PVTI_a')
+  })
+
+  // Elegir uno al azar dejaría comentarios y movería una card que nadie tocó.
+  // El scan lo levanta después por el camino normal.
+  test('si sigue habiendo más de un candidato no corre nada', async () => {
+    const a = { ...ITEM, id: 'PVTI_a', repos: 'repo-a' } as SourceItem
+    const b = { ...ITEM, id: 'PVTI_b', repos: 'repo-a' } as SourceItem
+    const s = source({ getItems: async () => [a, b] })
+    const item = await resolver(s)('p1', { projectId: 'p1', prNumber: 482, repos: ['repo-a'] })
+    expect(item).toBeUndefined()
+  })
+
+  // Sin `repos` en el scope no hay con qué desambiguar: un único match sigue
+  // siendo válido, y sólo la ambigüedad real frena.
+  test('un único match sin repos en el scope resuelve igual', async () => {
+    const item = await resolver(source())('p1', { projectId: 'p1', prNumber: 482 })
+    expect(item?.id).toBe('PVTI_1')
+  })
+
   test('sin issueId ni prNumber no hay nada que resolver', async () => {
     expect(await resolver(source())('p1', { projectId: 'p1' })).toBeUndefined()
   })
