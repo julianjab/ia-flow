@@ -629,29 +629,24 @@ export class Agent {
       }
 
       // PASO 5 — finaliza según el resultado.
-      runState.output = output.content
-
-      // La salida estructurada, si el agente declaró un contrato.
       //
-      // Se lee del registry porque `submit_output` escribe ahí: la tool corre
-      // dentro del loop —o del otro lado del MCP, en un run async— y no tiene
-      // otro canal de vuelta. Es el mismo camino que `chosenExit`.
+      // Ojo con `output.content` acá: en un provider ASYNC, `provider.run()`
+      // resolvió cuando la sesión se LANZÓ, no cuando el agente terminó. Su
+      // contenido no es el resultado del run, así que lo que se publica hacia
+      // una regla (`runState.output`) se setea abajo, en cada rama: la sync lo
+      // toma de acá, la async de lo que llega por `waitForFinish`.
       //
-      // Declarar el contrato lo vuelve OBLIGATORIO: si el agente cerró sin
-      // entregarlo, el run falla. La alternativa —cerrar bien y publicar nada—
-      // deja al paso siguiente leyendo un valor vacío y trabajando con un
-      // encargo mutilado, sin que nada lo señale. Un contrato que se puede
-      // incumplir en silencio no es un contrato.
-      if (agentDef.output && Object.keys(agentDef.output).length > 0) {
-        const submitted = getPendingTask(registryKey)?.structuredOutput
-        if (!submitted) {
-          throw new Error(
-            `El agente declara salida estructurada (${Object.keys(agentDef.output).join(', ')}) ` +
-              'y cerró el run sin llamar a `submit_output`.',
-          )
-        }
-        runState.structuredOutput = submitted
-      }
+      // El contrato de salida (`agentDef.output`) se verifica por el mismo
+      // motivo, y en el mismo lugar: exigirlo antes de saber si el agente
+      // trabajó haría fallar todo run de terminal a los segundos del
+      // lanzamiento — y encima el `throw` saltearía el registro de
+      // `killSession` y del watchdog, dejando la sesión huérfana.
+      const declaresOutput = Boolean(agentDef.output && Object.keys(agentDef.output).length > 0)
+      const missingOutput = () =>
+        new Error(
+          `El agente declara salida estructurada (${Object.keys(agentDef.output ?? {}).join(', ')}) ` +
+            'y cerró el run sin llamar a `submit_output`.',
+        )
 
       if (output.mode === 'tmux') {
         // Wire the provider-agnostic session handle: persist its coordinates
@@ -732,6 +727,12 @@ export class Agent {
           }
         }
         if (finish) {
+          // Lo que el agente produjo. Viaja en el `finish` y no se relee del
+          // registry porque la entrada ya la borró el tool de cierre.
+          if (finish.structuredOutput) runState.structuredOutput = finish.structuredOutput
+          if (declaresOutput && !finish.structuredOutput && !finish.cancelled) {
+            throw missingOutput()
+          }
           task = finish.task
           if (finish.cancelled) {
             log.info(
@@ -784,8 +785,21 @@ export class Agent {
         // soltar la entrada: en sync el que cierra es el engine, así que es lo
         // único que sobrevive del run para decidir por qué arista cerrar.
         const chosenExit = pendingAfterRun?.chosenExit
+        // Por lo mismo que `chosenExit`: se lee ANTES de soltar la entrada.
+        // Acá `output.content` SÍ es lo que produjo el agente — el loop de
+        // tools terminó.
+        runState.output = output.content
+        if (pendingAfterRun?.structuredOutput) {
+          runState.structuredOutput = pendingAfterRun.structuredOutput
+        }
         task = pendingAfterRun?.task ?? task
         removePendingTask(registryKey)
+        // El throw va DESPUÉS de soltar la entrada: si no, el run fallado se
+        // llevaría puesto el lock de la task y los slots del agente, del
+        // proyecto y del provider hasta el próximo reinicio.
+        if (declaresOutput && !runState.structuredOutput && !cancelled) {
+          throw missingOutput()
+        }
 
         if (cancelled) {
           log.info(

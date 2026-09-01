@@ -212,6 +212,15 @@ export interface FinishResult {
    *  idénticos en la tabla y el próximo incidente hay que reconstruirlo a
    *  fuerza de logs. */
   reason?: string
+  /**
+   * Lo que el agente entregó con `submit_output`, tomado de la entrada JUSTO
+   * antes de soltarla.
+   *
+   * En async es el único camino: la entrada la borra el tool de cierre, así
+   * que para cuando `Agent.run` sale de `waitForFinish` ya no hay de dónde
+   * leerla. Mismo motivo por el que `task` viaja acá y no se re-consulta.
+   */
+  structuredOutput?: Record<string, unknown>
 }
 
 /**
@@ -416,6 +425,7 @@ export class PendingTaskRegistry {
         cancelled: finish?.cancelled ?? info.cancelled === true,
         finalizedByTool: finish?.finalizedByTool ?? false,
         reason: finish?.reason,
+        structuredOutput: info.structuredOutput,
       })
     }
   }
