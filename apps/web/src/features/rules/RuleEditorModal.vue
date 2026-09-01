@@ -39,6 +39,11 @@ const props = defineProps<{
    *  anidado sin que cada sub-editor tenga que enterarse. El rail queda afuera
    *  del fieldset porque navegar entre secciones se sigue pudiendo. */
   readonly?: boolean
+  /** Por qué está en sólo-lectura, para elegir el texto del banner: `'inherited'`
+   *  es la global vista desde un proyecto (el caso de arriba); `'yaml'` es un
+   *  deploy que carga sus reglas de un `runner.yaml` — ahí no hay "otro lugar
+   *  donde editarla", el YAML es la única fuente. */
+  readonlyReason?: 'inherited' | 'yaml'
 }>()
 
 const emit = defineEmits<{
@@ -286,7 +291,10 @@ function save() {
         >Guardar regla</button>
       </div>
 
-      <p v-if="readonly" class="readonly-banner">
+      <p v-if="readonly && readonlyReason === 'yaml'" class="readonly-banner">
+        Sólo lectura — las reglas de este deploy vienen del <b>YAML</b>, no se editan desde acá.
+      </p>
+      <p v-else-if="readonly" class="readonly-banner">
         Es una regla <b>global</b>: dispara sobre los eventos de este proyecto, pero se edita en
         <b>General → Pipeline</b>, que es donde se ve a qué otros proyectos afecta el cambio.
       </p>

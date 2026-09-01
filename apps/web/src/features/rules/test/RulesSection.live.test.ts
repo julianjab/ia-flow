@@ -226,9 +226,11 @@ describe('RulesSection — lo que corre encima', () => {
       expect(w.find('.rs-drag').exists()).toBe(false)
     })
 
-    // Sólo lectura es sólo lectura: sin camino al detalle no hay Guardar,
-    // Eliminar ni orden que el server vaya a rechazar con un toast.
-    it('un ámbito de sólo lectura no ofrece ningún camino a editar', async () => {
+    // Sólo lectura sigue dejando ABRIR el detalle —si no, la única vista de la
+    // regla es la frase compacta de `RuleSentence`—, pero de ahí no sale ni
+    // Guardar, ni Eliminar, ni orden: nada que el server vaya a rechazar con un
+    // toast.
+    it('un ámbito de sólo lectura no ofrece Guardar, Eliminar ni reordenar', async () => {
       const api = await import('@/features/rules/api')
       vi.mocked(api.fetchRules).mockResolvedValueOnce({
         rules: [rule()],
@@ -238,7 +240,13 @@ describe('RulesSection — lo que corre encima', () => {
 
       const w = await mountSection()
       expect(w.findAll('button').map((b) => b.text())).not.toContain('Editar')
-      expect(w.find('.editable-card--clickable').exists()).toBe(false)
+      expect(w.find('.rs-drag').exists()).toBe(false)
+      // La fila sigue siendo clicable: abre el detalle en sólo-lectura.
+      expect(w.find('.editable-card--clickable').exists()).toBe(true)
+
+      await w.find('.editable-card--clickable').trigger('click')
+      expect(w.findAll('button').map((b) => b.text())).not.toContain('Guardar regla')
+      expect(w.findAll('button').map((b) => b.text())).not.toContain('Eliminar')
     })
 
     // Borrar vive en el detalle: en la fila el ✕ quedaba a un pixel del gesto

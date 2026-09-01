@@ -507,12 +507,15 @@ function onDrop(to: number) {
              El ✕ vive en el detalle: borrar una regla no es una operación de
              listado (se hace una vez y no se deshace), y tenerlo al lado del
              gesto de arrastrar la ponía a un pixel de distancia. -->
-        <!-- `show-edit-button` en false a propósito: `EditableCard` ofrece un
-             botón "Editar" cuando la fila NO es clicable, y acá eso pasa
-             justamente en el caso en que no se puede editar (un deploy por
-             YAML) — abriría el detalle con Guardar, Eliminar y el orden. -->
+        <!-- Clicable también en modo sólo-lectura: antes esconder el detalle
+             entero era la única forma de no ofrecer Guardar/Eliminar en un
+             deploy por YAML, pero eso también le negaba al operador ver la
+             regla completa —sólo quedaba la frase compacta de `RuleSentence`—.
+             `RuleEditorModal` ya sabe abrirse en sólo-lectura (es lo que hace
+             con las heredadas, ver `openInherited`), así que acá se pide lo
+             mismo. -->
         <EditableCard
-          :clickable="!readOnly"
+          clickable
           :show-edit-button="false"
           :muted="rule.enabled === false"
           @edit="openEdit(rule)"
@@ -679,7 +682,8 @@ function onDrop(to: number) {
     :repo-names="repoOptions"
     :action-ids="actionOptions"
     :project-id="editingInherited ? null : projectId"
-    :readonly="editingInherited"
+    :readonly="editingInherited || readOnly"
+    :readonly-reason="editingInherited ? 'inherited' : 'yaml'"
     @save="handleSave"
     @delete="askDelete"
     @close="pushRuleId(undefined)"
