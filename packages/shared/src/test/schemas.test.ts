@@ -7,6 +7,7 @@ import {
   AnthropicApiSettingsSchema,
   ApiContractSchema,
   ExecutionLogSchema,
+  ExecutionStatsSchema,
   FileToModifySchema,
   FunctionalPRDSchema,
   ImpactedRepoSchema,
@@ -1146,5 +1147,87 @@ describe('toggleDisabledRuleId', () => {
     const current = ['r1']
     toggleDisabledRuleId(current, 'r2', false)
     expect(current).toEqual(['r1'])
+  })
+})
+
+// Regresión: la web valida cada respuesta con `.parse()`, así que un campo
+// nuevo y requerido en el schema convierte a CUALQUIER server desactualizado
+// en un panel de "Salud por agente" completamente roto — no en dos columnas
+// vacías. Las métricas de eficiencia se agregaron después, y llevan default
+// justamente para que ese despliegue a medias degrade en vez de caerse.
+describe('ExecutionStatsSchema — compatibilidad con un server viejo', () => {
+  const legacyPayload = {
+    from: null,
+    to: null,
+    totals: {
+      runs: 3,
+      success: 3,
+      error: 0,
+      cancelled: 0,
+      truncated: 0,
+      successRate: 1,
+      failureClasses: {},
+      tokensIn: 500,
+      tokensOut: 50,
+    },
+    agents: [
+      {
+        agentId: 'refiner',
+        runs: 3,
+        success: 3,
+        error: 0,
+        cancelled: 0,
+        truncated: 0,
+        successRate: 1,
+        failureClasses: {},
+        avgDurationMs: 1000,
+        tokensIn: 500,
+        tokensOut: 50,
+        toolCalls: 9,
+        toolErrors: 0,
+        lastRunAt: '2026-01-01T00:00:00.000Z',
+        promptVersions: 1,
+      },
+    ],
+  }
+
+  it('parsea una respuesta sin ninguna de las métricas de eficiencia', () => {
+    expect(() => ExecutionStatsSchema.parse(legacyPayload)).not.toThrow()
+  })
+
+  it('rellena los campos ausentes con neutros, no con ceros que mientan', () => {
+    const parsed = ExecutionStatsSchema.parse(legacyPayload)
+    const agent = parsed.agents[0]!
+    // Null y no 0: "no lo sé" no es "0%", que pintaría de rojo un agente sano.
+    expect(agent.cacheHitRate).toBeNull()
+    expect(agent.p95DurationMs).toBeNull()
+    // Estos sí son contadores: ausente y cero son lo mismo en una suma.
+    expect(agent.cacheReadTokens).toBe(0)
+    expect(agent.cacheCreationTokens).toBe(0)
+    expect(agent.iters).toBe(0)
+    expect(agent.stopReasons).toEqual({})
+    expect(parsed.totals.cacheHitRate).toBeNull()
+    expect(parsed.totals.iters).toBe(0)
+  })
+
+  it('conserva los valores cuando el server SÍ los manda', () => {
+    const parsed = ExecutionStatsSchema.parse({
+      ...legacyPayload,
+      agents: [
+        {
+          ...legacyPayload.agents[0],
+          cacheReadTokens: 9000,
+          cacheHitRate: 0.9,
+          iters: 30,
+          stopReasons: { max_tokens: 2 },
+          p95DurationMs: 8000,
+        },
+      ],
+    })
+    const agent = parsed.agents[0]!
+    expect(agent.cacheHitRate).toBe(0.9)
+    expect(agent.iters).toBe(30)
+    expect(agent.stopReasons).toEqual({ max_tokens: 2 })
+    expect(agent.p95DurationMs).toBe(8000)
   })
 })

@@ -398,6 +398,125 @@ describe('SqliteExecutionLogRepository.stats', () => {
     expect(stats.totals.failureClasses).toEqual({ budget_exhausted: 1, infra_error: 1 })
   })
 
+  test('agrega cache, iters y stop reasons — el desglose que el total esconde', () => {
+    repo.insert(
+      fakeEntry({
+        id: 'c1',
+        agentId: 'agent-c',
+        startedAt: '2026-02-01T00:00:00.000Z',
+        finishedAt: '2026-02-01T00:01:00.000Z',
+        outcome: 'success',
+        tokensIn: 1000,
+        cacheReadTokens: 3000,
+        cacheCreationTokens: 500,
+        iters: 10,
+        stopReason: 'end_turn',
+      }),
+    )
+    repo.insert(
+      fakeEntry({
+        id: 'c2',
+        agentId: 'agent-c',
+        startedAt: '2026-02-02T00:00:00.000Z',
+        finishedAt: '2026-02-02T00:01:00.000Z',
+        outcome: 'truncated',
+        tokensIn: 1000,
+        cacheReadTokens: 1000,
+        cacheCreationTokens: 100,
+        iters: 30,
+        stopReason: 'max_tokens',
+      }),
+    )
+
+    const c = repo.stats({}).agents.find((x) => x.agentId === 'agent-c')!
+    expect(c.cacheReadTokens).toBe(4000)
+    expect(c.cacheCreationTokens).toBe(600)
+    expect(c.iters).toBe(40)
+    // 4000 / (4000 + 2000)
+    expect(c.cacheHitRate).toBeCloseTo(2 / 3)
+    // `truncated` ya contaba el run cortado; esto dice que fue por presupuesto.
+    expect(c.stopReasons).toEqual({ end_turn: 1, max_tokens: 1 })
+  })
+
+  test('reporta cacheHitRate null cuando la ventana no tiene tokens observables', () => {
+    // Un run de terminal no reporta tokens: 0% ahí señalaría un problema de
+    // caching inexistente.
+    repo.insert(
+      fakeEntry({
+        id: 'term1',
+        agentId: 'agent-tmux',
+        startedAt: '2026-03-01T00:00:00.000Z',
+        finishedAt: '2026-03-01T00:01:00.000Z',
+        outcome: 'success',
+      }),
+    )
+    const t = repo.stats({}).agents.find((x) => x.agentId === 'agent-tmux')!
+    expect(t.tokensIn).toBe(0)
+    expect(t.cacheReadTokens).toBe(0)
+    expect(t.cacheHitRate).toBeNull()
+  })
+
+  test('el p95 de duración señala el outlier que el promedio diluye', () => {
+    // 19 runs de 1s y uno de 100s: la media apenas se mueve, el p95 lo marca.
+    for (let i = 0; i < 19; i++) {
+      repo.insert(
+        fakeEntry({
+          id: `p${i}`,
+          agentId: 'agent-p',
+          startedAt: `2026-04-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`,
+          finishedAt: `2026-04-${String(i + 1).padStart(2, '0')}T00:01:00.000Z`,
+          outcome: 'success',
+          durationMs: 1000,
+        }),
+      )
+    }
+    repo.insert(
+      fakeEntry({
+        id: 'p-slow',
+        agentId: 'agent-p',
+        startedAt: '2026-04-20T00:00:00.000Z',
+        finishedAt: '2026-04-20T00:01:00.000Z',
+        outcome: 'success',
+        durationMs: 100_000,
+      }),
+    )
+
+    const p = repo.stats({}).agents.find((x) => x.agentId === 'agent-p')!
+    expect(p.avgDurationMs).toBe(5950)
+    expect(p.p95DurationMs).toBe(100_000)
+  })
+
+  test('los totales recalculan el hit rate sobre las sumas, no promediando ratios', () => {
+    // agent-hi: 1 run barato con hit alto. agent-lo: 1 run enorme sin cache.
+    // Promediar los dos ratios daría ~48%; sobre los totales da 9%.
+    repo.insert(
+      fakeEntry({
+        id: 'hi',
+        agentId: 'agent-hi',
+        startedAt: '2026-05-01T00:00:00.000Z',
+        finishedAt: '2026-05-01T00:01:00.000Z',
+        outcome: 'success',
+        tokensIn: 100,
+        cacheReadTokens: 900,
+      }),
+    )
+    repo.insert(
+      fakeEntry({
+        id: 'lo',
+        agentId: 'agent-lo',
+        startedAt: '2026-05-02T00:00:00.000Z',
+        finishedAt: '2026-05-02T00:01:00.000Z',
+        outcome: 'success',
+        tokensIn: 10_000,
+        cacheReadTokens: 0,
+      }),
+    )
+    const totals = repo.stats({}).totals
+    expect(totals.cacheReadTokens).toBe(900)
+    expect(totals.tokensIn).toBe(10_100)
+    expect(totals.cacheHitRate).toBeCloseTo(900 / 11_000)
+  })
+
   test('filters by project and time window', () => {
     seed(repo)
     expect(repo.stats({ projectId: 'proj-2' }).agents.map((a) => a.agentId)).toEqual(['agent-b'])
