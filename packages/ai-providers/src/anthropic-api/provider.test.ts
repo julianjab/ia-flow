@@ -658,7 +658,33 @@ describe('AnthropicApiProvider.run — request shaping', () => {
       { name: 'docs', type: 'url', url: 'https://mcp.example/docs' },
     ])
     expect(headers['anthropic-beta']).toContain('mcp-client-2025-11-20')
+    // Diferido por default, con la tool de búsqueda que hace posible
+    // encontrar lo diferido. Sin ella el modelo no ve ninguna tool del MCP.
+    expect(body.tools).toContainEqual({
+      type: 'mcp_toolset',
+      mcp_server_name: 'docs',
+      default_config: { defer_loading: true },
+    })
+    expect(body.tools).toContainEqual({
+      type: 'tool_search_tool_regex_20251119',
+      name: 'tool_search_tool_regex',
+    })
+  })
+
+  it('eagerMcpTools carga el catálogo entero y omite la tool de búsqueda', async () => {
+    const { body } = await requestFrom(
+      { providerConfig: { eagerMcpTools: true } },
+      { mcpServers: { docs: { type: 'http', url: 'https://mcp.example/docs' } } },
+    )
     expect(body.tools).toContainEqual({ type: 'mcp_toolset', mcp_server_name: 'docs' })
+    const tools = body.tools as Array<{ type?: string }>
+    expect(tools.some((t) => t.type?.startsWith('tool_search_tool'))).toBe(false)
+  })
+
+  it('sin MCP no hay nada que diferir ni tool de búsqueda', async () => {
+    const { body } = await requestFrom()
+    const tools = (body.tools as Array<{ type?: string }> | undefined) ?? []
+    expect(tools.some((t) => t.type?.startsWith('tool_search_tool'))).toBe(false)
   })
 
   it('extracts a Bearer token from headers.Authorization when authorizationToken is absent', async () => {
@@ -766,6 +792,14 @@ describe('AnthropicApiProvider.run — request shaping', () => {
     expect(system.map((b) => b.text)).toEqual(['A', 'B', 'C', 'D', 'E'])
     expect(system.filter((b) => b.cache_control).length).toBe(1)
     expect(system.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
+  })
+
+  // El breakpoint de system cubre el prefijo; el auto-cache a nivel request
+  // es lo que cachea el HISTORIAL entre vueltas del loop. Sin él, cada vuelta
+  // re-pagaba todos los mensajes anteriores a precio pleno.
+  it('activa el auto-cache a nivel request para que el historial se cachee entre vueltas', async () => {
+    const { body } = await requestFrom()
+    expect(body.cache_control).toEqual({ type: 'ephemeral' })
   })
 
   it('omits thinking from the request body when the resolved settings have none', async () => {
