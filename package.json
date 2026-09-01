@@ -2,6 +2,7 @@
   "name": "ia-flow",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "bun run dev:server & bun run dev:web",
