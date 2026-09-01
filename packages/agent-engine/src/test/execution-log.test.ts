@@ -9,6 +9,7 @@ const base: AgentConfigIdentity = {
   provider: 'anthropic-api',
   providerConfig: { model: 'claude-sonnet-4-6', effort: 'high' },
   saveOutput: undefined,
+  output: undefined,
   exits: { success: 'Build' },
 }
 
@@ -64,6 +65,7 @@ describe('hashAgentConfig', () => {
     ['provider', { provider: 'remote:mac-mini' }],
     ['providerConfig', { providerConfig: { model: 'claude-opus-4-1' } }],
     ['exits', { exits: { success: 'Review' } }],
+    ['output', { output: { fields: [{ name: 'prd' }] } }],
   ] as Array<[string, Partial<AgentConfigIdentity>]>)('cambia cuando cambia %s', (_name, patch) => {
     expect(hashAgentConfig({ ...base, ...patch })).not.toBe(hashAgentConfig(base))
   })
