@@ -59,6 +59,8 @@ interface TaskRow {
   hasDevLinks: boolean
   /** Hilo de Slack donde ya se pidió review, resuelto por el source. */
   slackThreadUrl?: string
+  /** Logins asignados al issue, tal como los expone el provider. */
+  assignees: string[]
 }
 
 
@@ -143,11 +145,30 @@ const statusChips = computed<string[]>(() => {
   return chips;
 });
 
+// Igual criterio que `statusChips`: el universo sale de lo cargado (no hay
+// endpoint que liste "los repos/assignees del board"), más lo ya
+// seleccionado, para que un valor filtrado no desaparezca de la lista.
+const repoChips = computed<string[]>(() => {
+  const chips = new Set(availableRepoNames.value);
+  for (const item of projectItems.value) {
+    for (const r of item.repos.split(',').map((r) => r.trim()).filter(Boolean)) chips.add(r);
+  }
+  for (const r of filters.value.repos) chips.add(r);
+  return [...chips].sort();
+});
+
+const assigneeChips = computed<string[]>(() => {
+  const chips = new Set<string>();
+  for (const item of projectItems.value) for (const a of item.assignees) chips.add(a);
+  for (const a of filters.value.assignees) chips.add(a);
+  return [...chips].sort();
+});
+
 watch(
   filters,
   (value) => {
     storeFilters(activeProjectId.value, value);
-    const { status: _s, pr: _p, branch: _b, merged: _m, ...rest } = route.query;
+    const { status: _s, repo: _r, assigned: _a, pr: _p, rama: _rm, ...rest } = route.query;
     void router.replace({ query: { ...rest, ...taskFiltersToQuery(value) } });
   },
   { deep: true },
@@ -187,6 +208,7 @@ function toRow(item: SourceItem): TaskRow {
     hasDevLinks: Array.isArray(meta.pullRequests) || branch !== undefined,
     pullRequestsKnown: meta.pullRequestsKnown !== false,
     slackThreadUrl: meta.slackThreadUrl as string | undefined,
+    assignees: Array.isArray(meta.assignees) ? (meta.assignees as string[]) : [],
   }
 }
 
@@ -406,7 +428,12 @@ watch(activeProjectId, (pid) => {
       @save="saveSlackSettings"
     />
 
-    <TaskFiltersBar v-model="filters" :statuses="statusChips" />
+    <TaskFiltersBar
+      v-model="filters"
+      :statuses="statusChips"
+      :repos="repoChips"
+      :assignees="assigneeChips"
+    />
 
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
          la accion que lo resuelve. -->
