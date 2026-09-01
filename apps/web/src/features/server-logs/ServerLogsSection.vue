@@ -70,6 +70,9 @@ const sourceFilter = ref<Set<string>>(new Set(queryStrArr('source').length > 0 ?
 // module/source: dos valores del mismo campo se suman.
 const agentFilter = ref<Set<string>>(new Set(queryStrArr('agentId')));
 const taskFilter = ref<Set<string>>(new Set(queryStrArr('taskId')));
+// El título de la tarea (`extras.task`) — sólo lo estampa el camino sync
+// (AnthropicApiProvider), al lado del `taskId` opaco. Mismo patrón multi-select.
+const taskTitleFilter = ref<Set<string>>(new Set(queryStrArr('task')));
 const projectFilter = ref<Set<string>>(new Set(queryStrArr('projectId')));
 // La regla es lo único que correlaciona las líneas de una ACCIÓN, y es el link
 // con el que la tarjeta de una acción manda para acá.
@@ -112,6 +115,7 @@ const discoveredSources = ref<Set<string>>(new Set());
 const discoveredExtras = ref<Record<string, Set<string>>>({
   agentId: new Set(),
   taskId: new Set(),
+  task: new Set(),
   ruleId: new Set(),
   projectId: new Set(),
   runId: new Set(),
@@ -205,6 +209,12 @@ const FILTER_FIELDS: Array<{
     free: true,
   },
   {
+    key: 'titulo',
+    hint: 'título de la tarea',
+    values: () => extraValues('task', taskTitleFilter.value),
+    free: true,
+  },
+  {
     key: 'proyecto',
     hint: 'de qué board',
     values: () => extraValues('projectId', projectFilter.value),
@@ -256,6 +266,7 @@ const filterTokens = computed<FilterToken[]>({
     ...setTokens('container', Array.from(sourceFilter.value)),
     ...setTokens('agente', Array.from(agentFilter.value)),
     ...setTokens('tarea', Array.from(taskFilter.value)),
+    ...setTokens('titulo', Array.from(taskTitleFilter.value)),
     ...setTokens('proyecto', Array.from(projectFilter.value)),
     ...setTokens('regla', Array.from(ruleFilter.value)),
     ...setTokens('run', Array.from(runFilter.value)),
@@ -269,6 +280,7 @@ const filterTokens = computed<FilterToken[]>({
     assignSet(sourceFilter, of('container'));
     assignSet(agentFilter, of('agente'));
     assignSet(taskFilter, of('tarea'));
+    assignSet(taskTitleFilter, of('titulo'));
     assignSet(projectFilter, of('proyecto'));
     assignSet(ruleFilter, of('regla'));
     assignSet(runFilter, of('run'));
@@ -315,6 +327,7 @@ function buildFilters(): ServerLogFilters {
   if (toFilter.value) f.to = new Date(toFilter.value).toISOString();
   if (agentFilter.value.size > 0) f.agentId = Array.from(agentFilter.value);
   if (taskFilter.value.size > 0) f.taskId = Array.from(taskFilter.value);
+  if (taskTitleFilter.value.size > 0) f.task = Array.from(taskTitleFilter.value);
   if (projectFilter.value.size > 0) f.projectId = Array.from(projectFilter.value);
   if (ruleFilter.value.size > 0) f.ruleId = Array.from(ruleFilter.value);
   if (runFilter.value.size > 0) f.runId = Array.from(runFilter.value);
@@ -515,6 +528,7 @@ watch(
     sourceFilter,
     agentFilter,
     taskFilter,
+    taskTitleFilter,
     projectFilter,
     ruleFilter,
     runFilter,

@@ -1471,6 +1471,11 @@ export const ServerLogFiltersSchema = z.object({
    *  líneas de una ACCIÓN: no hay `runId` que estampar porque una acción no es
    *  un run del agente, así que sus handlers loguean la regla. */
   ruleId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.task` — el título de la tarea, tal cual lo manda `logCtx` en
+   *  `AnthropicApiProvider.run` (junto a `taskId`, que es el id opaco). Sólo
+   *  el camino sync lo estampa hoy — un agente async (tmux/iterm) no tiene
+   *  este campo en sus líneas. */
+  task: z.union([z.string(), z.array(z.string())]).optional(),
   // Filters entries whose extras.source matches — the IA_FLOW_INSTANCE_ID of
   // the process that emitted the line (unset = the main daemon itself; a
   // headless container like "subscriptions-pipeline" tags every line it
