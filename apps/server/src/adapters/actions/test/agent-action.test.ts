@@ -211,3 +211,87 @@ describe('AgentAction — output del paso', () => {
     expect(res.output).toBeUndefined()
   })
 })
+
+// El borde de privilegio del despacho dinámico, y la voz del brief.
+describe('AgentAction — allowAgents y procedencia', () => {
+  const withAgents = (over: Record<string, unknown>) =>
+    ({ action: 'agent', agentId: 'implementer', ...over }) as never
+
+  test('deja pasar un agentId que está en la lista', async () => {
+    const { action } = spyDispatch()
+    const res = await action.execute(
+      ctx(),
+      withAgents({ allowAgents: ['implementer', 'reviewer'] }),
+    )
+    expect(res.ok).toBe(true)
+  })
+
+  // Se re-chequea en runtime aunque el CRUD ya lo valide: la lista ES el borde
+  // de privilegio, y una fila escrita por fuera del CRUD no puede saltearlo.
+  test('rechaza uno que no está, aunque el CRUD lo haya dejado pasar', async () => {
+    const { action, dispatched } = spyDispatch()
+    const res = await action.execute(ctx(), withAgents({ allowAgents: ['reviewer'] }))
+    expect(res.ok).toBe(false)
+    expect(res.detail).toContain('reviewer')
+    expect(dispatched.length).toBe(0)
+  })
+
+  test('sin allowAgents no cambia nada', async () => {
+    const { action } = spyDispatch()
+    expect((await action.execute(ctx(), withAgents({}))).ok).toBe(true)
+  })
+
+  // Un brief del operador y uno que escribió un triager llegan al mismo lugar
+  // del prompt; sin marcarlo, el segundo hereda la voz del primero.
+  test('enmarca el brief cuando lo escribió otro agente', async () => {
+    const { action, calls } = spyDispatch()
+    const c = ctx()
+    ;(c as { fromAgents?: string[] }).fromAgents = ['triager']
+    await action.execute(c, withAgents({ brief: 'construí X' }))
+    expect(calls[0]).toContain('triager')
+    expect(calls[0]).toContain('no el operador')
+    expect(calls[0]).toContain('construí X')
+  })
+
+  test('un brief del operador va tal cual', async () => {
+    const { action, calls } = spyDispatch()
+    await action.execute(ctx(), withAgents({ brief: 'construí X' }))
+    expect(calls[0]).toBe('construí X')
+  })
+})
+
+// El evento derivado tiene que nacer RUTEABLE. Sin scope, una regla que lo
+// escuche con `action: agent` corta en el primer gate — "evento sin projectId".
+describe('AgentAction — emitOn: exit', () => {
+  test('el evento derivado hereda el scope y nombra el issue', async () => {
+    const emitidos: Array<{ type: string; scope?: Record<string, unknown> }> = []
+    const { action } = spyDispatch()
+    const c = {
+      event: createEvent({
+        type: 'issue.scanned',
+        source: 'engine',
+        scope: { projectId: 'p1', repos: ['web'] },
+        payload: { item },
+      }),
+      rule: { id: 'r1' },
+      position: 0,
+      emit: async (type: string, _p: unknown, scope: Record<string, unknown>) => {
+        emitidos.push({ type, scope })
+      },
+    } as unknown as ActionContext
+
+    await action.execute(c, { action: 'agent', agentId: 'implementer', emitOn: 'exit' } as never)
+
+    expect(emitidos).toHaveLength(1)
+    expect(emitidos[0].type).toBe('run.finished')
+    expect(emitidos[0].scope).toEqual({ projectId: 'p1', repos: ['web'], issueId: 'I_1' })
+  })
+
+  test('sin emitOn no emite nada', async () => {
+    const emitidos: unknown[] = []
+    const { action } = spyDispatch()
+    const c = { ...ctx(), emit: async (t: string) => void emitidos.push(t) } as ActionContext
+    await action.execute(c, { action: 'agent', agentId: 'implementer' } as never)
+    expect(emitidos).toHaveLength(0)
+  })
+})

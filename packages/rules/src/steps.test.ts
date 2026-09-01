@@ -81,6 +81,44 @@ describe('resolveSteps', () => {
     expect(e[0]).toContain('triage')
   })
 
+  // La compuerta: con la lista de destinos declarada, el patrón pasa a ser el
+  // de `select_exit` — el operador declara el espacio, el modelo elige adentro.
+  it('agentId SÍ puede salir de un agente cuando la acción declara allowAgents', () => {
+    const out = ok({
+      action: 'agent',
+      agentId: '{{steps.triage.output.next}}',
+      allowAgents: ['implementer', 'reviewer'],
+    })
+    expect(out.agentId).toBe('implementer')
+  })
+
+  it('una lista vacía no abre la compuerta', () => {
+    const e = errs({ action: 'agent', agentId: '{{steps.triage.output.next}}', allowAgents: [] })
+    expect(e[0]).toContain('agentId')
+  })
+
+  it('el error dice cómo abrirla', () => {
+    expect(errs({ agentId: '{{steps.triage.output.next}}' })[0]).toContain('allowAgents')
+  })
+
+  // Los demás campos de ejecución no tienen compuerta: no hay un espacio
+  // enumerable que valga la pena, una url de lista blanca se escribe directo.
+  it('la compuerta de agentId no abre los otros campos', () => {
+    const e = errs({ url: '{{steps.triage.output.brief}}', allowAgents: ['x'] })
+    expect(e[0]).toContain('url')
+  })
+
+  it('reporta qué pasos usó, y quién los produjo', () => {
+    const r = resolveSteps(
+      { brief: '{{steps.triage.output.brief}}', body: '{{steps.medir.output}}' },
+      steps,
+    )
+    expect(r.used).toEqual([
+      { id: 'triage', from: 'agent' },
+      { id: 'medir', from: 'script' },
+    ])
+  })
+
   it('los mismos campos SÍ pueden salir de un script', () => {
     const s: Steps = { calc: { output: 'implementer', from: 'script' } }
     expect(ok({ agentId: '{{steps.calc.output}}' }, s).agentId).toBe('implementer')
