@@ -193,6 +193,8 @@ function okShell(): ShellRunner {
 
 interface WsDeps {
   agentTools?: string[]
+  /** Contrato de salida del agente (`AgentDefinition.output`). */
+  agentOutput?: Record<string, { type: 'string' }>
   /** Prompt del agente. Default `'x'`; los tests que verifican el ORDEN del
    *  user turn necesitan uno distinguible del resto del texto. */
   agentPrompt?: string
@@ -228,6 +230,7 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSour
           provider: 'anthropic-api',
           prompt: opts.agentPrompt ?? 'x',
           tools: opts.agentTools ?? [],
+          ...(opts.agentOutput ? { output: opts.agentOutput } : {}),
         },
       ],
       statuses: [{ name: 'InProgress' }],
@@ -358,6 +361,36 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     await orch.runAgent(makeWsTask('PVTI_ws_nobrief'), manager, 'implementer')
 
     expect(captured!.prompt).not.toContain('Por qué estás corriendo')
+  })
+
+  // Un contrato declarado y no entregado tiene que VOLTEAR el run. Cerrar bien
+  // publicando nada dejaría al paso siguiente de la regla leyendo un valor
+  // vacío, que es el agujero que el contrato existe para tapar.
+  it('un agente que declara salida y no la entrega falla el run', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      agentOutput: { brief: { type: 'string' } },
+    })
+
+    await expect(
+      orch.runAgent(makeWsTask('PVTI_ws_nosubmit'), manager, 'implementer'),
+    ).rejects.toThrow('submit_output')
+  })
+
+  // Y el lock tiene que quedar libre: si el run fallado se lo llevara puesto,
+  // el agente no vuelve a correr sobre esa task hasta el próximo reinicio.
+  it('ese fallo no deja la task trabada', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const { orch, manager } = makeWsDeps({
+      workspaceManager: wsm,
+      agentOutput: { brief: { type: 'string' } },
+    })
+    const task = makeWsTask('PVTI_ws_nosubmit2')
+
+    await expect(orch.runAgent(task, manager, 'implementer')).rejects.toThrow()
+    // El segundo intento llega hasta el mismo error, no a "ya está corriendo".
+    await expect(orch.runAgent(task, manager, 'implementer')).rejects.toThrow('submit_output')
   })
 
   it('per-task mutex: a second runAgent while the lock is held throws "task <id> ya está corriendo"', async () => {

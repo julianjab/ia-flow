@@ -4,6 +4,7 @@ import {
   removePendingTask,
   resolvePendingTask,
   subKey,
+  waitForFinish,
 } from '../pending-tasks.js'
 
 // Un sub-agente corre sobre la MISMA task que su padre y se registra bajo una
@@ -47,5 +48,31 @@ describe('resolvePendingTask con sub-agentes', () => {
 
   it('la clave del hijo se deriva del par (task, run)', () => {
     expect(subKey('T1', 'r9')).toBe('T1#sub:r9')
+  })
+})
+
+// En async la entrada la borra el tool de cierre, así que para cuando
+// `Agent.run` sale de `waitForFinish` ya no hay de dónde leer la salida. Si no
+// viajara en el `finish`, un agente de terminal con contrato declarado fallaría
+// SIEMPRE — habiéndolo entregado.
+describe('la salida estructurada sobrevive al cierre async', () => {
+  it('viaja en el FinishResult', async () => {
+    registerPendingTask('T2', {
+      ...(base as object),
+      runId: 'r1',
+      structuredOutput: { brief: 'listo' },
+    } as never)
+
+    const finished = waitForFinish('T2')
+    removePendingTask('T2', { finalizedByTool: true })
+
+    expect((await finished)?.structuredOutput).toEqual({ brief: 'listo' })
+  })
+
+  it('sin salida entregada el finish no la inventa', async () => {
+    registerPendingTask('T3', { ...(base as object), runId: 'r1' } as never)
+    const finished = waitForFinish('T3')
+    removePendingTask('T3', { finalizedByTool: true })
+    expect((await finished)?.structuredOutput).toBeUndefined()
   })
 })
