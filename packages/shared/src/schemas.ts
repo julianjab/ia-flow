@@ -1146,6 +1146,13 @@ export type ExecutionKind = z.infer<typeof ExecutionKindSchema>
  * sacar un NOT NULL sin reconstruir la tabla entera: rehacer una tabla de 30+
  * columnas con datos vivos es peor negocio que un centinela documentado.
  */
+/** Llamadas y errores de UNA tool dentro de un run (o sumadas en una ventana). */
+export const ToolTallySchema = z.object({
+  calls: z.number(),
+  errors: z.number(),
+})
+export type ToolTally = z.infer<typeof ToolTallySchema>
+
 export const ExecutionLogSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -1190,11 +1197,28 @@ export const ExecutionLogSchema = z.object({
   // Correlates this row with `daemon.log` lines and `/api/hook-events`
   // payloads, which already carry the same runId.
   runId: z.string().nullable().optional(),
-  // SHA-256 (first 12 hex chars) of the resolved prompt + system blocks the
-  // agent actually ran with. Two runs of "the same" agent are only
-  // comparable when this matches — it's what lets a regression be pinned to
-  // a specific prompt edit instead of to the agent id in the abstract.
+  // SHA-256 (first 12 hex chars) de la CONFIGURACIÓN del agente con la que
+  // corrió: prompt crudo, system prompts resueltos, tools, provider y
+  // salidas (`hashAgentConfig`). Dos runs "del mismo" agente sólo son
+  // comparables cuando esto coincide — es lo que permite atribuir una
+  // regresión a una edición concreta y no al id del agente en abstracto.
   agentPromptHash: z.string().nullable().optional(),
+
+  // ─── Telemetría de costo (migración 067) ─────────────────────────────────
+  // Hash de SÓLO los bloques de system prompt resueltos. `agentPromptHash` ya
+  // los incluye, pero mezclado con el resto de la config: cuando cambia, no
+  // dice si lo que se editó fue el agente o un system prompt compartido por
+  // todo el roster. Con los dos hashes la pregunta se contesta cruzándolos.
+  systemPromptHash: z.string().nullable().optional(),
+  // Modelo que sirvió el run. Sin él los tokens no tienen precio: 3M de
+  // entrada en Haiku y 3M en Opus no son comparables. Para runs de terminal
+  // sale de la transcripción de Claude Code; null si no se pudo observar.
+  model: z.string().nullable().optional(),
+  // Llamadas y errores por tool. `toolCalls`/`toolErrors` dicen cuánto; esto
+  // dice EN QUÉ: 50 `fs_read` es un problema de descubrimiento del repo, 10
+  // errores de `bash_run` es la policy. Chico por construcción (una entrada
+  // por tool, no por llamada), así que cabe como JSON en la fila.
+  toolBreakdown: z.record(z.string(), ToolTallySchema).nullable().optional(),
 
   // ─── Contrato de cierre (migración 048) ─────────────────────────────────
   // Lo que hace falta para cerrar el run sin el registry en memoria: si el
@@ -1365,6 +1389,23 @@ export const AgentHealthSchema = z.object({
    *  provider + salidas), NO del prompt que cada run mandó: ése lleva las
    *  variables ya resueltas y daba un hash por run. */
   promptVersions: z.number(),
+  /** Hashes distintos de los system prompts resueltos en la ventana. Cruzado
+   *  con `promptVersions` dice QUÉ cambió: si éste se movió y aquél no, la
+   *  edición fue en un system prompt compartido, no en el agente. */
+  systemPromptVersions: z.number().default(0),
+  /** Costo estimado en USD de los runs con tokens observables, a precio de
+   *  lista del modelo de cada run. Null cuando ningún run trae modelo o el
+   *  modelo no está en la tabla de precios — un 0 ahí leería como "gratis".
+   *  Es la columna que convierte la tabla en una lista de prioridades: los
+   *  tokens sin modelo no se pueden comparar entre agentes. */
+  costUsd: z.number().nullable().default(null),
+  /** Runs por modelo. Más de una clave significa que el agente cambió de
+   *  modelo en la ventana (o corre con `whenText` entre providers), y sus
+   *  tokens promedian cosas de precio distinto. */
+  models: z.record(z.string(), z.number()).default({}),
+  /** Llamadas y errores sumados por tool. Es lo que le da sentido a
+   *  `toolCalls`: 68 llamadas no dicen nada, 50 `fs_read` sí. */
+  toolBreakdown: z.record(z.string(), ToolTallySchema).default({}),
 })
 
 export const ExecutionStatsSchema = z.object({
@@ -1385,6 +1426,8 @@ export const ExecutionStatsSchema = z.object({
     cacheCreationTokens: z.number().default(0),
     cacheHitRate: z.number().nullable().default(null),
     iters: z.number().default(0),
+    /** Suma de los `costUsd` por agente; null si ninguno pudo estimarse. */
+    costUsd: z.number().nullable().default(null),
   }),
   agents: z.array(AgentHealthSchema),
 })
@@ -1397,14 +1440,37 @@ export const ExecutionStatsSchema = z.object({
 // Success rate per prompt version. This is the cut that makes a regression
 // attributable: same agent id, different prompt, different rate. Without it,
 // editing a prompt just moves an average nobody can decompose.
-export const PromptVersionStatsSchema = z.object({
-  /** null groups every run from before prompt hashing existed. */
-  promptHash: z.string().nullable(),
+// Lo que se compara entre dos versiones. Además de la tasa de éxito lleva el
+// costo por run: una edición del prompt que no cambia la tasa pero duplica
+// las vueltas es una regresión igual, y la tasa sola no la ve.
+const VersionStatsFields = {
   runs: z.number(),
   success: z.number(),
   successRate: z.number().nullable(),
   firstSeen: z.string(),
   lastSeen: z.string(),
+  /** Vueltas del loop, sumadas. Con `runs` da vueltas por run. */
+  iters: z.number().default(0),
+  /** Entrada fresca sumada (precio pleno). */
+  tokensIn: z.number().default(0),
+  cacheHitRate: z.number().nullable().default(null),
+  /** Costo estimado; null cuando ningún run de la versión trae modelo. */
+  costUsd: z.number().nullable().default(null),
+}
+
+export const PromptVersionStatsSchema = z.object({
+  /** null groups every run from before prompt hashing existed. */
+  promptHash: z.string().nullable(),
+  ...VersionStatsFields,
+})
+
+// Misma comparación, cortada por el hash de los system prompts. Una fila
+// acá que se mueve mientras `byPromptVersion` muestra la misma cantidad de
+// versiones señala una edición en un prompt COMPARTIDO — afecta a todo el
+// roster, no a este agente.
+export const SystemPromptVersionStatsSchema = z.object({
+  systemPromptHash: z.string().nullable(),
+  ...VersionStatsFields,
 })
 
 export const DailyRunStatsSchema = z.object({
@@ -1430,11 +1496,13 @@ export const AgentDetailSchema = z.object({
   agentId: z.string(),
   health: AgentHealthSchema,
   byPromptVersion: z.array(PromptVersionStatsSchema),
+  bySystemPromptVersion: z.array(SystemPromptVersionStatsSchema).default([]),
   byDay: z.array(DailyRunStatsSchema),
   recentFailures: z.array(RecentFailureSchema),
 })
 
 export type PromptVersionStats = z.infer<typeof PromptVersionStatsSchema>
+export type SystemPromptVersionStats = z.infer<typeof SystemPromptVersionStatsSchema>
 export type DailyRunStats = z.infer<typeof DailyRunStatsSchema>
 export type RecentFailure = z.infer<typeof RecentFailureSchema>
 export type AgentDetail = z.infer<typeof AgentDetailSchema>
@@ -1591,6 +1659,11 @@ export const HookEventSchema = z.object({
   stopReason: z.string().optional(),
   sessionId: z.string().optional(),
   source: z.string().optional(),
+  // Path del JSONL donde Claude Code escribe la sesión que corre este run.
+  // Es la única fuente de `usage` de un run de terminal: el CLI no lo
+  // reporta por ningún otro canal, y `complete_task` lo llama el modelo, que
+  // no conoce su propia cuenta de tokens. Lo manda cada hook que lo tiene.
+  transcriptPath: z.string().optional(),
 })
 export type HookEvent = z.infer<typeof HookEventSchema>
 

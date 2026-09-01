@@ -8,6 +8,7 @@ import {
   setLoggerFactory as setAgentEngineLoggerFactory,
   setPendingTaskRehydrator,
   setSecretResolver,
+  setTranscriptUsageReader,
 } from '@ia-flow/agent-engine'
 import {
   AnthropicApiProvider,
@@ -66,6 +67,7 @@ import {
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
 import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.js'
+import { readTranscriptUsage } from '../adapters/claude-code/transcript-usage.js'
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
@@ -225,6 +227,12 @@ async function resolveSecret(name: string): Promise<string | undefined> {
 }
 
 setSecretResolver(resolveSecret)
+
+// Cómo leer el usage de un run de terminal: la transcripción JSONL que
+// Claude Code escribe, cuyo path llega por los hooks. Mismo patrón que el
+// resolver de secretos — el engine no toca el disco, el daemon le presta el
+// lector.
+setTranscriptUsageReader(readTranscriptUsage)
 
 /** Expande `${SECRETO}` en un string de config. Lo usa la acción `http` para
  *  que un token no viva en la fila de la regla: se resuelve por uso, nunca se

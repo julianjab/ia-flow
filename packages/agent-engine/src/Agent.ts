@@ -38,7 +38,13 @@ import type {
   RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
-import { buildFinishPatch, hashAgentConfig, safeInsertLog, safeUpdateLog } from './execution-log.js'
+import {
+  buildFinishPatch,
+  hashAgentConfig,
+  hashSystemPrompt,
+  safeInsertLog,
+  safeUpdateLog,
+} from './execution-log.js'
 import { buildGitContext } from './git-context.js'
 import {
   type LinkedBranchNamer,
@@ -355,6 +361,7 @@ export class Agent {
     // Only known once the prompt is resolved inside the try — a run that
     // throws before that point legitimately has none.
     let agentPromptHash: string | undefined
+    let systemPromptHash: string | undefined
     // Declared outside the try so the catch below can read
     // `controller.signal.aborted` to disambiguate our manual cancel from an
     // upstream abort.
@@ -519,6 +526,9 @@ export class Agent {
         output: agentDef.output,
         exits: agentDef.exits,
       })
+      // Aparte del de config, para que el detalle pueda decir si lo que
+      // cambió fue el agente o un system prompt compartido.
+      systemPromptHash = hashSystemPrompt(systemPromptBlocks)
 
       safeInsertLog(this.executionLogRepo, {
         id: logId,
@@ -534,6 +544,7 @@ export class Agent {
         stopReason: null,
         runId,
         agentPromptHash,
+        systemPromptHash,
         // Contrato de cierre: con esto, la fila alcanza para cerrar el run
         // aunque el registry en memoria ya no exista (reinicio del proceso,
         // watchdog que soltó la entrada). Ver la migración 048.
@@ -762,6 +773,7 @@ export class Agent {
                 metrics: output.metrics,
                 toolsAvailable,
                 agentPromptHash,
+                systemPromptHash,
               }),
               finishedAt: new Date().toISOString(),
               outcome: 'cancelled',
@@ -785,6 +797,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -829,6 +842,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'cancelled',
@@ -865,6 +879,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -899,6 +914,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -927,6 +943,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'truncated',
@@ -994,6 +1011,7 @@ export class Agent {
               metrics: output.metrics,
               toolsAvailable,
               agentPromptHash,
+              systemPromptHash,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -1044,6 +1062,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -1077,6 +1096,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -1105,6 +1125,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -1141,6 +1162,7 @@ export class Agent {
             metrics: undefined,
             toolsAvailable,
             agentPromptHash,
+            systemPromptHash,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'error',
@@ -1165,6 +1187,7 @@ export class Agent {
           metrics: undefined,
           toolsAvailable,
           agentPromptHash,
+          systemPromptHash,
         }),
         finishedAt: new Date().toISOString(),
         outcome: 'error',

@@ -40,11 +40,13 @@ export type { GitContextOptions } from './git-context.js'
 
 export {
   recordHookToolResult,
+  recordHookTranscript,
+  setTranscriptUsageReader,
   peekRunTelemetry,
   takeRunTelemetry,
   resetRunTelemetry,
 } from './run-telemetry.js'
-export type { RunToolTelemetry } from './run-telemetry.js'
+export type { RunToolTelemetry, TranscriptUsage } from './run-telemetry.js'
 export { classifyFailure } from './failure-taxonomy.js'
 export type { ClassifyFailureInput } from './failure-taxonomy.js'
 export { Agent, setSecretResolver } from './Agent.js'

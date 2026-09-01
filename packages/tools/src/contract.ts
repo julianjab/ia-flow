@@ -288,6 +288,8 @@ export interface LoopResult {
    *  the signal that an agent is missing a tool or lacks a bash permission,
    *  which a bare `stopReason` never shows. */
   toolErrors: number
+  /** Los mismos dos contadores, por nombre de tool. */
+  toolBreakdown: Record<string, { calls: number; errors: number }>
   /**
    * El loop cortó porque una tool pidió pausa, y ésta es la conversación tal
    * como quedó — la historia completa, con el `tool_result` de la llamada que

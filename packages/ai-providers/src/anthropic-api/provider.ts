@@ -687,6 +687,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       usage,
       toolCalls,
       toolErrors,
+      toolBreakdown,
     } = await toolExecution.executeLoop(
       fetchApi,
       // Un run que se reanuda entra con la conversación que el checkpoint
@@ -762,7 +763,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       // Presente sólo cuando una tool pidió pausa. Quien lo recibe decide qué
       // hacer: el engine lo cuelga de la espera para poder reanudar.
       checkpoint,
-      metrics: { usage, iters, toolCalls, toolErrors },
+      metrics: { usage, iters, toolCalls, toolErrors, toolBreakdown, model: resolvedModel },
     }
   }
 }

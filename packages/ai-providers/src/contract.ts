@@ -265,6 +265,13 @@ export interface RunMetrics {
   /** Tool calls that came back as an error — the signal for "this agent is
    *  missing a tool or a permission", which `stopReason` never shows. */
   toolErrors: number
+  /** Llamadas y errores POR tool. Es lo que le da sentido a `toolCalls`:
+   *  50 `fs_read` es un agente que explora a ciegas; 10 errores de
+   *  `bash_run` es una policy corta. Una entrada por tool, no por llamada. */
+  toolBreakdown?: Record<string, { calls: number; errors: number }>
+  /** Modelo que sirvió el run, tal como se mandó a la API. Sin esto los
+   *  tokens no tienen precio. */
+  model?: string
 }
 
 /**
@@ -381,6 +388,9 @@ export interface LoopResult {
   usage: RunUsage
   toolCalls: number
   toolErrors: number
+  /** Llamadas y errores por tool. Ver la copia canónica en
+   *  packages/tools/src/contract.ts. */
+  toolBreakdown?: Record<string, { calls: number; errors: number }>
   /** El texto crudo del último turno, cuando el loop lo conserva. Ver la copia
    *  canónica en packages/tools/src/contract.ts. */
   rawResponse?: string

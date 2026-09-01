@@ -7,6 +7,7 @@ import type {
   ExecutionStats,
   ExecutionStatsFilters,
 } from '@ia-flow/shared'
+import { estimateCostUsd } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../../domain/ports/IExecutionLogRepository.js'
 import type { IExecutionStatsRepository } from '../../../domain/ports/IExecutionStatsRepository.js'
 import { createLogger } from '../../../logger.js'
@@ -41,6 +42,11 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     failureClass: (r.failure_class as ExecutionLog['failureClass']) ?? null,
     runId: (r.run_id as string | null) ?? null,
     agentPromptHash: (r.agent_prompt_hash as string | null) ?? null,
+    systemPromptHash: (r.system_prompt_hash as string | null) ?? null,
+    model: (r.model as string | null) ?? null,
+    toolBreakdown: r.tool_breakdown
+      ? (JSON.parse(r.tool_breakdown as string) as ExecutionLog['toolBreakdown'])
+      : null,
     initialStatus: (r.initial_status as string | null) ?? null,
     exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : null,
     assignees: r.assignees ? (JSON.parse(r.assignees as string) as string[]) : null,
@@ -88,8 +94,9 @@ export class SqliteExecutionLogRepository
         (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at,
          duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
          initial_status, exits, finalized_by_tool, assignees,
-         kind, rule_id, event_id, event_type, position, parent_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         kind, rule_id, event_id, event_type, position, parent_id,
+         model, system_prompt_hash, tool_breakdown)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -125,7 +132,10 @@ export class SqliteExecutionLogRepository
          event_id = excluded.event_id,
          event_type = excluded.event_type,
          position = excluded.position,
-         parent_id = excluded.parent_id`,
+         parent_id = excluded.parent_id,
+         model = excluded.model,
+         system_prompt_hash = excluded.system_prompt_hash,
+         tool_breakdown = excluded.tool_breakdown`,
       [
         entry.id,
         entry.projectId,
@@ -163,6 +173,9 @@ export class SqliteExecutionLogRepository
         entry.eventType ?? null,
         entry.position ?? null,
         entry.parentId ?? null,
+        entry.model ?? null,
+        entry.systemPromptHash ?? null,
+        entry.toolBreakdown ? JSON.stringify(entry.toolBreakdown) : null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -205,6 +218,9 @@ export class SqliteExecutionLogRepository
       eventType: 'event_type',
       position: 'position',
       parentId: 'parent_id',
+      model: 'model',
+      systemPromptHash: 'system_prompt_hash',
+      toolBreakdown: 'tool_breakdown',
     }
 
     const setClauses: string[] = []
@@ -439,11 +455,23 @@ export class SqliteExecutionLogRepository
                 COALESCE(SUM(tool_calls), 0)                          AS toolCalls,
                 COALESCE(SUM(tool_errors), 0)                         AS toolErrors,
                 MAX(started_at)                                       AS lastRunAt,
-                COUNT(DISTINCT agent_prompt_hash)                     AS promptVersions
+                COUNT(DISTINCT agent_prompt_hash)                     AS promptVersions,
+                COUNT(DISTINCT system_prompt_hash)                    AS systemPromptVersions
               FROM execution_logs ${where}
               GROUP BY agent_id
               ORDER BY runs DESC`)
       .all(...(params as string[])) as Array<Record<string, unknown>>
+
+    // Costo: los tokens se suman POR MODELO y recién ahí se les pone precio,
+    // porque un agente que cambió de modelo en la ventana (o elige entre dos
+    // providers con `whenText`) mezcla tarifas. El precio no se persiste —
+    // sale de la tabla de `@ia-flow/shared` al leer, así un cambio de tarifa
+    // no obliga a reescribir filas.
+    const costByAgent = this.costByGroup('agent_id', where, params)
+
+    // Desglose por tool, sumando el JSON de cada fila con json_each. Es lo que
+    // le da sentido a `toolCalls`: 68 llamadas no dicen nada, 50 fs_read sí.
+    const toolsByAgent = this.toolBreakdownByGroup('agent_id', where, params)
 
     const classRows = this.db
       .query(`SELECT agent_id AS agentId, failure_class AS failureClass, COUNT(*) AS n
@@ -542,6 +570,10 @@ export class SqliteExecutionLogRepository
         stopReasons: stopsByAgent.get(r.agentId as string) ?? {},
         lastRunAt: (r.lastRunAt as string | null) ?? null,
         promptVersions: Number(r.promptVersions ?? 0),
+        systemPromptVersions: Number(r.systemPromptVersions ?? 0),
+        costUsd: costByAgent.get(r.agentId as string)?.costUsd ?? null,
+        models: costByAgent.get(r.agentId as string)?.models ?? {},
+        toolBreakdown: toolsByAgent.get(r.agentId as string) ?? {},
       }
     })
 
@@ -561,6 +593,11 @@ export class SqliteExecutionLogRepository
     }
     const totalTokensIn = sum((a) => a.tokensIn)
     const totalCacheRead = sum((a) => a.cacheReadTokens)
+    // Null si NINGÚN agente pudo estimarse; si alguno sí, la suma de los que
+    // pudieron — un total parcial marcado como estimación vale más que nada.
+    const priced = agents.filter((a) => a.costUsd !== null)
+    const totalCost =
+      priced.length > 0 ? priced.reduce((acc, a) => acc + (a.costUsd ?? 0), 0) : null
 
     return {
       from: filters.from ?? null,
@@ -582,9 +619,138 @@ export class SqliteExecutionLogRepository
         // agente: un agente con 3 runs pesaría igual que uno con 300.
         cacheHitRate: hitRate(totalCacheRead, totalTokensIn),
         iters: sum((a) => a.iters),
+        costUsd: totalCost,
       },
       agents,
     }
+  }
+
+  /**
+   * Costo estimado y runs por modelo, agrupado por una columna (`agent_id`
+   * para el panel, un hash de versión para el detalle). Los runs sin modelo
+   * no entran: no tienen precio, y contarlos como 0 los haría parecer
+   * gratis. `costUsd` es null cuando ningún run del grupo pudo tasarse.
+   */
+  private costByGroup(
+    groupCol: 'agent_id' | 'agent_prompt_hash' | 'system_prompt_hash',
+    where: string,
+    params: unknown[],
+  ): Map<string | null, { costUsd: number | null; models: Record<string, number> }> {
+    const rows = this.db
+      .query(`SELECT ${groupCol}                              AS grp,
+                     model                                    AS model,
+                     COUNT(*)                                 AS runs,
+                     COALESCE(SUM(tokens_in), 0)              AS tokensIn,
+                     COALESCE(SUM(tokens_out), 0)             AS tokensOut,
+                     COALESCE(SUM(cache_read_tokens), 0)      AS cacheReadTokens,
+                     COALESCE(SUM(cache_creation_tokens), 0)  AS cacheCreationTokens
+                FROM execution_logs ${where} AND model IS NOT NULL
+               GROUP BY ${groupCol}, model`)
+      .all(...(params as string[])) as Array<Record<string, unknown>>
+
+    const out = new Map<string | null, { costUsd: number | null; models: Record<string, number> }>()
+    for (const r of rows) {
+      const grp = (r.grp as string | null) ?? null
+      const model = r.model as string
+      const bucket = out.get(grp) ?? { costUsd: null, models: {} }
+      bucket.models[model] = Number(r.runs ?? 0)
+      const cost = estimateCostUsd(model, {
+        tokensIn: Number(r.tokensIn ?? 0),
+        tokensOut: Number(r.tokensOut ?? 0),
+        cacheReadTokens: Number(r.cacheReadTokens ?? 0),
+        cacheCreationTokens: Number(r.cacheCreationTokens ?? 0),
+      })
+      if (cost !== null) bucket.costUsd = (bucket.costUsd ?? 0) + cost
+      out.set(grp, bucket)
+    }
+    return out
+  }
+
+  /** Llamadas y errores por tool, sumados por grupo, desde el JSON de cada fila. */
+  private toolBreakdownByGroup(
+    groupCol: 'agent_id',
+    where: string,
+    params: unknown[],
+  ): Map<string, Record<string, { calls: number; errors: number }>> {
+    const rows = this.db
+      .query(`SELECT execution_logs.${groupCol}                                AS grp,
+                     json_each.key                                             AS tool,
+                     COALESCE(SUM(json_extract(json_each.value, '$.calls')), 0)  AS calls,
+                     COALESCE(SUM(json_extract(json_each.value, '$.errors')), 0) AS errors
+                FROM execution_logs, json_each(execution_logs.tool_breakdown)
+                ${where} AND tool_breakdown IS NOT NULL
+               GROUP BY execution_logs.${groupCol}, json_each.key`)
+      .all(...(params as string[])) as Array<Record<string, unknown>>
+
+    const out = new Map<string, Record<string, { calls: number; errors: number }>>()
+    for (const r of rows) {
+      const grp = r.grp as string
+      const bucket = out.get(grp) ?? {}
+      bucket[r.tool as string] = { calls: Number(r.calls ?? 0), errors: Number(r.errors ?? 0) }
+      out.set(grp, bucket)
+    }
+    return out
+  }
+
+  /**
+   * Runs, tasa y costo por versión (de config del agente o de system prompt).
+   * Es el corte que hace atribuible una regresión: mismo agente, otro hash,
+   * otra tasa — u otro costo por run, que la tasa sola no ve.
+   */
+  private versionStats(
+    hashCol: 'agent_prompt_hash' | 'system_prompt_hash',
+    where: string,
+    params: unknown[],
+  ): Array<{
+    hash: string | null
+    runs: number
+    success: number
+    successRate: number | null
+    firstSeen: string
+    lastSeen: string
+    iters: number
+    tokensIn: number
+    cacheHitRate: number | null
+    costUsd: number | null
+  }> {
+    // El hash es NULL para todo run anterior a que existiera la columna;
+    // ésos caen en un solo bucket "sin versión" en vez de desaparecer —
+    // esconderlos haría que la historia del agente empezara el día que
+    // se agregó la columna.
+    const rows = this.db
+      .query(`SELECT ${hashCol}                                            AS hash,
+                     COUNT(*)                                              AS runs,
+                     SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)  AS success,
+                     MIN(started_at)                                       AS firstSeen,
+                     MAX(started_at)                                       AS lastSeen,
+                     COALESCE(SUM(iters), 0)                               AS iters,
+                     COALESCE(SUM(tokens_in), 0)                           AS tokensIn,
+                     COALESCE(SUM(cache_read_tokens), 0)                   AS cacheReadTokens
+                FROM execution_logs ${where}
+               GROUP BY ${hashCol}
+               ORDER BY lastSeen DESC`)
+      .all(...(params as string[])) as Array<Record<string, unknown>>
+    const cost = this.costByGroup(hashCol, where, params)
+
+    return rows.map((r) => {
+      const runs = Number(r.runs ?? 0)
+      const success = Number(r.success ?? 0)
+      const tokensIn = Number(r.tokensIn ?? 0)
+      const cacheRead = Number(r.cacheReadTokens ?? 0)
+      const hash = (r.hash as string | null) ?? null
+      return {
+        hash,
+        runs,
+        success,
+        successRate: runs > 0 ? success / runs : null,
+        firstSeen: r.firstSeen as string,
+        lastSeen: r.lastSeen as string,
+        iters: Number(r.iters ?? 0),
+        tokensIn,
+        cacheHitRate: cacheRead + tokensIn > 0 ? cacheRead / (cacheRead + tokensIn) : null,
+        costUsd: cost.get(hash)?.costUsd ?? null,
+      }
+    })
   }
 
   // How many failed runs the detail view lists. Enough to spot a pattern,
@@ -604,20 +770,15 @@ export class SqliteExecutionLogRepository
 
     const { where, params } = this.statsWhere({ ...filters, agentId })
 
-    // Per prompt version. agent_prompt_hash is NULL for every run from before
-    // hashing existed, and those collapse into one "sin versión" bucket
-    // rather than being dropped — hiding them would make an agent's history
-    // start on the day the column shipped.
-    const promptRows = this.db
-      .query(`SELECT agent_prompt_hash                                     AS promptHash,
-                     COUNT(*)                                              AS runs,
-                     SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)  AS success,
-                     MIN(started_at)                                       AS firstSeen,
-                     MAX(started_at)                                       AS lastSeen
-                FROM execution_logs ${where}
-               GROUP BY agent_prompt_hash
-               ORDER BY lastSeen DESC`)
-      .all(...(params as string[])) as Array<Record<string, unknown>>
+    // Dos cortes por versión: la config del agente y los system prompts. Si
+    // el segundo se movió y el primero muestra las mismas versiones, lo que
+    // cambió fue un prompt compartido por todo el roster, no este agente.
+    const byPromptVersion = this.versionStats('agent_prompt_hash', where, params).map(
+      ({ hash, ...rest }) => ({ promptHash: hash, ...rest }),
+    )
+    const bySystemPromptVersion = this.versionStats('system_prompt_hash', where, params).map(
+      ({ hash, ...rest }) => ({ systemPromptHash: hash, ...rest }),
+    )
 
     const byDay = (
       this.db
@@ -647,18 +808,8 @@ export class SqliteExecutionLogRepository
     return {
       agentId,
       health,
-      byPromptVersion: promptRows.map((r) => {
-        const runs = Number(r.runs ?? 0)
-        const success = Number(r.success ?? 0)
-        return {
-          promptHash: (r.promptHash as string | null) ?? null,
-          runs,
-          success,
-          successRate: runs > 0 ? success / runs : null,
-          firstSeen: r.firstSeen as string,
-          lastSeen: r.lastSeen as string,
-        }
-      }),
+      byPromptVersion,
+      bySystemPromptVersion,
       byDay,
       recentFailures: failureRows.map((r) => {
         const raw = (r.error_msg as string | null) ?? null

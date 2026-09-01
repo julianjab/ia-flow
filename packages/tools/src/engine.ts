@@ -419,7 +419,16 @@ export async function executeLoop(
   }
   let toolCalls = 0
   let toolErrors = 0
-  const metrics = () => ({ usage, toolCalls, toolErrors })
+  // Por tool, además del total: es lo que distingue "explora a ciegas"
+  // (muchos fs_read) de "le falta un permiso" (errores de bash_run).
+  const toolBreakdown: Record<string, { calls: number; errors: number }> = {}
+  const tally = (name: string, isError: boolean): void => {
+    const entry = toolBreakdown[name] ?? { calls: 0, errors: 0 }
+    entry.calls++
+    if (isError) entry.errors++
+    toolBreakdown[name] = entry
+  }
+  const metrics = () => ({ usage, toolCalls, toolErrors, toolBreakdown })
   let pauseTurnRetries = 0
   let toolUseRetried = false
   // Text already generated in paused turns before a pause_turn retry —
@@ -686,7 +695,9 @@ export async function executeLoop(
         // `Error:` is the prefix both failure paths above write (unknown
         // tool, or `execute` threw); a tool that returns its own error text
         // without it isn't counted, which is the conservative direction.
-        if (result.startsWith('Error:')) toolErrors++
+        const isError = result.startsWith('Error:')
+        if (isError) toolErrors++
+        tally(block.name, isError)
 
         onToolResult?.(block.name, result, block.id)
         return { type: 'tool_result', tool_use_id: block.id, content: result }

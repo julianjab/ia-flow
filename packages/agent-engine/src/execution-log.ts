@@ -120,6 +120,18 @@ export interface FinishPatchInput {
    *  tell "did nothing" from "had nothing to do". */
   toolsAvailable?: number
   agentPromptHash?: string
+  /** `hashSystemPrompt` de los bloques resueltos — ver el schema del log. */
+  systemPromptHash?: string
+}
+
+/**
+ * Hash de SÓLO los system prompts resueltos. `hashAgentConfig` ya los
+ * incluye, pero mezclados con el resto: cuando cambia, no dice si lo que se
+ * editó fue el agente o un system prompt compartido. Con este segundo hash la
+ * pregunta se contesta cruzándolos en el detalle del agente.
+ */
+export function hashSystemPrompt(systemPromptBlocks: unknown): string {
+  return hashPrompt(canonicalJson(systemPromptBlocks ?? []))
 }
 
 /**
@@ -131,24 +143,31 @@ export interface FinishPatchInput {
  */
 export function buildFinishPatch(input: FinishPatchInput): Partial<ExecutionLog> {
   // Sync providers measured everything themselves. For async runs the only
-  // observer was the Claude Code hook forwarder, which counts tool calls but
-  // never sees token usage — so those stay null, meaning "not measurable
-  // here" rather than zero.
+  // observer was the Claude Code hook forwarder: it counts tool calls, and —
+  // cuando el hook mandó el path de la transcripción y el daemon tiene un
+  // lector cableado— también trae el usage y el modelo de la sesión. Lo que
+  // no se pudo observar queda null: "not measurable here", not zero.
   const hookTally = input.metrics ? undefined : takeRunTelemetry(input.runId)
   const toolCalls = input.metrics?.toolCalls ?? hookTally?.toolCalls ?? null
   const toolErrors = input.metrics?.toolErrors ?? hookTally?.toolErrors ?? null
+  const usage = input.metrics?.usage ?? hookTally?.usage
+  const toolBreakdown = input.metrics?.toolBreakdown ?? hookTally?.toolBreakdown
+  const hasBreakdown = toolBreakdown !== undefined && Object.keys(toolBreakdown).length > 0
 
   return {
     durationMs: Date.now() - input.startedAtMs,
     runId: input.runId,
     agentPromptHash: input.agentPromptHash ?? null,
-    tokensIn: input.metrics?.usage.inputTokens ?? null,
-    tokensOut: input.metrics?.usage.outputTokens ?? null,
-    cacheReadTokens: input.metrics?.usage.cacheReadTokens ?? null,
-    cacheCreationTokens: input.metrics?.usage.cacheCreationTokens ?? null,
+    systemPromptHash: input.systemPromptHash ?? null,
+    model: input.metrics?.model ?? hookTally?.model ?? null,
+    tokensIn: usage?.inputTokens ?? null,
+    tokensOut: usage?.outputTokens ?? null,
+    cacheReadTokens: usage?.cacheReadTokens ?? null,
+    cacheCreationTokens: usage?.cacheCreationTokens ?? null,
     iters: input.metrics?.iters ?? null,
     toolCalls,
     toolErrors,
+    toolBreakdown: hasBreakdown ? toolBreakdown : null,
     failureClass: classifyFailure({
       outcome: input.outcome,
       stopReason: input.stopReason,

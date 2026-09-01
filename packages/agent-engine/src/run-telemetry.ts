@@ -1,41 +1,61 @@
-// Tool telemetry for runs this process can't instrument directly.
+// Registro en memoria de lo que un run de TERMINAL deja ver desde afuera.
 //
-// Sync (`anthropic-api`) runs get their counters straight from `executeLoop`,
-// which sees every tool call. Async/terminal runs (tmux, iterm, claude-print)
-// don't: the model executes inside a Claude Code session, and the only thing
-// that crosses back is the hook forwarder posting to `/api/hook-events`. This
-// registry is where those hook events are tallied so `Agent.ts` can attach a
-// tool-call count to the execution log of a terminal run — the same shape a
-// sync run reports, minus token usage (hooks carry no `usage` block).
-//
-// Keyed by `runId`, which the hook script reads from `IA_FLOW_RUN_ID` and the
-// orchestrator already stamps on the execution log.
+// Un run de `anthropic-api` mide todo en su propio loop. Uno de tmux/iterm
+// corre en un proceso de Claude Code que este daemon no instrumenta: lo único
+// que llega son los hooks (`/api/hook-events`), que cuentan tool calls, y el
+// path de la transcripción JSONL que el CLI escribe — que es la única fuente
+// de `usage` y de modelo para esos runs. Todo se acumula acá por `runId` y se
+// consume una vez, al cerrar el run (`buildFinishPatch`).
+
+import type { RunUsage } from '@ia-flow/ai-providers'
 
 export interface RunToolTelemetry {
   toolCalls: number
   /** Tool results the hook explicitly flagged as failures. Never inferred —
-   *  see `detectToolError` in packages/ai-providers/src/terminal/hook-tool-use.ts. */
+   *  the hook script decides, and a hook that predates the flag reports
+   *  nothing, which counts as "no error observed". */
   toolErrors: number
+  /** Los mismos dos contadores por nombre de tool. Los nombres son los que
+   *  usa el CLI (`Bash`, `Read`, `mcp__ia-flow-tools__fs_write`…), no los
+   *  del catálogo del engine: es lo que el hook ve. */
+  toolBreakdown: Record<string, { calls: number; errors: number }>
+  /** Usage sumado de la transcripción, cuando se pudo leer. */
+  usage?: RunUsage
+  /** Modelo que dominó la transcripción, cuando se pudo leer. */
+  model?: string
+}
+
+/** Lo que un lector de transcripciones devuelve. Vive acá y no en el adapter
+ *  porque es el contrato que `setTranscriptUsageReader` impone. */
+export interface TranscriptUsage {
+  usage: RunUsage
+  model?: string
 }
 
 interface Entry extends RunToolTelemetry {
   touchedAt: number
+  transcriptPath?: string
 }
 
-// A run whose agent crashes before `take` leaks its entry. Bounded two ways:
-// entries older than the TTL are dropped on every write, and the map is
-// hard-capped so a burst can't grow it without bound between sweeps.
 const TTL_MS = 6 * 60 * 60_000
 const MAX_ENTRIES = 500
-
 const entries = new Map<string, Entry>()
+
+// El daemon inyecta cómo leer una transcripción (`composition/container.ts`,
+// mismo patrón que `setSecretResolver`): este paquete no toca el disco, y un
+// deploy sin filesystem de Claude Code simplemente no lo cablea.
+let transcriptReader: ((path: string) => TranscriptUsage | undefined) | undefined
+
+export function setTranscriptUsageReader(
+  reader: ((path: string) => TranscriptUsage | undefined) | undefined,
+): void {
+  transcriptReader = reader
+}
 
 function sweep(now: number): void {
   for (const [runId, entry] of entries) {
     if (now - entry.touchedAt > TTL_MS) entries.delete(runId)
   }
-  // Still over cap after the TTL pass (many concurrent live runs): evict the
-  // least recently touched. Losing a counter degrades a metric, never a run.
   if (entries.size > MAX_ENTRIES) {
     const oldestFirst = [...entries.entries()].sort((a, b) => a[1].touchedAt - b[1].touchedAt)
     for (const [runId] of oldestFirst.slice(0, entries.size - MAX_ENTRIES)) {
@@ -44,32 +64,88 @@ function sweep(now: number): void {
   }
 }
 
-/** Records one tool result reported by a Claude Code hook. `isError`
- *  undefined means the hook couldn't tell — counted as a call, not an error. */
-export function recordHookToolResult(runId: string, isError?: boolean): void {
-  if (!runId) return
-  const now = Date.now()
-  const entry = entries.get(runId) ?? { toolCalls: 0, toolErrors: 0, touchedAt: now }
-  entry.toolCalls++
-  if (isError === true) entry.toolErrors++
+function touch(runId: string, now: number): Entry {
+  const entry = entries.get(runId) ?? {
+    toolCalls: 0,
+    toolErrors: 0,
+    toolBreakdown: {},
+    touchedAt: now,
+  }
   entry.touchedAt = now
   entries.set(runId, entry)
+  return entry
+}
+
+/** Records one tool result reported by a Claude Code hook. `isError`
+ *  undefined means the hook couldn't tell, and is counted as a call only. */
+export function recordHookToolResult(
+  runId: string,
+  isError?: boolean,
+  opts: { toolName?: string; transcriptPath?: string } = {},
+): void {
+  if (!runId) return
+  const now = Date.now()
+  const entry = touch(runId, now)
+  entry.toolCalls++
+  if (isError === true) entry.toolErrors++
+  if (opts.toolName) {
+    const tally = entry.toolBreakdown[opts.toolName] ?? { calls: 0, errors: 0 }
+    tally.calls++
+    if (isError === true) tally.errors++
+    entry.toolBreakdown[opts.toolName] = tally
+  }
+  if (opts.transcriptPath) entry.transcriptPath = opts.transcriptPath
   sweep(now)
+}
+
+/** Guarda dónde está la transcripción del run sin contar nada. Lo llaman los
+ *  hooks que no son un tool result (Stop, SessionStart). */
+export function recordHookTranscript(runId: string, transcriptPath: string): void {
+  if (!runId || !transcriptPath) return
+  const now = Date.now()
+  const entry = touch(runId, now)
+  entry.transcriptPath = transcriptPath
+  sweep(now)
+}
+
+// Lee la transcripción AL CONSUMIR y no al recibir el path: el archivo crece
+// durante todo el run, y lo que interesa es la cuenta final. Un lector que
+// falla degrada a "sin usage", nunca voltea el cierre del run.
+function withUsage(entry: Entry): RunToolTelemetry {
+  let usage = entry.usage
+  let model = entry.model
+  if (!usage && entry.transcriptPath && transcriptReader) {
+    try {
+      const read = transcriptReader(entry.transcriptPath)
+      if (read) {
+        usage = read.usage
+        model = read.model
+      }
+    } catch {
+      // Sin usage: el run cierra con tokens null, como antes de esto.
+    }
+  }
+  return {
+    toolCalls: entry.toolCalls,
+    toolErrors: entry.toolErrors,
+    toolBreakdown: { ...entry.toolBreakdown },
+    ...(usage ? { usage } : {}),
+    ...(model ? { model } : {}),
+  }
 }
 
 /** Reads the tally without consuming it — for a run still in flight. */
 export function peekRunTelemetry(runId: string): RunToolTelemetry | undefined {
   const entry = entries.get(runId)
-  return entry ? { toolCalls: entry.toolCalls, toolErrors: entry.toolErrors } : undefined
+  return entry ? withUsage(entry) : undefined
 }
 
 /** Reads and drops the tally. Called once when a run finishes. Returns
- *  undefined when no hook ever fired for this run — which is the normal case
- *  for a sync run, and for a terminal run whose session had no hooks wired. */
+ *  undefined when nothing was ever recorded for the run. */
 export function takeRunTelemetry(runId: string): RunToolTelemetry | undefined {
-  const result = peekRunTelemetry(runId)
+  const entry = entries.get(runId)
   entries.delete(runId)
-  return result
+  return entry ? withUsage(entry) : undefined
 }
 
 /** Test seam — drops every tally. */
