@@ -463,7 +463,7 @@ export const providerRegistrationRepo = new SqliteProviderRegistrationRepository
 // wraps the result in SourceTaggingExecutionLogRepository so every row this
 // process inserts — local-only or forwarded — carries which container ran
 // it, powering the Ejecuciones/Logs "container" filter.
-const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
+export const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
 const remoteExecutionsUrl = Bun.env.IA_FLOW_REMOTE_EXECUTIONS_URL?.trim()
 // Trimmed the same way remoteLogSecret()/remoteExecutionsSecret() trim on
 // the receiving end (routes/remote-logs.ts, routes/remote-executions.ts) —
