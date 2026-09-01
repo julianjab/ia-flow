@@ -2400,16 +2400,16 @@ watch(pendingFilter, () => {
   margin: 0.25rem 0;
   padding: 0.3rem 0.7rem;
   background: var(--panel-alt);
-  color: var(--panel-alt);
-  border: none;
+  color: var(--fg);
+  border: 1px solid var(--border-hi);
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  transition: background 120ms;
+  transition: background 120ms, color 120ms;
 }
-.autoscroll-hint:hover { background: var(--fg); }
+.autoscroll-hint:hover { background: var(--fg); color: var(--panel-alt); }
 .pause-btn--paused {
   background: var(--yellow-bg);
   border-color: var(--warn);
