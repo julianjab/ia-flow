@@ -23,8 +23,13 @@ function stats(overrides: Partial<ExecutionStats> = {}): ExecutionStats {
       truncated: 0,
       successRate: null,
       failureClasses: {},
+      stopReasons: {},
       tokensIn: 0,
       tokensOut: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      cacheHitRate: null,
+      iters: 0,
     },
     agents: [],
     ...overrides,
@@ -42,10 +47,16 @@ function agent(overrides: Partial<ExecutionStats['agents'][number]> = {}) {
     successRate: 0.9,
     failureClasses: {},
     avgDurationMs: 1500,
+    p95DurationMs: 1500,
     tokensIn: 1000,
     tokensOut: 200,
+    cacheReadTokens: 9000,
+    cacheCreationTokens: 500,
+    cacheHitRate: 0.9,
+    iters: 30,
     toolCalls: 40,
     toolErrors: 0,
+    stopReasons: {},
     lastRunAt: '2026-01-01T00:00:00.000Z',
     promptVersions: 1,
     ...overrides,
@@ -184,5 +195,110 @@ describe('AgentHealthPanel', () => {
     await flushPromises()
     expect(wrapper.emitted('drill')).toBeTruthy()
     expect(wrapper.findAll('.detail-row')).toHaveLength(0)
+  })
+  // ─── Eficiencia ────────────────────────────────────────────────────────
+  // Estas cuatro columnas existen para contestar "por qué este agente cuesta
+  // lo que cuesta", que el total de tokens no distingue.
+
+  it('colorea el cache hit en tres bandas para que el agente caro salte a la vista', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({
+        agents: [
+          agent({ agentId: 'sano', cacheHitRate: 0.92 }),
+          agent({ agentId: 'tibio', cacheHitRate: 0.6 }),
+          agent({ agentId: 'caro', cacheHitRate: 0.05 }),
+        ],
+      }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+
+    const badges = wrapper.findAll('.agent-row').map((row) => row.findAll('.health-badge')[1]!)
+    expect(badges[0]!.classes()).toContain('health--good')
+    expect(badges[1]!.classes()).toContain('health--warn')
+    expect(badges[2]!.classes()).toContain('health--bad')
+    expect(badges[2]!.text()).toBe('5%')
+  })
+
+  it('muestra — y no 0% cuando el agente no reporta tokens', async () => {
+    // Un roster de puros runs de terminal no tiene tokens observables; pintar
+    // 0% en rojo señalaría un problema de caching que no existe.
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({ agents: [agent({ cacheHitRate: null, tokensIn: 0, cacheReadTokens: 0 })] }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+
+    const badge = wrapper.findAll('.health-badge')[1]!
+    expect(badge.text()).toBe('—')
+    expect(badge.classes()).toContain('health--unknown')
+  })
+
+  it('divide los tokens frescos por vuelta del loop', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({ agents: [agent({ tokensIn: 1_000_000, iters: 40, runs: 4 })] }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+
+    // 1M / 40 vueltas = 25k frescos por vuelta.
+    expect(wrapper.text()).toContain('25.0k/iter')
+    // 40 vueltas / 4 runs.
+    expect(wrapper.text()).toContain('10.0')
+  })
+
+  it('marca los runs cortados por presupuesto, que `truncated` cuenta sin explicar', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({ agents: [agent({ stopReasons: { end_turn: 7, max_tokens: 3 } })] }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('3 budget')
+  })
+
+  it('omite el p95 cuando coincide con el promedio, y lo muestra cuando difiere', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({ agents: [agent({ avgDurationMs: 1500, p95DurationMs: 1500 })] }),
+    )
+    const plano = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+    expect(plano.text()).not.toContain('p95')
+
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({ agents: [agent({ avgDurationMs: 1500, p95DurationMs: 100_000 })] }),
+    )
+    const disparejo = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+    expect(disparejo.text()).toContain('p95 2 min')
+  })
+
+  it('resume el hit rate del roster entero en el encabezado', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({
+        totals: {
+          runs: 20,
+          success: 18,
+          error: 2,
+          cancelled: 0,
+          truncated: 0,
+          successRate: 0.9,
+          failureClasses: {},
+          stopReasons: {},
+          tokensIn: 10_100,
+          tokensOut: 500,
+          cacheReadTokens: 900,
+          cacheCreationTokens: 100,
+          cacheHitRate: 900 / 11_000,
+          iters: 100,
+        },
+        agents: [agent()],
+      }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('10.1k frescos')
+    expect(wrapper.text()).toContain('8% cache')
   })
 })
