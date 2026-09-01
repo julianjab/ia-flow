@@ -24,17 +24,24 @@ const ctx = (payload: Record<string, unknown> = {}): ActionContext =>
     emit: async () => {},
   }) as unknown as ActionContext
 
-/** Captura el `brief` con el que se llamó al dispatcher. */
-function spyDispatch(outcome: DispatchOutcome = 'dispatched') {
+/** Captura lo que se le pasó al dispatcher. */
+function spyDispatch(
+  outcome: DispatchOutcome = 'dispatched',
+  extra: Partial<ConstructorParameters<typeof AgentAction>[0]> = {},
+) {
   const calls: Array<string | undefined> = []
+  const dispatched: Array<{ item: IssueItem; exits?: unknown }> = []
   return {
     calls,
+    dispatched,
     action: new AgentAction({
       managerFor: () => manager,
-      dispatch: async (_i, _m, _a, _r, _e, brief) => {
+      dispatch: async (item, _m, _a, _r, _e, brief, exits) => {
         calls.push(brief)
+        dispatched.push({ item, exits })
         return outcome
       },
+      ...extra,
     }),
   }
 }
@@ -66,5 +73,93 @@ describe('AgentAction — brief', () => {
       brief: '   \n  ',
     } as never)
     expect(calls[0]).toBeUndefined()
+  })
+})
+
+describe('AgentAction — exits de la regla', () => {
+  test('baja las redirecciones al dispatcher', async () => {
+    const { action, dispatched } = spyDispatch()
+    await action.execute(ctx(), {
+      action: 'agent',
+      agentId: 'implementer',
+      exits: { success: 'QA Interna' },
+    } as never)
+    expect(dispatched[0].exits).toEqual({ success: 'QA Interna' })
+  })
+
+  test('sin exits no manda nada — vale el `exits` del agente', async () => {
+    const { action, dispatched } = spyDispatch()
+    await action.execute(ctx(), { action: 'agent', agentId: 'implementer' } as never)
+    expect(dispatched[0].exits).toBeUndefined()
+  })
+})
+
+// Los eventos de GitHub traen el PR y el scope, nunca el item: sin este camino
+// una regla sobre `pr.review_submitted` no dispara nada.
+describe('AgentAction — eventos sin item en el payload', () => {
+  const prItem = { id: 'I_resuelto', title: 'la task del PR' } as unknown as IssueItem
+
+  const prCtx = (): ActionContext =>
+    ({
+      event: createEvent({
+        type: 'pr.review_submitted',
+        source: 'github',
+        scope: { projectId: 'p1', prNumber: 482 },
+        payload: { state: 'changes_requested' },
+      }),
+      rule: { id: 'r1' },
+      position: 0,
+      emit: async () => {},
+    }) as unknown as ActionContext
+
+  test('resuelve el issue por el scope y despacha sobre él', async () => {
+    const { action, dispatched } = spyDispatch('dispatched', {
+      resolveItem: async () => prItem,
+    })
+    const res = await action.execute(prCtx(), {
+      action: 'agent',
+      agentId: 'implementer',
+    } as never)
+    expect(res.ok).toBe(true)
+    expect(dispatched[0].item.id).toBe('I_resuelto')
+  })
+
+  // Un PR abierto a mano, sin issue en el board: no es un error del pipeline.
+  test('si no resuelve nada, no corre — y no es un fallo que difiera', async () => {
+    const { action, dispatched } = spyDispatch('dispatched', {
+      resolveItem: async () => undefined,
+    })
+    const res = await action.execute(prCtx(), {
+      action: 'agent',
+      agentId: 'implementer',
+    } as never)
+    expect(res.ok).toBe(false)
+    expect(res.deferred).toBeFalsy()
+    expect(dispatched.length).toBe(0)
+  })
+
+  // La fuente caída un momento no puede disparar el `onError` del agente:
+  // comentaría el fallo de un run que nunca se intentó.
+  test('un fallo de la fuente DIFIERE en vez de fallar', async () => {
+    const { action } = spyDispatch('dispatched', {
+      resolveItem: async () => {
+        throw new Error('502 de GitHub')
+      },
+    })
+    const res = await action.execute(prCtx(), {
+      action: 'agent',
+      agentId: 'implementer',
+    } as never)
+    expect(res.deferred).toBe(true)
+  })
+
+  test('sin resolveItem cableado, el comportamiento es el de antes', async () => {
+    const { action } = spyDispatch()
+    const res = await action.execute(prCtx(), {
+      action: 'agent',
+      agentId: 'implementer',
+    } as never)
+    expect(res.ok).toBe(false)
+    expect(res.detail).toContain('no trae un issue')
   })
 })
