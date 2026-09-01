@@ -104,7 +104,12 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
     const dir = logDir()
     writeFileSync(
       join(dir, 'daemon.log'),
-      extraLine('refiner en la 12', { agentId: 'refiner', taskId: 't-12', projectId: 'p1' }) +
+      extraLine('refiner en la 12', {
+        agentId: 'refiner',
+        taskId: 't-12',
+        projectId: 'p1',
+        task: 'Arreglar el bug de dedupe',
+      }) +
         extraLine('builder en la 12', { agentId: 'builder', taskId: 't-12', projectId: 'p1' }) +
         extraLine('refiner en la 99', { agentId: 'refiner', taskId: 't-99', projectId: 'p2' }) +
         extraLine('script de la regla', { ruleId: 'ia-flow-refine' }) +
@@ -135,6 +140,17 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
     expect((await fetchEntries('?sort=asc&ruleId=ia-flow-refine')).map((e) => e.msg)).toEqual([
       'script de la regla',
     ])
+  })
+
+  // `task` es el título — sólo lo estampa el camino sync, al lado del `taskId`
+  // opaco. Mismo predicado de `extras`, sin traducir nada.
+  test('filtra por título de tarea', async () => {
+    seed()
+    expect(
+      (await fetchEntries(`?sort=asc&task=${encodeURIComponent('Arreglar el bug de dedupe')}`)).map(
+        (e) => e.msg,
+      ),
+    ).toEqual(['refiner en la 12'])
   })
 
   test('filtra por proyecto — el campo que el schema aceptaba sin filtrar', async () => {

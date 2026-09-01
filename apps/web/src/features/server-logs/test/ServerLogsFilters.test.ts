@@ -200,6 +200,28 @@ describe('ServerLogsSection — los campos de `extras`', () => {
     })
   })
 
+  // `extras.task` es el título — sólo lo estampa el camino sync, al lado del
+  // `taskId` opaco. Mismo campo libre que `tarea`, con su propia key.
+  it('sugiere y filtra por título de tarea (`titulo`)', async () => {
+    vi.mocked(fetchServerLogs).mockResolvedValue({
+      ...EMPTY_PAGE,
+      entries: [withExtras({ taskId: 't-12', task: 'Arreglar el bug de dedupe' })],
+    })
+    const wrapper = await mountSection()
+
+    await typeFilter(wrapper, 'titulo:')
+    expect(options(wrapper)).toEqual(['Arreglar el bug de dedupe'])
+
+    const input = wrapper.get(INPUT)
+    await input.setValue('titulo:Arreglar el bug de dedupe')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).toMatchObject({
+      task: ['Arreglar el bug de dedupe'],
+    })
+  })
+
   // No hay endpoint que liste el universo de tareas: pegar un id de otra
   // pantalla tiene que funcionar aunque no esté en la página.
   it('acepta un valor que no está en las líneas cargadas', async () => {
