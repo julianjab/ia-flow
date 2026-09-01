@@ -43,6 +43,13 @@ const AnthropicApiAgentConfigSchema = z
     thinkingBudgetTokens: z.number().int().min(1024).optional(),
     mcpServers: McpServersSchema.optional(),
     fileSimplifierEnabled: z.boolean().optional(),
+    // Por default las tools de cada MCP van DIFERIDAS: el request declara el
+    // toolset con `defer_loading` y una tool de búsqueda, y el modelo carga
+    // sólo las que necesita. Un MCP como el de GitHub anuncia decenas de
+    // schemas que pesaban en cada vuelta del loop sin usarse. `true` apaga
+    // eso y carga todo el catálogo desde el primer request — para un agente
+    // que usa el MCP entero o cuyo prompt no lo prepara para buscar.
+    eagerMcpTools: z.boolean().optional(),
   })
   .strict()
 
@@ -386,6 +393,7 @@ export class AnthropicApiProvider implements IAgentProvider {
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
+    const deferMcpTools = apiMcpServers !== undefined && pc?.eagerMcpTools !== true
 
     // Betas fijas del agente (`cfg.anthropicBeta`, editable vía
     // providers.json) más las que este request activa condicionalmente.
@@ -494,6 +502,7 @@ export class AnthropicApiProvider implements IAgentProvider {
         repos: Object.keys(toolCtx.repoPaths),
         writePaths: toolCtx.writePaths ?? [],
         mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
+        deferMcpTools,
       },
       'Agent run started',
     )
@@ -534,17 +543,37 @@ export class AnthropicApiProvider implements IAgentProvider {
         system: systemBlocks,
         messages,
         stream: useStream,
+        // Auto-cache A NIVEL REQUEST, además del breakpoint explícito al final
+        // del system. Ése cubre el prefijo estable (tools + system); éste hace
+        // que la API ponga un breakpoint en el último bloque cacheable de
+        // `messages` y lo corra sola en cada vuelta. Sin él, un run de 30
+        // vueltas re-pagaba el historial entero a precio pleno 30 veces — era
+        // el 41% de cache hit del reviewer en el panel de salud. Compone con
+        // el marker de system porque ése NO está en el último bloque del
+        // request, y consume un solo slot de los 4.
+        cache_control: { type: 'ephemeral' },
       }
       // mcp-client-2025-11-20 requires exactly one MCPToolset per server named
       // in mcp_servers — omitting it 400s. No per-tool allow/deny is
       // configured here (default_config/configs), so this preserves the
       // previous (deprecated mcp-client-2025-04-04) behavior of exposing
       // every tool the server advertises.
+      //
+      // Diferidas por default (ver `eagerMcpTools`): `default_config` vale
+      // para todas las tools del server, y la tool de búsqueda es lo que le
+      // permite al modelo encontrarlas. Las tools propias del engine NO se
+      // difieren — son pocas, ya filtradas por el `tools[]` del agente, y la
+      // API exige al menos una sin diferir. Las descubiertas se anexan al
+      // final del contexto, así que el prefijo cacheado no se toca.
       const mcpToolsets = apiMcpServers?.map((s) => ({
         type: 'mcp_toolset',
         mcp_server_name: s.name,
+        ...(deferMcpTools ? { default_config: { defer_loading: true } } : {}),
       }))
-      const allTools = [...toolDefs, ...(mcpToolsets ?? [])]
+      const toolSearch = deferMcpTools
+        ? [{ type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' }]
+        : []
+      const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])]
       if (allTools.length > 0) body.tools = allTools
       // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled`
       // mode instead of the provider-level default (usually `adaptive`,

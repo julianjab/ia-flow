@@ -18,7 +18,6 @@ export const CLAUDE_CODE_BETAS: readonly string[] = [
   'interleaved-thinking-2025-05-14',
   'context-management-2025-06-27',
   'prompt-caching-scope-2026-01-05',
-  'extended-cache-ttl-2025-04-11',
 ]
 
 export function buildAnthropicAuthHeader(): Record<string, string> {

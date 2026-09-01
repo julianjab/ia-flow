@@ -700,7 +700,15 @@ export async function executeLoop(
         tally(block.name, isError)
 
         onToolResult?.(block.name, result, block.id)
-        return { type: 'tool_result', tool_use_id: block.id, content: result }
+        // `is_error` es lo que la API entiende como fallo; el prefijo `Error:`
+        // en el texto es sólo para humanos y el modelo no lo distingue del
+        // contenido de un resultado exitoso.
+        return {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: result,
+          ...(isError ? { is_error: true } : {}),
+        }
       }),
     )
 

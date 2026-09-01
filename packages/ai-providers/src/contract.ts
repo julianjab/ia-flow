@@ -457,7 +457,6 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
     'interleaved-thinking-2025-05-14',
     'context-management-2025-06-27',
     'prompt-caching-scope-2026-01-05',
-    'extended-cache-ttl-2025-04-11',
   ],
   systemPrompt: [],
   thinking: { type: 'adaptive' },
