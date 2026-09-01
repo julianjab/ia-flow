@@ -341,8 +341,27 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       claudeFlags += ` --mcp-config "${mcpConfigFile}"`
     }
 
+    // Los `systemPromptBlocks` del agente van acá, NO al prompt file.
+    //
+    // Antes se descartaban: el sysprompt file llevaba sólo la nota de sesión
+    // desatendida, así que todo lo que un agente declarara en `systemPrompts`
+    // (las reglas transversales del proyecto incluidas) desaparecía apenas el
+    // run caía en un provider de terminal. Silencioso y difícil de ver, porque
+    // el agente igual corre — con menos instrucciones de las que su definición
+    // dice que tiene.
+    //
+    // La nota queda ÚLTIMA a propósito: es del engine y describe el modo de
+    // ejecución (nadie va a contestar una pregunta), así que tiene que ganar
+    // sobre cualquier cosa que el prompt del agente diga al respecto.
     const syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
-    await writeFile(syspromptFile, UNATTENDED_SESSION_NOTE, { mode: 0o600 })
+    const agentSystemText = (input.systemPromptBlocks ?? [])
+      .map((b) => b.text)
+      .filter((t) => t.trim())
+      .join('\n\n')
+    const syspromptText = agentSystemText
+      ? `${agentSystemText}\n\n${UNATTENDED_SESSION_NOTE}`
+      : UNATTENDED_SESSION_NOTE
+    await writeFile(syspromptFile, syspromptText, { mode: 0o600 })
     claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
 
     // Env vars del terminal viven en settings.json (`env:`) — no se exportan en

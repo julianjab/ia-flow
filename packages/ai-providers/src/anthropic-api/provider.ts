@@ -393,18 +393,24 @@ export class AnthropicApiProvider implements IAgentProvider {
     if (resolvedTaskBudget != null) extraBetas.push('task-budgets-2026-03-13')
     if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
 
-    const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
-      ...block,
-      cache_control: { type: 'ephemeral' as const },
-    }))
-
-    const systemBlocks = [
-      ...agentBlocks,
-      ...cfg.systemPrompt.map((block) => ({
-        ...block,
-        cache_control: { type: 'ephemeral' as const },
-      })),
-    ]
+    // UN solo breakpoint de cache, en el ÚLTIMO bloque.
+    //
+    // El caching de la API es prefix match: el breakpoint cachea todo lo que
+    // viene ANTES, así que marcar cada bloque no compra nada — y cuesta. El
+    // tope es de 4 `cache_control` por request, y marcando uno por bloque ese
+    // presupuesto lo consume la cantidad de entradas de `systemPrompts` (las
+    // del proyecto MÁS las del agente): un roster que mueve su prompt estable
+    // al system —que es exactamente donde tiene que estar para cachearse—
+    // llega a 5 bloques sin darse cuenta y el request se cae con 400.
+    //
+    // Con un breakpoint al final, la cantidad de bloques deja de importar y
+    // quedan 3 libres para lo que venga (tools, un breakpoint en messages).
+    const allSystemBlocks = [...(input.systemPromptBlocks ?? []), ...cfg.systemPrompt]
+    const systemBlocks = allSystemBlocks.map((block, i) =>
+      i === allSystemBlocks.length - 1
+        ? { ...block, cache_control: { type: 'ephemeral' as const } }
+        : { ...block },
+    )
 
     const headers = buildAnthropicHeaders({
       betas: cfg.anthropicBeta,
