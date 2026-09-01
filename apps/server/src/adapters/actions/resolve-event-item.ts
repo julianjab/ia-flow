@@ -49,11 +49,39 @@ export function createResolveEventItem(deps: ResolveEventItemDeps) {
     //    llegan de a decenas por push— a pagar una consulta completa del
     //    board.
     if (scope.prNumber != null) {
+      const prNumber = scope.prNumber
       const items = await source.getItems()
-      const match = items.find((it) => linksPr(it, scope.prNumber as number))
-      if (match) return stamp(match, source, projectId)
+
+      // **El número de PR NO es único dentro de un proyecto.** Varios repos
+      // mapean al mismo `projectId` y cada uno numera sus PRs desde 1, así que
+      // un `#42` de `repo-a` matchearía el issue que linkea el `#42` de
+      // `repo-b`. Correrle un agente encima no es un no-op: comenta y
+      // transiciona el issue equivocado.
+      //
+      // `scope.repos` viene resuelto por el traductor del webhook con el
+      // MISMO vocabulario que el item (el nombre ia-flow del repo, no
+      // owner/repo), así que la intersección es directa.
+      const byNumber = items.filter((it) => linksPr(it, prNumber))
+      const candidates =
+        scope.repos?.length && byNumber.length > 1
+          ? byNumber.filter((it) => touchesAnyRepo(it, scope.repos as string[]))
+          : byNumber
+
+      if (candidates.length === 1) return stamp(candidates[0], source, projectId)
+
+      if (candidates.length > 1) {
+        // No se elige uno: un run sobre el issue equivocado deja comentarios y
+        // mueve una card que nadie tocó, y eso es peor que no correr nada. El
+        // próximo scan lo va a levantar por el camino normal.
+        log.warn(
+          { projectId, prNumber, repos: scope.repos, candidatos: candidates.map((c) => c.id) },
+          'más de un issue linkea este PR — ambiguo, no se corre ningún agente',
+        )
+        return undefined
+      }
+
       log.debug(
-        { projectId, prNumber: scope.prNumber },
+        { projectId, prNumber },
         'ningún issue del board linkea este PR — el evento no corre ningún agente',
       )
       return undefined
@@ -82,4 +110,21 @@ function stamp(item: SourceItem, source: ProjectSource, projectId: string): Issu
 function linksPr(item: SourceItem, prNumber: number): boolean {
   const prs = (item.meta as { pullRequests?: Array<{ number?: number }> } | undefined)?.pullRequests
   return Array.isArray(prs) && prs.some((pr) => pr?.number === prNumber)
+}
+
+/**
+ * Si el item toca alguno de esos repos.
+ *
+ * Los dos lugares donde un `SourceItem` los declara, en el orden que usa
+ * `defaultToIssueItem`: el campo custom `Repos` (string separado por comas) y,
+ * si no hay, el repo que hostea el issue.
+ */
+function touchesAnyRepo(item: SourceItem, repos: string[]): boolean {
+  const fromField = (item.repos ?? '')
+    .split(',')
+    .map((r) => r.trim())
+    .filter(Boolean)
+  const hostRepo = (item.meta as { repoName?: string } | undefined)?.repoName
+  const itemRepos = fromField.length > 0 ? fromField : hostRepo ? [hostRepo] : []
+  return itemRepos.some((r) => repos.includes(r))
 }
