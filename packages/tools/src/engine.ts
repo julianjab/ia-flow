@@ -268,6 +268,7 @@ async function compactHistory(
       user: userContent,
       maxTokens: 4096,
       scope: { tool: 'compactHistory', historyBytes, toolResultCount: toolResults.length },
+      logger: runLog,
     })
 
     // Keep: initial prompt + summary of findings as a plain user turn.

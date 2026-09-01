@@ -58,16 +58,31 @@ function headWithNotice(content: string, path: string, reason?: string): string 
   )
 }
 
-async function focusWithHaiku(content: string, path: string, focus: string): Promise<string> {
+async function focusWithHaiku(
+  content: string,
+  path: string,
+  focus: string,
+  ctx: ToolContext,
+): Promise<string> {
   const partial = content.length > MAX_FOCUS_INPUT_BYTES
   const analysed = partial ? content.slice(0, MAX_FOCUS_INPUT_BYTES) : content
   const user = `File: ${path}\nReader needs: ${focus}\n\n${numberLines(analysed)}`
+  // Corre en runs sync (`anthropic-api`) y async (el MCP `ia-flow-tools`), y
+  // sólo el primero cuelga un logger por-run de `ctx` — de ahí el fallback a
+  // ids sueltos. En los dos casos el `runId`/`taskId`/`agentId` de `ctx` es lo
+  // que permite cruzar esta llamada con el resto del log del run.
+  const logCtx = {
+    runId: ctx.runId,
+    agent: ctx.agentId,
+    projectId: ctx.projectId,
+    taskId: ctx.taskId,
+  }
   try {
     const { text } = await askHaiku({
       system: FILE_FOCUS_PROMPT,
       user,
       maxTokens: 8192,
-      scope: { tool: 'fs_read', filePath: path, contentBytes: content.length, focus },
+      scope: { tool: 'fs_read', filePath: path, contentBytes: content.length, focus, ...logCtx },
     })
     const coverage = partial
       ? ` — only the first ${analysed.split('\n').length} of ${content.split('\n').length} lines were analysed; use offset to read the rest`
@@ -77,7 +92,7 @@ async function focusWithHaiku(content: string, path: string, focus: string): Pro
     // Un focus que no se pudo resolver no debe voltear el run: el agente
     // recibe lo mismo que sin focus, con el motivo, y decide cómo seguir.
     log.warn(
-      { filePath: path, err: err instanceof Error ? err.message : String(err) },
+      { filePath: path, ...logCtx, err: err instanceof Error ? err.message : String(err) },
       'fs_read focus failed, returning head',
     )
     return headWithNotice(content, path, 'focus unavailable')
@@ -169,7 +184,7 @@ registerTool({
 
     const focus = typeof input.focus === 'string' ? input.focus.trim() : ''
     if (focus && Buffer.byteLength(content) > FILE_FOCUS_THRESHOLD) {
-      if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus)
+      if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus, ctx)
       return content.length > MAX_FILE_BYTES
         ? headWithNotice(content, input.path, 'focus disabled')
         : content

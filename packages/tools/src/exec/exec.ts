@@ -413,7 +413,10 @@ registerTool({
 
     const timeoutMs = normalizeTimeoutMs(input.timeout_ms)
 
-    log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'bash_run spawn')
+    log.info(
+      { argv, cwd, timeoutMs, taskId: ctx.taskId, runId: ctx.runId, agent: ctx.agentId },
+      'bash_run spawn',
+    )
 
     // Después del log y de TODOS los guards: los flags inyectados no son del
     // agente, así que no pasan por el allowlist ni ensucian el log con el

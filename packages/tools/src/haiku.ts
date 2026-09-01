@@ -8,7 +8,7 @@
 // importar: `envRepo.loadIntoProcess()` vuelca lo guardado en SQLite después
 // de que el composition root se evaluó, así que capturarla acá dejaría al
 // helper ciego a lo que el operador pegó en Configuración.
-import { createLogger } from './logger.js'
+import { type Logger, createLogger } from './logger.js'
 
 const log = createLogger('haiku')
 
@@ -28,6 +28,15 @@ export interface HaikuRequest {
   maxTokens: number
   /** Para el log: quién pide y sobre qué. */
   scope: Record<string, unknown>
+  /**
+   * Logger ya bindeado con la correlación del run que pide esto (`runId`,
+   * `agent`, `taskId`, `projectId` — ver `logCtx` en el provider `anthropic-api`
+   * y `logCtx` en `task.ts`). Sin esto, `askHaiku` loguea con el logger de
+   * módulo desnudo y sus líneas quedan sin forma de cruzarse con las del
+   * resto del run. Default: el logger de módulo, para callers ad-hoc/tests
+   * que no tienen un run del que colgarse.
+   */
+  logger?: Logger
 }
 
 export interface HaikuResponse {
@@ -44,8 +53,9 @@ export interface HaikuResponse {
 export async function askHaiku(req: HaikuRequest): Promise<HaikuResponse> {
   const auth = haikuAuthHeader()
   if (!auth) throw new Error('no auth for Haiku (CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY)')
+  const reqLog = req.logger ?? log
 
-  log.info(
+  reqLog.info(
     {
       ...req.scope,
       model: HAIKU_MODEL,
@@ -72,7 +82,10 @@ export async function askHaiku(req: HaikuRequest): Promise<HaikuResponse> {
   const ms = Date.now() - t0
   if (!res.ok) {
     const errBody = await res.text().catch(() => '')
-    log.warn({ ...req.scope, status: res.status, ms, err: errBody.slice(0, 500) }, 'haiku failed')
+    reqLog.warn(
+      { ...req.scope, status: res.status, ms, err: errBody.slice(0, 500) },
+      'haiku failed',
+    )
     throw new Error(`Haiku ${res.status}`)
   }
   const data = (await res.json()) as { content?: unknown; usage?: unknown }
@@ -83,7 +96,7 @@ export async function askHaiku(req: HaikuRequest): Promise<HaikuResponse> {
     .filter((b) => b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text as string)
     .join('')
-  log.info(
+  reqLog.info(
     { ...req.scope, status: res.status, ms, outBytes: text.length, usage: data.usage },
     'haiku response',
   )
