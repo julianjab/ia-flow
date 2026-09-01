@@ -63,6 +63,36 @@ describe('runRule — orden y cortes', () => {
     expect(log).toEqual(['a'])
   })
 
+  // `skipped` es "no aplicaba", no "se rompió". Sin distinguirlo, una acción
+  // que legítimamente no tenía nada que hacer se llevaba puestas las
+  // siguientes — el caso real: un `ci.finished` de un PR que ningún issue del
+  // board linkea, en una regla `do: [agent, emit]`.
+  test('una acción skipped NO corta la secuencia', async () => {
+    const log: string[] = []
+    fake('a', { ok: false, skipped: true }, log)
+    fake('b', { ok: true }, log)
+
+    const outcome = await runRule(
+      rule([{ action: 'a' }, { action: 'b' }] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit },
+    )
+
+    expect(log).toEqual(['a', 'b'])
+    expect(outcome).toBe('dispatched')
+  })
+
+  // Nada corrió, pero tampoco falló nada: la regla no aplicaba a este evento.
+  test('sólo acciones skipped dejan la regla en skipped, no en dispatched', async () => {
+    fake('a', { ok: false, skipped: true }, [])
+
+    const outcome = await runRule(rule([{ action: 'a' }] as unknown as RuleActionEntry[]), ev(), {
+      emit: noopEmit,
+    })
+
+    expect(outcome).toBe('skipped')
+  })
+
   test('continueOnError deja seguir', async () => {
     const log: string[] = []
     fake('a', { ok: false }, log)

@@ -57,12 +57,46 @@ describe('resolveEffectiveExits', () => {
     expect(selectableExits(out).map((e) => e.name)).toEqual(['back-to-build'])
   })
 
-  // Redirigir el destino no puede borrar la descripción que el modelo lee para
-  // decidir: si el override viene en forma corta, el `when` se pierde.
-  it('un override en forma larga conserva su propio when', () => {
+  // El bug: reemplazar la entrada entera. El editor de reglas sólo produce la
+  // forma corta, así que un agente con `{set, when, comment}` perdía las dos
+  // cosas que SON suyas — la descripción que el modelo lee para elegir la
+  // salida, y dónde queda registrado el hallazgo.
+  it('redirigir conserva el `when` del agente', () => {
+    const out = resolveEffectiveExits(agentExits, { 'back-to-build': 'Implementación' })
+    expect(out?.['back-to-build']).toEqual({
+      set: 'Implementación',
+      when: 'cuando el diff falla',
+    })
+    expect(selectableExits(out)).toEqual([{ name: 'back-to-build', when: 'cuando el diff falla' }])
+  })
+
+  it('redirigir conserva el `comment` del agente', () => {
+    const exits = { 'to-refine': { set: 'Refine', comment: 'issue' as const } }
+    const out = resolveEffectiveExits(exits, { 'to-refine': 'Refinamiento' })
+    expect(out?.['to-refine']).toEqual({ set: 'Refinamiento', comment: 'issue' })
+  })
+
+  // `when` y `comment` son del agente: el primero es lo que el modelo lee en el
+  // enum, el segundo dónde vive el hallazgo. La regla sólo cambia el destino.
+  it('ignora un `when`/`comment` que venga en el override', () => {
     const out = resolveEffectiveExits(agentExits, {
       'back-to-build': { set: 'Implementación', when: 'otro criterio' },
     })
-    expect(selectableExits(out)).toEqual([{ name: 'back-to-build', when: 'otro criterio' }])
+    expect(out?.['back-to-build']).toEqual({
+      set: 'Implementación',
+      when: 'cuando el diff falla',
+    })
+  })
+
+  // Un `set` vacío movería el issue a ningún lado. Dejar la salida como está es
+  // lo correcto — es lo mismo que no haber declarado el override.
+  it('un override sin destino deja la salida intacta', () => {
+    const out = resolveEffectiveExits(agentExits, { success: '' })
+    expect(out?.success).toBe('Review')
+  })
+
+  it('redirigir una salida en forma corta la deja en forma corta', () => {
+    const out = resolveEffectiveExits(agentExits, { success: 'QA Interna' })
+    expect(out?.success).toBe('QA Interna')
   })
 })

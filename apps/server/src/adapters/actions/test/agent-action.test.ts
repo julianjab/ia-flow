@@ -124,8 +124,11 @@ describe('AgentAction — eventos sin item en el payload', () => {
     expect(dispatched[0].item.id).toBe('I_resuelto')
   })
 
-  // Un PR abierto a mano, sin issue en el board: no es un error del pipeline.
-  test('si no resuelve nada, no corre — y no es un fallo que difiera', async () => {
+  // Un PR abierto a mano, sin issue en el board. `skipped` y no un fallo: el
+  // runner corta el `do[]` ante un `ok:false` sin `continueOnError`, así que
+  // marcarlo como error se llevaría puestas las acciones siguientes y pintaría
+  // de rojo una regla que funcionó como tiene que funcionar.
+  test('si no resuelve nada, es skipped — no corta el resto del do[]', async () => {
     const { action, dispatched } = spyDispatch('dispatched', {
       resolveItem: async () => undefined,
     })
@@ -134,6 +137,7 @@ describe('AgentAction — eventos sin item en el payload', () => {
       agentId: 'implementer',
     } as never)
     expect(res.ok).toBe(false)
+    expect(res.skipped).toBe(true)
     expect(res.deferred).toBeFalsy()
     expect(dispatched.length).toBe(0)
   })
@@ -160,6 +164,6 @@ describe('AgentAction — eventos sin item en el payload', () => {
       agentId: 'implementer',
     } as never)
     expect(res.ok).toBe(false)
-    expect(res.detail).toContain('no trae un issue')
+    expect(res.skipped).toBe(true)
   })
 })
