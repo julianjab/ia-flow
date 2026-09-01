@@ -28,7 +28,11 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: RuleActionEntry[]): void
 }>()
 
-type Entry = Record<string, unknown> & { action: string; continueOnError?: boolean }
+type Entry = Record<string, unknown> & { action: string; continueOnError?: boolean; id?: string }
+
+// Las llaves dobles se arman acá: escritas en el template, el parser de Vue las
+// lee como una interpolación suya.
+const STEP_REF_EXAMPLE = '{{steps.triage.output.brief}}'
 
 const entries = computed<Entry[]>(() => props.modelValue as unknown as Entry[])
 
@@ -174,6 +178,21 @@ function onHandleKey(i: number, event: KeyboardEvent) {
           @patch="(changes) => patch(i, changes)"
         />
 
+        <label class="ae-row">
+          <span class="ae-label">Nombre del paso</span>
+          <input
+            class="ae-field ae-mono"
+            :value="typeof entry.id === 'string' ? entry.id : ''"
+            placeholder="triage"
+            @input="patch(i, { id: ($event.target as HTMLInputElement).value || undefined })"
+          />
+          <span class="ae-hint">
+            Sólo hace falta si una acción posterior lee lo que ésta produjo, con
+            <code>{{ STEP_REF_EXAMPLE }}</code>. Un nombre y no la posición: un índice se
+            rompe en silencio cuando alguien inserta una acción más arriba.
+          </span>
+        </label>
+
         <label class="ae-check">
           <input
             type="checkbox"
@@ -310,6 +329,25 @@ function onHandleKey(i: number, event: KeyboardEvent) {
 .ae-empty {
   margin: 0;
   font-size: var(--fs-body-sm);
+  color: var(--fg-dimmer);
+}
+
+/* Fila del nombre del paso — mismas primitivas que el resto del editor. */
+.ae-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ae-label {
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.ae-mono {
+  font-family: var(--font-mono);
+}
+.ae-hint {
+  font-size: var(--fs-micro);
   color: var(--fg-dimmer);
 }
 </style>

@@ -3,12 +3,13 @@ import { fetchMcpCatalog, fetchToolCatalog } from '@/features/agents/api';
 import { ref, computed, watch } from 'vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
+import OutputContractEditor from '@/features/agents/OutputContractEditor.vue';
 import ToolsEditor from '@/features/agents/ToolsEditor.vue';
 import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition, AgentOutcomes, AgentProviderChoice, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
+import type { AgentDefinition, AgentOutcomes, AgentOutput, AgentProviderChoice, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
@@ -121,6 +122,9 @@ const maxConcurrentDispatches = ref<number | null>(null);
 
 // ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
 const outcomes = ref<AgentOutcomes>({});
+// `AgentDefinition.output` — contrato de salida estructurada. Vive aparte de
+// `outcomes` porque no es una transición: es lo que este agente ENTREGA.
+const outputContract = ref<AgentOutput | undefined>(undefined);
 
 const agentVariableGroups = useAgentVariableGroups();
 
@@ -281,6 +285,7 @@ watch(() => props.open, async (open) => {
     allowBlocked.value = a.allowBlocked ?? false;
     maxConcurrentDispatches.value = a.maxConcurrentDispatches ?? null;
     outcomes.value = { onProcess: a.onProcess, exits: a.exits };
+    outputContract.value = a.output;
   } else {
     agentId.value             = '';
     providerChoices.value = [{ providerId: providers.value[0]?.id ?? 'anthropic-api' }];
@@ -297,6 +302,7 @@ watch(() => props.open, async (open) => {
     allowBlocked.value = false;
     maxConcurrentDispatches.value = null;
     outcomes.value = {};
+    outputContract.value = undefined;
   }
 
   if (!availableTools.value.length) {
@@ -397,6 +403,7 @@ function onSave() {
   if (allowBlocked.value) agent.allowBlocked = true;
   if (maxConcurrentDispatches.value) agent.maxConcurrentDispatches = maxConcurrentDispatches.value;
   Object.assign(agent, outcomes.value);
+  if (outputContract.value) agent.output = outputContract.value;
   emit('save', agent);
 }
 
@@ -523,6 +530,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :project-fields="outcomesProjectFields"
               :status-options="outcomesStatusOptions"
             />
+
+            <div class="field">
+              <span class="label">Salida estructurada</span>
+              <OutputContractEditor v-model="outputContract" />
+            </div>
           </section>
 
           <section v-show="activeSection === 'avanzado'" class="section">
