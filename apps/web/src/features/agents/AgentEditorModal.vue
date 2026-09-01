@@ -102,10 +102,11 @@ const variables          = ref<KV[]>([]);
 const tools               = ref<AgentToolEntry[] | undefined>(undefined);
 const selectedSysprompts = ref<string[]>([]);
 // `AgentDefinition.systemPrompts` puede traer entradas `{text}` inline
-// (puestas a mano en un deploy YAML headless) mezcladas con ids — este
-// editor solo administra la parte string vía checkboxes, así que preserva
-// cualquier `{text}` tal cual para no perderlo al guardar (ver onSave).
-const preservedSystemPromptRefs = ref<SystemPromptRef[]>([]);
+// (la única forma que funciona en un deploy YAML headless — ver
+// SystemPromptsSection) mezcladas con ids de catálogo. Tipado angosto a
+// `{text}` porque acá sólo viven las no-string (ver el filter de abajo y
+// SystemPromptsSection, que las edita como bloques de texto suelto).
+const preservedSystemPromptRefs = ref<Exclude<SystemPromptRef, string>[]>([]);
 // Puesta por el AI-assist form-fill de AgentDefinitionSection (vía
 // `propose-prompt`) cuando ya había un prompt distinto — AgentPromptSection
 // la muestra como diff, no la pisa (ver PromptField `pending-proposal`).
@@ -159,8 +160,10 @@ const definitionSummary = computed(() => {
 });
 
 const systemPromptsSummary = computed(() => {
-  const n = selectedSysprompts.value.length;
-  return n ? `${n} adjunto${n === 1 ? '' : 's'}` : 'sin selección';
+  const parts: string[] = [];
+  if (selectedSysprompts.value.length) parts.push(`${selectedSysprompts.value.length} del catálogo`);
+  if (preservedSystemPromptRefs.value.length) parts.push(`${preservedSystemPromptRefs.value.length} inline`);
+  return parts.length ? parts.join(' · ') : 'sin selección';
 });
 
 const promptSummary = computed(() => (prompt.value.trim() ? 'con contenido' : 'sin prompt'));
@@ -233,7 +236,7 @@ const sections = computed<{ key: SectionKey; title: string; summary: string; dot
     key: 'systemprompts',
     title: 'System Prompts',
     summary: systemPromptsSummary.value,
-    dot: selectedSysprompts.value.length ? 'good' : 'neutral',
+    dot: (selectedSysprompts.value.length || preservedSystemPromptRefs.value.length) ? 'good' : 'neutral',
   },
   {
     key: 'prompt',
@@ -305,7 +308,9 @@ watch(() => props.open, async (open) => {
     variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
     tools.value                = a.tools ? [...a.tools] : undefined;
     selectedSysprompts.value   = (a.systemPrompts ?? []).filter((r): r is string => typeof r === 'string');
-    preservedSystemPromptRefs.value = (a.systemPrompts ?? []).filter((r) => typeof r !== 'string');
+    preservedSystemPromptRefs.value = (a.systemPrompts ?? []).filter(
+      (r): r is Exclude<SystemPromptRef, string> => typeof r !== 'string',
+    );
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
     requiresBranch.value = a.requiresBranch ?? null;
@@ -532,7 +537,9 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
             <SystemPromptsSection
               :selected-sysprompts="selectedSysprompts"
               :available-sysprompts="availableSysprompts"
+              :inline-prompts="preservedSystemPromptRefs.map((r) => r.text)"
               @update:selected-sysprompts="selectedSysprompts = $event"
+              @update:inline-prompts="preservedSystemPromptRefs = $event.map((text) => ({ text }))"
             />
           </section>
 
