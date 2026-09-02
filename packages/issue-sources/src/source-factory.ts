@@ -1,10 +1,37 @@
 import type { Project } from '@ia-flow/shared'
 import type { ITaskRepository, ProjectSource } from './contract.js'
-import { GitHubIssueSource } from './github-issues/source.js'
+import { GithubHybridSource } from './github-hybrid/source.js'
+import { GitHubIssueSource, type GitHubIssueSourceConfig } from './github-issues/source.js'
 import { parseSlackThreadField } from './github-project/slack-thread-field.js'
 import { GitHubProjectSource } from './github-project/source.js'
 import { parseWorkingMarker } from './github-project/working-marker.js'
 import { LocalProjectSource } from './local-fs/source.js'
+
+/** `owner`/`repo`/`anchorLabel` — la config que `github-issues` y
+ *  `github-hybrid` (su mitad de issues) validan igual. `kind` es sólo para
+ *  el mensaje de error, así el 400 apunta al builder que de verdad falló. */
+function parseGitHubIssuesConfig(
+  kind: string,
+  config: Record<string, unknown>,
+): GitHubIssueSourceConfig {
+  const owner = config.owner
+  const repo = config.repo
+  const anchorLabel = config.anchorLabel
+  if (typeof owner !== 'string' || !owner) {
+    throw new Error(`${kind} source requires config.owner (string)`)
+  }
+  if (typeof repo !== 'string' || !repo) {
+    throw new Error(`${kind} source requires config.repo (string)`)
+  }
+  // Opcional: sin ella el source vigila TODO issue abierto del repo (ver
+  // GitHubIssueSourceConfig.anchorLabel). Un string vacío se trata como
+  // ausente en vez de como "ninguna label matchea", que es lo que GitHub
+  // entendería si lo mandáramos tal cual.
+  if (anchorLabel !== undefined && typeof anchorLabel !== 'string') {
+    throw new Error(`${kind} source config.anchorLabel must be a string when present`)
+  }
+  return { owner, repo, anchorLabel: anchorLabel || undefined }
+}
 
 // Generic kind → implementation registry. `add` registers a builder once per
 // kind; `get` resolves a project to its source, building + caching one
@@ -110,24 +137,29 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
   // el form de proyecto ya no lo ofrece. Se puede borrar cuando una
   // migración normalice `projects.source_kind`.
   factory.add('github', buildGitHubProjects, { aliasOf: 'github-projects' })
-  factory.add('github-issues', (_project, config) => {
-    const owner = config.owner
-    const repo = config.repo
-    const anchorLabel = config.anchorLabel
-    if (typeof owner !== 'string' || !owner) {
-      throw new Error('github-issues source requires config.owner (string)')
+  factory.add(
+    'github-issues',
+    (_project, config) => new GitHubIssueSource(parseGitHubIssuesConfig('github-issues', config)),
+  )
+  // Un issue de GitHub que ADEMÁS puede estar en un Project v2 board — junta
+  // la config de los dos builders de arriba (owner/repo/anchorLabel +
+  // url/workingMarker/slackThreadField), ambas requeridas: sin las dos mitades
+  // no hay nada que componer. Ver GithubHybridSource para el porqué de
+  // componer en vez de reimplementar.
+  factory.add('github-hybrid', (_project, config) => {
+    const issuesConfig = parseGitHubIssuesConfig('github-hybrid', config)
+    const url = config.url
+    if (typeof url !== 'string' || !url) {
+      throw new Error('github-hybrid source requires config.url (string) — el Project v2 board')
     }
-    if (typeof repo !== 'string' || !repo) {
-      throw new Error('github-issues source requires config.repo (string)')
-    }
-    // Opcional: sin ella el source vigila TODO issue abierto del repo (ver
-    // GitHubIssueSourceConfig.anchorLabel). Un string vacío se trata como
-    // ausente en vez de como "ninguna label matchea", que es lo que GitHub
-    // entendería si lo mandáramos tal cual.
-    if (anchorLabel !== undefined && typeof anchorLabel !== 'string') {
-      throw new Error('github-issues source config.anchorLabel must be a string when present')
-    }
-    return new GitHubIssueSource({ owner, repo, anchorLabel: anchorLabel || undefined })
+    return new GithubHybridSource(
+      new GitHubIssueSource(issuesConfig),
+      new GitHubProjectSource(
+        url,
+        parseWorkingMarker(config.workingMarker),
+        parseSlackThreadField(config.slackThreadField),
+      ),
+    )
   })
   return factory
 }

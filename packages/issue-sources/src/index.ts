@@ -180,6 +180,9 @@ export {
   withWorking,
 } from './github-issues/status-label.js'
 
+// ─── github-hybrid (issues + project, compuesto) ──────────────────────────────
+export { GithubHybridSource } from './github-hybrid/source.js'
+
 // ─── local-fs ────────────────────────────────────────────────────────────────
 export { LocalProjectSource } from './local-fs/source.js'
 export { LocalTaskSource } from './local-fs/task-source.js'
