@@ -262,8 +262,8 @@ export class GitHubIssuesApi {
     return fetchIssueComments(issueNodeId)
   }
 
-  async updateBody(issueNodeId: string, body: string): Promise<void> {
-    await updateIssueBody(issueNodeId, body)
+  async updateBody(issueNodeId: string, body: string, title?: string): Promise<void> {
+    await updateIssueBody(issueNodeId, body, title)
   }
 
   async getBlockers(

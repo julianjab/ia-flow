@@ -96,14 +96,26 @@ export async function markCommentsUsed(
   )
 }
 
-export async function updateIssueBody(issueId: string, newBody: string): Promise<void> {
+/**
+ * `title` es opcional y de verdad opcional: si `variables.title` es
+ * `undefined`, `JSON.stringify` lo saca del payload y GitHub trata `$title`
+ * como no provista — el argumento `title` queda AUSENTE del `input` de
+ * `updateIssue`, no seteado a `null`, así que el título existente no se
+ * toca. Ningún caller nuevo necesita una segunda mutation para el caso
+ * "sólo body".
+ */
+export async function updateIssueBody(
+  issueId: string,
+  newBody: string,
+  title?: string,
+): Promise<void> {
   await gql(
-    `mutation UpdateIssueBody($issueId: ID!, $body: String!) {
-      updateIssue(input: { id: $issueId, body: $body }) {
+    `mutation UpdateIssueBody($issueId: ID!, $body: String!, $title: String) {
+      updateIssue(input: { id: $issueId, body: $body, title: $title }) {
         issue { id }
       }
     }`,
-    { issueId, body: newBody },
+    { issueId, body: newBody, title },
   )
 }
 

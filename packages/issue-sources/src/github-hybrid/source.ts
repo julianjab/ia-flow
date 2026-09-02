@@ -223,8 +223,12 @@ export class GithubHybridSource implements ProjectSource {
   }
 
   async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
+    // `withBoardId`: `GitHubProjectSource.setSlackThreadUrl` usa `item.id`
+    // como id de ProjectV2Item para el `updateProjectV2ItemFieldValue` —
+    // sin el swap, mandaría el node id del Issue (la identidad pública de
+    // este source) y GitHub lo rechazaría.
     return this.isOnBoard(item)
-      ? this.project.setSlackThreadUrl(item, url)
+      ? this.project.setSlackThreadUrl(this.withBoardId(item), url)
       : this.issues.setSlackThreadUrl(item, url)
   }
 

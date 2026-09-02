@@ -425,11 +425,15 @@ export class GitHubIssueSource implements ProjectSource {
       const nextLabels = this.statusLabels.withStatus(freshLabels, patch.status)
       await this.api.replaceLabels(owner, repo, issueNumber, nextLabels)
     }
-    if (patch.description !== undefined) {
-      await this.api.updateBody(
-        current.meta?.issueId as string,
-        preserveSlackSection(current.meta?.issueBody as string | undefined, patch.description),
+    if (patch.title !== undefined || patch.description !== undefined) {
+      // El body es obligatorio en la mutation aunque sólo cambie el título —
+      // si no vino description, se re-manda el actual (ya con la sección de
+      // Slack preservada) para no vaciarlo.
+      const body = preserveSlackSection(
+        current.meta?.issueBody as string | undefined,
+        patch.description ?? (current.meta?.issueBody as string | undefined) ?? '',
       )
+      await this.api.updateBody(current.meta?.issueId as string, body, patch.title)
     }
     invalidateMemoized(this, 'fetchItems')
     const refreshed = await this.getItemById(id)
