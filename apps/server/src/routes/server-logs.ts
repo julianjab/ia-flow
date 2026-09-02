@@ -239,15 +239,27 @@ function matchesExtra(entry: ServerLogEntry, key: string, allowed: Set<string>):
   return typeof value === 'string' && allowed.has(value)
 }
 
+// Un patrón corto sigue pudiendo tener backtracking catastrófico
+// (`(a+)+$`), pero acota el peor caso: el costo de un patrón así crece con
+// el tamaño del patrón Y del texto, y esto tapa las dos puntas — el patrón
+// no puede crecer sin límite, y `extraAsText` (abajo) recorta el texto que
+// se le da a probar. No es una defensa completa contra ReDoS (haría falta
+// un motor de regex con timeout, que Bun no expone), pero corre en el
+// event loop del daemon sobre miles de líneas por request, así que un
+// tope es mejor que aceptar cualquier cosa.
+const MAX_EXTRA_PATTERN_LEN = 200
+const MAX_EXTRA_VALUE_LEN = 2000
+
 /** Parte `"taskId:^abc123"` en `{key: 'taskId', regex: /^abc123/}`. La clave
  *  es todo antes del PRIMER `:` — el patrón puede traer los suyos (`\d{3}:00`,
- *  una hora). `null` si falta la clave o el patrón no compila. */
+ *  una hora). `null` si falta la clave, el patrón no compila, o excede
+ *  `MAX_EXTRA_PATTERN_LEN`. */
 function parseExtraQuery(raw: string): { key: string; regex: RegExp } | null {
   const at = raw.indexOf(':')
   if (at < 0) return null
   const key = raw.slice(0, at).trim()
   const pattern = raw.slice(at + 1).trim()
-  if (!key || !pattern) return null
+  if (!key || !pattern || pattern.length > MAX_EXTRA_PATTERN_LEN) return null
   try {
     return { key, regex: new RegExp(pattern) }
   } catch {
@@ -257,14 +269,15 @@ function parseExtraQuery(raw: string): { key: string; regex: RegExp } | null {
 
 /** Coacciona un valor de `extras` a texto comparable: los strings quedan tal
  *  cual, todo lo demás (objetos, números, `err`) se serializa — así un
- *  `extra:err:ECONNRESET` encuentra el motivo aunque viva en un objeto. */
+ *  `extra:err:ECONNRESET` encuentra el motivo aunque viva en un objeto.
+ *  Recortado a `MAX_EXTRA_VALUE_LEN`: ver el comentario de arriba. */
 function extraAsText(value: unknown): string {
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') return value.slice(0, MAX_EXTRA_VALUE_LEN)
   if (value == null) return ''
   try {
-    return JSON.stringify(value)
+    return JSON.stringify(value).slice(0, MAX_EXTRA_VALUE_LEN)
   } catch {
-    return String(value)
+    return String(value).slice(0, MAX_EXTRA_VALUE_LEN)
   }
 }
 
