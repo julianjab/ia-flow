@@ -242,54 +242,74 @@ function matchesExtra(entry: ServerLogEntry, key: string, allowed: Set<string>):
 const MAX_EXTRA_PATTERN_LEN = 200
 const MAX_EXTRA_VALUE_LEN = 2000
 
-/** Escapa TODO metacaracter de regex, `*`/`?` incluidos — el llamador
- *  reemplaza esos dos por sus comodines después. */
-function escapeRegexLiteral(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/**
+ * `true` si `pattern` (con `*` = cualquier secuencia, `?` = un carácter,
+ * todo lo demás literal — sin escape: `*`/`?` NUNCA son literales) matchea
+ * el string COMPLETO. Algoritmo iterativo clásico de wildcard matching
+ * (greedy, con un solo punto de backtrack recordado — el último `*`), sin
+ * recursión y sin compilar nada a `RegExp`.
+ *
+ * Nada de esto compila a regex a propósito. `new RegExp(pattern)` corre en
+ * el event loop del daemon sobre cada línea de un `daemon.log` que puede
+ * tener decenas de miles, y aunque el patrón sólo pueda producir `*` →
+ * `.*` (sin cuantificador anidado ni alternancia), VARIOS `.*` en serie
+ * siguen siendo polinómicos de grado k = cantidad de `*` en el motor de
+ * backtracking de V8 — con `k=10` y un texto de 2000 chars eso es ~2000^10
+ * pasos, más que suficiente para colgar el proceso entero (Bun no expone
+ * un motor con timeout). Este algoritmo es O(texto·patrón) en el peor
+ * caso, acotado en la práctica por `MAX_EXTRA_VALUE_LEN` y
+ * `MAX_EXTRA_PATTERN_LEN` — sin importar cuántos `*` tenga el patrón.
+ */
+function globMatchFull(text: string, pattern: string): boolean {
+  let ti = 0
+  let pi = 0
+  let starAt = -1
+  let matchFrom = 0
+  while (ti < text.length) {
+    if (pi < pattern.length && (pattern[pi] === '?' || pattern[pi] === text[ti])) {
+      ti++
+      pi++
+    } else if (pi < pattern.length && pattern[pi] === '*') {
+      starAt = pi
+      matchFrom = ti
+      pi++
+    } else if (starAt !== -1) {
+      pi = starAt + 1
+      matchFrom++
+      ti = matchFrom
+    } else {
+      return false
+    }
+  }
+  while (pi < pattern.length && pattern[pi] === '*') pi++
+  return pi === pattern.length
 }
 
-/**
- * Compila un patrón GLOB (`*` = cualquier secuencia, `?` = un carácter,
- * todo lo demás literal) — no una regexp arbitraria.
- *
- * Corre en el event loop del daemon, sobre cada línea de un `daemon.log` que
- * puede tener decenas de miles (Bun no expone un motor de regex con
- * timeout), así que una regexp de verdad con backtracking catastrófico
- * (`(a+)+$`) cuelga el proceso ENTERO por una sola request — un tope de
- * longitud no alcanza, porque el costo es exponencial en el tamaño del
- * input, no lineal. La salida acá siempre es `literal(.|.*)literal…`: sin
- * cuantificador anidado ni alternancia, no hay forma de escribir un patrón
- * que dispare backtracking exponencial, cualquiera sea el texto.
- */
-function compileGlob(pattern: string): RegExp | null {
-  if (!pattern || pattern.length > MAX_EXTRA_PATTERN_LEN) return null
-  const body = escapeRegexLiteral(pattern).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')
-  try {
-    return new RegExp(body)
-  } catch {
-    return null
-  }
+/** Búsqueda de SUBSTRING con comodines (lo que `RegExp.test` sin `^$` daría
+ *  gratis) — se logra envolviendo el patrón con `*` en los dos extremos
+ *  antes de pedir el match completo. */
+function globSearch(text: string, pattern: string): boolean {
+  return globMatchFull(text, `*${pattern}*`)
 }
 
 /** Parte `"taskId:abc*"` en su clave (`taskId`) y su patrón glob (`abc*`).
  *  La clave es todo antes del PRIMER `:` — el patrón puede traer los suyos
  *  (`14:00`, una hora). `null` si falta la clave o el patrón es
  *  vacío/demasiado largo. */
-function parseExtraQuery(raw: string): { key: string; regex: RegExp } | null {
+function parseExtraQuery(raw: string): { key: string; pattern: string } | null {
   const at = raw.indexOf(':')
   if (at < 0) return null
   const key = raw.slice(0, at).trim()
   const pattern = raw.slice(at + 1).trim()
-  if (!key) return null
-  const regex = compileGlob(pattern)
-  return regex ? { key, regex } : null
+  if (!key || !pattern || pattern.length > MAX_EXTRA_PATTERN_LEN) return null
+  return { key, pattern }
 }
 
 /** Coacciona un valor de `extras` a texto comparable: los strings quedan tal
  *  cual, todo lo demás (objetos, números, `err`) se serializa — así un
  *  `extra:err:ECONNRESET` encuentra el motivo aunque viva en un objeto.
- *  Recortado a `MAX_EXTRA_VALUE_LEN` como cinturón extra sobre el de
- *  `compileGlob`: acota el costo por línea aunque el patrón ya sea lineal. */
+ *  Recortado a `MAX_EXTRA_VALUE_LEN`: acota el costo por línea junto con
+ *  `MAX_EXTRA_PATTERN_LEN` (ver `globMatchFull`). */
 function extraAsText(value: unknown): string {
   if (typeof value === 'string') return value.slice(0, MAX_EXTRA_VALUE_LEN)
   if (value == null) return ''
@@ -300,10 +320,10 @@ function extraAsText(value: unknown): string {
   }
 }
 
-function matchesExtraQuery(entry: ServerLogEntry, q: { key: string; regex: RegExp }): boolean {
+function matchesExtraQuery(entry: ServerLogEntry, q: { key: string; pattern: string }): boolean {
   const value = entry.extras?.[q.key]
   if (value === undefined) return false
-  return q.regex.test(extraAsText(value))
+  return globSearch(extraAsText(value), q.pattern)
 }
 
 export function createServerLogsRouter() {
@@ -367,7 +387,7 @@ export function createServerLogsRouter() {
         ? filters.extra
         : [filters.extra]
       : []
-    const extraQueries: Array<{ key: string; regex: RegExp }> = []
+    const extraQueries: Array<{ key: string; pattern: string }> = []
     for (const raw of rawExtraQueries) {
       const q = parseExtraQuery(raw)
       if (!q) {

@@ -1604,7 +1604,7 @@ export const ServerLogFiltersSchema = z.object({
   // línea de un log que puede tener decenas de miles, y Bun no expone un
   // motor de regex con timeout, así que un patrón adversarial con
   // backtracking catastrófico colgaría el proceso entero (ver
-  // `compileGlob` en `server-logs.ts`). A diferencia de los filtros de
+  // `globMatchFull` en `server-logs.ts`). A diferencia de los filtros de
   // arriba (membership exacto contra una lista de valores conocidos), esto
   // sirve para un campo o un patrón que no está en ningún selector — el
   // mismo rol que `search` cumple para `msg`. Multi-select: varias
