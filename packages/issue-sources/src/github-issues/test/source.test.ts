@@ -1125,6 +1125,22 @@ describe('GitHubIssueSource — hilo de review en Slack', () => {
     expect(extractSlackThreadUrl(writes[0])).toBe(THREAD)
   })
 
+  test('updateItem manda el título nuevo a la mutation', async () => {
+    const writes: Array<{ id: string; body: string; title?: string }> = []
+    const api = fakeApi({
+      getById: async () => issue({ body: 'PRD' }),
+      updateBody: async (id: string, body: string, title?: string) => {
+        writes.push({ id, body, title })
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    await source.updateItem('ISSUE_1', { title: 'Título nuevo' })
+    expect(writes).toHaveLength(1)
+    expect(writes[0].title).toBe('Título nuevo')
+    // El body no vino en el patch — se re-manda el actual para no vaciarlo.
+    expect(writes[0].body).toBe('PRD')
+  })
+
   test('reescribir la descripción no borra el link del hilo', async () => {
     const stored = { body: upsertSlackSection('PRD viejo', THREAD) }
     const api = fakeApi({
