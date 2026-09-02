@@ -16,6 +16,7 @@ import {
   deriveEvent,
 } from '@ia-flow/shared'
 import { toRuleClassificationInput } from './application/rule-classification.js'
+import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
 import {
   registerActions,
   resolveRuleConversation,
@@ -103,9 +104,19 @@ function registerRuleEngine(): void {
       // La conversación es best-effort y se resuelve ANTES del clasificador,
       // no adentro: `toRuleClassificationInput` se queda pura (testeable sin
       // I/O) y `resolveRuleConversation` es lo único que sale a buscar datos.
+      //
+      // El cache evita repreguntarle a Haiku por un issue atascado en el
+      // estado que activa la regla — ver rule-whentext-cache.ts. No evita la
+      // llamada a `loadComments` de arriba: el cache sólo puede consultarse
+      // una vez que la conversación (parte de su key) ya se armó.
       classifyRule: async ({ rule, event }) => {
         const conversation = await resolveRuleConversation(rule, event)
-        return classifyAgent(toRuleClassificationInput(rule, event, conversation))
+        const input = toRuleClassificationInput(rule, event, conversation)
+        const cached = cachedVerdict(rule.id, input)
+        if (cached !== undefined) return cached
+        const verdict = await classifyAgent(input)
+        if (verdict !== null) rememberVerdict(rule.id, input, verdict)
+        return verdict
       },
       // Una `ref` se resuelve contra las acciones VISIBLES en el ámbito del
       // evento: las del proyecto más las globales. Por eso referenciar la
