@@ -8,7 +8,7 @@ import type { SourceRef } from '@ia-flow/shared'
 // which is how 'github-issues' stayed invisible in the UI while the server
 // built it fine.
 export const FALLBACK_META: ProjectsMeta = {
-  sourceKinds: ['github-projects', 'local', 'github-issues'],
+  sourceKinds: ['github-projects', 'local', 'github-issues', 'github-hybrid'],
   daemonModes: ['webhook', 'polling'],
   daemonModeFallback: 'webhook',
 }
@@ -38,6 +38,7 @@ const KIND_LABELS: Record<string, string> = {
   'github-projects': 'GitHub Projects',
   github: 'GitHub Projects',
   'github-issues': 'GitHub Repo',
+  'github-hybrid': 'GitHub Repo + Project',
   local: 'Local',
 }
 
@@ -60,7 +61,10 @@ export function projectSourceUrl(source: SourceRef | null | undefined): string |
     const url = source.config?.url
     return typeof url === 'string' && url ? url : null
   }
-  if (source.kind === 'github-issues') {
+  if (source.kind === 'github-issues' || source.kind === 'github-hybrid') {
+    // github-hybrid también guarda `config.url` (el board) — linkeamos al
+    // repo/issues igual que github-issues, porque el set de items rastreados
+    // lo define el repo, no el board (ver GithubHybridSource).
     const repoUrl = formatGithubRepoUrl({
       owner: typeof source.config?.owner === 'string' ? source.config.owner : undefined,
       repo: typeof source.config?.repo === 'string' ? source.config.repo : undefined,
