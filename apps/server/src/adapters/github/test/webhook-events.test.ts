@@ -347,6 +347,7 @@ describe('issues', () => {
       state: 'open',
       labelName: undefined,
       assignee: undefined,
+      labels: [],
     })
   })
 
@@ -361,6 +362,23 @@ describe('issues', () => {
     )
     expect(e?.type).toBe('issues.labeled')
     expect((e?.payload as { labelName?: string }).labelName).toBe('bug')
+  })
+
+  // `issue.labels` trae el set COMPLETO y actual, no sólo la label que
+  // disparó la acción — así `when: [{field:'labels', op:'contains', ...}]`
+  // funciona contra el payload del bus igual que contra un Task/SourceItem.
+  it('labels sale del set completo de issue.labels, no sólo del label a nivel raíz', () => {
+    const e = githubWebhookEvent(
+      'issues',
+      {
+        action: 'labeled',
+        repository,
+        issue: { ...issue, labels: [{ name: 'epic' }, { name: 'enhancement' }] },
+        label: { name: 'epic' },
+      },
+      resolve,
+    )
+    expect((e?.payload as { labels?: string[] }).labels).toEqual(['epic', 'enhancement'])
   })
 
   it('assigned produce issues.assigned con assignee, desde el assignee a nivel raíz', () => {
