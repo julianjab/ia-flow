@@ -21,6 +21,19 @@ describe('projectSourceUrl', () => {
     ).toBe('https://github.com/julianjab/accountant/issues')
   })
 
+  it('github-hybrid linkea al repo/issues, no al board — el set lo define el repo', () => {
+    expect(
+      projectSourceUrl({
+        kind: 'github-hybrid',
+        config: {
+          owner: 'julianjab',
+          repo: 'accountant',
+          url: 'https://github.com/users/julianjab/projects/2',
+        },
+      } as SourceRef),
+    ).toBe('https://github.com/julianjab/accountant/issues')
+  })
+
   it.each([
     ['sin fuente', null],
     ['local', { kind: 'local', config: {} }],
@@ -36,6 +49,7 @@ describe('sourceKindLabel', () => {
   it('names the shipped kinds', () => {
     expect(sourceKindLabel('github')).toBe('GitHub Projects')
     expect(sourceKindLabel('github-issues')).toBe('GitHub Repo')
+    expect(sourceKindLabel('github-hybrid')).toBe('GitHub Repo + Project')
     expect(sourceKindLabel('local')).toBe('Local')
   })
 
