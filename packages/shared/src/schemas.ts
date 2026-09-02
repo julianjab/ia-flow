@@ -749,20 +749,23 @@ export const AgentActivationSchema = z.object({
   // Condiciones contra los campos del issue. Array con lógica por condición;
   // el record plano es el formato legacy (todo-AND). Ausente = siempre matchea.
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
-  // Criterio de activación en texto libre — el QUINTO filtro, hermano de
-  // `when` pero fuera de su DSL a propósito: `when` lo evalúa `evalWhen` sin
-  // I/O (lo que mantiene `selectAgent` puro — ver agent-selection.ts), así que
-  // no puede expresar nada que requiera leer el issue con criterio ("este
-  // cambio tiene efecto observable en runtime"). `whenText` sí: lo evalúa
-  // Haiku en `selectAgentGated` (packages/agent-engine/src/agent-text-gate.ts),
-  // que envuelve a `selectAgent` desde afuera para no contaminarlo.
+  // Criterio de activación en texto libre — pensado como un quinto filtro,
+  // hermano de `when` pero fuera de su DSL, para expresar algo que `evalWhen`
+  // no puede ("este cambio tiene efecto observable en runtime").
   //
-  // Ojo: es el mismo NOMBRE que AgentProviderChoiceSchema.whenText pero con
-  // OTRA semántica. Allá desempata entre >1 provider candidato y nunca puede
-  // rechazar al único que hay; acá es un gate — un agente con `whenText` queda
-  // descartado si el issue no lo cumple, aunque sea el único candidato. Esa
-  // asimetría es intencional: el caso de uso es un agente caro (un e2e-tester)
-  // que no debe correr sobre un cambio que no lo amerita.
+  // DEUDA: su único evaluador (`selectAgentGated` en
+  // `packages/agent-engine/src/agent-text-gate.ts`) se borró por ser código
+  // muerto — el refactor a reglas sobre eventos (#122) dejó de llamarlo y
+  // nada lo reemplazó. El campo sigue en el editor de agentes
+  // (`AgentDefinitionSection.vue`) pero hoy no lo evalúa nadie: un operador
+  // que lo completa no ve ningún efecto. El `whenText` que SÍ funciona es el
+  // de la regla (`Rule.whenText`, evaluado por `daemon.ts` vía
+  // `classifyAgent`/`toRuleClassificationInput`) — no lo confundas con este.
+  //
+  // Ojo con el nombre repetido: `AgentProviderChoiceSchema.whenText` es OTRO
+  // campo con otra semántica (desempata entre >1 provider, nunca rechaza al
+  // único candidato); ninguno de los tres `whenText` del sistema comparte
+  // implementación con los otros dos.
   whenText: z.string().optional(),
   // Orden de evaluación. Menor gana el desempate cuando varios agentes
   // matchean los mismos criterios.
