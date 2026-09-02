@@ -18,11 +18,13 @@ function projectItem(
   over: Partial<SourceItem> & {
     issueId: string
     status?: string
-    owner?: string
+    /** Owner del BOARD — distinto de `repoOwner` (owner del repo del issue). */
+    boardOwner?: string
+    repoOwner?: string
     repoName?: string
   },
 ): SourceItem {
-  const { issueId, status, owner, repoName, ...rest } = over
+  const { issueId, status, boardOwner, repoOwner, repoName, ...rest } = over
   return {
     id: `PVTI_${issueId}`,
     title: 'Un issue en el board',
@@ -32,7 +34,10 @@ function projectItem(
       issueId,
       ghProjectId: 'PVT_1',
       fields: {},
-      owner: owner ?? 'la-haus',
+      // owner del board (ProjectMeta.owner) — puede diferir del owner del
+      // repo, que es lo que isTrackedByIssuesConfig de verdad chequea.
+      owner: boardOwner ?? 'la-haus',
+      repoOwner: repoOwner ?? 'la-haus',
       repoName: repoName ?? 'ia-flow',
     },
     ...rest,
@@ -73,6 +78,25 @@ describe('mergeByIssueId', () => {
     expect(merged).toEqual([issue])
   })
 
+  // "Gana el issue" — reemplazar `meta` entero por el del board no puede
+  // perder un link de Slack que sólo vive en el body del issue.
+  it('si el board no tiene slackThreadUrl propio, se conserva el del issue', () => {
+    const issue = issueItem({ issueId: 'I_1' })
+    issue.meta = { ...issue.meta, slackThreadUrl: 'https://slack.com/thread-del-issue' }
+    const project = projectItem({ issueId: 'I_1' })
+    const merged = mergeByIssueId([issue], [project])
+    expect(merged[0]?.meta?.slackThreadUrl).toBe('https://slack.com/thread-del-issue')
+  })
+
+  it('si el board SÍ tiene slackThreadUrl propio, gana sobre el del issue', () => {
+    const issue = issueItem({ issueId: 'I_1' })
+    issue.meta = { ...issue.meta, slackThreadUrl: 'https://slack.com/thread-del-issue' }
+    const project = projectItem({ issueId: 'I_1' })
+    project.meta = { ...project.meta, slackThreadUrl: 'https://slack.com/thread-del-board' }
+    const merged = mergeByIssueId([issue], [project])
+    expect(merged[0]?.meta?.slackThreadUrl).toBe('https://slack.com/thread-del-board')
+  })
+
   it('varios issues, sólo algunos en el board', () => {
     const trackedOnly = issueItem({ issueId: 'I_1' })
     const trackedAndBoarded = issueItem({ issueId: 'I_2', status: 'status:doing' })
@@ -104,14 +128,27 @@ describe('isTrackedByIssuesConfig', () => {
     expect(isTrackedByIssuesConfig(item, ISSUES_CONFIG)).toBe(true)
   })
 
-  it('mismo nombre de repo, owner distinto → NO tracked (repos homónimos de orgs distintas)', () => {
-    const item = projectItem({ issueId: 'I_1', owner: 'otra-org', repoName: 'ia-flow' })
+  it('mismo nombre de repo, owner del REPO distinto → NO tracked (repos homónimos de orgs distintas)', () => {
+    const item = projectItem({ issueId: 'I_1', repoOwner: 'otra-org', repoName: 'ia-flow' })
     expect(isTrackedByIssuesConfig(item, ISSUES_CONFIG)).toBe(false)
   })
 
-  it('mismo owner, repo distinto → no tracked', () => {
+  it('mismo owner de repo, nombre de repo distinto → no tracked', () => {
     const item = projectItem({ issueId: 'I_1', repoName: 'otro-repo' })
     expect(isTrackedByIssuesConfig(item, ISSUES_CONFIG)).toBe(false)
+  })
+
+  // El caso que motiva la clase: el board vive en un owner distinto del
+  // repo que trackea. meta.owner (el del board) NO tiene que influir en el
+  // chequeo — sólo meta.repoOwner (el del repo del issue).
+  it('board de un owner distinto al del repo → sigue tracked, se ignora meta.owner', () => {
+    const item = projectItem({
+      issueId: 'I_1',
+      boardOwner: 'dueño-del-board',
+      repoOwner: 'la-haus',
+      repoName: 'ia-flow',
+    })
+    expect(isTrackedByIssuesConfig(item, ISSUES_CONFIG)).toBe(true)
   })
 
   it('con anchor label configurada, el item tiene que traerla', () => {
