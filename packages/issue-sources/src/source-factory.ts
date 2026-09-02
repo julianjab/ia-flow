@@ -159,6 +159,7 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
         parseWorkingMarker(config.workingMarker),
         parseSlackThreadField(config.slackThreadField),
       ),
+      issuesConfig,
     )
   })
   return factory

@@ -19,7 +19,7 @@ import type {
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fromWebhookPayload } from '../github-issues/api/issues-client.js'
-import { GitHubIssueSource } from '../github-issues/source.js'
+import { GitHubIssueSource, type GitHubIssueSourceConfig } from '../github-issues/source.js'
 import { GitHubProjectSource } from '../github-project/source.js'
 import { createLogger } from '../logger.js'
 
@@ -33,20 +33,32 @@ const log = createLogger('github-hybrid-source')
  * fuentes de verdad vivas a la vez).
  *
  * **El set de items rastreados lo define `issues`** (label ancla / todo issue
- * abierto) — el board NO agrega ni saca issues del scan, sólo los enriquece.
- * Así un issue que todavía no llegó al board sigue viéndose (con status vacío
- * o el de su label `status:*`, según `github-issues`), y uno que sale del
- * board sin perder la label ancla no desaparece de golpe.
+ * abierto, en el repo de `issuesConfig`) — el board NO agrega ni saca issues
+ * del scan, sólo los enriquece. Así un issue que todavía no llegó al board
+ * sigue viéndose (con el status de su label `status:*`), y uno que sale del
+ * board sin perder la label ancla no desaparece de golpe. Un item del board
+ * que pertenece a OTRO repo, o al mismo repo pero sin la anchor label
+ * configurada, no cuenta como tracked — ver `isTracked`.
  *
- * **Cuando un issue SÍ está en el board, gana por completo el item que
- * devuelve `GitHubProjectSource`** — no se mergea campo a campo: ese item ya
- * trae los nativos del issue (title, body, labels, assignees) Y los del board
- * (Status, custom fields) en un solo objeto (`GitHubProjectSource.toSourceItem`
- * lee `content{...on Issue{...}}` de la misma query). La única excepción es
- * `status`: si el board no tiene el campo Status seteado para ese item
- * (`''`), se conserva el status derivado de la label — perder el status del
- * pipeline porque alguien agregó el issue al board sin llenar la columna
- * sería peor que la inconsistencia que esto evita.
+ * **La identidad pública de un item (`SourceItem.id`/`IssueItem.id`) es
+ * SIEMPRE la del Issue, nunca la del ProjectV2Item.** El daemon keyea tasks
+ * en vuelo por ese id (`DivergenceReconciler`, los índices de pending tasks);
+ * si cambiara según si el issue está o no en el board en ESE momento, agregar
+ * o sacar un issue del board con un run en curso lo haría ver como una task
+ * "nueva" y dispararía un segundo dispatch. El id real del ProjectV2Item
+ * —el que hace falta para escribirle— viaja aparte en
+ * `meta.projectItemId`, y sólo `getTransitionManager` lo usa.
+ *
+ * **Cuando un issue SÍ está en el board (y tracked), gana por completo el
+ * resto del item que devuelve `GitHubProjectSource`** — no se mergea campo a
+ * campo: ese item ya trae los nativos del issue (title, body, labels,
+ * assignees) Y los del board (Status, custom fields) en un solo objeto
+ * (`GitHubProjectSource.toSourceItem` lee `content{...on Issue{...}}` de la
+ * misma query). La única excepción es `status`: si el board no tiene el
+ * campo Status seteado para ese item (`''`), se conserva el status derivado
+ * de la label — perder el status del pipeline porque alguien agregó el
+ * issue al board sin llenar la columna sería peor que la inconsistencia que
+ * esto evita.
  */
 export class GithubHybridSource implements ProjectSource {
   readonly kind = 'github-hybrid'
@@ -54,6 +66,7 @@ export class GithubHybridSource implements ProjectSource {
   constructor(
     private readonly issues: GitHubIssueSource,
     private readonly project: GitHubProjectSource,
+    private readonly issuesConfig: GitHubIssueSourceConfig,
   ) {}
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {
@@ -70,15 +83,19 @@ export class GithubHybridSource implements ProjectSource {
     return merged.filter((i) => i.status.toLowerCase() === wanted)
   }
 
-  /** Prueba primero como id de ProjectV2Item (el caso común de un delivery
-   *  `projects_v2_item` o de `DivergenceReconciler`); si no resuelve, lo
-   *  prueba como node id de Issue y busca su contraparte en el board. */
+  /**
+   * Prueba primero como node id de Issue — es lo que la identidad pública
+   * de este source emite en todos lados (ver el comentario de la clase),
+   * así que es el caso común para `DivergenceReconciler` y para las rutas
+   * REST. Si no resuelve, lo prueba como id de ProjectV2Item (un caller que
+   * todavía pasa el id crudo del board, o el fast path de un delivery
+   * `projects_v2_item`).
+   */
   async getItemById(id: string): Promise<SourceItem | null> {
-    const asProjectItem = await this.project.getItemById(id).catch(() => null)
-    if (asProjectItem) return asProjectItem
     const asIssue = await this.issues.getItemById(id).catch(() => null)
-    if (!asIssue) return null
-    return this.attachProjectCounterpart(asIssue)
+    if (asIssue) return this.attachProjectCounterpart(asIssue)
+    const asProjectItem = await this.project.getItemById(id).catch(() => null)
+    return asProjectItem ? this.normalizeBoardItem(asProjectItem) : null
   }
 
   /** Busca en los items YA cacheados del board (`GitHubProjectSource` los
@@ -90,19 +107,59 @@ export class GithubHybridSource implements ProjectSource {
     try {
       const projectItems = await this.project.getItems()
       const match = projectItems.find((p) => p.meta?.issueId === issueItem.id)
-      if (!match) return issueItem
-      return match.status ? match : { ...match, status: issueItem.status }
+      return match ? withBoardFields(issueItem, match) : issueItem
     } catch (err) {
       log.warn({ err, issueId: issueItem.id }, 'attachProjectCounterpart falló — sigo sin el board')
       return issueItem
     }
   }
 
-  /** El item de un board ya trae `meta.ghProjectId` (`GitHubProjectSource`)
-   *  — es la marca que dice "esto vino/existe en el Project". Sin ella, es
-   *  un item de `github-issues` puro. */
+  /** `GitHubProjectSource.getItemById` siempre resuelve a un issue real —
+   *  `mapProjectItemNode` descarta drafts sin `content` (ver su doc) — así
+   *  que `meta.issueId` está garantizado. Reasigna la identidad pública a la
+   *  del issue y guarda el id real del board en `meta.projectItemId`. */
+  private normalizeBoardItem(boardItem: SourceItem): SourceItem {
+    const issueId = boardItem.meta?.issueId
+    if (typeof issueId !== 'string') return boardItem
+    return {
+      ...boardItem,
+      id: issueId,
+      meta: { ...boardItem.meta, projectItemId: boardItem.id },
+    }
+  }
+
+  /** El repo tiene que coincidir con el configurado, y si hay anchor label
+   *  el item tiene que traerla — mismo criterio que decide qué issue es
+   *  "tracked" del lado `github-issues`. Sin este chequeo, un delivery
+   *  `projects_v2_item` de un board que cruza varios repos admitiría al
+   *  pipeline issues que ni `getItems()` ni el polling verían nunca. */
+  private isTracked(item: SourceItem): boolean {
+    const repoName = item.meta?.repoName
+    if (
+      typeof repoName !== 'string' ||
+      repoName.toLowerCase() !== this.issuesConfig.repo.toLowerCase()
+    ) {
+      return false
+    }
+    if (!this.issuesConfig.anchorLabel) return true
+    const labels = (item.meta?.labels as string[] | undefined) ?? []
+    return labels.includes(this.issuesConfig.anchorLabel)
+  }
+
+  /** `meta.projectItemId` es la marca propia (ver `normalizeBoardItem` /
+   *  `withBoardFields`) de "este item tiene contraparte en el board". */
   private isOnBoard(item: { meta?: Record<string, unknown> }): boolean {
-    return typeof item.meta?.ghProjectId === 'string'
+    return typeof item.meta?.projectItemId === 'string'
+  }
+
+  /** El id que `GitHubProjectSource` necesita para escribir es el del
+   *  ProjectV2Item, no el del issue que este source expone públicamente —
+   *  ver el comentario de la clase. Sólo hace falta para delegar una
+   *  escritura; lectura (`toIssueItem`, comments, etc.) usa `item.meta`, no
+   *  `item.id`, así que no necesita este swap. */
+  private withBoardId<T extends { id: string; meta?: Record<string, unknown> }>(item: T): T {
+    const projectItemId = item.meta?.projectItemId
+    return typeof projectItemId === 'string' ? { ...item, id: projectItemId } : item
   }
 
   toIssueItem(item: SourceItem): IssueItem {
@@ -111,7 +168,7 @@ export class GithubHybridSource implements ProjectSource {
 
   getTransitionManager(item: IssueItem, broadcast: BroadcastFn): TaskSource {
     return this.isOnBoard(item)
-      ? this.project.getTransitionManager(item, broadcast)
+      ? this.project.getTransitionManager(this.withBoardId(item), broadcast)
       : this.issues.getTransitionManager(item, broadcast)
   }
 
@@ -125,7 +182,10 @@ export class GithubHybridSource implements ProjectSource {
 
   async getFields(opts?: { refresh?: boolean }): Promise<SourceProjectField[]> {
     const [fromProject, fromIssues] = await Promise.all([
-      this.project.getFields?.(opts) ?? Promise.resolve([]),
+      (this.project.getFields?.(opts) ?? Promise.resolve([])).catch((err) => {
+        log.warn({ err }, 'getFields: el lado Project falló — sigo sólo con los del repo')
+        return [] as SourceProjectField[]
+      }),
       this.issues.getFields(opts),
     ])
     // El del board gana cuando el mismo nombre aparece en los dos (trae
@@ -161,13 +221,15 @@ export class GithubHybridSource implements ProjectSource {
   }
 
   async setItemField(itemId: string, field: string, value: string): Promise<void> {
-    // Sólo el board tiene campos custom seteables — `github-issues` no
-    // implementa `setItemField` (sus campos son labels, se escriben por
-    // `setLabels` del lado del TaskSource, no acá).
     if (!this.project.setItemField) {
       throw new Error(`setItemField no soportado: '${field}' no es un campo del board`)
     }
-    await this.project.setItemField(itemId, field, value)
+    const item = await this.getItemById(itemId)
+    const projectItemId = item?.meta?.projectItemId as string | undefined
+    if (!projectItemId) {
+      throw new Error(`setItemField no soportado: '${itemId}' no está en el board`)
+    }
+    await this.project.setItemField(projectItemId, field, value)
   }
 
   /** Crea el issue vía `github-issues` (labels/ancla) — no lo agrega al
@@ -178,20 +240,25 @@ export class GithubHybridSource implements ProjectSource {
   }
 
   async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
-    const asProjectItem = await this.project.getItemById(id).catch(() => null)
-    return asProjectItem ? this.project.updateItem(id, patch) : this.issues.updateItem(id, patch)
+    const item = await this.getItemById(id)
+    if (!item) throw new Error(`Item '${id}' not found`)
+    const projectItemId = item.meta?.projectItemId as string | undefined
+    return projectItemId
+      ? this.project.updateItem(projectItemId, patch)
+      : this.issues.updateItem(id, patch)
   }
 
   async deleteItem(id: string): Promise<void> {
-    const asProjectItem = await this.project.getItemById(id).catch(() => null)
-    if (!asProjectItem) {
+    if (!this.project.deleteItem)
+      throw new Error('deleteItem no soportado por el board configurado')
+    const item = await this.getItemById(id)
+    const projectItemId = item?.meta?.projectItemId as string | undefined
+    if (!projectItemId) {
       throw new Error(
         `deleteItem no soportado: '${id}' no es un item del board (github-issues no borra issues)`,
       )
     }
-    if (!this.project.deleteItem)
-      throw new Error('deleteItem no soportado por el board configurado')
-    await this.project.deleteItem(id)
+    await this.project.deleteItem(projectItemId)
   }
 
   async getHealth(): Promise<SourceHealth> {
@@ -211,12 +278,22 @@ export class GithubHybridSource implements ProjectSource {
     await Promise.all([this.issues.onDaemonStart?.(), this.project.onDaemonStart?.()])
   }
 
+  /**
+   * AND, no OR: `github-project`'s propio `matchesWebhook` es deliberadamente
+   * laxo para deliveries `issues`/`issue_comment` (matchea por OWNER, no por
+   * repo — un owner puede tener el issue en varios boards). Acá el set
+   * tracked lo define `issues`, que SÍ filtra por repo exacto — dejar pasar
+   * con un OR abriría este source a cualquier repo del mismo owner. Para un
+   * delivery `projects_v2_item` (sin `repoFullName`), `issues.matchesWebhook`
+   * ya falla abierto (`true`) por su propio diseño, así que el AND termina
+   * gobernado por el chequeo preciso de `project` — no se pierde nada.
+   */
   async matchesWebhook(hint: WebhookMatchHint): Promise<boolean> {
     const [fromIssues, fromProject] = await Promise.all([
       this.issues.matchesWebhook?.(hint) ?? Promise.resolve(true),
       this.project.matchesWebhook?.(hint) ?? Promise.resolve(true),
     ])
-    return fromIssues || fromProject
+    return fromIssues && fromProject
   }
 
   watch(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable {
@@ -235,10 +312,13 @@ export class GithubHybridSource implements ProjectSource {
   /**
    * Cubre los dos discriminadores que un board+issues puede recibir:
    *   · `projects_v2_item` — node id del item, fast path del lado Project
-   *     (ya trae nativos + board mergeados).
-   *   · `issues`/`issue_comment` — payload-first del lado issues
-   *     (`fromWebhookPayload`), enriquecido con el board si existe.
-   * Sin delivery (nudge manual / fallback timer) → scan completo mergeado.
+   *     (ya trae nativos + board mergeados), filtrado por `isTracked` — un
+   *     board puede cruzar varios repos y este source sólo rastrea uno.
+   *   · `issues`/`issue_comment` — resuelto vía `getItemById` (confirma que
+   *     `fromWebhookPayload` de verdad trajo un issue), enriquecido con el
+   *     board si existe.
+   * Sin delivery (nudge manual / fallback timer), o si lo de arriba no
+   * resolvió nada tracked → scan completo mergeado.
    */
   private async resolveWebhookDelivery(delivery?: WebhookDelivery): Promise<SourceItem[]> {
     if (delivery) {
@@ -246,13 +326,8 @@ export class GithubHybridSource implements ProjectSource {
         ?.node_id
       if (typeof itemNodeId === 'string') {
         const item = await this.project.getItemById(itemNodeId)
-        if (item) return [item]
+        if (item && this.isTracked(item)) return [this.normalizeBoardItem(item)]
       }
-      // `fromWebhookPayload` sólo confirma que el payload trae un issue
-      // completo — no evitamos el request de todos modos: `getItemById` es
-      // la única vía pública a `withDevLinks` (privado en GitHubIssueSource
-      // a propósito, ver su comentario), así que el "fast path" acá es no
-      // tener que armar un `SourceItem` a mano, no ahorrarse la llamada.
       const direct = fromWebhookPayload(delivery.payload)
       if (direct) {
         const issueItem = await this.issues.getItemById(direct.id)
@@ -263,10 +338,24 @@ export class GithubHybridSource implements ProjectSource {
   }
 }
 
-/** El item del board (con `issueId` en su `meta`) reemplaza por completo al
- *  del issue cuando existe — ver el comentario de la clase sobre por qué no
- *  se mergea campo a campo. Exportada para poder testear el merge sin fakear
- *  las dos fuentes completas (que hablan GraphQL/REST de verdad). */
+/** El item del board reemplaza al del issue por completo salvo por dos
+ *  cosas: la IDENTIDAD (`id`) sigue siendo la del issue — ver el comentario
+ *  de la clase sobre por qué — y el `status`, que cae al de la label si el
+ *  board no tiene Status seteado. El id real del board queda aparte en
+ *  `meta.projectItemId`. */
+function withBoardFields(issueItem: SourceItem, boardItem: SourceItem): SourceItem {
+  return {
+    ...boardItem,
+    id: issueItem.id,
+    status: boardItem.status || issueItem.status,
+    meta: { ...boardItem.meta, projectItemId: boardItem.id },
+  }
+}
+
+/** El item del board (con `issueId` en su `meta`) reemplaza al del issue
+ *  cuando existe — ver `withBoardFields`. Exportada para poder testear el
+ *  merge sin fakear las dos fuentes completas (que hablan GraphQL/REST de
+ *  verdad). */
 export function mergeByIssueId(issueItems: SourceItem[], projectItems: SourceItem[]): SourceItem[] {
   const byIssueId = new Map<string, SourceItem>()
   for (const p of projectItems) {
@@ -275,8 +364,7 @@ export function mergeByIssueId(issueItems: SourceItem[], projectItems: SourceIte
   }
   return issueItems.map((i) => {
     const match = byIssueId.get(i.id)
-    if (!match) return i
-    return match.status ? match : { ...match, status: i.status }
+    return match ? withBoardFields(i, match) : i
   })
 }
 
