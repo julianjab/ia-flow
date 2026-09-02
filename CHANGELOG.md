@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/julianjab/ia-flow/compare/v1.0.0...v1.1.0) (2026-09-02)
+
+
+### Features
+
+* **rules:** whenText puede evaluar la conversación reciente del issue ([#129](https://github.com/julianjab/ia-flow/issues/129)) ([8914bd8](https://github.com/julianjab/ia-flow/commit/8914bd8133d155bf837921950b1d10b5cd9a38d9))
+
 ## [1.0.0](https://github.com/julianjab/ia-flow/compare/v0.3.0...v1.0.0) (2026-09-02)
 
 
