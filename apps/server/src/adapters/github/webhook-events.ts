@@ -62,6 +62,18 @@ interface RawPayload {
   assignee?: { login?: string }
 }
 
+/** Los nombres de `issue.labels` — GitHub siempre manda el set COMPLETO y
+ *  actual en `issue.labels`, aun en `labeled`/`unlabeled` (que además traen la
+ *  única label afectada en `payload.label`, a nivel raíz). Sin fetch extra: ya
+ *  viene en el delivery. */
+function labelNames(issue: Record<string, unknown>): string[] {
+  const raw = issue.labels
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((l) => (l && typeof l === 'object' ? (l as { name?: unknown }).name : l))
+    .filter((n): n is string => typeof n === 'string')
+}
+
 function ownerRepo(payload: RawPayload): { owner: string; repo: string } | null {
   const owner = payload.repository?.owner?.login
   const repo = payload.repository?.name
@@ -293,6 +305,12 @@ export function issuesEvent(
       // criterio que `fieldName`/`fieldType` en `projectItemEvent`).
       labelName: payload.label?.name,
       assignee: payload.assignee?.login,
+      // Set completo y actual, no sólo la label que disparó `labeled`/
+      // `unlabeled` — así `when: [{field:'labels', op:'contains', ...}]`
+      // funciona igual que contra un Task/SourceItem, sin depender de que
+      // `resolveItem` haya podido resolver `item.labels` (necesita el repo
+      // ya registrado bajo un proyecto).
+      labels: labelNames(issue),
     },
   })
 }
