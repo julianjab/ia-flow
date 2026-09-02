@@ -181,7 +181,17 @@ export class AgentAction implements ActionHandler<AgentConfig> {
     if (config.emitOn === 'exit' && outcome === 'dispatched') {
       await ctx.emit(
         config.emitType ?? RUN_FINISHED,
-        { agentId: config.agentId, taskId: item.id, outcome },
+        // `output` viaja igual que en el `ActionResult` de este mismo paso
+        // (ver el `return` de más abajo): sin él, una regla que escucha este
+        // evento no puede leer lo que el agente produjo por `submit_output` —
+        // sólo `agentId`/`taskId`/`outcome`, que no alcanzan para decidir un
+        // siguiente paso basado en la salida.
+        {
+          agentId: config.agentId,
+          taskId: item.id,
+          outcome,
+          ...(output !== undefined && { output }),
+        },
         // El scope del evento que lo causó, más el issue sobre el que corrió.
         //
         // Sin esto el derivado nacía con `scope: {}` (ver `daemon.ts`: el emit

@@ -294,4 +294,37 @@ describe('AgentAction — emitOn: exit', () => {
     await action.execute(c, { action: 'agent', agentId: 'implementer' } as never)
     expect(emitidos).toHaveLength(0)
   })
+
+  // El evento derivado tiene que llevar lo que el agente produjo — sin esto,
+  // una regla que escucha `run.finished` no puede leer `actionable` (o
+  // cualquier otro campo del output) y encadenar en base a él.
+  test('el evento derivado incluye el output del agente', async () => {
+    const emitidos: Array<{ payload: Record<string, unknown> }> = []
+    const { action } = spyDispatch('dispatched', {}, { actionable: true, next: 'implementer' })
+    const c = {
+      ...ctx(),
+      emit: async (_t: string, payload: Record<string, unknown>) => {
+        emitidos.push({ payload })
+      },
+    } as ActionContext
+
+    await action.execute(c, { action: 'agent', agentId: 'triager', emitOn: 'exit' } as never)
+
+    expect(emitidos[0].payload.output).toEqual({ actionable: true, next: 'implementer' })
+  })
+
+  test('un agente sin output no agrega la clave al payload emitido', async () => {
+    const emitidos: Array<{ payload: Record<string, unknown> }> = []
+    const { action } = spyDispatch('dispatched')
+    const c = {
+      ...ctx(),
+      emit: async (_t: string, payload: Record<string, unknown>) => {
+        emitidos.push({ payload })
+      },
+    } as ActionContext
+
+    await action.execute(c, { action: 'agent', agentId: 'triager', emitOn: 'exit' } as never)
+
+    expect('output' in emitidos[0].payload).toBe(false)
+  })
 })
