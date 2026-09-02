@@ -16,7 +16,11 @@ import {
   deriveEvent,
 } from '@ia-flow/shared'
 import { toRuleClassificationInput } from './application/rule-classification.js'
-import { registerActions, setActiveManagers } from './composition/actions.js'
+import {
+  registerActions,
+  resolveRuleConversation,
+  setActiveManagers,
+} from './composition/actions.js'
 import {
   actionRepo,
   actionRunRecorder,
@@ -95,7 +99,14 @@ function registerRuleEngine(): void {
       // Es el mismo clasificador que antes gateaba la activación de un agente
       // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
       // saltea la regla en vez de adivinar; ver RuleEngineHandler.
-      classifyRule: ({ rule, event }) => classifyAgent(toRuleClassificationInput(rule, event)),
+      //
+      // La conversación es best-effort y se resuelve ANTES del clasificador,
+      // no adentro: `toRuleClassificationInput` se queda pura (testeable sin
+      // I/O) y `resolveRuleConversation` es lo único que sale a buscar datos.
+      classifyRule: async ({ rule, event }) => {
+        const conversation = await resolveRuleConversation(rule, event)
+        return classifyAgent(toRuleClassificationInput(rule, event, conversation))
+      },
       // Una `ref` se resuelve contra las acciones VISIBLES en el ámbito del
       // evento: las del proyecto más las globales. Por eso referenciar la
       // acción de otro proyecto no funciona — no porque se chequee, sino

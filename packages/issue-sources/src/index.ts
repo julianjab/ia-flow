@@ -48,9 +48,10 @@ export {
   SYSTEM_COMMENT_MARKER,
   USED_COMMENT_MARKER,
   isCommentByAgent,
+  renderConversationWindow,
   selectCommentWindow,
 } from './dispatch/comment-window.js'
-export type { WindowableComment } from './dispatch/comment-window.js'
+export type { RenderableComment, WindowableComment } from './dispatch/comment-window.js'
 export {
   applyMultiValueOps,
   isMultiValueField,
