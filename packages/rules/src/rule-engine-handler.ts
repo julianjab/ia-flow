@@ -7,7 +7,7 @@
 import type { EngineEvent, Rule } from '@ia-flow/shared'
 import type { EventHandler, EventOutcome } from './bus.js'
 import { aggregateOutcomes } from './bus.js'
-import { matchRules, summarizeRuleRejections } from './match.js'
+import { type RejectedRule, matchRules, summarizeRuleRejections } from './match.js'
 import type { RunRuleDeps } from './runner.js'
 import { runRule } from './runner.js'
 
@@ -22,7 +22,15 @@ export interface RuleEngineDeps extends RunRuleDeps {
    * Sin inyectar, `whenText` no filtra nada.
    */
   classifyRule?(input: { rule: Rule; event: EngineEvent }): Promise<boolean | null>
-  onMatch?(info: { event: EngineEvent; matched: Rule[]; rejectedSummary: string }): void
+  onMatch?(info: {
+    event: EngineEvent
+    matched: Rule[]
+    /** El detalle completo de cada regla descartada, `whenTrace` incluido —
+     *  `rejectedSummary` sigue siendo el resumen de una línea para el log
+     *  humano; esto es lo que un consumidor usa para loguear POR QUÉ. */
+    rejected: RejectedRule[]
+    rejectedSummary: string
+  }): void
 }
 
 /**
@@ -47,7 +55,12 @@ export class RuleEngineHandler implements EventHandler {
   async handle(event: EngineEvent): Promise<EventOutcome> {
     const rules = await this.deps.loadRules(event)
     const { matched, rejected } = matchRules({ event, rules })
-    this.deps.onMatch?.({ event, matched, rejectedSummary: summarizeRuleRejections(rejected) })
+    this.deps.onMatch?.({
+      event,
+      matched,
+      rejected,
+      rejectedSummary: summarizeRuleRejections(rejected),
+    })
     if (!matched.length) return 'skipped'
 
     const outcomes: EventOutcome[] = []

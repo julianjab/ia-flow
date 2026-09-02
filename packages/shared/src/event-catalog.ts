@@ -66,23 +66,23 @@ export const EVENT_CATALOG: EventTypeDef[] = [
   {
     type: 'issue_comment.created',
     description:
-      'Comentario nuevo en un issue de GitHub. `item` está resuelto cuando el issue pertenece a un proyecto conocido.',
+      'Comentario nuevo en un issue de GitHub. NO trae `item` — es el payload crudo del webhook de GitHub, sin status/labels resueltos. Para condicionar por eso, usá `issue.status_changed`/`issue.created` (los que sí resuelven `item`, vía el re-scan).',
     source: 'github',
-    fields: ['action', 'body', 'author', 'commentUrl', 'issueNumber', 'item'],
+    fields: ['action', 'body', 'author', 'commentUrl', 'issueNumber'],
   },
   {
     type: 'issues.opened',
     description:
-      'Cambio en un issue de GitHub (abierto, cerrado, etc). `labelName`/`assignee` sólo vienen en labeled/unlabeled/assigned/unassigned.',
+      'Cambio en un issue de GitHub (abierto, cerrado, etc). `labelName`/`assignee` sólo vienen en labeled/unlabeled/assigned/unassigned. NO trae `item`: un `when` sobre `item.status`/`item.labels` acá nunca matchea — issuesEvent() (apps/server/src/adapters/github/webhook-events.ts) no lo resuelve. Para eso usá `issue.status_changed`/`issue.created`.',
     source: 'github',
-    fields: ['action', 'issueNumber', 'title', 'state', 'labelName', 'assignee', 'item'],
+    fields: ['action', 'issueNumber', 'title', 'state', 'labelName', 'assignee'],
   },
   {
     type: 'projects_v2_item.edited',
     description:
-      'Un item del board de GitHub Projects cambió. GitHub avisa QUÉ campo, nunca a qué valor — para eso hay que mirar `item`.',
+      'Un item del board de GitHub Projects cambió. GitHub avisa QUÉ campo, nunca a qué valor. NO trae `item` resuelto tampoco acá (projectItemEvent() sólo publica `itemId`/`fieldName`/`fieldType`) — para el valor actual hay que resolverlo aparte (`getItemById`) o esperar el `issue.status_changed`/`issue.created` que el re-scan dispara para el mismo delivery.',
     source: 'github',
-    fields: ['action', 'itemId', 'fieldName', 'fieldType', 'item'],
+    fields: ['action', 'itemId', 'fieldName', 'fieldType'],
   },
   {
     type: 'projects_v2.edited',

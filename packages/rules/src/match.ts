@@ -12,7 +12,7 @@
 // envolviéndolo, igual que `agent-text-gate.ts` envuelve a `selectAgent`.
 import type { EngineEvent, Rule } from '@ia-flow/shared'
 import { matchScope } from './scope.js'
-import { evalWhen } from './when.js'
+import { type WhenTrace, traceWhen } from './when.js'
 
 /** Filtro que descartó a una regla. El orden del union es el de evaluación.
  *  `whenText` no se decide acá — lo produce el gate semántico, que es impuro.
@@ -22,6 +22,10 @@ export type RuleRejectionReason = 'disabled' | 'type' | 'scope' | 'when' | 'when
 export interface RejectedRule {
   id: string
   reason: RuleRejectionReason
+  /** Sólo presente cuando `reason === 'when'`: qué condición(es) del `when`
+   *  fallaron y con qué valor resolvió el payload — es lo que permite
+   *  loguear POR QUÉ se rechazó, no sólo QUE se rechazó. */
+  whenTrace?: WhenTrace
 }
 
 export interface RuleMatchInput {
@@ -87,8 +91,9 @@ export function matchRules({ event, rules }: RuleMatchInput): RuleMatchResult {
       rejected.push({ id: rule.id, reason: 'scope' })
       continue
     }
-    if (!evalWhen(event.payload, rule.when)) {
-      rejected.push({ id: rule.id, reason: 'when' })
+    const whenTrace = traceWhen(event.payload, rule.when)
+    if (!whenTrace.matched) {
+      rejected.push({ id: rule.id, reason: 'when', whenTrace })
       continue
     }
     matched.push(rule)
