@@ -128,22 +128,11 @@ export class GithubHybridSource implements ProjectSource {
     }
   }
 
-  /** El repo tiene que coincidir con el configurado, y si hay anchor label
-   *  el item tiene que traerla — mismo criterio que decide qué issue es
-   *  "tracked" del lado `github-issues`. Sin este chequeo, un delivery
-   *  `projects_v2_item` de un board que cruza varios repos admitiría al
-   *  pipeline issues que ni `getItems()` ni el polling verían nunca. */
+  /** Sin este chequeo, un delivery `projects_v2_item` admitiría al pipeline
+   *  issues que ni `getItems()` ni el polling verían nunca. Ver
+   *  `isTrackedByIssuesConfig`. */
   private isTracked(item: SourceItem): boolean {
-    const repoName = item.meta?.repoName
-    if (
-      typeof repoName !== 'string' ||
-      repoName.toLowerCase() !== this.issuesConfig.repo.toLowerCase()
-    ) {
-      return false
-    }
-    if (!this.issuesConfig.anchorLabel) return true
-    const labels = (item.meta?.labels as string[] | undefined) ?? []
-    return labels.includes(this.issuesConfig.anchorLabel)
+    return isTrackedByIssuesConfig(item, this.issuesConfig)
   }
 
   /** `meta.projectItemId` es la marca propia (ver `normalizeBoardItem` /
@@ -268,19 +257,24 @@ export class GithubHybridSource implements ProjectSource {
   async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
     const item = await this.getItemById(id)
     if (!item) throw new Error(`Item '${id}' not found`)
+    // `id` puede ser el que pasó el caller en CUALQUIER forma (issue o
+    // ProjectV2Item — `getItemById` acepta las dos); `item.id`, ya
+    // normalizado, es siempre el del issue — es lo que `this.issues.*`
+    // necesita para resolver.
+    const issueId = item.id
     const projectItemId = item.meta?.projectItemId as string | undefined
 
     const { title, description, ...boardPatch } = patch
     if (title !== undefined || description !== undefined) {
-      await this.issues.updateItem(id, { title, description })
+      await this.issues.updateItem(issueId, { title, description })
     }
     const hasBoardEdits = Object.values(boardPatch).some((v) => v !== undefined)
     if (hasBoardEdits) {
       if (projectItemId) await this.project.updateItem(projectItemId, boardPatch)
-      else await this.issues.updateItem(id, boardPatch)
+      else await this.issues.updateItem(issueId, boardPatch)
     }
 
-    const refreshed = await this.getItemById(id)
+    const refreshed = await this.getItemById(issueId)
     if (!refreshed) throw new Error(`Item '${id}' desapareció después de updateItem`)
     return refreshed
   }
@@ -296,7 +290,10 @@ export class GithubHybridSource implements ProjectSource {
 
   async getHealth(): Promise<SourceHealth> {
     const [fromProject, fromIssues] = await Promise.all([
-      this.project.getHealth(),
+      this.project.getHealth().catch((err) => {
+        log.warn({ err }, 'getHealth: el lado Project falló')
+        return { ok: false, missing: [], warnings: [], message: (err as Error).message }
+      }),
       this.issues.getHealth(),
     ])
     return {
@@ -312,21 +309,26 @@ export class GithubHybridSource implements ProjectSource {
   }
 
   /**
-   * AND, no OR: `github-project`'s propio `matchesWebhook` es deliberadamente
-   * laxo para deliveries `issues`/`issue_comment` (matchea por OWNER, no por
-   * repo — un owner puede tener el issue en varios boards). Acá el set
-   * tracked lo define `issues`, que SÍ filtra por repo exacto — dejar pasar
-   * con un OR abriría este source a cualquier repo del mismo owner. Para un
-   * delivery `projects_v2_item` (sin `repoFullName`), `issues.matchesWebhook`
-   * ya falla abierto (`true`) por su propio diseño, así que el AND termina
-   * gobernado por el chequeo preciso de `project` — no se pierde nada.
+   * Ni AND ni OR — el discriminador que trae el hint decide QUIÉN gobierna,
+   * porque los dos lados chequean OWNER contra cosas distintas: `issues`
+   * contra el owner del REPO configurado, `project` contra el owner del
+   * BOARD — y un repo puede estar trackeado por un board de otro owner (es
+   * justo el caso que este source existe para cubrir). Un AND entre los dos
+   * rechazaría todo delivery `issues`/`issue_comment` de un repo cuyo board
+   * vive en otra org; un OR abriría este source a cualquier repo del mismo
+   * owner que el board.
+   *
+   *   · `repoFullName` presente (`issues`/`issue_comment`) → decide `issues`,
+   *     que matchea owner+repo exacto.
+   *   · `projectNodeId` presente (`projects_v2_item`) → decide `project`,
+   *     que matchea el id del board exacto.
+   *   · Ninguno de los dos (sin discriminador) → `true`, fail-open — mismo
+   *     criterio que la ausencia de `matchesWebhook` en el contrato.
    */
   async matchesWebhook(hint: WebhookMatchHint): Promise<boolean> {
-    const [fromIssues, fromProject] = await Promise.all([
-      this.issues.matchesWebhook?.(hint) ?? Promise.resolve(true),
-      this.project.matchesWebhook?.(hint) ?? Promise.resolve(true),
-    ])
-    return fromIssues && fromProject
+    if (hint.repoFullName) return (await this.issues.matchesWebhook?.(hint)) ?? true
+    if (hint.projectNodeId) return (await this.project.matchesWebhook?.(hint)) ?? true
+    return true
   }
 
   watch(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable {
@@ -383,6 +385,31 @@ function withBoardFields(issueItem: SourceItem, boardItem: SourceItem): SourceIt
     status: boardItem.status || issueItem.status,
     meta: { ...boardItem.meta, projectItemId: boardItem.id },
   }
+}
+
+/** Owner Y repo tienen que coincidir con lo configurado (no sólo el nombre
+ *  del repo — un board puede cruzar owners con dos repos homónimos,
+ *  `orgA/api` y `orgB/api`), y si hay anchor label el item tiene que
+ *  traerla — mismo criterio que decide qué issue es "tracked" del lado
+ *  `github-issues`. Exportada (pura, sin la clase) para poder testearla sin
+ *  fakear las dos fuentes completas. */
+export function isTrackedByIssuesConfig(
+  item: SourceItem,
+  config: Pick<GitHubIssueSourceConfig, 'owner' | 'repo' | 'anchorLabel'>,
+): boolean {
+  const owner = item.meta?.owner
+  const repoName = item.meta?.repoName
+  if (
+    typeof owner !== 'string' ||
+    owner.toLowerCase() !== config.owner.toLowerCase() ||
+    typeof repoName !== 'string' ||
+    repoName.toLowerCase() !== config.repo.toLowerCase()
+  ) {
+    return false
+  }
+  if (!config.anchorLabel) return true
+  const labels = (item.meta?.labels as string[] | undefined) ?? []
+  return labels.includes(config.anchorLabel)
 }
 
 /** El item del board (con `issueId` en su `meta`) reemplaza al del issue
