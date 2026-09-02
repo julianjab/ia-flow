@@ -80,6 +80,11 @@ const ruleFilter = ref<Set<string>>(new Set(queryStrArr('ruleId')));
 // `runId` deja de ser uno solo: es el mismo campo que los de arriba y no hay
 // razón para que no se puedan mirar dos corridas juntas.
 const runFilter = ref<Set<string>>(new Set(queryStr('runId') ? [queryStr('runId')] : []));
+// Búsqueda por regexp sobre CUALQUIER campo de `extras`, no sólo los seis con
+// selector propio arriba — cada token es `<clave>:<regexp>`
+// (`extra:err:ECONNRESET`, `extra:clearDedupe:^http`). Multi-select: varios
+// tokens se exigen todos a la vez, igual que agente/tarea/etc.
+const extraFilter = ref<Set<string>>(new Set(queryStrArr('extra')));
 
 // Full universe of modules present in daemon.log. Populated once on mount
 // so the chip row shows every module that has ever logged — not just what's
@@ -233,6 +238,12 @@ const FILTER_FIELDS: Array<{
     free: true,
   },
   { key: 'msg', hint: 'substring del mensaje', free: true },
+  {
+    key: 'extra',
+    hint: 'clave:regexp sobre extras — ej. err:ECONNRESET',
+    free: true,
+    validate: (v) => v.includes(':') && v.split(':', 1)[0]!.length > 0,
+  },
   { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
   { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
 ];
@@ -270,6 +281,7 @@ const filterTokens = computed<FilterToken[]>({
     ...setTokens('proyecto', Array.from(projectFilter.value)),
     ...setTokens('regla', Array.from(ruleFilter.value)),
     ...setTokens('run', Array.from(runFilter.value)),
+    ...setTokens('extra', Array.from(extraFilter.value)),
     ...setTokens('msg', searchInput.value ? [searchInput.value] : []),
     ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
     ...setTokens('hasta', toFilter.value ? [toFilter.value] : []),
@@ -284,6 +296,7 @@ const filterTokens = computed<FilterToken[]>({
     assignSet(projectFilter, of('proyecto'));
     assignSet(ruleFilter, of('regla'));
     assignSet(runFilter, of('run'));
+    assignSet(extraFilter, of('extra'));
     // El nivel es uno solo: dos tokens serían dos niveles a la vez, que el
     // endpoint no soporta (`level` es un valor, no una lista). Gana el último.
     levelFilter.value = parseLevel(of('nivel').at(-1) ?? '');
@@ -331,6 +344,7 @@ function buildFilters(): ServerLogFilters {
   if (projectFilter.value.size > 0) f.projectId = Array.from(projectFilter.value);
   if (ruleFilter.value.size > 0) f.ruleId = Array.from(ruleFilter.value);
   if (runFilter.value.size > 0) f.runId = Array.from(runFilter.value);
+  if (extraFilter.value.size > 0) f.extra = Array.from(extraFilter.value);
   return f;
 }
 
@@ -532,6 +546,7 @@ watch(
     projectFilter,
     ruleFilter,
     runFilter,
+    extraFilter,
     searchApplied,
     fromFilter,
     toFilter,
