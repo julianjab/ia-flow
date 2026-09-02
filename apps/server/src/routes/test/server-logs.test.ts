@@ -216,11 +216,23 @@ describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
     ])
   })
 
-  // El patrón de un GLOB se escapa entero salvo `*`/`?` — un `.` literal no
-  // debería matchear cualquier carácter como haría en una regexp de verdad.
+  // No compila a RegExp — todo carácter que no sea `*`/`?` es literal, sin
+  // escape (un `.`, un `(`, no hacen nada especial).
   test('los metacaracteres de regex se toman literales, salvo * y ?', async () => {
     seed()
     expect(await fetchEntries('?sort=asc&extra=err:ECONNRESETxsocket')).toHaveLength(0)
+    seed()
+    expect(await fetchEntries('?sort=asc&extra=err:ECONNRESET.socket')).toHaveLength(0)
+  })
+
+  // El valor real es "ECONNRESET: socket hang up" — dos caracteres (`:` y el
+  // espacio) entre "ECONNRESET" y "socket", así que hacen falta dos `?`.
+  test('? matchea exactamente un carácter', async () => {
+    seed()
+    expect(
+      (await fetchEntries('?sort=asc&extra=err:ECONNRESET??socket')).map((e) => e.msg),
+    ).toEqual(['conexión perdida'])
+    expect(await fetchEntries('?sort=asc&extra=err:ECONNRESET?socket')).toHaveLength(0)
   })
 
   test('una línea sin la clave queda afuera', async () => {
@@ -243,5 +255,24 @@ describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
     seed()
     const res = await createServerLogsRouter().request(`/?extra=err:${'a'.repeat(201)}`)
     expect(res.status).toBe(400)
+  })
+
+  // El caso que rompía la implementación anterior basada en RegExp: muchos
+  // `*` en serie son polinómicos de grado k en un motor de backtracking
+  // (k=~90 acá, dentro del tope de 200 chars), y contra un valor que no
+  // matchea eso cuelga el proceso. El algoritmo iterativo no tiene ese
+  // costo — este test falla por timeout si alguna vez se vuelve a compilar
+  // el patrón a regex.
+  test('muchos * en serie no cuelgan el request', async () => {
+    const dir = logDir()
+    const stars = '*a'.repeat(90)
+    // 2000 = MAX_EXTRA_VALUE_LEN del server — el tope real que ve el matcher.
+    writeFileSync(join(dir, 'daemon.log'), extraLine('sin match', { err: 'b'.repeat(2000) }))
+    const start = performance.now()
+    const res = await createServerLogsRouter().request(
+      `/?extra=${encodeURIComponent(`err:${stars}`)}`,
+    )
+    expect(performance.now() - start).toBeLessThan(1000)
+    expect(res.status).toBe(200)
   })
 })
