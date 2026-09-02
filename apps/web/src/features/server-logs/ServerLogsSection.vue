@@ -240,24 +240,18 @@ const FILTER_FIELDS: Array<{
   { key: 'msg', hint: 'substring del mensaje', free: true },
   {
     key: 'extra',
-    hint: 'clave:regexp sobre extras — ej. err:ECONNRESET',
+    hint: 'clave:patrón sobre extras (*/? comodines) — ej. err:ECONNRESET',
     free: true,
-    // Compila el patrón, no sólo chequea la forma `clave:algo` — si no,
-    // `extra:err:[unclosed` entraba como token, el servidor lo rechazaba con
-    // 400 y el panel quedaba sin cargar hasta borrarlo a mano (el mismo
-    // fallo que `desde`/`hasta` evitan con `isDateValue`). El tope de
-    // longitud espeja `MAX_EXTRA_PATTERN_LEN` del server.
+    // No es una regexp arbitraria (ver el comentario de `extra` en
+    // ServerLogFiltersSchema y `compileGlob` en server-logs.ts) — sólo `*`/`?`
+    // como comodines, así que no hay forma de escribir un patrón inválido
+    // más allá de "sin clave" o "demasiado largo". El tope espeja
+    // MAX_EXTRA_PATTERN_LEN del server.
     validate: (v) => {
       const at = v.indexOf(':');
       if (at <= 0) return false;
       const pattern = v.slice(at + 1).trim();
-      if (!pattern || pattern.length > 200) return false;
-      try {
-        new RegExp(pattern);
-        return true;
-      } catch {
-        return false;
-      }
+      return pattern.length > 0 && pattern.length <= 200;
     },
   },
   { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
