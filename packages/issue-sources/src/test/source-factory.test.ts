@@ -108,7 +108,12 @@ describe('createDefaultSourceFactory', () => {
 
   it('lists every kind this package ships support for — sin el alias deprecado', () => {
     const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
-    expect(factory.listKinds()).toEqual(['github-projects', 'local', 'github-issues'])
+    expect(factory.listKinds()).toEqual([
+      'github-projects',
+      'local',
+      'github-issues',
+      'github-hybrid',
+    ])
   })
 
   it("sigue construyendo el kind viejo 'github' — las filas ya persistidas no se rompen", () => {
@@ -165,6 +170,45 @@ describe('createDefaultSourceFactory', () => {
         }),
       ),
     ).toThrow(/anchorLabel/)
+  })
+
+  it('builds a GithubHybridSource for the github-hybrid kind', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    const source = factory.get(
+      project('p1', {
+        kind: 'github-hybrid',
+        config: {
+          owner: 'la-haus',
+          repo: 'ia-flow',
+          url: 'https://github.com/orgs/la-haus/projects/1',
+        },
+      }),
+    )
+    expect(source.kind).toBe('github-hybrid')
+  })
+
+  it('throws when github-hybrid is missing the issues half of the config', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(() =>
+      factory.get(
+        project('p1', {
+          kind: 'github-hybrid',
+          config: { url: 'https://github.com/orgs/la-haus/projects/1' },
+        }),
+      ),
+    ).toThrow(/config\.owner/)
+  })
+
+  it('throws when github-hybrid is missing the board url', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(() =>
+      factory.get(
+        project('p1', {
+          kind: 'github-hybrid',
+          config: { owner: 'la-haus', repo: 'ia-flow' },
+        }),
+      ),
+    ).toThrow(/config\.url/)
   })
 })
 
