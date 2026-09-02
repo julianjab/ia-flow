@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { condToOp, evalWhen } from './when.js'
+import { condToOp, evalWhen, traceWhen } from './when.js'
 
 describe('evalWhen — comportamiento heredado', () => {
   test('sin condiciones matchea todo', () => {
@@ -133,5 +133,83 @@ describe('condToOp', () => {
   test('los operadores sin argumento pasan derecho', () => {
     expect(condToOp({ op: '$null' })).toBe('$null')
     expect(condToOp({ op: '$not_null' })).toBe('$not_null')
+  })
+})
+
+describe('traceWhen', () => {
+  test('matched es siempre igual al de evalWhen, para los mismos casos', () => {
+    // Ambas funciones comparten toConditionGroups/evalCondition — este test
+    // es la red que evita que se desincronicen si alguna cambia sola.
+    const cases: Array<[Record<string, unknown>, unknown]> = [
+      [{ status: 'Ready' }, undefined],
+      [{ status: 'Ready' }, []],
+      [
+        { status: 'Ready', type: 'functional' },
+        { status: 'Ready', type: 'functional' },
+      ],
+      [
+        { status: 'Ready', type: 'functional' },
+        { status: 'Ready', type: 'technical' },
+      ],
+      [
+        { status: 'Ready', type: 'technical' },
+        [
+          { field: 'status', op: '=', value: 'Done' },
+          { field: 'type', op: '=', value: 'technical', logic: 'or' },
+        ],
+      ],
+      [{ labels: ['bug', 'p1'] }, [{ field: 'labels', op: '!=', value: 'bug' }]],
+      [{}, [{ field: 'item.status', op: '=', value: 'Review' }]],
+    ]
+
+    for (const [subject, when] of cases) {
+      expect(traceWhen(subject, when).matched).toBe(evalWhen(subject, when))
+    }
+  })
+
+  test('sin condiciones, matched=true y groups vacío', () => {
+    expect(traceWhen({ status: 'Ready' }, undefined)).toEqual({ matched: true, groups: [] })
+    expect(traceWhen({ status: 'Ready' }, [])).toEqual({ matched: true, groups: [] })
+  })
+
+  test('el caso #1317: item.status contra un payload sin item', () => {
+    // issues.unlabeled nunca trae `item` en su payload (ver
+    // apps/server/src/adapters/github/webhook-events.ts#issuesEvent) — este
+    // es el trace que hubiera mostrado la causa sin tener que leer el código.
+    const trace = traceWhen({ action: 'unlabeled', issueNumber: 1317 }, [
+      { field: 'item.status', op: '=', value: 'Review' },
+    ])
+
+    expect(trace).toEqual({
+      matched: false,
+      groups: [
+        [{ field: 'item.status', op: '=', value: 'Review', actual: undefined, matched: false }],
+      ],
+    })
+  })
+
+  test('reporta cada condición del grupo AND que falló, no sólo la primera', () => {
+    const trace = traceWhen({ status: 'Review' }, [
+      { field: 'status', op: '=', value: 'Review' },
+      { field: 'labels', op: '!=', value: 'blocked' },
+    ])
+
+    expect(trace.matched).toBe(true)
+    expect(trace.groups[0]).toEqual([
+      { field: 'status', op: '=', value: 'Review', actual: 'Review', matched: true },
+      { field: 'labels', op: '!=', value: 'blocked', actual: undefined, matched: true },
+    ])
+  })
+
+  test('en un OR, agrupa cada rama por separado', () => {
+    const trace = traceWhen({ status: 'Ready', type: 'technical' }, [
+      { field: 'status', op: '=', value: 'Done' },
+      { field: 'type', op: '=', value: 'technical', logic: 'or' },
+    ])
+
+    expect(trace.matched).toBe(true)
+    expect(trace.groups).toHaveLength(2)
+    expect(trace.groups[0][0].matched).toBe(false)
+    expect(trace.groups[1][0].matched).toBe(true)
   })
 })
