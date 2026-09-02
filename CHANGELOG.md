@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.0](https://github.com/julianjab/ia-flow/compare/v0.3.0...v1.0.0) (2026-09-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* el pipeline se configura con reglas sobre eventos, y un run puede detenerse y volver ([#122](https://github.com/julianjab/ia-flow/issues/122))
+
+### Features
+
+* **agent-selection:** whenText puede activar un agente por la conversación ([9eb711b](https://github.com/julianjab/ia-flow/commit/9eb711b00492b35659c260df23b02b50beb9eb31))
+* el pipeline se configura con reglas sobre eventos, y un run puede detenerse y volver ([#122](https://github.com/julianjab/ia-flow/issues/122)) ([344f922](https://github.com/julianjab/ia-flow/commit/344f922f57653bf48338f96f18a62cb4bc30129e))
+* **web:** el picker descubre agent-hosts, y el menú del server ya no los abre ([95b27b4](https://github.com/julianjab/ia-flow/commit/95b27b4e6f926d08321ae0e6f3d31ed820122d49))
+
+
+### Bug Fixes
+
+* **agent-action:** propagar el output del agente al evento run.finished ([#128](https://github.com/julianjab/ia-flow/issues/128)) ([7fb1a30](https://github.com/julianjab/ia-flow/commit/7fb1a30cfb736c313460dff56d7332bf911cd032))
+* **agent-host:** renombrar las env vars del .env.example ([80be88b](https://github.com/julianjab/ia-flow/commit/80be88b04c9cc376b54c06a3ab499228801337be))
+* **web:** el socket no se abre contra un agent-host, y sus logs no se cruzan ([31efa7c](https://github.com/julianjab/ia-flow/commit/31efa7c3887b087a00ca114598b393033b8f50a5))
+
 ## [0.3.0](https://github.com/julianjab/ia-flow/compare/v0.2.0...v0.3.0) (2026-08-31)
 
 
