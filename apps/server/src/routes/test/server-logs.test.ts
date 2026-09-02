@@ -182,3 +182,66 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
     expect(await fetchEntries('?sort=asc&agentId=')).toHaveLength(5)
   })
 })
+
+// `extra` es un patrón GLOB (*/?), no una regexp arbitraria — ver el
+// comentario de `compileGlob` en server-logs.ts sobre por qué (ReDoS: corre
+// en el event loop del daemon, sobre potencialmente decenas de miles de
+// líneas por request).
+describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
+  function extraLine(msg: string, extras: Record<string, unknown>): string {
+    return `${JSON.stringify({ level: 30, time: '2026-08-27T10:00:00.000Z', module: 'engine', msg, ...extras })}\n`
+  }
+
+  function seed(): void {
+    const dir = logDir()
+    writeFileSync(
+      join(dir, 'daemon.log'),
+      extraLine('conexión perdida', { err: { message: 'ECONNRESET: socket hang up' } }) +
+        extraLine('rate limit', { err: { message: 'rate limited' } }) +
+        extraLine('sin err', { agentId: 'refiner' }),
+    )
+  }
+
+  test('matchea substring simple contra un valor serializado', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&extra=err:ECONNRESET')).map((e) => e.msg)).toEqual([
+      'conexión perdida',
+    ])
+  })
+
+  test('* matchea cualquier secuencia', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&extra=err:ECONN*')).map((e) => e.msg)).toEqual([
+      'conexión perdida',
+    ])
+  })
+
+  // El patrón de un GLOB se escapa entero salvo `*`/`?` — un `.` literal no
+  // debería matchear cualquier carácter como haría en una regexp de verdad.
+  test('los metacaracteres de regex se toman literales, salvo * y ?', async () => {
+    seed()
+    expect(await fetchEntries('?sort=asc&extra=err:ECONNRESETxsocket')).toHaveLength(0)
+  })
+
+  test('una línea sin la clave queda afuera', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&extra=err:*')).map((e) => e.msg)).toEqual([
+      'conexión perdida',
+      'rate limit',
+    ])
+  })
+
+  // Sin clave, o con el patrón vacío/demasiado largo → 400, no "no filtra
+  // nada": un typo no puede confundirse con "no hay resultados".
+  test('un patrón malformado corta con 400', async () => {
+    seed()
+    const res = await createServerLogsRouter().request('/?extra=sinclave')
+    expect(res.status).toBe(400)
+  })
+
+  test('un patrón demasiado largo corta con 400', async () => {
+    seed()
+    const res = await createServerLogsRouter().request(`/?extra=err:${'a'.repeat(201)}`)
+    expect(res.status).toBe(400)
+  })
+})
