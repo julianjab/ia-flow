@@ -239,6 +239,41 @@ function matchesExtra(entry: ServerLogEntry, key: string, allowed: Set<string>):
   return typeof value === 'string' && allowed.has(value)
 }
 
+/** Parte `"taskId:^abc123"` en `{key: 'taskId', regex: /^abc123/}`. La clave
+ *  es todo antes del PRIMER `:` — el patrón puede traer los suyos (`\d{3}:00`,
+ *  una hora). `null` si falta la clave o el patrón no compila. */
+function parseExtraQuery(raw: string): { key: string; regex: RegExp } | null {
+  const at = raw.indexOf(':')
+  if (at < 0) return null
+  const key = raw.slice(0, at).trim()
+  const pattern = raw.slice(at + 1).trim()
+  if (!key || !pattern) return null
+  try {
+    return { key, regex: new RegExp(pattern) }
+  } catch {
+    return null
+  }
+}
+
+/** Coacciona un valor de `extras` a texto comparable: los strings quedan tal
+ *  cual, todo lo demás (objetos, números, `err`) se serializa — así un
+ *  `extra:err:ECONNRESET` encuentra el motivo aunque viva en un objeto. */
+function extraAsText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function matchesExtraQuery(entry: ServerLogEntry, q: { key: string; regex: RegExp }): boolean {
+  const value = entry.extras?.[q.key]
+  if (value === undefined) return false
+  return q.regex.test(extraAsText(value))
+}
+
 export function createServerLogsRouter() {
   const app = new Hono()
 
@@ -282,12 +317,37 @@ export function createServerLogsRouter() {
       taskId: multi('taskId'),
       ruleId: multi('ruleId'),
       task: multi('task'),
+      extra: multi('extra'),
     })
     if (!parsed.success) {
       return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
     }
 
     const filters = parsed.data
+
+    // `extra` no es un Set de valores conocidos como los demás — cada entrada
+    // es "clave:regexp", así que se compila acá y un patrón inválido corta
+    // con 400 en vez de fallar en silencio adentro del loop (una regexp mal
+    // escrita no puede simplemente "no filtrar nada": eso confundiría un
+    // typo con "no hay resultados").
+    const rawExtraQueries = filters.extra
+      ? Array.isArray(filters.extra)
+        ? filters.extra
+        : [filters.extra]
+      : []
+    const extraQueries: Array<{ key: string; regex: RegExp }> = []
+    for (const raw of rawExtraQueries) {
+      const q = parseExtraQuery(raw)
+      if (!q) {
+        return c.json(
+          {
+            error: `Invalid extra query: "${raw}" — expected "<key>:<regexp>" with a valid regexp`,
+          },
+          400,
+        )
+      }
+      extraQueries.push(q)
+    }
     const limit = Math.min(Math.max(filters.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT)
     const offset = Math.max(filters.offset ?? 0, 0)
     const sort = filters.sort ?? 'desc'
@@ -348,6 +408,7 @@ export function createServerLogsRouter() {
       // ningún agente ni a ninguna tarea, y preguntar por una es pedir
       // explícitamente lo que sí tiene dueño.
       if (extraSets.some(([key, set]) => !matchesExtra(entry, key, set))) continue
+      if (extraQueries.some((q) => !matchesExtraQuery(entry, q))) continue
       if (filters.search && !entry.msg.includes(filters.search)) continue
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue
