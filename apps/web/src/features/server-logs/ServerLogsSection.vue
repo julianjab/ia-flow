@@ -242,7 +242,23 @@ const FILTER_FIELDS: Array<{
     key: 'extra',
     hint: 'clave:regexp sobre extras — ej. err:ECONNRESET',
     free: true,
-    validate: (v) => v.includes(':') && v.split(':', 1)[0]!.length > 0,
+    // Compila el patrón, no sólo chequea la forma `clave:algo` — si no,
+    // `extra:err:[unclosed` entraba como token, el servidor lo rechazaba con
+    // 400 y el panel quedaba sin cargar hasta borrarlo a mano (el mismo
+    // fallo que `desde`/`hasta` evitan con `isDateValue`). El tope de
+    // longitud espeja `MAX_EXTRA_PATTERN_LEN` del server.
+    validate: (v) => {
+      const at = v.indexOf(':');
+      if (at <= 0) return false;
+      const pattern = v.slice(at + 1).trim();
+      if (!pattern || pattern.length > 200) return false;
+      try {
+        new RegExp(pattern);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   },
   { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
   { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
