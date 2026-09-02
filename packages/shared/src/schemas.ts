@@ -756,11 +756,13 @@ export const AgentActivationSchema = z.object({
   // DEUDA: su único evaluador (`selectAgentGated` en
   // `packages/agent-engine/src/agent-text-gate.ts`) se borró por ser código
   // muerto — el refactor a reglas sobre eventos (#122) dejó de llamarlo y
-  // nada lo reemplazó. El campo sigue en el editor de agentes
-  // (`AgentDefinitionSection.vue`) pero hoy no lo evalúa nadie: un operador
-  // que lo completa no ve ningún efecto. El `whenText` que SÍ funciona es el
-  // de la regla (`Rule.whenText`, evaluado por `daemon.ts` vía
-  // `classifyAgent`/`toRuleClassificationInput`) — no lo confundas con este.
+  // nada lo reemplazó. Sin evaluador Y sin ningún input en el editor de
+  // agentes (`apps/web/src/features/agents/**`) que lo escriba, el campo está
+  // completamente huérfano hoy — sólo sobrevive en este schema y en lo que ya
+  // haya persistido. El `whenText` que SÍ funciona es el de la regla
+  // (`Rule.whenText`, editable en `RuleScopeEditor.vue`/`RuleEditorModal.vue`
+  // y evaluado por `daemon.ts` vía `classifyAgent`/`toRuleClassificationInput`)
+  // — no lo confundas con este.
   //
   // Ojo con el nombre repetido: `AgentProviderChoiceSchema.whenText` es OTRO
   // campo con otra semántica (desempata entre >1 provider, nunca rechaza al
