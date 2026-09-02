@@ -125,6 +125,10 @@ export class GitHubProjectSource implements ProjectSource {
         issueId: it.issueId,
         issueNumber: it.issueNumber,
         repoName: it.repoName,
+        // Owner del repo del ISSUE — NO confundir con `meta.owner` (más
+        // abajo), que es el owner del BOARD. Un board puede trackear
+        // issues de otro owner; GithubHybridSource los distingue por esto.
+        repoOwner: it.repoOwner,
         type: it.type,
         priority: it.priority,
         size: it.size,

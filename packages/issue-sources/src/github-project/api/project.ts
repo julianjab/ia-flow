@@ -31,6 +31,11 @@ export interface ProjectItem {
   issueTitle: string
   issueBody: string
   repoName: string
+  // Owner del repo del ISSUE (org o user login) — distinto de ProjectMeta.owner,
+  // que es el owner del BOARD. Un board puede trackear issues de otro owner;
+  // sin este campo separado, GithubHybridSource no puede distinguir "mismo
+  // nombre de repo, owner distinto" de "el repo configurado de verdad".
+  repoOwner: string
   status: string // value of the Status field
   type: string // value of the Type field
   repos: string // value of the Repos field (comma-separated)
@@ -138,7 +143,7 @@ function projectItemNodeFields(): string {
       number
       title
       body
-      repository { name }
+      repository { name owner { login } }
       labels(first: 20) { nodes { name } }
       assignees(first: 10) { nodes { login } }
       # Development panel de GitHub: branch linkeada + PRs que cierran el
@@ -205,6 +210,7 @@ export function mapProjectItemNode(
     issueTitle: raw.content.title,
     issueBody: raw.content.body ?? '',
     repoName: raw.content.repository?.name ?? '',
+    repoOwner: raw.content.repository?.owner?.login ?? '',
     status: fieldMap['Status'] ?? '',
     type: fieldMap['Task Type'] ?? '',
     repos: fieldMap['Repos'] ?? '',

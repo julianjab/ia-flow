@@ -383,7 +383,16 @@ function withBoardFields(issueItem: SourceItem, boardItem: SourceItem): SourceIt
     ...boardItem,
     id: issueItem.id,
     status: boardItem.status || issueItem.status,
-    meta: { ...boardItem.meta, projectItemId: boardItem.id },
+    meta: {
+      ...boardItem.meta,
+      projectItemId: boardItem.id,
+      // "Gana el issue" (ver CLAUDE.md, sección Slack): el cuerpo del issue
+      // es el canónico. El board sólo lo pisa cuando de verdad tiene un
+      // link propio en su slackThreadField configurado — perderlo por
+      // reemplazar `meta` entero dejaría la tarjeta sin el tag del hilo
+      // aunque el issue sí lo tenga.
+      slackThreadUrl: boardItem.meta?.slackThreadUrl ?? issueItem.meta?.slackThreadUrl,
+    },
   }
 }
 
@@ -391,13 +400,21 @@ function withBoardFields(issueItem: SourceItem, boardItem: SourceItem): SourceIt
  *  del repo — un board puede cruzar owners con dos repos homónimos,
  *  `orgA/api` y `orgB/api`), y si hay anchor label el item tiene que
  *  traerla — mismo criterio que decide qué issue es "tracked" del lado
- *  `github-issues`. Exportada (pura, sin la clase) para poder testearla sin
- *  fakear las dos fuentes completas. */
+ *  `github-issues`.
+ *
+ *  El owner viene de `item.meta.repoOwner` (el owner del REPO del issue,
+ *  `content.repository.owner.login`), NO de `item.meta.owner` — ese es el
+ *  owner del BOARD (`ProjectMeta.owner`, sale de parsear la URL del
+ *  proyecto), un dato completamente distinto que un board puede trackear
+ *  issues de otro owner sin ningún problema.
+ *
+ *  Exportada (pura, sin la clase) para poder testearla sin fakear las dos
+ *  fuentes completas. */
 export function isTrackedByIssuesConfig(
   item: SourceItem,
   config: Pick<GitHubIssueSourceConfig, 'owner' | 'repo' | 'anchorLabel'>,
 ): boolean {
-  const owner = item.meta?.owner
+  const owner = item.meta?.repoOwner
   const repoName = item.meta?.repoName
   if (
     typeof owner !== 'string' ||
