@@ -208,10 +208,18 @@ export class GithubHybridSource implements ProjectSource {
     return this.isOnBoard(item) ? this.project.getBlockers(item) : this.issues.getBlockers(item)
   }
 
+  /** Chequea las DOS ubicaciones, no sólo la de la membresía actual del
+   *  board: un link guardado en el campo del board mientras el issue estaba
+   *  ahí sigue siendo válido si después lo sacaron (y viceversa, uno guardado
+   *  en el body/PR antes de que el issue entrara al board). Perder la
+   *  continuidad del hilo por un cambio de membresía sería peor que una
+   *  lectura de más. */
   async getSlackThreadUrl(item: IssueItem): Promise<string | undefined> {
-    return this.isOnBoard(item)
-      ? this.project.getSlackThreadUrl(item)
-      : this.issues.getSlackThreadUrl(item)
+    if (this.isOnBoard(item)) {
+      const fromBoard = await this.project.getSlackThreadUrl(item)
+      if (fromBoard) return fromBoard
+    }
+    return this.issues.getSlackThreadUrl(item)
   }
 
   async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
@@ -239,27 +247,48 @@ export class GithubHybridSource implements ProjectSource {
     return this.issues.createItem(input)
   }
 
+  /**
+   * `title`/`description` van SIEMPRE por `issues` — son el issue de
+   * verdad, y `project.updateItem` sólo sabe editar un DRAFT propio (tira
+   * `is not a draft issue` para cualquier issue real, board-tracked o no).
+   * `type`/`repos`/`status` van por `project` cuando el item está en el
+   * board (son sus campos), y si no por `issues` (sólo `status`, que ahí es
+   * la label — `type`/`repos` no existen del lado issues y quedan sin
+   * efecto, igual que hoy usando `GitHubIssueSource` solo).
+   *
+   * Re-lee con `getItemById` al final en vez de devolver lo que cualquiera
+   * de los dos delegados retorna: es lo que garantiza la identidad estable
+   * (`normalizeBoardItem`/`withBoardFields`) sin importar por dónde se
+   * escribió.
+   */
   async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
     const item = await this.getItemById(id)
     if (!item) throw new Error(`Item '${id}' not found`)
     const projectItemId = item.meta?.projectItemId as string | undefined
-    return projectItemId
-      ? this.project.updateItem(projectItemId, patch)
-      : this.issues.updateItem(id, patch)
+
+    const { title, description, ...boardPatch } = patch
+    if (title !== undefined || description !== undefined) {
+      await this.issues.updateItem(id, { title, description })
+    }
+    const hasBoardEdits = Object.values(boardPatch).some((v) => v !== undefined)
+    if (hasBoardEdits) {
+      if (projectItemId) await this.project.updateItem(projectItemId, boardPatch)
+      else await this.issues.updateItem(id, boardPatch)
+    }
+
+    const refreshed = await this.getItemById(id)
+    if (!refreshed) throw new Error(`Item '${id}' desapareció después de updateItem`)
+    return refreshed
   }
 
-  async deleteItem(id: string): Promise<void> {
-    if (!this.project.deleteItem)
-      throw new Error('deleteItem no soportado por el board configurado')
-    const item = await this.getItemById(id)
-    const projectItemId = item?.meta?.projectItemId as string | undefined
-    if (!projectItemId) {
-      throw new Error(
-        `deleteItem no soportado: '${id}' no es un item del board (github-issues no borra issues)`,
-      )
-    }
-    await this.project.deleteItem(projectItemId)
-  }
+  // deleteItem NO se implementa a propósito: la fuente de verdad del set
+  // rastreado es `issues`, y `GitHubIssueSource` no borra issues de GitHub
+  // (no tiene sentido — cerrarlo es otra cosa, y no es lo que pide un
+  // "delete"). Sacar el item sólo del board (lo único que `project.deleteItem`
+  // puede hacer) no borraría nada: el issue seguiría abierto con su anchor
+  // label y el próximo scan lo devolvería otra vez, ahora sin datos de
+  // board — un "borrado" que se deshace solo. Omitir el método hace que la
+  // ruta responda 501 en vez de simular un borrado que no ocurrió.
 
   async getHealth(): Promise<SourceHealth> {
     const [fromProject, fromIssues] = await Promise.all([
