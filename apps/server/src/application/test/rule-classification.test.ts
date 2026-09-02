@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { type EngineEvent, createEvent } from '@ia-flow/shared'
-import { toRuleClassificationInput } from '../rule-classification.js'
+import { type EngineEvent, type Rule, createEvent } from '@ia-flow/shared'
+import { firstAgentIdOf, toRuleClassificationInput } from '../rule-classification.js'
 
 const event = (payload: Record<string, unknown>): EngineEvent =>
   createEvent({ type: 'issue.scanned', source: 'engine', scope: {}, payload })
@@ -44,5 +44,47 @@ describe('toRuleClassificationInput', () => {
       id: 'r2',
       whenText: '',
     })
+  })
+
+  test('sin conversación, el input no lleva la clave', () => {
+    const input = toRuleClassificationInput(rule, event({}))
+    expect('conversation' in input).toBe(false)
+  })
+
+  test('con conversación, viaja tal cual al input', () => {
+    const input = toRuleClassificationInput(rule, event({}), 'feedback nuevo')
+    expect(input.conversation).toBe('feedback nuevo')
+  })
+})
+
+describe('firstAgentIdOf', () => {
+  const withDo = (...steps: Rule['do']): Pick<Rule, 'do'> => ({ do: steps })
+
+  test('encuentra el agentId del primer paso agent', () => {
+    expect(
+      firstAgentIdOf(
+        withDo(
+          { action: 'http', url: 'https://x', method: 'POST' },
+          { action: 'agent', agentId: 'implementer' },
+        ),
+      ),
+    ).toBe('implementer')
+  })
+
+  test('sin ningún paso agent devuelve undefined', () => {
+    expect(firstAgentIdOf(withDo({ action: 'emit', type: 'foo' }))).toBeUndefined()
+  })
+
+  // Con dos pasos `agent`, cuál corta la ventana es ambiguo — se elige el
+  // primero, no se adivina cuál "es" el destinatario del whenText.
+  test('con varios pasos agent, usa el primero', () => {
+    expect(
+      firstAgentIdOf(
+        withDo(
+          { action: 'agent', agentId: 'triager' },
+          { action: 'agent', agentId: 'implementer' },
+        ),
+      ),
+    ).toBe('triager')
   })
 })

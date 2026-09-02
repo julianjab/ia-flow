@@ -16,7 +16,12 @@ import {
   deriveEvent,
 } from '@ia-flow/shared'
 import { toRuleClassificationInput } from './application/rule-classification.js'
-import { registerActions, setActiveManagers } from './composition/actions.js'
+import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
+import {
+  registerActions,
+  resolveRuleConversation,
+  setActiveManagers,
+} from './composition/actions.js'
 import {
   actionRepo,
   actionRunRecorder,
@@ -95,7 +100,24 @@ function registerRuleEngine(): void {
       // Es el mismo clasificador que antes gateaba la activación de un agente
       // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
       // saltea la regla en vez de adivinar; ver RuleEngineHandler.
-      classifyRule: ({ rule, event }) => classifyAgent(toRuleClassificationInput(rule, event)),
+      //
+      // La conversación es best-effort y se resuelve ANTES del clasificador,
+      // no adentro: `toRuleClassificationInput` se queda pura (testeable sin
+      // I/O) y `resolveRuleConversation` es lo único que sale a buscar datos.
+      //
+      // El cache evita repreguntarle a Haiku por un issue atascado en el
+      // estado que activa la regla — ver rule-whentext-cache.ts. No evita la
+      // llamada a `loadComments` de arriba: el cache sólo puede consultarse
+      // una vez que la conversación (parte de su key) ya se armó.
+      classifyRule: async ({ rule, event }) => {
+        const conversation = await resolveRuleConversation(rule, event)
+        const input = toRuleClassificationInput(rule, event, conversation)
+        const cached = cachedVerdict(rule.id, input)
+        if (cached !== undefined) return cached
+        const verdict = await classifyAgent(input)
+        if (verdict !== null) rememberVerdict(rule.id, input, verdict)
+        return verdict
+      },
       // Una `ref` se resuelve contra las acciones VISIBLES en el ámbito del
       // evento: las del proyecto más las globales. Por eso referenciar la
       // acción de otro proyecto no funciona — no porque se chequee, sino

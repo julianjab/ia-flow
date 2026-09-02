@@ -107,3 +107,61 @@ export function selectCommentWindow<T extends WindowableComment>(
   }
   return comments.slice(boundary + 1)
 }
+
+/** Lo mínimo que `renderConversationWindow` necesita de un comentario para
+ *  describir de dónde salió — el resto de `TaskComment` (id, threadId) no
+ *  aporta nada a un texto que un modelo va a leer una vez y descartar. */
+export interface RenderableComment extends WindowableComment {
+  created_at: string
+  origin?: 'issue' | 'pr' | 'pr-review'
+  prNumber?: number
+  author?: string
+  path?: string
+  line?: number
+}
+
+// Topes del render. La ventana de un issue con varias vueltas de
+// build→review→build llega a decenas de comentarios y ~41k chars; mandarlos
+// enteros a un gate que puede correr en cada evento es caro y además empeora
+// la decisión, porque entierra lo reciente. Se recorta por la cola: lo
+// último es lo que motiva la evaluación.
+const MAX_CONVERSATION_COMMENTS = 10
+const MAX_CONVERSATION_CHARS = 4000
+
+/**
+ * La conversación que `agentId` todavía no vio, lista para el prompt de un
+ * gate semántico (`whenText`).
+ *
+ * Usa la MISMA ventana que `Agent.run` le muestra al agente si termina
+ * corriendo (`selectCommentWindow`, cortada contra su último comentario
+ * propio) — que el gate juzgue exactamente lo que el agente va a leer es lo
+ * que hace que un `whenText` sobre la conversación signifique algo: si viera
+ * el historial completo podría activar por un comentario que el agente ya
+ * atendió hace varias corridas.
+ *
+ * Pura: no hace I/O, sólo formatea lo que el caller ya cargó.
+ */
+export function renderConversationWindow<T extends RenderableComment>(
+  comments: readonly T[],
+  agentId: string,
+): string {
+  const unseen = selectCommentWindow(comments, agentId)
+  if (!unseen.length) return ''
+
+  const text = unseen
+    .slice(-MAX_CONVERSATION_COMMENTS)
+    .map((c) => {
+      const where =
+        c.origin === 'pr-review'
+          ? `PR #${c.prNumber ?? '?'} · review${c.path ? ` · ${c.path}${c.line ? `:${c.line}` : ''}` : ''}`
+          : c.origin === 'pr'
+            ? `PR #${c.prNumber ?? '?'}`
+            : 'issue'
+      const who = c.author ? ` · ${c.author}` : ''
+      return `[${c.created_at} · ${where}${who}]\n${c.body.trim()}`
+    })
+    .join('\n\n')
+
+  // Recorta por el principio: el final es lo reciente.
+  return text.length > MAX_CONVERSATION_CHARS ? `…\n${text.slice(-MAX_CONVERSATION_CHARS)}` : text
+}
