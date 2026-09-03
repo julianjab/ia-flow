@@ -199,6 +199,14 @@ const EXTRA_COLUMN_WIDTH = '140px';
 function columnWidth(key: string): string {
   return BASE_COLUMN_WIDTHS[key] ?? EXTRA_COLUMN_WIDTH;
 }
+// Ancho MÍNIMO de cada columna, en px — el número puro detrás de columnWidth
+// (msg usa el piso de su minmax, 240, no "1fr"). Ver rowMinWidthPx: por qué
+// hace falta esto aparte del string CSS de arriba.
+const COLUMN_MIN_PX: Record<string, number> = { time: 118, level: 70, module: 160, msg: 240 };
+const EXTRA_COLUMN_MIN_PX = 140;
+function columnMinPx(key: string): number {
+  return COLUMN_MIN_PX[key] ?? EXTRA_COLUMN_MIN_PX;
+}
 function loadStoredColumns(): string[] {
   try {
     const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
@@ -220,6 +228,34 @@ const activeColumns = ref<string[]>(loadStoredColumns());
 const gridTemplateColumns = computed(
   () => `${activeColumns.value.map(columnWidth).join(' ')} 28px 28px`,
 );
+// El `min-width` NUMÉRICO (px) del header/fila/card — es lo que reemplaza a
+// `width: max-content`.
+//
+// Un grid con una pista `minmax(240px, 1fr)` no tiene un "max-content" chico:
+// el spec dice que la contribución max-content de esa pista es el
+// max-content de SU CONTENIDO — para un mensaje largo, básicamente el largo
+// del texto sin cortar. Con `width: max-content` en el header/fila, cada
+// fila terminaba tan ancha como su mensaje más largo, y ninguna quedaba
+// nunca angosta: el `overflow: hidden; text-overflow: ellipsis` de
+// `.log-cell--msg`/`.log-cell--extra` no se activaba jamás porque la caja
+// siempre medía exactamente lo que el contenido necesitaba — el bug real
+// detrás de "el contenido grande empuja la columna siguiente".
+//
+// Calculando el mínimo a mano (suma de los pisos de cada pista + gaps +
+// padding) y usándolo como `min-width` con `width: 100%` en vez de
+// `width: max-content`, el grid queda acotado al ancho del wrapper en el
+// caso normal (así el ellipsis SÍ corta), y sólo crece — activando el
+// scroll horizontal del wrapper — cuando ese mínimo de verdad no entra
+// (muchas columnas agregadas), nunca por el LARGO del contenido de una
+// celda en particular.
+const GRID_GAP_PX = 12; // 0.75rem
+const ROW_PADDING_PX = 24; // 0.75rem a cada lado (mismo padding en header y fila)
+const rowMinWidth = computed(() => {
+  const tracks = [...activeColumns.value.map(columnMinPx), 28, 28];
+  const tracksPx = tracks.reduce((sum, w) => sum + w, 0);
+  const gapsPx = (tracks.length - 1) * GRID_GAP_PX;
+  return `${tracksPx + gapsPx + ROW_PADDING_PX}px`;
+});
 function persistColumns(): void {
   try {
     localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(activeColumns.value));
@@ -916,7 +952,7 @@ onMounted(() => {
     </div>
 
     <div class="log-list-wrapper">
-      <div class="log-list-header" role="row" :style="{ gridTemplateColumns }">
+      <div class="log-list-header" role="row" :style="{ gridTemplateColumns, minWidth: rowMinWidth }">
         <div
           v-for="col in activeColumns"
           :key="col"
@@ -1008,11 +1044,12 @@ onMounted(() => {
             `log-card--${entry.level}`,
             { 'log-card--zebra': index % 2 === 1 },
           ]"
+          :style="{ minWidth: rowMinWidth }"
         >
           <button
             type="button"
             class="log-row"
-            :style="{ gridTemplateColumns }"
+            :style="{ gridTemplateColumns, minWidth: rowMinWidth }"
             data-kbd-item
             :aria-expanded="expandedId === entryKey(entry, index)"
             @click="toggleRow(entryKey(entry, index))"
@@ -1185,15 +1222,24 @@ onMounted(() => {
 /* El wrapper es el contenedor con scroll: header y filas pueden ser más
    anchos que la pantalla (mensaje + columnas agregadas) y en vez de
    recortarse en silencio contra el borde, aparece un scrollbar horizontal.
-   `min-width: 100%` en header/fila es lo que hace que, con las columnas por
-   default, sigan ocupando el ancho completo como antes.
+   `width: 100%` en header/fila/card es lo que hace que, con las columnas
+   por default, sigan ocupando el ancho completo como antes — y crucialmente,
+   que el `1fr` de Mensaje se ACOTE a ese 100% en el caso normal, así el
+   `overflow: hidden; text-overflow: ellipsis` de las celdas se activa de
+   verdad. El piso real ante muchas columnas es `min-width` — pero un
+   NÚMERO calculado en JS (`rowMinWidth`, ver el script), no `max-content`:
+   un grid con una pista `minmax(240px, 1fr)` no tiene un max-content
+   chico (el spec lo define como el max-content de SU CONTENIDO, básicamente
+   el largo del texto sin cortar), así que `width: max-content` hacía que
+   cada fila creciera hasta su mensaje más largo — el ellipsis nunca se
+   activaba, y esa fila "empujaba" todo lo de la derecha.
    Header y fila son CSS GRID, no flexbox — con `gridTemplateColumns`
    compartido (mismo string, ver el computed en el script) es la única forma
    de garantizar que la columna N del header caiga exactamente sobre la
    columna N de CADA fila sin importar el largo del contenido de esa fila.
    Con flexbox, cada fila es su propio contexto de layout: dos filas con un
    módulo de largo distinto terminaban con el mensaje arrancando en una
-   posición distinta — el bug real que motivó este cambio. */
+   posición distinta — el bug real que motivó el cambio a grid. */
 .log-list-wrapper { position: relative; overflow-x: auto; }
 .log-list-header {
   display: grid;
@@ -1211,8 +1257,7 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 1;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
 }
 .log-col-header {
   display: flex;
@@ -1263,11 +1308,11 @@ onMounted(() => {
   border-top: none;
   background: var(--panel);
   overflow: hidden;
-  /* Mismo motivo que .log-row: sin esto, `overflow: hidden` (acá sólo para
+  /* Mismo motivo que .log-row: sin `width:100%` acá (con el `min-width`
+     numérico llevando el piso real), `overflow: hidden` (acá sólo para
      redondear las esquinas y el rail de severidad) recortaría la fila un
-     nivel más abajo del scroll horizontal del wrapper. */
-  width: max-content;
-  min-width: 100%;
+     nivel más abajo cuando de verdad hace falta el scroll del wrapper. */
+  width: 100%;
 }
 .log-card:last-child { border-radius: 0 0 6px 6px; }
 .log-card--zebra { background: var(--panel-alt); }
@@ -1282,8 +1327,7 @@ onMounted(() => {
   display: grid;
   align-items: center;
   gap: 0.75rem;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   padding: 0.4rem 0.75rem;
   background: none;
   border: none;
