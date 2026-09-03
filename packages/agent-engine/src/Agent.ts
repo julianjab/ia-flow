@@ -993,7 +993,20 @@ export class Agent {
             resolveExitCommentTarget({ exits, commentTarget: agentDef.comment }, ERROR_EXIT),
           )
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
-        } else if (exits) {
+        } else {
+          // `exits` puede ser `undefined` acá — un agente clasificador
+          // (`tools: []`, sin `onProcess`/`onFinish`) no declara ninguna a
+          // propósito, porque no mueve el board. Ese caso NO es un motivo
+          // para saltear este bloque: `applySuccessOutcome`/`resolveExit`
+          // (run-outcome.ts) ya son no-op cuando `exits` falta, así que
+          // `lifecycle.end` simplemente no transiciona nada. Gatear todo el
+          // bloque en `if (exits)` (como estaba) dejaba la fila de
+          // `execution_logs` de ESTE run sin `finishedAt`/`outcome` para
+          // siempre — el run se veía "pending" en la UI aunque hubiera
+          // terminado bien y su `output` ya se hubiera consumido (p.ej. por
+          // el `emit` de la regla que lo disparó). Reproducido en vivo con
+          // `comment-triage`.
+          //
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the
