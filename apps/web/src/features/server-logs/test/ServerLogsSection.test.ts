@@ -1,6 +1,6 @@
 import type { ServerLogEntry, ServerLogLevel } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The section only talks to its own `api.ts` on mount, plus `useRoute` for the
 // deep-link hydration. Stub both so the pills render without a live backend.
@@ -122,5 +122,128 @@ describe('ServerLogsSection — botón "Copiar curl (limpiar dedupe)"', () => {
     await wrapper.find('[data-testid="server-logs-copy-clear-dedupe"]').trigger('click')
 
     expect(writeText).toHaveBeenCalledWith(CLEAR_DEDUPE_CURL)
+  })
+})
+
+describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  // La fila con extras (`clearDedupe`) es la última — mismo fixture que el
+  // describe de arriba.
+  async function expandExtrasRow(wrapper: ReturnType<typeof mount>) {
+    const rows = wrapper.findAll('.log-row')
+    await rows[rows.length - 1]?.trigger('click')
+    await flushPromises()
+  }
+
+  it('el "…" de un campo del detalle ofrece "Agregar columna", y agregarla la muestra en el header y en la fila', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    await expandExtrasRow(wrapper)
+
+    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    const addBtn = wrapper
+      .findAll('.detail-field-menu-item')
+      .find((b) => b.text() === 'Agregar columna')
+    expect(addBtn).toBeTruthy()
+    await addBtn?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.log-extra-col-header').exists()).toBe(true)
+    expect(wrapper.find('.log-extra-col-header').text()).toContain('clearDedupe')
+    // La fila con el campo lo muestra; el resto de las filas (sin
+    // clearDedupe) muestran '—'.
+    const cells = wrapper.findAll('.log-extra-col')
+    expect(cells.some((c) => c.text().includes('curl'))).toBe(true)
+    expect(cells.some((c) => c.text() === '—')).toBe(true)
+  })
+
+  it('el "…" alterna a "Quitar columna" una vez agregada, y quitarla la saca del header', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    await expandExtrasRow(wrapper)
+
+    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper
+      .findAll('.detail-field-menu-item')
+      .find((b) => b.text() === 'Agregar columna')
+      ?.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.log-extra-col-header').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    const removeBtn = wrapper
+      .findAll('.detail-field-menu-item')
+      .find((b) => b.text() === 'Quitar columna')
+    expect(removeBtn).toBeTruthy()
+    await removeBtn?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.log-extra-col-header').exists()).toBe(false)
+  })
+
+  it('la "×" del header también quita la columna', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    await expandExtrasRow(wrapper)
+    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper
+      .findAll('.detail-field-menu-item')
+      .find((b) => b.text() === 'Agregar columna')
+      ?.trigger('click')
+    await flushPromises()
+
+    await wrapper.find('.log-col-remove').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.log-extra-col-header').exists()).toBe(false)
+  })
+
+  it('el "+" del header ofrece las claves de extras descubiertas', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
+    await flushPromises()
+
+    const items = wrapper.findAll('.log-add-column-item').map((i) => i.text())
+    expect(items).toContain('clearDedupe')
+
+    await wrapper
+      .findAll('.log-add-column-item')
+      .find((i) => i.text() === 'clearDedupe')
+      ?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.log-extra-col-header').exists()).toBe(true)
+    // Una vez agregada, ya no se vuelve a ofrecer en el picker.
+    await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.log-add-column-item').map((i) => i.text())).not.toContain(
+      'clearDedupe',
+    )
+  })
+
+  it('la columna agregada persiste en localStorage y sobrevive un remount', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    await expandExtrasRow(wrapper)
+    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper
+      .findAll('.detail-field-menu-item')
+      .find((b) => b.text() === 'Agregar columna')
+      ?.trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+
+    expect(JSON.parse(localStorage.getItem('ia-flow:server-logs:columns') ?? '[]')).toEqual([
+      'clearDedupe',
+    ])
+
+    const remounted = mount(ServerLogsSection)
+    await flushPromises()
+    expect(remounted.find('.log-extra-col-header').exists()).toBe(true)
   })
 })
