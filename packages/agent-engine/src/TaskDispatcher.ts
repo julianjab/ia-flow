@@ -322,28 +322,37 @@ export class TaskDispatcher {
       // excepción sin manejar hasta el runner de reglas, que sólo lo
       // logueaba (`Rule action failed`) y perdía el `brief` para siempre —
       // el humano que comentó nunca veía su feedback llegar al agente en
-      // vuelo. Ahora se trata igual que cualquier otro "hay trabajo pero no
-      // capacidad" del método (ver `atCap`/`ProviderAtCapacityError` más
-      // arriba): se difiere, y si había un `brief` se encola como mensaje
-      // para que el run vivo lo drene en su próxima vuelta (`RunMessagePort`
-      // en `Agent.ts`) — o para que el próximo run de esta task lo lea, si
-      // el agente estaba pausado en vez de corriendo.
+      // vuelo.
       if (err instanceof TaskLockedError) {
+        let delivered = false
         if (brief && this.runMessageEnqueuer) {
-          await this.runMessageEnqueuer
+          delivered = await this.runMessageEnqueuer
             .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })
+            .then(() => true)
             .catch((enqueueErr) => {
               log.warn(
                 { id: item.id, issue: issueRef(item), err: (enqueueErr as Error).message },
                 `No se pudo encolar el brief tras chocar con el lock de ${issueRef(item)} — se pierde este intento`,
               )
+              return false
             })
         }
+        // `skipped`, NO `deferred`, cuando el encolado funcionó: `deferred`
+        // es la señal de "reintentá" (vuelve al backlog de `SourceDispatcher`
+        // y un item de scan lo republica en el próximo ciclo), y reintentar
+        // acá volvería a encolar el MISMO brief cada vez — duplicados
+        // acumulándose en la cola mientras el run en vuelo no termina, más
+        // uno de más si el reintento eventualmente entra (brief del run
+        // nuevo + el que ya quedó encolado). Una vez entregado no hay nada
+        // más que este dispatch pueda aportar: el run vivo lo va a drenar
+        // (`RunMessagePort` en `Agent.ts`) solo, sin que nadie reintente.
+        // Sin `brief` o sin poder entregarlo, en cambio, no se perdió nada
+        // reintentable — ahí sí vale `deferred`.
         log.info(
-          { id: item.id, issue: issueRef(item), agentId, enqueued: Boolean(brief) },
-          `${issueRef(item)} ya tiene un run en vuelo — dispatch diferido`,
+          { id: item.id, issue: issueRef(item), agentId, delivered },
+          `${issueRef(item)} ya tiene un run en vuelo — ${delivered ? 'brief encolado' : 'dispatch diferido'}`,
         )
-        return 'deferred'
+        return delivered ? 'skipped' : 'deferred'
       }
       throw err
     }
