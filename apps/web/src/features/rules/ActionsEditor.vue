@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { RuleActionEntry } from '@ia-flow/shared'
+import type { RuleActionEntry, WhenCondition } from '@ia-flow/shared'
 import { computed, ref, watch } from 'vue'
 import ActionFields from '@/features/rules/ActionFields.vue'
+import ActionWhenEditor from '@/features/rules/ActionWhenEditor.vue'
 import {
   actionLabelFor,
   blankActionFor,
@@ -30,7 +31,12 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: RuleActionEntry[]): void
 }>()
 
-type Entry = Record<string, unknown> & { action: string; continueOnError?: boolean; id?: string }
+type Entry = Record<string, unknown> & {
+  action: string
+  continueOnError?: boolean
+  id?: string
+  when?: WhenCondition[]
+}
 
 // Las llaves dobles se arman acá: escritas en el template, el parser de Vue las
 // lee como una interpolación suya.
@@ -113,11 +119,13 @@ function patch(i: number, changes: Partial<Entry>) {
 }
 
 /** Cambiar el tipo REEMPLAZA la entrada (ver `blankActionFor`), salvo
- *  `continueOnError`: vive fuera del union y significa lo mismo en todos. */
+ *  `continueOnError` y `when`: viven fuera del union y significan lo mismo en
+ *  todos — condicionan CUÁNDO/SI corre el paso, no qué hace. */
 function changeKind(i: number, kind: string) {
-  const keep = entries.value[i]?.continueOnError
+  const prev = entries.value[i]
   const next = blankFor(kind)
-  if (keep) next.continueOnError = keep
+  if (prev?.continueOnError) next.continueOnError = prev.continueOnError
+  if (prev?.when) next.when = prev.when
   push(entries.value.map((e, idx) => (idx === i ? next : e)))
 }
 
@@ -258,6 +266,19 @@ function onHandleKey(i: number, event: KeyboardEvent) {
             @input="patch(i, { id: ($event.target as HTMLInputElement).value || undefined })"
           />
         </label>
+
+        <div class="ae-row">
+          <span class="ae-label">
+            Condición
+            <HintIcon
+              text="Sólo corre esta acción si además matchea esto — mismo DSL que el `when` de la regla, evaluado también contra lo que dejaron los pasos anteriores (`steps.<paso>.output.<campo>`). Vacío = corre siempre."
+            />
+          </span>
+          <ActionWhenEditor
+            :model-value="entry.when"
+            @update:model-value="(w) => patch(i, { when: w })"
+          />
+        </div>
 
         <label class="ae-check">
           <input

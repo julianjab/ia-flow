@@ -7,6 +7,7 @@ import EventTypePicker from '@/features/rules/EventTypePicker.vue'
 import { recurringRuleWarning } from '@/features/rules/rule-templates'
 import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
 import RuleSentence from '@/features/rules/RuleSentence.vue'
+import { rowsToWhen, whenToRows } from '@/features/rules/when-serialization'
 
 // Editor de una regla. Mismo formato que el editor de agentes —página completa
 // con rail de secciones a la izquierda y resumen a la derecha— y no un diálogo
@@ -106,13 +107,7 @@ function hydrate(rule: Rule | null) {
   exclusive.value = seed?.exclusive === true
   actions.value = seed?.do ? [...seed.do] : []
 
-  const conds = Array.isArray(seed?.when) ? seed.when : []
-  whenRows.value = conds.map((c, i) => ({
-    field: c.field,
-    op: c.op,
-    value: c.value ?? '',
-    logic: i === 0 ? 'and' : (c.logic ?? 'and'),
-  }))
+  whenRows.value = whenToRows(seed?.when)
 }
 
 watch(
@@ -216,15 +211,7 @@ const sections = computed<{ key: SectionKey; title: string; summary: string; dot
 )
 
 function serializeWhen(): WhenCondition[] | undefined {
-  const when: WhenCondition[] = whenRows.value
-    .filter((r) => r.field.trim())
-    .map((r, i) => {
-      const cond: WhenCondition = { field: r.field.trim(), op: r.op }
-      if (r.op !== '$null' && r.op !== '$not_null') cond.value = r.value.trim()
-      if (i > 0) cond.logic = r.logic ?? 'and'
-      return cond
-    })
-  return when.length ? when : undefined
+  return rowsToWhen(whenRows.value)
 }
 
 // ─── Resumen — la MISMA frase que el listado, armada con lo que hay en el
