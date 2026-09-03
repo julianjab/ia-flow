@@ -1029,13 +1029,21 @@ export class WorkspaceManager {
     return r.stdout.trim().length > 0
   }
 
+  /**
+   * Commit interno de bookkeeping (autosalvage) — no del flujo del agente.
+   * `--no-verify` porque forzar hooks de un repo ajeno (lint-staged,
+   * commitlint) a correr contra un mensaje "WIP autosalvage" no tiene
+   * sentido semántico, y hace que el reuse del worktree dependa del
+   * toolchain del repo target (versión de Node, tokens npm, etc.) en vez de
+   * sólo de git.
+   */
   async #commitAll(worktree: string, message: string): Promise<void> {
     const add = await this.#shell.run(['git', 'add', '-A'], worktree)
     if (add.exitCode !== 0) {
       throw new Error(`git add -A failed: ${add.stderr || add.stdout}`)
     }
     const commit = await this.#shell.run(
-      ['git', 'commit', '-m', message, '--allow-empty'],
+      ['git', 'commit', '-m', message, '--allow-empty', '--no-verify'],
       worktree,
     )
     if (commit.exitCode !== 0) {
