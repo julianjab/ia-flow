@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import type {
   AgentAbortRecord,
   IAgentAbortRepository,
@@ -172,5 +172,13 @@ export class SqliteAgentAbortRepository implements IAgentAbortRepository {
       new Date().toISOString(),
       id,
     ])
+  }
+
+  reschedule(id: string): void {
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE agent_aborts SET next_retry_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
+      [new Date(Date.now() + BACKOFF_FLOOR_MS).toISOString(), now, id],
+    )
   }
 }

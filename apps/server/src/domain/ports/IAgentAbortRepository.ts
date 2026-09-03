@@ -39,4 +39,11 @@ export interface IAgentAbortRepository {
    *  levantar la misma fila mientras un dispatch anterior sigue en vuelo
    *  (un retry puede tardar más que el intervalo del barrido). */
   markRetrying(id: string): void
+  /** Reprograma el próximo intento SIN tocar `attempts`/`status` — para
+   *  cuando el retry ni siquiera llegó a correr el agente (dispatch
+   *  `skipped`/`deferred`, o un fallo de infra al reconstruir el item). Eso
+   *  no es un intento fallido del agente — usar `recordAbort` acá quemaría
+   *  el presupuesto de retries por un hipo de infraestructura, no por un
+   *  abort real. */
+  reschedule(id: string): void
 }

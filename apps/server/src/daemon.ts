@@ -357,36 +357,62 @@ function abortRetrySweepIntervalMs(): number {
  * siempre queremos lo mismo, reintentar el mismo agente sobre la misma task,
  * así que despacha directo en vez de publicar un evento al bus.
  */
+// Un solo barrido en vuelo a la vez: `dispatch` espera el run completo (puede
+// tardar minutos), así que sin este guard un tick que arranca mientras el
+// anterior sigue corriendo repetiría `listDue()` sobre filas que el primero
+// ya está procesando pero todavía no marcó — las despacharía dos veces.
+let abortSweepRunning = false
+
 function startAbortRetrySweep(): void {
   setInterval(async () => {
-    const due = agentAbortRepo.listDue(new Date().toISOString())
-    for (const record of due) {
-      // Limpia `nextRetryAt` YA, antes del dispatch: si el dispatch tarda más
-      // que el intervalo, el próximo tick no debe volver a levantar la misma
-      // fila (mismo criterio que el `consume` antes de reanudar una espera).
-      agentAbortRepo.markRetrying(record.id)
-      const result = await redispatchAborted(record).catch((err: unknown) => {
-        log.error({ err, taskId: record.taskId, agentId: record.agentId }, 'Retry de abort falló')
-        return { ok: false as const, reason: err instanceof Error ? err.message : String(err) }
-      })
-      if (!result.ok) {
-        log.warn(
-          { taskId: record.taskId, agentId: record.agentId, reason: result.reason },
-          'No se pudo reintentar el abort — reprogramado con el mismo backoff',
-        )
-        // El dispatch ni llegó a arrancar (proyecto sin manager, task ya no
-        // existe, …) — sin esto la fila quedaba `pending` con `nextRetryAt`
-        // en null, invisible para el próximo barrido y sólo alcanzable a
-        // mano desde el botón.
-        agentAbortRepo.recordAbort({
-          projectId: record.projectId,
-          taskId: record.taskId,
-          agentId: record.agentId,
-          runId: record.runId ?? undefined,
-          reason: record.reason,
-          errorMsg: `retry-dispatch-failed: ${result.reason}`,
+    if (abortSweepRunning) return
+    abortSweepRunning = true
+    try {
+      const due = agentAbortRepo.listDue(new Date().toISOString())
+      for (const record of due) {
+        // Limpia `nextRetryAt` YA, antes del dispatch: si el dispatch tarda
+        // más que el intervalo, el próximo tick no debe volver a levantar la
+        // misma fila (mismo criterio que el `consume` antes de reanudar una
+        // espera).
+        agentAbortRepo.markRetrying(record.id)
+        const result = await redispatchAborted(record).catch((err: unknown) => {
+          log.error({ err, taskId: record.taskId, agentId: record.agentId }, 'Retry de abort falló')
+          return { ok: false as const, reason: err instanceof Error ? err.message : String(err) }
         })
+
+        if (!result.ok) {
+          log.warn(
+            { taskId: record.taskId, agentId: record.agentId, reason: result.reason },
+            'El retry ni pudo arrancar el dispatch — reprogramado, no cuenta como intento del agente',
+          )
+          // `reschedule`, no `recordAbort`: esto es un fallo de INFRA del
+          // retry (proyecto sin manager, fuente caída), no un abort real del
+          // agente. Contarlo como intento agotaría el presupuesto por un
+          // hipo que no tiene nada que ver con el upstream del provider.
+          agentAbortRepo.reschedule(record.id)
+          continue
+        }
+
+        if (result.outcome !== 'dispatched') {
+          // `skipped` (nada matchea, issue bloqueado) o `deferred` (cap de
+          // proyecto/agente/provider, lock de la task tomado): en los dos
+          // casos NINGÚN run llegó a correr, así que ni `resolveOpen` ni
+          // `recordAbort` de Agent.ts se van a llamar — sin este reschedule
+          // la fila quedaba `pending` con `nextRetryAt` en null, invisible
+          // para el próximo barrido para siempre.
+          log.info(
+            { taskId: record.taskId, agentId: record.agentId, outcome: result.outcome },
+            'Retry de abort no corrió ningún agente — reprogramado',
+          )
+          agentAbortRepo.reschedule(record.id)
+        }
+        // outcome === 'dispatched': el run está en curso. Cuando termine,
+        // Agent.ts mismo cierra el ciclo — `resolveOpen` si salió bien o dio
+        // un error real, `recordAbort` (con su propio backoff) si volvió a
+        // abortar. Acá no hay nada más que hacer.
       }
+    } finally {
+      abortSweepRunning = false
     }
   }, abortRetrySweepIntervalMs())
 }
