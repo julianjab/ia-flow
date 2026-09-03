@@ -502,26 +502,6 @@ function truncateMsg(msg: string): string {
   return msg.length > MSG_TRUNCATE ? `${msg.slice(0, MSG_TRUNCATE)}…` : msg;
 }
 
-// Inline chips shown after the message when the extras carry correlation ids.
-// Order matters: runId → taskId → agent → event; skipped when absent.
-interface InlineChip { label: string; value: string; kind: 'runId' | 'taskId' | 'agent' | 'event' }
-function extractChips(entry: ServerLogEntry): InlineChip[] {
-  const ex = entry.extras;
-  if (!ex) return [];
-  const chips: InlineChip[] = [];
-  const runId = ex.runId;
-  if (typeof runId === 'string' && runId) chips.push({ label: 'run', value: runId, kind: 'runId' });
-  const taskId = ex.taskId;
-  if (typeof taskId === 'string' && taskId) {
-    chips.push({ label: 'task', value: taskId.length > 20 ? `${taskId.slice(0, 18)}…` : taskId, kind: 'taskId' });
-  }
-  const agent = ex.agent;
-  if (typeof agent === 'string' && agent) chips.push({ label: 'agent', value: agent, kind: 'agent' });
-  const event = ex.event;
-  if (typeof event === 'string' && event) chips.push({ label: 'evt', value: event, kind: 'event' });
-  return chips;
-}
-
 // Level counts served by /api/server-logs — computed over the full filtered
 // set (ignoring the `level` filter) so summary chips are stable across
 // pagination and reflect the true universe under the current filters.
@@ -685,13 +665,6 @@ onMounted(() => {
             <span class="log-module">{{ entry.module ?? '—' }}</span>
             <span class="log-msg">
               <span class="log-msg__text">{{ truncateMsg(entry.msg) }}</span>
-              <span
-                v-for="chip in extractChips(entry)"
-                :key="`${chip.kind}-${chip.value}`"
-                class="log-inline-chip"
-                :class="`log-inline-chip--${chip.kind}`"
-                :title="`${chip.label}: ${chip.value}`"
-              >{{ chip.label }}:{{ chip.value }}</span>
             </span>
             <span class="log-chevron" aria-hidden="true">
               {{ expandedId === entryKey(entry, index) ? '▾' : '▸' }}
@@ -924,23 +897,6 @@ onMounted(() => {
 }
 .log-msg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem; overflow: hidden; }
 .log-msg__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-inline-chip {
-  flex-shrink: 0;
-  padding: 0.1rem 0.45rem;
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-chrome);
-  line-height: 1.4;
-  border: 1px solid transparent;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.log-inline-chip--runId  { background: var(--panel-hi); color: var(--info); border-color: var(--info); }
-.log-inline-chip--taskId { background: var(--panel-hi); color: var(--info); border-color: var(--info); }
-.log-inline-chip--agent  { background: var(--panel-hi); color: var(--ai); border-color: var(--ai); }
-.log-inline-chip--event  { background: var(--panel-hi); color: var(--fg-mute); border-color: var(--border); }
 .log-chevron { color: var(--fg-dim); font-size: 0.85rem; }
 
 .log-detail {
