@@ -177,4 +177,76 @@ describe('runRule — acciones por referencia', () => {
 
     expect(seen).toEqual([undefined])
   })
+
+  // Mismo caso que `id` arriba: el `when` condiciona ESTE paso de ESTA
+  // secuencia, no la acción reusable — sin arrastrarlo desde el `raw` de la
+  // ref, corría siempre sin importar la condición.
+  describe('el when de una ref', () => {
+    it('viaja desde la ref y gatea el paso', async () => {
+      const calls = spyAction('http')
+
+      const outcome = await runRule(
+        rule([
+          {
+            action: 'ref',
+            actionId: 'avisar',
+            when: [{ field: 'actionable', op: '=', value: 'true' }],
+          } as never,
+        ]),
+        createEvent({
+          type: 'pr.opened',
+          source: 'github',
+          scope: {},
+          payload: { actionable: false },
+        }),
+        {
+          emit: async () => {},
+          resolveAction: async (id) =>
+            id === 'avisar'
+              ? { entry: { action: 'http', url: 'https://x' } as RuleActionEntry, name: 'Avisar' }
+              : null,
+        },
+      )
+
+      expect(outcome).toBe('skipped')
+      expect(calls).toHaveLength(0)
+    })
+
+    it('gana sobre el when que trajera la acción con nombre', async () => {
+      const calls = spyAction('http')
+
+      const outcome = await runRule(
+        rule([
+          {
+            action: 'ref',
+            actionId: 'avisar',
+            when: [{ field: 'actionable', op: '=', value: 'true' }],
+          } as never,
+        ]),
+        createEvent({
+          type: 'pr.opened',
+          source: 'github',
+          scope: {},
+          payload: { actionable: true },
+        }),
+        {
+          emit: async () => {},
+          resolveAction: async (id) =>
+            id === 'avisar'
+              ? {
+                  entry: {
+                    action: 'http',
+                    url: 'https://x',
+                    when: [{ field: 'actionable', op: '=', value: 'false' }],
+                  } as RuleActionEntry,
+                  name: 'Avisar',
+                }
+              : null,
+        },
+      )
+
+      expect(outcome).toBe('dispatched')
+      expect(calls).toHaveLength(1)
+    })
+  })
 })
