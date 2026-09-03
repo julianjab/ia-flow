@@ -77,7 +77,13 @@ class NodeVersionResolver {
         ],
         { stdout: 'pipe', stderr: 'pipe' },
       )
-      const stdout = await new Response(proc.stdout).text()
+      // Hay que drenar los dos pipes en paralelo — si `fnm`/`node` llenaran
+      // el buffer de stderr sin que nadie lo lea, el proceso queda
+      // bloqueado escribiendo y `exited` nunca resuelve.
+      const [stdout] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ])
       const exitCode = await proc.exited
       if (exitCode !== 0) return undefined
       const nodeBin = stdout.trim()
