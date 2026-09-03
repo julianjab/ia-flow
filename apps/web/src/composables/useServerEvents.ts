@@ -5,7 +5,7 @@
 // each caller registers a handler and gets a matching unregister on unmount.
 // Reconnects automatically with a bounded backoff while any handler is alive.
 
-import { wsOrigin } from '@/features/servers/selection'
+import { getSelectedToken, wsOrigin } from '@/features/servers/selection'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 export type ServerEvent =
@@ -33,7 +33,18 @@ function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   // wsOrigin(), no location.host: al mirar otro server los eventos en vivo
   // tienen que venir de ESE daemon, no del que sirve esta página.
-  return `${proto}//${wsOrigin()}/ws`
+  const base = `${proto}//${wsOrigin()}/ws`
+  // El flavor `full` (server-boot.ts) nunca protegió `/ws` — no hace falta
+  // token para conectar. El flavor `runner`, con `settings.websocket: true`,
+  // sí es fail-closed (ver runner-boot.ts): sin `?token=` el handshake
+  // rebota con 401 y el WebSocket del browser jamás abre — sólo reintenta
+  // con backoff para siempre, en silencio.
+  //
+  // Un header no sirve acá: `new WebSocket(url)` no admite headers custom en
+  // el handshake, así que el mismo token que el interceptor de axios manda
+  // como `x-ia-flow-token` en las requests REST va acá como query param.
+  const token = getSelectedToken()
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base
 }
 
 function scheduleReconnect() {
