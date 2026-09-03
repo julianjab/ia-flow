@@ -400,11 +400,13 @@ export function createServerLogsRouter() {
     // con 400 en vez de fallar en silencio adentro del loop (una regexp mal
     // escrita no puede simplemente "no filtrar nada": eso confundiría un
     // typo con "no hay resultados").
-    const rawExtraQueries = filters.extra
-      ? Array.isArray(filters.extra)
-        ? filters.extra
-        : [filters.extra]
-      : []
+    // Un elemento vacío ("") se descarta ANTES de parsear, no se rechaza —
+    // mismo criterio que `toSet` para los demás multi-select: un chip vacío
+    // (`?extra=err:x&extra=`, fácil de mandar sin querer desde la UI) no
+    // puede tirar 400 por algo que no es un patrón, es la ausencia de uno.
+    const rawExtraQueries = (
+      filters.extra ? (Array.isArray(filters.extra) ? filters.extra : [filters.extra]) : []
+    ).filter((raw) => raw.trim().length > 0)
     const extraQueries: Array<{ key: string | null; pattern: string }> = []
     for (const raw of rawExtraQueries) {
       const q = parseExtraQuery(raw)
@@ -481,16 +483,16 @@ export function createServerLogsRouter() {
       if (extraQueries.some((q) => !matchesExtraQuery(entry, q))) continue
       // `search` es el mismo glob case-insensitive que `extra` (contains
       // liso si no hay `*`/`?`, comodines si los hay) — no una regexp
-      // arbitraria, por el mismo motivo de ReDoS (ver globMatchFull).
-      // Recortado a MAX_EXTRA_PATTERN_LEN como cinturón extra: a diferencia
-      // de `extra`, acá un patrón fuera de rango no corta con 400 (search
-      // nunca lo hizo) — se trunca en silencio.
+      // arbitraria, por el mismo motivo de ReDoS (ver globMatchFull). El
+      // PATRÓN se recorta a MAX_EXTRA_PATTERN_LEN (acota el costo, que es
+      // O(msg·patrón)) pero el `msg` NO — un stack trace o un payload
+      // logueados ahí superan fácil los 2000 chars de MAX_EXTRA_VALUE_LEN, y
+      // recortarlo perdería coincidencias reales al final del mensaje.
+      // `globMatchFull` es lineal/cuadrático en el peor caso, no exponencial
+      // — buscar en un `msg` largo es más lento, no catastrófico.
       if (
         filters.search &&
-        !globSearch(
-          entry.msg.slice(0, MAX_EXTRA_VALUE_LEN),
-          filters.search.slice(0, MAX_EXTRA_PATTERN_LEN),
-        )
+        !globSearch(entry.msg, filters.search.slice(0, MAX_EXTRA_PATTERN_LEN))
       ) {
         continue
       }

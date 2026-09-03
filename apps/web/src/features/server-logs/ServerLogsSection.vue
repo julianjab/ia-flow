@@ -237,7 +237,7 @@ const FILTER_FIELDS: Array<{
     values: () => extraValues('runId', runFilter.value),
     free: true,
   },
-  { key: 'msg', hint: 'substring del mensaje', free: true },
+  { key: 'msg', hint: 'contains del mensaje, sin caja (*/? comodines)', free: true },
   {
     key: 'extra',
     hint: 'patrón sobre cualquier campo de extras (*/? comodines) — o clave:patrón para acotar a uno, ej. err:ECONNRESET',
