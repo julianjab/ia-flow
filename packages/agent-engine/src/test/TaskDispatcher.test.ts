@@ -1,9 +1,15 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { IIssueManager, ITaskSource, IssueItem } from '@ia-flow/issue-sources'
 import type { ExecutionLog, ProjectConfig } from '@ia-flow/shared'
+import { TaskLockedError } from '@ia-flow/workspace'
 import type { AgentOrchestrator } from '../AgentOrchestrator.js'
 import { TaskDispatcher } from '../TaskDispatcher.js'
-import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from '../contract.js'
+import type {
+  IBroadcast,
+  IExecutionLogRepository,
+  IProjectConfigRepository,
+  RunMessageEnqueuePort,
+} from '../contract.js'
 import type { PendingTask } from '../pending-tasks.js'
 
 function makeItem(over: Partial<IssueItem> = {}): IssueItem {
@@ -281,6 +287,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       configRepo,
       undefined,
       fakeLogRepo(recentlyCancelled),
+      undefined,
       60_000,
     )
 
@@ -302,6 +309,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       configRepo,
       undefined,
       fakeLogRepo(recentlyCancelledSync),
+      undefined,
       60_000,
     )
 
@@ -319,6 +327,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       configRepo,
       undefined,
       fakeLogRepo(oldCancel),
+      undefined,
       60_000,
     )
 
@@ -339,6 +348,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       configRepo,
       undefined,
       fakeLogRepo(success),
+      undefined,
       60_000,
     )
 
@@ -354,5 +364,89 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
     await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('TaskDispatcher — TaskLockedError fallback', () => {
+  function makeLockedDeps(config: ProjectConfig | null) {
+    const runAgent = mock(async () => {
+      throw new TaskLockedError('task-1')
+    })
+    const orchestrator = { runAgent } as unknown as AgentOrchestrator
+    const broadcast: IBroadcast = { send: () => {} }
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => config,
+      saveConfig: async () => {},
+    } as unknown as IProjectConfigRepository
+    return { orchestrator, broadcast, configRepo, runAgent }
+  }
+
+  it('difiere (no tira) cuando el orquestador choca con el lock de la task', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+    })
+
+    expect(outcome).toBe('deferred')
+  })
+
+  it('encola el brief en la conversación en vez de perderlo', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      undefined,
+      { enqueue },
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+    })
+
+    expect(enqueue).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      body: 'ajustá el PRD contra el comentario',
+      source: 'rule-dispatch',
+    })
+  })
+
+  it('sin brief no encola nada, sólo difiere', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      undefined,
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(outcome).toBe('deferred')
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('un error que no es TaskLockedError se sigue propagando', async () => {
+    const runAgent = mock(async () => {
+      throw new Error('algo distinto explotó')
+    })
+    const orchestrator = { runAgent } as unknown as AgentOrchestrator
+    const broadcast: IBroadcast = { send: () => {} }
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => makeConfig(false),
+      saveConfig: async () => {},
+    } as unknown as IProjectConfigRepository
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    await expect(dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')).rejects.toThrow(
+      'algo distinto explotó',
+    )
   })
 })
