@@ -6,6 +6,7 @@
 // propio worktree sin arrastrar el engine de dispatch entero.
 export {
   WorkspaceManager,
+  TaskLockedError,
   type CloneableRepo,
   type GetOrCreateOptions,
   type LiveRunsProbe,

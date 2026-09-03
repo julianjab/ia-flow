@@ -131,6 +131,20 @@ export interface CloneableRepo {
   githubRepo?: string
 }
 
+/**
+ * `acquireTask` chocó contra el mutex: ya hay un run vivo sobre esta task.
+ *
+ * Clase propia (no un `Error` genérico) para que un caller que sepa qué
+ * hacer con ESTE caso en particular —`TaskDispatcher`, ver su comentario—
+ * pueda distinguirlo con `instanceof` en vez de parsear el mensaje.
+ */
+export class TaskLockedError extends Error {
+  override name = 'TaskLockedError'
+  constructor(readonly taskId: string) {
+    super(`task ${taskId} ya está corriendo`)
+  }
+}
+
 // ─── WorkspaceManager ───────────────────────────────────────────────────
 
 export class WorkspaceManager {
@@ -266,7 +280,7 @@ export class WorkspaceManager {
     const source = typeof task === 'string' ? { id: task } : task
     const taskId = source.id
     if (this.#taskLocks.has(taskId)) {
-      throw new Error(`task ${taskId} ya está corriendo`)
+      throw new TaskLockedError(taskId)
     }
     // Sólo se guarda cuando el caller pasó la task entera: es lo que le
     // permite a `resetWorktree` (que sólo recibe un id, ver
