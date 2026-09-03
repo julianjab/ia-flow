@@ -21,23 +21,29 @@ export interface ShellRunner {
 /**
  * Lee la versión de Node que el repo declara (`.nvmrc` o `engines.node` de
  * `package.json`), sólo en la raíz de `cwd` — un worktree es siempre un
- * checkout completo, así que no hace falta subir directorios.
+ * checkout completo, así que no hace falta subir directorios. `fnm` sólo
+ * resuelve versiones exactas o un major suelto ("20"), nunca un rango
+ * semver — de ahí el `match` para quedarnos con el primer número de la
+ * declaración (`^20.11.0` → `20.11.0`, `>=20` → `20`).
  */
 function declaredNodeVersion(cwd: string): string | undefined {
+  let raw: string | undefined
   try {
-    const nvmrc = readFileSync(join(cwd, '.nvmrc'), 'utf8').trim()
-    if (nvmrc) return nvmrc
+    raw = readFileSync(join(cwd, '.nvmrc'), 'utf8').trim()
   } catch {
     // sin .nvmrc — probamos package.json
   }
-  try {
-    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
-    const engine = pkg?.engines?.node
-    if (typeof engine === 'string' && engine) return engine
-  } catch {
-    // sin package.json, o sin engines — el repo no declara nada
+  if (!raw) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
+      const engine = pkg?.engines?.node
+      if (typeof engine === 'string' && engine) raw = engine
+    } catch {
+      // sin package.json, o sin engines — el repo no declara nada
+    }
   }
-  return undefined
+  if (!raw) return undefined
+  return raw.match(/\d+(?:\.\d+(?:\.\d+)?)?/)?.[0]
 }
 
 /**
@@ -47,8 +53,9 @@ function declaredNodeVersion(cwd: string): string | undefined {
  * hook de un repo con `engines.node` distinto al del daemon falla con
  * "incompatible environment" para CUALQUIER commit (agente o autosalvage).
  *
- * Best-effort y cacheado por `cwd`: sin `fnm` instalado, o sin versión
- * declarada, corre con el PATH heredado tal cual — nunca bloquea el commit.
+ * Best-effort y cacheado por `cwd`: sin `fnm` instalado, sin versión
+ * declarada, o sin esa versión instalada, corre con el PATH heredado tal
+ * cual — nunca bloquea el comando.
  */
 class NodeVersionResolver {
   @memoize({ ttlMs: 5 * 60_000 })
@@ -56,7 +63,20 @@ class NodeVersionResolver {
     const version = declaredNodeVersion(cwd)
     if (!version) return undefined
     try {
-      const proc = Bun.spawn(['fnm', 'which', version], { stdout: 'pipe', stderr: 'pipe' })
+      // `fnm which` no existe como subcomando — la forma soportada es
+      // correr node bajo `fnm exec` y preguntarle su propio binario.
+      const proc = Bun.spawn(
+        [
+          'fnm',
+          'exec',
+          `--using=${version}`,
+          '--',
+          'node',
+          '-e',
+          'process.stdout.write(process.execPath)',
+        ],
+        { stdout: 'pipe', stderr: 'pipe' },
+      )
       const stdout = await new Response(proc.stdout).text()
       const exitCode = await proc.exited
       if (exitCode !== 0) return undefined
@@ -93,6 +113,9 @@ export class BunShellRunner implements ShellRunner {
   async #envFor(cwd: string): Promise<Record<string, string | undefined>> {
     const binDir = await nodeVersionResolver.binDirFor(cwd)
     if (!binDir) return Bun.env
-    return { ...Bun.env, PATH: `${binDir}:${Bun.env.PATH ?? ''}` }
+    // Un componente vacío en PATH significa "directorio actual" — con un
+    // PATH heredado vacío, `${binDir}:` solo dejaría eso en vez del binDir.
+    const path = Bun.env.PATH ? `${binDir}:${Bun.env.PATH}` : binDir
+    return { ...Bun.env, PATH: path }
   }
 }
