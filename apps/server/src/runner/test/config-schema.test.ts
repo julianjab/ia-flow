@@ -90,6 +90,18 @@ describe('RunnerConfigSchema', () => {
     expect(RunnerConfigSchema.parse(minimal).settings?.workspace).toBeUndefined()
   })
 
+  it('acepta websocket — el knob que abre /ws en el flavor runner', () => {
+    // Mismo patrón que `remoteProviders`/`workspace`: no mapea a ninguna env
+    // var, lo lee runner-boot.ts directo de la config (junto con `api`, que
+    // decide si el WS realmente se monta).
+    const parsed = RunnerConfigSchema.parse({ ...minimal, settings: { websocket: true } })
+    expect(parsed.settings?.websocket).toBe(true)
+
+    // Ausente ⇒ undefined: el default (apagado) lo pone el flavor, no el
+    // schema.
+    expect(RunnerConfigSchema.parse(minimal).settings?.websocket).toBeUndefined()
+  })
+
   it('valida que `upstream.url` sea una URL', () => {
     expect(
       RunnerConfigSchema.safeParse({ ...minimal, upstream: { url: 'localhost:3001' } }).success,
