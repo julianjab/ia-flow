@@ -208,6 +208,30 @@ describe('createDefaultSourceFactory', () => {
     expect(source.kind).toBe('github-projects')
   })
 
+  it('throws when github-projects config has owner but not repo — a media config no degrada en silencio', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(() =>
+      factory.get(
+        project('p1', {
+          kind: 'github-projects',
+          config: { owner: 'la-haus', url: 'https://github.com/orgs/la-haus/projects/1' },
+        }),
+      ),
+    ).toThrow(/owner y config\.repo van juntos/)
+  })
+
+  it('throws when github-projects config has repo but not owner', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(() =>
+      factory.get(
+        project('p1', {
+          kind: 'github-projects',
+          config: { repo: 'ia-flow', url: 'https://github.com/orgs/la-haus/projects/1' },
+        }),
+      ),
+    ).toThrow(/owner y config\.repo van juntos/)
+  })
+
   it('throws when github-hybrid is missing the board url', () => {
     const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
     expect(() =>
