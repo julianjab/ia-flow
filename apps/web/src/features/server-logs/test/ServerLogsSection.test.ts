@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // The section only talks to its own `api.ts` on mount, plus `useRoute` for the
 // deep-link hydration. Stub both so the pills render without a live backend.
 const LEVELS: ServerLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
-// Espeja COLUMNS_STORAGE_KEY del componente — bumpeada a :v2 porque cambió
-// la semántica del array (ver el comentario ahí).
-const COLUMNS_KEY = 'ia-flow:server-logs:columns:v2'
+// Espeja COLUMNS_STORAGE_KEY del componente — bumpeada a :v3 porque cambió
+// el FORMATO de los paths de extras (ver el comentario ahí).
+const COLUMNS_KEY = 'ia-flow:server-logs:columns:v3'
 
 // Repetido tal cual dentro del factory de abajo (no se puede referenciar un
 // const de afuera: `vi.mock` se hoistea por encima de esta declaración,
@@ -35,6 +35,10 @@ vi.mock('../api', () => ({
         extras: {
           clearDedupe:
             "curl -X DELETE 'http://localhost:3001/api/webhooks/dedupe/abc:issues.unlabeled:3872' -H 'x-ia-flow-token: <IA_FLOW_WEBHOOK_SECRET>'",
+          // A propósito el mismo nombre que la columna base `module` — el
+          // path con prefijo (`extras.module`) es lo que evita que se
+          // confunda con `entry.module` ('daemon').
+          module: 'extras-module-value',
         },
       } satisfies ServerLogEntry,
     ],
@@ -147,7 +151,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   }
 
   function extraColHeader(wrapper: ReturnType<typeof mount>) {
-    return wrapper.find('[data-testid="server-logs-col-header-clearDedupe"]')
+    return wrapper.find('[data-testid="server-logs-col-header-extras.clearDedupe"]')
   }
 
   it('el "…" de un campo del detalle ofrece "Agregar columna", y agregarla la muestra en el header y en la fila', async () => {
@@ -155,7 +159,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     await expandExtrasRow(wrapper)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
     const addBtn = wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -177,7 +181,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     await expandExtrasRow(wrapper)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
     await wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -185,7 +189,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     expect(extraColHeader(wrapper).exists()).toBe(true)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
     const removeBtn = wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Quitar columna')
@@ -200,7 +204,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
-    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
     await wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -232,12 +236,12 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   // removeColumn — si no, sacar la ÚLTIMA columna desde ahí deja
   // activeColumns en [], desincronizado de lo persistido hasta recargar.
   it('quitar la última columna desde el "…" del detalle no la deja en cero', async () => {
-    localStorage.setItem(COLUMNS_KEY, JSON.stringify(['clearDedupe']))
+    localStorage.setItem(COLUMNS_KEY, JSON.stringify(['extras.clearDedupe']))
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
     const removeBtn = wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Quitar columna')
@@ -246,7 +250,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
 
     expect(extraColHeader(wrapper).exists()).toBe(true)
-    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual(['clearDedupe'])
+    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual(['extras.clearDedupe'])
   })
 
   it('el "+" del header ofrece las columnas base ocultas y las claves de extras descubiertas', async () => {
@@ -286,7 +290,9 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await wrapper.find('.log-add-column-custom').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="server-logs-col-header-err.message"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="server-logs-col-header-extras.err.message"]').exists()).toBe(
+      true,
+    )
   })
 
   // getNestedValue usa Object.hasOwn, no `in` — `in` recorre la cadena de
@@ -312,7 +318,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
-    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
     await wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -324,7 +330,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
       'time',
       'module',
       'msg',
-      'clearDedupe',
+      'extras.clearDedupe',
     ])
 
     const remounted = mount(ServerLogsSection)
@@ -404,17 +410,20 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     expect(items).toEqual(['clearDedupe'])
   })
 
-  // toggleColumn (el "…" del detalle) usa isBaseColumn como guard — una
-  // línea con `extras.module` no puede agregar una columna "module" que el
-  // template confundiría con la base (`col === 'module'` lee entry.module).
-  it('una clave de extras que colisiona con una columna base no se agrega', async () => {
-    localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'msg']))
+  // Antes un `extras.module` no se podía agregar como columna (se confundía
+  // con la base `module`). Con el path con prefijo (`extras.module`) las dos
+  // columnas conviven y cada una muestra su propio valor.
+  it('una clave de extras que colisiona de nombre con una columna base tiene su propio path y valor', async () => {
+    localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'module', 'msg', 'extras.module']))
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
-    // La última fila (con extras.clearDedupe) no tiene `extras.module` en el
-    // fixture — probamos el guard llamando toggleColumn indirectamente vía
-    // localStorage + una recarga no alcanza, así que se verifica que el
-    // header nunca ofrece agregar una colisión desde el picker tampoco.
-    expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(false)
+
+    expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="server-logs-col-header-extras.module"]').exists()).toBe(true)
+
+    const cells = wrapper.findAll('.log-cell--module').map((c) => c.text())
+    expect(cells).toContain('daemon')
+    const extraCells = wrapper.findAll('.log-cell--extra').map((c) => c.text())
+    expect(extraCells).toContain('extras-module-value')
   })
 })
