@@ -60,10 +60,7 @@ beforeEach(() => {
 // localStorage antes de montar para poder seguir probando el color del pill
 // sin pasar por la UI de "+ columna".
 async function mountPills(): Promise<Record<string, CSSStyleDeclaration>> {
-  localStorage.setItem(
-    COLUMNS_KEY,
-    JSON.stringify(['time', 'level', 'module', 'msg']),
-  )
+  localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'level', 'module', 'msg']))
   const wrapper = mount(ServerLogsSection)
   await flushPromises()
   const pills: Record<string, CSSStyleDeclaration> = {}
@@ -249,9 +246,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
 
     expect(extraColHeader(wrapper).exists()).toBe(true)
-    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual([
-      'clearDedupe',
-    ])
+    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual(['clearDedupe'])
   })
 
   it('el "+" del header ofrece las columnas base ocultas y las claves de extras descubiertas', async () => {
@@ -359,11 +354,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
       'server-logs-col-header-time',
       'server-logs-col-header-msg',
     ])
-    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual([
-      'module',
-      'time',
-      'msg',
-    ])
+    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual(['module', 'time', 'msg'])
   })
 
   it('el buscador del picker filtra por nombre, en base y en extras', async () => {
