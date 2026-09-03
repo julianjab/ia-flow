@@ -268,6 +268,17 @@ describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
     expect(res.status).toBe(400)
   })
 
+  // Un chip vacío mezclado con uno válido (fácil de mandar sin querer desde
+  // la UI, ej. `?extra=err:ECON&extra=`) no puede tirar 400 por algo que ni
+  // siquiera es un patrón — se descarta, el resto de la query sigue viva.
+  test('un elemento vacío mezclado con uno válido no tira 400 — se ignora', async () => {
+    seed()
+    const res = await createServerLogsRouter().request('/?sort=asc&extra=err:ECONNRESET&extra=')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { entries: Array<{ msg: string }> }
+    expect(body.entries.map((e) => e.msg)).toEqual(['conexión perdida'])
+  })
+
   test('una clave vacía explícita (":algo") corta con 400', async () => {
     seed()
     const res = await createServerLogsRouter().request(`/?extra=${encodeURIComponent(':algo')}`)
@@ -330,6 +341,18 @@ describe('GET /api/server-logs — search (msg)', () => {
     seed()
     expect((await fetchEntries('?sort=asc&search=conex*reset')).map((e) => e.msg)).toEqual([
       'Conexión perdida: ECONNRESET',
+    ])
+  })
+
+  // El msg NO se recorta antes de buscar (a diferencia de los valores de
+  // `extras`) — un stack trace o un payload logueado ahí supera fácil los
+  // 2000 chars, y el término buscado puede estar al final.
+  test('matchea un término que está después de los primeros 2000 chars del mensaje', async () => {
+    const dir = logDir()
+    const long = 'a'.repeat(2500)
+    writeFileSync(join(dir, 'daemon.log'), line('2026-08-27T10:00:00.000Z', `${long}NEEDLE`))
+    expect((await fetchEntries('?sort=asc&search=needle')).map((e) => e.msg)).toEqual([
+      `${long}NEEDLE`,
     ])
   })
 })
