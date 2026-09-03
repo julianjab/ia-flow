@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { WorkingMarker } from '@ia-flow/shared';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { formatGithubRepoUrl, parseGithubRepoRef } from '@/composables/parseGithubRepoRef';
 import type { SourceProjectField } from '@/features/projects/sourceApi';
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
 
@@ -15,6 +16,13 @@ export interface GitHubSourceConfig {
   // Ver WorkingMarkerSchema en @ia-flow/shared y working-marker.ts en
   // @ia-flow/issue-sources.
   workingMarker?: WorkingMarker | null;
+  // Opcional: además del board, vigilar un repo puntual como `github-issues`
+  // (ex kind 'github-hybrid' — createDefaultSourceFactory compone las dos
+  // fuentes cuando owner+repo están presentes). Sin ellos este source queda
+  // como un GitHub Projects liso, igual que siempre.
+  owner?: string;
+  repo?: string;
+  anchorLabel?: string;
 }
 
 const DEFAULT_MARKER: WorkingMarker = { field: 'Working', on: 'Yes', off: '' };
@@ -30,6 +38,39 @@ const emit = defineEmits<{ 'update:modelValue': [value: GitHubSourceConfig] }>()
 const url = computed({
   get: () => props.modelValue.url ?? '',
   set: (v: string) => emit('update:modelValue', { ...props.modelValue, url: v }),
+});
+
+// ─── Repo vinculado (opcional, ex 'github-hybrid') ──────────────────────────
+// Mismo patrón de GitHubIssuesSourceForm: se pega la URL del repo y se
+// deriva owner/repo — el config guardado no persiste la URL, se re-arma al
+// abrir el form.
+const repoUrl = ref(formatGithubRepoUrl(props.modelValue));
+const parsedRepo = computed(() => parseGithubRepoRef(repoUrl.value));
+const lastEmittedRepo = ref(`${props.modelValue.owner ?? ''}/${props.modelValue.repo ?? ''}`);
+
+watch(
+  () => `${props.modelValue.owner ?? ''}/${props.modelValue.repo ?? ''}`,
+  (incoming) => {
+    if (incoming === lastEmittedRepo.value) return;
+    lastEmittedRepo.value = incoming;
+    repoUrl.value = formatGithubRepoUrl(props.modelValue);
+  },
+);
+
+function onRepoUrlInput(e: Event) {
+  repoUrl.value = (e.target as HTMLInputElement).value;
+  const next = parsedRepo.value;
+  lastEmittedRepo.value = `${next?.owner ?? ''}/${next?.repo ?? ''}`;
+  emit('update:modelValue', {
+    ...props.modelValue,
+    owner: next?.owner || undefined,
+    repo: next?.repo || undefined,
+  });
+}
+
+const anchorLabel = computed({
+  get: () => props.modelValue.anchorLabel ?? '',
+  set: (v: string) => emit('update:modelValue', { ...props.modelValue, anchorLabel: v }),
 });
 
 // `undefined` es "no declarado" y vale el default del source — por eso el
@@ -140,6 +181,34 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
     >
       Abrir en GitHub ↗
     </a>
+
+    <div class="ghsf-repo">
+      <label class="ghsf-field">
+        <span class="ghsf-label">Repo vinculado (opcional)</span>
+        <input
+          :value="repoUrl"
+          class="ghsf-input"
+          placeholder="https://github.com/owner/repo"
+          data-testid="linked-repo-url"
+          @input="onRepoUrlInput"
+        />
+        <span v-if="repoUrl && !parsedRepo" class="ghsf-hint ghsf-hint--warn">
+          No parece una URL de repo. Formato: https://github.com/owner/repo
+        </span>
+        <span v-else class="ghsf-hint">
+          Además de este board, vigila los issues abiertos de ese repo (como GitHub Repo) y los
+          mergea por issue — dejalo vacío para un GitHub Projects liso.
+        </span>
+      </label>
+      <label v-if="parsedRepo" class="ghsf-field">
+        <span class="ghsf-label">Anchor label</span>
+        <input v-model="anchorLabel" class="ghsf-input" placeholder="ia-flow" />
+        <span class="ghsf-hint">
+          Opcional: sólo los issues con esta label entran al scan. Vacío = todo issue abierto del
+          repo es candidato.
+        </span>
+      </label>
+    </div>
 
     <!-- Marca de "agente trabajando": el único guard anti-doble-dispatch que
          sobrevive al proceso. Sin ella el daemon despacha igual — apoyado sólo
@@ -274,6 +343,13 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
   align-self: flex-start;
 }
 .ghsf-link:hover { text-decoration: underline; }
+.ghsf-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
 .ghsf-marker {
   display: flex;
   flex-direction: column;

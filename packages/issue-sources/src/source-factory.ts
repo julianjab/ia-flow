@@ -115,6 +115,14 @@ export function createSourceFactory(): SourceFactory {
 // a provider class outside this package.
 export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }): SourceFactory {
   const factory = createSourceFactory()
+  // `owner`/`repo` son OPCIONALES acá — es lo que absorbió al viejo kind
+  // 'github-hybrid': si están (y son ambos strings no vacíos), este board
+  // ADEMÁS vigila ese repo como `github-issues` y las dos fuentes se
+  // componen en un `GithubHybridSource` (ver esa clase para el porqué de
+  // componer en vez de reimplementar). Sin ellas, se queda un
+  // `GitHubProjectSource` liso — el mismo comportamiento que tenía este kind
+  // antes de que existiera la composición. 'github-issues' (issue sin
+  // proyecto) sigue siendo su propio kind: no hay nada que enriquecer ahí.
   const buildGitHubProjects: SourceBuilder = (_project, config) => {
     const url = config.url
     if (typeof url !== 'string' || !url) {
@@ -123,11 +131,21 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
     // Valida en el borde: un `workingMarker` (o un `slackThreadField`) mal
     // escrito falla al guardar el proyecto (400 vía SourceFactory.validate) o
     // al bootear el runner, no en el primer dispatch.
-    return new GitHubProjectSource(
+    const project = new GitHubProjectSource(
       url,
       parseWorkingMarker(config.workingMarker),
       parseSlackThreadField(config.slackThreadField),
     )
+    if (
+      typeof config.owner === 'string' &&
+      config.owner &&
+      typeof config.repo === 'string' &&
+      config.repo
+    ) {
+      const issuesConfig = parseGitHubIssuesConfig('github-projects', config)
+      return new GithubHybridSource(new GitHubIssueSource(issuesConfig), project, issuesConfig)
+    }
+    return project
   }
   factory.add('github-projects', buildGitHubProjects)
   factory.add('local', () => new LocalProjectSource(deps.taskRepo))
@@ -141,26 +159,11 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
     'github-issues',
     (_project, config) => new GitHubIssueSource(parseGitHubIssuesConfig('github-issues', config)),
   )
-  // Un issue de GitHub que ADEMÁS puede estar en un Project v2 board — junta
-  // la config de los dos builders de arriba (owner/repo/anchorLabel +
-  // url/workingMarker/slackThreadField), ambas requeridas: sin las dos mitades
-  // no hay nada que componer. Ver GithubHybridSource para el porqué de
-  // componer en vez de reimplementar.
-  factory.add('github-hybrid', (_project, config) => {
-    const issuesConfig = parseGitHubIssuesConfig('github-hybrid', config)
-    const url = config.url
-    if (typeof url !== 'string' || !url) {
-      throw new Error('github-hybrid source requires config.url (string) — el Project v2 board')
-    }
-    return new GithubHybridSource(
-      new GitHubIssueSource(issuesConfig),
-      new GitHubProjectSource(
-        url,
-        parseWorkingMarker(config.workingMarker),
-        parseSlackThreadField(config.slackThreadField),
-      ),
-      issuesConfig,
-    )
-  })
+  // Otro alias deprecado: 'github-hybrid' era un kind aparte antes de que
+  // `buildGitHubProjects` supiera componer solo con owner/repo en su config.
+  // Las filas viejas ya traían las dos mitades (owner/repo + url) porque el
+  // builder anterior las exigía, así que reusar `buildGitHubProjects` sigue
+  // devolviendo la misma composición sin necesidad de migrar la columna.
+  factory.add('github-hybrid', buildGitHubProjects, { aliasOf: 'github-projects' })
   return factory
 }
