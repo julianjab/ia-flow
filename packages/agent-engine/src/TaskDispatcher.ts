@@ -10,16 +10,28 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('task-dispatcher')
 
-// How long after a `cancelled` run to hold off redispatching the SAME task.
-// The session-watchdog (session-watchdog.ts) can close a terminal run as
-// `cancelled` on a false-positive liveness read while the real terminal
-// session — and the agent inside it — keeps working. Without this cooldown
-// the very next scan cycle sees the task still sitting in the same status
-// (no `onFinish`/`onError` ran — cancellation explicitly skips the
+// How long after a `cancelled` TERMINAL run to hold off redispatching the
+// SAME task. The session-watchdog (session-watchdog.ts) can close a tmux/
+// iterm run as `cancelled` on a false-positive liveness read while the real
+// terminal session — and the agent inside it — keeps working. Without this
+// cooldown the very next scan cycle sees the task still sitting in the same
+// status (no `onFinish`/`onError` ran — cancellation explicitly skips the
 // transition, see Agent.ts) and redispatches immediately, opening a SECOND
 // terminal session on top of the still-live one. That's what produced the
 // "No hay tarea activa" errors when the original session finally tried to
 // call complete_task/update_issue_body — its PendingTask entry was gone.
+//
+// Sólo aplica a runs con `sessionKind` seteado (Agent.ts lo escribe SOLO
+// cuando `output.mode === 'tmux'`, o sea un SessionHandle real de un
+// provider terminal). Un run sync (`anthropic-api`) no deja ningún proceso
+// vivo del otro lado — corre y termina dentro del mismo `await` — así que
+// sus tres caminos reales a `cancelled` (provider-at-capacity: nunca
+// arrancó; status-divergence: cancelación intencional del engine;
+// upstream-abort: se cortó el stream) no tienen la ventana de "sesión
+// zombie" que este cooldown existe para evitar. Aplicárselo igual sólo le
+// suma hasta 2 minutos de latencia sin ganar nada — diagnosticado contra
+// lh-seller-v2-frontend#3854, un retry legítimo de un agente sync diferido
+// sin motivo.
 const DEFAULT_CANCEL_COOLDOWN_MS = 2 * 60_000
 
 /**
@@ -190,9 +202,15 @@ export class TaskDispatcher {
     // Cooldown post-cancelación — ver el comment del campo arriba. Chequea
     // sólo la fila más reciente de ESTE task (barato: índice por task_id, un
     // SELECT local a SQLite) antes de comprometerse a un dispatch real.
+    //
+    // `lastRun.sessionKind` es la señal de runtime de si ESE run en
+    // particular tuvo un SessionHandle terminal real (Agent.ts sólo lo
+    // escribe dentro de `output.mode === 'tmux'`) — más confiable que mirar
+    // `agent.provider` acá: cubre también `remote:*`, cuyo kind resuelto
+    // varía por dispatch y no se puede saber desde la config del agente.
     if (this.executionLogRepo) {
       const [lastRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
-      if (lastRun?.outcome === 'cancelled' && lastRun.finishedAt) {
+      if (lastRun?.outcome === 'cancelled' && lastRun.finishedAt && lastRun.sessionKind) {
         const elapsedMs = Date.now() - new Date(lastRun.finishedAt).getTime()
         if (elapsedMs >= 0 && elapsedMs < this.cancelCooldownMs) {
           log.warn(
