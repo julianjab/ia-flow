@@ -91,6 +91,27 @@ export const AgentActionSchema = z.object({
    * el operador ya consideró aceptable para este paso.
    */
   allowAgents: z.array(z.string().min(1)).optional(),
+  /**
+   * Si este dispatch choca con el lock de la task (ya hay un run en vuelo),
+   * inyectar el `brief` en vivo en ESE run en vez de diferir — sin exigir que
+   * sea del mismo agente que pidió este dispatch.
+   *
+   * El default (`false`/ausente) es el gate estricto de siempre
+   * (`TaskDispatcher.canDeliverLive`): sólo entrega en vivo cuando el run
+   * activo es del MISMO agente, porque un mensaje dirigido al agente A no
+   * tiene por qué ser instrucción válida para el agente B que lo tiene
+   * bloqueado. Con `liveInject: true` el operador declara explícitamente que
+   * SÍ lo es para este paso — el caso típico es un triage que sólo existe
+   * para elegir destino: si la task ya tiene CUALQUIER agente corriendo sobre
+   * `anthropic-api` (el único provider que drena mensajes en vivo), reenviar
+   * el brief crudo ahí es más útil que diferir esperando que el triage pueda
+   * correr.
+   *
+   * Sigue exigiendo que el run activo esté vivo (`finishedAt` null) y sobre
+   * el provider que drena en vivo — esto no fuerza una entrega imposible, sólo
+   * releja CUÁL run activo cuenta como destino válido.
+   */
+  liveInject: z.boolean().optional(),
 })
 
 /**

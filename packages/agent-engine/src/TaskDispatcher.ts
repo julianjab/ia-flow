@@ -78,6 +78,11 @@ export interface DispatchOptions {
    *  `{{steps.<paso>.output}}`. Mismo mecanismo que usa `runSubAgent` para
    *  leer el resultado de un hijo. */
   state?: AgentRunState
+  /** Ver `AgentActionSchema.liveInject` en `@ia-flow/shared`. Relaja el gate
+   *  de entrega en vivo del catch de abajo: no exige que el run activo sea
+   *  del MISMO agente que este dispatch, sólo que esté vivo y sobre el
+   *  provider que drena `RunMessagePort` en vivo. */
+  liveInject?: boolean
 }
 
 export class TaskDispatcher {
@@ -112,7 +117,7 @@ export class TaskDispatcher {
     agentId: string,
     opts: DispatchOptions = {},
   ): Promise<DispatchOutcome> {
-    const { ruleId, event, brief, exits } = opts
+    const { ruleId, event, brief, exits, liveInject } = opts
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
       if (!ok) {
@@ -341,18 +346,26 @@ export class TaskDispatcher {
         // EQUIVOCADO: si el lock lo tiene el agente B (o A, pero en un
         // provider que no drena en vivo), B se come instrucciones dirigidas
         // a A, y el dispatch de A queda `skipped` creyendo que se entregó
-        // cuando en realidad se perdió. Sólo se puede afirmar la entrega
-        // cuando la fila más reciente de ESTA task (mismo criterio que usa
-        // el cooldown de cancelación, arriba) es del MISMO agente que
+        // cuando en realidad se perdió. Por default sólo se puede afirmar la
+        // entrega cuando la fila más reciente de ESTA task (mismo criterio
+        // que usa el cooldown de cancelación, arriba) es del MISMO agente que
         // pidió este dispatch y sigue en vuelo (`finishedAt` null) sobre el
         // único provider que drena `RunMessagePort` en vivo.
+        //
+        // `liveInject: true` (la regla lo declara en la acción `agent`, ver
+        // `AgentActionSchema`) releja ESE último chequeo: no exige que sea el
+        // MISMO agente, sólo que el run activo esté vivo sobre ese provider.
+        // Es el caso de un triage que choca con el lock antes de poder
+        // siquiera decidir a quién despachar — sin la relajación, el brief
+        // nunca se entrega porque el agente que chocó (el triage) nunca va a
+        // ser el mismo que el run activo.
         if (brief && this.runMessageEnqueuer && this.executionLogRepo) {
           const [activeRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
           const canDeliverLive =
             activeRun != null &&
             activeRun.finishedAt == null &&
-            activeRun.agentId === agentId &&
-            activeRun.providerId === LIVE_DRAIN_PROVIDER_ID
+            activeRun.providerId === LIVE_DRAIN_PROVIDER_ID &&
+            (activeRun.agentId === agentId || liveInject === true)
           if (canDeliverLive) {
             delivered = await this.runMessageEnqueuer
               .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })

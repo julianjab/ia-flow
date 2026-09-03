@@ -141,6 +141,7 @@ export function registerActions(): void {
         event: { id: string; type: string; position: number },
         brief?: string,
         exits?: DispatchOptions['exits'],
+        liveInject?: boolean,
       ) => {
         // El `state` es el canal de vuelta del run: `Agent.run` escribe ahí su
         // texto final y, si el agente declara contrato, la salida estructurada
@@ -152,6 +153,7 @@ export function registerActions(): void {
           event,
           brief,
           exits,
+          liveInject,
           state,
         })
         return { outcome, output: state.structuredOutput ?? state.output }

@@ -35,6 +35,8 @@ export interface AgentActionDeps {
     brief?: string,
     /** Redirecciones de salida que la regla declaró para este disparo. */
     exits?: AgentConfig['exits'],
+    /** Ver `AgentActionSchema.liveInject`. */
+    liveInject?: boolean,
   ): Promise<{ outcome: DispatchOutcome; output?: unknown }>
   /**
    * Resuelve el issue sobre el que correr, cuando el evento no lo trae.
@@ -168,6 +170,7 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       },
       brief,
       config.exits,
+      config.liveInject,
     )
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 

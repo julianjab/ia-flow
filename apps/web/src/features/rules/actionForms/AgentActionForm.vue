@@ -184,6 +184,24 @@ function removeExit(i: number) {
     <span>Publicar el resultado del run como evento</span>
   </label>
 
+  <label class="ff-check">
+    <input
+      type="checkbox"
+      :checked="entry.liveInject === true"
+      @change="
+        emit('patch', {
+          liveInject: ($event.target as HTMLInputElement).checked || undefined,
+        })
+      "
+    />
+    <span>
+      Si la task ya tiene un run en vuelo, inyectar el brief ahí en vez de diferir
+      <HintIcon
+        text="Sólo aplica cuando el run en vuelo corre sobre anthropic-api (el único provider que lee mensajes nuevos en vivo). Sin esto, un choque con el lock de la task se difiere y se pierde salvo que algo más dispare un run nuevo — útil para un paso de triage que sólo existe para elegir destino: si la task YA tiene cualquier agente corriendo, mejor avisarle directo que esperar a poder decidir."
+      />
+    </span>
+  </label>
+
   <label v-if="entry.emitOn === 'exit'" class="ff-row">
     <span class="uc-label">
       Tipo del evento
