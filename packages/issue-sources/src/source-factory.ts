@@ -136,12 +136,19 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
       parseWorkingMarker(config.workingMarker),
       parseSlackThreadField(config.slackThreadField),
     )
-    if (
-      typeof config.owner === 'string' &&
-      config.owner &&
-      typeof config.repo === 'string' &&
-      config.repo
-    ) {
+    const hasOwner = typeof config.owner === 'string' && config.owner !== ''
+    const hasRepo = typeof config.repo === 'string' && config.repo !== ''
+    if (hasOwner !== hasRepo) {
+      // Exactamente uno de los dos presente no es "sin repo vinculado" (la
+      // intención de dejar los dos vacíos) — es una config a medias, y
+      // degradar en silencio a un GitHubProjectSource liso escondería el
+      // typo: el proyecto seguiría funcionando pero sin vigilar el repo que
+      // el operador sí quiso vincular.
+      throw new Error(
+        'GitHub Projects source: config.owner y config.repo van juntos (los dos, o ninguno)',
+      )
+    }
+    if (hasOwner && hasRepo) {
       const issuesConfig = parseGitHubIssuesConfig('github-projects', config)
       return new GithubHybridSource(new GitHubIssueSource(issuesConfig), project, issuesConfig)
     }

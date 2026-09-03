@@ -13,9 +13,11 @@ import type { SourceProjectField } from '@/features/projects/sourceApi';
 // entry, JsonSourceForm renders a textarea so the source is still usable.
 const KIND_FORMS: Record<string, unknown> = {
   'github-projects': GitHubSourceForm,
-  // Alias deprecado del anterior: un proyecto guardado con el kind viejo tiene
-  // que seguir abriendo su form de URL, no caer al textarea JSON.
+  // Alias deprecados de 'github-projects': un proyecto guardado con el kind
+  // viejo tiene que seguir abriendo el mismo form (que ya trae owner/repo/
+  // anchorLabel opcionales), no caer al textarea JSON.
   github: GitHubSourceForm,
+  'github-hybrid': GitHubSourceForm,
   local: LocalSourceForm,
   'github-issues': GitHubIssuesSourceForm,
 };
