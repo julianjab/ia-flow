@@ -182,7 +182,7 @@ function formatFailComment(entry: PendingTask, input: FailTaskInput): string {
 }
 
 interface CompleteTaskInput {
-  task_id: string
+  task_id?: string
   what_did: string[] | string
   validations: string[] | string
   notes?: string
@@ -190,7 +190,7 @@ interface CompleteTaskInput {
 }
 
 interface FailTaskInput {
-  task_id: string
+  task_id?: string
   what_tried: string[] | string
   where_failed: string
   validations: string[] | string
@@ -210,7 +210,7 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'Task ID — usa el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       what_did: {
         type: 'array',
@@ -230,12 +230,13 @@ registerTool({
           'Opcional. Contexto adicional que no encaje en Qué hice / Validaciones (riesgos, follow-ups, decisiones).',
       },
     },
-    required: ['task_id', 'what_did', 'validations'],
+    required: ['what_did', 'validations'],
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as CompleteTaskInput
-    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
-    const unlanded = closeWithoutRun(resolved, input.task_id, 'complete_task')
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const resolved = await resolvePendingTask(taskId, ctx?.runId)
+    const unlanded = closeWithoutRun(resolved, taskId, 'complete_task')
     if (unlanded) return unlanded
     const entry = (resolved as ResolvedPendingTask).entry
 
@@ -247,7 +248,7 @@ registerTool({
       runId: entry.runId,
       agent: entry.agentId,
       projectId: entry.projectId,
-      taskId: input.task_id,
+      taskId,
     }
     log.info(
       { event: 'tool.callback.received', tool: 'complete_task', ...logCtx },
@@ -322,7 +323,7 @@ registerTool({
       } catch (e) {
         log.warn({ ...logCtx, err: e }, 'killSession threw on complete_task')
       }
-      removePendingTask(input.task_id, { finalizedByTool: true })
+      removePendingTask(taskId, { finalizedByTool: true })
       // Sólo en entradas rehidratadas: el orquestador que lanzó este run ya
       // no existe, así que la fila la cierra el tool o no la cierra nadie.
       resolved?.finalize?.('success')
@@ -349,18 +350,19 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       body: {
         type: 'string',
         description: 'Contenido completo en markdown. Reemplaza el body actual del issue.',
       },
     },
-    required: ['task_id', 'body'],
+    required: ['body'],
   },
   async execute(input: any, ctx?: ToolContext): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
-    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const pending = (await resolvePendingTask(taskId, ctx?.runId))?.entry
+    if (!pending) throw new Error(`No hay tarea activa con id '${taskId}'`)
     pending.task = await pending.manager.saveOutput(pending.task, input.body)
     pending.broadcast({ type: 'task:updated', task: pending.task })
     return 'Contenido guardado correctamente.'
@@ -378,7 +380,7 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       headline: {
         type: 'string',
@@ -401,12 +403,13 @@ registerTool({
         description: 'Opcional. Contexto adicional (riesgos, follow-ups, decisiones).',
       },
     },
-    required: ['task_id', 'what_did'],
+    required: ['what_did'],
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
-    const input = rawInput as ProgressCommentInput & { task_id: string }
-    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
-    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    const input = rawInput as ProgressCommentInput & { task_id?: string }
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const pending = (await resolvePendingTask(taskId, ctx?.runId))?.entry
+    if (!pending) throw new Error(`No hay tarea activa con id '${taskId}'`)
     if (!pending.manager.postComment) {
       throw new Error("El source de esta tarea no soporta 'postComment'")
     }
@@ -439,7 +442,7 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       field_name: {
         type: 'string',
@@ -451,11 +454,12 @@ registerTool({
           'Valor a asignar. En un campo multi-valor (Labels), tokens con signo separados por coma: "+a,-b".',
       },
     },
-    required: ['task_id', 'field_name', 'value'],
+    required: ['field_name', 'value'],
   },
   async execute(input: any, ctx?: ToolContext): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
-    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const pending = (await resolvePendingTask(taskId, ctx?.runId))?.entry
+    if (!pending) throw new Error(`No hay tarea activa con id '${taskId}'`)
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
     }
@@ -531,7 +535,7 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       repo: {
         type: 'string',
@@ -544,12 +548,13 @@ registerTool({
           'Por qué este trabajo pertenece a ese repo y no al actual, con la evidencia que lo respalda. Queda en el log del run.',
       },
     },
-    required: ['task_id', 'repo', 'reason'],
+    required: ['repo', 'reason'],
   },
   async execute(input: any, ctx?: ToolContext): Promise<string> {
-    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const resolved = await resolvePendingTask(taskId, ctx?.runId)
     const entry = resolved?.entry
-    if (!entry) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    if (!entry) throw new Error(`No hay tarea activa con id '${taskId}'`)
 
     const frozen = staleRunFreeze(entry, ctx)
     if (frozen) throw new Error(`No se movió el repo: ${frozen}`)
@@ -649,7 +654,7 @@ registerTool({
     // Suelta la pending task SIN aplicar ninguna salida: la tarea se queda en
     // el status donde estaba, que es justo lo que hace que el próximo scan la
     // vuelva a tomar — esta vez contra el repo correcto.
-    removePendingTask(input.task_id, { finalizedByTool: true })
+    removePendingTask(taskId, { finalizedByTool: true })
     resolved?.finalize?.('success')
 
     return [
@@ -675,7 +680,7 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       labels: {
         type: 'array',
@@ -683,11 +688,12 @@ registerTool({
         description: 'Nombres de labels a aplicar.',
       },
     },
-    required: ['task_id', 'labels'],
+    required: ['labels'],
   },
   async execute(input: any, ctx?: ToolContext): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
-    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const pending = (await resolvePendingTask(taskId, ctx?.runId))?.entry
+    if (!pending) throw new Error(`No hay tarea activa con id '${taskId}'`)
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
     }
@@ -714,7 +720,7 @@ registerTool({
       task_id: {
         type: 'string',
         description:
-          'ID de la tarea activa — usar {{task.id}} del prompt. Sirve para enrutar al source correcto; los issues bloqueado/bloqueante no tienen que ser la tarea activa.',
+          'Opcional — se resuelve del contexto del run. Sirve para enrutar al source correcto; los issues bloqueado/bloqueante no tienen que ser la tarea activa.',
       },
       blocked_issue_id: {
         type: 'string',
@@ -725,11 +731,12 @@ registerTool({
         description: 'ID del issue que bloquea (el prerrequisito) (node ID en GitHub).',
       },
     },
-    required: ['task_id', 'blocked_issue_id', 'blocking_issue_id'],
+    required: ['blocked_issue_id', 'blocking_issue_id'],
   },
   async execute(input: any, ctx?: ToolContext): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
-    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const pending = (await resolvePendingTask(taskId, ctx?.runId))?.entry
+    if (!pending) throw new Error(`No hay tarea activa con id '${taskId}'`)
     if (!pending.manager.markBlockedBy) {
       throw new Error("El source de esta tarea no soporta 'markBlockedBy'")
     }
@@ -760,14 +767,14 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'Task ID — usa el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       exit: {
         type: 'string',
         description: 'Nombre de una de las salidas declaradas por este agente.',
       },
     },
-    required: ['task_id', 'exit'],
+    required: ['exit'],
   },
   // El enum real depende del agente, así que se arma por dispatch — un agente
   // sin salidas elegibles no ve esta tool en absoluto.
@@ -786,7 +793,7 @@ registerTool({
       properties: {
         task_id: {
           type: 'string',
-          description: 'Task ID — usa el valor de {{task.id}} del prompt.',
+          description: 'Opcional — se resuelve del contexto del run.',
         },
         exit: {
           type: 'string',
@@ -794,17 +801,18 @@ registerTool({
           description: `Salida por la que cerrar el run.${detail}`,
         },
       },
-      required: ['task_id', 'exit'],
+      required: ['exit'],
     }
   },
   hideWhen(opts) {
     return (opts?.selectableExits ?? []).length === 0
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
-    const input = rawInput as { task_id: string; exit: string }
-    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
+    const input = rawInput as { task_id?: string; exit: string }
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const resolved = await resolvePendingTask(taskId, ctx?.runId)
     if (!resolved) {
-      throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+      throw new Error(`No hay tarea activa con id '${taskId}'`)
     }
     const { entry } = resolved
     const declared = Object.keys(entry.exits ?? {})
@@ -820,7 +828,7 @@ registerTool({
     log.info(
       {
         event: 'agent.exit.selected',
-        taskId: input.task_id,
+        taskId,
         agent: entry.agentId,
         exit: input.exit,
       },
@@ -848,7 +856,7 @@ registerTool({
     properties: {
       task_id: {
         type: 'string',
-        description: 'Task ID — usa el valor de {{task.id}} del prompt.',
+        description: 'Opcional — se resuelve del contexto del run.',
       },
       what_tried: {
         type: 'array',
@@ -866,12 +874,13 @@ registerTool({
         description: 'Bullets con las validaciones que sí corriste y su resultado.',
       },
     },
-    required: ['task_id', 'what_tried', 'where_failed'],
+    required: ['what_tried', 'where_failed'],
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as FailTaskInput
-    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
-    const unlanded = closeWithoutRun(resolved, input.task_id, 'fail_task')
+    const taskId = input.task_id ?? ctx?.taskId ?? ''
+    const resolved = await resolvePendingTask(taskId, ctx?.runId)
+    const unlanded = closeWithoutRun(resolved, taskId, 'fail_task')
     if (unlanded) return unlanded
     const entry = (resolved as ResolvedPendingTask).entry
 
@@ -883,7 +892,7 @@ registerTool({
       runId: entry.runId,
       agent: entry.agentId,
       projectId: entry.projectId,
-      taskId: input.task_id,
+      taskId,
     }
     log.info(
       { event: 'tool.callback.received', tool: 'fail_task', ...logCtx },
@@ -963,7 +972,7 @@ registerTool({
       } catch (e) {
         log.warn({ ...logCtx, err: e }, 'killSession threw on fail_task')
       }
-      removePendingTask(input.task_id, { finalizedByTool: true })
+      removePendingTask(taskId, { finalizedByTool: true })
       // Ver el mismo llamado en complete_task: en un run rehidratado no queda
       // nadie más que escriba el resultado en la fila.
       resolved?.finalize?.('error')
