@@ -12,6 +12,7 @@ import {
   type ServerLogFilters,
   type ServerLogLevelCounts,
 } from './api';
+import JsonTreeNode from './JsonTreeNode.vue';
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
 // filter). The summary chip row below is the only UI to toggle these.
@@ -140,14 +141,17 @@ const toFilter = ref(toDatetimeLocal(queryStr('to')));
 // puedan sacar y reordenar, no sólo las agregadas. Preferencia por-viewer:
 // vive en localStorage, no en el server (dos pestañas de dos operadores
 // pueden mirar columnas distintas del mismo log).
-// `:v2` porque cambió la SEMÁNTICA del array, no sólo su forma: antes sólo
-// guardaba columnas de extras (las cuatro base estaban hardcodeadas en el
-// header), ahora es el set COMPLETO. Con la clave vieja, un `["agentId"]` ya
-// persistido cargaría la tabla con esa única columna — sin Fecha/Módulo/
-// Mensaje — y el guard de "no quedarse en cero" ni siquiera deja arreglarlo
-// desde la UI. Bumpear la clave es más simple y más seguro que migrar: es
-// una preferencia de UI por-viewer, perderla una vez no cuesta nada.
-const COLUMNS_STORAGE_KEY = 'ia-flow:server-logs:columns:v2';
+// `:v3` porque el FORMATO de los paths de extras cambió: antes una columna
+// de extras se guardaba SIN el prefijo `extras.` (`agentId`), ahora lleva el
+// path real dentro de `entry` (`extras.agentId`) — es lo que permite que el
+// árbol JSON recursivo (`JsonTreeNode.vue`) y las columnas usen la MISMA
+// noción de "path" sin un guard de colisión aparte para nombres que
+// coinciden con una columna base. Con la clave vieja, un `["agentId"]` ya
+// persistido no resolvería ningún valor (`getNestedValue(entry, 'agentId')`
+// no es `entry.extras.agentId`). Bumpear la clave es más simple y más
+// seguro que migrar: es una preferencia de UI por-viewer, perderla una vez
+// no cuesta nada.
+const COLUMNS_STORAGE_KEY = 'ia-flow:server-logs:columns:v3';
 const BASE_COLUMNS = ['time', 'level', 'module', 'msg'] as const;
 const BASE_COLUMN_SET = new Set<string>(BASE_COLUMNS);
 function isBaseColumn(key: string): boolean {
@@ -180,7 +184,11 @@ const EXTRA_COLUMN_LABELS: Record<string, string> = {
   source: 'Contenedor',
 };
 function columnLabel(key: string): string {
-  return BASE_COLUMN_LABELS[key] ?? EXTRA_COLUMN_LABELS[key] ?? key;
+  if (BASE_COLUMN_LABELS[key]) return BASE_COLUMN_LABELS[key];
+  // Las columnas de extras guardan el path real (`extras.agentId`) — el
+  // catálogo de labels bonitos sigue keyed por el nombre sin prefijo.
+  const bare = key.startsWith('extras.') ? key.slice('extras.'.length) : key;
+  return EXTRA_COLUMN_LABELS[bare] ?? bare;
 }
 // Ancho de cada columna en el grid — Mensaje es la única elástica (`1fr`);
 // el resto tiene un ancho fijo para que header y filas queden SIEMPRE
@@ -270,36 +278,21 @@ function isColumnActive(key: string): boolean {
 /**
  * Nunca deja la tabla sin ninguna columna — sacar la última no tiene forma
  * de deshacerse salvo borrando el localStorage a mano. `toggleColumn` (el
- * menú "…" del detalle, invocado con un PATH de `extras`) delega en
- * `removeColumn`/`addColumn` para no duplicar ese guard.
+ * menú "…" del árbol JSON del detalle, invocado con el PATH real del campo
+ * — `time`, o `extras.scope.issueId`) delega en `removeColumn`/`addColumn`
+ * para no duplicar ese guard.
  *
- * También rechaza agregar cuando `key` colisiona con el nombre de una
- * columna base (`time`/`level`/`module`/`msg`) — mismo motivo que
- * `addCustomColumn` ya cubre para el input de texto libre: sin este guard,
- * una línea con `extras.module` agregaría una columna que el template lee
- * como `entry.module` (por el `col === 'module'` del v-for de la fila) en
- * vez del valor real de `extras.module` — la columna mentiría en silencio.
+ * Ya no hace falta un guard anti-colisión con las columnas base: como cada
+ * columna de extras arrastra el prefijo `extras.`, un `key` como `module`
+ * SÓLO puede significar la columna base real — no hay forma de que un
+ * `extras.module` se confunda con ella.
  */
 function toggleColumn(key: string): void {
   if (isColumnActive(key)) {
     removeColumn(key);
     return;
   }
-  if (isBaseColumn(key)) return;
   addColumn(key);
-}
-/** La versión que usa el panel "Campos" (`flattenEntry`) — a diferencia de
- *  `toggleColumn`, acá `isBase` viene del propio campo, no se infiere del
- *  nombre: un `field.path === 'module'` con `isBase: true` ES la columna
- *  base de verdad (no una colisión de un `extras.module`), así que se
- *  permite agregar sin pasar por el guard anti-colisión. */
-function toggleField(field: FlatExtraField): void {
-  if (field.isBase) {
-    if (isColumnActive(field.path)) removeColumn(field.path);
-    else addColumn(field.path);
-    return;
-  }
-  toggleColumn(field.path);
 }
 function removeColumn(key: string): void {
   if (!isColumnActive(key) || activeColumns.value.length <= 1) return;
@@ -343,16 +336,15 @@ function addColumn(key: string): void {
   persistColumns();
   addColumnMenuOpen.value = false;
 }
-// Camino anidado (`err.message`) para el campo que no está en el picker —
-// "extras.X.Y" o "X.Y" entran igual, el prefijo `extras.` es opcional
-// porque es implícito (toda columna no-base ES un camino dentro de extras).
+// Camino anidado (`extras.err.message`) para el campo que no está en el
+// picker — a diferencia de antes, el prefijo `extras.` ya NO es opcional:
+// es el path real dentro de `entry` (mismo que usa el árbol JSON), así que
+// se toma literal tal como se escribió.
 const customColumnInput = ref('');
 function addCustomColumn(): void {
-  const raw = customColumnInput.value.trim();
-  if (!raw) return;
-  const key = raw.startsWith('extras.') ? raw.slice('extras.'.length) : raw;
+  const key = customColumnInput.value.trim();
   customColumnInput.value = '';
-  if (!key || isBaseColumn(key) || isColumnActive(key)) return;
+  if (!key || isColumnActive(key)) return;
   activeColumns.value = [...activeColumns.value, key];
   persistColumns();
   addColumnMenuOpen.value = false;
@@ -397,7 +389,11 @@ function onColumnDrop(targetKey: string): void {
   persistColumns();
 }
 
-// ─── Valor de una columna de extras, con soporte de camino anidado ─────────
+// ─── Valor de una columna, con soporte de camino anidado ───────────────────
+// `col` es siempre un path real dentro de `entry` — una columna base es
+// `time`/`level`/`module`/`msg` (un segmento) y cualquier extra arrastra el
+// prefijo `extras.` (`extras.agentId`, `extras.scope.issueId`), así que una
+// sola función resuelve las dos sin distinguir caso.
 function getNestedValue(obj: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, segment) => {
     // `Object.hasOwn`, no `in`: `in` recorre la cadena de prototipos, así que
@@ -411,7 +407,7 @@ function getNestedValue(obj: unknown, path: string): unknown {
   }, obj);
 }
 function extraColumnValue(entry: ServerLogEntry, key: string): unknown {
-  return getNestedValue(entry.extras, key);
+  return getNestedValue(entry, key);
 }
 
 // ─── El menú "..." de un campo, dentro del detalle expandido de una línea ──
@@ -433,52 +429,6 @@ function closeMenus(): void {
 // llega hasta acá.
 onMounted(() => window.addEventListener('click', closeMenus));
 onUnmounted(() => window.removeEventListener('click', closeMenus));
-
-/** Aplana un objeto en filas `{path, value}` — recursa objetos planos (no
- *  arrays) hasta profundidad 2, así `err: {message: '...'}` aparece como
- *  `err.message` en vez de un blob JSON sin poder agregarlo como columna
- *  por separado. Tope de profundidad: un objeto MUY anidado se corta y
- *  queda como blob (formatExtraValue lo serializa igual). */
-interface FlatExtraField {
-  path: string
-  value: unknown
-  /** `true` para time/level/module/msg — son columnas base de verdad, no
-   *  un path DENTRO de extras que casualmente se llama igual (ver el guard
-   *  de `toggleField`). */
-  isBase?: boolean
-}
-function flattenExtras(
-  extras: Record<string, unknown> | undefined,
-  prefix = '',
-  depth = 0,
-): FlatExtraField[] {
-  if (!extras) return [];
-  const out: FlatExtraField[] = [];
-  for (const [k, v] of Object.entries(extras)) {
-    const path = prefix ? `${prefix}.${k}` : k;
-    if (v !== null && typeof v === 'object' && !Array.isArray(v) && depth < 2) {
-      out.push(...flattenExtras(v as Record<string, unknown>, path, depth + 1));
-    } else {
-      out.push({ path, value: v });
-    }
-  }
-  return out;
-}
-/** El panel "Campos" del detalle mostraba sólo `entry.extras` — el JSON
- *  completo de abajo tiene además time/level/module/msg, así que esos
- *  quedaban sin su propio "…" para agregarlos como columna (había que ir al
- *  header). Los antepone, marcados `isBase`, y el resto es `flattenExtras`
- *  tal cual — ahora "Campos" es de verdad TODO lo que trae la línea. */
-function flattenEntry(entry: ServerLogEntry): FlatExtraField[] {
-  const base: FlatExtraField[] = [
-    { path: 'time', value: entry.time, isBase: true },
-    { path: 'level', value: entry.level, isBase: true },
-    { path: 'module', value: entry.module, isBase: true },
-    { path: 'msg', value: entry.msg, isBase: true },
-  ];
-  return [...base, ...flattenExtras(entry.extras)];
-}
-
 
 // `searchApplied` es lo que se manda al servidor. Ya no hay debounce: el texto
 // entra como token (`msg:…`), y el token ES la confirmación explícita — antes el
@@ -754,7 +704,7 @@ async function load() {
     // serializa.
     const nextExtraKeys = new Set(discoveredExtraKeys.value);
     for (const e of data.entries) {
-      for (const key of Object.keys(e.extras ?? {})) nextExtraKeys.add(key);
+      for (const key of Object.keys(e.extras ?? {})) nextExtraKeys.add(`extras.${key}`);
     }
     if (nextExtraKeys.size !== discoveredExtraKeys.value.size) {
       discoveredExtraKeys.value = nextExtraKeys;
@@ -867,16 +817,6 @@ function formatExtraValue(value: unknown): string {
   if (value === undefined || value === null) return '—';
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return text.length > COLUMN_VALUE_TRUNCATE ? `${text.slice(0, COLUMN_VALUE_TRUNCATE)}…` : text;
-}
-
-const JSON_VALUE_TRUNCATE = 200;
-/** Igual que `formatExtraValue`, pero con sintaxis JSON de verdad (strings
- *  entre comillas) — es lo que reemplaza al `<pre>{{ JSON.stringify(...) }}`
- *  de antes: una sola vista, no dos que dicen lo mismo distinto. */
-function formatJsonLeaf(value: unknown): string {
-  if (value === undefined) return '—';
-  const text = JSON.stringify(value) ?? String(value);
-  return text.length > JSON_VALUE_TRUNCATE ? `${text.slice(0, JSON_VALUE_TRUNCATE)}…` : text;
 }
 
 // Level counts served by /api/server-logs — computed over the full filtered
@@ -1137,41 +1077,27 @@ onMounted(() => {
               </button>
             </div>
           </div>
-          <!-- Una sola vista: el JSON en sí, con el "…" de agregar/quitar
-               columna en cada campo hoja. Antes había DOS bloques que decían
-               lo mismo con distinta letra (esta lista + un <pre> crudo
-               debajo) — "Copiar JSON" sigue copiando el JSON.stringify real
-               aunque ya no se muestre en crudo. -->
+          <!-- Una sola vista: árbol JSON de verdad (recursivo, ver
+               JsonTreeNode.vue) con el "…" de agregar/quitar columna en cada
+               campo hoja. Antes era una lista PLANA de paths con padding
+               calculado — no podía mostrar qué campos son hermanos (todos
+               los top-level de `extras` quedaban a la misma sangría que
+               `time`/`level`/etc en vez de un nivel más adentro), lo que se
+               veía como "indentación inconsistente" sin serlo realmente:
+               era la falta de agrupación visual real. "Copiar JSON" sigue
+               copiando el JSON.stringify real. -->
           <div class="detail-json">
-            <span class="detail-json__brace">{</span>
-            <div
-              v-for="field in flattenEntry(entry)"
-              :key="field.path"
-              class="detail-field-row"
-              :style="{ paddingLeft: `${field.path.split('.').length * 0.9}rem` }"
-            >
-              <div class="detail-field-menu">
-                <button
-                  type="button"
-                  class="detail-field-dots"
-                  title="Opciones del campo"
-                  :data-testid="`server-logs-field-menu-${field.path}`"
-                  @click.stop="toggleFieldMenu(fieldMenuId(entryKey(entry, index), field.path))"
-                >⋮</button>
-                <div
-                  v-if="openFieldMenu === fieldMenuId(entryKey(entry, index), field.path)"
-                  class="detail-field-menu-popover"
-                  @click.stop
-                >
-                  <button type="button" class="detail-field-menu-item" @click="toggleField(field); closeMenus()">
-                    {{ isColumnActive(field.path) ? 'Quitar columna' : 'Agregar columna' }}
-                  </button>
-                </div>
-              </div>
-              <span class="detail-field-key">"{{ field.path.split('.').at(-1) }}"</span><span class="detail-json__colon">:</span>
-              <span class="detail-field-value">{{ formatJsonLeaf(field.value) }}</span>
-            </div>
-            <span class="detail-json__brace">}</span>
+            <JsonTreeNode
+              :data="entry"
+              path=""
+              :depth="0"
+              :is-column-active="isColumnActive"
+              :toggle-column="toggleColumn"
+              :open-field-menu="openFieldMenu"
+              :field-menu-id="(path: string) => fieldMenuId(entryKey(entry, index), path)"
+              :toggle-field-menu="toggleFieldMenu"
+              :close-menus="closeMenus"
+            />
           </div>
         </div>
         </li>
@@ -1562,11 +1488,9 @@ onMounted(() => {
 .detail-actions { display: flex; gap: 0.5rem; }
 
 /* ─── El JSON, con el "…" (agregar/quitar columna) en cada campo hoja ────
-   Una sola vista — antes había dos (esta lista + un <pre> del JSON crudo
-   debajo, diciendo lo mismo con letra distinta). La indentación por campo
-   sale de `field.path.split('.').length` (ver :style inline en el
-   template); las llaves de apertura/cierre son las únicas líneas que no
-   vienen de flattenEntry. */
+   Árbol recursivo real — ver JsonTreeNode.vue, que se llama a sí mismo por
+   cada valor-objeto y trae sus propios estilos de fila/gutter/popover. Este
+   contenedor sólo aporta el marco (scroll, borde, tipografía mono). */
 .detail-json {
   margin: 0;
   padding: 0.6rem 0.75rem;
@@ -1579,67 +1503,6 @@ onMounted(() => {
   max-height: 480px;
   overflow: auto;
 }
-.detail-json__brace { color: var(--fg-dim); }
-.detail-json__colon { color: var(--fg-dim); margin-right: 0.4rem; }
-.detail-field-row {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.1rem 0;
-  white-space: nowrap;
-}
-.detail-field-key {
-  flex-shrink: 0;
-  color: var(--info);
-}
-.detail-field-value {
-  flex: 1;
-  min-width: 0;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.detail-field-menu { position: relative; flex-shrink: 0; }
-.detail-field-dots {
-  background: none;
-  border: none;
-  color: var(--fg-dim);
-  cursor: pointer;
-  padding: 0.1rem 0.35rem;
-  font-size: 0.9rem;
-  line-height: 1;
-  font-family: inherit;
-}
-.detail-field-dots:hover { color: var(--fg); }
-.detail-field-menu-popover {
-  position: absolute;
-  top: calc(100% + 2px);
-  /* `left`, no `right`: el botón ahora está al principio de la línea (a la
-     izquierda de la clave) — anclado a `right` el popover se abría hacia
-     la indentación de la línea de ARRIBA en vez de hacia el contenido. */
-  left: 0;
-  z-index: 5;
-  background: var(--panel);
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  padding: 0.25rem;
-  white-space: nowrap;
-}
-.detail-field-menu-item {
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 0.35rem 0.6rem;
-  border-radius: 4px;
-  color: var(--fg);
-  font-size: var(--fs-body-sm);
-  font-family: var(--font-body);
-  cursor: pointer;
-  width: 100%;
-}
-.detail-field-menu-item:hover { background: var(--panel-hi); }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
 </style>
