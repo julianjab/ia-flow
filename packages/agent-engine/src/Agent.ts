@@ -1151,16 +1151,24 @@ export class Agent {
         // (a propósito, ver la nota de arriba) ni forma de saber que hubo que
         // reintentar. `recordAbort` es quien decide si retiene esto para un
         // retry automático o lo da por agotado — acá sólo se reporta.
-        try {
-          this.abortRepo?.recordAbort({
-            projectId: task.projectId ?? '',
-            taskId: task.id,
-            agentId: agentDef.id,
-            runId,
-            reason: 'upstream-abort',
-            errorMsg: errMsg,
-          })
-        } catch {}
+        //
+        // Sin `projectId` no hay forma de reconstruir el item para un retry
+        // (`getSourceForProjectId`/`managerFor` necesitan uno real) — registrar
+        // igual sólo generaría una fila que quema sus intentos contra un
+        // fallo de infra en cada barrido, sin ningún reintento real de por
+        // medio.
+        if (task.projectId) {
+          try {
+            this.abortRepo?.recordAbort({
+              projectId: task.projectId,
+              taskId: task.id,
+              agentId: agentDef.id,
+              runId,
+              reason: 'upstream-abort',
+              errorMsg: errMsg,
+            })
+          } catch {}
+        }
         return task
       }
 
