@@ -12,6 +12,7 @@ import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api
 import { useToastStore } from '@/stores/toast';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
+import JsonTreeNode from '@/ui/JsonTreeNode.vue';
 import { type FilterFieldDef, type FilterToken, type FilterValue, isDateValue } from '@/ui/filter-query';
 import {
   type AgentDefinition,
@@ -1745,7 +1746,9 @@ watch(pendingFilter, () => {
                 Copiar JSON
               </button>
             </div>
-            <pre class="detail-json">{{ JSON.stringify(selectedExec, null, 2) }}</pre>
+            <div class="detail-json">
+              <JsonTreeNode :data="selectedExec" path="" :depth="0" />
+            </div>
           </div>
 
           <div class="related-block">
@@ -1862,7 +1865,9 @@ watch(pendingFilter, () => {
                         Copiar JSON
                       </button>
                     </div>
-                    <pre class="related-detail-json">{{ JSON.stringify(item.entry, null, 2) }}</pre>
+                    <div class="related-detail-json">
+                      <JsonTreeNode :data="item.entry" path="" :depth="0" />
+                    </div>
                   </div>
                 </li>
 
@@ -1929,7 +1934,9 @@ watch(pendingFilter, () => {
                           Copiar JSON
                         </button>
                       </div>
-                      <pre class="related-detail-json">{{ JSON.stringify(item.call, null, 2) }}</pre>
+                      <div class="related-detail-json">
+                        <JsonTreeNode :data="item.call" path="" :depth="0" />
+                      </div>
                     </div>
                     <div v-if="item.result" class="related-detail-section">
                       <div class="related-detail-header">
@@ -1942,7 +1949,9 @@ watch(pendingFilter, () => {
                           Copiar JSON
                         </button>
                       </div>
-                      <pre class="related-detail-json">{{ JSON.stringify(item.result, null, 2) }}</pre>
+                      <div class="related-detail-json">
+                        <JsonTreeNode :data="item.result" path="" :depth="0" />
+                      </div>
                     </div>
                     <div v-if="!item.result" class="related-detail-note">
                       Aún no se registra el <code>tool.result</code> — el tool está corriendo o
@@ -2484,8 +2493,8 @@ watch(pendingFilter, () => {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
   color: var(--fg);
-  white-space: pre-wrap;
-  word-break: break-all;
+  max-height: 360px;
+  overflow: auto;
 }
 .related-time {
   grid-column: 1;
@@ -2583,8 +2592,8 @@ watch(pendingFilter, () => {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
   color: var(--fg);
-  white-space: pre-wrap;
-  word-break: break-all;
+  max-height: 480px;
+  overflow: auto;
 }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }

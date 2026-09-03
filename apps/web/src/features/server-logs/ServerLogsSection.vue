@@ -12,7 +12,7 @@ import {
   type ServerLogFilters,
   type ServerLogLevelCounts,
 } from './api';
-import JsonTreeNode from './JsonTreeNode.vue';
+import JsonTreeNode from '@/ui/JsonTreeNode.vue';
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
 // filter). The summary chip row below is the only UI to toggle these.

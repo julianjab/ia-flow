@@ -6,18 +6,23 @@
 // `extras`) y un `extras.scope` quedan al mismo nivel, y `extras.scope.issueId`
 // un nivel más adentro — sin eso, "algunos campos se ven mal identados" era
 // inevitable: una lista de paths no puede mostrar qué campos son hermanos.
+//
+// Primitiva de `ui/` (no de una feature): la usan tanto server-logs
+// (columnas dinámicas — el "…" agrega/quita columna) como executions (sólo
+// lectura, sin columnas). Los callbacks de columna son OPCIONALES — sin
+// `toggleColumn` el árbol es de sólo lectura y el "…" no se renderiza.
 import { hasChildren, formatJsonLeaf, jsonTreeFields } from './json-tree';
 
 const props = defineProps<{
   data: unknown
   path: string
   depth: number
-  isColumnActive: (path: string) => boolean
-  toggleColumn: (path: string) => void
-  openFieldMenu: string | null
-  fieldMenuId: (path: string) => string
-  toggleFieldMenu: (id: string) => void
-  closeMenus: () => void
+  isColumnActive?: (path: string) => boolean
+  toggleColumn?: (path: string) => void
+  openFieldMenu?: string | null
+  fieldMenuId?: (path: string) => string
+  toggleFieldMenu?: (id: string) => void
+  closeMenus?: () => void
 }>();
 </script>
 
@@ -28,25 +33,25 @@ const props = defineProps<{
     class="json-tree-node"
   >
     <div class="detail-field-row">
-      <div class="detail-field-menu">
+      <div v-if="props.toggleColumn" class="detail-field-menu">
         <button
           type="button"
           class="detail-field-dots"
           title="Opciones del campo"
-          :data-testid="`server-logs-field-menu-${field.path}`"
-          @click.stop="props.toggleFieldMenu(props.fieldMenuId(field.path))"
+          :data-testid="`json-tree-field-menu-${field.path}`"
+          @click.stop="props.toggleFieldMenu?.(props.fieldMenuId?.(field.path) ?? field.path)"
         >⋮</button>
         <div
-          v-if="props.openFieldMenu === props.fieldMenuId(field.path)"
+          v-if="props.openFieldMenu === (props.fieldMenuId?.(field.path) ?? field.path)"
           class="detail-field-menu-popover"
           @click.stop
         >
           <button
             type="button"
             class="detail-field-menu-item"
-            @click="props.toggleColumn(field.path); props.closeMenus()"
+            @click="props.toggleColumn(field.path); props.closeMenus?.()"
           >
-            {{ props.isColumnActive(field.path) ? 'Quitar columna' : 'Agregar columna' }}
+            {{ props.isColumnActive?.(field.path) ? 'Quitar columna' : 'Agregar columna' }}
           </button>
         </div>
       </div>
