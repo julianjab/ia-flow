@@ -1295,6 +1295,14 @@ onMounted(() => {
    posición distinta — el bug real que motivó el cambio a grid. */
 .log-list-wrapper { position: relative; overflow-x: auto; }
 .log-list-header {
+  /* Sin reset global de `box-sizing: border-box` (sólo lo tienen
+     input/textarea/select en theme.css), un `<div>` con `width:100%` +
+     padding + border queda MÁS ANCHO que su 100% — el navegador suma el
+     padding/border encima. `.log-row` es un `<button>`, que en el UA
+     stylesheet de Chrome/Safari ya es border-box por default, así que no
+     se notaba ahí; acá sí, y era justo el header sobresaliendo a la
+     derecha de las filas (mismo ancho declarado, caja real distinta). */
+  box-sizing: border-box;
   display: grid;
   align-items: center;
   gap: 0.75rem;
@@ -1403,6 +1411,10 @@ onMounted(() => {
 
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .log-card {
+  /* Mismo motivo que .log-list-header: `<li>` es content-box por default,
+     y con `border: 1px` sumado a `width: 100%` quedaba 2px más ancho que
+     `.log-row` (que sí es border-box, por ser `<button>`). */
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-top: none;
   background: var(--panel);
@@ -1423,6 +1435,9 @@ onMounted(() => {
 .log-card--fatal { box-shadow: inset 3px 0 0 0 var(--danger); }
 
 .log-row {
+  /* Ya lo es por default (UA stylesheet de `<button>`) — explícito para no
+     depender de ese detalle de navegador, mismo motivo que arriba. */
+  box-sizing: border-box;
   display: grid;
   align-items: center;
   gap: 0.75rem;
