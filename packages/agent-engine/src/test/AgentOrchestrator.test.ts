@@ -153,6 +153,103 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
   })
 })
 
+// ─── un agente sync sin `exits:` declarados ─────────────────────────────
+//
+// Regression: un agente clasificador (`tools: []`, sin `onProcess`/
+// `onFinish`/`onError`, sin `exits:`) es un caso legítimo — ver
+// `15-comment-triage.yaml` en claw-agents — pero el finish path de
+// `Agent.run` gateaba TODO el bloque que cierra `execution_logs` (postComment
+// + `update(finishedAt, outcome)` + `lifecycle.end`) en `else if (exits)`.
+// Sin `exits`, ese bloque entero se salteaba: el run terminaba bien (según
+// el provider) pero su fila quedaba `finishedAt: null, outcome: null` para
+// siempre — "pending" en la UI aunque el `output` ya se hubiera consumido
+// por la regla que lo disparó. Reproducido en vivo contra `comment-triage`.
+describe('AgentOrchestrator.runAgent — agente sync sin exits declarados', () => {
+  function makeTask(): Task {
+    return {
+      id: 'task-no-exits-1',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  it('cierra la fila de execution_logs (finishedAt + outcome:success) aunque el agente no declare exits', async () => {
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async (_: ProviderInput) => ({ content: 'listo', mode: 'api' as const }),
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [
+          {
+            id: 'comment-triage',
+            provider: 'anthropic-api',
+            prompt: 'x',
+            tools: [],
+            // Sin `exits:` a propósito — es justo el caso que rompía el finish path.
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const repoRepo: IRepoRepository = {
+      list: () => [],
+      listByProject: () => [],
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const update = mock(() => {})
+    const executionLogRepo: IExecutionLogRepository = {
+      insert: () => {},
+      update,
+      list: () => [],
+      listActive: () => [],
+      getById: () => null,
+      sweepOrphaned: () => [],
+      listDistinctSources: () => [],
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      executionLogRepo,
+    )
+
+    await orch.runAgent(makeTask(), manager, 'comment-triage')
+
+    expect(update).toHaveBeenCalled()
+    const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+      finishedAt?: string | null
+      outcome?: string | null
+    }
+    expect(patch.outcome).toBe('success')
+    expect(patch.finishedAt).toBeTruthy()
+  })
+})
+
 // ─── WorkspaceManager integration ────────────────────────────────────────
 //
 // End-to-end (in-process): a real `WorkspaceManager` wired with a stub
