@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'bun:test'
-import type { AgentOutput } from '@ia-flow/shared'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
+import type { AgentOutput, Task } from '@ia-flow/shared'
+import { getTool } from '../../engine.js'
 import { validateOutput } from '../submit-output.js'
+import '../submit-output.js'
 
 // La validación es la razón de ser de esta tool: sin ella el paso siguiente
 // recibe lo que el modelo haya querido escribir.
@@ -61,5 +64,51 @@ describe('validateOutput', () => {
   it('acumula todos los errores para que el modelo corrija de una', () => {
     const r = validateOutput(fields, {})
     expect(!r.ok && r.errors).toHaveLength(2)
+  })
+})
+
+// Regresión: `task_id` era obligatorio y le pedía al modelo copiar
+// `{{task.id}}` a mano — en el run que motivó esto llegó sin interpolar y la
+// tool rechazó con "No hay tarea activa con id '{{task.id}}'". Ahora es
+// opcional y cae a `ctx.taskId`, el mismo canal que ya usa `workspace_reset`.
+describe('submit_output — resolución de task_id', () => {
+  const TASK_ID = 'submit-output-task-under-test'
+
+  function register(outputFields: AgentOutput) {
+    const task: Task = {
+      id: TASK_ID,
+      title: 'Sample',
+      description: '',
+      status: 'Queue',
+      type: 'functional',
+      repos: [],
+      created_at: '2025-01-01T00:00:00Z',
+    }
+    registerPendingTask(TASK_ID, {
+      task,
+      manager: {} as never,
+      broadcast: () => {},
+      initialStatus: 'Queue',
+      outputFields,
+    })
+  }
+
+  afterEach(() => {
+    removePendingTask(TASK_ID)
+  })
+
+  it('cae a ctx.taskId cuando el input no trae task_id', async () => {
+    register({ brief: { type: 'string' } })
+    const tool = getTool('submit_output')!
+    const result = await tool.execute({ brief: 'del contexto' }, { repoPaths: {}, taskId: TASK_ID })
+    expect(result).toContain('brief')
+  })
+
+  it('sin task_id en el input ni en ctx, rechaza en vez de adivinar', async () => {
+    register({ brief: { type: 'string' } })
+    const tool = getTool('submit_output')!
+    await expect(tool.execute({ brief: 'x' }, { repoPaths: {} })).rejects.toThrow(
+      "No hay tarea activa con id ''",
+    )
   })
 })
