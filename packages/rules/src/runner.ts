@@ -144,11 +144,20 @@ export async function runRule(
       // Sin arrastrarlo, un `{action: 'ref', id: 't'}` publicaba su output bajo
       // el `id` del body de la acción con nombre (o bajo ninguno), y el paso
       // siguiente fallaba con "'t' no corrió antes en esta regla".
+      //
+      // El `when` es exactamente el mismo caso que `id`: condiciona ESTE
+      // paso de ESTA secuencia, no la acción reusable — un `{action: 'ref',
+      // when: [...]}` sin arrastrarlo corría siempre (el spread de abajo lo
+      // pisaría con el `when` que trajera el body de la acción con nombre,
+      // si tuviera uno, o lo perdería del todo).
       name = resolved.name ?? actionId
       entry = {
         ...resolved.entry,
         ...(raw.continueOnError !== undefined ? { continueOnError: raw.continueOnError } : {}),
         ...((raw as { id?: string }).id !== undefined ? { id: (raw as { id?: string }).id } : {}),
+        ...((raw as { when?: unknown }).when !== undefined
+          ? { when: (raw as { when?: unknown }).when }
+          : {}),
       } as RuleActionEntry
     }
 
@@ -168,7 +177,11 @@ export async function runRule(
     // parsear el schema: si no matchea, el resto de este paso no importa. El
     // sujeto es el mismo que usa el `when` de la regla (los campos del
     // evento) más `steps`, lo que deja al `do[]` referenciar lo que dejó un
-    // paso anterior sin pasar por un `emit`.
+    // paso anterior sin pasar por un `emit`. `steps` pisa una clave
+    // homónima de `event.payload` si existiera — ningún productor de
+    // eventos del catálogo usa ese nombre hoy (es el mismo motivo por el
+    // que `{{steps.*}}` en `resolveSteps`/`steps.ts` no se namespacea contra
+    // el payload), así que es aditivo en la práctica.
     const stepWhen = (entry as { when?: unknown }).when
     if (stepWhen && !evalWhen({ ...event.payload, steps }, stepWhen)) {
       const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
