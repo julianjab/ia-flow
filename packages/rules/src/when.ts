@@ -89,14 +89,21 @@ function compareNumeric(raw: unknown, operand: string, cmp: (a: number, b: numbe
   return cmp(left, right)
 }
 
-function evalCondition(subject: Record<string, unknown>, key: string, op: string): boolean {
+/**
+ * Resuelve el valor de `key` contra el sujeto: exacto, lower/snake case,
+ * alias, `subject.fields` (custom fields del source), y por último un camino
+ * anidado (`pr.head.ref`). Extraído de `evalCondition` para que `traceWhen`
+ * pueda mostrar QUÉ resolvió antes de comparar, sin reimplementar la
+ * búsqueda — no puede divergir de lo que `evalCondition` usa para decidir.
+ */
+function resolveFieldValue(subject: Record<string, unknown>, key: string): unknown {
   const lower = key.toLowerCase()
   const snake = lower.replace(/\s+/g, '_')
   const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[snake]
   // Fallback: source-native custom fields (e.g. GitHub Project columns like
   // `ImpProvider`, `Reviewed`, `Stage`) are exposed under `subject.fields`.
   const fields = (subject.fields as Record<string, unknown> | undefined) ?? {}
-  const raw =
+  return (
     subject[key] ??
     subject[lower] ??
     subject[snake] ??
@@ -105,6 +112,11 @@ function evalCondition(subject: Record<string, unknown>, key: string, op: string
     fields[lower] ??
     fields[snake] ??
     resolvePath(subject, key)
+  )
+}
+
+function evalCondition(subject: Record<string, unknown>, key: string, op: string): boolean {
+  const raw = resolveFieldValue(subject, key)
 
   if (op === '$null') {
     if (raw == null) return true
@@ -161,26 +173,99 @@ function evalCondition(subject: Record<string, unknown>, key: string, op: string
   return (raw == null ? '' : String(raw)) === op
 }
 
-export function evalWhen(subject: Record<string, unknown>, when: unknown): boolean {
-  if (!when) return true
+type RawCond = { field: string; op: string; value?: string; logic?: string }
 
-  // legacy Record format → all-AND
+/** Una condición ya normalizada a la forma que `evalCondition` entiende: el
+ *  `op` legacy viaja tal cual codificado (`$ne:foo`); el de la forma
+ *  estructurada pasa por `condToOp`. `evalWhen` y `traceWhen` comparten esto
+ *  para no poder divergir en cómo arman los grupos OR/AND. */
+interface EncodedCond {
+  field: string
+  /** Humano, para mostrar en un log (`'!='`, `'='`, o el string legacy tal
+   *  cual si no hay operador estructurado separado). */
+  op: string
+  value?: string
+  /** Lo que realmente evalúa `evalCondition`. */
+  encodedOp: string
+}
+
+function toConditionGroups(when: unknown): EncodedCond[][] {
+  if (!when) return []
+
+  // legacy Record format → un solo grupo, todo-AND
   if (!Array.isArray(when)) {
-    return Object.entries(when as Record<string, string>).every(([key, op]) =>
-      evalCondition(subject, key, op),
-    )
+    const entries = Object.entries(when as Record<string, string>)
+    if (!entries.length) return []
+    return [entries.map(([field, op]) => ({ field, op, encodedOp: op }))]
   }
 
   // new array format: build OR-groups separated by logic='or'
-  type Cond = { field: string; op: string; value?: string; logic?: string }
-  const conds = when as Cond[]
-  if (!conds.length) return true
+  const conds = when as RawCond[]
+  if (!conds.length) return []
 
-  const groups: Cond[][] = [[]]
+  const groups: RawCond[][] = [[]]
   for (const cond of conds) {
     if (cond.logic === 'or') groups.push([cond])
     else groups[groups.length - 1].push(cond)
   }
 
-  return groups.some((group) => group.every((c) => evalCondition(subject, c.field, condToOp(c))))
+  return groups.map((group) =>
+    group.map((c) => ({ field: c.field, op: c.op, value: c.value, encodedOp: condToOp(c) })),
+  )
+}
+
+export function evalWhen(subject: Record<string, unknown>, when: unknown): boolean {
+  const groups = toConditionGroups(when)
+  if (!groups.length) return true
+  return groups.some((group) => group.every((c) => evalCondition(subject, c.field, c.encodedOp)))
+}
+
+/** Una condición evaluada, con lo que se comparó — no sólo si matcheó. */
+export interface WhenConditionTrace {
+  field: string
+  op: string
+  value?: string
+  /** Lo que el sujeto resolvió para `field` ANTES de comparar. `undefined`
+   *  es la señal más común de "este evento no trae ese campo" — el caso que
+   *  dejaba al reviewer sin re-tomar #1317: `item.status` contra un payload
+   *  de `issues.unlabeled`, que nunca trae `item`. */
+  actual: unknown
+  matched: boolean
+}
+
+export interface WhenTrace {
+  matched: boolean
+  /** Un array por grupo OR; cada grupo son sus condiciones AND, en el orden
+   *  en que se declararon. Vacío cuando el `when` no tiene condiciones. */
+  groups: WhenConditionTrace[][]
+}
+
+/**
+ * Variante de `evalWhen` para diagnóstico: además del boolean, devuelve QUÉ
+ * condición falló y con qué valor resolvió el sujeto — es lo que permite
+ * loguear POR QUÉ un `when` rechazó una regla, no sólo QUE la rechazó.
+ *
+ * Comparte `toConditionGroups`/`evalCondition`/`resolveFieldValue` con
+ * `evalWhen`, así que `traceWhen(...).matched` no puede divergir de
+ * `evalWhen(...)` — no es una segunda implementación del DSL, es
+ * instrumentación sobre la misma.
+ */
+export function traceWhen(subject: Record<string, unknown>, when: unknown): WhenTrace {
+  const groups = toConditionGroups(when)
+  if (!groups.length) return { matched: true, groups: [] }
+
+  const tracedGroups = groups.map((group) =>
+    group.map((c) => ({
+      field: c.field,
+      op: c.op,
+      value: c.value,
+      actual: resolveFieldValue(subject, c.field),
+      matched: evalCondition(subject, c.field, c.encodedOp),
+    })),
+  )
+
+  return {
+    matched: tracedGroups.some((group) => group.every((c) => c.matched)),
+    groups: tracedGroups,
+  }
 }

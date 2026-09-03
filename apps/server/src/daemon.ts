@@ -148,7 +148,7 @@ function registerRuleEngine(): void {
       recorder: actionRunRecorder,
       onError: (err, { rule, position, kind }) =>
         log.error({ err, ruleId: rule.id, position, kind }, 'Rule action failed'),
-      onMatch: ({ event, matched, rejectedSummary }) => {
+      onMatch: ({ event, matched, rejected, rejectedSummary }) => {
         if (!matched.length) {
           // Antes esto era mudo: un evento que no matcheaba ninguna regla
           // desaparecía sin dejar rastro más allá del `outcome: skipped` del
@@ -161,6 +161,26 @@ function registerRuleEngine(): void {
               type: event.type,
               scope: event.scope,
               rejected: rejectedSummary,
+              // Postmortem #1317: `rejectedSummary` dice QUE una regla cayó
+              // por `when`, no POR QUÉ — para eso hubo que leer el código del
+              // normalizador y reconstruir a mano qué campo faltaba. Con el
+              // `whenTrace` de cada rechazo por `when`, la condición que
+              // falló y el valor que el payload resolvió (`undefined` es la
+              // señal más común de "este evento no trae ese campo") quedan
+              // en la misma línea. Sólo las condiciones que fallaron, no
+              // todo el trace — el resto es ruido para este log.
+              rejectedWhen: rejected
+                .filter((r) => r.whenTrace)
+                .map((r) => ({
+                  ruleId: r.id,
+                  failed: r.whenTrace!.groups.flat().filter((c) => !c.matched),
+                }))
+                .filter((r) => r.failed.length > 0),
+              // El payload crudo del evento — sin esto, "el campo vino
+              // undefined" todavía obliga a adivinar si es que el evento no
+              // lo trae nunca (bug de normalizador) o que este delivery en
+              // particular vino incompleto.
+              payload: event.payload,
               // Este evento queda igual marcado como procesado (el dedupe no
               // sabe de matches, ver bus.ts) — si lo que rechazó fue el `when`
               // y arreglaste la config, un reintento del mismo delivery id
@@ -173,7 +193,15 @@ function registerRuleEngine(): void {
           return
         }
         log.info(
-          { type: event.type, matched: matched.map((r) => r.id), rejected: rejectedSummary },
+          {
+            type: event.type,
+            matched: matched.map((r) => r.id),
+            rejected: rejectedSummary,
+            // Mismo criterio que arriba: con qué payload matcheó, para poder
+            // auditar "por qué se disparó ESTE agente en ESTE momento" sin
+            // tener que cruzar el delivery de GitHub a mano.
+            payload: event.payload,
+          },
           'Rules matched',
         )
       },

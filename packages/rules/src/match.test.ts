@@ -68,6 +68,25 @@ describe('matchRules — filtros', () => {
     expect(matchRules({ event: draft, rules: [r] }).matched).toHaveLength(0)
     expect(matchRules({ event: ready, rules: [r] }).matched).toHaveLength(1)
   })
+
+  test('un rechazo por when trae el detalle de qué condición falló', () => {
+    // El caso #1317: la regla pide item.status, pero el evento no trae item.
+    const r = rule({ when: [{ field: 'item.status', op: '=', value: 'Review' }] })
+    const { rejected } = matchRules({ event: ev({ payload: {} }), rules: [r] })
+
+    expect(rejected).toEqual([
+      {
+        id: 'r1',
+        reason: 'when',
+        whenTrace: {
+          matched: false,
+          groups: [
+            [{ field: 'item.status', op: '=', value: 'Review', actual: undefined, matched: false }],
+          ],
+        },
+      },
+    ])
+  })
 })
 
 describe('matchRules — orden y exclusividad', () => {
