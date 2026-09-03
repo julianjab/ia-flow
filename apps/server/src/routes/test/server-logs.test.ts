@@ -184,7 +184,7 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
 })
 
 // `extra` es un patrón GLOB (*/?), no una regexp arbitraria — ver el
-// comentario de `compileGlob` en server-logs.ts sobre por qué (ReDoS: corre
+// comentario de `globMatchFull` en server-logs.ts sobre por qué (ReDoS: corre
 // en el event loop del daemon, sobre potencialmente decenas de miles de
 // líneas por request).
 describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
@@ -207,6 +207,21 @@ describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
     expect((await fetchEntries('?sort=asc&extra=err:ECONNRESET')).map((e) => e.msg)).toEqual([
       'conexión perdida',
     ])
+  })
+
+  // Sin ":" en absoluto — el bug real que motivó esto: un usuario escribe
+  // "extra:ECONNRESET" (sin saber, o sin querer especificar, que el motivo
+  // vive en extras.err) y espera que busque en cualquier campo.
+  test('sin clave (sólo el patrón) busca en CUALQUIER campo de extras', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&extra=ECONNRESET')).map((e) => e.msg)).toEqual([
+      'conexión perdida',
+    ])
+  })
+
+  test('sin clave con * también funciona', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&extra=refin*')).map((e) => e.msg)).toEqual(['sin err'])
   })
 
   test('* matchea cualquier secuencia', async () => {
@@ -243,11 +258,19 @@ describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
     ])
   })
 
-  // Sin clave, o con el patrón vacío/demasiado largo → 400, no "no filtra
-  // nada": un typo no puede confundirse con "no hay resultados".
-  test('un patrón malformado corta con 400', async () => {
+  // `?extra=` (valor vacío) no filtra nada — mismo criterio que el resto de
+  // los filtros multi-select (`toSet`): un query mal armado no puede vaciar
+  // el listado. Un patrón vacío CON clave (`err:`) sí es un 400, porque ahí
+  // hay intención explícita de acotar a un campo y no decir con qué.
+  test('un patrón vacío con clave corta con 400', async () => {
     seed()
-    const res = await createServerLogsRouter().request('/?extra=sinclave')
+    const res = await createServerLogsRouter().request('/?extra=err:')
+    expect(res.status).toBe(400)
+  })
+
+  test('una clave vacía explícita (":algo") corta con 400', async () => {
+    seed()
+    const res = await createServerLogsRouter().request(`/?extra=${encodeURIComponent(':algo')}`)
     expect(res.status).toBe(400)
   })
 
@@ -274,5 +297,39 @@ describe('GET /api/server-logs — extra:<clave>:<patrón>', () => {
     )
     expect(performance.now() - start).toBeLessThan(1000)
     expect(res.status).toBe(200)
+  })
+})
+
+// `search` (msg) usa el mismo glob case-insensitive que `extra` desde que se
+// dejó de comparar con String.includes — ver globSearch en server-logs.ts.
+describe('GET /api/server-logs — search (msg)', () => {
+  function seed(): void {
+    const dir = logDir()
+    writeFileSync(
+      join(dir, 'daemon.log'),
+      line('2026-08-27T10:00:00.000Z', 'Conexión perdida: ECONNRESET') +
+        line('2026-08-27T10:00:01.000Z', 'rate limited'),
+    )
+  }
+
+  test('contains liso sigue funcionando', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&search=perdida')).map((e) => e.msg)).toEqual([
+      'Conexión perdida: ECONNRESET',
+    ])
+  })
+
+  test('es case-insensitive', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&search=econnreset')).map((e) => e.msg)).toEqual([
+      'Conexión perdida: ECONNRESET',
+    ])
+  })
+
+  test('acepta comodines glob (*/?), no una regexp arbitraria', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&search=conex*reset')).map((e) => e.msg)).toEqual([
+      'Conexión perdida: ECONNRESET',
+    ])
   })
 })
