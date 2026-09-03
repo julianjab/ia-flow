@@ -392,7 +392,7 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
     expect(outcome).toBe('deferred')
   })
 
-  it('encola el brief en la conversación en vez de perderlo', async () => {
+  it('encola el brief en la conversación en vez de perderlo, y devuelve skipped (no deferred) para no reintentar y duplicarlo', async () => {
     const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
@@ -404,7 +404,7 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       { enqueue },
     )
 
-    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
       brief: 'ajustá el PRD contra el comentario',
     })
 
@@ -413,6 +413,28 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       body: 'ajustá el PRD contra el comentario',
       source: 'rule-dispatch',
     })
+    expect(outcome).toBe('skipped')
+  })
+
+  it('si el enqueue falla, no se entregó nada — difiere para reintentar, no skipea', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {
+      throw new Error('DB caída')
+    })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      undefined,
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+    })
+
+    expect(outcome).toBe('deferred')
   })
 
   it('sin brief no encola nada, sólo difiere', async () => {
