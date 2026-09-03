@@ -1,6 +1,6 @@
 import type { ServerLogEntry, ServerLogLevel } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The section only talks to its own `api.ts` on mount, plus `useRoute` for the
 // deep-link hydration. Stub both so the pills render without a live backend.
@@ -8,6 +8,8 @@ const LEVELS: ServerLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fa
 // Espeja COLUMNS_STORAGE_KEY del componente — bumpeada a :v3 porque cambió
 // el FORMATO de los paths de extras (ver el comentario ahí).
 const COLUMNS_KEY = 'ia-flow:server-logs:columns:v3'
+// Espeja COLUMN_WIDTHS_STORAGE_KEY del componente.
+const COLUMN_WIDTHS_KEY = 'ia-flow:server-logs:column-widths:v1'
 
 // Repetido tal cual dentro del factory de abajo (no se puede referenciar un
 // const de afuera: `vi.mock` se hoistea por encima de esta declaración,
@@ -378,13 +380,12 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     expect(timeHeader.classes()).toContain('log-col-header--drag-over')
     // El origen nunca se marca como "destino" de sí mismo.
     expect(moduleHeader.classes()).not.toContain('log-col-header--drag-over')
-    // No sólo el header — TODA la columna (la celda de cada fila) se pinta.
-    // El fixture tiene 7 líneas.
-    expect(wrapper.findAll('.log-cell--drag-over')).toHaveLength(7)
+    // Sólo el header se resalta — ya no toda la columna fila por fila (era
+    // demasiado ruido visual sobre datos reales).
+    expect(wrapper.findAll('.log-cell--drag-over')).toHaveLength(0)
 
     await timeHeader.trigger('dragleave')
     expect(timeHeader.classes()).not.toContain('log-col-header--drag-over')
-    expect(wrapper.findAll('.log-cell--drag-over')).toHaveLength(0)
 
     // dragend (soltar afuera, Esc, etc.) apaga el estado "atenuado" del
     // origen aunque nunca haya habido un drop.
@@ -425,5 +426,67 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     expect(cells).toContain('daemon')
     const extraCells = wrapper.findAll('.log-cell--extra').map((c) => c.text())
     expect(extraCells).toContain('extras-module-value')
+  })
+})
+
+describe('ServerLogsSection — resize de columnas', () => {
+  afterEach(() => {
+    // `startColumnResize` engancha mousemove/mouseup en `document` — un
+    // resize que un test deja a medias (assert que tira antes del mouseup)
+    // dejaría esos listeners vivos para el próximo test.
+    document.dispatchEvent(new MouseEvent('mouseup'))
+  })
+
+  it('arrastrar el handle cambia el ancho de la columna y lo persiste', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
+
+    await handle.trigger('mousedown', { clientX: 100 })
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 280 }))
+    await flushPromises()
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await flushPromises()
+
+    const stored = JSON.parse(localStorage.getItem(COLUMN_WIDTHS_KEY) ?? '{}')
+    expect(stored.time).toBeGreaterThan(0)
+    expect(wrapper.find('.log-list-header').attributes('style')).toContain(`${stored.time}px`)
+  })
+
+  it('el ancho resizeado sobrevive un remount (localStorage)', async () => {
+    localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify({ time: 300 }))
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+
+    expect(wrapper.find('.log-list-header').attributes('style')).toContain('300px')
+  })
+
+  it('no deja resizear por debajo del piso mínimo', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
+
+    await handle.trigger('mousedown', { clientX: 100 })
+    // Un delta muy negativo intentaría un ancho negativo — se clampea al piso.
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: -500 }))
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await flushPromises()
+
+    const stored = JSON.parse(localStorage.getItem(COLUMN_WIDTHS_KEY) ?? '{}')
+    expect(stored.time).toBe(60)
+  })
+
+  // El handle vive DENTRO de un header con `draggable="true"` (reordenar) —
+  // sin el preventDefault del mousedown, arrastrar el handle dispararía
+  // también el drag nativo de reordenamiento.
+  it('el mousedown del handle no dispara el drag de reordenar columnas', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
+    const timeHeader = wrapper.find('[data-testid="server-logs-col-header-time"]')
+
+    await handle.trigger('mousedown', { clientX: 100 })
+    expect(timeHeader.classes()).not.toContain('log-col-header--dragging')
+    document.dispatchEvent(new MouseEvent('mouseup'))
   })
 })
