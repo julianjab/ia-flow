@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
 import { type FilterFieldDef, type FilterToken, isDateValue } from '@/ui/filter-query';
 import { useRoute } from 'vue-router';
@@ -132,6 +132,93 @@ function extraValues(key: string, active: Set<string>): string[] {
 }
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
+
+// ─── Columnas de `extras` — al estilo Datadog: "..." en un campo del detalle
+// agrega/quita ese campo como columna de la tabla. Preferencia por-viewer:
+// vive en localStorage, no en el server (dos pestañas de dos operadores
+// pueden mirar columnas distintas del mismo log).
+const COLUMNS_STORAGE_KEY = 'ia-flow:server-logs:columns';
+const COLUMN_LABELS: Record<string, string> = {
+  agentId: 'Agente',
+  taskId: 'Tarea',
+  task: 'Título',
+  projectId: 'Proyecto',
+  ruleId: 'Regla',
+  runId: 'Run',
+  source: 'Contenedor',
+};
+function columnLabel(key: string): string {
+  return COLUMN_LABELS[key] ?? key;
+}
+function loadStoredColumns(): string[] {
+  try {
+    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+const activeColumns = ref<string[]>(loadStoredColumns());
+function persistColumns(): void {
+  try {
+    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(activeColumns.value));
+  } catch {
+    // Storage lleno o bloqueado (ventana privada) — la preferencia no
+    // persiste, pero la columna se ve igual en esta sesión.
+  }
+}
+function isColumnActive(key: string): boolean {
+  return activeColumns.value.includes(key);
+}
+function toggleColumn(key: string): void {
+  activeColumns.value = isColumnActive(key)
+    ? activeColumns.value.filter((k) => k !== key)
+    : [...activeColumns.value, key];
+  persistColumns();
+}
+function removeColumn(key: string): void {
+  if (!isColumnActive(key)) return;
+  activeColumns.value = activeColumns.value.filter((k) => k !== key);
+  persistColumns();
+}
+// Todas las claves de `extras` vistas en CUALQUIER línea desde que se montó
+// el panel — alimenta el picker de "+ columna" del header. Acumulador, igual
+// que discoveredModules: nunca encoge, así que sacar un filtro no vacía las
+// opciones.
+const discoveredExtraKeys = ref<Set<string>>(new Set());
+const addColumnMenuOpen = ref(false);
+function addableColumns(): string[] {
+  return Array.from(discoveredExtraKeys.value)
+    .filter((k) => !isColumnActive(k))
+    .sort((a, b) => columnLabel(a).localeCompare(columnLabel(b)));
+}
+function addColumn(key: string): void {
+  if (isColumnActive(key)) return;
+  activeColumns.value = [...activeColumns.value, key];
+  persistColumns();
+  addColumnMenuOpen.value = false;
+}
+
+// ─── El menú "..." de un campo, dentro del detalle expandido de una línea ──
+// Un solo ref global (no por-fila): a lo sumo un menú abierto a la vez, así
+// que no hace falta un Set ni una key compuesta.
+const openFieldMenu = ref<string | null>(null);
+function fieldMenuId(entryId: string, key: string): string {
+  return `${entryId}::${key}`;
+}
+function toggleFieldMenu(id: string): void {
+  openFieldMenu.value = openFieldMenu.value === id ? null : id;
+}
+function closeMenus(): void {
+  openFieldMenu.value = null;
+  addColumnMenuOpen.value = false;
+}
+// Cierra cualquier menú abierto al clickear afuera — los toggles paran la
+// propagación (`@click.stop`), así que sólo un click que NO vino de un menú
+// llega hasta acá.
+onMounted(() => window.addEventListener('click', closeMenus));
+onUnmounted(() => window.removeEventListener('click', closeMenus));
 
 
 // `searchApplied` es lo que se manda al servidor. Ya no hay debounce: el texto
@@ -402,6 +489,17 @@ async function load() {
       }
     }
     if (grew) discoveredExtras.value = nextExtras;
+    // Universo de claves de extras vistas — alimenta el picker de "+
+    // columna". No filtra por tipo de valor: una clave con un objeto (ej.
+    // `err`) igual se puede agregar como columna, formatExtraValue la
+    // serializa.
+    const nextExtraKeys = new Set(discoveredExtraKeys.value);
+    for (const e of data.entries) {
+      for (const key of Object.keys(e.extras ?? {})) nextExtraKeys.add(key);
+    }
+    if (nextExtraKeys.size !== discoveredExtraKeys.value.size) {
+      discoveredExtraKeys.value = nextExtraKeys;
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
@@ -500,6 +598,16 @@ function formatTimeCompact(iso: string): string {
 const MSG_TRUNCATE = 120;
 function truncateMsg(msg: string): string {
   return msg.length > MSG_TRUNCATE ? `${msg.slice(0, MSG_TRUNCATE)}…` : msg;
+}
+
+const COLUMN_VALUE_TRUNCATE = 40;
+/** Un valor de `extras` puede ser string, número, o un objeto (`err`) — se
+ *  serializa igual que `extraAsText` del lado server, para que lo que se ve
+ *  en la columna sea lo mismo contra lo que matchea `extra:<clave>:<patrón>`. */
+function formatExtraValue(value: unknown): string {
+  if (value === undefined || value === null) return '—';
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text.length > COLUMN_VALUE_TRUNCATE ? `${text.slice(0, COLUMN_VALUE_TRUNCATE)}…` : text;
 }
 
 // Level counts served by /api/server-logs — computed over the full filtered
@@ -628,6 +736,41 @@ onMounted(() => {
           data-testid="server-logs-sort-msg"
           @click="selectColumn('msg')"
         >Mensaje{{ sortArrow('msg') }}</button>
+        <span
+          v-for="col in activeColumns"
+          :key="col"
+          class="log-extra-col-header"
+          :title="col"
+        >
+          {{ columnLabel(col) }}
+          <button
+            type="button"
+            class="log-col-remove"
+            title="Quitar columna"
+            @click.stop="removeColumn(col)"
+          >×</button>
+        </span>
+        <div class="log-add-column">
+          <button
+            type="button"
+            class="log-add-column-btn"
+            title="Agregar columna"
+            data-testid="server-logs-add-column"
+            @click.stop="addColumnMenuOpen = !addColumnMenuOpen"
+          >+</button>
+          <div v-if="addColumnMenuOpen" class="log-add-column-menu" @click.stop>
+            <p v-if="addableColumns().length === 0" class="log-add-column-empty">
+              Sin campos nuevos para agregar todavía
+            </p>
+            <button
+              v-for="key in addableColumns()"
+              :key="key"
+              type="button"
+              class="log-add-column-item"
+              @click="addColumn(key)"
+            >{{ columnLabel(key) }}</button>
+          </div>
+        </div>
         <span class="log-chevron"></span>
       </div>
       <p v-if="entries.length === 0 && !loading" class="log-empty">
@@ -666,12 +809,42 @@ onMounted(() => {
             <span class="log-msg">
               <span class="log-msg__text">{{ truncateMsg(entry.msg) }}</span>
             </span>
+            <span
+              v-for="col in activeColumns"
+              :key="col"
+              class="log-extra-col"
+              :title="formatExtraValue(entry.extras?.[col])"
+            >{{ formatExtraValue(entry.extras?.[col]) }}</span>
             <span class="log-chevron" aria-hidden="true">
               {{ expandedId === entryKey(entry, index) ? '▾' : '▸' }}
             </span>
           </button>
 
         <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
+          <div v-if="entry.extras" class="detail-fields">
+            <div v-for="[key, value] in Object.entries(entry.extras ?? {})" :key="key" class="detail-field-row">
+              <span class="detail-field-key">{{ key }}</span>
+              <span class="detail-field-value">{{ formatExtraValue(value) }}</span>
+              <div class="detail-field-menu">
+                <button
+                  type="button"
+                  class="detail-field-dots"
+                  title="Opciones del campo"
+                  :data-testid="`server-logs-field-menu-${key}`"
+                  @click.stop="toggleFieldMenu(fieldMenuId(entryKey(entry, index), key))"
+                >⋮</button>
+                <div
+                  v-if="openFieldMenu === fieldMenuId(entryKey(entry, index), key)"
+                  class="detail-field-menu-popover"
+                  @click.stop
+                >
+                  <button type="button" class="detail-field-menu-item" @click="toggleColumn(key); closeMenus()">
+                    {{ isColumnActive(key) ? 'Quitar columna' : 'Agregar columna' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="detail-header">
             <span class="detail-title">JSON completo</span>
             <div class="detail-actions">
@@ -788,7 +961,12 @@ onMounted(() => {
 .log-summary__count--fatal { color: var(--danger); }
 .log-summary__count--zero { opacity: 0.4; }
 
-.log-list-wrapper { position: relative; }
+/* El wrapper es el contenedor con scroll: header y filas pueden ser más
+   anchos que la pantalla (mensaje + columnas de extras agregadas) y en vez
+   de recortarse en silencio contra el borde, aparece un scrollbar
+   horizontal. `min-width: 100%` en header/fila es lo que hace que, sin
+   columnas extra, sigan ocupando el ancho completo como antes. */
+.log-list-wrapper { position: relative; overflow-x: auto; }
 .log-list-header {
   display: flex;
   align-items: center;
@@ -805,6 +983,8 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 1;
+  width: max-content;
+  min-width: 100%;
 }
 .log-list-header .log-level-col {
   flex-shrink: 0;
@@ -841,6 +1021,11 @@ onMounted(() => {
   border-top: none;
   background: var(--panel);
   overflow: hidden;
+  /* Mismo motivo que .log-row: sin esto, `overflow: hidden` (acá sólo para
+     redondear las esquinas y el rail de severidad) recortaría la fila un
+     nivel más abajo del scroll horizontal del wrapper. */
+  width: max-content;
+  min-width: 100%;
 }
 .log-card:last-child { border-radius: 0 0 6px 6px; }
 .log-card--zebra { background: var(--panel-alt); }
@@ -855,7 +1040,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   padding: 0.4rem 0.75rem;
   background: none;
   border: none;
@@ -899,6 +1085,93 @@ onMounted(() => {
 .log-msg__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-chevron { color: var(--fg-dim); font-size: 0.85rem; }
 
+/* ─── Columnas de extras (header + celda) ────────────────────────────── */
+.log-extra-col-header {
+  flex-shrink: 0;
+  min-width: 100px;
+  max-width: 160px;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-col-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.log-col-remove:hover { color: var(--danger); }
+.log-extra-col {
+  flex-shrink: 0;
+  min-width: 100px;
+  max-width: 160px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  color: var(--fg-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-add-column { position: relative; flex-shrink: 0; }
+.log-add-column-btn {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 4px;
+  color: var(--fg-mute);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  text-transform: none;
+}
+.log-add-column-btn:hover { color: var(--fg); background: var(--panel-hi); }
+.log-add-column-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 160px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+.log-add-column-empty {
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  color: var(--fg-dim);
+  font-size: var(--fs-chrome);
+}
+.log-add-column-item {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.log-add-column-item:hover { background: var(--panel-hi); }
+
 .log-detail {
   padding: 0.6rem 0.75rem 0.75rem;
   border-top: 1px solid var(--border);
@@ -910,6 +1183,78 @@ onMounted(() => {
 .detail-header { display: flex; justify-content: space-between; align-items: center; }
 .detail-title { font-size: 0.78rem; color: var(--fg-dim); font-weight: 500; }
 .detail-actions { display: flex; gap: 0.5rem; }
+
+/* ─── "Campos" — lista de extras con el "…" (agregar/quitar columna) ───── */
+.detail-fields {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.detail-field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.6rem;
+  font-size: var(--fs-body-sm);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.detail-field-row:last-child { border-bottom: none; }
+.detail-field-key {
+  flex-shrink: 0;
+  min-width: 110px;
+  font-family: var(--font-mono);
+  color: var(--info);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-field-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-field-menu { position: relative; flex-shrink: 0; }
+.detail-field-dots {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.detail-field-dots:hover { color: var(--fg); }
+.detail-field-menu-popover {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  padding: 0.25rem;
+  white-space: nowrap;
+}
+.detail-field-menu-item {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+  width: 100%;
+}
+.detail-field-menu-item:hover { background: var(--panel-hi); }
 .detail-json {
   margin: 0;
   padding: 0.6rem 0.75rem;
