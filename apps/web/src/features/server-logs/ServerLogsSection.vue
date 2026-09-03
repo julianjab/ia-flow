@@ -240,17 +240,18 @@ const FILTER_FIELDS: Array<{
   { key: 'msg', hint: 'substring del mensaje', free: true },
   {
     key: 'extra',
-    hint: 'clave:patrón sobre extras (*/? comodines) — ej. err:ECONNRESET',
+    hint: 'patrón sobre cualquier campo de extras (*/? comodines) — o clave:patrón para acotar a uno, ej. err:ECONNRESET',
     free: true,
     // No es una regexp arbitraria (ver el comentario de `extra` en
-    // ServerLogFiltersSchema y `compileGlob` en server-logs.ts) — sólo `*`/`?`
-    // como comodines, así que no hay forma de escribir un patrón inválido
-    // más allá de "sin clave" o "demasiado largo". El tope espeja
-    // MAX_EXTRA_PATTERN_LEN del server.
+    // ServerLogFiltersSchema y `globMatchFull` en server-logs.ts) — sólo
+    // `*`/`?` como comodines. Sin `:` busca en CUALQUIER campo de extras;
+    // con `:` acota a una clave. El tope espeja MAX_EXTRA_PATTERN_LEN del
+    // server.
     validate: (v) => {
-      const at = v.indexOf(':');
-      if (at <= 0) return false;
-      const pattern = v.slice(at + 1).trim();
+      const trimmed = v.trim();
+      const at = trimmed.indexOf(':');
+      if (at === 0) return false; // ":algo" — clave vacía explícita
+      const pattern = at < 0 ? trimmed : trimmed.slice(at + 1).trim();
       return pattern.length > 0 && pattern.length <= 200;
     },
   },

@@ -287,21 +287,30 @@ function globMatchFull(text: string, pattern: string): boolean {
 
 /** Búsqueda de SUBSTRING con comodines (lo que `RegExp.test` sin `^$` daría
  *  gratis) — se logra envolviendo el patrón con `*` en los dos extremos
- *  antes de pedir el match completo. */
+ *  antes de pedir el match completo. Case-insensitive: quien busca un
+ *  motivo de error o un substring del mensaje no suele acordarse de la
+ *  caja exacta con la que se logueó. */
 function globSearch(text: string, pattern: string): boolean {
-  return globMatchFull(text, `*${pattern}*`)
+  return globMatchFull(text.toLowerCase(), `*${pattern.toLowerCase()}*`)
 }
 
-/** Parte `"taskId:abc*"` en su clave (`taskId`) y su patrón glob (`abc*`).
- *  La clave es todo antes del PRIMER `:` — el patrón puede traer los suyos
- *  (`14:00`, una hora). `null` si falta la clave o el patrón es
- *  vacío/demasiado largo. */
-function parseExtraQuery(raw: string): { key: string; pattern: string } | null {
-  const at = raw.indexOf(':')
-  if (at < 0) return null
-  const key = raw.slice(0, at).trim()
-  const pattern = raw.slice(at + 1).trim()
-  if (!key || !pattern || pattern.length > MAX_EXTRA_PATTERN_LEN) return null
+/**
+ * Parte `"taskId:abc*"` en su clave (`taskId`) y su patrón glob (`abc*`) —
+ * la clave es todo antes del PRIMER `:` (el patrón puede traer los suyos,
+ * `14:00`, una hora). Sin `:` en absoluto, `key` queda `null`: el patrón se
+ * prueba contra CUALQUIER campo de `extras`, no uno en particular — es lo
+ * que hace útil escribir `extra:ECONNRESET` sin tener que saber de antemano
+ * que ese motivo vive en `extras.err`.
+ *
+ * `null` sólo cuando el patrón (con o sin clave) queda vacío o excede
+ * `MAX_EXTRA_PATTERN_LEN`.
+ */
+function parseExtraQuery(raw: string): { key: string | null; pattern: string } | null {
+  const trimmed = raw.trim()
+  const at = trimmed.indexOf(':')
+  const key = at < 0 ? null : trimmed.slice(0, at).trim()
+  const pattern = at < 0 ? trimmed : trimmed.slice(at + 1).trim()
+  if ((at >= 0 && !key) || !pattern || pattern.length > MAX_EXTRA_PATTERN_LEN) return null
   return { key, pattern }
 }
 
@@ -320,10 +329,19 @@ function extraAsText(value: unknown): string {
   }
 }
 
-function matchesExtraQuery(entry: ServerLogEntry, q: { key: string; pattern: string }): boolean {
-  const value = entry.extras?.[q.key]
-  if (value === undefined) return false
-  return globSearch(extraAsText(value), q.pattern)
+/** `key: null` ⇒ alcanza con que CUALQUIER campo de `extras` matchee — no
+ *  hace falta saber de antemano en cuál vive el dato. */
+function matchesExtraQuery(
+  entry: ServerLogEntry,
+  q: { key: string | null; pattern: string },
+): boolean {
+  if (q.key !== null) {
+    const value = entry.extras?.[q.key]
+    return value !== undefined && globSearch(extraAsText(value), q.pattern)
+  }
+  const extras = entry.extras
+  if (!extras) return false
+  return Object.values(extras).some((value) => globSearch(extraAsText(value), q.pattern))
 }
 
 export function createServerLogsRouter() {
@@ -387,13 +405,13 @@ export function createServerLogsRouter() {
         ? filters.extra
         : [filters.extra]
       : []
-    const extraQueries: Array<{ key: string; pattern: string }> = []
+    const extraQueries: Array<{ key: string | null; pattern: string }> = []
     for (const raw of rawExtraQueries) {
       const q = parseExtraQuery(raw)
       if (!q) {
         return c.json(
           {
-            error: `Invalid extra query: "${raw}" — expected "<key>:<glob pattern>" (${MAX_EXTRA_PATTERN_LEN} chars max; * and ? are wildcards)`,
+            error: `Invalid extra query: "${raw}" — expected "<glob pattern>" or "<key>:<glob pattern>" (${MAX_EXTRA_PATTERN_LEN} chars max; * and ? are wildcards)`,
           },
           400,
         )
@@ -461,7 +479,21 @@ export function createServerLogsRouter() {
       // explícitamente lo que sí tiene dueño.
       if (extraSets.some(([key, set]) => !matchesExtra(entry, key, set))) continue
       if (extraQueries.some((q) => !matchesExtraQuery(entry, q))) continue
-      if (filters.search && !entry.msg.includes(filters.search)) continue
+      // `search` es el mismo glob case-insensitive que `extra` (contains
+      // liso si no hay `*`/`?`, comodines si los hay) — no una regexp
+      // arbitraria, por el mismo motivo de ReDoS (ver globMatchFull).
+      // Recortado a MAX_EXTRA_PATTERN_LEN como cinturón extra: a diferencia
+      // de `extra`, acá un patrón fuera de rango no corta con 400 (search
+      // nunca lo hizo) — se trunca en silencio.
+      if (
+        filters.search &&
+        !globSearch(
+          entry.msg.slice(0, MAX_EXTRA_VALUE_LEN),
+          filters.search.slice(0, MAX_EXTRA_PATTERN_LEN),
+        )
+      ) {
+        continue
+      }
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue
       levelCounts[entry.level]++
