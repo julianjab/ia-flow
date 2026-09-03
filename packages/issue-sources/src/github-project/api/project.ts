@@ -318,6 +318,57 @@ export async function getProjectItemById(
   }
 }
 
+/**
+ * Resuelve un Issue (su node id, el único que trae un webhook de
+ * `issue_comment`/`issues` — GitHub NO manda el node id del ProjectV2Item ahí)
+ * al ProjectV2Item que lo representa en ESTE board.
+ *
+ * `getProjectItemById` no sirve para esto: su `node(id) { ... on ProjectV2Item
+ * {...} }` matchea sólo si el id ES de un ProjectV2Item — pasarle el id de un
+ * Issue devuelve `null` en silencio, el mismo error de fondo que ya se
+ * diagnosticó para `issues.labeled`/`unlabeled` contra `projects_v2_item`. Acá
+ * el punto de entrada es al revés: partimos del Issue y navegamos
+ * `projectItems` para encontrar el item de NUESTRO proyecto — un issue puede
+ * estar en más de un board, así que el filtro por `project.id` no es
+ * opcional.
+ *
+ * `first: 20`: un issue en más de 20 proyectos es un caso que no existe en la
+ * práctica acá — si algún día pasa, el item de este board queda afuera de la
+ * página y esto devuelve `null` como si no estuviera, degradando al mismo
+ * comportamiento que hoy (evento sin `item`), no un error.
+ */
+export async function getProjectItemByIssueId(
+  issueId: string,
+  projectId: string,
+  marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
+): Promise<ProjectItem | null> {
+  try {
+    const data = await withDevLinksFallback(() =>
+      gql<any>(
+        `query GetProjectItemByIssueId($issueId: ID!) {
+          node(id: $issueId) {
+            ... on Issue {
+              projectItems(first: 20) {
+                nodes {
+                  project { id }
+                  ${projectItemNodeFields()}
+                }
+              }
+            }
+          }
+        }`,
+        { issueId },
+      ),
+    )
+    const nodes = data.node?.projectItems?.nodes ?? []
+    const match = nodes.find((n: { project?: { id?: string } }) => n.project?.id === projectId)
+    return match ? mapProjectItemNode(match, marker) : null
+  } catch (err) {
+    if (isNodeNotFoundError(err)) return null
+    throw err
+  }
+}
+
 // ─── Update project item status ───────────────────────────────────────────
 
 export async function updateItemStatus(

@@ -41,6 +41,7 @@ import {
   createProjectDraftIssue,
   deleteProjectItem,
   getProjectItemById,
+  getProjectItemByIssueId,
   getProjectMeta,
   listProjectItems,
   setProjectTextField,
@@ -234,6 +235,21 @@ export class GitHubProjectSource implements ProjectSource {
   async getItemById(id: string): Promise<SourceItem | null> {
     const meta = await this.loadMeta()
     const it = await getProjectItemById(id, this.marker)
+    return it ? this.toSourceItem(it, meta) : null
+  }
+
+  /**
+   * Resuelve un Issue (por su node id — lo único que traen los webhooks de
+   * `issue_comment`/`issues`) al ProjectV2Item de ESTE board, vía
+   * `getProjectItemByIssueId`. Distinto de `getItemById`: ese espera un id de
+   * ProjectV2Item (el que usan DivergenceReconciler y el fast-path de
+   * `projects_v2_item`); este espera un id de Issue — confundirlos es
+   * exactamente el bug que ya se diagnosticó para `issues.labeled`/
+   * `unlabeled` contra `projects_v2_item`.
+   */
+  async getItemByIssueId(issueId: string): Promise<SourceItem | null> {
+    const meta = await this.loadMeta()
+    const it = await getProjectItemByIssueId(issueId, meta.projectId, this.marker)
     return it ? this.toSourceItem(it, meta) : null
   }
 

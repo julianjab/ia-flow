@@ -1003,12 +1003,25 @@ export const ingestWebhookUseCase = new IngestWebhookUseCase(
         const first = repoRepo.findByGithubRepo(owner, repo)[0]
         return first ? { projectId: first.projectId, repoName: first.name } : null
       },
-      // 1 sola llamada (getItemById, nunca un scan) contra el mismo source
-      // que ya resuelve todo lo demás del proyecto.
-      async (projectId, nodeId) => {
+      // 1 sola llamada (getItemById/getItemByIssueId, nunca un scan) contra
+      // el mismo source que ya resuelve todo lo demás del proyecto.
+      //
+      // `kind: 'issue'` intenta `getItemByIssueId` primero (el único método
+      // que sabe navegar Issue → ProjectV2Item cuando el source los
+      // distingue, como github-project) y cae a `getItemById` si el source
+      // no lo implementa — que es exactamente correcto para los sources
+      // donde el issue YA ES el item (github-issues, local) o donde
+      // `getItemById` ya acepta las dos formas (github-hybrid, ver su doc).
+      // `kind: 'projectItem'` (sólo lo emite `projects_v2_item`) va directo
+      // a `getItemById`, que es el único que sabe resolver ese tipo de id.
+      async (projectId, node) => {
         const source = getSourceForProjectId(projectId)
-        if (!source.getItemById) return null
-        const raw = await source.getItemById(nodeId)
+        const raw =
+          node.kind === 'issue' && source.getItemByIssueId
+            ? await source.getItemByIssueId(node.id)
+            : source.getItemById
+              ? await source.getItemById(node.id)
+              : null
         if (!raw) return null
         return source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
       },

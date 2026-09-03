@@ -418,27 +418,47 @@ export function isBusEvent(event: string): boolean {
   return BUS_EVENTS.has(event)
 }
 
+/** Un node id de GitHub, con la etiqueta de qué TIPO de nodo es —
+ *  `issue_comment`/`issues` sólo traen el node id del Issue, nunca el del
+ *  ProjectV2Item (GitHub no lo manda en esos payloads); `projects_v2_item` es
+ *  al revés. Confundir los dos es el bug que ya se diagnosticó para
+ *  `issues.labeled`/`unlabeled` contra `projects_v2_item`: un id de un tipo
+ *  pasado a un resolver que espera el otro no tira, sólo no matchea nunca —
+ *  la etiqueta es lo que le permite al caller (`resolveItemById`, inyectado
+ *  por el container) elegir el método correcto en vez de adivinar. */
+export type TaggedNodeId = { kind: 'issue' | 'projectItem'; id: string }
+
 /** El `node_id` del issue/PR/item al que habla este delivery, cuando el
  *  payload lo trae directo — `check_suite`/`workflow_run` no tienen uno
  *  (hablan de un commit, no de un issue) y `projects_v2` tampoco (habla del
  *  proyecto en sí), así que quedan sin `item`. */
-function nodeIdFor(event: string, payload: RawPayload): string | undefined {
+function nodeIdFor(event: string, payload: RawPayload): TaggedNodeId | undefined {
   const from = (obj: Record<string, unknown> | undefined) => {
     const id = obj?.node_id
     return typeof id === 'string' ? id : undefined
   }
-  if (event === 'pull_request' || event === 'pull_request_review') return from(payload.pull_request)
-  if (event === 'issue_comment' || event === 'issues') return from(payload.issue)
-  if (event === 'projects_v2_item') return from(payload.projects_v2_item)
+  if (event === 'pull_request' || event === 'pull_request_review') {
+    const id = from(payload.pull_request)
+    return id ? { kind: 'issue', id } : undefined
+  }
+  if (event === 'issue_comment' || event === 'issues') {
+    const id = from(payload.issue)
+    return id ? { kind: 'issue', id } : undefined
+  }
+  if (event === 'projects_v2_item') {
+    const id = from(payload.projects_v2_item)
+    return id ? { kind: 'projectItem', id } : undefined
+  }
   return undefined
 }
 
-/** Resuelve el `node_id` de un evento a un `IssueItem`, vía el fetch puntual
- *  que el `ProjectSource` del proyecto ya expone (`getItemById`, 1 sola
- *  llamada — nunca un scan). Inyectado por función y no por instancia: el
- *  container ya arma un registry de sources para todo lo demás, y esto no
- *  necesita más que preguntarle. */
-export type ItemResolver = (projectId: string, nodeId: string) => Promise<IssueItem | null>
+/** Resuelve un node id (etiquetado por tipo, ver `TaggedNodeId`) a un
+ *  `IssueItem`, vía el fetch puntual que el `ProjectSource` del proyecto ya
+ *  expone (`getItemById`/`getItemByIssueId`, 1 sola llamada — nunca un scan).
+ *  Inyectado por función y no por instancia: el container ya arma un
+ *  registry de sources para todo lo demás, y esto no necesita más que
+ *  preguntarle. */
+export type ItemResolver = (projectId: string, node: TaggedNodeId) => Promise<IssueItem | null>
 
 /**
  * El traductor de GitHub, como port.
@@ -467,8 +487,8 @@ export class GithubWebhookTranslator implements IWebhookTranslator {
   async resolveItem(delivery: WebhookDelivery, event: EngineEvent): Promise<IssueItem | null> {
     const projectId = event.scope.projectId
     if (!projectId || !this.resolveItemById) return null
-    const nodeId = nodeIdFor(delivery.event, delivery.payload as RawPayload)
-    if (!nodeId) return null
-    return this.resolveItemById(projectId, nodeId)
+    const node = nodeIdFor(delivery.event, delivery.payload as RawPayload)
+    if (!node) return null
+    return this.resolveItemById(projectId, node)
   }
 }

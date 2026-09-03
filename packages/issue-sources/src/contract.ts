@@ -527,6 +527,20 @@ export interface ProjectSource {
   getItemById?(id: string): Promise<SourceItem | null>
 
   /**
+   * Fetch a single item by its underlying ISSUE's native ID, when the
+   * source distinguishes the issue from the "item" (e.g. GitHub Projects:
+   * a ProjectV2Item wraps an Issue under a DIFFERENT node id). Needed
+   * because `issue_comment`/`issues` webhooks only carry the Issue's node
+   * id — GitHub never includes the ProjectV2Item id on those payloads — so
+   * `getItemById` (which expects THAT id) can't resolve them. Absence =
+   * callers accept the event without a resolved `item` (see
+   * IWebhookTranslator.resolveItem's doc); for a source where the issue
+   * IS the item (github-issues, local) this is redundant with
+   * `getItemById` and doesn't need implementing.
+   */
+  getItemByIssueId?(issueId: string): Promise<SourceItem | null>
+
+  /**
    * Push-based watch: the source owns HOW it learns about changes (an
    * internal poll timer, a webhook-registry subscription, an fs watcher,
    * whatever fits its transport) and emits fully-resolved SourceItems as it
