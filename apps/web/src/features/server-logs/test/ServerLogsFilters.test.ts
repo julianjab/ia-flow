@@ -18,6 +18,12 @@ vi.mock('../api', () => ({
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
 }))
+// Skip the WS lifecycle entirely — happy-dom doesn't ship a functional
+// WebSocket, y live mode de este panel no está bajo test acá (mismo patrón
+// que ExecutionsSection.test.ts).
+vi.mock('@/composables/useServerEvents', () => ({
+  useServerEvents: () => ({ connected: { value: false } }),
+}))
 
 import ServerLogsSection from '../ServerLogsSection.vue'
 import { fetchServerLogModules, fetchServerLogs } from '../api'

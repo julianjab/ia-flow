@@ -17,6 +17,13 @@ const COLUMN_WIDTHS_KEY = 'ia-flow:server-logs:column-widths:v1'
 const CLEAR_DEDUPE_CURL =
   "curl -X DELETE 'http://localhost:3001/api/webhooks/dedupe/abc:issues.unlabeled:3872' -H 'x-ia-flow-token: <IA_FLOW_WEBHOOK_SECRET>'"
 
+// Skip the WS lifecycle entirely — happy-dom doesn't ship a functional
+// WebSocket, y live mode de este panel no está bajo test acá (mismo patrón
+// que ExecutionsSection.test.ts).
+vi.mock('@/composables/useServerEvents', () => ({
+  useServerEvents: () => ({ connected: { value: false } }),
+}))
+
 vi.mock('../api', () => ({
   // Inline literal: `vi.mock` is hoisted above the LEVELS const above.
   fetchServerLogs: vi.fn().mockResolvedValue({
