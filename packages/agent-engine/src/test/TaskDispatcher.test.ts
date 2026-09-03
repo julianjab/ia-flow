@@ -252,7 +252,10 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   // caso real que el cooldown protege: un SessionHandle terminal de verdad
   // (Agent.ts sólo lo escribe cuando `output.mode === 'tmux'`). Los tests de
   // un run sync cancelado (más abajo) lo omiten a propósito.
-  function cancelledRun(finishedAt: string, sessionKind: 'tmux' | 'iterm' | null = 'iterm'): ExecutionLog {
+  function cancelledRun(
+    finishedAt: string,
+    sessionKind: 'tmux' | 'iterm' | null = 'iterm',
+  ): ExecutionLog {
     return {
       id: 'exec-1',
       projectId: 'p1',

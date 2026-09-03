@@ -260,7 +260,12 @@ describe('GitHubProjectSource.getItemByIssueId', () => {
         return new Response(
           JSON.stringify({
             data: { node: null },
-            errors: [{ type: 'NOT_FOUND', message: "Could not resolve to a node with the global id of 'I_gone'." }],
+            errors: [
+              {
+                type: 'NOT_FOUND',
+                message: "Could not resolve to a node with the global id of 'I_gone'.",
+              },
+            ],
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         )
