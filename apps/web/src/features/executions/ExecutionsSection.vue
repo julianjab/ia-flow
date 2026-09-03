@@ -1392,7 +1392,7 @@ watch(pendingFilter, () => {
           Los filtros de agente, outcome y fechas se aplican en el servidor.
         </p>
       </div>
-      <div class="header-actions">
+      <div class="section-head-actions">
         <button
           type="button"
           class="live-toggle"
@@ -1410,7 +1410,7 @@ watch(pendingFilter, () => {
           "
           @click="liveMode = !liveMode"
         >
-          <span class="live-dot" aria-hidden="true"></span>
+          <span class="live-toggle-dot" aria-hidden="true"></span>
           Live
         </button>
         <button
@@ -1980,40 +1980,11 @@ watch(pendingFilter, () => {
 </template>
 
 <style scoped>
-.header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-.live-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.7rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.8rem;
-  color: var(--fg-dim);
-  cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
-}
-.live-toggle:hover { background: var(--border); }
-.live-toggle--on { background: var(--green-bg); border-color: var(--accent); color: var(--accent); }
-.live-toggle--pending { background: var(--yellow-bg); border-color: var(--warn); color: var(--warn); }
-.live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--fg-dim);
-  flex-shrink: 0;
-}
-.live-toggle--on .live-dot {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
-  animation: live-pulse 1.6s ease-in-out infinite;
-}
-.live-toggle--pending .live-dot { background: var(--warn); animation: live-pulse 1.6s ease-in-out infinite; }
-@keyframes live-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.45; }
-}
+/* .section-head-actions ya es global (theme.css, la usan otras siete
+   secciones). .live-toggle / .live-dot / @keyframes live-pulse también
+   viven ahí — ServerLogsSection.vue usa el mismo toggle "Live" y duplicarlas
+   acá las hubiera desincronizado en el primer retoque de una de las dos
+   copias. */
 
 .btn-primary {
   flex-shrink: 0;

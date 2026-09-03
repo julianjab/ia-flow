@@ -393,6 +393,66 @@ a:hover {
   flex: 0 0 auto;
 }
 
+/* El toggle "Live" — mismo look en cualquier panel que se suscriba al WS
+   (ExecutionsSection, ServerLogsSection): punto apagado = live off, punto
+   sólido pulsando (verde) = conectado, punto ámbar pulsando = reconectando. */
+.live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.live-toggle:hover {
+  background: var(--border);
+}
+.live-toggle--on {
+  background: var(--green-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.live-toggle--pending {
+  background: var(--yellow-bg);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+/* `.live-toggle-dot`, no `.live-dot` — ese nombre ya lo tiene el punto que
+   parpadea en el Dashboard mientras hay ejecuciones activas (más abajo en
+   este archivo), con otra forma (cuadrado) y otro comportamiento (siempre
+   animado). Un mismo nombre para dos cosas visualmente distintas hubiera
+   hecho que el orden de las reglas en el archivo decidiera cuál gana. */
+.live-toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+  flex-shrink: 0;
+}
+.live-toggle--on .live-toggle-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+.live-toggle--pending .live-toggle-dot {
+  background: var(--warn);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .section-desc {
   margin: 0.25rem 0 0.9rem;
   font-size: var(--fs-chrome);
