@@ -361,3 +361,95 @@ describe('runRule — una ref conserva el id del paso', () => {
     expect(visto).toEqual(['del catálogo'])
   })
 })
+
+// El `when` de una acción colapsa "triage → emitir → segunda regla con
+// when: actionable = true → despachar" en un solo `do[]`: el paso siguiente
+// lee `steps.<id>.output` directo, sin pasar por el bus.
+describe('runRule — when por acción', () => {
+  test('cuando el when matchea contra el output de un paso anterior, corre', async () => {
+    const log: string[] = []
+    registerAction({
+      kind: 'produce',
+      configSchema: z.object({ action: z.literal('produce') }).passthrough(),
+      execute: async () => ({ ok: true, output: { actionable: true } }),
+    })
+    fake('consume', { ok: true }, log)
+
+    const outcome = await runRule(
+      rule([
+        { action: 'produce', id: 'triage' },
+        {
+          action: 'consume',
+          when: [{ field: 'steps.triage.output.actionable', op: '=', value: 'true' }],
+        },
+      ] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit },
+    )
+
+    expect(log).toEqual(['consume'])
+    expect(outcome).toBe('dispatched')
+  })
+
+  test('cuando el when NO matchea, saltea el paso sin cortar la secuencia ni fallar', async () => {
+    const log: string[] = []
+    registerAction({
+      kind: 'produce',
+      configSchema: z.object({ action: z.literal('produce') }).passthrough(),
+      execute: async () => ({ ok: true, output: { actionable: false } }),
+    })
+    fake('consume', { ok: true }, log)
+    fake('after', { ok: true }, log)
+
+    const outcome = await runRule(
+      rule([
+        { action: 'produce', id: 'triage' },
+        {
+          action: 'consume',
+          when: [{ field: 'steps.triage.output.actionable', op: '=', value: 'true' }],
+        },
+        { action: 'after' },
+      ] as unknown as RuleActionEntry[]),
+      ev(),
+      { emit: noopEmit },
+    )
+
+    expect(log).toEqual(['after'])
+    expect(outcome).toBe('dispatched')
+  })
+
+  test('también puede leer campos del evento, igual que el when de regla', async () => {
+    const log: string[] = []
+    fake('consume', { ok: true }, log)
+
+    const outcome = await runRule(
+      rule([
+        {
+          action: 'consume',
+          when: [{ field: 'author', op: '=', value: 'julian' }],
+        },
+      ] as unknown as RuleActionEntry[]),
+      createEvent({
+        type: 'pr.opened',
+        source: 'github',
+        scope: { projectId: 'p1' },
+        payload: { author: 'julian' },
+      }),
+      { emit: noopEmit },
+    )
+
+    expect(log).toEqual(['consume'])
+    expect(outcome).toBe('dispatched')
+  })
+
+  test('sin when, la acción corre siempre (comportamiento previo)', async () => {
+    const log: string[] = []
+    fake('consume', { ok: true }, log)
+
+    await runRule(rule([{ action: 'consume' }] as unknown as RuleActionEntry[]), ev(), {
+      emit: noopEmit,
+    })
+
+    expect(log).toEqual(['consume'])
+  })
+})
