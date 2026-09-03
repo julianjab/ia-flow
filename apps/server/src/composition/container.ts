@@ -874,12 +874,28 @@ export const orchestrator = new AgentOrchestrator(
   agentAbortRepo,
 )
 
+// Declarado antes de `dispatcher` (y no junto al resto de los use-cases más
+// abajo) porque `TaskDispatcher` lo necesita para su fallback de
+// `TaskLockedError` — ver el comentario de `dispatch()` en TaskDispatcher.ts.
+// Sus tres deps (`runMessageRepo`, `waitRepo`, `eventBus`) ya están armadas
+// más arriba en este archivo.
+export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
+  runMessageRepo,
+  waitRepo,
+  eventBus,
+)
+
 export const dispatcher = new TaskDispatcher(
   orchestrator,
   broadcast,
   configRepo,
   undefined,
   executionLogRepo,
+  // Adapter fino: el engine no puede importar `application/use-cases` de
+  // apps/server (regla de dependencia — ver CLAUDE.md), así que el
+  // composition root le presta el mismo caso de uso que usa la ruta HTTP
+  // `POST /api/tasks/:id/messages`.
+  { enqueue: (input) => enqueueRunMessageUseCase.execute(input).then(() => undefined) },
 )
 
 // Single process-lifetime instance — not one per project. Compares the live
@@ -905,12 +921,8 @@ export const divergenceReconciler = new DivergenceReconciler({
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
-
-export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
-  runMessageRepo,
-  waitRepo,
-  eventBus,
-)
+// `enqueueRunMessageUseCase` está declarado más arriba, junto a `dispatcher`
+// (lo necesita como dependencia) — ver el comentario ahí.
 
 /**
  * Lo configurado + lo que corre, para la pantalla de Pipeline.

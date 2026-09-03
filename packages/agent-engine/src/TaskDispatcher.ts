@@ -1,10 +1,16 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
 import type { AgentExit } from '@ia-flow/shared'
+import { TaskLockedError } from '@ia-flow/workspace'
 import type { AgentRunState } from './Agent.js'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
-import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from './contract.js'
+import type {
+  IBroadcast,
+  IExecutionLogRepository,
+  IProjectConfigRepository,
+  RunMessageEnqueuePort,
+} from './contract.js'
 import { issueRef } from './issue-ref.js'
 import { createLogger } from './logger.js'
 
@@ -76,6 +82,10 @@ export class TaskDispatcher {
     // recientes y el cooldown de abajo queda deshabilitado (comportamiento
     // previo).
     private executionLogRepo?: IExecutionLogRepository,
+    // Opcional: sin él, un dispatch que choca contra el lock de la task
+    // (`TaskLockedError`) sólo difiere — ver el catch en `dispatch()` más
+    // abajo para el porqué de encolar en vez de perder el `brief`.
+    private runMessageEnqueuer?: RunMessageEnqueuePort,
     private cancelCooldownMs: number = DEFAULT_CANCEL_COOLDOWN_MS,
   ) {}
 
@@ -289,19 +299,53 @@ export class TaskDispatcher {
 
     const task = issueItemToTask(item)
 
-    return await this.orchestrator.runAgent(
-      task,
-      transitions,
-      agentId,
-      {
-        ruleId,
-        eventId: event?.id,
-        eventType: event?.type,
-        position: event?.position,
-        brief,
-        exits,
-      },
-      opts.state,
-    )
+    try {
+      return await this.orchestrator.runAgent(
+        task,
+        transitions,
+        agentId,
+        {
+          ruleId,
+          eventId: event?.id,
+          eventType: event?.type,
+          position: event?.position,
+          brief,
+          exits,
+        },
+        opts.state,
+      )
+    } catch (err) {
+      // El lock por task (`WorkspaceManager.acquireTask`) tira cuando ya hay
+      // un run vivo sobre esta misma task — típicamente un dispatcher
+      // raceado (una regla de comentario que llega mientras el agente sigue
+      // corriendo la vuelta anterior). Antes esto se propagaba como
+      // excepción sin manejar hasta el runner de reglas, que sólo lo
+      // logueaba (`Rule action failed`) y perdía el `brief` para siempre —
+      // el humano que comentó nunca veía su feedback llegar al agente en
+      // vuelo. Ahora se trata igual que cualquier otro "hay trabajo pero no
+      // capacidad" del método (ver `atCap`/`ProviderAtCapacityError` más
+      // arriba): se difiere, y si había un `brief` se encola como mensaje
+      // para que el run vivo lo drene en su próxima vuelta (`RunMessagePort`
+      // en `Agent.ts`) — o para que el próximo run de esta task lo lea, si
+      // el agente estaba pausado en vez de corriendo.
+      if (err instanceof TaskLockedError) {
+        if (brief && this.runMessageEnqueuer) {
+          await this.runMessageEnqueuer
+            .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })
+            .catch((enqueueErr) => {
+              log.warn(
+                { id: item.id, issue: issueRef(item), err: (enqueueErr as Error).message },
+                `No se pudo encolar el brief tras chocar con el lock de ${issueRef(item)} — se pierde este intento`,
+              )
+            })
+        }
+        log.info(
+          { id: item.id, issue: issueRef(item), agentId, enqueued: Boolean(brief) },
+          `${issueRef(item)} ya tiene un run en vuelo — dispatch diferido`,
+        )
+        return 'deferred'
+      }
+      throw err
+    }
   }
 }

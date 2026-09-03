@@ -201,6 +201,21 @@ export interface RunMessagePort {
 }
 
 /**
+ * Fallback de `TaskDispatcher.dispatch` cuando el dispatch choca contra el
+ * lock de la task (`TaskLockedError`, de `@ia-flow/workspace`): en vez de
+ * perder el `brief` que traía, se encola en la conversación de la task para
+ * que el run en vuelo lo drene en su próxima vuelta (o lo lea el próximo run
+ * si el agente estaba pausado, no corriendo). Angosto y con un solo
+ * consumidor a propósito — es el mismo contrato que ya expone
+ * `EnqueueRunMessageUseCase` en apps/server, sólo que el engine no puede
+ * importar `application/use-cases` de ahí, así que el composition root
+ * cablea un adapter fino contra ese caso de uso.
+ */
+export interface RunMessageEnqueuePort {
+  enqueue(input: { taskId: string; body: string; author?: string; source?: string }): Promise<void>
+}
+
+/**
  * Guarda dónde va un run en vuelo, para que un reinicio no se lleve el trabajo.
  *
  * Es distinto de `PauseCheckpointPort`: aquél cuelga el estado de una ESPERA
