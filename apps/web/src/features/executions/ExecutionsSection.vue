@@ -2284,8 +2284,9 @@ watch(pendingFilter, () => {
 .exec-title a { color: var(--accent); text-decoration: none; }
 .exec-title a:hover { text-decoration: underline; }
 /* Fixed column widths so header cells and row cells line up regardless of
-   content length. Longest realistic values: agent ~"ia-flow-implementer-api"
-   (23ch), provider "anthropic-api" (13ch), date "10 ago 21:11:44" (15ch). */
+   content length. Trimmed to the truncated-with-ellipsis floor (not the
+   longest realistic value) so `.exec-title` — the one column people actually
+   read — gets back the room these used to reserve for the rare long id. */
 .exec-meta {
   font-size: 0.75rem;
   color: var(--fg-dim);
@@ -2307,9 +2308,9 @@ watch(pendingFilter, () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--info); width: 180px; }
-.exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 120px; }
-.exec-source { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg-dim); width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--info); width: 140px; }
+.exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 100px; }
+.exec-source { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg-dim); width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-cancel-requested {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -2320,7 +2321,7 @@ watch(pendingFilter, () => {
   border: 1px solid var(--warn);
   white-space: nowrap;
 }
-.exec-date { font-variant-numeric: tabular-nums; width: 120px; font-family: 'SF Mono', 'Fira Code', monospace; }
+.exec-date { font-variant-numeric: tabular-nums; width: 100px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-duration { font-variant-numeric: tabular-nums; width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-outcome {
   flex-shrink: 0;
@@ -2583,6 +2584,6 @@ watch(pendingFilter, () => {
      comparar columnas entre filas sigue siendo posible. El ancho mínimo sale
      de la suma de las columnas fijas más el spacer de 84px. */
   .exec-list-wrapper { overflow-x: auto; }
-  .exec-list { min-width: 44rem; }
+  .exec-list { min-width: 37rem; }
 }
 </style>
