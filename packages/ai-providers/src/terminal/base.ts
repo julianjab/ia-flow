@@ -329,6 +329,10 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       // convertiría el aislamiento entre agentes en un argumento de tool.
       if (input.agentId) params.set('agent', input.agentId)
       if (input.projectId) params.set('project', input.projectId)
+      // `task` es el mismo fallback que ya usa `workspace_reset` del lado
+      // sync (`ctx.taskId`): sin esto, las tools de cierre de `task.ts` sólo
+      // podían identificar la tarea si el modelo transcribía el id a mano.
+      if (input.taskId) params.set('task', input.taskId)
       mcpServers['ia-flow-tools'] = {
         type: 'http',
         url: `${daemonUrl}/api/mcp?${params.toString()}`,

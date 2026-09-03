@@ -108,6 +108,10 @@ export function createMcpRouter() {
           // impide que un agente lea o escriba la memoria de otro nombrándola.
           agentId: c.req.query('agent'),
           projectId: c.req.query('project'),
+          // Mismo canal que `run`/`agent`/`project`: las tools de cierre de
+          // `task.ts` lo usan como fallback cuando el modelo no transcribe
+          // `task_id` (ver `ToolContext.taskId`, ya poblado del lado sync).
+          taskId: c.req.query('task'),
         }
         const tool = resolveExecutableTool(name, ctx)
         if (!tool) {
