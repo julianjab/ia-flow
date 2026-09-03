@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
 import { type FilterFieldDef, type FilterToken, isDateValue } from '@/ui/filter-query';
 import { useRoute } from 'vue-router';
-import type { ServerLogLevel, ServerLogSort, ServerLogSortBy } from '@ia-flow/shared';
+import { ServerLogEntrySchema, type ServerLogLevel, type ServerLogSort, type ServerLogSortBy } from '@ia-flow/shared';
+import { useServerEvents } from '@/composables/useServerEvents';
 import {
   fetchServerLogModules,
   fetchServerLogs,
@@ -726,6 +727,57 @@ function buildFilters(): ServerLogFilters {
   return f;
 }
 
+/**
+ * Alimenta los picker/chips (módulos, sources, agente/tarea/…, claves de
+ * extras) a partir de un lote de entradas — sea la página que trajo `load()`
+ * o una sola línea que llegó por el WS en vivo. Extraída de `load()` para que
+ * el handler de `log:entry` (más abajo) no duplique las cuatro
+ * acumulaciones.
+ */
+function accumulateDiscovered(newEntries: ServerLogEntry[]): void {
+  const nextDiscovered = new Set(discoveredModules.value);
+  for (const e of newEntries) if (e.module) nextDiscovered.add(e.module);
+  if (nextDiscovered.size !== discoveredModules.value.size) {
+    discoveredModules.value = nextDiscovered;
+  }
+  const nextDiscoveredSources = new Set(discoveredSources.value);
+  for (const e of newEntries) {
+    const source = e.extras?.source;
+    if (typeof source === 'string' && source) nextDiscoveredSources.add(source);
+  }
+  if (nextDiscoveredSources.size !== discoveredSources.value.size) {
+    discoveredSources.value = nextDiscoveredSources;
+  }
+  // Los valores de agente/tarea/proyecto/run salen de lo que las líneas
+  // traen: no hay endpoint que liste su universo, y acumular es lo que evita
+  // que filtrar por uno deje al resto sin sugerencias.
+  const nextExtras = { ...discoveredExtras.value };
+  let grew = false;
+  for (const key of Object.keys(nextExtras)) {
+    const set = new Set(nextExtras[key]);
+    for (const e of newEntries) {
+      const value = e.extras?.[key];
+      if (typeof value === 'string' && value) set.add(value);
+    }
+    if (set.size !== nextExtras[key].size) {
+      nextExtras[key] = set;
+      grew = true;
+    }
+  }
+  if (grew) discoveredExtras.value = nextExtras;
+  // Universo de claves de extras vistas — alimenta el picker de "+
+  // columna". No filtra por tipo de valor: una clave con un objeto (ej.
+  // `err`) igual se puede agregar como columna, formatExtraValue la
+  // serializa.
+  const nextExtraKeys = new Set(discoveredExtraKeys.value);
+  for (const e of newEntries) {
+    for (const key of Object.keys(e.extras ?? {})) nextExtraKeys.add(`extras.${key}`);
+  }
+  if (nextExtraKeys.size !== discoveredExtraKeys.value.size) {
+    discoveredExtraKeys.value = nextExtraKeys;
+  }
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -737,49 +789,7 @@ async function load() {
     total.value = data.total;
     // Server-computed breakdown across all filters except the level one.
     levelCounts.value = data.levelCounts;
-    // Accumulate every module we've ever seen in a response so filtering
-    // by one module doesn't cause the other chips to vanish.
-    const nextDiscovered = new Set(discoveredModules.value);
-    for (const e of data.entries) if (e.module) nextDiscovered.add(e.module);
-    if (nextDiscovered.size !== discoveredModules.value.size) {
-      discoveredModules.value = nextDiscovered;
-    }
-    const nextDiscoveredSources = new Set(discoveredSources.value);
-    for (const e of data.entries) {
-      const source = e.extras?.source;
-      if (typeof source === 'string' && source) nextDiscoveredSources.add(source);
-    }
-    if (nextDiscoveredSources.size !== discoveredSources.value.size) {
-      discoveredSources.value = nextDiscoveredSources;
-    }
-    // Los valores de agente/tarea/proyecto/run salen de lo que las líneas
-    // traen: no hay endpoint que liste su universo, y acumular es lo que evita
-    // que filtrar por uno deje al resto sin sugerencias.
-    const nextExtras = { ...discoveredExtras.value };
-    let grew = false;
-    for (const key of Object.keys(nextExtras)) {
-      const set = new Set(nextExtras[key]);
-      for (const e of data.entries) {
-        const value = e.extras?.[key];
-        if (typeof value === 'string' && value) set.add(value);
-      }
-      if (set.size !== nextExtras[key].size) {
-        nextExtras[key] = set;
-        grew = true;
-      }
-    }
-    if (grew) discoveredExtras.value = nextExtras;
-    // Universo de claves de extras vistas — alimenta el picker de "+
-    // columna". No filtra por tipo de valor: una clave con un objeto (ej.
-    // `err`) igual se puede agregar como columna, formatExtraValue la
-    // serializa.
-    const nextExtraKeys = new Set(discoveredExtraKeys.value);
-    for (const e of data.entries) {
-      for (const key of Object.keys(e.extras ?? {})) nextExtraKeys.add(`extras.${key}`);
-    }
-    if (nextExtraKeys.size !== discoveredExtraKeys.value.size) {
-      discoveredExtraKeys.value = nextExtraKeys;
-    }
+    accumulateDiscovered(data.entries);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
@@ -936,6 +946,57 @@ watch(
   },
 );
 
+// ─── Live mode ─────────────────────────────────────────────────────────────
+// Mismo patrón que ExecutionsSection.vue: un toggle "Live" (default ON) que
+// suscribe al WS compartido y va prependiendo `log:entry` a medida que
+// llegan, en vez de esperar a que alguien recargue.
+//
+// A diferencia de Ejecuciones, acá los filtros son muchos y varios son
+// server-side puro (glob de `search`/`extra`, rango de `desde`/`hasta` contra
+// SQLite) — replicarlos TODOS en el cliente es la lógica de
+// `apps/server/src/routes/server-logs.ts` duplicada a mano, con el riesgo de
+// que las dos copias diverjan en silencio. En vez de eso, live mode aplica
+// sólo los filtros BARATOS de replicar (nivel/módulo/source, que son
+// igualdad/inclusión sobre valores ya en la línea) y de igual forma exige que
+// la vista esté en el orden "tail" natural — `time desc` sin paginar—: una
+// línea nueva en cualquier otro orden no tiene un lugar sensato donde caer.
+// Con `search`/`extra`/fechas/agente/tarea/etc. activos, una línea puede
+// colarse aunque no matchee esos — es el trade-off documentado, no un bug: el
+// próximo refresh (filtro que cambia, o "Actualizar") vuelve a traer la
+// verdad servida por SQLite.
+const liveMode = ref(true);
+function isTailView(): boolean {
+  return columnSort.value.column === 'time' && columnSort.value.direction === 'desc' && offset.value === 0;
+}
+function matchesCheapFilters(entry: ServerLogEntry): boolean {
+  if (levelFilter.value && entry.level !== levelFilter.value) return false;
+  if (moduleFilter.value.size > 0 && !moduleFilter.value.has(entry.module ?? '')) return false;
+  const source = entry.extras?.source;
+  if (sourceFilter.value.size > 0 && !(typeof source === 'string' && sourceFilter.value.has(source))) {
+    return false;
+  }
+  if (fromFilter.value && entry.time < new Date(fromFilter.value).toISOString()) return false;
+  if (toFilter.value && entry.time > new Date(toFilter.value).toISOString()) return false;
+  return true;
+}
+const { connected: liveConnected } = useServerEvents((msg) => {
+  if (!liveMode.value || msg.type !== 'log:entry') return;
+  const parsed = ServerLogEntrySchema.safeParse((msg as { entry: unknown }).entry);
+  if (!parsed.success) return;
+  const entry = parsed.data;
+  // Server-computed levelCounts/total siguen respondiendo a TODOS los
+  // filtros (search/extra incluidos) — sumar acá de más los desalinearía del
+  // próximo `load()`. Se actualizan sólo cuando la línea también pasa el
+  // chequeo barato, que es una condición necesaria (no suficiente) para que
+  // el servidor la hubiera contado.
+  if (!matchesCheapFilters(entry)) return;
+  levelCounts.value = { ...levelCounts.value, [entry.level]: levelCounts.value[entry.level] + 1 };
+  total.value += 1;
+  accumulateDiscovered([entry]);
+  if (!isTailView()) return;
+  entries.value = [entry, ...entries.value];
+});
+
 onMounted(() => {
   void load();
   void loadAllModules();
@@ -953,6 +1014,39 @@ onMounted(() => {
           Para debug de una ejecución específica (request/response, tool calls) usa la fila expandible en
           <strong>Proyecto → Ejecuciones</strong>.
         </p>
+      </div>
+      <div class="section-head-actions">
+        <button
+          type="button"
+          class="live-toggle"
+          :class="{
+            'live-toggle--on': liveMode && liveConnected,
+            'live-toggle--pending': liveMode && !liveConnected,
+          }"
+          :aria-pressed="liveMode"
+          data-testid="server-logs-live-toggle"
+          :title="
+            liveMode
+              ? liveConnected
+                ? 'Live: recibiendo líneas nuevas en tiempo real (orden Fecha ▼, sin paginar; sólo filtros nivel/módulo/container/fecha)'
+                : 'Live: intentando reconectar…'
+              : 'Live desactivado — las líneas nuevas sólo aparecen al actualizar'
+          "
+          @click="liveMode = !liveMode"
+        >
+          <span class="live-toggle-dot" aria-hidden="true"></span>
+          Live
+        </button>
+        <button
+          type="button"
+          class="btn-secondary"
+          :disabled="loading"
+          data-testid="server-logs-refresh"
+          title="Vuelve a traer la primera página con los filtros actuales"
+          @click="resetAndLoad()"
+        >
+          ↻ Actualizar
+        </button>
       </div>
     </div>
 
@@ -1200,6 +1294,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+
+/* .section-head-actions ya es global (theme.css). .live-toggle / .live-dot /
+   @keyframes live-pulse también viven ahí — es el mismo toggle "Live" que
+   ExecutionsSection.vue, no una copia local. */
 
 .btn-secondary {
   padding: 0.4rem 0.85rem;
