@@ -161,7 +161,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     await expandExtrasRow(wrapper)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
     const addBtn = wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -183,7 +183,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     await expandExtrasRow(wrapper)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
     await wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -191,7 +191,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     expect(extraColHeader(wrapper).exists()).toBe(true)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
     const removeBtn = wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Quitar columna')
@@ -206,7 +206,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
-    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
     await wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
@@ -243,7 +243,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
     await expandExtrasRow(wrapper)
 
-    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
     const removeBtn = wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Quitar columna')
@@ -320,7 +320,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
-    await wrapper.find('[data-testid="server-logs-field-menu-extras.clearDedupe"]').trigger('click')
+    await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
     await wrapper
       .findAll('.detail-field-menu-item')
       .find((b) => b.text() === 'Agregar columna')
