@@ -63,6 +63,7 @@ export { ProjectScopedRuleRepository } from './ProjectScopedRuleRepository.js'
 export { SqliteToolRepository } from './sqlite/SqliteToolRepository.js'
 export { SqliteSeenItemRepository } from './sqlite/SqliteSeenItemRepository.js'
 export { SqliteRunCheckpointRepository } from './sqlite/SqliteRunCheckpointRepository.js'
+export { SqliteAgentAbortRepository } from './sqlite/SqliteAgentAbortRepository.js'
 export {
   SqliteRunMessageRepository,
   SqliteWaitRepository,
