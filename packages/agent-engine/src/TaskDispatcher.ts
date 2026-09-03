@@ -40,6 +40,16 @@ const log = createLogger('task-dispatcher')
 // sin motivo.
 const DEFAULT_CANCEL_COOLDOWN_MS = 2 * 60_000
 
+// El único provider que drena `RunMessagePort` EN VIVO —
+// `packages/ai-providers/src/anthropic-api/provider.ts` es el único que
+// cablea `drainMessages: input.drainMessages` en su loop de tools. Un run
+// remoto (`remote:*`, mismo `AnthropicApiProvider` pero del otro lado de un
+// agent-host) no recibe ese campo en el `ProviderInput` que cruza el cable
+// (ver CLAUDE.md, "Qué viaja a un provider remoto"), y un run de terminal
+// (tmux/iterm) tampoco lo consulta. Fuera de este único caso, un mensaje
+// encolado se queda ahí hasta que algo más lo drene — puede no pasar nunca.
+const LIVE_DRAIN_PROVIDER_ID = 'anthropic-api'
+
 /**
  * Todo lo que un dispatch puede traer además del qué y el quién.
  *
@@ -325,17 +335,36 @@ export class TaskDispatcher {
       // vuelo.
       if (err instanceof TaskLockedError) {
         let delivered = false
-        if (brief && this.runMessageEnqueuer) {
-          delivered = await this.runMessageEnqueuer
-            .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })
-            .then(() => true)
-            .catch((enqueueErr) => {
-              log.warn(
-                { id: item.id, issue: issueRef(item), err: (enqueueErr as Error).message },
-                `No se pudo encolar el brief tras chocar con el lock de ${issueRef(item)} — se pierde este intento`,
-              )
-              return false
-            })
+        // La cola es POR TASK, no por agente ni por run (`RunMessagePort.
+        // pending(taskId)` no filtra por quién la va a leer) — así que
+        // encolar a ciegas puede entregarle el brief de un dispatch al run
+        // EQUIVOCADO: si el lock lo tiene el agente B (o A, pero en un
+        // provider que no drena en vivo), B se come instrucciones dirigidas
+        // a A, y el dispatch de A queda `skipped` creyendo que se entregó
+        // cuando en realidad se perdió. Sólo se puede afirmar la entrega
+        // cuando la fila más reciente de ESTA task (mismo criterio que usa
+        // el cooldown de cancelación, arriba) es del MISMO agente que
+        // pidió este dispatch y sigue en vuelo (`finishedAt` null) sobre el
+        // único provider que drena `RunMessagePort` en vivo.
+        if (brief && this.runMessageEnqueuer && this.executionLogRepo) {
+          const [activeRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
+          const canDeliverLive =
+            activeRun != null &&
+            activeRun.finishedAt == null &&
+            activeRun.agentId === agentId &&
+            activeRun.providerId === LIVE_DRAIN_PROVIDER_ID
+          if (canDeliverLive) {
+            delivered = await this.runMessageEnqueuer
+              .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })
+              .then(() => true)
+              .catch((enqueueErr) => {
+                log.warn(
+                  { id: item.id, issue: issueRef(item), err: (enqueueErr as Error).message },
+                  `No se pudo encolar el brief tras chocar con el lock de ${issueRef(item)} — se pierde este intento`,
+                )
+                return false
+              })
+          }
         }
         // `skipped`, NO `deferred`, cuando el encolado funcionó: `deferred`
         // es la señal de "reintentá" (vuelve al backlog de `SourceDispatcher`
