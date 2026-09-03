@@ -224,14 +224,14 @@ function persistColumns(): void {
 function isColumnActive(key: string): boolean {
   return activeColumns.value.includes(key);
 }
-function toggleColumn(key: string): void {
-  activeColumns.value = isColumnActive(key)
-    ? activeColumns.value.filter((k) => k !== key)
-    : [...activeColumns.value, key];
-  persistColumns();
-}
 /** Nunca deja la tabla sin ninguna columna — sacar la última no tiene forma
- *  de deshacerse salvo borrando el localStorage a mano. */
+ *  de deshacerse salvo borrando el localStorage a mano. `toggleColumn`
+ *  (el menú "…" del detalle) delega en `removeColumn`/`addColumn` para no
+ *  duplicar ese guard. */
+function toggleColumn(key: string): void {
+  if (isColumnActive(key)) removeColumn(key);
+  else addColumn(key);
+}
 function removeColumn(key: string): void {
   if (!isColumnActive(key) || activeColumns.value.length <= 1) return;
   activeColumns.value = activeColumns.value.filter((k) => k !== key);
@@ -297,7 +297,11 @@ function onColumnDrop(targetKey: string): void {
 // ─── Valor de una columna de extras, con soporte de camino anidado ─────────
 function getNestedValue(obj: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, segment) => {
-    if (acc !== null && typeof acc === 'object' && segment in (acc as Record<string, unknown>)) {
+    // `Object.hasOwn`, no `in`: `in` recorre la cadena de prototipos, así que
+    // un camino como `__proto__.x` devolvería objetos internos de JS en vez
+    // de `undefined` — es un input de texto libre, no hay por qué confiar
+    // en que nunca escriban esas claves.
+    if (acc !== null && typeof acc === 'object' && Object.hasOwn(acc as object, segment)) {
       return (acc as Record<string, unknown>)[segment];
     }
     return undefined;
