@@ -133,12 +133,37 @@ function extraValues(key: string, active: Set<string>): string[] {
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
 
-// ─── Columnas de `extras` — al estilo Datadog: "..." en un campo del detalle
-// agrega/quita ese campo como columna de la tabla. Preferencia por-viewer:
+// ─── Columnas — al estilo Datadog: "..." en un campo del detalle agrega/quita
+// ese campo como columna de la tabla, con drag & drop para reordenar y +
+// para agregar. Las CUATRO columnas base (Fecha/Nivel/Módulo/Mensaje) viven
+// en el mismo array que las de `extras`: es lo que permite que también se
+// puedan sacar y reordenar, no sólo las agregadas. Preferencia por-viewer:
 // vive en localStorage, no en el server (dos pestañas de dos operadores
 // pueden mirar columnas distintas del mismo log).
 const COLUMNS_STORAGE_KEY = 'ia-flow:server-logs:columns';
-const COLUMN_LABELS: Record<string, string> = {
+const BASE_COLUMNS = ['time', 'level', 'module', 'msg'] as const;
+const BASE_COLUMN_SET = new Set<string>(BASE_COLUMNS);
+function isBaseColumn(key: string): boolean {
+  return BASE_COLUMN_SET.has(key);
+}
+// Nivel no va en el default — ya se ve como el color/rail de la fila
+// (log-card--warn/error/fatal), así que la columna de texto es redundante
+// hasta que alguien la quiera explícitamente. Sigue disponible en el picker
+// de "+" (BASE_COLUMNS, arriba, tiene las cuatro).
+const DEFAULT_ACTIVE_COLUMNS = ['time', 'module', 'msg'] as const;
+// Sólo estas cuatro tienen soporte de sort en el server (ServerLogSortBy) —
+// una columna de extras no es sorteable, no hay ORDER BY posible sobre un
+// campo que puede ni existir en la línea.
+function isSortableColumn(key: string): key is ServerLogSortBy {
+  return key === 'time' || key === 'level' || key === 'module' || key === 'msg'
+}
+const BASE_COLUMN_LABELS: Record<string, string> = {
+  time: 'Fecha',
+  level: 'Nivel',
+  module: 'Módulo',
+  msg: 'Mensaje',
+}
+const EXTRA_COLUMN_LABELS: Record<string, string> = {
   agentId: 'Agente',
   taskId: 'Tarea',
   task: 'Título',
@@ -148,18 +173,46 @@ const COLUMN_LABELS: Record<string, string> = {
   source: 'Contenedor',
 };
 function columnLabel(key: string): string {
-  return COLUMN_LABELS[key] ?? key;
+  return BASE_COLUMN_LABELS[key] ?? EXTRA_COLUMN_LABELS[key] ?? key;
+}
+// Ancho de cada columna en el grid — Mensaje es la única elástica (`1fr`);
+// el resto tiene un ancho fijo para que header y filas queden SIEMPRE
+// alineados columna por columna, sea cual sea el contenido de cada fila
+// (con flexbox + `width:max-content` esto no se puede garantizar: cada fila
+// es su propio contexto de layout, así que dos filas con un módulo de largo
+// distinto terminaban con el mensaje arrancando en una posición distinta —
+// el bug que motivó este cambio a grid).
+const BASE_COLUMN_WIDTHS: Record<string, string> = {
+  time: '118px',
+  level: '70px',
+  module: '160px',
+  msg: 'minmax(240px, 1fr)',
+};
+const EXTRA_COLUMN_WIDTH = '140px';
+function columnWidth(key: string): string {
+  return BASE_COLUMN_WIDTHS[key] ?? EXTRA_COLUMN_WIDTH;
 }
 function loadStoredColumns(): string[] {
   try {
     const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return [...DEFAULT_ACTIVE_COLUMNS];
+    const valid = parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
+    return valid.length > 0 ? valid : [...DEFAULT_ACTIVE_COLUMNS];
   } catch {
-    return [];
+    return [...DEFAULT_ACTIVE_COLUMNS];
   }
 }
 const activeColumns = ref<string[]>(loadStoredColumns());
+// El template de grid, compartido por el header y CADA fila — es lo que
+// garantiza que las columnas se alineen: todos miran el mismo string. Dos
+// pistas fijas al final —"+ columna" y el chevron— además de las N de
+// `activeColumns`; la fila no tiene un "+", pero deja un placeholder vacío
+// en esa pista (ver template) para que el chevron caiga en la MISMA
+// posición que en el header por orden de aparición, no por casualidad.
+const gridTemplateColumns = computed(
+  () => `${activeColumns.value.map(columnWidth).join(' ')} 28px 28px`,
+);
 function persistColumns(): void {
   try {
     localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(activeColumns.value));
@@ -177,18 +230,25 @@ function toggleColumn(key: string): void {
     : [...activeColumns.value, key];
   persistColumns();
 }
+/** Nunca deja la tabla sin ninguna columna — sacar la última no tiene forma
+ *  de deshacerse salvo borrando el localStorage a mano. */
 function removeColumn(key: string): void {
-  if (!isColumnActive(key)) return;
+  if (!isColumnActive(key) || activeColumns.value.length <= 1) return;
   activeColumns.value = activeColumns.value.filter((k) => k !== key);
   persistColumns();
 }
 // Todas las claves de `extras` vistas en CUALQUIER línea desde que se montó
 // el panel — alimenta el picker de "+ columna" del header. Acumulador, igual
 // que discoveredModules: nunca encoge, así que sacar un filtro no vacía las
-// opciones.
+// opciones. Sólo el nivel superior — para anidados (`err.message`) el picker
+// ofrece el input de texto libre de abajo, enumerar todas las combinaciones
+// posibles no escala.
 const discoveredExtraKeys = ref<Set<string>>(new Set());
 const addColumnMenuOpen = ref(false);
-function addableColumns(): string[] {
+function addableBaseColumns(): string[] {
+  return BASE_COLUMNS.filter((k) => !isColumnActive(k));
+}
+function addableExtraColumns(): string[] {
   return Array.from(discoveredExtraKeys.value)
     .filter((k) => !isColumnActive(k))
     .sort((a, b) => columnLabel(a).localeCompare(columnLabel(b)));
@@ -198,6 +258,53 @@ function addColumn(key: string): void {
   activeColumns.value = [...activeColumns.value, key];
   persistColumns();
   addColumnMenuOpen.value = false;
+}
+// Camino anidado (`err.message`) para el campo que no está en el picker —
+// "extras.X.Y" o "X.Y" entran igual, el prefijo `extras.` es opcional
+// porque es implícito (toda columna no-base ES un camino dentro de extras).
+const customColumnInput = ref('');
+function addCustomColumn(): void {
+  const raw = customColumnInput.value.trim();
+  if (!raw) return;
+  const key = raw.startsWith('extras.') ? raw.slice('extras.'.length) : raw;
+  customColumnInput.value = '';
+  if (!key || isBaseColumn(key) || isColumnActive(key)) return;
+  activeColumns.value = [...activeColumns.value, key];
+  persistColumns();
+  addColumnMenuOpen.value = false;
+}
+
+// ─── Reordenar columnas por drag & drop — HTML5 drag nativo, sin librería.
+// Un solo ref global (a lo sumo un drag en curso a la vez).
+const draggedColumn = ref<string | null>(null);
+function onColumnDragStart(key: string): void {
+  draggedColumn.value = key;
+}
+function onColumnDrop(targetKey: string): void {
+  const from = draggedColumn.value;
+  draggedColumn.value = null;
+  if (!from || from === targetKey) return;
+  const cols = [...activeColumns.value];
+  const fromIdx = cols.indexOf(from);
+  const toIdx = cols.indexOf(targetKey);
+  if (fromIdx === -1 || toIdx === -1) return;
+  cols.splice(fromIdx, 1);
+  cols.splice(toIdx, 0, from);
+  activeColumns.value = cols;
+  persistColumns();
+}
+
+// ─── Valor de una columna de extras, con soporte de camino anidado ─────────
+function getNestedValue(obj: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, segment) => {
+    if (acc !== null && typeof acc === 'object' && segment in (acc as Record<string, unknown>)) {
+      return (acc as Record<string, unknown>)[segment];
+    }
+    return undefined;
+  }, obj);
+}
+function extraColumnValue(entry: ServerLogEntry, key: string): unknown {
+  return getNestedValue(entry.extras, key);
 }
 
 // ─── El menú "..." de un campo, dentro del detalle expandido de una línea ──
@@ -219,6 +326,33 @@ function closeMenus(): void {
 // llega hasta acá.
 onMounted(() => window.addEventListener('click', closeMenus));
 onUnmounted(() => window.removeEventListener('click', closeMenus));
+
+/** Aplana `extras` en filas `{path, value}` — recursa objetos planos (no
+ *  arrays) hasta profundidad 2, así `err: {message: '...'}` aparece como
+ *  `err.message` en vez de un blob JSON sin poder agregarlo como columna
+ *  por separado. Tope de profundidad: un objeto MUY anidado se corta y
+ *  queda como blob (formatExtraValue lo serializa igual). */
+interface FlatExtraField {
+  path: string
+  value: unknown
+}
+function flattenExtras(
+  extras: Record<string, unknown> | undefined,
+  prefix = '',
+  depth = 0,
+): FlatExtraField[] {
+  if (!extras) return [];
+  const out: FlatExtraField[] = [];
+  for (const [k, v] of Object.entries(extras)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v) && depth < 2) {
+      out.push(...flattenExtras(v as Record<string, unknown>, path, depth + 1));
+    } else {
+      out.push({ path, value: v });
+    }
+  }
+  return out;
+}
 
 
 // `searchApplied` es lo que se manda al servidor. Ya no hay debounce: el texto
@@ -707,49 +841,34 @@ onMounted(() => {
     </div>
 
     <div class="log-list-wrapper">
-      <div class="log-list-header" role="row">
-        <button
-          type="button"
-          class="log-time log-header-btn"
-          :class="{ 'log-header-btn--active': columnSort.column === 'time' }"
-          data-testid="server-logs-sort-time"
-          @click="selectColumn('time')"
-        >Fecha{{ sortArrow('time') }}</button>
-        <button
-          type="button"
-          class="log-level-col log-header-btn"
-          :class="{ 'log-header-btn--active': columnSort.column === 'level' }"
-          data-testid="server-logs-sort-level"
-          @click="selectColumn('level')"
-        >Nivel{{ sortArrow('level') }}</button>
-        <button
-          type="button"
-          class="log-module log-header-btn"
-          :class="{ 'log-header-btn--active': columnSort.column === 'module' }"
-          data-testid="server-logs-sort-module"
-          @click="selectColumn('module')"
-        >Módulo{{ sortArrow('module') }}</button>
-        <button
-          type="button"
-          class="log-msg log-header-btn"
-          :class="{ 'log-header-btn--active': columnSort.column === 'msg' }"
-          data-testid="server-logs-sort-msg"
-          @click="selectColumn('msg')"
-        >Mensaje{{ sortArrow('msg') }}</button>
-        <span
+      <div class="log-list-header" role="row" :style="{ gridTemplateColumns }">
+        <div
           v-for="col in activeColumns"
           :key="col"
-          class="log-extra-col-header"
-          :title="col"
+          class="log-col-header"
+          :class="{ 'log-col-header--base': isBaseColumn(col) }"
+          draggable="true"
+          :data-testid="`server-logs-col-header-${col}`"
+          @dragstart="onColumnDragStart(col)"
+          @dragover.prevent
+          @drop="onColumnDrop(col)"
         >
-          {{ columnLabel(col) }}
+          <button
+            v-if="isSortableColumn(col)"
+            type="button"
+            class="log-header-btn"
+            :class="{ 'log-header-btn--active': columnSort.column === col }"
+            :data-testid="`server-logs-sort-${col}`"
+            @click="selectColumn(col)"
+          >{{ columnLabel(col) }}{{ sortArrow(col) }}</button>
+          <span v-else class="log-header-label" :title="col">{{ columnLabel(col) }}</span>
           <button
             type="button"
             class="log-col-remove"
             title="Quitar columna"
             @click.stop="removeColumn(col)"
           >×</button>
-        </span>
+        </div>
         <div class="log-add-column">
           <button
             type="button"
@@ -759,16 +878,34 @@ onMounted(() => {
             @click.stop="addColumnMenuOpen = !addColumnMenuOpen"
           >+</button>
           <div v-if="addColumnMenuOpen" class="log-add-column-menu" @click.stop>
-            <p v-if="addableColumns().length === 0" class="log-add-column-empty">
+            <p v-if="addableBaseColumns().length === 0 && addableExtraColumns().length === 0" class="log-add-column-empty">
               Sin campos nuevos para agregar todavía
             </p>
             <button
-              v-for="key in addableColumns()"
+              v-for="key in addableBaseColumns()"
               :key="key"
               type="button"
               class="log-add-column-item"
               @click="addColumn(key)"
             >{{ columnLabel(key) }}</button>
+            <hr v-if="addableBaseColumns().length > 0 && addableExtraColumns().length > 0" class="log-add-column-sep" />
+            <button
+              v-for="key in addableExtraColumns()"
+              :key="key"
+              type="button"
+              class="log-add-column-item"
+              @click="addColumn(key)"
+            >{{ columnLabel(key) }}</button>
+            <hr class="log-add-column-sep" />
+            <form class="log-add-column-custom" @submit.prevent="addCustomColumn">
+              <input
+                v-model="customColumnInput"
+                type="text"
+                placeholder="extras.err.message"
+                data-testid="server-logs-add-column-custom"
+              />
+              <button type="submit" class="log-add-column-custom-btn">Agregar</button>
+            </form>
           </div>
         </div>
         <span class="log-chevron"></span>
@@ -793,28 +930,30 @@ onMounted(() => {
           <button
             type="button"
             class="log-row"
+            :style="{ gridTemplateColumns }"
             data-kbd-item
             :aria-expanded="expandedId === entryKey(entry, index)"
             @click="toggleRow(entryKey(entry, index))"
           >
-            <span class="log-time" :title="formatDate(entry.time)">{{ formatTimeCompact(entry.time) }}</span>
-            <span
-              class="log-level"
-              :style="{
-                background: levelColor(entry.level).bg,
-                color: levelColor(entry.level).fg,
-              }"
-            >{{ entry.level }}</span>
-            <span class="log-module">{{ entry.module ?? '—' }}</span>
-            <span class="log-msg">
-              <span class="log-msg__text">{{ truncateMsg(entry.msg) }}</span>
+            <span v-for="col in activeColumns" :key="col" class="log-cell">
+              <span v-if="col === 'time'" class="log-cell--time" :title="formatDate(entry.time)">{{ formatTimeCompact(entry.time) }}</span>
+              <span
+                v-else-if="col === 'level'"
+                class="log-level"
+                :style="{
+                  background: levelColor(entry.level).bg,
+                  color: levelColor(entry.level).fg,
+                }"
+              >{{ entry.level }}</span>
+              <span v-else-if="col === 'module'" class="log-cell--module">{{ entry.module ?? '—' }}</span>
+              <span v-else-if="col === 'msg'" class="log-cell--msg">{{ truncateMsg(entry.msg) }}</span>
+              <span v-else class="log-cell--extra" :title="formatExtraValue(extraColumnValue(entry, col))">{{ formatExtraValue(extraColumnValue(entry, col)) }}</span>
             </span>
-            <span
-              v-for="col in activeColumns"
-              :key="col"
-              class="log-extra-col"
-              :title="formatExtraValue(entry.extras?.[col])"
-            >{{ formatExtraValue(entry.extras?.[col]) }}</span>
+            <!-- Pista vacía: en el header acá va el botón "+ columna". Sin
+                 esto, el chevron de abajo caería una pista antes que el del
+                 header (el grid coloca por orden de aparición, no por
+                 nombre de pista). -->
+            <span class="log-row-spacer" aria-hidden="true"></span>
             <span class="log-chevron" aria-hidden="true">
               {{ expandedId === entryKey(entry, index) ? '▾' : '▸' }}
             </span>
@@ -822,24 +961,24 @@ onMounted(() => {
 
         <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
           <div v-if="entry.extras" class="detail-fields">
-            <div v-for="[key, value] in Object.entries(entry.extras ?? {})" :key="key" class="detail-field-row">
-              <span class="detail-field-key">{{ key }}</span>
-              <span class="detail-field-value">{{ formatExtraValue(value) }}</span>
+            <div v-for="field in flattenExtras(entry.extras)" :key="field.path" class="detail-field-row">
+              <span class="detail-field-key">{{ field.path }}</span>
+              <span class="detail-field-value">{{ formatExtraValue(field.value) }}</span>
               <div class="detail-field-menu">
                 <button
                   type="button"
                   class="detail-field-dots"
                   title="Opciones del campo"
-                  :data-testid="`server-logs-field-menu-${key}`"
-                  @click.stop="toggleFieldMenu(fieldMenuId(entryKey(entry, index), key))"
+                  :data-testid="`server-logs-field-menu-${field.path}`"
+                  @click.stop="toggleFieldMenu(fieldMenuId(entryKey(entry, index), field.path))"
                 >⋮</button>
                 <div
-                  v-if="openFieldMenu === fieldMenuId(entryKey(entry, index), key)"
+                  v-if="openFieldMenu === fieldMenuId(entryKey(entry, index), field.path)"
                   class="detail-field-menu-popover"
                   @click.stop
                 >
-                  <button type="button" class="detail-field-menu-item" @click="toggleColumn(key); closeMenus()">
-                    {{ isColumnActive(key) ? 'Quitar columna' : 'Agregar columna' }}
+                  <button type="button" class="detail-field-menu-item" @click="toggleColumn(field.path); closeMenus()">
+                    {{ isColumnActive(field.path) ? 'Quitar columna' : 'Agregar columna' }}
                   </button>
                 </div>
               </div>
@@ -962,13 +1101,20 @@ onMounted(() => {
 .log-summary__count--zero { opacity: 0.4; }
 
 /* El wrapper es el contenedor con scroll: header y filas pueden ser más
-   anchos que la pantalla (mensaje + columnas de extras agregadas) y en vez
-   de recortarse en silencio contra el borde, aparece un scrollbar
-   horizontal. `min-width: 100%` en header/fila es lo que hace que, sin
-   columnas extra, sigan ocupando el ancho completo como antes. */
+   anchos que la pantalla (mensaje + columnas agregadas) y en vez de
+   recortarse en silencio contra el borde, aparece un scrollbar horizontal.
+   `min-width: 100%` en header/fila es lo que hace que, con las columnas por
+   default, sigan ocupando el ancho completo como antes.
+   Header y fila son CSS GRID, no flexbox — con `gridTemplateColumns`
+   compartido (mismo string, ver el computed en el script) es la única forma
+   de garantizar que la columna N del header caiga exactamente sobre la
+   columna N de CADA fila sin importar el largo del contenido de esa fila.
+   Con flexbox, cada fila es su propio contexto de layout: dos filas con un
+   módulo de largo distinto terminaban con el mensaje arrancando en una
+   posición distinta — el bug real que motivó este cambio. */
 .log-list-wrapper { position: relative; overflow-x: auto; }
 .log-list-header {
-  display: flex;
+  display: grid;
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
@@ -986,11 +1132,15 @@ onMounted(() => {
   width: max-content;
   min-width: 100%;
 }
-.log-list-header .log-level-col {
-  flex-shrink: 0;
-  min-width: 56px;
-  text-align: center;
+.log-col-header {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  overflow: hidden;
+  cursor: grab;
 }
+.log-col-header:active { cursor: grabbing; }
 .log-header-btn {
   background: none;
   border: none;
@@ -1001,9 +1151,19 @@ onMounted(() => {
   text-align: left;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .log-header-btn:hover { color: var(--fg); }
 .log-header-btn--active { color: var(--fg); }
+.log-header-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .log-empty {
   padding: 1.5rem 0.75rem;
   text-align: center;
@@ -1037,7 +1197,7 @@ onMounted(() => {
 .log-card--fatal { box-shadow: inset 3px 0 0 0 var(--danger); }
 
 .log-row {
-  display: flex;
+  display: grid;
   align-items: center;
   gap: 0.75rem;
   width: max-content;
@@ -1053,27 +1213,25 @@ onMounted(() => {
 }
 .log-row:hover { background: var(--panel-hi); }
 
-.log-time {
-  flex-shrink: 0;
-  min-width: 118px;
+.log-cell { min-width: 0; overflow: hidden; display: flex; align-items: center; }
+/* El badge de nivel es el único centrado — todo lo demás arranca a la
+   izquierda de su celda. */
+.log-cell:has(.log-level) { justify-content: center; }
+.log-cell--time {
   font-variant-numeric: tabular-nums;
   color: var(--fg-dim);
   font-size: var(--fs-chrome);
   font-family: var(--font-mono);
 }
 .log-level {
-  flex-shrink: 0;
   font-size: var(--fs-chrome);
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
   font-weight: 600;
   text-transform: lowercase;
-  min-width: 56px;
   text-align: center;
 }
-.log-module {
-  flex-shrink: 0;
-  min-width: 140px;
+.log-cell--module {
   font-family: var(--font-mono);
   font-size: var(--fs-body-sm);
   color: var(--info);
@@ -1081,22 +1239,19 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.log-msg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem; overflow: hidden; }
-.log-msg__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-chevron { color: var(--fg-dim); font-size: 0.85rem; }
-
-/* ─── Columnas de extras (header + celda) ────────────────────────────── */
-.log-extra-col-header {
-  flex-shrink: 0;
-  min-width: 100px;
-  max-width: 160px;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
+.log-cell--msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-cell--extra {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  color: var(--fg-mute);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.log-row-spacer { min-width: 0; }
+.log-chevron { color: var(--fg-dim); font-size: 0.85rem; }
+
+/* ─── Header de columna: quitar + agregar (+) ────────────────────────── */
 .log-col-remove {
   background: none;
   border: none;
@@ -1105,20 +1260,10 @@ onMounted(() => {
   cursor: pointer;
   font-size: 0.9rem;
   line-height: 1;
+  flex-shrink: 0;
 }
 .log-col-remove:hover { color: var(--danger); }
-.log-extra-col {
-  flex-shrink: 0;
-  min-width: 100px;
-  max-width: 160px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  color: var(--fg-mute);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.log-add-column { position: relative; flex-shrink: 0; }
+.log-add-column { position: relative; }
 .log-add-column-btn {
   width: 20px;
   height: 20px;
@@ -1140,8 +1285,8 @@ onMounted(() => {
   top: calc(100% + 4px);
   right: 0;
   z-index: 5;
-  min-width: 160px;
-  max-height: 260px;
+  min-width: 200px;
+  max-height: 320px;
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--border-hi);
@@ -1171,6 +1316,30 @@ onMounted(() => {
   cursor: pointer;
 }
 .log-add-column-item:hover { background: var(--panel-hi); }
+.log-add-column-sep { border: none; border-top: 1px solid var(--border); margin: 0.25rem 0; }
+.log-add-column-custom { display: flex; gap: 0.3rem; padding: 0.25rem; }
+.log-add-column-custom input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.4rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: var(--fs-body-sm);
+  font-family: var(--font-mono);
+}
+.log-add-column-custom-btn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border-hi);
+  border-radius: 4px;
+  color: var(--fg-mute);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.log-add-column-custom-btn:hover { color: var(--fg); background: var(--panel-hi); }
 
 .log-detail {
   padding: 0.6rem 0.75rem 0.75rem;
