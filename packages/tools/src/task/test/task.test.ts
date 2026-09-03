@@ -118,6 +118,25 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(broadcasts).toHaveLength(1)
   })
 
+  // Regresión: el modelo no tiene por qué transcribir el id de la tarea — el
+  // engine ya lo conoce por `ctx.taskId` (sync) o por el `?task=` de la URL
+  // MCP (async). Antes `task_id` era obligatorio y su descripción le pedía al
+  // modelo copiar `{{task.id}}` a mano, lo que en algún run terminó llegando
+  // literal (sin interpolar) y rompiendo la tool.
+  it('update_issue_body cae a ctx.taskId cuando el input no trae task_id', async () => {
+    const tool = getTool('update_issue_body')!
+    await tool.execute({ body: 'via ctx' }, { repoPaths: {}, taskId: TASK_ID })
+    expect(calls.saveOutput).toHaveLength(1)
+    expect(calls.saveOutput[0].content).toBe('via ctx')
+  })
+
+  it('sin task_id en el input NI en ctx, las tools de cierre no adivinan una tarea', async () => {
+    const tool = getTool('update_issue_body')!
+    await expect(tool.execute({ body: 'x' }, { repoPaths: {} })).rejects.toThrow(
+      "No hay tarea activa con id ''",
+    )
+  })
+
   it('add_task_comment renders structured markdown via manager.postComment', async () => {
     const tool = getTool('add_task_comment')!
     await tool.execute(
