@@ -869,6 +869,16 @@ function formatExtraValue(value: unknown): string {
   return text.length > COLUMN_VALUE_TRUNCATE ? `${text.slice(0, COLUMN_VALUE_TRUNCATE)}…` : text;
 }
 
+const JSON_VALUE_TRUNCATE = 200;
+/** Igual que `formatExtraValue`, pero con sintaxis JSON de verdad (strings
+ *  entre comillas) — es lo que reemplaza al `<pre>{{ JSON.stringify(...) }}`
+ *  de antes: una sola vista, no dos que dicen lo mismo distinto. */
+function formatJsonLeaf(value: unknown): string {
+  if (value === undefined) return '—';
+  const text = JSON.stringify(value) ?? String(value);
+  return text.length > JSON_VALUE_TRUNCATE ? `${text.slice(0, JSON_VALUE_TRUNCATE)}…` : text;
+}
+
 // Level counts served by /api/server-logs — computed over the full filtered
 // set (ignoring the `level` filter) so summary chips are stable across
 // pagination and reflect the true universe under the current filters.
@@ -1104,32 +1114,8 @@ onMounted(() => {
           </button>
 
         <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
-          <div class="detail-fields">
-            <div v-for="field in flattenEntry(entry)" :key="field.path" class="detail-field-row">
-              <span class="detail-field-key">{{ field.path }}</span>
-              <span class="detail-field-value">{{ formatExtraValue(field.value) }}</span>
-              <div class="detail-field-menu">
-                <button
-                  type="button"
-                  class="detail-field-dots"
-                  title="Opciones del campo"
-                  :data-testid="`server-logs-field-menu-${field.path}`"
-                  @click.stop="toggleFieldMenu(fieldMenuId(entryKey(entry, index), field.path))"
-                >⋮</button>
-                <div
-                  v-if="openFieldMenu === fieldMenuId(entryKey(entry, index), field.path)"
-                  class="detail-field-menu-popover"
-                  @click.stop
-                >
-                  <button type="button" class="detail-field-menu-item" @click="toggleField(field); closeMenus()">
-                    {{ isColumnActive(field.path) ? 'Quitar columna' : 'Agregar columna' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
           <div class="detail-header">
-            <span class="detail-title">JSON completo</span>
+            <span class="detail-title">JSON</span>
             <div class="detail-actions">
               <button
                 v-if="clearDedupeCurl(entry)"
@@ -1151,7 +1137,42 @@ onMounted(() => {
               </button>
             </div>
           </div>
-          <pre class="detail-json">{{ JSON.stringify(entry, null, 2) }}</pre>
+          <!-- Una sola vista: el JSON en sí, con el "…" de agregar/quitar
+               columna en cada campo hoja. Antes había DOS bloques que decían
+               lo mismo con distinta letra (esta lista + un <pre> crudo
+               debajo) — "Copiar JSON" sigue copiando el JSON.stringify real
+               aunque ya no se muestre en crudo. -->
+          <div class="detail-json">
+            <span class="detail-json__brace">{</span>
+            <div
+              v-for="field in flattenEntry(entry)"
+              :key="field.path"
+              class="detail-field-row"
+              :style="{ paddingLeft: `${field.path.split('.').length * 0.9}rem` }"
+            >
+              <div class="detail-field-menu">
+                <button
+                  type="button"
+                  class="detail-field-dots"
+                  title="Opciones del campo"
+                  :data-testid="`server-logs-field-menu-${field.path}`"
+                  @click.stop="toggleFieldMenu(fieldMenuId(entryKey(entry, index), field.path))"
+                >⋮</button>
+                <div
+                  v-if="openFieldMenu === fieldMenuId(entryKey(entry, index), field.path)"
+                  class="detail-field-menu-popover"
+                  @click.stop
+                >
+                  <button type="button" class="detail-field-menu-item" @click="toggleField(field); closeMenus()">
+                    {{ isColumnActive(field.path) ? 'Quitar columna' : 'Agregar columna' }}
+                  </button>
+                </div>
+              </div>
+              <span class="detail-field-key">"{{ field.path.split('.').at(-1) }}"</span><span class="detail-json__colon">:</span>
+              <span class="detail-field-value">{{ formatJsonLeaf(field.value) }}</span>
+            </div>
+            <span class="detail-json__brace">}</span>
+          </div>
         </div>
         </li>
       </ul>
@@ -1540,37 +1561,40 @@ onMounted(() => {
 .detail-title { font-size: 0.78rem; color: var(--fg-dim); font-weight: 500; }
 .detail-actions { display: flex; gap: 0.5rem; }
 
-/* ─── "Campos" — lista de extras con el "…" (agregar/quitar columna) ───── */
-.detail-fields {
-  display: flex;
-  flex-direction: column;
+/* ─── El JSON, con el "…" (agregar/quitar columna) en cada campo hoja ────
+   Una sola vista — antes había dos (esta lista + un <pre> del JSON crudo
+   debajo, diciendo lo mismo con letra distinta). La indentación por campo
+   sale de `field.path.split('.').length` (ver :style inline en el
+   template); las llaves de apertura/cierre son las únicas líneas que no
+   vienen de flattenEntry. */
+.detail-json {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg);
+  max-height: 480px;
+  overflow: auto;
 }
+.detail-json__brace { color: var(--fg-dim); }
+.detail-json__colon { color: var(--fg-dim); margin-right: 0.4rem; }
 .detail-field-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.3rem 0.6rem;
-  font-size: var(--fs-body-sm);
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  gap: 0.3rem;
+  padding: 0.1rem 0;
+  white-space: nowrap;
 }
-.detail-field-row:last-child { border-bottom: none; }
 .detail-field-key {
   flex-shrink: 0;
-  min-width: 110px;
-  font-family: var(--font-mono);
   color: var(--info);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .detail-field-value {
   flex: 1;
   min-width: 0;
-  font-family: var(--font-mono);
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1585,12 +1609,16 @@ onMounted(() => {
   padding: 0.1rem 0.35rem;
   font-size: 0.9rem;
   line-height: 1;
+  font-family: inherit;
 }
 .detail-field-dots:hover { color: var(--fg); }
 .detail-field-menu-popover {
   position: absolute;
   top: calc(100% + 2px);
-  right: 0;
+  /* `left`, no `right`: el botón ahora está al principio de la línea (a la
+     izquierda de la clave) — anclado a `right` el popover se abría hacia
+     la indentación de la línea de ARRIBA en vez de hacia el contenido. */
+  left: 0;
   z-index: 5;
   background: var(--panel);
   border: 1px solid var(--border-hi);
@@ -1607,24 +1635,11 @@ onMounted(() => {
   border-radius: 4px;
   color: var(--fg);
   font-size: var(--fs-body-sm);
+  font-family: var(--font-body);
   cursor: pointer;
   width: 100%;
 }
 .detail-field-menu-item:hover { background: var(--panel-hi); }
-.detail-json {
-  margin: 0;
-  padding: 0.6rem 0.75rem;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.75rem;
-  color: var(--fg);
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 480px;
-  overflow: auto;
-}
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
 </style>
