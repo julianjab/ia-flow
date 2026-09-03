@@ -365,13 +365,27 @@ function addCustomColumn(): void {
 // de la secuencia — dragover/drop — nunca dispara), así que el ref solo no
 // alcanza.
 const draggedColumn = ref<string | null>(null);
+// Qué columna está DEBAJO del cursor mientras se arrastra — sin esto no hay
+// forma de ver dónde va a quedar hasta soltar. `dragover` dispara a
+// repetición sobre el mismo elemento (no una vez); escribir el ref en cada
+// tick es barato así que no hace falta debounce.
+const dragOverColumn = ref<string | null>(null);
 function onColumnDragStart(key: string, event: DragEvent): void {
   draggedColumn.value = key;
   event.dataTransfer?.setData('text/plain', key);
 }
+function onColumnDragEnd(): void {
+  // Contracara de dragstart — corre SIEMPRE (drop exitoso, Esc, soltar fuera
+  // de cualquier columna), así que es el único lugar confiable para apagar
+  // el estado "atenuado" del origen. `onColumnDrop` limpia lo suyo aparte
+  // porque a veces corre antes que este handler y a veces después, según el
+  // navegador.
+  draggedColumn.value = null;
+  dragOverColumn.value = null;
+}
 function onColumnDrop(targetKey: string): void {
   const from = draggedColumn.value;
-  draggedColumn.value = null;
+  dragOverColumn.value = null;
   if (!from || from === targetKey) return;
   const cols = [...activeColumns.value];
   const fromIdx = cols.indexOf(from);
@@ -957,11 +971,17 @@ onMounted(() => {
           v-for="col in activeColumns"
           :key="col"
           class="log-col-header"
-          :class="{ 'log-col-header--base': isBaseColumn(col) }"
+          :class="{
+            'log-col-header--base': isBaseColumn(col),
+            'log-col-header--dragging': draggedColumn === col,
+            'log-col-header--drag-over': dragOverColumn === col && draggedColumn !== col,
+          }"
           draggable="true"
           :data-testid="`server-logs-col-header-${col}`"
           @dragstart="onColumnDragStart(col, $event)"
-          @dragover.prevent
+          @dragend="onColumnDragEnd"
+          @dragover.prevent="dragOverColumn = col"
+          @dragleave="dragOverColumn === col && (dragOverColumn = null)"
           @drop.prevent="onColumnDrop(col)"
         >
           <button
@@ -1054,7 +1074,12 @@ onMounted(() => {
             :aria-expanded="expandedId === entryKey(entry, index)"
             @click="toggleRow(entryKey(entry, index))"
           >
-            <span v-for="col in activeColumns" :key="col" class="log-cell">
+            <span
+              v-for="col in activeColumns"
+              :key="col"
+              class="log-cell"
+              :class="{ 'log-cell--drag-over': dragOverColumn === col }"
+            >
               <span v-if="col === 'time'" class="log-cell--time" :title="formatDate(entry.time)">{{ formatTimeCompact(entry.time) }}</span>
               <span
                 v-else-if="col === 'level'"
@@ -1266,8 +1291,23 @@ onMounted(() => {
   min-width: 0;
   overflow: hidden;
   cursor: grab;
+  /* El borde transparente reserva el espacio del indicador de drop — sin
+     esto, el borde de --drag-over corriera el contenido 2px al aparecer. */
+  border-left: 2px solid transparent;
+  border-right: 2px solid transparent;
 }
 .log-col-header:active { cursor: grabbing; }
+/* La columna que se está arrastrando — atenuada, para que quede claro CUÁL
+   se está moviendo mientras el cursor está sobre otra. */
+.log-col-header--dragging { opacity: 0.35; }
+/* Dónde va a quedar si soltás ahora — toda la columna (header Y cada celda
+   de la fila, ver .log-cell--drag-over) se pinta con un verde claro, tono
+   del mismo --accent que ya usa el resto del sistema. */
+.log-col-header--drag-over {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-left-color: var(--accent);
+  border-right-color: var(--accent);
+}
 .log-header-btn {
   background: none;
   border: none;
@@ -1340,6 +1380,9 @@ onMounted(() => {
 .log-row:hover { background: var(--panel-hi); }
 
 .log-cell { min-width: 0; overflow: hidden; display: flex; align-items: center; }
+/* Continúa el resaltado de .log-col-header--drag-over hacia abajo, por
+   fila — así se ve la columna ENTERA, no sólo su header. */
+.log-cell--drag-over { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 /* El badge de nivel es el único centrado — todo lo demás arranca a la
    izquierda de su celda. */
 .log-cell:has(.log-level) { justify-content: center; }
