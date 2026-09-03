@@ -248,7 +248,11 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
     } as unknown as IExecutionLogRepository
   }
 
-  function cancelledRun(finishedAt: string): ExecutionLog {
+  // `sessionKind: 'iterm'` es lo que hace que este fixture represente el
+  // caso real que el cooldown protege: un SessionHandle terminal de verdad
+  // (Agent.ts sólo lo escribe cuando `output.mode === 'tmux'`). Los tests de
+  // un run sync cancelado (más abajo) lo omiten a propósito.
+  function cancelledRun(finishedAt: string, sessionKind: 'tmux' | 'iterm' | null = 'iterm'): ExecutionLog {
     return {
       id: 'exec-1',
       projectId: 'p1',
@@ -261,6 +265,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       outcome: 'cancelled',
       errorMsg: null,
       stopReason: null,
+      sessionKind,
     } as ExecutionLog
   }
 
@@ -280,6 +285,26 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
 
     expect(outcome).toBe('deferred')
     expect(runAgent).not.toHaveBeenCalled()
+  })
+
+  it('no difiere un run sync (anthropic-api) cancelado hace poco — sin sessionKind no hay sesión zombie posible', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentlyCancelledSync = {
+      ...cancelledRun(new Date(Date.now() - 5_000).toISOString(), null),
+      providerId: 'anthropic-api',
+    } as ExecutionLog
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentlyCancelledSync),
+      60_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
   })
 
   it('deja pasar una vez que el cooldown expiró', async () => {
