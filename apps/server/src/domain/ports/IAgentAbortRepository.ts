@@ -30,11 +30,21 @@ export interface IAgentAbortRepository {
    *  levantar la misma fila mientras un dispatch anterior sigue en vuelo
    *  (un retry puede tardar más que el intervalo del barrido). */
   markRetrying(id: string): void
+  /** Reprograma un retry corto SIN quemar `attempts` — para cuando el
+   *  dispatch devolvió `deferred` (cap de proyecto/agente/provider, lock de
+   *  la task tomado): no es un fallo del agente, es "todavía no había
+   *  lugar". Acotado por edad (`MAX_DEFER_AGE_MS`): pasado ese punto marca
+   *  `exhausted` en vez de reintentar para siempre. */
+  deferRetry(id: string): void
   /** Filas `pending` con `nextRetryAt` en null (o sea, tomadas por
-   *  `markRetrying`) hace más de `staleBeforeIso` — el dispatch que las tomó
-   *  nunca volvió a tocarlas (cancelado sin pasar por `resolveOpen`/
-   *  `recordAbort`, o el proceso murió a mitad del run). Las trata como un
-   *  intento fallido más, con el mismo backoff acotado — sin esto quedan
-   *  huérfanas para siempre. */
-  reconcileStale(staleBeforeIso: string): void
+   *  `markRetrying`) hace más de `staleBeforeIso` — de sólo lectura porque el
+   *  repo no sabe si el dispatch que las tomó sigue vivo o no: el caller
+   *  (`daemon.ts`) las cruza contra el registro de runs en vuelo antes de
+   *  decidir qué hacer con cada una. */
+  listStaleRetrying(staleBeforeIso: string): AgentAbortRecord[]
+  /** El intento contra una fila ya abierta no llegó a un cierre limpio —
+   *  mismo backoff acotado que un abort real (`recordAbort`), para cuando el
+   *  dispatch ni corrió el agente (`skipped`, fallo de infra al despachar)
+   *  o una fila de `listStaleRetrying` resultó genuinamente huérfana. */
+  recordFailedAttempt(id: string, errorMsg: string): void
 }

@@ -15,6 +15,14 @@ const BACKOFF_CEIL_MS = 10 * 60_000
  *  (ver `recordAbort`: "abierta" incluye `exhausted`). */
 const DEFAULT_MAX_ATTEMPTS = 3
 
+/** Cuánto puede seguir `deferred` (cap de proyecto/agente/provider, lock de
+ *  la task tomado) una fila sin que cuente como intento fallido antes de
+ *  darla por perdida igual. `deferred` no es un fallo del agente —el motivo
+ *  típico es justo el overload que produjo el abort original— así que no
+ *  quema `attempts`, pero sin este techo un proyecto permanentemente al tope
+ *  reintentaría cada `BACKOFF_FLOOR_MS` para siempre. */
+const MAX_DEFER_AGE_MS = 2 * 60 * 60_000
+
 function backoffMs(attempts: number): number {
   return Math.min(BACKOFF_FLOOR_MS * 2 ** (attempts - 1), BACKOFF_CEIL_MS)
 }
@@ -199,24 +207,52 @@ export class SqliteAgentAbortRepository implements IAgentAbortRepository {
     ])
   }
 
-  reconcileStale(staleBeforeIso: string): void {
+  deferRetry(id: string): void {
+    const row = this.db.query('SELECT * FROM agent_aborts WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    if (!row) return
+    const prev = rowToRecord(row)
+    const now = Date.now()
+    const nowIso = new Date(now).toISOString()
+
+    if (now - new Date(prev.createdAt).getTime() > MAX_DEFER_AGE_MS) {
+      // Lleva demasiado esperando capacidad — dejar de insistir solo. El
+      // botón manual sigue disponible (`exhausted` cuenta como "abierta").
+      this.db.run(
+        `UPDATE agent_aborts SET status = 'exhausted', next_retry_at = NULL, updated_at = ? WHERE id = ?`,
+        [nowIso, id],
+      )
+      return
+    }
+    this.db.run(`UPDATE agent_aborts SET next_retry_at = ?, updated_at = ? WHERE id = ?`, [
+      new Date(now + BACKOFF_FLOOR_MS).toISOString(),
+      nowIso,
+      id,
+    ])
+  }
+
+  listStaleRetrying(staleBeforeIso: string): AgentAbortRecord[] {
     // `pending` + `next_retry_at IS NULL` es "un dispatch la tomó" (ver
-    // `markRetrying`). Si sigue así mucho después de que se despachó
-    // (`updated_at` viejo) el dispatch que la tomó nunca volvió a tocarla —
-    // cancelado por el divergence gate/shutdown, o el proceso murió a mitad
-    // del run. Ninguno de los dos le avisa a `agent_aborts`, así que sin
-    // esto la fila queda huérfana para siempre. Se trata como un intento
-    // fallido más, con el mismo backoff acotado.
+    // `markRetrying`). Sólo lectura a propósito: si sigue así mucho después
+    // de que se despachó puede ser un run legítimo todavía corriendo, así
+    // que decidir si está realmente huérfana necesita cruzarla contra los
+    // runs vivos — algo que este repo no tiene cómo saber. Ver
+    // `daemon.ts`'s `startAbortRetrySweep`.
     const rows = this.db
       .query(
         `SELECT * FROM agent_aborts
          WHERE status = 'pending' AND next_retry_at IS NULL AND updated_at <= ?`,
       )
       .all(staleBeforeIso) as Record<string, unknown>[]
-    for (const row of rows) {
-      this.bumpAttempt(rowToRecord(row), {
-        errorMsg: 'stale-retry: nunca volvió del dispatch anterior',
-      })
-    }
+    return rows.map(rowToRecord)
+  }
+
+  recordFailedAttempt(id: string, errorMsg: string): void {
+    const row = this.db.query('SELECT * FROM agent_aborts WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    if (!row) return
+    this.bumpAttempt(rowToRecord(row), { errorMsg })
   }
 }

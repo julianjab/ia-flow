@@ -14,7 +14,17 @@ import { createRedispatchAborted } from '../adapters/actions/redispatch-aborted.
 import { createResolveEventItem } from '../adapters/actions/resolve-event-item.js'
 import { createResolveRuleConversation } from '../adapters/actions/resolve-rule-conversation.js'
 import { ScriptAction } from '../adapters/actions/script-action.js'
-import { dispatcher, getSourceForProjectId, interpolateSecrets, repoRepo } from './container.js'
+import type { AgentAbortRecord } from '../domain/ports/IAgentAbortRepository.js'
+import { createLogger } from '../logger.js'
+import {
+  agentAbortRepo,
+  dispatcher,
+  getSourceForProjectId,
+  interpolateSecrets,
+  repoRepo,
+} from './container.js'
+
+const log = createLogger('composition:actions')
 
 /** Los managers vivos, indexados por proyecto. Los publica `daemon.ts` en cada
  *  `startAll`/`reloadManagers`, porque su ciclo de vida es el del daemon y no
@@ -53,6 +63,60 @@ export const redispatchAborted = createRedispatchAborted({
   managerFor,
   dispatch: (item, manager, agentId, opts) => dispatcher.dispatch(item, manager, agentId, opts),
 })
+
+/**
+ * Reintenta el agente de un `AgentAbortRecord` y asienta el resultado en
+ * `agent_aborts` — la pieza que comparten el barrido automático de
+ * `daemon.ts` y el botón manual de `routes/agent-aborts.ts`, para que las
+ * dos vías traten un `deferred`/`skipped`/fallo de la misma forma exacta.
+ *
+ * Deliberadamente NO se espera desde ninguno de los dos callers: un run
+ * puede tardar minutos, y bloquear el barrido (o la respuesta HTTP del botón
+ * manual, que si no el proxy la corta por timeout) hasta que termine
+ * dejaría todo lo demás sin reintentar mientras tanto. Que sea `async` acá
+ * es sólo para que el caller pueda optar por esperarla si quiere (los tests
+ * lo hacen); en producción ninguno lo hace.
+ */
+export async function retryAbortRecord(record: AgentAbortRecord): Promise<void> {
+  agentAbortRepo.markRetrying(record.id)
+  try {
+    const result = await redispatchAborted(record)
+    if (!result.ok) {
+      log.warn(
+        { taskId: record.taskId, agentId: record.agentId, reason: result.reason },
+        'Retry de abort no pudo despachar',
+      )
+      agentAbortRepo.recordFailedAttempt(record.id, `retry-dispatch-failed: ${result.reason}`)
+      return
+    }
+    if (result.outcome === 'deferred') {
+      // Cap de proyecto/agente/provider al tope, o lock de la task tomado —
+      // NO es un fallo del agente, así que no quema `attempts`.
+      log.info(
+        { taskId: record.taskId, agentId: record.agentId },
+        'Retry de abort diferido por capacidad',
+      )
+      agentAbortRepo.deferRetry(record.id)
+      return
+    }
+    if (result.outcome === 'skipped') {
+      // Nada matchea o el issue está bloqueado — reintentar en 30s no
+      // cambia nada, a diferencia de `deferred`. Sí cuenta como intento.
+      log.info({ taskId: record.taskId, agentId: record.agentId }, 'Retry de abort saltado')
+      agentAbortRepo.recordFailedAttempt(record.id, `retry-not-dispatched: ${result.outcome}`)
+    }
+    // outcome === 'dispatched': el run está en curso. Cuando termine,
+    // Agent.ts mismo cierra el ciclo — `resolveOpen` si salió bien o dio un
+    // error real, `recordAbort` (con su propio backoff) si volvió a
+    // abortar. Acá no hay nada más que hacer.
+  } catch (err) {
+    log.error({ err, taskId: record.taskId, agentId: record.agentId }, 'Retry de abort falló')
+    agentAbortRepo.recordFailedAttempt(
+      record.id,
+      `retry-dispatch-failed: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
 
 let registered = false
 

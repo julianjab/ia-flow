@@ -1,3 +1,4 @@
+import { listPendingTasks } from '@ia-flow/agent-engine'
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
 import {
   type EventProducer,
@@ -18,9 +19,9 @@ import {
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
 import {
-  redispatchAborted,
   registerActions,
   resolveRuleConversation,
+  retryAbortRecord,
   setActiveManagers,
 } from './composition/actions.js'
 import {
@@ -349,11 +350,21 @@ function abortRetrySweepIntervalMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 30_000
 }
 
-/** Cuánto puede quedar una fila `retrying` (nextRetryAt NULL) sin que nadie
- *  la toque antes de considerarla huérfana — ver `reconcileStale`. Tiene que
- *  ser generoso: un run legítimo puede tardar minutos largos, y confundirlo
- *  con uno colgado le quemaría un intento a un run que iba bien. */
+/** Cuánto puede quedar una fila tomada por `markRetrying` (next_retry_at en
+ *  null) sin que nadie la toque antes de sospechar que quedó huérfana. Tiene
+ *  que ser generoso: un run legítimo puede tardar minutos largos, y
+ *  confundirlo con uno colgado le quemaría un intento a un run que iba bien
+ *  — por eso además se cruza contra `listPendingTasks()` antes de tocarla:
+ *  vieja pero con un run vivo de verdad no es huérfana, es lenta. */
 const STALE_RETRYING_MS = 60 * 60_000
+
+function reportFailedRetry(id: string, taskId: string, agentId: string, errorMsg: string): void {
+  log.warn(
+    { taskId, agentId, errorMsg },
+    'Retry de abort no corrió el agente — cuenta como intento',
+  )
+  agentAbortRepo.recordFailedAttempt(id, errorMsg)
+}
 
 /**
  * Barrido de retries automáticos de `agent_aborts`.
@@ -366,72 +377,34 @@ const STALE_RETRYING_MS = 60 * 60_000
  * El dispatch NO se espera: un run puede tardar minutos, y frenar el tick
  * (o el siguiente) hasta que termine dejaría al resto de la tanda —y a
  * cualquier abort nuevo— sin reintentar mientras tanto. Si el fire-and-forget
- * de esta vuelta se pierde por completo (el proceso murió, o algo cancela el
- * run sin pasar por `Agent.ts`), `reconcileStale` lo recupera en un tick
- * posterior.
+ * de esta vuelta se pierde del todo (el proceso murió, o algo cancela el run
+ * sin pasar por `Agent.ts`), la reconciliación de filas stale más abajo lo
+ * recupera en un tick posterior.
  */
 function startAbortRetrySweep(): void {
   setInterval(() => {
-    agentAbortRepo.reconcileStale(new Date(Date.now() - STALE_RETRYING_MS).toISOString())
+    // Filas que un dispatch tomó hace más de una hora y nunca volvió a
+    // tocar. Sólo lectura del repo — decidir si están realmente huérfanas
+    // necesita saber qué hay corriendo AHORA, y eso lo tiene el registry de
+    // pending tasks, no la tabla.
+    const liveTaskIds = new Set(listPendingTasks().map(([, pt]) => pt.task.id))
+    const staleBefore = new Date(Date.now() - STALE_RETRYING_MS).toISOString()
+    for (const stale of agentAbortRepo.listStaleRetrying(staleBefore)) {
+      if (liveTaskIds.has(stale.taskId)) continue // run real todavía en vuelo — no tocar
+      reportFailedRetry(
+        stale.id,
+        stale.taskId,
+        stale.agentId,
+        'stale-retry: nunca volvió del dispatch anterior',
+      )
+    }
 
-    const due = agentAbortRepo.listDue(new Date().toISOString())
-    for (const record of due) {
-      // Limpia `nextRetryAt` YA, antes del dispatch: si el dispatch tarda
-      // más que el intervalo, el próximo tick no debe volver a levantar la
-      // misma fila (mismo criterio que el `consume` antes de reanudar una
-      // espera). `reconcileStale` es la red por si esto queda colgado.
-      agentAbortRepo.markRetrying(record.id)
-      redispatchAborted(record)
-        .then((result) => {
-          if (!result.ok) {
-            log.warn(
-              { taskId: record.taskId, agentId: record.agentId, reason: result.reason },
-              'El retry ni pudo arrancar el dispatch — cuenta como intento fallido',
-            )
-            agentAbortRepo.recordAbort({
-              projectId: record.projectId,
-              taskId: record.taskId,
-              agentId: record.agentId,
-              runId: record.runId ?? undefined,
-              reason: record.reason,
-              errorMsg: `retry-dispatch-failed: ${result.reason}`,
-            })
-            return
-          }
-          if (result.outcome !== 'dispatched') {
-            // `skipped` (nada matchea, issue bloqueado) o `deferred` (cap de
-            // proyecto/agente/provider, lock de la task tomado): en los dos
-            // casos NINGÚN run llegó a correr, así que ni `resolveOpen` ni
-            // `recordAbort` de Agent.ts se van a llamar por su cuenta.
-            log.info(
-              { taskId: record.taskId, agentId: record.agentId, outcome: result.outcome },
-              'Retry de abort no corrió ningún agente — cuenta como intento fallido',
-            )
-            agentAbortRepo.recordAbort({
-              projectId: record.projectId,
-              taskId: record.taskId,
-              agentId: record.agentId,
-              runId: record.runId ?? undefined,
-              reason: record.reason,
-              errorMsg: `retry-not-dispatched: ${result.outcome}`,
-            })
-          }
-          // outcome === 'dispatched': el run está en curso. Cuando termine,
-          // Agent.ts mismo cierra el ciclo — `resolveOpen` si salió bien o
-          // dio un error real, `recordAbort` (con su propio backoff) si
-          // volvió a abortar. Acá no hay nada más que hacer.
-        })
-        .catch((err: unknown) => {
-          log.error({ err, taskId: record.taskId, agentId: record.agentId }, 'Retry de abort falló')
-          agentAbortRepo.recordAbort({
-            projectId: record.projectId,
-            taskId: record.taskId,
-            agentId: record.agentId,
-            runId: record.runId ?? undefined,
-            reason: record.reason,
-            errorMsg: `retry-dispatch-failed: ${err instanceof Error ? err.message : String(err)}`,
-          })
-        })
+    // `retryAbortRecord` (composition/actions.ts) marca, despacha y asienta
+    // el resultado — la misma pieza que usa el botón manual, así que las dos
+    // vías tratan `deferred`/`skipped`/fallo exactamente igual. Fire-and-
+    // forget a propósito: ver el comentario de esa función.
+    for (const record of agentAbortRepo.listDue(new Date().toISOString())) {
+      void retryAbortRecord(record)
     }
   }, abortRetrySweepIntervalMs())
 }
