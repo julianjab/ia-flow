@@ -7,6 +7,7 @@ import type { WorkspaceManager } from '@ia-flow/workspace'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type {
+  AgentAbortPort,
   IBroadcast,
   IExecutionLogRepository,
   IMcpCatalogRepository,
@@ -104,6 +105,9 @@ export class AgentOrchestrator {
     // lleve el trabajo. El orquestador además lo BORRA en su `finally`: es el
     // único punto que corre una vez por run pase lo que pase.
     private runCheckpoints?: RunCheckpointPort,
+    // Bookkeeping de upstream-aborts — ver AgentAbortPort. Forwardeado tal
+    // cual a `Agent`, igual que el resto de los ports de esta lista.
+    abortRepo?: AgentAbortPort,
   ) {
     this.agent = new Agent(
       providers,
@@ -116,6 +120,7 @@ export class AgentOrchestrator {
       runMessages,
       pauseCheckpoint,
       runCheckpoints,
+      abortRepo,
     )
   }
 

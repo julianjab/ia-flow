@@ -47,6 +47,31 @@ export interface IExecutionLogRepository {
   flush?(): Promise<void>
 }
 
+/**
+ * Bookkeeping de un `UpstreamAbortError` (stream stall / overload del
+ * provider) — lo mínimo que `Agent.run` necesita para no dejarlo caer en
+ * silencio. La lista, el retry automático y el botón manual son de
+ * apps/server (`IAgentAbortRepository`, superset de este port); acá sólo lo
+ * que el engine escribe.
+ */
+export interface AgentAbortPort {
+  /** Registra el abort — o, si ya hay una fila abierta (`pending`/`exhausted`)
+   *  para esta misma task+agente, la incrementa. Nunca falla el run: es
+   *  best-effort, igual que `executionLogRepo`. */
+  recordAbort(input: {
+    projectId: string
+    taskId: string
+    agentId: string
+    runId?: string
+    reason: string
+    errorMsg?: string
+  }): void
+  /** Cierra cualquier fila abierta para esta task+agente — se llama cuando un
+   *  run posterior YA NO abortó (éxito, o un error real que deja su propio
+   *  rastro vía `postError`). */
+  resolveOpen(taskId: string, agentId: string): void
+}
+
 export interface IMcpCatalogRepository {
   list(): McpCatalogEntry[]
   get(id: string): McpCatalogEntry | null

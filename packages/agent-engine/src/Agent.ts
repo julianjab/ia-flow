@@ -30,6 +30,7 @@ import {
 } from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
 import type {
+  AgentAbortPort,
   IBroadcast,
   IExecutionLogRepository,
   IMcpCatalogRepository,
@@ -258,6 +259,9 @@ export class Agent {
     // Persiste dónde va el run en cada vuelta. Ausente = no se guarda nada y
     // un reinicio se lleva el trabajo, que es el comportamiento previo.
     private runCheckpoints?: RunCheckpointPort,
+    // Bookkeeping de upstream-aborts (stream stall / overload). Ausente = el
+    // comportamiento previo: se loguea y no queda más rastro que el log.
+    private abortRepo?: AgentAbortPort,
   ) {}
 
   async resolveMcpCatalog(agentDef: {
@@ -1022,6 +1026,11 @@ export class Agent {
             stopReason: output.stopReason,
           })
           task = await lifecycle.end(task, { exits, chosenExit })
+          // Un run que termina bien cierra cualquier abort abierto de una
+          // corrida anterior de este mismo agente sobre esta misma task.
+          try {
+            this.abortRepo?.resolveOpen(task.id, agentDef.id)
+          } catch {}
         }
       }
     } catch (err) {
@@ -1138,6 +1147,20 @@ export class Agent {
         try {
           task = await manager.setAgentWorking(task, false)
         } catch {}
+        // Sin esto el abort no dejaba NINGÚN rastro accionable: ni comentario
+        // (a propósito, ver la nota de arriba) ni forma de saber que hubo que
+        // reintentar. `recordAbort` es quien decide si retiene esto para un
+        // retry automático o lo da por agotado — acá sólo se reporta.
+        try {
+          this.abortRepo?.recordAbort({
+            projectId: task.projectId ?? '',
+            taskId: task.id,
+            agentId: agentDef.id,
+            runId,
+            reason: 'upstream-abort',
+            errorMsg: errMsg,
+          })
+        } catch {}
         return task
       }
 
@@ -1175,6 +1198,9 @@ export class Agent {
         try {
           await manager.setAgentWorking(task, false)
         } catch {}
+        try {
+          this.abortRepo?.resolveOpen(task.id, agentDef.id)
+        } catch {}
         throw err
       }
 
@@ -1202,6 +1228,11 @@ export class Agent {
         await manager.postError?.(task, errMsg)
       }
       task = await lifecycle.fail(task, agentDef, errMsg)
+      // Un error real ya deja su propio rastro (postError arriba) — cierra
+      // cualquier abort abierto de una corrida anterior, no acumules ambos.
+      try {
+        this.abortRepo?.resolveOpen(task.id, agentDef.id)
+      } catch {}
       throw err
     }
 
