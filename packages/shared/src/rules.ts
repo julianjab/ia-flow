@@ -182,6 +182,30 @@ export const RuleActionEntrySchema = z.intersection(
      * Opcional: un paso que nadie lee no necesita nombrarse.
      */
     id: z.string().min(1).optional(),
+    /**
+     * Condiciona ESTA acción, no la regla entera. Mismo DSL que el `when` de
+     * activación (`WhenConditionSchema`) — mismos operadores, mismo `field`,
+     * evaluado contra el MISMO sujeto que un `when` de regla (los campos del
+     * evento) más `steps`, así que puede leer lo que dejó un paso anterior:
+     * `{field: 'steps.triage.output.actionable', op: '=', value: 'true'}`.
+     *
+     * Es lo que colapsa el patrón "triage → emitir evento → una segunda
+     * regla con `when: actionable = true` → despachar" en una sola regla de
+     * dos pasos: el triage corre siempre (nombrado, para que el paso
+     * siguiente lo lea), y el despacho sólo si `actionable` dio `true` — sin
+     * el evento intermedio ni la regla aparte.
+     *
+     * No confundir con el `when` de nivel regla: aquél decide si la regla
+     * entera dispara: éste, sólo si el `do[]` llega a ESTE paso. Ausente ⇒
+     * la acción corre siempre, igual que hoy.
+     *
+     * Una condición que da `false` deja el paso en `skipped` — no corta la
+     * secuencia (mismo trato que el `skipped` que devuelve un handler), y no
+     * publica nada bajo su `id` aunque lo tenga: un paso salteado no dejó
+     * valor, y ofrecerlo como vacío sería el mismo hueco silencioso que
+     * `resolveSteps` ya evita para una referencia sin resolver.
+     */
+    when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
   }),
 )
 export type RuleActionEntry = z.infer<typeof RuleActionEntrySchema>

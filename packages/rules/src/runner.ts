@@ -10,6 +10,7 @@ import { getActionHandler } from './actions.js'
 import type { ActionContext, ActionResult } from './actions.js'
 import type { EventOutcome } from './bus.js'
 import { type Steps, referencesSteps, resolveSteps } from './steps.js'
+import { evalWhen } from './when.js'
 
 export interface ActionRunRecorder {
   /** Se llama antes y después de cada acción. Es el gancho por el que una
@@ -160,6 +161,23 @@ export async function runRule(
       // fallo de la acción, no como crash de la regla.
       deps.onError?.(new Error(`acción desconocida: ${kind}`), { rule, position, kind })
       if (!continueAfterFailure(entry)) break
+      continue
+    }
+
+    // El `when` de la acción se evalúa ANTES de resolver `{{steps.*}}` y de
+    // parsear el schema: si no matchea, el resto de este paso no importa. El
+    // sujeto es el mismo que usa el `when` de la regla (los campos del
+    // evento) más `steps`, lo que deja al `do[]` referenciar lo que dejó un
+    // paso anterior sin pasar por un `emit`.
+    const stepWhen = (entry as { when?: unknown }).when
+    if (stepWhen && !evalWhen({ ...event.payload, steps }, stepWhen)) {
+      const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
+      const result: ActionResult = {
+        ok: false,
+        skipped: true,
+        detail: 'when de la acción no matcheó',
+      }
+      await deps.recorder?.onActionEnd?.({ runId, rule, event, position, kind, result })
       continue
     }
 
