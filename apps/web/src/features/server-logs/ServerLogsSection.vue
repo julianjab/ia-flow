@@ -215,6 +215,77 @@ const EXTRA_COLUMN_MIN_PX = 140;
 function columnMinPx(key: string): number {
   return COLUMN_MIN_PX[key] ?? EXTRA_COLUMN_MIN_PX;
 }
+
+// ─── Ancho de columna arrastrable — el usuario puede fijar un ancho propio
+// desde el handle a la derecha de cada header. Una vez fijado, GANA sobre
+// `columnWidth`/`columnMinPx` (incluida la elasticidad `1fr` de msg: al
+// resizear, msg deja de crecer con el wrapper y queda en un ancho fijo,
+// como cualquier otra columna — es lo que "arrastrar para cambiar el
+// tamaño" implica).
+const COLUMN_WIDTHS_STORAGE_KEY = 'ia-flow:server-logs:column-widths:v1';
+const MIN_RESIZE_PX = 60;
+function loadStoredColumnWidths(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v >= MIN_RESIZE_PX) out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+const columnWidths = ref<Record<string, number>>(loadStoredColumnWidths());
+function persistColumnWidths(): void {
+  try {
+    localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(columnWidths.value));
+  } catch {
+    // Storage lleno o bloqueado — el resize se ve igual en esta sesión.
+  }
+}
+function effectiveColumnWidth(key: string): string {
+  const custom = columnWidths.value[key];
+  return custom !== undefined ? `${custom}px` : columnWidth(key);
+}
+function effectiveColumnMinPx(key: string): number {
+  return columnWidths.value[key] ?? columnMinPx(key);
+}
+// Columna que se está resizeando ahora mismo, y su geometría de arranque —
+// `mousemove`/`mouseup` van en `document` (no en el handle) porque el
+// cursor sale del handle apenas se mueve un poco.
+const resizingColumn = ref<string | null>(null);
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+function startColumnResize(key: string, event: MouseEvent): void {
+  resizingColumn.value = key;
+  resizeStartX = event.clientX;
+  // Ancho REAL renderizado, no el mínimo — así una columna `msg` que hoy
+  // ocupa más que su piso de 240px (por el `1fr`) arranca el resize desde
+  // donde se la ve, no desde un salto brusco al piso.
+  const header = (event.currentTarget as HTMLElement).closest('.log-col-header');
+  resizeStartWidth = header?.getBoundingClientRect().width ?? columnMinPx(key);
+  document.addEventListener('mousemove', onColumnResizeMove);
+  document.addEventListener('mouseup', stopColumnResize);
+}
+function onColumnResizeMove(event: MouseEvent): void {
+  if (!resizingColumn.value) return;
+  const next = Math.max(MIN_RESIZE_PX, Math.round(resizeStartWidth + (event.clientX - resizeStartX)));
+  columnWidths.value = { ...columnWidths.value, [resizingColumn.value]: next };
+}
+function stopColumnResize(): void {
+  if (!resizingColumn.value) return;
+  resizingColumn.value = null;
+  document.removeEventListener('mousemove', onColumnResizeMove);
+  document.removeEventListener('mouseup', stopColumnResize);
+  persistColumnWidths();
+}
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onColumnResizeMove);
+  document.removeEventListener('mouseup', stopColumnResize);
+});
 function loadStoredColumns(): string[] {
   try {
     const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
@@ -234,7 +305,7 @@ const activeColumns = ref<string[]>(loadStoredColumns());
 // en esa pista (ver template) para que el chevron caiga en la MISMA
 // posición que en el header por orden de aparición, no por casualidad.
 const gridTemplateColumns = computed(
-  () => `${activeColumns.value.map(columnWidth).join(' ')} 28px 28px`,
+  () => `${activeColumns.value.map(effectiveColumnWidth).join(' ')} 28px 28px`,
 );
 // El `min-width` NUMÉRICO (px) del header/fila/card — es lo que reemplaza a
 // `width: max-content`.
@@ -259,7 +330,7 @@ const gridTemplateColumns = computed(
 const GRID_GAP_PX = 12; // 0.75rem
 const ROW_PADDING_PX = 24; // 0.75rem a cada lado (mismo padding en header y fila)
 const rowMinWidth = computed(() => {
-  const tracks = [...activeColumns.value.map(columnMinPx), 28, 28];
+  const tracks = [...activeColumns.value.map(effectiveColumnMinPx), 28, 28];
   const tracksPx = tracks.reduce((sum, w) => sum + w, 0);
   const gapsPx = (tracks.length - 1) * GRID_GAP_PX;
   return `${tracksPx + gapsPx + ROW_PADDING_PX}px`;
@@ -949,6 +1020,17 @@ onMounted(() => {
             title="Quitar columna"
             @click.stop="removeColumn(col)"
           >×</button>
+          <!-- Handle de resize — `mousedown.stop.prevent` para que el gesto
+               no dispare el `dragstart` HTML5 del header entero (reordenar):
+               `preventDefault` en el mousedown es lo que evita que el
+               navegador arranque el drag nativo desde acá. -->
+          <span
+            class="log-col-resize"
+            :class="{ 'log-col-resize--active': resizingColumn === col }"
+            :data-testid="`server-logs-col-resize-${col}`"
+            @mousedown.stop.prevent="startColumnResize(col, $event)"
+            @click.stop
+          ></span>
         </div>
         <div class="log-add-column">
           <button
@@ -1028,7 +1110,6 @@ onMounted(() => {
               v-for="col in activeColumns"
               :key="col"
               class="log-cell"
-              :class="{ 'log-cell--drag-over': dragOverColumn === col }"
             >
               <span v-if="col === 'time'" class="log-cell--time" :title="formatDate(entry.time)">{{ formatTimeCompact(entry.time) }}</span>
               <span
@@ -1232,6 +1313,7 @@ onMounted(() => {
   width: 100%;
 }
 .log-col-header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.3rem;
@@ -1247,13 +1329,43 @@ onMounted(() => {
 /* La columna que se está arrastrando — atenuada, para que quede claro CUÁL
    se está moviendo mientras el cursor está sobre otra. */
 .log-col-header--dragging { opacity: 0.35; }
-/* Dónde va a quedar si soltás ahora — toda la columna (header Y cada celda
-   de la fila, ver .log-cell--drag-over) se pinta con un verde claro, tono
-   del mismo --accent que ya usa el resto del sistema. */
+/* Dónde va a quedar si soltás ahora. Sólo el HEADER se resalta — antes se
+   repetía en cada fila (ver el historial de .log-cell--drag-over), pero
+   pintar la columna entera de punta a punta era demasiado ruido visual
+   sobre datos reales; con el header alcanza para ver dónde cae el drop. */
 .log-col-header--drag-over {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-left-color: var(--accent);
   border-right-color: var(--accent);
+}
+/* Handle de resize — franja angosta pegada al borde derecho del header,
+   arrastrable con el mouse (no HTML5 drag: eso es reordenar). La línea
+   separadora se ve SIEMPRE (tenue, `--border-hi`) para que quede claro que
+   hay un borde arrastrable ahí sin tener que pasar el mouse encima; en
+   hover/activo pasa al color de acento, más notorio. */
+.log-col-resize {
+  position: absolute;
+  top: 0;
+  right: -0.15rem;
+  bottom: 0;
+  width: 0.5rem;
+  cursor: col-resize;
+  z-index: 2;
+}
+.log-col-resize::after {
+  content: '';
+  position: absolute;
+  top: 15%;
+  bottom: 15%;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--border-hi);
+  border-radius: 1px;
+}
+.log-col-header:hover .log-col-resize::after,
+.log-col-resize--active::after {
+  background: var(--accent);
 }
 .log-header-btn {
   background: none;
@@ -1327,9 +1439,6 @@ onMounted(() => {
 .log-row:hover { background: var(--panel-hi); }
 
 .log-cell { min-width: 0; overflow: hidden; display: flex; align-items: center; }
-/* Continúa el resaltado de .log-col-header--drag-over hacia abajo, por
-   fila — así se ve la columna ENTERA, no sólo su header. */
-.log-cell--drag-over { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 /* El badge de nivel es el único centrado — todo lo demás arranca a la
    izquierda de su celda. */
 .log-cell:has(.log-level) { justify-content: center; }
