@@ -1778,3 +1778,29 @@ export const IntegrationsStatusSchema = z.object({
 
 export type SlackIntegrationStatus = z.infer<typeof SlackIntegrationStatusSchema>
 export type IntegrationsStatus = z.infer<typeof IntegrationsStatusSchema>
+
+// Bookkeeping de un abort del provider por stream stall/overload
+// (UpstreamAbortError) — ver apps/server/src/domain/ports/IAgentAbortRepository.ts
+// y GET/POST /api/agent-aborts. Cruza la red (la web lista y fuerza el retry),
+// así que el shape vive acá y no hand-mirrored en la web.
+export const AgentAbortStatusSchema = z.enum(['pending', 'exhausted', 'resolved'])
+
+export const AgentAbortRecordSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  agentId: z.string(),
+  runId: z.string().nullable(),
+  reason: z.string(),
+  errorMsg: z.string().nullable(),
+  attempts: z.number(),
+  maxAttempts: z.number(),
+  status: AgentAbortStatusSchema,
+  nextRetryAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  resolvedAt: z.string().nullable(),
+})
+
+export type AgentAbortStatus = z.infer<typeof AgentAbortStatusSchema>
+export type AgentAbortRecord = z.infer<typeof AgentAbortRecordSchema>
