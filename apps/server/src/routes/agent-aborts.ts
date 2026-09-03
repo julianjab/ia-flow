@@ -31,16 +31,30 @@ export function createAgentAbortsRouter() {
         ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }) as const,
     )
     if (!result.ok) {
-      // Fallo de infra al despachar, no un abort del agente — reprograma sin
-      // quemar `attempts` (mismo criterio que el barrido automático).
-      agentAbortRepo.reschedule(id)
+      // Cuenta como intento fallido más — mismo criterio que el barrido
+      // automático (`daemon.ts`), para no dejar la fila huérfana con
+      // `nextRetryAt` en null y sin ningún backoff acotándola.
+      agentAbortRepo.recordAbort({
+        projectId: record.projectId,
+        taskId: record.taskId,
+        agentId: record.agentId,
+        runId: record.runId ?? undefined,
+        reason: record.reason,
+        errorMsg: `retry-dispatch-failed: ${result.reason}`,
+      })
       return c.json({ error: result.reason }, 502)
     }
     if (result.outcome !== 'dispatched') {
       // `skipped`/`deferred`: ningún run corrió, así que ni Agent.ts ni nada
-      // más va a tocar esta fila — sin reprogramar quedaba `pending` con
-      // `nextRetryAt` en null, invisible para el próximo barrido para siempre.
-      agentAbortRepo.reschedule(id)
+      // más va a tocar esta fila.
+      agentAbortRepo.recordAbort({
+        projectId: record.projectId,
+        taskId: record.taskId,
+        agentId: record.agentId,
+        runId: record.runId ?? undefined,
+        reason: record.reason,
+        errorMsg: `retry-not-dispatched: ${result.outcome}`,
+      })
     }
     return c.json({ outcome: result.outcome })
   })

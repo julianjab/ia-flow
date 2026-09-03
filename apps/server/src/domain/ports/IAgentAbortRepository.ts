@@ -2,22 +2,13 @@
 // escribe). Acá vive lo que además necesitan el barrido de retry y la ruta:
 // listar, leer una fila y forzar un retry manual. Una sola implementación
 // (`SqliteAgentAbortRepository`) satisface las dos interfaces.
-export interface AgentAbortRecord {
-  id: string
-  projectId: string
-  taskId: string
-  agentId: string
-  runId: string | null
-  reason: string
-  errorMsg: string | null
-  attempts: number
-  maxAttempts: number
-  status: 'pending' | 'exhausted' | 'resolved'
-  nextRetryAt: string | null
-  createdAt: string
-  updatedAt: string
-  resolvedAt: string | null
-}
+//
+// El shape del registro cruza la red (GET/POST /api/agent-aborts, que la web
+// consume) así que vive en @ia-flow/shared y se reusa acá — no se duplica a
+// mano como hacía `ProviderRegistration`.
+import type { AgentAbortRecord } from '@ia-flow/shared'
+
+export type { AgentAbortRecord }
 
 export interface IAgentAbortRepository {
   recordAbort(input: {
@@ -39,11 +30,11 @@ export interface IAgentAbortRepository {
    *  levantar la misma fila mientras un dispatch anterior sigue en vuelo
    *  (un retry puede tardar más que el intervalo del barrido). */
   markRetrying(id: string): void
-  /** Reprograma el próximo intento SIN tocar `attempts`/`status` — para
-   *  cuando el retry ni siquiera llegó a correr el agente (dispatch
-   *  `skipped`/`deferred`, o un fallo de infra al reconstruir el item). Eso
-   *  no es un intento fallido del agente — usar `recordAbort` acá quemaría
-   *  el presupuesto de retries por un hipo de infraestructura, no por un
-   *  abort real. */
-  reschedule(id: string): void
+  /** Filas `pending` con `nextRetryAt` en null (o sea, tomadas por
+   *  `markRetrying`) hace más de `staleBeforeIso` — el dispatch que las tomó
+   *  nunca volvió a tocarlas (cancelado sin pasar por `resolveOpen`/
+   *  `recordAbort`, o el proceso murió a mitad del run). Las trata como un
+   *  intento fallido más, con el mismo backoff acotado — sin esto quedan
+   *  huérfanas para siempre. */
+  reconcileStale(staleBeforeIso: string): void
 }

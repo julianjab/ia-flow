@@ -51,59 +51,19 @@ export class SqliteAgentAbortRepository implements IAgentAbortRepository {
       .get(taskId, agentId) as Record<string, unknown> | undefined
   }
 
-  recordAbort(input: {
-    projectId: string
-    taskId: string
-    agentId: string
-    runId?: string
-    reason: string
-    errorMsg?: string
-  }): AgentAbortRecord {
+  /** El intento contra una fila ya abierta no llegó a un cierre limpio —
+   *  mismo backoff acotado, sea porque el agente volvió a abortar
+   *  (`recordAbort`) o porque el retry ni corrió un run de verdad (dispatch
+   *  `skipped`/`deferred`, un fallo de infra al despachar, o una fila
+   *  `retrying` que nunca volvió — `reconcileStale`). Un solo contador
+   *  acotado para las tres causas: la alternativa (no contar las dos
+   *  últimas) es un retry sin techo que le pega a la fuente cada 30s para
+   *  siempre. */
+  private bumpAttempt(
+    prev: AgentAbortRecord,
+    patch: { runId?: string | null; errorMsg?: string | null },
+  ): AgentAbortRecord {
     const now = new Date().toISOString()
-    const existing = this.findOpen(input.taskId, input.agentId)
-
-    if (!existing) {
-      const record: AgentAbortRecord = {
-        id: randomUUID(),
-        projectId: input.projectId,
-        taskId: input.taskId,
-        agentId: input.agentId,
-        runId: input.runId ?? null,
-        reason: input.reason,
-        errorMsg: input.errorMsg ?? null,
-        attempts: 1,
-        maxAttempts: DEFAULT_MAX_ATTEMPTS,
-        status: 'pending',
-        nextRetryAt: new Date(Date.now() + backoffMs(1)).toISOString(),
-        createdAt: now,
-        updatedAt: now,
-        resolvedAt: null,
-      }
-      this.db.run(
-        `INSERT INTO agent_aborts (
-           id, project_id, task_id, agent_id, run_id, reason, error_msg,
-           attempts, max_attempts, status, next_retry_at, created_at, updated_at, resolved_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-        [
-          record.id,
-          record.projectId,
-          record.taskId,
-          record.agentId,
-          record.runId,
-          record.reason,
-          record.errorMsg,
-          record.attempts,
-          record.maxAttempts,
-          record.status,
-          record.nextRetryAt,
-          record.createdAt,
-          record.updatedAt,
-        ],
-      )
-      return record
-    }
-
-    const prev = rowToRecord(existing)
     const attempts = prev.attempts + 1
     const exhausted = attempts >= prev.maxAttempts
     const status: AgentAbortRecord['status'] = exhausted ? 'exhausted' : 'pending'
@@ -112,17 +72,82 @@ export class SqliteAgentAbortRepository implements IAgentAbortRepository {
       `UPDATE agent_aborts
        SET run_id = ?, error_msg = ?, attempts = ?, status = ?, next_retry_at = ?, updated_at = ?
        WHERE id = ?`,
-      [input.runId ?? null, input.errorMsg ?? null, attempts, status, nextRetryAt, now, prev.id],
+      [
+        patch.runId ?? prev.runId,
+        patch.errorMsg ?? prev.errorMsg,
+        attempts,
+        status,
+        nextRetryAt,
+        now,
+        prev.id,
+      ],
     )
     return {
       ...prev,
-      runId: input.runId ?? null,
-      errorMsg: input.errorMsg ?? null,
+      runId: patch.runId ?? prev.runId,
+      errorMsg: patch.errorMsg ?? prev.errorMsg,
       attempts,
       status,
       nextRetryAt,
       updatedAt: now,
     }
+  }
+
+  recordAbort(input: {
+    projectId: string
+    taskId: string
+    agentId: string
+    runId?: string
+    reason: string
+    errorMsg?: string
+  }): AgentAbortRecord {
+    const existing = this.findOpen(input.taskId, input.agentId)
+    if (existing) {
+      return this.bumpAttempt(rowToRecord(existing), {
+        runId: input.runId ?? null,
+        errorMsg: input.errorMsg ?? null,
+      })
+    }
+
+    const now = new Date().toISOString()
+    const record: AgentAbortRecord = {
+      id: randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      runId: input.runId ?? null,
+      reason: input.reason,
+      errorMsg: input.errorMsg ?? null,
+      attempts: 1,
+      maxAttempts: DEFAULT_MAX_ATTEMPTS,
+      status: 'pending',
+      nextRetryAt: new Date(Date.now() + backoffMs(1)).toISOString(),
+      createdAt: now,
+      updatedAt: now,
+      resolvedAt: null,
+    }
+    this.db.run(
+      `INSERT INTO agent_aborts (
+         id, project_id, task_id, agent_id, run_id, reason, error_msg,
+         attempts, max_attempts, status, next_retry_at, created_at, updated_at, resolved_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      [
+        record.id,
+        record.projectId,
+        record.taskId,
+        record.agentId,
+        record.runId,
+        record.reason,
+        record.errorMsg,
+        record.attempts,
+        record.maxAttempts,
+        record.status,
+        record.nextRetryAt,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    )
+    return record
   }
 
   resolveOpen(taskId: string, agentId: string): void {
@@ -174,11 +199,24 @@ export class SqliteAgentAbortRepository implements IAgentAbortRepository {
     ])
   }
 
-  reschedule(id: string): void {
-    const now = new Date().toISOString()
-    this.db.run(
-      `UPDATE agent_aborts SET next_retry_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
-      [new Date(Date.now() + BACKOFF_FLOOR_MS).toISOString(), now, id],
-    )
+  reconcileStale(staleBeforeIso: string): void {
+    // `pending` + `next_retry_at IS NULL` es "un dispatch la tomó" (ver
+    // `markRetrying`). Si sigue así mucho después de que se despachó
+    // (`updated_at` viejo) el dispatch que la tomó nunca volvió a tocarla —
+    // cancelado por el divergence gate/shutdown, o el proceso murió a mitad
+    // del run. Ninguno de los dos le avisa a `agent_aborts`, así que sin
+    // esto la fila queda huérfana para siempre. Se trata como un intento
+    // fallido más, con el mismo backoff acotado.
+    const rows = this.db
+      .query(
+        `SELECT * FROM agent_aborts
+         WHERE status = 'pending' AND next_retry_at IS NULL AND updated_at <= ?`,
+      )
+      .all(staleBeforeIso) as Record<string, unknown>[]
+    for (const row of rows) {
+      this.bumpAttempt(rowToRecord(row), {
+        errorMsg: 'stale-retry: nunca volvió del dispatch anterior',
+      })
+    }
   }
 }
