@@ -52,6 +52,7 @@ type SectionId =
   | 'servers'
   | 'dashboard'
   | 'ejecuciones'
+  | 'aborted-runs'
   | 'logs'
   | 'agent-host'
   | 'agent-host-logs'
@@ -182,6 +183,7 @@ const SECTION_PATH: Record<SectionId, string> = {
   servers:          '/servers',
   dashboard:        '/dashboard',
   ejecuciones:      '/general/ejecuciones',
+  'aborted-runs':   '/general/aborted-runs',
   logs:             '/general/logs',
   'agent-host':     '/agent-host',
   'agent-host-logs': '/agent-host/logs',
@@ -206,7 +208,7 @@ const activeSection = computed<SectionId>(() => {
   if (path === '/agent-host/logs') return 'agent-host-logs';
   if (path === '/agent-host') return 'agent-host';
   if (path.startsWith('/projects')) return 'proyectos';
-  const matches: SectionId[] = ['dashboard', 'ejecuciones', 'logs', 'agentes',
+  const matches: SectionId[] = ['dashboard', 'ejecuciones', 'aborted-runs', 'logs', 'agentes',
     'system-prompts', 'providers', 'mcp-catalog', 'entorno', 'escaneo'];
   for (const id of matches) {
     if (path === SECTION_PATH[id] || path.startsWith(`${SECTION_PATH[id]}/`)) return id;
@@ -274,6 +276,7 @@ const TABS = computed<
   return [
   { id: 'dashboard',        label: 'dashboard',      icon: '', group: 'overview' },
   { id: 'ejecuciones',      label: 'ejecuciones',    icon: '', group: 'overview' },
+  { id: 'aborted-runs',     label: 'runs abortados', icon: '', group: 'overview' },
   { id: 'logs',             label: 'logs',           icon: '', group: 'overview' },
 
   { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },

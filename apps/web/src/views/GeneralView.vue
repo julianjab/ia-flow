@@ -6,6 +6,7 @@ import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
 import RulesSection from '@/features/rules/RulesSection.vue';
 import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
+import AgentAbortsSection from '@/features/agent-aborts/AgentAbortsSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
 import ProvidersSection from '@/features/providers/ProvidersSection.vue';
 import McpCatalogSection from '@/features/mcp-catalog/McpCatalogSection.vue';
@@ -30,6 +31,7 @@ const SECTIONS: Record<string, SectionMeta> = {
   entorno:          { label: 'Entorno',        hint: 'Variables inyectadas a los procesos del daemon.',                  scope: 'global' },
   escaneo:          { label: 'Escaneo',        hint: 'Roots del filesystem que el daemon indexa.',                       scope: 'global' },
   ejecuciones:      { label: 'Ejecuciones',    hint: 'Registro global de runs — filtra por proyecto, agente u outcome.', scope: 'server' },
+  'aborted-runs':   { label: 'Runs abortados', hint: 'Runs cortados por un stall/overload upstream, esperando o agotando su reintento automático.', scope: 'server' },
   logs:             { label: 'Logs',           hint: 'Salida NDJSON de Pino del daemon.',                                 scope: 'server' },
 };
 
@@ -66,6 +68,7 @@ const showHeader = computed(
     <EntornoSection             v-else-if="activeTab === 'entorno'" />
     <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />
     <ExecutionsSection          v-else-if="activeTab === 'ejecuciones'" scope="global" />
+    <AgentAbortsSection         v-else-if="activeTab === 'aborted-runs'" />
     <ServerLogsSection          v-else-if="activeTab === 'logs'" />
   </div>
 </template>
