@@ -140,7 +140,14 @@ const toFilter = ref(toDatetimeLocal(queryStr('to')));
 // puedan sacar y reordenar, no sólo las agregadas. Preferencia por-viewer:
 // vive en localStorage, no en el server (dos pestañas de dos operadores
 // pueden mirar columnas distintas del mismo log).
-const COLUMNS_STORAGE_KEY = 'ia-flow:server-logs:columns';
+// `:v2` porque cambió la SEMÁNTICA del array, no sólo su forma: antes sólo
+// guardaba columnas de extras (las cuatro base estaban hardcodeadas en el
+// header), ahora es el set COMPLETO. Con la clave vieja, un `["agentId"]` ya
+// persistido cargaría la tabla con esa única columna — sin Fecha/Módulo/
+// Mensaje — y el guard de "no quedarse en cero" ni siquiera deja arreglarlo
+// desde la UI. Bumpear la clave es más simple y más seguro que migrar: es
+// una preferencia de UI por-viewer, perderla una vez no cuesta nada.
+const COLUMNS_STORAGE_KEY = 'ia-flow:server-logs:columns:v2';
 const BASE_COLUMNS = ['time', 'level', 'module', 'msg'] as const;
 const BASE_COLUMN_SET = new Set<string>(BASE_COLUMNS);
 function isBaseColumn(key: string): boolean {
@@ -224,13 +231,39 @@ function persistColumns(): void {
 function isColumnActive(key: string): boolean {
   return activeColumns.value.includes(key);
 }
-/** Nunca deja la tabla sin ninguna columna — sacar la última no tiene forma
- *  de deshacerse salvo borrando el localStorage a mano. `toggleColumn`
- *  (el menú "…" del detalle) delega en `removeColumn`/`addColumn` para no
- *  duplicar ese guard. */
+/**
+ * Nunca deja la tabla sin ninguna columna — sacar la última no tiene forma
+ * de deshacerse salvo borrando el localStorage a mano. `toggleColumn` (el
+ * menú "…" del detalle, invocado con un PATH de `extras`) delega en
+ * `removeColumn`/`addColumn` para no duplicar ese guard.
+ *
+ * También rechaza agregar cuando `key` colisiona con el nombre de una
+ * columna base (`time`/`level`/`module`/`msg`) — mismo motivo que
+ * `addCustomColumn` ya cubre para el input de texto libre: sin este guard,
+ * una línea con `extras.module` agregaría una columna que el template lee
+ * como `entry.module` (por el `col === 'module'` del v-for de la fila) en
+ * vez del valor real de `extras.module` — la columna mentiría en silencio.
+ */
 function toggleColumn(key: string): void {
-  if (isColumnActive(key)) removeColumn(key);
-  else addColumn(key);
+  if (isColumnActive(key)) {
+    removeColumn(key);
+    return;
+  }
+  if (isBaseColumn(key)) return;
+  addColumn(key);
+}
+/** La versión que usa el panel "Campos" (`flattenEntry`) — a diferencia de
+ *  `toggleColumn`, acá `isBase` viene del propio campo, no se infiere del
+ *  nombre: un `field.path === 'module'` con `isBase: true` ES la columna
+ *  base de verdad (no una colisión de un `extras.module`), así que se
+ *  permite agregar sin pasar por el guard anti-colisión. */
+function toggleField(field: FlatExtraField): void {
+  if (field.isBase) {
+    if (isColumnActive(field.path)) removeColumn(field.path);
+    else addColumn(field.path);
+    return;
+  }
+  toggleColumn(field.path);
 }
 function removeColumn(key: string): void {
   if (!isColumnActive(key) || activeColumns.value.length <= 1) return;
@@ -245,12 +278,27 @@ function removeColumn(key: string): void {
 // posibles no escala.
 const discoveredExtraKeys = ref<Set<string>>(new Set());
 const addColumnMenuOpen = ref(false);
+// El picker filtra por esto — un log real acumula decenas de claves de
+// extras (toolCalls, toolErrors, toolUseId, truncated, usage, …) y sin
+// buscador la lista es puro scroll. Se limpia cada vez que el menú se abre,
+// no al cerrarse: así el próximo "+" arranca sin el filtro de la vez
+// anterior en vez de sorprender con una lista vacía.
+const columnPickerSearch = ref('');
+function toggleAddColumnMenu(): void {
+  addColumnMenuOpen.value = !addColumnMenuOpen.value;
+  if (addColumnMenuOpen.value) columnPickerSearch.value = '';
+}
+function matchesPickerSearch(key: string): boolean {
+  const q = columnPickerSearch.value.trim().toLowerCase();
+  if (!q) return true;
+  return key.toLowerCase().includes(q) || columnLabel(key).toLowerCase().includes(q);
+}
 function addableBaseColumns(): string[] {
-  return BASE_COLUMNS.filter((k) => !isColumnActive(k));
+  return BASE_COLUMNS.filter((k) => !isColumnActive(k) && matchesPickerSearch(k));
 }
 function addableExtraColumns(): string[] {
   return Array.from(discoveredExtraKeys.value)
-    .filter((k) => !isColumnActive(k))
+    .filter((k) => !isColumnActive(k) && matchesPickerSearch(k))
     .sort((a, b) => columnLabel(a).localeCompare(columnLabel(b)));
 }
 function addColumn(key: string): void {
@@ -275,10 +323,15 @@ function addCustomColumn(): void {
 }
 
 // ─── Reordenar columnas por drag & drop — HTML5 drag nativo, sin librería.
-// Un solo ref global (a lo sumo un drag en curso a la vez).
+// Un solo ref global (a lo sumo un drag en curso a la vez) — alcanza para
+// Chrome/Safari, pero Firefox exige datos reales en `dataTransfer` para
+// siquiera INICIAR el drag (sin `setData`, `dragstart` corre pero el resto
+// de la secuencia — dragover/drop — nunca dispara), así que el ref solo no
+// alcanza.
 const draggedColumn = ref<string | null>(null);
-function onColumnDragStart(key: string): void {
+function onColumnDragStart(key: string, event: DragEvent): void {
   draggedColumn.value = key;
+  event.dataTransfer?.setData('text/plain', key);
 }
 function onColumnDrop(targetKey: string): void {
   const from = draggedColumn.value;
@@ -331,7 +384,7 @@ function closeMenus(): void {
 onMounted(() => window.addEventListener('click', closeMenus));
 onUnmounted(() => window.removeEventListener('click', closeMenus));
 
-/** Aplana `extras` en filas `{path, value}` — recursa objetos planos (no
+/** Aplana un objeto en filas `{path, value}` — recursa objetos planos (no
  *  arrays) hasta profundidad 2, así `err: {message: '...'}` aparece como
  *  `err.message` en vez de un blob JSON sin poder agregarlo como columna
  *  por separado. Tope de profundidad: un objeto MUY anidado se corta y
@@ -339,6 +392,10 @@ onUnmounted(() => window.removeEventListener('click', closeMenus));
 interface FlatExtraField {
   path: string
   value: unknown
+  /** `true` para time/level/module/msg — son columnas base de verdad, no
+   *  un path DENTRO de extras que casualmente se llama igual (ver el guard
+   *  de `toggleField`). */
+  isBase?: boolean
 }
 function flattenExtras(
   extras: Record<string, unknown> | undefined,
@@ -356,6 +413,20 @@ function flattenExtras(
     }
   }
   return out;
+}
+/** El panel "Campos" del detalle mostraba sólo `entry.extras` — el JSON
+ *  completo de abajo tiene además time/level/module/msg, así que esos
+ *  quedaban sin su propio "…" para agregarlos como columna (había que ir al
+ *  header). Los antepone, marcados `isBase`, y el resto es `flattenExtras`
+ *  tal cual — ahora "Campos" es de verdad TODO lo que trae la línea. */
+function flattenEntry(entry: ServerLogEntry): FlatExtraField[] {
+  const base: FlatExtraField[] = [
+    { path: 'time', value: entry.time, isBase: true },
+    { path: 'level', value: entry.level, isBase: true },
+    { path: 'module', value: entry.module, isBase: true },
+    { path: 'msg', value: entry.msg, isBase: true },
+  ];
+  return [...base, ...flattenExtras(entry.extras)];
 }
 
 
@@ -853,9 +924,9 @@ onMounted(() => {
           :class="{ 'log-col-header--base': isBaseColumn(col) }"
           draggable="true"
           :data-testid="`server-logs-col-header-${col}`"
-          @dragstart="onColumnDragStart(col)"
+          @dragstart="onColumnDragStart(col, $event)"
           @dragover.prevent
-          @drop="onColumnDrop(col)"
+          @drop.prevent="onColumnDrop(col)"
         >
           <button
             v-if="isSortableColumn(col)"
@@ -879,11 +950,18 @@ onMounted(() => {
             class="log-add-column-btn"
             title="Agregar columna"
             data-testid="server-logs-add-column"
-            @click.stop="addColumnMenuOpen = !addColumnMenuOpen"
+            @click.stop="toggleAddColumnMenu"
           >+</button>
           <div v-if="addColumnMenuOpen" class="log-add-column-menu" @click.stop>
+            <input
+              v-model="columnPickerSearch"
+              type="text"
+              class="log-add-column-search"
+              placeholder="Buscar campo…"
+              data-testid="server-logs-add-column-search"
+            />
             <p v-if="addableBaseColumns().length === 0 && addableExtraColumns().length === 0" class="log-add-column-empty">
-              Sin campos nuevos para agregar todavía
+              Sin campos que coincidan
             </p>
             <button
               v-for="key in addableBaseColumns()"
@@ -964,8 +1042,8 @@ onMounted(() => {
           </button>
 
         <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
-          <div v-if="entry.extras" class="detail-fields">
-            <div v-for="field in flattenExtras(entry.extras)" :key="field.path" class="detail-field-row">
+          <div class="detail-fields">
+            <div v-for="field in flattenEntry(entry)" :key="field.path" class="detail-field-row">
               <span class="detail-field-key">{{ field.path }}</span>
               <span class="detail-field-value">{{ formatExtraValue(field.value) }}</span>
               <div class="detail-field-menu">
@@ -981,7 +1059,7 @@ onMounted(() => {
                   class="detail-field-menu-popover"
                   @click.stop
                 >
-                  <button type="button" class="detail-field-menu-item" @click="toggleColumn(field.path); closeMenus()">
+                  <button type="button" class="detail-field-menu-item" @click="toggleField(field); closeMenus()">
                     {{ isColumnActive(field.path) ? 'Quitar columna' : 'Agregar columna' }}
                   </button>
                 </div>
@@ -1302,6 +1380,24 @@ onMounted(() => {
   text-transform: none;
   font-weight: 400;
   letter-spacing: normal;
+}
+.log-add-column-search {
+  /* sticky, no el input normal del flujo: la lista de abajo scrollea (la
+     lista de claves de extras de un log real es larga — toolCalls,
+     toolErrors, toolUseId, truncated, usage, …) y el buscador tiene que
+     seguir a la vista mientras se scrollea. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex-shrink: 0;
+  margin-bottom: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: var(--fs-body-sm);
+  font-family: inherit;
 }
 .log-add-column-empty {
   margin: 0;
