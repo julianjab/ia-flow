@@ -1023,7 +1023,17 @@ export const ingestWebhookUseCase = new IngestWebhookUseCase(
               ? await source.getItemById(node.id)
               : null
         if (!raw) return null
-        return source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
+        const item = source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
+        // El scan (source-dispatcher.ts) estampa `projectId` en cada item
+        // que emite; este camino puntual (1 sola llamada, sin pasar por el
+        // dispatcher) no lo hacía — TaskDispatcher.dispatch lo exige antes de
+        // correr cualquier agente ("missing projectId — skipping"), así que
+        // sin esto CUALQUIER regla con `action: agent` sobre un evento
+        // resuelto por acá (issue_comment/issues, projects_v2_item) fallaba
+        // en silencio en el primer gate, aunque el `when` ya hubiera
+        // matcheado. Diagnosticado en vivo contra lh-seller-v2-frontend#3854.
+        item.projectId = projectId
+        return item
       },
     ),
     slack.translator,
