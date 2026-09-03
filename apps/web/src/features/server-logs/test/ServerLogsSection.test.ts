@@ -228,6 +228,29 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(false)
   })
 
+  // toggleColumn (el "…" del detalle) tiene que respetar el mismo guard que
+  // removeColumn — si no, sacar la ÚLTIMA columna desde ahí deja
+  // activeColumns en [], desincronizado de lo persistido hasta recargar.
+  it('quitar la última columna desde el "…" del detalle no la deja en cero', async () => {
+    localStorage.setItem('ia-flow:server-logs:columns', JSON.stringify(['clearDedupe']))
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    await expandExtrasRow(wrapper)
+
+    await wrapper.find('[data-testid="server-logs-field-menu-clearDedupe"]').trigger('click')
+    const removeBtn = wrapper
+      .findAll('.detail-field-menu-item')
+      .find((b) => b.text() === 'Quitar columna')
+    expect(removeBtn).toBeTruthy()
+    await removeBtn?.trigger('click')
+    await flushPromises()
+
+    expect(extraColHeader(wrapper).exists()).toBe(true)
+    expect(JSON.parse(localStorage.getItem('ia-flow:server-logs:columns') ?? '[]')).toEqual([
+      'clearDedupe',
+    ])
+  })
+
   it('el "+" del header ofrece las columnas base ocultas y las claves de extras descubiertas', async () => {
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
@@ -266,6 +289,25 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="server-logs-col-header-err.message"]').exists()).toBe(true)
+  })
+
+  // getNestedValue usa Object.hasOwn, no `in` — `in` recorre la cadena de
+  // prototipos, así que un camino como `__proto__.toString` (posible desde
+  // el input de texto libre) no puede devolver una función interna de JS.
+  it('un camino que apunta a la cadena de prototipos no filtra nada — se ve como "—"', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
+    await flushPromises()
+    await wrapper
+      .find('[data-testid="server-logs-add-column-custom"]')
+      .setValue('__proto__.toString')
+    await wrapper.find('.log-add-column-custom').trigger('submit')
+    await flushPromises()
+
+    const cells = wrapper.findAll('.log-cell--extra')
+    expect(cells.length).toBeGreaterThan(0)
+    for (const cell of cells) expect(cell.text()).toBe('—')
   })
 
   it('la columna agregada persiste en localStorage (junto a las base) y sobrevive un remount', async () => {
