@@ -18,6 +18,7 @@ import {
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
 import {
+  redispatchAborted,
   registerActions,
   resolveRuleConversation,
   setActiveManagers,
@@ -25,6 +26,7 @@ import {
 import {
   actionRepo,
   actionRunRecorder,
+  agentAbortRepo,
   broadcast,
   buildManagers,
   classifyAgent,
@@ -339,6 +341,56 @@ function startProducers(): void {
   }
 }
 
+/** Cada cuánto se buscan retries de abort vencidos. No necesita más
+ *  precisión que el propio backoff (piso de 30s) — ver
+ *  SqliteAgentAbortRepository. */
+function abortRetrySweepIntervalMs(): number {
+  const raw = Number(Bun.env.IA_FLOW_ABORT_RETRY_SWEEP_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 30_000
+}
+
+/**
+ * Barrido de retries automáticos de `agent_aborts`.
+ *
+ * A propósito NO es un `IntervalEventProducer`: un abort no es una decisión
+ * de negocio que una regla deba tomar (a diferencia de `wait.expired`) — acá
+ * siempre queremos lo mismo, reintentar el mismo agente sobre la misma task,
+ * así que despacha directo en vez de publicar un evento al bus.
+ */
+function startAbortRetrySweep(): void {
+  setInterval(async () => {
+    const due = agentAbortRepo.listDue(new Date().toISOString())
+    for (const record of due) {
+      // Limpia `nextRetryAt` YA, antes del dispatch: si el dispatch tarda más
+      // que el intervalo, el próximo tick no debe volver a levantar la misma
+      // fila (mismo criterio que el `consume` antes de reanudar una espera).
+      agentAbortRepo.markRetrying(record.id)
+      const result = await redispatchAborted(record).catch((err: unknown) => {
+        log.error({ err, taskId: record.taskId, agentId: record.agentId }, 'Retry de abort falló')
+        return { ok: false as const, reason: err instanceof Error ? err.message : String(err) }
+      })
+      if (!result.ok) {
+        log.warn(
+          { taskId: record.taskId, agentId: record.agentId, reason: result.reason },
+          'No se pudo reintentar el abort — reprogramado con el mismo backoff',
+        )
+        // El dispatch ni llegó a arrancar (proyecto sin manager, task ya no
+        // existe, …) — sin esto la fila quedaba `pending` con `nextRetryAt`
+        // en null, invisible para el próximo barrido y sólo alcanzable a
+        // mano desde el botón.
+        agentAbortRepo.recordAbort({
+          projectId: record.projectId,
+          taskId: record.taskId,
+          agentId: record.agentId,
+          runId: record.runId ?? undefined,
+          reason: record.reason,
+          errorMsg: `retry-dispatch-failed: ${result.reason}`,
+        })
+      }
+    }
+  }, abortRetrySweepIntervalMs())
+}
+
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
   // Both passes are off-switchable, and each silence has a cost worth saying
@@ -369,6 +421,7 @@ export async function startDaemon(): Promise<void> {
   // pendingTasks + the live project/source config it re-resolves per tick.
   divergenceReconciler.start()
   startProducers()
+  startAbortRetrySweep()
   log.info({ count: running.length }, 'Daemon started')
 }
 

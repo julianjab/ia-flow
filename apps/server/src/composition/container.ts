@@ -77,6 +77,7 @@ import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import type { IActionRepository } from '../domain/ports/IActionRepository.js'
+import type { IAgentAbortRepository } from '../domain/ports/IAgentAbortRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -103,6 +104,7 @@ import {
   RemoteExecutionLogRepository,
   SourceTaggingExecutionLogRepository,
   SqliteActionRepository,
+  SqliteAgentAbortRepository,
   SqliteAgentMemoryRepository,
   SqliteAgentRepository,
   SqliteEnvVarRepository,
@@ -389,6 +391,11 @@ export const runMessageRepo: IRunMessageRepository = new SqliteRunMessageReposit
 // `execution_logs`: aquélla es historia y vive para siempre, ésta es basura en
 // cuanto el run termina — ver la migración 066 por las otras tres razones.
 export const runCheckpointRepo: IRunCheckpointRepository = new SqliteRunCheckpointRepository(db)
+
+// Bookkeeping de upstream-aborts (stream stall / overload del provider) — ver
+// packages/agent-engine `AgentAbortPort` y `069-agent-aborts`. Sin variante
+// YAML: es estado de runtime, no config.
+export const agentAbortRepo: IAgentAbortRepository = new SqliteAgentAbortRepository(db)
 
 // El board tal como lo dejó el scan anterior. Sin variante YAML: es estado de
 // runtime, no config — un deploy headless lo construye solo en su primer scan.
@@ -864,6 +871,7 @@ export const orchestrator = new AgentOrchestrator(
     getByTask: (taskId) => runCheckpointRepo.getByTask(taskId),
     delete: (runId) => runCheckpointRepo.delete(runId),
   },
+  agentAbortRepo,
 )
 
 export const dispatcher = new TaskDispatcher(

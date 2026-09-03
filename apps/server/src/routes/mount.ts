@@ -13,6 +13,7 @@ import type { Hono } from 'hono'
 import { createGithubRouter } from '../adapters/github/routes.js'
 import { assistWithAiUseCase, systemPromptRepo } from '../composition/container.js'
 import { createActionsRouter } from './actions.js'
+import { createAgentAbortsRouter } from './agent-aborts.js'
 import { createAgentsCrudRouter } from './agents-crud.js'
 import { createAgentsRouter } from './agents.js'
 import { createEnvVarsRouter } from './env-vars.js'
@@ -49,6 +50,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/repos', createReposRouter())
   app.route('/api/providers', createProvidersRouter())
   app.route('/api/provider-registrations', createProviderRegistrationsRouter())
+  app.route('/api/agent-aborts', createAgentAbortsRouter())
   app.route('/api/projects', createProjectsRouter(systemPromptRepo))
   app.route('/api/projects/:id/source', createProjectSourceRouter())
   app.route('/api/project-config', createProjectConfigRouter())

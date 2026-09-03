@@ -10,6 +10,7 @@ import { registerAction } from '@ia-flow/rules'
 import { AgentAction } from '../adapters/actions/agent-action.js'
 import { EmitAction } from '../adapters/actions/emit-action.js'
 import { HttpAction } from '../adapters/actions/http-action.js'
+import { createRedispatchAborted } from '../adapters/actions/redispatch-aborted.js'
 import { createResolveEventItem } from '../adapters/actions/resolve-event-item.js'
 import { createResolveRuleConversation } from '../adapters/actions/resolve-rule-conversation.js'
 import { ScriptAction } from '../adapters/actions/script-action.js'
@@ -42,6 +43,15 @@ export const resolveEventItem = createResolveEventItem({ sourceFor: getSourceFor
 export const resolveRuleConversation = createResolveRuleConversation({
   managerFor,
   resolveItem: resolveEventItem,
+})
+
+/** Vuelve a correr el agente de un `AgentAbortRecord` — usado tanto por el
+ *  barrido automático de `daemon.ts` como por el botón manual de
+ *  `routes/agent-aborts.ts`. */
+export const redispatchAborted = createRedispatchAborted({
+  sourceFor: getSourceForProjectId,
+  managerFor,
+  dispatch: (item, manager, agentId, opts) => dispatcher.dispatch(item, manager, agentId, opts),
 })
 
 let registered = false
