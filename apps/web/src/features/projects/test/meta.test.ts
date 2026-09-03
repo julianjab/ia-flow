@@ -21,7 +21,20 @@ describe('projectSourceUrl', () => {
     ).toBe('https://github.com/julianjab/accountant/issues')
   })
 
-  it('github-hybrid linkea al repo/issues, no al board — el set lo define el repo', () => {
+  it('github-projects con owner+repo linkea al repo/issues, no al board — reemplaza a github-hybrid', () => {
+    expect(
+      projectSourceUrl({
+        kind: 'github-projects',
+        config: {
+          owner: 'julianjab',
+          repo: 'accountant',
+          url: 'https://github.com/users/julianjab/projects/2',
+        },
+      } as SourceRef),
+    ).toBe('https://github.com/julianjab/accountant/issues')
+  })
+
+  it('github-hybrid (alias legacy) linkea al repo/issues, no al board — el set lo define el repo', () => {
     expect(
       projectSourceUrl({
         kind: 'github-hybrid',

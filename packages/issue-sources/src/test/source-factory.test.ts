@@ -106,14 +106,9 @@ describe('createDefaultSourceFactory', () => {
     listStatuses: async () => [],
   }
 
-  it('lists every kind this package ships support for — sin el alias deprecado', () => {
+  it('lists every kind this package ships support for — sin los alias deprecados', () => {
     const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
-    expect(factory.listKinds()).toEqual([
-      'github-projects',
-      'local',
-      'github-issues',
-      'github-hybrid',
-    ])
+    expect(factory.listKinds()).toEqual(['github-projects', 'local', 'github-issues'])
   })
 
   it("sigue construyendo el kind viejo 'github' — las filas ya persistidas no se rompen", () => {
@@ -172,7 +167,7 @@ describe('createDefaultSourceFactory', () => {
     ).toThrow(/anchorLabel/)
   })
 
-  it('builds a GithubHybridSource for the github-hybrid kind', () => {
+  it('builds a GithubHybridSource for the github-hybrid kind (alias legacy)', () => {
     const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
     const source = factory.get(
       project('p1', {
@@ -187,16 +182,30 @@ describe('createDefaultSourceFactory', () => {
     expect(source.kind).toBe('github-hybrid')
   })
 
-  it('throws when github-hybrid is missing the issues half of the config', () => {
+  it('builds a GithubHybridSource for github-projects cuando la config trae owner+repo', () => {
     const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
-    expect(() =>
-      factory.get(
-        project('p1', {
-          kind: 'github-hybrid',
-          config: { url: 'https://github.com/orgs/la-haus/projects/1' },
-        }),
-      ),
-    ).toThrow(/config\.owner/)
+    const source = factory.get(
+      project('p1', {
+        kind: 'github-projects',
+        config: {
+          owner: 'la-haus',
+          repo: 'ia-flow',
+          url: 'https://github.com/orgs/la-haus/projects/1',
+        },
+      }),
+    )
+    expect(source.kind).toBe('github-hybrid')
+  })
+
+  it('github-hybrid sin la mitad de issues cae a un GitHubProjectSource liso — ya no es un error', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    const source = factory.get(
+      project('p1', {
+        kind: 'github-hybrid',
+        config: { url: 'https://github.com/orgs/la-haus/projects/1' },
+      }),
+    )
+    expect(source.kind).toBe('github-projects')
   })
 
   it('throws when github-hybrid is missing the board url', () => {
