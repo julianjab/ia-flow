@@ -1,14 +1,23 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
+import * as agentEngine from '@ia-flow/agent-engine'
 import type { ExecutionLog } from '@ia-flow/shared'
 
 // executions.ts imports executionLogRepo from composition/container.js
 // (service locator) and getPendingTask/removePendingTask from
-// @ia-flow/agent-engine directly — mock.module both BEFORE importing the
-// route so this test never opens a real SQLite connection or touches the
-// real pending-task registry. Same rationale as agents-crud.test.ts
-// avoiding container.js: it opens a real DB connection as an import side
-// effect. No other test file in this repo mocks these two modules, so
-// there's no cross-file leakage to worry about.
+// @ia-flow/agent-engine directly — mock.module container.js (it opens a real
+// SQLite connection as an import side effect; same rationale as
+// agents-crud.test.ts avoiding it) BEFORE importing the route.
+//
+// getPendingTask/removePendingTask are stubbed with `spyOn` instead of
+// `mock.module`: a `mock.module('@ia-flow/agent-engine', ...)` replaces the
+// module record for the WHOLE process, and any file whose import of that
+// specifier resolves AFTER this one — `pending-task-rehydrator.test.ts`
+// does, via `pending-task-rehydrator.ts` — binds to the substitute record
+// forever, even past this file's cleanup. That left `reconcileOrphanedRuns`
+// reading `pendingTask` (this file's own closure var) instead of the real
+// registry and closing a run it should have skipped. `spyOn` mutates the
+// two exports in place on the ONE real module record everyone shares, so
+// `mockRestore()` in `afterAll` is visible to every importer again.
 const rows = new Map<string, ExecutionLog>()
 
 function seed(execs: ExecutionLog[]) {
@@ -31,18 +40,21 @@ const fakeRepo = {
 }
 
 let pendingTask: { cancel?: () => Promise<void> } | undefined
-const getPendingTaskMock = mock(() => pendingTask)
-const removePendingTaskMock = mock(() => {})
+const getPendingTaskMock = spyOn(agentEngine, 'getPendingTask').mockImplementation(
+  () => pendingTask as never,
+)
+const removePendingTaskMock = spyOn(agentEngine, 'removePendingTask').mockImplementation(() => {})
 
 mock.module('../../composition/container.js', () => ({
   executionLogRepo: fakeRepo,
   executionStatsRepo: {},
   INSTANCE_ID: 'this-runner',
 }))
-mock.module('@ia-flow/agent-engine', () => ({
-  getPendingTask: getPendingTaskMock,
-  removePendingTask: removePendingTaskMock,
-}))
+
+afterAll(() => {
+  getPendingTaskMock.mockRestore()
+  removePendingTaskMock.mockRestore()
+})
 
 const { createExecutionsRouter } = await import('../executions.js')
 
