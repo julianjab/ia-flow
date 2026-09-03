@@ -457,6 +457,52 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
     expect(outcome).toBe('deferred')
   })
 
+  it('el run en vuelo es de OTRO agente pero `liveInject: true`: sí encola y devuelve skipped', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(activeRun({ agentId: 'ia-flow-reviewer' })),
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+      liveInject: true,
+    })
+
+    expect(enqueue).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      body: 'ajustá el PRD contra el comentario',
+      source: 'rule-dispatch',
+    })
+    expect(outcome).toBe('skipped')
+  })
+
+  it('`liveInject: true` pero sin provider que drene en vivo: sigue sin encolar, difiere', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(activeRun({ agentId: 'ia-flow-reviewer', providerId: 'iterm-claude' })),
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+      liveInject: true,
+    })
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(outcome).toBe('deferred')
+  })
+
   it('el run en vuelo es del mismo agente pero en un provider que no drena en vivo (terminal/remoto): no encola, difiere', async () => {
     const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
