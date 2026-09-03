@@ -357,6 +357,35 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
     expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '[]')).toEqual(['module', 'time', 'msg'])
   })
 
+  // Sin esto, arrastrar una columna no daba ninguna pista de dónde iba a
+  // quedar hasta soltar — el pedido concreto que motivó el fix.
+  it('mientras se arrastra, el origen se atenúa y el destino se resalta', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    const moduleHeader = wrapper.find('[data-testid="server-logs-col-header-module"]')
+    const timeHeader = wrapper.find('[data-testid="server-logs-col-header-time"]')
+
+    await moduleHeader.trigger('dragstart')
+    expect(moduleHeader.classes()).toContain('log-col-header--dragging')
+
+    await timeHeader.trigger('dragover')
+    expect(timeHeader.classes()).toContain('log-col-header--drag-over')
+    // El origen nunca se marca como "destino" de sí mismo.
+    expect(moduleHeader.classes()).not.toContain('log-col-header--drag-over')
+    // No sólo el header — TODA la columna (la celda de cada fila) se pinta.
+    // El fixture tiene 7 líneas.
+    expect(wrapper.findAll('.log-cell--drag-over')).toHaveLength(7)
+
+    await timeHeader.trigger('dragleave')
+    expect(timeHeader.classes()).not.toContain('log-col-header--drag-over')
+    expect(wrapper.findAll('.log-cell--drag-over')).toHaveLength(0)
+
+    // dragend (soltar afuera, Esc, etc.) apaga el estado "atenuado" del
+    // origen aunque nunca haya habido un drop.
+    await moduleHeader.trigger('dragend')
+    expect(moduleHeader.classes()).not.toContain('log-col-header--dragging')
+  })
+
   it('el buscador del picker filtra por nombre, en base y en extras', async () => {
     const wrapper = mount(ServerLogsSection)
     await flushPromises()
