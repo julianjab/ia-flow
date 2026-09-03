@@ -204,6 +204,77 @@ describe('GitHubProjectSource.getItemById', () => {
   })
 })
 
+describe('GitHubProjectSource.getItemByIssueId', () => {
+  // Distinto de getItemById: acá el id que llega es el del ISSUE (lo único
+  // que traen los webhooks de issue_comment/issues), no el del ProjectV2Item
+  // — la fuente tiene que navegar `Issue.projectItems` y quedarse con el que
+  // pertenece a ESTE proyecto.
+  function issueRouter(variables: Record<string, unknown>): unknown {
+    if (variables.org || variables.user) return META_RESPONSE
+    if (variables.issueId) {
+      return {
+        node: {
+          projectItems: {
+            nodes: [
+              // Item de OTRO proyecto — tiene que descartarse, no matchear
+              // por casualidad con el primero de la lista.
+              { ...itemNode({ id: 'PVTI_other' }), project: { id: 'PVT_other' } },
+              { ...itemNode({ id: 'PVTI_1' }), project: { id: 'PVT_1' } },
+            ],
+          },
+        },
+      }
+    }
+    throw new Error(`issueRouter: unrouted variables ${JSON.stringify(variables)}`)
+  }
+
+  test('resuelve el Issue al ProjectV2Item de ESTE proyecto, filtrando por project.id', async () => {
+    const { calls } = stubFetch(issueRouter)
+    const source = new GitHubProjectSource(URL)
+    const item = await source.getItemByIssueId('I_42')
+    expect(item?.id).toBe('PVTI_1')
+    expect(calls.some((c) => c.variables.issueId)).toBe(true)
+    expect(calls.some((c) => c.variables.itemId)).toBe(false)
+  })
+
+  test('el issue no está en NINGÚN item de este proyecto → null, no el primero que aparezca', async () => {
+    stubFetch((v) => {
+      if (v.org || v.user) return META_RESPONSE
+      if (v.issueId) {
+        return {
+          node: {
+            projectItems: { nodes: [{ ...itemNode(), project: { id: 'PVT_other' } }] },
+          },
+        }
+      }
+      throw new Error('unrouted')
+    })
+    const source = new GitHubProjectSource(URL)
+    expect(await source.getItemByIssueId('I_42')).toBeNull()
+  })
+
+  test('un Issue que ya no existe es null — mismo tratamiento de NOT_FOUND que getItemById', async () => {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      if (body.variables.issueId) {
+        return new Response(
+          JSON.stringify({
+            data: { node: null },
+            errors: [{ type: 'NOT_FOUND', message: "Could not resolve to a node with the global id of 'I_gone'." }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(JSON.stringify({ data: META_RESPONSE }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const source = new GitHubProjectSource(URL)
+    expect(await source.getItemByIssueId('I_gone')).toBeNull()
+  })
+})
+
 describe('GitHubProjectSource.watch — polling mode', () => {
   test('arms a timer without an immediate tick, then fetches the full list', async () => {
     const { calls } = stubFetch(router)
