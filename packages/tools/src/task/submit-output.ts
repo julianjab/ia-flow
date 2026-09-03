@@ -108,9 +108,13 @@ registerTool({
   input_schema: {
     type: 'object',
     properties: {
-      task_id: { type: 'string', description: 'Task ID — usa el valor de {{task.id}} del prompt.' },
+      task_id: {
+        type: 'string',
+        description:
+          'Opcional — se resuelve del contexto del run. Completalo sólo si necesitás ser explícito.',
+      },
     },
-    required: ['task_id'],
+    required: [],
   },
   // El schema real depende del agente, así que se arma por dispatch — igual
   // que el enum de `select_exit`.
@@ -118,9 +122,13 @@ registerTool({
     const fields = opts?.outputFields
     if (!fields || Object.keys(fields).length === 0) return undefined
     const properties: Record<string, unknown> = {
-      task_id: { type: 'string', description: 'Task ID — usa el valor de {{task.id}} del prompt.' },
+      task_id: {
+        type: 'string',
+        description:
+          'Opcional — se resuelve del contexto del run. Completalo sólo si necesitás ser explícito.',
+      },
     }
-    const required = ['task_id']
+    const required: string[] = []
     for (const [name, field] of Object.entries(fields)) {
       properties[name] = describeField(name, field)
       if (!field.optional) required.push(name)
@@ -132,7 +140,7 @@ registerTool({
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = (rawInput ?? {}) as Record<string, unknown>
-    const taskId = String(input.task_id ?? '')
+    const taskId = String(input.task_id ?? ctx?.taskId ?? '')
     const resolved = await resolvePendingTask(taskId, ctx?.runId)
     if (!resolved) throw new Error(`No hay tarea activa con id '${taskId}'`)
 
