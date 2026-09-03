@@ -7,9 +7,13 @@
 // accidente: no hay forma de importar el cuerpo sin haber pasado por el
 // entrypoint.
 //
-// Corre el mismo daemon que `server.ts` contra la misma selección de agentes,
-// pero no abre WebSocket, no registra providers de terminal y —salvo que su
-// config diga `api: full`— no monta los 24 routers.
+// Corre el mismo daemon que `server.ts` contra la misma selección de agentes.
+// No registra providers de terminal (no hay tmux/iTerm en un headless) y
+// —salvo que su config diga `api: full`— no monta los 24 routers. El
+// WebSocket de logs/ejecuciones en vivo es opt-in con `settings.websocket`
+// (exige `api: full`) — apagado es el default histórico: sin él, los eventos
+// siguen viajando al server principal por el forward de ejecuciones
+// (`upstream` del runner.yaml), como siempre.
 //
 // **Eso es lo que reemplaza a `apps/agent-runner/entrypoint.sh`.** Ese script
 // arrancaba dos procesos —el server completo y `scripts/webhook-proxy.ts`—
@@ -33,11 +37,12 @@ import {
   slack,
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
-import { createLogger, flushOtel, initOtelSink } from '../logger.js'
+import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
 import { createApiAuthMiddleware } from '../routes/api-auth.js'
 import { mountApiRoutes } from '../routes/mount.js'
 import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
+import { secretEquals } from '../routes/remote-logs-logic.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { getRunnerConfig, getRunnerEnvReport } from '../runner/config.js'
 import { resolveWebhookSecret } from '../runner/webhook-secret.js'
@@ -83,15 +88,61 @@ const remoteProviders = cfg.settings?.remoteProviders ?? true
 const api = cfg.settings?.api ?? 'full'
 if (remoteProviders) void remoteProviderHealth.start()
 
+// `websocket` cruza con `api`: sin los 24 routers montados no hay ejecución
+// que dispare eventos para mandar por el socket, y `mountApiRoutes` es lo
+// único que llama a `broadcastFn` desde una ruta. Zod no valida esta
+// combinación (son dos campos hermanos del mismo objeto) — se resuelve acá,
+// con un warn en vez de un throw: es una config a medias, no una imposible de
+// arrancar con (el runner sigue sirviendo el webhook igual que siempre).
+const websocketRequested = cfg.settings?.websocket ?? false
+if (websocketRequested && api !== 'full') {
+  log.warn(
+    { api },
+    'settings.websocket pide el WS pero settings.api no es "full" — /ws queda apagado',
+  )
+}
+const websocket = websocketRequested && api === 'full'
+
 // El volcado del YAML al entorno ya ocurrió (en main.ts, antes de que este
 // módulo existiera); se loguea acá porque recién ahora el logger nació con el
 // LOG_LEVEL que ese mismo volcado configuró.
 log.info(getRunnerEnvReport() ?? {}, 'runner.yaml aplicado al entorno del proceso')
 
-// El broadcast del `full` empuja a los clientes WS. Acá no hay ninguno, así
-// que se deja el no-op del container: los eventos igual viajan al server
-// principal por el forward de ejecuciones (`upstream` del runner.yaml).
-broadcast.setFn(() => {})
+// El `Set` de clientes vive acá arriba (no en el bloque del `Bun.serve`, más
+// abajo) porque `broadcast`/`setLogBroadcast` se cablean ANTES de levantar el
+// server — un log durante `runMigrations()` o el fetch de credenciales de
+// GitHub, unas líneas más abajo, ya debería llegar a un cliente que conectó
+// rápido.
+//
+// Sin `settings.websocket`, `wsSet` queda vacío para siempre y `broadcastFn`
+// es un JSON.stringify que nadie lee — barato, y evita un segundo branch
+// (`websocket ? broadcastFn : noop`) en cada uno de los tres call sites de
+// abajo.
+const wsSet = new Set<{ send(data: string): void }>()
+function broadcastFn(msg: object) {
+  const payload = JSON.stringify(msg)
+  for (const ws of wsSet) {
+    try {
+      ws.send(payload)
+    } catch {
+      wsSet.delete(ws)
+    }
+  }
+}
+
+if (websocket) {
+  // Mismo cableado que `server-boot.ts`: `broadcast.setFn` empuja los
+  // eventos de ejecución, `setLogBroadcast` espeja cada línea de log para que
+  // un cliente vea el mismo detalle que el flavor `full` — sin esto el WS
+  // abriría pero se quedaría mudo salvo por `{type:'connected'}`.
+  broadcast.setFn(broadcastFn)
+  setLogBroadcast(broadcastFn)
+} else {
+  // Los eventos igual viajan al server principal por el forward de
+  // ejecuciones (`upstream` del runner.yaml) — este no-op sólo apaga el WS
+  // local, no el resto del pipeline de logs.
+  broadcast.setFn(() => {})
+}
 
 await runMigrations()
 
@@ -211,12 +262,57 @@ app.get('/health', (c) => c.json({ ok: true, flavor: 'runner', ts: new Date().to
 app.all('*', (c) => c.text('Not found', 404))
 
 const port = resolveServerPort()
-const server = Bun.serve({ port, fetch: app.fetch })
+
+// Fail-closed igual que `createApiAuthMiddleware`: sin `IA_FLOW_API_TOKEN`
+// configurado, `/ws` no acepta NADA — no hay forma de correr este flavor con
+// el socket "abierto igual". Se lee acá y no una vez arriba porque
+// `envRepo.loadIntoProcess()` (unas líneas más arriba) puede haber agregado
+// el token recién ahora si el operador lo guardó desde la pantalla de
+// Configuración en vez del runner.yaml.
+//
+// Query param y no `x-ia-flow-token`/`Authorization`: un browser no puede
+// mandar headers custom en el handshake de un WebSocket (`new WebSocket(url)`
+// no tiene esa API), así que el resto de la API usa headers y este único
+// endpoint usa `?token=`.
+function wsAuthorized(req: Request): boolean {
+  const secret = process.env.IA_FLOW_API_TOKEN?.trim()
+  if (!secret) return false
+  const provided = new URL(req.url).searchParams.get('token') ?? undefined
+  return secretEquals(provided, secret)
+}
+
+const server = websocket
+  ? Bun.serve({
+      port,
+      fetch(req, srv) {
+        if (new URL(req.url).pathname === '/ws') {
+          if (!wsAuthorized(req)) return new Response('Unauthorized', { status: 401 })
+          const ok = srv.upgrade(req)
+          return ok ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
+        }
+        return app.fetch(req)
+      },
+      websocket: {
+        open(ws) {
+          wsSet.add(ws as unknown as { send(data: string): void })
+          ws.send(JSON.stringify({ type: 'connected' }))
+        },
+        close(ws) {
+          wsSet.delete(ws as unknown as { send(data: string): void })
+        },
+        message() {
+          // Sin mensajes cliente→server: es un feed de sólo lectura.
+        },
+      },
+    })
+  : Bun.serve({ port, fetch: app.fetch })
 
 log.info(
   {
     port,
     api,
+    websocket,
+    ws: websocket ? `ws://localhost:${port}/ws?token=***` : undefined,
     projects: cfg.projects.map((p) => p.id),
     agents: cfg.agents.length,
     github: identity,

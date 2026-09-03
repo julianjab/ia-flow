@@ -136,6 +136,31 @@ export const RunnerSettingsSchema = z
      */
     api: z.enum(['full', 'none']).optional(),
     /**
+     * Abre `/ws` (el mismo protocolo que el flavor `full`: logs y ejecuciones
+     * en vivo) sobre el puerto de `port`/`resolveServerPort()`. Default
+     * `false` — es un endpoint nuevo que hay que exponer/proteger a mano
+     * (ingress, secreto), no algo que un deploy existente deba heredar solo
+     * por actualizar de versión.
+     *
+     * Exige `api: full`: sin los routers montados no hay ejecución que
+     * dispare eventos para mandar por el socket. `runner-boot.ts` lo valida
+     * en el boot (warn + queda apagado) en vez de acá — `api` y `websocket`
+     * son dos campos independientes del mismo objeto, y Zod no valida
+     * combinaciones entre hermanos sin un `.refine()` a nivel objeto que acá
+     * no vale la pena por un solo cruce.
+     *
+     * El handshake NO usa el header `x-ia-flow-token`/`Authorization` del
+     * resto de la API: un browser no puede mandar headers custom al abrir un
+     * WebSocket. Va como query param `?token=` contra el mismo
+     * `IA_FLOW_API_TOKEN` — fail-closed igual que `createApiAuthMiddleware`:
+     * sin el token configurado, `/ws` rechaza toda conexión.
+     *
+     * Como `api`, NO mapea a una env var: lo lee el flavor directo de la
+     * config (no hay ningún módulo fuera de `entry/` que necesite saber si
+     * el socket está prendido).
+     */
+    websocket: z.boolean().optional(),
+    /**
      * Collector OTLP/HTTP al que exportar los logs. Vacío = sink apagado.
      * → OTEL_EXPORTER_OTLP_ENDPOINT
      *
