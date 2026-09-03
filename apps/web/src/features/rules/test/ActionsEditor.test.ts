@@ -74,6 +74,50 @@ describe('ActionsEditor', () => {
     expect(lastEmitted(wrapper)[0]).toMatchObject({ action: 'emit', continueOnError: true })
   })
 
+  // Mismo caso que continueOnError: `when` condiciona el PASO, no el tipo de
+  // acción — cambiar de http a emit no debería borrar en silencio la
+  // condición que el operador ya escribió.
+  it('conserva when al cambiar de tipo', async () => {
+    const wrapper = mountEditor([
+      {
+        action: 'http',
+        url: 'https://x',
+        method: 'POST',
+        when: [{ field: 'steps.triage.output.actionable', op: '=', value: 'true' }],
+      } as RuleActionEntry,
+    ])
+    await pickKind(wrapper, 'emit')
+    expect(lastEmitted(wrapper)[0]).toMatchObject({
+      action: 'emit',
+      when: [{ field: 'steps.triage.output.actionable', op: '=', value: 'true' }],
+    })
+  })
+
+  it('el editor de when de una acción escribe en su entrada, no en otras', async () => {
+    const wrapper = mountEditor([
+      { action: 'agent', agentId: 'a' } as RuleActionEntry,
+      { action: 'agent', agentId: 'b' } as RuleActionEntry,
+    ])
+    // Sin filas todavía (ninguna trae `when`): hay que agregar una con el
+    // botón "+" del `ConditionRowsEditor` de la SEGUNDA tarjeta antes de
+    // poder escribir en su campo. `.ae-body` usa v-show, no v-if, así que la
+    // tarjeta no hace falta abrirla para interactuar con sus inputs.
+    const cards = wrapper.findAll('.ae-card')
+    expect(cards).toHaveLength(2)
+    await cards[1].find('.ff-add').trigger('click')
+    const fieldInput = cards[1].find('input[placeholder="p. ej. steps.triage.output.actionable"]')
+    await fieldInput.setValue('steps.triage.output.actionable')
+
+    const emitted = lastEmitted(wrapper)
+    expect(emitted[0]).toMatchObject({ action: 'agent', agentId: 'a' })
+    expect((emitted[0] as { when?: unknown }).when).toBeUndefined()
+    expect(emitted[1]).toMatchObject({
+      action: 'agent',
+      agentId: 'b',
+      when: [{ field: 'steps.triage.output.actionable', op: '=' }],
+    })
+  })
+
   it('arrastrar una acción sobre otra reordena sin perder ninguna', async () => {
     const wrapper = mountEditor([
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
