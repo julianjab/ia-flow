@@ -392,7 +392,28 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
     expect(outcome).toBe('deferred')
   })
 
-  it('encola el brief en la conversación en vez de perderlo, y devuelve skipped (no deferred) para no reintentar y duplicarlo', async () => {
+  function activeRun(over: Partial<ExecutionLog> = {}): ExecutionLog {
+    return {
+      id: 'exec-live',
+      projectId: 'p1',
+      taskId: 'task-1',
+      taskTitle: 'T',
+      agentId: 'ia-flow-refiner',
+      providerId: 'anthropic-api',
+      startedAt: '2024-01-01T00:00:00.000Z',
+      finishedAt: null,
+      outcome: null,
+      errorMsg: null,
+      stopReason: null,
+      ...over,
+    } as ExecutionLog
+  }
+
+  function fakeLogRepo(row: ExecutionLog | undefined): IExecutionLogRepository {
+    return { list: () => (row ? [row] : []) } as unknown as IExecutionLogRepository
+  }
+
+  it('el run en vuelo es del MISMO agente en anthropic-api: encola y devuelve skipped, no deferred', async () => {
     const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
@@ -400,7 +421,7 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       broadcast,
       configRepo,
       undefined,
-      undefined,
+      fakeLogRepo(activeRun()),
       { enqueue },
     )
 
@@ -416,6 +437,66 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
     expect(outcome).toBe('skipped')
   })
 
+  it('el run en vuelo es de OTRO agente: no encola (le entregaría el brief al agente equivocado) y difiere', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(activeRun({ agentId: 'ia-flow-reviewer' })),
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+    })
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(outcome).toBe('deferred')
+  })
+
+  it('el run en vuelo es del mismo agente pero en un provider que no drena en vivo (terminal/remoto): no encola, difiere', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(activeRun({ providerId: 'iterm-claude' })),
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+    })
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(outcome).toBe('deferred')
+  })
+
+  it('sin executionLogRepo inyectado no se puede verificar el run en vuelo: no encola, difiere', async () => {
+    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      undefined,
+      { enqueue },
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      brief: 'ajustá el PRD contra el comentario',
+    })
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(outcome).toBe('deferred')
+  })
+
   it('si el enqueue falla, no se entregó nada — difiere para reintentar, no skipea', async () => {
     const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {
@@ -426,7 +507,7 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       broadcast,
       configRepo,
       undefined,
-      undefined,
+      fakeLogRepo(activeRun()),
       { enqueue },
     )
 
@@ -445,7 +526,7 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       broadcast,
       configRepo,
       undefined,
-      undefined,
+      fakeLogRepo(activeRun()),
       { enqueue },
     )
 
