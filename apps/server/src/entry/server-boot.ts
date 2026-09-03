@@ -1,11 +1,12 @@
-// Entrypoint del server completo: 24 routers, WebSocket, providers de terminal
+// El cuerpo del server completo: 24 routers, WebSocket, providers de terminal
 // y el monitor de salud de los remotos. Es lo que corre `bun run dev` y lo que
 // sirve a `apps/web`.
 //
-// Hermano de `runner.ts`. Los dos arrancan el mismo daemon sobre el mismo
-// composition root; la diferencia es qué cablean encima. Este no precarga nada
-// (`setPreloadedConfig` no se llama), así que el container resuelve todo por
-// SQLite y env como siempre.
+// Vive aparte del entrypoint por el mismo motivo que separa `runner.ts` de
+// `runner-boot.ts`: ESTE archivo importa el container —y con él el logger—, y
+// esos imports tienen que ocurrir después de que el entrypoint haya decidido
+// si hay `PreloadedConfig` (ver `server.ts`). Nada de acá sabe de YAMLs; sólo
+// el entrypoint conoce ese formato.
 import { listPendingTasks, removePendingTask } from '@ia-flow/agent-engine'
 import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
