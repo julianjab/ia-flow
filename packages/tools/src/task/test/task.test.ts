@@ -156,6 +156,28 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(body).toContain('**Validaciones**')
   })
 
+  // `none` es para el auto-comment de CIERRE (Agent.ts, complete_task/
+  // fail_task) — acá el modelo pidió explícitamente un hito de progreso.
+  // Publicarlo en silencio lo pisaría; devolver éxito sin publicar le
+  // mentiría al agente sobre qué quedó registrado. Tiene que fallar.
+  it("add_task_comment con comment: 'none' tira en vez de mentir que publicó", async () => {
+    removePendingTask(TASK_ID)
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      exits: { success: 'Done' },
+      commentTarget: 'none',
+    })
+
+    const tool = getTool('add_task_comment')!
+    await expect(
+      tool.execute({ task_id: TASK_ID, what_did: ['x'] }, { repoPaths: {} }),
+    ).rejects.toThrow("comment: 'none'")
+    expect(calls.postComment).toHaveLength(0)
+  })
+
   it('set_task_field → manager.setFields with a single-entry object', async () => {
     const tool = getTool('set_task_field')!
     await tool.execute(
