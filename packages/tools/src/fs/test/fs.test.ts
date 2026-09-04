@@ -20,6 +20,40 @@ afterEach(() => {
   rmSync(repoRoot, { recursive: true, force: true })
 })
 
+describe('resolvePath — path traversal via the "<repo-name>/<subpath>" form', () => {
+  it('fs_read rejects a subpath that escapes the repo with ../..', async () => {
+    // repoRoot and secretDir are siblings directly under os.tmpdir(), so
+    // "../<basename of secretDir>/secret.txt" from repoRoot lands exactly
+    // on secretDir/secret.txt — a realistic "prefix matches, but the rest
+    // of the path escapes" traversal.
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'secret.txt'), 'TOP SECRET')
+    try {
+      const relToOutside = `../${secretDir.split('/').filter(Boolean).at(-1)}/secret.txt`
+      const tool = getTool('fs_read')!
+      await expect(tool.execute({ path: `r/${relToOutside}` }, { repoPaths })).rejects.toThrow(
+        /outside registered repos/,
+      )
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fs_list rejects a path escaping the repo (regression: only the absolute-path branch used to check)', async () => {
+    const tool = getTool('fs_list')!
+    await expect(tool.execute({ path: 'r/../../..' }, { repoPaths })).rejects.toThrow(
+      /outside registered repos/,
+    )
+  })
+
+  it('fs_grep rejects a path escaping the repo', async () => {
+    const tool = getTool('fs_grep')!
+    await expect(tool.execute({ path: 'r/../../..', pattern: 'x' }, { repoPaths })).rejects.toThrow(
+      /outside registered repos/,
+    )
+  })
+})
+
 describe('list_dir honors .gitignore', () => {
   it('excludes files matching root .gitignore patterns', async () => {
     writeFileSync(join(repoRoot, '.gitignore'), 'ignored.txt\nbuild\n')
@@ -541,6 +575,27 @@ describe('fs_grep — context_lines (rg ↔ JS parity)', () => {
     }
   })
 
+  it('caps an absurdly large context_lines instead of dumping the whole file', async () => {
+    const lines = Array.from({ length: 500 }, (_, i) => (i === 250 ? 'HIT here' : `line ${i}`))
+    writeFileSync(join(repoRoot, 'big.ts'), lines.join('\n'))
+
+    const jsResults = await grepWithJs(
+      { path: 'r', pattern: 'HIT', context_lines: 5000 },
+      { repoPaths },
+    )
+    expect(jsResults).toHaveLength(1)
+    // MAX_CONTEXT_LINES (20) before + the match + 20 after = 41 lines, not 500.
+    expect(jsResults[0]!.split('\n').length).toBeLessThanOrEqual(41)
+
+    const rgResults = await grepWithRg(
+      { path: 'r', pattern: 'HIT', context_lines: 5000 },
+      { repoPaths },
+    )
+    if (rgResults !== null) {
+      expect(rgResults[0]!.split('\n').length).toBeLessThanOrEqual(41)
+    }
+  })
+
   it('does not lose the match when the path itself contains "-<digits>-" (regression)', async () => {
     // Regresión: parsear el output de texto plano de rg con un regex
     // `^(.*?)([:-])(\d+)\2(.*)$` clasifica mal un match cuyo path contenga
@@ -606,6 +661,20 @@ describe('fs_grep — dotfiles (rg ↔ JS parity)', () => {
     const rgResults = await grepWithRg({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
     if (rgResults !== null) {
       expect(rgResults.some((r) => r.includes('.github/workflow.yml'))).toBe(true)
+    }
+  })
+})
+
+describe('fs_grep — a subdirectory named like a flag is not misread by rg (regression)', () => {
+  it('searches a "-weird" directory instead of rg treating it as a flag', async () => {
+    mkdirSync(join(repoRoot, '-weird'))
+    writeFileSync(join(repoRoot, '-weird/file.ts'), 'FLAGSAFE hit\n')
+
+    const rgResults = await grepWithRg({ path: 'r/-weird', pattern: 'FLAGSAFE' }, { repoPaths })
+    // null means rg fell back to the JS walk in this environment — still a
+    // valid outcome, just not what this regression targets.
+    if (rgResults !== null) {
+      expect(rgResults.some((r) => r.includes('file.ts'))).toBe(true)
     }
   })
 })
