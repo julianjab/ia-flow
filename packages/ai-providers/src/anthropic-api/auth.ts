@@ -108,13 +108,21 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-/** Exponential backoff with jitter, honoring `retry-after` (seconds) when
- *  the upstream sends one — a 429 telling us exactly how long to wait
- *  shouldn't be second-guessed by our own schedule. */
-function backoffMs(attempt: number, retryAfterHeader: string | null): number {
+/** Tope duro para un `retry-after` — un 429 de una org saturada puede pedir
+ *  minutos de espera, y honrarlo tal cual retendría el lock de la task, el
+ *  worktree y el slot del provider por todo ese tiempo. */
+const MAX_RETRY_AFTER_MS = 60_000
+
+/** Exponential backoff with jitter, honoring `retry-after` (seconds, capped
+ *  at `MAX_RETRY_AFTER_MS`) when the upstream sends one — a 429 telling us
+ *  how long to wait shouldn't be second-guessed by our own schedule, but
+ *  shouldn't be trusted unbounded either. */
+export function backoffMs(attempt: number, retryAfterHeader: string | null): number {
   if (retryAfterHeader) {
     const seconds = Number(retryAfterHeader)
-    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS)
+    }
   }
   const base = Math.min(250 * 2 ** attempt, 8000)
   return base + Math.random() * base
@@ -157,6 +165,9 @@ export async function requestAnthropicApiWithRetry(
     if (res.ok || !RETRYABLE_STATUSES.has(res.status) || attempt >= maxRetries) return res
     const delayMs = backoffMs(attempt, res.headers.get('retry-after'))
     opts.onRetry?.({ attempt: attempt + 2, maxRetries, delayMs, status: res.status })
+    // Nadie va a leer este body — liberá la conexión antes de esperar en vez
+    // de dejarla colgada hasta que el GC la junte.
+    await res.body?.cancel().catch(() => {})
     await sleep(delayMs, opts.signal)
     attempt++
   }

@@ -3,6 +3,7 @@ import {
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
   CLAUDE_CODE_BETAS,
+  backoffMs,
   buildAnthropicAuthHeader,
   buildAnthropicHeaders,
   requestAnthropicApi,
@@ -144,6 +145,20 @@ describe('requestAnthropicApi', () => {
     }) as unknown as typeof fetch
 
     await expect(requestAnthropicApi({}, { headers: {} })).rejects.toThrow('network down')
+  })
+})
+
+describe('backoffMs', () => {
+  it('capea un retry-after enorme para no retener el lock/worktree por minutos', () => {
+    expect(backoffMs(0, '300')).toBe(60_000)
+  })
+
+  it('respeta un retry-after chico, sin capear', () => {
+    expect(backoffMs(0, '2')).toBe(2000)
+  })
+
+  it('ignora un retry-after no numérico y cae al backoff exponencial', () => {
+    expect(backoffMs(0, 'not-a-number')).toBeLessThanOrEqual(500)
   })
 })
 
