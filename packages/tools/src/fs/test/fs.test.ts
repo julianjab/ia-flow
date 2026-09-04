@@ -660,6 +660,18 @@ describe('fs_grep — invalid pattern does not crash the tool', () => {
   })
 })
 
+describe('fs_glob — cap inside a single large directory', () => {
+  it('stops accumulating within one directory instead of matching everything before slicing', async () => {
+    mkdirSync(join(repoRoot, 'big'))
+    for (let i = 0; i < 2100; i++) {
+      writeFileSync(join(repoRoot, `big/f${i}.ts`), 'x')
+    }
+
+    const results = await globWithJs({ path: 'r', pattern: '**/*.ts' }, { repoPaths })
+    expect(results.length).toBeLessThanOrEqual(200)
+  })
+})
+
 describe('fs_glob', () => {
   it('finds files matching a recursive glob (rg ↔ JS parity)', async () => {
     mkdirSync(join(repoRoot, 'apps/server'), { recursive: true })
@@ -716,5 +728,29 @@ describe('fs_glob', () => {
 
     expect(out).toContain('a/hit.test.ts')
     expect(out).not.toContain('b/hit.test.ts')
+  })
+
+  it('a slash-less pattern matches the basename at any depth (rg ↔ JS parity)', async () => {
+    // Regresión: `*.ts` (sin "/") tiene que encontrar archivos a cualquier
+    // profundidad, como hace `rg --glob` — no sólo los del nivel raíz.
+    mkdirSync(join(repoRoot, 'deep/er'), { recursive: true })
+    writeFileSync(join(repoRoot, 'root.ts'), 'x')
+    writeFileSync(join(repoRoot, 'deep/mid.ts'), 'x')
+    writeFileSync(join(repoRoot, 'deep/er/leaf.ts'), 'x')
+    writeFileSync(join(repoRoot, 'deep/er/leaf.md'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '*.ts' }, { repoPaths })
+
+    expect(out).toContain('root.ts')
+    expect(out).toContain('deep/mid.ts')
+    expect(out).toContain('deep/er/leaf.ts')
+    expect(out).not.toContain('leaf.md')
+
+    const jsResults = await globWithJs({ path: 'r', pattern: '*.ts' }, { repoPaths })
+    const rgResults = await globWithRg({ path: 'r', pattern: '*.ts' }, { repoPaths })
+    if (rgResults !== null) {
+      expect([...rgResults].sort()).toEqual([...jsResults].sort())
+    }
   })
 })
