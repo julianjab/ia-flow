@@ -272,7 +272,10 @@ registerTool({
     const abs = resolvePath(input.path, ctx.repoPaths)
     if (!existsSync(abs)) return `Path not found: ${input.path}`
 
-    const depth = Math.min(FS_LIST_MAX_DEPTH, Math.max(1, Math.trunc(input.depth ?? 1)))
+    const rawDepth = Number(input.depth)
+    const depth = Number.isFinite(rawDepth)
+      ? Math.min(FS_LIST_MAX_DEPTH, Math.max(1, Math.trunc(rawDepth)))
+      : 1
     const lines: string[] = []
     const capped = await listTree(abs, '', depth, ctx, lines)
     const notice = capped
@@ -547,9 +550,11 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   }
   if (input.case_insensitive) args.push('--ignore-case')
   if (input.glob) args.push('--glob', input.glob)
-  // Parity with the JS walk's explicit directory exclusions. rg already
-  // respects .gitignore, but many repos don't ignore build/vendor dirs.
-  for (const dir of ['node_modules', 'dist', '__pycache__', 'vendor']) {
+  // Parity with `fs_list`/`grepWithJs`: dotfiles/dot-directories are visible
+  // (rg skips them by default, unlike the JS walk) — only .git and the
+  // build/vendor noise stay excluded.
+  args.push('--hidden')
+  for (const dir of ['.git', 'node_modules', 'dist', '__pycache__', 'vendor']) {
     args.push('--glob', `!${dir}`)
   }
   args.push(searchTarget)
@@ -559,7 +564,10 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
     proc = Bun.spawn([rgPath, ...args], {
       cwd: repoRoot,
       stdout: 'pipe',
-      stderr: 'pipe',
+      // No se lee nunca — un rg que escribe más que el buffer del pipe
+      // (warnings de binarios/paths ilegibles en un árbol grande) bloquearía
+      // escribiendo y `await proc.exited` no resolvería jamás.
+      stderr: 'ignore',
     })
   } catch (err) {
     log.debug(
@@ -652,8 +660,12 @@ registerTool({
 
     if (results.length === 0) return `No matches found for '${input.pattern}'`
 
-    const offset = parseGrepCursor(input.cursor)
     const total = results.length
+    const requestedOffset = parseGrepCursor(input.cursor)
+    if (requestedOffset >= total) {
+      return `No more matches — the cursor is past the last one (${total} total).`
+    }
+    const offset = requestedOffset
     const page = results.slice(offset, offset + DEFAULT_GREP_LIMIT)
     const end = offset + page.length
     const kind = grepInput.files_only ? 'files' : 'matches'
@@ -782,14 +794,22 @@ async function globWithRg(input: GlobInput, ctx: ToolContext): Promise<string[] 
   const [repoName, repoRoot] = owner
   const prefix = relative(repoRoot, abs)
 
-  const args = ['--files', '--glob', input.pattern, '--color', 'never']
-  for (const dir of ['node_modules', 'dist', '__pycache__', 'vendor']) {
+  // Parity with `fs_list`: dotfiles/dot-directories are visible — rg skips
+  // them by default, unlike the JS walk, which doesn't filter them either.
+  const args = ['--files', '--hidden', '--glob', input.pattern, '--color', 'never']
+  for (const dir of ['.git', 'node_modules', 'dist', '__pycache__', 'vendor']) {
     args.push('--glob', `!${dir}`)
   }
 
   let proc: ReturnType<typeof Bun.spawn>
   try {
-    proc = Bun.spawn([rgPath, ...args], { cwd: abs, stdout: 'pipe', stderr: 'pipe' })
+    proc = Bun.spawn([rgPath, ...args], {
+      cwd: abs,
+      stdout: 'pipe',
+      // Igual que en grepWithRg: sin consumirlo, un rg que llena el buffer
+      // de stderr se cuelga esperando que alguien lo lea.
+      stderr: 'ignore',
+    })
   } catch (err) {
     log.debug(
       { err: err instanceof Error ? err.message : String(err) },
@@ -798,14 +818,22 @@ async function globWithRg(input: GlobInput, ctx: ToolContext): Promise<string[] 
     return null
   }
 
-  const stdout = await new Response(proc.stdout as ReadableStream<Uint8Array>).text()
+  // `--files` es un path por línea; el margen sobre GLOB_MAX_RESULTS es más
+  // chico que el de grep (no hay contexto ni begin/end por archivo), pero
+  // sigue haciendo falta: sin cota acá, `Promise.all` de stats de abajo
+  // dispararía uno por cada archivo del repo antes de poder recortar.
+  const stdout = await readBounded(proc, GLOB_MAX_RESULTS * 25)
   const exitCode = await proc.exited
-  if (exitCode !== 0 && exitCode !== 1) {
+  const cutEarly = stdout.split('\n').length > GLOB_MAX_RESULTS * 25
+  if (!cutEarly && exitCode !== 0 && exitCode !== 1) {
     log.debug({ exitCode }, 'rg errored, falling back to JS walk')
     return null
   }
 
-  const files = stdout.split('\n').filter(Boolean)
+  const files = stdout
+    .split('\n')
+    .filter(Boolean)
+    .slice(0, GLOB_MAX_RESULTS * 25)
   const withMtime = await Promise.all(
     files.map(async (rel) => {
       const full = join(abs, rel)
