@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { getTool } from '../../engine.js'
@@ -54,6 +54,86 @@ describe('resolvePath — path traversal via the "<repo-name>/<subpath>" form', 
   })
 })
 
+describe('resolvePath — path traversal via a symlink', () => {
+  it('fs_read rejects a symlink that points outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'secret.txt'), 'TOP SECRET')
+    symlinkSync(secretDir, join(repoRoot, 'escape-link'))
+    try {
+      const tool = getTool('fs_read')!
+      await expect(
+        tool.execute({ path: 'r/escape-link/secret.txt' }, { repoPaths }),
+      ).rejects.toThrow(/outside registered repos/)
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fs_list rejects a path that IS a symlink pointing outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'secret.txt'), 'TOP SECRET')
+    symlinkSync(secretDir, join(repoRoot, 'escape-link'))
+    try {
+      const tool = getTool('fs_list')!
+      await expect(tool.execute({ path: 'r/escape-link' }, { repoPaths })).rejects.toThrow(
+        /outside registered repos/,
+      )
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not reject a symlink that points to somewhere else INSIDE the same repo', async () => {
+    mkdirSync(join(repoRoot, 'real'))
+    writeFileSync(join(repoRoot, 'real/inside.txt'), 'fine')
+    symlinkSync(join(repoRoot, 'real'), join(repoRoot, 'alias'))
+
+    const tool = getTool('fs_read')!
+    const out = await tool.execute({ path: 'r/alias/inside.txt' }, { repoPaths })
+    expect(out).toBe('fine')
+  })
+})
+
+describe('grepWithJs — label does not collide with a sibling repo sharing a prefix', () => {
+  it('labels a match under "api" as "api/...", not misattributed to "api-web"', async () => {
+    const apiRoot = mkdtempSync(join(tmpdir(), 'ia-flow-api-'))
+    const apiWebRoot = `${apiRoot}-web`
+    mkdirSync(apiWebRoot)
+    writeFileSync(join(apiRoot, 'a.ts'), 'PREFIXHIT here\n')
+    const twoRepoPaths = { api: apiRoot, 'api-web': apiWebRoot }
+    try {
+      const results = await grepWithJs(
+        { path: 'api', pattern: 'PREFIXHIT' },
+        { repoPaths: twoRepoPaths },
+      )
+      expect(results).toHaveLength(1)
+      expect(results[0]).toStartWith('api/a.ts:')
+    } finally {
+      rmSync(apiRoot, { recursive: true, force: true })
+      rmSync(apiWebRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('grepWithJs — line length cap bounds a pathological pattern/line', () => {
+  it('still finds a match within the cap, and does not hang on a very long line', async () => {
+    // A line well past MAX_GREP_LINE_LENGTH (2000), with a match inside the
+    // bound — the cap must not make normal matches disappear.
+    const long = 'x'.repeat(3000)
+    writeFileSync(join(repoRoot, 'a.ts'), `${'y'.repeat(100)}CAPHIT${long}\n`)
+
+    const results = await grepWithJs({ path: 'r', pattern: 'CAPHIT' }, { repoPaths })
+    expect(results).toHaveLength(1)
+
+    // A catastrophic-backtracking-shaped pattern against a long line must
+    // return quickly instead of hanging the process — this is the actual
+    // regression the cap defends against.
+    writeFileSync(join(repoRoot, 'b.ts'), `${'a'.repeat(3000)}!\n`)
+    const start = performance.now()
+    await grepWithJs({ path: 'r/b.ts', pattern: '(a+)+$' }, { repoPaths })
+    expect(performance.now() - start).toBeLessThan(2000)
+  })
+})
 describe('list_dir honors .gitignore', () => {
   it('excludes files matching root .gitignore patterns', async () => {
     writeFileSync(join(repoRoot, '.gitignore'), 'ignored.txt\nbuild\n')
