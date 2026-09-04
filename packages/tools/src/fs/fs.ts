@@ -29,6 +29,11 @@ const GREP_SAFETY_CAP = 2000
 /** Igual que `GREP_SAFETY_CAP`, pero para `fs_glob` — ahí el límite es
  *  cuántos paths devolver, no matches. */
 const GLOB_MAX_RESULTS = 200
+/** Tope de `context_lines`. Sin esto, `context_lines: 5000` por
+ *  `DEFAULT_GREP_LIMIT` matches devuelve cientos de miles de líneas en una
+ *  sola respuesta — un pedido de contexto no es un pedido de leer el
+ *  archivo entero. */
+const MAX_CONTEXT_LINES = 20
 
 /**
  * Interruptor global del `focus` con Haiku. `IA_FLOW_FILE_SIMPLIFIER=0`
@@ -130,7 +135,15 @@ function resolvePath(path: string, repoPaths: Record<string, string>): string {
   for (const [name, root] of Object.entries(repoPaths)) {
     if (path === name || path.startsWith(name + '/')) {
       const rel = path === name ? '' : path.slice(name.length + 1)
-      return resolve(root, rel)
+      const resolved = resolve(root, rel)
+      // `rel` puede traer `../..` (`"myrepo/../../etc/passwd"`) y salirse del
+      // repo aunque el prefijo matcheara — la rama absoluta de arriba ya se
+      // cuidaba de esto, esta le faltaba. Antes era un descuido de bajo
+      // impacto (una lectura de archivo suelta); con `fs_list` recursivo
+      // (`depth`) y `fs_grep` volcando el árbol/contenido entero, es
+      // exfiltración de lo que sea legible por el proceso.
+      assertInRepo(resolved, repoPaths)
+      return resolved
     }
   }
   throw new Error(
@@ -355,7 +368,10 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
   const flags = input.case_insensitive ? 'i' : ''
   const regex = new RegExp(input.pattern, flags)
   const globRe = input.glob ? globToRegex(input.glob) : null
-  const contextLines = Math.max(0, Math.trunc(input.context_lines ?? 0))
+  const contextLines = Math.min(
+    MAX_CONTEXT_LINES,
+    Math.max(0, Math.trunc(input.context_lines ?? 0)),
+  )
   const filesOnly = !!input.files_only
 
   const results: string[] = []
@@ -542,7 +558,10 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   if (!owner) return null
   const [repoName, repoRoot] = owner
   const searchTarget = relative(repoRoot, abs) || '.'
-  const contextLines = Math.max(0, Math.trunc(input.context_lines ?? 0))
+  const contextLines = Math.min(
+    MAX_CONTEXT_LINES,
+    Math.max(0, Math.trunc(input.context_lines ?? 0)),
+  )
   const filesOnly = !!input.files_only
 
   const args = ['--regexp', input.pattern]
@@ -566,7 +585,10 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   // patrón devuelven los matches en el mismo orden — sin esto, la página 2
   // podía repetir matches de la 1 y omitir otros.
   args.push('--sort', 'path')
-  args.push(searchTarget)
+  // `--` separa flags del argumento posicional: sin esto, un archivo/repo
+  // llamado literalmente "-algo" haría que rg lo interprete como flag en
+  // vez de como el path a buscar.
+  args.push('--', searchTarget)
 
   let proc: ReturnType<typeof Bun.spawn>
   try {
@@ -675,7 +697,15 @@ registerTool({
         // Un patrón válido para la sintaxis de regex de rg (Rust) puede no
         // serlo para `new RegExp` (JS) — p.ej. `(?P<x>...)`. Cuando rg no
         // está disponible y cae acá, ese throw no puede escapar de la tool.
-        return `Invalid pattern '${input.pattern}': ${err instanceof Error ? err.message : String(err)}`
+        // Sólo el error de sintaxis del propio RegExp se convierte en este
+        // mensaje — un rechazo de `assertInRepo` (path fuera del repo) es un
+        // Error genérico, no un SyntaxError, y tiene que seguir escalando
+        // como lo hacen `fs_read`/`fs_list` (el engine lo envuelve en
+        // "Error: ...").
+        if (err instanceof SyntaxError) {
+          return `Invalid pattern '${input.pattern}': ${err.message}`
+        }
+        throw err
       }
     }
 
