@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { PullRequestRef } from '@ia-flow/shared'
+import { postToTarget } from '../conversation.js'
 import { openPullRequests } from '../dev-links.js'
 
 // `fetchConversation` y `postToTarget` hacen I/O (gql) y se cubren en los
@@ -39,5 +40,15 @@ describe('openPullRequests', () => {
 
   it('tolera ausencia de PRs', () => {
     expect(openPullRequests(undefined)).toEqual([])
+  })
+})
+
+// `postToTarget` con `none` corta ANTES de la mutación `gql` — el único caso
+// que se puede testear sin mockear I/O. El resto de los targets se cubren en
+// los tests de cada source (github-issues/github-project), que sí mockean
+// `gql`.
+describe('postToTarget · none', () => {
+  it('no publica nada y no explota sin mockear gql', async () => {
+    await expect(postToTarget('ISSUE_1', 'body', 'none')).resolves.toEqual({ subject: 'none' })
   })
 })
