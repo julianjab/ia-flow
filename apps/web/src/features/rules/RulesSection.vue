@@ -18,6 +18,8 @@ import RuleSentence from '@/features/rules/RuleSentence.vue'
 import { useToastStore } from '@/stores/toast'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
+import FilterQueryInput from '@/ui/FilterQueryInput.vue'
+import type { FilterFieldDef, FilterToken } from '@/ui/filter-query'
 import ScopeGroup from '@/ui/ScopeGroup.vue'
 import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 import type { Pipeline, RunningAgent } from '@ia-flow/shared'
@@ -221,18 +223,42 @@ function hasLiveRuns(rule: Rule): boolean {
 
 // ─── Buscador ────────────────────────────────────────────────────────────
 //
-// Filtra en el cliente sobre lo que ya está cargado: no hay paginación ni
-// I/O nuevo, así que un `computed` alcanza. Reordenar mientras se busca no
-// tendría sentido (el índice visible ya no coincide con la posición real en
-// `rules`, que es lo que decide qué regla exclusiva gana), así que arrastrar
-// se apaga con el mismo criterio que el modo sólo-lectura.
-const search = ref('')
-const searching = computed(() => search.value.trim().length > 0)
+// Mismo motor que Logs y Ejecuciones (`FilterQueryInput` + `filter-query.ts`):
+// un renglón que autocompleta primero el CAMPO y después su VALOR, en vez de
+// una pila de selects por dimensión. Filtra en el cliente sobre lo ya
+// cargado — no hay paginación ni I/O nuevo, así que un `computed` alcanza.
+// Reordenar mientras se busca no tendría sentido (el índice visible ya no
+// coincide con la posición real en `rules`, que es lo que decide qué regla
+// exclusiva gana), así que arrastrar se apaga con el mismo criterio que el
+// modo sólo-lectura.
+const filterTokens = ref<FilterToken[]>([])
+const searching = computed(() => filterTokens.value.length > 0)
 
-/** Texto plano de una regla contra el que buscar: id, nombre, eventos,
- *  condiciones y acciones (reusando `describeAction`, la misma fuente que
- *  `RuleSentence`) y el repo. Así "changes_requested" o "frontend-implementer"
- *  matchean aunque no estén en el `id` de la regla. */
+/** El status que una regla condiciona, si lo condiciona — misma extracción
+ *  que hace `RuleSentence` para no duplicar el DSL de `when` en dos lugares. */
+function ruleStatus(rule: Rule): string | null {
+  const conds = Array.isArray(rule.when) ? rule.when : []
+  const c = conds.find((c) => c.field === 'status' && (c.op === '=' || c.op === undefined))
+  return c ? String(c.value ?? '') : null
+}
+
+/** Los agentes que una regla puede despachar — sólo los pasos `action: 'agent'`
+ *  del `do[]`; una acción `http`/`emit`/`ref` no tiene agente que filtrar. */
+function ruleAgentIds(rule: Rule): string[] {
+  return (rule.do ?? []).filter((a) => a.action === 'agent').map((a) => a.agentId)
+}
+
+/** El campo `evento` agrupa y filtra por el MISMO valor: el primer disparador
+ *  de la regla, que es el que `RuleSentence` muestra primero y el que un
+ *  operador reconoce ("¿qué corre en `pr.review_submitted`?"). */
+function primaryEvent(rule: Rule): string {
+  return rule.on?.[0] ?? '(sin evento)'
+}
+
+/** Texto libre (campo `q`, default): id, nombre, eventos, condiciones y
+ *  acciones (reusando `describeAction`, la misma fuente que `RuleSentence`).
+ *  Así "changes_requested" o "frontend-implementer" matchean aunque no estén
+ *  en el `id` de la regla. */
 function ruleHaystack(rule: Rule): string {
   const parts = [
     rule.id,
@@ -251,10 +277,24 @@ function ruleHaystack(rule: Rule): string {
   return parts.join(' ').toLowerCase()
 }
 
+/** Todos los tokens deben matchear (AND) — es el mismo criterio que Logs. */
+function matchesToken(rule: Rule, token: FilterToken): boolean {
+  switch (token.field) {
+    case 'evento':
+      return (rule.on ?? []).includes(token.value)
+    case 'repo':
+      return rule.repoName === token.value
+    case 'agente':
+      return ruleAgentIds(rule).includes(token.value)
+    case 'estado':
+      return ruleStatus(rule) === token.value
+    default:
+      return ruleHaystack(rule).includes(token.value.toLowerCase())
+  }
+}
+
 function matchesSearch(rule: Rule): boolean {
-  if (!searching.value) return true
-  const q = search.value.trim().toLowerCase()
-  return ruleHaystack(rule).includes(q)
+  return filterTokens.value.every((t) => matchesToken(rule, t))
 }
 
 const filteredRules = computed(() => rules.value.filter(matchesSearch))
@@ -262,6 +302,67 @@ const filteredInherited = computed(() => inherited.value.filter(matchesSearch))
 const noSearchMatches = computed(
   () => searching.value && !filteredRules.value.length && !filteredInherited.value.length,
 )
+
+/** Valores sugeribles para los campos de lista cerrada — se derivan de las
+ *  reglas ya cargadas (propias + heredadas) y no de `live.vocabulary`: ese
+ *  vocabulario es lo que un agente PODRÍA usar, y acá hace falta lo que las
+ *  reglas YA usan. */
+const eventOptions = computed(() => {
+  const set = new Set<string>()
+  for (const r of [...rules.value, ...inherited.value]) for (const e of r.on ?? []) set.add(e)
+  return [...set].sort()
+})
+const filterRepoOptions = computed(() => {
+  const set = new Set<string>()
+  for (const r of [...rules.value, ...inherited.value]) if (r.repoName) set.add(r.repoName)
+  return [...set].sort()
+})
+const filterAgentOptions = computed(() => {
+  const set = new Set<string>()
+  for (const r of [...rules.value, ...inherited.value]) for (const a of ruleAgentIds(r)) set.add(a)
+  return [...set].sort()
+})
+const filterStatusOptions = computed(() => {
+  const set = new Set<string>()
+  for (const r of [...rules.value, ...inherited.value]) {
+    const s = ruleStatus(r)
+    if (s) set.add(s)
+  }
+  return [...set].sort()
+})
+
+const filterFields = computed<FilterFieldDef[]>(() => [
+  { key: 'q', hint: 'texto libre: id, condición, acción…', free: true },
+  { key: 'evento', hint: 'on: qué dispara la regla', values: eventOptions.value },
+  { key: 'estado', hint: 'status que condiciona', values: filterStatusOptions.value },
+  { key: 'agente', hint: 'agente que despacha', values: filterAgentOptions.value },
+  { key: 'repo', hint: 'repoName', values: filterRepoOptions.value },
+])
+
+// ─── Agrupado por evento ─────────────────────────────────────────────────
+//
+// El orden de `rules` ES la prioridad de matcheo (la primera exclusiva que
+// matchea gana), así que agrupar NO reordena — arma segmentos consecutivos
+// sobre el orden ya existente. Una regla con varios `on[]` se agrupa por el
+// primero (`primaryEvent`), el mismo que se lee primero en `RuleSentence`.
+type RuleRow = { kind: 'divider'; label: string } | { kind: 'rule'; rule: Rule }
+
+function groupByEvent(list: Rule[]): RuleRow[] {
+  const rows: RuleRow[] = []
+  let prev: string | null = null
+  for (const rule of list) {
+    const label = primaryEvent(rule)
+    if (label !== prev) {
+      rows.push({ kind: 'divider', label })
+      prev = label
+    }
+    rows.push({ kind: 'rule', rule })
+  }
+  return rows
+}
+
+const ownRows = computed(() => groupByEvent(filteredRules.value))
+const inheritedRows = computed(() => groupByEvent(filteredInherited.value))
 
 // El vocabulario del ámbito gana sobre las props: hasta ahora ninguna vista se
 // las pasaba, así que el editor caía a inputs de texto libre para agente y repo
@@ -500,15 +601,17 @@ function onDrop(to: number) {
       </div>
     </div>
 
-    <!-- Filtra sobre lo ya cargado: id, nombre, evento, condiciones, acciones
-         y repo (ver `ruleHaystack`). No busca contra las globales que este
-         proyecto no ve —eso lo decide el ámbito, no el buscador. -->
-    <input
+    <!-- Mismo motor de campo:valor que Logs y Ejecuciones. Filtra sobre lo ya
+         cargado (propias + heredadas): un token de más no pide nada al
+         server, sólo estrecha el `computed`. -->
+    <FilterQueryInput
       v-if="!pickerOpen && (rules.length || inherited.length)"
-      v-model="search"
-      type="text"
+      v-model="filterTokens"
+      :fields="filterFields"
+      default-field="q"
+      placeholder="Filtrar… (evento:, estado:, agente:, repo:, o texto libre)"
+      testid="rules-filter"
       class="rs-search"
-      placeholder="Buscar por id, evento, condición, acción o repo…"
     />
 
     <p v-if="readOnly" class="rs-note">
@@ -526,7 +629,7 @@ function onDrop(to: number) {
       </template>
     </p>
     <p v-else-if="noSearchMatches" class="rs-empty">
-      Ninguna regla matchea "{{ search.trim() }}".
+      Ninguna regla matchea los filtros: {{ filterTokens.map((t) => `${t.field}:${t.value}`).join(', ') }}.
     </p>
 
     <div v-if="pickerOpen" class="rs-picker">
@@ -552,80 +655,87 @@ function onDrop(to: number) {
     />
 
     <ul v-if="!pickerOpen && filteredRules.length" class="rs-list">
-      <li
-        v-for="rule in filteredRules"
-        :key="rule.id"
-        class="rs-item"
-        :class="{
-          'rs-item--over':
-            overIndex === rules.indexOf(rule) && dragIndex !== null && dragIndex !== rules.indexOf(rule),
-          'rs-item--live': hasLiveRuns(rule),
-        }"
-        :draggable="!readOnly && !searching && rules.length > 1"
-        @dragstart="onDragStart(rules.indexOf(rule), $event)"
-        @dragover="onDragOver(rules.indexOf(rule), $event)"
-        @dragend="onDragEnd"
-        @drop="onDrop(rules.indexOf(rule))"
-      >
-        <!-- La fila entera abre el editor: el lápiz al final era un blanco de
-             24px en un teléfono y no decía qué editaba. Es el mismo gesto y la
-             misma caja que las otras listas editables — ver EditableCard.
-             El ✕ vive en el detalle: borrar una regla no es una operación de
-             listado (se hace una vez y no se deshace), y tenerlo al lado del
-             gesto de arrastrar la ponía a un pixel de distancia. -->
-        <!-- Clicable también en modo sólo-lectura: antes esconder el detalle
-             entero era la única forma de no ofrecer Guardar/Eliminar en un
-             deploy por YAML, pero eso también le negaba al operador ver la
-             regla completa —sólo quedaba la frase compacta de `RuleSentence`—.
-             `RuleEditorModal` ya sabe abrirse en sólo-lectura (es lo que hace
-             con las heredadas, ver `openInherited`), así que acá se pide lo
-             mismo. -->
-        <EditableCard
-          clickable
-          :show-edit-button="false"
-          :muted="rule.enabled === false"
-          @edit="openEdit(rule)"
+      <!-- Un separador por cada tramo consecutivo del mismo `on[0]` — ver
+           `groupByEvent`. No reordena: agrupa sobre el orden que YA existe,
+           que es el que decide qué regla exclusiva gana. -->
+      <template v-for="(row, idx) in ownRows" :key="row.kind === 'divider' ? `div-${idx}` : row.rule.id">
+        <li v-if="row.kind === 'divider'" class="rs-divider">{{ row.label }}</li>
+        <li
+          v-else
+          class="rs-item"
+          :class="{
+            'rs-item--over':
+              overIndex === rules.indexOf(row.rule) &&
+              dragIndex !== null &&
+              dragIndex !== rules.indexOf(row.rule),
+            'rs-item--live': hasLiveRuns(row.rule),
+          }"
+          :draggable="!readOnly && !searching && rules.length > 1"
+          @dragstart="onDragStart(rules.indexOf(row.rule), $event)"
+          @dragover="onDragOver(rules.indexOf(row.rule), $event)"
+          @dragend="onDragEnd"
+          @drop="onDrop(rules.indexOf(row.rule))"
         >
-          <div class="rs-item-top">
-            <!-- `button` y no un glifo decorativo: arrastrar no existe sin
-                 mouse y el orden entre reglas decide cuál gana, así que las
-                 flechas sobre el handle hacen el mismo movimiento. El
-                 `click.stop` es porque la fila entera abre el detalle. -->
-            <button
-              v-if="!readOnly && !searching && rules.length > 1"
-              type="button"
-              class="rs-drag"
-              :aria-label="`Reordenar ${rule.id} (flechas para mover)`"
-              title="Arrastrar para reordenar"
-              @click.stop
-              @keydown="onHandleKey(rules.indexOf(rule), $event)"
-            >⠿</button>
-            <span class="rs-id">{{ rule.id }}</span>
-            <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
-            <!-- Los estados de la regla van pegados al borde derecho: son
-                 metadata, no su identidad, y a la izquierda empujaban el
-                 nombre distinto en cada fila. Contra el borde forman una
-                 columna que se barre de un vistazo. -->
-            <span class="rs-spacer" />
-            <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
-            <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
-            <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
-          </div>
-          <!-- La frase arranca en una línea y se parte sólo si no entra: lo
-               que cae abajo es la cola (las acciones), nunca el disparador.
-               Antes la línea era única y con recorte, y una regla con dos
-               condiciones perdía de vista justo su `→ acción` —lo que la
-               regla HACE—, que es lo último que se puede esconder. -->
-          <div class="rs-item-sentence">
-            <RuleSentence :rule="rule" />
-          </div>
-          <div v-if="runsByRule.get(rule.id)?.length" class="rs-live">
-            <span v-for="run in runsByRule.get(rule.id)" :key="run.taskId" class="rs-run">
-              ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
-            </span>
-          </div>
-        </EditableCard>
-      </li>
+          <!-- La fila entera abre el editor: el lápiz al final era un blanco de
+               24px en un teléfono y no decía qué editaba. Es el mismo gesto y la
+               misma caja que las otras listas editables — ver EditableCard.
+               El ✕ vive en el detalle: borrar una regla no es una operación de
+               listado (se hace una vez y no se deshace), y tenerlo al lado del
+               gesto de arrastrar la ponía a un pixel de distancia. -->
+          <!-- Clicable también en modo sólo-lectura: antes esconder el detalle
+               entero era la única forma de no ofrecer Guardar/Eliminar en un
+               deploy por YAML, pero eso también le negaba al operador ver la
+               regla completa —sólo quedaba la frase compacta de `RuleSentence`—.
+               `RuleEditorModal` ya sabe abrirse en sólo-lectura (es lo que hace
+               con las heredadas, ver `openInherited`), así que acá se pide lo
+               mismo. -->
+          <EditableCard
+            clickable
+            :show-edit-button="false"
+            :muted="row.rule.enabled === false"
+            @edit="openEdit(row.rule)"
+          >
+            <div class="rs-item-top">
+              <!-- `button` y no un glifo decorativo: arrastrar no existe sin
+                   mouse y el orden entre reglas decide cuál gana, así que las
+                   flechas sobre el handle hacen el mismo movimiento. El
+                   `click.stop` es porque la fila entera abre el detalle. -->
+              <button
+                v-if="!readOnly && !searching && rules.length > 1"
+                type="button"
+                class="rs-drag"
+                :aria-label="`Reordenar ${row.rule.id} (flechas para mover)`"
+                title="Arrastrar para reordenar"
+                @click.stop
+                @keydown="onHandleKey(rules.indexOf(row.rule), $event)"
+              >⠿</button>
+              <span class="rs-id">{{ row.rule.id }}</span>
+              <span v-if="row.rule.name" class="rs-name">{{ row.rule.name }}</span>
+              <!-- Los estados de la regla van pegados al borde derecho: son
+                   metadata, no su identidad, y a la izquierda empujaban el
+                   nombre distinto en cada fila. Contra el borde forman una
+                   columna que se barre de un vistazo. -->
+              <span class="rs-spacer" />
+              <span v-if="row.rule.enabled === false" class="rs-tag off">deshabilitada</span>
+              <span v-if="row.rule.exclusive" class="rs-tag excl">exclusiva</span>
+              <span v-if="row.rule.repoName" class="rs-tag repo">{{ row.rule.repoName }}</span>
+            </div>
+            <!-- La frase arranca en una línea y se parte sólo si no entra: lo
+                 que cae abajo es la cola (las acciones), nunca el disparador.
+                 Antes la línea era única y con recorte, y una regla con dos
+                 condiciones perdía de vista justo su `→ acción` —lo que la
+                 regla HACE—, que es lo último que se puede esconder. -->
+            <div class="rs-item-sentence">
+              <RuleSentence :rule="row.rule" />
+            </div>
+            <div v-if="runsByRule.get(row.rule.id)?.length" class="rs-live">
+              <span v-for="run in runsByRule.get(row.rule.id)" :key="run.taskId" class="rs-run">
+                ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
+              </span>
+            </div>
+          </EditableCard>
+        </li>
+      </template>
     </ul>
 
     <!-- ─── Heredadas del ámbito global ───────────────────────────────
@@ -641,69 +751,70 @@ function onDrop(to: number) {
       edit-hint="General → Pipeline"
     >
       <ul class="rs-list">
-        <li
-          v-for="rule in filteredInherited"
-          :key="`inherited-${rule.id}`"
-          class="rs-item"
-          :class="{ 'rs-item--live': hasLiveRuns(rule) }"
+        <template
+          v-for="(row, idx) in inheritedRows"
+          :key="row.kind === 'divider' ? `inherited-div-${idx}` : `inherited-${row.rule.id}`"
         >
-          <EditableCard
-            clickable
-            :show-edit-button="false"
-            :muted="rule.enabled === false || isDisabledHere(rule)"
-            @edit="openInherited(rule)"
-          >
-            <div class="rs-item-top">
-              <span class="rs-id">{{ rule.id }}</span>
-              <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
-              <span class="rs-spacer" />
-              <!-- Dos estados distintos, dos tags: "deshabilitada" la apagó
-                   General y no corre en ningún lado; "desactivada acá" es esta
-                   pantalla y no toca a los demás proyectos. Un solo tag dejaba
-                   al operador sin saber cuál de las dos estaba viendo. -->
-              <!-- Sólo tags acá: describen la regla y no se tocan. Lo único
-                   accionable de esta fila —el interruptor— va a la zona de
-                   acciones de la tarjeta, que es donde el resto de las listas
-                   pone sus controles. Mezclarlos ponía un tag y un control en
-                   la misma tira, y no había forma de saber cuál se podía
-                   clickear. -->
-              <!-- Apagada en General: no corre en NINGÚN proyecto, y desde acá
-                   no se puede prender. Distinto de darla de baja sólo acá. -->
-              <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
-              <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
-              <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
-              <!-- Sin este tag, la única fila sin interruptor de la lista no
-                   tiene explicación. Corre por cron, una vez para todo el
-                   proceso — ver `canToggleHere`. -->
-              <span v-if="rule.schedule" class="rs-tag cron">cron {{ rule.schedule }}</span>
-            </div>
-            <div class="rs-item-sentence">
-              <RuleSentence :rule="rule" />
-            </div>
-            <div v-if="runsByRule.get(rule.id)?.length" class="rs-live">
-              <span v-for="run in runsByRule.get(rule.id)" :key="run.taskId" class="rs-run">
-                ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
-              </span>
-            </div>
+          <li v-if="row.kind === 'divider'" class="rs-divider">{{ row.label }}</li>
+          <li v-else class="rs-item" :class="{ 'rs-item--live': hasLiveRuns(row.rule) }">
+            <EditableCard
+              clickable
+              :show-edit-button="false"
+              :muted="row.rule.enabled === false || isDisabledHere(row.rule)"
+              @edit="openInherited(row.rule)"
+            >
+              <div class="rs-item-top">
+                <span class="rs-id">{{ row.rule.id }}</span>
+                <span v-if="row.rule.name" class="rs-name">{{ row.rule.name }}</span>
+                <span class="rs-spacer" />
+                <!-- Dos estados distintos, dos tags: "deshabilitada" la apagó
+                     General y no corre en ningún lado; "desactivada acá" es esta
+                     pantalla y no toca a los demás proyectos. Un solo tag dejaba
+                     al operador sin saber cuál de las dos estaba viendo. -->
+                <!-- Sólo tags acá: describen la regla y no se tocan. Lo único
+                     accionable de esta fila —el interruptor— va a la zona de
+                     acciones de la tarjeta, que es donde el resto de las listas
+                     pone sus controles. Mezclarlos ponía un tag y un control en
+                     la misma tira, y no había forma de saber cuál se podía
+                     clickear. -->
+                <!-- Apagada en General: no corre en NINGÚN proyecto, y desde acá
+                     no se puede prender. Distinto de darla de baja sólo acá. -->
+                <span v-if="row.rule.enabled === false" class="rs-tag off">deshabilitada</span>
+                <span v-if="row.rule.exclusive" class="rs-tag excl">exclusiva</span>
+                <span v-if="row.rule.repoName" class="rs-tag repo">{{ row.rule.repoName }}</span>
+                <!-- Sin este tag, la única fila sin interruptor de la lista no
+                     tiene explicación. Corre por cron, una vez para todo el
+                     proceso — ver `canToggleHere`. -->
+                <span v-if="row.rule.schedule" class="rs-tag cron">cron {{ row.rule.schedule }}</span>
+              </div>
+              <div class="rs-item-sentence">
+                <RuleSentence :rule="row.rule" />
+              </div>
+              <div v-if="runsByRule.get(row.rule.id)?.length" class="rs-live">
+                <span v-for="run in runsByRule.get(row.rule.id)" :key="run.taskId" class="rs-run">
+                  ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
+                </span>
+              </div>
 
-            <!-- El único gesto que un proyecto tiene sobre una global: no edita
-                 la regla (eso es General), decide si corre acá. Por eso convive
-                 con `:show-edit-button="false"`.
-                 Envuelto en un `<span>` a propósito: `EditableCard` estiliza
-                 `:slotted(button)` como su ✕, y eso le pisaría la caja al
-                 interruptor. Con el wrapper el botón deja de ser slotted. -->
-            <template #actions>
-              <span v-if="canToggleHere(rule)" class="rs-here">
-                <ToggleSwitch
-                  :model-value="!isDisabledHere(rule)"
-                  :busy="togglingId === rule.id"
-                  :aria-label="`Correr ${rule.id} en este proyecto`"
-                  @update:model-value="toggleInherited(rule)"
-                />
-              </span>
-            </template>
-          </EditableCard>
-        </li>
+              <!-- El único gesto que un proyecto tiene sobre una global: no edita
+                   la regla (eso es General), decide si corre acá. Por eso convive
+                   con `:show-edit-button="false"`.
+                   Envuelto en un `<span>` a propósito: `EditableCard` estiliza
+                   `:slotted(button)` como su ✕, y eso le pisaría la caja al
+                   interruptor. Con el wrapper el botón deja de ser slotted. -->
+              <template #actions>
+                <span v-if="canToggleHere(row.rule)" class="rs-here">
+                  <ToggleSwitch
+                    :model-value="!isDisabledHere(row.rule)"
+                    :busy="togglingId === row.rule.id"
+                    :aria-label="`Correr ${row.rule.id} en este proyecto`"
+                    @update:model-value="toggleInherited(row.rule)"
+                  />
+                </span>
+              </template>
+            </EditableCard>
+          </li>
+        </template>
       </ul>
     </ScopeGroup>
 
@@ -775,20 +886,9 @@ function onDrop(to: number) {
 }
 .rs-spacer { flex: 1 1 auto; }
 
-.rs-search {
-  width: 100%;
-  margin: 0.4rem 0;
-  padding: 0 0.6ch;
-  height: calc(var(--row-h) * 1.4);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  background: var(--panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.rs-search::placeholder { color: var(--fg-dimmer); }
-.rs-search:focus-visible { outline: none; border-color: var(--accent); }
+/* Sólo el espaciado: el look (caja, tokens, menú) es el de `FilterQueryInput`
+   mismo, compartido con Logs y Ejecuciones. */
+.rs-search { margin: 0.4rem 0; }
 
 .rs-note,
 .rs-empty,
@@ -810,6 +910,28 @@ function onDrop(to: number) {
   gap: 0.3rem;
   margin: 0;
   padding: 0;
+}
+/* Separador de `groupByEvent`: no es una tarjeta —no se clickea, no se
+   arrastra— así que se distingue por tipografía, no por caja. `margin-top`
+   sólo si no es el primero de la lista, para no abrir un hueco antes del
+   header de la sección. */
+.rs-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  padding: 0.15rem 0;
+}
+.rs-divider:not(:first-child) { margin-top: 0.3rem; }
+.rs-divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border);
 }
 /* El orden entre reglas es parte de lo que la regla ES (la primera exclusiva
    que matchea gana), así que se cambia arrastrando la fila misma y no con un
