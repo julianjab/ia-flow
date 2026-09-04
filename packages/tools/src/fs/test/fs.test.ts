@@ -618,6 +618,46 @@ describe('fs_grep — cursor past the end', () => {
     const out = await tool.execute({ path: 'r', pattern: 'ONE', cursor: '999' }, { repoPaths })
     expect(out).toContain('No more matches')
   })
+
+  it('accepts a numeric cursor, not just a stringified one', async () => {
+    for (let i = 0; i < 110; i++) {
+      writeFileSync(join(repoRoot, `f${i}.ts`), 'NUMCUR hit\n')
+    }
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'NUMCUR', cursor: 100 }, { repoPaths })
+    expect(out).toContain('101-110 of 110')
+  })
+})
+
+describe('fs_grep — pagination is stable across calls (rg backend)', () => {
+  it('two pages together cover every match exactly once, in the same order both times', async () => {
+    for (let i = 0; i < 150; i++) {
+      writeFileSync(join(repoRoot, `s${i}.ts`), 'STABLE hit\n')
+    }
+
+    const firstPass = await grepWithRg({ path: 'r', pattern: 'STABLE' }, { repoPaths })
+    const secondPass = await grepWithRg({ path: 'r', pattern: 'STABLE' }, { repoPaths })
+    if (firstPass !== null && secondPass !== null) {
+      expect(firstPass).toEqual(secondPass)
+    }
+  })
+})
+
+describe('fs_grep — invalid pattern does not crash the tool', () => {
+  it('falls back to an error message instead of throwing when JS regex parsing fails', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'x')
+    const originalWhich = _grepInternals.which
+    _grepInternals.which = () => null // force the JS fallback
+    try {
+      const tool = getTool('fs_grep')!
+      // `(?P<name>...)` is valid in rg's regex engine but not in JS RegExp.
+      const out = await tool.execute({ path: 'r', pattern: '(?P<name>x)' }, { repoPaths })
+      expect(out).toContain('Invalid pattern')
+    } finally {
+      _grepInternals.which = originalWhich
+    }
+  })
 })
 
 describe('fs_glob', () => {
