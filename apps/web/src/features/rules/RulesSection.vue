@@ -1,28 +1,29 @@
 <script setup lang="ts">
-import type { Pipeline, RunningAgent } from '@ia-flow/shared'
-import type { Rule } from '@ia-flow/shared'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
+import { describeAction } from '@/features/rules/actionForms/registry'
 import {
+  type RuleScope,
   createRule,
   deleteRule,
   fetchActionKinds,
   fetchPipeline,
   fetchRules,
   reorderRules,
-  type RuleScope,
   setRuleEnabledInProject,
   updateRule,
 } from '@/features/rules/api'
 import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
 import { RULE_TEMPLATES, type RuleTemplate } from '@/features/rules/rule-templates'
 import RuleSentence from '@/features/rules/RuleSentence.vue'
+import { useToastStore } from '@/stores/toast'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
 import ScopeGroup from '@/ui/ScopeGroup.vue'
 import ToggleSwitch from '@/ui/ToggleSwitch.vue'
-import { useToastStore } from '@/stores/toast'
+import type { Pipeline, RunningAgent } from '@ia-flow/shared'
+import type { Rule } from '@ia-flow/shared'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 // Listado y CRUD de reglas de un ámbito. El ámbito es prop y no estado propio:
 // quien monta la sección decide si muestra las globales o las de un proyecto,
@@ -213,6 +214,54 @@ const runsByRule = computed(() => {
   }
   return by
 })
+
+function hasLiveRuns(rule: Rule): boolean {
+  return (runsByRule.value.get(rule.id)?.length ?? 0) > 0
+}
+
+// ─── Buscador ────────────────────────────────────────────────────────────
+//
+// Filtra en el cliente sobre lo que ya está cargado: no hay paginación ni
+// I/O nuevo, así que un `computed` alcanza. Reordenar mientras se busca no
+// tendría sentido (el índice visible ya no coincide con la posición real en
+// `rules`, que es lo que decide qué regla exclusiva gana), así que arrastrar
+// se apaga con el mismo criterio que el modo sólo-lectura.
+const search = ref('')
+const searching = computed(() => search.value.trim().length > 0)
+
+/** Texto plano de una regla contra el que buscar: id, nombre, eventos,
+ *  condiciones y acciones (reusando `describeAction`, la misma fuente que
+ *  `RuleSentence`) y el repo. Así "changes_requested" o "frontend-implementer"
+ *  matchean aunque no estén en el `id` de la regla. */
+function ruleHaystack(rule: Rule): string {
+  const parts = [
+    rule.id,
+    rule.name ?? '',
+    ...(rule.on ?? []),
+    rule.repoName ?? '',
+    ...(Array.isArray(rule.when)
+      ? rule.when.map((c) => `${c.field} ${c.op ?? ''} ${c.value ?? ''}`)
+      : Object.entries(rule.when ?? {}).map(([field, value]) => `${field} ${value}`)),
+    rule.whenText ?? '',
+    ...(rule.do ?? []).map((a) => {
+      const d = describeAction(a)
+      return `${d.kind} ${d.text}`
+    }),
+  ]
+  return parts.join(' ').toLowerCase()
+}
+
+function matchesSearch(rule: Rule): boolean {
+  if (!searching.value) return true
+  const q = search.value.trim().toLowerCase()
+  return ruleHaystack(rule).includes(q)
+}
+
+const filteredRules = computed(() => rules.value.filter(matchesSearch))
+const filteredInherited = computed(() => inherited.value.filter(matchesSearch))
+const noSearchMatches = computed(
+  () => searching.value && !filteredRules.value.length && !filteredInherited.value.length,
+)
 
 // El vocabulario del ámbito gana sobre las props: hasta ahora ninguna vista se
 // las pasaba, así que el editor caía a inputs de texto libre para agente y repo
@@ -421,7 +470,6 @@ function onDrop(to: number) {
   next.splice(to, 0, moved)
   void persistOrder(next)
 }
-
 </script>
 
 <template>
@@ -452,6 +500,17 @@ function onDrop(to: number) {
       </div>
     </div>
 
+    <!-- Filtra sobre lo ya cargado: id, nombre, evento, condiciones, acciones
+         y repo (ver `ruleHaystack`). No busca contra las globales que este
+         proyecto no ve —eso lo decide el ámbito, no el buscador. -->
+    <input
+      v-if="!pickerOpen && (rules.length || inherited.length)"
+      v-model="search"
+      type="text"
+      class="rs-search"
+      placeholder="Buscar por id, evento, condición, acción o repo…"
+    />
+
     <p v-if="readOnly" class="rs-note">
       Sólo lectura — las reglas de este deploy vienen del YAML.
     </p>
@@ -465,6 +524,9 @@ function onDrop(to: number) {
       <template v-else>
         Sin reglas todavía. Una regla conecta un evento con lo que tiene que pasar.
       </template>
+    </p>
+    <p v-else-if="noSearchMatches" class="rs-empty">
+      Ninguna regla matchea "{{ search.trim() }}".
     </p>
 
     <div v-if="pickerOpen" class="rs-picker">
@@ -489,17 +551,21 @@ function onDrop(to: number) {
       :count="rules.length"
     />
 
-    <ul v-if="!pickerOpen && rules.length" class="rs-list">
+    <ul v-if="!pickerOpen && filteredRules.length" class="rs-list">
       <li
-        v-for="(rule, i) in rules"
+        v-for="rule in filteredRules"
         :key="rule.id"
         class="rs-item"
-        :class="{ 'rs-item--over': overIndex === i && dragIndex !== null && dragIndex !== i }"
-        :draggable="!readOnly && rules.length > 1"
-        @dragstart="onDragStart(i, $event)"
-        @dragover="onDragOver(i, $event)"
+        :class="{
+          'rs-item--over':
+            overIndex === rules.indexOf(rule) && dragIndex !== null && dragIndex !== rules.indexOf(rule),
+          'rs-item--live': hasLiveRuns(rule),
+        }"
+        :draggable="!readOnly && !searching && rules.length > 1"
+        @dragstart="onDragStart(rules.indexOf(rule), $event)"
+        @dragover="onDragOver(rules.indexOf(rule), $event)"
         @dragend="onDragEnd"
-        @drop="onDrop(i)"
+        @drop="onDrop(rules.indexOf(rule))"
       >
         <!-- La fila entera abre el editor: el lápiz al final era un blanco de
              24px en un teléfono y no decía qué editaba. Es el mismo gesto y la
@@ -526,13 +592,13 @@ function onDrop(to: number) {
                  flechas sobre el handle hacen el mismo movimiento. El
                  `click.stop` es porque la fila entera abre el detalle. -->
             <button
-              v-if="!readOnly && rules.length > 1"
+              v-if="!readOnly && !searching && rules.length > 1"
               type="button"
               class="rs-drag"
               :aria-label="`Reordenar ${rule.id} (flechas para mover)`"
               title="Arrastrar para reordenar"
               @click.stop
-              @keydown="onHandleKey(i, $event)"
+              @keydown="onHandleKey(rules.indexOf(rule), $event)"
             >⠿</button>
             <span class="rs-id">{{ rule.id }}</span>
             <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
@@ -568,14 +634,19 @@ function onDrop(to: number) {
          que no tienen es el gesto de arrastrar (el orden se numera por ámbito,
          así que reordenarlas desde acá no significaría nada) ni el ✕. -->
     <ScopeGroup
-      v-if="inherited.length && !pickerOpen"
+      v-if="filteredInherited.length && !pickerOpen"
       variant="inherited"
       label="Globales"
       :count="inherited.length"
       edit-hint="General → Pipeline"
     >
       <ul class="rs-list">
-        <li v-for="rule in inherited" :key="`inherited-${rule.id}`" class="rs-item">
+        <li
+          v-for="rule in filteredInherited"
+          :key="`inherited-${rule.id}`"
+          class="rs-item"
+          :class="{ 'rs-item--live': hasLiveRuns(rule) }"
+        >
           <EditableCard
             clickable
             :show-edit-button="false"
@@ -704,6 +775,21 @@ function onDrop(to: number) {
 }
 .rs-spacer { flex: 1 1 auto; }
 
+.rs-search {
+  width: 100%;
+  margin: 0.4rem 0;
+  padding: 0 0.6ch;
+  height: calc(var(--row-h) * 1.4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.rs-search::placeholder { color: var(--fg-dimmer); }
+.rs-search:focus-visible { outline: none; border-color: var(--accent); }
+
 .rs-note,
 .rs-empty,
 .rs-error {
@@ -731,6 +817,10 @@ function onDrop(to: number) {
 .rs-item[draggable='true'] { cursor: grab; }
 .rs-item[draggable='true']:active { cursor: grabbing; }
 .rs-item--over > * { border-color: var(--accent); }
+/* Actividad viva: el mismo color que ya usa `.rs-running`/`.rs-run` para "esto
+   está corriendo", ahora en el borde izquierdo de la fila — así se ve sin
+   tener que leer la línea `◐ agente · #issue` de cada tarjeta. */
+.rs-item--live > * { border-left: 2px solid var(--info); }
 .rs-drag {
   background: none;
   border: none;
