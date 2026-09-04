@@ -244,6 +244,17 @@ registerTool({
 // que el auto-comment de cierre del run tampoco se publique — si no, esta
 // tool sólo AGREGA una reacción encima del comentario de sistema de siempre.
 
+const REACTION_NAMES: readonly ReactionName[] = [
+  '+1',
+  '-1',
+  'laugh',
+  'hooray',
+  'confused',
+  'heart',
+  'rocket',
+  'eyes',
+]
+
 registerTool({
   name: 'react_to_comment',
   description:
@@ -258,7 +269,7 @@ registerTool({
       },
       reaction: {
         type: 'string',
-        enum: ['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'],
+        enum: REACTION_NAMES as unknown as string[],
         description:
           "Qué reacción dejar. '+1' para 'tomé este comentario en cuenta', '-1' para 'lo evalué y no requiere acción'.",
       },
@@ -266,6 +277,15 @@ registerTool({
     required: ['comment_node_id', 'reaction'],
   },
   async execute(input: any): Promise<string> {
+    // El `enum` del schema ya restringe al modelo, pero un valor fuera de
+    // rango (o un provider async que no valida contra el schema antes de
+    // ejecutar) tiene que fallar acá con un motivo legible — no como el
+    // `content: undefined` crudo que devolvería la mutación de GraphQL.
+    if (!REACTION_NAMES.includes(input.reaction)) {
+      throw new Error(
+        `Reacción inválida '${input.reaction}' — debe ser una de: ${REACTION_NAMES.join(', ')}.`,
+      )
+    }
     await reactToComment(input.comment_node_id, input.reaction as ReactionName)
     return `Reacción '${input.reaction}' agregada al comentario ${input.comment_node_id}.`
   },
