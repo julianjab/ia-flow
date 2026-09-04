@@ -924,13 +924,17 @@ registerTool({
       // de GitHub no tienen dónde guardar el estado y su `postError` es OTRO
       // comentario, así que se saltea — el reporte estructurado de arriba ya
       // dice lo mismo y mejor.
+      const errorTarget = resolveExitCommentTarget(entry, ERROR_EXIT)
+      // `none` corta DENTRO de postComment (postToTarget no publica nada),
+      // pero esta variable no se entera — `postComment` sigue siendo
+      // `Promise<void>`. Sin este chequeo, un agente con `comment: 'none'`
+      // (o una salida de error con ese target) marcaría `alreadyCommented`
+      // en true de todos modos, y el `postError` de abajo —que es el único
+      // lugar que deja algo visible cuando no hubo comentario— se saltearía
+      // por completo: el fallo no queda en ningún lado, sólo en el log.
       let alreadyCommented = false
-      if (manager.postComment) {
-        await manager.postComment(
-          entry.task,
-          commentBody,
-          resolveExitCommentTarget(entry, ERROR_EXIT),
-        )
+      if (manager.postComment && errorTarget !== 'none') {
+        await manager.postComment(entry.task, commentBody, errorTarget)
         alreadyCommented = true
       }
       await manager.postError?.(entry.task, (input.where_failed ?? '').trim() || commentBody, {
