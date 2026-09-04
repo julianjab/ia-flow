@@ -4,10 +4,12 @@
 
 import {
   type GitHubToolContext,
+  type ReactionName,
   addProjectItem,
   addSubIssue,
   createIssue,
   listSubIssues,
+  reactToComment,
   replyToReviewThread,
   resolveReviewThread,
 } from '@ia-flow/issue-sources'
@@ -229,5 +231,42 @@ registerTool({
   async execute(input: any): Promise<string> {
     await resolveReviewThread(input.thread_id)
     return `Hilo de review ${input.thread_id} marcado como resuelto.`
+  },
+})
+
+// ─── react_to_comment ──────────────────────────────────────────────────────
+//
+// La alternativa barata a comentar: para un agente que sólo clasifica (ej.
+// `comment-triage`), dejar OTRO comentario por cada comentario humano es
+// ruido — un hilo se llena de "procesado" sin ningún hallazgo adentro. Una
+// reacción en el comentario original acusa recibo sin agregar una línea a la
+// conversación. Combinar con `comment: none` en el agente (o la salida) para
+// que el auto-comment de cierre del run tampoco se publique — si no, esta
+// tool sólo AGREGA una reacción encima del comentario de sistema de siempre.
+
+registerTool({
+  name: 'react_to_comment',
+  description:
+    'Deja una reacción de emoji sobre un comentario existente de un issue o PR de GitHub, en vez de escribir un comentario nuevo. Usalo para acusar recibo de un comentario humano sin agregar ruido a la conversación — típicamente 👍 (+1) cuando lo tomaste en cuenta, 👎 (-1) cuando lo evaluaste y no aplica. Necesita el node id del comentario, no el número de issue.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      comment_node_id: {
+        type: 'string',
+        description:
+          'Node id (GraphQL) del comentario a reaccionar, tal como viene en el contexto de la tarea (ej. {{event.payload.commentId}}). NO es el número del issue ni la URL del comentario.',
+      },
+      reaction: {
+        type: 'string',
+        enum: ['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'],
+        description:
+          "Qué reacción dejar. '+1' para 'tomé este comentario en cuenta', '-1' para 'lo evalué y no requiere acción'.",
+      },
+    },
+    required: ['comment_node_id', 'reaction'],
+  },
+  async execute(input: any): Promise<string> {
+    await reactToComment(input.comment_node_id, input.reaction as ReactionName)
+    return `Reacción '${input.reaction}' agregada al comentario ${input.comment_node_id}.`
   },
 })
