@@ -477,7 +477,7 @@ describe('AnthropicApiProvider.run — error classification', () => {
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED')
     }) as unknown as typeof fetch
-    const { provider } = makeProvider(configWith())
+    const { provider } = makeProvider(configWith({ maxRetries: 0 }))
 
     await expect(provider.run(baseInput())).rejects.toBeInstanceOf(UpstreamAbortError)
   })
@@ -526,7 +526,9 @@ describe('AnthropicApiProvider.run — error classification', () => {
       new Response('{"error":{"message":"overloaded"}}', {
         status: 529,
       })) as unknown as typeof fetch
-    const { provider } = makeProvider(configWith())
+    // maxRetries: 0 — este caso cubre la clasificación del error, no el
+    // reintento (ver el describe de abajo, "retries on transient errors").
+    const { provider } = makeProvider(configWith({ maxRetries: 0 }))
 
     let caught: unknown
     try {
@@ -577,6 +579,62 @@ describe('AnthropicApiProvider.run — error classification', () => {
 })
 
 // ─── Non-streaming opt-out ──────────────────────────────────────────────────
+
+describe('AnthropicApiProvider.run — retries on transient errors', () => {
+  it('un 529 seguido de un 200 completa el run sin lanzar', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) return new Response('{"error":"overloaded"}', { status: 529 })
+      return sseResponse(endTurnEvents)
+    }) as unknown as typeof fetch
+    const { provider, capture } = makeProvider(configWith({ maxRetries: 3 }))
+
+    const result = await provider.run(baseInput())
+
+    expect(calls).toBe(2)
+    expect(result.content).toContain('Hola')
+    expect(capture.response?.stop_reason).toBe('end_turn')
+  })
+
+  it('agota los reintentos y falla con el status del último intento', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('{"error":"overloaded"}', { status: 529 })
+    }) as unknown as typeof fetch
+    const { provider } = makeProvider(configWith({ maxRetries: 2 }))
+
+    await expect(provider.run(baseInput())).rejects.toThrow('Anthropic API 529')
+    expect(calls).toBe(3)
+  })
+
+  it('un 400 no se reintenta y falla igual que hoy', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('{"error":"bad_request"}', { status: 400 })
+    }) as unknown as typeof fetch
+    const { provider } = makeProvider(configWith({ maxRetries: 3 }))
+
+    await expect(provider.run(baseInput())).rejects.toThrow('Anthropic API 400')
+    expect(calls).toBe(1)
+  })
+
+  it('el override de maxRetries por agente gana sobre el default del provider', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('{"error":"overloaded"}', { status: 529 })
+    }) as unknown as typeof fetch
+    const { provider } = makeProvider(configWith({ maxRetries: 5 }))
+
+    await expect(provider.run(baseInput({ providerConfig: { maxRetries: 0 } }))).rejects.toThrow(
+      'Anthropic API 529',
+    )
+    expect(calls).toBe(1)
+  })
+})
 
 describe('AnthropicApiProvider.run — stream: false opts back into plain JSON', () => {
   it('sends stream: false and parses the response as a single JSON body', async () => {
