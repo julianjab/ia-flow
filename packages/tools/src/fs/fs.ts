@@ -764,12 +764,18 @@ async function globWithJs(input: GlobInput, ctx: ToolContext): Promise<string[]>
   const owner = resolveOwningRepo(abs, ctx.repoPaths)
   const [repoName, repoRoot] = owner ?? ['', abs]
   const regex = globToPathRegex(input.pattern)
+  // Semántica de rg/gitignore: un patrón SIN `/` matchea el basename a
+  // cualquier profundidad (`*.ts` encuentra `a.ts` y `x/y/b.ts` por igual);
+  // uno CON `/` queda anclado al path completo relativo a `path`. Sin esto,
+  // `globToPathRegex('*.ts')` (anclado a todo el path) sólo encontraba
+  // archivos en la raíz — divergiendo de lo que devuelve `globWithRg`.
+  const hasSlash = input.pattern.includes('/')
   const results: Array<{ label: string; mtime: number }> = []
 
   async function walk(dir: string, rel: string): Promise<void> {
-    if (results.length >= GLOB_MAX_RESULTS * 10) return
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
     for (const e of entries) {
+      if (results.length >= GLOB_MAX_RESULTS * 10) return
       const full = join(dir, e.name)
       const relPath = rel ? `${rel}/${e.name}` : e.name
       if (e.isDirectory()) {
@@ -778,7 +784,7 @@ async function globWithJs(input: GlobInput, ctx: ToolContext): Promise<string[]>
         await walk(full, relPath)
       } else {
         if (isIgnored(full, ctx.repoPaths)) continue
-        if (!regex.test(relPath)) continue
+        if (!regex.test(hasSlash ? relPath : e.name)) continue
         const s = await stat(full).catch(() => null)
         results.push({ label: `${repoName}/${relative(repoRoot, full)}`, mtime: s?.mtimeMs ?? 0 })
       }
