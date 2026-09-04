@@ -50,6 +50,7 @@ import m066 from './066-run-checkpoints.js'
 import m067 from './067-execution-logs-cost.js'
 import m068 from './068-execution-logs-resumed-from.js'
 import m069 from './069-agent-aborts.js'
+import m070 from './070-execution-logs-trace-id.js'
 
 const log = createLogger('migrations')
 
@@ -121,6 +122,7 @@ function loadMigrations(): Migration[] {
     m067,
     m068,
     m069,
+    m070,
   ]
 }
 

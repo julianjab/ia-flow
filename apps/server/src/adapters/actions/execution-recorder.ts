@@ -68,6 +68,7 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
       eventId: event.id,
       eventType: event.type,
       position,
+      traceId: event.traceId ?? null,
     }
     this.startedAt.set(id, Date.now())
     try {

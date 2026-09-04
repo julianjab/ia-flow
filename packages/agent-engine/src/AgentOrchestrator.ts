@@ -340,6 +340,10 @@ export class AgentOrchestrator {
       /** Índice de la acción `agent` dentro del `do[]` de la regla. Es lo que
        *  ordena este run entre las demás filas de su mismo disparo. */
       position?: number
+      /** El trace del webhook que originó el evento que causó este dispatch.
+       *  Sólo trazabilidad, como `eventId` — viaja hasta la fila de
+       *  `execution_logs`. Ver `EngineEvent.traceId`. */
+      traceId?: string
       parentRunId?: string
       agentDepth?: number
       /** Por qué corre el agente esta vez. El único campo de `origin` que el
@@ -549,6 +553,7 @@ export class AgentOrchestrator {
           eventId: origin?.eventId,
           eventType: origin?.eventType,
           position: origin?.position,
+          traceId: origin?.traceId,
           parentRunId: origin?.parentRunId,
           agentDepth: origin?.agentDepth,
           brief: origin?.brief,

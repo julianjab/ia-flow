@@ -30,7 +30,7 @@ export interface AgentActionDeps {
     manager: IIssueManager,
     agentId: string,
     ruleId: string,
-    event: { id: string; type: string; position: number },
+    event: { id: string; type: string; position: number; traceId?: string },
     /** El `brief` de la acción, ya rendido contra el evento. */
     brief?: string,
     /** Redirecciones de salida que la regla declaró para este disparo. */
@@ -167,6 +167,7 @@ export class AgentAction implements ActionHandler<AgentConfig> {
         // empataría en 0 con la primera acción y el orden del grupo en la UI
         // quedaría a merced del sort del listado.
         position: ctx.position,
+        traceId: ctx.event.traceId,
       },
       brief,
       config.exits,

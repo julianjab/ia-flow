@@ -83,6 +83,7 @@ export function createExecutionsRouter() {
       kind: many('kind'),
       ruleId: many('ruleId'),
       eventId: q.eventId,
+      traceId: q.traceId,
       from: q.from,
       to: q.to,
       limit: Number.isNaN(rawLimit) ? undefined : rawLimit,

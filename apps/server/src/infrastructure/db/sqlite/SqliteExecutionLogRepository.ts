@@ -61,6 +61,7 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     position: (r.position as number | null) ?? null,
     parentId: (r.parent_id as string | null) ?? null,
     resumedFromRunId: (r.resumed_from_run_id as string | null) ?? null,
+    traceId: (r.trace_id as string | null) ?? null,
   }
 }
 
@@ -96,8 +97,8 @@ export class SqliteExecutionLogRepository
          duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
          initial_status, exits, finalized_by_tool, assignees,
          kind, rule_id, event_id, event_type, position, parent_id,
-         model, system_prompt_hash, tool_breakdown, resumed_from_run_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         model, system_prompt_hash, tool_breakdown, resumed_from_run_id, trace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -137,7 +138,8 @@ export class SqliteExecutionLogRepository
          model = excluded.model,
          system_prompt_hash = excluded.system_prompt_hash,
          tool_breakdown = excluded.tool_breakdown,
-         resumed_from_run_id = excluded.resumed_from_run_id`,
+         resumed_from_run_id = excluded.resumed_from_run_id,
+         trace_id = excluded.trace_id`,
       [
         entry.id,
         entry.projectId,
@@ -179,6 +181,7 @@ export class SqliteExecutionLogRepository
         entry.systemPromptHash ?? null,
         entry.toolBreakdown ? JSON.stringify(entry.toolBreakdown) : null,
         entry.resumedFromRunId ?? null,
+        entry.traceId ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -225,6 +228,7 @@ export class SqliteExecutionLogRepository
       systemPromptHash: 'system_prompt_hash',
       toolBreakdown: 'tool_breakdown',
       resumedFromRunId: 'resumed_from_run_id',
+      traceId: 'trace_id',
     }
 
     const setClauses: string[] = []
@@ -283,6 +287,10 @@ export class SqliteExecutionLogRepository
     if (filters.eventId !== undefined) {
       whereClauses.push('event_id = ?')
       params.push(filters.eventId)
+    }
+    if (filters.traceId !== undefined) {
+      whereClauses.push('trace_id = ?')
+      params.push(filters.traceId)
     }
     inClause('rule_id', filters.ruleId)
     // `assignees` es una columna JSON, así que el `IN` va contra los elementos

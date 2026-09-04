@@ -24,6 +24,11 @@ export interface SlackWebhookDelivery {
   event: string
   payload: Record<string, unknown>
   deliveryId?: string
+  /** Ver el mismo campo en `IWebhookTranslator.WebhookDelivery` (apps/server) —
+   *  el trace del request HTTP, generado en el borde antes de verificar la
+   *  firma. Slack no manda un header de delivery, así que la ruta siempre
+   *  sintetiza uno con `crypto.randomUUID()`. */
+  traceId?: string
 }
 
 /** Un mensaje en un canal o hilo. Es el único tipo que produce evento hoy: el
@@ -59,7 +64,11 @@ interface SlackEnvelope {
  * - **Mensajes sin texto**: un adjunto solo no tiene nada que un agente pueda
  *   leer.
  */
-export function slackMessageEvent(payload: unknown, deliveryId?: string): EngineEvent | null {
+export function slackMessageEvent(
+  payload: unknown,
+  deliveryId?: string,
+  traceId?: string,
+): EngineEvent | null {
   const env = payload as SlackEnvelope
   if (env?.type !== 'event_callback') return null
 
@@ -79,6 +88,7 @@ export function slackMessageEvent(payload: unknown, deliveryId?: string): Engine
       : {}),
     type: SLACK_MESSAGE,
     source: 'slack',
+    traceId,
     // SIN scope a propósito. Nadie sabe todavía de qué proyecto habla este
     // mensaje — averiguarlo es el trabajo de la regla de triage.
     scope: {},
@@ -110,8 +120,8 @@ export class SlackWebhookTranslator {
     return event === 'event_callback'
   }
 
-  translate({ payload, deliveryId }: SlackWebhookDelivery): EngineEvent | null {
-    return slackMessageEvent(payload, deliveryId)
+  translate({ payload, deliveryId, traceId }: SlackWebhookDelivery): EngineEvent | null {
+    return slackMessageEvent(payload, deliveryId, traceId)
   }
 }
 

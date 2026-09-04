@@ -54,6 +54,21 @@ export const EngineEventSchema = z.object({
    *  X — un loop infinito, y esta vez sin `isScoped` para salvarlo. */
   causationId: z.string().optional(),
   depth: z.number().int().nonnegative().default(0),
+  /**
+   * El id del webhook que originó esta cadena — no la identidad del HECHO
+   * (`id`, que dedupea), sino la identidad del DELIVERY que lo disparó. Un
+   * `pull_request` y un `issues` del mismo `X-GitHub-Delivery` nunca comparten
+   * `id` (cada uno es su propio hecho) pero SÍ deberían compartir `traceId` —
+   * es lo que permite, dado un delivery, encontrar todo lo que produjo.
+   *
+   * Ausente en un evento sintetizado internamente (`createEvent` sin que el
+   * caller lo pase). `deriveEvent` lo hereda del `cause` — con fallback a
+   * `cause.id` cuando el evento raíz no traía uno explícito — para que la
+   * cadena entera de un webhook (evento → regla → `run.finished` → otra
+   * regla) comparta el mismo trace aunque el borde nunca haya sabido de las
+   * reglas que iba a disparar.
+   */
+  traceId: z.string().optional(),
 })
 export type EngineEvent = z.infer<typeof EngineEventSchema>
 
@@ -103,5 +118,10 @@ export function createEvent(input: EngineEventInput): EngineEvent {
  * de frenar nada.
  */
 export function deriveEvent(cause: EngineEvent, input: EngineEventInput): EngineEvent {
-  return createEvent({ ...input, causationId: cause.id, depth: cause.depth + 1 })
+  return createEvent({
+    ...input,
+    causationId: cause.id,
+    depth: cause.depth + 1,
+    traceId: input.traceId ?? cause.traceId ?? cause.id,
+  })
 }

@@ -122,9 +122,14 @@ export function createWebhooksRouter() {
   // lo ven las reglas globales (fail-closed en `matchScope`), y asignarle scope
   // es el trabajo de un agente de triage que emite un evento ya ruteado.
   router.post('/slack', async (c) => {
+    // Generado ACÁ, antes de cualquier verificación — Slack no manda un
+    // header de delivery, así que es la única identidad que este request va
+    // a tener si termina rechazado por firma inválida o secreto ausente. Ver
+    // el comentario de `traceId` en `EngineEventSchema`.
+    const traceId = crypto.randomUUID()
     const secret = slackSigningSecret()
     if (!secret) {
-      log.warn('Rejected Slack webhook: SLACK_SIGNING_SECRET is not configured')
+      log.warn({ traceId }, 'Rejected Slack webhook: SLACK_SIGNING_SECRET is not configured')
       return c.json({ error: 'SLACK_SIGNING_SECRET no está configurado' }, 503)
     }
     const raw = await c.req.text()
@@ -149,35 +154,51 @@ export function createWebhooksRouter() {
         secret,
       )
     ) {
-      log.warn('Rejected Slack webhook: bad signature')
+      log.warn({ traceId }, 'Rejected Slack webhook: bad signature')
       return c.json({ error: 'invalid signature' }, 401)
     }
 
     const result = await ingestWebhookUseCase.ingest({
       event: (payload as { type?: string }).type ?? 'unknown',
       payload: payload as Record<string, unknown>,
+      traceId,
     })
     if (result.status === 'ignored') {
       // Un bot, un subtipo, un mensaje sin texto. 200 para que Slack no
       // marque la suscripción como fallando.
-      return c.json({ ok: true, ignored: true, reason: result.reason })
+      return c.json({ ok: true, ignored: true, reason: result.reason, traceId })
     }
 
-    log.info({ type: result.type, outcome: result.outcome }, 'Mensaje de Slack publicado al bus')
-    return c.json({ ok: true, type: result.type, outcome: result.outcome })
+    log.info(
+      { traceId, type: result.type, outcome: result.outcome },
+      'Mensaje de Slack publicado al bus',
+    )
+    return c.json({ ok: true, type: result.type, outcome: result.outcome, traceId })
   })
 
   router.post('/github', async (c) => {
+    // Leído ANTES de cualquier verificación: es un header, no cuesta nada, y
+    // es lo que hace que hasta un delivery rechazado por firma quede
+    // trazable. Para GitHub, `traceId` termina siendo literalmente
+    // `deliveryId` (GitHub reintenta un delivery fallido con el MISMO
+    // `X-GitHub-Delivery`, así que el reintento comparte trace con el
+    // intento original) — sólo se sintetiza cuando el header falta, que en la
+    // práctica es "nunca" para un delivery real de GitHub. Ver el comentario
+    // de `traceId` en `EngineEventSchema`.
+    const traceId = c.req.header('x-github-delivery') ?? crypto.randomUUID()
     const secret = webhookSecret()
     if (!secret) {
-      log.warn('Rejected webhook: IA_FLOW_WEBHOOK_SECRET is not configured')
+      log.warn({ traceId }, 'Rejected webhook: IA_FLOW_WEBHOOK_SECRET is not configured')
       return c.json(NO_SECRET_BODY, 503)
     }
     // Read the raw body — the signature is over the exact bytes GitHub sent.
     const raw = await c.req.text()
 
     if (!verifyGithubSignature(raw, c.req.header('x-hub-signature-256'), secret)) {
-      log.warn({ delivery: c.req.header('x-github-delivery') }, 'Rejected webhook: bad signature')
+      log.warn(
+        { traceId, delivery: c.req.header('x-github-delivery') },
+        'Rejected webhook: bad signature',
+      )
       return c.json({ error: 'invalid signature' }, 401)
     }
 
@@ -205,7 +226,7 @@ export function createWebhooksRouter() {
       // Sólo bus (pull_request, pull_request_review, check_suite, workflow_run):
       // nunca cambian un item del board por sí solos, así que no hay nada que
       // re-escanear.
-      const busResult = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
+      const busResult = await ingestWebhookUseCase.ingest({ event, payload, deliveryId, traceId })
       if (busResult.status === 'ignored') {
         return c.json({
           ok: true,
@@ -213,13 +234,14 @@ export function createWebhooksRouter() {
           ignored: true,
           reason: busResult.reason,
           triggered: [],
+          traceId,
         })
       }
       log.info(
-        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId, traceId },
         'Evento de GitHub publicado al bus',
       )
-      return c.json({ ok: true, event, type: busResult.type, outcome: busResult.outcome })
+      return c.json({ ok: true, event, type: busResult.type, outcome: busResult.outcome, traceId })
     }
 
     // Publicar al bus y disparar el re-scan NO son alternativas — son las dos
@@ -248,11 +270,17 @@ export function createWebhooksRouter() {
     })
 
     const busResult = ingestWebhookUseCase.handles(event)
-      ? await ingestWebhookUseCase.ingest({ event, payload, deliveryId, projectIds: triggered })
+      ? await ingestWebhookUseCase.ingest({
+          event,
+          payload,
+          deliveryId,
+          projectIds: triggered,
+          traceId,
+        })
       : undefined
     if (busResult?.status === 'published') {
       log.info(
-        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+        { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId, traceId },
         'Evento de GitHub publicado al bus',
       )
     }
@@ -261,6 +289,7 @@ export function createWebhooksRouter() {
       ok: true,
       event,
       triggered,
+      traceId,
       ...(busResult?.status === 'published'
         ? { bus: { type: busResult.type, outcome: busResult.outcome } }
         : {}),

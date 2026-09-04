@@ -1314,6 +1314,19 @@ export const ExecutionLogSchema = z.object({
    * padre delegando en un hijo. `null` cuando arrancó de cero.
    */
   resumedFromRunId: z.string().nullable().optional(),
+  /**
+   * El id que atraviesa TODO lo que un mismo webhook disparó — desde el
+   * delivery que llegó a `POST /api/webhooks/github|slack` hasta cada fila de
+   * `execution_logs` que ese delivery terminó produciendo (puede ser más de
+   * una: un `projects_v2_item.edited` dispara notificaciones Y un agente).
+   * Para GitHub es literalmente `X-GitHub-Delivery` — GitHub reintenta un
+   * delivery fallido con el MISMO id, así que un reintento comparte trace con
+   * el intento original. Para Slack (sin ese header) y para cualquier delivery
+   * sin id, el borde (`routes/webhooks.ts`) sintetiza uno con
+   * `crypto.randomUUID()`. `null` en todo lo que no nace de un webhook (cron,
+   * manual, un scan que encontró un item en Ready por su cuenta).
+   */
+  traceId: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -1335,6 +1348,7 @@ export const ExecutionLogFiltersSchema = z.object({
   // también las acciones, que es el listado nuevo del pipeline completo.
   kind: z.union([ExecutionKindSchema, z.array(ExecutionKindSchema)]).optional(),
   eventId: z.string().optional(),
+  traceId: z.string().optional(),
   // Multi-select como los demás: mirar dos reglas juntas es la misma pregunta
   // que mirar dos agentes juntos.
   ruleId: z.union([z.string(), z.array(z.string())]).optional(),

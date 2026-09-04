@@ -8,6 +8,13 @@ export interface WebhookDelivery {
   /** El id del delivery, cuando la fuente manda uno (`X-GitHub-Delivery`, el
    *  `event_id` de Slack). Es lo que hace idempotente un reintento. */
   deliveryId?: string
+  /** El trace del REQUEST HTTP que trajo este delivery — generado en el borde
+   *  (`routes/webhooks.ts`), ANTES de verificar la firma, así que existe aun
+   *  para un delivery que termina rechazado. Para GitHub es `deliveryId`
+   *  (mismo id en un reintento); para Slack (sin ese header) es un
+   *  `crypto.randomUUID()` por request. Distinto de `deliveryId` en propósito:
+   *  éste es sólo trazabilidad, nunca una clave de dedupe. */
+  traceId?: string
   /**
    * Proyecto(s) de ia-flow que ya matchearon este delivery, cuando la RUTA ya
    * lo sabe de otra fuente — hoy sólo `projects_v2_item`/`projects_v2`, cuyo

@@ -137,6 +137,7 @@ export function pullRequestEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   const pr = payload.pull_request
   if (!pr) return null
@@ -163,6 +164,7 @@ export function pullRequestEvent(
     ...(deliveryId ? { id: `${deliveryId}:${type}` } : {}),
     type,
     source: 'github',
+    traceId,
     scope: scopeFor(payload, resolve, number ? { prNumber: number } : {}),
     payload: { action: payload.action, pr: prPayload(pr) },
   })
@@ -174,6 +176,7 @@ export function pullRequestReviewEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   const pr = payload.pull_request
   const review = payload.review
@@ -184,6 +187,7 @@ export function pullRequestReviewEvent(
     ...(deliveryId ? { id: `${deliveryId}:${PR_REVIEW_SUBMITTED}` } : {}),
     type: PR_REVIEW_SUBMITTED,
     source: 'github',
+    traceId,
     scope: scopeFor(payload, resolve, number ? { prNumber: number } : {}),
     payload: {
       // `approved` | `changes_requested` | `commented`
@@ -209,6 +213,7 @@ export function ciFinishedEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   if (payload.action !== 'completed') return null
   const run = event === 'check_suite' ? payload.check_suite : payload.workflow_run
@@ -224,6 +229,7 @@ export function ciFinishedEvent(
     ...(deliveryId ? { id: `${deliveryId}:${CI_FINISHED}` } : {}),
     type: CI_FINISHED,
     source: 'github',
+    traceId,
     scope: scopeFor(payload, resolve, prNumber ? { prNumber } : {}),
     payload: {
       // `success` | `failure` | `cancelled` | `timed_out` | `neutral` | …
@@ -254,6 +260,7 @@ export function issueCommentEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   const issue = payload.issue
   const comment = payload.comment
@@ -266,6 +273,7 @@ export function issueCommentEvent(
     ...(deliveryId ? { id: `${deliveryId}:${type}:${comment.id}` } : {}),
     type,
     source: 'github',
+    traceId,
     scope: scopeFor(payload, resolve, nodeId ? { issueId: nodeId } : {}),
     payload: {
       action: payload.action,
@@ -287,6 +295,7 @@ export function issuesEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   const issue = payload.issue
   if (!issue) return null
@@ -298,6 +307,7 @@ export function issuesEvent(
     ...(deliveryId ? { id: `${deliveryId}:${type}:${issueNumber}` } : {}),
     type,
     source: 'github',
+    traceId,
     scope: scopeFor(payload, resolve, nodeId ? { issueId: nodeId } : {}),
     payload: {
       action: payload.action,
@@ -329,6 +339,7 @@ export function projectItemEvent(
   payload: RawPayload,
   projectIds: string[] | undefined,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   const item = payload.projects_v2_item
   if (!item) return null
@@ -348,6 +359,7 @@ export function projectItemEvent(
     ...(deliveryId ? { id: `${deliveryId}:${type}:${itemId}` } : {}),
     type,
     source: 'github',
+    traceId,
     scope: { ...scopeForProjectIds(projectIds), ...(itemId ? { issueId: itemId } : {}) },
     payload: {
       action: payload.action,
@@ -364,6 +376,7 @@ export function projectEvent(
   payload: RawPayload,
   projectIds: string[] | undefined,
   deliveryId?: string,
+  traceId?: string,
 ): EngineEvent | null {
   const project = payload.projects_v2
   if (!project) return null
@@ -373,6 +386,7 @@ export function projectEvent(
     ...(deliveryId ? { id: `${deliveryId}:${type}` } : {}),
     type,
     source: 'github',
+    traceId,
     scope: scopeForProjectIds(projectIds),
     payload: { action: payload.action },
   })
@@ -386,16 +400,18 @@ export function githubWebhookEvent(
   resolve: ScopeResolver,
   deliveryId?: string,
   projectIds?: string[],
+  traceId?: string,
 ): EngineEvent | null {
   const raw = payload as RawPayload
-  if (event === 'pull_request') return pullRequestEvent(raw, resolve, deliveryId)
-  if (event === 'pull_request_review') return pullRequestReviewEvent(raw, resolve, deliveryId)
+  if (event === 'pull_request') return pullRequestEvent(raw, resolve, deliveryId, traceId)
+  if (event === 'pull_request_review')
+    return pullRequestReviewEvent(raw, resolve, deliveryId, traceId)
   if (event === 'check_suite' || event === 'workflow_run')
-    return ciFinishedEvent(event, raw, resolve, deliveryId)
-  if (event === 'issue_comment') return issueCommentEvent(raw, resolve, deliveryId)
-  if (event === 'issues') return issuesEvent(raw, resolve, deliveryId)
-  if (event === 'projects_v2_item') return projectItemEvent(raw, projectIds, deliveryId)
-  if (event === 'projects_v2') return projectEvent(raw, projectIds, deliveryId)
+    return ciFinishedEvent(event, raw, resolve, deliveryId, traceId)
+  if (event === 'issue_comment') return issueCommentEvent(raw, resolve, deliveryId, traceId)
+  if (event === 'issues') return issuesEvent(raw, resolve, deliveryId, traceId)
+  if (event === 'projects_v2_item') return projectItemEvent(raw, projectIds, deliveryId, traceId)
+  if (event === 'projects_v2') return projectEvent(raw, projectIds, deliveryId, traceId)
   return null
 }
 
@@ -484,8 +500,14 @@ export class GithubWebhookTranslator implements IWebhookTranslator {
     return isBusEvent(event)
   }
 
-  translate({ event, payload, deliveryId, projectIds }: WebhookDelivery): EngineEvent | null {
-    return githubWebhookEvent(event, payload, this.resolveScope, deliveryId, projectIds)
+  translate({
+    event,
+    payload,
+    deliveryId,
+    projectIds,
+    traceId,
+  }: WebhookDelivery): EngineEvent | null {
+    return githubWebhookEvent(event, payload, this.resolveScope, deliveryId, projectIds, traceId)
   }
 
   async resolveItem(delivery: WebhookDelivery, event: EngineEvent): Promise<IssueItem | null> {

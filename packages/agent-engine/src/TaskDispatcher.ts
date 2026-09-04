@@ -65,7 +65,7 @@ export interface DispatchOptions {
   /** El evento que causó el dispatch. Misma naturaleza que `ruleId`
    *  —trazabilidad— y es lo que agrupa este run con las demás acciones que la
    *  regla corrió en el mismo disparo. */
-  event?: { id: string; type: string; position?: number }
+  event?: { id: string; type: string; position?: number; traceId?: string }
   /** Por qué corre el agente esta vez, ya rendido contra el evento. A
    *  diferencia de `ruleId` y `event`, esto NO es trazabilidad: se antepone al
    *  user turn y el modelo lo lee. */
@@ -324,6 +324,7 @@ export class TaskDispatcher {
           eventId: event?.id,
           eventType: event?.type,
           position: event?.position,
+          traceId: event?.traceId,
           brief,
           exits,
         },

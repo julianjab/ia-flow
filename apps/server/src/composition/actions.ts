@@ -138,7 +138,7 @@ export function registerActions(): void {
         manager: IIssueManager,
         agentId: string,
         ruleId: string,
-        event: { id: string; type: string; position: number },
+        event: { id: string; type: string; position: number; traceId?: string },
         brief?: string,
         exits?: DispatchOptions['exits'],
         liveInject?: boolean,
