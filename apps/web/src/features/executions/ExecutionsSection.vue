@@ -104,6 +104,11 @@ const failureClassFilter = ref<string>('');
 const pendingFilter = ref(false);
 const fromFilter = ref('');
 const toFilter = ref('');
+// Server-side, no client-side como `tarea`: el sentido de filtrar por trace es
+// "traeme TODO lo que produjo este delivery/ciclo de scan", y eso puede no
+// estar en la página ya cargada — a diferencia de buscar dentro de lo que ya
+// se ve, acá hace falta volver a pedirle al servidor con `?traceId=`.
+const traceIdFilter = ref('');
 const limit = ref(DEFAULT_LIMIT);
 
 
@@ -254,6 +259,7 @@ const FILTER_FIELDS_BASE: Array<{
   { key: 'tarea', hint: 'título o id', free: true },
   { key: 'desde', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
   { key: 'hasta', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
+  { key: 'traceId', hint: 'todo lo que produjo el mismo delivery/scan', free: true },
 ];
 
 const filterFields = computed<FilterFieldDef[]>(() => {
@@ -323,6 +329,7 @@ const filterTokens = computed<FilterToken[]>({
     ...setTokens('tarea', taskTextInput.value ? [taskTextInput.value] : []),
     ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
     ...setTokens('hasta', toFilter.value ? [toFilter.value] : []),
+    ...setTokens('traceId', traceIdFilter.value ? [traceIdFilter.value] : []),
   ],
   set: (tokens) => {
     const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
@@ -348,6 +355,7 @@ const filterTokens = computed<FilterToken[]>({
     taskTextApplied.value = taskText.trim().toLowerCase();
     fromFilter.value = of('desde').at(-1) ?? '';
     toFilter.value = of('hasta').at(-1) ?? '';
+    traceIdFilter.value = of('traceId').at(-1) ?? '';
   },
 });
 
@@ -578,6 +586,10 @@ type DetailRow = {
   /** Cuando está, la fila se dibuja como link — salta al run que la produjo
    *  (mismo mecanismo que el `?runId=` de la URL: `toggleRow`). */
   jumpToRunId?: string;
+  /** Cuando está, la fila se dibuja como link — filtra la lista (server-side)
+   *  a todo lo que comparte este traceId, en vez de sólo saltar dentro de la
+   *  página ya cargada como hace `jumpToRunId`. */
+  filterByTraceId?: boolean;
 };
 
 function isAction(exec: ExecutionLog): boolean {
@@ -599,7 +611,7 @@ function detailRows(exec: ExecutionLog): DetailRow[] {
       add('posición en el do[]', String(exec.position));
     }
     add('eventId', exec.eventId);
-    add('traceId', exec.traceId);
+    add('traceId', exec.traceId, { filterByTraceId: true });
     // Un evento sin issue (un `slack.message`) no tiene tarea: la columna
     // guarda '' porque es NOT NULL, no porque haya una tarea vacía.
     add('taskId', exec.taskId);
@@ -616,7 +628,7 @@ function detailRows(exec: ExecutionLog): DetailRow[] {
     // De qué disparo vino, cuando vino de uno. Un run manual no tiene regla.
     add('regla', exec.ruleId);
     add('evento', exec.eventType);
-    add('traceId', exec.traceId);
+    add('traceId', exec.traceId, { filterByTraceId: true });
     add('errorMsg', exec.errorMsg, { pre: true });
     add('stopReason', exec.stopReason);
     // De qué run retomó el checkpoint — distinto de una jerarquía de
@@ -728,6 +740,7 @@ async function load() {
         : {}),
       ...(fromFilter.value ? { from: fromFilter.value } : {}),
       ...(toFilter.value ? { to: toFilter.value } : {}),
+      ...(traceIdFilter.value ? { traceId: traceIdFilter.value } : {}),
       limit: limit.value,
     });
     // Accumulate discovered providers so chips remain visible after filtering.
@@ -996,6 +1009,15 @@ function jumpToRun(runId: string) {
   const exec = executions.value.find((e) => e.id === runId);
   if (exec && !fetchedRunIds.value.has(exec.id)) void loadRelatedLogs(exec);
   autoScroll.value = true;
+}
+
+// A diferencia de `jumpToRun`, esto SÍ vuelve a pedirle al servidor
+// (`?traceId=`): lo que un trace agrupa puede no estar en la página ya
+// cargada. Cierra el drawer porque el run actual puede no sobrevivir al
+// refiltrado (ver `filteredExecutions`).
+function applyTraceIdFilter(traceId: string): void {
+  closeDetail();
+  traceIdFilter.value = traceId;
 }
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && expandedId.value !== null) closeDetail();
@@ -1363,6 +1385,7 @@ watch(
     kindFilter,
     fromFilter,
     toFilter,
+    traceIdFilter,
     limit,
     projectFilter,
   ],
@@ -1732,6 +1755,14 @@ watch(pendingFilter, () => {
               class="detail-value detail-value--link"
               :title="row.title"
               @click="jumpToRun(row.jumpToRunId)"
+            >{{ row.value }}</button>
+            <button
+              v-else-if="row.filterByTraceId"
+              type="button"
+              class="detail-value detail-value--link"
+              title="Filtrar por este traceId — todo lo que produjo el mismo delivery/scan"
+              data-testid="executions-filter-trace"
+              @click="applyTraceIdFilter(row.value)"
             >{{ row.value }}</button>
             <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
           </div>
