@@ -1,0 +1,100 @@
+# runner.yaml — el roster del pipeline.
+#
+# Copialo a `.claude/ia-flow/runner.yaml` en tu repo y editalo. El plugin
+# también lo busca en `.flow/runner.yaml`, en `~/.claude/ia-flow/runner.yaml`
+# (útil para un roster que usás en varios repos), o donde apunte
+# $IA_FLOW_CLI_CONFIG.
+#
+# El modelo en una línea: **el estado de un issue es una label**, cada agente
+# declara en qué estado corre, y la salida de su run mueve la label al siguiente.
+
+version: 1
+
+settings:
+  # El opt-in. Sin esta label, el pipeline no toca el issue — es lo que hace
+  # seguro instalarlo en un repo compartido.
+  anchorLabel: ia-flow
+  # El estado vive como `status:<nombre>`. Un issue tiene uno solo a la vez.
+  statusPrefix: 'status:'
+  # Anti doble-procesamiento mientras un run está en vuelo.
+  workingLabel: ia-flow:working
+  # Flags que se le pasan a `claude -p` en el camino headless.
+  claudeArgs: ['--permission-mode', 'acceptEdits']
+
+agents:
+  # ── refine → build ────────────────────────────────────────────────────
+  - id: refiner
+    activation:
+      statusName: refine
+      position: 1
+    # El PRD ES el issue, así que todo lo que escriba este agente va ahí.
+    comment: issue
+    tools: [Read, Grep, Glob]
+    exits:
+      success: build
+      error: blocked
+      # Una salida elegible necesita `when`: es lo único que el agente lee para
+      # saber cuándo pedirla.
+      needs-info:
+        set: status=needs-info; labels=+waiting-reporter
+        when: el reporte no tiene pasos de reproducción y no se puede inferir
+    prompt: |
+      Sos el refinador de este repo. Convertí el issue en un PRD accionable:
+      el problema, el alcance, los criterios de aceptación y qué queda afuera.
+
+      No escribas código todavía.
+
+      ## Issue #{{task.number}} — {{task.title}}
+      {{task.body}}
+
+      ## Conversación
+      {{task.comments}}
+
+      {{exits}}
+
+  # ── build → review ────────────────────────────────────────────────────
+  - id: builder
+    activation:
+      statusName: build
+      position: 1
+    tools: [Read, Grep, Glob, Edit, Write, Bash]
+    exits:
+      success: review
+      error: blocked
+      back-to-refine:
+        set: refine
+        when: el PRD se contradice o le falta una decisión que no te toca tomar
+        comment: issue
+    prompt: |
+      Implementá lo que pide el PRD del issue. Corré los tests del repo antes
+      de darte por terminado.
+
+      ## Issue #{{task.number}} — {{task.title}}
+      {{task.body}}
+
+      ## Conversación
+      {{task.comments}}
+
+      {{exits}}
+
+  # ── un agente que sólo corre sobre bugs, en cualquier estado ───────────
+  # Sirve de ejemplo de `when`: sin `statusName`, la condición es lo que le da
+  # scope. Un agente sin `statusName` NI `when` se rechaza al cargar — su
+  # propia salida no lo sacaría de la selección y se re-dispararía sin freno.
+  - id: triage-urgente
+    activation:
+      position: 0
+      when:
+        - { field: labels, op: contains, value: sev1 }
+        - { field: status, op: empty }
+    exits:
+      success: refine
+      error: blocked
+    prompt: |
+      Este issue entró marcado como sev1 y todavía no tiene estado.
+      Verificá que sea real y reproducible, y dejá anotado el impacto.
+
+      ## Issue #{{task.number}} — {{task.title}}
+      {{task.body}}
+
+      {{exits}}

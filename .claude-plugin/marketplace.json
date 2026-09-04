@@ -1,0 +1,11 @@
+{
+  "name": "ia-flow",
+  "owner": { "name": "julianjab" },
+  "plugins": [
+    {
+      "name": "ia-flow-cli",
+      "source": "./plugins/ia-flow-cli",
+      "description": "Trabaja issues de GitHub moviéndolos por estados, con el modelo del engine de ia-flow: un roster declarativo, un agente por estado, y la salida del run como transición."
+    }
+  ]
+}

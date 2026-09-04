@@ -1,0 +1,9 @@
+{
+  "name": "ia-flow-cli",
+  "version": "0.1.0",
+  "description": "El pipeline de issues del engine de ia-flow, sin servidor: declarás un roster en runner.yaml y cada run mueve el issue al estado siguiente.",
+  "author": { "name": "julianjab" },
+  "homepage": "https://github.com/julianjab/ia-flow/tree/main/plugins/ia-flow-cli",
+  "license": "MIT",
+  "keywords": ["github", "issues", "pipeline", "agents", "workflow"]
+}
