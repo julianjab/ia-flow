@@ -87,10 +87,33 @@ describe('LocalTaskSource.setFields — campo multi-valor Labels', () => {
 
     expect(updated.fields?.Priority).toBe('high')
     expect(updated.labels).toEqual(['agent:build', 'bug', 'agent:review'])
+  })
+})
+
+describe('LocalTaskSource.postComment', () => {
+  test('sin target, agrega el comentario', async () => {
+    const { repo, saved } = fakeRepo()
+
+    await new LocalTaskSource(repo).postComment(TASK, 'hola')
+
     expect(saved).toHaveLength(1)
+    expect(saved[0]?.comments?.map((c) => c.body)).toEqual(['hola'])
   })
 
-  test('sin ops de labels, las que ya estaban quedan intactas', async () => {
+  // Mismo contrato que `postToTarget` (GitHub): `none` no tiene un lugar
+  // distinto donde caer para un source sin PR/issue separado, así que la
+  // única forma de respetarlo es no escribir nada.
+  test("con target 'none', no escribe nada", async () => {
+    const { repo, saved } = fakeRepo()
+
+    await new LocalTaskSource(repo).postComment(TASK, 'hola', 'none')
+
+    expect(saved).toHaveLength(0)
+  })
+})
+
+describe('LocalTaskSource.setFields — sin ops de labels', () => {
+  test('las que ya estaban quedan intactas', async () => {
     const { repo, saved } = fakeRepo()
 
     const updated = await new LocalTaskSource(repo).setFields(TASK, { Priority: 'low' })
