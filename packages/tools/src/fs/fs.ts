@@ -208,26 +208,40 @@ registerTool({
  *  `node_modules`/`__pycache__` pueden ser enormes. Un `.github/` o un
  *  `.env.example` NO están acá a propósito — ver PRD #138. */
 const HARD_EXCLUDED_DIRS = new Set(['.git', 'node_modules', '__pycache__'])
+/** Tope de entradas que `fs_list` junta antes de cortar. Sin filtro de
+ *  dotfiles y con recursión, un `depth` alto en un monorepo sin gitignorear
+ *  `.venv`/`.next`/`.turbo` puede volcar cientos de miles de líneas al
+ *  contexto del modelo — mismo espíritu que `GREP_SAFETY_CAP`. */
+const FS_LIST_MAX_ENTRIES = 2000
+/** Tope de `depth`, independiente de lo que pida el modelo. */
+const FS_LIST_MAX_DEPTH = 10
 
+/** Devuelve `true` si se cortó por `FS_LIST_MAX_ENTRIES` — deja de recorrer
+ *  en cuanto se detecta, en vez de seguir juntando entradas que después se
+ *  descartarían igual. */
 async function listTree(
   abs: string,
   rel: string,
   depth: number,
   ctx: ToolContext,
   out: string[],
-): Promise<void> {
+): Promise<boolean> {
+  if (out.length >= FS_LIST_MAX_ENTRIES) return true
   const entries = await readdir(abs, { withFileTypes: true })
   entries.sort((a, b) => a.name.localeCompare(b.name))
   for (const e of entries) {
+    if (out.length >= FS_LIST_MAX_ENTRIES) return true
     if (HARD_EXCLUDED_DIRS.has(e.name)) continue
     const full = join(abs, e.name)
     if (isIgnored(full, ctx.repoPaths)) continue
     const relPath = rel ? `${rel}/${e.name}` : e.name
     out.push(`${e.isDirectory() ? 'd' : 'f'} ${relPath}`)
     if (e.isDirectory() && depth > 1) {
-      await listTree(full, relPath, depth - 1, ctx, out)
+      const capped = await listTree(full, relPath, depth - 1, ctx, out)
+      if (capped) return true
     }
   }
+  return false
 }
 
 registerTool({
@@ -237,7 +251,9 @@ registerTool({
     'List files and directories at a path in one of the task repos. Dotfiles and ' +
     'dot-directories are shown (e.g. ".github", ".env.example") — only .git, node_modules ' +
     "and __pycache__ are excluded, plus whatever the repo's .gitignore ignores. Pass `depth` " +
-    '> 1 to recurse and get the tree for several levels in one call.',
+    `> 1 to recurse and get the tree for several levels in one call (capped at ` +
+    `${FS_LIST_MAX_DEPTH}). Output is capped at ${FS_LIST_MAX_ENTRIES} entries — narrow the ` +
+    'path or depth if it gets truncated.',
   input_schema: {
     type: 'object',
     properties: {
@@ -256,10 +272,13 @@ registerTool({
     const abs = resolvePath(input.path, ctx.repoPaths)
     if (!existsSync(abs)) return `Path not found: ${input.path}`
 
-    const depth = Math.max(1, Math.trunc(input.depth ?? 1))
+    const depth = Math.min(FS_LIST_MAX_DEPTH, Math.max(1, Math.trunc(input.depth ?? 1)))
     const lines: string[] = []
-    await listTree(abs, '', depth, ctx, lines)
-    return lines.join('\n') || '(empty directory)'
+    const capped = await listTree(abs, '', depth, ctx, lines)
+    const notice = capped
+      ? `\n\n[Truncated at ${FS_LIST_MAX_ENTRIES} entries — narrow the path or depth.]`
+      : ''
+    return (lines.join('\n') || '(empty directory)') + notice
   },
 })
 
@@ -396,40 +415,83 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
 }
 
 /**
- * Parsea una línea cruda de `rg` con `--line-number` (y opcionalmente
- * `--context`). rg usa `:` como separador para la línea que matchea y `-`
- * para las líneas de contexto — en ambos casos el mismo separador aparece
- * dos veces (antes y después del número de línea), lo que permite
- * distinguir "path con guiones" de "separador de contexto".
+ * Lee el stdout de un proceso en streaming y corta apenas se juntan
+ * `maxLines` renglones (`\n`), matando el proceso en vez de esperar a que
+ * termine. Sin esto, un patrón amplio sobre un repo grande materializa la
+ * salida completa de `rg` en memoria ANTES de poder recortarla — el propio
+ * `GREP_SAFETY_CAP` quedaba de adorno en el camino rg. El margen (`* 4`) es
+ * porque cada match real puede venir acompañado de varias líneas de
+ * contexto y de líneas `begin`/`end` (una por archivo) en el modo `--json`.
  */
-function parseRgLine(
-  rawLine: string,
-  repoName: string,
-): { type: 'match' | 'context'; label: string; line: number; content: string } | null {
-  const m = /^(.*?)([:-])(\d+)\2(.*)$/.exec(rawLine)
-  if (!m) return null
-  const [, path, sep, linenoStr, content] = m
-  return {
-    type: sep === ':' ? 'match' : 'context',
-    label: `${repoName}/${path}`,
-    line: Number(linenoStr),
-    content: content.trim(),
+async function readBounded(
+  proc: { stdout: unknown; kill: () => void },
+  maxLines: number,
+): Promise<string> {
+  const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
+  let newlineCount = 0
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      buffered += chunk
+      for (let i = 0; i < chunk.length; i++) {
+        if (chunk[i] === '\n') newlineCount++
+      }
+      if (newlineCount > maxLines) {
+        try {
+          proc.kill()
+        } catch {
+          /* already exited */
+        }
+        break
+      }
+    }
+  } finally {
+    reader.releaseLock()
   }
+  return buffered
 }
 
 /**
- * Reconstruye bloques por match a partir de la salida cruda de `rg -C`. Cada
- * línea de match ancla un bloque; las líneas de contexto contiguas (mismo
- * archivo, número de línea consecutivo) se le suman antes/después. Un `--`
- * (separador de grupo de rg) no matchea el regex de `parseRgLine` y por eso
- * ya corta la contigüidad — no hace falta tratarlo aparte.
+ * Reconstruye bloques por match a partir de NDJSON de `rg --json` (con
+ * `--context` opcional). Cada objeto `data.path.text`/`data.line_number` es
+ * exacto — a diferencia de parsear el output de texto plano de rg, no hay
+ * ambigüedad posible con un path que contenga `:` o `-` seguidos de dígitos
+ * (ej. `src/step-2-form.vue`). Una línea de match ancla un bloque; las
+ * líneas de contexto contiguas (mismo archivo, número de línea consecutivo)
+ * se le suman antes/después.
  */
-function groupRgContext(stdout: string, repoName: string): string[] {
-  const entries = stdout
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => parseRgLine(l, repoName))
-    .filter((e): e is NonNullable<typeof e> => e !== null)
+function groupRgJsonContext(stdout: string, repoName: string): string[] {
+  const entries: Array<{
+    type: 'match' | 'context'
+    label: string
+    line: number
+    content: string
+  }> = []
+  for (const rawLine of stdout.split('\n')) {
+    if (!rawLine) continue
+    let obj: unknown
+    try {
+      obj = JSON.parse(rawLine)
+    } catch {
+      continue // línea incompleta — puede pasar si `readBounded` cortó a mitad de un objeto
+    }
+    const rec = obj as { type?: string; data?: Record<string, unknown> }
+    if (rec.type !== 'match' && rec.type !== 'context') continue
+    const path = (rec.data?.path as { text?: string } | undefined)?.text
+    const line = rec.data?.line_number
+    const text = (rec.data?.lines as { text?: string } | undefined)?.text
+    if (typeof path !== 'string' || typeof line !== 'number' || typeof text !== 'string') continue
+    entries.push({
+      type: rec.type,
+      label: `${repoName}/${path}`,
+      line,
+      content: text.replace(/\n$/, '').trim(),
+    })
+  }
 
   const blocks: string[] = []
   for (let i = 0; i < entries.length; i++) {
@@ -476,11 +538,11 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   const contextLines = Math.max(0, Math.trunc(input.context_lines ?? 0))
   const filesOnly = !!input.files_only
 
-  const args = ['--regexp', input.pattern, '--no-heading', '--color', 'never']
+  const args = ['--regexp', input.pattern]
   if (filesOnly) {
-    args.push('--files-with-matches')
+    args.push('--files-with-matches', '--color', 'never')
   } else {
-    args.push('--line-number')
+    args.push('--json')
     if (contextLines > 0) args.push('--context', String(contextLines))
   }
   if (input.case_insensitive) args.push('--ignore-case')
@@ -507,10 +569,15 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
     return null
   }
 
-  const stdout = await new Response(proc.stdout as ReadableStream<Uint8Array>).text()
+  // Cada match no-files_only produce varias líneas NDJSON (match + contexto
+  // + begin/end por archivo), de ahí el margen sobre GREP_SAFETY_CAP.
+  const stdout = await readBounded(proc, GREP_SAFETY_CAP * 4)
   const exitCode = await proc.exited
-  // rg exit codes: 0 = matches, 1 = no matches, 2 = error
-  if (exitCode !== 0 && exitCode !== 1) {
+  // rg exit codes: 0 = matches, 1 = no matches, 2 = error. Un kill por corte
+  // temprano en `readBounded` también deja un exit code no-cero — no es un
+  // error de rg, así que no lo tratamos como fallback.
+  const cutEarly = stdout.split('\n').length > GREP_SAFETY_CAP * 4
+  if (!cutEarly && exitCode !== 0 && exitCode !== 1) {
     log.debug({ exitCode }, 'rg errored, falling back to JS walk')
     return null
   }
@@ -523,7 +590,7 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
       .slice(0, GREP_SAFETY_CAP)
   }
 
-  return groupRgContext(stdout, repoName).slice(0, GREP_SAFETY_CAP)
+  return groupRgJsonContext(stdout, repoName).slice(0, GREP_SAFETY_CAP)
 }
 
 // Exported for parity tests.
