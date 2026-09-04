@@ -476,6 +476,17 @@ describe('fs_list — depth', () => {
     const out = await tool.execute({ path: 'r', depth: 999 }, { repoPaths })
     expect(out).toContain('a/one.ts')
   })
+
+  it('falls back to depth 1 when `depth` is not a valid number', async () => {
+    mkdirSync(join(repoRoot, 'sub'))
+    writeFileSync(join(repoRoot, 'sub/nested.ts'), 'x')
+    writeFileSync(join(repoRoot, 'top.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 'not-a-number' }, { repoPaths })
+    expect(out).toContain('f top.ts')
+    expect(out).not.toContain('nested.ts')
+  })
 })
 
 describe('fs_grep — pagination and total', () => {
@@ -583,6 +594,32 @@ describe('fs_grep — files_only (rg ↔ JS parity)', () => {
   })
 })
 
+describe('fs_grep — dotfiles (rg ↔ JS parity)', () => {
+  it('searches inside dot-directories, not just visible ones', async () => {
+    mkdirSync(join(repoRoot, '.github'))
+    writeFileSync(join(repoRoot, '.github/workflow.yml'), 'NEEDLE in ci config\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
+    expect(out).toContain('.github/workflow.yml')
+
+    const rgResults = await grepWithRg({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
+    if (rgResults !== null) {
+      expect(rgResults.some((r) => r.includes('.github/workflow.yml'))).toBe(true)
+    }
+  })
+})
+
+describe('fs_grep — cursor past the end', () => {
+  it('reports there are no more matches instead of an empty page', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'ONE hit\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'ONE', cursor: '999' }, { repoPaths })
+    expect(out).toContain('No more matches')
+  })
+})
+
 describe('fs_glob', () => {
   it('finds files matching a recursive glob (rg ↔ JS parity)', async () => {
     mkdirSync(join(repoRoot, 'apps/server'), { recursive: true })
@@ -612,6 +649,20 @@ describe('fs_glob', () => {
     const tool = getTool('fs_glob')!
     const out = await tool.execute({ path: 'r', pattern: '**/*.nonexistent' }, { repoPaths })
     expect(out).toContain('No files matching')
+  })
+
+  it('finds files inside dot-directories (rg ↔ JS parity)', async () => {
+    mkdirSync(join(repoRoot, '.github/workflows'), { recursive: true })
+    writeFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '**/*.yml' }, { repoPaths })
+    expect(out).toContain('.github/workflows/ci.yml')
+
+    const rgResults = await globWithRg({ path: 'r', pattern: '**/*.yml' }, { repoPaths })
+    if (rgResults !== null) {
+      expect(rgResults.some((r) => r.includes('.github/workflows/ci.yml'))).toBe(true)
+    }
   })
 
   it('scopes the glob to the given subdirectory', async () => {
