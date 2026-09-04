@@ -715,10 +715,30 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     expect(summary.find('[data-testid="executions-stop-e-agent"]').exists()).toBe(true)
   })
 
-  it('cerrado, el disparo se lleva el peor resultado de sus acciones', async () => {
+  // Migración 065 → aab336a6: el resumen mostraba el PEOR resultado entre
+  // todas las acciones (un script fallido temprano pintaba todo en rojo aunque
+  // el agente cerrara bien). Ahora manda la ÚLTIMA acción por `position` — es
+  // lo que efectivamente cerró el disparo — y lo anterior se señala aparte.
+  it('cerrado, el disparo se lleva el resultado de su última acción', async () => {
     const wrapper = await mountWithExecs([agent(), script({ outcome: 'error' })])
 
+    // `script` (position 0) falló, pero `agent` (position 1) es la última en
+    // cerrar el disparo y salió bien: el resumen es su resultado, no el peor.
+    expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('success')
+    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(true)
+  })
+
+  it('cerrado sin tropiezos previos, no se marca ningún ⚠', async () => {
+    const wrapper = await mountWithExecs([agent(), script()])
+
+    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(false)
+  })
+
+  it('si la última acción falla, el resumen es error aunque las anteriores hayan salido bien', async () => {
+    const wrapper = await mountWithExecs([agent({ outcome: 'error' }), script()])
+
     expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('error')
+    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(false)
   })
 
   it('un disparo de una sola fila no se colapsa', async () => {
