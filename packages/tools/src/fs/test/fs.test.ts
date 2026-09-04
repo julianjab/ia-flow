@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { getTool } from '../../engine.js'
-import { _grepInternals, grepWithJs } from '../fs.js'
+import { _grepInternals, globWithJs, globWithRg, grepWithJs, grepWithRg } from '../fs.js'
 import { _clearGitignoreCache } from '../gitignore.js'
 import '../fs.js' // side-effect: register list_dir / grep_files
 
@@ -388,5 +388,194 @@ describe('fs_read — focus', () => {
     delete Bun.env.ANTHROPIC_API_KEY
     out = await read({ path: 'r/big.txt', focus: 'x' })
     expect(out).toContain('(focus unavailable)')
+  })
+})
+
+describe('fs_list — dotfiles and recursion', () => {
+  it('shows dotfiles/dot-directories, excluding only the hard list', async () => {
+    mkdirSync(join(repoRoot, '.github'))
+    writeFileSync(join(repoRoot, '.github/workflow.yml'), 'x')
+    writeFileSync(join(repoRoot, '.env.example'), 'x')
+    mkdirSync(join(repoRoot, 'node_modules'))
+    writeFileSync(join(repoRoot, 'node_modules/dep.js'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r' }, { repoPaths })
+
+    expect(out).toContain('d .github')
+    expect(out).toContain('f .env.example')
+    expect(out).not.toContain('node_modules')
+  })
+})
+
+describe('fs_list — depth', () => {
+  it('depth 1 (default) only lists the top level', async () => {
+    mkdirSync(join(repoRoot, 'sub'))
+    writeFileSync(join(repoRoot, 'sub/nested.ts'), 'x')
+    writeFileSync(join(repoRoot, 'top.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r' }, { repoPaths })
+
+    expect(out).toContain('f top.ts')
+    expect(out).toContain('d sub')
+    expect(out).not.toContain('nested.ts')
+  })
+
+  it('depth: 3 recurses and includes nested paths', async () => {
+    mkdirSync(join(repoRoot, 'a/b'), { recursive: true })
+    writeFileSync(join(repoRoot, 'a/one.ts'), 'x')
+    writeFileSync(join(repoRoot, 'a/b/two.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 3 }, { repoPaths })
+
+    expect(out).toContain('d a')
+    expect(out).toContain('f a/one.ts')
+    expect(out).toContain('d a/b')
+    expect(out).toContain('f a/b/two.ts')
+  })
+
+  it('still honors .gitignore while recursing', async () => {
+    writeFileSync(join(repoRoot, '.gitignore'), 'a/ignored.ts\n')
+    mkdirSync(join(repoRoot, 'a'))
+    writeFileSync(join(repoRoot, 'a/ignored.ts'), 'x')
+    writeFileSync(join(repoRoot, 'a/kept.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 2 }, { repoPaths })
+
+    expect(out).toContain('a/kept.ts')
+    expect(out).not.toContain('ignored.ts')
+  })
+})
+
+describe('fs_grep — pagination and total', () => {
+  it('reports the total and a cursor when there are more matches than the page size', async () => {
+    for (let i = 0; i < 120; i++) {
+      writeFileSync(join(repoRoot, `f${i}.ts`), 'PAGED hit\n')
+    }
+
+    const tool = getTool('fs_grep')!
+    const first = await tool.execute({ path: 'r', pattern: 'PAGED' }, { repoPaths })
+    expect(first).toContain('of 120')
+    expect(first).toContain('Pass cursor: "100"')
+
+    const cursorMatch = /cursor: "(\d+)"/.exec(first)
+    expect(cursorMatch).not.toBeNull()
+    const second = await tool.execute(
+      { path: 'r', pattern: 'PAGED', cursor: cursorMatch![1] },
+      { repoPaths },
+    )
+    expect(second).toContain('101-120 of 120')
+  })
+
+  it('does not print pagination header when everything fits on one page', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'ONE hit\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'ONE' }, { repoPaths })
+    expect(out).not.toContain('Showing')
+  })
+})
+
+describe('fs_grep — context_lines (rg ↔ JS parity)', () => {
+  it('returns the lines around each match, both backends agree', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), ['one', 'two', 'HIT here', 'four', 'five'].join('\n'))
+
+    const tool = getTool('fs_grep')!
+    const backendOut = await tool.execute(
+      { path: 'r', pattern: 'HIT', context_lines: 1 },
+      { repoPaths },
+    )
+    const jsOut = (
+      await grepWithJs({ path: 'r', pattern: 'HIT', context_lines: 1 }, { repoPaths })
+    ).join('\n')
+
+    expect(backendOut).toContain('two')
+    expect(backendOut).toContain('HIT here')
+    expect(backendOut).toContain('four')
+
+    const rgOut = await grepWithRg({ path: 'r', pattern: 'HIT', context_lines: 1 }, { repoPaths })
+    if (rgOut !== null) {
+      expect(rgOut.join('\n')).toBe(jsOut)
+    }
+  })
+})
+
+describe('fs_grep — files_only (rg ↔ JS parity)', () => {
+  it('lists only the matching files, no line content', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'ONLY hit\nsecond ONLY hit\n')
+    writeFileSync(join(repoRoot, 'b.ts'), 'nothing here\n')
+    writeFileSync(join(repoRoot, 'c.ts'), 'ONLY once\n')
+
+    const tool = getTool('fs_grep')!
+    const backendOut = await tool.execute(
+      { path: 'r', pattern: 'ONLY', files_only: true },
+      { repoPaths },
+    )
+    const jsResults = await grepWithJs(
+      { path: 'r', pattern: 'ONLY', files_only: true },
+      { repoPaths },
+    )
+
+    expect(backendOut).toContain('a.ts')
+    expect(backendOut).toContain('c.ts')
+    expect(backendOut).not.toContain('b.ts')
+    expect(backendOut).not.toContain(': ONLY')
+    expect(jsResults.sort()).toEqual(jsResults.slice().sort())
+
+    const rgResults = await grepWithRg(
+      { path: 'r', pattern: 'ONLY', files_only: true },
+      { repoPaths },
+    )
+    if (rgResults !== null) {
+      expect(rgResults.sort()).toEqual(jsResults.sort())
+    }
+  })
+})
+
+describe('fs_glob', () => {
+  it('finds files matching a recursive glob (rg ↔ JS parity)', async () => {
+    mkdirSync(join(repoRoot, 'apps/server'), { recursive: true })
+    writeFileSync(join(repoRoot, 'apps/server/foo.test.ts'), 'x')
+    writeFileSync(join(repoRoot, 'apps/server/foo.ts'), 'x')
+    writeFileSync(join(repoRoot, 'root.test.ts'), 'x')
+    writeFileSync(join(repoRoot, 'notes.md'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '**/*.test.ts' }, { repoPaths })
+
+    expect(out).toContain('apps/server/foo.test.ts')
+    expect(out).toContain('root.test.ts')
+    expect(out).not.toContain('foo.ts\n')
+    expect(out).not.toContain('notes.md')
+
+    const jsResults = await globWithJs({ path: 'r', pattern: '**/*.test.ts' }, { repoPaths })
+    const rgResults = await globWithRg({ path: 'r', pattern: '**/*.test.ts' }, { repoPaths })
+    if (rgResults !== null) {
+      expect([...rgResults].sort()).toEqual([...jsResults].sort())
+    }
+  })
+
+  it('returns a not-found message when nothing matches', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '**/*.nonexistent' }, { repoPaths })
+    expect(out).toContain('No files matching')
+  })
+
+  it('scopes the glob to the given subdirectory', async () => {
+    mkdirSync(join(repoRoot, 'a'))
+    mkdirSync(join(repoRoot, 'b'))
+    writeFileSync(join(repoRoot, 'a/hit.test.ts'), 'x')
+    writeFileSync(join(repoRoot, 'b/hit.test.ts'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r/a', pattern: '*.test.ts' }, { repoPaths })
+
+    expect(out).toContain('a/hit.test.ts')
+    expect(out).not.toContain('b/hit.test.ts')
   })
 })
