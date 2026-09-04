@@ -135,36 +135,51 @@ function assertInRepo(absPath: string, repoPaths: Record<string, string>): void 
 }
 
 /**
- * Sigue symlinks hasta su destino real y lo valida contra los repos
- * registrados. `resolve()`/`assertInRepo` sólo normalizan `..` en el texto
- * del path — un repo con un symlink apuntando afuera (`repo/link -> /etc`)
- * pasa esa validación porque el path SIGUE empezando con la raíz del repo,
- * y `fs_list`/`fs_grep`/`fs_read` siguen el link igual (readdir/stat/
- * readFile lo resuelven transparentemente). `realpath` es la única forma
- * de detectarlo.
+ * Sigue symlinks hasta su destino real y devuelve si sigue cayendo dentro de
+ * algún repo registrado. `resolve()`/`assertInRepo` sólo normalizan `..` en
+ * el TEXTO del path — un symlink apuntando afuera (`repo/link -> /etc`) pasa
+ * esa validación porque el path SIGUE empezando con la raíz del repo, y
+ * `readdir`/`stat`/`readFile` lo resuelven de forma transparente. `realpath`
+ * es la única forma de detectarlo, tanto para el `path` de entrada de una
+ * tool como para cada archivo que un walk (`grepWithJs`, `globWithJs`)
+ * descubre por su cuenta — `Dirent.isDirectory()` da `false` para un
+ * symlink, así que el walk no lo salta solo.
+ *
+ * Sin `.catch` en la resolución de un root: si un root registrado no existe
+ * ahí no hay nada seguro contra qué comparar, así que se lo trata como
+ * inseguro (`.catch(() => null)` + filtro) en vez de comparar contra un path
+ * sin resolver que podría dar un falso positivo de "adentro".
  */
-async function assertRealPathInRepo(
+async function realPathStaysInRepo(
   absPath: string,
   repoPaths: Record<string, string>,
-): Promise<void> {
+): Promise<boolean> {
   let real: string
   try {
     real = await realpath(absPath)
   } catch {
-    return // no existe (todavía) — el existsSync() del caller reporta "not found"
+    return true // no existe (todavía) — lo reporta el existsSync()/readFile del caller
   }
-  if (real === absPath) return // nada de por medio era un symlink
+  if (real === absPath) return true // nada de por medio era un symlink
 
   // La raíz del repo puede vivir ella misma detrás de un symlink (en macOS,
   // el propio `/tmp` es un symlink a `/private/tmp`) — comparar `real`
   // contra los roots SIN resolver daría un falso "Access denied" en ese
   // caso. Por eso acá se resuelven los roots también, en vez de reusar
   // `assertInRepo` (que compara contra el texto tal cual llegó en `ctx`).
-  const realRoots = await Promise.all(
-    Object.values(repoPaths).map((p) => realpath(resolve(p)).catch(() => resolve(p))),
-  )
-  const safe = realRoots.some((root) => real === root || real.startsWith(root + '/'))
-  if (!safe) throw new Error(`Access denied: path is outside registered repos`)
+  const realRoots = (
+    await Promise.all(Object.values(repoPaths).map((p) => realpath(resolve(p)).catch(() => null)))
+  ).filter((r): r is string => r !== null)
+  return realRoots.some((root) => real === root || real.startsWith(root + '/'))
+}
+
+async function assertRealPathInRepo(
+  absPath: string,
+  repoPaths: Record<string, string>,
+): Promise<void> {
+  if (!(await realPathStaysInRepo(absPath, repoPaths))) {
+    throw new Error(`Access denied: path is outside registered repos`)
+  }
 }
 
 async function resolvePath(path: string, repoPaths: Record<string, string>): Promise<string> {
@@ -428,6 +443,11 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
     if (results.length >= GREP_SAFETY_CAP) return
     if (globRe && !globRe.test(name)) return
     if (isIgnored(full, ctx.repoPaths)) return
+    // `Dirent.isDirectory()` da `false` para un symlink, así que un archivo
+    // symlinkeado (`link.txt -> /etc/passwd`) llega hasta acá sin que el
+    // walk lo filtre solo — sin este chequeo, `readFile` lo sigue y vuelca
+    // contenido de fuera del repo.
+    if (!(await realPathStaysInRepo(full, ctx.repoPaths))) return
     try {
       const content = await readFile(full, 'utf-8')
       const lines = content.split('\n')
@@ -872,6 +892,9 @@ async function globWithJs(input: GlobInput, ctx: ToolContext): Promise<string[]>
       } else {
         if (isIgnored(full, ctx.repoPaths)) continue
         if (!regex.test(hasSlash ? relPath : e.name)) continue
+        // Mismo motivo que en `grepWithJs`: un symlink a archivo no es una
+        // `isDirectory()`, así que llega hasta acá sin filtrar solo.
+        if (!(await realPathStaysInRepo(full, ctx.repoPaths))) continue
         const s = await stat(full).catch(() => null)
         results.push({ label: `${repoName}/${relative(repoRoot, full)}`, mtime: s?.mtimeMs ?? 0 })
       }
