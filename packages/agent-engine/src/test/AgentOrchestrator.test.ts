@@ -88,6 +88,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       getById: () => null,
       sweepOrphaned: () => [],
       listDistinctSources: () => [],
+      listLastOutputsByAgent: () => [],
     }
 
     const orch = new AgentOrchestrator(
@@ -227,6 +228,7 @@ describe('AgentOrchestrator.runAgent — agente sync sin exits declarados', () =
       getById: () => null,
       sweepOrphaned: () => [],
       listDistinctSources: () => [],
+      listLastOutputsByAgent: () => [],
     }
 
     const orch = new AgentOrchestrator(
@@ -247,6 +249,163 @@ describe('AgentOrchestrator.runAgent — agente sync sin exits declarados', () =
     }
     expect(patch.outcome).toBe('success')
     expect(patch.finishedAt).toBeTruthy()
+  })
+})
+
+// Cubre el criterio del PRD: lo que `submit_output` deja en el PendingTask
+// tiene que sobrevivir al cierre del run como `execution_logs.structuredOutput`,
+// y el próximo agente sobre la misma task tiene que poder leerlo — acá vía
+// `listLastOutputsByAgent`, que es lo que hidrata `{{task.previous_outputs}}`.
+describe('AgentOrchestrator.runAgent — structuredOutput sobrevive al cierre del run', () => {
+  function makeTask(): Task {
+    return {
+      id: 'task-structured-output-1',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  it('persiste la structuredOutput entregada por submit_output en el patch de cierre', async () => {
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      // Simula lo que hace la tool submit_output: escribe en el PendingTask
+      // ANTES de que el loop de tools devuelva el control al orquestador.
+      run: async (input: ProviderInput) => {
+        const { getPendingTask } = await import('../pending-tasks.js')
+        const entry = getPendingTask(input.taskId)
+        if (entry) entry.structuredOutput = { prNumber: 42 }
+        return { content: 'listo', mode: 'api' as const }
+      },
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [
+          {
+            id: 'implementer',
+            provider: 'anthropic-api',
+            prompt: 'x',
+            tools: [],
+            output: { prNumber: { type: 'number' } },
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const repoRepo: IRepoRepository = {
+      list: () => [],
+      listByProject: () => [],
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const update = mock(() => {})
+    const executionLogRepo: IExecutionLogRepository = {
+      insert: () => {},
+      update,
+      list: () => [],
+      listActive: () => [],
+      getById: () => null,
+      sweepOrphaned: () => [],
+      listDistinctSources: () => [],
+      listLastOutputsByAgent: () => [],
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      executionLogRepo,
+    )
+
+    await orch.runAgent(makeTask(), manager, 'implementer')
+
+    const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+      structuredOutput?: Record<string, unknown> | null
+    }
+    expect(patch.structuredOutput).toEqual({ prNumber: 42 })
+  })
+
+  it('sin submit_output persiste structuredOutput: null — no tumba el cierre', async () => {
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async (_: ProviderInput) => ({ content: 'listo', mode: 'api' as const }),
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [{ id: 'implementer', provider: 'anthropic-api', prompt: 'x', tools: [] }],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const repoRepo: IRepoRepository = {
+      list: () => [],
+      listByProject: () => [],
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const update = mock(() => {})
+    const executionLogRepo: IExecutionLogRepository = {
+      insert: () => {},
+      update,
+      list: () => [],
+      listActive: () => [],
+      getById: () => null,
+      sweepOrphaned: () => [],
+      listDistinctSources: () => [],
+      listLastOutputsByAgent: () => [],
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      executionLogRepo,
+    )
+
+    await orch.runAgent(makeTask(), manager, 'implementer')
+
+    const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+      structuredOutput?: Record<string, unknown> | null
+    }
+    expect(patch.structuredOutput).toBeNull()
   })
 })
 

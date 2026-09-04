@@ -47,6 +47,9 @@ class FakeRepo implements IExecutionLogRepository {
   listDistinctSources(): string[] {
     return ['subscriptions-pipeline']
   }
+  listLastOutputsByAgent(): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
+    return []
+  }
 }
 
 class FakeBroadcast implements IBroadcast {

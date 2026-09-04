@@ -51,4 +51,10 @@ export class BroadcastingExecutionLogRepository implements IExecutionLogReposito
   listDistinctSources(): string[] {
     return this.inner.listDistinctSources()
   }
+
+  listLastOutputsByAgent(
+    taskId: string,
+  ): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
+    return this.inner.listLastOutputsByAgent(taskId)
+  }
 }

@@ -91,4 +91,10 @@ export class CompositeExecutionLogRepository implements IExecutionLogRepository 
   listDistinctSources(): string[] {
     return this.primary.listDistinctSources()
   }
+
+  listLastOutputsByAgent(
+    taskId: string,
+  ): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
+    return this.primary.listLastOutputsByAgent(taskId)
+  }
 }

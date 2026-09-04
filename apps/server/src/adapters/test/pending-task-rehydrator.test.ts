@@ -59,6 +59,9 @@ function fakeRepo(rows: ExecutionLog[]): IExecutionLogRepository & { updates: un
     listDistinctSources() {
       return []
     },
+    listLastOutputsByAgent() {
+      return []
+    },
   } as IExecutionLogRepository & { updates: unknown[] }
 }
 

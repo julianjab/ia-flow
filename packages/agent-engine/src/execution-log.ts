@@ -122,6 +122,10 @@ export interface FinishPatchInput {
   agentPromptHash?: string
   /** `hashSystemPrompt` de los bloques resueltos — ver el schema del log. */
   systemPromptHash?: string
+  /** Lo que el agente entregó por `submit_output`, si lo hizo — ver
+   *  `AgentRunState.structuredOutput`. `undefined`/`null` persiste como
+   *  `null`: nada que congelar. */
+  structuredOutput?: Record<string, unknown> | null
 }
 
 /**
@@ -168,6 +172,7 @@ export function buildFinishPatch(input: FinishPatchInput): Partial<ExecutionLog>
     toolCalls,
     toolErrors,
     toolBreakdown: hasBreakdown ? toolBreakdown : null,
+    structuredOutput: input.structuredOutput ?? null,
     failureClass: classifyFailure({
       outcome: input.outcome,
       stopReason: input.stopReason,
