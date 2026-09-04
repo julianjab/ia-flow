@@ -34,13 +34,14 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: AgentOutcomes): void
 }>()
 
-// Las tres opciones, con el texto que explica la regla en el punto donde se
-// decide — un select con `issue | pr | pr-else-issue` pelado obliga a saberse
-// la semántica de memoria.
+// Las cuatro opciones, con el texto que explica la regla en el punto donde se
+// decide — un select con `issue | pr | pr-else-issue | none` pelado obliga a
+// saberse la semántica de memoria.
 const COMMENT_TARGETS: Array<{ value: CommentTarget; label: string }> = [
   { value: 'pr-else-issue', label: 'PR si hay uno abierto, si no el issue' },
   { value: 'pr', label: 'Siempre en el PR (crítica del código)' },
   { value: 'issue', label: 'Siempre en el issue (cambia el alcance)' },
+  { value: 'none', label: 'Ninguno (no publica comentario de cierre)' },
 ]
 
 const form = ref<OutcomesFormValue>(outcomesToForm(props.modelValue))
