@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, ref, watch } from 'vue';
-import type { Project, SourceRef } from '@ia-flow/shared';
+import type { Project, SourceRef, WhenCondition } from '@ia-flow/shared';
 import { sourceKindLabel } from '@/features/projects/meta';
 import { type SourceProjectField, fetchProjectFields } from '@/features/projects/sourceApi';
 import { useProjectsStore } from '@/features/projects/store';
@@ -9,6 +9,39 @@ import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
 import DaemonModeField from '@/features/projects/DaemonModeField.vue';
 import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
+import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue';
+import type { ConditionRow } from '@/ui/condition-rows';
+
+// Conversión propia y no importada de `features/rules`: una feature no puede
+// importar de otra (ver CLAUDE.md de apps/web) aunque el DSL sea el mismo —
+// `features/agents` tiene la misma duplicación por el mismo motivo.
+function whenToRows(when: WhenCondition[] | null | undefined): ConditionRow[] {
+  return (when ?? []).map((c, i) => ({
+    field: c.field,
+    op: c.op,
+    value: c.value ?? '',
+    logic: i === 0 ? 'and' : (c.logic ?? 'and'),
+  }));
+}
+function rowsToWhen(rows: ConditionRow[]): WhenCondition[] | null {
+  const when: WhenCondition[] = rows
+    .filter((r) => r.field.trim())
+    .map((r, i) => {
+      const cond: WhenCondition = { field: r.field.trim(), op: r.op };
+      if (r.op !== '$null' && r.op !== '$not_null') cond.value = r.value.trim();
+      if (i > 0) cond.logic = r.logic ?? 'and';
+      return cond;
+    });
+  return when.length ? when : null;
+}
+const BASE_WHEN_OPS = [
+  { value: '=', label: '= igual' },
+  { value: '!=', label: '!= distinto' },
+  { value: '$contains', label: 'contiene' },
+  { value: '$matches', label: 'matchea regex' },
+  { value: '$null', label: 'es nulo' },
+  { value: '$not_null', label: 'no es nulo' },
+];
 
 const props = defineProps<{ project: Project | null }>();
 
@@ -24,6 +57,12 @@ const daemonMode = ref<string | null>(null);
 // (IA_FLOW_MAX_CONCURRENT_DISPATCHES). Vive junto al modo de disparo porque
 // es la misma decisión operativa: cuándo miro y cuánto largo a la vez.
 const maxConcurrent = ref<number | null>(null);
+// settings.baseWhen: condiciones que el motor de reglas ANDea con el `when`
+// de CADA regla de este proyecto (propias y globales) — ver
+// ProjectSettingsSchema.baseWhen y packages/rules/src/match.ts. Vive junto a
+// las otras dos porque son la misma pregunta operativa aplicada a un caso
+// distinto: qué corre acá y bajo qué condición.
+const baseWhenRows = ref<ConditionRow[]>([]);
 const saving = ref(false);
 
 // Declarado antes del `watch` de abajo a propósito: ese watch es `immediate`,
@@ -32,6 +71,11 @@ const saving = ref(false);
 const originalMaxConcurrent = computed(() => {
   const raw = props.project?.settings?.maxConcurrentDispatches;
   return typeof raw === 'number' && raw > 0 ? raw : null;
+});
+
+const originalBaseWhen = computed<WhenCondition[] | null>(() => {
+  const raw = props.project?.settings?.baseWhen;
+  return Array.isArray(raw) ? (raw as WhenCondition[]) : null;
 });
 
 watch(
@@ -43,6 +87,7 @@ watch(
     const raw = props.project?.settings?.daemonMode;
     daemonMode.value = typeof raw === 'string' && raw ? raw : null;
     maxConcurrent.value = originalMaxConcurrent.value;
+    baseWhenRows.value = whenToRows(originalBaseWhen.value);
   },
   { immediate: true },
 );
@@ -93,7 +138,11 @@ const modeDirty = computed(() => daemonMode.value !== originalDaemonMode.value);
 
 const capDirty = computed(() => maxConcurrent.value !== originalMaxConcurrent.value);
 
-const anyDirty = computed(() => dirty.value || modeDirty.value || capDirty.value);
+const baseWhenDirty = computed(
+  () => JSON.stringify(rowsToWhen(baseWhenRows.value)) !== JSON.stringify(originalBaseWhen.value),
+);
+
+const anyDirty = computed(() => dirty.value || modeDirty.value || capDirty.value || baseWhenDirty.value);
 
 async function save() {
   if (!props.project || !anyDirty.value) return;
@@ -106,6 +155,7 @@ async function save() {
       settings: {
         daemonMode: daemonMode.value,
         maxConcurrentDispatches: maxConcurrent.value,
+        baseWhen: rowsToWhen(baseWhenRows.value),
       },
     });
     toastStore.success('Provider actualizado');
@@ -141,6 +191,23 @@ async function save() {
       hint="Los issues que no entran no se pierden: quedan en cola y se despachan al liberarse un slot."
     />
 
+    <div class="ppt-basewhen">
+      <span class="uc-label">Condiciones base</span>
+      <p class="ppt-desc">
+        Se ANDean con el <code>when</code> de CADA regla de este proyecto (propias y globales)
+        antes de evaluarla — declará acá una condición como "labels != blocked" en vez de
+        repetirla en cada regla.
+      </p>
+      <ConditionRowsEditor
+        v-model="baseWhenRows"
+        logic
+        :ops="BASE_WHEN_OPS"
+        field-placeholder="p. ej. labels"
+        value-placeholder="valor"
+        :op-takes-value="(op: string) => op !== '$null' && op !== '$not_null'"
+      />
+    </div>
+
     <div class="ppt-actions">
       <button class="ppt-btn ppt-btn--primary" :disabled="!anyDirty || saving" @click="save">
         {{ saving ? 'Guardando…' : 'Guardar' }}
@@ -170,6 +237,7 @@ async function save() {
 }
 .ppt-badge--github-projects,
 .ppt-badge--github { background: var(--panel-hi); color: var(--accent); }
+.ppt-basewhen { margin-top: 1rem; }
 .ppt-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 .ppt-btn {
   padding: 0.5rem 1rem;
