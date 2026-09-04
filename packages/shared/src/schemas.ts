@@ -486,6 +486,13 @@ export const YamlPromptCatalogSchema = z.object({
 export const SystemPromptRefSchema = z.union([z.string(), z.object({ text: z.string() }).strict()])
 export type SystemPromptRef = z.infer<typeof SystemPromptRefSchema>
 
+export const WhenConditionSchema = z.object({
+  field: z.string(),
+  op: z.string(),
+  value: z.string().optional(),
+  logic: z.enum(['and', 'or']).optional(),
+})
+
 export const ProjectSettingsSchema = z.object({
   name: z.string().optional(),
   language: z.string().optional(),
@@ -547,6 +554,22 @@ export const ProjectSettingsSchema = z.object({
    * `safeParse` del objeto ENTERO, llevándose puesto el resto de los settings.
    */
   disabledRuleIds: z.array(z.string()).nullish(),
+  /**
+   * Condiciones que el motor de reglas ANDea con el `when` de CADA regla que
+   * corre en este proyecto (globales incluidas), antes de evaluarlo — ver
+   * `matchRules`/`RuleEngineHandler.loadBaseWhen` en `@ia-flow/rules`.
+   *
+   * Resuelve el problema que `disabledRuleIds` no cubre: no es "esta regla no
+   * corre acá", es "ninguna regla de este proyecto corre sobre un issue que
+   * cumpla X" (p. ej. `labels != blocked`) sin repetir esa condición en cada
+   * regla — la condición se declara una vez, a nivel del proyecto que la
+   * necesita, no del roster de reglas que la comparten.
+   *
+   * `.nullish()` por la misma razón que `disabledRuleIds`/los campos de
+   * Slack: `settings` se mergea por key en el PATCH, así que vaciarlo desde
+   * la UI tiene que persistir un `null` explícito, no omitir la key.
+   */
+  baseWhen: z.array(WhenConditionSchema).nullish(),
 })
 
 /**
@@ -697,13 +720,6 @@ export type BashRunConfig = z.infer<typeof BashRunConfigSchema>
 export const AgentToolEntrySchema = z.union([z.string().min(1), BashRunConfigSchema])
 export type AgentToolEntry = z.infer<typeof AgentToolEntrySchema>
 
-export const WhenConditionSchema = z.object({
-  field: z.string(),
-  op: z.string(),
-  value: z.string().optional(),
-  logic: z.enum(['and', 'or']).optional(),
-})
-
 // Un candidato de provider dentro de AgentDefinition.provider cuando este
 // declara varios (ver AgentProviderSchema más abajo). `when` usa el mismo DSL
 // estructurado que AgentActivationSchema.when (evaluado sin I/O por
@@ -842,7 +858,15 @@ export const ERROR_EXIT = 'error'
 // Elegir mal nunca ESCONDE nada: `loadComments` mergea issue + PRs abiertos
 // para todos los agentes, así que el destino decide dónde queda registrado de
 // forma durable, no quién puede verlo.
-export const CommentTargetSchema = z.enum(['issue', 'pr', 'pr-else-issue'])
+//
+// `none` es la excepción deliberada: un agente que sólo clasifica (ej.
+// `comment-triage`, gate barato antes de un refiner/implementer) no tiene
+// ningún hallazgo que dejar por escrito — su reporte es una tool aparte
+// (`react_to_comment`) sobre el comentario que lo disparó, no el auto-comment
+// de cierre del run. `postToTarget` (github-shared/conversation.ts) es el
+// único punto que lo interpreta: no publica nada y listo, en vez de tener
+// que tocar cada call site de `postComment`.
+export const CommentTargetSchema = z.enum(['issue', 'pr', 'pr-else-issue', 'none'])
 export type CommentTarget = z.infer<typeof CommentTargetSchema>
 
 /** Lo que se aplica cuando ni la salida ni el agente declaran `comment`. */

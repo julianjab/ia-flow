@@ -34,6 +34,7 @@ import {
   divergenceReconciler,
   eventBus,
   pollingPause,
+  projectRepo,
   publishScannedItemUseCase,
   ruleRepo,
   waitRepo,
@@ -99,6 +100,14 @@ function registerRuleEngine(): void {
       // Por evento y no congelado: editar una regla en la UI tiene que
       // aplicar sin reiniciar el daemon.
       loadRules: (event) => ruleRepo.visibleTo(event.scope.projectId),
+      // `baseWhen` del proyecto del evento — ver ProjectSettingsSchema.baseWhen.
+      // Sin `projectId` (evento sin scope) no hay proyecto del que leerlo.
+      loadBaseWhen: async (event) => {
+        const projectId = event.scope.projectId
+        if (!projectId) return []
+        const baseWhen = projectRepo.get(projectId)?.settings?.baseWhen
+        return Array.isArray(baseWhen) && baseWhen.length ? [baseWhen] : []
+      },
       // El `whenText` de una regla: un modelo lee el evento y dice si cumple.
       // Es el mismo clasificador que antes gateaba la activación de un agente
       // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
