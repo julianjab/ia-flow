@@ -290,6 +290,19 @@ function stopColumnResize(): void {
   document.removeEventListener('mouseup', stopColumnResize);
   persistColumnWidths();
 }
+// Doble clic en el handle vuelve la columna al ancho automático (el `1fr`
+// elástico, o el fijo de `time`/`level`). Sin esto, arrastrar una vez pineaba
+// la columna PARA SIEMPRE — no había forma de volver atrás salvo borrar
+// `localStorage` a mano en devtools, que es justo el bug que reportó Julian
+// (una columna angosta que "no se arreglaba" con cambios de código porque el
+// ancho manual gana sobre cualquier default).
+function resetColumnWidth(key: string): void {
+  if (columnWidths.value[key] === undefined) return;
+  const next = { ...columnWidths.value };
+  delete next[key];
+  columnWidths.value = next;
+  persistColumnWidths();
+}
 onUnmounted(() => {
   document.removeEventListener('mousemove', onColumnResizeMove);
   document.removeEventListener('mouseup', stopColumnResize);
@@ -1124,12 +1137,16 @@ onMounted(() => {
           <!-- Handle de resize — `mousedown.stop.prevent` para que el gesto
                no dispare el `dragstart` HTML5 del header entero (reordenar):
                `preventDefault` en el mousedown es lo que evita que el
-               navegador arranque el drag nativo desde acá. -->
+               navegador arranque el drag nativo desde acá. Doble clic
+               restablece el ancho automático — sin esto, un resize accidental
+               dejaba la columna angosta para siempre. -->
           <span
             class="log-col-resize"
             :class="{ 'log-col-resize--active': resizingColumn === col }"
             :data-testid="`server-logs-col-resize-${col}`"
+            title="Arrastrar para cambiar el ancho — doble clic para restablecer"
             @mousedown.stop.prevent="startColumnResize(col, $event)"
+            @dblclick.stop="resetColumnWidth(col)"
             @click.stop
           ></span>
         </div>
