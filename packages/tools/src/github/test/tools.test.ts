@@ -278,3 +278,33 @@ describe('list_sub_issues_brief', () => {
     expect(result).toEqual({ count: 0, subIssues: [] })
   })
 })
+
+// ─── react_to_comment ──────────────────────────────────────────────────────
+
+describe('react_to_comment', () => {
+  it('reacciona vía GraphQL con el content mapeado', async () => {
+    const { calls } = stubFetch({ data: { addReaction: { reaction: { content: 'THUMBS_UP' } } } })
+    const tool = getTool('react_to_comment')!
+    const result = await tool.execute(
+      { comment_node_id: 'IC_1', reaction: '+1' },
+      { repoPaths: {} },
+    )
+
+    expect(result).toContain('IC_1')
+    const call = calls[0]?.body as { variables?: Record<string, unknown> }
+    expect(call?.variables).toEqual({ subjectId: 'IC_1', content: 'THUMBS_UP' })
+  })
+
+  // El `enum` del input_schema restringe al modelo bien portado, pero un
+  // valor fuera de rango no puede llegar a la mutación de GraphQL como
+  // `content: undefined` — el error tiene que ser legible acá, no un fallo
+  // crudo del lado de GitHub.
+  it('una reacción fuera del enum tira un error legible, sin llamar a GraphQL', async () => {
+    const { calls } = stubFetch()
+    const tool = getTool('react_to_comment')!
+    await expect(
+      tool.execute({ comment_node_id: 'IC_1', reaction: 'party' }, { repoPaths: {} }),
+    ).rejects.toThrow('Reacción inválida')
+    expect(calls).toHaveLength(0)
+  })
+})
