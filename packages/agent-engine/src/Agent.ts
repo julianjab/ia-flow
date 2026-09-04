@@ -11,7 +11,7 @@
 import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
-import { selectCommentWindow } from '@ia-flow/issue-sources'
+import { openPullRequests, selectCommentWindow } from '@ia-flow/issue-sources'
 import type {
   AgentDefinition,
   AgentExit,
@@ -36,6 +36,7 @@ import type {
   IMcpCatalogRepository,
   IProviderRegistry,
   PauseCheckpointPort,
+  PrDiffPort,
   RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
@@ -265,6 +266,10 @@ export class Agent {
     // Bookkeeping de upstream-aborts (stream stall / overload). Ausente = el
     // comportamiento previo: se loguea y no queda más rastro que el log.
     private abortRepo?: AgentAbortPort,
+    // Trae el diff de un PR — sólo se llama cuando el prompt referencia
+    // `{{task.pr.diff}}` (ver el uso más abajo). Ausente = esa variable
+    // siempre rinde vacío, igual que un proyecto sin GitHub.
+    private fetchPrDiff: PrDiffPort = async () => undefined,
   ) {}
 
   async resolveMcpCatalog(agentDef: {
@@ -406,6 +411,28 @@ export class Agent {
       } catch (err) {
         log.warn({ err, taskId: task.id }, 'Failed to load previous structured outputs')
       }
+      // `{{task.pr.diff}}` es la única variable de PR que paga un request
+      // propio (el resto sale gratis de `task.pullRequests`) — por eso sólo se
+      // pide cuando el prompt la referencia, mismo mecanismo que gatea marcar
+      // `{{task.comments}}` como leídos más abajo. Sin PR abierto o sin
+      // coordenadas de GitHub del repo primario, la variable rinde vacío en
+      // vez de romper el render.
+      let prDiff: string | undefined
+      if (promptReferencesVariable(agentDef.prompt, 'task.pr.diff')) {
+        const openPr = openPullRequests(task.pullRequests)[0]
+        const primaryRepo = projectRepos.find((r) => r.name === primaryRepoName)
+        if (openPr && primaryRepo?.githubOwner && primaryRepo?.githubRepo) {
+          try {
+            prDiff = await this.fetchPrDiff({
+              owner: primaryRepo.githubOwner,
+              repo: primaryRepo.githubRepo,
+              number: openPr.number,
+            })
+          } catch (err) {
+            log.warn({ err, taskId: task.id }, 'Failed to fetch PR diff')
+          }
+        }
+      }
       const resolvedPrompt = resolveVariables(
         agentDef.prompt,
         {
@@ -414,6 +441,7 @@ export class Agent {
           project: projectContext,
           projectRepos,
           previousOutputs,
+          prDiff,
         },
         this.resolveVariable,
       )
