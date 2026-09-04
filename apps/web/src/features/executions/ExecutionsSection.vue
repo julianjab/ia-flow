@@ -599,6 +599,7 @@ function detailRows(exec: ExecutionLog): DetailRow[] {
       add('posición en el do[]', String(exec.position));
     }
     add('eventId', exec.eventId);
+    add('traceId', exec.traceId);
     // Un evento sin issue (un `slack.message`) no tiene tarea: la columna
     // guarda '' porque es NOT NULL, no porque haya una tarea vacía.
     add('taskId', exec.taskId);
@@ -615,6 +616,7 @@ function detailRows(exec: ExecutionLog): DetailRow[] {
     // De qué disparo vino, cuando vino de uno. Un run manual no tiene regla.
     add('regla', exec.ruleId);
     add('evento', exec.eventType);
+    add('traceId', exec.traceId);
     add('errorMsg', exec.errorMsg, { pre: true });
     add('stopReason', exec.stopReason);
     // De qué run retomó el checkpoint — distinto de una jerarquía de
