@@ -12,7 +12,7 @@
 // envolviéndolo, igual que `agent-text-gate.ts` envuelve a `selectAgent`.
 import type { EngineEvent, Rule } from '@ia-flow/shared'
 import { matchScope } from './scope.js'
-import { type WhenTrace, traceWhen } from './when.js'
+import { type WhenTrace, traceWhenAll } from './when.js'
 
 /** Filtro que descartó a una regla. El orden del union es el de evaluación.
  *  `whenText` no se decide acá — lo produce el gate semántico, que es impuro.
@@ -31,6 +31,12 @@ export interface RejectedRule {
 export interface RuleMatchInput {
   event: EngineEvent
   rules: readonly Rule[]
+  /** Condiciones extra (p. ej. `baseWhen` de proyecto y/o global) que se
+   *  ANDean con el `when` de CADA regla antes de evaluar — así una condición
+   *  como "labels != blocked" se declara una vez por scope en vez de en cada
+   *  regla. Vacío/ausente = sin restricción extra. Resuelto por el caller
+   *  (`RuleEngineHandler`, que sí tiene I/O); este módulo sigue sin tocar DB. */
+  baseWhen?: readonly unknown[]
 }
 
 export interface RuleMatchResult {
@@ -59,7 +65,7 @@ function specificity(rule: Rule): number {
   return 2
 }
 
-export function matchRules({ event, rules }: RuleMatchInput): RuleMatchResult {
+export function matchRules({ event, rules, baseWhen }: RuleMatchInput): RuleMatchResult {
   const rejected: RejectedRule[] = []
   const matched: Rule[] = []
 
@@ -91,7 +97,7 @@ export function matchRules({ event, rules }: RuleMatchInput): RuleMatchResult {
       rejected.push({ id: rule.id, reason: 'scope' })
       continue
     }
-    const whenTrace = traceWhen(event.payload, rule.when)
+    const whenTrace = traceWhenAll(event.payload, rule.when, ...(baseWhen ?? []))
     if (!whenTrace.matched) {
       rejected.push({ id: rule.id, reason: 'when', whenTrace })
       continue

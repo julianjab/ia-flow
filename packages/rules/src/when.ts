@@ -269,3 +269,65 @@ export function traceWhen(subject: Record<string, unknown>, when: unknown): When
     groups: tracedGroups,
   }
 }
+
+/**
+ * Cross-product AND-merge de varias fuentes `when` en un solo array de grupos
+ * OR/AND. Cada fuente puede traer sus propios OR-groups (`toConditionGroups`);
+ * mergearlas linealmente (concatenar el array crudo) sólo ANDearía la última
+ * fuente al último grupo OR de la primera, rompiendo el resto. El cross-product
+ * preserva la semántica: `(A or B) AND (C or D)` evalúa correctamente como
+ * `(A∧C) or (A∧D) or (B∧C) or (B∧D)`.
+ *
+ * Una fuente sin condiciones (`when` vacío/ausente) no restringe nada y se
+ * saltea — es lo que hace que un `baseWhen` de proyecto opcional no invente
+ * una condición cuando nadie configuró una.
+ */
+function mergeConditionGroups(whens: readonly unknown[]): EncodedCond[][] {
+  let acc: EncodedCond[][] | null = null
+  for (const w of whens) {
+    const groups = toConditionGroups(w)
+    if (!groups.length) continue
+    acc = acc ? acc.flatMap((a) => groups.map((g) => [...a, ...g])) : groups
+  }
+  return acc ?? []
+}
+
+/**
+ * Variante de `evalWhen` que ANDea varias fuentes `when` antes de evaluar —
+ * pensada para combinar el `when` propio de una regla con un `baseWhen`
+ * compartido por scope (proyecto/global). Comparte `toConditionGroups` /
+ * `evalCondition` con `evalWhen`/`traceWhen`, así que no puede divergir en
+ * cómo resuelve cada fuente individualmente.
+ */
+export function evalWhenAll(
+  subject: Record<string, unknown>,
+  ...whens: readonly unknown[]
+): boolean {
+  const groups = mergeConditionGroups(whens)
+  if (!groups.length) return true
+  return groups.some((group) => group.every((c) => evalCondition(subject, c.field, c.encodedOp)))
+}
+
+/** Variante de `traceWhen` que ANDea varias fuentes `when` — ver `evalWhenAll`. */
+export function traceWhenAll(
+  subject: Record<string, unknown>,
+  ...whens: readonly unknown[]
+): WhenTrace {
+  const groups = mergeConditionGroups(whens)
+  if (!groups.length) return { matched: true, groups: [] }
+
+  const tracedGroups = groups.map((group) =>
+    group.map((c) => ({
+      field: c.field,
+      op: c.op,
+      value: c.value,
+      actual: resolveFieldValue(subject, c.field),
+      matched: evalCondition(subject, c.field, c.encodedOp),
+    })),
+  )
+
+  return {
+    matched: tracedGroups.some((group) => group.every((c) => c.matched)),
+    groups: tracedGroups,
+  }
+}

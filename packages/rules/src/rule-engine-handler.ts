@@ -16,6 +16,14 @@ export interface RuleEngineDeps extends RunRuleDeps {
    *  la UI tiene que aplicar sin reiniciar el daemon. */
   loadRules(event: EngineEvent): Promise<readonly Rule[]>
   /**
+   * Condiciones base del scope del evento (global + proyecto), ANDeadas con
+   * el `when` de CADA regla — ver `ProjectSettingsSchema.baseWhen`. Aplica
+   * parejo a reglas globales y de proyecto: es una propiedad del EVENTO
+   * ("este issue está blocked"), no de qué regla lo mira. Sin inyectar,
+   * ninguna regla lleva restricción extra.
+   */
+  loadBaseWhen?(event: EngineEvent): Promise<readonly unknown[]>
+  /**
    * Gate semántico opcional (el `whenText` de una regla). Devuelve `null`
    * cuando el clasificador no pudo decidir; en ese caso la regla se **saltea**
    * en vez de adivinar, igual que hace `selectAgentGated` con los agentes.
@@ -53,8 +61,11 @@ export class RuleEngineHandler implements EventHandler {
   }
 
   async handle(event: EngineEvent): Promise<EventOutcome> {
-    const rules = await this.deps.loadRules(event)
-    const { matched, rejected } = matchRules({ event, rules })
+    const [rules, baseWhen] = await Promise.all([
+      this.deps.loadRules(event),
+      this.deps.loadBaseWhen?.(event) ?? Promise.resolve([]),
+    ])
+    const { matched, rejected } = matchRules({ event, rules, baseWhen })
     this.deps.onMatch?.({
       event,
       matched,
