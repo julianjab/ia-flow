@@ -39,6 +39,33 @@ function expandHome(p: string): string {
 }
 
 /**
+ * Cuántas veces se puede reanudar un run desde su checkpoint.
+ *
+ * Sin tope, un run que hace crashear al proceso (OOM, un loop de tools) se
+ * reanuda al bootear, lo vuelve a matar, y el reinicio queda en bucle. Tres
+ * intentos alcanzan para un fallo transitorio y cortan uno determinista.
+ *
+ * Exportado (y no `private static` de `AgentOrchestrator`) porque
+ * `pending-task-rehydrator.ts` necesita el MISMO criterio para decidir, al
+ * arrancar, si una fila `execution_logs` sin sesión vale la pena dejar
+ * abierta en vez de cerrarla como huérfana — duplicar el número ahí sería el
+ * bug de "los dos límites dicen distinto" esperando a pasar.
+ */
+export const MAX_RESUME_ATTEMPTS = 3
+
+/**
+ * Hasta cuándo un checkpoint sigue representando "dónde iba" la task.
+ *
+ * Nadie lo borra cuando la task deja de pasar por el pipeline: si alguien
+ * movió el issue a Done y meses después vuelve, `getByTask` ofrecería una
+ * conversación vieja como si fuera trabajo en curso. Un run real no dura un
+ * día; una fila olvidada, sí. Mismo criterio (y mismo número) que el techo
+ * de las filas huérfanas de `execution_logs`. Exportado por el mismo motivo
+ * que `MAX_RESUME_ATTEMPTS`.
+ */
+export const MAX_RESUME_AGE_MS = 24 * 60 * 60_000
+
+/**
  * Resuelve **qué agente** aplica a un issue y lo corre vía `Agent`. Esta clase
  * es dueña de la resolución del contexto de run, el lock de workspace por task
  * y la limpieza del worktree terminal. NO corre el agente ella misma: ese
@@ -125,26 +152,6 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Cuántas veces se puede reanudar un run desde su checkpoint.
-   *
-   * Sin tope, un run que hace crashear al proceso (OOM, un loop de tools) se
-   * reanuda al bootear, lo vuelve a matar, y el reinicio queda en bucle. Tres
-   * intentos alcanzan para un fallo transitorio y cortan uno determinista.
-   */
-  private static readonly MAX_RESUME_ATTEMPTS = 3
-
-  /**
-   * Hasta cuándo un checkpoint sigue representando "dónde iba" la task.
-   *
-   * Nadie lo borra cuando la task deja de pasar por el pipeline: si alguien
-   * movió el issue a Done y meses después vuelve, `getByTask` ofrecería una
-   * conversación vieja como si fuera trabajo en curso. Un run real no dura un
-   * día; una fila olvidada, sí. Mismo criterio (y mismo número) que el techo
-   * de las filas huérfanas de `execution_logs`.
-   */
-  private static readonly MAX_RESUME_AGE_MS = 24 * 60 * 60_000
-
-  /**
    * El checkpoint del que este dispatch debería retomar, si hay alguno.
    *
    * Tres gates, y los tres descartan en silencio hacia "arrancar de cero" —
@@ -184,7 +191,7 @@ export class AgentOrchestrator {
     }
 
     const ageMs = Date.now() - Date.parse(cp.updatedAt)
-    if (Number.isFinite(ageMs) && ageMs > AgentOrchestrator.MAX_RESUME_AGE_MS) {
+    if (Number.isFinite(ageMs) && ageMs > MAX_RESUME_AGE_MS) {
       log.info(
         { taskId: task.id, agentId, ageHours: Math.round(ageMs / 3_600_000) },
         'El checkpoint es demasiado viejo para representar trabajo en curso — se descarta',
@@ -193,7 +200,7 @@ export class AgentOrchestrator {
       return undefined
     }
 
-    if (cp.attempts >= AgentOrchestrator.MAX_RESUME_ATTEMPTS) {
+    if (cp.attempts >= MAX_RESUME_ATTEMPTS) {
       log.error(
         { taskId: task.id, agentId, attempts: cp.attempts },
         'El checkpoint ya se reanudó demasiadas veces — se descarta',

@@ -52,7 +52,11 @@ export type { ClassifyFailureInput } from './failure-taxonomy.js'
 export { Agent, setSecretResolver } from './Agent.js'
 export type { AgentRunInput, AgentRunState, CompilePolicy, SecretResolver } from './Agent.js'
 export { AgentLifecycle } from './AgentLifecycle.js'
-export { AgentOrchestrator } from './AgentOrchestrator.js'
+export {
+  AgentOrchestrator,
+  MAX_RESUME_ATTEMPTS,
+  MAX_RESUME_AGE_MS,
+} from './AgentOrchestrator.js'
 export type { BranchNamerTaskLike, LinkedBranchNamer } from './linked-branch.js'
 export { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 export type { SystemPromptBlock } from './system-prompt-blocks.js'

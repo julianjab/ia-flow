@@ -113,6 +113,9 @@ export interface AgentRunInput {
   eventType?: string
   /** Índice de la acción `agent` dentro del `do[]` de su regla. */
   position?: number
+  /** El trace del webhook que originó el dispatch, cuando lo hay. Ver
+   *  `ExecutionLog.traceId`. */
+  traceId?: string
   /** El run del agente padre, cuando este run lo lanzó un `run_agent`.
    *  Presente ⇒ es un sub-agente: no cuenta contra el cap de dispatch del
    *  proyecto y no vuelve a tomar el lock de la task (lo tiene el padre). */
@@ -331,10 +334,23 @@ export class Agent {
     // every scan cycle, can never see this run's own onProcess as "drift" —
     // load-bearing ordering, see the comment on that loop.
     const initialStatus = task.status
+    // El run del que este dispatch retoma, cuando ESA fila sobrevivió al
+    // reinicio (ver `reconcileOrphanedRuns`, caso 1: un run sync sin sesión
+    // con checkpoint resumible se deja abierto en vez de cerrarse). Cuando
+    // pasa, este dispatch no es un run nuevo "que retoma otro" —es EL MISMO
+    // run, interrumpido a mitad de una vuelta— así que reusa su `runId` y su
+    // fila de `execution_logs` en vez de abrir una nueva enlazada por
+    // `resumedFromRunId`. Si la fila ya se cerró (se cumplió el gate de
+    // `finishedAt == null` acá abajo dice que no), cae al camino de siempre:
+    // `runId` nuevo, fila nueva, `resumedFromRunId` apuntando a la vieja.
+    const resumedRow = input.resumeCheckpoint?.fromRunId
+      ? this.executionLogRepo?.getById(input.resumeCheckpoint.fromRunId)
+      : undefined
+    const reuseRow = resumedRow != null && resumedRow.finishedAt == null
     // Single correlation id per run: used as the execution_logs PK and
     // handed to the provider so every log line for this run carries the
     // same `runId`.
-    const runId = crypto.randomUUID().slice(0, 8)
+    const runId = reuseRow ? resumedRow.id : crypto.randomUUID().slice(0, 8)
     // Se publica en el estado compartido para que el `finally` del orquestador
     // pueda borrar el checkpoint de este run sin poder derivar su id.
     runState.runId = runId
@@ -537,42 +553,62 @@ export class Agent {
       // cambió fue el agente o un system prompt compartido.
       systemPromptHash = hashSystemPrompt(systemPromptBlocks)
 
-      safeInsertLog(this.executionLogRepo, {
-        id: logId,
-        projectId: task.projectId ?? '',
-        taskId: task.id,
-        taskTitle: task.title,
-        agentId: agentDef.id,
-        providerId: resolvedProviderId,
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
-        outcome: null,
-        errorMsg: null,
-        stopReason: null,
-        runId,
-        agentPromptHash,
-        systemPromptHash,
-        // Contrato de cierre: con esto, la fila alcanza para cerrar el run
-        // aunque el registry en memoria ya no exista (reinicio del proceso,
-        // watchdog que soltó la entrada). Ver la migración 048.
-        initialStatus,
-        exits: exits ?? null,
-        // La causa, sobre la fila (migración 065). Antes vivía sólo en el
-        // registry en memoria, así que un reinicio dejaba el run sin saber qué
-        // lo había disparado ni de quién colgaba.
-        kind: 'agent',
-        ruleId: input.ruleId ?? null,
-        eventId: input.eventId ?? null,
-        eventType: input.eventType ?? null,
-        position: input.position ?? null,
-        parentId: input.parentRunId ?? null,
-        resumedFromRunId: input.resumeCheckpoint?.fromRunId ?? null,
-        // Foto de quién tenía el issue cuando arrancó este run — es lo que
-        // permite filtrar ejecuciones por usuario después (migración 057). Se
-        // congela acá y no se relee al cerrar por lo mismo que onFinish/onError:
-        // el issue puede cambiar de dueño mientras el agente trabaja.
-        assignees: task.assignees ?? null,
-      })
+      if (reuseRow) {
+        // La fila YA EXISTE y sigue abierta (`reconcileOrphanedRuns` la dejó
+        // así a propósito) — este dispatch la continúa, no la reemplaza.
+        // `startedAt`, `ruleId`/`eventId`/`eventType`/`position`/`traceId`,
+        // `initialStatus`, `exits` y `assignees` quedan como los dejó el
+        // primer intento: son el contexto de POR QUÉ arrancó este run, que no
+        // cambió por que el proceso se haya reiniciado en el medio.
+        // `resumedFromRunId` queda en su `null` original — no es una fila que
+        // retoma OTRA, es la misma. Efecto secundario aceptado: la duración
+        // final (`finishedAt - startedAt`) va a incluir el tiempo muerto del
+        // reinicio — no hay una columna de "tiempo activo acumulado" para
+        // restárselo, y agregarla es más de lo que este cambio pidió resolver.
+        safeUpdateLog(this.executionLogRepo, logId, { agentPromptHash, systemPromptHash })
+        log.info(
+          { runId, taskId: task.id, agentId: agentDef.id },
+          'Retomando la fila de execution_logs de un run sync interrumpido — mismo runId, sin fila nueva',
+        )
+      } else {
+        safeInsertLog(this.executionLogRepo, {
+          id: logId,
+          projectId: task.projectId ?? '',
+          taskId: task.id,
+          taskTitle: task.title,
+          agentId: agentDef.id,
+          providerId: resolvedProviderId,
+          startedAt: new Date().toISOString(),
+          finishedAt: null,
+          outcome: null,
+          errorMsg: null,
+          stopReason: null,
+          runId,
+          agentPromptHash,
+          systemPromptHash,
+          // Contrato de cierre: con esto, la fila alcanza para cerrar el run
+          // aunque el registry en memoria ya no exista (reinicio del proceso,
+          // watchdog que soltó la entrada). Ver la migración 048.
+          initialStatus,
+          exits: exits ?? null,
+          // La causa, sobre la fila (migración 065). Antes vivía sólo en el
+          // registry en memoria, así que un reinicio dejaba el run sin saber qué
+          // lo había disparado ni de quién colgaba.
+          kind: 'agent',
+          ruleId: input.ruleId ?? null,
+          eventId: input.eventId ?? null,
+          eventType: input.eventType ?? null,
+          position: input.position ?? null,
+          traceId: input.traceId ?? null,
+          parentId: input.parentRunId ?? null,
+          resumedFromRunId: input.resumeCheckpoint?.fromRunId ?? null,
+          // Foto de quién tenía el issue cuando arrancó este run — es lo que
+          // permite filtrar ejecuciones por usuario después (migración 057). Se
+          // congela acá y no se relee al cerrar por lo mismo que onFinish/onError:
+          // el issue puede cambiar de dueño mientras el agente trabaja.
+          assignees: task.assignees ?? null,
+        })
+      }
 
       const output = await provider.run({
         step: 'implement',

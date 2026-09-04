@@ -13,9 +13,12 @@
 // verdad es la fila de `execution_logs`, que ya tiene todo salvo lo que la
 // migración 048 agregó (`initial_status`, `on_finish`/`on_error`, hoy `exits`).
 import {
+  MAX_RESUME_AGE_MS,
+  MAX_RESUME_ATTEMPTS,
   type PendingTask,
   type PendingTaskRehydrator,
   type ResolvedPendingTask,
+  type RunCheckpointPort,
   getPendingTask,
 } from '@ia-flow/agent-engine'
 import type { Liveness } from '@ia-flow/ai-providers'
@@ -219,14 +222,29 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
  * reinicio del daemon, y su agente sigue trabajando. Cerrarles la fila los
  * dejaba sin forma de cerrarse después.
  *
- * Tres casos, en orden:
+ * Cuatro casos, en orden:
  *
- *  1. **Sin sesión** (runs sync, cuyo proceso murió con el daemon) → cerrar,
- *     como antes.
- *  2. **Con sesión que se puede sondear y está muerta** → cerrar. Sondear es
+ *  1. **Sin sesión, con un checkpoint resumible** (runs sync — provider
+ *     `anthropic-api`, sin tmux/iterm de por medio — cuyo proceso murió con
+ *     el daemon a mitad de una vuelta) → NO cerrar. Se deja la fila abierta,
+ *     reteniendo su `runId`, para que el próximo dispatch de esta misma task
+ *     (`AgentOrchestrator.loadResume` encuentra el mismo checkpoint) pueda
+ *     CONTINUARLA en vez de abrir una fila nueva enlazada por
+ *     `resumedFromRunId` — ver `Agent.ts`, donde `runId`/`logId` se deciden.
+ *     Antes esto se cerraba SIEMPRE como huérfano y el resume (que sí
+ *     retomaba la conversación) igual terminaba en una fila nueva: dos runs
+ *     en la UI para lo que el operador ve como uno solo interrumpido.
+ *     Mismos tres gates que `loadResume` seguirá re-chequeando cuando el
+ *     redispatch de verdad ocurra (edad, intentos, y ahí sí también el
+ *     agente — acá no hace falta: si el checkpoint termina siendo de otro
+ *     agente, `loadResume` lo descarta igual y esta fila queda abierta hasta
+ *     el próximo boot, que ya no lo encontrará y la cerrará entonces — el
+ *     mismo techo por edad que ya protegía el caso 4 de abajo).
+ *  2. **Sin sesión, sin checkpoint resumible** → cerrar, como antes.
+ *  3. **Con sesión que se puede sondear y está muerta** → cerrar. Sondear es
  *     lo que evita el otro extremo: dejar abierta para siempre la fila de una
  *     sesión que murió mientras el daemon estaba caído.
- *  3. **Con sesión viva, o que no se puede sondear** → dejar abierta, con un
+ *  4. **Con sesión viva, o que no se puede sondear** → dejar abierta, con un
  *     techo (`maxAgeMs`). Una sesión de otra máquina no se puede sondear
  *     desde acá al arrancar (los providers remotos todavía no están
  *     registrados), y sin el techo una fila así no la cerraría nunca nadie.
@@ -244,6 +262,12 @@ export async function reconcileOrphanedRuns(deps: {
    *  siempre". */
   maxAgeMs?: number
   now?: () => number
+  /** Sólo `getByTask`: es lo único que este chequeo necesita, y pedir el
+   *  puerto completo obligaría a inyectar `save`/`delete` en cada test que
+   *  no le importa el checkpoint. Ausente = comportamiento previo (cierra
+   *  todo sync sin sesión) — un proceso sin `runCheckpoints` cableado (tests,
+   *  un daemon sin la migración 066) no puede ofrecer nada mejor. */
+  runCheckpoints?: Pick<RunCheckpointPort, 'getByTask'>
 }): Promise<{ closed: number; kept: ExecutionLog[] }> {
   const probe = deps.probe ?? localSessionLiveness
   const maxAgeMs = deps.maxAgeMs ?? DEFAULT_ORPHAN_MAX_AGE_MS
@@ -261,6 +285,23 @@ export async function reconcileOrphanedRuns(deps: {
     closed += 1
   }
 
+  // ¿Esta fila SYNC tiene un checkpoint que un redispatch futuro todavía
+  // podría retomar? Mismos gates que `AgentOrchestrator.loadResume` (edad,
+  // intentos) salvo el de agente — ver el caso 1 del docstring de arriba
+  // sobre por qué ese gate puede esperar al próximo boot sin riesgo.
+  const hasResumableCheckpoint = async (row: ExecutionLog): Promise<boolean> => {
+    if (!deps.runCheckpoints) return false
+    const cp = await deps.runCheckpoints.getByTask(row.taskId).catch(() => null)
+    // `runId` es el mismo valor que `id` (ver Agent.ts): el checkpoint tiene
+    // que ser el que ESTA fila dejó, no el de otro run de la misma task que
+    // ya cerró y fue reemplazado.
+    if (!cp || cp.runId !== row.id) return false
+    const ageMs = now - Date.parse(cp.updatedAt)
+    if (Number.isFinite(ageMs) && ageMs > MAX_RESUME_AGE_MS) return false
+    if (cp.attempts >= MAX_RESUME_ATTEMPTS) return false
+    return true
+  }
+
   for (const row of active) {
     // Ya lo corre este proceso (arranque en caliente): no es huérfano. Se
     // compara por EJECUCIÓN y no por tarea: una tarea puede tener una fila
@@ -269,6 +310,10 @@ export async function reconcileOrphanedRuns(deps: {
     // cierre sin `?run=` pasaría a ser ambiguo de forma permanente.
     if (getPendingTask(row.taskId)?.executionId === row.id) continue
     if (!row.sessionId) {
+      if (await hasResumableCheckpoint(row)) {
+        kept.push(row)
+        continue
+      }
       close(row, deps.reason)
       continue
     }

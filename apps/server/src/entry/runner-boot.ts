@@ -34,6 +34,7 @@ import {
   githubCredentials,
   providerRegistry,
   remoteProviderHealth,
+  runCheckpointRepo,
   slack,
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
@@ -147,23 +148,34 @@ if (websocket) {
 await runMigrations()
 
 // Reconcilia las filas que quedaron abiertas del proceso anterior — mismo
-// mecanismo que el flavor `full` (ver server.ts). Sin esto, cada restart deja
-// la fila `execution_logs` del run anterior `pending` para siempre (sin
-// `session_id`, así que se cierra sola) mientras `loadResume` igual arranca
-// un run nuevo con su propio `runId` desde el checkpoint — el resultado es
-// una fila huérfana más por cada restart.
+// mecanismo que el flavor `full` (ver server.ts). Sin `runCheckpoints`, cada
+// restart cerraría de una la fila `execution_logs` del run sync anterior (sin
+// `session_id`) mientras `loadResume` igual arranca un run nuevo con su
+// propio `runId` desde el checkpoint — dos filas para lo que el operador ve
+// como un solo run interrumpido. Con `runCheckpoints` cableado, la fila
+// SOBREVIVE cuando el checkpoint todavía es resumible (ver el caso 1 del
+// docstring de `reconcileOrphanedRuns`), y el redispatch que sigue la
+// continúa en vez de abrir una nueva.
 {
   const { closed, kept } = await reconcileOrphanedRuns({
     executionLogRepo,
     reason: 'orphaned: runner restart before finalize',
+    runCheckpoints: runCheckpointRepo,
   })
   if (closed > 0) {
     log.warn({ closed }, 'Closed orphaned execution_logs rows from previous run')
   }
   if (kept.length > 0) {
     log.warn(
-      { kept: kept.map((r) => ({ id: r.id, taskId: r.taskId, session: r.sessionId })) },
-      'Runs con sesión async del proceso anterior: se dejan abiertos para que su agente pueda cerrarlos',
+      {
+        kept: kept.map((r) => ({
+          id: r.id,
+          taskId: r.taskId,
+          session: r.sessionId,
+          resumable: r.sessionId == null,
+        })),
+      },
+      'Runs del proceso anterior que se dejan abiertos: con sesión async, para que su agente pueda cerrarlos; sin sesión, esperando el redispatch que retome su checkpoint',
     )
   }
 }
@@ -330,14 +342,18 @@ async function shutdown(signal: string) {
   log.warn({ signal }, 'shutdown pedido')
 
   // Lo que quedó abierto de runs sync (donde el abort no llegó al sitio de
-  // finalize) se cierra acá — mismo motivo que en el flavor `full`. Sin
-  // sondear: estamos en el handler de la señal, con un grace limitado antes
-  // del SIGKILL.
+  // finalize) se cierra acá — mismo motivo que en el flavor `full` — SALVO
+  // que tenga un checkpoint resumible, en cuyo caso sobrevive al restart para
+  // que el próximo dispatch la continúe (ver el caso 1 del docstring de
+  // `reconcileOrphanedRuns`). Sin sondear sesiones: estamos en el handler de
+  // la señal, con un grace limitado antes del SIGKILL — el chequeo de
+  // checkpoint es una lectura de SQLite local, no una sonda de red.
   try {
     const { closed } = await reconcileOrphanedRuns({
       executionLogRepo,
       reason: `orphaned: runner ${signal} before finalize`,
       probe: async () => 'unknown',
+      runCheckpoints: runCheckpointRepo,
     })
     if (closed > 0)
       log.warn({ closed }, 'Closed remaining orphaned execution_logs rows on shutdown')

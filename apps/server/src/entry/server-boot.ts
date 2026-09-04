@@ -20,6 +20,7 @@ import {
   itermClaudeProvider,
   providerRegistry,
   remoteProviderHealth,
+  runCheckpointRepo,
   slack,
   tmuxClaudeProvider,
 } from '../composition/container.js'
@@ -136,18 +137,32 @@ await runMigrations()
 // Ahora un run con sesión async registrada se deja ABIERTO. Cuando su agente
 // aparezca con el cierre, el rehidratador (adapters/pending-task-rehydrator)
 // reconstruye la entrada desde su fila y lo aplica.
+//
+// Un run SYNC (sin sesión) con un checkpoint todavía resumible también se
+// deja abierto — no para que un agente lo cierre (no hay ninguno vivo), sino
+// para que el redispatch que va a retomar su checkpoint continúe la MISMA
+// fila en vez de abrir una nueva enlazada por `resumedFromRunId`. Ver el
+// caso 1 del docstring de `reconcileOrphanedRuns`.
 {
   const { closed, kept } = await reconcileOrphanedRuns({
     executionLogRepo,
     reason: 'orphaned: server restart before finalize',
+    runCheckpoints: runCheckpointRepo,
   })
   if (closed > 0) {
     log.warn({ closed }, 'Closed orphaned execution_logs rows from previous run')
   }
   if (kept.length > 0) {
     log.warn(
-      { kept: kept.map((r) => ({ id: r.id, taskId: r.taskId, session: r.sessionId })) },
-      'Runs con sesión async del proceso anterior: se dejan abiertos para que su agente pueda cerrarlos',
+      {
+        kept: kept.map((r) => ({
+          id: r.id,
+          taskId: r.taskId,
+          session: r.sessionId,
+          resumable: r.sessionId == null,
+        })),
+      },
+      'Runs del proceso anterior que se dejan abiertos: con sesión async, para que su agente pueda cerrarlos; sin sesión, esperando el redispatch que retome su checkpoint',
     )
   }
 }
@@ -248,9 +263,11 @@ async function shutdown(signal: string) {
   )
 
   // Lo que quedó abierto de los runs sync (donde el abort no llegó al sitio
-  // de finalize) se cierra acá. Los async NO: su fila se deja abierta a
-  // propósito, es la que va a permitir que el agente cierre contra el próximo
-  // proceso.
+  // de finalize) se cierra acá — SALVO que tenga un checkpoint resumible
+  // (mismo caso 1 del docstring de `reconcileOrphanedRuns`): esa fila
+  // sobrevive para que el redispatch la continúe. Los async NO: su fila se
+  // deja abierta a propósito, es la que va a permitir que el agente cierre
+  // contra el próximo proceso.
   try {
     const { closed } = await reconcileOrphanedRuns({
       executionLogRepo,
@@ -260,8 +277,11 @@ async function shutdown(signal: string) {
       // `osascript`/`tmux` — varias filas huérfanas nos comerían el tiempo
       // que necesita el `flush()` de abajo para que el daemon remoto se
       // entere de los cierres. Acá se cierra sólo lo que no tiene sesión; lo
-      // demás lo sondea el arranque, que sí tiene tiempo.
+      // demás lo sondea el arranque, que sí tiene tiempo. El chequeo de
+      // checkpoint es una lectura de SQLite local, no una sonda — mismo costo
+      // que ya paga cada fila sin sesión.
       probe: async () => 'unknown',
+      runCheckpoints: runCheckpointRepo,
     })
     if (closed > 0)
       log.warn({ closed }, 'Closed remaining orphaned execution_logs rows on shutdown')
