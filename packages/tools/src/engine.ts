@@ -504,6 +504,53 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
+    // Remote MCP tool calls (`mcp_tool_use`) are resolved server-side by
+    // Anthropic within the same response, normally arriving paired with
+    // their `mcp_tool_result` — but a response cut off mid-stream (max_tokens)
+    // or an anomalous `pause_turn` can leave an `mcp_tool_use` with no
+    // matching result. Unlike a dangling client `tool_use` (handled below,
+    // per-branch), a dangling `mcp_tool_use` isn't something this loop can
+    // execute or resolve — it can only come back paired, from Anthropic
+    // itself. Blindly persisting/resending that turn 400s the very next
+    // request with "mcp_tool_use ... found without a corresponding
+    // mcp_tool_result block" (see subscriptions#1411): the `pause_turn`
+    // "resend unchanged" retry and the checkpoint autosave below would both
+    // reuse this same broken `messages` array. Catch it here, before any
+    // stop-reason branch gets a chance to resend or checkpoint it.
+    const resolvedMcpToolUseIds = new Set(
+      contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
+    )
+    const hasUnresolvedMcpToolUse = contentBlocks.some(
+      (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
+    )
+    if (hasUnresolvedMcpToolUse) {
+      // Same recoverable case as the client `tool_use` retry below: max_tokens
+      // cut the response off mid mcp_tool_use. Drop the corrupted turn and
+      // retry once with more tokens instead of ending the run outright.
+      if (retryTruncatedToolUse && !toolUseRetried && stopReason === 'max_tokens') {
+        toolUseRetried = true
+        messages.pop()
+        nextFetchOverrides = { bumpMaxTokens: true }
+        runLog.warn(
+          { stopReason },
+          'max_tokens cut off an mcp_tool_use block — retrying once with more tokens',
+        )
+        continue
+      }
+      runLog.warn(
+        { stopReason },
+        'assistant turn carries an unresolved mcp_tool_use — ending run instead of resending or checkpointing it',
+      )
+      return {
+        ...metrics(),
+        text: pausedText + textOf(),
+        iters,
+        stopReason,
+        truncated: true,
+        rawResponse: captureRawResponse(response),
+      }
+    }
+
     if (stopReason === 'end_turn') {
       return { text: pausedText + textOf(), iters, stopReason, truncated: false, ...metrics() }
     }
