@@ -272,6 +272,10 @@ export function issueCommentEvent(
       body: comment.body,
       author: (comment.user as { login?: string } | undefined)?.login,
       commentUrl: comment.html_url,
+      // Node id (GraphQL), no el numérico de REST — es lo que necesita la
+      // mutación `addReaction` que usa `react_to_comment` (ver
+      // packages/tools/src/github/tools.ts).
+      commentId: typeof comment.node_id === 'string' ? comment.node_id : undefined,
       issueNumber,
     },
   })

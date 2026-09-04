@@ -68,7 +68,7 @@ export const EVENT_CATALOG: EventTypeDef[] = [
     description:
       'Comentario nuevo en un issue de GitHub. NO trae `item` — es el payload crudo del webhook de GitHub, sin status/labels resueltos. Para condicionar por eso, usá `issue.status_changed`/`issue.created` (los que sí resuelven `item`, vía el re-scan).',
     source: 'github',
-    fields: ['action', 'body', 'author', 'commentUrl', 'issueNumber'],
+    fields: ['action', 'body', 'author', 'commentUrl', 'commentId', 'issueNumber'],
   },
   {
     type: 'issues.opened',
