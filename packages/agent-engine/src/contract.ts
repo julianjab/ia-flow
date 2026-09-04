@@ -39,6 +39,16 @@ export interface IExecutionLogRepository {
    *  "container" filter chip row in the Ejecuciones UI. */
   listDistinctSources(): string[]
   /**
+   * La última salida estructurada (`structuredOutput`) de cada agente
+   * distinto que corrió sobre esta task — recortada a una fila por
+   * `agentId`, la más reciente. Es lo que rinde `{{task.previous_outputs}}`
+   * (ver apps/server/src/variables/task.ts). Vacío si ninguno entregó
+   * salida todavía.
+   */
+  listLastOutputsByAgent(
+    taskId: string,
+  ): Array<{ agentId: string; structuredOutput: Record<string, unknown> }>
+  /**
    * Wait for any fire-and-forget write still in flight (the remote forward
    * in RemoteExecutionLogRepository). Only implementations with async
    * writes define it; purely synchronous repos leave it undefined. Call it

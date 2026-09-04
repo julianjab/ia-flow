@@ -163,4 +163,19 @@ describe('buildFinishPatch', () => {
     expect(patch.toolBreakdown).toBeNull()
     expect(patch.systemPromptHash).toBeNull()
   })
+
+  it('persiste la structuredOutput que el run entregó', () => {
+    const patch = buildFinishPatch({
+      outcome: 'success',
+      startedAtMs: Date.now(),
+      runId: 'run-4',
+      structuredOutput: { prNumber: 42 },
+    })
+    expect(patch.structuredOutput).toEqual({ prNumber: 42 })
+  })
+
+  it('sin structuredOutput persiste null', () => {
+    const patch = buildFinishPatch({ outcome: 'error', startedAtMs: Date.now(), runId: 'run-5' })
+    expect(patch.structuredOutput).toBeNull()
+  })
 })

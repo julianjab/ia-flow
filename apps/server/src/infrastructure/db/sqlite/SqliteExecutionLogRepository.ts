@@ -62,6 +62,12 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     parentId: (r.parent_id as string | null) ?? null,
     resumedFromRunId: (r.resumed_from_run_id as string | null) ?? null,
     traceId: (r.trace_id as string | null) ?? null,
+    // Ausente cuando la fila viene de list() (proyección sin esta columna a
+    // propósito — ver el comentario del schema): `undefined` colapsa a null
+    // igual que una fila que nunca la tuvo.
+    structuredOutput: r.structured_output
+      ? (JSON.parse(r.structured_output as string) as ExecutionLog['structuredOutput'])
+      : null,
   }
 }
 
@@ -97,8 +103,8 @@ export class SqliteExecutionLogRepository
          duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
          initial_status, exits, finalized_by_tool, assignees,
          kind, rule_id, event_id, event_type, position, parent_id,
-         model, system_prompt_hash, tool_breakdown, resumed_from_run_id, trace_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         model, system_prompt_hash, tool_breakdown, resumed_from_run_id, trace_id, structured_output)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -139,7 +145,8 @@ export class SqliteExecutionLogRepository
          system_prompt_hash = excluded.system_prompt_hash,
          tool_breakdown = excluded.tool_breakdown,
          resumed_from_run_id = excluded.resumed_from_run_id,
-         trace_id = excluded.trace_id`,
+         trace_id = excluded.trace_id,
+         structured_output = excluded.structured_output`,
       [
         entry.id,
         entry.projectId,
@@ -182,6 +189,7 @@ export class SqliteExecutionLogRepository
         entry.toolBreakdown ? JSON.stringify(entry.toolBreakdown) : null,
         entry.resumedFromRunId ?? null,
         entry.traceId ?? null,
+        entry.structuredOutput ? JSON.stringify(entry.structuredOutput) : null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -229,6 +237,7 @@ export class SqliteExecutionLogRepository
       toolBreakdown: 'tool_breakdown',
       resumedFromRunId: 'resumed_from_run_id',
       traceId: 'trace_id',
+      structuredOutput: 'structured_output',
     }
 
     const setClauses: string[] = []
@@ -319,7 +328,20 @@ export class SqliteExecutionLogRepository
       params.push(filters.to)
     }
 
-    let sql = 'SELECT * FROM execution_logs'
+    // Proyección explícita, SIN `structured_output`: este listado es el
+    // `SELECT *` que powers `GET /api/executions` — no hay motivo para que
+    // cada fila del listado arrastre el JSON de salida estructurada, que sólo
+    // hace falta al leer una fila puntual (getById) o al hidratar
+    // `{{task.previous_outputs}}` (listLastOutputsByAgent).
+    let sql = `SELECT id, project_id, task_id, task_title, agent_id, provider_id, started_at,
+                      finished_at, outcome, error_msg, stop_reason, session_kind, session_id,
+                      source, cancel_requested_at, duration_ms, tokens_in, tokens_out,
+                      cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors,
+                      failure_class, run_id, agent_prompt_hash, initial_status, exits,
+                      finalized_by_tool, assignees, kind, rule_id, event_id, event_type, position,
+                      parent_id, model, system_prompt_hash, tool_breakdown, resumed_from_run_id,
+                      trace_id
+                 FROM execution_logs`
     if (whereClauses.length > 0) {
       sql += ` WHERE ${whereClauses.join(' AND ')}`
     }
@@ -402,6 +424,34 @@ export class SqliteExecutionLogRepository
       .query('SELECT DISTINCT source FROM execution_logs WHERE source IS NOT NULL ORDER BY source')
       .all() as Array<{ source: string }>
     return rows.map((r) => r.source)
+  }
+
+  listLastOutputsByAgent(
+    taskId: string,
+  ): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
+    // `ORDER BY started_at DESC` + quedarse con la primera aparición de cada
+    // agent_id en JS: más simple que una window function para lo que es un
+    // puñado de filas por task, y el resto del repo ya resuelve dedupes así.
+    const rows = this.db
+      .query(
+        `SELECT agent_id, structured_output FROM execution_logs
+          WHERE task_id = ? AND kind = 'agent' AND structured_output IS NOT NULL
+          ORDER BY started_at DESC`,
+      )
+      .all(taskId) as Array<{ agent_id: string; structured_output: string }>
+
+    const seen = new Set<string>()
+    const out: Array<{ agentId: string; structuredOutput: Record<string, unknown> }> = []
+    for (const row of rows) {
+      if (seen.has(row.agent_id)) continue
+      seen.add(row.agent_id)
+      try {
+        out.push({ agentId: row.agent_id, structuredOutput: JSON.parse(row.structured_output) })
+      } catch (err) {
+        log.warn({ err, taskId, agentId: row.agent_id }, 'structured_output ilegible — se saltea')
+      }
+    }
+    return out
   }
 
   // Aggregates in SQL, not in the caller: the useful windows (a month of

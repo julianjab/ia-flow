@@ -1327,6 +1327,15 @@ export const ExecutionLogSchema = z.object({
    * manual, un scan que encontró un item en Ready por su cuenta).
    */
   traceId: z.string().nullable().optional(),
+  /**
+   * Lo que el agente entregó por `submit_output` (migración 071), congelado
+   * al cierre del run. `null` cuando el agente no declara salida estructurada
+   * o el run terminó antes de entregarla. A propósito AUSENTE de la
+   * proyección de `list()` (SqliteExecutionLogRepository) — el listado de
+   * `GET /api/executions` no necesita arrastrar este JSON por fila; se lee
+   * por `getById` o vía `{{task.previous_outputs}}`.
+   */
+  structuredOutput: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({

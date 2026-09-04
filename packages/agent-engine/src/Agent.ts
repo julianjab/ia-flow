@@ -64,7 +64,7 @@ import type { RunContext } from './run-context.js'
 import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
-import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
+import { type ResolveContext, type ResolveVariable, resolveVariables } from './variable-resolver.js'
 import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('agent')
@@ -397,9 +397,24 @@ export class Agent {
         ...((config.project as Record<string, string> | undefined) ?? {}),
         ...(manager.getProjectContext?.() ?? {}),
       }
+      // Leer previousOutputs es una comodidad del prompt, no un requisito del
+      // run: un fallo acá (DB transitoria, JSON corrupto de una fila vieja)
+      // deja `{{task.previous_outputs}}` vacío en vez de tumbar el dispatch.
+      let previousOutputs: NonNullable<ResolveContext['previousOutputs']> = []
+      try {
+        previousOutputs = this.executionLogRepo?.listLastOutputsByAgent(task.id) ?? []
+      } catch (err) {
+        log.warn({ err, taskId: task.id }, 'Failed to load previous structured outputs')
+      }
       const resolvedPrompt = resolveVariables(
         agentDef.prompt,
-        { task, variables: agentDef.variables, project: projectContext, projectRepos },
+        {
+          task,
+          variables: agentDef.variables,
+          project: projectContext,
+          projectRepos,
+          previousOutputs,
+        },
         this.resolveVariable,
       )
 
@@ -818,6 +833,7 @@ export class Agent {
                 toolsAvailable,
                 agentPromptHash,
                 systemPromptHash,
+                structuredOutput: runState.structuredOutput ?? null,
               }),
               finishedAt: new Date().toISOString(),
               outcome: 'cancelled',
@@ -842,6 +858,7 @@ export class Agent {
               toolsAvailable,
               agentPromptHash,
               systemPromptHash,
+              structuredOutput: runState.structuredOutput ?? null,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -887,6 +904,7 @@ export class Agent {
               toolsAvailable,
               agentPromptHash,
               systemPromptHash,
+              structuredOutput: runState.structuredOutput ?? null,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'cancelled',
@@ -924,6 +942,7 @@ export class Agent {
               toolsAvailable,
               agentPromptHash,
               systemPromptHash,
+              structuredOutput: runState.structuredOutput ?? null,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -959,6 +978,7 @@ export class Agent {
               toolsAvailable,
               agentPromptHash,
               systemPromptHash,
+              structuredOutput: runState.structuredOutput ?? null,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -988,6 +1008,7 @@ export class Agent {
               toolsAvailable,
               agentPromptHash,
               systemPromptHash,
+              structuredOutput: runState.structuredOutput ?? null,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'truncated',
@@ -1069,6 +1090,7 @@ export class Agent {
               toolsAvailable,
               agentPromptHash,
               systemPromptHash,
+              structuredOutput: runState.structuredOutput ?? null,
             }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
@@ -1125,6 +1147,7 @@ export class Agent {
             toolsAvailable,
             agentPromptHash,
             systemPromptHash,
+            structuredOutput: runState.structuredOutput ?? null,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -1159,6 +1182,7 @@ export class Agent {
             toolsAvailable,
             agentPromptHash,
             systemPromptHash,
+            structuredOutput: runState.structuredOutput ?? null,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -1188,6 +1212,7 @@ export class Agent {
             toolsAvailable,
             agentPromptHash,
             systemPromptHash,
+            structuredOutput: runState.structuredOutput ?? null,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
@@ -1247,6 +1272,7 @@ export class Agent {
             toolsAvailable,
             agentPromptHash,
             systemPromptHash,
+            structuredOutput: runState.structuredOutput ?? null,
           }),
           finishedAt: new Date().toISOString(),
           outcome: 'error',
@@ -1275,6 +1301,7 @@ export class Agent {
           toolsAvailable,
           agentPromptHash,
           systemPromptHash,
+          structuredOutput: runState.structuredOutput ?? null,
         }),
         finishedAt: new Date().toISOString(),
         outcome: 'error',

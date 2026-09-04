@@ -46,6 +46,9 @@ class FakeRepo implements IExecutionLogRepository {
   listDistinctSources(): string[] {
     return ['tagged-source']
   }
+  listLastOutputsByAgent(): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
+    return []
+  }
 }
 
 describe('SourceTaggingExecutionLogRepository', () => {

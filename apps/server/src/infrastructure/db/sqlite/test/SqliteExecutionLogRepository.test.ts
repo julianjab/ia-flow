@@ -5,8 +5,9 @@ import { SqliteExecutionLogRepository } from '../SqliteExecutionLogRepository.js
 
 // Mirrors migrations 021 (base table) + 023 (session_kind/session_id) + 040
 // (source) + 043 (cancel_requested_at) + 045 (run telemetry) + 048 (contrato
-// de cierre) + 068 (resumed_from_run_id) + 070 (trace_id) — the columns
-// SqliteExecutionLogRepository actually reads/writes.
+// de cierre) + 068 (resumed_from_run_id) + 070 (trace_id) + 071
+// (structured_output) — the columns SqliteExecutionLogRepository actually
+// reads/writes.
 function makeDb(): Database {
   const db = new Database(':memory:')
   db.run(`CREATE TABLE execution_logs (
@@ -50,7 +51,8 @@ function makeDb(): Database {
     system_prompt_hash    TEXT,
     tool_breakdown        TEXT,
     resumed_from_run_id   TEXT,
-    trace_id              TEXT
+    trace_id              TEXT,
+    structured_output     TEXT
   )`)
   return db
 }
@@ -102,6 +104,7 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     toolBreakdown: null,
     resumedFromRunId: null,
     traceId: null,
+    structuredOutput: null,
     ...overrides,
   }
 }
@@ -256,6 +259,14 @@ describe('SqliteExecutionLogRepository', () => {
     expect(repo.list({ limit: 1 }).map((r) => r.id)).toEqual(['c'])
   })
 
+  // El listado que powers GET /api/executions no arrastra el JSON de salida
+  // estructurada — leerla es cosa de getById o de listLastOutputsByAgent.
+  test('list excluye structured_output de la proyección; getById lo incluye', () => {
+    repo.insert(fakeEntry({ id: 'a', structuredOutput: { prNumber: 42 } }))
+    expect(repo.list({}).map((r) => r.structuredOutput)).toEqual([null])
+    expect(repo.getById('a')?.structuredOutput).toEqual({ prNumber: 42 })
+  })
+
   test('listActive returns only rows with finishedAt = null', () => {
     repo.insert(fakeEntry({ id: 'a', finishedAt: null }))
     repo.insert(fakeEntry({ id: 'b', finishedAt: '2026-01-01T00:05:00.000Z' }))
@@ -316,6 +327,58 @@ describe('SqliteExecutionLogRepository', () => {
     repo.insert(fakeEntry({ id: 'b', source: 'subscriptions-pipeline' }))
     repo.insert(fakeEntry({ id: 'c', source: null }))
     expect(repo.listDistinctSources()).toEqual(['functional-refiner', 'subscriptions-pipeline'])
+  })
+
+  describe('listLastOutputsByAgent', () => {
+    test('devuelve vacío cuando ningún agente entregó salida', () => {
+      repo.insert(fakeEntry({ id: 'a', taskId: 't1', structuredOutput: null }))
+      expect(repo.listLastOutputsByAgent('t1')).toEqual([])
+    })
+
+    test('recorta a la última fila por agente, no todas las corridas', () => {
+      repo.insert(
+        fakeEntry({
+          id: 'a',
+          taskId: 't1',
+          agentId: 'builder',
+          startedAt: '2026-01-01T00:00:00.000Z',
+          structuredOutput: { prNumber: 1 },
+        }),
+      )
+      repo.insert(
+        fakeEntry({
+          id: 'b',
+          taskId: 't1',
+          agentId: 'builder',
+          startedAt: '2026-01-02T00:00:00.000Z',
+          structuredOutput: { prNumber: 2 },
+        }),
+      )
+      repo.insert(
+        fakeEntry({
+          id: 'c',
+          taskId: 't1',
+          agentId: 'reviewer',
+          startedAt: '2026-01-01T12:00:00.000Z',
+          structuredOutput: { verdict: 'approve' },
+        }),
+      )
+
+      const outputs = repo.listLastOutputsByAgent('t1')
+      expect(outputs).toHaveLength(2)
+      expect(outputs.find((o) => o.agentId === 'builder')?.structuredOutput).toEqual({
+        prNumber: 2,
+      })
+      expect(outputs.find((o) => o.agentId === 'reviewer')?.structuredOutput).toEqual({
+        verdict: 'approve',
+      })
+    })
+
+    test('no mezcla salidas de otra task', () => {
+      repo.insert(fakeEntry({ id: 'a', taskId: 't1', structuredOutput: { x: 1 } }))
+      repo.insert(fakeEntry({ id: 'b', taskId: 't2', structuredOutput: { x: 2 } }))
+      expect(repo.listLastOutputsByAgent('t1').map((o) => o.structuredOutput)).toEqual([{ x: 1 }])
+    })
   })
 })
 

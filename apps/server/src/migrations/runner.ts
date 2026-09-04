@@ -51,6 +51,7 @@ import m067 from './067-execution-logs-cost.js'
 import m068 from './068-execution-logs-resumed-from.js'
 import m069 from './069-agent-aborts.js'
 import m070 from './070-execution-logs-trace-id.js'
+import m071 from './071-execution-logs-structured-output.js'
 
 const log = createLogger('migrations')
 
@@ -123,6 +124,7 @@ function loadMigrations(): Migration[] {
     m068,
     m069,
     m070,
+    m071,
   ]
 }
 

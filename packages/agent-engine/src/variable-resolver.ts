@@ -23,6 +23,11 @@ export interface ResolveContext {
   projectRepos?: RepoDef[]
   tools?: string[]
   context?: TemplateContext
+  /** La última salida estructurada de cada agente distinto que corrió sobre
+   *  esta task (`IExecutionLogRepository.listLastOutputsByAgent`) — lo que
+   *  rinde `{{task.previous_outputs}}`. Ausente/vacío ⇒ ninguno entregó
+   *  salida todavía. */
+  previousOutputs?: Array<{ agentId: string; structuredOutput: Record<string, unknown> }>
 }
 
 /** Central dispatcher for a `{{...}}` path — injected by the host, which owns

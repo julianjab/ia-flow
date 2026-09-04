@@ -3,7 +3,11 @@ import type { RepoDef, Task } from '@ia-flow/shared'
 import { resolveVariable } from '../index.js'
 import type { ResolveContext } from '../types.js'
 
-function makeCtx(overrides: Partial<Task> = {}, projectRepos?: RepoDef[]): ResolveContext {
+function makeCtx(
+  overrides: Partial<Task> = {},
+  projectRepos?: RepoDef[],
+  previousOutputs?: ResolveContext['previousOutputs'],
+): ResolveContext {
   const task: Task = {
     id: 't1',
     title: 'Sample',
@@ -14,7 +18,7 @@ function makeCtx(overrides: Partial<Task> = {}, projectRepos?: RepoDef[]): Resol
     created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
-  return { task, projectRepos, context: 'agent-prompt' }
+  return { task, projectRepos, previousOutputs, context: 'agent-prompt' }
 }
 
 describe('{{task.branch}}', () => {
@@ -107,6 +111,25 @@ describe('{{task.comments}}', () => {
       comments: [{ body: 'no date' } as unknown as { body: string; created_at: string }],
     })
     expect(resolveVariable('task.comments', ctx)).toBe('no date')
+  })
+})
+
+describe('{{task.previous_outputs}}', () => {
+  it('renders empty string when no agent submitted output', () => {
+    expect(resolveVariable('task.previous_outputs', makeCtx())).toBe('')
+    expect(resolveVariable('task.previous_outputs', makeCtx({}, undefined, []))).toBe('')
+  })
+
+  it('renders one block per agent, tagged with its id', () => {
+    const ctx = makeCtx({}, undefined, [
+      { agentId: 'builder', structuredOutput: { prNumber: 42 } },
+      { agentId: 'reviewer', structuredOutput: { verdict: 'approve' } },
+    ])
+    const rendered = resolveVariable('task.previous_outputs', ctx) ?? ''
+    expect(rendered).toContain('[builder]')
+    expect(rendered).toContain('"prNumber": 42')
+    expect(rendered).toContain('[reviewer]')
+    expect(rendered).toContain('"verdict": "approve"')
   })
 })
 

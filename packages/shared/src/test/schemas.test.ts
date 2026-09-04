@@ -1032,6 +1032,16 @@ describe('ExecutionLogSchema', () => {
     const { id: _id, ...missingId } = base
     expect(() => ExecutionLogSchema.parse(missingId)).toThrow()
   })
+
+  it('acepta structuredOutput como objeto arbitrario o null', () => {
+    expect(
+      ExecutionLogSchema.parse({ ...base, structuredOutput: null }).structuredOutput,
+    ).toBeNull()
+    expect(
+      ExecutionLogSchema.parse({ ...base, structuredOutput: { prNumber: 42 } }).structuredOutput,
+    ).toEqual({ prNumber: 42 })
+    expect(ExecutionLogSchema.parse(base).structuredOutput).toBeUndefined()
+  })
 })
 
 describe('maxConcurrentRuns vive en los settings de cada provider', () => {

@@ -50,6 +50,14 @@ export const definitions: VariableDefinition[] = [
     example: '{{task.comments}}',
   },
   {
+    key: 'task.previous_outputs',
+    group: 'task',
+    syntax: '{{...}}',
+    description:
+      'La última salida estructurada (`submit_output`) de cada agente distinto que corrió sobre esta task, una por agente. Vacío si ninguno entregó salida todavía.',
+    example: '{{task.previous_outputs}}',
+  },
+  {
     key: 'task.repo',
     group: 'task',
     syntax: '{{...}}',
@@ -108,6 +116,15 @@ function commentOrigin(c: Record<string, unknown>): string {
   return 'issue'
 }
 
+function formatPreviousOutputs(
+  outputs: Array<{ agentId: string; structuredOutput: Record<string, unknown> }> | undefined,
+): string {
+  if (!outputs || outputs.length === 0) return ''
+  return outputs
+    .map((o) => `[${o.agentId}]\n${JSON.stringify(o.structuredOutput, null, 2)}`)
+    .join('\n\n')
+}
+
 function formatComments(comments: unknown): string {
   if (!Array.isArray(comments) || comments.length === 0) return ''
   return comments
@@ -129,6 +146,8 @@ export function resolve(
   ctx: ResolveContext,
 ): string | undefined {
   if (key === 'comments') return formatComments(ctx.task.comments)
+
+  if (key === 'previous_outputs') return formatPreviousOutputs(ctx.previousOutputs)
 
   if (key === 'branch') {
     const t = ctx.task as { id?: string; branch?: string }

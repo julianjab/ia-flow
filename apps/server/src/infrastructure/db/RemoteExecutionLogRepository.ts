@@ -135,4 +135,10 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
   listDistinctSources(): string[] {
     return []
   }
+
+  listLastOutputsByAgent(
+    _taskId: string,
+  ): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
+    return []
+  }
 }
