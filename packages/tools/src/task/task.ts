@@ -419,11 +419,19 @@ registerTool({
     // acá el único nivel resoluble es el del agente. No es una excepción a la
     // regla salida > agente > default: es que a mitad del run la salida
     // todavía no es un hecho.
-    await pending.manager.postComment(
-      pending.task,
-      commentBody,
-      resolveCommentTarget(undefined, pending.commentTarget),
-    )
+    const target = resolveCommentTarget(undefined, pending.commentTarget)
+    // `none` es para el auto-comment de CIERRE del run (Agent.ts,
+    // complete_task/fail_task) — acá el modelo pidió explícitamente dejar un
+    // hito. Publicarlo en silencio como si `none` no existiera lo pisaría de
+    // vuelta; devolver éxito sin publicar nada le mentiría al agente sobre
+    // qué quedó registrado. Ninguna de las dos es aceptable: el agente tiene
+    // que enterarse de que este hito no tiene dónde caer.
+    if (target === 'none') {
+      throw new Error(
+        "Este agente está configurado con comment: 'none' — no puede publicar comentarios de progreso.",
+      )
+    }
+    await pending.manager.postComment(pending.task, commentBody, target)
     return 'Comentario publicado.'
   },
 })
