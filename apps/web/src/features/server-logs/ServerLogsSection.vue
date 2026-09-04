@@ -191,9 +191,16 @@ function columnLabel(key: string): string {
   const bare = key.startsWith('extras.') ? key.slice('extras.'.length) : key;
   return EXTRA_COLUMN_LABELS[bare] ?? bare;
 }
-// Ancho de cada columna en el grid — Mensaje es la única elástica (`1fr`);
-// el resto tiene un ancho fijo para que header y filas queden SIEMPRE
-// alineados columna por columna, sea cual sea el contenido de cada fila
+// Ancho de cada columna en el grid. `time`/`level` son formato fijo (no
+// ganan nada creciendo); todas las demás —Mensaje y cualquier extra que el
+// usuario agregue (agentId, taskId, payload.*, …)— son elásticas
+// (`minmax(piso, 1fr)`): antes sólo Mensaje lo era, así que con Mensaje
+// fuera de las columnas activas (o con varias extras a la vez) el grid
+// quedaba angosto — la suma de sus pistas fijas— y dejaba metros de fondo
+// vacío sin usar mientras el contenido real se elipsaba enseguida.
+// Header y filas quedan SIEMPRE alineados columna por columna sea cual sea
+// el contenido de cada fila porque los dos comparten el MISMO string de
+// `gridTemplateColumns` — la garantía es esa, no que las pistas sean px
 // (con flexbox + `width:max-content` esto no se puede garantizar: cada fila
 // es su propio contexto de layout, así que dos filas con un módulo de largo
 // distinto terminaban con el mensaje arrancando en una posición distinta —
@@ -201,10 +208,10 @@ function columnLabel(key: string): string {
 const BASE_COLUMN_WIDTHS: Record<string, string> = {
   time: '118px',
   level: '70px',
-  module: '160px',
+  module: 'minmax(160px, 1fr)',
   msg: 'minmax(240px, 1fr)',
 };
-const EXTRA_COLUMN_WIDTH = '140px';
+const EXTRA_COLUMN_WIDTH = 'minmax(140px, 1fr)';
 function columnWidth(key: string): string {
   return BASE_COLUMN_WIDTHS[key] ?? EXTRA_COLUMN_WIDTH;
 }
