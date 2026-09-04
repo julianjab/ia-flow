@@ -3,9 +3,11 @@ import {
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
   CLAUDE_CODE_BETAS,
+  backoffMs,
   buildAnthropicAuthHeader,
   buildAnthropicHeaders,
   requestAnthropicApi,
+  requestAnthropicApiWithRetry,
 } from './auth.js'
 
 const originalFetch = globalThis.fetch
@@ -143,5 +145,130 @@ describe('requestAnthropicApi', () => {
     }) as unknown as typeof fetch
 
     await expect(requestAnthropicApi({}, { headers: {} })).rejects.toThrow('network down')
+  })
+})
+
+describe('backoffMs', () => {
+  it('capea un retry-after enorme para no retener el lock/worktree por minutos', () => {
+    expect(backoffMs(0, '300')).toBe(60_000)
+  })
+
+  it('respeta un retry-after chico, sin capear', () => {
+    expect(backoffMs(0, '2')).toBe(2000)
+  })
+
+  it('ignora un retry-after no numérico y cae al backoff exponencial', () => {
+    expect(backoffMs(0, 'not-a-number')).toBeLessThanOrEqual(500)
+  })
+})
+
+describe('requestAnthropicApiWithRetry', () => {
+  it('un 529 seguido de un 200 completa sin agotar los reintentos', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) return new Response('{"error":"overloaded"}', { status: 529 })
+      return new Response('{"ok":true}', { status: 200 })
+    }) as unknown as typeof fetch
+
+    const res = await requestAnthropicApiWithRetry({}, { headers: {}, maxRetries: 3 })
+
+    expect(res.status).toBe(200)
+    expect(calls).toBe(2)
+  })
+
+  it('un 429 con retry-after espera al menos esa cantidad de segundos antes de reintentar', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) {
+        return new Response('{"error":"rate_limited"}', {
+          status: 429,
+          headers: { 'retry-after': '1' },
+        })
+      }
+      return new Response('{"ok":true}', { status: 200 })
+    }) as unknown as typeof fetch
+
+    const start = Date.now()
+    const res = await requestAnthropicApiWithRetry({}, { headers: {}, maxRetries: 3 })
+    const elapsed = Date.now() - start
+
+    expect(res.status).toBe(200)
+    expect(elapsed).toBeGreaterThanOrEqual(1000)
+  }, 10000)
+
+  it('no reintenta un 400 — vuelve el primer intento tal cual', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('{"error":"bad_request"}', { status: 400 })
+    }) as unknown as typeof fetch
+
+    const res = await requestAnthropicApiWithRetry({}, { headers: {}, maxRetries: 3 })
+
+    expect(res.status).toBe(400)
+    expect(calls).toBe(1)
+  })
+
+  it('agota los reintentos y devuelve el status del último intento', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('{"error":"overloaded"}', { status: 529 })
+    }) as unknown as typeof fetch
+
+    const res = await requestAnthropicApiWithRetry({}, { headers: {}, maxRetries: 2 })
+
+    expect(res.status).toBe(529)
+    expect(calls).toBe(3)
+  })
+
+  it('reintenta un error de conexión y termina bien si el siguiente intento conecta', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) throw new Error('ECONNRESET')
+      return new Response('{"ok":true}', { status: 200 })
+    }) as unknown as typeof fetch
+
+    const res = await requestAnthropicApiWithRetry({}, { headers: {}, maxRetries: 2 })
+
+    expect(res.status).toBe(200)
+    expect(calls).toBe(2)
+  })
+
+  it('propaga un error de conexión sin reintentar cuando maxRetries es 0', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      throw new Error('ECONNRESET')
+    }) as unknown as typeof fetch
+
+    await expect(requestAnthropicApiWithRetry({}, { headers: {} })).rejects.toThrow('ECONNRESET')
+    expect(calls).toBe(1)
+  })
+
+  it('un abort corta la cadena de reintentos en vez de esperar', async () => {
+    let calls = 0
+    const controller = new AbortController()
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('{"error":"rate_limited"}', {
+        status: 429,
+        headers: { 'retry-after': '5' },
+      })
+    }) as unknown as typeof fetch
+
+    const promise = requestAnthropicApiWithRetry(
+      {},
+      { headers: {}, maxRetries: 3, signal: controller.signal },
+    )
+    // Deja que el primer fetch resuelva y entre a la espera del backoff antes de abortar.
+    await new Promise((r) => setTimeout(r, 0))
+    controller.abort()
+
+    await expect(promise).rejects.toThrow()
+    expect(calls).toBe(1)
   })
 })

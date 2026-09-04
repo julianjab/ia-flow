@@ -15,7 +15,7 @@ import type {
   WorkspaceProvisionerPort,
 } from '../contract.js'
 import { resolveStepSettings } from '../contract.js'
-import { buildAnthropicHeaders, requestAnthropicApi } from './auth.js'
+import { buildAnthropicHeaders, requestAnthropicApiWithRetry } from './auth.js'
 
 /** Distinct error type for "the upstream provider stalled / reset / timed
  *  out on its own" — as opposed to "the operator (or the polling divergence
@@ -41,6 +41,10 @@ const AnthropicApiAgentConfigSchema = z
     // Anthropic requires budget_tokens >= 1024; the fetchApi closure also
     // clamps it below the effective max_tokens per-call (see there).
     thinkingBudgetTokens: z.number().int().min(1024).optional(),
+    // Reintentos ante 429/5xx/529 y errores de conexión — ver
+    // requestAnthropicApiWithRetry (auth.ts). Default: cfg.maxRetries, y si
+    // tampoco está seteado, 3.
+    maxRetries: z.number().int().min(0).max(10).optional(),
     mcpServers: McpServersSchema.optional(),
     fileSimplifierEnabled: z.boolean().optional(),
     // Por default las tools de cada MCP van DIFERIDAS: el request declara el
@@ -390,6 +394,7 @@ export class AnthropicApiProvider implements IAgentProvider {
     const resolvedRetryTruncatedToolUse =
       pc?.retryTruncatedToolUse ?? cfg.retryTruncatedToolUse ?? false
     const resolvedThinkingBudgetTokens = pc?.thinkingBudgetTokens
+    const resolvedMaxRetries = pc?.maxRetries ?? cfg.maxRetries ?? 3
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
@@ -634,7 +639,25 @@ export class AnthropicApiProvider implements IAgentProvider {
       const t0 = Date.now()
       let res: Response
       try {
-        res = await requestAnthropicApi(body, { headers, signal: input.signal })
+        res = await requestAnthropicApiWithRetry(body, {
+          headers,
+          signal: input.signal,
+          maxRetries: resolvedMaxRetries,
+          onRetry: (info) =>
+            log.warn(
+              {
+                event: 'api.retry',
+                ...logCtx,
+                iter,
+                attempt: info.attempt,
+                maxRetries: info.maxRetries,
+                delayMs: Math.round(info.delayMs),
+                status: info.status,
+                err: info.error instanceof Error ? info.error.message : info.error,
+              },
+              'Retrying Anthropic API request after transient error',
+            ),
+        })
       } catch (err) {
         const ms = Date.now() - t0
         const errMsg = err instanceof Error ? err.message : String(err)
