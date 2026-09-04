@@ -36,12 +36,16 @@ export function jsonTreeFields(data: unknown, parentPath: string): JsonTreeField
   }))
 }
 
-const LEAF_TRUNCATE = 200
 /** Sintaxis JSON de verdad (strings entre comillas) para el valor de una
  *  hoja del árbol — es lo que reemplaza al `<pre>{{ JSON.stringify(...) }}`
- *  de antes: una sola vista, no dos que dicen lo mismo distinto. */
+ *  de antes: una sola vista, no dos que dicen lo mismo distinto.
+ *
+ * Sin corte de longitud: este árbol ES "el JSON completo" (así lo etiquela
+ * el header de ExecutionsSection) — un prompt largo o una descripción
+ * cortada con "…" no tiene forma de leerse completo desde acá. El wrap de
+ * `.detail-field-value` (JsonTreeNode.vue) es lo que hace que un valor largo
+ * no reviente el layout en vez de esconderlo. */
 export function formatJsonLeaf(value: unknown): string {
   if (value === undefined) return '—'
-  const text = JSON.stringify(value) ?? String(value)
-  return text.length > LEAF_TRUNCATE ? `${text.slice(0, LEAF_TRUNCATE)}…` : text
+  return JSON.stringify(value) ?? String(value)
 }

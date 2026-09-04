@@ -81,9 +81,8 @@ const props = defineProps<{
 <style scoped>
 .detail-field-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   padding: 0.1rem 0;
-  white-space: nowrap;
 }
 /* El "…" vive en esta columna de ancho FIJO — a propósito no dentro del
    contenido indentado: si colgara del key, dos campos a distinta
@@ -93,23 +92,21 @@ const props = defineProps<{
 .detail-field-menu { position: relative; flex-shrink: 0; width: 1.5rem; }
 .detail-field-content {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.3rem;
   min-width: 0;
-  overflow: hidden;
 }
 .detail-field-key {
   flex-shrink: 0;
   color: var(--info);
 }
-.detail-json__colon { color: var(--fg-dim); margin-right: 0.4rem; }
+.detail-json__colon { color: var(--fg-dim); margin-right: 0.4rem; flex-shrink: 0; }
 .detail-field-value {
   flex: 1;
   min-width: 0;
   color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .detail-field-dots {
   background: none;
