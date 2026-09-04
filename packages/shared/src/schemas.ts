@@ -133,6 +133,53 @@ export const TaskCommentSchema = z.object({
 })
 export type TaskComment = z.infer<typeof TaskCommentSchema>
 
+// ─── Pull Request ────────────────────────────────────────────────────────────
+
+// Un archivo tocado por un PR — lo que rinde `{{task.pr.files}}` sin pedir el
+// diff completo. Va antes de `PullRequestRefSchema`, y ésta antes de
+// `TaskSchema`, porque Zod evalúa `z.array(X)` en tiempo de módulo: X tiene
+// que existir ya, no sólo estar declarado más abajo en el archivo.
+export const PullRequestFileSchema = z.object({
+  path: z.string(),
+  additions: z.number(),
+  deletions: z.number(),
+})
+
+// PR asociado a una task. Cruza la frontera server↔web (los sources lo
+// publican en el item, la web lo dibuja), así que vive acá y no duplicado a
+// cada lado.
+export const PullRequestRefSchema = z.object({
+  number: z.number(),
+  url: z.string(),
+  // Node id de la API v4. Es lo que convierte a este ref en algo accionable
+  // por el engine y no sólo dibujable por la web: `addComment(subjectId:)` y la
+  // conexión `comments` funcionan igual sobre un PR que sobre un issue, así que
+  // con esto comentar en el PR y leerlo es la MISMA llamada con otro id.
+  // Opcional porque la web nunca lo necesitó y las filas viejas no lo traen.
+  nodeId: z.string().optional(),
+  // `merged` no es un state nativo de GitHub (modela un PR cerrado con
+  // `merged: true`) — se colapsa acá porque es la distinción que importa.
+  state: z.enum(['open', 'closed', 'merged']),
+  isDraft: z.boolean(),
+  title: z.string().optional(),
+  // Branch de origen del PR y su repo/owner: es la rama real del trabajo
+  // cuando el issue quedó vinculado por el PR y no por el Development panel.
+  headRefName: z.string().optional(),
+  headRepo: z.string().optional(),
+  headOwner: z.string().optional(),
+  // Rollup de los checks del último commit del PR (`statusCheckRollup.state`,
+  // lowercase). AUSENTE ≠ `pending`: significa que el PR no tiene ningún check
+  // configurado, así que no hay CI que esperar — ver `isCiFinished`.
+  ci: z.enum(['success', 'failure', 'error', 'pending', 'expected']).optional(),
+  // Archivos tocados (hasta el tope de la selección GraphQL) — gratis, viene
+  // en la misma query que trae number/url/ci. `undefined` ⇒ no se pidió (un
+  // caller viejo, o un source que no lo soporta), no "sin archivos".
+  files: z.array(PullRequestFileSchema).optional(),
+  // `true` ⇒ el PR tiene más archivos de los que trae `files` (tope de la
+  // selección). Sin esto un PR grande se vería como si tuviera pocos archivos.
+  filesTruncated: z.boolean().optional(),
+})
+
 export const TaskSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -175,36 +222,13 @@ export const TaskSchema = z.object({
   // la primera vez que un agente con write tools la necesita. Undefined ⇒
   // fallback `task/<id>` en consumidores (WorkspaceManager, terminal-base, {{task.branch}}).
   branch: z.string().optional(),
-})
-
-// ─── Pull Request ────────────────────────────────────────────────────────────
-
-// PR asociado a una task. Cruza la frontera server↔web (los sources lo
-// publican en el item, la web lo dibuja), así que vive acá y no duplicado a
-// cada lado.
-export const PullRequestRefSchema = z.object({
-  number: z.number(),
-  url: z.string(),
-  // Node id de la API v4. Es lo que convierte a este ref en algo accionable
-  // por el engine y no sólo dibujable por la web: `addComment(subjectId:)` y la
-  // conexión `comments` funcionan igual sobre un PR que sobre un issue, así que
-  // con esto comentar en el PR y leerlo es la MISMA llamada con otro id.
-  // Opcional porque la web nunca lo necesitó y las filas viejas no lo traen.
-  nodeId: z.string().optional(),
-  // `merged` no es un state nativo de GitHub (modela un PR cerrado con
-  // `merged: true`) — se colapsa acá porque es la distinción que importa.
-  state: z.enum(['open', 'closed', 'merged']),
-  isDraft: z.boolean(),
-  title: z.string().optional(),
-  // Branch de origen del PR y su repo/owner: es la rama real del trabajo
-  // cuando el issue quedó vinculado por el PR y no por el Development panel.
-  headRefName: z.string().optional(),
-  headRepo: z.string().optional(),
-  headOwner: z.string().optional(),
-  // Rollup de los checks del último commit del PR (`statusCheckRollup.state`,
-  // lowercase). AUSENTE ≠ `pending`: significa que el PR no tiene ningún check
-  // configurado, así que no hay CI que esperar — ver `isCiFinished`.
-  ci: z.enum(['success', 'failure', 'error', 'pending', 'expected']).optional(),
+  // PRs conocidos de esta task (todos los estados — el filtro a "sólo
+  // abiertos" es del lado que lee, no del dato). Poblado por
+  // `issueItemToTask` desde `IssueItem.meta.pullRequests`, que ya viene de la
+  // misma selección GraphQL que resuelve `isCiFinished` — no agrega ningún
+  // round-trip. Es lo que rinde `{{task.pr.*}}` / `{{task.ci}}`
+  // (apps/server/src/variables/task.ts).
+  pullRequests: z.array(PullRequestRefSchema).optional(),
 })
 
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
