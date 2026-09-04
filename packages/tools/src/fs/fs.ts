@@ -395,6 +395,10 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
     if (results.length >= GREP_SAFETY_CAP && !filesOnly) return
     if (filesOnly && matchedFiles.length >= GREP_SAFETY_CAP) return
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    // Orden determinístico: paginar con `cursor` asume que dos corridas del
+    // mismo patrón devuelven los matches en el mismo orden. `readdir` no lo
+    // garantiza (y `rg` recorre en paralelo, ver `--sort path` más abajo).
+    entries.sort((a, b) => a.name.localeCompare(b.name))
     for (const e of entries) {
       const full = join(dir, e.name)
       if (e.isDirectory()) {
@@ -557,6 +561,11 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   for (const dir of ['.git', 'node_modules', 'dist', '__pycache__', 'vendor']) {
     args.push('--glob', `!${dir}`)
   }
+  // rg recorre en paralelo y no garantiza orden entre archivos por default.
+  // `fs_grep` pagina con `cursor` asumiendo que dos corridas del mismo
+  // patrón devuelven los matches en el mismo orden — sin esto, la página 2
+  // podía repetir matches de la 1 y omitir otros.
+  args.push('--sort', 'path')
   args.push(searchTarget)
 
   let proc: ReturnType<typeof Bun.spawn>
@@ -607,7 +616,12 @@ export { grepWithJs, grepWithRg }
 /** `cursor` es el offset (en matches, no líneas) de la próxima página a
  *  pedir — lo que la respuesta anterior devolvió como `Pass cursor: "N"`. */
 function parseGrepCursor(cursor: unknown): number {
-  const n = typeof cursor === 'string' ? Number.parseInt(cursor, 10) : 0
+  const n =
+    typeof cursor === 'string'
+      ? Number.parseInt(cursor, 10)
+      : typeof cursor === 'number'
+        ? cursor
+        : 0
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
@@ -655,7 +669,14 @@ registerTool({
       results = null
     }
     if (results === null) {
-      results = await grepWithJs(grepInput, ctx)
+      try {
+        results = await grepWithJs(grepInput, ctx)
+      } catch (err) {
+        // Un patrón válido para la sintaxis de regex de rg (Rust) puede no
+        // serlo para `new RegExp` (JS) — p.ej. `(?P<x>...)`. Cuando rg no
+        // está disponible y cae acá, ese throw no puede escapar de la tool.
+        return `Invalid pattern '${input.pattern}': ${err instanceof Error ? err.message : String(err)}`
+      }
     }
 
     if (results.length === 0) return `No matches found for '${input.pattern}'`
