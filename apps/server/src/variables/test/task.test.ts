@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { RepoDef, Task } from '@ia-flow/shared'
+import type { PullRequestRef, RepoDef, Task } from '@ia-flow/shared'
 import { resolveVariable } from '../index.js'
 import type { ResolveContext } from '../types.js'
 
@@ -7,6 +7,7 @@ function makeCtx(
   overrides: Partial<Task> = {},
   projectRepos?: RepoDef[],
   previousOutputs?: ResolveContext['previousOutputs'],
+  prDiff?: string,
 ): ResolveContext {
   const task: Task = {
     id: 't1',
@@ -18,7 +19,7 @@ function makeCtx(
     created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
-  return { task, projectRepos, previousOutputs, context: 'agent-prompt' }
+  return { task, projectRepos, previousOutputs, prDiff, context: 'agent-prompt' }
 }
 
 describe('{{task.branch}}', () => {
@@ -176,5 +177,84 @@ describe('{{task.repo.*}}', () => {
   it('returns empty when task.repos[0] does not match any projectRepo', () => {
     const ctx = makeCtx({ repos: ['ghost'] }, projectRepos)
     expect(resolveVariable('task.repo.path', ctx)).toBe('')
+  })
+})
+
+describe('{{task.pr.*}} y {{task.ci}}', () => {
+  const openPr: PullRequestRef = {
+    number: 42,
+    url: 'https://github.com/org/repo/pull/42',
+    nodeId: 'PR_1',
+    state: 'open',
+    isDraft: false,
+    ci: 'success',
+    files: [
+      { path: 'core/twilio.py', additions: 12, deletions: 3 },
+      { path: 'core/twilio.test.py', additions: 5, deletions: 0 },
+    ],
+  }
+
+  it('resuelve number/url/ci sin PR abierto → vacío', () => {
+    const ctx = makeCtx({ pullRequests: [] })
+    expect(resolveVariable('task.pr.number', ctx)).toBe('')
+    expect(resolveVariable('task.pr.url', ctx)).toBe('')
+    expect(resolveVariable('task.pr.files', ctx)).toBe('')
+    expect(resolveVariable('task.ci', ctx)).toBe('')
+  })
+
+  it('resuelve number/url/ci gratis — vienen de task.pullRequests, sin fetch de diff', () => {
+    const ctx = makeCtx({ pullRequests: [openPr] })
+    expect(resolveVariable('task.pr.number', ctx)).toBe('42')
+    expect(resolveVariable('task.pr.url', ctx)).toBe('https://github.com/org/repo/pull/42')
+    expect(resolveVariable('task.ci', ctx)).toBe('success')
+  })
+
+  it('renderiza task.pr.files como un archivo por línea con +adds/-dels', () => {
+    const ctx = makeCtx({ pullRequests: [openPr] })
+    const rendered = resolveVariable('task.pr.files', ctx) ?? ''
+    expect(rendered).toBe('core/twilio.py (+12/-3)\ncore/twilio.test.py (+5/-0)')
+  })
+
+  it('avisa cuando el listado de archivos está incompleto', () => {
+    const ctx = makeCtx({ pullRequests: [{ ...openPr, filesTruncated: true }] })
+    const rendered = resolveVariable('task.pr.files', ctx) ?? ''
+    expect(rendered).toContain('listado incompleto')
+  })
+
+  it('ignora PRs cerrados o mergeados — sólo el primero abierto cuenta', () => {
+    const ctx = makeCtx({
+      pullRequests: [
+        { number: 1, url: 'u1', nodeId: 'PR_c', state: 'closed', isDraft: false },
+        openPr,
+      ],
+    })
+    expect(resolveVariable('task.pr.number', ctx)).toBe('42')
+  })
+
+  it('{{task.pr.diff}} rinde ctx.prDiff tal cual — ya resuelto por Agent.run', () => {
+    const ctx = makeCtx({ pullRequests: [openPr] }, undefined, undefined, 'diff --git a/x b/x')
+    expect(resolveVariable('task.pr.diff', ctx)).toBe('diff --git a/x b/x')
+  })
+
+  it('{{task.pr.diff}} vacío cuando nadie lo pre-cargó (prompt no lo referenció)', () => {
+    const ctx = makeCtx({ pullRequests: [openPr] })
+    expect(resolveVariable('task.pr.diff', ctx)).toBe('')
+  })
+})
+
+describe('{{task.labels}} y {{task.status}}', () => {
+  it('labels se listan separadas por coma, igual que task.repos', () => {
+    const ctx = makeCtx({ labels: ['bug', 'urgente'] })
+    expect(resolveVariable('task.labels', ctx)).toBe('bug, urgente')
+  })
+
+  it('labels vacío cuando la task no tiene ninguna', () => {
+    const ctx = makeCtx({ labels: [] })
+    expect(resolveVariable('task.labels', ctx)).toBe('')
+  })
+
+  it('status resuelve al status actual de la task', () => {
+    const ctx = makeCtx({ status: 'InProgress' })
+    expect(resolveVariable('task.status', ctx)).toBe('InProgress')
   })
 })

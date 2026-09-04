@@ -12,4 +12,9 @@ export interface ResolveContext {
    *  esta task — lo que rinde `{{task.previous_outputs}}`. Mirrors
    *  `@ia-flow/agent-engine`'s `ResolveContext.previousOutputs`. */
   previousOutputs?: Array<{ agentId: string; structuredOutput: Record<string, unknown> }>
+  /** El diff del PR abierto de esta task, ya resuelto por `Agent.run` antes de
+   *  llamar acá (ver `PrDiffPort` en `@ia-flow/agent-engine`) — lo que rinde
+   *  `{{task.pr.diff}}`. Ausente cuando el prompt no la referencia o no hay
+   *  PR abierto. */
+  prDiff?: string
 }
