@@ -36,6 +36,12 @@ export interface IssueItem {
   meta?: Record<string, unknown>
   /** ia-flow project this item belongs to (stamped by the manager that fetched it). */
   projectId?: string
+  /** Id del ciclo de scan que trajo este item (stamped por `SourceDispatcher`,
+   *  mismo criterio que `projectId`) — es el análogo del `X-GitHub-Delivery`
+   *  para polling: no hay un delivery real que traiga uno propio, así que se
+   *  sintetiza uno por batch para que `diffStatus` lo pase a `EngineEvent.traceId`
+   *  y el run que dispare quede trazable hasta `execution_logs.trace_id`. */
+  scanTraceId?: string
 }
 
 export interface ValidationResult {

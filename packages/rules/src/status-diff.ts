@@ -23,6 +23,10 @@ export interface DiffItem {
   status: string
   repos?: string[]
   projectId?: string
+  /** Id del ciclo de scan que trajo este item — ver `IssueItem.scanTraceId`
+   *  en @ia-flow/issue-sources. Viaja como `EngineEvent.traceId` para que el
+   *  run que una regla dispare sobre este evento quede trazable. */
+  scanTraceId?: string
 }
 
 export interface DiffInput {
@@ -61,6 +65,7 @@ export function diffStatus({ item, before, bootstrap }: DiffInput): EngineEvent 
       type: ISSUE_CREATED,
       source: 'engine',
       scope,
+      traceId: item.scanTraceId,
       // El item se aplana Y viaja completo bajo `item`: una condición `when`
       // migrada de la vieja activación por status (`field: 'title'`, etc.)
       // sigue resolviendo al nivel de arriba del payload, igual que contra
@@ -78,6 +83,7 @@ export function diffStatus({ item, before, bootstrap }: DiffInput): EngineEvent 
     type: ISSUE_STATUS_CHANGED,
     source: 'engine',
     scope,
+    traceId: item.scanTraceId,
     // `from`/`to` son los nombres que una regla condiciona. `status` también
     // viaja, con el valor NUEVO, para que una condición sobre `status` siga
     // significando lo mismo que antes.

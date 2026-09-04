@@ -229,9 +229,15 @@ export class SourceDispatcher extends IssueManager {
       const health = await this.getHealth()
       if (!health.ok) return // getHealth already logged the state change
 
+      // Un id por batch, no por item: todos los diffs que produce ESTE ciclo
+      // de scan (o esta re-resolución disparada por un webhook) comparten
+      // trace, igual que un `X-GitHub-Delivery` agrupa los eventos de un
+      // mismo delivery — ver EngineEvent.traceId en @ia-flow/shared.
+      const traceId = crypto.randomUUID()
       for (const raw of rawItems) {
         const item = this.toIssueItem(raw)
         item.projectId = this.projectId
+        item.scanTraceId = traceId
         this.tryDispatch(item)
       }
       this.noteCapacity()
