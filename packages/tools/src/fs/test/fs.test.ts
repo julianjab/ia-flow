@@ -448,6 +448,34 @@ describe('fs_list — depth', () => {
     expect(out).toContain('a/kept.ts')
     expect(out).not.toContain('ignored.ts')
   })
+
+  it('caps the entry count instead of dumping an unbounded tree', async () => {
+    for (let i = 0; i < 50; i++) {
+      mkdirSync(join(repoRoot, `dir${i}`))
+      for (let j = 0; j < 60; j++) {
+        writeFileSync(join(repoRoot, `dir${i}/f${j}.ts`), 'x')
+      }
+    }
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 5 }, { repoPaths })
+
+    const entryCount = out
+      .split('\n')
+      .filter((l) => l.startsWith('d ') || l.startsWith('f ')).length
+    expect(entryCount).toBeLessThanOrEqual(2000)
+    expect(out).toContain('Truncated at 2000 entries')
+  })
+
+  it('caps `depth` regardless of what the model asks for', async () => {
+    mkdirSync(join(repoRoot, 'a'))
+    writeFileSync(join(repoRoot, 'a/one.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    // depth: 999 must not blow the stack / hang — it's clamped internally.
+    const out = await tool.execute({ path: 'r', depth: 999 }, { repoPaths })
+    expect(out).toContain('a/one.ts')
+  })
 })
 
 describe('fs_grep — pagination and total', () => {
@@ -499,6 +527,26 @@ describe('fs_grep — context_lines (rg ↔ JS parity)', () => {
     const rgOut = await grepWithRg({ path: 'r', pattern: 'HIT', context_lines: 1 }, { repoPaths })
     if (rgOut !== null) {
       expect(rgOut.join('\n')).toBe(jsOut)
+    }
+  })
+
+  it('does not lose the match when the path itself contains "-<digits>-" (regression)', async () => {
+    // Regresión: parsear el output de texto plano de rg con un regex
+    // `^(.*?)([:-])(\d+)\2(.*)$` clasifica mal un match cuyo path contenga
+    // un patrón "-<dígitos>-" (ej. `step-2-form.vue`) como línea de
+    // contexto en vez de match, y el match desaparece del resultado. El
+    // backend rg ahora parsea `--json`, que no tiene esta ambigüedad.
+    mkdirSync(join(repoRoot, 'sub'))
+    writeFileSync(join(repoRoot, 'sub/step-2-form.vue'), 'const HIT = 1\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'HIT' }, { repoPaths })
+    expect(out).toContain('step-2-form.vue')
+    expect(out).toContain(': const HIT = 1')
+
+    const rgOut = await grepWithRg({ path: 'r', pattern: 'HIT' }, { repoPaths })
+    if (rgOut !== null) {
+      expect(rgOut.some((r) => r.includes('step-2-form.vue'))).toBe(true)
     }
   })
 })
