@@ -462,6 +462,10 @@ type FiringRow = {
   startedAt: string;
   finishedAt: string | null;
   outcome: ExecutionLog['outcome'];
+  /** Alguna acción ANTERIOR a la última terminó peor que éxito. La fila ya
+   *  muestra el resultado de la última acción — esto es sólo la señal de que
+   *  no fue un camino limpio hasta ahí. */
+  hadEarlierIssue: boolean;
   providerId: string;
   count: number;
   /** La única fila viva del disparo, si hay exactamente una: es a quién detiene
@@ -474,16 +478,19 @@ type ExecRow = { key: string; firing?: FiringRow; exec?: ExecutionLog; nested: b
 
 /** Qué mostrar como resultado del disparo entero. Mientras algo sigue vivo el
  *  disparo está `pending` aunque una acción ya haya fallado: todavía no
- *  terminó. Ya cerrado, gana el peor — un `script` en rojo importa aunque el
- *  agente después haya salido bien. */
-function firingOutcome(rows: ExecutionLog[]): ExecutionLog['outcome'] {
-  if (rows.some((r) => !r.finishedAt)) return null;
-  let worst: ExecutionLog['outcome'] = 'success';
-  for (const r of rows) {
-    const rank = OUTCOME_RANK[r.outcome ?? 'pending'] ?? 99;
-    if (rank > (OUTCOME_RANK[worst ?? 'pending'] ?? 99)) worst = r.outcome;
-  }
-  return worst;
+ *  terminó. Ya cerrado, se muestra el resultado de la ÚLTIMA acción por
+ *  `position` — es lo que efectivamente cerró el disparo — y si alguna acción
+ *  anterior terminó peor que éxito eso se marca aparte (`hadEarlierIssue`) en
+ *  vez de tapar el resultado final con el peor de todos. */
+function firingOutcome(
+  byPosition: ExecutionLog[],
+): { outcome: ExecutionLog['outcome']; hadEarlierIssue: boolean } {
+  if (byPosition.some((r) => !r.finishedAt)) return { outcome: null, hadEarlierIssue: false };
+  const last = byPosition[byPosition.length - 1];
+  const hadEarlierIssue = byPosition
+    .slice(0, -1)
+    .some((r) => (OUTCOME_RANK[r.outcome ?? 'pending'] ?? 99) > OUTCOME_RANK.success);
+  return { outcome: last.outcome, hadEarlierIssue };
 }
 
 function toFiring(key: string, group: ExecutionLog[]): FiringRow {
@@ -499,6 +506,7 @@ function toFiring(key: string, group: ExecutionLog[]): FiringRow {
   // El proveedor del run de agente: es el dato que el operador busca acá, y un
   // `script` no tiene ninguno.
   const agentRow = byPosition.find((r) => (r.kind ?? 'agent') === 'agent');
+  const { outcome, hadEarlierIssue } = firingOutcome(byPosition);
   return {
     key,
     ruleId: head.ruleId ?? null,
@@ -508,7 +516,8 @@ function toFiring(key: string, group: ExecutionLog[]): FiringRow {
     taskTitle: head.taskTitle,
     startedAt,
     finishedAt,
-    outcome: firingOutcome(group),
+    outcome,
+    hadEarlierIssue,
     providerId: agentRow?.providerId ?? '',
     count: group.length,
     running: unfinished.length === 1 ? unfinished[0] : null,
@@ -1576,6 +1585,12 @@ watch(pendingFilter, () => {
                   color: outcomeColor(row.firing.outcome).fg,
                 }"
               >{{ outcomeLabel(row.firing.outcome) }}</span>
+              <span
+                v-if="row.firing.hadEarlierIssue"
+                class="exec-outcome-warn"
+                aria-hidden="false"
+                title="Una acción anterior de este pipeline terminó en error/cancelled/truncated antes del resultado final mostrado."
+              >⚠</span>
               <span class="exec-chevron" aria-hidden="true"></span>
             </button>
             <div class="exec-stop-slot">
@@ -2366,6 +2381,13 @@ watch(pendingFilter, () => {
   width: 90px;
   text-align: center;
   box-sizing: border-box;
+}
+.exec-outcome-warn {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--warn);
+  cursor: help;
 }
 .exec-chevron { color: var(--fg-dim); font-size: 0.85rem; flex-shrink: 0; width: 14px; text-align: right; }
 
