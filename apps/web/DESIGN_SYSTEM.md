@@ -81,9 +81,14 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
 - `ui/EditableCard.vue` — **la caja de una fila editable**, para toda lista que se puede abrir a un
   detalle (repos, agentes, statuses, reglas, acciones, tools, catálogo MCP). Borde, hover, ✕ y área
-  de click en un solo lugar — ver "Botones" más abajo. `padding: 0.4rem 0.75rem` (subido desde
-  `0.15rem 0.6rem` en el ajuste de Pipeline: con contenido de varias líneas —una regla trae su
-  frase y sus runs vivos— el padding vertical mínimo dejaba el texto pegado al borde de la caja).
+  de click en un solo lugar — ver "Botones" más abajo. `padding: 0.65rem 1rem` (subido desde el
+  `0.15rem 0.6rem` original en dos pasadas: primero a `0.4rem 0.75rem` en el ajuste de Pipeline
+  —con contenido de varias líneas el padding vertical mínimo dejaba el texto pegado al borde de
+  la caja—, después a este valor porque el paso anterior seguía leyéndose apretado. Es el
+  primitivo de TODAS las listas editables, así que un valor más denso en una lista larga (Tools,
+  catálogo MCP) es un costo real: menos filas por pantalla sin scrollear. Si una lista puntual
+  necesita más densidad que esto, la respuesta es un override local en esa sección, no bajar el
+  default compartido.
   El `gap` entre filas de una lista (`.rs-list`, `.repos-list`, etc.) es aparte y lo declara cada
   sección: **Pipeline usa `0.5rem`**, más separación que la densidad por defecto porque agrupa por
   evento (ver `groupByEvent` en `RulesSection.vue`) y una fila apretada contra la siguiente hacía
