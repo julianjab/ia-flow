@@ -306,6 +306,11 @@ export const AnthropicApiSettingsSchema = z.object({
   /** Retry once with more max_tokens when `max_tokens` cuts off a `tool_use`
    *  block mid-JSON. See LoopOptions.retryTruncatedToolUse. Default false. */
   retryTruncatedToolUse: z.boolean().optional(),
+  /** Tope de reintentos ante 429/5xx/529 y errores de conexión, con backoff
+   *  exponencial + jitter (honra `retry-after` cuando viene). 400/401/403/404
+   *  nunca se reintentan — son bugs de config, no fallos transitorios.
+   *  Default 3 (ver AnthropicApiProvider.run). */
+  maxRetries: z.number().int().min(0).max(10).optional(),
   mcpServers: McpServersSchema.optional(),
   /** Tope de runs simultáneos de ESTE provider. Config adicional del
    *  provider, como el resto de este bloque — no una tabla aparte. El engine
