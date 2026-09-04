@@ -94,6 +94,39 @@ describe('resolvePath — path traversal via a symlink', () => {
   })
 })
 
+describe('grepWithJs / globWithJs — a walk discovers a symlinked file escaping the repo (regression)', () => {
+  it('fs_grep does not read through a symlinked file pointing outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'id_rsa'), 'PRIVATE KEY MATERIAL')
+    // A symlink to a FILE (not a directory) is what a plain directory walk
+    // doesn't filter on its own — `Dirent.isDirectory()` is false for it,
+    // so it reaches `readFile` same as any regular file would.
+    symlinkSync(join(secretDir, 'id_rsa'), join(repoRoot, 'link.txt'))
+    try {
+      const results = await grepWithJs({ path: 'r', pattern: 'PRIVATE' }, { repoPaths })
+      expect(results).toHaveLength(0)
+
+      const tool = getTool('fs_grep')!
+      const out = await tool.execute({ path: 'r', pattern: 'PRIVATE' }, { repoPaths })
+      expect(out).not.toContain('PRIVATE KEY MATERIAL')
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fs_glob does not list a symlinked file pointing outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'id_rsa.pem'), 'x')
+    symlinkSync(join(secretDir, 'id_rsa.pem'), join(repoRoot, 'link.pem'))
+    try {
+      const results = await globWithJs({ path: 'r', pattern: '**/*.pem' }, { repoPaths })
+      expect(results).toHaveLength(0)
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('grepWithJs — label does not collide with a sibling repo sharing a prefix', () => {
   it('labels a match under "api" as "api/...", not misattributed to "api-web"', async () => {
     const apiRoot = mkdtempSync(join(tmpdir(), 'ia-flow-api-'))
