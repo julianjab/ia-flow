@@ -13,9 +13,9 @@
 // puesto el listado de items — por eso `withDevLinksFallback` degrada una sola
 // vez a la selección sin PRs en vez de dejar la app sin tareas.
 
-import type { PullRequestRef } from '@ia-flow/shared'
+import type { PullRequestFile, PullRequestRef } from '@ia-flow/shared'
 import { createLogger } from '../logger.js'
-import { gql } from './client.js'
+import { gql, rest } from './client.js'
 
 export type { PullRequestRef }
 
@@ -56,6 +56,10 @@ interface RawPullRequestNode {
   commits?: {
     nodes?: Array<{ commit?: { statusCheckRollup?: { state?: string } | null } | null } | null>
   } | null
+  files?: {
+    totalCount?: number
+    nodes?: Array<{ path?: string; additions?: number; deletions?: number } | null> | null
+  } | null
 }
 
 const CI_STATES = ['success', 'failure', 'error', 'pending', 'expected'] as const
@@ -88,6 +92,12 @@ const LINKED_BRANCHES_SELECTION = `
 // el PR mismo. Es lo que contesta "¿el CI ya terminó?" sin un request por PR a
 // la API de checks. `null` cuando el commit no tiene ningún check configurado,
 // que no es lo mismo que estar corriendo (ver `isCiFinished`).
+// `files(first: FILES_LIMIT)` viaja en la MISMA selección — no es un request
+// aparte. Es lo que rinde `{{task.pr.files}}` sin pagar el fetch del diff
+// completo: casi siempre alcanza para saber QUÉ se tocó, y cuando no,
+// `filesTruncated` se lo dice al agente en vez de mentirle una lista parcial.
+export const PR_FILES_LIMIT = 100
+
 const PULL_REQUESTS_SELECTION = `
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {
     nodes {
@@ -95,6 +105,7 @@ const PULL_REQUESTS_SELECTION = `
       headRefName
       headRepository { name owner { login } }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+      files(first: ${PR_FILES_LIMIT}) { totalCount nodes { path additions deletions } }
     }
   }
 `
@@ -191,10 +202,23 @@ export function pickPrimaryBranch(
   return pickPrimaryBranchRef(nodes, primaryRepoName)?.name
 }
 
+function mapPullRequestFiles(raw: RawPullRequestNode): PullRequestFile[] | undefined {
+  const nodes = raw.files?.nodes
+  if (!nodes?.length) return undefined
+  const files = nodes
+    .filter((n): n is { path: string; additions?: number; deletions?: number } =>
+      Boolean(n && typeof n.path === 'string'),
+    )
+    .map((n) => ({ path: n.path, additions: n.additions ?? 0, deletions: n.deletions ?? 0 }))
+  return files.length ? files : undefined
+}
+
 function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
   if (typeof raw.number !== 'number' || !raw.url) return null
   const state = raw.merged ? 'merged' : raw.state?.toUpperCase() === 'CLOSED' ? 'closed' : 'open'
   const ci = mapCiState(raw)
+  const files = mapPullRequestFiles(raw)
+  const filesTruncated = (raw.files?.totalCount ?? 0) > (files?.length ?? 0)
   return {
     number: raw.number,
     url: raw.url,
@@ -206,6 +230,8 @@ function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
     ...(raw.headRepository?.name ? { headRepo: raw.headRepository.name } : {}),
     ...(raw.headRepository?.owner?.login ? { headOwner: raw.headRepository.owner.login } : {}),
     ...(ci ? { ci } : {}),
+    ...(files ? { files } : {}),
+    ...(filesTruncated ? { filesTruncated: true } : {}),
   }
 }
 
@@ -268,6 +294,37 @@ export function openPullRequests(prs: readonly PullRequestRef[] | undefined): Pu
 export function branchTreeUrl(owner: string, repo: string, branch: string): string {
   const ref = branch.split('/').map(encodeURIComponent).join('/')
   return `https://github.com/${owner}/${repo}/tree/${ref}`
+}
+
+/**
+ * Tope de `{{task.pr.diff}}`, en caracteres. Un PR grande no entra entero en
+ * el prompt — se recorta y se avisa cuánto quedó afuera, en vez de mandar un
+ * diff cortado a la mitad de una línea sin decir nada. El listado completo de
+ * archivos (`{{task.pr.files}}`) no tiene este tope: es la vía para que el
+ * agente sepa QUÉ se tocó aunque el diff se haya recortado.
+ */
+export const PR_DIFF_MAX_CHARS = 20_000
+
+/**
+ * El diff unificado de un PR — vía REST (`Accept:
+ * application/vnd.github.v3.diff`), no GraphQL, que no expone esta
+ * representación. Sólo se llama cuando el prompt referencia
+ * `{{task.pr.diff}}` (ver `promptReferencesVariable` en
+ * `@ia-flow/agent-engine`): es la única variable de PR que paga un request
+ * propio en vez de venir gratis con `meta.pullRequests`.
+ */
+export async function fetchPullRequestDiff(
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<string> {
+  const text = (await rest(`/repos/${owner}/${repo}/pulls/${number}`, {
+    accept: 'application/vnd.github.v3.diff',
+    raw: true,
+  })) as string
+  if (text.length <= PR_DIFF_MAX_CHARS) return text
+  const shown = text.slice(0, PR_DIFF_MAX_CHARS)
+  return `${shown}\n\n[diff truncado — ${text.length} caracteres en total, mostrando los primeros ${PR_DIFF_MAX_CHARS}. Ver {{task.pr.files}} para el listado completo de archivos tocados.]`
 }
 
 // ─── Fetch en bulk ────────────────────────────────────────────────────────

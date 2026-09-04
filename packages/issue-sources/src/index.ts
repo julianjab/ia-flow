@@ -107,8 +107,10 @@ export {
 } from './github-shared/conversation.js'
 export {
   branchTreeUrl,
+  fetchPullRequestDiff,
   isCiFinished,
   openPullRequests,
+  PR_DIFF_MAX_CHARS,
 } from './github-shared/dev-links.js'
 export {
   extractSlackThreadUrl,

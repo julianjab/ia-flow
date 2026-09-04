@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import {
+  PR_DIFF_MAX_CHARS,
   branchTreeUrl,
+  fetchPullRequestDiff,
   isCiFinished,
   isUnsupportedPullRequestFieldError,
   issueDevLinksSelection,
@@ -54,6 +56,65 @@ describe('mapDevLinks', () => {
       undefined,
     )
     expect(links.pullRequests).toEqual([])
+  })
+
+  test('mapea files() a PullRequestFile[] — gratis, misma selección que number/url/ci', () => {
+    const links = mapDevLinks(
+      {
+        closedByPullRequestsReferences: {
+          nodes: [
+            {
+              number: 1,
+              url: 'u1',
+              state: 'OPEN',
+              isDraft: false,
+              files: {
+                totalCount: 2,
+                nodes: [
+                  { path: 'core/twilio.py', additions: 12, deletions: 3 },
+                  { path: 'core/twilio.test.py', additions: 5, deletions: 0 },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      undefined,
+    )
+    expect(links.pullRequests[0].files).toEqual([
+      { path: 'core/twilio.py', additions: 12, deletions: 3 },
+      { path: 'core/twilio.test.py', additions: 5, deletions: 0 },
+    ])
+    expect(links.pullRequests[0].filesTruncated).toBeUndefined()
+  })
+
+  test('filesTruncated=true cuando totalCount excede lo que trajo la selección', () => {
+    const links = mapDevLinks(
+      {
+        closedByPullRequestsReferences: {
+          nodes: [
+            {
+              number: 1,
+              url: 'u1',
+              state: 'OPEN',
+              isDraft: false,
+              files: { totalCount: 150, nodes: [{ path: 'a.ts', additions: 1, deletions: 1 }] },
+            },
+          ],
+        },
+      },
+      undefined,
+    )
+    expect(links.pullRequests[0].filesTruncated).toBe(true)
+  })
+
+  test('sin files() en la selección, ni files ni filesTruncated se inventan', () => {
+    const links = mapDevLinks(
+      { closedByPullRequestsReferences: { nodes: [{ number: 1, url: 'u1', state: 'OPEN' }] } },
+      undefined,
+    )
+    expect(links.pullRequests[0].files).toBeUndefined()
+    expect(links.pullRequests[0].filesTruncated).toBeUndefined()
   })
 
   test('sin linked branch, la rama sale del head del PR', () => {
@@ -208,5 +269,52 @@ describe('isCiFinished', () => {
   // Un repo sin CI no puede quedar con el botón apagado para siempre.
   test('un PR sin checks cuenta como terminado', () => {
     expect(isCiFinished({})).toBe(true)
+  })
+})
+
+describe('fetchPullRequestDiff', () => {
+  const originalFetch = globalThis.fetch
+
+  beforeAll(() => {
+    process.env.GITHUB_TOKEN = 'test-token'
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  function stubDiffFetch(body: string): { url?: string; accept?: string } {
+    const call: { url?: string; accept?: string } = {}
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      call.url = url
+      call.accept = (init?.headers as Record<string, string>)?.Accept
+      return new Response(body, { status: 200 })
+    }) as unknown as typeof fetch
+    return call
+  }
+
+  test('pide el diff con el Accept header de GitHub, no JSON', async () => {
+    const call = stubDiffFetch('diff --git a/x.ts b/x.ts\n+added line\n')
+    const diff = await fetchPullRequestDiff('ia-flow', 'ia-flow', 42)
+    expect(diff).toBe('diff --git a/x.ts b/x.ts\n+added line\n')
+    expect(call.url).toBe('https://api.github.com/repos/ia-flow/ia-flow/pulls/42')
+    expect(call.accept).toBe('application/vnd.github.v3.diff')
+  })
+
+  test('un diff corto no se recorta', async () => {
+    stubDiffFetch('un diff chico')
+    const diff = await fetchPullRequestDiff('o', 'r', 1)
+    expect(diff).toBe('un diff chico')
+  })
+
+  test('un diff más grande que el tope se recorta y avisa cuánto quedó afuera', async () => {
+    const big = 'x'.repeat(PR_DIFF_MAX_CHARS + 500)
+    stubDiffFetch(big)
+    const diff = await fetchPullRequestDiff('o', 'r', 1)
+    expect(diff.startsWith('x'.repeat(PR_DIFF_MAX_CHARS))).toBe(true)
+    expect(diff).toContain('diff truncado')
+    expect(diff).toContain(String(big.length))
+    expect(diff.length).toBeGreaterThan(PR_DIFF_MAX_CHARS)
+    expect(diff.length).toBeLessThan(big.length)
   })
 })
