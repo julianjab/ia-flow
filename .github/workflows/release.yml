@@ -198,6 +198,12 @@ jobs:
             xattr -dr com.apple.quarantine "/Applications/IA Flow.app"
             ```
 
+            Este paso no es sólo para destrabar el primer arranque: mientras
+            la app quede en cuarentena (por ejemplo si la abriste con click
+            derecho → Abrir en vez de correr el comando) Chromium puede caer a
+            renderizado por software, y la app se siente notoriamente más
+            lenta al clickear que un browser normal.
+
             La app no trae server: se conecta al que elijas en su pantalla de
             servers. Para levantar uno, usá el bundle `ia-flow-server.js` de
             esta misma release — su `.tar.gz` trae un `Dockerfile.example`
