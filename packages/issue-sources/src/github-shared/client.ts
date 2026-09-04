@@ -207,7 +207,16 @@ export async function gql<T = unknown>(
 // GitHub REST client for simple operations
 export async function rest(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: {
+    method?: string
+    body?: unknown
+    // Override del media type — p. ej. `application/vnd.github.v3.diff` para
+    // pedir el diff unificado de un PR en vez de su representación JSON.
+    accept?: string
+    // `true` ⇒ devuelve el body crudo (`res.text()`) en vez de parsearlo como
+    // JSON — necesario para `accept` no-JSON como el de arriba.
+    raw?: boolean
+  } = {},
 ): Promise<unknown> {
   const token = await getGitHubToken()
   if (!token)
@@ -221,7 +230,7 @@ export async function rest(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      Accept: 'application/vnd.github+json',
+      Accept: options.accept ?? 'application/vnd.github+json',
       'User-Agent': 'ia-flow/1.0',
       'X-GitHub-Api-Version': '2022-11-28',
     },
@@ -252,5 +261,5 @@ export async function rest(
     throw new Error(`GitHub REST ${options.method ?? 'GET'} ${path} → ${res.status}: ${text}`)
   }
 
-  return res.json()
+  return options.raw ? res.text() : res.json()
 }
