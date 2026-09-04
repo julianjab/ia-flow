@@ -1,4 +1,4 @@
-import type { Task } from '@ia-flow/shared'
+import type { CommentTarget, Task } from '@ia-flow/shared'
 import type { ITaskRepository, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
@@ -30,7 +30,11 @@ export class LocalTaskSource implements TaskSource {
     await this.taskRepo.update({ ...task, error })
   }
 
-  async postComment(task: Task, body: string): Promise<void> {
+  async postComment(task: Task, body: string, target?: CommentTarget): Promise<void> {
+    // `none` no tiene un lugar distinto para un source sin PR/issue separado
+    // — la única forma de respetarlo es no escribir nada, igual que hace
+    // `postToTarget` para GitHub.
+    if (target === 'none') return
     const comment = { body, created_at: new Date().toISOString() }
     const updated = { ...task, comments: [...(task.comments ?? []), comment] }
     await this.taskRepo.update(updated)
