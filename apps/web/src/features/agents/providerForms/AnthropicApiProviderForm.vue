@@ -14,6 +14,7 @@ export interface AnthropicApiProviderConfig {
   retryTruncatedToolUse?: boolean;
   thinkingBudgetTokens?: number;
   eagerMcpTools?: boolean;
+  maxRetries?: number;
 }
 
 const props = defineProps<{ modelValue: Record<string, unknown> }>();
@@ -66,6 +67,7 @@ const advancedCount = computed(() =>
     state.value.maxPauseTurnRetries,
     state.value.retryTruncatedToolUse,
     state.value.eagerMcpTools,
+    state.value.maxRetries,
   ].filter((v) => v !== undefined && v !== null).length,
 );
 // Si el agente ya trae algo cargado ahí, no lo escondas detrás de un click.
@@ -163,6 +165,19 @@ const advancedOpen = ref(advancedCount.value > 0);
         @input="(e) => set('maxPauseTurnRetries', numberInput(e))"
       />
       <p class="field-hint">Reintentos cuando la API pausa un turno largo de server tools/MCP (stop_reason pause_turn) — reenvía el historial sin cambios. 0 = sin reintento (default), hasta 20.</p>
+    </div>
+    <div class="pc-field">
+      <label class="pc-label">Max reintentos (429/5xx/529)</label>
+      <input
+        type="number"
+        min="0"
+        max="10"
+        class="input"
+        placeholder="3"
+        :value="state.maxRetries ?? ''"
+        @input="(e) => set('maxRetries', numberInput(e))"
+      />
+      <p class="field-hint">Reintentos con backoff exponencial ante rate limit y errores transitorios del upstream. 400/401/403/404 nunca se reintentan. Sin valor, hereda del global (default 3).</p>
     </div>
     <div class="pc-field pc-field--checkbox">
       <label class="pc-check">
