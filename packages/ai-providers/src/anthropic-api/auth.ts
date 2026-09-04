@@ -74,3 +74,90 @@ export function requestAnthropicApi(
     signal: opts.signal,
   })
 }
+
+/** HTTP statuses worth retrying: rate limiting and transient upstream
+ *  failures. `400`/`401`/`403`/`404` are config/auth bugs — retrying them
+ *  only delays the diagnosis, so they're deliberately excluded. */
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 529])
+
+export interface AnthropicRetryInfo {
+  /** 1-indexed attempt number about to be made (2 = first retry). */
+  attempt: number
+  maxRetries: number
+  delayMs: number
+  status?: number
+  error?: unknown
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** Exponential backoff with jitter, honoring `retry-after` (seconds) when
+ *  the upstream sends one — a 429 telling us exactly how long to wait
+ *  shouldn't be second-guessed by our own schedule. */
+function backoffMs(attempt: number, retryAfterHeader: string | null): number {
+  if (retryAfterHeader) {
+    const seconds = Number(retryAfterHeader)
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  }
+  const base = Math.min(250 * 2 ** attempt, 8000)
+  return base + Math.random() * base
+}
+
+/**
+ * Wraps `requestAnthropicApi` with retries for transient failures — a
+ * `429`/`529`/`5xx` response or a connection-level error. Backs off
+ * exponentially (with jitter), honoring `retry-after` when present, and
+ * stops immediately if `opts.signal` is aborted — an operator abort cuts
+ * the retry chain, not just the in-flight wait. Non-retryable statuses
+ * (anything not in `RETRYABLE_STATUSES`) and exhausted retries return/throw
+ * exactly like a single `requestAnthropicApi` call would.
+ */
+export async function requestAnthropicApiWithRetry(
+  body: unknown,
+  opts: {
+    headers: Record<string, string>
+    signal?: AbortSignal
+    /** Max retry attempts after the first try. Default 0 (no retry) — the
+     *  provider resolves and passes its own configured value. */
+    maxRetries?: number
+    onRetry?: (info: AnthropicRetryInfo) => void
+  },
+): Promise<Response> {
+  const maxRetries = opts.maxRetries ?? 0
+  let attempt = 0
+  while (true) {
+    let res: Response
+    try {
+      res = await requestAnthropicApi(body, { headers: opts.headers, signal: opts.signal })
+    } catch (err) {
+      if (opts.signal?.aborted || attempt >= maxRetries) throw err
+      const delayMs = backoffMs(attempt, null)
+      opts.onRetry?.({ attempt: attempt + 2, maxRetries, delayMs, error: err })
+      await sleep(delayMs, opts.signal)
+      attempt++
+      continue
+    }
+    if (res.ok || !RETRYABLE_STATUSES.has(res.status) || attempt >= maxRetries) return res
+    const delayMs = backoffMs(attempt, res.headers.get('retry-after'))
+    opts.onRetry?.({ attempt: attempt + 2, maxRetries, delayMs, status: res.status })
+    await sleep(delayMs, opts.signal)
+    attempt++
+  }
+}
