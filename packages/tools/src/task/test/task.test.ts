@@ -350,6 +350,31 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(calls.postError[0].alreadyCommented).toBe(true)
   })
 
+  // Regresión: con `comment: 'none'` postComment no publica nada (postToTarget
+  // corta antes de la mutación), pero seguía marcando `alreadyCommented: true`
+  // porque el call site sólo miraba si HABÍA LLAMADO a postComment, no si
+  // había publicado algo. `postError` respeta ese flag y se saltea cuando es
+  // true — así que un run fallido con `comment: 'none'` no dejaba el fallo en
+  // ningún lado, ni el timeline ni el estado del source.
+  it("fail_task con comment: 'none' no marca alreadyCommented — postError tiene que quedar libre de reportar", async () => {
+    removePendingTask(TASK_ID)
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      exits: { success: 'Done', error: 'Blocked' },
+      commentTarget: 'none',
+    })
+
+    const tool = getTool('fail_task')!
+    await tool.execute({ task_id: TASK_ID, where_failed: 'boom' }, { repoPaths: {} })
+
+    expect(calls.postComment).toHaveLength(0)
+    expect(calls.postError).toHaveLength(1)
+    expect(calls.postError[0].alreadyCommented).toBe(false)
+  })
+
   it('throws when the pending task is unknown', async () => {
     const tool = getTool('add_task_comment')!
     await expect(
