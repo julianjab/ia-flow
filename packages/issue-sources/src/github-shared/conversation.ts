@@ -127,13 +127,19 @@ function targetPullRequest(prs: readonly PullRequestRef[] | undefined): PullRequ
  * **`pr` sin PR abierto cae al issue**, no falla. Un comentario que no se
  * publica se pierde entero, y perder el reporte de un run es peor que dejarlo
  * en el lugar menos específico; queda el warn para que se vea que pasó.
+ *
+ * **`none` no publica nada** — es el único target que corta antes de la
+ * mutación. Vive acá y no en cada call site de `postComment` (Agent.ts,
+ * packages/tools/src/task/task.ts) porque los tres funnelan por acá: un solo
+ * punto de interpretación en vez de tres guards repetidos.
  */
 export async function postToTarget(
   issueId: string,
   body: string,
   target: CommentTarget,
   pullRequests?: readonly PullRequestRef[],
-): Promise<{ subject: 'issue' | 'pr'; prNumber?: number }> {
+): Promise<{ subject: 'issue' | 'pr' | 'none'; prNumber?: number }> {
+  if (target === 'none') return { subject: 'none' }
   const pr = target === 'issue' ? undefined : targetPullRequest(pullRequests)
   if (!pr) {
     if (target === 'pr') {
@@ -179,6 +185,46 @@ export async function resolveReviewThread(threadId: string): Promise<void> {
       }
     }`,
     { threadId },
+  )
+}
+
+// ─── Reacciones ────────────────────────────────────────────────────────────
+//
+// La contracara barata de `postToTarget`: un agente que sólo necesita acusar
+// recibo de un comentario (comment-triage) no tiene un hallazgo que dejar por
+// escrito, y postear igual es ruido — un comentario de sistema por cada
+// comentario humano. `addReaction` toma cualquier `Reactable` (issue, PR,
+// comentario de issue o de review) por su node id, así que sirve para los
+// tres sin distinguir el subject.
+//
+// Las claves públicas son las de la REST API de GitHub (`+1`, `-1`, …) —lo
+// que ve cualquiera que abrió un comentario en la UI—, no el enum de
+// GraphQL: es lo que un prompt de agente puede nombrar sin tener que conocer
+// `ReactionContent`.
+const REACTION_CONTENT = {
+  '+1': 'THUMBS_UP',
+  '-1': 'THUMBS_DOWN',
+  laugh: 'LAUGH',
+  hooray: 'HOORAY',
+  confused: 'CONFUSED',
+  heart: 'HEART',
+  rocket: 'ROCKET',
+  eyes: 'EYES',
+} as const
+
+export type ReactionName = keyof typeof REACTION_CONTENT
+
+/** Reacciona a un comentario (o issue/PR) por su node id. Repetir la misma
+ *  reacción no duplica nada — GitHub la trata como upsert por (subject, autor,
+ *  content). */
+export async function reactToComment(subjectNodeId: string, reaction: ReactionName): Promise<void> {
+  await gql(
+    `mutation AddReaction($subjectId: ID!, $content: ReactionContent!) {
+      addReaction(input: { subjectId: $subjectId, content: $content }) {
+        reaction { content }
+      }
+    }`,
+    { subjectId: subjectNodeId, content: REACTION_CONTENT[reaction] },
   )
 }
 

@@ -100,8 +100,10 @@ export {
 export {
   fetchConversation,
   postToTarget,
+  reactToComment,
   replyToReviewThread,
   resolveReviewThread,
+  type ReactionName,
 } from './github-shared/conversation.js'
 export {
   branchTreeUrl,
