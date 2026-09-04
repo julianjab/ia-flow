@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { condToOp, evalWhen, traceWhen } from './when.js'
+import { condToOp, evalWhen, evalWhenAll, traceWhen, traceWhenAll } from './when.js'
 
 describe('evalWhen — comportamiento heredado', () => {
   test('sin condiciones matchea todo', () => {
@@ -211,5 +211,65 @@ describe('traceWhen', () => {
     expect(trace.groups).toHaveLength(2)
     expect(trace.groups[0][0].matched).toBe(false)
     expect(trace.groups[1][0].matched).toBe(true)
+  })
+})
+
+describe('evalWhenAll/traceWhenAll — merge de varias fuentes (baseWhen)', () => {
+  test('sin ninguna fuente matchea todo', () => {
+    expect(evalWhenAll({ status: 'Ready' })).toBe(true)
+    expect(evalWhenAll({ status: 'Ready' }, undefined, [])).toBe(true)
+  })
+
+  test('una fuente vacía no restringe — sólo pesan las que traen condiciones', () => {
+    const task = { labels: ['bug'] }
+    expect(evalWhenAll(task, undefined, [{ field: 'labels', op: '!=', value: 'blocked' }])).toBe(
+      true,
+    )
+    expect(evalWhenAll(task, [], { labels: '$ne:blocked' })).toBe(true)
+  })
+
+  test('ANDea el when de la regla con el baseWhen aunque ninguno solo alcance', () => {
+    const task = { status: 'Ready', labels: ['bug'] }
+    const ruleWhen = [{ field: 'status', op: '=', value: 'Ready' }]
+    const baseWhen = [{ field: 'labels', op: '!=', value: 'blocked' }]
+    expect(evalWhenAll(task, ruleWhen, baseWhen)).toBe(true)
+    expect(evalWhenAll({ status: 'Ready', labels: ['blocked'] }, ruleWhen, baseWhen)).toBe(false)
+  })
+
+  test('cross-product: preserva el OR de cada fuente por separado', () => {
+    // (status=Ready OR status=Done) AND (labels!=blocked)
+    const ruleWhen = [
+      { field: 'status', op: '=', value: 'Ready' },
+      { field: 'status', op: '=', value: 'Done', logic: 'or' },
+    ]
+    const baseWhen = [{ field: 'labels', op: '!=', value: 'blocked' }]
+
+    expect(evalWhenAll({ status: 'Ready', labels: ['bug'] }, ruleWhen, baseWhen)).toBe(true)
+    expect(evalWhenAll({ status: 'Done', labels: ['bug'] }, ruleWhen, baseWhen)).toBe(true)
+    expect(evalWhenAll({ status: 'Ready', labels: ['blocked'] }, ruleWhen, baseWhen)).toBe(false)
+    expect(evalWhenAll({ status: 'Other', labels: ['bug'] }, ruleWhen, baseWhen)).toBe(false)
+  })
+
+  test('acepta varias fuentes base (p. ej. global + proyecto) combinadas', () => {
+    const task = { labels: ['bug'], type: 'technical' }
+    const globalBaseWhen = [{ field: 'labels', op: '!=', value: 'blocked' }]
+    const projectBaseWhen = [{ field: 'type', op: '!=', value: 'spike' }]
+    expect(evalWhenAll(task, undefined, globalBaseWhen, projectBaseWhen)).toBe(true)
+    expect(
+      evalWhenAll({ ...task, type: 'spike' }, undefined, globalBaseWhen, projectBaseWhen),
+    ).toBe(false)
+  })
+
+  test('traceWhenAll reporta condiciones de todas las fuentes en el trace', () => {
+    const trace = traceWhenAll(
+      { status: 'Ready', labels: ['blocked'] },
+      [{ field: 'status', op: '=', value: 'Ready' }],
+      [{ field: 'labels', op: '!=', value: 'blocked' }],
+    )
+    expect(trace.matched).toBe(false)
+    expect(trace.groups[0]).toEqual([
+      { field: 'status', op: '=', value: 'Ready', actual: 'Ready', matched: true },
+      { field: 'labels', op: '!=', value: 'blocked', actual: ['blocked'], matched: false },
+    ])
   })
 })

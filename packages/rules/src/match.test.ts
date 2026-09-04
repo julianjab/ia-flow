@@ -87,6 +87,34 @@ describe('matchRules — filtros', () => {
       },
     ])
   })
+
+  test('baseWhen se ANDea con el when de cada regla — global y de proyecto por igual', () => {
+    const blockedOut = [{ field: 'labels', op: '!=', value: 'blocked' }]
+    const global = rule({ id: 'global', projectId: null })
+    const scoped = rule({ id: 'scoped', projectId: 'p1' })
+
+    const clean = ev({ payload: { labels: ['bug'] } })
+    const blocked = ev({ payload: { labels: ['blocked'] } })
+
+    expect(
+      matchRules({ event: clean, rules: [global, scoped], baseWhen: [blockedOut] }).matched.map(
+        (r) => r.id,
+      ),
+    ).toEqual(['scoped', 'global'])
+    const { matched, rejected } = matchRules({
+      event: blocked,
+      rules: [global, scoped],
+      baseWhen: [blockedOut],
+    })
+    expect(matched).toHaveLength(0)
+    expect(rejected.every((r) => r.reason === 'when')).toBe(true)
+  })
+
+  test('sin baseWhen, el comportamiento no cambia (retrocompatible)', () => {
+    const r = rule({ when: [{ field: 'pr.isDraft', op: '=', value: 'false' }] })
+    const ready = ev({ payload: { pr: { isDraft: false } } })
+    expect(matchRules({ event: ready, rules: [r] }).matched).toHaveLength(1)
+  })
 })
 
 describe('matchRules — orden y exclusividad', () => {
