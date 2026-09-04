@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, join, relative, resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
@@ -34,6 +34,18 @@ const GLOB_MAX_RESULTS = 200
  *  sola respuesta — un pedido de contexto no es un pedido de leer el
  *  archivo entero. */
 const MAX_CONTEXT_LINES = 20
+/**
+ * Tope de caracteres por línea que el fallback JS le pasa a `regex.test()`.
+ * `input.pattern` lo elige el modelo, y el motor de `RegExp` de JS (a
+ * diferencia del de `rg`, que es lineal por diseño) puede sufrir
+ * backtracking catastrófico — un patrón así sobre una línea larga cuelga
+ * el proceso del daemon ENTERO, no sólo el run, en cualquier entorno sin
+ * `rg` en PATH (containers del runner/agent-host que no lo instalan). No
+ * es una solución completa (un patrón catastrófico sigue siendo lento
+ * incluso acotado), pero bounded el peor caso lo suficiente como para no
+ * colgar el proceso.
+ */
+const MAX_GREP_LINE_LENGTH = 2000
 
 /**
  * Interruptor global del `focus` con Haiku. `IA_FLOW_FILE_SIMPLIFIER=0`
@@ -122,11 +134,45 @@ function assertInRepo(absPath: string, repoPaths: Record<string, string>): void 
   if (!safe) throw new Error(`Access denied: path is outside registered repos`)
 }
 
-function resolvePath(path: string, repoPaths: Record<string, string>): string {
+/**
+ * Sigue symlinks hasta su destino real y lo valida contra los repos
+ * registrados. `resolve()`/`assertInRepo` sólo normalizan `..` en el texto
+ * del path — un repo con un symlink apuntando afuera (`repo/link -> /etc`)
+ * pasa esa validación porque el path SIGUE empezando con la raíz del repo,
+ * y `fs_list`/`fs_grep`/`fs_read` siguen el link igual (readdir/stat/
+ * readFile lo resuelven transparentemente). `realpath` es la única forma
+ * de detectarlo.
+ */
+async function assertRealPathInRepo(
+  absPath: string,
+  repoPaths: Record<string, string>,
+): Promise<void> {
+  let real: string
+  try {
+    real = await realpath(absPath)
+  } catch {
+    return // no existe (todavía) — el existsSync() del caller reporta "not found"
+  }
+  if (real === absPath) return // nada de por medio era un symlink
+
+  // La raíz del repo puede vivir ella misma detrás de un symlink (en macOS,
+  // el propio `/tmp` es un symlink a `/private/tmp`) — comparar `real`
+  // contra los roots SIN resolver daría un falso "Access denied" en ese
+  // caso. Por eso acá se resuelven los roots también, en vez de reusar
+  // `assertInRepo` (que compara contra el texto tal cual llegó en `ctx`).
+  const realRoots = await Promise.all(
+    Object.values(repoPaths).map((p) => realpath(resolve(p)).catch(() => resolve(p))),
+  )
+  const safe = realRoots.some((root) => real === root || real.startsWith(root + '/'))
+  if (!safe) throw new Error(`Access denied: path is outside registered repos`)
+}
+
+async function resolvePath(path: string, repoPaths: Record<string, string>): Promise<string> {
   // Accept: absolute path, or "repo-name/relative/path"
   if (path.startsWith('/')) {
     const abs = resolve(path)
     assertInRepo(abs, repoPaths)
+    await assertRealPathInRepo(abs, repoPaths)
     return abs
   }
   // Try repo-name prefix. Accept both `<repo>` (bare) and `<repo>/<subpath>` —
@@ -143,6 +189,7 @@ function resolvePath(path: string, repoPaths: Record<string, string>): string {
       // (`depth`) y `fs_grep` volcando el árbol/contenido entero, es
       // exfiltración de lo que sea legible por el proceso.
       assertInRepo(resolved, repoPaths)
+      await assertRealPathInRepo(resolved, repoPaths)
       return resolved
     }
   }
@@ -185,7 +232,7 @@ registerTool({
     required: ['path'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolvePath(input.path, ctx.repoPaths)
+    const abs = await resolvePath(input.path, ctx.repoPaths)
     if (!existsSync(abs)) return `File not found: ${input.path}`
 
     const s = await stat(abs)
@@ -282,7 +329,7 @@ registerTool({
     required: ['path'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolvePath(input.path, ctx.repoPaths)
+    const abs = await resolvePath(input.path, ctx.repoPaths)
     if (!existsSync(abs)) return `Path not found: ${input.path}`
 
     const rawDepth = Number(input.depth)
@@ -359,7 +406,7 @@ function globToRegex(glob: string): RegExp {
  * with `grepWithRg`, which passes the file as the search target to rg).
  */
 async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]> {
-  const abs = resolvePath(input.path, ctx.repoPaths)
+  const abs = await resolvePath(input.path, ctx.repoPaths)
   // No `g` flag: `regex.test(line)` in a loop with `g` is stateful —
   // `lastIndex` carries between calls and can silently skip matches on
   // subsequent lines when the previous match's end position is beyond the
@@ -384,12 +431,22 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
     try {
       const content = await readFile(full, 'utf-8')
       const lines = content.split('\n')
-      const root = Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
+      // El `+ '/'` importa: sin él, un repo "/x/api" matchea también contra
+      // "/x/api-web/..." (prefijo de string, no de path) y el label sale
+      // mal formado — mismo chequeo que `assertInRepo`/`resolveOwningRepo`.
+      const root =
+        Object.entries(ctx.repoPaths).find(
+          ([, p]) => full === p || full.startsWith(p + '/'),
+        )?.[0] ?? ''
       const rel = root ? relative(ctx.repoPaths[root], full) : full
       const label = `${root}/${rel}`
       let hasMatch = false
       for (let i = 0; i < lines.length; i++) {
-        if (!regex.test(lines[i])) continue
+        const subject =
+          lines[i]!.length > MAX_GREP_LINE_LENGTH
+            ? lines[i]!.slice(0, MAX_GREP_LINE_LENGTH)
+            : lines[i]!
+        if (!regex.test(subject)) continue
         hasMatch = true
         if (filesOnly) break
         const start = Math.max(0, i - contextLines)
@@ -553,7 +610,7 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   const rgPath = _grepInternals.which('rg')
   if (!rgPath) return null
 
-  const abs = resolvePath(input.path, ctx.repoPaths)
+  const abs = await resolvePath(input.path, ctx.repoPaths)
   const owner = Object.entries(ctx.repoPaths).find(([, p]) => abs === p || abs.startsWith(p + '/'))
   if (!owner) return null
   const [repoName, repoRoot] = owner
@@ -790,7 +847,7 @@ function resolveOwningRepo(
  * not the whole repo.
  */
 async function globWithJs(input: GlobInput, ctx: ToolContext): Promise<string[]> {
-  const abs = resolvePath(input.path, ctx.repoPaths)
+  const abs = await resolvePath(input.path, ctx.repoPaths)
   const owner = resolveOwningRepo(abs, ctx.repoPaths)
   const [repoName, repoRoot] = owner ?? ['', abs]
   const regex = globToPathRegex(input.pattern)
@@ -845,7 +902,7 @@ async function globWithRg(input: GlobInput, ctx: ToolContext): Promise<string[] 
   const rgPath = _grepInternals.which('rg')
   if (!rgPath) return null
 
-  const abs = resolvePath(input.path, ctx.repoPaths)
+  const abs = await resolvePath(input.path, ctx.repoPaths)
   const owner = resolveOwningRepo(abs, ctx.repoPaths)
   if (!owner) return null
   const [repoName, repoRoot] = owner
@@ -926,7 +983,7 @@ registerTool({
     required: ['pattern', 'path'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolvePath(input.path, ctx.repoPaths)
+    const abs = await resolvePath(input.path, ctx.repoPaths)
     if (!existsSync(abs)) return `Path not found: ${input.path}`
 
     let results: string[] | null = null
@@ -942,6 +999,11 @@ registerTool({
     if (results === null) results = await globWithJs(input as GlobInput, ctx)
 
     if (results.length === 0) return `No files matching '${input.pattern}'`
-    return results.join('\n')
+    const notice =
+      results.length >= GLOB_MAX_RESULTS
+        ? `\n\n[Showing the ${GLOB_MAX_RESULTS} most recently modified matches — there may be ` +
+          'more; narrow the pattern or path.]'
+        : ''
+    return results.join('\n') + notice
   },
 })
