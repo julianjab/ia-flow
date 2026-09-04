@@ -905,19 +905,23 @@ function formatTimeCompact(iso: string): string {
   return `${pad(d.getDate())} ${monthAbbrFormatter.format(d)} ${hms}`;
 }
 
-const MSG_TRUNCATE = 120;
-function truncateMsg(msg: string): string {
-  return msg.length > MSG_TRUNCATE ? `${msg.slice(0, MSG_TRUNCATE)}…` : msg;
-}
+// `formatExtraValue` (y el `msg` de la celda, más abajo) solían cortar a
+// 40/120 caracteres EN JS, así que la celda se elipsaba mucho antes de
+// llenar el ancho real de su columna (elástica, `1fr`) — dos mecanismos de
+// truncado pisándose, y el más corto siempre ganaba. El CSS
+// `overflow: hidden; text-overflow: ellipsis` de `.log-cell--msg`/
+// `.log-cell--extra` ya corta visualmente contra el ancho real de la celda
+// (la fila no puede crecer más allá de su pista de grid — ver el comentario
+// de gridTemplateColumns más arriba), así que un segundo corte en JS era
+// redundante y sólo desperdiciaba el espacio que el usuario ya ganó
+// agrandando la columna.
 
-const COLUMN_VALUE_TRUNCATE = 40;
 /** Un valor de `extras` puede ser string, número, o un objeto (`err`) — se
  *  serializa igual que `extraAsText` del lado server, para que lo que se ve
  *  en la columna sea lo mismo contra lo que matchea `extra:<clave>:<patrón>`. */
 function formatExtraValue(value: unknown): string {
   if (value === undefined || value === null) return '—';
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
-  return text.length > COLUMN_VALUE_TRUNCATE ? `${text.slice(0, COLUMN_VALUE_TRUNCATE)}…` : text;
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 // Level counts served by /api/server-logs — computed over the full filtered
@@ -1239,7 +1243,7 @@ onMounted(() => {
                 }"
               >{{ entry.level }}</span>
               <span v-else-if="col === 'module'" class="log-cell--module">{{ entry.module ?? '—' }}</span>
-              <span v-else-if="col === 'msg'" class="log-cell--msg">{{ truncateMsg(entry.msg) }}</span>
+              <span v-else-if="col === 'msg'" class="log-cell--msg" :title="entry.msg">{{ entry.msg }}</span>
               <span v-else class="log-cell--extra" :title="formatExtraValue(extraColumnValue(entry, col))">{{ formatExtraValue(extraColumnValue(entry, col)) }}</span>
             </span>
             <!-- Pista vacía: en el header acá va el botón "+ columna". Sin
