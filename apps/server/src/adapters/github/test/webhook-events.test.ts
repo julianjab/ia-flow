@@ -301,6 +301,7 @@ describe('issue_comment', () => {
       body: comment.body,
       author: 'juli',
       commentUrl: comment.html_url,
+      commentId: comment.node_id,
       issueNumber: 1,
     })
   })
