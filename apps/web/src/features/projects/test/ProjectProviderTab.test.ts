@@ -57,4 +57,32 @@ describe('ProjectProviderTab', () => {
     await capInput(wrapper).setValue('4')
     expect(save.attributes('disabled')).toBeUndefined()
   })
+
+  it('hidrata las condiciones base guardadas del proyecto', () => {
+    const wrapper = mount(ProjectProviderTab, {
+      props: { project: project({ baseWhen: [{ field: 'labels', op: '!=', value: 'blocked' }] }) },
+    })
+    const fieldInputs = wrapper.findAll('.ppt-basewhen input')
+    expect(fieldInputs.some((i) => (i.element as HTMLInputElement).value === 'labels')).toBe(true)
+  })
+
+  it('sin condiciones base guardadas, el editor arranca vacío', () => {
+    const wrapper = mount(ProjectProviderTab, { props: { project: project() } })
+    expect(wrapper.get('.ppt-basewhen').findAll('.cre-cell--field')).toHaveLength(0)
+  })
+
+  it('el botón de guardar se habilita al agregar una condición base', async () => {
+    const wrapper = mount(ProjectProviderTab, { props: { project: project() } })
+    const save = wrapper.get('.ppt-btn--primary')
+    expect(save.attributes('disabled')).toBeDefined()
+
+    const addBtn = wrapper
+      .get('.ppt-basewhen')
+      .findAll('button')
+      .find((b) => /agregar|\+/i.test(b.text()))
+    expect(addBtn).toBeDefined()
+    await addBtn!.trigger('click')
+    await wrapper.get('.ppt-basewhen').get('.cre-cell--field input').setValue('labels')
+    expect(save.attributes('disabled')).toBeUndefined()
+  })
 })
