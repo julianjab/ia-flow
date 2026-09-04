@@ -907,14 +907,15 @@ function onDrop(to: number) {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.5rem;
   margin: 0;
   padding: 0;
 }
 /* Separador de `groupByEvent`: no es una tarjeta —no se clickea, no se
    arrastra— así que se distingue por tipografía, no por caja. `margin-top`
    sólo si no es el primero de la lista, para no abrir un hueco antes del
-   header de la sección. */
+   header de la sección; más grande que el `gap` entre items porque acá
+   también marca un cambio de sección, no sólo la siguiente fila. */
 .rs-divider {
   display: flex;
   align-items: center;
@@ -926,7 +927,7 @@ function onDrop(to: number) {
   color: var(--fg-dim);
   padding: 0.15rem 0;
 }
-.rs-divider:not(:first-child) { margin-top: 0.3rem; }
+.rs-divider:not(:first-child) { margin-top: 0.6rem; }
 .rs-divider::after {
   content: '';
   flex: 1 1 auto;

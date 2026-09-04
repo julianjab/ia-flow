@@ -79,6 +79,15 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.panel` / `.panel__header` (`--dim`) — card con header en caja alta.
 - `.settings-section` + `.section-header` / `.section-head-text` / `.section-head-actions` / `.section-desc` — **la caja de una pantalla de configuración.** Es la que usan Tareas, Board, Agentes, Pipeline, Acciones, Tools, System Prompts y Repos, y por eso las ocho tienen el mismo alto de caja, el mismo `h2` y el mismo espacio hasta la primera fila. Vivía copiada `scoped` en nueve componentes hasta que las copias derivaron (radios de 8/10px que el reset pisa, dos tamaños de `h2`, tres márgenes de descripción distintos): **no la vuelvas a declarar en un componente.**
 - `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
+- `ui/EditableCard.vue` — **la caja de una fila editable**, para toda lista que se puede abrir a un
+  detalle (repos, agentes, statuses, reglas, acciones, tools, catálogo MCP). Borde, hover, ✕ y área
+  de click en un solo lugar — ver "Botones" más abajo. `padding: 0.4rem 0.75rem` (subido desde
+  `0.15rem 0.6rem` en el ajuste de Pipeline: con contenido de varias líneas —una regla trae su
+  frase y sus runs vivos— el padding vertical mínimo dejaba el texto pegado al borde de la caja).
+  El `gap` entre filas de una lista (`.rs-list`, `.repos-list`, etc.) es aparte y lo declara cada
+  sección: **Pipeline usa `0.5rem`**, más separación que la densidad por defecto porque agrupa por
+  evento (ver `groupByEvent` en `RulesSection.vue`) y una fila apretada contra la siguiente hacía
+  difícil ver dónde terminaba un grupo y empezaba el otro.
 - `.btn` + `.btn--primary` / `.btn--danger` / `.btn--destructive` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.** Ver "Botones" más abajo para cuál va en cada caso.
 - `.uc-label` — **el label de un campo**, y de cualquier dato con nombre (celda de tile, fila de
   meta). Caja alta, mono, con tracking, en `--fg-dim`. Ocho componentes se declaraban su propia

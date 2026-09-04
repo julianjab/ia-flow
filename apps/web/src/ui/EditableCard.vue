@@ -109,7 +109,7 @@ function onKeydown(e: KeyboardEvent) {
   /* Envuelve en vez de desbordar: en un celular estas filas tienen nombre,
      descripción y botones, y en una sola línea empujan la página. */
   flex-wrap: wrap;
-  padding: 0.15rem 0.6rem;
+  padding: 0.4rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-alt);
