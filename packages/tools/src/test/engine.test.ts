@@ -492,6 +492,104 @@ describe('executeLoop — max_tokens truncated tool_use retry', () => {
   })
 })
 
+// ─── executeLoop — dangling mcp_tool_use ──────────────────────────────────────
+// Regression coverage for subscriptions#1411: a remote MCP tool call
+// (`mcp_tool_use`) cut off mid-stream — with no matching `mcp_tool_result` in
+// the same response — must never be resent unchanged or checkpointed, since
+// the API 400s the very next request with "mcp_tool_use ... found without a
+// corresponding mcp_tool_result block".
+
+describe('executeLoop — dangling mcp_tool_use', () => {
+  it('ends the run truncated on pause_turn instead of resending the corrupted turn unchanged', async () => {
+    const calls: Array<{ messages: unknown[] }> = []
+    const fetchApi = async (messages: unknown[]) => {
+      calls.push({ messages: structuredClone(messages) })
+      return {
+        stop_reason: 'pause_turn',
+        content: [
+          {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_01',
+            name: 'search',
+            server_name: 'github',
+            input: {},
+          },
+        ],
+      }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      // Even with retries allowed, a dangling mcp_tool_use must not take the
+      // "resend unchanged" path.
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('pause_turn')
+    expect(result.checkpoint).toBeUndefined()
+    expect(calls.length).toBe(1)
+  })
+
+  it('does not treat a resolved mcp_tool_use (paired with its mcp_tool_result) as dangling', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            {
+              type: 'mcp_tool_use',
+              id: 'mcptoolu_01',
+              name: 'search',
+              server_name: 'github',
+              input: {},
+            },
+            { type: 'mcp_tool_result', tool_use_id: 'mcptoolu_01', content: 'ok' },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(call).toBe(2)
+  })
+
+  it('drops the corrupted turn and retries once with bumpMaxTokens when max_tokens cuts off an mcp_tool_use', async () => {
+    const calls: Array<{ messages: unknown[]; overrides: unknown }> = []
+    let call = 0
+    const fetchApi = async (messages: unknown[], overrides?: unknown) => {
+      calls.push({ messages: structuredClone(messages), overrides })
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'max_tokens',
+          content: [
+            {
+              type: 'mcp_tool_use',
+              id: 'mcptoolu_01',
+              name: 'search',
+              server_name: 'github',
+              input: {},
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      retryTruncatedToolUse: true,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(calls.length).toBe(2)
+    expect(calls[1].overrides).toEqual({ bumpMaxTokens: true })
+    expect(calls[1].messages).toEqual([{ role: 'user', content: 'x' }])
+  })
+})
+
 // ─── executeLoop — unexpected stop_reason ─────────────────────────────────────
 
 describe('executeLoop — unexpected stop_reason', () => {
