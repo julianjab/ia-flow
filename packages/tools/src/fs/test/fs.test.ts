@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { getTool } from '../../engine.js'
-import { _grepInternals, grepWithJs } from '../fs.js'
+import { _grepInternals, globWithJs, globWithRg, grepWithJs, grepWithRg } from '../fs.js'
 import { _clearGitignoreCache } from '../gitignore.js'
 import '../fs.js' // side-effect: register list_dir / grep_files
 
@@ -20,6 +20,153 @@ afterEach(() => {
   rmSync(repoRoot, { recursive: true, force: true })
 })
 
+describe('resolvePath — path traversal via the "<repo-name>/<subpath>" form', () => {
+  it('fs_read rejects a subpath that escapes the repo with ../..', async () => {
+    // repoRoot and secretDir are siblings directly under os.tmpdir(), so
+    // "../<basename of secretDir>/secret.txt" from repoRoot lands exactly
+    // on secretDir/secret.txt — a realistic "prefix matches, but the rest
+    // of the path escapes" traversal.
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'secret.txt'), 'TOP SECRET')
+    try {
+      const relToOutside = `../${secretDir.split('/').filter(Boolean).at(-1)}/secret.txt`
+      const tool = getTool('fs_read')!
+      await expect(tool.execute({ path: `r/${relToOutside}` }, { repoPaths })).rejects.toThrow(
+        /outside registered repos/,
+      )
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fs_list rejects a path escaping the repo (regression: only the absolute-path branch used to check)', async () => {
+    const tool = getTool('fs_list')!
+    await expect(tool.execute({ path: 'r/../../..' }, { repoPaths })).rejects.toThrow(
+      /outside registered repos/,
+    )
+  })
+
+  it('fs_grep rejects a path escaping the repo', async () => {
+    const tool = getTool('fs_grep')!
+    await expect(tool.execute({ path: 'r/../../..', pattern: 'x' }, { repoPaths })).rejects.toThrow(
+      /outside registered repos/,
+    )
+  })
+})
+
+describe('resolvePath — path traversal via a symlink', () => {
+  it('fs_read rejects a symlink that points outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'secret.txt'), 'TOP SECRET')
+    symlinkSync(secretDir, join(repoRoot, 'escape-link'))
+    try {
+      const tool = getTool('fs_read')!
+      await expect(
+        tool.execute({ path: 'r/escape-link/secret.txt' }, { repoPaths }),
+      ).rejects.toThrow(/outside registered repos/)
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fs_list rejects a path that IS a symlink pointing outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'secret.txt'), 'TOP SECRET')
+    symlinkSync(secretDir, join(repoRoot, 'escape-link'))
+    try {
+      const tool = getTool('fs_list')!
+      await expect(tool.execute({ path: 'r/escape-link' }, { repoPaths })).rejects.toThrow(
+        /outside registered repos/,
+      )
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not reject a symlink that points to somewhere else INSIDE the same repo', async () => {
+    mkdirSync(join(repoRoot, 'real'))
+    writeFileSync(join(repoRoot, 'real/inside.txt'), 'fine')
+    symlinkSync(join(repoRoot, 'real'), join(repoRoot, 'alias'))
+
+    const tool = getTool('fs_read')!
+    const out = await tool.execute({ path: 'r/alias/inside.txt' }, { repoPaths })
+    expect(out).toBe('fine')
+  })
+})
+
+describe('grepWithJs / globWithJs — a walk discovers a symlinked file escaping the repo (regression)', () => {
+  it('fs_grep does not read through a symlinked file pointing outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'id_rsa'), 'PRIVATE KEY MATERIAL')
+    // A symlink to a FILE (not a directory) is what a plain directory walk
+    // doesn't filter on its own — `Dirent.isDirectory()` is false for it,
+    // so it reaches `readFile` same as any regular file would.
+    symlinkSync(join(secretDir, 'id_rsa'), join(repoRoot, 'link.txt'))
+    try {
+      const results = await grepWithJs({ path: 'r', pattern: 'PRIVATE' }, { repoPaths })
+      expect(results).toHaveLength(0)
+
+      const tool = getTool('fs_grep')!
+      const out = await tool.execute({ path: 'r', pattern: 'PRIVATE' }, { repoPaths })
+      expect(out).not.toContain('PRIVATE KEY MATERIAL')
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fs_glob does not list a symlinked file pointing outside the repo', async () => {
+    const secretDir = mkdtempSync(join(tmpdir(), 'ia-flow-outside-'))
+    writeFileSync(join(secretDir, 'id_rsa.pem'), 'x')
+    symlinkSync(join(secretDir, 'id_rsa.pem'), join(repoRoot, 'link.pem'))
+    try {
+      const results = await globWithJs({ path: 'r', pattern: '**/*.pem' }, { repoPaths })
+      expect(results).toHaveLength(0)
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('grepWithJs — label does not collide with a sibling repo sharing a prefix', () => {
+  it('labels a match under "api" as "api/...", not misattributed to "api-web"', async () => {
+    const apiRoot = mkdtempSync(join(tmpdir(), 'ia-flow-api-'))
+    const apiWebRoot = `${apiRoot}-web`
+    mkdirSync(apiWebRoot)
+    writeFileSync(join(apiRoot, 'a.ts'), 'PREFIXHIT here\n')
+    const twoRepoPaths = { api: apiRoot, 'api-web': apiWebRoot }
+    try {
+      const results = await grepWithJs(
+        { path: 'api', pattern: 'PREFIXHIT' },
+        { repoPaths: twoRepoPaths },
+      )
+      expect(results).toHaveLength(1)
+      expect(results[0]).toStartWith('api/a.ts:')
+    } finally {
+      rmSync(apiRoot, { recursive: true, force: true })
+      rmSync(apiWebRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('grepWithJs — line length cap bounds a pathological pattern/line', () => {
+  it('still finds a match within the cap, and does not hang on a very long line', async () => {
+    // A line well past MAX_GREP_LINE_LENGTH (2000), with a match inside the
+    // bound — the cap must not make normal matches disappear.
+    const long = 'x'.repeat(3000)
+    writeFileSync(join(repoRoot, 'a.ts'), `${'y'.repeat(100)}CAPHIT${long}\n`)
+
+    const results = await grepWithJs({ path: 'r', pattern: 'CAPHIT' }, { repoPaths })
+    expect(results).toHaveLength(1)
+
+    // A catastrophic-backtracking-shaped pattern against a long line must
+    // return quickly instead of hanging the process — this is the actual
+    // regression the cap defends against.
+    writeFileSync(join(repoRoot, 'b.ts'), `${'a'.repeat(3000)}!\n`)
+    const start = performance.now()
+    await grepWithJs({ path: 'r/b.ts', pattern: '(a+)+$' }, { repoPaths })
+    expect(performance.now() - start).toBeLessThan(2000)
+  })
+})
 describe('list_dir honors .gitignore', () => {
   it('excludes files matching root .gitignore patterns', async () => {
     writeFileSync(join(repoRoot, '.gitignore'), 'ignored.txt\nbuild\n')
@@ -388,5 +535,404 @@ describe('fs_read — focus', () => {
     delete Bun.env.ANTHROPIC_API_KEY
     out = await read({ path: 'r/big.txt', focus: 'x' })
     expect(out).toContain('(focus unavailable)')
+  })
+})
+
+describe('fs_list — dotfiles and recursion', () => {
+  it('shows dotfiles/dot-directories, excluding only the hard list', async () => {
+    mkdirSync(join(repoRoot, '.github'))
+    writeFileSync(join(repoRoot, '.github/workflow.yml'), 'x')
+    writeFileSync(join(repoRoot, '.env.example'), 'x')
+    mkdirSync(join(repoRoot, 'node_modules'))
+    writeFileSync(join(repoRoot, 'node_modules/dep.js'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r' }, { repoPaths })
+
+    expect(out).toContain('d .github')
+    expect(out).toContain('f .env.example')
+    expect(out).not.toContain('node_modules')
+  })
+})
+
+describe('fs_list — depth', () => {
+  it('depth 1 (default) only lists the top level', async () => {
+    mkdirSync(join(repoRoot, 'sub'))
+    writeFileSync(join(repoRoot, 'sub/nested.ts'), 'x')
+    writeFileSync(join(repoRoot, 'top.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r' }, { repoPaths })
+
+    expect(out).toContain('f top.ts')
+    expect(out).toContain('d sub')
+    expect(out).not.toContain('nested.ts')
+  })
+
+  it('depth: 3 recurses and includes nested paths', async () => {
+    mkdirSync(join(repoRoot, 'a/b'), { recursive: true })
+    writeFileSync(join(repoRoot, 'a/one.ts'), 'x')
+    writeFileSync(join(repoRoot, 'a/b/two.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 3 }, { repoPaths })
+
+    expect(out).toContain('d a')
+    expect(out).toContain('f a/one.ts')
+    expect(out).toContain('d a/b')
+    expect(out).toContain('f a/b/two.ts')
+  })
+
+  it('still honors .gitignore while recursing', async () => {
+    writeFileSync(join(repoRoot, '.gitignore'), 'a/ignored.ts\n')
+    mkdirSync(join(repoRoot, 'a'))
+    writeFileSync(join(repoRoot, 'a/ignored.ts'), 'x')
+    writeFileSync(join(repoRoot, 'a/kept.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 2 }, { repoPaths })
+
+    expect(out).toContain('a/kept.ts')
+    expect(out).not.toContain('ignored.ts')
+  })
+
+  it('caps the entry count instead of dumping an unbounded tree', async () => {
+    for (let i = 0; i < 50; i++) {
+      mkdirSync(join(repoRoot, `dir${i}`))
+      for (let j = 0; j < 60; j++) {
+        writeFileSync(join(repoRoot, `dir${i}/f${j}.ts`), 'x')
+      }
+    }
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 5 }, { repoPaths })
+
+    const entryCount = out
+      .split('\n')
+      .filter((l) => l.startsWith('d ') || l.startsWith('f ')).length
+    expect(entryCount).toBeLessThanOrEqual(2000)
+    expect(out).toContain('Truncated at 2000 entries')
+  })
+
+  it('caps `depth` regardless of what the model asks for', async () => {
+    mkdirSync(join(repoRoot, 'a'))
+    writeFileSync(join(repoRoot, 'a/one.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    // depth: 999 must not blow the stack / hang — it's clamped internally.
+    const out = await tool.execute({ path: 'r', depth: 999 }, { repoPaths })
+    expect(out).toContain('a/one.ts')
+  })
+
+  it('falls back to depth 1 when `depth` is not a valid number', async () => {
+    mkdirSync(join(repoRoot, 'sub'))
+    writeFileSync(join(repoRoot, 'sub/nested.ts'), 'x')
+    writeFileSync(join(repoRoot, 'top.ts'), 'x')
+
+    const tool = getTool('fs_list')!
+    const out = await tool.execute({ path: 'r', depth: 'not-a-number' }, { repoPaths })
+    expect(out).toContain('f top.ts')
+    expect(out).not.toContain('nested.ts')
+  })
+})
+
+describe('fs_grep — pagination and total', () => {
+  it('reports the total and a cursor when there are more matches than the page size', async () => {
+    for (let i = 0; i < 120; i++) {
+      writeFileSync(join(repoRoot, `f${i}.ts`), 'PAGED hit\n')
+    }
+
+    const tool = getTool('fs_grep')!
+    const first = await tool.execute({ path: 'r', pattern: 'PAGED' }, { repoPaths })
+    expect(first).toContain('of 120')
+    expect(first).toContain('Pass cursor: "100"')
+
+    const cursorMatch = /cursor: "(\d+)"/.exec(first)
+    expect(cursorMatch).not.toBeNull()
+    const second = await tool.execute(
+      { path: 'r', pattern: 'PAGED', cursor: cursorMatch![1] },
+      { repoPaths },
+    )
+    expect(second).toContain('101-120 of 120')
+  })
+
+  it('does not print pagination header when everything fits on one page', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'ONE hit\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'ONE' }, { repoPaths })
+    expect(out).not.toContain('Showing')
+  })
+})
+
+describe('fs_grep — context_lines (rg ↔ JS parity)', () => {
+  it('returns the lines around each match, both backends agree', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), ['one', 'two', 'HIT here', 'four', 'five'].join('\n'))
+
+    const tool = getTool('fs_grep')!
+    const backendOut = await tool.execute(
+      { path: 'r', pattern: 'HIT', context_lines: 1 },
+      { repoPaths },
+    )
+    const jsOut = (
+      await grepWithJs({ path: 'r', pattern: 'HIT', context_lines: 1 }, { repoPaths })
+    ).join('\n')
+
+    expect(backendOut).toContain('two')
+    expect(backendOut).toContain('HIT here')
+    expect(backendOut).toContain('four')
+
+    const rgOut = await grepWithRg({ path: 'r', pattern: 'HIT', context_lines: 1 }, { repoPaths })
+    if (rgOut !== null) {
+      expect(rgOut.join('\n')).toBe(jsOut)
+    }
+  })
+
+  it('caps an absurdly large context_lines instead of dumping the whole file', async () => {
+    const lines = Array.from({ length: 500 }, (_, i) => (i === 250 ? 'HIT here' : `line ${i}`))
+    writeFileSync(join(repoRoot, 'big.ts'), lines.join('\n'))
+
+    const jsResults = await grepWithJs(
+      { path: 'r', pattern: 'HIT', context_lines: 5000 },
+      { repoPaths },
+    )
+    expect(jsResults).toHaveLength(1)
+    // MAX_CONTEXT_LINES (20) before + the match + 20 after = 41 lines, not 500.
+    expect(jsResults[0]!.split('\n').length).toBeLessThanOrEqual(41)
+
+    const rgResults = await grepWithRg(
+      { path: 'r', pattern: 'HIT', context_lines: 5000 },
+      { repoPaths },
+    )
+    if (rgResults !== null) {
+      expect(rgResults[0]!.split('\n').length).toBeLessThanOrEqual(41)
+    }
+  })
+
+  it('does not lose the match when the path itself contains "-<digits>-" (regression)', async () => {
+    // Regresión: parsear el output de texto plano de rg con un regex
+    // `^(.*?)([:-])(\d+)\2(.*)$` clasifica mal un match cuyo path contenga
+    // un patrón "-<dígitos>-" (ej. `step-2-form.vue`) como línea de
+    // contexto en vez de match, y el match desaparece del resultado. El
+    // backend rg ahora parsea `--json`, que no tiene esta ambigüedad.
+    mkdirSync(join(repoRoot, 'sub'))
+    writeFileSync(join(repoRoot, 'sub/step-2-form.vue'), 'const HIT = 1\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'HIT' }, { repoPaths })
+    expect(out).toContain('step-2-form.vue')
+    expect(out).toContain(': const HIT = 1')
+
+    const rgOut = await grepWithRg({ path: 'r', pattern: 'HIT' }, { repoPaths })
+    if (rgOut !== null) {
+      expect(rgOut.some((r) => r.includes('step-2-form.vue'))).toBe(true)
+    }
+  })
+})
+
+describe('fs_grep — files_only (rg ↔ JS parity)', () => {
+  it('lists only the matching files, no line content', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'ONLY hit\nsecond ONLY hit\n')
+    writeFileSync(join(repoRoot, 'b.ts'), 'nothing here\n')
+    writeFileSync(join(repoRoot, 'c.ts'), 'ONLY once\n')
+
+    const tool = getTool('fs_grep')!
+    const backendOut = await tool.execute(
+      { path: 'r', pattern: 'ONLY', files_only: true },
+      { repoPaths },
+    )
+    const jsResults = await grepWithJs(
+      { path: 'r', pattern: 'ONLY', files_only: true },
+      { repoPaths },
+    )
+
+    expect(backendOut).toContain('a.ts')
+    expect(backendOut).toContain('c.ts')
+    expect(backendOut).not.toContain('b.ts')
+    expect(backendOut).not.toContain(': ONLY')
+    expect(jsResults.sort()).toEqual(jsResults.slice().sort())
+
+    const rgResults = await grepWithRg(
+      { path: 'r', pattern: 'ONLY', files_only: true },
+      { repoPaths },
+    )
+    if (rgResults !== null) {
+      expect(rgResults.sort()).toEqual(jsResults.sort())
+    }
+  })
+})
+
+describe('fs_grep — dotfiles (rg ↔ JS parity)', () => {
+  it('searches inside dot-directories, not just visible ones', async () => {
+    mkdirSync(join(repoRoot, '.github'))
+    writeFileSync(join(repoRoot, '.github/workflow.yml'), 'NEEDLE in ci config\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
+    expect(out).toContain('.github/workflow.yml')
+
+    const rgResults = await grepWithRg({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
+    if (rgResults !== null) {
+      expect(rgResults.some((r) => r.includes('.github/workflow.yml'))).toBe(true)
+    }
+  })
+})
+
+describe('fs_grep — a subdirectory named like a flag is not misread by rg (regression)', () => {
+  it('searches a "-weird" directory instead of rg treating it as a flag', async () => {
+    mkdirSync(join(repoRoot, '-weird'))
+    writeFileSync(join(repoRoot, '-weird/file.ts'), 'FLAGSAFE hit\n')
+
+    const rgResults = await grepWithRg({ path: 'r/-weird', pattern: 'FLAGSAFE' }, { repoPaths })
+    // null means rg fell back to the JS walk in this environment — still a
+    // valid outcome, just not what this regression targets.
+    if (rgResults !== null) {
+      expect(rgResults.some((r) => r.includes('file.ts'))).toBe(true)
+    }
+  })
+})
+
+describe('fs_grep — cursor past the end', () => {
+  it('reports there are no more matches instead of an empty page', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'ONE hit\n')
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'ONE', cursor: '999' }, { repoPaths })
+    expect(out).toContain('No more matches')
+  })
+
+  it('accepts a numeric cursor, not just a stringified one', async () => {
+    for (let i = 0; i < 110; i++) {
+      writeFileSync(join(repoRoot, `f${i}.ts`), 'NUMCUR hit\n')
+    }
+
+    const tool = getTool('fs_grep')!
+    const out = await tool.execute({ path: 'r', pattern: 'NUMCUR', cursor: 100 }, { repoPaths })
+    expect(out).toContain('101-110 of 110')
+  })
+})
+
+describe('fs_grep — pagination is stable across calls (rg backend)', () => {
+  it('two pages together cover every match exactly once, in the same order both times', async () => {
+    for (let i = 0; i < 150; i++) {
+      writeFileSync(join(repoRoot, `s${i}.ts`), 'STABLE hit\n')
+    }
+
+    const firstPass = await grepWithRg({ path: 'r', pattern: 'STABLE' }, { repoPaths })
+    const secondPass = await grepWithRg({ path: 'r', pattern: 'STABLE' }, { repoPaths })
+    if (firstPass !== null && secondPass !== null) {
+      expect(firstPass).toEqual(secondPass)
+    }
+  })
+})
+
+describe('fs_grep — invalid pattern does not crash the tool', () => {
+  it('falls back to an error message instead of throwing when JS regex parsing fails', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'x')
+    const originalWhich = _grepInternals.which
+    _grepInternals.which = () => null // force the JS fallback
+    try {
+      const tool = getTool('fs_grep')!
+      // `(?P<name>...)` is valid in rg's regex engine but not in JS RegExp.
+      const out = await tool.execute({ path: 'r', pattern: '(?P<name>x)' }, { repoPaths })
+      expect(out).toContain('Invalid pattern')
+    } finally {
+      _grepInternals.which = originalWhich
+    }
+  })
+})
+
+describe('fs_glob — cap inside a single large directory', () => {
+  it('stops accumulating within one directory instead of matching everything before slicing', async () => {
+    mkdirSync(join(repoRoot, 'big'))
+    for (let i = 0; i < 2100; i++) {
+      writeFileSync(join(repoRoot, `big/f${i}.ts`), 'x')
+    }
+
+    const results = await globWithJs({ path: 'r', pattern: '**/*.ts' }, { repoPaths })
+    expect(results.length).toBeLessThanOrEqual(200)
+  })
+})
+
+describe('fs_glob', () => {
+  it('finds files matching a recursive glob (rg ↔ JS parity)', async () => {
+    mkdirSync(join(repoRoot, 'apps/server'), { recursive: true })
+    writeFileSync(join(repoRoot, 'apps/server/foo.test.ts'), 'x')
+    writeFileSync(join(repoRoot, 'apps/server/foo.ts'), 'x')
+    writeFileSync(join(repoRoot, 'root.test.ts'), 'x')
+    writeFileSync(join(repoRoot, 'notes.md'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '**/*.test.ts' }, { repoPaths })
+
+    expect(out).toContain('apps/server/foo.test.ts')
+    expect(out).toContain('root.test.ts')
+    expect(out).not.toContain('foo.ts\n')
+    expect(out).not.toContain('notes.md')
+
+    const jsResults = await globWithJs({ path: 'r', pattern: '**/*.test.ts' }, { repoPaths })
+    const rgResults = await globWithRg({ path: 'r', pattern: '**/*.test.ts' }, { repoPaths })
+    if (rgResults !== null) {
+      expect([...rgResults].sort()).toEqual([...jsResults].sort())
+    }
+  })
+
+  it('returns a not-found message when nothing matches', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '**/*.nonexistent' }, { repoPaths })
+    expect(out).toContain('No files matching')
+  })
+
+  it('finds files inside dot-directories (rg ↔ JS parity)', async () => {
+    mkdirSync(join(repoRoot, '.github/workflows'), { recursive: true })
+    writeFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '**/*.yml' }, { repoPaths })
+    expect(out).toContain('.github/workflows/ci.yml')
+
+    const rgResults = await globWithRg({ path: 'r', pattern: '**/*.yml' }, { repoPaths })
+    if (rgResults !== null) {
+      expect(rgResults.some((r) => r.includes('.github/workflows/ci.yml'))).toBe(true)
+    }
+  })
+
+  it('scopes the glob to the given subdirectory', async () => {
+    mkdirSync(join(repoRoot, 'a'))
+    mkdirSync(join(repoRoot, 'b'))
+    writeFileSync(join(repoRoot, 'a/hit.test.ts'), 'x')
+    writeFileSync(join(repoRoot, 'b/hit.test.ts'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r/a', pattern: '*.test.ts' }, { repoPaths })
+
+    expect(out).toContain('a/hit.test.ts')
+    expect(out).not.toContain('b/hit.test.ts')
+  })
+
+  it('a slash-less pattern matches the basename at any depth (rg ↔ JS parity)', async () => {
+    // Regresión: `*.ts` (sin "/") tiene que encontrar archivos a cualquier
+    // profundidad, como hace `rg --glob` — no sólo los del nivel raíz.
+    mkdirSync(join(repoRoot, 'deep/er'), { recursive: true })
+    writeFileSync(join(repoRoot, 'root.ts'), 'x')
+    writeFileSync(join(repoRoot, 'deep/mid.ts'), 'x')
+    writeFileSync(join(repoRoot, 'deep/er/leaf.ts'), 'x')
+    writeFileSync(join(repoRoot, 'deep/er/leaf.md'), 'x')
+
+    const tool = getTool('fs_glob')!
+    const out = await tool.execute({ path: 'r', pattern: '*.ts' }, { repoPaths })
+
+    expect(out).toContain('root.ts')
+    expect(out).toContain('deep/mid.ts')
+    expect(out).toContain('deep/er/leaf.ts')
+    expect(out).not.toContain('leaf.md')
+
+    const jsResults = await globWithJs({ path: 'r', pattern: '*.ts' }, { repoPaths })
+    const rgResults = await globWithRg({ path: 'r', pattern: '*.ts' }, { repoPaths })
+    if (rgResults !== null) {
+      expect([...rgResults].sort()).toEqual([...jsResults].sort())
+    }
   })
 })

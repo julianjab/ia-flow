@@ -32,7 +32,7 @@ onMounted(async () => {
 
 // Agrupamiento puramente visual — no existe como concepto en el schema.
 const GROUPS: Array<{ label: string; names: string[] }> = [
-  { label: 'Filesystem', names: ['fs_read', 'fs_list', 'fs_grep', 'fs_write', 'fs_edit'] },
+  { label: 'Filesystem', names: ['fs_read', 'fs_list', 'fs_grep', 'fs_glob', 'fs_write', 'fs_edit'] },
   {
     label: 'Task',
     names: [
