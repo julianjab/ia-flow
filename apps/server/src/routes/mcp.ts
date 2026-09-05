@@ -50,6 +50,9 @@ export function createMcpRouter() {
     }
 
     const { id, method, params } = body
+    if (typeof method !== 'string' || !method) {
+      return c.json(rpcError(id, -32600, 'Invalid Request: falta `method`'), 400)
+    }
     const toolNamesParam = c.req.query('tools')
     const toolNames = toolNamesParam ? toolNamesParam.split(',').filter(Boolean) : undefined
 
@@ -63,9 +66,10 @@ export function createMcpRouter() {
           }),
         )
 
-      // Notification — client doesn't expect a JSON-RPC response body.
-      case 'notifications/initialized':
-        return c.body(null, 202)
+      // Keep-alive del transporte. Responde `{}` — no tiene contenido, pero
+      // un cliente que lo manda espera un result, no un error.
+      case 'ping':
+        return c.json(rpcResult(id, {}))
 
       case 'tools/list': {
         // Las tools que se ESPECIALIZAN por agente (`select_exit`,
@@ -135,9 +139,37 @@ export function createMcpRouter() {
       }
 
       default:
-        return c.json(rpcError(id, -32601, `Method not found: ${method}`), 404)
+        // Notificaciones (`notifications/*`, y cualquier request sin `id`): el
+        // cliente no espera cuerpo de respuesta y JSON-RPC prohíbe contestarle
+        // un error. Un 404 acá era el "HTTP 404 dialing …/api/mcp" con el que
+        // el CLI daba por muerta la conexión entera apenas mandaba una
+        // notificación que no fuera `notifications/initialized`.
+        if (method.startsWith('notifications/') || id === undefined || id === null) {
+          return c.body(null, 202)
+        }
+        // Método desconocido = error de JSON-RPC, no de HTTP: el transporte
+        // funcionó. Un 404 hace que el cliente descarte el body y reporte un
+        // fallo de conexión en vez del `-32601`.
+        log.debug({ method }, 'mcp: método no soportado')
+        return c.json(rpcError(id, -32601, `Method not found: ${method}`))
     }
   })
+
+  // El POST no es el único método del transporte. Un cliente Streamable HTTP
+  // (`"type": "http"`, que es como viaja `ia-flow-tools`) abre primero un GET
+  // para el stream SSE del server, y cierra con un DELETE. Sin rutas para
+  // esos dos métodos caían en el 404 default de Hono, y el CLI daba la
+  // conexión entera por muerta —"HTTP 404 dialing …/api/mcp"— antes de llegar
+  // a `tools/list`: el agente arrancaba sin NINGUNA tool.
+  //
+  // 405 y no 404 en el GET porque es lo que la spec define como "no ofrezco
+  // stream": el cliente sigue con POSTs, que es todo lo que necesita. Un 404
+  // dice "este endpoint no existe", que es otra cosa.
+  app.get('/', (c) => c.json(rpcError(null, -32601, 'SSE stream no soportado'), 405))
+  // El DELETE cierra una sesión, y acá no hay ninguna que cerrar (el
+  // transporte es stateless: no emitimos `Mcp-Session-Id`). Se acepta sin
+  // cuerpo en vez de rechazar — el cliente está terminando, no pidiendo algo.
+  app.delete('/', (c) => c.body(null, 204))
 
   return app
 }
