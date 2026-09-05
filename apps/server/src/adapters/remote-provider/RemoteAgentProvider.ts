@@ -189,7 +189,16 @@ export class RemoteAgentProvider implements IAgentProvider {
       // Y con qué autenticarse contra ella: el `IA_FLOW_API_TOKEN` de allá es
       // el del agent-host, no el nuestro, así que sin esto un run async remoto
       // vuelve a arrancar sin tools apenas este daemon tiene el guard puesto.
-      daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined,
+      //
+      // Sólo para remotos ASYNC, que son los únicos que lo consumen: un run
+      // sync (`AGENT_HOST_PROVIDER=anthropic-api`) ejecuta sus tools allá y
+      // nunca le habla a `/api/mcp`. Este token abre `PUT /api/env-vars` y
+      // `POST /api/tasks` de ESTE daemon, y del otro lado aterriza en el
+      // settings.json per-run y en el env del CLI —cuyo Bash nativo no pasa
+      // por el deny-list de `bash_run`—, así que no viaja donde no hace falta.
+      ...(this.kind === 'async'
+        ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
+        : {}),
     }
     const body = withDaemon.policy
       ? {
