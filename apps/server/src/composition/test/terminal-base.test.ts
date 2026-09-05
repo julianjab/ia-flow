@@ -364,6 +364,49 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(entry.url).toContain('complete_task')
   })
 
+  // La otra mitad del mismo fallo: `createApiAuthMiddleware` cubre `/api/*`,
+  // así que en un deploy con `IA_FLOW_API_TOKEN` el MCP sintético se comía un
+  // 401 y el agente arrancaba sin NINGUNA tool.
+  it('autentica el MCP sintético con IA_FLOW_API_TOKEN cuando el daemon es local', async () => {
+    const prev = Bun.env.IA_FLOW_API_TOKEN
+    Bun.env.IA_FLOW_API_TOKEN = 'secreto-local'
+    try {
+      const { mcpConfigFile } = await buildClaudeCommand(
+        baseInput({ tools: ['update_issue_body'] }),
+        'tmux-claude',
+      )
+      const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+      expect(written.mcpServers['ia-flow-tools'].headers.Authorization).toBe('Bearer secreto-local')
+    } finally {
+      if (prev === undefined) delete Bun.env.IA_FLOW_API_TOKEN
+      else Bun.env.IA_FLOW_API_TOKEN = prev
+    }
+  })
+
+  // El token de ESTE proceso es el del agent-host, no el del daemon de origen:
+  // mandarlo sería autenticar contra el server equivocado.
+  it('usa daemonToken —y no el env local— cuando el run viene de otro daemon', async () => {
+    const prev = Bun.env.IA_FLOW_API_TOKEN
+    Bun.env.IA_FLOW_API_TOKEN = 'token-del-agent-host'
+    try {
+      const { mcpConfigFile } = await buildClaudeCommand(
+        baseInput({
+          tools: ['update_issue_body'],
+          daemonUrl: 'https://daemon.example',
+          daemonToken: 'token-del-daemon',
+        }),
+        'tmux-claude',
+      )
+      const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+      expect(written.mcpServers['ia-flow-tools'].headers.Authorization).toBe(
+        'Bearer token-del-daemon',
+      )
+    } finally {
+      if (prev === undefined) delete Bun.env.IA_FLOW_API_TOKEN
+      else Bun.env.IA_FLOW_API_TOKEN = prev
+    }
+  })
+
   it('carries the agent + project namespace for the memory tools in the MCP URL', async () => {
     const { mcpConfigFile } = await buildClaudeCommand(
       baseInput({ tools: ['memory_store'], agentId: 'builder', projectId: 'ia-flow' }),
