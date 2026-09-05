@@ -399,15 +399,6 @@ function globToRegex(glob: string): RegExp {
  * JS-based recursive walk. Kept as fallback for environments without
  * ripgrep installed. Behaviour is identical to the pre-rg implementation:
  * skips node_modules/.git/dist/__pycache__/vendor, honours .gitignore,
- * stops at MAX_GREP_RESULTS globally.
- *
- * When `path` points to a single file, only that file is searched (parity
- * with `grepWithRg`, which passes the file as the search target to rg).
- */
-/**
- * JS-based recursive walk. Kept as fallback for environments without
- * ripgrep installed. Behaviour is identical to the pre-rg implementation:
- * skips node_modules/.git/dist/__pycache__/vendor, honours .gitignore,
  * stops at `GREP_SAFETY_CAP` globally.
  *
  * Each array entry is one self-contained match "block": a single line

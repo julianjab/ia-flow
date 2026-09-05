@@ -335,7 +335,7 @@ un run de terminal tenga dos discos en juego, y que `bash_run` y `workspace_rese
 
 ### Las tools por `providerKinds`
 
-De las 31 —26 en `packages/tools/src` y 5 en `packages/slack`, que se registran sólo si hay
+De las 32 —27 en `packages/tools/src` y 5 en `packages/slack`, que se registran sólo si hay
 credencial—, casi todas se ofrecen a los dos mundos. Las excepciones son las que importan:
 
 | Alcance | Tools | Por qué |
