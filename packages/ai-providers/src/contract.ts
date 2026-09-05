@@ -477,6 +477,14 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   thinking: { type: 'adaptive' },
   stream: true,
   responseLanguage: 'español',
+  // Decisión explícita, no un default heredado de "omitido = high" en la API.
+  // 'high' es lo más alto que soporta el modelo default de arriba (Sonnet
+  // 4.6) — 'xhigh' recién existe en Opus 4.7 y rompería este mismo default.
+  // Un agente clasificador/gate (sin tools, sin onProcess/onFinish) puede
+  // bajarlo a 'low' vía providerConfig.effort; uno de código agéntico sobre
+  // Opus puede subirlo a 'xhigh' del mismo modo — ninguno de los dos es el
+  // default global porque el default tiene que servir para el modelo default.
+  effort: 'high',
 }
 
 export const DEFAULT_TERMINAL_SETTINGS = {}
