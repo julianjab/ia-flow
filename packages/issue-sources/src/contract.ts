@@ -1,5 +1,11 @@
 import type { EventOutcome } from '@ia-flow/rules'
-import type { CommentTarget, StatusConfig, Task, TaskComment } from '@ia-flow/shared'
+import type {
+  CommentTarget,
+  PullRequestRef,
+  StatusConfig,
+  Task,
+  TaskComment,
+} from '@ia-flow/shared'
 
 export type { Task }
 
@@ -83,6 +89,7 @@ export function issueItemToTask(item: IssueItem): Task {
     comments: item.comments,
     projectId: item.projectId,
     branch: item.branch,
+    pullRequests: item.meta?.pullRequests as PullRequestRef[] | undefined,
   }
 }
 

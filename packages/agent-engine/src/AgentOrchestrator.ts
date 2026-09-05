@@ -15,6 +15,7 @@ import type {
   IProviderRegistry,
   IRepoRepository,
   PauseCheckpointPort,
+  PrDiffPort,
   RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
@@ -135,6 +136,9 @@ export class AgentOrchestrator {
     // Bookkeeping de upstream-aborts — ver AgentAbortPort. Forwardeado tal
     // cual a `Agent`, igual que el resto de los ports de esta lista.
     abortRepo?: AgentAbortPort,
+    // Trae el diff de un PR — ver PrDiffPort. Forwardeado tal cual a `Agent`,
+    // que es quien decide cuándo llamarlo (sólo si el prompt lo referencia).
+    fetchPrDiff?: PrDiffPort,
   ) {
     this.agent = new Agent(
       providers,
@@ -148,6 +152,7 @@ export class AgentOrchestrator {
       pauseCheckpoint,
       runCheckpoints,
       abortRepo,
+      fetchPrDiff,
     )
   }
 
