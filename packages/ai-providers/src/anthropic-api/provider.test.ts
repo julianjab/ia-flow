@@ -697,14 +697,25 @@ describe('AnthropicApiProvider.run — request shaping', () => {
   })
 
   it('adds the task-budgets beta header and output_config.task_budget', async () => {
-    const { body, headers } = await requestFrom({ providerConfig: { taskBudgetTokens: 50000 } })
+    // Aísla el efecto de taskBudgetTokens del effort default ('high' — ver
+    // DEFAULT_ANTHROPIC_SETTINGS), que si no se apaga acá también entraría en
+    // output_config y este test dejaría de probar lo que dice probar.
+    const { body, headers } = await requestFrom(
+      { providerConfig: { taskBudgetTokens: 50000 } },
+      { effort: undefined },
+    )
     expect(headers['anthropic-beta']).toContain('task-budgets-2026-03-13')
     expect(body.output_config).toEqual({ task_budget: { type: 'tokens', total: 50000 } })
   })
 
   it('omits output_config when neither effort nor taskBudgetTokens is set', async () => {
-    const { body } = await requestFrom()
+    const { body } = await requestFrom({}, { effort: undefined })
     expect(body.output_config).toBeUndefined()
+  })
+
+  it("includes the default settings' effort in output_config when no override is set", async () => {
+    const { body } = await requestFrom()
+    expect(body.output_config).toEqual({ effort: DEFAULT_ANTHROPIC_SETTINGS.effort })
   })
 
   it('forwards http mcp_servers, adds the mcp-client beta header, and adds a matching mcp_toolset', async () => {

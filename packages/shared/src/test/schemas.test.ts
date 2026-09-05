@@ -42,6 +42,7 @@ import {
   WhenConditionSchema,
   isRuleDisabledInProject,
   toggleDisabledRuleId,
+  validateAnthropicApiSettings,
 } from '../schemas.js'
 
 // ─── WhenConditionSchema ─────────────────────────────────────────────────────
@@ -1288,5 +1289,54 @@ describe('ExecutionStatsSchema — compatibilidad con un server viejo', () => {
     expect(agent.iters).toBe(30)
     expect(agent.stopReasons).toEqual({ max_tokens: 2 })
     expect(agent.p95DurationMs).toBe(8000)
+  })
+})
+
+// ─── validateAnthropicApiSettings ───────────────────────────────────────────
+
+describe('validateAnthropicApiSettings', () => {
+  it('rechaza effort xhigh contra un modelo que no es Opus', () => {
+    const err = validateAnthropicApiSettings({ model: 'claude-sonnet-4-6', effort: 'xhigh' })
+    expect(err).toContain('xhigh')
+    expect(err).toContain('Opus')
+  })
+
+  it('rechaza effort max contra un modelo que no es Opus', () => {
+    expect(
+      validateAnthropicApiSettings({ model: 'claude-haiku-4-5-20251001', effort: 'max' }),
+    ).toBeDefined()
+  })
+
+  it('acepta xhigh/max contra un modelo Opus', () => {
+    expect(
+      validateAnthropicApiSettings({ model: 'claude-opus-4-7', effort: 'xhigh' }),
+    ).toBeUndefined()
+    expect(
+      validateAnthropicApiSettings({ model: 'claude-opus-4-7', effort: 'max' }),
+    ).toBeUndefined()
+  })
+
+  it('acepta low/medium/high contra cualquier modelo', () => {
+    expect(
+      validateAnthropicApiSettings({ model: 'claude-sonnet-4-6', effort: 'high' }),
+    ).toBeUndefined()
+  })
+
+  it('rechaza taskBudgetTokens contra un modelo que no es Opus', () => {
+    const err = validateAnthropicApiSettings({
+      model: 'claude-sonnet-4-6',
+      taskBudgetTokens: 50000,
+    })
+    expect(err).toContain('taskBudgetTokens')
+  })
+
+  it('acepta taskBudgetTokens contra un modelo Opus', () => {
+    expect(
+      validateAnthropicApiSettings({ model: 'claude-opus-4-7', taskBudgetTokens: 50000 }),
+    ).toBeUndefined()
+  })
+
+  it('sin model, effort ni taskBudgetTokens no es una combinación inválida', () => {
+    expect(validateAnthropicApiSettings({})).toBeUndefined()
   })
 })
