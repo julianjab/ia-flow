@@ -186,6 +186,10 @@ export class RemoteAgentProvider implements IAgentProvider {
       // URL por la que ESTA máquina es alcanzable desde afuera; sin esto un
       // run async remoto arranca sin tools y sin poder reportar el final.
       daemonUrl: input.daemonUrl ?? daemonPublicUrl(),
+      // Y con qué autenticarse contra ella: el `IA_FLOW_API_TOKEN` de allá es
+      // el del agent-host, no el nuestro, así que sin esto un run async remoto
+      // vuelve a arrancar sin tools apenas este daemon tiene el guard puesto.
+      daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined,
     }
     const body = withDaemon.policy
       ? {

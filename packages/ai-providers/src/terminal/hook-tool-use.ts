@@ -37,6 +37,8 @@ const serverUrl =
   process.env.IA_FLOW_SERVER_URL ??
   `http://localhost:${process.env.IA_FLOW_SERVER_PORT ?? process.env.PORT ?? '3001'}`
 
+const apiToken = process.env.IA_FLOW_API_TOKEN?.trim()
+
 const hookName = process.argv[2] ?? 'PostToolUse'
 
 let raw: string
@@ -180,7 +182,14 @@ if (hookName === 'PreToolUse') {
 // AbortSignal.timeout caps how long Claude Code waits for this hook.
 await fetch(`${serverUrl}/api/hook-events`, {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: {
+    'content-type': 'application/json',
+    // El guard de la API del daemon (`createApiAuthMiddleware`) cubre
+    // `/api/*`: sin el token el hook postea contra un 401 y el drawer de
+    // ejecuciones queda vacío. Lo inyecta `terminal/base.ts` en el
+    // settings.json per-run, junto a IA_FLOW_RUN_ID.
+    ...(apiToken ? { 'x-ia-flow-token': apiToken } : {}),
+  },
   body: JSON.stringify(body),
   signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 }).catch(() => {})

@@ -309,6 +309,19 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     const daemonUrl =
       input.daemonUrl ?? `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
 
+    // Token del guard de la API del daemon (`createApiAuthMiddleware`). Sin él
+    // el MCP sintético y el hook de tool_use contestan 401 apenas alguien
+    // configura `IA_FLOW_API_TOKEN`, y el síntoma del lado del CLI es un
+    // "failed to connect" del server `ia-flow-tools`: el run arranca sin
+    // NINGUNA tool del agente.
+    //
+    // El env sólo vale cuando el daemon es el local: si el run vino de otra
+    // máquina (`input.daemonUrl`), el `IA_FLOW_API_TOKEN` de este proceso es el
+    // del agent-host y no abre nada del daemon de origen — ese lo manda el
+    // daemon en `input.daemonToken`.
+    const daemonToken =
+      input.daemonToken?.trim() || (input.daemonUrl ? undefined : Bun.env.IA_FLOW_API_TOKEN?.trim())
+
     // Agent-declared tools reach the CLI as one more MCP server pointing at
     // the daemon's own /api/mcp endpoint — same wire format as any catalog
     // entry (github-mcp, etc), instead of the old curl-recipe appendix. The
@@ -336,6 +349,9 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       mcpServers['ia-flow-tools'] = {
         type: 'http',
         url: `${daemonUrl}/api/mcp?${params.toString()}`,
+        // `writeMcpConfigFile` lo traduce a `Authorization: Bearer <token>`,
+        // que es una de las dos formas que acepta el guard del daemon.
+        ...(daemonToken ? { authorizationToken: daemonToken } : {}),
       }
     }
 
@@ -384,6 +400,10 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     if (input.runId) {
       runEnv.IA_FLOW_RUN_ID = input.runId
       runEnv.IA_FLOW_SERVER_URL = daemonUrl
+      // `/api/hook-events` pasa por el mismo guard que `/api/mcp`: sin el
+      // token el hook postea contra un 401 y el drawer de ejecuciones queda
+      // vacío para todo run de terminal.
+      if (daemonToken) runEnv.IA_FLOW_API_TOKEN = daemonToken
     }
 
     // El texto "git context" (branch, worktree, workflow) lo inyecta el

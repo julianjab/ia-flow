@@ -125,6 +125,21 @@ export interface ProviderInput {
    * async remoto arrancaba sin ninguna tool y sin poder reportar el final.
    */
   daemonUrl?: string
+  /**
+   * Token con el que autenticarse contra ese daemon (`IA_FLOW_API_TOKEN`).
+   *
+   * `createApiAuthMiddleware` protege `/api/*` entero, y las dos vías por las
+   * que una sesión de terminal le habla al daemon —el MCP sintético
+   * `ia-flow-tools` (`/api/mcp`) y el hook que reporta tool_use
+   * (`/api/hook-events`)— son requests HTTP como cualquier otra: sin este
+   * token contestan 401 y el run arranca sin ninguna tool.
+   *
+   * Viaja en el input y no se lee del env del proceso que corre porque puede
+   * NO ser el mismo: del otro lado de un agent-host, `IA_FLOW_API_TOKEN` es el
+   * de ESE host, no el del daemon que originó el dispatch. Cuando el daemon es
+   * local, `terminal/base.ts` cae al env, que ahí sí es el correcto.
+   */
+  daemonToken?: string
   workflow?: RepoWorkflow
   /**
    * Nombre canónico de la branch git para esta task (viene de `task.branch` —
