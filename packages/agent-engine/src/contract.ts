@@ -274,3 +274,22 @@ export interface PauseCheckpointPort {
     checkpoint: { messages: unknown[]; reason?: string },
   ): Promise<void>
 }
+
+/**
+ * Trae el diff unificado de un PR — la única variable de `{{task.pr.*}}` que
+ * paga un request propio (el resto sale gratis de `Task.pullRequests`, ya
+ * resuelto en el dispatch). El engine no sabe de GitHub: recibe coordenadas
+ * (owner/repo/number), ya resueltas por `Agent.run` a partir de
+ * `projectRepos` y del primer PR abierto de la task, y le pregunta al host.
+ *
+ * `Agent.run` sólo la llama cuando el prompt referencia `{{task.pr.diff}}`
+ * (ver `promptReferencesVariable`) — mismo mecanismo que gatea marcar
+ * `{{task.comments}}` como leídos. `undefined` ⇒ no hay PR abierto, o el host
+ * no sabe resolverlo (proyecto sin GitHub); un `{{task.pr.diff}}` sin PR
+ * abierto rinde vacío, no rompe el render.
+ */
+export type PrDiffPort = (params: {
+  owner: string
+  repo: string
+  number: number
+}) => Promise<string | undefined>

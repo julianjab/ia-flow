@@ -28,6 +28,10 @@ export interface ResolveContext {
    *  rinde `{{task.previous_outputs}}`. Ausente/vacío ⇒ ninguno entregó
    *  salida todavía. */
   previousOutputs?: Array<{ agentId: string; structuredOutput: Record<string, unknown> }>
+  /** El diff del PR abierto de esta task, ya resuelto por `Agent.run` (ver
+   *  `PrDiffPort`) — lo que rinde `{{task.pr.diff}}`. Ausente cuando el
+   *  prompt no la referencia (nunca se pidió) o no hay PR abierto. */
+  prDiff?: string
 }
 
 /** Central dispatcher for a `{{...}}` path — injected by the host, which owns

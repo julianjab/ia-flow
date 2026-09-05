@@ -16,6 +16,8 @@ import {
   ProjectSettingsSchema,
   ProviderConfigSchema,
   ProviderLimitSchema,
+  PullRequestFileSchema,
+  PullRequestRefSchema,
   RepoContextSchema,
   RepoDependencySchema,
   RepoEntrySchema,
@@ -515,6 +517,53 @@ describe('TaskSchema', () => {
   it('requires id, title, description, type, repos, status, created_at', () => {
     const { id: _, ...rest } = base
     expect(() => TaskSchema.parse(rest)).toThrow()
+  })
+
+  it('parses pullRequests as an optional array of PullRequestRef', () => {
+    const result = TaskSchema.parse({
+      ...base,
+      pullRequests: [
+        { number: 42, url: 'https://github.com/org/repo/pull/42', state: 'open', isDraft: false },
+      ],
+    })
+    expect(result.pullRequests).toHaveLength(1)
+    expect(result.pullRequests?.[0]?.number).toBe(42)
+  })
+
+  it('omits pullRequests when absent — a task from a source that never sends it', () => {
+    const result = TaskSchema.parse(base)
+    expect(result.pullRequests).toBeUndefined()
+  })
+})
+
+// ─── PullRequestRefSchema ─────────────────────────────────────────────────────
+
+describe('PullRequestRefSchema', () => {
+  const base = {
+    number: 42,
+    url: 'https://github.com/org/repo/pull/42',
+    state: 'open' as const,
+    isDraft: false,
+  }
+
+  it('parses without files — un caller viejo, o un source que no lo pidió', () => {
+    const result = PullRequestRefSchema.parse(base)
+    expect(result.files).toBeUndefined()
+    expect(result.filesTruncated).toBeUndefined()
+  })
+
+  it('parses files as PullRequestFileSchema entries, plus filesTruncated', () => {
+    const result = PullRequestRefSchema.parse({
+      ...base,
+      files: [{ path: 'core/twilio.py', additions: 12, deletions: 3 }],
+      filesTruncated: true,
+    })
+    expect(result.files).toEqual([{ path: 'core/twilio.py', additions: 12, deletions: 3 }])
+    expect(result.filesTruncated).toBe(true)
+  })
+
+  it('PullRequestFileSchema requires path/additions/deletions', () => {
+    expect(() => PullRequestFileSchema.parse({ path: 'x.ts' })).toThrow()
   })
 })
 

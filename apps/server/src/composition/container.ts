@@ -1,6 +1,7 @@
 import { join } from 'path'
 import {
   AgentOrchestrator,
+  type PrDiffPort,
   TaskDispatcher,
   getPendingTask,
   listPendingTasks,
@@ -34,6 +35,7 @@ import {
   SourceDispatcher,
   createDefaultSourceFactory,
   defaultToIssueItem,
+  fetchPullRequestDiff,
   resolveCatchUp,
   resolveDaemonMode,
   resolveProjectFilter,
@@ -788,6 +790,14 @@ export const classifyAgent = createAgentClassifier({
   log: createLogger('agent-classifier'),
 })
 
+// Resuelve `{{task.pr.diff}}` — la única variable de PR que paga un request
+// propio (ver PrDiffPort en @ia-flow/agent-engine). `Agent.run` sólo la llama
+// cuando el prompt la referencia, y ya envuelve la llamada en su propio
+// try/catch (deja la variable vacía y loguea en vez de tumbar el dispatch) —
+// este port no necesita duplicar esa red.
+export const fetchPrDiff: PrDiffPort = ({ owner, repo, number }) =>
+  fetchPullRequestDiff(owner, repo, number)
+
 // ─── Application ──────────────────────────────────────────────────────────
 
 // Qué bloque de settings pertenece a qué provider id. El día que un provider
@@ -872,6 +882,7 @@ export const orchestrator = new AgentOrchestrator(
     delete: (runId) => runCheckpointRepo.delete(runId),
   },
   agentAbortRepo,
+  fetchPrDiff,
 )
 
 // Declarado antes de `dispatcher` (y no junto al resto de los use-cases más
