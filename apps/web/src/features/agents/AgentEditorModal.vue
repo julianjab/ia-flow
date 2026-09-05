@@ -12,6 +12,7 @@ import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
 import type { AgentDefinition, AgentOutcomes, AgentOutput, AgentProviderChoice, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
+import { validateAnthropicApiSettings } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
@@ -407,6 +408,18 @@ function validate(): boolean {
   if (!prompt.value.trim()) {
     errors.value.push('El prompt es requerido.');
     firstErrorSection ??= 'prompt';
+  }
+  if (providerChoices.value.some((c) => c.providerId === 'anthropic-api')) {
+    const pc = providerConfigDraft.value;
+    const anthropicError = validateAnthropicApiSettings({
+      model: (pc.model as string | undefined) ?? providersStore.config?.anthropicApi.model,
+      effort: pc.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined,
+      taskBudgetTokens: pc.taskBudgetTokens as number | undefined,
+    });
+    if (anthropicError) {
+      errors.value.push(anthropicError);
+      firstErrorSection ??= 'definicion';
+    }
   }
   // Salta a la sección del rail donde vive el primer error — si no, el
   // usuario ve la lista de errores sin saber en qué pestaña resolverlos.

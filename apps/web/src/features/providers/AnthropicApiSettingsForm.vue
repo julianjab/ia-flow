@@ -135,8 +135,8 @@ function updateMcp(value: McpServers) {
         <option value="low">low</option>
         <option value="medium">medium</option>
         <option value="high">high</option>
-        <option value="xhigh">xhigh (Opus 4.7)</option>
-        <option value="max">max (Opus only)</option>
+        <option value="xhigh">xhigh (requiere Opus)</option>
+        <option value="max">max (requiere Opus)</option>
       </select>
     </div>
 
