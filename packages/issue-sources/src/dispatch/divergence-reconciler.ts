@@ -149,6 +149,22 @@ export class DivergenceReconciler {
     // leave it alone than cancel on an absence. Same rule as the old loop.
     if (!item) return
 
+    // Status vacío = el source no supo decir DÓNDE está, no "se movió a
+    // ningún lado". Es una ventana real: GitHub aplica el quitar y el poner
+    // de un label como dos escrituras, así que mientras alguien edita el
+    // issue —o mientras el propio pipeline reescribe sus labels— hay un
+    // instante sin label de status. Un tick que caía justo ahí leía `''`,
+    // lo tomaba por deriva externa y mataba un run sano (que además deja el
+    // worktree con trabajo sin commitear). Misma regla que `!item`: ante una
+    // ausencia se deja en paz, y el próximo tick decide con un dato real.
+    if (!item.status.trim()) {
+      log.debug(
+        { taskId },
+        'Status vacío en el source — probablemente una edición en curso, no se cancela',
+      )
+      return
+    }
+
     // Preserve the exact baseline SourceIssueManager used: reconciliationStatus
     // resyncs when the AGENT ITSELF moves the task mid-run (onProcess,
     // set_task_field) — comparing against initialStatus there would read the
