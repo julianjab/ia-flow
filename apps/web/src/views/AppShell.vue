@@ -218,12 +218,16 @@ const activeSection = computed<SectionId>(() => {
 
 function goToSection(id: SectionId) {
   if (id === activeSection.value) return;
-  if (isMobile()) sidebarCollapsed.value = true;
+  // Una sección con hijos (hoy sólo "proyectos") todavía tiene un nivel más
+  // para elegir — colapsar acá escondería el árbol justo cuando el usuario
+  // quiere seguir bajando. Sólo las hojas (sin hijos) cierran el sidebar.
+  const hasChildren = !!TABS.value.find((t) => t.id === id)?.children?.length;
+  if (isMobile() && !hasChildren) sidebarCollapsed.value = true;
   void router.push(SECTION_PATH[id]);
 }
 
-function navigate(path: string) {
-  if (isMobile()) sidebarCollapsed.value = true;
+function navigate(path: string, hasChildren = false) {
+  if (isMobile() && !hasChildren) sidebarCollapsed.value = true;
   void router.push(path);
 }
 

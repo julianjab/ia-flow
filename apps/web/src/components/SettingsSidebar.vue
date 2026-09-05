@@ -29,7 +29,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:activeTab', tab: TabId): void;
-  (e: 'navigate', path: string): void;
+  /** `hasChildren` — el nodo clickeado todavía revela otro nivel (ej. un
+   *  proyecto con sus tabs). El consumidor lo usa para no colapsar el
+   *  sidebar en mobile: colapsar ahí ocultaría el árbol justo cuando el
+   *  usuario quiere seguir bajando un nivel más. */
+  (e: 'navigate', path: string, hasChildren: boolean): void;
   (e: 'toggle-collapsed'): void;
 }>();
 
@@ -61,8 +65,8 @@ function onKey(e: KeyboardEvent, tab: TabId) {
   }
 }
 
-function navigateChild(path: string) {
-  emit('navigate', path);
+function navigateChild(child: SidebarChild) {
+  emit('navigate', child.path, !!child.children?.length);
 }
 
 function isChildActive(child: SidebarChild): boolean {
@@ -133,7 +137,7 @@ function isChildActive(child: SidebarChild): boolean {
                   class="tui-sidebar__child"
                   :class="{ 'tui-sidebar__child--active': isChildActive(child) }"
                   :data-child-id="child.id"
-                  @click="navigateChild(child.path)"
+                  @click="navigateChild(child)"
                 >
                   <span class="tui-sidebar__child-cursor">
                     {{ isChildActive(child) ? (child.children?.length ? '▾' : '▸') : ' ' }}
@@ -152,7 +156,7 @@ function isChildActive(child: SidebarChild): boolean {
                     class="tui-sidebar__child tui-sidebar__child--leaf"
                     :class="{ 'tui-sidebar__child--active': isChildActive(leaf) }"
                     :data-child-id="leaf.id"
-                    @click="navigateChild(leaf.path)"
+                    @click="navigateChild(leaf)"
                   >
                     <span class="tui-sidebar__child-cursor">
                       {{ isChildActive(leaf) ? '▸' : ' ' }}
