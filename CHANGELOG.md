@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.3.0](https://github.com/julianjab/ia-flow/compare/v1.2.0...v1.3.0) (2026-09-05)
+
+
+### Features
+
+* **agent-engine,server:** persiste structuredOutput en execution_logs y lo rinde como {{task.previous_outputs}} ([#149](https://github.com/julianjab/ia-flow/issues/149)) ([6f345c6](https://github.com/julianjab/ia-flow/commit/6f345c6ba915ae331ea08e5671c9c18ef79b58ac))
+* **engine:** propaga traceId a issue.created/issue.status_changed en polling ([f78907c](https://github.com/julianjab/ia-flow/commit/f78907c4e76a99fcfc4790a1fce1cf5c693ca8c6))
+* **web:** agrega buscador y resaltado de actividad viva al panel de Pipeline ([2932e05](https://github.com/julianjab/ia-flow/commit/2932e059d096f97e3e2d3297d8eed434162ce4a4))
+* **web:** agrupa el Pipeline por evento y cambia el buscador a campo:valor ([058e80b](https://github.com/julianjab/ia-flow/commit/058e80bf52607be04a7b65a8c881733f9811db1d))
+* **webhooks:** traceId end-to-end desde el delivery hasta execution_logs ([468402b](https://github.com/julianjab/ia-flow/commit/468402b9fa37eab168759389c877c58d907560fa))
+* **web:** muestra traceId como fila del drawer de ejecuciones ([dcf207e](https://github.com/julianjab/ia-flow/commit/dcf207e72c9fc890ae3b564226f2fc49c746ecca))
+* **web:** traceId filtrable en Ejecuciones + link desde el drawer ([d4b3ec1](https://github.com/julianjab/ia-flow/commit/d4b3ec1b466994b2a95971e3a7051684690d340f))
+
+
+### Bug Fixes
+
+* **agent-engine:** retoma runs sync huérfanos en la misma fila en vez de abrir una nueva ([2b7a42c](https://github.com/julianjab/ia-flow/commit/2b7a42c0a30654d199e3743da85d8a7eb517c3c2))
+* **ai-providers:** reintenta 429/5xx/529 contra la Anthropic API ([#150](https://github.com/julianjab/ia-flow/issues/150)) ([75d3529](https://github.com/julianjab/ia-flow/commit/75d3529859943ff5c56e71f2f6a1b0238af78e0c)), closes [#134](https://github.com/julianjab/ia-flow/issues/134)
+* **ci:** apaga Spotlight antes de empaquetar el .dmg ([5f8cae1](https://github.com/julianjab/ia-flow/commit/5f8cae153616e93d943b45bbf5566dd401d70896))
+* **tools:** no reenviar ni checkpointear un mcp_tool_use sin resolver ([bb6b36a](https://github.com/julianjab/ia-flow/commit/bb6b36ad849f2794fb31f09cf8d42cc3d4cb7e66))
+* **web:** ExecutionsSection sigue la semántica actual de firingOutcome ([#154](https://github.com/julianjab/ia-flow/issues/154)) ([d9811f7](https://github.com/julianjab/ia-flow/commit/d9811f7b1792b01eedafe7e279ba4e862ccb6f46)), closes [#153](https://github.com/julianjab/ia-flow/issues/153)
+* **web:** mostrar el resultado de la última acción del pipeline ([aab336a](https://github.com/julianjab/ia-flow/commit/aab336a63a78835fc98dc142c61c3b0a4b1e58c8))
+* **web:** no colapsar el sidebar mobile al navegar a un nodo con hijos ([509991c](https://github.com/julianjab/ia-flow/commit/509991cc0c0e1724527403fdb99d292ef75093c3))
+* **web:** no truncar valores largos en el árbol JSON del drawer ([f79f6fb](https://github.com/julianjab/ia-flow/commit/f79f6fb55e69b87cf9c39002b925788633c73638))
+
 ## [1.2.0](https://github.com/julianjab/ia-flow/compare/v1.1.0...v1.2.0) (2026-09-04)
 
 
