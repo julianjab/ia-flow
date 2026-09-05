@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { MULTI_SELECT_DATA_TYPE, type AgentOutcomes, type CommentTarget } from '@ia-flow/shared'
 import LabelOpsEditor from '@/features/agents/LabelOpsEditor.vue'
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
 import {
   type ExitRowError,
@@ -107,6 +108,18 @@ function optionsFor(fieldName: string): string[] {
   )
 }
 
+// Combos, no `<select>`: la lista de campos/valores es una sugerencia del
+// catálogo del proyecto, nunca una autoridad — un agente global (sin
+// proyecto) no tiene catálogo, y uno con proyecto puede correr sobre un
+// status/label que el catálogo todavía no conoce. `allowCustom` en los dos
+// ejes es lo que hace que "sin catálogo" degrade a "escribilo vos" en vez de
+// a un desplegable vacío e inusable.
+const fieldOptionsList = computed<ComboOption[]>(() => fieldNames.value.map((fn) => ({ value: fn })))
+
+function valueOptionsFor(fieldName: string): ComboOption[] {
+  return optionsFor(fieldName).map((opt) => ({ value: opt }))
+}
+
 // El editor tiene dos partes distintas y es a propósito:
 //  - `onProcess` es un HOOK: corre siempre al arrancar, no hay nada que elegir.
 //  - `exits` son DESTINOS: el run termina por uno. `success`/`error` los elige
@@ -192,14 +205,14 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
       </div>
       <p v-if="!form.onProcess.length" class="oe-empty">Sin cambios al arrancar.</p>
       <div v-for="(a, ai) in form.onProcess" :key="ai" class="oe-assign-row">
-        <select
-          :value="a.field"
-          class="oe-field oe-assign-field"
-          @change="updateProcessAssignment(ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
-        >
-          <option value="" disabled>— Campo —</option>
-          <option v-for="fn in fieldNames" :key="fn" :value="fn">{{ fn }}</option>
-        </select>
+        <ComboBox
+          class="oe-assign-field"
+          :model-value="a.field"
+          :options="fieldOptionsList"
+          allow-custom
+          placeholder="campo"
+          @update:model-value="updateProcessAssignment(ai, { field: $event as string, value: '' })"
+        />
         <span class="oe-assign-sep">:</span>
         <LabelOpsEditor
           v-if="isMultiValueField(a.field)"
@@ -207,21 +220,14 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
           :options="labelOptions"
           @update:model-value="updateProcessAssignment(ai, { value: $event })"
         />
-        <select
-          v-else-if="optionsFor(a.field).length"
-          :value="a.value"
-          class="oe-field oe-assign-value"
-          @change="updateProcessAssignment(ai, { value: ($event.target as HTMLSelectElement).value })"
-        >
-          <option value="" disabled>— Valor —</option>
-          <option v-for="opt in optionsFor(a.field)" :key="opt" :value="opt">{{ opt }}</option>
-        </select>
-        <input
+        <ComboBox
           v-else
-          :value="a.value"
-          class="oe-field oe-assign-value"
+          class="oe-assign-value"
+          :model-value="a.value"
+          :options="valueOptionsFor(a.field)"
+          allow-custom
           placeholder="valor"
-          @input="updateProcessAssignment(ai, { value: ($event.target as HTMLInputElement).value })"
+          @update:model-value="updateProcessAssignment(ai, { value: $event as string })"
         />
         <button type="button" class="oe-remove" aria-label="Quitar campo" @click="removeProcessAssignment(ai)">✕</button>
       </div>
@@ -307,14 +313,14 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
         <p v-if="!ex.assignments.length" class="oe-empty">Sin cambios en esta salida.</p>
 
         <div v-for="(a, ai) in ex.assignments" :key="ai" class="oe-assign-row">
-          <select
-            :value="a.field"
-            class="oe-field oe-assign-field"
-            @change="updateAssignment(ei, ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
-          >
-            <option value="" disabled>— Campo —</option>
-            <option v-for="fn in fieldNames" :key="fn" :value="fn">{{ fn }}</option>
-          </select>
+          <ComboBox
+            class="oe-assign-field"
+            :model-value="a.field"
+            :options="fieldOptionsList"
+            allow-custom
+            placeholder="campo"
+            @update:model-value="updateAssignment(ei, ai, { field: $event as string, value: '' })"
+          />
           <span class="oe-assign-sep">:</span>
           <LabelOpsEditor
             v-if="isMultiValueField(a.field)"
@@ -322,21 +328,14 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
             :options="labelOptions"
             @update:model-value="updateAssignment(ei, ai, { value: $event })"
           />
-          <select
-            v-else-if="optionsFor(a.field).length"
-            :value="a.value"
-            class="oe-field oe-assign-value"
-            @change="updateAssignment(ei, ai, { value: ($event.target as HTMLSelectElement).value })"
-          >
-            <option value="" disabled>— Valor —</option>
-            <option v-for="opt in optionsFor(a.field)" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
-          <input
+          <ComboBox
             v-else
-            :value="a.value"
-            class="oe-field oe-assign-value"
+            class="oe-assign-value"
+            :model-value="a.value"
+            :options="valueOptionsFor(a.field)"
+            allow-custom
             placeholder="valor"
-            @input="updateAssignment(ei, ai, { value: ($event.target as HTMLInputElement).value })"
+            @update:model-value="updateAssignment(ei, ai, { value: $event as string })"
           />
           <button type="button" class="oe-remove" aria-label="Quitar campo" @click="removeAssignment(ei, ai)">✕</button>
         </div>

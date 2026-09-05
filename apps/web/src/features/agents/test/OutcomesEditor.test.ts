@@ -22,6 +22,18 @@ function lastEmit(wrapper: ReturnType<typeof mountEditor>): AgentOutcomes {
   return wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentOutcomes
 }
 
+/** Campo/valor ahora son un ComboBox: "elegir" es escribir el texto exacto y
+ *  confirmarlo con Enter (o con blur), no un `<select>` con `.setValue()`. */
+async function chooseCombo(
+  wrapper: ReturnType<typeof mountEditor>,
+  comboSelector: string,
+  text: string,
+) {
+  const input = wrapper.get(`${comboSelector} .cb-input`)
+  await input.setValue(text)
+  await input.trigger('keydown', { key: 'Enter' })
+}
+
 describe('OutcomesEditor — una sola lista de campos por salida', () => {
   it('no renderiza una sección de labels aparte', () => {
     // Antes había 3 filas fijas (Añadir / Quitar / Reemplazar por) por slot.
@@ -37,12 +49,13 @@ describe('OutcomesEditor — una sola lista de campos por salida', () => {
     expect(wrapper.findAll('.oe-assign-row')).toHaveLength(0)
   })
 
-  it('Labels aparece como una opción más del select de campo', async () => {
+  it('Labels aparece como una opción más del combo de campo', async () => {
     const wrapper = mountEditor()
     await wrapper.findAll('.oe-add')[0].trigger('click')
+    await wrapper.get('.oe-assign-field .cb-input').trigger('focus')
     const options = wrapper
       .get('.oe-assign-field')
-      .findAll('option')
+      .findAll('.cb-opt__label')
       .map((o) => o.text())
     expect(options).toContain('Labels')
     expect(options).toContain('Status')
@@ -68,8 +81,8 @@ describe('OutcomesEditor — "+ campo" (regresión)', () => {
     await wrapper.findAll('.oe-add')[2].trigger('click')
     await wrapper.setProps({ modelValue: lastEmit(wrapper) ?? {} })
 
-    await wrapper.get('.oe-assign-field').setValue('Status')
-    await wrapper.get('.oe-assign-value').setValue('Done')
+    await chooseCombo(wrapper, '.oe-assign-field', 'Status')
+    await chooseCombo(wrapper, '.oe-assign-value', 'Done')
 
     expect(lastEmit(wrapper)).toEqual({ exits: { success: '$set:Status=Done' } })
   })
@@ -82,7 +95,7 @@ describe('OutcomesEditor — "+ campo" (regresión)', () => {
 
     const fields = wrapper.findAll('.oe-assign-field')
     expect(fields).toHaveLength(1)
-    expect((fields[0].element as HTMLSelectElement).value).toBe('Status')
+    expect((fields[0].find('.cb-input').element as HTMLInputElement).value).toBe('Status')
   })
 })
 
@@ -111,7 +124,7 @@ describe('OutcomesEditor — campo multi-valor con signo', () => {
     const wrapper = mountEditor()
     await wrapper.findAll('.oe-add')[2].trigger('click')
     await wrapper.setProps({ modelValue: lastEmit(wrapper) ?? {} })
-    await wrapper.get('.oe-assign-field').setValue('Labels')
+    await chooseCombo(wrapper, '.oe-assign-field', 'Labels')
 
     const input = wrapper.get('.loe-input')
     await input.setValue('design')
