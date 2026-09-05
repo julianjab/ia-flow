@@ -74,7 +74,7 @@ function emitForm(next: OutcomesFormValue) {
 // editor siga siendo usable sin fuente.
 const fieldNames = computed(() => {
   const names = (props.projectFields ?? []).map((f) => f.name)
-  if (!names.length) return ['status', LABELS_FIELD]
+  if (!names.length) return ['Status', LABELS_FIELD]
   return names.some((n) => isLabelsField(n)) ? names : [...names, LABELS_FIELD]
 })
 
