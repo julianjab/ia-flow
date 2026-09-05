@@ -14,6 +14,7 @@ import {
   parseLabelTokens,
   serializeLabelTokens,
 } from '@/features/agents/outcomes-serialization'
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 
 const props = defineProps<{
   /** Tokens serializados, ej. `"+design,-wip"`. */
@@ -26,9 +27,6 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
-const draft = ref('')
-const listId = `loe-${Math.random().toString(36).slice(2, 9)}`
-
 const tokens = computed<LabelToken[]>(() => parseLabelTokens(props.modelValue))
 
 // Sólo sugerimos lo que todavía no está elegido — repetir una label ya puesta
@@ -37,6 +35,10 @@ const suggestions = computed(() => {
   const taken = new Set(tokens.value.map((t) => t.label.toLowerCase()))
   return (props.options ?? []).filter((o) => !taken.has(o.toLowerCase()))
 })
+
+const suggestionOptions = computed<ComboOption[]>(() =>
+  suggestions.value.map((o) => ({ value: o })),
+)
 
 function emitTokens(next: LabelToken[]) {
   emit('update:modelValue', serializeLabelTokens(next))
@@ -54,25 +56,37 @@ function removeToken(i: number) {
   emitTokens(tokens.value.filter((_, idx) => idx !== i))
 }
 
-function commitDraft() {
-  const raw = draft.value.trim()
-  if (!raw) return
+// El picker es un `ComboBox` de un solo valor que nunca RETIENE ese valor:
+// cada elección/blur-con-texto llega acá, se reparte en tokens (comas y
+// signos incluidos — mismo parser que antes) y el campo vuelve a `''`. Así
+// se ve como "un input para agregar", no como "un select con memoria".
+const pick = ref('')
+
+function onPick(raw: string) {
+  pick.value = ''
+  const trimmed = raw.trim()
+  if (!trimmed) return
   // Acepta pegar varias de una (`design, wip`) y respeta un signo escrito a
   // mano (`-wip`), que es lo que alguien acostumbrado al DSL va a tipear.
-  const added = parseLabelTokens(raw)
+  const added = parseLabelTokens(trimmed)
   const taken = new Set(tokens.value.map((t) => t.label.toLowerCase()))
   const fresh = added.filter((t) => !taken.has(t.label.toLowerCase()))
-  draft.value = ''
   if (fresh.length) emitTokens([...tokens.value, ...fresh])
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault()
-    commitDraft()
-    return
-  }
-  if (e.key === 'Backspace' && !draft.value && tokens.value.length) {
+// El `ComboBox` no sabe de nuestros chips — sólo nos avisa qué se está
+// tipeando (evento `search`). Backspace con el campo vacío borra el último
+// chip, igual que en un campo de tags nativo.
+const typed = ref('')
+
+function onWrapKeydown(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null
+  if (
+    e.key === 'Backspace' &&
+    !typed.value &&
+    tokens.value.length &&
+    target?.classList.contains('cb-input')
+  ) {
     removeToken(tokens.value.length - 1)
   }
 }
@@ -85,7 +99,7 @@ const SIGN_TITLE: Record<LabelSign, string> = {
 </script>
 
 <template>
-  <div class="loe">
+  <div class="loe" @keydown="onWrapKeydown">
     <span v-for="(t, i) in tokens" :key="`${t.label}-${i}`" class="loe-chip" :data-sign="t.sign">
       <button
         type="button"
@@ -102,21 +116,21 @@ const SIGN_TITLE: Record<LabelSign, string> = {
       >✕</button>
     </span>
 
-    <input
-      v-model="draft"
-      class="loe-input"
-      :list="listId"
+    <ComboBox
+      class="loe-combo"
+      :model-value="pick"
+      :options="suggestionOptions"
+      allow-custom
       placeholder="label"
-      @keydown="onKeydown"
-      @blur="commitDraft"
+      @update:model-value="onPick($event as string)"
+      @search="typed = $event"
     />
-    <datalist :id="listId">
-      <option v-for="o in suggestions" :key="o" :value="o" />
-    </datalist>
   </div>
 </template>
 
 <style scoped>
+/* Sin caja propia: cada chip ya trae su borde, y el `ComboBox` trae el suyo —
+   una tercera caja alrededor de todo dejaba una doble línea. */
 .loe {
   display: flex;
   flex-wrap: wrap;
@@ -124,10 +138,6 @@ const SIGN_TITLE: Record<LabelSign, string> = {
   gap: 0.25rem;
   flex: 1 1 0;
   min-width: 0;
-  min-height: var(--row-h);
-  padding: 0 0.3ch;
-  border: 1px solid var(--border);
-  background: var(--panel);
 }
 
 .loe-chip {
@@ -169,15 +179,8 @@ const SIGN_TITLE: Record<LabelSign, string> = {
 }
 .loe-x:hover { color: var(--danger); }
 
-.loe-input {
-  flex: 1 1 4rem;
-  min-width: 4rem;
-  height: calc(var(--row-h) - 4px);
-  border: none;
-  background: none;
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  outline: none;
+.loe-combo {
+  flex: 1 1 8rem;
+  min-width: 8rem;
 }
 </style>

@@ -126,7 +126,7 @@ describe('OutcomesEditor — campo multi-valor con signo', () => {
     await wrapper.setProps({ modelValue: lastEmit(wrapper) ?? {} })
     await chooseCombo(wrapper, '.oe-assign-field', 'Labels')
 
-    const input = wrapper.get('.loe-input')
+    const input = wrapper.get('.loe-combo .cb-input')
     await input.setValue('design')
     await input.trigger('keydown', { key: 'Enter' })
 
@@ -135,7 +135,7 @@ describe('OutcomesEditor — campo multi-valor con signo', () => {
 
   it('respeta un signo escrito a mano', async () => {
     const wrapper = mountEditor({ exits: { error: '$set:Labels=+a' } })
-    const input = wrapper.get('.loe-input')
+    const input = wrapper.get('.loe-combo .cb-input')
     await input.setValue('-b')
     await input.trigger('keydown', { key: 'Enter' })
     expect(lastEmit(wrapper)).toEqual({ exits: { error: '$set:Labels=+a,-b' } })
@@ -143,7 +143,7 @@ describe('OutcomesEditor — campo multi-valor con signo', () => {
 
   it('no permite duplicar una label ya elegida', async () => {
     const wrapper = mountEditor({ exits: { error: '$set:Labels=+a' } })
-    const input = wrapper.get('.loe-input')
+    const input = wrapper.get('.loe-combo .cb-input')
     await input.setValue('a')
     await input.trigger('keydown', { key: 'Enter' })
     expect(wrapper.findAll('.loe-chip')).toHaveLength(1)
