@@ -116,6 +116,33 @@ describe('DivergenceReconciler', () => {
     expect(registry.removed).toEqual([])
   })
 
+  // Un status vacío es una edición a mitad de camino (GitHub aplica quitar y
+  // poner un label como dos escrituras), no un movimiento: cancelar ahí mata
+  // un run sano y deja el worktree con trabajo sin commitear.
+  test('leaves the task alone when the source reports an empty status', async () => {
+    const source = makeSource([{ id: 't1', title: 'x', status: '' }])
+    let cancelled = false
+    const registry = makePendingRegistry([
+      [
+        't1',
+        pending({
+          projectId: 'p1',
+          initialStatus: 'build',
+          cancel: async () => {
+            cancelled = true
+          },
+        }),
+      ],
+    ])
+    const reconciler = new DivergenceReconciler({
+      resolveSource: () => source,
+      pendingTasks: registry,
+    })
+    await reconciler.tick()
+    expect(cancelled).toBe(false)
+    expect(registry.removed).toEqual([])
+  })
+
   test('leaves the task alone when the source no longer returns it', async () => {
     const source = makeSource([]) // closed/deleted/transient gap
     const registry = makePendingRegistry([
