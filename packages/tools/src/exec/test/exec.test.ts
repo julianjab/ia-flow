@@ -103,10 +103,47 @@ describe('parseArgv', () => {
     expect(parseArgv('   ')).toEqual([])
   })
 
-  it('does NOT honour quotes or escapes (naive split by design)', () => {
-    // The tool contract says quoting is meaningless — Bun.spawn takes argv
-    // directly, no shell. So `"a b"` is two tokens `"a` and `b"`.
-    expect(parseArgv('echo "a b"')).toEqual(['echo', '"a', 'b"'])
+  it('keeps a double-quoted argument as one token (the git commit -m bug)', () => {
+    // Antes: ['git', 'commit', '-m', '"fix:', 'algo"'] — git recibía -m con
+    // valor `"fix:` y trataba `algo"` como pathspec.
+    expect(parseArgv('git commit -m "fix: algo con espacios"')).toEqual([
+      'git',
+      'commit',
+      '-m',
+      'fix: algo con espacios',
+    ])
+    expect(parseArgv('echo "a b"')).toEqual(['echo', 'a b'])
+  })
+
+  it('single quotes behave the same as double quotes', () => {
+    expect(parseArgv("echo 'a b'")).toEqual(['echo', 'a b'])
+    expect(parseArgv("git commit -m 'fix: algo'")).toEqual(['git', 'commit', '-m', 'fix: algo'])
+  })
+
+  it('single quotes are literal — no backslash escapes inside', () => {
+    expect(parseArgv(String.raw`echo 'a\nb'`)).toEqual(['echo', String.raw`a\nb`])
+  })
+
+  it('double quotes honour \\" and \\\\ escapes, keep other backslashes literal', () => {
+    expect(parseArgv(String.raw`echo "a \"b\" c"`)).toEqual(['echo', 'a "b" c'])
+    expect(parseArgv(String.raw`echo "a\\b"`)).toEqual(['echo', String.raw`a\b`])
+    expect(parseArgv(String.raw`echo "a\nb"`)).toEqual(['echo', String.raw`a\nb`])
+  })
+
+  it('a backslash-escaped space outside quotes does not split the argument', () => {
+    expect(parseArgv(String.raw`ls /path/with\ space/file`)).toEqual([
+      'ls',
+      '/path/with space/file',
+    ])
+  })
+
+  it('an unterminated quote throws a clear error instead of a silently malformed argv', () => {
+    expect(() => parseArgv('git commit -m "fix: algo')).toThrow('sin cerrar')
+    expect(() => parseArgv("echo 'unterminated")).toThrow('sin cerrar')
+  })
+
+  it('adjacent quoted and unquoted segments concatenate into one token', () => {
+    expect(parseArgv('echo foo"bar baz"qux')).toEqual(['echo', 'foobar bazqux'])
   })
 })
 
@@ -470,6 +507,42 @@ describe('bash_run — allow/deny pattern enforcement', () => {
 
     const ok = await tool.execute({ command: 'git push origin task/x' }, ctx)
     expect(ok).toContain('exit=0')
+  })
+
+  it('matches a `git commit -m *` allow pattern against the tokenized argv, not the raw string', () => {
+    // El PRD pide verificar que isBashCommandAllowed opera sobre argv (donde
+    // 'fix: algo con espacios' es UN token) y no sobre el string crudo con
+    // comillas, donde partiría distinto.
+    const config = bashConfig(['git commit -m *'])
+    expect(() =>
+      assertBashCommandAllowed(parseArgv('git commit -m "fix: algo con espacios"'), config),
+    ).not.toThrow()
+  })
+
+  it('surfaces an unterminated-quote parse error as `bash_run failed`, before any guard runs', async () => {
+    const tool = getTool('bash_run')!
+    let spawnCalled = false
+    _execInternals.spawn = () => {
+      spawnCalled = true
+      return mockProc({ exitCode: 0 })
+    }
+    const out = await tool.execute({ command: 'git commit -m "fix: algo' }, writableCtx)
+    expect(out).toContain('bash_run failed')
+    expect(out).toContain('sin cerrar')
+    expect(spawnCalled).toBe(false)
+  })
+
+  it('spawns a quoted commit message as a single argv token (the bug this fixes)', async () => {
+    const tool = getTool('bash_run')!
+    const captured: { argv?: string[] } = {}
+    _execInternals.spawn = (argv, cwd) => {
+      captured.argv = argv
+      return mockProc({ exitCode: 0 })
+    }
+    const ctx = ctxWith(bashConfig(['git commit -m *']))
+    const out = await tool.execute({ command: 'git commit -m "fix: algo con espacios"' }, ctx)
+    expect(captured.argv).toEqual(['git', 'commit', '-m', 'fix: algo con espacios'])
+    expect(out).toContain('exit=0')
   })
 })
 

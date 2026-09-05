@@ -43,14 +43,91 @@ export const OUTPUT_MAX_BYTES = 20 * 1024 // 20 KB
 // ─── Pure helpers (unit-testable without spawning) ────────────────────────
 
 /**
- * Naive whitespace split — deliberately does NOT honour quotes, escapes, or
- * env expansion. `Bun.spawn(argv, …)` skips the shell, so quoting is
- * meaningless anyway. If the agent needs anything shell-y (pipes,
- * redirection, glob expansion) it must chain multiple `bash_run`
- * invocations.
+ * Tokenizes `command` into argv, honouring `'…'`, `"…"` and `\`-escapes —
+ * NOT shell quoting (there's no shell: `Bun.spawn(argv, …)` takes argv
+ * directly, so no expansion, no pipes, no redirection), just the minimal
+ * grammar needed so a quoted argument survives as ONE token. Without this,
+ * `git commit -m "fix: algo"` split into `['-m', '"fix:', 'algo"']` and git
+ * silently treated `algo"` as a pathspec — no error, just wrong behavior.
+ *
+ *   - `'…'` — literal; no escapes recognized inside (shell single-quote
+ *     semantics).
+ *   - `"…"` — `\"` and `\\` are escapes inside; any other `\x` is kept
+ *     literal (both chars survive), same as POSIX double-quote escaping.
+ *   - Outside quotes, `\x` escapes the next char literally — this is what
+ *     lets `\ ` embed a space without quoting the whole argument.
+ *   - An unterminated `'` or `"` throws, so a malformed command fails loudly
+ *     instead of producing a silently wrong argv.
+ *
+ * If the agent needs anything shell-y (pipes, redirection, glob expansion)
+ * it must chain multiple `bash_run` invocations.
  */
 export function parseArgv(command: string): string[] {
-  return command.trim().split(/\s+/).filter(Boolean)
+  const argv: string[] = []
+  let current = ''
+  let inToken = false
+  let quote: '"' | "'" | null = null
+  let i = 0
+
+  while (i < command.length) {
+    const ch = command[i] as string
+
+    if (quote === "'") {
+      if (ch === "'") {
+        quote = null
+      } else {
+        current += ch
+      }
+      i++
+      continue
+    }
+
+    if (quote === '"') {
+      if (ch === '"') {
+        quote = null
+      } else if (ch === '\\' && (command[i + 1] === '"' || command[i + 1] === '\\')) {
+        current += command[i + 1]
+        i++
+      } else {
+        current += ch
+      }
+      i++
+      continue
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      inToken = true
+      i++
+      continue
+    }
+
+    if (ch === '\\' && i + 1 < command.length) {
+      current += command[i + 1]
+      inToken = true
+      i += 2
+      continue
+    }
+
+    if (/\s/.test(ch)) {
+      if (inToken) {
+        argv.push(current)
+        current = ''
+        inToken = false
+      }
+      i++
+      continue
+    }
+
+    current += ch
+    inToken = true
+    i++
+  }
+
+  if (quote) throw new Error(`comilla ${quote} sin cerrar en el comando`)
+  if (inToken) argv.push(current)
+
+  return argv
 }
 
 /**
@@ -393,7 +470,13 @@ registerTool({
       return 'bash_run failed: command es requerido y debe ser un string no vacío'
     }
 
-    const argv = parseArgv(input.command)
+    let argv: string[]
+    try {
+      argv = parseArgv(input.command)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return `bash_run failed: ${msg}`
+    }
     if (argv.length === 0) {
       return 'bash_run failed: comando vacío'
     }
