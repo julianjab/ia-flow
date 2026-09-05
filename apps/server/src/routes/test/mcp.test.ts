@@ -143,12 +143,41 @@ describe('POST /api/mcp', () => {
     expect(json.error.code).toBe(-32602)
   })
 
-  it('rejects an unknown method with 404 and a JSON-RPC error', async () => {
+  // 200 y no 404: el transporte funcionó, el método no existe. Con 404 el CLI
+  // descarta el body y da la conexión MCP entera por caída ("HTTP 404 dialing
+  // …/api/mcp"), que es un fallo mucho peor que el `-32601` que sí sabe leer.
+  it('rejects an unknown method with 200 and a JSON-RPC error', async () => {
     const res = await rpc({ jsonrpc: '2.0', id: 8, method: 'nope' })
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(200)
     const json = (await res.json()) as { error: { code: number; message: string } }
     expect(json.error.code).toBe(-32601)
     expect(json.error.message).toContain('nope')
+  })
+
+  it('acepta cualquier notificación sin cuerpo de respuesta', async () => {
+    const res = await rpc({ jsonrpc: '2.0', method: 'notifications/cancelled' })
+    expect(res.status).toBe(202)
+    expect(await res.text()).toBe('')
+  })
+
+  it('responde ping con un result vacío', async () => {
+    const res = await rpc({ jsonrpc: '2.0', id: 9, method: 'ping' })
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { result: unknown }
+    expect(json.result).toEqual({})
+  })
+
+  // Los otros dos métodos del transporte Streamable HTTP. Sin rutas para
+  // ellos caían en el 404 default de Hono y el cliente daba la conexión
+  // entera por muerta antes de negociar `tools/list`.
+  it('GET devuelve 405 (no hay stream SSE), no 404', async () => {
+    const res = await app.request('/', { method: 'GET' })
+    expect(res.status).toBe(405)
+  })
+
+  it('DELETE cierra sin cuerpo (204), no 404', async () => {
+    const res = await app.request('/', { method: 'DELETE' })
+    expect(res.status).toBe(204)
   })
 })
 
