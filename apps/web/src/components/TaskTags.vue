@@ -2,7 +2,7 @@
 import type { PullRequestRef } from '@ia-flow/shared';
 
 // Fila de etiquetas de una tarea: repos, rama remota y PRs. Vive en components/
-// porque la comparten el listado (TareasSection) y el detalle (ItemReposModal);
+// porque la comparten el listado (TareasSection) y el detalle (TaskDetailModal);
 // los tipos cruzan el wire, así que vienen de @ia-flow/shared, no de una feature.
 const props = withDefaults(
   defineProps<{

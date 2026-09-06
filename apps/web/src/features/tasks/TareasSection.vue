@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
-import ItemReposModal from '@/features/repos/ItemReposModal.vue';
+import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import { requestSlackReview, runTaskNow } from '@/features/tasks/api';
@@ -24,7 +24,6 @@ import {
   fetchItemBlockers,
   fetchProjectItems,
   fetchProjectStatuses,
-  setProjectItemField,
   type Blocker,
   type SourceItem,
 } from '@/features/projects/sourceApi';
@@ -83,7 +82,6 @@ const blockersByTask = ref<Record<string, Blocker[]>>({});
 const blockersLoading = ref<Record<string, boolean>>({});
 const reposModalOpen = ref(false);
 const reposModalItem = ref<TaskRow | null>(null);
-const reposModalSaving = ref(false);
 
 const repoEntries = ref<DbRepoEntry[]>([]);
 const availableRepoNames = ref<string[]>([]);
@@ -345,30 +343,6 @@ function openReposModal(item: TaskRow) {
   reposModalOpen.value = true;
 }
 
-async function handleReposSave(repos: string[]) {
-  if (!reposModalItem.value || !activeProjectId.value) return;
-  reposModalSaving.value = true;
-  try {
-    // Providers own how they persist a repos field — the source registry
-    // (github.setProjectTextField, future linear.setIssueField, …) resolves
-    // the right write path from the project row.
-    await setProjectItemField(
-      activeProjectId.value,
-      reposModalItem.value.id,
-      'Repos',
-      repos.join(', '),
-    );
-    const idx = projectItems.value.findIndex((i) => i.id === reposModalItem.value!.id);
-    if (idx !== -1) projectItems.value[idx] = { ...projectItems.value[idx], repos: repos.join(', ') };
-    reposModalOpen.value = false;
-    toastStore.success('Repos actualizados');
-  } catch (e) {
-    toastStore.error(`Error: ${extractErrorMessage(e)}`);
-  } finally {
-    reposModalSaving.value = false;
-  }
-}
-
 async function onSlackReviewClick(item: TaskRow) {
   const pr = openPr(item);
   // Un CI en rojo no bloquea, pero tampoco sale solo: el revisor va a mirar un
@@ -618,13 +592,11 @@ watch(activeProjectId, (pid) => {
     @cancel="slackConfirm = null"
   />
 
-  <ItemReposModal
+  <TaskDetailModal
     :open="reposModalOpen"
     :issue-number="reposModalItem?.issueNumber ?? 0"
     :issue-title="reposModalItem?.title ?? ''"
-    :current-repos="reposModalItem ? currentReposOf(reposModalItem) : []"
-    :available-repos="availableRepoNames"
-    :saving="reposModalSaving"
+    :repos="reposModalItem ? currentReposOf(reposModalItem) : []"
     :issue-url="reposModalItem?.url"
     :branch="reposModalItem?.branch"
     :branch-url="reposModalItem?.branchUrl"
@@ -636,7 +608,6 @@ watch(activeProjectId, (pid) => {
     :run-result="runResult"
     @run="onRunClick"
     @close="reposModalOpen = false"
-    @save="handleReposSave"
   />
 </template>
 

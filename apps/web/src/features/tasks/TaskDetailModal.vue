@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import type { PullRequestRef, RunTaskNowResult } from '@ia-flow/shared';
-import { ref, watch, computed } from 'vue';
+import { computed } from 'vue';
 import TaskTags from '@/components/TaskTags.vue';
 
 const props = defineProps<{
   open: boolean;
   issueNumber: number;
   issueTitle: string;
-  currentRepos: string[];
-  availableRepos: string[];
-  saving?: boolean;
+  /** Repos que toca la tarea. Sólo lectura: quién los decide es la fuente
+   *  (el campo del board, el repo dueño del issue, los head repos de sus PRs),
+   *  y no todas saben persistirlos — `github-issues` los deriva de su config.
+   *  Un editor que sólo funciona en algunas fuentes es peor que un dato. */
+  repos: string[];
   // Dev links de la tarea. Opcionales: un provider sin noción de ramas/PRs
   // (local-fs) simplemente no los pasa y el bloque no se dibuja.
   issueUrl?: string;
@@ -32,21 +34,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  save: [repos: string[]];
   run: [];
 }>();
-
-const selected = ref<string[]>([]);
-
-watch(() => props.open, (open) => {
-  if (open) selected.value = [...props.currentRepos];
-});
-
-function toggle(repo: string) {
-  const idx = selected.value.indexOf(repo);
-  if (idx === -1) selected.value.push(repo);
-  else selected.value.splice(idx, 1);
-}
 
 /** Qué decir del último intento, en el idioma del operador. */
 const runMessage = computed(() => {
@@ -61,10 +50,6 @@ const runMessage = computed(() => {
     text: `Ninguna regla matchea el status "${r.status}", así que no se despachó ningún agente. Revisá las reglas del proyecto.`,
   };
 });
-
-const hasChanges = computed(
-  () => JSON.stringify([...selected.value].sort()) !== JSON.stringify([...props.currentRepos].sort())
-);
 </script>
 
 <template>
@@ -102,6 +87,14 @@ const hasChanges = computed(
             />
           </section>
 
+          <section class="repos-block">
+            <span class="uc-label">Repos</span>
+            <div v-if="repos.length" class="repo-list">
+              <span v-for="r in repos" :key="r" class="repo-chip is-static">{{ r }}</span>
+            </div>
+            <p v-else class="empty">La fuente no reporta ningún repo para esta tarea.</p>
+          </section>
+
           <section class="run-block">
             <span class="uc-label">Ejecución</span>
             <div class="run-row">
@@ -124,40 +117,10 @@ const hasChanges = computed(
               {{ runMessage.text }}
             </p>
           </section>
-
-          <p class="hint">Selecciona los repos que afecta esta tarea.</p>
-
-          <div v-if="availableRepos.length" class="repo-grid">
-            <button
-              v-for="repo in availableRepos"
-              :key="repo"
-              type="button"
-              class="repo-chip"
-              :class="{ active: selected.includes(repo) }"
-              @click="toggle(repo)"
-            >
-              <span class="chip-check">{{ selected.includes(repo) ? '✓' : '' }}</span>
-              <span class="chip-name">{{ repo }}</span>
-            </button>
-          </div>
-
-          <p v-else class="empty">No hay repos configurados. Agrega repos en la tab Repos.</p>
-
-          <div v-if="selected.length" class="selected-preview">
-            <span class="preview-label">Seleccionados:</span>
-            <span v-for="r in selected" :key="r" class="preview-chip">{{ r }}</span>
-          </div>
         </div>
 
         <footer class="modal-foot">
-          <button class="btn" @click="emit('close')">Cancelar</button>
-          <button
-            class="btn btn--primary"
-            :disabled="saving || !hasChanges"
-            @click="emit('save', [...selected])"
-          >
-            {{ saving ? 'Guardando…' : 'Guardar' }}
-          </button>
+          <button class="btn" @click="emit('close')">Cerrar</button>
         </footer>
       </div>
     </div>
@@ -165,12 +128,22 @@ const hasChanges = computed(
 </template>
 
 <style scoped>
+.repos-block,
 .run-block {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border);
+}
+.repo-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.repo-chip.is-static {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg);
 }
 .run-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .run-btn { flex: 0 0 auto; }
@@ -245,7 +218,6 @@ const hasChanges = computed(
   flex-direction: column;
   gap: 0.85rem;
 }
-.hint { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dim); }
 .modal-issue-link {
   flex: 0 0 auto;
   color: var(--fg-dim);
@@ -259,49 +231,7 @@ const hasChanges = computed(
 
 .dev-block { display: flex; flex-direction: column; gap: 0.4rem; }
 
-.repo-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.repo-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  height: calc(var(--row-h) + 0.35rem);
-  padding: 0 0.7rem;
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-body-sm);
-  color: var(--fg-mute);
-  background: var(--panel);
-  cursor: pointer;
-  user-select: none;
-  transition: border-color 0.1s, background 0.1s, color 0.1s;
-  font-family: var(--font-mono);
-}
-.repo-chip:hover { border-color: var(--info); color: var(--info); }
-.repo-chip.active { border-color: var(--info); background: var(--panel-hi); color: var(--info); font-weight: 500; }
-.chip-check { width: 1ch; font-size: var(--fs-micro); color: var(--accent); }
-
 .empty { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dimmer); }
-
-.selected-preview {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.6rem 0.75rem;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.preview-label { font-size: var(--fs-micro); color: var(--fg-dim); flex-shrink: 0; }
-.preview-chip {
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  padding: 0 0.4rem;
-  background: var(--panel-hi);
-  color: var(--info);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-}
 
 .modal-foot {
   display: flex;
@@ -311,5 +241,4 @@ const hasChanges = computed(
   border-top: 1px solid var(--panel-hi);
   flex-shrink: 0;
 }
-
 </style>
