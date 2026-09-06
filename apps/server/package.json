@@ -18,6 +18,7 @@
     "@ia-flow/figma-auth": "workspace:*",
     "@ia-flow/github-auth": "workspace:*",
     "@ia-flow/issue-sources": "workspace:*",
+    "@ia-flow/rules": "workspace:*",
     "@ia-flow/shared": "workspace:*",
     "@ia-flow/slack": "workspace:*",
     "@ia-flow/tools": "workspace:*",
