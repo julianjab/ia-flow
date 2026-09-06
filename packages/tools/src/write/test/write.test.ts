@@ -305,6 +305,36 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
       } as any),
     ).rejects.toThrow('leé w/a.ts antes de editarlo')
   })
+
+  it('fs_edit on a NON-EXISTENT path reports that, not the read-before-write gate', async () => {
+    // No file at all — the real problem is "doesn't exist", not "unread".
+    // Reporting the gate here would send the agent into fs_read (which
+    // answers "File not found") → fs_edit (asks to read again) forever.
+    const tool = getTool('edit_file')!
+    await expect(
+      tool.execute(
+        { path: 'w/missing.ts', old_string: 'x', new_string: 'y' },
+        { ...ctxWith([writeRoot]), readPaths: new Set() },
+      ),
+    ).rejects.toThrow('w/missing.ts no existe')
+  })
+
+  it('fs_write refuses content that looks like fs_read line-numbered output', async () => {
+    const tool = getTool('write_file')!
+    const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\tconst c = 3'
+    await expect(
+      tool.execute({ path: 'w/new.ts', content: numbered }, ctxWith([writeRoot])),
+    ).rejects.toThrow('parece traer los prefijos')
+  })
+
+  it('fs_write accepts content where only a minority of lines look numbered', async () => {
+    // 1 of 4 lines matches "digits + tab" — below the majority threshold,
+    // so this is treated as real code, not a copy-pasted fs_read output.
+    const tool = getTool('write_file')!
+    const code = 'const a = 1\n1\tfoo bar baz\nconst b = 2\nconst c = 3\n'
+    const out = await tool.execute({ path: 'w/new.ts', content: code }, ctxWith([writeRoot]))
+    expect(out).toContain('Archivo escrito')
+  })
 })
 
 describe('write/edit — registration metadata', () => {

@@ -526,9 +526,17 @@ describe('fs_read — focus', () => {
     expect(readPaths.size).toBe(0)
   })
 
-  it('a paginated read (offset/limit) on the same big file DOES mark the path as read', async () => {
+  it('a partial paginated read (a slice, not the whole file) does NOT mark the path as read', async () => {
+    // offset:1, limit:10 on a 1200-line file only covers the first 10 lines —
+    // the agent has NOT seen enough to safely overwrite the whole thing.
     const readPaths = new Set<string>()
     await read({ path: 'r/big.txt', offset: 1, limit: 10 }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('a paginated read that covers the WHOLE file (offset:1, no limit) DOES mark the path as read', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1 }, { readPaths })
     expect(readPaths.has(join(repoRoot, 'big.txt'))).toBe(true)
   })
 
