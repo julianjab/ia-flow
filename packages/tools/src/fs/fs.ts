@@ -343,29 +343,47 @@ registerTool({
       // barato en turnos). El corte es por LÍNEAS efectivamente incluidas,
       // no por el rango pedido: lo que se marca como leído es lo que
       // realmente volvió, nunca más.
+      //
+      // Progreso garantizado: la primera línea SIEMPRE entra, sin importar
+      // su tamaño — el chequeo del tope sólo corta a partir de la segunda.
+      // Sin esto, una única línea >40 KB (un bundle minificado, un blob
+      // base64/JSON sin saltos) daba `actualCount = 0`: página vacía, el
+      // aviso de "continuar" repetía el MISMO offset, y el agente quedaba
+      // en loop infinito sin poder avanzar ni un byte.
       let bytes = 0
-      let actualCount = numbered.length
+      let actualCount = 0
       for (let i = 0; i < numbered.length; i++) {
-        bytes += Buffer.byteLength(numbered[i]!) + 1 // +1 por el separador '\n'
-        if (bytes > MAX_FILE_BYTES) {
-          actualCount = i
-          break
-        }
+        const lineBytes = Buffer.byteLength(numbered[i]!) + 1 // +1 por el '\n'
+        if (actualCount > 0 && bytes + lineBytes > MAX_FILE_BYTES) break
+        bytes += lineBytes
+        actualCount = i + 1
       }
       const actualEnd = start + actualCount
-      // Se acumula por rango, no por llamada: paginar en varias vueltas
-      // (offset 1/limit 500, 501/500, …, o el continue del corte de arriba)
-      // hasta cubrir el archivo entero marca el path igual que una sola
-      // lectura completa — es justo el flujo que la descripción de la tool
-      // recomienda para archivos grandes. Un rango parcial que nunca se
-      // completa sigue sin marcar, como el focus de Haiku.
-      recordRangeRead(ctx, abs, start, actualEnd, lines.length)
       const body = numbered.slice(0, actualCount).join('\n')
-      if (actualCount >= numbered.length) return body
+      // Una única línea que por sí sola ya excede el tope (el caso del
+      // bundle de una línea) SÍ se corta en su propio texto — pero, a
+      // diferencia de una página normal, NO cuenta como "leída": el agente
+      // vio sólo una porción de esa línea, igual que un `focus` o una
+      // cabecera recortada.
+      const singleOversizedLine = actualCount === 1 && bytes > MAX_FILE_BYTES
+      if (!singleOversizedLine) {
+        // Se acumula por rango, no por llamada: paginar en varias vueltas
+        // (offset 1/limit 500, 501/500, …, o el continue del corte de
+        // arriba) hasta cubrir el archivo entero marca el path igual que
+        // una sola lectura completa — es justo el flujo que la descripción
+        // de la tool recomienda para archivos grandes. Un rango parcial que
+        // nunca se completa sigue sin marcar, como el focus de Haiku.
+        recordRangeRead(ctx, abs, start, actualEnd, lines.length)
+      }
+      if (actualCount >= numbered.length && !singleOversizedLine) return body
+      const shownBody = singleOversizedLine ? body.slice(0, MAX_FILE_BYTES) : body
+      const reason = singleOversizedLine
+        ? ` (una sola línea excede ${MAX_FILE_BYTES} bytes — cortada, no cuenta como leída)`
+        : ''
       return (
-        body +
-        `\n\n[Página cortada a ${MAX_FILE_BYTES} bytes — leíste las líneas ${start + 1}-${actualEnd} ` +
-        `de ${lines.length}. Pasa offset:${actualEnd + 1} para continuar.]`
+        shownBody +
+        `\n\n[Página cortada a ${MAX_FILE_BYTES} bytes${reason} — leíste las líneas ` +
+        `${start + 1}-${actualEnd} de ${lines.length}. Pasa offset:${actualEnd + 1} para continuar.]`
       )
     }
 
