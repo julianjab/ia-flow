@@ -327,6 +327,30 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
     ).rejects.toThrow('parece traer los prefijos')
   })
 
+  it('fs_write refuses numbered content even with a trailing newline (regression: models usually close files with one)', async () => {
+    // This is fs_read's ACTUAL raw shape for a file ending in "\n": the last
+    // line comes back as "N\t" (empty content, still numbered) — plus
+    // whatever the model appends on top when it pastes the output back.
+    const tool = getTool('write_file')!
+    const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\t\n'
+    await expect(
+      tool.execute({ path: 'w/new.ts', content: numbered }, ctxWith([writeRoot])),
+    ).rejects.toThrow('parece traer los prefijos')
+  })
+
+  it('an interior (non-trailing) blank line breaks the numbered-output detection, even if the rest looks numbered', async () => {
+    // fs_read numbers blank lines too ("3\t" for an empty line); real content
+    // with a genuinely blank line in the middle does not look like that, so
+    // it must not be flagged.
+    const tool = getTool('write_file')!
+    const looksNumberedButHasABlankLine = '1\tfoo\n\n3\tbar\n4\tbaz\n'
+    const out = await tool.execute(
+      { path: 'w/new.ts', content: looksNumberedButHasABlankLine },
+      ctxWith([writeRoot]),
+    )
+    expect(out).toContain('Archivo escrito')
+  })
+
   it('fs_write accepts content where lines are not ALL numbered', async () => {
     const tool = getTool('write_file')!
     const code = 'const a = 1\n1\tfoo bar baz\nconst b = 2\nconst c = 3\n'
