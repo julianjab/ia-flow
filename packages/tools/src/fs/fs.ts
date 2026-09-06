@@ -69,13 +69,30 @@ function numberLines(content: string): string {
     .join('\n')
 }
 
-/** Marca `abs` como leído — sólo para las ramas que devuelven el archivo
- *  ENTERO, literal (no un resumen ni una cabecera recortada). Es lo que hace
- *  seguro que `fs_write` confíe en `ctx.readPaths`: si el path está marcado,
- *  el agente vio el contenido completo, no una porción. */
-function markFullyRead(abs: string, ctx: ToolContext, content: string): string {
+/**
+ * Devuelve el archivo entero numerado y lo marca como leído — pero sólo si
+ * el OUTPUT numerado entra en `MAX_FILE_BYTES`. Chequear el tope contra el
+ * `content` crudo (como hacía antes) no alcanza: el prefijo "N\t" por línea
+ * es overhead que un archivo con muchas líneas CORTAS puede inflar muy por
+ * encima del tope aunque el contenido crudo entrara justo — un archivo de
+ * 39 000 líneas de 1 byte (~39 KB crudos, pasa el chequeo viejo) sale
+ * numerado a ~270 KB. Si el numerado no entra, cae a `headWithNotice` (sin
+ * numerar, sin marcar) exactamente como un archivo que ya era grande antes
+ * de numerar — mismo tratamiento, un solo camino.
+ */
+function markFullyRead(
+  abs: string,
+  ctx: ToolContext,
+  path: string,
+  content: string,
+  reason?: string,
+): string {
+  const numbered = numberLines(content)
+  if (Buffer.byteLength(numbered) > MAX_FILE_BYTES) {
+    return headWithNotice(content, path, reason)
+  }
   ctx.readPaths?.add(abs)
-  return numberLines(content)
+  return numbered
 }
 
 /**
@@ -360,25 +377,26 @@ registerTool({
       }
       const actualEnd = start + actualCount
       const body = numbered.slice(0, actualCount).join('\n')
-      // Una única línea que por sí sola ya excede el tope (el caso del
-      // bundle de una línea) SÍ se corta en su propio texto — pero, a
-      // diferencia de una página normal, NO cuenta como "leída": el agente
-      // vio sólo una porción de esa línea, igual que un `focus` o una
-      // cabecera recortada.
+      // Se acumula por rango, no por llamada: paginar en varias vueltas
+      // (offset 1/limit 500, 501/500, …, o el continue del corte de arriba)
+      // hasta cubrir el archivo entero marca el path igual que una sola
+      // lectura completa — es justo el flujo que la descripción de la tool
+      // recomienda para archivos grandes. Un rango parcial que nunca se
+      // completa sigue sin marcar, como el focus de Haiku.
+      //
+      // Una única línea que por sí sola ya excede el tope (bundle
+      // minificado, blob base64/JSON sin saltos) SÍ cuenta como cubierta acá
+      // — a diferencia de un focus o una cabecera recortada, no hay ninguna
+      // llamada posterior que pueda mostrar MÁS de esa misma línea (offset
+      // avanza por líneas, no por bytes dentro de una); tratarla como "nunca
+      // leída" dejaría el archivo imposible de editar para siempre, un
+      // callejón sin salida peor que aceptar la vista truncada.
       const singleOversizedLine = actualCount === 1 && bytes > MAX_FILE_BYTES
-      if (!singleOversizedLine) {
-        // Se acumula por rango, no por llamada: paginar en varias vueltas
-        // (offset 1/limit 500, 501/500, …, o el continue del corte de
-        // arriba) hasta cubrir el archivo entero marca el path igual que
-        // una sola lectura completa — es justo el flujo que la descripción
-        // de la tool recomienda para archivos grandes. Un rango parcial que
-        // nunca se completa sigue sin marcar, como el focus de Haiku.
-        recordRangeRead(ctx, abs, start, actualEnd, lines.length)
-      }
+      recordRangeRead(ctx, abs, start, actualEnd, lines.length)
       if (actualCount >= numbered.length && !singleOversizedLine) return body
       const shownBody = singleOversizedLine ? body.slice(0, MAX_FILE_BYTES) : body
       const reason = singleOversizedLine
-        ? ` (una sola línea excede ${MAX_FILE_BYTES} bytes — cortada, no cuenta como leída)`
+        ? ` (una sola línea excede ${MAX_FILE_BYTES} bytes — cortada)`
         : ''
       return (
         shownBody +
@@ -397,16 +415,10 @@ registerTool({
       // silenciosamente. Exigir una lectura completa (o paginada con
       // offset/limit) antes de habilitar la escritura es lo seguro.
       if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus, ctx)
-      return content.length > MAX_FILE_BYTES
-        ? headWithNotice(content, input.path, 'focus disabled')
-        : markFullyRead(abs, ctx, content)
+      return markFullyRead(abs, ctx, input.path, content, 'focus disabled')
     }
 
-    // Cabecera recortada (>MAX_FILE_BYTES): mismo motivo que arriba, no
-    // cuenta como lectura completa.
-    return content.length > MAX_FILE_BYTES
-      ? headWithNotice(content, input.path)
-      : markFullyRead(abs, ctx, content)
+    return markFullyRead(abs, ctx, input.path, content)
   },
 })
 
