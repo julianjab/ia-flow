@@ -319,6 +319,34 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     }
   })
 
+  // GET /api/tasks/:id/run-preview?projectId=…
+  // Qué pasaría si la corrieras: qué regla la toma, y si ninguna, POR QUÉ.
+  // Es de lectura y no publica nada — el gemelo diagnóstico del POST de
+  // arriba, y la única forma de ver "Rules NOT matched" sin leer el daemon.log.
+  router.get('/:id/run-preview', async (c) => {
+    const taskId = c.req.param('id')
+    const projectId = c.req.query('projectId')
+    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
+    if (!projectRepo.get(projectId)) {
+      return c.json({ error: `Project '${projectId}' not found` }, 404)
+    }
+
+    let source: ReturnType<typeof getSourceForProjectId>
+    try {
+      source = getSourceForProjectId(projectId)
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+
+    try {
+      return c.json(await runTaskNowUseCase.preview({ taskId, projectId }, source))
+    } catch (err) {
+      if (err instanceof RunTaskNowError) return c.json({ error: err.message }, 400)
+      log.error({ err, taskId }, 'run-preview failed')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
   // GET /api/tasks/:id — get single task
   router.get('/:id', async (c) => {
     const id = c.req.param('id')

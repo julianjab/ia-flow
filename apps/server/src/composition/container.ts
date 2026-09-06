@@ -986,8 +986,21 @@ export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemR
 
 // "Correr esta tarea ahora" (POST /api/tasks/:id/run). Recibe el bus y la
 // pregunta "¿está corriendo?" — no el registry entero: es lo único que mira.
-export const runTaskNowUseCase = new RunTaskNowUseCase(eventBus, (taskId) =>
-  Boolean(getPendingTask(taskId)),
+export const runTaskNowUseCase = new RunTaskNowUseCase(
+  eventBus,
+  (taskId) => Boolean(getPendingTask(taskId)),
+  // Las mismas dos lecturas que hace el motor en `daemon.ts` antes de
+  // matchear: por evento y no congeladas, para que editar una regla en la UI
+  // se refleje en el preview sin reiniciar.
+  {
+    loadRules: (event) => ruleRepo.visibleTo(event.scope.projectId),
+    loadBaseWhen: async (event) => {
+      const projectId = event.scope.projectId
+      if (!projectId) return []
+      const baseWhen = projectRepo.get(projectId)?.settings?.baseWhen
+      return Array.isArray(baseWhen) && baseWhen.length ? [baseWhen] : []
+    },
+  },
 )
 
 /**

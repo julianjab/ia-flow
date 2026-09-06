@@ -252,6 +252,53 @@ export const RunTaskNowResultSchema = z.object({
 })
 export type RunTaskNowResult = z.infer<typeof RunTaskNowResultSchema>
 
+/**
+ * Por qué esta tarea correría —o no— si la despacharas ahora
+ * (GET /api/tasks/:id/run-preview).
+ *
+ * Existe porque el caso más caro de diagnosticar no es un run que falla: es el
+ * run que NUNCA ARRANCA. Ése no deja fila en `execution_logs` ni comentario en
+ * el issue; su única huella es una línea "Rules NOT matched" en el daemon.log,
+ * que el operador no está mirando. Esto es esa línea, contestada antes de
+ * apretar el botón.
+ */
+export const TaskRunPreviewRuleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+export const TaskRunPreviewRejectionSchema = TaskRunPreviewRuleSchema.extend({
+  /** Qué filtro la descartó. Mismo vocabulario que `RuleRejectionReason`. */
+  reason: z.string(),
+  /** Sólo para `reason: 'when'`: las condiciones que fallaron, con el valor
+   *  que el evento resolvió. `undefined` en `actual` es la señal de "este
+   *  evento no trae ese campo", que es el error de config más común. */
+  failed: z
+    .array(
+      z.object({
+        field: z.string(),
+        op: z.string(),
+        value: z.string().optional(),
+        actual: z.string().nullable(),
+      }),
+    )
+    .optional(),
+})
+
+export const TaskRunPreviewSchema = z.object({
+  /** El status contra el que se evaluó. */
+  status: z.string(),
+  /** Motivo por el que el pedido ni siquiera llegaría a las reglas (hay un run
+   *  en curso, la tarea no tiene status). `null` = nada lo impide. */
+  blockedReason: z.string().nullable(),
+  matched: z.array(TaskRunPreviewRuleSchema),
+  /** Sólo los descartes ACCIONABLES (`when`, `disabled`, `exclusive`). Las que
+   *  no son para esta tarea (`type`, `scope`) se cuentan aparte: listarlas
+   *  sería ruido — son todas las reglas de los otros proyectos. */
+  rejected: z.array(TaskRunPreviewRejectionSchema),
+  notApplicable: z.number(),
+})
+export type TaskRunPreview = z.infer<typeof TaskRunPreviewSchema>
+
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
 
 export const RepoEntrySchema = z.object({
