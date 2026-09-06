@@ -105,13 +105,13 @@ describe('OutcomesEditor — campo multi-valor con signo', () => {
     const wrapper = mountEditor({ exits: { success: '$set:Etiquetas=+design' } }, [
       { name: 'Etiquetas', dataType: 'MULTI_SELECT', options: ['design'] },
     ])
-    expect(wrapper.findAll('.loe-chip').map((c) => c.text())).toEqual(['+design✕'])
+    expect(wrapper.findAll('.cb-chip').map((c) => c.text())).toEqual(['design+✕'])
   })
 
   it('hidrata una fila Labels desde el $set: del slot', () => {
     const wrapper = mountEditor({ exits: { success: '$set:Labels=+design,-wip' } })
-    const chips = wrapper.findAll('.loe-chip')
-    expect(chips.map((c) => c.text())).toEqual(['+design✕', '-wip✕'])
+    const chips = wrapper.findAll('.cb-chip')
+    expect(chips.map((c) => c.text())).toEqual(['design+✕', 'wip-✕'])
   })
 
   it('el signo del chip alterna añadir → quitar y se emite', async () => {
@@ -146,12 +146,12 @@ describe('OutcomesEditor — campo multi-valor con signo', () => {
     const input = wrapper.get('.loe-combo .cb-input')
     await input.setValue('a')
     await input.trigger('keydown', { key: 'Enter' })
-    expect(wrapper.findAll('.loe-chip')).toHaveLength(1)
+    expect(wrapper.findAll('.cb-chip')).toHaveLength(1)
   })
 
   it('quitar el chip borra el outcome de labels del slot', async () => {
     const wrapper = mountEditor({ exits: { success: '$set:Labels=+design' } })
-    await wrapper.get('.loe-x').trigger('click')
+    await wrapper.get('.cb-chip__x').trigger('click')
     expect(lastEmit(wrapper)).toEqual({})
   })
 })

@@ -7,7 +7,14 @@
 //
 // `=` (reemplazar por) es el tercer estado del mismo toggle: casi nunca se
 // usa, pero sin él una config guardada con `=` quedaría imposible de editar.
-import { computed, ref } from 'vue'
+//
+// Los chips y el input viven DENTRO del mismo `ComboBox` (modo `multiple`) —
+// no en una caja propia al lado — para que se vea como cualquier otro picker
+// de chips de la app (el de reviewers de Slack, p. ej.), en vez de un widget
+// aparte con su propio borde. El signo es lo único que ComboBox no sabe
+// dibujar: se inyecta en el slot `chip-extra`, pensado justo para que un
+// dominio agregue su propia acción sin que el componente se entere de qué es.
+import { computed } from 'vue'
 import {
   type LabelSign,
   type LabelToken,
@@ -29,66 +36,48 @@ const emit = defineEmits<{
 
 const tokens = computed<LabelToken[]>(() => parseLabelTokens(props.modelValue))
 
-// Sólo sugerimos lo que todavía no está elegido — repetir una label ya puesta
-// no tiene sentido en ninguno de los tres signos.
-const suggestions = computed(() => {
-  const taken = new Set(tokens.value.map((t) => t.label.toLowerCase()))
-  return (props.options ?? []).filter((o) => !taken.has(o.toLowerCase()))
-})
+/** Lo que ComboBox necesita para pintar los chips: sólo el label, sin signo —
+ *  el signo es un dato nuestro que el componente no conoce. */
+const selectedLabels = computed(() => tokens.value.map((t) => t.label))
 
-const suggestionOptions = computed<ComboOption[]>(() =>
-  suggestions.value.map((o) => ({ value: o })),
-)
+const catalogOptions = computed<ComboOption[]>(() => (props.options ?? []).map((o) => ({ value: o })))
 
 function emitTokens(next: LabelToken[]) {
   emit('update:modelValue', serializeLabelTokens(next))
 }
 
+function signOf(label: string): LabelSign {
+  return tokens.value.find((t) => t.label.toLowerCase() === label.toLowerCase())?.sign ?? '+'
+}
+
 const NEXT_SIGN: Record<LabelSign, LabelSign> = { '+': '-', '-': '=', '=': '+' }
 
-function cycleSign(i: number) {
+function cycleSign(label: string) {
   emitTokens(
-    tokens.value.map((t, idx) => (idx === i ? { ...t, sign: NEXT_SIGN[t.sign] } : t)),
+    tokens.value.map((t) =>
+      t.label.toLowerCase() === label.toLowerCase() ? { ...t, sign: NEXT_SIGN[t.sign] } : t,
+    ),
   )
 }
 
-function removeToken(i: number) {
-  emitTokens(tokens.value.filter((_, idx) => idx !== i))
-}
+/** ComboBox devuelve el array COMPLETO de valores elegidos — agregar, quitar
+ *  y Backspace-borra-el-último llegan todos por acá como una sola lista
+ *  nueva. Lo que agrega puede traer signo (`-wip`, tipeado a mano) o varias
+ *  labels de una (`design, wip`, pegadas): por eso lo nuevo pasa por
+ *  `parseLabelTokens`, el mismo parser que entiende el DSL, en vez de tomarse
+ *  tal cual como un label literal. */
+function onSelectionChange(next: string[]) {
+  const before = new Set(tokens.value.map((t) => t.label.toLowerCase()))
+  const after = new Set(next.map((l) => l.toLowerCase()))
 
-// El picker es un `ComboBox` de un solo valor que nunca RETIENE ese valor:
-// cada elección/blur-con-texto llega acá, se reparte en tokens (comas y
-// signos incluidos — mismo parser que antes) y el campo vuelve a `''`. Así
-// se ve como "un input para agregar", no como "un select con memoria".
-const pick = ref('')
+  const kept = tokens.value.filter((t) => after.has(t.label.toLowerCase()))
+  const addedRaw = next.filter((l) => !before.has(l.toLowerCase()))
+  const addedTokens = addedRaw.flatMap((raw) => parseLabelTokens(raw))
 
-function onPick(raw: string) {
-  pick.value = ''
-  const trimmed = raw.trim()
-  if (!trimmed) return
-  // Acepta pegar varias de una (`design, wip`) y respeta un signo escrito a
-  // mano (`-wip`), que es lo que alguien acostumbrado al DSL va a tipear.
-  const added = parseLabelTokens(trimmed)
-  const taken = new Set(tokens.value.map((t) => t.label.toLowerCase()))
-  const fresh = added.filter((t) => !taken.has(t.label.toLowerCase()))
-  if (fresh.length) emitTokens([...tokens.value, ...fresh])
-}
+  const keptLower = new Set(kept.map((t) => t.label.toLowerCase()))
+  const fresh = addedTokens.filter((t) => !keptLower.has(t.label.toLowerCase()))
 
-// El `ComboBox` no sabe de nuestros chips — sólo nos avisa qué se está
-// tipeando (evento `search`). Backspace con el campo vacío borra el último
-// chip, igual que en un campo de tags nativo.
-const typed = ref('')
-
-function onWrapKeydown(e: KeyboardEvent) {
-  const target = e.target as HTMLElement | null
-  if (
-    e.key === 'Backspace' &&
-    !typed.value &&
-    tokens.value.length &&
-    target?.classList.contains('cb-input')
-  ) {
-    removeToken(tokens.value.length - 1)
-  }
+  emitTokens([...kept, ...fresh])
 }
 
 const SIGN_TITLE: Record<LabelSign, string> = {
@@ -96,63 +85,43 @@ const SIGN_TITLE: Record<LabelSign, string> = {
   '-': 'Quitar — clic para cambiar',
   '=': 'Reemplazar por — clic para cambiar',
 }
+
+// Nombres de clase legibles, no el signo crudo: `+`/`=` no son caracteres
+// válidos en un selector CSS sin escapar.
+const SIGN_CLASS: Record<LabelSign, string> = {
+  '+': 'loe-sign--add',
+  '-': 'loe-sign--remove',
+  '=': 'loe-sign--replace',
+}
 </script>
 
 <template>
-  <div class="loe" @keydown="onWrapKeydown">
-    <span v-for="(t, i) in tokens" :key="`${t.label}-${i}`" class="loe-chip" :data-sign="t.sign">
+  <ComboBox
+    class="loe-combo"
+    multiple
+    :model-value="selectedLabels"
+    :options="catalogOptions"
+    allow-custom
+    placeholder="label"
+    @update:model-value="onSelectionChange($event as string[])"
+  >
+    <template #chip-extra="{ value }">
       <button
         type="button"
         class="loe-sign"
-        :title="SIGN_TITLE[t.sign]"
-        @click="cycleSign(i)"
-      >{{ t.sign }}</button>
-      <span class="loe-name">{{ t.label }}</span>
-      <button
-        type="button"
-        class="loe-x"
-        :aria-label="`Quitar ${t.label}`"
-        @click="removeToken(i)"
-      >✕</button>
-    </span>
-
-    <ComboBox
-      class="loe-combo"
-      :model-value="pick"
-      :options="suggestionOptions"
-      allow-custom
-      placeholder="label"
-      @update:model-value="onPick($event as string)"
-      @search="typed = $event"
-    />
-  </div>
+        :class="SIGN_CLASS[signOf(value)]"
+        :title="SIGN_TITLE[signOf(value)]"
+        @click.stop="cycleSign(value)"
+      >{{ signOf(value) }}</button>
+    </template>
+  </ComboBox>
 </template>
 
 <style scoped>
-/* Sin caja propia: cada chip ya trae su borde, y el `ComboBox` trae el suyo —
-   una tercera caja alrededor de todo dejaba una doble línea. */
-.loe {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
+.loe-combo {
   flex: 1 1 0;
   min-width: 0;
 }
-
-.loe-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2ch;
-  height: calc(var(--row-h) - 4px);
-  padding: 0 0.2ch;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-}
-.loe-chip[data-sign='+'] { border-color: var(--accent); }
-.loe-chip[data-sign='-'] { border-color: var(--danger); }
-.loe-chip[data-sign='='] { border-color: var(--warn); }
 
 .loe-sign {
   border: none;
@@ -161,26 +130,10 @@ const SIGN_TITLE: Record<LabelSign, string> = {
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   font-weight: 700;
+  line-height: 1;
   padding: 0 0.2ch;
 }
-.loe-chip[data-sign='+'] .loe-sign { color: var(--accent); }
-.loe-chip[data-sign='-'] .loe-sign { color: var(--danger); }
-.loe-chip[data-sign='='] .loe-sign { color: var(--warn); }
-
-.loe-name { color: var(--fg); }
-
-.loe-x {
-  border: none;
-  background: none;
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: var(--fs-micro);
-  padding: 0 0.2ch;
-}
-.loe-x:hover { color: var(--danger); }
-
-.loe-combo {
-  flex: 1 1 8rem;
-  min-width: 8rem;
-}
+.loe-sign--add { color: var(--accent); }
+.loe-sign--remove { color: var(--danger); }
+.loe-sign--replace { color: var(--warn); }
 </style>
