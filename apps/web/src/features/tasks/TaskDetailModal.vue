@@ -3,6 +3,7 @@ import type { PullRequestRef, RunTaskNowResult } from '@ia-flow/shared';
 import { computed } from 'vue';
 import TaskTags from '@/components/TaskTags.vue';
 import TaskExecutions from '@/features/tasks/TaskExecutions.vue';
+import TaskRunPreview from '@/features/tasks/TaskRunPreview.vue';
 
 const props = defineProps<{
   open: boolean;
@@ -124,6 +125,15 @@ const runMessage = computed(() => {
                 sin mover la tarea en el board.
               </p>
             </div>
+            <!-- Por qué correría o no, ANTES de apretar: un run que no
+                 arranca no deja fila en Ejecuciones ni comentario en el
+                 issue, así que sin esto no hay dónde mirar. -->
+            <TaskRunPreview
+              v-if="open"
+              :project-id="projectId"
+              :task-id="taskId"
+              :reload-token="runResult"
+            />
             <p v-if="runMessage" class="run-result" :class="{ 'is-error': !runMessage.ok }">
               {{ runMessage.text }}
             </p>

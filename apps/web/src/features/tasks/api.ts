@@ -4,6 +4,8 @@ import {
   type RunTaskNowResult,
   RunTaskNowResultSchema,
   type SlackMemberRef,
+  type TaskRunPreview,
+  TaskRunPreviewSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -70,4 +72,20 @@ export async function fetchTaskExecutions(
     params: { projectId, taskId, limit },
   })
   return ExecutionLogArraySchema.parse(data.executions)
+}
+
+/**
+ * Qué pasaría si corrieras la tarea ahora — y si no va a correr, por qué.
+ *
+ * Es de lectura: el server evalúa las mismas reglas que el motor contra el
+ * mismo evento, sin publicar nada.
+ */
+export async function fetchTaskRunPreview(
+  projectId: string,
+  taskId: string,
+): Promise<TaskRunPreview> {
+  const { data } = await axios.get(`/api/tasks/${encodeURIComponent(taskId)}/run-preview`, {
+    params: { projectId },
+  })
+  return TaskRunPreviewSchema.parse(data)
 }
