@@ -327,13 +327,30 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
     ).rejects.toThrow('parece traer los prefijos')
   })
 
-  it('fs_write accepts content where only a minority of lines look numbered', async () => {
-    // 1 of 4 lines matches "digits + tab" — below the majority threshold,
-    // so this is treated as real code, not a copy-pasted fs_read output.
+  it('fs_write accepts content where lines are not ALL numbered', async () => {
     const tool = getTool('write_file')!
     const code = 'const a = 1\n1\tfoo bar baz\nconst b = 2\nconst c = 3\n'
     const out = await tool.execute({ path: 'w/new.ts', content: code }, ctxWith([writeRoot]))
     expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write accepts a real TSV whose id column is not strictly consecutive from 1 (regression: majority-based heuristic false positive)', async () => {
+    // Every line matches /^\d+\t/ (like a real fs_read output), but the
+    // numbers are a data column, not sequential line numbers — a plain
+    // "majority of lines start with digits+tab" heuristic would have
+    // rejected this real, legitimate file.
+    const tool = getTool('write_file')!
+    const tsv = '1002\tAlice\n1005\tBob\n1010\tCarol\n'
+    const out = await tool.execute({ path: 'w/ids.tsv', content: tsv }, ctxWith([writeRoot]))
+    expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write refuses even when numbering does not start at 1, as long as it is consecutive (a mid-file paste)', async () => {
+    const tool = getTool('write_file')!
+    const numbered = '500\tfoo\n501\tbar\n502\tbaz'
+    await expect(
+      tool.execute({ path: 'w/new.ts', content: numbered }, ctxWith([writeRoot])),
+    ).rejects.toThrow('parece traer los prefijos')
   })
 })
 
