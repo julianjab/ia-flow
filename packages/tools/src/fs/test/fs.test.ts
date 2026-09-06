@@ -540,6 +540,24 @@ describe('fs_read — focus', () => {
     expect(readPaths.has(join(repoRoot, 'big.txt'))).toBe(true)
   })
 
+  it('accumulates coverage across several paginated calls until the whole file is read', async () => {
+    // Neither call alone covers big.txt (1200 lines), but together they do —
+    // this is the "page through it" flow the tool description recommends.
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1, limit: 600 }, { readPaths })
+    expect(readPaths.size).toBe(0)
+    await read({ path: 'r/big.txt', offset: 601, limit: 600 }, { readPaths })
+    expect(readPaths.has(join(repoRoot, 'big.txt'))).toBe(true)
+  })
+
+  it('does not mark the path if the accumulated ranges leave a gap', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1, limit: 400 }, { readPaths })
+    // Skips lines 401-800 — a gap, so the union still doesn't cover the file.
+    await read({ path: 'r/big.txt', offset: 801, limit: 400 }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
   it('IA_FLOW_FILE_SIMPLIFIER=0 ignores focus and returns the head', async () => {
     Bun.env.IA_FLOW_FILE_SIMPLIFIER = '0'
     const out = await read({ path: 'r/big.txt', focus: 'the third line' })
