@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ToolContext } from '../../contract.js'
@@ -90,6 +90,19 @@ describe('write_file — writePaths validation', () => {
     await expect(
       tool.execute({ path: 'w/foo.txt', content: 'x' }, ctxWith(undefined)),
     ).rejects.toThrow('writePaths vacío')
+  })
+
+  it('rejects a symlink inside writePaths whose target lives outside it (regression: text-prefix check alone does not catch this)', async () => {
+    // `w/escape.txt` textually starts with the allowed writeRoot prefix, but
+    // it's a symlink pointing at outsideRoot — assertInWritePaths alone
+    // would let this through and Bun.write would follow the link.
+    writeFileSync(join(outsideRoot, 'secret.txt'), 'ORIGINAL')
+    symlinkSync(join(outsideRoot, 'secret.txt'), join(writeRoot, 'escape.txt'))
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute({ path: 'w/escape.txt', content: 'PWNED' }, ctxWith([writeRoot])),
+    ).rejects.toThrow('escritura no permitida en fase actual')
+    expect(readFileSync(join(outsideRoot, 'secret.txt'), 'utf-8')).toBe('ORIGINAL')
   })
 })
 
