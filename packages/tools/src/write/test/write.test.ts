@@ -277,6 +277,34 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
       expect(out).toContain('Edición aplicada')
     }
   })
+
+  it('does not deadlock an agent whose policy has fs_write but not fs_read', async () => {
+    // A CompiledPolicy without fs_read is a legitimate, opt-in-per-tool
+    // config (write.ts's fsReadAvailable) — the gate must not demand a tool
+    // this agent was never given.
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const policy = { toolNames: new Set(['fs_edit', 'fs_write']) }
+    const out = await tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, {
+      ...ctxWith([writeRoot]),
+      readPaths: new Set(),
+      policy,
+    } as any)
+    expect(out).toContain('Edición aplicada')
+  })
+
+  it('still enforces the gate when the policy DOES include fs_read', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const policy = { toolNames: new Set(['fs_edit', 'fs_write', 'fs_read']) }
+    await expect(
+      tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, {
+        ...ctxWith([writeRoot]),
+        readPaths: new Set(),
+        policy,
+      } as any),
+    ).rejects.toThrow('leé w/a.ts antes de editarlo')
+  })
 })
 
 describe('write/edit — registration metadata', () => {
