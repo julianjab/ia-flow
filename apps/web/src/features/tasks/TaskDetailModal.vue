@@ -2,9 +2,13 @@
 import type { PullRequestRef, RunTaskNowResult } from '@ia-flow/shared';
 import { computed } from 'vue';
 import TaskTags from '@/components/TaskTags.vue';
+import TaskExecutions from '@/features/tasks/TaskExecutions.vue';
 
 const props = defineProps<{
   open: boolean;
+  /** Identidad de la tarea — la sección de ejecuciones consulta por ella. */
+  taskId: string | null;
+  projectId: string | null;
   issueNumber: number;
   issueTitle: string;
   /** Repos que toca la tarea. Sólo lectura: quién los decide es la fuente
@@ -94,6 +98,13 @@ const runMessage = computed(() => {
             </div>
             <p v-else class="empty">La fuente no reporta ningún repo para esta tarea.</p>
           </section>
+
+          <TaskExecutions
+            v-if="open"
+            :project-id="projectId"
+            :task-id="taskId"
+            :reload-token="runResult"
+          />
 
           <section class="run-block">
             <span class="uc-label">Ejecución</span>

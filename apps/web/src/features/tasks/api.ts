@@ -1,4 +1,10 @@
-import { type RunTaskNowResult, RunTaskNowResultSchema, type SlackMemberRef } from '@ia-flow/shared'
+import {
+  type ExecutionLog,
+  ExecutionLogArraySchema,
+  type RunTaskNowResult,
+  RunTaskNowResultSchema,
+  type SlackMemberRef,
+} from '@ia-flow/shared'
 import axios from 'axios'
 
 export interface SlackReviewResult {
@@ -45,4 +51,23 @@ export async function runTaskNow(projectId: string, taskId: string): Promise<Run
   // acá con el valor a la vista en vez de caer al `else` de la UI y anunciar
   // "ninguna regla matcheó" sobre un run que sí arrancó.
   return RunTaskNowResultSchema.parse(data)
+}
+
+/**
+ * Los runs de UNA tarea, más recientes primero.
+ *
+ * La llamada vive acá y no se importa de `features/executions` a propósito:
+ * una feature no importa de otra (ver CLAUDE.md). Lo que sí se comparte es el
+ * schema, que es de `@ia-flow/shared` — que es exactamente la frontera que la
+ * regla protege.
+ */
+export async function fetchTaskExecutions(
+  projectId: string,
+  taskId: string,
+  limit = 10,
+): Promise<ExecutionLog[]> {
+  const { data } = await axios.get<{ executions: unknown }>('/api/executions', {
+    params: { projectId, taskId, limit },
+  })
+  return ExecutionLogArraySchema.parse(data.executions)
 }

@@ -594,6 +594,8 @@ watch(activeProjectId, (pid) => {
 
   <TaskDetailModal
     :open="reposModalOpen"
+    :task-id="reposModalItem?.id ?? null"
+    :project-id="activeProjectId ?? null"
     :issue-number="reposModalItem?.issueNumber ?? 0"
     :issue-title="reposModalItem?.title ?? ''"
     :repos="reposModalItem ? currentReposOf(reposModalItem) : []"
