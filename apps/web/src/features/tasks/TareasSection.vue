@@ -418,9 +418,13 @@ async function onRunClick() {
   if (!item || !activeProjectId.value) return;
   runBusyId.value = item.id;
   runResult.value = null;
+  // El modal puede haber cambiado de tarea mientras el pedido volaba (cerrar,
+  // abrir otra). El veredicto es de ESTA tarea: pintarlo sobre otra es
+  // exactamente lo que el reset de `openReposModal` intenta evitar.
+  const isStillOpen = () => reposModalItem.value?.id === item.id;
   try {
     const res = await runTaskNow(activeProjectId.value, item.id);
-    runResult.value = res;
+    if (isStillOpen()) runResult.value = res;
     // Los tres outcomes son estados distintos y el operador tiene que poder
     // distinguirlos: "no matcheó ninguna regla" no es un error del server, es
     // config — y verlo como éxito sería peor que verlo como fallo. El detalle
@@ -431,7 +435,9 @@ async function onRunClick() {
   } catch (e) {
     toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
-    runBusyId.value = null;
+    // El spinner también es de esta tarea: si ya hay otro pedido en vuelo
+    // sobre otra, apagarlo sería apagar el de ella.
+    if (runBusyId.value === item.id) runBusyId.value = null;
   }
 }
 
