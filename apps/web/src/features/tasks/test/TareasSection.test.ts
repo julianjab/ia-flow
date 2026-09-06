@@ -373,6 +373,36 @@ describe('TareasSection — correr una tarea desde el detalle', () => {
     expect(toastError.mock.calls[0][0]).toContain('done')
   })
 
+  // El pedido puede volver DESPUÉS de que el operador cambió de tarea. El
+  // veredicto es de la tarea que lo pidió: pintarlo sobre otra es peor que
+  // perderlo.
+  it('un resultado que llega tarde no se pinta sobre otra tarea', async () => {
+    let resolveRun: (r: { outcome: 'skipped'; status: string }) => void = () => {}
+    runTaskNow.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRun = resolve as typeof resolveRun
+        }),
+    )
+    const wrapper = await mountWith([
+      githubItem({ pullRequests: [] }),
+      { ...githubItem({ pullRequests: [] }), id: 'I_2', title: 'Otra' },
+    ])
+    const cards = wrapper.findAll('.task-card')
+    await cards[0].trigger('click')
+    await flushPromises()
+    const modal = wrapper.findComponent(ItemReposModal)
+    modal.vm.$emit('run')
+    await flushPromises()
+
+    await cards[1].trigger('click')
+    await flushPromises()
+    resolveRun({ outcome: 'skipped', status: 'done' })
+    await flushPromises()
+
+    expect(modal.props('runResult')).toBeNull()
+  })
+
   it('abrir otra tarea no arrastra el veredicto de la anterior', async () => {
     runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
     const wrapper = await openDetail(githubItem({ pullRequests: [] }))
