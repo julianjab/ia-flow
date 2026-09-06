@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { EngineEvent } from '@ia-flow/shared'
+import type { EngineEvent, Rule } from '@ia-flow/shared'
 import type { EventOutcome, IEventBus } from '../../../domain/ports/IEventBus.js'
 import type { SourceItem } from '../../../domain/ports/IIssueManager.js'
 import { RunTaskNowError, type RunTaskNowSource, RunTaskNowUseCase } from '../RunTaskNowUseCase.js'
@@ -18,6 +18,8 @@ function harness(
     running?: boolean
     outcome?: EventOutcome
     withGetItemById?: boolean
+    rules?: Rule[]
+    baseWhen?: unknown[]
   } = {},
 ) {
   const published: EngineEvent[] = []
@@ -33,7 +35,10 @@ function harness(
     getItems: async () => (item ? [item] : []),
     ...(opts.withGetItemById === false ? {} : { getItemById: async () => item }),
   }
-  const useCase = new RunTaskNowUseCase(bus, () => opts.running === true)
+  const useCase = new RunTaskNowUseCase(bus, () => opts.running === true, {
+    loadRules: async () => opts.rules ?? [],
+    loadBaseWhen: async () => opts.baseWhen ?? [],
+  })
   return { useCase, source, published }
 }
 
@@ -129,5 +134,83 @@ describe('RunTaskNowUseCase', () => {
     const { useCase, source } = harness({ outcome: 'skipped' })
     const result = await useCase.execute({ taskId: 'I_1', projectId: 'ia-flow' }, source)
     expect(result.outcome).toBe('skipped')
+  })
+})
+
+// Un run que NUNCA arranca no deja fila en execution_logs ni comentario: su
+// única huella era una línea "Rules NOT matched" en el daemon.log. El preview
+// es esa línea, contestada antes de apretar el botón.
+describe('RunTaskNowUseCase.preview', () => {
+  const buildRule = (over: Partial<Rule> = {}): Rule =>
+    ({
+      id: 'ia-flow-build',
+      name: 'ia-flow · build → implementer',
+      on: ['issue.created', 'issue.status_changed'],
+      when: [{ field: 'status', op: '=', value: 'build' }],
+      actions: [{ action: 'agent', agentId: 'implementer' }],
+      enabled: true,
+      position: 1,
+      ...over,
+    }) as Rule
+
+  test('nombra la regla que la va a tomar', async () => {
+    const { useCase, source, published } = harness({ rules: [buildRule()] })
+    const preview = await useCase.preview({ taskId: 'I_1', projectId: 'ia-flow' }, source)
+    expect(preview.status).toBe('build')
+    expect(preview.matched).toEqual([
+      { id: 'ia-flow-build', name: 'ia-flow · build → implementer' },
+    ])
+    expect(preview.blockedReason).toBeNull()
+    // Diagnóstico puro: mirar no despacha nada.
+    expect(published).toHaveLength(0)
+  })
+
+  // El caso que motivó todo: la condición que falló y con qué valor, que es lo
+  // que distingue "el status no es ése" de "el evento no trae ese campo".
+  test('cuando ninguna matchea, dice qué condición falló y contra qué valor', async () => {
+    const rules = [buildRule({ when: [{ field: 'status', op: '=', value: 'review' }] })]
+    const { useCase, source } = harness({ rules })
+    const preview = await useCase.preview({ taskId: 'I_1', projectId: 'ia-flow' }, source)
+    expect(preview.matched).toEqual([])
+    expect(preview.rejected[0]).toMatchObject({ id: 'ia-flow-build', reason: 'when' })
+    expect(preview.rejected[0].failed?.[0]).toMatchObject({
+      field: 'status',
+      value: 'review',
+      actual: 'build',
+    })
+  })
+
+  // Las reglas de otros proyectos o de otro tipo de evento se cuentan, no se
+  // listan: enterrarían el motivo real bajo todas las reglas del deploy.
+  test('los descartes no accionables se cuentan aparte', async () => {
+    const rules = [buildRule({ id: 'otro-proyecto', projectId: 'subscriptions' }), buildRule()]
+    const { useCase, source } = harness({ rules })
+    const preview = await useCase.preview({ taskId: 'I_1', projectId: 'ia-flow' }, source)
+    expect(preview.matched.map((r) => r.id)).toEqual(['ia-flow-build'])
+    expect(preview.rejected).toEqual([])
+    expect(preview.notApplicable).toBe(1)
+  })
+
+  test('una regla apagada sale como descarte accionable', async () => {
+    const { useCase, source } = harness({ rules: [buildRule({ enabled: false })] })
+    const preview = await useCase.preview({ taskId: 'I_1', projectId: 'ia-flow' }, source)
+    expect(preview.rejected[0]).toMatchObject({ reason: 'disabled' })
+  })
+
+  // Un run en curso no impide matchear: lo que se informa es que el pedido no
+  // llegaría a despachar igual. Las dos cosas son útiles a la vez.
+  test('con un run en curso lo dice, y aún así evalúa las reglas', async () => {
+    const { useCase, source } = harness({ running: true, rules: [buildRule()] })
+    const preview = await useCase.preview({ taskId: 'I_1', projectId: 'ia-flow' }, source)
+    expect(preview.blockedReason).toContain('run en curso')
+    expect(preview.matched).toHaveLength(1)
+  })
+
+  test('sin status contesta el motivo sin evaluar nada', async () => {
+    const { useCase, source } = harness({ item: { ...ITEM, status: '' }, rules: [buildRule()] })
+    const preview = await useCase.preview({ taskId: 'I_1', projectId: 'ia-flow' }, source)
+    expect(preview.blockedReason).toContain('no tiene status')
+    expect(preview.matched).toEqual([])
+    expect(preview.rejected).toEqual([])
   })
 })
