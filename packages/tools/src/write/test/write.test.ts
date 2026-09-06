@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ToolContext } from '../../contract.js'
@@ -103,6 +103,34 @@ describe('write_file — writePaths validation', () => {
       tool.execute({ path: 'w/escape.txt', content: 'PWNED' }, ctxWith([writeRoot])),
     ).rejects.toThrow('escritura no permitida en fase actual')
     expect(readFileSync(join(outsideRoot, 'secret.txt'), 'utf-8')).toBe('ORIGINAL')
+  })
+
+  it('rejects writing under a DIRECTORY symlink whose target lives outside writePaths, even for a file that does not exist yet (regression: realpath alone misses this)', async () => {
+    // `w/link` is a symlink to outsideRoot (a directory). The FILE
+    // "w/link/pwned.txt" doesn't exist — realpath(absPath) throws ENOENT,
+    // and a naive `catch { return }` would treat that as "no symlink to
+    // follow", when actually the PARENT directory is the symlink and
+    // Bun.write follows it when opening the file.
+    symlinkSync(outsideRoot, join(writeRoot, 'link'))
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute({ path: 'w/link/pwned.txt', content: 'PWNED' }, ctxWith([writeRoot])),
+    ).rejects.toThrow('escritura no permitida en fase actual')
+    expect(existsSync(join(outsideRoot, 'pwned.txt'))).toBe(false)
+  })
+
+  it('rejects writing to a DANGLING symlink whose target lives outside writePaths (regression: the target not existing yet does not make it safe)', async () => {
+    // `w/dangling.txt` is a symlink to a file that does not exist YET —
+    // realpath(absPath) throws ENOENT because the ultimate target is
+    // missing, but lstat on the symlink itself succeeds: it exists as a
+    // link, and Bun.write would create the target file when it follows it.
+    const missingTarget = join(outsideRoot, 'target.txt')
+    symlinkSync(missingTarget, join(writeRoot, 'dangling.txt'))
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute({ path: 'w/dangling.txt', content: 'PWNED' }, ctxWith([writeRoot])),
+    ).rejects.toThrow('escritura no permitida en fase actual')
+    expect(existsSync(missingTarget)).toBe(false)
   })
 })
 
