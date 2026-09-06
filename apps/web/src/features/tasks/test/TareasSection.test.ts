@@ -329,38 +329,59 @@ describe('TareasSection — pedido de review en Slack', () => {
 })
 
 // La activación escucha `issue.status_changed`, así que una tarea quieta en su
-// status no se vuelve a despachar sola. Este botón re-emite el status actual.
-describe('TareasSection — correr una tarea a mano', () => {
-  it('el click corre la tarea sin abrir el modal de repos', async () => {
+// status no se vuelve a despachar sola. El botón vive en el DETALLE de la
+// tarea (no en la tarjeta): correr una tarea es una decisión que se toma
+// mirando su status y sus dev links, no de pasada en el listado.
+describe('TareasSection — correr una tarea desde el detalle', () => {
+  async function openDetail(item: SourceItem) {
+    const wrapper = await mountWith([item])
+    await wrapper.get('.task-card').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('la tarjeta ya no lleva el botón: la acción vive en el detalle', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    await wrapper.get('.task-run-btn').trigger('click')
+    expect(wrapper.find('.task-run-btn').exists()).toBe(false)
+  })
+
+  it('el detalle recibe el status contra el que se van a evaluar las reglas', async () => {
+    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
+    expect(wrapper.findComponent(ItemReposModal).props('status')).toBe('refine')
+  })
+
+  it('el evento `run` del detalle corre la tarea', async () => {
+    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
+    wrapper.findComponent(ItemReposModal).vm.$emit('run')
     await flushPromises()
     expect(runTaskNow).toHaveBeenCalledWith('p1', 'I_1')
-    expect(wrapper.findComponent(ItemReposModal).props('open')).toBe(false)
   })
 
-  // Está siempre disponible: no depende de PRs ni de Slack, a diferencia del
-  // botón de review. Una tarea sin dev links es justamente la que más suele
-  // necesitarlo.
-  it('se ofrece también en una tarea sin PR ni rama', async () => {
-    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    expect(wrapper.get('.task-run-btn').attributes('disabled')).toBeUndefined()
-  })
-
-  it('"ninguna regla matcheó" se muestra como error, no como éxito', async () => {
+  // El veredicto se muestra DENTRO del modal y no sólo como toast: el caso
+  // interesante ("ninguna regla matchea") es el que hay que releer mientras se
+  // decide qué cambiar, y un toast se va solo.
+  it('el resultado vuelve al detalle', async () => {
     runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
-    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    await wrapper.get('.task-run-btn').trigger('click')
+    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
+    wrapper.findComponent(ItemReposModal).vm.$emit('run')
     await flushPromises()
+    expect(wrapper.findComponent(ItemReposModal).props('runResult')).toEqual({
+      outcome: 'skipped',
+      status: 'done',
+    })
     expect(toastSuccess).not.toHaveBeenCalled()
     expect(toastError.mock.calls[0][0]).toContain('done')
   })
 
-  it('un dispatch efectivo avisa con el status contra el que corrió', async () => {
-    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    await wrapper.get('.task-run-btn').trigger('click')
+  it('abrir otra tarea no arrastra el veredicto de la anterior', async () => {
+    runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
+    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
+    const modal = wrapper.findComponent(ItemReposModal)
+    modal.vm.$emit('run')
     await flushPromises()
-    expect(toastSuccess.mock.calls[0][0]).toContain('build')
+    await wrapper.get('.task-card').trigger('click')
+    await flushPromises()
+    expect(modal.props('runResult')).toBeNull()
   })
 })
 
