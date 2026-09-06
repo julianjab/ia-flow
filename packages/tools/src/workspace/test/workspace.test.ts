@@ -98,6 +98,34 @@ describe('reset_worktree tool', () => {
     expect(out).toContain('ctx.taskId')
   })
 
+  it('clears ctx.readPaths on a successful reset — the disk content changed underneath it', async () => {
+    // Regression: after a reset, the worktree reverts to origin/main. A
+    // stale readPaths entry would let fs_write overwrite a path the run
+    // never actually saw in its POST-reset state.
+    const resetMock = mock(async (_taskId: string) => '/tmp/wt/task-1')
+    setWorkspaceManagerPort({ resetWorktree: resetMock })
+    const tool = getTool('reset_worktree')!
+    const readPaths = new Set(['/tmp/wt/task-1/a.ts', '/tmp/wt/task-1/b.ts'])
+
+    await tool.execute({ task_id: 'task-1' }, { ...writableCtx, readPaths })
+
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('does not touch ctx.readPaths when the reset fails', async () => {
+    setWorkspaceManagerPort(
+      stubManager(async () => {
+        throw new Error('git fetch origin failed: network down')
+      }),
+    )
+    const tool = getTool('reset_worktree')!
+    const readPaths = new Set(['/tmp/wt/task-1/a.ts'])
+
+    await tool.execute({ task_id: 'task-1' }, { ...writableCtx, readPaths })
+
+    expect(readPaths.size).toBe(1)
+  })
+
   it('is restricted to sync providers (excluded from async curl appendix)', () => {
     const tool = getTool('reset_worktree')!
     // Only anthropic-api (sync) builds the WorkspaceManager sandbox. Terminal

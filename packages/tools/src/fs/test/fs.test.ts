@@ -503,6 +503,12 @@ describe('fs_read — focus', () => {
     expect(out.length).toBeLessThan(big.length)
   })
 
+  it('a cut read (no focus, over the cap) does NOT mark the path as read', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt' }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
   it('with focus asks Haiku with the need and numbered lines', async () => {
     const out = await read({ path: 'r/big.txt', focus: 'the third line' })
     expect(calls).toHaveLength(1)
@@ -512,6 +518,18 @@ describe('fs_read — focus', () => {
     expect(user).toContain('Reader needs: the third line')
     expect(user).toContain('\n3\tline 3:')
     expect(out).toBe(`[focus: the third line — ${big.length}B → 22B]\n## lines 3-4\nextracted`)
+  })
+
+  it('a focused read does NOT mark the path as read — it only saw a summary', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', focus: 'the third line' }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('a paginated read (offset/limit) on the same big file DOES mark the path as read', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1, limit: 10 }, { readPaths })
+    expect(readPaths.has(join(repoRoot, 'big.txt'))).toBe(true)
   })
 
   it('IA_FLOW_FILE_SIMPLIFIER=0 ignores focus and returns the head', async () => {
