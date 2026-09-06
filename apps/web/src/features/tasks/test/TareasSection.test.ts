@@ -9,8 +9,10 @@ const items: SourceItem[] = []
 vi.mock('@/features/projects/store', () => ({
   useProjectsStore: () => ({ activeProjectId: 'p1' }),
 }))
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
 vi.mock('@/stores/toast', () => ({
-  useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
+  useToastStore: () => ({ success: toastSuccess, error: toastError }),
 }))
 const repoEntries: Array<Record<string, unknown>> = []
 vi.mock('@/features/repos/api', () => ({
@@ -23,8 +25,10 @@ const requestSlackReview = vi.fn(async () => ({
   prNumber: 7,
   threadUrl: 'https://acme.slack.com/archives/C1/p1699999999123456',
 }))
+const runTaskNow = vi.fn(async () => ({ outcome: 'dispatched' as const, status: 'build' }))
 vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
+  runTaskNow: (...args: unknown[]) => runTaskNow(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
 // Vacío por default; los tests de "bloqueada" cargan entradas por itemId.
@@ -53,6 +57,9 @@ vi.mock('vue-router', () => ({
 }))
 
 beforeEach(() => {
+  toastSuccess.mockClear()
+  toastError.mockClear()
+  runTaskNow.mockClear()
   routeQuery = {}
   routerReplace.mockClear()
   localStorage.clear()
@@ -318,6 +325,42 @@ describe('TareasSection — pedido de review en Slack', () => {
     await flushPromises()
     expect(requestSlackReview).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('CI en rojo')
+  })
+})
+
+// La activación escucha `issue.status_changed`, así que una tarea quieta en su
+// status no se vuelve a despachar sola. Este botón re-emite el status actual.
+describe('TareasSection — correr una tarea a mano', () => {
+  it('el click corre la tarea sin abrir el modal de repos', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.task-run-btn').trigger('click')
+    await flushPromises()
+    expect(runTaskNow).toHaveBeenCalledWith('p1', 'I_1')
+    expect(wrapper.findComponent(ItemReposModal).props('open')).toBe(false)
+  })
+
+  // Está siempre disponible: no depende de PRs ni de Slack, a diferencia del
+  // botón de review. Una tarea sin dev links es justamente la que más suele
+  // necesitarlo.
+  it('se ofrece también en una tarea sin PR ni rama', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    expect(wrapper.get('.task-run-btn').attributes('disabled')).toBeUndefined()
+  })
+
+  it('"ninguna regla matcheó" se muestra como error, no como éxito', async () => {
+    runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.task-run-btn').trigger('click')
+    await flushPromises()
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(toastError.mock.calls[0][0]).toContain('done')
+  })
+
+  it('un dispatch efectivo avisa con el status contra el que corrió', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.task-run-btn').trigger('click')
+    await flushPromises()
+    expect(toastSuccess.mock.calls[0][0]).toContain('build')
   })
 })
 
