@@ -334,20 +334,39 @@ registerTool({
     if (input.offset || input.limit) {
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
-      const end = input.limit ? start + input.limit : lines.length
+      const requestedEnd = Math.min(lines.length, input.limit ? start + input.limit : lines.length)
+      const numbered = lines.slice(start, requestedEnd).map((l, i) => `${start + i + 1}\t${l}`)
+      // Tope de bytes por página, mismo `MAX_FILE_BYTES` que una lectura sin
+      // paginar — sin esto, `{offset:1}` sin `limit` sobre un archivo de
+      // varios MB volcaba TODO de una sola llamada (el gate de escritura,
+      // que exige cubrir el archivo entero, lo hacía además el camino más
+      // barato en turnos). El corte es por LÍNEAS efectivamente incluidas,
+      // no por el rango pedido: lo que se marca como leído es lo que
+      // realmente volvió, nunca más.
+      let bytes = 0
+      let actualCount = numbered.length
+      for (let i = 0; i < numbered.length; i++) {
+        bytes += Buffer.byteLength(numbered[i]!) + 1 // +1 por el separador '\n'
+        if (bytes > MAX_FILE_BYTES) {
+          actualCount = i
+          break
+        }
+      }
+      const actualEnd = start + actualCount
       // Se acumula por rango, no por llamada: paginar en varias vueltas
-      // (offset 1/limit 500, 501/500, …) hasta cubrir el archivo entero
-      // marca el path igual que una sola lectura completa — es justo el
-      // flujo que la descripción de la tool recomienda para archivos
-      // grandes, y sin acumular quedaba sin forma de satisfacerlo salvo
-      // pidiendo todo de una ({offset:1} sin limit), evadiendo el sentido
-      // de paginar. Un rango parcial que nunca se completa (offset:1,
-      // limit:1 y nada más) sigue sin marcar, como el focus de Haiku.
-      recordRangeRead(ctx, abs, start, end, lines.length)
-      return lines
-        .slice(start, end)
-        .map((l, i) => `${start + i + 1}\t${l}`)
-        .join('\n')
+      // (offset 1/limit 500, 501/500, …, o el continue del corte de arriba)
+      // hasta cubrir el archivo entero marca el path igual que una sola
+      // lectura completa — es justo el flujo que la descripción de la tool
+      // recomienda para archivos grandes. Un rango parcial que nunca se
+      // completa sigue sin marcar, como el focus de Haiku.
+      recordRangeRead(ctx, abs, start, actualEnd, lines.length)
+      const body = numbered.slice(0, actualCount).join('\n')
+      if (actualCount >= numbered.length) return body
+      return (
+        body +
+        `\n\n[Página cortada a ${MAX_FILE_BYTES} bytes — leíste las líneas ${start + 1}-${actualEnd} ` +
+        `de ${lines.length}. Pasa offset:${actualEnd + 1} para continuar.]`
+      )
     }
 
     const focus = typeof input.focus === 'string' ? input.focus.trim() : ''

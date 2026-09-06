@@ -186,9 +186,17 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const abs = resolveWritePath(input.path, ctx)
-    if (existsSync(abs)) assertReadBeforeEdit(abs, ctx, input.path)
+    const overwriting = existsSync(abs)
     const content = typeof input.content === 'string' ? input.content : ''
-    assertNotNumberedOutput(content, input.path)
+    // El guardián sólo tiene sentido al SOBRESCRIBIR: el riesgo que previene
+    // es corromper contenido existente con lo que se acaba de leer de él. Un
+    // archivo NUEVO no tiene ese riesgo — sus primeras líneas pueden
+    // legítimamente parecerse a output numerado (un fixture de test para
+    // fs_read, un TSV con id secuencial) sin que haya nada que corromper.
+    if (overwriting) {
+      assertReadBeforeEdit(abs, ctx, input.path)
+      assertNotNumberedOutput(content, input.path)
+    }
     await mkdir(dirname(abs), { recursive: true })
     await Bun.write(abs, content)
     // El propio run acaba de escribir este contenido — cuenta como lectura,
