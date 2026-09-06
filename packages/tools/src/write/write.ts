@@ -5,7 +5,7 @@
 // so every code path funnels through `resolveWritePath` → `assertInWritePaths`
 // before touching disk.
 import { existsSync } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
@@ -31,15 +31,52 @@ function assertInWritePaths(absPath: string, writePaths: string[] | undefined): 
 }
 
 /**
+ * Sigue symlinks hasta su destino real y confirma que ese destino también
+ * cae dentro de algún `writePath`. `assertInWritePaths` sólo compara el
+ * TEXTO del path contra el prefijo — un symlink dentro del writePath que
+ * apunta afuera (`repo/cfg -> /etc/algo`) pasa esa validación igual, porque
+ * el path de entrada SIGUE empezando con la raíz permitida, y `Bun.write`
+ * lo resuelve de forma transparente. Mismo problema y mismo fix que
+ * `realPathStaysInRepo` en `fs.ts` — ahí el chequeo faltaba del lado de
+ * lectura y acá faltaba del lado de escritura, que es el más peligroso: un
+ * link armado por el propio agente (`bash_run ln -s`, un checkout con
+ * symlinks) o presente en el repo dejaba escribir fuera del sandbox sin
+ * ningún error.
+ *
+ * Un path que todavía no existe (`fs_write` creando un archivo nuevo) no
+ * tiene symlink que seguir — `realpath` tira ENOENT, y ahí no hay nada
+ * inseguro que reportar; lo resuelve el `mkdir`/`Bun.write` del caller.
+ */
+async function assertRealPathInWritePaths(
+  absPath: string,
+  writePaths: string[] | undefined,
+): Promise<void> {
+  let real: string
+  try {
+    real = await realpath(absPath)
+  } catch {
+    return
+  }
+  if (real === absPath) return // nada de por medio era un symlink
+
+  const realRoots = (
+    await Promise.all((writePaths ?? []).map((p) => realpath(resolve(p)).catch(() => null)))
+  ).filter((r): r is string => r !== null)
+  const ok = realRoots.some((root) => real === root || real.startsWith(root + '/'))
+  if (!ok) throw new Error('escritura no permitida en fase actual')
+}
+
+/**
  * Local resolver: turns the tool input (`<repo>/rel/path` or absolute) into
  * an absolute path and validates it against `ctx.writePaths`. Kept private
  * to `write.ts` rather than reusing `resolvePath` from `fs.ts` — that helper
  * validates against `repoPaths`, which is a strictly wider scope than
  * `writePaths` and would let writes escape the sandbox.
  */
-function resolveWritePath(input: string, ctx: ToolContext): string {
+async function resolveWritePath(input: string, ctx: ToolContext): Promise<string> {
   const abs = toAbsolute(input, ctx.repoPaths)
   assertInWritePaths(abs, ctx.writePaths)
+  await assertRealPathInWritePaths(abs, ctx.writePaths)
   return abs
 }
 
@@ -185,7 +222,7 @@ registerTool({
     required: ['path', 'content'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolveWritePath(input.path, ctx)
+    const abs = await resolveWritePath(input.path, ctx)
     const overwriting = existsSync(abs)
     const content = typeof input.content === 'string' ? input.content : ''
     // El guardián sólo tiene sentido al SOBRESCRIBIR: el riesgo que previene
@@ -244,7 +281,7 @@ registerTool({
     required: ['path', 'old_string', 'new_string'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolveWritePath(input.path, ctx)
+    const abs = await resolveWritePath(input.path, ctx)
     // Chequeo de existencia ANTES del gate de lectura: si el path no existe,
     // el motivo real es "no existe" y no "no lo leíste" — reportar el gate
     // acá manda al agente a un fs_read que le va a devolver "File not
