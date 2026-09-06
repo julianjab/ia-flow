@@ -545,7 +545,7 @@ describe('fs_read — focus', () => {
     expect(readPaths.size).toBe(0)
   })
 
-  it('a single line over MAX_FILE_BYTES still makes progress (regression: used to return an empty page and loop forever)', async () => {
+  it('a single line over MAX_FILE_BYTES still makes progress and marks the path (regression: used to return an empty page and loop forever)', async () => {
     // A minified bundle / base64 blob with no newlines: the first "line" by
     // itself already exceeds the page cap. The old logic broke out of the
     // loop at i=0, returning zero lines and a "continue at the same offset"
@@ -556,7 +556,11 @@ describe('fs_read — focus', () => {
     const out = await read({ path: 'r/huge-line.txt', offset: 1 }, { readPaths })
     expect(out).toContain('Pasa offset:2') // offset MOVED PAST the line, not repeated
     expect(out).not.toContain('Pasa offset:1')
-    expect(readPaths.size).toBe(0) // truncated content, so it doesn't count as "read"
+    // No hay ninguna llamada posterior que pueda mostrar más de esta MISMA
+    // línea (offset avanza por líneas, no por bytes dentro de una) — tratarla
+    // como "nunca leída" dejaría el archivo imposible de editar para
+    // siempre, así que cuenta como cubierta pese a la vista truncada.
+    expect(readPaths.has(join(repoRoot, 'huge-line.txt'))).toBe(true)
   })
 
   it('offset:1 without limit on a file that FITS under the cap marks the path as fully read', async () => {
@@ -1034,5 +1038,19 @@ describe('fs_read — line numbering and readPaths tracking', () => {
     const tool = getTool('fs_read')!
     // Must not throw just because readPaths is absent.
     await expect(tool.execute({ path: 'r/a.ts' }, { repoPaths })).resolves.toBeDefined()
+  })
+
+  it('falls back to a cut, unnumbered head when numbering pushes a file over MAX_FILE_BYTES even though the raw content fit (regression)', async () => {
+    // 39,000 one-byte lines: ~39KB raw (under the 40KB cap), but each gets a
+    // "N\t" prefix — the numbered output balloons past the cap even though
+    // the plain read check would have let it through unnumbered.
+    const manyShortLines = Array.from({ length: 39_000 }, () => 'x').join('\n')
+    writeFileSync(join(repoRoot, 'many-short-lines.txt'), manyShortLines)
+    const tool = getTool('fs_read')!
+    const readPaths = new Set<string>()
+    const out = await tool.execute({ path: 'r/many-short-lines.txt' }, { repoPaths, readPaths })
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(40_000 + 500) // cap + notice text
+    expect(out).toContain('Use offset/limit to page')
+    expect(readPaths.size).toBe(0)
   })
 })
