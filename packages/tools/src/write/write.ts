@@ -99,9 +99,18 @@ function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string):
  */
 function looksLikeNumberedOutput(content: string): boolean {
   const lines = content.split('\n')
-  if (lines.length < 3) return false
+  // Un `content` que termina en newline (el caso común — los modelos casi
+  // siempre cierran el archivo así) deja un último elemento '' que nunca
+  // matchea `^\d+\t`, y eso apagaba el guardián en su escenario más
+  // probable. Se descarta ese único elemento vacío final antes de validar;
+  // uno del medio (una línea real en blanco) sigue rompiendo la detección,
+  // como corresponde — el output de fs_read numera TODAS las líneas,
+  // incluidas las vacías intermedias.
+  const trailingBlank = lines.length > 0 && lines[lines.length - 1] === ''
+  const toCheck = trailingBlank ? lines.slice(0, -1) : lines
+  if (toCheck.length < 3) return false
   let expected: number | null = null
-  for (const line of lines) {
+  for (const line of toCheck) {
     const m = /^(\d+)\t/.exec(line)
     if (!m) return false
     const n = Number(m[1])
