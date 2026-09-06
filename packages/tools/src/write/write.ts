@@ -115,6 +115,10 @@ registerTool({
     const content = typeof input.content === 'string' ? input.content : ''
     await mkdir(dirname(abs), { recursive: true })
     await Bun.write(abs, content)
+    // El propio run acaba de escribir este contenido — cuenta como lectura,
+    // así que un fs_edit/fs_write posterior sobre el mismo path (corrigiendo
+    // un typo, por ejemplo) no exige releerlo primero.
+    ctx.readPaths?.add(abs)
     log.info(
       {
         path: input.path,
@@ -184,6 +188,10 @@ registerTool({
       ? current.split(oldStr).join(newStr)
       : current.replace(oldStr, newStr)
     await Bun.write(abs, updated)
+    // Ya pasó el gate y este run tiene el contenido actualizado en mano — un
+    // segundo fs_edit sobre el mismo path (otra corrección seguida) no
+    // debería exigir un fs_read intermedio que sólo releería lo que ya sabe.
+    ctx.readPaths?.add(abs)
     log.info(
       {
         path: input.path,

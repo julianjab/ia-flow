@@ -258,7 +258,11 @@ registerTool({
     const content = await readFile(abs, 'utf-8')
     // Cuenta como lectura en cualquier rama de abajo — incluida la del
     // simplifier de Haiku, cuyo output no son líneas del archivo pero sí
-    // corrió sobre el contenido real.
+    // corrió sobre el contenido real. Deliberadamente NO distingue una
+    // lectura parcial (headWithNotice, un focus recortado) de una completa:
+    // el gate de fs_edit/fs_write sólo exige "el agente pasó por acá", no
+    // "el agente vio cada byte". Endurecerlo por rango leído es un cambio de
+    // alcance mayor (guardar qué líneas se vieron, no sólo el path).
     ctx.readPaths?.add(abs)
 
     if (input.offset || input.limit) {
