@@ -8,6 +8,7 @@
 
 import type { ToolContext, WorkspaceManagerPort } from '../contract.js'
 import { registerTool } from '../engine.js'
+import { clearRangeCoverage } from '../fs/fs.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-workspace')
@@ -89,7 +90,10 @@ registerTool({
       // run tenía registrada ya no describe el contenido actual. Sin este
       // clear, fs_write podría sobrescribir un path dado por leído contra
       // contenido que en realidad nunca vio (el de DESPUÉS del reset).
-      ctx.readPaths?.clear()
+      if (ctx.readPaths) {
+        clearRangeCoverage(ctx.readPaths)
+        ctx.readPaths.clear()
+      }
       log.info({ taskId, worktree: path }, 'worktree reset')
       return [
         `Worktree reseteado para task ${taskId}.`,

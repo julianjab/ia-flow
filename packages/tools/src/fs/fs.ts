@@ -124,6 +124,20 @@ function recordRangeRead(
   if (coversWholeFile(ranges, totalLines)) ctx.readPaths.add(abs)
 }
 
+/**
+ * Descarta los rangos acumulados para un `Set` de `readPaths` dado — para
+ * usar junto a `ctx.readPaths?.clear()` en cualquier tool que invalide
+ * "lo leído" (hoy sólo `workspace_reset`). Sin esto, `rangeCoverage`
+ * seguía viva con los rangos del contenido PRE-reset: una lectura parcial
+ * nueva sobre el mismo path podía completar la cobertura vieja y marcar el
+ * path en `readPaths` contra contenido que el run nunca vio en su estado
+ * actual — la propia condición que el `clear()` del reset existe para
+ * evitar.
+ */
+export function clearRangeCoverage(readPaths: Set<string>): void {
+  rangeCoverage.delete(readPaths)
+}
+
 /** Sin `focus` y arriba del tope: la cabecera hasta `MAX_FILE_BYTES` y una
  *  nota con el tamaño real, para que el agente pagine o enfoque. */
 function headWithNotice(content: string, path: string, reason?: string): string {
