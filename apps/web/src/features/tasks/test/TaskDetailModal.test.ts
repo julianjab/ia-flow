@@ -1,4 +1,4 @@
-import ItemReposModal from '@/features/repos/ItemReposModal.vue'
+import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -12,13 +12,12 @@ const need = (sel: string) => {
 }
 
 function mountModal(props: Record<string, unknown> = {}) {
-  return mount(ItemReposModal, {
+  return mount(TaskDetailModal, {
     props: {
       open: true,
       issueNumber: 138,
       issueTitle: 'Tools de filesystem',
-      currentRepos: ['ia-flow'],
-      availableRepos: ['ia-flow'],
+      repos: ['ia-flow'],
       status: 'build',
       ...props,
     },
@@ -30,7 +29,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('ItemReposModal — correr la tarea', () => {
+describe('TaskDetailModal — correr la tarea', () => {
   // El status es la mitad de la decisión: es contra ESO que se evalúan las
   // reglas, así que el botón no puede pedirlo a ciegas.
   it('dice contra qué status se van a evaluar las reglas', () => {
@@ -75,5 +74,24 @@ describe('ItemReposModal — correr la tarea', () => {
   it('sin resultado todavía no se muestra ninguna línea de veredicto', () => {
     mountModal()
     expect(el('.run-result')).toBeNull()
+  })
+})
+
+// Los repos son informativos: quién los decide es la fuente, y no todas saben
+// persistirlos (`github-issues` los deriva de su config y devuelve 501 ante un
+// intento de escritura). Un editor que sólo anda en algunas fuentes es peor
+// que un dato.
+describe('TaskDetailModal — repos', () => {
+  it('los muestra como lectura, sin editor ni guardado', () => {
+    const wrapper = mountModal()
+    expect(need('.repo-list').textContent).toContain('ia-flow')
+    expect(document.body.querySelectorAll('.repo-chip.is-static')).toHaveLength(1)
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(document.body.textContent).not.toContain('Guardar')
+  })
+
+  it('una tarea sin repos lo dice en vez de mostrar un hueco', () => {
+    mountModal({ repos: [] })
+    expect(need('.empty').textContent).toContain('no reporta ningún repo')
   })
 })

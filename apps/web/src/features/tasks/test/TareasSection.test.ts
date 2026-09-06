@@ -1,5 +1,5 @@
 import type { SourceItem } from '@/features/projects/sourceApi'
-import ItemReposModal from '@/features/repos/ItemReposModal.vue'
+import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TareasSection from '../TareasSection.vue'
@@ -220,7 +220,7 @@ describe('TareasSection — detalle', () => {
       }),
     ])
     await wrapper.get('.task-card').trigger('click')
-    const modal = wrapper.findComponent(ItemReposModal)
+    const modal = wrapper.findComponent(TaskDetailModal)
     expect(modal.props('branch')).toBe('fix/algo')
     expect(modal.props('devLinks')).toBe(true)
     expect(modal.props('issueUrl')).toBe('https://github.com/la-haus/ia-flow/issues/42')
@@ -312,7 +312,7 @@ describe('TareasSection — pedido de review en Slack', () => {
     await wrapper.get('.task-slack-btn').trigger('click')
     await flushPromises()
     expect(requestSlackReview).toHaveBeenCalledWith('p1', 'I_1', { allowFailedCi: false })
-    expect(wrapper.findComponent(ItemReposModal).props('open')).toBe(false)
+    expect(wrapper.findComponent(TaskDetailModal).props('open')).toBe(false)
   })
 
   // El CI en rojo no bloquea, pero no sale sin que alguien lo decida.
@@ -347,12 +347,12 @@ describe('TareasSection — correr una tarea desde el detalle', () => {
 
   it('el detalle recibe el status contra el que se van a evaluar las reglas', async () => {
     const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    expect(wrapper.findComponent(ItemReposModal).props('status')).toBe('refine')
+    expect(wrapper.findComponent(TaskDetailModal).props('status')).toBe('refine')
   })
 
   it('el evento `run` del detalle corre la tarea', async () => {
     const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    wrapper.findComponent(ItemReposModal).vm.$emit('run')
+    wrapper.findComponent(TaskDetailModal).vm.$emit('run')
     await flushPromises()
     expect(runTaskNow).toHaveBeenCalledWith('p1', 'I_1')
   })
@@ -363,9 +363,9 @@ describe('TareasSection — correr una tarea desde el detalle', () => {
   it('el resultado vuelve al detalle', async () => {
     runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
     const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    wrapper.findComponent(ItemReposModal).vm.$emit('run')
+    wrapper.findComponent(TaskDetailModal).vm.$emit('run')
     await flushPromises()
-    expect(wrapper.findComponent(ItemReposModal).props('runResult')).toEqual({
+    expect(wrapper.findComponent(TaskDetailModal).props('runResult')).toEqual({
       outcome: 'skipped',
       status: 'done',
     })
@@ -391,7 +391,7 @@ describe('TareasSection — correr una tarea desde el detalle', () => {
     const cards = wrapper.findAll('.task-card')
     await cards[0].trigger('click')
     await flushPromises()
-    const modal = wrapper.findComponent(ItemReposModal)
+    const modal = wrapper.findComponent(TaskDetailModal)
     modal.vm.$emit('run')
     await flushPromises()
 
@@ -406,7 +406,7 @@ describe('TareasSection — correr una tarea desde el detalle', () => {
   it('abrir otra tarea no arrastra el veredicto de la anterior', async () => {
     runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
     const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    const modal = wrapper.findComponent(ItemReposModal)
+    const modal = wrapper.findComponent(TaskDetailModal)
     modal.vm.$emit('run')
     await flushPromises()
     await wrapper.get('.task-card').trigger('click')
