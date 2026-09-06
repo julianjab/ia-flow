@@ -69,6 +69,15 @@ function numberLines(content: string): string {
     .join('\n')
 }
 
+/** Marca `abs` como leído — sólo para las ramas que devuelven el archivo
+ *  ENTERO, literal (no un resumen ni una cabecera recortada). Es lo que hace
+ *  seguro que `fs_write` confíe en `ctx.readPaths`: si el path está marcado,
+ *  el agente vio el contenido completo, no una porción. */
+function markFullyRead(abs: string, ctx: ToolContext, content: string): string {
+  ctx.readPaths?.add(abs)
+  return numberLines(content)
+}
+
 /** Sin `focus` y arriba del tope: la cabecera hasta `MAX_FILE_BYTES` y una
  *  nota con el tamaño real, para que el agente pagine o enfoque. */
 function headWithNotice(content: string, path: string, reason?: string): string {
@@ -228,7 +237,9 @@ registerTool({
     `into it). A file over ${MAX_FILE_BYTES} bytes is cut at that size UNNUMBERED — page it ` +
     'with offset/limit to get numbered lines for a range, or pass `focus` describing what you ' +
     'need (e.g. "the test conventions and the package layout") to get only the matching parts, ' +
-    'quoted verbatim with their line ranges (also unnumbered).',
+    'quoted verbatim with their line ranges (also unnumbered). A cut/focused read does not ' +
+    'count as having read the file for fs_write purposes — you still need a full or paginated ' +
+    'read before overwriting it.',
   input_schema: {
     type: 'object',
     properties: {
@@ -258,16 +269,11 @@ registerTool({
     if (s.isDirectory()) return `Path is a directory. Use list_dir instead.`
 
     const content = await readFile(abs, 'utf-8')
-    // Cuenta como lectura en cualquier rama de abajo — incluida la del
-    // simplifier de Haiku, cuyo output no son líneas del archivo pero sí
-    // corrió sobre el contenido real. Deliberadamente NO distingue una
-    // lectura parcial (headWithNotice, un focus recortado) de una completa:
-    // el gate de fs_edit/fs_write sólo exige "el agente pasó por acá", no
-    // "el agente vio cada byte". Endurecerlo por rango leído es un cambio de
-    // alcance mayor (guardar qué líneas se vieron, no sólo el path).
-    ctx.readPaths?.add(abs)
 
     if (input.offset || input.limit) {
+      // Un rango explícito sigue siendo contenido real (no un resumen), así
+      // que cuenta como lectura — el agente pidió exactamente esto.
+      ctx.readPaths?.add(abs)
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
       const end = input.limit ? start + input.limit : lines.length
@@ -279,15 +285,24 @@ registerTool({
 
     const focus = typeof input.focus === 'string' ? input.focus.trim() : ''
     if (focus && Buffer.byteLength(content) > FILE_FOCUS_THRESHOLD) {
+      // NO se marca como leído acá: lo que vuelve es un resumen (Haiku) o una
+      // cabecera recortada, nunca el archivo entero. Si se marcara, un
+      // fs_write posterior podría sobrescribir con contenido incompleto un
+      // archivo del que el agente sólo vio una parte — fs_edit fallaría a
+      // salvo por el old_string, pero fs_write no valida nada y escribiría
+      // silenciosamente. Exigir una lectura completa (o paginada con
+      // offset/limit) antes de habilitar la escritura es lo seguro.
       if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus, ctx)
       return content.length > MAX_FILE_BYTES
         ? headWithNotice(content, input.path, 'focus disabled')
-        : numberLines(content)
+        : markFullyRead(abs, ctx, content)
     }
 
+    // Cabecera recortada (>MAX_FILE_BYTES): mismo motivo que arriba, no
+    // cuenta como lectura completa.
     return content.length > MAX_FILE_BYTES
       ? headWithNotice(content, input.path)
-      : numberLines(content)
+      : markFullyRead(abs, ctx, content)
   },
 })
 
