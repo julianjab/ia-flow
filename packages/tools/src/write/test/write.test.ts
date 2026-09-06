@@ -319,11 +319,32 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
     ).rejects.toThrow('w/missing.ts no existe')
   })
 
-  it('fs_write refuses content that looks like fs_read line-numbered output', async () => {
+  // El guardián anti-numerado (assertNotNumberedOutput) sólo corre al
+  // SOBRESCRIBIR — el riesgo es corromper contenido existente con lo que se
+  // acaba de leer de él. Un archivo NUEVO no lo dispara (sus líneas
+  // iniciales pueden legítimamente parecerse a output de fs_read, p. ej. un
+  // fixture de test), así que estos casos preparan un archivo existente y
+  // lo marcan como ya leído para aislar específicamente ese chequeo.
+  function overwriteCtx(): ToolContext {
+    writeFileSync(join(writeRoot, 'existing.ts'), 'placeholder')
+    return { ...ctxWith([writeRoot]), readPaths: new Set([join(writeRoot, 'existing.ts')]) }
+  }
+
+  it('creating a NEW file with numbered-looking content is allowed — the guard only applies to overwrite', async () => {
+    const tool = getTool('write_file')!
+    const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\tconst c = 3'
+    const out = await tool.execute(
+      { path: 'w/brand-new.ts', content: numbered },
+      ctxWith([writeRoot]),
+    )
+    expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write refuses OVERWRITING with content that looks like fs_read line-numbered output', async () => {
     const tool = getTool('write_file')!
     const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\tconst c = 3'
     await expect(
-      tool.execute({ path: 'w/new.ts', content: numbered }, ctxWith([writeRoot])),
+      tool.execute({ path: 'w/existing.ts', content: numbered }, overwriteCtx()),
     ).rejects.toThrow('parece traer los prefijos')
   })
 
@@ -334,7 +355,7 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
     const tool = getTool('write_file')!
     const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\t\n'
     await expect(
-      tool.execute({ path: 'w/new.ts', content: numbered }, ctxWith([writeRoot])),
+      tool.execute({ path: 'w/existing.ts', content: numbered }, overwriteCtx()),
     ).rejects.toThrow('parece traer los prefijos')
   })
 
@@ -345,35 +366,35 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
     const tool = getTool('write_file')!
     const looksNumberedButHasABlankLine = '1\tfoo\n\n3\tbar\n4\tbaz\n'
     const out = await tool.execute(
-      { path: 'w/new.ts', content: looksNumberedButHasABlankLine },
-      ctxWith([writeRoot]),
+      { path: 'w/existing.ts', content: looksNumberedButHasABlankLine },
+      overwriteCtx(),
     )
     expect(out).toContain('Archivo escrito')
   })
 
-  it('fs_write accepts content where lines are not ALL numbered', async () => {
+  it('fs_write accepts overwriting with content where lines are not ALL numbered', async () => {
     const tool = getTool('write_file')!
     const code = 'const a = 1\n1\tfoo bar baz\nconst b = 2\nconst c = 3\n'
-    const out = await tool.execute({ path: 'w/new.ts', content: code }, ctxWith([writeRoot]))
+    const out = await tool.execute({ path: 'w/existing.ts', content: code }, overwriteCtx())
     expect(out).toContain('Archivo escrito')
   })
 
-  it('fs_write accepts a real TSV whose id column is not strictly consecutive from 1 (regression: majority-based heuristic false positive)', async () => {
+  it('fs_write accepts overwriting with a real TSV whose id column is not strictly consecutive from 1 (regression: majority-based heuristic false positive)', async () => {
     // Every line matches /^\d+\t/ (like a real fs_read output), but the
     // numbers are a data column, not sequential line numbers — a plain
     // "majority of lines start with digits+tab" heuristic would have
     // rejected this real, legitimate file.
     const tool = getTool('write_file')!
     const tsv = '1002\tAlice\n1005\tBob\n1010\tCarol\n'
-    const out = await tool.execute({ path: 'w/ids.tsv', content: tsv }, ctxWith([writeRoot]))
+    const out = await tool.execute({ path: 'w/existing.ts', content: tsv }, overwriteCtx())
     expect(out).toContain('Archivo escrito')
   })
 
-  it('fs_write refuses even when numbering does not start at 1, as long as it is consecutive (a mid-file paste)', async () => {
+  it('fs_write refuses OVERWRITING even when numbering does not start at 1, as long as it is consecutive (a mid-file paste)', async () => {
     const tool = getTool('write_file')!
     const numbered = '500\tfoo\n501\tbar\n502\tbaz'
     await expect(
-      tool.execute({ path: 'w/new.ts', content: numbered }, ctxWith([writeRoot])),
+      tool.execute({ path: 'w/existing.ts', content: numbered }, overwriteCtx()),
     ).rejects.toThrow('parece traer los prefijos')
   })
 })

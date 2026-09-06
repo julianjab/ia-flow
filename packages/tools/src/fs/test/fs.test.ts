@@ -534,10 +534,22 @@ describe('fs_read — focus', () => {
     expect(readPaths.size).toBe(0)
   })
 
-  it('a paginated read that covers the WHOLE file (offset:1, no limit) DOES mark the path as read', async () => {
+  it('offset:1 without limit is CAPPED at MAX_FILE_BYTES when the requested range does not fit, and does not mark the path', async () => {
+    // big.txt (1200 lines, ~48KB numbered) is over the 40KB page cap — a
+    // single {offset:1} call must not dump it whole just because no `limit`
+    // was given; it truncates like a plain read does, with a continue hint.
     const readPaths = new Set<string>()
-    await read({ path: 'r/big.txt', offset: 1 }, { readPaths })
-    expect(readPaths.has(join(repoRoot, 'big.txt'))).toBe(true)
+    const out = await read({ path: 'r/big.txt', offset: 1 }, { readPaths })
+    expect(out).toContain('Página cortada')
+    expect(out).toContain('Pasa offset:')
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('offset:1 without limit on a file that FITS under the cap marks the path as fully read', async () => {
+    writeFileSync(join(repoRoot, 'small.txt'), 'a\nb\nc')
+    const readPaths = new Set<string>()
+    await read({ path: 'r/small.txt', offset: 1 }, { readPaths })
+    expect(readPaths.has(join(repoRoot, 'small.txt'))).toBe(true)
   })
 
   it('accumulates coverage across several paginated calls until the whole file is read', async () => {
