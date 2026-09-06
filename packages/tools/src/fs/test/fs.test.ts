@@ -545,6 +545,20 @@ describe('fs_read — focus', () => {
     expect(readPaths.size).toBe(0)
   })
 
+  it('a single line over MAX_FILE_BYTES still makes progress (regression: used to return an empty page and loop forever)', async () => {
+    // A minified bundle / base64 blob with no newlines: the first "line" by
+    // itself already exceeds the page cap. The old logic broke out of the
+    // loop at i=0, returning zero lines and a "continue at the same offset"
+    // hint — an infinite loop with no way out.
+    const oneHugeLine = 'x'.repeat(60_000)
+    writeFileSync(join(repoRoot, 'huge-line.txt'), oneHugeLine)
+    const readPaths = new Set<string>()
+    const out = await read({ path: 'r/huge-line.txt', offset: 1 }, { readPaths })
+    expect(out).toContain('Pasa offset:2') // offset MOVED PAST the line, not repeated
+    expect(out).not.toContain('Pasa offset:1')
+    expect(readPaths.size).toBe(0) // truncated content, so it doesn't count as "read"
+  })
+
   it('offset:1 without limit on a file that FITS under the cap marks the path as fully read', async () => {
     writeFileSync(join(repoRoot, 'small.txt'), 'a\nb\nc')
     const readPaths = new Set<string>()
