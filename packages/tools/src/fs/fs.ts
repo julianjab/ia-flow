@@ -78,6 +78,52 @@ function markFullyRead(abs: string, ctx: ToolContext, content: string): string {
   return numberLines(content)
 }
 
+/**
+ * Cobertura de rangos leídos por `fs_read(offset, limit)`, por `Set` de
+ * `readPaths` (una entrada por run — el `Set` mismo es la key, así que no
+ * hace falta limpiar nada: muere con el `ctx` del run). Existe porque un
+ * archivo grande no se lee de una — la descripción de `fs_read` recomienda
+ * paginar hasta cubrirlo entero, y sin acumular rangos esa recomendación era
+ * un callejón sin salida: ninguna página parcial sola satisfacía el gate, y
+ * la única forma de marcarlo era un `{offset:1}` sin `limit` que volcaba el
+ * archivo completo de una — justo lo que paginar existe para evitar.
+ */
+const rangeCoverage = new WeakMap<Set<string>, Map<string, Array<[number, number]>>>()
+
+/** `true` si los rangos acumulados (posiblemente solapados, en cualquier
+ *  orden) cubren `[0, totalLines)` sin huecos. */
+function coversWholeFile(ranges: Array<[number, number]>, totalLines: number): boolean {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
+  let covered = 0
+  for (const [start, end] of sorted) {
+    if (start > covered) return false
+    covered = Math.max(covered, end)
+  }
+  return covered >= totalLines
+}
+
+/** Registra que este run leyó `[start, end)` de `abs` (en líneas), y marca
+ *  el path en `ctx.readPaths` en cuanto la unión de rangos leídos cubre el
+ *  archivo entero — sin importar en cuántas llamadas se pidió. */
+function recordRangeRead(
+  ctx: ToolContext,
+  abs: string,
+  start: number,
+  end: number,
+  totalLines: number,
+): void {
+  if (!ctx.readPaths) return
+  let byPath = rangeCoverage.get(ctx.readPaths)
+  if (!byPath) {
+    byPath = new Map()
+    rangeCoverage.set(ctx.readPaths, byPath)
+  }
+  const ranges = byPath.get(abs) ?? []
+  ranges.push([start, end])
+  byPath.set(abs, ranges)
+  if (coversWholeFile(ranges, totalLines)) ctx.readPaths.add(abs)
+}
+
 /** Sin `focus` y arriba del tope: la cabecera hasta `MAX_FILE_BYTES` y una
  *  nota con el tamaño real, para que el agente pagine o enfoque. */
 function headWithNotice(content: string, path: string, reason?: string): string {
@@ -275,12 +321,15 @@ registerTool({
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
       const end = input.limit ? start + input.limit : lines.length
-      // Sólo cuenta como "leído" cuando el rango pedido cubre el archivo
-      // ENTERO (offset 1 y sin limit, o un limit que llega hasta el final).
-      // Un rango parcial (offset:1, limit:1 sobre un archivo de 5000
-      // líneas) es tan incompleto como el focus de Haiku — marcarlo
-      // dejaría a fs_write sobrescribir con contenido que el run nunca vio.
-      if (start === 0 && end >= lines.length) ctx.readPaths?.add(abs)
+      // Se acumula por rango, no por llamada: paginar en varias vueltas
+      // (offset 1/limit 500, 501/500, …) hasta cubrir el archivo entero
+      // marca el path igual que una sola lectura completa — es justo el
+      // flujo que la descripción de la tool recomienda para archivos
+      // grandes, y sin acumular quedaba sin forma de satisfacerlo salvo
+      // pidiendo todo de una ({offset:1} sin limit), evadiendo el sentido
+      // de paginar. Un rango parcial que nunca se completa (offset:1,
+      // limit:1 y nada más) sigue sin marcar, como el focus de Haiku.
+      recordRangeRead(ctx, abs, start, end, lines.length)
       return lines
         .slice(start, end)
         .map((l, i) => `${start + i + 1}\t${l}`)
