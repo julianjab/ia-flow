@@ -223,11 +223,12 @@ registerTool({
     'Read a file in one of the task repos. Use "<repo-name>/path/to/file" format. ' +
     'A file that fits whole (or a range read with offset/limit) comes back with each line ' +
     'prefixed "N\\t" (1-indexed) so you can cite `file:line` — those numbers are a display, ' +
-    'not part of the file: never include them in the `old_string` you pass to fs_edit. A file ' +
-    `over ${MAX_FILE_BYTES} bytes is cut at that size UNNUMBERED — page it with offset/limit to ` +
-    'get numbered lines for a range, or pass `focus` describing what you need (e.g. "the test ' +
-    'conventions and the package layout") to get only the matching parts, quoted verbatim with ' +
-    'their line ranges (also unnumbered).',
+    "not part of the file: never include them in fs_edit's `old_string`, nor in the `content` " +
+    'you pass to fs_write to overwrite this same file (that would write the "N\\t" prefixes ' +
+    `into it). A file over ${MAX_FILE_BYTES} bytes is cut at that size UNNUMBERED — page it ` +
+    'with offset/limit to get numbered lines for a range, or pass `focus` describing what you ' +
+    'need (e.g. "the test conventions and the package layout") to get only the matching parts, ' +
+    'quoted verbatim with their line ranges (also unnumbered).',
   input_schema: {
     type: 'object',
     properties: {

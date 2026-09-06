@@ -109,7 +109,9 @@ registerTool({
   description:
     'Create or overwrite a file inside the allowed writePaths. Parent directories are created ' +
     'as needed. Use "<repo-name>/relative/path" or an absolute path. Overwriting an existing ' +
-    'file requires having read it first with fs_read in this same run.',
+    'file requires having read it first with fs_read in this same run — and if you did, strip ' +
+    'the "N\\t" line-number prefixes fs_read added before passing the content back here; they ' +
+    'are a display, not part of the file, and writing them in corrupts it.',
   apiOnly: true,
   input_schema: {
     type: 'object',
