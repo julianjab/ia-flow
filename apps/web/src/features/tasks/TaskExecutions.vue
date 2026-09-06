@@ -57,9 +57,11 @@ function durationLabel(e: ExecutionLog): string | null {
     e.durationMs ??
     (e.finishedAt ? new Date(e.finishedAt).getTime() - new Date(e.startedAt).getTime() : null);
   if (ms === null || Number.isNaN(ms) || ms < 0) return null;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const min = Math.floor(ms / 60_000);
-  return `${min}m ${Math.round((ms % 60_000) / 1000)}s`;
+  // Se redondea a segundos ANTES de partir en minutos: redondear el resto por
+  // separado daba "1m 60s" para cualquier duración entre 1m59.5s y 2m.
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
 }
 
 /** Por qué terminó así, si el run dejó alguna pista.
