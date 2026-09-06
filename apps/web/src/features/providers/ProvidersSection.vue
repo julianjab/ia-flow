@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import { ref, watch } from 'vue';
-import type { TerminalProviderSettings } from '@ia-flow/shared';
+import { computed, ref, watch } from 'vue';
+import { type TerminalProviderSettings, validateAnthropicApiSettings } from '@ia-flow/shared';
 import AnthropicApiSettingsForm from '@/features/providers/AnthropicApiSettingsForm.vue';
 import ProviderRegistrationsSection from '@/features/providers/ProviderRegistrationsSection.vue';
 import TerminalProviderSettingsForm from '@/features/providers/TerminalProviderSettingsForm.vue';
@@ -36,6 +36,14 @@ const tmuxClaude = ref<TerminalProviderSettings>({});
 const itermClaude = ref<TerminalProviderSettings>({});
 const providersSaving = ref(false);
 
+const anthropicApiError = computed(() =>
+  validateAnthropicApiSettings({
+    model: anthropicApi.value.model,
+    effort: anthropicApi.value.effort,
+    taskBudgetTokens: anthropicApi.value.taskBudgetTokens,
+  }),
+);
+
 function hydrateFromStore() {
   const cfg = providersStore.config;
   if (!cfg) return;
@@ -65,6 +73,10 @@ hydrateFromStore();
 watch(() => providersStore.config, hydrateFromStore);
 
 async function onSaveProviders() {
+  if (anthropicApiError.value) {
+    toastStore.error(anthropicApiError.value);
+    return;
+  }
   providersSaving.value = true;
   try {
     // Send the form state as-is instead of spreading the current config on top
@@ -109,6 +121,7 @@ async function onSaveProviders() {
       agentes que lo usen y pueden ser sobreescritos por <code>providerConfig</code> en cada agente.
     </p>
     <AnthropicApiSettingsForm v-model="anthropicApi" />
+    <p v-if="anthropicApiError" class="anthropic-error">⚠ {{ anthropicApiError }}</p>
   </section>
 
   <section class="settings-section">
@@ -133,7 +146,7 @@ async function onSaveProviders() {
     <button
       type="button"
       class="save-button"
-      :disabled="providersSaving"
+      :disabled="providersSaving || !!anthropicApiError"
       @click="onSaveProviders"
     >
       {{ providersSaving ? 'Guardando…' : 'Guardar providers' }}
@@ -144,6 +157,15 @@ async function onSaveProviders() {
 </template>
 
 <style scoped>
+.anthropic-error {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--red-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
 .settings-actions { display: flex; justify-content: flex-end; }
 .save-button {
   padding: 0.5rem 1.4rem;

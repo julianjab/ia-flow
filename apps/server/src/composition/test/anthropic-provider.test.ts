@@ -122,16 +122,13 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
     expect(calls[0].output_config.task_budget).toEqual({ type: 'tokens', total: 50000 })
   })
 
-  it('omits output_config entirely when neither effort nor taskBudgetTokens are set', async () => {
-    const { calls } = await runOnce()
-    expect(calls[0].output_config).toBeUndefined()
-  })
-
   it('behaves identically to baseline when no providerConfig is provided', async () => {
     const { calls, headers } = await runOnce()
     expect(calls[0].model).toBe(DEFAULT_ANTHROPIC_SETTINGS.model)
     expect(calls[0].max_tokens).toBe(32000)
-    expect(calls[0].output_config).toBeUndefined()
+    // DEFAULT_ANTHROPIC_SETTINGS.effort es explícito ('high') — ver el PRD del
+    // issue #143 (antes se omitía y la API asumía 'high' implícitamente).
+    expect(calls[0].output_config).toEqual({ effort: DEFAULT_ANTHROPIC_SETTINGS.effort })
     expect(headers[0]['anthropic-beta']).not.toContain('task-budgets-2026-03-13')
   })
 

@@ -1,4 +1,4 @@
-import { type RepoMapping, type StepType } from '@ia-flow/shared'
+import { type RepoMapping, type StepType, validateAnthropicApiSettings } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { loadProviderConfig, saveProviderConfig } from '../application/provider-config.js'
 import { providerRegistry } from '../composition/container.js'
@@ -67,6 +67,8 @@ export function createProvidersRouter() {
             ? body.repoMappings
             : current.repoMappings,
       }
+      const effortError = validateAnthropicApiSettings(updated.anthropicApi)
+      if (effortError) return c.json({ error: effortError }, 400)
       await saveProviderConfig(updated)
       return c.json({ config: updated })
     } catch (err) {

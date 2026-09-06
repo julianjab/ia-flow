@@ -411,6 +411,32 @@ export const AnthropicApiSettingsSchema = z.object({
   maxConcurrentRuns: z.number().int().nonnegative().optional(),
 })
 
+/** `effort: 'xhigh' | 'max'` y `taskBudgetTokens` son beta features que hoy sólo
+ *  aceptan modelos Opus — contra Sonnet/Haiku la API de Anthropic responde
+ *  400. Pura y usada en los dos bordes que persisten `AnthropicApiSettings`
+ *  (el form global y el override por-agente en la web, y sus rutas del
+ *  server), para rechazar la combinación al guardar en vez de dejar que
+ *  reviente en el primer request. */
+function isOpusModel(model: string | undefined): boolean {
+  return /opus/i.test(model ?? '')
+}
+
+/** `undefined` = combinación válida (o sin datos suficientes para objetar). */
+export function validateAnthropicApiSettings(settings: {
+  model?: string
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  taskBudgetTokens?: number
+}): string | undefined {
+  const { model, effort, taskBudgetTokens } = settings
+  if ((effort === 'xhigh' || effort === 'max') && !isOpusModel(model)) {
+    return `effort '${effort}' requiere un modelo Opus (ej. claude-opus-4-7); '${model || 'sin modelo'}' no lo soporta`
+  }
+  if (taskBudgetTokens != null && !isOpusModel(model)) {
+    return `taskBudgetTokens requiere un modelo Opus (ej. claude-opus-4-7); '${model || 'sin modelo'}' no lo soporta`
+  }
+  return undefined
+}
+
 export const TerminalProviderSettingsSchema = z.object({
   model: z.string().optional(),
   dangerouslySkipPermissions: z.boolean().optional(),

@@ -1,8 +1,31 @@
-import { AgentDefinitionSchema, invalidateMemoized } from '@ia-flow/shared'
+import {
+  type AgentDefinition,
+  AgentDefinitionSchema,
+  invalidateMemoized,
+  validateAnthropicApiSettings,
+} from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { loadProviderConfig } from '../application/provider-config.js'
 import { agentRepo, configRepo, projectRepo, repoRepo } from '../composition/container.js'
+
+// El `providerConfig` de un agente es un blob opaco (`AgentProviderConfigSchema
+// = z.record(unknown)`) — sólo el shape de `anthropic-api` tiene reglas de
+// modelo × effort/taskBudgetTokens que valga la pena chequear al guardar. El
+// modelo efectivo cae al default global cuando el agente no lo overridea,
+// igual que hace el provider en runtime (ver `resolveEffort` en
+// packages/ai-providers/src/anthropic-api/provider.ts).
+async function anthropicSettingsError(agent: AgentDefinition): Promise<string | undefined> {
+  const pc = agent.providerConfig
+  if (!pc || (pc.effort == null && pc.taskBudgetTokens == null)) return undefined
+  const globalModel = (await loadProviderConfig()).anthropicApi.model
+  return validateAnthropicApiSettings({
+    model: (pc.model as string | undefined) ?? globalModel,
+    effort: pc.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined,
+    taskBudgetTokens: pc.taskBudgetTokens as number | undefined,
+  })
+}
 
 // configRepo.getConfig is @memoize'd (short TTL, see SqliteProjectConfigRepo)
 // to collapse TaskDispatcher's per-item calls within one scan cycle — but it
@@ -57,6 +80,8 @@ export function createAgentsCrudRouter() {
       const existing = agentRepo.inScope(s.target).find((a) => a.id === parsed.id)
       if (existing)
         return c.json({ error: `Agent '${parsed.id}' already exists in this scope` }, 409)
+      const effortError = await anthropicSettingsError(parsed)
+      if (effortError) return c.json({ error: effortError }, 400)
       const candidate = { ...parsed, projectId: s.target }
       // Append al final del scope. Ojo: NO se puede usar `inScope.length` —
       // las posiciones no están normalizadas a 0..n-1 (la migración 036 las
@@ -111,6 +136,8 @@ export function createAgentsCrudRouter() {
     try {
       const parsed = AgentDefinitionSchema.parse(await c.req.json())
       if (parsed.id !== id) return c.json({ error: 'Body id does not match URL id' }, 400)
+      const effortError = await anthropicSettingsError(parsed)
+      if (effortError) return c.json({ error: effortError }, 400)
       const candidate = { ...parsed, projectId: s.target }
       // Preserva la posición actual: editar el prompt de un agente no debe
       // cambiar su prioridad de selección. Usar el índice en `inScope` sería

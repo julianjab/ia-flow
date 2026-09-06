@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import ModelSelect from '@/features/providers/ModelSelect.vue';
+import { validateAnthropicApiSettings } from '@ia-flow/shared';
+import { useProvidersStore } from '@/features/providers/store';
 
 // Per-agent providerConfig shape for the anthropic-api provider. Mirrors
 // the strict Zod schema in apps/server/src/providers/anthropic-api.ts;
@@ -43,19 +45,25 @@ function checkboxInput(e: Event): boolean | undefined {
   return checked ? true : undefined;
 }
 
-function isOpusModel(model: string | undefined): boolean {
-  if (!model) return false;
-  return /opus/i.test(model);
-}
+const providersStore = useProvidersStore();
 
-const effortWarning = computed(() => {
-  const { effort, taskBudgetTokens, model } = state.value;
-  const highEffort = effort === 'xhigh' || effort === 'max';
-  if ((highEffort || taskBudgetTokens != null) && !isOpusModel(model)) {
-    return 'Los valores de effort xhigh/max y task budget se aprovechan mejor con Opus 4.6/4.7.';
-  }
-  return '';
-});
+// Efectivo, no sólo lo que el agente overridea: sin `model` acá, el agente
+// hereda el default global — y es CONTRA ESE modelo que la API valida
+// effort/taskBudgetTokens. Mismo cálculo que hace el server al guardar
+// (ver anthropicSettingsError en apps/server/src/routes/agents-crud.ts).
+const effectiveModel = computed(() => state.value.model ?? providersStore.config?.anthropicApi.model);
+
+// Antes era un warning ("se aprovechan mejor con Opus") que describía como
+// preferencia blanda lo que en realidad es un 400 duro de la API — ver PRD
+// del issue #143. Ahora es el mismo motivo que el server usaría para
+// rechazar el guardado.
+const effortError = computed(() =>
+  validateAnthropicApiSettings({
+    model: effectiveModel.value,
+    effort: state.value.effort,
+    taskBudgetTokens: state.value.taskBudgetTokens,
+  }) ?? '',
+);
 
 // Campos beta/de uso poco frecuente — separados de "uso diario" (Model,
 // Effort, Max tokens) para que elegir el modelo no pese lo mismo
@@ -112,9 +120,9 @@ const advancedOpen = ref(advancedCount.value > 0);
         <option value="xhigh">xhigh</option>
         <option value="max">max</option>
       </select>
-      <p class="field-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren Opus 4.6/4.7.</p>
+      <p class="field-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren un modelo Opus (xhigh no existe en Sonnet/Haiku).</p>
     </div>
-    <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
+    <p v-if="effortError" class="pc-error">⚠ {{ effortError }}</p>
   </div>
 
   <button
@@ -139,7 +147,7 @@ const advancedOpen = ref(advancedCount.value > 0);
         :value="state.taskBudgetTokens ?? ''"
         @input="(e) => set('taskBudgetTokens', numberInput(e))"
       />
-      <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Recomendado Opus 4.6/4.7. Sin valor, hereda del global.</p>
+      <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Requiere un modelo Opus. Sin valor, hereda del global.</p>
     </div>
     <div class="pc-field">
       <label class="pc-label">Thinking budget (tokens)</label>
@@ -219,13 +227,13 @@ const advancedOpen = ref(advancedCount.value > 0);
 .pc-field--checkbox { justify-content: center; }
 .pc-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
 .pc-check input { width: 1rem; height: 1rem; }
-.pc-warning {
+.pc-error {
   grid-column: 1 / -1;
   margin: 0;
   padding: 0.5rem 0.75rem;
-  background: var(--yellow-bg);
-  border: 1px solid var(--warn);
-  color: var(--warn);
+  background: var(--red-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
   border-radius: 6px;
   font-size: 0.8rem;
 }
