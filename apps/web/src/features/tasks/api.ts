@@ -30,3 +30,28 @@ export async function requestSlackReview(
   )
   return data
 }
+
+/** Lo que devuelve "correr ahora": qué hizo el bus con el evento. */
+export interface RunTaskNowResult {
+  /** `dispatched` = una regla lo tomó · `skipped` = ninguna matcheó ·
+   *  `deferred` = matchearon pero no hay capacidad ahora. */
+  outcome: 'dispatched' | 'skipped' | 'deferred'
+  /** El status contra el que se evaluaron las reglas. */
+  status: string
+}
+
+/**
+ * Vuelve a evaluar las reglas de la tarea contra su status actual, sin tocar
+ * el board.
+ *
+ * Existe porque la activación escucha `issue.created`/`issue.status_changed`:
+ * una tarea que se queda quieta en su status no se vuelve a despachar sola, y
+ * hasta ahora el único recurso era moverla a otro status y traerla de vuelta.
+ */
+export async function runTaskNow(projectId: string, taskId: string): Promise<RunTaskNowResult> {
+  const { data } = await axios.post<RunTaskNowResult>(
+    `/api/tasks/${encodeURIComponent(taskId)}/run`,
+    { projectId },
+  )
+  return data
+}

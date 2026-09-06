@@ -4,7 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import ItemReposModal from '@/features/repos/ItemReposModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
-import { requestSlackReview } from '@/features/tasks/api';
+import { requestSlackReview, runTaskNow } from '@/features/tasks/api';
 import type { PullRequestRef, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
 import {
   ProjectSettingsSchema,
@@ -88,6 +88,7 @@ const availableRepoNames = ref<string[]>([]);
 const { integrations } = useIntegrations();
 
 const slackBusyId = ref<string | null>(null);
+const runBusyId = ref<string | null>(null);
 const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
 const slackSettingsSaving = ref(false);
 
@@ -396,6 +397,32 @@ async function doSlackReview(item: TaskRow, allowFailedCi: boolean) {
   }
 }
 
+// ─── Correr una tarea a mano ─────────────────────────────────────────────
+//
+// La activación de un agente escucha `issue.created`/`issue.status_changed`, y
+// una tarea que se queda quieta en su status no se vuelve a despachar sola —
+// típico después de que un run se cancela, o cuando editás el issue y querés
+// reintentar. Esto re-emite el status actual; el board no se toca.
+
+async function onRunClick(item: TaskRow) {
+  if (!activeProjectId.value) return;
+  runBusyId.value = item.id;
+  try {
+    const res = await runTaskNow(activeProjectId.value, item.id);
+    // Los tres outcomes son estados distintos y el operador tiene que poder
+    // distinguirlos: "no matcheó ninguna regla" no es un error del server, es
+    // config — y verlo como éxito sería peor que verlo como fallo.
+    if (res.outcome === 'dispatched') toastStore.success(`Corriendo (status ${res.status})`);
+    else if (res.outcome === 'deferred')
+      toastStore.success(`En cola: hay capacidad ocupada, se corre al liberarse`);
+    else toastStore.error(`Ninguna regla matchea el status "${res.status}"`);
+  } catch (e) {
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
+  } finally {
+    runBusyId.value = null;
+  }
+}
+
 async function saveSlackSettings(settings: {
   slackReviewChannel: string | null;
   slackReviewers: SlackMemberRef[] | null;
@@ -547,6 +574,17 @@ watch(activeProjectId, (pid) => {
             :slack-thread-url="item.slackThreadUrl"
             show-empty-repos
           />
+          <div class="task-card-actions">
+          <button
+            type="button"
+            class="btn btn--ghost task-run-btn"
+            :disabled="runBusyId === item.id"
+            title="Volver a evaluar las reglas con el status actual, sin mover la tarea"
+            @click.stop="onRunClick(item)"
+          >
+            <span class="btn-glyph">{{ runBusyId === item.id ? '◐' : '▷' }}</span>
+            Correr
+          </button>
           <button
             v-if="item.hasDevLinks && integrations.slack.enabled"
             type="button"
@@ -558,6 +596,7 @@ watch(activeProjectId, (pid) => {
             <span class="btn-glyph">{{ slackBusyId === item.id ? '◐' : '✦' }}</span>
             {{ item.slackThreadUrl ? 'Pedir re-review' : 'Solicitar review' }}
           </button>
+          </div>
         </div>
       </li>
     </ul>
@@ -707,8 +746,13 @@ watch(activeProjectId, (pid) => {
   gap: 0.5rem;
   min-width: 0;
 }
-.task-slack-btn { flex: 0 0 auto; }
-.task-slack-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Los dos botones viajan juntos a la derecha: el `space-between` del pie
+   reparte entre los tags y ESTE grupo, no entre tres hermanos sueltos. */
+.task-card-actions { display: flex; align-items: center; gap: 0.35rem; flex: 0 0 auto; }
+.task-slack-btn,
+.task-run-btn { flex: 0 0 auto; }
+.task-slack-btn:disabled,
+.task-run-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; }
 .task-blocker-chip {
