@@ -374,6 +374,10 @@ export interface ToolContext {
    *  se le ofreció a este tipo de provider — ver `resolveExecutableTool` en
    *  packages/tools/src/engine.ts. */
   providerKind?: ProviderKind
+  /** Paths absolutos que `fs_read` ya leyó en este run. `fs_edit`/`fs_write`
+   *  lo exigen antes de tocar disco. Ver la copia canónica en
+   *  packages/tools/src/contract.ts. */
+  readPaths?: Set<string>
 }
 
 export interface LoopOptions {

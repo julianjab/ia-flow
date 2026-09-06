@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ToolContext } from '../../contract.js'
 import { getTool } from '../../engine.js'
+import '../../fs/fs.js' // side-effect: register fs_read, for the cross-tool readPaths test
 import '../write.js' // side-effect: register write_file / edit_file
 
 // Three isolated tmp roots per test:
@@ -157,6 +158,92 @@ describe('edit_file — validation failures', () => {
     await expect(
       tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, ctxWith([])),
     ).rejects.toThrow('writePaths vacío')
+  })
+})
+
+describe('fs_edit / fs_write — read-before-write gate', () => {
+  it('fs_edit fails when the file was not read in this run', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    await expect(
+      tool.execute(
+        { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+        { ...ctxWith([writeRoot]), readPaths: new Set() },
+      ),
+    ).rejects.toThrow('leé w/a.ts antes de editarlo')
+  })
+
+  it('fs_edit succeeds once the same path was read in this run', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const readPaths = new Set([join(writeRoot, 'a.ts')])
+    const out = await tool.execute(
+      { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(out).toContain('Edición aplicada')
+    expect(readFileSync(join(writeRoot, 'a.ts'), 'utf-8')).toBe('bar')
+  })
+
+  it('fs_edit is unaffected by the gate when readPaths is undefined (legacy/async contexts)', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const out = await tool.execute(
+      { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+      ctxWith([writeRoot]),
+    )
+    expect(out).toContain('Edición aplicada')
+  })
+
+  it('fs_write creating a NEW file succeeds without any prior read, even with readPaths set', async () => {
+    const tool = getTool('write_file')!
+    const out = await tool.execute(
+      { path: 'w/brand-new.txt', content: 'hello' },
+      { ...ctxWith([writeRoot]), readPaths: new Set() },
+    )
+    expect(out).toContain('Archivo escrito')
+    expect(readFileSync(join(writeRoot, 'brand-new.txt'), 'utf-8')).toBe('hello')
+  })
+
+  it('fs_write overwriting an EXISTING file fails without a prior read', async () => {
+    writeFileSync(join(writeRoot, 'existing.txt'), 'old')
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute(
+        { path: 'w/existing.txt', content: 'new' },
+        { ...ctxWith([writeRoot]), readPaths: new Set() },
+      ),
+    ).rejects.toThrow('leé w/existing.txt antes de editarlo')
+    expect(readFileSync(join(writeRoot, 'existing.txt'), 'utf-8')).toBe('old')
+  })
+
+  it('fs_write overwriting an EXISTING file succeeds once it was read in this run', async () => {
+    writeFileSync(join(writeRoot, 'existing.txt'), 'old')
+    const tool = getTool('write_file')!
+    const readPaths = new Set([join(writeRoot, 'existing.txt')])
+    await tool.execute(
+      { path: 'w/existing.txt', content: 'new' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(readFileSync(join(writeRoot, 'existing.txt'), 'utf-8')).toBe('new')
+  })
+
+  it('resolves the same absolute path as fs_read for the same input, so readPaths matches across tools', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    // fs_read (fs.ts's resolvePath) and fs_edit (write.ts's toAbsolute) must
+    // agree on the absolute path for a marker written by one to gate the
+    // other correctly.
+    const readTool = getTool('fs_read')
+    if (readTool) {
+      const readPaths = new Set<string>()
+      await readTool.execute({ path: 'w/a.ts' }, { repoPaths: ctxBase.repoPaths, readPaths })
+      const editTool = getTool('edit_file')!
+      const out = await editTool.execute(
+        { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+        { ...ctxWith([writeRoot]), readPaths },
+      )
+      expect(out).toContain('Edición aplicada')
+    }
   })
 })
 

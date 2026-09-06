@@ -4,6 +4,7 @@
 // is currently the only registered caller. Both tools mutate the filesystem,
 // so every code path funnels through `resolveWritePath` → `assertInWritePaths`
 // before touching disk.
+import { existsSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
@@ -42,6 +43,18 @@ function resolveWritePath(input: string, ctx: ToolContext): string {
   return abs
 }
 
+/**
+ * Exige que `fs_read` haya leído este path en el run actual antes de tocarlo.
+ * Sólo se activa cuando `ctx.readPaths` está seteado — `undefined` significa
+ * que el gate no aplica acá (el MCP async, o un test viejo sin el campo). Un
+ * archivo nuevo no pasa por acá: crear no tiene memoria previa que exigir.
+ */
+function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string): void {
+  if (ctx.readPaths && !ctx.readPaths.has(abs)) {
+    throw new Error(`leé ${inputPath} antes de editarlo`)
+  }
+}
+
 function toAbsolute(path: string, repoPaths: Record<string, string>): string {
   if (path.startsWith('/')) return resolve(path)
   for (const [name, root] of Object.entries(repoPaths)) {
@@ -78,7 +91,9 @@ registerTool({
   name: 'fs_write',
   aliases: ['write_file'],
   description:
-    'Create or overwrite a file inside the allowed writePaths. Parent directories are created as needed. Use "<repo-name>/relative/path" or an absolute path.',
+    'Create or overwrite a file inside the allowed writePaths. Parent directories are created ' +
+    'as needed. Use "<repo-name>/relative/path" or an absolute path. Overwriting an existing ' +
+    'file requires having read it first with fs_read in this same run.',
   apiOnly: true,
   input_schema: {
     type: 'object',
@@ -96,6 +111,7 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const abs = resolveWritePath(input.path, ctx)
+    if (existsSync(abs)) assertReadBeforeEdit(abs, ctx, input.path)
     const content = typeof input.content === 'string' ? input.content : ''
     await mkdir(dirname(abs), { recursive: true })
     await Bun.write(abs, content)
@@ -119,7 +135,9 @@ registerTool({
   name: 'fs_edit',
   aliases: ['edit_file'],
   description:
-    'Replace an exact substring in an existing file inside writePaths. Fails if old_string is absent, or if it appears more than once and replace_all=false.',
+    'Replace an exact substring in an existing file inside writePaths. Fails if old_string is ' +
+    'absent, or if it appears more than once and replace_all=false. Requires having read the ' +
+    'file first with fs_read in this same run.',
   apiOnly: true,
   input_schema: {
     type: 'object',
@@ -139,6 +157,7 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const abs = resolveWritePath(input.path, ctx)
+    assertReadBeforeEdit(abs, ctx, input.path)
     const oldStr = String(input.old_string ?? '')
     const newStr = String(input.new_string ?? '')
     const replaceAll = input.replace_all === true

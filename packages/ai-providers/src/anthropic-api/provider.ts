@@ -495,6 +495,11 @@ export class AnthropicApiProvider implements IAgentProvider {
       // complete_task/fail_task) even if the model emits one anyway — see
       // resolveExecutableTool in packages/tools/src/engine.ts.
       providerKind: 'sync',
+      // Set nuevo por dispatch: trackea qué paths leyó `fs_read` en ESTE run
+      // para que `fs_edit`/`fs_write` puedan exigir lectura previa. Vive sólo
+      // en memoria — sin checkpoint que lo persista, un run que se reanuda
+      // vuelve a exigir lectura, que es el default seguro.
+      readPaths: new Set<string>(),
     }
 
     log.info(
