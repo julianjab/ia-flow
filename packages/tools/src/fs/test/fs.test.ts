@@ -90,7 +90,7 @@ describe('resolvePath — path traversal via a symlink', () => {
 
     const tool = getTool('fs_read')!
     const out = await tool.execute({ path: 'r/alias/inside.txt' }, { repoPaths })
-    expect(out).toBe('fine')
+    expect(out).toBe('1\tfine')
   })
 })
 
@@ -488,9 +488,9 @@ describe('fs_read — focus', () => {
   const read = (input: Record<string, unknown>, ctx: Record<string, unknown> = {}) =>
     getTool('fs_read')!.execute(input, { repoPaths, ...ctx } as any)
 
-  it('returns a small file whole, focus or not', async () => {
-    expect(await read({ path: 'r/small.txt' })).toBe('hello\nworld')
-    expect(await read({ path: 'r/small.txt', focus: 'anything' })).toBe('hello\nworld')
+  it('returns a small file whole, numbered, focus or not', async () => {
+    expect(await read({ path: 'r/small.txt' })).toBe('1\thello\n2\tworld')
+    expect(await read({ path: 'r/small.txt', focus: 'anything' })).toBe('1\thello\n2\tworld')
     expect(calls).toHaveLength(0)
   })
 
@@ -934,5 +934,35 @@ describe('fs_glob', () => {
     if (rgResults !== null) {
       expect([...rgResults].sort()).toEqual([...jsResults].sort())
     }
+  })
+})
+
+describe('fs_read — line numbering and readPaths tracking', () => {
+  it('prefixes each line with its 1-indexed number for a plain full read', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'const a = 1\nconst b = 2\n')
+    const tool = getTool('fs_read')!
+    const out = await tool.execute({ path: 'r/a.ts' }, { repoPaths })
+    expect(out).toBe('1\tconst a = 1\n2\tconst b = 2\n3\t')
+  })
+
+  it('mentions in its description that the line numbers are not part of the file', () => {
+    const tool = getTool('fs_read')!
+    expect(tool.description).toMatch(/not part of the file/)
+    expect(tool.description).toContain('old_string')
+  })
+
+  it('adds the resolved absolute path to ctx.readPaths when set', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'hi')
+    const tool = getTool('fs_read')!
+    const readPaths = new Set<string>()
+    await tool.execute({ path: 'r/a.ts' }, { repoPaths, readPaths } as any)
+    expect(readPaths.has(join(repoRoot, 'a.ts'))).toBe(true)
+  })
+
+  it('does not touch ctx.readPaths when it is undefined (async/legacy contexts)', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'hi')
+    const tool = getTool('fs_read')!
+    // Must not throw just because readPaths is absent.
+    await expect(tool.execute({ path: 'r/a.ts' }, { repoPaths })).resolves.toBeDefined()
   })
 })

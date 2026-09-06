@@ -109,6 +109,20 @@ export interface ToolContext {
    * tool corre fuera de un loop (el MCP async, un test).
    */
   control?: LoopControl
+  /**
+   * Paths absolutos que `fs_read` ya leyó en ESTE run sync (agregados por la
+   * propia tool en cada ejecución, incluida la rama del simplifier de Haiku).
+   * `fs_edit` y `fs_write` sobre un archivo existente lo consultan antes de
+   * tocar disco: sin la lectura previa, `old_string` podría acertar por
+   * casualidad contra contenido que este run nunca vio.
+   *
+   * Lo inicializa el provider sync (`anthropic-api`) como un `Set` nuevo por
+   * dispatch — vive sólo en memoria del `executeLoop`, no hay checkpoint que
+   * lo persista. `undefined` ⇒ el gate queda apagado: es el caso del MCP
+   * async, donde el CLI remoto trae su propio Read nativo que el engine no
+   * ve, así que exigir lectura acá sería un falso positivo.
+   */
+  readPaths?: Set<string>
 }
 
 /** Lo único que una tool puede pedirle al loop. Angosto a propósito: cuanto

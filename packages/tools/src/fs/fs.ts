@@ -221,8 +221,10 @@ registerTool({
   aliases: ['read_file'],
   description:
     'Read a file in one of the task repos. Use "<repo-name>/path/to/file" format. ' +
-    'Small files come back whole. For a large file, pass `focus` describing what you need ' +
-    '(e.g. "the test conventions and the package layout") and you get only the matching ' +
+    'Small files come back whole, each line prefixed with "N\\t" (1-indexed) so you can cite ' +
+    '`file:line` — those numbers are a display, not part of the file: never include them in ' +
+    'the `old_string` you pass to fs_edit. For a large file, pass `focus` describing what you ' +
+    'need (e.g. "the test conventions and the package layout") and you get only the matching ' +
     'parts, quoted verbatim with their line ranges; without `focus`, a large file is cut at ' +
     `${MAX_FILE_BYTES} bytes and you are told how to page with offset/limit.`,
   input_schema: {
@@ -254,6 +256,10 @@ registerTool({
     if (s.isDirectory()) return `Path is a directory. Use list_dir instead.`
 
     const content = await readFile(abs, 'utf-8')
+    // Cuenta como lectura en cualquier rama de abajo — incluida la del
+    // simplifier de Haiku, cuyo output no son líneas del archivo pero sí
+    // corrió sobre el contenido real.
+    ctx.readPaths?.add(abs)
 
     if (input.offset || input.limit) {
       const lines = content.split('\n')
@@ -270,10 +276,12 @@ registerTool({
       if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus, ctx)
       return content.length > MAX_FILE_BYTES
         ? headWithNotice(content, input.path, 'focus disabled')
-        : content
+        : numberLines(content)
     }
 
-    return content.length > MAX_FILE_BYTES ? headWithNotice(content, input.path) : content
+    return content.length > MAX_FILE_BYTES
+      ? headWithNotice(content, input.path)
+      : numberLines(content)
   },
 })
 
