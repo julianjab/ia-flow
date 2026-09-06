@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PullRequestRef } from '@ia-flow/shared';
+import type { PullRequestRef, RunTaskNowResult } from '@ia-flow/shared';
 import { ref, watch, computed } from 'vue';
 import TaskTags from '@/components/TaskTags.vue';
 
@@ -18,11 +18,22 @@ const props = defineProps<{
   pullRequests?: PullRequestRef[];
   devLinks?: boolean;
   pullRequestsKnown?: boolean;
+  /** Status actual de la tarea — es contra ESTO que se evalúan las reglas
+   *  cuando se la corre, así que se muestra al lado del botón. */
+  status?: string;
+  /** Hay un pedido en vuelo. */
+  running?: boolean;
+  /** Resultado del último pedido en esta apertura del modal. Se muestra acá y
+   *  no sólo como toast: el toast se va, y el caso interesante —"ninguna regla
+   *  matchea"— es justamente el que uno necesita releer mientras decide qué
+   *  cambiar. */
+  runResult?: RunTaskNowResult | null;
 }>();
 
 const emit = defineEmits<{
   close: [];
   save: [repos: string[]];
+  run: [];
 }>();
 
 const selected = ref<string[]>([]);
@@ -37,6 +48,20 @@ function toggle(repo: string) {
   else selected.value.splice(idx, 1);
 }
 
+/** Qué decir del último intento, en el idioma del operador. */
+const runMessage = computed(() => {
+  const r = props.runResult;
+  if (!r) return null;
+  if (r.outcome === 'dispatched')
+    return { ok: true, text: `Corriendo — una regla tomó el status "${r.status}".` };
+  if (r.outcome === 'deferred')
+    return { ok: true, text: 'En cola: la capacidad está ocupada; arranca al liberarse un slot.' };
+  return {
+    ok: false,
+    text: `Ninguna regla matchea el status "${r.status}", así que no se despachó ningún agente. Revisá las reglas del proyecto.`,
+  };
+});
+
 const hasChanges = computed(
   () => JSON.stringify([...selected.value].sort()) !== JSON.stringify([...props.currentRepos].sort())
 );
@@ -48,7 +73,7 @@ const hasChanges = computed(
       <div class="modal">
         <header class="modal-head">
           <div class="modal-head-text">
-            <span class="modal-title">Editar repos</span>
+            <span class="modal-title">Detalle de la tarea</span>
             <span class="modal-subtitle">
               <a
                 v-if="issueUrl"
@@ -75,6 +100,29 @@ const hasChanges = computed(
               :dev-links="devLinks"
               :pull-requests-known="pullRequestsKnown"
             />
+          </section>
+
+          <section class="run-block">
+            <span class="uc-label">Ejecución</span>
+            <div class="run-row">
+              <button
+                type="button"
+                class="btn btn--primary run-btn"
+                :disabled="running"
+                @click="emit('run')"
+              >
+                {{ running ? 'Pidiendo…' : '▷ Correr ahora' }}
+              </button>
+              <p class="run-explain">
+                Vuelve a evaluar las reglas contra el status
+                <code v-if="status" class="run-status">{{ status }}</code>
+                <span v-else class="run-status is-empty">sin status</span>
+                sin mover la tarea en el board.
+              </p>
+            </div>
+            <p v-if="runMessage" class="run-result" :class="{ 'is-error': !runMessage.ok }">
+              {{ runMessage.text }}
+            </p>
           </section>
 
           <p class="hint">Selecciona los repos que afecta esta tarea.</p>
@@ -117,6 +165,31 @@ const hasChanges = computed(
 </template>
 
 <style scoped>
+.run-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.run-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.run-btn { flex: 0 0 auto; }
+.run-explain { margin: 0; font-size: var(--fs-micro); color: var(--fg-dim); flex: 1 1 12rem; }
+.run-status {
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+.run-status.is-empty { color: var(--fg-dim); font-style: italic; }
+.run-result {
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--fg);
+}
+/* El "ninguna regla matchea" no es un fallo del server: es config para
+   revisar. Se marca distinto porque el operador tiene que poder distinguirlo
+   de un run que sí arrancó. */
+.run-result.is-error { color: var(--danger, #c0392b); }
+
 .backdrop {
   position: fixed;
   inset: 0;
