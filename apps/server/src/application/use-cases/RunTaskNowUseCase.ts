@@ -1,6 +1,6 @@
 import { ISSUE_STATUS_CHANGED } from '@ia-flow/rules'
-import { createEvent } from '@ia-flow/shared'
-import type { EventOutcome, IEventBus } from '../../domain/ports/IEventBus.js'
+import { type RunTaskNowResult, createEvent } from '@ia-flow/shared'
+import type { IEventBus } from '../../domain/ports/IEventBus.js'
 import { defaultToIssueItem } from '../../domain/ports/IIssueManager.js'
 import type { IssueItem, SourceItem } from '../../domain/ports/IIssueManager.js'
 
@@ -20,12 +20,6 @@ export type IsTaskRunning = (taskId: string) => boolean
 
 /** Motivo que la tarjeta muestra tal cual — no un 500. */
 export class RunTaskNowError extends Error {}
-
-export interface RunTaskNowResult {
-  outcome: EventOutcome
-  /** El status contra el que se evaluaron las reglas. */
-  status: string
-}
 
 /**
  * "Correr esta tarea ahora", sin tocar el board.

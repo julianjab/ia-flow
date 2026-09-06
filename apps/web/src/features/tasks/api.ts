@@ -1,4 +1,4 @@
-import type { SlackMemberRef } from '@ia-flow/shared'
+import { type RunTaskNowResult, RunTaskNowResultSchema, type SlackMemberRef } from '@ia-flow/shared'
 import axios from 'axios'
 
 export interface SlackReviewResult {
@@ -31,15 +31,6 @@ export async function requestSlackReview(
   return data
 }
 
-/** Lo que devuelve "correr ahora": qué hizo el bus con el evento. */
-export interface RunTaskNowResult {
-  /** `dispatched` = una regla lo tomó · `skipped` = ninguna matcheó ·
-   *  `deferred` = matchearon pero no hay capacidad ahora. */
-  outcome: 'dispatched' | 'skipped' | 'deferred'
-  /** El status contra el que se evaluaron las reglas. */
-  status: string
-}
-
 /**
  * Vuelve a evaluar las reglas de la tarea contra su status actual, sin tocar
  * el board.
@@ -49,9 +40,9 @@ export interface RunTaskNowResult {
  * hasta ahora el único recurso era moverla a otro status y traerla de vuelta.
  */
 export async function runTaskNow(projectId: string, taskId: string): Promise<RunTaskNowResult> {
-  const { data } = await axios.post<RunTaskNowResult>(
-    `/api/tasks/${encodeURIComponent(taskId)}/run`,
-    { projectId },
-  )
-  return data
+  const { data } = await axios.post(`/api/tasks/${encodeURIComponent(taskId)}/run`, { projectId })
+  // `.parse()` y no un cast: si el server suma un cuarto outcome, esto falla
+  // acá con el valor a la vista en vez de caer al `else` de la UI y anunciar
+  // "ninguna regla matcheó" sobre un run que sí arrancó.
+  return RunTaskNowResultSchema.parse(data)
 }

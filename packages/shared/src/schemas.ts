@@ -231,6 +231,27 @@ export const TaskSchema = z.object({
   pullRequests: z.array(PullRequestRefSchema).optional(),
 })
 
+// ─── Correr una tarea a mano (POST /api/tasks/:id/run) ───────────────────────
+
+/**
+ * Qué hizo el bus con el evento que el pedido publicó.
+ *
+ * Es el `EventOutcome` de `@ia-flow/rules`, redeclarado acá porque cruza el
+ * wire: `shared` es la frontera server↔web y no puede depender del motor de
+ * reglas. Los tres valores son estados distintos para el operador —"corriendo",
+ * "en cola por capacidad" y "ninguna regla matcheó tu status"— y el último no
+ * es un fallo del server sino config para revisar.
+ */
+export const RunTaskNowOutcomeSchema = z.enum(['dispatched', 'skipped', 'deferred'])
+export type RunTaskNowOutcome = z.infer<typeof RunTaskNowOutcomeSchema>
+
+export const RunTaskNowResultSchema = z.object({
+  outcome: RunTaskNowOutcomeSchema,
+  /** El status contra el que se evaluaron las reglas. */
+  status: z.string(),
+})
+export type RunTaskNowResult = z.infer<typeof RunTaskNowResultSchema>
+
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
 
 export const RepoEntrySchema = z.object({
