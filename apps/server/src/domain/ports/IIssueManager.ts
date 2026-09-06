@@ -3,8 +3,9 @@
 export type {
   IIssueManager,
   IssueItem,
+  SourceItem,
   ValidationResult,
   Disposable,
   Blocker,
 } from '@ia-flow/issue-sources'
-export { issueItemToTask } from '@ia-flow/issue-sources'
+export { defaultToIssueItem, issueItemToTask } from '@ia-flow/issue-sources'

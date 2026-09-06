@@ -78,6 +78,7 @@ import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMes
 import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
+import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
 import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentAbortRepository } from '../domain/ports/IAgentAbortRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
@@ -982,6 +983,12 @@ export const getPipelineUseCase = new GetPipelineUseCase(ruleRepo, waitRepo, {
 export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemRepo, eventBus, {
   onDiffError: (err, ctx) => log.warn({ err, ...ctx }, 'Fallo el diff de status — se sigue igual'),
 })
+
+// "Correr esta tarea ahora" (POST /api/tasks/:id/run). Recibe el bus y la
+// pregunta "¿está corriendo?" — no el registry entero: es lo único que mira.
+export const runTaskNowUseCase = new RunTaskNowUseCase(eventBus, (taskId) =>
+  Boolean(getPendingTask(taskId)),
+)
 
 /**
  * Slack, montado entero desde su paquete.

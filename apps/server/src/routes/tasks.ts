@@ -3,6 +3,7 @@ import type { RepoMappingEntry } from '@ia-flow/shared'
 import { SlackMemberRefSchema, SlackReviewMessageSchema, invalidateMemoized } from '@ia-flow/shared'
 import { SlackReviewError } from '@ia-flow/slack'
 import { Hono } from 'hono'
+import { RunTaskNowError } from '../application/use-cases/RunTaskNowUseCase.js'
 import {
   configRepo,
   enqueueRunMessageUseCase,
@@ -10,6 +11,7 @@ import {
   projectRepo,
   repoRepo,
   runMessageRepo,
+  runTaskNowUseCase,
   settingsRepo,
   slack,
   taskRepo,
@@ -278,6 +280,41 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     } catch (err) {
       if (err instanceof SlackReviewError) return c.json({ error: err.message }, 400)
       log.error({ err, taskId }, 'slack review failed')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
+  // POST /api/tasks/:id/run  { projectId }
+  // Re-emite el status actual de la tarea para que las reglas la vuelvan a
+  // evaluar, sin tocar el board. El 400 lleva el motivo tal cual — es lo que
+  // muestra la tarjeta.
+  router.post('/:id/run', async (c) => {
+    const taskId = c.req.param('id')
+    let body: { projectId?: string }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
+    if (!body.projectId) return c.json({ error: 'projectId is required' }, 400)
+    if (!projectRepo.get(body.projectId)) {
+      return c.json({ error: `Project '${body.projectId}' not found` }, 404)
+    }
+
+    let source: ReturnType<typeof getSourceForProjectId>
+    try {
+      source = getSourceForProjectId(body.projectId)
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+
+    try {
+      const result = await runTaskNowUseCase.execute({ taskId, projectId: body.projectId }, source)
+      broadcast({ type: 'task:run-requested', projectId: body.projectId, id: taskId, result })
+      return c.json(result)
+    } catch (err) {
+      if (err instanceof RunTaskNowError) return c.json({ error: err.message }, 400)
+      log.error({ err, taskId }, 'run-now failed')
       return c.json({ error: (err as Error).message }, 500)
     }
   })
