@@ -64,10 +64,19 @@ function fsReadAvailable(ctx: ToolContext): boolean {
  * que el gate no aplica acá (el MCP async, o un test viejo sin el campo) — y
  * cuando el agente puede efectivamente satisfacerlo (`fsReadAvailable`). Un
  * archivo nuevo no pasa por acá: crear no tiene memoria previa que exigir.
+ *
+ * El mensaje nombra explícitamente que un `focus` o una cabecera recortada
+ * (`fs_read` sobre un archivo >40 KB sin paginar) NO cuentan — sin esa
+ * pista, un agente que ya hizo un `fs_read` con `focus` reintenta la MISMA
+ * llamada al chocar con este error y vuelve a fallar en loop.
  */
 function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string): void {
   if (ctx.readPaths && fsReadAvailable(ctx) && !ctx.readPaths.has(abs)) {
-    throw new Error(`leé ${inputPath} antes de editarlo`)
+    throw new Error(
+      `leé ${inputPath} antes de editarlo — con fs_read, el archivo entero (una lectura con ` +
+        '`focus` o una cabecera recortada no cuentan; si es grande, pagina con offset/limit ' +
+        'hasta cubrirlo completo)',
+    )
   }
 }
 
@@ -77,15 +86,29 @@ function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string):
  * de `fs_edit`, que falla ruidosamente si `old_string` no matchea), así que
  * un agente que copia el output numerado de un `fs_read` y lo pasa tal cual
  * como `content` corrompe el archivo en silencio — cada línea real queda
- * corrida por su propio número. Rechazar cuando la MAYORÍA de las líneas no
- * vacías matchean el patrón evita eso sin falsos positivos: código real casi
- * nunca arranca sus líneas con "dígitos + tab".
+ * corrida por su propio número.
+ *
+ * No alcanza con "la mayoría de las líneas empiezan con dígitos + tab": un
+ * TSV real con una columna de id numérico entra en esa descripción y quedaría
+ * imposible de escribir con la tool. La firma real de `fs_read` es más
+ * específica y ningún dato tabular la replica por casualidad: TODAS las
+ * líneas vienen numeradas, sin huecos, y los números son estrictamente
+ * consecutivos (`numberLines`/el rango de offset/limit no saltean líneas).
+ * Exigir eso — no sólo la proporción — es lo que separa "esto es obviamente
+ * el output de fs_read" de "esto es un archivo de datos real".
  */
 function looksLikeNumberedOutput(content: string): boolean {
-  const lines = content.split('\n').filter((l) => l.length > 0)
+  const lines = content.split('\n')
   if (lines.length < 3) return false
-  const numbered = lines.filter((l) => /^\d+\t/.test(l)).length
-  return numbered / lines.length > 0.5
+  let expected: number | null = null
+  for (const line of lines) {
+    const m = /^(\d+)\t/.exec(line)
+    if (!m) return false
+    const n = Number(m[1])
+    if (expected !== null && n !== expected) return false
+    expected = n + 1
+  }
+  return true
 }
 
 function assertNotNumberedOutput(content: string, inputPath: string): void {

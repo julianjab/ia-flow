@@ -237,9 +237,10 @@ registerTool({
     `into it). A file over ${MAX_FILE_BYTES} bytes is cut at that size UNNUMBERED — page it ` +
     'with offset/limit to get numbered lines for a range, or pass `focus` describing what you ' +
     'need (e.g. "the test conventions and the package layout") to get only the matching parts, ' +
-    'quoted verbatim with their line ranges (also unnumbered). A cut/focused read does not ' +
-    'count as having read the file for fs_write purposes — you still need a full or paginated ' +
-    'read before overwriting it.',
+    'quoted verbatim with their line ranges (also unnumbered). For fs_write/fs_edit purposes, ' +
+    'only a read that covers the ENTIRE file counts — a `focus`, a cut header, or a single ' +
+    'partial offset/limit page do not; page with offset/limit until you have read every line ' +
+    'if the file is large.',
   input_schema: {
     type: 'object',
     properties: {
