@@ -5,8 +5,8 @@
 // so every code path funnels through `resolveWritePath` → `assertInWritePaths`
 // before touching disk.
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, realpath } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { lstat, mkdir, readFile, readlink, realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -31,37 +31,69 @@ function assertInWritePaths(absPath: string, writePaths: string[] | undefined): 
 }
 
 /**
- * Sigue symlinks hasta su destino real y confirma que ese destino también
- * cae dentro de algún `writePath`. `assertInWritePaths` sólo compara el
- * TEXTO del path contra el prefijo — un symlink dentro del writePath que
- * apunta afuera (`repo/cfg -> /etc/algo`) pasa esa validación igual, porque
- * el path de entrada SIGUE empezando con la raíz permitida, y `Bun.write`
- * lo resuelve de forma transparente. Mismo problema y mismo fix que
- * `realPathStaysInRepo` en `fs.ts` — ahí el chequeo faltaba del lado de
- * lectura y acá faltaba del lado de escritura, que es el más peligroso: un
- * link armado por el propio agente (`bash_run ln -s`, un checkout con
- * symlinks) o presente en el repo dejaba escribir fuera del sandbox sin
- * ningún error.
+ * Resuelve dónde caería FÍSICAMENTE una escritura en `path`, incluso cuando
+ * `path` (o el archivo que va a crear) todavía no existe. `realpath` solo
+ * sirve cuando la cadena entera ya existe en disco; para todo lo demás hay
+ * que reconstruirla a mano:
  *
- * Un path que todavía no existe (`fs_write` creando un archivo nuevo) no
- * tiene symlink que seguir — `realpath` tira ENOENT, y ahí no hay nada
- * inseguro que reportar; lo resuelve el `mkdir`/`Bun.write` del caller.
+ *   - Si `path` es en sí un symlink (colgante o no — `fs_edit`/`fs_write`
+ *     sobre un link cuyo destino no existe todavía), sigue su target y
+ *     recurre sobre él — un symlink puede encadenar a otro symlink.
+ *   - Si no existe en absoluto, resuelve el REAL del padre más cercano
+ *     (que puede ser, a su vez, un symlink — `repo/link -> /outside` con
+ *     `link` siendo un directorio) y le agrega el nombre de archivo.
+ *
+ * Sin esto, `fs_write('repo/link/nuevo.txt')` con `repo/link -> /outside`
+ * pasaba: ni el archivo final ni "link/nuevo.txt" existen como para que
+ * `realpath` los resuelva, así que un `catch { return }` ingenuo asumía
+ * "no hay symlink que seguir" — pero `Bun.write` SÍ sigue el symlink del
+ * padre al escribir, y el archivo terminaba en `/outside/nuevo.txt`.
+ */
+async function resolveRealAncestor(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  } catch {
+    // sigue abajo
+  }
+  try {
+    const st = await lstat(path)
+    if (st.isSymbolicLink()) {
+      const target = await readlink(path)
+      const resolvedTarget = isAbsolute(target) ? target : resolve(dirname(path), target)
+      return resolveRealAncestor(resolvedTarget)
+    }
+  } catch {
+    // `path` no existe ni siquiera como symlink — cae a resolver el padre
+  }
+  const parent = dirname(path)
+  if (parent === path) return path // llegó a la raíz del filesystem
+  const realParent = await resolveRealAncestor(parent)
+  return `${realParent}/${basename(path)}`
+}
+
+/**
+ * Confirma que la ubicación FÍSICA real de `absPath` (siguiendo cualquier
+ * symlink, existente o no) cae dentro de algún `writePath`.
+ * `assertInWritePaths` sólo compara el TEXTO del path contra el prefijo —
+ * un symlink dentro del writePath que apunta afuera (`repo/cfg ->
+ * /etc/algo`) pasa esa validación igual, porque el path de entrada SIGUE
+ * empezando con la raíz permitida, y `Bun.write` lo resuelve de forma
+ * transparente. Mismo problema y mismo fix que `realPathStaysInRepo` en
+ * `fs.ts` — ahí el chequeo faltaba del lado de lectura y acá faltaba del
+ * lado de escritura, que es el más peligroso: un link armado por el propio
+ * agente (`bash_run ln -s`, un checkout con symlinks) o presente en el
+ * repo dejaba escribir fuera del sandbox sin ningún error.
  */
 async function assertRealPathInWritePaths(
   absPath: string,
   writePaths: string[] | undefined,
 ): Promise<void> {
-  let real: string
-  try {
-    real = await realpath(absPath)
-  } catch {
-    return
-  }
+  const real = await resolveRealAncestor(absPath)
   if (real === absPath) return // nada de por medio era un symlink
 
-  const realRoots = (
-    await Promise.all((writePaths ?? []).map((p) => realpath(resolve(p)).catch(() => null)))
-  ).filter((r): r is string => r !== null)
+  const realRoots = await Promise.all(
+    (writePaths ?? []).map((p) => resolveRealAncestor(resolve(p))),
+  )
   const ok = realRoots.some((root) => real === root || real.startsWith(root + '/'))
   if (!ok) throw new Error('escritura no permitida en fase actual')
 }
