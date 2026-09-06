@@ -44,13 +44,29 @@ function resolveWritePath(input: string, ctx: ToolContext): string {
 }
 
 /**
+ * Si el agente declaró una política DSL (`ctx.policy`, compilada por
+ * `compilePolicy`), el gate sólo tiene sentido cuando `fs_read` está entre
+ * sus tools — exigirle leer una tool que no tiene es un callejón sin salida:
+ * un agente con `fs_write`/`fs_edit` pero sin `fs_read` en su `tools[]`
+ * (combinación válida hoy — son opt-in independientes) quedaría incapaz de
+ * sobrescribir CUALQUIER archivo existente para siempre. Sin política (un
+ * agente legacy sin DSL, o un test que arma `ctx` a mano) no hay forma de
+ * saber qué tools tiene el agente, así que el gate se mantiene activo — el
+ * comportamiento por default, más conservador.
+ */
+function fsReadAvailable(ctx: ToolContext): boolean {
+  return !ctx.policy || ctx.policy.toolNames.has('fs_read')
+}
+
+/**
  * Exige que `fs_read` haya leído este path en el run actual antes de tocarlo.
  * Sólo se activa cuando `ctx.readPaths` está seteado — `undefined` significa
- * que el gate no aplica acá (el MCP async, o un test viejo sin el campo). Un
+ * que el gate no aplica acá (el MCP async, o un test viejo sin el campo) — y
+ * cuando el agente puede efectivamente satisfacerlo (`fsReadAvailable`). Un
  * archivo nuevo no pasa por acá: crear no tiene memoria previa que exigir.
  */
 function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string): void {
-  if (ctx.readPaths && !ctx.readPaths.has(abs)) {
+  if (ctx.readPaths && fsReadAvailable(ctx) && !ctx.readPaths.has(abs)) {
     throw new Error(`leé ${inputPath} antes de editarlo`)
   }
 }
