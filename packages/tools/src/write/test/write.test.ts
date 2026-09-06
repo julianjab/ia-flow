@@ -228,6 +228,38 @@ describe('fs_edit / fs_write — read-before-write gate', () => {
     expect(readFileSync(join(writeRoot, 'existing.txt'), 'utf-8')).toBe('new')
   })
 
+  it('fs_write registers the new file it just created, so a follow-up fs_edit on it does not need a fs_read first', async () => {
+    const tool = getTool('write_file')!
+    const editTool = getTool('edit_file')!
+    const readPaths = new Set<string>()
+    await tool.execute(
+      { path: 'w/new.ts', content: 'const x = 1' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    const out = await editTool.execute(
+      { path: 'w/new.ts', old_string: '1', new_string: '2' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(out).toContain('Edición aplicada')
+    expect(readFileSync(join(writeRoot, 'new.ts'), 'utf-8')).toBe('const x = 2')
+  })
+
+  it('fs_edit registers the path it just edited, so a second fs_edit does not need a fs_read in between', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const readPaths = new Set([join(writeRoot, 'a.ts')])
+    await tool.execute(
+      { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    const out = await tool.execute(
+      { path: 'w/a.ts', old_string: 'bar', new_string: 'baz' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(out).toContain('Edición aplicada')
+    expect(readFileSync(join(writeRoot, 'a.ts'), 'utf-8')).toBe('baz')
+  })
+
   it('resolves the same absolute path as fs_read for the same input, so readPaths matches across tools', async () => {
     writeFileSync(join(writeRoot, 'a.ts'), 'foo')
     // fs_read (fs.ts's resolvePath) and fs_edit (write.ts's toAbsolute) must
