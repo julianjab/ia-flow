@@ -71,6 +71,31 @@ function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string):
   }
 }
 
+/**
+ * Detecta `content` que arrastra los prefijos "N\t" que `fs_read` agrega
+ * como display. `fs_write` no valida nada más allá del sandbox (a diferencia
+ * de `fs_edit`, que falla ruidosamente si `old_string` no matchea), así que
+ * un agente que copia el output numerado de un `fs_read` y lo pasa tal cual
+ * como `content` corrompe el archivo en silencio — cada línea real queda
+ * corrida por su propio número. Rechazar cuando la MAYORÍA de las líneas no
+ * vacías matchean el patrón evita eso sin falsos positivos: código real casi
+ * nunca arranca sus líneas con "dígitos + tab".
+ */
+function looksLikeNumberedOutput(content: string): boolean {
+  const lines = content.split('\n').filter((l) => l.length > 0)
+  if (lines.length < 3) return false
+  const numbered = lines.filter((l) => /^\d+\t/.test(l)).length
+  return numbered / lines.length > 0.5
+}
+
+function assertNotNumberedOutput(content: string, inputPath: string): void {
+  if (looksLikeNumberedOutput(content)) {
+    throw new Error(
+      `el content de ${inputPath} parece traer los prefijos "N\\t" de fs_read — sacalos antes de escribir`,
+    )
+  }
+}
+
 function toAbsolute(path: string, repoPaths: Record<string, string>): string {
   if (path.startsWith('/')) return resolve(path)
   for (const [name, root] of Object.entries(repoPaths)) {
@@ -131,6 +156,7 @@ registerTool({
     const abs = resolveWritePath(input.path, ctx)
     if (existsSync(abs)) assertReadBeforeEdit(abs, ctx, input.path)
     const content = typeof input.content === 'string' ? input.content : ''
+    assertNotNumberedOutput(content, input.path)
     await mkdir(dirname(abs), { recursive: true })
     await Bun.write(abs, content)
     // El propio run acaba de escribir este contenido — cuenta como lectura,
@@ -179,6 +205,13 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const abs = resolveWritePath(input.path, ctx)
+    // Chequeo de existencia ANTES del gate de lectura: si el path no existe,
+    // el motivo real es "no existe" y no "no lo leíste" — reportar el gate
+    // acá manda al agente a un fs_read que le va a devolver "File not
+    // found", y de vuelta a fs_edit, en un loop sin salida.
+    if (!existsSync(abs)) {
+      throw new Error(`${input.path} no existe — usá fs_write para crear un archivo nuevo`)
+    }
     assertReadBeforeEdit(abs, ctx, input.path)
     const oldStr = String(input.old_string ?? '')
     const newStr = String(input.new_string ?? '')

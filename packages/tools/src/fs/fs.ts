@@ -271,12 +271,15 @@ registerTool({
     const content = await readFile(abs, 'utf-8')
 
     if (input.offset || input.limit) {
-      // Un rango explícito sigue siendo contenido real (no un resumen), así
-      // que cuenta como lectura — el agente pidió exactamente esto.
-      ctx.readPaths?.add(abs)
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
       const end = input.limit ? start + input.limit : lines.length
+      // Sólo cuenta como "leído" cuando el rango pedido cubre el archivo
+      // ENTERO (offset 1 y sin limit, o un limit que llega hasta el final).
+      // Un rango parcial (offset:1, limit:1 sobre un archivo de 5000
+      // líneas) es tan incompleto como el focus de Haiku — marcarlo
+      // dejaría a fs_write sobrescribir con contenido que el run nunca vio.
+      if (start === 0 && end >= lines.length) ctx.readPaths?.add(abs)
       return lines
         .slice(start, end)
         .map((l, i) => `${start + i + 1}\t${l}`)
