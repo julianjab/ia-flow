@@ -109,6 +109,32 @@ export interface ToolContext {
    * tool corre fuera de un loop (el MCP async, un test).
    */
   control?: LoopControl
+  /**
+   * Paths absolutos que `fs_read` ya leyó ENTEROS en ESTE run sync (agregados
+   * por la propia tool — ver `markFullyRead` en `fs.ts`). Una lectura parcial
+   * (`focus`, una cabecera recortada, una página de offset/limit que no cubre
+   * el archivo completo) NO cuenta: `fs_edit` y `fs_write` sobre un archivo
+   * existente lo consultan antes de tocar disco, y el objetivo es que el path
+   * marcado signifique "el agente vio TODO el contenido actual", no sólo
+   * "pasó por acá".
+   *
+   * Lo inicializa el provider sync (`anthropic-api`) como un `Set` nuevo por
+   * dispatch — vive sólo en memoria del `executeLoop`, no hay checkpoint que
+   * lo persista. `undefined` ⇒ el gate queda apagado: es el caso del MCP
+   * async, donde el CLI remoto trae su propio Read nativo que el engine no
+   * ve, así que exigir lectura acá sería un falso positivo.
+   *
+   * Límite conocido, no cubierto a propósito: `bash_run` puede modificar el
+   * disco (un `sed -i`, un `git checkout`, un formatter) sin pasar por acá,
+   * así que un path puede quedar "leído" contra contenido que ya no está.
+   * `workspace_reset` sí limpia el `Set` porque su mutación es total y
+   * predecible (vuelve TODO a `origin/main`); `bash_run` es arbitrario, así
+   * que la única invalidación correcta sería vaciar el `Set` después de
+   * CUALQUIER `bash_run` — incluidos los de sólo lectura (`git status`, `ls`,
+   * los tests), que son la mayoría. Eso forzaría releer todo tras cada
+   * comando y volvería la protección más cara que el problema que evita.
+   */
+  readPaths?: Set<string>
 }
 
 /** Lo único que una tool puede pedirle al loop. Angosto a propósito: cuanto

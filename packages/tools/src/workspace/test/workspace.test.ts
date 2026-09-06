@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ToolContext, WorkspaceManagerPort } from '../../contract.js'
 import { getTool } from '../../engine.js'
+// Side-effect import — registers `fs_read`, needed for the range-coverage
+// regression test below (reset must invalidate fs_read's accumulated ranges,
+// not just ctx.readPaths itself).
+import '../../fs/fs.js'
 // Side-effect import — registers `reset_worktree` in the global tool registry.
 import '../workspace.js'
 import { setWorkspaceManagerPort } from '../workspace.js'
@@ -96,6 +103,70 @@ describe('reset_worktree tool', () => {
     // provider knows where to look (ctx propagation vs input).
     expect(out).toContain('task_id')
     expect(out).toContain('ctx.taskId')
+  })
+
+  it('clears ctx.readPaths on a successful reset — the disk content changed underneath it', async () => {
+    // Regression: after a reset, the worktree reverts to origin/main. A
+    // stale readPaths entry would let fs_write overwrite a path the run
+    // never actually saw in its POST-reset state.
+    const resetMock = mock(async (_taskId: string) => '/tmp/wt/task-1')
+    setWorkspaceManagerPort({ resetWorktree: resetMock })
+    const tool = getTool('reset_worktree')!
+    const readPaths = new Set(['/tmp/wt/task-1/a.ts', '/tmp/wt/task-1/b.ts'])
+
+    await tool.execute({ task_id: 'task-1' }, { ...writableCtx, readPaths })
+
+    expect(readPaths.size).toBe(0)
+  })
+
+  it("reset also invalidates fs_read's accumulated range coverage — a partial re-read after reset does not resurrect the mark", async () => {
+    // Regression: `rangeCoverage` (fs.ts) is keyed by the readPaths Set
+    // instance. Clearing the Set's contents alone leaves the OLD ranges
+    // alive in that WeakMap; a fresh PARTIAL read after the reset could
+    // complete the stale coverage and wrongly re-mark the path.
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ia-flow-reset-coverage-'))
+    try {
+      writeFileSync(
+        join(repoRoot, 'a.ts'),
+        Array.from({ length: 10 }, (_, i) => `line ${i}`).join('\n'),
+      )
+      const readPaths = new Set<string>()
+      const repoPaths = { r: repoRoot }
+      const readTool = getTool('fs_read')!
+      const abs = join(repoRoot, 'a.ts')
+
+      // Full read: marks the path AND records full-file coverage.
+      await readTool.execute({ path: 'r/a.ts', offset: 1 }, { repoPaths, readPaths })
+      expect(readPaths.has(abs)).toBe(true)
+
+      setWorkspaceManagerPort({ resetWorktree: async () => repoRoot })
+      const resetTool = getTool('reset_worktree')!
+      await resetTool.execute(
+        { task_id: 'task-1' },
+        { repoPaths, writePaths: [repoRoot], readPaths },
+      )
+      expect(readPaths.has(abs)).toBe(false)
+
+      // Only 1 of 10 lines read post-reset — must NOT be enough to mark it.
+      await readTool.execute({ path: 'r/a.ts', offset: 1, limit: 1 }, { repoPaths, readPaths })
+      expect(readPaths.has(abs)).toBe(false)
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('does not touch ctx.readPaths when the reset fails', async () => {
+    setWorkspaceManagerPort(
+      stubManager(async () => {
+        throw new Error('git fetch origin failed: network down')
+      }),
+    )
+    const tool = getTool('reset_worktree')!
+    const readPaths = new Set(['/tmp/wt/task-1/a.ts'])
+
+    await tool.execute({ task_id: 'task-1' }, { ...writableCtx, readPaths })
+
+    expect(readPaths.size).toBe(1)
   })
 
   it('is restricted to sync providers (excluded from async curl appendix)', () => {

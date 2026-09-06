@@ -69,6 +69,92 @@ function numberLines(content: string): string {
     .join('\n')
 }
 
+/**
+ * Devuelve el archivo entero numerado y lo marca como leído — pero sólo si
+ * el OUTPUT numerado entra en `MAX_FILE_BYTES`. Chequear el tope contra el
+ * `content` crudo (como hacía antes) no alcanza: el prefijo "N\t" por línea
+ * es overhead que un archivo con muchas líneas CORTAS puede inflar muy por
+ * encima del tope aunque el contenido crudo entrara justo — un archivo de
+ * 39 000 líneas de 1 byte (~39 KB crudos, pasa el chequeo viejo) sale
+ * numerado a ~270 KB. Si el numerado no entra, cae a `headWithNotice` (sin
+ * numerar, sin marcar) exactamente como un archivo que ya era grande antes
+ * de numerar — mismo tratamiento, un solo camino.
+ */
+function markFullyRead(
+  abs: string,
+  ctx: ToolContext,
+  path: string,
+  content: string,
+  reason?: string,
+): string {
+  const numbered = numberLines(content)
+  if (Buffer.byteLength(numbered) > MAX_FILE_BYTES) {
+    return headWithNotice(content, path, reason)
+  }
+  ctx.readPaths?.add(abs)
+  return numbered
+}
+
+/**
+ * Cobertura de rangos leídos por `fs_read(offset, limit)`, por `Set` de
+ * `readPaths` (una entrada por run — el `Set` mismo es la key, así que no
+ * hace falta limpiar nada: muere con el `ctx` del run). Existe porque un
+ * archivo grande no se lee de una — la descripción de `fs_read` recomienda
+ * paginar hasta cubrirlo entero, y sin acumular rangos esa recomendación era
+ * un callejón sin salida: ninguna página parcial sola satisfacía el gate, y
+ * la única forma de marcarlo era un `{offset:1}` sin `limit` que volcaba el
+ * archivo completo de una — justo lo que paginar existe para evitar.
+ */
+const rangeCoverage = new WeakMap<Set<string>, Map<string, Array<[number, number]>>>()
+
+/** `true` si los rangos acumulados (posiblemente solapados, en cualquier
+ *  orden) cubren `[0, totalLines)` sin huecos. */
+function coversWholeFile(ranges: Array<[number, number]>, totalLines: number): boolean {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
+  let covered = 0
+  for (const [start, end] of sorted) {
+    if (start > covered) return false
+    covered = Math.max(covered, end)
+  }
+  return covered >= totalLines
+}
+
+/** Registra que este run leyó `[start, end)` de `abs` (en líneas), y marca
+ *  el path en `ctx.readPaths` en cuanto la unión de rangos leídos cubre el
+ *  archivo entero — sin importar en cuántas llamadas se pidió. */
+function recordRangeRead(
+  ctx: ToolContext,
+  abs: string,
+  start: number,
+  end: number,
+  totalLines: number,
+): void {
+  if (!ctx.readPaths) return
+  let byPath = rangeCoverage.get(ctx.readPaths)
+  if (!byPath) {
+    byPath = new Map()
+    rangeCoverage.set(ctx.readPaths, byPath)
+  }
+  const ranges = byPath.get(abs) ?? []
+  ranges.push([start, end])
+  byPath.set(abs, ranges)
+  if (coversWholeFile(ranges, totalLines)) ctx.readPaths.add(abs)
+}
+
+/**
+ * Descarta los rangos acumulados para un `Set` de `readPaths` dado — para
+ * usar junto a `ctx.readPaths?.clear()` en cualquier tool que invalide
+ * "lo leído" (hoy sólo `workspace_reset`). Sin esto, `rangeCoverage`
+ * seguía viva con los rangos del contenido PRE-reset: una lectura parcial
+ * nueva sobre el mismo path podía completar la cobertura vieja y marcar el
+ * path en `readPaths` contra contenido que el run nunca vio en su estado
+ * actual — la propia condición que el `clear()` del reset existe para
+ * evitar.
+ */
+export function clearRangeCoverage(readPaths: Set<string>): void {
+  rangeCoverage.delete(readPaths)
+}
+
 /** Sin `focus` y arriba del tope: la cabecera hasta `MAX_FILE_BYTES` y una
  *  nota con el tamaño real, para que el agente pagine o enfoque. */
 function headWithNotice(content: string, path: string, reason?: string): string {
@@ -221,10 +307,17 @@ registerTool({
   aliases: ['read_file'],
   description:
     'Read a file in one of the task repos. Use "<repo-name>/path/to/file" format. ' +
-    'Small files come back whole. For a large file, pass `focus` describing what you need ' +
-    '(e.g. "the test conventions and the package layout") and you get only the matching ' +
-    'parts, quoted verbatim with their line ranges; without `focus`, a large file is cut at ' +
-    `${MAX_FILE_BYTES} bytes and you are told how to page with offset/limit.`,
+    'A file that fits whole (or a range read with offset/limit) comes back with each line ' +
+    'prefixed "N\\t" (1-indexed) so you can cite `file:line` — those numbers are a display, ' +
+    "not part of the file: never include them in fs_edit's `old_string`, nor in the `content` " +
+    'you pass to fs_write to overwrite this same file (that would write the "N\\t" prefixes ' +
+    `into it). A file over ${MAX_FILE_BYTES} bytes is cut at that size UNNUMBERED — page it ` +
+    'with offset/limit to get numbered lines for a range, or pass `focus` describing what you ' +
+    'need (e.g. "the test conventions and the package layout") to get only the matching parts, ' +
+    'quoted verbatim with their line ranges (also unnumbered). For fs_write/fs_edit purposes, ' +
+    'only a read that covers the ENTIRE file counts — a `focus`, a cut header, or a single ' +
+    'partial offset/limit page do not; page with offset/limit until you have read every line ' +
+    'if the file is large.',
   input_schema: {
     type: 'object',
     properties: {
@@ -258,22 +351,74 @@ registerTool({
     if (input.offset || input.limit) {
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
-      const end = input.limit ? start + input.limit : lines.length
-      return lines
-        .slice(start, end)
-        .map((l, i) => `${start + i + 1}\t${l}`)
-        .join('\n')
+      const requestedEnd = Math.min(lines.length, input.limit ? start + input.limit : lines.length)
+      const numbered = lines.slice(start, requestedEnd).map((l, i) => `${start + i + 1}\t${l}`)
+      // Tope de bytes por página, mismo `MAX_FILE_BYTES` que una lectura sin
+      // paginar — sin esto, `{offset:1}` sin `limit` sobre un archivo de
+      // varios MB volcaba TODO de una sola llamada (el gate de escritura,
+      // que exige cubrir el archivo entero, lo hacía además el camino más
+      // barato en turnos). El corte es por LÍNEAS efectivamente incluidas,
+      // no por el rango pedido: lo que se marca como leído es lo que
+      // realmente volvió, nunca más.
+      //
+      // Progreso garantizado: la primera línea SIEMPRE entra, sin importar
+      // su tamaño — el chequeo del tope sólo corta a partir de la segunda.
+      // Sin esto, una única línea >40 KB (un bundle minificado, un blob
+      // base64/JSON sin saltos) daba `actualCount = 0`: página vacía, el
+      // aviso de "continuar" repetía el MISMO offset, y el agente quedaba
+      // en loop infinito sin poder avanzar ni un byte.
+      let bytes = 0
+      let actualCount = 0
+      for (let i = 0; i < numbered.length; i++) {
+        const lineBytes = Buffer.byteLength(numbered[i]!) + 1 // +1 por el '\n'
+        if (actualCount > 0 && bytes + lineBytes > MAX_FILE_BYTES) break
+        bytes += lineBytes
+        actualCount = i + 1
+      }
+      const actualEnd = start + actualCount
+      const body = numbered.slice(0, actualCount).join('\n')
+      // Se acumula por rango, no por llamada: paginar en varias vueltas
+      // (offset 1/limit 500, 501/500, …, o el continue del corte de arriba)
+      // hasta cubrir el archivo entero marca el path igual que una sola
+      // lectura completa — es justo el flujo que la descripción de la tool
+      // recomienda para archivos grandes. Un rango parcial que nunca se
+      // completa sigue sin marcar, como el focus de Haiku.
+      //
+      // Una única línea que por sí sola ya excede el tope (bundle
+      // minificado, blob base64/JSON sin saltos) SÍ cuenta como cubierta acá
+      // — a diferencia de un focus o una cabecera recortada, no hay ninguna
+      // llamada posterior que pueda mostrar MÁS de esa misma línea (offset
+      // avanza por líneas, no por bytes dentro de una); tratarla como "nunca
+      // leída" dejaría el archivo imposible de editar para siempre, un
+      // callejón sin salida peor que aceptar la vista truncada.
+      const singleOversizedLine = actualCount === 1 && bytes > MAX_FILE_BYTES
+      recordRangeRead(ctx, abs, start, actualEnd, lines.length)
+      if (actualCount >= numbered.length && !singleOversizedLine) return body
+      const shownBody = singleOversizedLine ? body.slice(0, MAX_FILE_BYTES) : body
+      const reason = singleOversizedLine
+        ? ` (una sola línea excede ${MAX_FILE_BYTES} bytes — cortada)`
+        : ''
+      return (
+        shownBody +
+        `\n\n[Página cortada a ${MAX_FILE_BYTES} bytes${reason} — leíste las líneas ` +
+        `${start + 1}-${actualEnd} de ${lines.length}. Pasa offset:${actualEnd + 1} para continuar.]`
+      )
     }
 
     const focus = typeof input.focus === 'string' ? input.focus.trim() : ''
     if (focus && Buffer.byteLength(content) > FILE_FOCUS_THRESHOLD) {
+      // NO se marca como leído acá: lo que vuelve es un resumen (Haiku) o una
+      // cabecera recortada, nunca el archivo entero. Si se marcara, un
+      // fs_write posterior podría sobrescribir con contenido incompleto un
+      // archivo del que el agente sólo vio una parte — fs_edit fallaría a
+      // salvo por el old_string, pero fs_write no valida nada y escribiría
+      // silenciosamente. Exigir una lectura completa (o paginada con
+      // offset/limit) antes de habilitar la escritura es lo seguro.
       if (isFocusEnabled(ctx)) return focusWithHaiku(content, input.path, focus, ctx)
-      return content.length > MAX_FILE_BYTES
-        ? headWithNotice(content, input.path, 'focus disabled')
-        : content
+      return markFullyRead(abs, ctx, input.path, content, 'focus disabled')
     }
 
-    return content.length > MAX_FILE_BYTES ? headWithNotice(content, input.path) : content
+    return markFullyRead(abs, ctx, input.path, content)
   },
 })
 

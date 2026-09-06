@@ -90,7 +90,7 @@ describe('resolvePath — path traversal via a symlink', () => {
 
     const tool = getTool('fs_read')!
     const out = await tool.execute({ path: 'r/alias/inside.txt' }, { repoPaths })
-    expect(out).toBe('fine')
+    expect(out).toBe('1\tfine')
   })
 })
 
@@ -488,9 +488,9 @@ describe('fs_read — focus', () => {
   const read = (input: Record<string, unknown>, ctx: Record<string, unknown> = {}) =>
     getTool('fs_read')!.execute(input, { repoPaths, ...ctx } as any)
 
-  it('returns a small file whole, focus or not', async () => {
-    expect(await read({ path: 'r/small.txt' })).toBe('hello\nworld')
-    expect(await read({ path: 'r/small.txt', focus: 'anything' })).toBe('hello\nworld')
+  it('returns a small file whole, numbered, focus or not', async () => {
+    expect(await read({ path: 'r/small.txt' })).toBe('1\thello\n2\tworld')
+    expect(await read({ path: 'r/small.txt', focus: 'anything' })).toBe('1\thello\n2\tworld')
     expect(calls).toHaveLength(0)
   })
 
@@ -503,6 +503,12 @@ describe('fs_read — focus', () => {
     expect(out.length).toBeLessThan(big.length)
   })
 
+  it('a cut read (no focus, over the cap) does NOT mark the path as read', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt' }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
   it('with focus asks Haiku with the need and numbered lines', async () => {
     const out = await read({ path: 'r/big.txt', focus: 'the third line' })
     expect(calls).toHaveLength(1)
@@ -512,6 +518,74 @@ describe('fs_read — focus', () => {
     expect(user).toContain('Reader needs: the third line')
     expect(user).toContain('\n3\tline 3:')
     expect(out).toBe(`[focus: the third line — ${big.length}B → 22B]\n## lines 3-4\nextracted`)
+  })
+
+  it('a focused read does NOT mark the path as read — it only saw a summary', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', focus: 'the third line' }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('a partial paginated read (a slice, not the whole file) does NOT mark the path as read', async () => {
+    // offset:1, limit:10 on a 1200-line file only covers the first 10 lines —
+    // the agent has NOT seen enough to safely overwrite the whole thing.
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1, limit: 10 }, { readPaths })
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('offset:1 without limit is CAPPED at MAX_FILE_BYTES when the requested range does not fit, and does not mark the path', async () => {
+    // big.txt (1200 lines, ~48KB numbered) is over the 40KB page cap — a
+    // single {offset:1} call must not dump it whole just because no `limit`
+    // was given; it truncates like a plain read does, with a continue hint.
+    const readPaths = new Set<string>()
+    const out = await read({ path: 'r/big.txt', offset: 1 }, { readPaths })
+    expect(out).toContain('Página cortada')
+    expect(out).toContain('Pasa offset:')
+    expect(readPaths.size).toBe(0)
+  })
+
+  it('a single line over MAX_FILE_BYTES still makes progress and marks the path (regression: used to return an empty page and loop forever)', async () => {
+    // A minified bundle / base64 blob with no newlines: the first "line" by
+    // itself already exceeds the page cap. The old logic broke out of the
+    // loop at i=0, returning zero lines and a "continue at the same offset"
+    // hint — an infinite loop with no way out.
+    const oneHugeLine = 'x'.repeat(60_000)
+    writeFileSync(join(repoRoot, 'huge-line.txt'), oneHugeLine)
+    const readPaths = new Set<string>()
+    const out = await read({ path: 'r/huge-line.txt', offset: 1 }, { readPaths })
+    expect(out).toContain('Pasa offset:2') // offset MOVED PAST the line, not repeated
+    expect(out).not.toContain('Pasa offset:1')
+    // No hay ninguna llamada posterior que pueda mostrar más de esta MISMA
+    // línea (offset avanza por líneas, no por bytes dentro de una) — tratarla
+    // como "nunca leída" dejaría el archivo imposible de editar para
+    // siempre, así que cuenta como cubierta pese a la vista truncada.
+    expect(readPaths.has(join(repoRoot, 'huge-line.txt'))).toBe(true)
+  })
+
+  it('offset:1 without limit on a file that FITS under the cap marks the path as fully read', async () => {
+    writeFileSync(join(repoRoot, 'small.txt'), 'a\nb\nc')
+    const readPaths = new Set<string>()
+    await read({ path: 'r/small.txt', offset: 1 }, { readPaths })
+    expect(readPaths.has(join(repoRoot, 'small.txt'))).toBe(true)
+  })
+
+  it('accumulates coverage across several paginated calls until the whole file is read', async () => {
+    // Neither call alone covers big.txt (1200 lines), but together they do —
+    // this is the "page through it" flow the tool description recommends.
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1, limit: 600 }, { readPaths })
+    expect(readPaths.size).toBe(0)
+    await read({ path: 'r/big.txt', offset: 601, limit: 600 }, { readPaths })
+    expect(readPaths.has(join(repoRoot, 'big.txt'))).toBe(true)
+  })
+
+  it('does not mark the path if the accumulated ranges leave a gap', async () => {
+    const readPaths = new Set<string>()
+    await read({ path: 'r/big.txt', offset: 1, limit: 400 }, { readPaths })
+    // Skips lines 401-800 — a gap, so the union still doesn't cover the file.
+    await read({ path: 'r/big.txt', offset: 801, limit: 400 }, { readPaths })
+    expect(readPaths.size).toBe(0)
   })
 
   it('IA_FLOW_FILE_SIMPLIFIER=0 ignores focus and returns the head', async () => {
@@ -934,5 +1008,49 @@ describe('fs_glob', () => {
     if (rgResults !== null) {
       expect([...rgResults].sort()).toEqual([...jsResults].sort())
     }
+  })
+})
+
+describe('fs_read — line numbering and readPaths tracking', () => {
+  it('prefixes each line with its 1-indexed number for a plain full read', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'const a = 1\nconst b = 2\n')
+    const tool = getTool('fs_read')!
+    const out = await tool.execute({ path: 'r/a.ts' }, { repoPaths })
+    expect(out).toBe('1\tconst a = 1\n2\tconst b = 2\n3\t')
+  })
+
+  it('mentions in its description that the line numbers are not part of the file', () => {
+    const tool = getTool('fs_read')!
+    expect(tool.description).toMatch(/not part of the file/)
+    expect(tool.description).toContain('old_string')
+  })
+
+  it('adds the resolved absolute path to ctx.readPaths when set', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'hi')
+    const tool = getTool('fs_read')!
+    const readPaths = new Set<string>()
+    await tool.execute({ path: 'r/a.ts' }, { repoPaths, readPaths } as any)
+    expect(readPaths.has(join(repoRoot, 'a.ts'))).toBe(true)
+  })
+
+  it('does not touch ctx.readPaths when it is undefined (async/legacy contexts)', async () => {
+    writeFileSync(join(repoRoot, 'a.ts'), 'hi')
+    const tool = getTool('fs_read')!
+    // Must not throw just because readPaths is absent.
+    await expect(tool.execute({ path: 'r/a.ts' }, { repoPaths })).resolves.toBeDefined()
+  })
+
+  it('falls back to a cut, unnumbered head when numbering pushes a file over MAX_FILE_BYTES even though the raw content fit (regression)', async () => {
+    // 39,000 one-byte lines: ~39KB raw (under the 40KB cap), but each gets a
+    // "N\t" prefix — the numbered output balloons past the cap even though
+    // the plain read check would have let it through unnumbered.
+    const manyShortLines = Array.from({ length: 39_000 }, () => 'x').join('\n')
+    writeFileSync(join(repoRoot, 'many-short-lines.txt'), manyShortLines)
+    const tool = getTool('fs_read')!
+    const readPaths = new Set<string>()
+    const out = await tool.execute({ path: 'r/many-short-lines.txt' }, { repoPaths, readPaths })
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(40_000 + 500) // cap + notice text
+    expect(out).toContain('Use offset/limit to page')
+    expect(readPaths.size).toBe(0)
   })
 })

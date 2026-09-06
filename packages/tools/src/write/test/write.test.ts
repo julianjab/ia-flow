@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ToolContext } from '../../contract.js'
 import { getTool } from '../../engine.js'
+import '../../fs/fs.js' // side-effect: register fs_read, for the cross-tool readPaths test
 import '../write.js' // side-effect: register write_file / edit_file
 
 // Three isolated tmp roots per test:
@@ -90,6 +91,47 @@ describe('write_file — writePaths validation', () => {
       tool.execute({ path: 'w/foo.txt', content: 'x' }, ctxWith(undefined)),
     ).rejects.toThrow('writePaths vacío')
   })
+
+  it('rejects a symlink inside writePaths whose target lives outside it (regression: text-prefix check alone does not catch this)', async () => {
+    // `w/escape.txt` textually starts with the allowed writeRoot prefix, but
+    // it's a symlink pointing at outsideRoot — assertInWritePaths alone
+    // would let this through and Bun.write would follow the link.
+    writeFileSync(join(outsideRoot, 'secret.txt'), 'ORIGINAL')
+    symlinkSync(join(outsideRoot, 'secret.txt'), join(writeRoot, 'escape.txt'))
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute({ path: 'w/escape.txt', content: 'PWNED' }, ctxWith([writeRoot])),
+    ).rejects.toThrow('escritura no permitida en fase actual')
+    expect(readFileSync(join(outsideRoot, 'secret.txt'), 'utf-8')).toBe('ORIGINAL')
+  })
+
+  it('rejects writing under a DIRECTORY symlink whose target lives outside writePaths, even for a file that does not exist yet (regression: realpath alone misses this)', async () => {
+    // `w/link` is a symlink to outsideRoot (a directory). The FILE
+    // "w/link/pwned.txt" doesn't exist — realpath(absPath) throws ENOENT,
+    // and a naive `catch { return }` would treat that as "no symlink to
+    // follow", when actually the PARENT directory is the symlink and
+    // Bun.write follows it when opening the file.
+    symlinkSync(outsideRoot, join(writeRoot, 'link'))
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute({ path: 'w/link/pwned.txt', content: 'PWNED' }, ctxWith([writeRoot])),
+    ).rejects.toThrow('escritura no permitida en fase actual')
+    expect(existsSync(join(outsideRoot, 'pwned.txt'))).toBe(false)
+  })
+
+  it('rejects writing to a DANGLING symlink whose target lives outside writePaths (regression: the target not existing yet does not make it safe)', async () => {
+    // `w/dangling.txt` is a symlink to a file that does not exist YET —
+    // realpath(absPath) throws ENOENT because the ultimate target is
+    // missing, but lstat on the symlink itself succeeds: it exists as a
+    // link, and Bun.write would create the target file when it follows it.
+    const missingTarget = join(outsideRoot, 'target.txt')
+    symlinkSync(missingTarget, join(writeRoot, 'dangling.txt'))
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute({ path: 'w/dangling.txt', content: 'PWNED' }, ctxWith([writeRoot])),
+    ).rejects.toThrow('escritura no permitida en fase actual')
+    expect(existsSync(missingTarget)).toBe(false)
+  })
 })
 
 describe('edit_file — happy paths', () => {
@@ -157,6 +199,244 @@ describe('edit_file — validation failures', () => {
     await expect(
       tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, ctxWith([])),
     ).rejects.toThrow('writePaths vacío')
+  })
+})
+
+describe('fs_edit / fs_write — read-before-write gate', () => {
+  it('fs_edit fails when the file was not read in this run', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    await expect(
+      tool.execute(
+        { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+        { ...ctxWith([writeRoot]), readPaths: new Set() },
+      ),
+    ).rejects.toThrow('leé w/a.ts antes de editarlo')
+  })
+
+  it('fs_edit succeeds once the same path was read in this run', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const readPaths = new Set([join(writeRoot, 'a.ts')])
+    const out = await tool.execute(
+      { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(out).toContain('Edición aplicada')
+    expect(readFileSync(join(writeRoot, 'a.ts'), 'utf-8')).toBe('bar')
+  })
+
+  it('fs_edit is unaffected by the gate when readPaths is undefined (legacy/async contexts)', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const out = await tool.execute(
+      { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+      ctxWith([writeRoot]),
+    )
+    expect(out).toContain('Edición aplicada')
+  })
+
+  it('fs_write creating a NEW file succeeds without any prior read, even with readPaths set', async () => {
+    const tool = getTool('write_file')!
+    const out = await tool.execute(
+      { path: 'w/brand-new.txt', content: 'hello' },
+      { ...ctxWith([writeRoot]), readPaths: new Set() },
+    )
+    expect(out).toContain('Archivo escrito')
+    expect(readFileSync(join(writeRoot, 'brand-new.txt'), 'utf-8')).toBe('hello')
+  })
+
+  it('fs_write overwriting an EXISTING file fails without a prior read', async () => {
+    writeFileSync(join(writeRoot, 'existing.txt'), 'old')
+    const tool = getTool('write_file')!
+    await expect(
+      tool.execute(
+        { path: 'w/existing.txt', content: 'new' },
+        { ...ctxWith([writeRoot]), readPaths: new Set() },
+      ),
+    ).rejects.toThrow('leé w/existing.txt antes de editarlo')
+    expect(readFileSync(join(writeRoot, 'existing.txt'), 'utf-8')).toBe('old')
+  })
+
+  it('fs_write overwriting an EXISTING file succeeds once it was read in this run', async () => {
+    writeFileSync(join(writeRoot, 'existing.txt'), 'old')
+    const tool = getTool('write_file')!
+    const readPaths = new Set([join(writeRoot, 'existing.txt')])
+    await tool.execute(
+      { path: 'w/existing.txt', content: 'new' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(readFileSync(join(writeRoot, 'existing.txt'), 'utf-8')).toBe('new')
+  })
+
+  it('fs_write registers the new file it just created, so a follow-up fs_edit on it does not need a fs_read first', async () => {
+    const tool = getTool('write_file')!
+    const editTool = getTool('edit_file')!
+    const readPaths = new Set<string>()
+    await tool.execute(
+      { path: 'w/new.ts', content: 'const x = 1' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    const out = await editTool.execute(
+      { path: 'w/new.ts', old_string: '1', new_string: '2' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(out).toContain('Edición aplicada')
+    expect(readFileSync(join(writeRoot, 'new.ts'), 'utf-8')).toBe('const x = 2')
+  })
+
+  it('fs_edit registers the path it just edited, so a second fs_edit does not need a fs_read in between', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const readPaths = new Set([join(writeRoot, 'a.ts')])
+    await tool.execute(
+      { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    const out = await tool.execute(
+      { path: 'w/a.ts', old_string: 'bar', new_string: 'baz' },
+      { ...ctxWith([writeRoot]), readPaths },
+    )
+    expect(out).toContain('Edición aplicada')
+    expect(readFileSync(join(writeRoot, 'a.ts'), 'utf-8')).toBe('baz')
+  })
+
+  it('resolves the same absolute path as fs_read for the same input, so readPaths matches across tools', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    // fs_read (fs.ts's resolvePath) and fs_edit (write.ts's toAbsolute) must
+    // agree on the absolute path for a marker written by one to gate the
+    // other correctly.
+    const readTool = getTool('fs_read')
+    if (readTool) {
+      const readPaths = new Set<string>()
+      await readTool.execute({ path: 'w/a.ts' }, { repoPaths: ctxBase.repoPaths, readPaths })
+      const editTool = getTool('edit_file')!
+      const out = await editTool.execute(
+        { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
+        { ...ctxWith([writeRoot]), readPaths },
+      )
+      expect(out).toContain('Edición aplicada')
+    }
+  })
+
+  it('does not deadlock an agent whose policy has fs_write but not fs_read', async () => {
+    // A CompiledPolicy without fs_read is a legitimate, opt-in-per-tool
+    // config (write.ts's fsReadAvailable) — the gate must not demand a tool
+    // this agent was never given.
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const policy = { toolNames: new Set(['fs_edit', 'fs_write']) }
+    const out = await tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, {
+      ...ctxWith([writeRoot]),
+      readPaths: new Set(),
+      policy,
+    } as any)
+    expect(out).toContain('Edición aplicada')
+  })
+
+  it('still enforces the gate when the policy DOES include fs_read', async () => {
+    writeFileSync(join(writeRoot, 'a.ts'), 'foo')
+    const tool = getTool('edit_file')!
+    const policy = { toolNames: new Set(['fs_edit', 'fs_write', 'fs_read']) }
+    await expect(
+      tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, {
+        ...ctxWith([writeRoot]),
+        readPaths: new Set(),
+        policy,
+      } as any),
+    ).rejects.toThrow('leé w/a.ts antes de editarlo')
+  })
+
+  it('fs_edit on a NON-EXISTENT path reports that, not the read-before-write gate', async () => {
+    // No file at all — the real problem is "doesn't exist", not "unread".
+    // Reporting the gate here would send the agent into fs_read (which
+    // answers "File not found") → fs_edit (asks to read again) forever.
+    const tool = getTool('edit_file')!
+    await expect(
+      tool.execute(
+        { path: 'w/missing.ts', old_string: 'x', new_string: 'y' },
+        { ...ctxWith([writeRoot]), readPaths: new Set() },
+      ),
+    ).rejects.toThrow('w/missing.ts no existe')
+  })
+
+  // El guardián anti-numerado (assertNotNumberedOutput) sólo corre al
+  // SOBRESCRIBIR — el riesgo es corromper contenido existente con lo que se
+  // acaba de leer de él. Un archivo NUEVO no lo dispara (sus líneas
+  // iniciales pueden legítimamente parecerse a output de fs_read, p. ej. un
+  // fixture de test), así que estos casos preparan un archivo existente y
+  // lo marcan como ya leído para aislar específicamente ese chequeo.
+  function overwriteCtx(): ToolContext {
+    writeFileSync(join(writeRoot, 'existing.ts'), 'placeholder')
+    return { ...ctxWith([writeRoot]), readPaths: new Set([join(writeRoot, 'existing.ts')]) }
+  }
+
+  it('creating a NEW file with numbered-looking content is allowed — the guard only applies to overwrite', async () => {
+    const tool = getTool('write_file')!
+    const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\tconst c = 3'
+    const out = await tool.execute(
+      { path: 'w/brand-new.ts', content: numbered },
+      ctxWith([writeRoot]),
+    )
+    expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write refuses OVERWRITING with content that looks like fs_read line-numbered output', async () => {
+    const tool = getTool('write_file')!
+    const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\tconst c = 3'
+    await expect(
+      tool.execute({ path: 'w/existing.ts', content: numbered }, overwriteCtx()),
+    ).rejects.toThrow('parece traer los prefijos')
+  })
+
+  it('fs_write refuses numbered content even with a trailing newline (regression: models usually close files with one)', async () => {
+    // This is fs_read's ACTUAL raw shape for a file ending in "\n": the last
+    // line comes back as "N\t" (empty content, still numbered) — plus
+    // whatever the model appends on top when it pastes the output back.
+    const tool = getTool('write_file')!
+    const numbered = '1\tconst a = 1\n2\tconst b = 2\n3\t\n'
+    await expect(
+      tool.execute({ path: 'w/existing.ts', content: numbered }, overwriteCtx()),
+    ).rejects.toThrow('parece traer los prefijos')
+  })
+
+  it('an interior (non-trailing) blank line breaks the numbered-output detection, even if the rest looks numbered', async () => {
+    // fs_read numbers blank lines too ("3\t" for an empty line); real content
+    // with a genuinely blank line in the middle does not look like that, so
+    // it must not be flagged.
+    const tool = getTool('write_file')!
+    const looksNumberedButHasABlankLine = '1\tfoo\n\n3\tbar\n4\tbaz\n'
+    const out = await tool.execute(
+      { path: 'w/existing.ts', content: looksNumberedButHasABlankLine },
+      overwriteCtx(),
+    )
+    expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write accepts overwriting with content where lines are not ALL numbered', async () => {
+    const tool = getTool('write_file')!
+    const code = 'const a = 1\n1\tfoo bar baz\nconst b = 2\nconst c = 3\n'
+    const out = await tool.execute({ path: 'w/existing.ts', content: code }, overwriteCtx())
+    expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write accepts overwriting with a real TSV whose id column is not strictly consecutive from 1 (regression: majority-based heuristic false positive)', async () => {
+    // Every line matches /^\d+\t/ (like a real fs_read output), but the
+    // numbers are a data column, not sequential line numbers — a plain
+    // "majority of lines start with digits+tab" heuristic would have
+    // rejected this real, legitimate file.
+    const tool = getTool('write_file')!
+    const tsv = '1002\tAlice\n1005\tBob\n1010\tCarol\n'
+    const out = await tool.execute({ path: 'w/existing.ts', content: tsv }, overwriteCtx())
+    expect(out).toContain('Archivo escrito')
+  })
+
+  it('fs_write refuses OVERWRITING even when numbering does not start at 1, as long as it is consecutive (a mid-file paste)', async () => {
+    const tool = getTool('write_file')!
+    const numbered = '500\tfoo\n501\tbar\n502\tbaz'
+    await expect(
+      tool.execute({ path: 'w/existing.ts', content: numbered }, overwriteCtx()),
+    ).rejects.toThrow('parece traer los prefijos')
   })
 })
 

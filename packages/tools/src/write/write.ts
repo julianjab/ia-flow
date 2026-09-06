@@ -4,8 +4,9 @@
 // is currently the only registered caller. Both tools mutate the filesystem,
 // so every code path funnels through `resolveWritePath` → `assertInWritePaths`
 // before touching disk.
-import { mkdir, readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { lstat, mkdir, readFile, readlink, realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -30,16 +31,170 @@ function assertInWritePaths(absPath: string, writePaths: string[] | undefined): 
 }
 
 /**
+ * Resuelve dónde caería FÍSICAMENTE una escritura en `path`, incluso cuando
+ * `path` (o el archivo que va a crear) todavía no existe. `realpath` solo
+ * sirve cuando la cadena entera ya existe en disco; para todo lo demás hay
+ * que reconstruirla a mano:
+ *
+ *   - Si `path` es en sí un symlink (colgante o no — `fs_edit`/`fs_write`
+ *     sobre un link cuyo destino no existe todavía), sigue su target y
+ *     recurre sobre él — un symlink puede encadenar a otro symlink.
+ *   - Si no existe en absoluto, resuelve el REAL del padre más cercano
+ *     (que puede ser, a su vez, un symlink — `repo/link -> /outside` con
+ *     `link` siendo un directorio) y le agrega el nombre de archivo.
+ *
+ * Sin esto, `fs_write('repo/link/nuevo.txt')` con `repo/link -> /outside`
+ * pasaba: ni el archivo final ni "link/nuevo.txt" existen como para que
+ * `realpath` los resuelva, así que un `catch { return }` ingenuo asumía
+ * "no hay symlink que seguir" — pero `Bun.write` SÍ sigue el symlink del
+ * padre al escribir, y el archivo terminaba en `/outside/nuevo.txt`.
+ */
+async function resolveRealAncestor(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  } catch {
+    // sigue abajo
+  }
+  try {
+    const st = await lstat(path)
+    if (st.isSymbolicLink()) {
+      const target = await readlink(path)
+      const resolvedTarget = isAbsolute(target) ? target : resolve(dirname(path), target)
+      return resolveRealAncestor(resolvedTarget)
+    }
+  } catch {
+    // `path` no existe ni siquiera como symlink — cae a resolver el padre
+  }
+  const parent = dirname(path)
+  if (parent === path) return path // llegó a la raíz del filesystem
+  const realParent = await resolveRealAncestor(parent)
+  return `${realParent}/${basename(path)}`
+}
+
+/**
+ * Confirma que la ubicación FÍSICA real de `absPath` (siguiendo cualquier
+ * symlink, existente o no) cae dentro de algún `writePath`.
+ * `assertInWritePaths` sólo compara el TEXTO del path contra el prefijo —
+ * un symlink dentro del writePath que apunta afuera (`repo/cfg ->
+ * /etc/algo`) pasa esa validación igual, porque el path de entrada SIGUE
+ * empezando con la raíz permitida, y `Bun.write` lo resuelve de forma
+ * transparente. Mismo problema y mismo fix que `realPathStaysInRepo` en
+ * `fs.ts` — ahí el chequeo faltaba del lado de lectura y acá faltaba del
+ * lado de escritura, que es el más peligroso: un link armado por el propio
+ * agente (`bash_run ln -s`, un checkout con symlinks) o presente en el
+ * repo dejaba escribir fuera del sandbox sin ningún error.
+ */
+async function assertRealPathInWritePaths(
+  absPath: string,
+  writePaths: string[] | undefined,
+): Promise<void> {
+  const real = await resolveRealAncestor(absPath)
+  if (real === absPath) return // nada de por medio era un symlink
+
+  const realRoots = await Promise.all(
+    (writePaths ?? []).map((p) => resolveRealAncestor(resolve(p))),
+  )
+  const ok = realRoots.some((root) => real === root || real.startsWith(root + '/'))
+  if (!ok) throw new Error('escritura no permitida en fase actual')
+}
+
+/**
  * Local resolver: turns the tool input (`<repo>/rel/path` or absolute) into
  * an absolute path and validates it against `ctx.writePaths`. Kept private
  * to `write.ts` rather than reusing `resolvePath` from `fs.ts` — that helper
  * validates against `repoPaths`, which is a strictly wider scope than
  * `writePaths` and would let writes escape the sandbox.
  */
-function resolveWritePath(input: string, ctx: ToolContext): string {
+async function resolveWritePath(input: string, ctx: ToolContext): Promise<string> {
   const abs = toAbsolute(input, ctx.repoPaths)
   assertInWritePaths(abs, ctx.writePaths)
+  await assertRealPathInWritePaths(abs, ctx.writePaths)
   return abs
+}
+
+/**
+ * Si el agente declaró una política DSL (`ctx.policy`, compilada por
+ * `compilePolicy`), el gate sólo tiene sentido cuando `fs_read` está entre
+ * sus tools — exigirle leer una tool que no tiene es un callejón sin salida:
+ * un agente con `fs_write`/`fs_edit` pero sin `fs_read` en su `tools[]`
+ * (combinación válida hoy — son opt-in independientes) quedaría incapaz de
+ * sobrescribir CUALQUIER archivo existente para siempre. Sin política (un
+ * agente legacy sin DSL, o un test que arma `ctx` a mano) no hay forma de
+ * saber qué tools tiene el agente, así que el gate se mantiene activo — el
+ * comportamiento por default, más conservador.
+ */
+function fsReadAvailable(ctx: ToolContext): boolean {
+  return !ctx.policy || ctx.policy.toolNames.has('fs_read')
+}
+
+/**
+ * Exige que `fs_read` haya leído este path en el run actual antes de tocarlo.
+ * Sólo se activa cuando `ctx.readPaths` está seteado — `undefined` significa
+ * que el gate no aplica acá (el MCP async, o un test viejo sin el campo) — y
+ * cuando el agente puede efectivamente satisfacerlo (`fsReadAvailable`). Un
+ * archivo nuevo no pasa por acá: crear no tiene memoria previa que exigir.
+ *
+ * El mensaje nombra explícitamente que un `focus` o una cabecera recortada
+ * (`fs_read` sobre un archivo >40 KB sin paginar) NO cuentan — sin esa
+ * pista, un agente que ya hizo un `fs_read` con `focus` reintenta la MISMA
+ * llamada al chocar con este error y vuelve a fallar en loop.
+ */
+function assertReadBeforeEdit(abs: string, ctx: ToolContext, inputPath: string): void {
+  if (ctx.readPaths && fsReadAvailable(ctx) && !ctx.readPaths.has(abs)) {
+    throw new Error(
+      `leé ${inputPath} antes de editarlo — con fs_read, el archivo entero (una lectura con ` +
+        '`focus` o una cabecera recortada no cuentan; si es grande, pagina con offset/limit ' +
+        'hasta cubrirlo completo)',
+    )
+  }
+}
+
+/**
+ * Detecta `content` que arrastra los prefijos "N\t" que `fs_read` agrega
+ * como display. `fs_write` no valida nada más allá del sandbox (a diferencia
+ * de `fs_edit`, que falla ruidosamente si `old_string` no matchea), así que
+ * un agente que copia el output numerado de un `fs_read` y lo pasa tal cual
+ * como `content` corrompe el archivo en silencio — cada línea real queda
+ * corrida por su propio número.
+ *
+ * No alcanza con "la mayoría de las líneas empiezan con dígitos + tab": un
+ * TSV real con una columna de id numérico entra en esa descripción y quedaría
+ * imposible de escribir con la tool. La firma real de `fs_read` es más
+ * específica y ningún dato tabular la replica por casualidad: TODAS las
+ * líneas vienen numeradas, sin huecos, y los números son estrictamente
+ * consecutivos (`numberLines`/el rango de offset/limit no saltean líneas).
+ * Exigir eso — no sólo la proporción — es lo que separa "esto es obviamente
+ * el output de fs_read" de "esto es un archivo de datos real".
+ */
+function looksLikeNumberedOutput(content: string): boolean {
+  const lines = content.split('\n')
+  // Un `content` que termina en newline (el caso común — los modelos casi
+  // siempre cierran el archivo así) deja un último elemento '' que nunca
+  // matchea `^\d+\t`, y eso apagaba el guardián en su escenario más
+  // probable. Se descarta ese único elemento vacío final antes de validar;
+  // uno del medio (una línea real en blanco) sigue rompiendo la detección,
+  // como corresponde — el output de fs_read numera TODAS las líneas,
+  // incluidas las vacías intermedias.
+  const trailingBlank = lines.length > 0 && lines[lines.length - 1] === ''
+  const toCheck = trailingBlank ? lines.slice(0, -1) : lines
+  if (toCheck.length < 3) return false
+  let expected: number | null = null
+  for (const line of toCheck) {
+    const m = /^(\d+)\t/.exec(line)
+    if (!m) return false
+    const n = Number(m[1])
+    if (expected !== null && n !== expected) return false
+    expected = n + 1
+  }
+  return true
+}
+
+function assertNotNumberedOutput(content: string, inputPath: string): void {
+  if (looksLikeNumberedOutput(content)) {
+    throw new Error(
+      `el content de ${inputPath} parece traer los prefijos "N\\t" de fs_read — sacalos antes de escribir`,
+    )
+  }
 }
 
 function toAbsolute(path: string, repoPaths: Record<string, string>): string {
@@ -78,7 +233,11 @@ registerTool({
   name: 'fs_write',
   aliases: ['write_file'],
   description:
-    'Create or overwrite a file inside the allowed writePaths. Parent directories are created as needed. Use "<repo-name>/relative/path" or an absolute path.',
+    'Create or overwrite a file inside the allowed writePaths. Parent directories are created ' +
+    'as needed. Use "<repo-name>/relative/path" or an absolute path. Overwriting an existing ' +
+    'file requires having read it first with fs_read in this same run — and if you did, strip ' +
+    'the "N\\t" line-number prefixes fs_read added before passing the content back here; they ' +
+    'are a display, not part of the file, and writing them in corrupts it.',
   apiOnly: true,
   input_schema: {
     type: 'object',
@@ -95,10 +254,24 @@ registerTool({
     required: ['path', 'content'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolveWritePath(input.path, ctx)
+    const abs = await resolveWritePath(input.path, ctx)
+    const overwriting = existsSync(abs)
     const content = typeof input.content === 'string' ? input.content : ''
+    // El guardián sólo tiene sentido al SOBRESCRIBIR: el riesgo que previene
+    // es corromper contenido existente con lo que se acaba de leer de él. Un
+    // archivo NUEVO no tiene ese riesgo — sus primeras líneas pueden
+    // legítimamente parecerse a output numerado (un fixture de test para
+    // fs_read, un TSV con id secuencial) sin que haya nada que corromper.
+    if (overwriting) {
+      assertReadBeforeEdit(abs, ctx, input.path)
+      assertNotNumberedOutput(content, input.path)
+    }
     await mkdir(dirname(abs), { recursive: true })
     await Bun.write(abs, content)
+    // El propio run acaba de escribir este contenido — cuenta como lectura,
+    // así que un fs_edit/fs_write posterior sobre el mismo path (corrigiendo
+    // un typo, por ejemplo) no exige releerlo primero.
+    ctx.readPaths?.add(abs)
     log.info(
       {
         path: input.path,
@@ -119,7 +292,9 @@ registerTool({
   name: 'fs_edit',
   aliases: ['edit_file'],
   description:
-    'Replace an exact substring in an existing file inside writePaths. Fails if old_string is absent, or if it appears more than once and replace_all=false.',
+    'Replace an exact substring in an existing file inside writePaths. Fails if old_string is ' +
+    'absent, or if it appears more than once and replace_all=false. Requires having read the ' +
+    'file first with fs_read in this same run.',
   apiOnly: true,
   input_schema: {
     type: 'object',
@@ -138,7 +313,15 @@ registerTool({
     required: ['path', 'old_string', 'new_string'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolveWritePath(input.path, ctx)
+    const abs = await resolveWritePath(input.path, ctx)
+    // Chequeo de existencia ANTES del gate de lectura: si el path no existe,
+    // el motivo real es "no existe" y no "no lo leíste" — reportar el gate
+    // acá manda al agente a un fs_read que le va a devolver "File not
+    // found", y de vuelta a fs_edit, en un loop sin salida.
+    if (!existsSync(abs)) {
+      throw new Error(`${input.path} no existe — usá fs_write para crear un archivo nuevo`)
+    }
+    assertReadBeforeEdit(abs, ctx, input.path)
     const oldStr = String(input.old_string ?? '')
     const newStr = String(input.new_string ?? '')
     const replaceAll = input.replace_all === true
@@ -165,6 +348,10 @@ registerTool({
       ? current.split(oldStr).join(newStr)
       : current.replace(oldStr, newStr)
     await Bun.write(abs, updated)
+    // Ya pasó el gate y este run tiene el contenido actualizado en mano — un
+    // segundo fs_edit sobre el mismo path (otra corrección seguida) no
+    // debería exigir un fs_read intermedio que sólo releería lo que ya sabe.
+    ctx.readPaths?.add(abs)
     log.info(
       {
         path: input.path,
