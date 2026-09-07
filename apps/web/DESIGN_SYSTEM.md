@@ -184,6 +184,16 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   se trunca y se abre. El nivel es el color de un glifo, no un badge.
 - `composables/useDispositionOrder.ts` — **el orden congelado + el agrupado por bucket.** Lo
   comparten las vistas que son recortes del mismo orden (O6).
+- `components/DataRow.vue` — **la fila de datos que entra en 390px** (T6, A4): columnas en `ch`
+  sobre `--bp-stack`, dos líneas apiladas debajo, con el glifo fijo a la izquierda. Las columnas
+  llegan por variable, así que cada tabla trae las suyas.
+- `components/KbdBar.vue` — **la barra de atajos** al pie de una lista navegable. Anuncia sólo lo
+  que `useKeyboardNav` bindea; no se renderiza bajo `--bp-shell` (`v-if`, no `display: none`).
+- `components/FinishedTodayPanel.vue` — lo que terminó hoy, con lo que falló primero.
+- `components/RunningRunsPanel.vue` — los runs en vuelo, con su duración corriendo y el botón de
+  abortar. Lo comparten Ejecuciones y Qué sigue.
+- `composables/useIsMobile.ts` — `useIsMobile()` (bajo `--bp-shell`) y `useIsSplit()` (sobre
+  `--bp-split`). Un listener por query para toda la app.
 - `.drag-handle` — **el control de reordenar una lista**, y el único. Es un `button` con el glifo
   `⠿`: se arrastra con el mouse y se mueve con `ArrowUp`/`ArrowDown` cuando tiene el foco.
   **No hay botones `↑`/`↓`** — eran dos blancos más en una fila que ya tiene cuatro controles,
@@ -310,10 +320,10 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 | Control | Qué decide | También sirve en | Estado |
 | --- | --- | --- | --- |
 | **Reordenar táctil** | El orden de una lista, con el dedo. `.drag-handle` usa el drag nativo de HTML5, que **no dispara en táctil**: bajo `--bp-shell` esas listas quedan de sólo lectura sin que nada lo diga. | Pipeline (reglas), acciones de una regla, candidatos de provider, statuses | **Pedido — bloqueante en mobile** |
-| **`DataRow`** | Una fila de datos: columnas en `ch` sobre 640px, dos líneas apiladas debajo. Reemplaza cada tabla escrita a mano. | Tareas, board, salud, providers, catálogo MCP | Pedido |
 | ~~`StickyActionBar`~~ | — | — | **Hecho** — `ui/StickyActionBar.vue` |
 | ~~`FullScreen`~~ | — | — | **Hecho** — `ui/FullScreen.vue` |
-| ~~`LogLine` + `FollowTail`~~ | — | — | **Hechos** — `ui/`; sin cablear hasta que el stream tenga scroll propio (ver `handoff/PROGRESO.md`) |
+| ~~`LogLine` + `FollowTail`~~ | — | — | **Hechos y cableados** — `ui/`; en uso en los logs del daemon |
+| ~~`DataRow`~~ | — | — | **Hecho** — `components/DataRow.vue`; las cinco tablas se migran al tocarlas |
 | ~~Barra de controles de lista~~ | — | — | **Hecho** — `components/ListControlsBar.vue` |
 | ~~Encabezado de bucket~~ | — | — | **Hecho** — `components/BucketHeader.vue` |
 | ~~Segmentado de vista~~ | — | — | Cubierto por `components/ListBoardToggle.vue` |

@@ -18,8 +18,8 @@ commiteado.
 | 03 | Contenedores: `FullScreen`, `BottomSheet`, `StickyActionBar` + los modales | ✅ hecho |
 | 04 | Navegación: tab bar, `/mas`, switcher | ✅ ya venía hecho |
 | 05 | `disposition` en el server | ✅ hecho |
-| 06 | `DataRow`, `LogLine`, `FollowTail` | ⬜ pendiente |
-| 07 | Pantalla por pantalla (`02-pantallas.md`) | ⬜ pendiente |
+| 06 | `DataRow`, `LogLine`, `FollowTail` | ✅ hecho |
+| 07 | Pantalla por pantalla (`02-pantallas.md`) | 🟡 lo que los datos permiten |
 | 08 | Chrome de dos filas, veredicto, listas en lectura (§9) | ✅ hecho |
 
 ## Los siete pasos pedidos explícitamente
@@ -62,12 +62,18 @@ en la sección 7 del README como "no existe".
 
 ### Se puede hacer, sin bloqueo
 
-- **`DataRow`** — lo último de la etapa 06. Reemplaza cada tabla escrita a mano.
-  Es refactor de tablas que hoy funcionan: la menor ganancia visible de lo que
-  queda.
-- **Cablear `FollowTail` y `LogLine`** — hechos y testeados, cero usos. Necesitan
-  que el stream tenga alto y scroll propios, o sea rediseñar la pantalla del
-  stream (A2).
+**Nada queda.** Lo que faltaba se hizo:
+
+- `FollowTail` + `LogLine` **cableados** en los logs del daemon. Lo que faltaba
+  no era el componente: era que la lista tuviera scroll propio, sin el cual la
+  corrección de posición no tiene dónde aplicarse.
+- `DataRow` **existe**. No migra ninguna tabla todavía, a propósito: cada una se
+  migra cuando se la toque. Migrar cinco en el mismo commit haría irrevisable el
+  diff.
+
+Los otros tres streams (ejecuciones, logs del agent-host, runs abortados) siguen
+sin `FollowTail`: cada uno necesita su propio alto, que es una decisión de
+layout por pantalla y no un cableado mecánico.
 
 ---
 
