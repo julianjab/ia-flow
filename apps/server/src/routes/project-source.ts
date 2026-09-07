@@ -1,6 +1,16 @@
+import type { Blocker } from '@ia-flow/issue-sources'
+import { defaultToIssueItem } from '@ia-flow/issue-sources'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { projectRepo, sourceFactory } from '../composition/container.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('project-source')
+
+/** Tope del batch de blockers. No es una paginación: es el freno para que un
+ *  `?ids=` armado a mano no dispare cientos de llamadas a la fuente. Un
+ *  listado real pide como mucho las filas que muestra. */
+const MAX_BLOCKER_IDS = 100
 
 // Sub-router mounted at /api/projects/:id/source. Every endpoint resolves the
 // project row → its ProjectSource, so callers never talk to a specific
@@ -82,6 +92,66 @@ export function createProjectSourceRouter() {
       return c.json({ kind: source.kind, items })
     } catch (err) {
       return c.json({ error: (err as Error).message, items: [] }, 502)
+    }
+  })
+
+  // GET /api/projects/:id/source/blockers?ids=a,b,c
+  // Los blockers de varias tareas de una. La ruta por item sigue existiendo
+  // (la usa el detalle); esto es para un LISTADO, donde item por item eran
+  // tantas requests como filas.
+  //
+  // El ahorro real es doble: una sola resolución de items (`getItems`, o
+  // `getItemById` cuando la fuente lo tiene) en vez de una por id, y una sola
+  // request del browser. Las llamadas que la fuente haga por dentro siguen
+  // siendo suyas — acá se acotan con un pool de concurrencia para no abrirle
+  // 40 conexiones a GitHub de golpe.
+  router.get('/blockers', async (c) => {
+    const { project } = withProject(c)
+    if (!project) return c.json({ error: 'Project not found', blockers: {} }, 404)
+    const ids = (c.req.query('ids') ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
+    if (!ids.length) return c.json({ error: 'ids query param is required', blockers: {} }, 400)
+    if (ids.length > MAX_BLOCKER_IDS) {
+      return c.json({ error: `Too many ids (max ${MAX_BLOCKER_IDS})`, blockers: {} }, 400)
+    }
+
+    try {
+      const source = sourceFactory.get(project)
+      // Sin `getBlockers` la respuesta es un mapa vacío, no un error: una
+      // fuente que no modela dependencias no está rota — la UI simplemente no
+      // puede afirmar "bloqueada", que es distinto de afirmar "no bloqueada".
+      if (!source.getBlockers) return c.json({ kind: source.kind, blockers: {} })
+
+      const items = await source.getItems()
+      const byId = new Map(items.map((i) => [i.id, i]))
+      const wanted = ids.map((id) => byId.get(id)).filter((i) => i !== undefined)
+
+      const blockers: Record<string, Blocker[]> = {}
+      // Pool de a 5: el `getBlockers` de GitHub es una request por issue.
+      const queue = [...wanted]
+      const worker = async () => {
+        for (let item = queue.shift(); item; item = queue.shift()) {
+          const issueItem = source.toIssueItem ? source.toIssueItem(item) : defaultToIssueItem(item)
+          // Un fallo por item NO tira la respuesta entera: la clave
+          // simplemente no aparece, y "no sé" se distingue de "no hay" —
+          // que es la regla del vocabulario de estado.
+          try {
+            blockers[item.id] = await source.getBlockers!(issueItem)
+          } catch (err) {
+            log.warn(
+              { err: (err as Error).message, itemId: item.id },
+              'getBlockers falló para un item del batch — se omite del mapa',
+            )
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(5, wanted.length) }, worker))
+
+      return c.json({ kind: source.kind, blockers })
+    } catch (err) {
+      return c.json({ error: (err as Error).message, blockers: {} }, 502)
     }
   })
 
