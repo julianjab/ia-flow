@@ -533,6 +533,13 @@ a:hover {
   line-height: 1;
   user-select: none;
   cursor: grab;
+  /* Lo que hace que el gesto exista en un teléfono.
+     Sin esto el navegador interpreta el arrastre como scroll y se queda con él:
+     `pointermove` deja de llegar a mitad del gesto y la fila se suelta sola —
+     toda la maquinaria de `useDragReorder` queda inerte por una línea de CSS.
+     Va SÓLO en el handle: el resto de la fila sigue scrolleando, que es lo que
+     evita tener que elegir entre reordenar y moverse por la lista. */
+  touch-action: none;
 }
 .drag-handle:hover,
 .drag-handle:focus-visible {
