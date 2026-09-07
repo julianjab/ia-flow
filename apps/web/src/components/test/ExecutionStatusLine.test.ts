@@ -59,6 +59,20 @@ describe('ExecutionStatusLine', () => {
     expect(el.text()).toContain('2m 05s')
   })
 
+  // Un run cancelado o cortado no es un éxito: pintarlo `✓ terminó` esconde
+  // justo el caso donde alguien tiene que intervenir.
+  it('cancelado y truncado no se pintan como terminó', () => {
+    const cancelled = line({ execution: run({ outcome: 'cancelled' }) })
+    expect(cancelled.classes()).toContain('esl--stopped')
+    expect(cancelled.text()).toContain('cancelado')
+
+    const truncated = line({
+      execution: run({ outcome: 'truncated', failureClass: 'budget_exhausted' }),
+    })
+    expect(truncated.classes()).toContain('esl--stopped')
+    expect(truncated.text()).toContain('budget_exhausted')
+  })
+
   it('bloqueada gana sobre "sin ejecutar"', () => {
     const el = line({ execution: null, runsKnown: true, blocked: true })
     expect(el.classes()).toContain('esl--blocked')

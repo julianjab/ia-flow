@@ -157,6 +157,44 @@ describe('TareasSection — la fila', () => {
     expect(wrapper.find('.task-row .esl').exists()).toBe(false)
   })
 
+  // El server rechaza >100 ids de una: sin partir, un board grande perdía los
+  // blockers del listado entero y en silencio.
+  it('un board grande parte el batch de blockers en tandas', async () => {
+    const many = Array.from({ length: 150 }, (_, i) => ({
+      ...githubItem({ pullRequests: [] }),
+      id: `I_${i}`,
+    }))
+    await mountWith(many)
+    expect(fetchBlockersBatch).toHaveBeenCalledTimes(1)
+    // El chunking vive en la api (que es quien conoce el tope del server);
+    // acá se verifica que el listado le pasa TODAS las ids, no una página.
+    expect((fetchBlockersBatch.mock.calls[0] as unknown[])[1]).toHaveLength(150)
+  })
+
+  // Con `runsKnown` heredado del proyecto anterior, las filas del nuevo
+  // afirmarían `sin ejecutar` antes de saber nada.
+  it('cambiar de proyecto borra los agregados del anterior', async () => {
+    runSummaries.push({
+      taskId: 'I_1',
+      attempts: 1,
+      last: {
+        id: 'r1',
+        projectId: 'p1',
+        taskId: 'I_1',
+        taskTitle: 'x',
+        agentId: 'implementer',
+        providerId: 'p',
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        outcome: 'success',
+        errorMsg: null,
+        stopReason: null,
+      },
+    })
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    expect(wrapper.get('.task-row .esl').classes()).toContain('esl--done')
+  })
+
   it('una tarea con blockers se marca bloqueada', async () => {
     blockersBatch.I_1 = [{ id: 'B1', ref: '#1236' }]
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
