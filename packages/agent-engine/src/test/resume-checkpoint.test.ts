@@ -27,7 +27,10 @@ function makeTask(): Task {
 /** Devuelve el orquestador más el `ProviderInput` con el que se llamó al
  *  provider — que es donde se ve si el run entró con la conversación vieja o
  *  arrancó de cero. */
-function makeDeps(checkpoints: RunCheckpointPort) {
+function makeDeps(
+  checkpoints: RunCheckpointPort,
+  runOutput: Partial<Awaited<ReturnType<IAgentProvider['run']>>> = {},
+) {
   let seen: ProviderInput | undefined
 
   const provider: IAgentProvider = {
@@ -37,7 +40,7 @@ function makeDeps(checkpoints: RunCheckpointPort) {
     description: '',
     run: async (input: ProviderInput) => {
       seen = input
-      return { content: 'listo', mode: 'api' as const }
+      return { content: 'listo', mode: 'api' as const, ...runOutput }
     },
   }
   const providers = {
@@ -228,6 +231,47 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
     const { orch, manager } = makeDeps(port({ delete: del }))
 
     await orch.runAgent(makeTask(), manager, 'implementer')
+
+    expect(del).toHaveBeenCalled()
+  })
+
+  it('conserva el checkpoint cuando el run corta truncated (no refusal)', async () => {
+    // El proceso sigue vivo, pero el run no llegó a terminar (budget, un
+    // mcp_tool_use sin pareo, …) — el próximo dispatch de esta misma task
+    // tiene que poder retomar la conversación en vez de arrancar de cero.
+    const del = mock(async () => {})
+    const { orch, manager } = makeDeps(port({ delete: del }), {
+      truncated: true,
+      stopReason: 'max_tokens',
+    })
+
+    await orch.runAgent(makeTask(), manager, 'implementer')
+
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('borra el checkpoint cuando el truncated es un refusal', async () => {
+    // El modelo se negó por política — resumir la misma conversación
+    // probablemente repite el rechazo, así que no vale la pena conservarla.
+    const del = mock(async () => {})
+    const { orch, manager } = makeDeps(port({ delete: del }), {
+      truncated: true,
+      stopReason: 'refusal',
+    })
+
+    await orch.runAgent(makeTask(), manager, 'implementer')
+
+    expect(del).toHaveBeenCalled()
+  })
+
+  it('borra el checkpoint de un sub-agente truncado — su fila quedaría indexada por la task del padre', async () => {
+    const del = mock(async () => {})
+    const { orch, manager } = makeDeps(port({ delete: del }), {
+      truncated: true,
+      stopReason: 'max_tokens',
+    })
+
+    await orch.runAgent(makeTask(), manager, 'implementer', { parentRunId: 'padre-1' })
 
     expect(del).toHaveBeenCalled()
   })
