@@ -1,4 +1,6 @@
 import {
+  type Blocker,
+  BlockersBatchSchema,
   type ExecutionLog,
   ExecutionLogArraySchema,
   type RunTaskNowResult,
@@ -6,6 +8,8 @@ import {
   type SlackMemberRef,
   type TaskRunPreview,
   TaskRunPreviewSchema,
+  type TaskRunSummary,
+  TaskRunSummaryArraySchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -88,4 +92,36 @@ export async function fetchTaskRunPreview(
     params: { projectId },
   })
   return TaskRunPreviewSchema.parse(data)
+}
+
+/**
+ * El último run y el conteo de intentos de TODAS las tareas del proyecto.
+ *
+ * Una request para el listado entero: por tarea eran tantas como filas. Las
+ * tareas sin ningún run no vienen — su ausencia ES el dato (`○ sin ejecutar`),
+ * y por eso el listado sólo puede afirmarlo cuando esta llamada volvió.
+ */
+export async function fetchTaskRunSummaries(projectId: string): Promise<TaskRunSummary[]> {
+  const { data } = await axios.get<{ summaries: unknown }>('/api/executions/latest-by-task', {
+    params: { projectId },
+  })
+  return TaskRunSummaryArraySchema.parse(data.summaries)
+}
+
+/**
+ * Los blockers de varias tareas de una.
+ *
+ * Un id que no aparece en el mapa es "no se pudo saber", no "no está
+ * bloqueada": el llamador no debe rellenarlo con `[]`.
+ */
+export async function fetchBlockersBatch(
+  projectId: string,
+  ids: string[],
+): Promise<Record<string, Blocker[]>> {
+  if (!ids.length) return {}
+  const { data } = await axios.get<{ blockers?: unknown }>(
+    `/api/projects/${encodeURIComponent(projectId)}/source/blockers`,
+    { params: { ids: ids.join(',') } },
+  )
+  return BlockersBatchSchema.parse(data.blockers ?? {})
 }

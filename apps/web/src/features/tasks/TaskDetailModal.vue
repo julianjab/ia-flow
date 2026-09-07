@@ -35,11 +35,21 @@ const props = defineProps<{
    *  matchea"— es justamente el que uno necesita releer mientras decide qué
    *  cambiar. */
   runResult?: RunTaskNowResult | null;
+  /** Slack configurado en este server. Sin credencial la acción ni se ofrece:
+   *  fallaría con un 503 y sin dónde ver por qué. */
+  slackEnabled?: boolean;
+  /** Por qué NO se puede pedir review (sin PR abierto, CI corriendo, sin
+   *  reviewers). El botón lo muestra como tooltip en vez de esconderse. */
+  slackBlockedReason?: string | null;
+  slackBusy?: boolean;
+  /** Ya hay un hilo: el pedido siguiente es un re-review. */
+  slackThreadUrl?: string | null;
 }>();
 
 const emit = defineEmits<{
   close: [];
   run: [];
+  'slack-review': [];
 }>();
 
 /** Qué decir del último intento, en el idioma del operador. */
@@ -138,6 +148,24 @@ const runMessage = computed(() => {
               {{ runMessage.text }}
             </p>
           </section>
+
+          <!-- Pedir review es una acción SOBRE el PR, así que vive con las
+               demás acciones de la tarea y no en la fila del listado, que es
+               densa y de lectura. -->
+          <section v-if="slackEnabled" class="slack-block">
+            <span class="uc-label">Review</span>
+            <button
+              type="button"
+              class="btn slack-btn"
+              :disabled="!!slackBlockedReason || slackBusy"
+              :title="slackBlockedReason ?? 'Taguea a los reviewers del repo en su canal de Slack'"
+              @click="emit('slack-review')"
+            >
+              <span class="btn-glyph">{{ slackBusy ? '◐' : '✦' }}</span>
+              {{ slackThreadUrl ? 'Pedir re-review' : 'Solicitar review en Slack' }}
+            </button>
+            <p v-if="slackBlockedReason" class="slack-why">{{ slackBlockedReason }}</p>
+          </section>
         </div>
 
         <footer class="modal-foot">
@@ -150,6 +178,7 @@ const runMessage = computed(() => {
 
 <style scoped>
 .repos-block,
+.slack-block,
 .run-block {
   display: flex;
   flex-direction: column;
@@ -166,6 +195,9 @@ const runMessage = computed(() => {
   border-radius: var(--radius-sm, 4px);
   color: var(--fg);
 }
+.slack-btn { align-self: flex-start; }
+.slack-why { margin: 0; font-size: var(--fs-micro); color: var(--fg-dim); }
+
 .run-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .run-btn { flex: 0 0 auto; }
 .run-explain { margin: 0; font-size: var(--fs-micro); color: var(--fg-dim); flex: 1 1 12rem; }
@@ -182,7 +214,7 @@ const runMessage = computed(() => {
 /* El "ninguna regla matchea" no es un fallo del server: es config para
    revisar. Se marca distinto porque el operador tiene que poder distinguirlo
    de un run que sí arrancó. */
-.run-result.is-error { color: var(--danger, #c0392b); }
+.run-result.is-error { color: var(--danger); }
 
 .backdrop {
   position: fixed;

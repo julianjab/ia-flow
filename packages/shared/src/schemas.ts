@@ -231,6 +231,30 @@ export const TaskSchema = z.object({
   pullRequests: z.array(PullRequestRefSchema).optional(),
 })
 
+// ─── Dependencias de una tarea ───────────────────────────────────────────────
+
+/** Un issue que traba a otro. Cruza el wire en dos rutas (la de un item y el
+ *  batch de un listado), así que su forma vive acá. */
+export const BlockerSchema = z.object({
+  id: z.string(),
+  ref: z.string().optional(),
+  title: z.string().optional(),
+  status: z.string().optional(),
+  url: z.string().optional(),
+})
+export type Blocker = z.infer<typeof BlockerSchema>
+
+/**
+ * `GET /api/projects/:id/source/blockers?ids=…` — los blockers de varias
+ * tareas de una.
+ *
+ * Un id que NO está en el mapa es "no se pudo saber" (la fuente falló, o el
+ * item no existe), no "no está bloqueada". Quien lo consuma no debe rellenarlo
+ * con `[]`: sería afirmar algo que no se preguntó.
+ */
+export const BlockersBatchSchema = z.record(z.string(), z.array(BlockerSchema))
+export type BlockersBatch = z.infer<typeof BlockersBatchSchema>
+
 // ─── Correr una tarea a mano (POST /api/tasks/:id/run) ───────────────────────
 
 /**

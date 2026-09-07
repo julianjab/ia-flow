@@ -153,12 +153,12 @@ function isAction(e: ExecutionLog): boolean {
   text-transform: uppercase;
   letter-spacing: var(--tracking-hd);
 }
-.is-success { color: var(--ok, #2e9e5b); }
-.is-error { color: var(--danger, #c0392b); }
+.is-success { color: var(--accent); }
+.is-error { color: var(--danger); }
 /* Cancelado y truncado no son fallos del agente: uno lo pidió una persona y el
    otro es un límite del run. Se distinguen del rojo a propósito. */
 .is-cancelled,
-.is-truncated { color: var(--warn, #b7791f); }
+.is-truncated { color: var(--warn); }
 .is-running { color: var(--info); }
 .run-agent { flex: 0 0 auto; color: var(--fg); font-family: var(--font-mono); }
 /* Una acción de la regla no es un run de agente: se lee, no se analiza. */
@@ -175,5 +175,5 @@ function isAction(e: ExecutionLog): boolean {
   color: var(--fg-dimmer);
 }
 .empty { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dimmer); }
-.runs-error { margin: 0; font-size: var(--fs-chrome); color: var(--danger, #c0392b); }
+.runs-error { margin: 0; font-size: var(--fs-chrome); color: var(--danger); }
 </style>

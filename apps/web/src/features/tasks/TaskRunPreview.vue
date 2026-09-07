@@ -89,7 +89,7 @@ const willNotRun = computed(() => preview.value !== null && preview.value.matche
   color: var(--fg-dim);
 }
 .preview-line.is-ok { color: var(--fg-dim); }
-.preview-line.is-warn { color: var(--warn, #b7791f); }
+.preview-line.is-warn { color: var(--warn); }
 .preview-line.is-dim { color: var(--fg-dimmer); }
 .preview-rule { font-family: var(--font-mono); color: var(--fg); }
 .preview-rejects {

@@ -4,9 +4,16 @@ import { computed, onMounted, ref, watch } from 'vue';
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
-import { requestSlackReview, runTaskNow } from '@/features/tasks/api';
+import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
+import {
+  fetchBlockersBatch,
+  fetchTaskRunSummaries,
+  requestSlackReview,
+  runTaskNow,
+} from '@/features/tasks/api';
 import type {
   PullRequestRef,
+  TaskRunSummary,
   RunTaskNowResult,
   SlackMemberRef,
   SlackReviewMessage,
@@ -19,9 +26,7 @@ import {
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useIntegrations } from '@/composables/useIntegrations';
 import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
-import TaskTags from '@/components/TaskTags.vue';
 import {
-  fetchItemBlockers,
   fetchProjectItems,
   fetchProjectStatuses,
   type Blocker,
@@ -79,7 +84,10 @@ const projectItems = ref<TaskRow[]>([]);
 const itemsLoading = ref(false);
 const itemsError = ref('');
 const blockersByTask = ref<Record<string, Blocker[]>>({});
-const blockersLoading = ref<Record<string, boolean>>({});
+// El último run de cada tarea. Vacío NO significa "ninguna corrió": mientras
+// `runsKnown` sea false, la fila no afirma nada (ver ExecutionStatusLine).
+const runsByTask = ref<Record<string, TaskRunSummary>>({});
+const runsKnown = ref(false);
 const reposModalOpen = ref(false);
 const reposModalItem = ref<TaskRow | null>(null);
 
@@ -295,11 +303,9 @@ async function loadProjectItems(refresh = false) {
     const res = await fetchProjectItems(pid, { refresh });
     if (res.error) { itemsError.value = res.error; return; }
     projectItems.value = (res.items ?? []).map(toRow);
-    // Fire off blocker fetches in parallel; each item card renders when its
-    // request lands. Failures per item are non-fatal — just leave blockers empty.
-    for (const item of projectItems.value) {
-      void loadBlockersFor(pid, item.id);
-    }
+    // Dos requests para el listado entero, no dos por fila.
+    void loadRunSummaries(pid);
+    void loadBlockers(pid, projectItems.value.map((i) => i.id));
   } catch (e) {
     itemsError.value = extractErrorMessage(e);
   } finally {
@@ -307,16 +313,38 @@ async function loadProjectItems(refresh = false) {
   }
 }
 
-async function loadBlockersFor(projectId: string, itemId: string) {
-  blockersLoading.value = { ...blockersLoading.value, [itemId]: true };
+/**
+ * El último run de cada tarea, en una sola request.
+ *
+ * `runsKnown` recién se prende cuando la respuesta llegó: hasta entonces la
+ * fila NO puede decir `sin ejecutar`, porque no sabe si corrió. Un fallo lo
+ * deja apagado a propósito — el listado se ve sin línea de estado, que es
+ * honesto, en vez de afirmar que nada corrió nunca.
+ */
+async function loadRunSummaries(projectId: string) {
   try {
-    const res = await fetchItemBlockers(projectId, itemId);
-    if (res.error) return;
-    blockersByTask.value = { ...blockersByTask.value, [itemId]: res.blockers ?? [] };
+    const summaries = await fetchTaskRunSummaries(projectId);
+    const byTask: Record<string, TaskRunSummary> = {};
+    for (const s of summaries) byTask[s.taskId] = s;
+    runsByTask.value = byTask;
+    runsKnown.value = true;
   } catch {
-    /* non-fatal */
-  } finally {
-    blockersLoading.value = { ...blockersLoading.value, [itemId]: false };
+    runsKnown.value = false;
+  }
+}
+
+/**
+ * Los blockers de todas las tareas visibles, en una sola request.
+ *
+ * Sólo se guardan los ids que el server devolvió: uno que no vino es "no se
+ * pudo saber", y rellenarlo con `[]` sería afirmar que no está bloqueada.
+ */
+async function loadBlockers(projectId: string, ids: string[]) {
+  if (!ids.length) return;
+  try {
+    blockersByTask.value = await fetchBlockersBatch(projectId, ids);
+  } catch {
+    /* non-fatal: la fila simplemente no habla de bloqueos */
   }
 }
 
@@ -378,6 +406,28 @@ async function doSlackReview(item: TaskRow, allowFailedCi: boolean) {
   } finally {
     slackBusyId.value = null;
   }
+}
+
+/** ¿Hay un PR abierto? Es lo que hace honesto el `sin PR` / `PR abierto` de la
+ *  línea de estado — y sólo se pregunta cuando el provider modela PRs. */
+function hasOpenPr(item: TaskRow): boolean {
+  return item.pullRequests.some((pr) => pr.state === 'open');
+}
+
+/** La duración del último run, para la columna de desktop. `—` cuando no hay
+ *  run: es una ausencia sabida, no un dato que falta. */
+function durationOf(item: TaskRow): string {
+  const last = runsByTask.value[item.id]?.last;
+  if (!last) return runsKnown.value ? '—' : '';
+  const ms =
+    last.durationMs ??
+    (last.finishedAt
+      ? new Date(last.finishedAt).getTime() - new Date(last.startedAt).getTime()
+      : Date.now() - new Date(last.startedAt).getTime());
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total}s`;
+  return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`;
 }
 
 // ─── Correr una tarea a mano ─────────────────────────────────────────────
@@ -510,76 +560,66 @@ watch(activeProjectId, (pid) => {
       Ninguna de las {{ projectItems.length }} tareas coincide con los filtros activos.
     </div>
 
-    <ul v-else class="task-list" data-kbd-list="tasks">
-      <li
-        v-for="item in filteredItems"
-        :key="item.id"
-        class="task-card"
-        data-kbd-item
-        tabindex="0"
-        @click="openReposModal(item)"
-      >
-        <div class="task-card-main">
+    <div v-else class="task-table">
+      <!-- Encabezado sólo en desktop: en mobile la fila se apila y una
+           cabecera de columnas no describiría nada. -->
+      <div class="task-thead" aria-hidden="true">
+        <span></span><span>tarea</span><span>issue</span><span>ejecución</span><span>agente</span>
+        <span class="task-th-dur">dur.</span>
+      </div>
+      <ul class="task-list" data-kbd-list="tasks">
+        <li
+          v-for="item in filteredItems"
+          :key="item.id"
+          class="task-row"
+          data-kbd-item
+          tabindex="0"
+          @click="openReposModal(item)"
+        >
+          <span class="task-row-glyph">
+            <ExecutionStatusLine
+              class="task-row-glyph-only"
+              :execution="runsByTask[item.id]?.last ?? null"
+              :attempts="runsByTask[item.id]?.attempts"
+              :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+              :runs-known="runsKnown"
+              :pull-requests-known="item.pullRequestsKnown"
+              :has-open-pr="hasOpenPr(item)"
+            />
+          </span>
+
+          <span class="task-row-title" :title="item.title">{{ item.title }}</span>
+
           <a
             v-if="item.issueNumber && item.url"
-            class="task-number task-number-link"
+            class="task-row-issue"
             :href="item.url"
             target="_blank"
             rel="noopener"
             :title="`Abrir #${item.issueNumber} en el provider`"
             @click.stop
-          >#{{ item.issueNumber }}<span class="task-number-glyph">↗</span></a>
-          <span v-else-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
-          <span class="task-title" :title="item.title">{{ item.title }}</span>
-          <span v-if="item.status" class="task-status-chip">{{ item.status }}</span>
-          <span
-            v-if="(blockersByTask[item.id]?.length ?? 0) > 0"
-            class="task-blocked-badge"
-            :title="`Bloqueada por ${blockersByTask[item.id]!.length} issue(s) sin finalizar`"
-          ><span class="task-blocked-glyph">⛔</span>{{ blockersByTask[item.id]!.length }}</span>
-        </div>
-        <div v-if="(blockersByTask[item.id]?.length ?? 0) > 0" class="task-blockers">
-          <span class="uc-label">Bloqueada por</span>
-          <a
-            v-for="b in blockersByTask[item.id]"
-            :key="b.id"
-            :href="b.url ?? '#'"
-            :class="['task-blocker-chip', { 'is-plain': !b.url }]"
-            :target="b.url?.startsWith('http') ? '_blank' : undefined"
-            :rel="b.url?.startsWith('http') ? 'noopener' : undefined"
-            :title="b.title"
-            @click.stop
-          >
-            <span class="task-blocker-ref">{{ b.ref ?? b.id }}</span>
-            <span v-if="b.title" class="task-blocker-title">{{ b.title }}</span>
-            <span v-if="b.status" class="task-blocker-status">· {{ b.status }}</span>
-          </a>
-        </div>
-        <div class="task-card-foot">
-          <TaskTags
-            :repos="currentReposOf(item)"
-            :branch="item.branch"
-            :branch-url="item.branchUrl"
-            :pull-requests="item.pullRequests"
-            :dev-links="item.hasDevLinks"
+          >#{{ item.issueNumber }}</a>
+          <span v-else-if="item.issueNumber" class="task-row-issue is-plain">#{{ item.issueNumber }}</span>
+          <span v-else class="task-row-issue is-plain"></span>
+
+          <!-- La misma línea en las dos resoluciones: en mobile ocupa la
+               segunda fila del bloque de texto; en desktop, la columna
+               `ejecución`. Una sola implementación del vocabulario. -->
+          <ExecutionStatusLine
+            class="task-row-exec"
+            :execution="runsByTask[item.id]?.last ?? null"
+            :attempts="runsByTask[item.id]?.attempts"
+            :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+            :runs-known="runsKnown"
             :pull-requests-known="item.pullRequestsKnown"
-            :slack-thread-url="item.slackThreadUrl"
-            show-empty-repos
+            :has-open-pr="hasOpenPr(item)"
           />
-          <button
-            v-if="item.hasDevLinks && integrations.slack.enabled"
-            type="button"
-            class="btn btn--ghost task-slack-btn"
-            :disabled="!!slackBlockedReason(item) || slackBusyId === item.id"
-            :title="slackBlockedReason(item) ?? 'Taguea a los reviewers del repo en su canal de Slack'"
-            @click.stop="onSlackReviewClick(item)"
-          >
-            <span class="btn-glyph">{{ slackBusyId === item.id ? '◐' : '✦' }}</span>
-            {{ item.slackThreadUrl ? 'Pedir re-review' : 'Solicitar review' }}
-          </button>
-        </div>
-      </li>
-    </ul>
+
+          <span class="task-row-agent">{{ runsByTask[item.id]?.last.agentId ?? '—' }}</span>
+          <span class="task-row-dur">{{ durationOf(item) }}</span>
+        </li>
+      </ul>
+    </div>
   </section>
 
   <ConfirmDialog
@@ -608,6 +648,11 @@ watch(activeProjectId, (pid) => {
     :status="reposModalItem?.status"
     :running="runBusyId === reposModalItem?.id"
     :run-result="runResult"
+    :slack-enabled="integrations.slack.enabled"
+    :slack-blocked-reason="reposModalItem ? (slackBlockedReason(reposModalItem) ?? null) : null"
+    :slack-busy="slackBusyId === reposModalItem?.id"
+    :slack-thread-url="reposModalItem?.slackThreadUrl ?? null"
+    @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
     @run="onRunClick"
     @close="reposModalOpen = false"
   />
@@ -626,70 +671,6 @@ watch(activeProjectId, (pid) => {
 .btn:hover:not(:disabled) .btn-glyph { color: var(--accent); }
 
 .repos-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); padding: 0.5rem 0; }
-
-.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-.task-card {
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--border-mute);
-  border-radius: var(--radius-sm);
-  padding: 0.45rem 0.7rem;
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  cursor: pointer;
-}
-.task-card:hover { background: var(--panel-hi); border-left-color: var(--info); }
-
-.task-card-main {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  min-width: 0;
-  min-height: var(--row-h);
-}
-/* El número nunca encoge ni se parte: es el ancla de lectura de la fila. */
-.task-number {
-  flex: 0 0 auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
-/* `a:hover` global pinta el fondo con --accent; un número de issue no es un
-   link de texto, así que el fondo se redefine acá (ver DESIGN_SYSTEM.md). */
-.task-number-link:hover,
-.task-number-link:focus-visible {
-  background: transparent;
-  color: var(--info);
-}
-.task-number-glyph { margin-left: 0.15rem; color: var(--fg-dimmer); }
-.task-number-link:hover .task-number-glyph { color: var(--info); }
-
-/* Prosa → Sans. El título envuelve en vez de truncar: esconder su final
-   esconde justo lo que distingue una tarea de otra. */
-.task-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: var(--fs-body-sm);
-  line-height: var(--row-h);
-  color: var(--fg);
-  overflow-wrap: anywhere;
-}
-.task-status-chip {
-  flex: 0 0 auto;
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  padding: 0 0.4rem;
-  border-radius: var(--radius-sm);
-  background: var(--panel-hi);
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
-
 .items-error {
   display: flex;
   flex-direction: column;
@@ -706,57 +687,135 @@ watch(activeProjectId, (pid) => {
 .items-error-fix { margin: 0; color: var(--info); }
 .items-error-glyph { display: inline-block; width: 1.4ch; }
 
-.task-blocked-badge {
+
+/* ─── La fila de una tarea ────────────────────────────────────────────────
+   Dos formas de la MISMA fila, no dos componentes: apilada en mobile
+   (glifo · [título + issue] / línea de estado) y en una línea en desktop
+   (tarea · issue · ejecución · agente · duración). El breakpoint es el que la
+   app ya usa (768px, el del drawer del sidebar). */
+
+.task-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Encabezado de columnas: no existe en mobile, donde la fila se apila. */
+.task-thead { display: none; }
+
+.task-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'glyph title issue'
+    'glyph exec  exec';
+  gap: 0.2rem 0.55rem;
+  align-items: baseline;
+  padding: 0.55rem 0.9rem;
+  background: var(--panel);
+  cursor: pointer;
+}
+/* Zebra: la separación entre filas densas la da la superficie, no un borde
+   más — con hairline Y zebra la lista se lee como una grilla de Excel. */
+.task-row:nth-child(even) { background: var(--panel-alt); }
+.task-row + .task-row { border-top: 1px solid var(--border-mute); }
+.task-row:hover { background: var(--panel-hi); }
+
+.task-row-glyph {
+  grid-area: glyph;
+  display: flex;
+  /* El glifo se alinea con la PRIMERA línea del título, que puede envolver. */
+  align-items: baseline;
+}
+/* El glifo de la columna 1 es la misma línea de estado con el texto oculto:
+   una sola implementación del vocabulario, no un segundo mapa de glifos que
+   pueda divergir. */
+.task-row-glyph-only :deep(.esl-text) { display: none; }
+
+.task-row-title {
+  grid-area: title;
+  min-width: 0;
+  font-size: var(--fs-body);
+  line-height: 1.4;
+  color: var(--fg);
+  /* Envuelve, NUNCA trunca: el final de un título es lo que distingue una
+     fila de otra. */
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.task-row-issue {
+  grid-area: issue;
   flex: 0 0 auto;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  padding: 0 0.4rem;
-  border-radius: var(--radius-sm);
-  background: var(--red-bg);
-  color: var(--danger);
+  color: var(--fg-dimmer);
+  text-decoration: none;
   white-space: nowrap;
 }
-.task-blocked-glyph { margin-right: 0.25rem; }
+/* Sin esto el `a:hover` global lo pinta de teal entero (trampa conocida). */
+.task-row-issue:hover:not(.is-plain) { background: transparent; color: var(--info); }
+.task-row-issue.is-plain { cursor: default; }
 
-/* Los tags ocupan lo que necesitan y la acción queda pegada a la derecha, en la
-   misma fila: pedir review es una acción SOBRE lo que los tags describen (el PR
-   y su CI), no un ítem más de la tarjeta. */
-.task-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-width: 0;
-}
-.task-slack-btn { flex: 0 0 auto; }
-.task-slack-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.task-row-exec { grid-area: exec; }
+/* En mobile el agente y la duración viven dentro de la línea de estado. */
+.task-row-agent,
+.task-row-dur { display: none; }
 
-.task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; }
-.task-blocker-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  min-width: 0;
-  max-width: min(38ch, 100%);
-  padding: 0 0.4rem;
-  border: 1px solid var(--warn);
-  border-radius: var(--radius-sm);
-  background: var(--yellow-bg);
-  color: var(--warn);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  white-space: nowrap;
+@media (min-width: 768px) {
+  .task-thead,
+  .task-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) 7ch 13ch 11ch 7ch;
+    grid-template-areas: none;
+    gap: 0.65rem;
+    align-items: center;
+    padding: 0 0.65rem;
+  }
+  .task-thead {
+    height: calc(var(--row-h) * 1.05);
+    background: var(--panel-hi);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: var(--tracking-hd);
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  .task-th-dur { text-align: right; }
+
+  .task-row {
+    height: calc(var(--row-h) * 1.2);
+  }
+  .task-row-title {
+    font-size: var(--fs-body-sm);
+    /* Acá SÍ trunca: la fila mide una línea, y la alternativa es una tabla que
+       salta de alto entre filas. El título completo sigue en el `title` y en
+       el detalle. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* El glifo ya está en la columna 1: repetirlo en la columna de ejecución
+     sería decir dos veces lo mismo en la misma fila. */
+  .task-row-exec :deep(.esl-glyph),
+  .task-row-exec :deep(.esl-live) { display: none; }
+
+  .task-row-agent,
+  .task-row-dur {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    color: var(--fg-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .task-row-dur { text-align: right; }
 }
-.task-blocker-chip.is-plain { cursor: default; }
-/* Mismo motivo que .task-number-link: sin esto el chip se pinta de teal. */
-.task-blocker-chip:hover:not(.is-plain) {
-  background: var(--yellow-bg);
-  border-color: var(--fg-mute);
-  color: var(--warn);
-}
-.task-blocker-ref { flex: 0 0 auto; font-weight: 600; }
-.task-blocker-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.task-blocker-status { flex: 0 0 auto; color: var(--fg-dim); }
 </style>
