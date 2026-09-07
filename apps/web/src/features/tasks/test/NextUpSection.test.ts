@@ -158,6 +158,27 @@ describe('NextUpSection', () => {
     expect(wrapper.get('.nu-reason').text()).toContain('bloqueos sin consultar')
   })
 
+  // El mismo agujero que el de runs, del otro lado: sin los bloqueos, "ninguna
+  // tarea está bloqueada" es una afirmación sobre datos que no llegaron.
+  it('sin los bloqueos tampoco dice "no hay nada esperando"', async () => {
+    items.push(task('i1'))
+    runSummaries.push(run('i1'))
+    fetchBlockersBatch.mockRejectedValueOnce(new Error('502'))
+    const wrapper = await mountWith()
+    expect(wrapper.get('.nu-degraded').text()).toContain('bloqueos')
+    expect(wrapper.text()).not.toContain('No hay nada esperando')
+  })
+
+  // Un batch que vuelve con menos ids de los que se pidieron es el mismo
+  // problema en su versión silenciosa.
+  it('un batch parcial también se declara', async () => {
+    items.push(task('i1'), task('i2'))
+    runSummaries.push(run('i1'), run('i2'))
+    fetchBlockersBatch.mockResolvedValueOnce({ i1: [] })
+    const wrapper = await mountWith()
+    expect(wrapper.get('.nu-degraded').text()).toContain('algunas tareas')
+  })
+
   it('una recarga que falla no clasifica con los datos de la corrida anterior', async () => {
     items.push(task('i1'))
     runSummaries.push(run('i1', { outcome: 'error' }))
@@ -176,6 +197,9 @@ describe('NextUpSection', () => {
   it('un proyecto sin nada esperando lo dice', async () => {
     items.push(task('i1'))
     runSummaries.push(run('i1'))
+    // Con TODO consultado —runs y bloqueos— el cartel es una afirmación
+    // legítima; es la única condición bajo la que se muestra.
+    blockersBatch.i1 = []
     const wrapper = await mountWith()
     // Terminada y sin PR abierto: no hay nada que decidir sobre ella.
     expect(wrapper.get('.nu-empty').text()).toContain('No hay nada esperando')
