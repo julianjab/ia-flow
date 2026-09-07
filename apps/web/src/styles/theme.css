@@ -66,6 +66,32 @@
   --fs-body-sm: 0.8125rem;
   --fs-micro: 0.6875rem;
   --row-h: 1.375rem;
+  /* Blanco táctil — la otra mitad de `--row-h`.
+     `--row-h` es la GRILLA: el ritmo de una fila de tabla, el `line-height` de
+     un chip, el alto de una celda. Es lo que se mira. Lo que se TOCA mide
+     otra cosa, y cinco controles presionables (`.ec-btn`, `.ff-add`/`.ff-drop`,
+     `.cs-header`, `.select-row`, `.ff-field`) habían tomado ese mismo número
+     como su alto: 25px de blanco en un teléfono, en las siete pantallas de
+     configuración a la vez. Separar los dos números es lo que las arregla de
+     una, sin tocar un color ni un layout.
+     No son tokens "de mobile": 44px es el mínimo en CUALQUIER ancho (R1). */
+  --tap-h: 2.45rem; /* 44px — default de todo control presionable.        */
+  --tap-h-lg: 2.67rem; /* 48px — botón principal, filas de barra de acciones.*/
+  --tap-h-sm: 2.22rem; /* 40px — chip de filtro que navega: van muchos en fila
+                          y el destino es ancho. Un chip que NO navega no es
+                          presionable y se queda en --row-h.                 */
+  /* Piso del texto de input/textarea bajo --bp-shell. En px ABSOLUTOS a
+     propósito: bajo 16px iOS hace zoom al enfocar el campo, y un `rem` se
+     escala con la raíz de 18px — dejaría de ser un piso. */
+  --fs-input: 16px;
+
+  /* Breakpoints — documentación, no uso directo: CSS no acepta `var()` en la
+     condición de un `@media`, así que en la media query va el literal. Están
+     acá para que se vea que son TRES y que un cuarto ancho hace que un
+     formulario cambie de forma donde su pantalla contenedora no cambia. */
+  --bp-shell: 768px; /* el chrome: tab bar, sin sidebar, sheets, táctil.     */
+  --bp-stack: 640px; /* `etiqueta · valor` se apila; la tabla va a dos líneas.*/
+  --bp-split: 1100px; /* aparece la segunda columna (detalle, índice).        */
   /* Alto de la barra de chrome (AppShell). Vive acá y no en el componente
      porque los overlays fijos que deben quedar POR DEBAJO de ella
      (ej. el drawer de ejecuciones) necesitan el mismo número para su
@@ -470,9 +496,11 @@ a:hover {
 }
 
 /* Video-inverse selection helper (used for menu rows). */
+/* Toda fila de menú y de popover: ComboBox, selector de modelo, de evento, de
+   provider. Se toca, así que mide --tap-h y no --row-h (R1). */
 .select-row {
   padding: 0 1ch;
-  height: var(--row-h);
+  min-height: var(--tap-h);
   color: var(--fg-dim);
   cursor: pointer;
   display: flex;
@@ -539,4 +567,26 @@ a:hover {
   outline-offset: -1px;
   background: var(--panel-hi);
   color: var(--fg);
+}
+
+/* ── El piso de 16px en los campos ─────────────────────────────────────────
+   Un input cuyo texto queda bajo 16px dispara el zoom automático de iOS al
+   enfocarlo: la página salta, el layout se descoloca y volver pide un gesto
+   que la app no controla. Es un defecto de plataforma, no de diseño, y la
+   única defensa es el tamaño del texto.
+
+   Va global y no en `form-fields.css` porque alcanza a TODO campo de la app —
+   incluidos los diez archivos que todavía tienen su propia copia del input
+   (ver "Campos — deuda conocida" en DESIGN_SYSTEM.md), que es justamente
+   donde nadie se acordaría de ponerlo.
+
+   Sólo bajo --bp-shell: sobre el breakpoint no hay teclado virtual que
+   dispare el zoom, y 16px en un formulario denso de escritorio se lleva
+   puesta la densidad que ese kit existe para dar. */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: var(--fs-input);
+  }
 }

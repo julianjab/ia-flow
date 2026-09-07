@@ -43,9 +43,13 @@
   flex: 0 0 7rem;
 }
 
+/* Se toca y se escribe: --tap-h, no --row-h (R1). Un campo de 25px era el
+   blanco más chico de las siete pantallas de configuración, y su texto bajo
+   16px hacía que iOS le pegara un zoom a la página al enfocarlo — ver el piso
+   de `--fs-input` en theme.css. */
 .ff-field {
-  height: var(--row-h);
-  padding: 0 0.5ch;
+  height: var(--tap-h);
+  padding: 0 0.75ch;
   border: 1px solid var(--border);
   background: var(--panel-alt);
   color: var(--fg);
@@ -66,9 +70,12 @@
 .ff-mono {
   font-family: var(--font-mono);
 }
+/* Un textarea no es un blanco de un toque: se escribe adentro, y su alto lo
+   decide el contenido. Vuelve a `auto` después de que `.ff-field` lo fijó. */
 .ff-textarea {
   height: auto;
-  padding: 0.3rem 0.5ch;
+  min-height: var(--tap-h);
+  padding: 0.4rem 0.75ch;
   resize: vertical;
   line-height: 1.5;
 }
@@ -122,25 +129,50 @@
   font-family: var(--font-mono);
 }
 
+/* Agregar y quitar un ítem en cada lista de formulario: headers HTTP, env
+   vars, args, condiciones, outcomes, params. Los dos se tocan.
+   El ✕ NO crece a 44px de caja: eso le agregaría 19px de alto a CADA fila de
+   una lista de veinte env vars (R11). Mide 24px visibles y expande su área
+   con un pseudo-elemento — blanco táctil sin costo de layout. */
 .ff-drop,
 .ff-add {
   background: none;
   border: none;
   cursor: pointer;
   font-size: var(--fs-micro);
-  height: var(--row-h);
-  line-height: var(--row-h);
-  padding: 0 0.4ch;
   color: var(--fg-dim);
+}
+.ff-drop {
+  position: relative;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  line-height: 1;
+  padding: 0;
+}
+.ff-drop::before {
+  content: "";
+  position: absolute;
+  /* Vertical: crece hasta --tap-h saliéndose de la caja por arriba y por
+     abajo, que es espacio que la fila ya ocupa con su gap.
+     Horizontal: -8px de cada lado, sin llegar al campo de al lado. */
+  inset: calc((1.35rem - var(--tap-h)) / 2) -8px;
 }
 .ff-drop:hover {
   color: var(--danger);
 }
+/* `+ agregar` es la ÚLTIMA FILA de la lista, a lo ancho, y no un botoncito
+   suelto debajo (R11): así el gesto de agregar está donde termina lo que se
+   está leyendo, y no se mueve de lugar cuando la lista crece. */
 .ff-add {
-  align-self: flex-start;
+  align-self: stretch;
+  width: 100%;
+  height: var(--tap-h);
   border: 1px dashed var(--border);
   padding: 0 1ch;
   border-radius: var(--radius-sm);
+  font-size: var(--fs-body-sm);
+  text-align: left;
 }
 .ff-add:hover {
   border-color: var(--accent);
@@ -165,4 +197,51 @@
   flex-direction: column;
   gap: 0.4rem;
   padding-top: 0.4rem;
+}
+
+/* ── Mobile (R5, R8) ──────────────────────────────────────────────────────
+   Bajo --bp-stack una fila partida en dos campos deja ~90px por campo en un
+   teléfono de 390: se apila. La clave de un par pierde su `12rem` fija por lo
+   mismo — es un cuarto del ancho de la pantalla reservado a una etiqueta. */
+@media (max-width: 640px) {
+  .ff-row-split {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .ff-sub-narrow {
+    flex: 1 1 auto;
+  }
+  /* El par clave/valor se apila y pierde el `=` (T3): dos campos y un signo en
+     una fila de 390px dejan ~120px por campo, y el `=` sólo tenía sentido
+     cuando los dos se leían en la misma línea. El ✕ queda alineado a la
+     CLAVE — es lo que nombra la fila que se está por borrar. */
+  .ff-list-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.15rem 0.35rem;
+    align-items: center;
+  }
+  .ff-list-key {
+    flex: 1 1 auto;
+    grid-column: 1;
+  }
+  .ff-list-row > .ff-drop {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .ff-list-val {
+    grid-column: 1 / -1;
+  }
+  .ff-eq {
+    display: none;
+  }
+  /* Cada par se lee como una unidad: sin el separador, seis campos apilados no
+     dicen dónde termina uno y empieza el siguiente. */
+  .ff-list-row + .ff-list-row {
+    border-top: 1px solid var(--border-mute);
+    padding-top: 0.35rem;
+  }
+  .ff-narrow {
+    max-width: none;
+  }
 }

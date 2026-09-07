@@ -410,7 +410,8 @@ function onKeydown(e: KeyboardEvent) {
   align-items: center;
   gap: 0.25rem;
   padding: 0.2rem 0.35rem;
-  min-height: calc(var(--row-h) + 0.4rem);
+  /* Se toca para abrir el desplegable: --tap-h, no --row-h (R1). */
+  min-height: var(--tap-h);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
@@ -443,6 +444,14 @@ function onKeydown(e: KeyboardEvent) {
   padding: 0 0 0 0.2ch;
   font-size: var(--fs-micro);
   line-height: 1;
+  /* Área táctil sin alto: un ✕ de 44px de CAJA dentro de un chip haría que
+     cada valor elegido midiera 44px de alto (R11). */
+  position: relative;
+}
+.cb-chip__x::before {
+  content: '';
+  position: absolute;
+  inset: -0.55rem -0.35rem;
 }
 .cb-chip__x:hover { color: var(--danger); }
 
@@ -497,10 +506,12 @@ function onKeydown(e: KeyboardEvent) {
    sale con puntos suspensivos. */
 .cb-opt {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5ch;
   padding: 0 0.6rem;
-  line-height: var(--row-h);
+  /* Cada opción es una fila de menú y se toca: --tap-h (R1), igual que
+     `.select-row` de theme.css, que es la misma pieza en los otros popovers. */
+  min-height: var(--tap-h);
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
@@ -543,7 +554,7 @@ function onKeydown(e: KeyboardEvent) {
 @media (max-width: 640px) {
   /* La descripción de una opción envuelve en vez de empujar: en 390px un hint
      largo dejaría el nombre sin lugar. */
-  .cb-opt { flex-wrap: wrap; line-height: 1.5; padding: 0.25rem 0.6rem; }
+  .cb-opt { flex-wrap: wrap; align-items: flex-start; line-height: 1.5; padding: 0.35rem 0.6rem; }
   .cb-opt__hint { margin-left: 0; padding-left: 0; flex-basis: 100%; text-align: left; }
 }
 </style>
