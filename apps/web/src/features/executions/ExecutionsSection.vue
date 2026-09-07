@@ -22,7 +22,8 @@ import {
 } from '@ia-flow/shared';
 import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
-import AgentHealthPanel from './AgentHealthPanel.vue';
+import HealthVerdict from './HealthVerdict.vue';
+import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 
 const props = withDefaults(
@@ -1307,6 +1308,32 @@ onBeforeUnmount(() => {
 // Reload when the active project changes — same pattern as StatusesSection.
 // Health panel → run list. Narrows to exactly the runs behind the number that
 // was clicked: that agent, that failure class.
+/**
+ * Un contador del veredicto prende su filtro.
+ *
+ * "te esperan" son tres outcomes (`error`, `cancelled`, `truncated`), así que
+ * pone los tres tokens de una: el contador cuenta una disposición y el filtro
+ * tiene que dejar exactamente eso. Volver a tocarlo apaga — es un toggle, como
+ * los conteos por outcome que reemplaza.
+ */
+function filterByDisposition(outcomes: string[]): void {
+  const already = outcomes.every((oc) => hasToken('resultado', oc));
+  const rest = filterTokens.value.filter((t) => t.field !== 'resultado');
+  filterTokens.value = already ? rest : [...rest, ...outcomes.map((value) => ({ field: 'resultado', value }))];
+}
+
+/**
+ * El filtro activo dicho corto, para la fila de controles bajo --bp-shell.
+ * Arriba del breakpoint el input está a la vista con sus tokens, así que esto
+ * no se dibuja — sería decir lo mismo dos veces.
+ */
+const mobileFilterSummary = computed<string | null>(() => {
+  const tokens = filterTokens.value;
+  if (!tokens.length) return null;
+  const first = `${tokens[0].field}: ${tokens[0].value}`;
+  return tokens.length === 1 ? first : `${first} +${tokens.length - 1}`;
+});
+
 function onHealthDrill(payload: { agentId: string; failureClass: string }): void {
   agentFilter.value = new Set([payload.agentId]);
   failureClassFilter.value = payload.failureClass;
@@ -1426,16 +1453,13 @@ watch(pendingFilter, () => {
     :editor-path="agentEditorPath"
     @close="closeAgentPage"
     @drill="onPageDrill"
+    @open="openAgentPage"
   />
   <section v-else class="settings-section">
-    <div class="section-header">
-      <div>
-        <h2>Ejecuciones</h2>
-        <p class="section-desc">
-          Historial de agentes ejecutados sobre las tareas de este proyecto.
-          Los filtros de agente, outcome y fechas se aplican en el servidor.
-        </p>
-      </div>
+    <!-- Sin `<h2>Ejecuciones</h2>` ni su descripción (R9, R12): la barra de
+         identidad del shell ya dice el proyecto y la sección, y el párrafo
+         describía lo que la lista muestra abajo. -->
+    <div class="section-header section-header--bare">
       <div class="section-head-actions">
         <button
           type="button"
@@ -1468,9 +1492,13 @@ watch(pendingFilter, () => {
       </div>
     </div>
 
-    <AgentHealthPanel
+    <!-- El resumen es un VEREDICTO: tres contadores por disposición y sólo los
+         agentes fuera de banda (R10). Reemplaza al AgentHealthPanel, cuya tabla
+         de diez columnas se mudó entera a la pantalla del agente. -->
+    <HealthVerdict
       :project-id="isGlobal ? null : activeProjectId"
-      @drill="onHealthDrill"
+      :outcome-counts="outcomeCounts"
+      @filter="filterByDisposition"
       @open="openAgentPage"
     />
 
@@ -1484,35 +1512,26 @@ watch(pendingFilter, () => {
       @cancel="confirmCancelExecution"
     />
 
-    <FilterQueryInput
-      v-model="filterTokens"
-      :fields="filterFields"
-      default-field="tarea"
-      testid="executions-filter"
-      placeholder="Filtrar… un campo (agente, resultado, tarea…) o texto plano busca por título/id"
-    />
+    <ListControlsBar
+      :filter-count="filterTokens.length"
+      :summary="mobileFilterSummary ?? undefined"
+      title="Filtrar ejecuciones"
+      @clear="filterTokens = []"
+    >
+      <template #view>
+        <span class="exec-total">{{ executions.length }} ejecuciones</span>
+      </template>
+
+      <FilterQueryInput
+        v-model="filterTokens"
+        :fields="filterFields"
+        default-field="tarea"
+        testid="executions-filter"
+        placeholder="Filtrar… un campo (agente, resultado, tarea…) o texto plano busca por título/id"
+      />
+    </ListControlsBar>
 
     <div v-if="error" class="items-error">{{ error }}</div>
-
-    <!-- El conteo ES el filtro: clickearlo prende el token `resultado:<x>`, el
-         mismo que se escribe en el input. Un atajo, no un segundo camino. -->
-    <div class="exec-summary" aria-label="Resumen por outcome">
-      <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
-      <button
-        v-for="oc in OUTCOME_ORDER"
-        :key="oc"
-        type="button"
-        class="exec-summary__count"
-        :class="[
-          `exec-summary__count--${oc}`,
-          { 'exec-summary__count--zero': outcomeCounts[oc] === 0 },
-        ]"
-        :aria-pressed="hasToken('resultado', oc)"
-        :title="`Filtrar por resultado:${oc}`"
-        :data-testid="`executions-summary-${oc}`"
-        @click="toggleToken('resultado', oc)"
-      >{{ oc }} <b>{{ outcomeCounts[oc] }}</b></button>
-    </div>
 
     <div class="exec-list-wrapper">
       <div class="exec-list-header" role="row">
