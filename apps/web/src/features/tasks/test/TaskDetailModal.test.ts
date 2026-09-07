@@ -11,6 +11,22 @@ const need = (sel: string) => {
   return found as HTMLElement
 }
 
+function runningRun() {
+  return {
+    id: 'r1',
+    projectId: 'ia-flow',
+    taskId: 'I_1',
+    taskTitle: 'T',
+    agentId: 'implementer',
+    providerId: 'anthropic-api',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    outcome: null,
+    errorMsg: null,
+    stopReason: null,
+  }
+}
+
 function mountModal(props: Record<string, unknown> = {}) {
   return mount(TaskDetailModal, {
     props: {
@@ -43,16 +59,56 @@ describe('TaskDetailModal — correr la tarea', () => {
     expect(need('.run-status').textContent).toBe('sin status')
   })
 
-  it('emite `run` al hacer click', async () => {
+  // El botón vive en la barra de acciones del pie: es LA acción de la
+  // pantalla cuando la tarea no corrió, no un control más del cuerpo.
+  it('sin run, la acción principal del pie es correr', async () => {
     const wrapper = mountModal()
-    need('.run-btn').click()
+    const primary = need('.modal-foot .btn--primary')
+    expect(primary.textContent).toContain('Correr ahora')
+    primary.click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('run')).toHaveLength(1)
   })
 
   it('con un pedido en vuelo el botón queda deshabilitado', () => {
     mountModal({ running: true })
-    expect((need('.run-btn') as HTMLButtonElement).disabled).toBe(true)
+    expect((need('.modal-foot .btn--primary') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  // Cuando algo está corriendo NO hay primary: no hay nada que iniciar, y la
+  // única acción destructiva va última.
+  it('con un run en vuelo ofrece logs y abortar, sin primary', () => {
+    mountModal({ execution: runningRun() })
+    expect(el('.modal-foot .btn--primary')).toBeNull()
+    expect(need('.modal-foot').textContent).toContain('Ver logs en vivo')
+    expect(need('.modal-foot .btn--danger').textContent).toContain('Abortar')
+  })
+
+  it('un fallo ofrece reintentar como acción principal', () => {
+    mountModal({
+      execution: { ...runningRun(), finishedAt: new Date().toISOString(), outcome: 'error' },
+    })
+    expect(need('.modal-foot .btn--primary').textContent).toContain('Reintentar')
+  })
+
+  // Aprobar/mergear desde la app no existe: la acción abre el PR en GitHub en
+  // vez de prometer un botón que no hace nada.
+  it('una tarea terminada con PR abierto ofrece verlo en GitHub', () => {
+    mountModal({
+      execution: { ...runningRun(), finishedAt: new Date().toISOString(), outcome: 'success' },
+      pullRequests: [
+        { number: 152, url: 'https://github.com/o/r/pull/152', state: 'open', isDraft: false },
+      ],
+    })
+    const primary = need('.modal-foot .btn--primary') as HTMLAnchorElement
+    expect(primary.tagName).toBe('A')
+    expect(primary.href).toContain('/pull/152')
+  })
+
+  it('la tarjeta de estado lleva la ranura del estado', () => {
+    mountModal({ execution: runningRun() })
+    expect(need('.state-card').classList.contains('is-running')).toBe(true)
+    expect(need('.state-meta').textContent).toContain('implementer')
   })
 
   it('un dispatch efectivo se explica en el modal', () => {
