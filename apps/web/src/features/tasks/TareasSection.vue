@@ -9,6 +9,7 @@ import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import BucketHeader from '@/components/BucketHeader.vue';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
+import { useIsSplit } from '@/composables/useIsMobile';
 import { useNow } from '@/composables/useNow';
 import {
   cancelTaskRun,
@@ -253,6 +254,47 @@ const QUICK_FILTERS: Array<{ key: TaskDisposition; label: string; glyph: string 
 ];
 
 const quickFilter = ref<TaskDisposition | null>(null);
+
+/** Sobre --bp-split el detalle deja de flotar y se vuelve la segunda columna. */
+const { isSplit } = useIsSplit();
+
+/**
+ * Los props del detalle, en un solo lugar.
+ *
+ * El componente se monta dos veces —columna sobre `--bp-split`, overlay
+ * debajo— y son veinte props: escribirlos dos veces garantiza que en el
+ * próximo cambio uno de los dos quede viejo, y el que quede viejo va a ser el
+ * que menos se mira.
+ */
+const detailProps = computed(() => {
+  const item = reposModalItem.value;
+  return {
+    open: reposModalOpen.value,
+    taskId: item?.id ?? null,
+    projectId: activeProjectId.value ?? null,
+    issueNumber: item?.issueNumber ?? 0,
+    issueTitle: item?.title ?? '',
+    repos: item ? currentReposOf(item) : [],
+    issueUrl: item?.url,
+    branch: item?.branch,
+    branchUrl: item?.branchUrl,
+    pullRequests: item?.pullRequests,
+    devLinks: item?.hasDevLinks,
+    pullRequestsKnown: item?.pullRequestsKnown,
+    status: item?.status,
+    running: runBusyId.value === item?.id,
+    runResult: runResult.value,
+    slackEnabled: integrations.value.slack.enabled,
+    slackBlockedReason: item ? (slackBlockedReason(item) ?? null) : null,
+    slackBusy: slackBusyId.value === item?.id,
+    slackThreadUrl: item?.slackThreadUrl ?? null,
+    execution: item ? (runsByTask.value[item.id]?.last ?? null) : null,
+    attempts: item ? runsByTask.value[item.id]?.attempts : undefined,
+    blocked: item ? (blockersByTask.value[item.id]?.length ?? 0) > 0 : false,
+    runsKnown: runsKnown.value,
+    cancelling: cancelBusyId.value === item?.id,
+  };
+});
 
 const quickCounts = computed<Record<string, number>>(() => {
   const out: Record<string, number> = {};
@@ -825,6 +867,8 @@ watch(activeProjectId, (pid) => {
       <span class="tk-moved-cta">reordenar</span>
     </button>
 
+    <div class="tk-split" :class="{ 'tk-split--open': isSplit && reposModalOpen }">
+    <div class="tk-list">
     <template v-if="filteredItems.length">
     <!-- Sin el agregado la lista NO inventa buckets: cae al orden de la fuente
          y lo dice. Agrupar por una disposición que no se pudo consultar sería
@@ -976,6 +1020,23 @@ watch(activeProjectId, (pid) => {
       </ul>
     </div>
     </template>
+    </div>
+
+    <!-- Sobre --bp-split el detalle es una COLUMNA hermana, no un overlay: la
+         lista queda entera y usable, que es lo que permite recorrer varias
+         tareas seguidas. Debajo del breakpoint sigue siendo el panel lateral
+         de siempre, y bajo --bp-shell la pantalla completa. -->
+    <TaskDetailModal
+      v-if="isSplit"
+      inline
+      v-bind="detailProps"
+      @logs="reposModalItem && openLogs(reposModalItem)"
+      @cancel-run="cancelConfirm = reposModalItem"
+      @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
+      @run="onRunClick"
+      @close="reposModalOpen = false"
+    />
+    </div>
   </section>
 
   <!-- Abortar corta trabajo real: siempre detrás de una confirmación. -->
@@ -999,31 +1060,11 @@ watch(activeProjectId, (pid) => {
     @cancel="slackConfirm = null"
   />
 
+  <!-- Debajo de --bp-split, el overlay de siempre. Mismos props que la
+       columna: `detailProps` existe para que no diverjan. -->
   <TaskDetailModal
-    :open="reposModalOpen"
-    :task-id="reposModalItem?.id ?? null"
-    :project-id="activeProjectId ?? null"
-    :issue-number="reposModalItem?.issueNumber ?? 0"
-    :issue-title="reposModalItem?.title ?? ''"
-    :repos="reposModalItem ? currentReposOf(reposModalItem) : []"
-    :issue-url="reposModalItem?.url"
-    :branch="reposModalItem?.branch"
-    :branch-url="reposModalItem?.branchUrl"
-    :pull-requests="reposModalItem?.pullRequests"
-    :dev-links="reposModalItem?.hasDevLinks"
-    :pull-requests-known="reposModalItem?.pullRequestsKnown"
-    :status="reposModalItem?.status"
-    :running="runBusyId === reposModalItem?.id"
-    :run-result="runResult"
-    :slack-enabled="integrations.slack.enabled"
-    :slack-blocked-reason="reposModalItem ? (slackBlockedReason(reposModalItem) ?? null) : null"
-    :slack-busy="slackBusyId === reposModalItem?.id"
-    :slack-thread-url="reposModalItem?.slackThreadUrl ?? null"
-    :execution="reposModalItem ? (runsByTask[reposModalItem.id]?.last ?? null) : null"
-    :attempts="reposModalItem ? runsByTask[reposModalItem.id]?.attempts : undefined"
-    :blocked="reposModalItem ? (blockersByTask[reposModalItem.id]?.length ?? 0) > 0 : false"
-    :runs-known="runsKnown"
-    :cancelling="cancelBusyId === reposModalItem?.id"
+    v-if="!isSplit"
+    v-bind="detailProps"
     @logs="reposModalItem && openLogs(reposModalItem)"
     @cancel-run="cancelConfirm = reposModalItem"
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
@@ -1072,6 +1113,26 @@ watch(activeProjectId, (pid) => {
 .task-row-reason.is-blocked { color: var(--warn); }
 .task-row-reason.is-moving { color: var(--accent); }
 .task-row-reason.is-closed { color: var(--fg-dimmer); }
+
+/* ── La segunda columna (--bp-split) ──────────────────────────────────────
+   Hasta 1100px la lista ocupa todo y el detalle flota encima. Arriba, se
+   parten: lista a la izquierda y detalle a la derecha, hermanos en la misma
+   grilla.
+
+   La grilla sólo aparece CON el detalle abierto (`--open`): sin él, reservar
+   26rem vacías dejaría la lista angosta para nada. Y la transición es de
+   `grid-template-columns`, así que la lista se acomoda en vez de saltar. */
+.tk-split { display: flex; flex-direction: column; min-width: 0; }
+.tk-list { min-width: 0; }
+
+@media (min-width: 1100px) {
+  .tk-split--open {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 26rem;
+    gap: 1rem;
+    align-items: start;
+  }
+}
 
 /* Los chips de filtro rápido. `--tap-h-sm`: son chips que van en fila y su
    destino es ancho — la medida del chip que NAVEGA, no la del que decora. */
