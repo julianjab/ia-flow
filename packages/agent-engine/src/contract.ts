@@ -14,6 +14,7 @@ import type {
   RepoWorkflow,
   SlackMemberRef,
   SlackReviewMessage,
+  TaskRunSummary,
 } from '@ia-flow/shared'
 
 export interface IBroadcast {
@@ -38,6 +39,18 @@ export interface IExecutionLogRepository {
   /** Distinct non-null `source` values ever recorded — powers the
    *  "container" filter chip row in the Ejecuciones UI. */
   listDistinctSources(): string[]
+  /**
+   * El último run de cada tarea del proyecto, con su conteo de intentos.
+   *
+   * Una fila por `task_id`, no una por run: es lo que permite pintar el estado
+   * de ejecución de un listado entero sin una request por tarea. Sólo runs de
+   * agente — una acción de regla no es un intento.
+   *
+   * Las tareas SIN ningún run no aparecen: su ausencia ES el dato
+   * (`○ sin ejecutar`), y devolver una fila vacía por cada issue del board
+   * sería pagar por decir "no hay".
+   */
+  listLatestByTask(projectId: string): TaskRunSummary[]
   /**
    * La última salida estructurada (`structuredOutput`) de cada agente
    * distinto que corrió sobre esta task — recortada a una fila por

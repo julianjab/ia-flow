@@ -1,4 +1,4 @@
-import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
+import type { ExecutionLog, ExecutionLogFilters, TaskRunSummary } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
 import { createLogger } from '../../logger.js'
 
@@ -133,6 +133,11 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
   }
 
   listDistinctSources(): string[] {
+    return []
+  }
+
+  /** Write-only mirror: no lee. Vacío, igual que `listDistinctSources`. */
+  listLatestByTask(): TaskRunSummary[] {
     return []
   }
 

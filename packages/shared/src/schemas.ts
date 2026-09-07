@@ -1491,6 +1491,26 @@ export const ExecutionLogFiltersSchema = z.object({
 
 export const ExecutionLogArraySchema = z.array(ExecutionLogSchema)
 
+/**
+ * El último run de UNA tarea, más cuántas veces se intentó
+ * (GET /api/executions/latest-by-task?projectId=…).
+ *
+ * Existe para poder pintar el estado de ejecución de un LISTADO. `/api/executions`
+ * filtra por un `taskId`, así que 40 filas eran 40 requests — y el estado que
+ * más importa (`○ sin ejecutar`: cero filas para esa tarea) es justamente el
+ * que no se puede afirmar sin haber preguntado por todas.
+ */
+export const TaskRunSummarySchema = z.object({
+  taskId: z.string(),
+  /** Runs de AGENTE de esta tarea. Las acciones de una regla (notificar,
+   *  script) no son intentos: la fila diría "2 intentos" sobre una tarea que
+   *  corrió una sola vez. */
+  attempts: z.number().int().nonnegative(),
+  last: ExecutionLogSchema,
+})
+export type TaskRunSummary = z.infer<typeof TaskRunSummarySchema>
+export const TaskRunSummaryArraySchema = z.array(TaskRunSummarySchema)
+
 // ─── Execution stats (GET /api/executions/stats) ──────────────────────────
 // Aggregate health per agent over a time window. Computed in SQL rather than
 // derived in the browser from a page of rows: the interesting windows (a

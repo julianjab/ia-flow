@@ -1,4 +1,4 @@
-import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
+import type { ExecutionLog, ExecutionLogFilters, TaskRunSummary } from '@ia-flow/shared'
 import type { IBroadcast } from '../../domain/ports/IBroadcast.js'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
 
@@ -50,6 +50,10 @@ export class BroadcastingExecutionLogRepository implements IExecutionLogReposito
 
   listDistinctSources(): string[] {
     return this.inner.listDistinctSources()
+  }
+
+  listLatestByTask(projectId: string): TaskRunSummary[] {
+    return this.inner.listLatestByTask(projectId)
   }
 
   listLastOutputsByAgent(

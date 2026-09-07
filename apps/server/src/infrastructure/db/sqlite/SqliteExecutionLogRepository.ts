@@ -6,6 +6,7 @@ import type {
   ExecutionLogFilters,
   ExecutionStats,
   ExecutionStatsFilters,
+  TaskRunSummary,
 } from '@ia-flow/shared'
 import { estimateCostUsd } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../../domain/ports/IExecutionLogRepository.js'
@@ -424,6 +425,48 @@ export class SqliteExecutionLogRepository
       .query('SELECT DISTINCT source FROM execution_logs WHERE source IS NOT NULL ORDER BY source')
       .all() as Array<{ source: string }>
     return rows.map((r) => r.source)
+  }
+
+  listLatestByTask(projectId: string): TaskRunSummary[] {
+    // Una sola query para las dos preguntas: cuál fue el último run de cada
+    // tarea, y cuántos hubo. `ORDER BY started_at DESC` + quedarse con la
+    // primera aparición de cada task_id en JS —el mismo patrón que
+    // `listLastOutputsByAgent`— en vez de una window function: SQLite las
+    // soporta, pero acá el volumen es "los runs de un proyecto" y el dedupe en
+    // memoria evita una segunda forma de leer la tabla en este archivo.
+    //
+    // `kind = 'agent'`: una acción de regla (notificar, script) no es un
+    // intento, y contarla diría "2 intentos" sobre una tarea que corrió una
+    // sola vez.
+    //
+    // Índice: `idx_execution_logs_project_id` acota el scan al proyecto y
+    // `idx_execution_logs_task_started` sirve el orden.
+    const rows = this.db
+      .query(
+        `SELECT id, project_id, task_id, task_title, agent_id, provider_id, started_at,
+                finished_at, outcome, error_msg, stop_reason, session_kind, session_id,
+                source, cancel_requested_at, duration_ms, tokens_in, tokens_out,
+                cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors,
+                failure_class, run_id, agent_prompt_hash, initial_status, exits,
+                finalized_by_tool, assignees, kind, rule_id, event_id, event_type, position,
+                parent_id, model, system_prompt_hash, tool_breakdown, resumed_from_run_id,
+                trace_id
+           FROM execution_logs
+          WHERE project_id = ? AND kind = 'agent'
+          ORDER BY started_at DESC`,
+      )
+      .all(projectId) as Record<string, unknown>[]
+
+    const byTask = new Map<string, TaskRunSummary>()
+    for (const row of rows) {
+      const taskId = row.task_id as string
+      const existing = byTask.get(taskId)
+      // La primera aparición es la más reciente (el ORDER BY); las siguientes
+      // sólo suman al conteo de intentos.
+      if (existing) existing.attempts += 1
+      else byTask.set(taskId, { taskId, attempts: 1, last: rowToLog(row) })
+    }
+    return [...byTask.values()]
   }
 
   listLastOutputsByAgent(

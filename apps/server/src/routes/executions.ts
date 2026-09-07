@@ -99,6 +99,17 @@ export function createExecutionsRouter() {
     return c.json({ executions })
   })
 
+  // GET /api/executions/latest-by-task?projectId=…
+  // El último run de cada tarea del proyecto, con su conteo de intentos.
+  //
+  // Va ANTES de `/:id` a propósito: Hono matchea en orden de registro y
+  // `latest-by-task` entraría por el param como si fuera un id de ejecución.
+  app.get('/latest-by-task', (c) => {
+    const projectId = c.req.query('projectId')
+    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
+    return c.json({ summaries: executionLogRepo.listLatestByTask(projectId) })
+  })
+
   // Live board / topbar chip use this to render "N corriendo". Returns just
   // the rows where finished_at IS NULL — cheap enough to hit on every WS
   // reconnect without pagination.

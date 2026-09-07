@@ -1,4 +1,4 @@
-import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
+import type { ExecutionLog, ExecutionLogFilters, TaskRunSummary } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
 
 // Stamps every inserted row with this process's IA_FLOW_INSTANCE_ID before
@@ -44,6 +44,10 @@ export class SourceTaggingExecutionLogRepository implements IExecutionLogReposit
 
   listDistinctSources(): string[] {
     return this.inner.listDistinctSources()
+  }
+
+  listLatestByTask(projectId: string): TaskRunSummary[] {
+    return this.inner.listLatestByTask(projectId)
   }
 
   listLastOutputsByAgent(
