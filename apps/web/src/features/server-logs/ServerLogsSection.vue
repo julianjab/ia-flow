@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import FollowTail from '@/ui/FollowTail.vue';
+import LogLine from '@/ui/LogLine.vue';
+import { useIsMobile } from '@/composables/useIsMobile';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
 import { type FilterFieldDef, type FilterToken, isDateValue } from '@/ui/filter-query';
@@ -530,6 +533,18 @@ const searchInput = ref(initialSearch);
 const searchApplied = ref(initialSearch);
 
 const entries = ref<ServerLogEntry[]>([]);
+
+/**
+ * Bajo --bp-shell la fila deja de ser una grilla de columnas configurables y
+ * pasa a ser UNA LÍNEA (A2).
+ *
+ * Las columnas son una afordancia de escritorio: se eligen, se comparan entre
+ * filas, y para eso hace falta ancho. En 390px la misma grilla obliga a scroll
+ * horizontal (R2) o a comprimir el mensaje —que es el dato— hasta que no dice
+ * nada. La línea se trunca y se abre; el resto vive en el detalle, que ya
+ * existe y es el mismo.
+ */
+const { isMobile } = useIsMobile();
 const total = ref(0);
 const offset = ref(0);
 const loading = ref(false);
@@ -1208,7 +1223,12 @@ onMounted(() => {
       <p v-else-if="entries.length === 0 && loading" class="log-empty">
         Cargando…
       </p>
-      <ul v-else class="log-list" data-kbd-list="server-logs">
+      <!-- El stream tiene scroll PROPIO, y no es cosmético: sin él, cada entrada
+           nueva arriba empuja hacia abajo lo que estás leyendo y con el socket
+           activo el renglón se va de la pantalla mientras lo leés.
+           `FollowTail` conserva la posición y ofrece `↑ N nuevos`. -->
+      <FollowTail v-else :count="entries.length" class="log-follow">
+      <ul class="log-list" data-kbd-list="server-logs">
         <li
           v-for="(entry, index) in entries"
           :key="entryKey(entry, index)"
@@ -1220,7 +1240,27 @@ onMounted(() => {
           ]"
           :style="{ minWidth: rowMinWidth }"
         >
+          <!-- Bajo --bp-shell, una línea: hora · nivel · origen · mensaje
+               truncado. Mismo detalle al abrirla. -->
           <button
+            v-if="isMobile"
+            type="button"
+            class="log-row log-row--line"
+            data-kbd-item
+            :aria-expanded="expandedId === entryKey(entry, index)"
+            @click="toggleRow(entryKey(entry, index))"
+          >
+            <LogLine
+              :time="formatTimeCompact(entry.time)"
+              :level="entry.level"
+              :origin="entry.module ?? undefined"
+              :message="entry.msg"
+              :active="expandedId === entryKey(entry, index)"
+            />
+          </button>
+
+          <button
+            v-else
             type="button"
             class="log-row"
             :style="{ gridTemplateColumns, minWidth: rowMinWidth }"
@@ -1305,6 +1345,7 @@ onMounted(() => {
         </div>
         </li>
       </ul>
+      </FollowTail>
     </div>
 
     <div v-if="entries.length < total" class="load-more">
@@ -1533,6 +1574,26 @@ onMounted(() => {
   border-top: none;
   border-radius: 0 0 6px 6px;
   margin: 0;
+}
+
+/* El stream necesita alto propio para que `FollowTail` tenga qué scrollear:
+   con la página como contenedor de scroll, la corrección de posición no tiene
+   dónde aplicarse. El alto es lo que queda de viewport bajo el chrome y los
+   filtros — no un número fijo, que envejece con cada fila que se agrega
+   arriba. */
+.log-follow { max-height: calc(100vh - 18rem); min-height: 12rem; }
+
+/* La fila de una línea: el `<button>` sólo aporta el blanco de click; el
+   contenido lo dibuja `LogLine`, que es la misma pieza para los cuatro
+   streams. */
+.log-row--line {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
 }
 
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
