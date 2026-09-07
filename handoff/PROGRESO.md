@@ -48,9 +48,7 @@ provider quedan de sólo lectura **sin que nada lo diga**. Pedido al DS.
 > `TaskDetailModal`. Los cuatro perdieron su copia v3 de la caja y de los
 > campos.
 
-### P4 · `ComboBox` a bottom sheet (T11 / R6)
-Tiene los blancos táctiles pero sigue siendo un popover anclado: con el teclado
-virtual arriba se va de la pantalla.
+> ✅ **P4 · `ComboBox` a bottom sheet** — hecho (T11, R6).
 
 ### P5 · Etapa 02 — el kit de campo
 Nueve forms con prefijo propio (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`,

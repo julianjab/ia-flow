@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import BottomSheet from '@/ui/BottomSheet.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { computed, nextTick, ref, watch } from 'vue'
 
 // El campo de selección de la app: uno solo para las tres formas que había
@@ -97,6 +99,21 @@ const touched = ref(false)
 const open = ref(false)
 const activeIndex = ref(-1)
 const inputRef = ref<HTMLInputElement | null>(null)
+
+/**
+ * Bajo `--bp-shell` el desplegable es un bottom sheet, no un popover (T11, R6).
+ *
+ * Un popover anclado a un input queda fuera de la pantalla en cuanto sube el
+ * teclado virtual: el campo está a media altura, el teclado se come el 45% de
+ * abajo, y la lista se dibuja justamente ahí. No es que se vea mal — es que no
+ * se ve. Y con `position: absolute` dentro de un formulario que scrollea, la
+ * lista se va con el scroll mientras el campo queda fijo.
+ *
+ * El sheet además da lugar para lo que el popover no tenía: la búsqueda arriba
+ * (donde el pulgar no la tapa) y las elegidas al pie, sobre el botón de cerrar.
+ */
+const { isMobile } = useIsMobile()
+const sheetInputRef = ref<HTMLInputElement | null>(null)
 
 /** Los valores elegidos, siempre como array — el modo simple es el de un solo
  *  elemento, no un camino aparte. */
@@ -204,6 +221,9 @@ function remove(value: string) {
  *  server y sin esto el desplegable arrancaría vacío hasta que alguien tipee
  *  algo — justo cuando no sabe qué hay para tipear. */
 function onFocus() {
+  // En mobile el que abre es `focusInput` (el tap en la caja), y el input de
+  // la caja no recibe foco: lo recibe el del sheet.
+  if (isMobile.value) return
   open.value = true
   // Se emite el TEXTO, no `search`: el que provee las opciones quiere saber qué
   // dice el campo. `touched` es asunto interno —de qué filtrar acá— y apagarlo
@@ -254,8 +274,26 @@ function onBlur() {
 async function focusInput() {
   if (props.disabled) return
   open.value = true
+  emit('search', query.value.trim())
+  touched.value = false
   await nextTick()
-  inputRef.value?.focus()
+  // El foco va al input del SHEET, no al de la caja: enfocar el de abajo
+  // levanta el teclado sobre el sheet que se está por abrir y lo empuja fuera
+  // de la pantalla — exactamente el problema que el sheet viene a resolver.
+  if (isMobile.value) sheetInputRef.value?.focus()
+  else inputRef.value?.focus()
+}
+
+/**
+ * Cerrar el sheet.
+ *
+ * Reusa `onBlur`, que es donde vive la regla de qué pasa con lo escrito sin
+ * confirmar (un match exacto se commitea, un valor libre se acepta si el campo
+ * lo permite). Duplicarla acá daría dos comportamientos para el mismo gesto.
+ */
+function closeSheet() {
+  onBlur()
+  open.value = false
 }
 
 /** Todo lo elegible ahora, en orden: las opciones y —al final— el valor libre.
@@ -359,9 +397,10 @@ function onKeydown(e: KeyboardEvent) {
       </template>
     </div>
 
-    <!-- `mousedown.prevent` y no `click`: el blur del input dispara antes que
+    <!-- Sobre --bp-shell, el popover anclado de siempre.
+         `mousedown.prevent` y no `click`: el blur del input dispara antes que
          el click y cerraría la lista sin que la elección llegue nunca. -->
-    <ul v-if="open && !disabled" class="cb-list" @mousedown.prevent>
+    <ul v-if="open && !disabled && !isMobile" class="cb-list" @mousedown.prevent>
       <li v-if="loading" class="cb-note">Buscando…</li>
       <li v-else-if="error" class="cb-note cb-note--error">✕ {{ error }}</li>
 
@@ -397,6 +436,76 @@ function onKeydown(e: KeyboardEvent) {
         {{ emptyText }}
       </li>
     </ul>
+
+    <!-- Bajo --bp-shell, el mismo contenido en un bottom sheet (T11, R6). La
+         búsqueda va ARRIBA —donde el pulgar no la tapa y el teclado no la
+         empuja— y las elegidas al pie, sobre el botón de cerrar: es lo que
+         permite ver qué llevás elegido sin cerrar para mirar. -->
+    <BottomSheet
+      v-if="isMobile"
+      :open="open && !disabled"
+      :title="placeholder || 'Elegir'"
+      @close="closeSheet"
+    >
+      <div class="cb-sheet-search">
+        <input
+          ref="sheetInputRef"
+          v-model="query"
+          class="cb-sheet-input"
+          :placeholder="placeholder"
+          autocomplete="off"
+          @keydown="onKeydown"
+        />
+      </div>
+
+      <!-- La MISMA lista que el popover: mismas clases, mismos handlers. Lo
+           que cambia es el contenedor, no el contenido — dos vocabularios de
+           opción para el mismo control serían dos cosas que mantener. -->
+      <ul class="cb-sheet-list">
+        <li v-if="loading" class="cb-note">Buscando…</li>
+        <li v-else-if="error" class="cb-note cb-note--error">✕ {{ error }}</li>
+
+        <li
+          v-for="(o, i) in filtered"
+          :key="o.value"
+          :class="['cb-opt', { 'cb-opt--active': i === activeIndex }]"
+          @click="commit(o.value)"
+        >
+          <span v-if="o.glyph" class="cb-opt__glyph">{{ o.glyph }}</span>
+          <span class="cb-opt__label">{{ o.label ?? o.value }}</span>
+          <span v-if="o.hint" class="cb-opt__hint">{{ o.hint }}</span>
+        </li>
+
+        <li
+          v-if="customValue"
+          :class="['cb-opt', 'cb-opt--custom', { 'cb-opt--active': activeIndex === filtered.length }]"
+          @click="commit(customValue)"
+        >
+          <span class="cb-opt__glyph">+</span>
+          <span class="cb-opt__label">usar “{{ customValue }}”</span>
+          <span class="cb-opt__hint">valor propio</span>
+        </li>
+
+        <li v-if="!loading && !error && !filtered.length" class="cb-note">
+          {{ emptyText }}
+        </li>
+      </ul>
+
+      <template v-if="multiple && selected.length" #footer>
+        <div class="cb-sheet-chips">
+          <span v-for="v in selected" :key="v" class="cb-chip">
+            <span v-if="glyphOf(v)" class="cb-chip__glyph">{{ glyphOf(v) }}</span>
+            <span class="cb-chip__text">{{ labelOf(v) }}</span>
+            <button
+              type="button"
+              class="cb-chip__x"
+              :aria-label="`Quitar ${labelOf(v)}`"
+              @click="remove(v)"
+            >✕</button>
+          </span>
+        </div>
+      </template>
+    </BottomSheet>
   </div>
 </template>
 
@@ -550,6 +659,33 @@ function onKeydown(e: KeyboardEvent) {
   font-size: var(--fs-micro);
 }
 .cb-note--error { color: var(--danger); }
+
+/* El sheet: la búsqueda arriba, la lista scrolleando, las elegidas al pie. */
+.cb-sheet-search { padding: 0 1rem 0.5rem; }
+.cb-sheet-input {
+  width: 100%;
+  height: var(--tap-h);
+  box-sizing: border-box;
+  padding: 0 0.75ch;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  /* --fs-input lo pone la regla global de theme.css bajo --bp-shell: es lo
+     único que evita el zoom de iOS al enfocar. */
+}
+.cb-sheet-list { list-style: none; margin: 0; padding: 0; }
+.cb-sheet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  width: 100%;
+  min-height: 0;
+}
+/* El pie del sheet estira sus hijos a --tap-h-lg (es la fila de la acción
+   principal); acá adentro son chips, no botones. */
+.cb-sheet-chips .cb-chip { flex: 0 0 auto; }
 
 @media (max-width: 640px) {
   /* La descripción de una opción envuelve en vez de empujar: en 390px un hint
