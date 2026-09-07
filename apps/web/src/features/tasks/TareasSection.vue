@@ -6,6 +6,7 @@ import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
+import ListControlsBar from '@/components/ListControlsBar.vue';
 import { useNow } from '@/composables/useNow';
 import {
   cancelTaskRun,
@@ -39,8 +40,10 @@ import { useToastStore } from '@/stores/toast';
 import { useRoute, useRouter } from 'vue-router';
 import TaskFiltersBar from '@/features/tasks/TaskFiltersBar.vue';
 import {
+  countActiveTaskFilters,
   EMPTY_TASK_FILTERS,
   filterTasks,
+  taskFilterSummary,
   queryHasTaskFilters,
   taskFiltersFromQuery,
   taskFiltersFromSearch,
@@ -170,6 +173,12 @@ const rowsWithBlocked = computed(() =>
   })),
 );
 const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.value));
+
+/** Lo que la barra de controles dibuja sin abrir nada: cuántos filtros hay y
+ *  cuál es el que manda. Ver `taskFilters.ts` — la lógica es pura y se testea
+ *  sin montar la sección. */
+const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
+const filterSummary = computed(() => taskFilterSummary(filters.value));
 
 // Un status seleccionado que el provider ya no lista sigue dibujándose: sin
 // esto el chip desaparece y el operador no tiene cómo apagar el filtro que
@@ -574,45 +583,51 @@ watch(activeProjectId, (pid) => {
 </script>
 
 <template>
-  <section class="settings-section">
-    <div class="section-header">
-      <div class="section-head-text">
-        <h2>Tareas del proyecto</h2>
-        <p class="section-desc">
-          Items del provider de este proyecto. Haz click en una tarea para editar sus
-          <strong>repos</strong>.
-        </p>
-      </div>
-      <div class="section-head-actions">
+  <section class="settings-section settings-section--list">
+    <!-- El `<h2>Tareas del proyecto</h2>` y su descripción se borraron (R9,
+         R12): la barra de identidad del shell ya dice el proyecto y la sección,
+         y el párrafo describía lo que la lista muestra abajo. Lo único del
+         header que informaba —el conteo y Actualizar— entra en la fila de
+         controles, que ya está ahí. -->
+    <ListControlsBar
+      :filter-count="activeFilterCount"
+      :summary="filterSummary ?? undefined"
+      title="Filtrar tareas"
+      @clear="filters = { ...EMPTY_TASK_FILTERS }"
+    >
+      <template #view>
+        <!-- Board es la misma lista agrupada por status: su entrada vive acá,
+             no como un destino más de la navegación. -->
+        <ListBoardToggle
+          :project-id="activeProjectId ?? null"
+          view="lista"
+          :board-available="statusOptions.length > 0"
+        />
         <span v-if="projectItems.length" class="task-count" data-testid="task-count">
           {{ filteredItems.length }} de {{ projectItems.length }} tareas
         </span>
-        <button type="button" class="btn" :disabled="itemsLoading" @click="loadProjectItems(true)">
-          <span class="btn-glyph">{{ itemsLoading ? '◐' : '↺' }}</span>
-          {{ itemsLoading ? 'Cargando…' : 'Actualizar' }}
-        </button>
-      </div>
-    </div>
+        <button
+          type="button"
+          class="lcb-refresh"
+          :disabled="itemsLoading"
+          :aria-label="itemsLoading ? 'Cargando' : 'Actualizar'"
+          :title="itemsLoading ? 'Cargando…' : 'Actualizar'"
+          @click="loadProjectItems(true)"
+        >{{ itemsLoading ? '◐' : '↺' }}</button>
+      </template>
 
-    <!-- Board es la misma lista agrupada por status: su entrada vive acá, no
-         como un destino más de la navegación. -->
-    <ListBoardToggle
-      :project-id="activeProjectId ?? null"
-      view="lista"
-      :board-available="statusOptions.length > 0"
-    />
+      <TaskFiltersBar
+        v-model="filters"
+        :statuses="statusChips"
+        :repos="repoChips"
+        :assignees="assigneeChips"
+      />
+    </ListControlsBar>
 
     <SlackReviewSettings
       :project="projectsStore.activeProject"
       :saving="slackSettingsSaving"
       @save="saveSlackSettings"
-    />
-
-    <TaskFiltersBar
-      v-model="filters"
-      :statuses="statusChips"
-      :repos="repoChips"
-      :assignees="assigneeChips"
     />
 
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
@@ -753,6 +768,25 @@ watch(activeProjectId, (pid) => {
 </template>
 
 <style scoped>
+/* El conteo y Actualizar viven en la fila de controles desde que el header de
+   sección se borró: son lo único que ese header informaba. */
+.lcb-refresh {
+  flex: 0 0 auto;
+  width: var(--tap-h);
+  height: var(--tap-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.lcb-refresh:hover:not(:disabled) { color: var(--accent); }
+.lcb-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* El contador va pegado a Actualizar porque responde a la misma pregunta que
    ese botón: qué estoy viendo, y de cuánto. */
 .task-count {

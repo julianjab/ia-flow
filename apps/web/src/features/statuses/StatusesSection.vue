@@ -3,6 +3,7 @@ import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import type { StatusConfig } from '@ia-flow/shared';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
+import ListControlsBar from '@/components/ListControlsBar.vue';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
@@ -259,14 +260,21 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </script>
 
 <template>
-  <section class="settings-section">
-    <h2>Statuses</h2>
+  <section class="settings-section settings-section--list">
+    <!-- Sin `<h2>Statuses</h2>`: la barra de identidad del shell ya dice en qué
+         sección estás (R9). La descripción SÍ queda — no repite identidad,
+         apunta a otra pantalla, que es información que no está en ningún lado
+         más. El board no filtra, así que la barra sólo trae la vista. -->
+    <ListControlsBar>
+      <template #view>
+        <ListBoardToggle :project-id="projectsStore.activeProjectId" view="board" />
+      </template>
+    </ListControlsBar>
+
     <p class="section-desc">
       Las etapas del proyecto, tal como las devuelve la fuente. Acá se les da nombre y orden
       para mostrarlas; <b>qué corre en cada una lo deciden las reglas</b>, en Pipeline.
     </p>
-
-    <ListBoardToggle :project-id="projectsStore.activeProjectId" view="board" />
 
     <div v-if="!allStatuses.length" class="repos-empty">
       No hay statuses aún. Crea una tarea primero.
