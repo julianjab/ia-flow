@@ -8,6 +8,7 @@ import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import BucketHeader from '@/components/BucketHeader.vue';
+import KbdBar from '@/components/KbdBar.vue';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsSplit } from '@/composables/useIsMobile';
 import { useNow } from '@/composables/useNow';
@@ -1018,6 +1019,10 @@ watch(activeProjectId, (pid) => {
           <span class="task-row-dur">{{ durationOf(item) }}</span>
         </li>
       </ul>
+
+      <!-- Los atajos, al pie de la lista que gobiernan. Sólo los que existen.
+           Sin link de escape: ya estás en el listado completo. -->
+      <KbdBar />
     </div>
     </template>
     </div>

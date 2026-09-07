@@ -7,6 +7,7 @@ import {
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import BucketHeader from '@/components/BucketHeader.vue';
+import KbdBar from '@/components/KbdBar.vue';
 import FinishedTodayPanel from '@/components/FinishedTodayPanel.vue';
 import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
@@ -296,9 +297,9 @@ function openTasks() {
         </ul>
       </div>
 
-      <button type="button" class="btn btn--ghost nu-all" @click="openTasks">
-        ver las {{ items.length }} tareas →
-      </button>
+      <!-- El escape de la pantalla vive en la barra de atajos, no suelto: es
+           el mismo lugar donde se dice cómo moverse. -->
+      <KbdBar :action="{ label: `ver las ${items.length} tareas` }" @action="openTasks" />
     </div>
 
     <!-- La columna derecha: la cola y lo que corre, en la misma vista (3b).

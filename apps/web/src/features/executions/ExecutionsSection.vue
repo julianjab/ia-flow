@@ -25,6 +25,7 @@ import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 import { formatRelative } from './relativeTime';
 import BucketHeader from '@/components/BucketHeader.vue';
+import KbdBar from '@/components/KbdBar.vue';
 import HealthVerdict from './HealthVerdict.vue';
 import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
@@ -1897,6 +1898,8 @@ watch(pendingFilter, () => {
         </li>
       </template>
       </ul>
+
+      <KbdBar />
     </div>
 
     <div v-if="executions.length === limit" class="load-more">
