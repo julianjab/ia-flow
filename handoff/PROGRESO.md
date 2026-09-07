@@ -28,79 +28,65 @@ Todos ✅. Detalle en los commits; lo que quedó a medias está abajo.
 
 ---
 
-## Pendiente, en orden de ejecución
+## Pendiente
 
-> ✅ **P1 · El orden nuevo en las cuatro vistas** — hecho. `useDispositionOrder`
-> (el orden congelado + el agrupado) lo comparten Qué sigue, Tareas y
-> Ejecuciones. Board no agrupa por disposición a propósito: sus columnas SON
-> los statuses, y el orden por disposición vive DENTRO de cada una — queda para
-> P7, que es cuando se rediseña el board.
+Todo lo que se podía construir con los datos que hay, está. Lo que queda está
+bloqueado por algo concreto, no por falta de tiempo.
 
-### P2 · Reordenar táctil — bloqueante en mobile, BLOQUEADO en diseño
-Consecuencia de borrar los ↑/↓: el drag nativo de HTML5 no dispara en táctil, y
-bajo `--bp-shell` Pipeline, las acciones de una regla y los candidatos de
-provider quedan de sólo lectura **sin que nada lo diga**.
+### Bloqueado en DISEÑO
 
-No es implementable sin una decisión de diseño: hace falta el GESTO
-(long-press + mover, o un modo "reordenar" explícito), no un ícono. Pedido en la
-tabla del `DESIGN_SYSTEM.md`.
+**Reordenar táctil.** Consecuencia de borrar los `↑`/`↓`: el drag nativo de
+HTML5 no dispara en táctil, así que bajo `--bp-shell` Pipeline, las acciones de
+una regla y los candidatos de provider quedan de **sólo lectura sin que nada lo
+diga**. Falta decidir el GESTO (long-press + mover, o un modo "reordenar"
+explícito), no escribir código.
 
-> ✅ **P3 · `FullScreen` y los modales** — hecho. `AgentEditorModal` y
-> `RuleEditorModal` ya no eran overlays fijos (reemplazan la lista dentro del
-> `<main>`), así que los que migraron son los cuatro que sí lo eran:
-> `RepoConfigModal`, `StatusConfigModal`, `ProjectCreateModal` y
-> `TaskDetailModal`. Los cuatro perdieron su copia v3 de la caja y de los
-> campos.
+### Bloqueado en SERVER
 
-> ✅ **P4 · `ComboBox` a bottom sheet** — hecho (T11, R6).
+**`te esperan` e `ignoradas` en el dashboard**, y **la meta por proyecto del
+switcher** (`42 tareas · 2 corriendo · 3 fallos`, frame 4c). Las dos necesitan
+la disposición de cada tarea de CADA proyecto: hoy es una request por proyecto,
+el mismo fan-out que `GET /api/tasks/dispositions` vino a borrar dentro de uno.
+**Falta:** ese endpoint sin `projectId`, o un `GET /api/dispositions/summary`
+con los cuatro conteos por proyecto. Un endpoint destraba las dos pantallas.
 
-> ✅ **P5 · El kit de campo** — hecho. Se fueron los seis prefijos
-> (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`, `.pc-`, `.jpf-`) y las dos copias del
-> textarea de JSON, que ahora son `ui/JsonConfigField.vue`.
+**El resumen en prosa de Qué sigue** ("3 tareas en vuelo y ninguna trabada;
+#1240 falló dos veces en el mismo paso de tests"). Redactarlo en el cliente sería
+escribir una conclusión que nadie calculó.
 
-### P6 · Etapa 06 — `DataRow`, `LogLine`, `FollowTail`
+### Bloqueado en DATOS
 
+**El timeline de un run** (`Leyó el issue · Creó la rama · Editó 3 archivos ·
+Corrió los tests`). `execution_logs` guarda **una fila por run, no pasos**. Está
+en la sección 7 del README como "no existe".
 
-🟡 **`LogLine` y `FollowTail` existen y están testeados; NO están cableados**, y
-la razón es concreta: hoy el que scrollea es la PÁGINA, no la lista. `FollowTail`
-corrige el `scrollTop` de su propio contenedor, así que para que sirva la lista
-necesita alto propio y scroll propio — que es rediseñar la pantalla del stream
-(A2), o sea P7. Cablearlo antes daría un componente montado que no hace nada,
-que es peor que no tenerlo: parece resuelto.
+### Se puede hacer, sin bloqueo
 
-Lo mismo con `LogLine`: la fila actual de `ServerLogsSection` es una grilla de
-columnas configurables con detalle desplegable. Reemplazarla por `LogLine`
-perdería la configuración de columnas — `LogLine` es el render de UNA LÍNEA para
-mobile (A2: "una línea de log no se parte en dos: se trunca y se abre"), y
-convive con la grilla de escritorio.
-
-⬜ **`DataRow` no está.** Reemplaza cada tabla escrita a mano (tareas, board,
-salud, providers, catálogo MCP).
-
-### P7 · Etapa 07 — pantalla por pantalla
-
-🟡 **Dashboard** — los contadores se reordenaron a sus ranuras (`fallaron hoy`
-primero y en `--danger`; `terminaron hoy` atenuado, porque un contador de lo que
-ya terminó no compite por atención) y el número baja a 24px bajo `--bp-split`.
-
-⛔ **Faltan `te esperan` e `ignoradas`**, que el handoff pone al frente
-("el número que hoy nadie ve"). Los dos necesitan la disposición de CADA tarea
-de CADA proyecto, y hoy eso es **una request por proyecto** — el mismo fan-out
-que `GET /api/tasks/dispositions` vino a borrar dentro de un proyecto. Sin un
-agregado GLOBAL, dibujarlos sería inventarlos.
-**Lo que falta en el server:** `GET /api/tasks/dispositions` sin `projectId`, o
-un `GET /api/dispositions/summary` que devuelva los cuatro conteos por proyecto.
-
-⛔ **Board** — el spec describe un board de TAREAS agrupadas por status, con
-selector de columna en mobile. Hoy el tab `board` es la **configuración de
-statuses** (`StatusesSection`), no un board de tareas: no es un rediseño, es una
-pantalla nueva. Vale confirmarlo antes de construirla.
-
-⬜ **Detalle de run** y **"por qué no corre"** (§3 de `02-pantallas.md`) sin
-empezar. `run-preview` ya existe y `TaskRunPreview.vue` lo consume dentro del
-detalle de tarea; falta la vista propia.
+- **`DataRow`** — lo último de la etapa 06. Reemplaza cada tabla escrita a mano.
+  Es refactor de tablas que hoy funcionan: la menor ganancia visible de lo que
+  queda.
+- **Cablear `FollowTail` y `LogLine`** — hechos y testeados, cero usos. Necesitan
+  que el stream tenga alto y scroll propios, o sea rediseñar la pantalla del
+  stream (A2).
 
 ---
+
+## Lo aprendido, que vale más que la lista
+
+**`bun run check` dejaba pasar pantallas rotas.** `RepoConfigModal` tenía un
+`</div>` cerrando un `<label>` —no cargaba— y `vue-tsc`, biome y los tests
+pasaron en verde: vue-tsc **saltea** el archivo que no puede parsear, y ninguno
+de los tres monta un componente. Se cerró con dos cosas: `check:sfc` (el parser
+de Vite dentro de `typecheck`) y tests de montaje para las cinco pantallas que
+nadie montaba.
+
+**Hay una tercera clase de bug que ninguna de las dos agarra: la geometría.** La
+razón de la fila dibujándose encima de la fila siguiente, y el encabezado de
+bucket tapando la primera tarea, compilaban, tipaban y pasaban los tests. Los
+encontró alguien abriendo la app. Para eso, la herramienta es `bun run dev`.
+
+**Correr `gh pr list` ANTES de empezar.** Esta sesión trabajó 33 commits sobre
+`feat/mobile-nav` sin mirar seis PRs abiertos que se solapaban.
 
 ## Controles pedidos al design system
 
