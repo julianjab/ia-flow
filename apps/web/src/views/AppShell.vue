@@ -71,6 +71,7 @@ type SectionId =
 // activo en el árbol. Mismo orden que ProjectDetailView.
 const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'overview',       label: 'overview' },
+  { id: 'que-sigue',      label: 'qué sigue' },
   { id: 'executions',     label: 'ejecuciones' },
   { id: 'tareas',         label: 'tareas' },
   { id: 'board',          label: 'board' },
