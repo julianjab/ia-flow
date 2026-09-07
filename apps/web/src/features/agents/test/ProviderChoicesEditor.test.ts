@@ -102,17 +102,19 @@ describe('ProviderChoicesEditor', () => {
     ])
   })
 
-  it('hides reorder controls (drag handle, position, move buttons) with a single candidate', async () => {
+  it('hides reorder controls (drag handle, position) with a single candidate', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: { modelValue: [{ providerId: 'anthropic-api' }], providers: PROVIDERS },
     })
     await wrapper.get('.pce-trigger').trigger('click')
-    expect(wrapper.find('.pce-drag').exists()).toBe(false)
-    expect(wrapper.find('.pce-move').exists()).toBe(false)
+    expect(wrapper.find('.drag-handle').exists()).toBe(false)
     expect(wrapper.get('.pce-row').attributes('draggable')).toBe('false')
   })
 
-  it('reorders candidates with the move up/down buttons once there are 2+', async () => {
+  // Arrastrar no existe sin mouse, y el orden entre candidatos decide qué
+  // provider corre: el handle tiene que mover con el teclado. Reemplaza a los
+  // ↑/↓, que eran dos blancos más haciendo este mismo movimiento.
+  it('reorders candidates with the arrow keys on the drag handle', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: {
         modelValue: [
@@ -125,12 +127,23 @@ describe('ProviderChoicesEditor', () => {
     })
     await wrapper.get('.pce-trigger').trigger('click')
     const rows = wrapper.findAll('.pce-row')
-    await rows[1].findAll('.pce-move-btn')[1].trigger('click')
+    await rows[1].get('.drag-handle').trigger('keydown', { key: 'ArrowDown' })
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([
       { providerId: 'anthropic-api' },
       { providerId: 'remote:julianbuitrago-mac' },
       { providerId: 'tmux-claude' },
     ])
+  })
+
+  it('the drag handle is a button — a decorative glyph is unreachable by keyboard', async () => {
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: {
+        modelValue: [{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude' }],
+        providers: PROVIDERS,
+      },
+    })
+    await wrapper.get('.pce-trigger').trigger('click')
+    expect(wrapper.get('.drag-handle').element.tagName).toBe('BUTTON')
   })
 
   it('reorders candidates via drag and drop inside the dropdown', async () => {

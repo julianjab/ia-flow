@@ -703,7 +703,7 @@ function onDrop(to: number) {
               <button
                 v-if="!readOnly && !searching && rules.length > 1"
                 type="button"
-                class="rs-drag"
+                class="drag-handle"
                 :aria-label="`Reordenar ${row.rule.id} (flechas para mover)`"
                 title="Arrastrar para reordenar"
                 @click.stop
@@ -944,17 +944,8 @@ function onDrop(to: number) {
    está corriendo", ahora en el borde izquierdo de la fila — así se ve sin
    tener que leer la línea `◐ agente · #issue` de cada tarjeta. */
 .rs-item--live > * { border-left: 2px solid var(--info); }
-.rs-drag {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: inherit;
-  color: var(--fg-dim);
-  user-select: none;
-  cursor: grab;
-}
-.rs-drag:hover,
-.rs-drag:focus-visible { color: var(--fg); }
+/* El handle es `.drag-handle` de theme.css — la misma pieza que usan
+   ActionsEditor y ProviderChoicesEditor. Vivía copiada acá con su propio alto. */
 
 /* Sólo el CONTENIDO de la fila: la caja, el hover y el atenuado de una regla
    deshabilitada los pone `EditableCard`. */

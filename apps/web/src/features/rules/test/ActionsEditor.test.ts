@@ -146,13 +146,13 @@ describe('ActionsEditor', () => {
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
       { action: 'agent', agentId: 'b' } as RuleActionEntry,
     ])
-    await wrapper.findAll('.ae-drag')[1].trigger('keydown', { key: 'ArrowUp' })
+    await wrapper.findAll('.drag-handle')[1].trigger('keydown', { key: 'ArrowUp' })
     expect(lastEmitted(wrapper).map((a) => (a as { agentId: string }).agentId)).toEqual(['b', 'a'])
   })
 
   it('con una sola acción no hay nada que reordenar', () => {
     const wrapper = mountEditor([{ action: 'agent', agentId: 'a' } as RuleActionEntry])
-    expect(wrapper.find('.ae-drag').exists()).toBe(false)
+    expect(wrapper.find('.drag-handle').exists()).toBe(false)
     expect(wrapper.get('.ae-head').attributes('draggable')).toBe('false')
   })
 

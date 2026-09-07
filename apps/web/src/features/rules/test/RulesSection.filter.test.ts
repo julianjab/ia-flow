@@ -131,6 +131,6 @@ describe('RulesSection — buscador y agrupado', () => {
 
     await typeToken(w, 'evento:pr.review_submitted')
     expect(w.find('.rs-item').attributes('draggable')).toBe('false')
-    expect(w.find('.rs-drag').exists()).toBe(false)
+    expect(w.find('.drag-handle').exists()).toBe(false)
   })
 })

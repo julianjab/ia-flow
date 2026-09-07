@@ -194,7 +194,7 @@ describe('RulesSection — lo que corre encima', () => {
       const api = await import('@/features/rules/api')
 
       const w = await mountSection()
-      await w.findAll('.rs-drag')[1].trigger('keydown', { key: 'ArrowUp' })
+      await w.findAll('.drag-handle')[1].trigger('keydown', { key: 'ArrowUp' })
 
       expect(vi.mocked(api.reorderRules)).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a'])
       expect(testRouter.currentRoute.value.params.detailId).toBeFalsy()
@@ -223,7 +223,7 @@ describe('RulesSection — lo que corre encima', () => {
 
       const w = await mountSection()
       expect(w.find('.rs-item').attributes('draggable')).toBe('false')
-      expect(w.find('.rs-drag').exists()).toBe(false)
+      expect(w.find('.drag-handle').exists()).toBe(false)
     })
 
     // Sólo lectura sigue dejando ABRIR el detalle —si no, la única vista de la
@@ -240,7 +240,7 @@ describe('RulesSection — lo que corre encima', () => {
 
       const w = await mountSection()
       expect(w.findAll('button').map((b) => b.text())).not.toContain('Editar')
-      expect(w.find('.rs-drag').exists()).toBe(false)
+      expect(w.find('.drag-handle').exists()).toBe(false)
       // La fila sigue siendo clicable: abre el detalle en sólo-lectura.
       expect(w.find('.editable-card--clickable').exists()).toBe(true)
 

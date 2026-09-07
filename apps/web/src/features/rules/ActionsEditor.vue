@@ -211,7 +211,7 @@ function onHandleKey(i: number, event: KeyboardEvent) {
         <button
           v-if="entries.length > 1"
           type="button"
-          class="ae-drag"
+          class="drag-handle"
           aria-label="Reordenar acción (flechas para mover)"
           title="Arrastrar para reordenar"
           @keydown="onHandleKey(i, $event)"
@@ -326,18 +326,7 @@ function onHandleKey(i: number, event: KeyboardEvent) {
 .ae-head[draggable='true'] { cursor: grab; }
 .ae-head[draggable='true']:active { cursor: grabbing; }
 
-.ae-drag {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--fg-dim);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  cursor: grab;
-  user-select: none;
-}
-.ae-drag:hover,
-.ae-drag:focus-visible { color: var(--fg); }
+/* El handle es `.drag-handle` de theme.css — ver RulesSection. */
 
 .ae-idx {
   font-family: var(--font-mono);

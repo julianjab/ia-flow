@@ -285,7 +285,12 @@ a:hover {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  height: calc(var(--row-h) + 0.5rem);
+  /* --tap-h y no `--row-h + 0.5rem` (33.75px): es el control presionable más
+     usado de la app, así que era la violación más repetida de R1. El alto de
+     la caja NO depende del breakpoint — 44px es el mínimo en cualquier ancho,
+     y un botón que sólo es tocable en un teléfono es un botón que en la tablet
+     falla sin que nadie sepa por qué. */
+  height: var(--tap-h);
   padding: 0 1rem;
   border: 1px solid var(--border-hi);
   border-radius: var(--radius);
@@ -493,6 +498,48 @@ a:hover {
   font-family: var(--font-mono);
   background: var(--panel-hi);
   padding: 0 0.25rem;
+}
+
+/* ── El handle de reordenar ────────────────────────────────────────────────
+   Reordenar una lista es UN gesto con dos entradas: arrastrar el handle con el
+   mouse, o las flechas con el foco puesto encima. No hay botones ↑/↓ — eran
+   dos blancos más en la fila haciendo el trabajo que este ya hace, y en una
+   fila con cinco controles el que sobra es el que se toca por error.
+
+   Es un `button` y no un glifo: arrastrar no existe sin mouse, y el orden de
+   una lista suele decidir algo (qué regla gana, qué provider corre). Un `⠿`
+   decorativo deja esa decisión fuera del alcance del teclado.
+
+   Vive acá porque `RulesSection`, `ActionsEditor` y `ProviderChoicesEditor` lo
+   tenían copiado con tres prefijos distintos (`.rs-drag`, `.ae-drag`,
+   `.pce-drag`) y tres alturas distintas. Es la tercera vez: se extrae.
+
+   OJO — el drag nativo de HTML5 no dispara en táctil. Bajo --bp-shell este
+   control mueve con el teclado y con nada más; reordenar con el dedo necesita
+   un control propio que el design system todavía no tiene (ver "Controles
+   pedidos al design system" en DESIGN_SYSTEM.md). */
+.drag-handle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-h);
+  height: var(--tap-h);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: var(--fs-body-sm);
+  line-height: 1;
+  user-select: none;
+  cursor: grab;
+}
+.drag-handle:hover,
+.drag-handle:focus-visible {
+  color: var(--fg);
+}
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 /* Video-inverse selection helper (used for menu rows). */
