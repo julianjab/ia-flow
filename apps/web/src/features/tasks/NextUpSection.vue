@@ -7,6 +7,8 @@ import {
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import BucketHeader from '@/components/BucketHeader.vue';
+import FinishedTodayPanel from '@/components/FinishedTodayPanel.vue';
+import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useProjectsStore } from '@/features/projects/store';
@@ -160,6 +162,26 @@ async function fire(row: Row) {
   }
 }
 
+/**
+ * El puesto en la cola — sólo en `te espera`.
+ *
+ * El handoff es explícito (§3): "el bucket 1 completo y **numerado**, el 2
+ * abajo sin numerar". La numeración no decora: dice que ESTA es una cola, con
+ * un primero y un último, y que el orden significa algo. En los otros tres
+ * buckets no hay cola —nadie te está esperando en fila— y numerar ahí sugeriría
+ * una prioridad que no existe.
+ */
+function rankOf(disposition: string, index: number): string | null {
+  if (disposition !== 'waiting-on-you') return null;
+  return String(index + 1).padStart(2, '0');
+}
+
+/** Abrir un run desde la columna derecha: el detalle vive en Ejecuciones, que
+ *  es donde está el tail de logs y el contexto. Acá se navega, no se duplica. */
+function openRun(runId: string) {
+  void router.push(`/projects/${activeProjectId.value}/executions?runId=${encodeURIComponent(runId)}`);
+}
+
 function openTasks() {
   void router.push(`/projects/${activeProjectId.value}/tareas`);
 }
@@ -200,7 +222,8 @@ function openTasks() {
       No hay tareas en este proyecto.
     </p>
 
-    <template v-if="!error && rows.length">
+    <div v-if="!error && rows.length" class="nu-split">
+    <div class="nu-queue">
       <!-- El orden NO se recalcula solo: si lo hiciera, la fila que ibas a
            tocar se movería bajo el dedo cada vez que llega un evento.
            Reordenar es un gesto tuyo. -->
@@ -230,7 +253,14 @@ function openTasks() {
           class="nu-list"
           data-kbd-list="next-up"
         >
-          <li v-for="row in bucket.rows" :key="row.id" class="nu-row">
+          <li v-for="(row, i) in bucket.rows" :key="row.id" class="nu-row">
+            <!-- El puesto: sólo en `te espera`, que es el único bucket que ES
+                 una cola (§3). -->
+            <span
+              v-if="rankOf(bucket.disposition, i)"
+              class="nu-rank"
+              aria-hidden="true"
+            >{{ rankOf(bucket.disposition, i) }}</span>
             <div class="nu-body">
               <p class="nu-title">
                 {{ row.title }}
@@ -269,7 +299,20 @@ function openTasks() {
       <button type="button" class="btn btn--ghost nu-all" @click="openTasks">
         ver las {{ items.length }} tareas →
       </button>
-    </template>
+    </div>
+
+    <!-- La columna derecha: la cola y lo que corre, en la misma vista (3b).
+         Las dos piezas ya existían y viven en `components/` justamente para
+         esto — `RunningRunsPanel` lo comparte con Ejecuciones. -->
+    <aside class="nu-side">
+      <RunningRunsPanel
+        :project-id="activeProjectId ?? null"
+        @open="openRun"
+        @cancel="(run) => openRun(run.id)"
+      />
+      <FinishedTodayPanel :project-id="activeProjectId ?? null" @open="openRun" />
+    </aside>
+    </div>
   </section>
 </template>
 
@@ -316,6 +359,22 @@ function openTasks() {
 .nu-moved-sep { color: var(--fg-dimmer); }
 .nu-moved-cta { text-decoration: underline; }
 
+/* Una columna hasta --bp-split; dos cuando hay ancho de sobra. La cola manda
+   —es la pantalla— y lo que corre la acompaña: por eso `1fr` y una columna
+   fija, no dos mitades. */
+.nu-split { display: flex; flex-direction: column; gap: 1rem; }
+.nu-queue { display: flex; flex-direction: column; min-width: 0; }
+.nu-side { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+
+@media (min-width: 1100px) {
+  .nu-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    gap: 1rem;
+    align-items: start;
+  }
+}
+
 .nu-bucket { display: flex; flex-direction: column; }
 .nu-list { list-style: none; margin: 0; padding: 0; }
 /* Sin zebra: la cola se lee de arriba abajo una vez, no se escanea como una
@@ -325,7 +384,18 @@ function openTasks() {
    absoluta que se movía sola entre cargas. */
 .nu-row {
   display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
   padding: 0.5rem 1rem;
+}
+/* El puesto en la cola. Ancho fijo para que los cuerpos queden alineados —
+   con `01` y `10` sin ancho fijo, la lista se ve dentada. */
+.nu-rank {
+  flex: 0 0 2ch;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
 }
 .nu-row + .nu-row { border-top: 1px solid var(--border-mute); }
 .nu-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
