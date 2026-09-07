@@ -428,43 +428,54 @@ export class SqliteExecutionLogRepository
   }
 
   listLatestByTask(projectId: string): TaskRunSummary[] {
-    // Una sola query para las dos preguntas: cuál fue el último run de cada
-    // tarea, y cuántos hubo. `ORDER BY started_at DESC` + quedarse con la
-    // primera aparición de cada task_id en JS —el mismo patrón que
-    // `listLastOutputsByAgent`— en vez de una window function: SQLite las
-    // soporta, pero acá el volumen es "los runs de un proyecto" y el dedupe en
-    // memoria evita una segunda forma de leer la tabla en este archivo.
+    // Dos queries, y la pesada acotada a una fila por tarea.
     //
-    // `kind = 'agent'`: una acción de regla (notificar, script) no es un
-    // intento, y contarla diría "2 intentos" sobre una tarea que corrió una
-    // sola vez.
+    // La versión ingenua —traer todos los runs del proyecto ordenados y
+    // dedupear en JS— hidrata la historia entera (con `error_msg`,
+    // `tool_breakdown`, `exits`…) en cada llamada, y ésta es una ruta de
+    // listado que la web pega en cada refresh. El JOIN contra el agregado
+    // deja que SQLite devuelva sólo la última fila de cada tarea; el conteo
+    // sale del mismo agregado, que no toca ninguna columna pesada.
     //
-    // Índice: `idx_execution_logs_project_id` acota el scan al proyecto y
-    // `idx_execution_logs_task_started` sirve el orden.
+    // `kind = 'agent'`: una acción de regla no es un intento.
+    // `parent_id IS NULL`: un sub-agente corre sobre la MISMA task que su
+    // padre (ver el registry de pending tasks), así que contarlo diría "3
+    // intentos" sobre una tarea que se despachó una vez — y podría quedar
+    // como `last`, mostrando el agente hijo en la fila.
     const rows = this.db
       .query(
-        `SELECT id, project_id, task_id, task_title, agent_id, provider_id, started_at,
-                finished_at, outcome, error_msg, stop_reason, session_kind, session_id,
-                source, cancel_requested_at, duration_ms, tokens_in, tokens_out,
-                cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors,
-                failure_class, run_id, agent_prompt_hash, initial_status, exits,
-                finalized_by_tool, assignees, kind, rule_id, event_id, event_type, position,
-                parent_id, model, system_prompt_hash, tool_breakdown, resumed_from_run_id,
-                trace_id
-           FROM execution_logs
-          WHERE project_id = ? AND kind = 'agent'
-          ORDER BY started_at DESC`,
+        `SELECT e.id, e.project_id, e.task_id, e.task_title, e.agent_id, e.provider_id,
+                e.started_at, e.finished_at, e.outcome, e.error_msg, e.stop_reason,
+                e.session_kind, e.session_id, e.source, e.cancel_requested_at, e.duration_ms,
+                e.tokens_in, e.tokens_out, e.cache_read_tokens, e.cache_creation_tokens,
+                e.iters, e.tool_calls, e.tool_errors, e.failure_class, e.run_id,
+                e.agent_prompt_hash, e.initial_status, e.exits, e.finalized_by_tool,
+                e.assignees, e.kind, e.rule_id, e.event_id, e.event_type, e.position,
+                e.parent_id, e.model, e.system_prompt_hash, e.tool_breakdown,
+                e.resumed_from_run_id, e.trace_id, agg.attempts AS attempts
+           FROM execution_logs e
+           JOIN (SELECT task_id, MAX(started_at) AS last_started, COUNT(*) AS attempts
+                   FROM execution_logs
+                  WHERE project_id = ?1 AND kind = 'agent' AND parent_id IS NULL
+                  GROUP BY task_id) agg
+             ON agg.task_id = e.task_id AND agg.last_started = e.started_at
+          WHERE e.project_id = ?1 AND e.kind = 'agent' AND e.parent_id IS NULL
+          ORDER BY e.started_at DESC`,
       )
       .all(projectId) as Record<string, unknown>[]
 
+    // Dos runs de la misma task con el MISMO `started_at` (mismo milisegundo)
+    // matchean los dos contra el agregado. Se queda el primero: cualquiera es
+    // igual de "el último", pero la fila tiene que ser una sola.
     const byTask = new Map<string, TaskRunSummary>()
     for (const row of rows) {
       const taskId = row.task_id as string
-      const existing = byTask.get(taskId)
-      // La primera aparición es la más reciente (el ORDER BY); las siguientes
-      // sólo suman al conteo de intentos.
-      if (existing) existing.attempts += 1
-      else byTask.set(taskId, { taskId, attempts: 1, last: rowToLog(row) })
+      if (byTask.has(taskId)) continue
+      byTask.set(taskId, {
+        taskId,
+        attempts: Number(row.attempts ?? 1),
+        last: rowToLog(row),
+      })
     }
     return [...byTask.values()]
   }

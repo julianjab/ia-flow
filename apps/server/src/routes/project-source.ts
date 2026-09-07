@@ -126,6 +126,18 @@ export function createProjectSourceRouter() {
 
       const items = await source.getItems()
       const byId = new Map(items.map((i) => [i.id, i]))
+      // Un id que el snapshot no trae (filtrado por la fuente, cerrado, fuera
+      // de su página) se reintenta por lookup directo, igual que hace la ruta
+      // por item — si no, el batch contradice al detalle sobre la misma tarea.
+      // Lo que quede sin resolver de verdad NO entra al mapa: su ausencia
+      // significa "no sé", que es lo que es.
+      const missing = ids.filter((id) => !byId.has(id))
+      if (missing.length && source.getItemById) {
+        const found = await Promise.all(
+          missing.map((id) => source.getItemById!(id).catch(() => null)),
+        )
+        for (const item of found) if (item) byId.set(item.id, item)
+      }
       const wanted = ids.map((id) => byId.get(id)).filter((i) => i !== undefined)
 
       const blockers: Record<string, Blocker[]> = {}
