@@ -76,6 +76,7 @@ import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMessageUseCase.js'
 import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
+import { GetTaskDispositionsUseCase } from '../application/use-cases/GetTaskDispositionsUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
@@ -986,6 +987,16 @@ export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemR
 
 // "Correr esta tarea ahora" (POST /api/tasks/:id/run). Recibe el bus y la
 // pregunta "¿está corriendo?" — no el registry entero: es lo único que mira.
+// La disposición de cada tarea de un proyecto (GET /api/tasks/dispositions).
+// Recibe el agregado de runs y el lector de reglas; la fuente se la pasa la
+// ruta, que es quien resuelve el proyecto de la URL.
+export const getTaskDispositionsUseCase = new GetTaskDispositionsUseCase({
+  latestByTask: (projectId) => executionLogRepo.listLatestByTask(projectId),
+  // Por proyecto y no congeladas: editar una regla de retry en la UI tiene que
+  // cambiar la disposición de un fallo sin reiniciar el daemon.
+  loadRules: (projectId) => ruleRepo.visibleTo(projectId),
+})
+
 export const runTaskNowUseCase = new RunTaskNowUseCase(
   eventBus,
   (taskId) => Boolean(getPendingTask(taskId)),
