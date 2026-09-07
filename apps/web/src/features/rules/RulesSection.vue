@@ -232,7 +232,29 @@ function hasLiveRuns(rule: Rule): boolean {
 // coincide con la posición real en `rules`, que es lo que decide qué regla
 // exclusiva gana), así que arrastrar se apaga con el mismo criterio que el
 // modo sólo-lectura.
-const filterTokens = ref<FilterToken[]>([])
+/**
+ * El filtro arranca desde la URL.
+ *
+ * Es lo que hace que un link pueda mandarte a "las reglas del status X" y que
+ * llegues ahí filtrado. Sin esto, "Ver qué corre en blocked" abría el Pipeline
+ * entero y te dejaba buscar a mano — el link prometía un recorte y entregaba
+ * una lista.
+ *
+ * Sólo se lee al montar: después el filtro es del usuario, y re-hidratarlo en
+ * cada cambio de query le pisaría lo que escribió.
+ */
+function tokensFromQuery(): FilterToken[] {
+  const out: FilterToken[] = []
+  for (const field of ['q', 'evento', 'estado', 'agente', 'repo'] as const) {
+    const raw = route.query[field]
+    for (const value of Array.isArray(raw) ? raw : [raw]) {
+      if (typeof value === 'string' && value) out.push({ field, value })
+    }
+  }
+  return out
+}
+
+const filterTokens = ref<FilterToken[]>(tokensFromQuery())
 const searching = computed(() => filterTokens.value.length > 0)
 
 /** El status que una regla condiciona, si lo condiciona — misma extracción
