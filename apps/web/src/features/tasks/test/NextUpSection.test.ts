@@ -64,7 +64,12 @@ beforeEach(() => {
 })
 
 async function mountWith() {
-  const w = mount(NextUpSection)
+  // La columna derecha (lo que corre + lo terminado hoy) tiene sus propios
+  // tests: acá se stubea porque lee el store de ejecuciones y sale a la red, y
+  // lo que este archivo verifica es la COLA.
+  const w = mount(NextUpSection, {
+    global: { stubs: { RunningRunsPanel: true, FinishedTodayPanel: true } },
+  })
   await flushPromises()
   await flushPromises()
   return w
@@ -149,6 +154,18 @@ describe('NextUpSection', () => {
     const w = await mountWith()
     expect(w.text()).toContain('esta cola está incompleta')
     expect(w.text()).not.toContain('No hay tareas')
+  })
+
+  it('numera SÓLO la cola: `te espera` lleva puesto, los otros no', async () => {
+    // §3: "el bucket 1 completo y numerado, el 2 abajo sin numerar". La
+    // numeración dice que ESTO es una cola —hay un primero y un último— y en
+    // los otros buckets nadie te está esperando en fila: numerarlos sugeriría
+    // una prioridad que no existe.
+    items.push(task('t1'), task('t2'), task('t3'))
+    dispositions = [entry('t1'), entry('t2'), entry('t3', { disposition: 'moving', verb: null })]
+    const w = await mountWith()
+    const ranks = w.findAll('.nu-rank').map((n) => n.text())
+    expect(ranks).toEqual(['01', '02'])
   })
 
   describe('el orden no se recalcula solo', () => {
