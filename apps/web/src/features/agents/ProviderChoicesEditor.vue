@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useDragReorder } from '@/composables/useDragReorder'
 import type { AgentProviderChoice, WhenCondition } from '@ia-flow/shared'
 import WhenConditionsEditor from '@/features/agents/WhenConditionsEditor.vue'
 
@@ -135,23 +136,18 @@ function onHandleKey(i: number, event: KeyboardEvent) {
   event.preventDefault()
 }
 
-// Drag nativo (HTML5) — sin librería: dataTransfer lleva el índice de
-// origen, drop en la fila destino reordena. `dragover` necesita
-// preventDefault para que el navegador permita soltar ahí.
-const dragIndex = ref<number | null>(null)
-
-function onDragStart(i: number, event: DragEvent) {
-  dragIndex.value = i
-  event.dataTransfer?.setData('text/plain', String(i))
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-}
-function onDragOver(event: DragEvent) {
-  event.preventDefault()
-}
-function onDrop(i: number) {
-  if (dragIndex.value !== null) reorder(dragIndex.value, i)
-  dragIndex.value = null
-}
+/**
+ * Reordenar arrastrando el handle — mouse, dedo y lápiz por el mismo camino.
+ *
+ * Antes era la API de drag de HTML5, que **es de mouse**: en un teléfono esos
+ * eventos no se disparan y la lista quedaba de sólo lectura sin decirlo. Ver
+ * `useDragReorder` para el porqué del gesto.
+ */
+const {
+  dragging: dragIndex,
+  over: overIndex,
+  start: onHandleDown,
+} = useDragReorder({ onReorder: reorder })
 
 function nameFor(providerId: string): string {
   return props.providers.find((p) => p.id === providerId)?.name ?? providerId
@@ -210,10 +206,8 @@ function onTriggerKeydown(event: KeyboardEvent) {
           <template v-for="(c, i) in choices" :key="c.providerId">
             <div
               class="pce-row"
-              :draggable="choices.length > 1"
-              @dragstart="onDragStart(i, $event)"
-              @dragover="onDragOver"
-              @drop="onDrop(i)"
+              :class="{ 'pce-row--over': overIndex === i && dragIndex !== null && dragIndex !== i }"
+              :data-drag-index="i"
             >
             <!-- El handle ES el control de reordenar: arrastrarlo con el mouse,
                  o las flechas con el foco puesto encima. -->
@@ -224,6 +218,7 @@ function onTriggerKeydown(event: KeyboardEvent) {
               :aria-label="`Reordenar ${nameFor(c.providerId)} (flechas para mover)`"
               title="Arrastrar para reordenar"
               @click.stop
+              @pointerdown="onHandleDown(i, $event)"
               @keydown="onHandleKey(i, $event)"
             >⠿</button>
             <span v-if="choices.length > 1" class="pce-pos" :title="`Orden ${i + 1}`">{{ i + 1 }}</span>
