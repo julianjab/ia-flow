@@ -169,15 +169,13 @@ const projectSheetOpen = ref(false);
 /**
  * Dónde SÍ va la tab bar.
  *
- * Fuera en `/servers` (todavía no hay server elegido, mucho menos proyecto) y
- * en el agent-host (otro proceso, otra credencial, su propia navegación). El
- * detalle de tarea tampoco la muestra, pero eso lo resuelve él: es pantalla
- * completa con su propia barra de acciones — dos barras se comerían 108px de
- * alto en chrome.
+ * Fuera del agent-host: otro proceso, otra credencial, su propia navegación.
+ * `/servers` no hace falta filtrarlo — es una ruta top-level que ni siquiera
+ * monta este shell. El detalle de tarea tampoco muestra la barra, pero eso lo
+ * resuelve él: es pantalla completa con su propia barra de acciones, y dos
+ * barras se comerían 108px de alto en chrome.
  */
-const showTabBar = computed(
-  () => mobile.value && !isAgentHost && !route.path.startsWith('/servers'),
-);
+const showTabBar = computed(() => mobile.value && !isAgentHost);
 
 /** El proyecto activo, como lo muestra el header mobile. */
 const activeProjectLabel = computed(() => {

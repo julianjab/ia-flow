@@ -49,15 +49,20 @@ interface Row {
 const projectRows = computed<Row[]>(() => {
   const base = `/projects/${projectId.value}`;
   if (!projectId.value) return [];
+  // Las ocho tabs del proyecto van UNA POR UNA, no colapsadas en una fila.
+  // La sub-nav del proyecto vivía sólo en el sidebar, que bajo 768px ya no se
+  // monta: si acá no están, no hay ningún camino. Una fila que promete cinco
+  // destinos y navega a uno solo no cumple el "nada se vuelve inalcanzable".
   return [
+    { glyph: '●', glyphClass: 'is-accent', label: 'Ejecuciones del proyecto', to: `${base}/executions` },
     { glyph: '⎇', glyphClass: 'is-info', label: 'Repos y ramas', to: `${base}/repos` },
     { glyph: '⛭', glyphClass: 'is-warn', label: 'Pipeline y reglas', to: `${base}/pipeline` },
     { glyph: '✦', glyphClass: 'is-ai', label: 'Agentes', to: `${base}/agentes` },
-    {
-      glyph: '▤',
-      label: 'Overview, prompts, provider, acciones, tools',
-      to: `${base}/overview`,
-    },
+    { glyph: '▤', label: 'Overview', to: `${base}/overview` },
+    { glyph: '➜', label: 'System prompts', to: `${base}/system-prompts` },
+    { glyph: '⛭', label: 'Provider', to: `${base}/provider` },
+    { glyph: '⛭', label: 'Acciones', to: `${base}/acciones` },
+    { glyph: '⛭', label: 'Tools', to: `${base}/tools` },
   ];
 });
 
@@ -86,7 +91,10 @@ const serverRows = computed<Row[]>(() => [
   },
   { glyph: '⛭', label: 'Configuración general', to: '/general/agentes', note: '11' },
   { glyph: '▧', label: 'Logs del daemon', to: '/general/logs' },
-  { glyph: '▨', label: 'Agent host', to: '/agent-host', note: 'remoto' },
+  // El agent-host NO va acá: habla con otra máquina y con otra credencial, y
+  // ofrecerlo dentro de un server es el bug que el menú del shell ya había
+  // arreglado (ver AppShell). Se elige en `/servers`, como cualquier otro
+  // destino de conexión.
 ]);
 
 function go(to: string) {
