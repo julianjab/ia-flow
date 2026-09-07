@@ -27,7 +27,14 @@ function onChange(e: MediaQueryListEvent) {
 export function useIsMobile(): { isMobile: typeof isMobile } {
   if (mq) {
     subscribers++
-    if (subscribers === 1) mq.addEventListener('change', onChange)
+    if (subscribers === 1) {
+      // Re-sincronizar al re-suscribir: sin listener el ref queda con el
+      // último valor visto, y si la ventana cruzó el breakpoint mientras nadie
+      // escuchaba, el próximo consumidor arrancaría con el ancho equivocado
+      // — montando el sidebar en un teléfono, o la tab bar en un monitor.
+      isMobile.value = mq.matches
+      mq.addEventListener('change', onChange)
+    }
     onUnmounted(() => {
       subscribers--
       if (subscribers <= 0) {
