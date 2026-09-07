@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentHealth } from '../verdict'
-import { dispositionCounts, isOutOfBand, summarizeHealth, verdictFor } from '../verdict'
+import { dispositionCounts, isOutOfBand, summarizeHealth, verbForRun, verdictFor } from '../verdict'
 
 function agent(over: Partial<AgentHealth> = {}): AgentHealth {
   return {
@@ -105,5 +105,36 @@ describe('dispositionCounts', () => {
   it('un contador en cero no se dibuja (R10)', () => {
     const out = dispositionCounts({ success: 5, error: 0, cancelled: 0, truncated: 0, pending: 0 })
     expect(out.map((c) => c.key)).toEqual(['closed'])
+  })
+})
+
+describe('verbForRun', () => {
+  const run = (over: Record<string, unknown> = {}) =>
+    ({ id: 'e1', outcome: 'success', finishedAt: '2026-09-01T10:00:00Z', ...over }) as never
+
+  it('un run en vuelo se puede abortar', () => {
+    expect(verbForRun(run({ finishedAt: null, outcome: null }))).toEqual({
+      label: 'Abortar',
+      kind: 'cancel',
+    })
+  })
+
+  it('un abortado a mano manda a su pantalla, con el run en la URL', () => {
+    expect(verbForRun(run({ outcome: 'cancelled', id: 'e9' }))).toEqual({
+      label: 'Resolver',
+      kind: 'route',
+      href: '/general/aborted-runs?run=e9',
+      hint: '· runs abortados',
+    })
+  })
+
+  it('un run que terminó bien NO lleva verbo — si no te toca, un botón es ruido', () => {
+    expect(verbForRun(run())).toBeNull()
+  })
+
+  it('un fallo tampoco: reintentar es una acción sobre la TAREA, no sobre el run', () => {
+    // Prometerlo acá abriría otra pantalla: un botón que miente sobre lo que
+    // hace. El verbo vive en la fila de Tareas, que es donde pertenece.
+    expect(verbForRun(run({ outcome: 'error' }))).toBeNull()
   })
 })
