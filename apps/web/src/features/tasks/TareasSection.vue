@@ -793,6 +793,15 @@ watch(activeProjectId, (pid) => {
     align-items: center;
     padding: 0 0.65rem;
   }
+  /* Sin esto las celdas siguen reclamando las áreas con nombre del layout
+     apilado: como acá no existen, el grid las auto-ubica y las filas se
+     superponen. En una línea el orden de columnas ES el del template. */
+  .task-row-glyph,
+  .task-row-title,
+  .task-row-issue,
+  .task-row-exec {
+    grid-area: auto;
+  }
   .task-thead {
     height: calc(var(--row-h) * 1.05);
     background: var(--panel-hi);
