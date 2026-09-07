@@ -5,6 +5,7 @@ import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
+import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import { useNow } from '@/composables/useNow';
 import {
   cancelTaskRun,
@@ -592,6 +593,10 @@ watch(activeProjectId, (pid) => {
         </button>
       </div>
     </div>
+
+    <!-- Board es la misma lista agrupada por status: su entrada vive acá, no
+         como un destino más de la navegación. -->
+    <ListBoardToggle :project-id="activeProjectId ?? null" view="lista" />
 
     <SlackReviewSettings
       :project="projectsStore.activeProject"

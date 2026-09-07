@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import MobileTabBar from '@/components/MobileTabBar.vue';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
+import ProjectSwitcherSheet from '@/features/projects/ProjectSwitcherSheet.vue';
+import { useIsMobile } from '@/composables/useIsMobile';
 import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
 import RateLimitChip from '@/components/RateLimitChip.vue';
 import Toast from '@/ui/Toast.vue';
@@ -147,32 +150,52 @@ const TAB_GROUP_LABELS: Record<string, string> = {
   global: 'GLOBAL',
 };
 
-// Desktop: sidebar expanded by default (no hamburger-only rail).
-// Mobile: collapsed by default (overlay, opened via topbar toggle).
-//
-// El breakpoint se escucha, no se lee una sola vez al montar: en desktop el
-// panel colapsado mide 0px y NO hay forma de reabrirlo (el ☰ y el backdrop
-// son `display: none` fuera de mobile), así que un colapso hecho en mobile
-// dejaba el menú desaparecido para siempre al agrandar la ventana. Cruzar el
-// breakpoint reimpone el default de cada lado.
-const MOBILE_QUERY = '(max-width: 768px)';
-const mobileMq =
-  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia(MOBILE_QUERY)
-    : null;
-const mobile = ref(mobileMq?.matches ?? false);
+/**
+ * Bajo 768px el sidebar NO se renderiza y manda la tab bar; sobre 768px, al
+ * revés. Es un `v-if`, no un `display: none`: un pie que nadie va a ver no se
+ * monta, y el drawer mobile —con su estado, su backdrop y el ☰ que lo abría—
+ * deja de existir. El ☰ ahora es el tab `Más`, y navega.
+ *
+ * El colapso del sidebar queda como lo que siempre fue en desktop: una
+ * preferencia del usuario, sin default que dependa del ancho.
+ */
+const { isMobile: mobile } = useIsMobile();
 const isMobile = () => mobile.value;
-const sidebarCollapsed = ref(mobile.value);
+const sidebarCollapsed = ref(false);
 function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
 
-function onBreakpointChange(e: MediaQueryListEvent) {
-  if (e.matches === mobile.value) return;
-  mobile.value = e.matches;
-  sidebarCollapsed.value = e.matches;
-}
-if (mobileMq) {
-  mobileMq.addEventListener('change', onBreakpointChange);
-  onUnmounted(() => mobileMq.removeEventListener('change', onBreakpointChange));
+const projectSheetOpen = ref(false);
+
+/**
+ * Dónde SÍ va la tab bar.
+ *
+ * Fuera en `/servers` (todavía no hay server elegido, mucho menos proyecto) y
+ * en el agent-host (otro proceso, otra credencial, su propia navegación). El
+ * detalle de tarea tampoco la muestra, pero eso lo resuelve él: es pantalla
+ * completa con su propia barra de acciones — dos barras se comerían 108px de
+ * alto en chrome.
+ */
+const showTabBar = computed(
+  () => mobile.value && !isAgentHost && !route.path.startsWith('/servers'),
+);
+
+/** El proyecto activo, como lo muestra el header mobile. */
+const activeProjectLabel = computed(() => {
+  const id = projectsStore.activeProjectId;
+  if (!id) return null;
+  return projectsStore.projects.find((p) => p.id === id)?.name ?? id;
+});
+
+/**
+ * Cambiar de proyecto mantiene el TAB: se navega al mismo lugar del proyecto
+ * nuevo, no a su raíz. Cambiar de contexto no debería costar volver a buscar
+ * dónde estabas.
+ */
+function switchProject(projectId: string) {
+  projectSheetOpen.value = false;
+  if (projectId === projectsStore.activeProjectId) return;
+  const tab = route.path.match(/^\/projects\/[^/]+\/([^/]+)/)?.[1] ?? 'que-sigue';
+  void router.push(`/projects/${projectId}/${tab}`);
 }
 
 const route = useRoute();
@@ -362,13 +385,25 @@ watch(
   <section class="app-shell">
     <!-- Window chrome — breadcrumb centre, chip right. -->
     <header class="app-shell__chrome">
+      <!-- El ☰ era el drawer. Bajo 768px el drawer no existe: el proyecto sube
+           al header y la pantalla la elige la tab bar. -->
       <button
+        v-if="!mobile"
         type="button"
         class="app-shell__toggle"
         aria-label="Toggle menu"
         @click="toggleSidebar"
       >☰</button>
-      <span class="app-shell__title">ia-flow — {{ activeSection }}</span>
+      <button
+        v-else-if="activeProjectLabel"
+        type="button"
+        class="app-shell__project"
+        @click="projectSheetOpen = true"
+      >
+        <span class="app-shell__project-name">{{ activeProjectLabel }}</span>
+        <span class="app-shell__project-caret" aria-hidden="true">⌄</span>
+      </button>
+      <span v-if="!mobile" class="app-shell__title">ia-flow — {{ activeSection }}</span>
       <!-- Qué daemon estás mirando. Con varios runners/* levantados es la
            diferencia entre leer los datos correctos y los de otra máquina. -->
       <button type="button" class="app-shell__server" title="cambiar de server" @click="goToServers">
@@ -382,6 +417,7 @@ watch(
 
     <div class="app-shell__body">
       <SettingsSidebar
+        v-if="!mobile"
         :tabs="TABS"
         :active-tab="activeSection"
         :active-path="route.path"
@@ -392,10 +428,21 @@ watch(
         @toggle-collapsed="toggleSidebar"
       />
 
-      <main class="app-shell__main">
+      <main class="app-shell__main" :class="{ 'has-tabbar': showTabBar }">
         <router-view />
       </main>
     </div>
+
+    <!-- La tab bar no aparece en /servers ni en el agent-host: el primero es
+         de dónde se elige el server (no hay proyecto todavía) y el segundo
+         tiene su propio contexto y credencial. -->
+    <MobileTabBar v-if="showTabBar" :project-id="projectsStore.activeProjectId" />
+
+    <ProjectSwitcherSheet
+      :open="projectSheetOpen"
+      @close="projectSheetOpen = false"
+      @pick="switchProject"
+    />
 
     <Toast />
   </section>
@@ -427,6 +474,33 @@ watch(
   height: var(--chrome-h);
   box-sizing: border-box;
 }
+/* El bloque tappable del proyecto: 44px, la altura de toda fila navegable de
+   la capa mobile. */
+.app-shell__project {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.35rem;
+  background: none;
+  border: none;
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  cursor: pointer;
+}
+.app-shell__project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-shell__project-caret { flex: 0 0 auto; color: var(--fg-dim); }
+
+/* La última fila de una lista no puede quedar tapada por la tab bar. */
+.app-shell__main.has-tabbar { padding-bottom: 60px; }
+
 .app-shell__toggle {
   display: none;
   background: transparent;
@@ -487,9 +561,12 @@ watch(
 }
 
 @media (max-width: 768px) {
-  .app-shell__toggle { display: inline-flex; align-items: center; justify-content: center; }
+  /* El ☰ ya no se renderiza bajo 768px (ver el `v-if` del template): el
+     drawer no existe y el menú es la tab bar. */
   .app-shell__title { display: none; }
   .app-shell__main { padding: 0.75rem 0.75rem 2rem; }
+  /* Bajo la tab bar el padding de abajo se suma al de la barra. */
+  .app-shell__main.has-tabbar { padding-bottom: calc(60px + 0.75rem); }
 
   /* Los chips de la derecha no entraban en 390px y empujaban la página a
      484px. Como el header es `sticky` y vive en el shell, ese desborde le daba

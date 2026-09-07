@@ -265,6 +265,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
       para mostrarlas; <b>qué corre en cada una lo deciden las reglas</b>, en Pipeline.
     </p>
 
+    <ListBoardToggle :project-id="projectsStore.activeProjectId" view="board" />
+
     <div v-if="!allStatuses.length" class="repos-empty">
       No hay statuses aún. Crea una tarea primero.
     </div>
