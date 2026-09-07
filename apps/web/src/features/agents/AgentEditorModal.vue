@@ -906,8 +906,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   font-size: 0.8rem;
 }
 
-/* ── Mobile ─────────────────────────────────────────────────────────── */
-@media (max-width: 900px) {
+/* ── Bajo --bp-split: se pierde la segunda columna ──────────────────── */
+/* 1100 y no 900 (el valor original): a 900 con el sidebar abierto quedan
+   ~670px de contenido, y tres columnas de 240 + 1fr + 300 no entran ahí
+   tampoco. Es uno de los tres breakpoints del sistema — ver DESIGN_SYSTEM.md. */
+@media (max-width: 1100px) {
   /* El editor era una grilla de tres columnas con dos de ellas fijas
      (240 + 1fr + 300): sus mínimos suman 540px, así que en 390px el panel
      del medio —el único donde se edita algo— quedaba en cero y el

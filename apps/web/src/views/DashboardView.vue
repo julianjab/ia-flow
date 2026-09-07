@@ -467,7 +467,9 @@ function elapsed(iso: string): string {
   gap: 1rem;
   align-items: start;
 }
-@media (max-width: 900px) {
+/* Bajo --bp-split el panel deja de convivir con su vecino y se apila.
+   Era 900px; sube a 1100 para no ser un cuarto ancho propio del dashboard. */
+@media (max-width: 1100px) {
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split { grid-template-columns: 1fr; }
   /* El `minmax(0, …)` deja que la COLUMNA encoja, pero el panel adentro sigue
