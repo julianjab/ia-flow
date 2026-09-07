@@ -51,8 +51,8 @@ vi.mock('@/stores/toast', () => ({
 
 enableAutoUnmount(afterEach)
 
-async function mountSection() {
-  await testRouter.replace('/general/pipeline')
+async function mountSection(query: Record<string, string> = {}) {
+  await testRouter.replace({ path: '/general/pipeline', query })
   await testRouter.isReady()
   const w = mount(RulesSection, {
     props: { scope: { kind: 'global' as const } },
@@ -134,5 +134,13 @@ describe('RulesSection — buscador y agrupado', () => {
 
     await typeToken(w, 'evento:pr.review_submitted')
     expect(w.find('.drag-handle').exists()).toBe(false)
+  })
+
+  it('llega filtrado desde la URL — el link del board promete un recorte', async () => {
+    // "Ver qué corre en blocked →" llevaba al Pipeline ENTERO: el link prometía
+    // un recorte y entregaba una lista para buscar a mano.
+    const w = await mountSection({ estado: 'blocked' })
+    const tokens = w.findAll('[data-testid^="rules-filter-token-"]').map((t) => t.text())
+    expect(tokens.join(' ')).toContain('blocked')
   })
 })
