@@ -36,10 +36,14 @@ Todos ✅. Detalle en los commits; lo que quedó a medias está abajo.
 > los statuses, y el orden por disposición vive DENTRO de cada una — queda para
 > P7, que es cuando se rediseña el board.
 
-### P2 · Reordenar táctil — bloqueante en mobile
+### P2 · Reordenar táctil — bloqueante en mobile, BLOQUEADO en diseño
 Consecuencia de borrar los ↑/↓: el drag nativo de HTML5 no dispara en táctil, y
 bajo `--bp-shell` Pipeline, las acciones de una regla y los candidatos de
-provider quedan de sólo lectura **sin que nada lo diga**. Pedido al DS.
+provider quedan de sólo lectura **sin que nada lo diga**.
+
+No es implementable sin una decisión de diseño: hace falta el GESTO
+(long-press + mover, o un modo "reordenar" explícito), no un ícono. Pedido en la
+tabla del `DESIGN_SYSTEM.md`.
 
 > ✅ **P3 · `FullScreen` y los modales** — hecho. `AgentEditorModal` y
 > `RuleEditorModal` ya no eran overlays fijos (reemplazan la lista dentro del
@@ -55,6 +59,7 @@ provider quedan de sólo lectura **sin que nada lo diga**. Pedido al DS.
 > textarea de JSON, que ahora son `ui/JsonConfigField.vue`.
 
 ### P6 · Etapa 06 — `DataRow`, `LogLine`, `FollowTail`
+
 
 🟡 **`LogLine` y `FollowTail` existen y están testeados; NO están cableados**, y
 la razón es concreta: hoy el que scrollea es la PÁGINA, no la lista. `FollowTail`
