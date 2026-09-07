@@ -130,8 +130,10 @@ export class AgentOrchestrator {
     // pausa, así que se cuelga después.
     pauseCheckpoint?: PauseCheckpointPort,
     // Persiste dónde va el run en cada vuelta, para que un reinicio no se
-    // lleve el trabajo. El orquestador además lo BORRA en su `finally`: es el
-    // único punto que corre una vez por run pase lo que pase.
+    // lleve el trabajo. El orquestador además lo BORRA en su `finally` — el
+    // único punto que corre una vez por run pase lo que pase — salvo cuando
+    // el run cortó `truncated` (ver AgentRunState.truncated en Agent.ts): ahí
+    // lo deja para que el próximo dispatch de la misma task lo retome.
     private runCheckpoints?: RunCheckpointPort,
     // Bookkeeping de upstream-aborts — ver AgentAbortPort. Forwardeado tal
     // cual a `Agent`, igual que el resto de los ports de esta lista.
@@ -608,15 +610,30 @@ export class AgentOrchestrator {
       // ese id. Una pausa no lo pierde: `attachCheckpoint` ya lo copió a su
       // espera, que es lo que sobrevive al run.
       //
-      // Sin este borrado la conversación entera de cada run quedaría en disco
-      // para siempre.
+      // Excepción: `runState.truncated` (ver Agent.ts) — el proceso sigue
+      // vivo pero el run cortó por budget/iteraciones/un mcp_tool_use sin
+      // pareo, no por terminar de verdad. Ahí SÍ queda alguien que lo
+      // continúe: el próximo dispatch de esta misma task, vía `loadResume`
+      // (mismos gates de agente/edad/intentos). Un sub-agente queda afuera
+      // aposta — su checkpoint quedaría indexado por el taskId del PADRE, y
+      // `loadResume` se lo daría a él con una conversación que no es suya.
+      //
+      // Sin este borrado (en el caso normal) la conversación entera de cada
+      // run quedaría en disco para siempre.
       if (runState.runId && this.runCheckpoints) {
-        await this.runCheckpoints.delete(runState.runId).catch((err: unknown) => {
-          log.warn(
-            { taskId: task.id, runId: runState.runId, err },
-            'No se pudo borrar el checkpoint del run',
+        if (runState.truncated && !isSub) {
+          log.info(
+            { taskId: task.id, runId: runState.runId },
+            'Run truncado — se conserva el checkpoint para el próximo dispatch',
           )
-        })
+        } else {
+          await this.runCheckpoints.delete(runState.runId).catch((err: unknown) => {
+            log.warn(
+              { taskId: task.id, runId: runState.runId, err },
+              'No se pudo borrar el checkpoint del run',
+            )
+          })
+        }
       }
     }
   }

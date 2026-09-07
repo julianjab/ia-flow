@@ -184,6 +184,18 @@ export interface AgentRunState {
    * disco para siempre.
    */
   runId?: string
+  /**
+   * El run cortó por `output.truncated` (budget/iteraciones agotadas, un
+   * `mcp_tool_use` sin pareo, `pause_turn` sin más reintentos, …) y NO por
+   * `refusal` — el proceso sigue vivo, así que a diferencia de un crash el
+   * orquestador nunca reanudaría este checkpoint desde `pending-task-rehydrator`.
+   * Es la señal para que su `finally` conserve el checkpoint en vez de
+   * borrarlo: el próximo dispatch de esta misma task puede retomar la
+   * conversación en lugar de arrancar de cero. `refusal` queda afuera a
+   * propósito — el modelo se negó por política, no por falta de contexto, y
+   * reanudar la misma conversación probablemente repite el rechazo.
+   */
+  truncated?: boolean
 }
 
 // Replaces ${VAR} placeholders in every string value inside an McpServers map
@@ -1021,6 +1033,13 @@ export class Agent {
           // Recoverable pause (task budget exhausted or safety cap). Don't
           // run the success exit — post a progress notice and, if there's
           // an error exit, use it to revert so the user can retry.
+          //
+          // A `refusal` isn't recoverable by resuming the same conversation
+          // (ver el aviso de abajo), así que no vale la pena conservar su
+          // checkpoint — el orquestador lo borraría igual en su `finally`.
+          if (output.stopReason !== 'refusal') {
+            runState.truncated = true
+          }
           log.warn(
             { taskId: task.id, agent: agentDef.id, stopReason: output.stopReason ?? 'unknown' },
             'Agent run truncated — posting pause notice',
