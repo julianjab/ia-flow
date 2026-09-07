@@ -126,11 +126,13 @@ describe('RulesSection — buscador y agrupado', () => {
   })
 
   it('mientras se busca, no se puede arrastrar', async () => {
+    // Reordenar una lista FILTRADA movería la regla a un lugar que no es el que
+    // se ve: el índice de la vista no es el del orden real. Sin handle no hay
+    // gesto — la ausencia del handle ES la señal.
     const w = await mountSection()
-    expect(w.find('.rs-item').attributes('draggable')).toBe('true')
+    expect(w.find('.drag-handle').exists()).toBe(true)
 
     await typeToken(w, 'evento:pr.review_submitted')
-    expect(w.find('.rs-item').attributes('draggable')).toBe('false')
     expect(w.find('.drag-handle').exists()).toBe(false)
   })
 })
