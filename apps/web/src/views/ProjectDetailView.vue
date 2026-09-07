@@ -17,6 +17,7 @@ import RulesSection from '@/features/rules/RulesSection.vue';
 import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
+import NextUpSection from '@/features/tasks/NextUpSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
 import ProjectOverviewTab from '@/features/projects/tabs/ProjectOverviewTab.vue';
 import ProjectProviderTab from '@/features/projects/tabs/ProjectProviderTab.vue';
@@ -33,7 +34,7 @@ const router = useRouter();
 // Sub-nav for the project now lives in the sidebar. The view just resolves
 // the URL's `tab` param to whichever section it should render.
 const VALID_TABS = new Set([
-  'overview', 'executions', 'tareas', 'board',
+  'overview', 'que-sigue', 'executions', 'tareas', 'board',
   'agentes', 'pipeline', 'acciones', 'tools', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
@@ -175,6 +176,7 @@ async function togglePolling() {
     <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />
     <ProjectReposTab          v-else-if="activeTab === 'repos'" />
+    <NextUpSection            v-else-if="activeTab === 'que-sigue'" />
     <TareasSection            v-else-if="activeTab === 'tareas'" />
     <ProjectProviderTab       v-else-if="activeTab === 'provider'" :project="project" />
     <ExecutionsSection        v-else-if="activeTab === 'executions'" />
