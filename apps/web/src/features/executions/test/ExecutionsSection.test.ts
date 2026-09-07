@@ -121,26 +121,37 @@ describe('ExecutionsSection — filtrar por resultado', () => {
 
   // El conteo es un atajo del token, no un segundo camino: escribe por el mismo
   // lugar que el input, así que lo que se prende ahí se ve como token.
-  it('clickear un conteo prende y apaga su token', async () => {
+  // El resumen dejó de contar los seis outcomes y cuenta las tres
+  // DISPOSICIONES: la pregunta de esta pantalla es quién mueve la próxima
+  // pieza, y `error`/`cancelled`/`truncated` significan lo mismo para vos.
+  it('el contador "te esperan" prende y apaga los tres outcomes que agrupa', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e1', outcome: 'success' }),
       makeExec({ id: 'e2', outcome: 'error' }),
     ])
     fetchExecutionsMock.mockResolvedValue([makeExec({ id: 'e2', outcome: 'error' })])
 
-    const chip = wrapper.get('[data-testid="executions-summary-error"]')
-    expect(chip.attributes('aria-pressed')).toBe('false')
+    const chip = wrapper.get('[data-testid="verdict-count-waiting"]')
 
     await chip.trigger('click')
     await flushPromises()
     expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(true)
-    expect(chip.attributes('aria-pressed')).toBe('true')
-    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({ outcome: ['error'] })
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      outcome: ['error', 'cancelled', 'truncated'],
+    })
 
-    await chip.trigger('click')
+    await wrapper.get('[data-testid="verdict-count-waiting"]').trigger('click')
     await flushPromises()
     expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(false)
     expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('outcome')
+  })
+
+  // R10: un contador en cero ocupa el mismo ancho que un problema y no es uno.
+  it('un contador en cero no se dibuja', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1', outcome: 'success' })])
+    expect(wrapper.find('[data-testid="verdict-count-closed"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="verdict-count-waiting"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="verdict-count-running"]').exists()).toBe(false)
   })
 
   it('`resultado:pending` deja sólo las filas sin outcome', async () => {
