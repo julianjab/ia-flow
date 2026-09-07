@@ -27,6 +27,12 @@ const items = ref<SourceItem[]>([]);
 const runsByTask = ref<Record<string, TaskRunSummary>>({});
 const blockersByTask = ref<Record<string, Array<{ id: string; ref?: string }>>>({});
 const runsKnown = ref(false);
+/** Ids cuyos blockers el server SÍ pudo resolver. Un id ausente del mapa es
+ *  "no se pudo saber", no "no está bloqueada" — el contrato de
+ *  `fetchBlockersBatch`. Sin este conjunto, una tarea cuya consulta falló se
+ *  ordenaba como si estuviera libre, que es lo contrario de lo que esta
+ *  pantalla existe para decir. */
+const blockersKnown = ref<Set<string>>(new Set());
 const loading = ref(false);
 const error = ref('');
 
@@ -37,7 +43,12 @@ async function load() {
   if (!pid) return;
   loading.value = true;
   error.value = '';
+  // Los dos mapas se limpian JUNTO con su flag: conservarlos mientras el flag
+  // dice "no sé" clasificaba filas con datos de la corrida anterior.
   runsKnown.value = false;
+  runsByTask.value = {};
+  blockersKnown.value = new Set();
+  blockersByTask.value = {};
   try {
     const res = await fetchProjectItems(pid);
     if (activeProjectId.value !== pid) return;
@@ -58,11 +69,17 @@ async function load() {
       runsByTask.value = byTask;
       runsKnown.value = true;
     }
-    if (blockers.status === 'fulfilled') blockersByTask.value = blockers.value;
+    if (blockers.status === 'fulfilled') {
+      blockersByTask.value = blockers.value;
+      blockersKnown.value = new Set(Object.keys(blockers.value));
+    }
   } catch (e) {
-    error.value = extractErrorMessage(e);
+    if (activeProjectId.value === pid) error.value = extractErrorMessage(e);
   } finally {
-    loading.value = false;
+    // El mismo guard que arriba: sin esto, la carga de A que resuelve tarde
+    // apagaba el spinner de B y la pantalla decía "no hay nada esperando"
+    // sobre un proyecto que todavía no cargó.
+    if (activeProjectId.value === pid) loading.value = false;
   }
 }
 
@@ -108,6 +125,9 @@ const queue = computed<QueueRow[]>(() => {
     const summary = runsByTask.value[item.id];
     const last = summary?.last;
     const blockers = blockersByTask.value[item.id] ?? [];
+    // Ojo: `[]` acá puede significar "sin blockers" o "no se pudo saber". Lo
+    // segundo NO habilita a decir que está libre.
+    const blockersUnknown = !blockersKnown.value.has(item.id);
     const pr = openPr(item);
     const attemptsText = (summary?.attempts ?? 0) > 1 ? ` · ${summary?.attempts} intentos` : '';
 
@@ -158,6 +178,18 @@ const queue = computed<QueueRow[]>(() => {
     }
     // Sin run y sabiéndolo: nunca arrancó. Sin saberlo, no se afirma.
     if (runsKnown.value && !last) {
+      // Si tampoco sabemos de sus bloqueos, se dice lo que sí se sabe y nada
+      // más: `sin ejecutar` es cierto; "no está bloqueada" no consta.
+      if (blockersUnknown) {
+        return {
+          id: item.id,
+          title: item.title,
+          issueNumber: item.meta?.issueNumber as number | undefined,
+          url: item.meta?.issueUrl as string | undefined,
+          severity: 'idle',
+          reason: '○ sin ejecutar · bloqueos sin consultar',
+        };
+      }
       return {
         id: item.id,
         title: item.title,
