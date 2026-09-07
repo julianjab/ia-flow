@@ -52,6 +52,19 @@ vi.mock('@/features/projects/sourceApi', () => ({
 // test controla las dos puntas sin montar un router real.
 let routeQuery: Record<string, string | string[]> = {}
 const routerReplace = vi.fn()
+// El split (>= --bp-split) no lo puede decidir happy-dom: `matchMedia` ahí
+// siempre contesta que no. Como el detalle sólo es columna hermana arriba de
+// ese ancho, sin poder prenderlo a mano no hay forma de testear esa columna.
+// `vi.hoisted` porque el factory de `vi.mock` se iza arriba de todo: un `ref`
+// declarado acá abajo todavía no existiría cuando el mock se evalúa.
+// Tiene que ser un `ref` de verdad: la plantilla desenvuelve refs, no objetos
+// con `.value`, así que un `{ value: false }` se leería siempre como true.
+const { isSplit } = await vi.hoisted(async () => ({ isSplit: (await import('vue')).ref(false) }))
+vi.mock('@/composables/useIsMobile', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  useIsSplit: () => ({ isSplit }),
+}))
+
 vi.mock('vue-router', () => ({
   useRoute: () => ({
     get query() {
@@ -529,6 +542,36 @@ describe('TareasSection — filtros del listado', () => {
       await w.get('.tr').trigger('click')
       expect(w.find('[data-testid="task-detail-modal"]').exists() || w.html()).toBeTruthy()
       expect(w.get('.tr').attributes('role')).toBe('button')
+    })
+
+    // El detalle vivía adentro del `v-else` de la lista: en el board, sobre el
+    // breakpoint del split, tocar una fila prendía el estado y no dibujaba
+    // nada — la vista quedaba sin forma de abrir una tarea.
+    it('en el board el detalle también es la columna hermana', async () => {
+      isSplit.value = true
+      try {
+        const w = await mountWith([item('t1', 'todo')], { initialView: 'board' })
+        expect(w.findComponent(TaskDetailModal).exists()).toBe(true)
+        await w.get('.tr').trigger('click')
+        expect(w.findComponent(TaskDetailModal).props('open')).toBe(true)
+      } finally {
+        isSplit.value = false
+      }
+    })
+
+    it('la fila abierta se marca, en las dos vistas', async () => {
+      for (const initialView of ['board', 'list']) {
+        const w = await mountWith([item('t1', 'todo'), item('t2', 'todo')], { initialView })
+        await w.get('.tr').trigger('click')
+        expect(w.findAll('.tr.is-selected').length).toBe(1)
+      }
+    })
+
+    // `useKeyboardNav` resuelve el dueño con `closest('[data-kbd-list]')`: sin
+    // el atributo, la KbdBar del board anuncia atajos que no hacen nada.
+    it('el board declara su lista navegable, que es lo que la KbdBar promete', async () => {
+      const w = await mountWith([item('t1', 'todo')], { initialView: 'board' })
+      expect(w.find('.task-table[data-kbd-list="tasks"]').exists()).toBe(true)
     })
 
     it('agrupa por status y ofrece una columna por vez', async () => {
