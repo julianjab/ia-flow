@@ -21,6 +21,7 @@ commiteado.
 | 06 | `DataRow`, `LogLine`, `FollowTail` | ✅ hecho |
 | 07 | Pantalla por pantalla (`02-pantallas.md`) | 🟡 lo que los datos permiten |
 | 08 | Chrome de dos filas, veredicto, listas en lectura (§9) | ✅ hecho |
+| 5b/5d | La LISTA de Ejecuciones — fila apilada en 390px, columnas en desktop | ✅ hecho |
 
 ## Los siete pasos pedidos explícitamente
 
@@ -66,9 +67,16 @@ en la sección 7 del README como "no existe".
 - `FollowTail` + `LogLine` **cableados** en los logs del daemon. Lo que faltaba
   no era el componente: era que la lista tuviera scroll propio, sin el cual la
   corrección de posición no tiene dónde aplicarse.
-- `DataRow` **existe**. No migra ninguna tabla todavía, a propósito: cada una se
-  migra cuando se la toque. Migrar cinco en el mismo commit haría irrevisable el
-  diff.
+- `DataRow` **existe**. Se migra una tabla cuando se la toca, no cinco en el
+  mismo commit — eso haría irrevisable el diff.
+- **Ejecuciones (5b/5d) está hecha.** La lista era una tabla de siete columnas
+  fijas que en 390px se resolvía con `overflow-x` + `min-width: 37rem` (R2), y
+  decía el outcome con un badge propio mientras el resto de la app lo dice con
+  `ExecutionStatusLine`. Ahora la fila es `features/executions/RunRow.vue`:
+  glifo · `#issue` · título+razón · agente · dur. · verbo en una línea sobre
+  768px, y cuatro líneas apiladas debajo. Se fueron con el rediseño las columnas
+  Proveedor, Container, Fecha y el badge de Resultado — las tres primeras siguen
+  en el detalle, y la edad la dice la razón (`terminó hace 3 d`).
 
 Los otros tres streams (ejecuciones, logs del agent-host, runs abortados) siguen
 sin `FollowTail`: cada uno necesita su propio alto, que es una decisión de

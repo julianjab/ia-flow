@@ -186,7 +186,11 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   comparten las vistas que son recortes del mismo orden (O6).
 - `components/DataRow.vue` — **la fila de datos que entra en 390px** (T6, A4): columnas en `ch`
   sobre `--bp-stack`, dos líneas apiladas debajo, con el glifo fijo a la izquierda. Las columnas
-  llegan por variable, así que cada tabla trae las suyas.
+  llegan por variable, así que cada tabla trae las suyas. Es para una tabla **genérica**: tiene
+  tres zonas (glifo · identidad · estado) y las celdas extra se auto-ubican. Una fila de dominio
+  con más zonas y una línea de verbo propia se escribe como pieza suya con la misma idea —
+  `components/TaskRow.vue` (la tarea, para sus tres pantallas) y
+  `features/executions/RunRow.vue` (la ejecución) son las dos que hay.
 - `components/KbdBar.vue` — **la barra de atajos** al pie de una lista navegable. Anuncia sólo lo
   que `useKeyboardNav` bindea; no se renderiza bajo `--bp-shell` (`v-if`, no `display: none`).
 - `components/FinishedTodayPanel.vue` — lo que terminó hoy, con lo que falló primero.
@@ -327,7 +331,7 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 | ~~`StickyActionBar`~~ | — | — | **Hecho** — `ui/StickyActionBar.vue` |
 | ~~`FullScreen`~~ | — | — | **Hecho** — `ui/FullScreen.vue` |
 | ~~`LogLine` + `FollowTail`~~ | — | — | **Hechos y cableados** — `ui/`; en uso en los logs del daemon |
-| ~~`DataRow`~~ | — | — | **Hecho** — `components/DataRow.vue`; las cinco tablas se migran al tocarlas |
+| ~~`DataRow`~~ | — | — | **Hecho** — `components/DataRow.vue`; las tablas se migran al tocarlas (Ejecuciones ya lo hizo, con `RunRow`) |
 | ~~Barra de controles de lista~~ | — | — | **Hecho** — `components/ListControlsBar.vue` |
 | ~~Encabezado de bucket~~ | — | — | **Hecho** — `components/BucketHeader.vue` |
 | ~~Segmentado de vista~~ | — | — | Cubierto por `components/ListBoardToggle.vue` |
