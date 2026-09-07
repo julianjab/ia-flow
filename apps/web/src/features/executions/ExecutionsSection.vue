@@ -602,12 +602,28 @@ const dispositionRows = computed(() =>
     }),
 );
 
+/**
+ * `RunningRunsPanel` y el bucket `moving` NO son la misma cosa, aunque los dos
+ * hablen de lo que está corriendo.
+ *
+ * Lo primero que pensé fue sacar el bucket, y el código me corrigió: el panel
+ * **delega en la fila** (`openRunFromPanel` la abre y scrollea hasta ella), y
+ * sacarla de la lista rompía dos cosas concretas — filtrar por
+ * `resultado:pending` no mostraba nada, y el botón de abortar de la fila
+ * quedaba inalcanzable.
+ *
+ * La división que sí es: el panel es **actuá ahora** —duración en vivo, un
+ * botón para abortar, arriba de todo— y la lista es **el registro**, donde se
+ * filtra y se abre el detalle. Que un run aparezca en los dos no es
+ * duplicación: es el resumen y su fila.
+ */
 const {
   buckets: execBuckets,
   movedCount: execMoved,
   freeze: freezeExecOrder,
   freezeIfFirst: freezeExecIfFirst,
 } = useDispositionOrder(dispositionRows);
+
 
 /** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
 const closedOpen = ref(false);

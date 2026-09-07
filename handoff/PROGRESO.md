@@ -108,6 +108,35 @@ La tabla viva está en `apps/web/DESIGN_SYSTEM.md` § "Controles pedidos al
 design system". Resumen: **reordenar táctil** (bloqueante), `FullScreen`,
 `DataRow`, `LogLine`/`FollowTail`.
 
+## Integración con los PRs que ya estaban abiertos (07-09)
+
+Cuando esta rama se rebasó sobre `main`, ya se habían mergeado #159, #161, #162,
+#163, #164 y #167. Tres cruces, resueltos así:
+
+- **`TaskDetailModal`** → gana **#159**. Los dos hacen pantalla completa bajo
+  768px, pero en desktop el suyo es un **panel lateral de 400px** en vez de un
+  diálogo centrado, y eso es mejor: la lista no se pierde al abrir una tarea. Se
+  descartó la migración a `FullScreen` de este archivo — el commit
+  `feat(web): un detalle en mobile es una pantalla con ←` conserva en su cuerpo
+  la versión previa a esta decisión; los que migran son los otros tres modales.
+- **`RunningRunsPanel` (#162) + bucket `moving`** → **quedan los dos.** Parecían
+  duplicados y el primer intento fue sacar el bucket; el código corrigió: el
+  panel **delega en la fila** (`openRunFromPanel` la abre y scrollea hasta ella),
+  así que sacarla rompía filtrar por `resultado:pending` y dejaba el botón de
+  abortar inalcanzable. La división real es panel = *actuá ahora*, lista = *el
+  registro*.
+- **`TaskRunPreview` → `RunPreviewCard`** (#167) → el rename entró limpio.
+
+### Una nota de proceso
+Esta sesión trabajó 33 commits sobre `feat/mobile-nav` sin mirar qué más había
+abierto. Había seis PRs con solapamiento real. **Correr `gh pr list` al empezar,
+no al final.**
+
+Y un detalle del repo que costó un PR: **GitHub borra la head branch
+automáticamente** al mergear (no hace falta `--delete-branch`), y un PR cuya
+base desaparece se cierra solo y **no se puede reabrir ni re-apuntar** — así
+murió #160, que hubo que recrear como #167.
+
 ## Decisiones tomadas que conviene no re-litigar
 
 - `--row-h` es grilla, `--tap-h` es blanco táctil. No se colapsan.
