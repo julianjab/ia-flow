@@ -19,9 +19,20 @@ import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
  *
  * Lo que varía con el ancho es la FORMA, no el contenido:
  *
- * - Bajo 768px: cuatro líneas —meta, título, razón, verbo— con el glifo
+ * - Hasta 1100px: cuatro líneas —meta, título, razón, verbo— con el glifo
  *   ocupándolas todas a la izquierda.
- * - Arriba: una línea con las columnas de 5d, `16px 8ch 1fr 12ch 8ch 22ch`.
+ * - Arriba: una línea con las columnas de 5d. Las medidas las pone el padre en
+ *   `--rr-cols` —una sola declaración para la fila Y su encabezado, que si se
+ *   escribieran por separado dejarían de nombrar la columna que tienen
+ *   debajo— y acá hay un default para quien no las declare.
+ *
+ * El corte es 1100 y no `--bp-stack` (640) como en `DataRow`, ni 768 como en
+ * `TaskRow`, y la razón es medible: entre 768 y 1100 vuelve el sidebar y la
+ * lista se queda con ~470px de ancho, así que las columnas fijas (50ch de
+ * agente + duración + acción) dejaban el título en 119px — doce caracteres de
+ * la única columna que se lee. 5d está dibujado a 1280, que es donde esas
+ * medidas entran; 1100 es el breakpoint que el design system ya tiene para
+ * "acá hay ancho de sobra".
  *
  * No usa `components/DataRow.vue` por lo mismo que `TaskRow` tampoco: aquél
  * tiene tres zonas nombradas (glifo · identidad · estado) y las celdas extra se
@@ -150,7 +161,7 @@ function onKeydown(e: KeyboardEvent) {
       <span v-if="cancelRequested" class="rr__cancel-requested">cancelación solicitada</span>
     </span>
 
-    <span class="rr__agent">{{ agent || '—' }}</span>
+    <span class="rr__agent" :title="agent || undefined">{{ agent || '—' }}</span>
     <span class="rr__dur">{{ duration || '—' }}</span>
 
     <!-- El verbo cierra la fila (O2): sólo donde hay algo que hacer, y siempre
@@ -177,6 +188,13 @@ function onKeydown(e: KeyboardEvent) {
   padding: 0.55rem 0.9rem;
   background: var(--panel);
   min-width: 0;
+  /* La base de la fila es la mono micro — y no es cosmético: `ch` se resuelve
+     contra la fuente del CONTENEDOR de la grilla, así que si acá y en el
+     encabezado no fuera la misma, las mismas `--rr-cols` darían dos anchos
+     distintos y las columnas dejarían de alinearse. Lo que se sale de esa base
+     lo declara su celda (el título). */
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
 }
 .rr--clickable { cursor: pointer; }
 .rr--clickable:hover { background: var(--panel-hi); }
@@ -229,6 +247,7 @@ function onKeydown(e: KeyboardEvent) {
 
 .rr__title {
   grid-area: title;
+  font-family: var(--font-body);
   /* Apilada, la nota fluye INLINE con el título: en flex le robaba su ancho y
      un título largo terminaba envolviendo en una columna de media pantalla. */
   min-width: 0;
@@ -279,9 +298,9 @@ function onKeydown(e: KeyboardEvent) {
 .rr__verb { grid-area: verb; justify-self: start; min-width: 0; }
 
 /* ── Una línea con columnas cuando hay ancho (5d) ─────────────────────────── */
-@media (min-width: 768px) {
+@media (min-width: 1100px) {
   .rr {
-    grid-template-columns: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch;
+    grid-template-columns: var(--rr-cols, 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch);
     grid-template-areas: none;
     gap: 0.65rem;
     align-items: center;

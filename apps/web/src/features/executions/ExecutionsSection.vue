@@ -2268,15 +2268,20 @@ watch(pendingFilter, () => {
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 .exec-list-wrapper { position: relative; }
-/* No existe bajo 768px: ahí la fila se apila y un encabezado de columnas no
-   encabeza nada. Arriba, la MISMA grilla que `RunRow` — si las dos se
-   escribieran distinto, el encabezado dejaría de nombrar la columna que tiene
-   debajo, que es lo único que hace. */
+/* Las columnas de la lista se declaran UNA vez, acá, y las heredan la fila y su
+   encabezado: escritas por separado, la primera vez que una cambie el
+   encabezado deja de nombrar la columna que tiene debajo, que es lo único que
+   hace. Son las de 5d, que está dibujado a 1280 — que es también desde dónde
+   la fila deja de apilarse (ver `RunRow`). */
+.exec-list-wrapper { --rr-cols: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch; }
+
+/* No existe donde la fila se apila: un encabezado de columnas no encabeza
+   nada. Mismo corte que `RunRow` — 1100, ver el porqué ahí. */
 .exec-list-header { display: none; }
-@media (min-width: 768px) {
+@media (min-width: 1100px) {
   .exec-list-header {
     display: grid;
-    grid-template-columns: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch;
+    grid-template-columns: var(--rr-cols);
     gap: 0.65rem;
     align-items: center;
     height: var(--row-h);
@@ -2284,6 +2289,8 @@ watch(pendingFilter, () => {
     background: var(--panel-hi);
     border: 1px solid var(--border);
     border-radius: 6px 6px 0 0;
+    /* Misma base que `.rr`: `ch` se mide contra la fuente del contenedor, y con
+       dos bases distintas el encabezado no cae sobre su columna. */
     font-family: var(--font-mono);
     font-size: var(--fs-micro);
     color: var(--fg-dim);
