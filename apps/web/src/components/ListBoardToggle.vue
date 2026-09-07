@@ -15,11 +15,26 @@ import { useRouter } from 'vue-router';
  * `features/tasks` y `features/statuses`. Un import entre features sería la
  * otra opción, y es justo lo que el CLAUDE.md del repo prohíbe.
  */
-const props = defineProps<{
+const props = withDefaults(
+  defineProps<{
   projectId: string | null;
   /** Cuál de las dos está abierta. */
   view: 'lista' | 'board';
-}>();
+  /**
+   * ¿El proyecto tiene statuses?
+   *
+   * Un pipeline puramente label/when-driven devuelve cero, y su board queda
+   * vacío — el sidebar de desktop ya esconde ese tab por eso mismo
+   * (`activeProjectHasStatuses` en AppShell). En mobile este toggle es el
+   * ÚNICO camino al board, así que ofrecerlo igual mandaría a una pantalla
+   * vacía sin nada que explique por qué.
+   */
+  boardAvailable?: boolean;
+  }>(),
+  // Vue castea los props Boolean: sin default explícito, "ausente" llega como
+  // `false` y el toggle desaparecía en todos lados.
+  { boardAvailable: true },
+);
 
 const router = useRouter();
 
@@ -35,7 +50,7 @@ function go(view: 'lista' | 'board') {
 </script>
 
 <template>
-  <div v-if="projectId" class="lbt" role="tablist" aria-label="Vista de tareas">
+  <div v-if="projectId && boardAvailable" class="lbt" role="tablist" aria-label="Vista de tareas">
     <button
       type="button"
       class="lbt__opt"

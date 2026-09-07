@@ -596,7 +596,11 @@ watch(activeProjectId, (pid) => {
 
     <!-- Board es la misma lista agrupada por status: su entrada vive acá, no
          como un destino más de la navegación. -->
-    <ListBoardToggle :project-id="activeProjectId ?? null" view="lista" />
+    <ListBoardToggle
+      :project-id="activeProjectId ?? null"
+      view="lista"
+      :board-available="statusOptions.length > 0"
+    />
 
     <SlackReviewSettings
       :project="projectsStore.activeProject"
