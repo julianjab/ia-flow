@@ -217,7 +217,7 @@ const comboOptions = computed<ComboOption[]>(() => localPathOptions.value.map((v
               :repo="form.githubRepo"
               @update:model-value="onGithubChange"
             />
-          </div>
+          </label>
 
           <label class="ff-row">
             <span class="uc-label">Workflow</span>
