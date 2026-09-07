@@ -367,7 +367,10 @@ que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por q
   pantalla de 800 es el 13% gastado en chrome.
 - **R5 · La etiqueta va arriba.** Bajo 640px, toda grilla `etiqueta · valor` se apila. Una
   etiqueta de `5rem` se lleva un cuarto del ancho de un teléfono.
-- **R6 · Overlay anclado, no.** Bajo 768px, popovers y dropdowns son bottom sheets. Un popover
+- **R6 · Overlay anclado, no.** Y adentro de un sheet tampoco: un popover absoluto no cuenta para
+  el alto del sheet, así que éste se dibuja del tamaño del input y la lista cae fuera de la parte
+  visible (medido: sheet de 178px, doce opciones invisibles). Adentro, la lista va **en flujo** y
+  el que scrollea es el cuerpo del sheet. Bajo 768px, popovers y dropdowns son bottom sheets. Un popover
   anclado a un input queda fuera de pantalla en cuanto sube el teclado virtual.
 - **R7 · Sin hover como único camino.** Lo que sólo aparece en `:hover` es inalcanzable en
   táctil. Si es importante, se ve siempre; si no, va en el detalle.
