@@ -20,14 +20,20 @@ const props = defineProps<{
 const route = useRoute();
 const activeExecutions = useActiveExecutionsStore();
 
-const projectBase = computed(() =>
-  props.projectId ? `/projects/${props.projectId}` : '/projects',
-);
+/**
+ * Sin proyecto activo los tres primeros van al LISTADO, no a una URL armada.
+ *
+ * Concatenar el tab sobre `/projects` daba `/projects/tareas`, que el router
+ * matchea como `projects/:id` y abre el detalle de un proyecto llamado
+ * "tareas": pantalla vacía y fetches contra un id que no existe.
+ */
+const tabPath = (tab: string) =>
+  props.projectId ? `/projects/${props.projectId}/${tab}` : '/projects';
 
 const TABS = computed(() => [
-  { id: 'que-sigue', glyph: '✦', label: 'QUÉ SIGUE', to: `${projectBase.value}/que-sigue` },
-  { id: 'tareas', glyph: '▤', label: 'TAREAS', to: `${projectBase.value}/tareas` },
-  { id: 'executions', glyph: '●', label: 'RUNS', to: `${projectBase.value}/executions`, live: true },
+  { id: 'que-sigue', glyph: '✦', label: 'QUÉ SIGUE', to: tabPath('que-sigue') },
+  { id: 'tareas', glyph: '▤', label: 'TAREAS', to: tabPath('tareas') },
+  { id: 'executions', glyph: '●', label: 'RUNS', to: tabPath('executions'), live: true },
   { id: 'mas', glyph: '☰', label: 'MÁS', to: '/mas' },
 ]);
 
