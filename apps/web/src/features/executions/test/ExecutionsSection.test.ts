@@ -38,10 +38,14 @@ vi.mock('../api', () => ({
 // ese ancho, sin poder prenderlo a mano no hay forma de testear esa columna.
 // `vi.hoisted` porque el factory de `vi.mock` se iza arriba de todo, y tiene
 // que ser un `ref` de verdad: la plantilla desenvuelve refs, no objetos.
-const { isSplit } = await vi.hoisted(async () => ({ isSplit: (await import('vue')).ref(false) }))
+const { isSplit, isMobile } = await vi.hoisted(async () => {
+  const { ref } = await import('vue')
+  return { isSplit: ref(false), isMobile: ref(false) }
+})
 vi.mock('@/composables/useIsMobile', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   useIsSplit: () => ({ isSplit }),
+  useIsMobile: () => ({ isMobile }),
 }))
 vi.mock('@/features/projects/availableApi', () => ({
   fetchAvailableAgents: vi.fn().mockResolvedValue([]),
@@ -860,6 +864,30 @@ describe('ExecutionsSection — el detalle en pantallas grandes', () => {
       'exec-drawer--inline',
     )
     expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
+  })
+
+  // Bajo --bp-shell el drawer medía 420px de `min-width` sobre un teléfono de
+  // 390: tapaba la lista igual, pero con 31px de su contenido cortados contra
+  // el borde. Es una PANTALLA, y de una pantalla se vuelve.
+  it('bajo --bp-shell se cierra con `←`, no con `×`', async () => {
+    isMobile.value = true
+    try {
+      const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+      await wrapper.get('.exec-card .rr').trigger('click')
+
+      expect(wrapper.get('[data-testid="executions-detail-close"]').text()).toBe('←')
+      expect(wrapper.get('.exec-drawer__header').classes()).toContain('exec-drawer__header--back')
+    } finally {
+      isMobile.value = false
+    }
+  })
+
+  it('con mouse sigue siendo un panel que se cierra con `×`', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+    await wrapper.get('.exec-card .rr').trigger('click')
+
+    expect(wrapper.get('[data-testid="executions-detail-close"]').text()).toBe('×')
+    expect(wrapper.get('.exec-drawer__header').classes()).not.toContain('exec-drawer__header--back')
   })
 
   it('sin detalle abierto no hay segunda columna', async () => {

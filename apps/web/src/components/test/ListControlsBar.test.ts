@@ -48,6 +48,36 @@ describe('ListControlsBar', () => {
     expect(w.find('.lcb__panel').exists()).toBe(false)
   })
 
+  it('los controles de forma van en la fila cuando hay ancho', () => {
+    const w = mount(ListControlsBar, {
+      slots: { view: '<b>Lista</b>', tools: '<button class="t">por fecha</button>' },
+      global: { stubs: { BottomSheet: true } },
+    })
+    expect(w.get('.lcb__row .t').exists()).toBe(true)
+    expect(w.find('.lcb__sheet-tools').exists()).toBe(false)
+  })
+
+  it('bajo --bp-shell bajan al sheet: seis controles no entran en 390px (R2)', async () => {
+    // Es el bug que arreglaron: Tareas metía vista + contador + orden +
+    // actualizar + filtro activo + `filtros ⌄` en una fila, y la pantalla
+    // terminaba con 199px de scroll horizontal.
+    vi.resetModules()
+    mockMobile(true)
+    const Mobile = (await import('../ListControlsBar.vue')).default
+    const w = mount(Mobile, {
+      props: { filterCount: 1, summary: 'me toca 4' },
+      slots: {
+        view: '<b>Lista</b>',
+        tools: '<button class="t">por fecha</button>',
+        default: '<input data-testid="q" />',
+      },
+      global: { stubs: { BottomSheet: { template: '<div><slot /></div>' } } },
+    })
+    expect(w.find('.lcb__row .t').exists()).toBe(false)
+    expect(w.get('.lcb__sheet-tools .t').exists()).toBe(true)
+    vi.doUnmock('@/composables/useIsMobile')
+  })
+
   it('bajo --bp-shell el filtro activo y `filtros ⌄` reemplazan al panel inline', async () => {
     vi.resetModules()
     mockMobile(true)
