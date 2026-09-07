@@ -157,3 +157,43 @@ export function dispositionOfOutcome(outcome: string | null | undefined): TaskDi
   if (outcome === 'success') return 'closed'
   return 'waiting-on-you'
 }
+
+/** Lo que se puede hacer con un run, desde la lista. */
+export interface RunVerb {
+  label: string
+  kind: 'cancel' | 'route'
+  href?: string
+  /** Atenuado detrás del label: dice a DÓNDE lleva. */
+  hint?: string
+}
+
+/**
+ * El verbo de una fila de ejecución (O2).
+ *
+ * **Ninguna fila inventa una capacidad**: cada verbo apunta a algo que existe
+ * hoy. Un run terminado bien no lleva verbo — si no te toca, ofrecer un botón
+ * es ruido.
+ *
+ * `error` y `truncated` NO llevan verbo acá, y es a propósito: reintentar es una
+ * acción sobre la TAREA (`POST /api/tasks/:id/run`), no sobre este run, y esta
+ * feature no puede llamar al api de otra (regla del repo). El verbo vive en la
+ * fila de Tareas y en el detalle de la tarea, que es donde la acción pertenece.
+ * Prometerlo acá y que abriera otra pantalla sería un botón que miente sobre lo
+ * que hace.
+ */
+export function verbForRun(exec: {
+  id: string
+  outcome: string | null
+  finishedAt: string | null
+}): RunVerb | null {
+  if (!exec.finishedAt) return { label: 'Abortar', kind: 'cancel' }
+  if (exec.outcome === 'cancelled') {
+    return {
+      label: 'Resolver',
+      kind: 'route',
+      href: `/general/aborted-runs?run=${encodeURIComponent(exec.id)}`,
+      hint: '· runs abortados',
+    }
+  }
+  return null
+}

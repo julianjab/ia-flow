@@ -23,9 +23,10 @@ import {
 } from '@ia-flow/shared';
 import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
+import { formatRelative } from './relativeTime';
 import BucketHeader from '@/components/BucketHeader.vue';
 import HealthVerdict from './HealthVerdict.vue';
-import { dispositionOfOutcome } from './verdict';
+import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
@@ -623,6 +624,29 @@ const {
   freeze: freezeExecOrder,
   freezeIfFirst: freezeExecIfFirst,
 } = useDispositionOrder(dispositionRows);
+
+// El orden se congela con la primera carga que traiga filas. Sin esto,
+// `execMoved` nunca sube y el aviso de reorden no aparece jamás.
+watch(dispositionRows, () => freezeExecIfFirst(), { immediate: true });
+
+/**
+ * Lo que el bucket `cerradas` dice sin desplegarlo: cuánto salió bien y hace
+ * cuánto fue lo último. Es lo único que se necesita saber de la parte del día
+ * que NO hay que mirar (O4) — si esos dos números están bien, no hay razón
+ * para abrirlo.
+ */
+const closedMeta = computed<string | undefined>(() => {
+  const closed = executions.value.filter((e) => e.outcome === 'success');
+  const finished = executions.value.filter((e) => e.finishedAt);
+  if (!finished.length) return undefined;
+  const pct = Math.round((closed.length / finished.length) * 100);
+  const last = closed
+    .map((e) => e.finishedAt)
+    .filter((d): d is string => !!d)
+    .sort()
+    .at(-1);
+  return last ? `${pct}% ok · última ${formatRelative(last)}` : `${pct}% ok`;
+});
 
 
 /** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
@@ -1673,6 +1697,21 @@ watch(pendingFilter, () => {
         <span class="exec-stop-spacer" aria-hidden="true"></span>
       </div>
 
+      <!-- El orden no se recalcula solo: con el socket vivo, la fila que ibas a
+           tocar se movería bajo el dedo cada vez que llega un evento. Misma
+           pieza que en Tareas y Qué sigue. -->
+      <button
+        v-if="execMoved > 0"
+        type="button"
+        class="exec-moved"
+        data-testid="executions-reorder"
+        @click="freezeExecOrder"
+      >
+        {{ execMoved }} {{ execMoved === 1 ? 'cambió' : 'cambiaron' }} de lugar
+        <span class="exec-moved-sep">·</span>
+        <span class="exec-moved-cta">reordenar</span>
+      </button>
+
       <p v-if="loading && !executions.length" class="exec-empty">Cargando ejecuciones…</p>
       <p v-else-if="!filteredExecutions.length" class="exec-empty">
         No hay ejecuciones para los filtros actuales.
@@ -1689,6 +1728,7 @@ watch(pendingFilter, () => {
             :count="row.count"
             :collapsible="row.disposition === 'closed'"
             :open="closedOpen"
+            :meta="row.disposition === 'closed' ? closedMeta : undefined"
             @toggle="closedOpen = !closedOpen"
           />
         </li>
@@ -1829,16 +1869,29 @@ watch(pendingFilter, () => {
               >{{ outcomeLabel(row.exec!.outcome) }}</span>
               <span class="exec-chevron" aria-hidden="true">›</span>
             </button>
+            <!-- La columna ACCIÓN: un verbo por fila, y sólo donde hay algo
+                 que hacer (O2). El destino existe: abortar llama a su endpoint,
+                 resolver navega a la pantalla de runs abortados. -->
             <div class="exec-stop-slot">
               <button
-                v-if="!row.exec!.finishedAt"
+                v-if="verbForRun(row.exec!)?.kind === 'cancel'"
                 type="button"
                 class="exec-stop-btn"
                 :disabled="isCancelling(row.exec!.id)"
                 :data-testid="`executions-stop-${row.exec!.id}`"
                 title="Detener ejecución"
                 @click.stop="confirmCancelExecution(row.exec!)"
-              >{{ isCancelling(row.exec!.id) ? '…' : '■ Detener' }}</button>
+              >{{ isCancelling(row.exec!.id) ? '…' : '■ Abortar' }}</button>
+              <RouterLink
+                v-else-if="verbForRun(row.exec!)?.href"
+                class="exec-verb"
+                :to="verbForRun(row.exec!)!.href!"
+                :data-testid="`executions-verb-${row.exec!.id}`"
+                @click.stop
+              >
+                → {{ verbForRun(row.exec!)!.label }}
+                <span class="exec-verb-hint">{{ verbForRun(row.exec!)!.hint }}</span>
+              </RouterLink>
             </div>
           </div>
         </li>
@@ -2317,6 +2370,27 @@ watch(pendingFilter, () => {
   margin: 0;
 }
 
+/* El aviso de reorden: información, no alarma — describe el estado del ORDEN,
+   no el de un run. Misma pieza que en Tareas. */
+.exec-moved {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0 1rem;
+  border: none;
+  background: var(--panel-alt);
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-align: left;
+  cursor: pointer;
+}
+.exec-moved:hover { background: var(--panel-hi); }
+.exec-moved-sep { color: var(--fg-dimmer); }
+.exec-moved-cta { text-decoration: underline; }
+
 .exec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .exec-card {
   border: 1px solid var(--border);
@@ -2453,6 +2527,22 @@ watch(pendingFilter, () => {
    with an active "Detener" button are narrower than finished rows and the
    fixed-width columns after the title (agent/provider/date/…) drift out of
    alignment with the sticky header. */
+/* El verbo que navega. `--tap-h` de área porque se toca, y el `hint` dice a
+   dónde lleva — que es lo que evita que prometa de más. */
+.exec-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5ch;
+  min-height: var(--tap-h);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.exec-verb:hover { background: transparent; color: var(--accent); text-decoration: underline; }
+.exec-verb-hint { color: var(--fg-dimmer); }
+
 .exec-stop-slot {
   flex-shrink: 0;
   align-self: center;
