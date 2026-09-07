@@ -489,6 +489,16 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   // Opus puede subirlo a 'xhigh' del mismo modo — ninguno de los dos es el
   // default global porque el default tiene que servir para el modelo default.
   effort: 'high',
+  // `executeLoop` cae a 0 (packages/tools/src/engine.ts) cuando esto llega
+  // undefined — un agente con varias rondas de tools MCP remotas (roster
+  // típico: refiner/reviewer buscando código) pega seguido contra el tope de
+  // 10 rondas por request de Anthropic y quedaba "pausado" a la primera,
+  // exigiendo mover la tarea a mano para reintentar (subscriptions#1412).
+  // Reenviar el historial sin cambios es gratis — no reintenta con más
+  // tokens ni repite trabajo — así que 5 reintentos absorben ese patrón sin
+  // esconder un loop real: un agente que sigue pausando a la quinta vez es
+  // señal de otra cosa, no de esto.
+  maxPauseTurnRetries: 5,
 }
 
 export const DEFAULT_TERMINAL_SETTINGS = {}
