@@ -91,6 +91,22 @@ describe('TaskDetailModal — correr la tarea', () => {
     expect(need('.modal-foot .btn--primary').textContent).toContain('Reintentar')
   })
 
+  // El botón de abortar de esta misma pantalla escribe `cancelled`: pintarlo
+  // verde con "Ver PR" sería decir que terminó bien el run que acabás de matar.
+  it('un run cancelado o cortado ofrece reintentar, no "ver PR"', () => {
+    for (const outcome of ['cancelled', 'truncated'] as const) {
+      document.body.innerHTML = ''
+      mountModal({
+        execution: { ...runningRun(), finishedAt: new Date().toISOString(), outcome },
+        pullRequests: [
+          { number: 152, url: 'https://github.com/o/r/pull/152', state: 'open', isDraft: false },
+        ],
+      })
+      expect(need('.state-card').classList.contains('is-stopped')).toBe(true)
+      expect(need('.modal-foot .btn--primary').textContent).toContain('Reintentar')
+    }
+  })
+
   // Aprobar/mergear desde la app no existe: la acción abre el PR en GitHub en
   // vez de prometer un botón que no hace nada.
   it('una tarea terminada con PR abierto ofrece verlo en GitHub', () => {
