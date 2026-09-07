@@ -123,6 +123,30 @@ async function onSaveEntorno() {
  * nada, y el toggle sería un control de más para no ahorrar nada.
  */
 const READ_MODE_FROM = 8;
+/**
+ * Cuántas se dibujan en lectura antes de cortar con `+ N más`.
+ *
+ * Leer veinte líneas para confirmar que `WOMPI_KEY` está puesta no es leer: es
+ * scrollear. Siete entran de un vistazo en un teléfono y alcanzan para
+ * reconocer el grupo; el resto se despliega si de verdad se lo está buscando.
+ */
+const READ_PREVIEW = 7;
+/** Grupos cuyo preview el usuario expandió. */
+const expandedGroups = ref<Set<string>>(new Set());
+
+function visibleKeys(group: { group: string; keys: string[] }): string[] {
+  if (expandedGroups.value.has(group.group)) return group.keys;
+  return group.keys.slice(0, READ_PREVIEW);
+}
+
+function hiddenCount(group: { group: string; keys: string[] }): number {
+  if (expandedGroups.value.has(group.group)) return 0;
+  return Math.max(0, group.keys.length - READ_PREVIEW);
+}
+
+function expandGroup(name: string) {
+  expandedGroups.value = new Set([...expandedGroups.value, name]);
+}
 const editingGroups = ref<Set<string>>(new Set());
 
 function isEditing(group: { group: string; keys: string[] }): boolean {
@@ -191,13 +215,23 @@ onMounted(async () => {
         <!-- Lectura: una línea de --row-h por variable. Lo que se contesta acá
              es "¿está puesta y de dónde sale?", que no necesita un campo. -->
         <template v-if="!isEditing(group)">
-          <div v-for="key in group.keys" :key="key" class="env-read">
+          <div v-for="key in visibleKeys(group)" :key="key" class="env-read">
             <code class="env-read__key">{{ key }}</code>
             <span class="env-read__val">{{ readValue(key) }}</span>
             <span :class="sourceBadge(key).cls" :title="sourceBadge(key).title">{{
               sourceBadge(key).text
             }}</span>
           </div>
+          <!-- `+ N más` es una fila de lectura, no un botón: sigue el ritmo de
+               --row-h de las de arriba porque es una más de la lista. -->
+          <button
+            v-if="hiddenCount(group) > 0"
+            type="button"
+            class="env-read env-read--more"
+            :data-testid="`env-more-${group.group}`"
+            @click="expandGroup(group.group)"
+          >+ {{ hiddenCount(group) }} más</button>
+
           <button
             type="button"
             class="ff-add"
@@ -307,6 +341,17 @@ onMounted(async () => {
   font-size: var(--fs-micro);
 }
 .env-read__key { color: var(--info); flex: 0 0 auto; }
+/* La fila de "hay más": misma grilla que las de arriba, atenuada. Es la última
+   línea de la lista, no un control aparte. */
+.env-read--more {
+  border: none;
+  background: none;
+  color: var(--fg-dimmer);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.env-read--more:hover { color: var(--fg-mute); }
 .env-read__val {
   flex: 1 1 auto;
   min-width: 0;
