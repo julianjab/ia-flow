@@ -22,7 +22,13 @@ import {
   type TaskDisposition,
 } from '@ia-flow/shared';
 import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
-import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
+import {
+  cancelExecution,
+  type ExecutionLog,
+  fetchExecutions,
+  fetchExecutionSources,
+  fetchExecutionStats,
+} from './api';
 import { formatRelative } from './relativeTime';
 import BucketHeader from '@/components/BucketHeader.vue';
 import KbdBar from '@/components/KbdBar.vue';
@@ -33,6 +39,7 @@ import { useIsSplit } from '@/composables/useIsMobile';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 import RunRow from './RunRow.vue';
+import RunVerdict from './RunVerdict.vue';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -700,6 +707,67 @@ const closedMeta = computed<string | undefined>(() => {
 });
 
 
+/**
+ * El promedio de duración del agente del run abierto, para el aviso de
+ * lentitud del veredicto (banda 2).
+ *
+ * Se pide sólo cuando el run está VIVO: es la única situación donde "¿esto se
+ * colgó?" es una pregunta, y así abrir un run terminado no paga un request
+ * extra. Se cachea por agente porque la ventana es la misma para todos.
+ *
+ * Si falla, el aviso no se dibuja (R13): un run lento sin comparación es
+ * simplemente un run.
+ */
+const agentAvgMs = ref<Record<string, number | null>>({});
+const STATS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+async function loadAgentAvg(exec: ExecutionLog): Promise<void> {
+  if (exec.finishedAt || !exec.agentId) return;
+  if (exec.agentId in agentAvgMs.value) return;
+  // Se marca ANTES del await: dos aperturas seguidas del mismo run vivo
+  // dispararían dos requests idénticos mientras el primero está en vuelo.
+  agentAvgMs.value = { ...agentAvgMs.value, [exec.agentId]: null };
+  try {
+    const stats = await fetchExecutionStats({
+      from: new Date(Date.now() - STATS_WINDOW_MS).toISOString(),
+      ...(isGlobal.value || !activeProjectId.value ? {} : { projectId: activeProjectId.value }),
+    });
+    const agent = stats.agents.find((a) => a.agentId === exec.agentId);
+    agentAvgMs.value = { ...agentAvgMs.value, [exec.agentId]: agent?.avgDurationMs ?? null };
+  } catch {
+    // Ya quedó en null arriba: sin comparación, sin aviso.
+  }
+}
+
+/**
+ * La meta completa del run — plegada.
+ *
+ * El detalle son cinco bandas (turno 6) y ninguna es "la tabla de campos": lo
+ * que se mira al abrir un run es el veredicto, la causa y el log. El resto
+ * —taskId, traceId, eventId, assignees, el JSON crudo— es material de
+ * auditoría: se necesita de vez en cuando y no puede desaparecer, así que
+ * queda a un click en vez de empujar al log fuera de la pantalla.
+ */
+const metaOpen = ref(false);
+
+/**
+ * Qué se puede hacer con el run abierto (banda 5).
+ *
+ * No es una lista de botones sino la respuesta a "¿existe la acción?": abortar
+ * sólo mientras corre, `Resolver` sólo si quedó abortado, la tarea sólo si la
+ * fuente tiene una URL. Con las tres vacías la barra no se dibuja — una banda
+ * que no puede ofrecer nada se omite entera en vez de mostrar un botón muerto
+ * (R13).
+ */
+const detailActions = computed<string[]>(() => {
+  const e = selectedExec.value;
+  if (!e) return [];
+  const out: string[] = [];
+  if (!e.finishedAt) out.push('cancel');
+  if (verbForRun(e)?.href) out.push('verb');
+  if (issueUrlFor(e.taskId)) out.push('issue');
+  return out;
+});
+
 /** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
 const closedOpen = ref(false);
 
@@ -1129,6 +1197,8 @@ function toggleRow(id: string) {
     if (exec && !fetchedRunIds.value.has(exec.id)) {
       void loadRelatedLogs(exec);
     }
+    // El promedio del agente, sólo si el run está vivo (ver `loadAgentAvg`).
+    if (exec) void loadAgentAvg(exec);
     // Reset autoscroll so the newly-opened drawer starts pinned to bottom.
     autoScroll.value = true;
   }
@@ -1272,6 +1342,14 @@ function confirmCancelExecution(exec: ExecutionLog) {
 // needs a secure context (HTTPS or localhost), which matches our dev setup.
 function copyJson(exec: ExecutionLog) {
   void navigator.clipboard.writeText(JSON.stringify(exec, null, 2));
+}
+
+/** El error, copiable entero — lo pide la banda de causa (turno 6). Avisa,
+ *  porque copiar no deja rastro visible y sin toast no se sabe si funcionó. */
+function copyError(text: string) {
+  if (!text) return;
+  void navigator.clipboard.writeText(text);
+  toastStore.success('Error copiado al portapapeles');
 }
 
 // Formatters — kept as plain functions so the template stays declarative.
@@ -1881,39 +1959,26 @@ watch(pendingFilter, () => {
         aria-label="Detalle de la ejecución"
         data-testid="executions-detail-drawer"
       >
+        <!-- Banda 1 · identidad. Qué run es, y nada más: el outcome lo dice el
+             veredicto de abajo en grande, así que repetirlo acá como badge era
+             decir dos veces lo mismo en 44px. -->
         <header class="exec-drawer__header">
           <div class="exec-drawer__title">
-            <h3>{{ isAction(selectedExec) ? 'Acción' : 'Ejecución' }}</h3>
-            <span
-              class="exec-outcome"
-              :style="{
-                background: outcomeColor(selectedExec.outcome).bg,
-                color: outcomeColor(selectedExec.outcome).fg,
-              }"
-            >{{ outcomeLabel(selectedExec.outcome) }}</span>
-            <span
-              v-if="selectedExec.cancelRequestedAt"
-              class="exec-cancel-requested"
-              :title="`Cancelación solicitada: ${selectedExec.cancelRequestedAt}`"
-            >cancelación solicitada</span>
+            <span class="exec-drawer__id">{{ issueLabelFor(selectedExec.taskId) ?? (isAction(selectedExec) ? 'acción' : 'run') }}</span>
+            <!-- El proyecto sólo en la pestaña global: en la de un proyecto ya
+                 lo dice la barra de identidad de la pantalla (R9). Y no se
+                 repite la palabra que el id de la izquierda ya dijo. -->
+            <span v-if="isGlobal" class="exec-drawer__crumb">
+              {{ projectNameFor(selectedExec.projectId) }}
+            </span>
           </div>
-          <div class="exec-drawer__header-actions">
-            <button
-              v-if="!selectedExec.finishedAt"
-              type="button"
-              class="exec-stop-btn"
-              :disabled="isCancelling(selectedExec.id)"
-              data-testid="executions-detail-stop"
-              @click="confirmCancelExecution(selectedExec)"
-            >{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Detener' }}</button>
-            <button
-              type="button"
-              class="exec-drawer__close"
-              aria-label="Cerrar detalle"
-              data-testid="executions-detail-close"
-              @click="closeDetail()"
-            >×</button>
-          </div>
+          <button
+            type="button"
+            class="exec-drawer__close"
+            aria-label="Cerrar detalle"
+            data-testid="executions-detail-close"
+            @click="closeDetail()"
+          >×</button>
         </header>
 
         <div
@@ -1921,62 +1986,84 @@ watch(pendingFilter, () => {
           class="exec-drawer__body"
           @scroll.passive="onDrawerScroll"
         >
-          <p class="exec-drawer__task">
-            <a
-              v-if="issueUrlFor(selectedExec.taskId)"
-              :href="issueUrlFor(selectedExec.taskId)!"
-              target="_blank"
-              rel="noopener noreferrer"
-            >{{ selectedExec.taskTitle }} ↗</a>
-            <template v-else>{{ selectedExec.taskTitle }}</template>
-          </p>
+          <!-- Bandas 2 y 3 · veredicto y causa. -->
+          <RunVerdict
+            :execution="selectedExec"
+            :issue-url="issueUrlFor(selectedExec.taskId)"
+            :avg-duration-ms="agentAvgMs[selectedExec.agentId] ?? null"
+            :rules-href="isGlobal ? null : `/projects/${selectedExec.projectId}/pipeline`"
+            @copy-error="copyError(selectedExec.errorMsg ?? '')"
+          />
 
-          <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
-            <span class="detail-label">{{ row.label }}</span>
-            <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
-            <button
-              v-else-if="row.jumpToRunId"
-              type="button"
-              class="detail-value detail-value--link"
-              :title="row.title"
-              @click="jumpToRun(row.jumpToRunId)"
-            >{{ row.value }}</button>
-            <button
-              v-else-if="row.filterByTraceId"
-              type="button"
-              class="detail-value detail-value--link"
-              title="Filtrar por este traceId — todo lo que produjo el mismo delivery/scan"
-              data-testid="executions-filter-trace"
-              @click="applyTraceIdFilter(row.value)"
-            >{{ row.value }}</button>
-            <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
-          </div>
+          <span
+            v-if="selectedExec.cancelRequestedAt"
+            class="exec-cancel-requested"
+            :title="`Cancelación solicitada: ${selectedExec.cancelRequestedAt}`"
+          >cancelación solicitada</span>
 
-          <div class="detail-json-block">
-            <div class="detail-json-header">
-              <span class="detail-label">JSON completo</span>
+          <!-- La meta completa: material de auditoría, plegado (ver `metaOpen`). -->
+          <button
+            type="button"
+            class="detail-meta-toggle"
+            :aria-expanded="metaOpen"
+            data-testid="executions-meta-toggle"
+            @click="metaOpen = !metaOpen"
+          >
+            <span class="detail-meta-caret" aria-hidden="true">{{ metaOpen ? '▾' : '▸' }}</span>
+            meta del run
+          </button>
+
+          <template v-if="metaOpen">
+            <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
+              <span class="detail-label">{{ row.label }}</span>
+              <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
               <button
+                v-else-if="row.jumpToRunId"
                 type="button"
-                class="btn-copy"
-                data-testid="executions-copy-json"
-                @click="copyJson(selectedExec)"
-              >
-                Copiar JSON
-              </button>
+                class="detail-value detail-value--link"
+                :title="row.title"
+                @click="jumpToRun(row.jumpToRunId)"
+              >{{ row.value }}</button>
+              <button
+                v-else-if="row.filterByTraceId"
+                type="button"
+                class="detail-value detail-value--link"
+                title="Filtrar por este traceId — todo lo que produjo el mismo delivery/scan"
+                data-testid="executions-filter-trace"
+                @click="applyTraceIdFilter(row.value)"
+              >{{ row.value }}</button>
+              <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
             </div>
-            <div class="detail-json">
-              <JsonTreeNode :data="selectedExec" path="" :depth="0" />
-            </div>
-          </div>
 
+            <div class="detail-json-block">
+              <div class="detail-json-header">
+                <span class="detail-label">JSON completo</span>
+                <button
+                  type="button"
+                  class="btn-copy"
+                  data-testid="executions-copy-json"
+                  @click="copyJson(selectedExec)"
+                >
+                  Copiar JSON
+                </button>
+              </div>
+              <div class="detail-json">
+                <JsonTreeNode :data="selectedExec" path="" :depth="0" />
+              </div>
+            </div>
+          </template>
+
+          <!-- Banda 4 · el log. Es la evidencia, y ocupa lo que sobra; el log
+               COMPLETO se abre aparte (`completo ↗`) en vez de scrollearse
+               acá dentro. -->
           <div class="related-block">
             <div class="related-header">
               <span class="detail-label">
-                {{ isAction(selectedExec) ? 'Líneas del daemon de esta regla' : 'Tool calls y eventos del servidor' }}
+                {{ isAction(selectedExec) ? 'log de la regla' : 'log' }}
                 <span
                   v-if="relatedLogs[selectedExec.id]"
                   class="related-count"
-                >({{ relatedLogs[selectedExec.id].length }})</span>
+                >· {{ relatedLogs[selectedExec.id].length }} líneas</span>
               </span>
               <div class="related-actions">
                 <button
@@ -2008,7 +2095,7 @@ watch(pendingFilter, () => {
                   data-testid="executions-related-open-logs"
                   @click="openRunInLogs(selectedExec)"
                 >
-                  Ir a Logs →
+                  completo ↗
                 </button>
               </div>
             </div>
@@ -2182,6 +2269,35 @@ watch(pendingFilter, () => {
             </div>
           </div>
         </div>
+        <!-- Banda 5 · acciones. Por estado, y sólo las que EXISTEN: mientras
+             corre no hay nada que iniciar (ningún botón es primary, y el único
+             es abortar); cerrado, lo único que el detalle puede ofrecer es
+             volver al issue. Reintentar vive en la fila de la tarea, que es
+             donde la acción pertenece (ver `verbForRun`). -->
+        <footer v-if="detailActions.length" class="exec-actions" data-testid="executions-detail-actions">
+          <button
+            v-if="!selectedExec.finishedAt"
+            type="button"
+            class="exec-stop-btn exec-actions__btn"
+            :disabled="isCancelling(selectedExec.id)"
+            data-testid="executions-detail-stop"
+            @click="confirmCancelExecution(selectedExec)"
+          >{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Abortar' }}</button>
+          <RouterLink
+            v-if="verbForRun(selectedExec)?.href"
+            class="exec-actions__btn exec-actions__btn--primary"
+            :to="verbForRun(selectedExec)!.href!"
+            data-testid="executions-detail-verb"
+          >{{ verbForRun(selectedExec)!.label }}</RouterLink>
+          <a
+            v-if="issueUrlFor(selectedExec.taskId)"
+            class="exec-actions__btn"
+            :href="issueUrlFor(selectedExec.taskId)!"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="executions-detail-issue"
+          >La tarea ↗</a>
+        </footer>
       </aside>
     </transition>
     </div>
@@ -2420,6 +2536,81 @@ watch(pendingFilter, () => {
   flex-direction: column;
   z-index: 40;
 }
+/* ── Banda 1 · identidad ─────────────────────────────────────────────────── */
+.exec-drawer__id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  font-weight: 700;
+  color: var(--fg);
+}
+.exec-drawer__crumb {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La meta completa, plegada: es material de auditoría, no lo que se viene a
+   ver. Se toca, así que mide --tap-h. */
+.detail-meta-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.detail-meta-toggle:hover { color: var(--fg); }
+.detail-meta-caret { color: var(--fg-dimmer); }
+
+/* ── Banda 5 · acciones ──────────────────────────────────────────────────── */
+.exec-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-hi);
+  background: var(--panel);
+}
+.exec-actions__btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* La fila de la acción principal de la pantalla: el pulgar la busca sin
+     mirar (--tap-h-lg, igual que `StickyActionBar`). */
+  min-height: var(--tap-h-lg);
+  padding: 0 0.9rem;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.exec-actions__btn:hover { background: var(--panel-hi); color: var(--fg); }
+.exec-actions__btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+.exec-actions__btn--primary:hover { background: var(--accent); color: var(--panel); }
+/* Abortar hereda la caja de la fila, pero acá es una acción de pantalla. */
+.exec-actions .exec-stop-btn { flex: 1 1 0; min-height: var(--tap-h-lg); }
+
 /* Como columna no flota: se queda pegado arriba mientras la lista scrollea al
    lado, que es lo que permite recorrer runs sin perder el detalle de vista. */
 .exec-drawer--inline {
