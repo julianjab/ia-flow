@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 import ListControlsBar from '../ListControlsBar.vue'
 
 // `useIsMobile` lee `matchMedia`. En jsdom no existe, así que el composable cae
@@ -7,8 +8,11 @@ import ListControlsBar from '../ListControlsBar.vue'
 // mismo 768px que el CSS, y lo que se está testeando es qué DIBUJA la barra a
 // cada lado del breakpoint, no cómo se detecta.
 function mockMobile(value: boolean) {
+  // `ref` y no `{ value }`: Vue desenvuelve refs en el template, y un objeto
+  // plano llega como objeto — siempre truthy. Con `{ value: false }` el
+  // componente creería estar en mobile aunque el test pida desktop.
   vi.doMock('@/composables/useIsMobile', () => ({
-    useIsMobile: () => ({ isMobile: { value } }),
+    useIsMobile: () => ({ isMobile: ref(value) }),
   }))
 }
 
