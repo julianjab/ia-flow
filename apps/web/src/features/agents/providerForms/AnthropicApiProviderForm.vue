@@ -84,32 +84,32 @@ const advancedOpen = ref(advancedCount.value > 0);
 
 <template>
   <div class="pc-grid">
-    <div class="pc-field">
-      <label class="pc-label">Model</label>
+    <div class="ff-row">
+      <label class="uc-label">Model</label>
       <ModelSelect
         :model-value="state.model"
         :allow-empty="true"
         empty-label="— usa el modelo global —"
         @update:model-value="(v) => set('model', v)"
       />
-      <p class="field-hint">Opus, Sonnet, Haiku — sobrescribe el modelo global.</p>
+      <p class="ff-hint">Opus, Sonnet, Haiku — sobrescribe el modelo global.</p>
     </div>
-    <div class="pc-field">
-      <label class="pc-label">Max tokens</label>
+    <div class="ff-row">
+      <label class="uc-label">Max tokens</label>
       <input
         type="number"
         min="1"
-        class="input"
+        class="ff-field"
         placeholder="32000"
         :value="state.maxTokens ?? ''"
         @input="(e) => set('maxTokens', numberInput(e))"
       />
-      <p class="field-hint">Máximo de tokens generados por respuesta. Default 32000.</p>
+      <p class="ff-hint">Máximo de tokens generados por respuesta. Default 32000.</p>
     </div>
-    <div class="pc-field">
-      <label class="pc-label">Effort</label>
+    <div class="ff-row">
+      <label class="uc-label">Effort</label>
       <select
-        class="input select"
+        class="ff-field"
         :value="state.effort ?? ''"
         @change="(e) => set('effort', (((e.target as HTMLSelectElement).value || undefined) as AnthropicApiProviderConfig['effort']))"
       >
@@ -120,9 +120,9 @@ const advancedOpen = ref(advancedCount.value > 0);
         <option value="xhigh">xhigh</option>
         <option value="max">max</option>
       </select>
-      <p class="field-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren un modelo Opus (xhigh no existe en Sonnet/Haiku).</p>
+      <p class="ff-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren un modelo Opus (xhigh no existe en Sonnet/Haiku).</p>
     </div>
-    <p v-if="effortError" class="pc-error">⚠ {{ effortError }}</p>
+    <p v-if="effortError" class="ff-error pc-error">⚠ {{ effortError }}</p>
   </div>
 
   <button
@@ -137,58 +137,58 @@ const advancedOpen = ref(advancedCount.value > 0);
   </button>
 
   <div v-if="advancedOpen" class="pc-grid pc-grid--advanced">
-    <div class="pc-field">
-      <label class="pc-label">Task budget (tokens)</label>
+    <div class="ff-row">
+      <label class="uc-label">Task budget (tokens)</label>
       <input
         type="number"
         min="20000"
-        class="input"
+        class="ff-field"
         placeholder="≥ 20000"
         :value="state.taskBudgetTokens ?? ''"
         @input="(e) => set('taskBudgetTokens', numberInput(e))"
       />
-      <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Requiere un modelo Opus. Sin valor, hereda del global.</p>
+      <p class="ff-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Requiere un modelo Opus. Sin valor, hereda del global.</p>
     </div>
-    <div class="pc-field">
-      <label class="pc-label">Thinking budget (tokens)</label>
+    <div class="ff-row">
+      <label class="uc-label">Thinking budget (tokens)</label>
       <input
         type="number"
         min="1024"
-        class="input"
+        class="ff-field"
         placeholder="— adaptive (default) —"
         :value="state.thinkingBudgetTokens ?? ''"
         @input="(e) => set('thinkingBudgetTokens', numberInput(e))"
       />
-      <p class="field-hint">Fuerza thinking extendido en modo fijo (en vez de adaptive). Mínimo 1024 y debe quedar por debajo de Max tokens — si no entra, se ignora y usa el default global.</p>
+      <p class="ff-hint">Fuerza thinking extendido en modo fijo (en vez de adaptive). Mínimo 1024 y debe quedar por debajo de Max tokens — si no entra, se ignora y usa el default global.</p>
     </div>
-    <div class="pc-field">
-      <label class="pc-label">Max pause_turn retries</label>
+    <div class="ff-row">
+      <label class="uc-label">Max pause_turn retries</label>
       <input
         type="number"
         min="0"
         max="20"
-        class="input"
+        class="ff-field"
         placeholder="0"
         :value="state.maxPauseTurnRetries ?? ''"
         @input="(e) => set('maxPauseTurnRetries', numberInput(e))"
       />
-      <p class="field-hint">Reintentos cuando la API pausa un turno largo de server tools/MCP (stop_reason pause_turn) — reenvía el historial sin cambios. 0 = sin reintento (default), hasta 20.</p>
+      <p class="ff-hint">Reintentos cuando la API pausa un turno largo de server tools/MCP (stop_reason pause_turn) — reenvía el historial sin cambios. 0 = sin reintento (default), hasta 20.</p>
     </div>
-    <div class="pc-field">
-      <label class="pc-label">Max reintentos (429/5xx/529)</label>
+    <div class="ff-row">
+      <label class="uc-label">Max reintentos (429/5xx/529)</label>
       <input
         type="number"
         min="0"
         max="10"
-        class="input"
+        class="ff-field"
         placeholder="3"
         :value="state.maxRetries ?? ''"
         @input="(e) => set('maxRetries', numberInput(e))"
       />
-      <p class="field-hint">Reintentos con backoff exponencial ante rate limit y errores transitorios del upstream. 400/401/403/404 nunca se reintentan. Sin valor, hereda del global (default 3).</p>
+      <p class="ff-hint">Reintentos con backoff exponencial ante rate limit y errores transitorios del upstream. 400/401/403/404 nunca se reintentan. Sin valor, hereda del global (default 3).</p>
     </div>
     <div class="pc-field pc-field--checkbox">
-      <label class="pc-check">
+      <label class="ff-check">
         <input
           type="checkbox"
           :checked="state.retryTruncatedToolUse ?? false"
@@ -196,10 +196,10 @@ const advancedOpen = ref(advancedCount.value > 0);
         />
         Reintentar tool_use cortado por max_tokens
       </label>
-      <p class="field-hint">Si max_tokens corta un tool_use a mitad del JSON, reintenta una vez esa misma request con más tokens en vez de dar el run por truncado.</p>
+      <p class="ff-hint">Si max_tokens corta un tool_use a mitad del JSON, reintenta una vez esa misma request con más tokens en vez de dar el run por truncado.</p>
     </div>
     <div class="pc-field pc-field--checkbox">
-      <label class="pc-check">
+      <label class="ff-check">
         <input
           type="checkbox"
           :checked="state.eagerMcpTools ?? false"
@@ -207,49 +207,46 @@ const advancedOpen = ref(advancedCount.value > 0);
         />
         Cargar todas las tools MCP desde el inicio
       </label>
-      <p class="field-hint">Por default las tools de cada servidor MCP van diferidas: el modelo las busca y carga sólo las que necesita, y el catálogo no pesa en cada vuelta. Marcalo para un agente que usa el catálogo entero o cuyo prompt no lo prepara para buscar.</p>
+      <p class="ff-hint">Por default las tools de cada servidor MCP van diferidas: el modelo las busca y carga sólo las que necesita, y el catálogo no pesa en cada vuelta. Marcalo para un agente que usa el catálogo entero o cuyo prompt no lo prepara para buscar.</p>
     </div>
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
-.pc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; }
-.pc-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.pc-label { font-size: 0.85rem; font-weight: 500; color: var(--fg-mute); }
-.field-hint { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
-.input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.9rem;
+/* Los campos son del kit (`ff-row` + `uc-label` + `ff-field` + `ff-hint`).
+   `.pc-field`/`.pc-label`/`.input` estaban copiados VERBATIM entre este form y
+   su hermano, con un radio de 6px que no es token — el design system los
+   nombraba como deuda. Queda sólo la grilla, que sí es de estos forms. */
+.pc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
 }
-.select { background: var(--panel); }
 .pc-field--checkbox { justify-content: center; }
-.pc-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
-.pc-check input { width: 1rem; height: 1rem; }
 .pc-error {
   grid-column: 1 / -1;
-  margin: 0;
   padding: 0.5rem 0.75rem;
   background: var(--red-bg);
   border: 1px solid var(--danger);
-  color: var(--danger);
-  border-radius: 6px;
-  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
 }
 
 .pc-disclosure {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  /* Se toca para abrir el bloque avanzado: --tap-h (R1). */
+  min-height: var(--tap-h);
   margin-top: 0.7rem;
   background: none;
   border: none;
   color: var(--accent);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: var(--fs-body-sm);
   font-weight: 500;
-  padding: 0.2rem 0;
+  padding: 0;
 }
 .pc-disclosure-arrow { display: inline-block; transition: transform 0.12s; }
 .pc-disclosure--open .pc-disclosure-arrow { transform: rotate(90deg); }

@@ -14,7 +14,7 @@ commiteado.
 | # | Etapa | Estado |
 | --- | --- | --- |
 | 01 | Tokens táctiles | ✅ hecho |
-| 02 | Kit de campo — 9 forms de source/provider + 3 textarea JSON | ⬜ pendiente |
+| 02 | Kit de campo — forms de source/provider + textarea JSON | ✅ hecho |
 | 03 | Contenedores: `FullScreen`, `BottomSheet`, `StickyActionBar` + los modales | ✅ hecho |
 | 04 | Navegación: tab bar, `/mas`, switcher | ✅ ya venía hecho |
 | 05 | `disposition` en el server | ✅ hecho |
@@ -50,9 +50,9 @@ provider quedan de sólo lectura **sin que nada lo diga**. Pedido al DS.
 
 > ✅ **P4 · `ComboBox` a bottom sheet** — hecho (T11, R6).
 
-### P5 · Etapa 02 — el kit de campo
-Nueve forms con prefijo propio (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`,
-`.pc-field`, `.jpf-`) y los tres textarea de JSON.
+> ✅ **P5 · El kit de campo** — hecho. Se fueron los seis prefijos
+> (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`, `.pc-`, `.jpf-`) y las dos copias del
+> textarea de JSON, que ahora son `ui/JsonConfigField.vue`.
 
 ### P6 · Etapa 06 — `DataRow`, `LogLine`, `FollowTail`
 Los cuatro streams resuelven lo mismo por separado (`ExecutionsSection` 105 KB

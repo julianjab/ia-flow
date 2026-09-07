@@ -63,26 +63,26 @@ const anchorLabel = computed({
 
 <template>
   <div class="gisf">
-    <label class="gisf-field">
-      <span class="gisf-label">GitHub Repo URL</span>
+    <label class="ff-row">
+      <span class="uc-label">GitHub Repo URL</span>
       <input
         :value="url"
-        class="gisf-input"
+        class="ff-field"
         placeholder="https://github.com/julianjab/accountant"
         @input="onUrlInput"
       />
-      <span v-if="url && !parsed" class="gisf-error">
+      <span v-if="url && !parsed" class="ff-error">
         No parece una URL de repo. Formato: https://github.com/owner/repo
       </span>
-      <span v-else-if="parsed" class="gisf-hint">
+      <span v-else-if="parsed" class="ff-hint">
         owner <strong>{{ parsed.owner }}</strong> · repo <strong>{{ parsed.repo }}</strong>
       </span>
     </label>
 
-    <label class="gisf-field">
-      <span class="gisf-label">Anchor label</span>
-      <input v-model="anchorLabel" class="gisf-input" placeholder="ia-flow" />
-      <span class="gisf-hint">
+    <label class="ff-row">
+      <span class="uc-label">Anchor label</span>
+      <input v-model="anchorLabel" class="ff-field" placeholder="ia-flow" />
+      <span class="ff-hint">
         Opcional: sólo los issues con esta label entran al scan, y el engine se la
         pone sola a los que crea. Vacío = todo issue abierto del repo es candidato
         (ok en un repo dedicado al engine, riesgoso en uno compartido con humanos).
@@ -91,15 +91,12 @@ const anchorLabel = computed({
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
+/* Los campos son del kit. Este archivo era el que el design system nombraba
+   como el peor del grupo: sus cuatro hermanos del mismo modal tenían radio y
+   éste lo había perdido, así que dibujaba inputs cuadrados al lado de los
+   redondeados. Con el kit, la divergencia es imposible. */
 .gisf { display: flex; flex-direction: column; gap: 0.75rem; }
-.gisf-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.gisf-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
-.gisf-hint { font-size: 0.75rem; color: var(--fg-dim); }
-.gisf-error { font-size: 0.75rem; color: var(--danger); }
-.gisf-input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  font-size: 0.9rem;
-}
 </style>
