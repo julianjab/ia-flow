@@ -33,6 +33,11 @@ const runsKnown = ref(false);
  *  ordenaba como si estuviera libre, que es lo contrario de lo que esta
  *  pantalla existe para decir. */
 const blockersKnown = ref<Set<string>>(new Set());
+/** El agregado de runs no se pudo consultar. No es lo mismo que "ninguna
+ *  corrió": sin él, ninguna fila puede entrar a la cola por falló/corriendo/
+ *  sin ejecutar, y la pantalla quedaría diciendo "no hay nada esperando" sobre
+ *  un proyecto que puede tener todo roto. */
+const runsFailed = ref(false);
 const loading = ref(false);
 const error = ref('');
 
@@ -46,6 +51,7 @@ async function load() {
   // Los dos mapas se limpian JUNTO con su flag: conservarlos mientras el flag
   // dice "no sé" clasificaba filas con datos de la corrida anterior.
   runsKnown.value = false;
+  runsFailed.value = false;
   runsByTask.value = {};
   blockersKnown.value = new Set();
   blockersByTask.value = {};
@@ -63,6 +69,7 @@ async function load() {
       fetchBlockersBatch(pid, ids),
     ]);
     if (activeProjectId.value !== pid) return;
+    if (summaries.status === 'rejected') runsFailed.value = true;
     if (summaries.status === 'fulfilled') {
       const byTask: Record<string, TaskRunSummary> = {};
       for (const s of summaries.value) byTask[s.taskId] = s;
@@ -247,9 +254,15 @@ function openTasks() {
     </div>
 
     <p v-else-if="loading && !queue.length" class="nu-empty">Cargando…</p>
+    <!-- Sin el agregado de runs la cola no puede estar completa: decirlo es
+         obligatorio antes de mostrar (o no mostrar) filas. -->
+    <p v-else-if="runsFailed" class="nu-degraded">
+      No se pudo consultar el estado de ejecución de las tareas: esta cola está
+      incompleta y no dice nada sobre lo que falló o quedó sin correr.
+    </p>
     <p v-else-if="!queue.length" class="nu-empty">No hay nada esperando: ninguna tarea falló, está bloqueada ni quedó sin correr.</p>
 
-    <template v-else>
+    <template v-if="!error && queue.length">
       <span class="uc-label nu-head">Cola priorizada</span>
       <ul class="nu-list">
         <li v-for="(row, i) in queue" :key="row.id" class="nu-row">
@@ -296,6 +309,8 @@ function openTasks() {
 .btn-glyph { color: var(--fg-dim); }
 .nu-head { display: block; }
 .nu-empty { margin: 0; font-size: var(--fs-body-sm); color: var(--fg-dim); }
+/* Degradación, no error: el fetch de tareas anduvo, el de runs no. */
+.nu-degraded { margin: 0; font-size: var(--fs-body-sm); color: var(--warn); }
 
 .nu-error { display: flex; flex-direction: column; gap: 0.15rem; font-family: var(--font-mono); font-size: var(--fs-micro); }
 .nu-error-line { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
