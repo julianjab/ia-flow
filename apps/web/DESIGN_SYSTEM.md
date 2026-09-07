@@ -190,7 +190,13 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   tres zonas (glifo · identidad · estado) y las celdas extra se auto-ubican. Una fila de dominio
   con más zonas y una línea de verbo propia se escribe como pieza suya con la misma idea —
   `components/TaskRow.vue` (la tarea, para sus tres pantallas) y
-  `features/executions/RunRow.vue` (la ejecución) son las dos que hay.
+  `features/executions/RunRow.vue` (la ejecución) son las dos que hay. Dos
+  cosas que cuestan caro y no se ven en un test: las medidas en `ch` se
+  resuelven contra la fuente del CONTENEDOR de la grilla, así que la fila y su
+  encabezado tienen que compartir base —y declarar las columnas una sola vez,
+  en una variable que las dos hereden—; y el breakpoint no sale de la tabla de
+  siempre sino de cuánto ancho le queda a la LISTA (con el sidebar puesto, a
+  820px son ~470px: ahí las columnas fijas se comen el título).
 - `components/KbdBar.vue` — **la barra de atajos** al pie de una lista navegable. Anuncia sólo lo
   que `useKeyboardNav` bindea; no se renderiza bajo `--bp-shell` (`v-if`, no `display: none`).
 - `components/FinishedTodayPanel.vue` — lo que terminó hoy, con lo que falló primero.
