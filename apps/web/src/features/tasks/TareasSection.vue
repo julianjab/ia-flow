@@ -866,6 +866,8 @@ watch(activeProjectId, (pid) => {
     <!-- La vista de board: las MISMAS tareas y la MISMA fila, agrupadas por
          status en vez de por disposición. Lo único que cambia es el criterio;
          la fila es `TaskRow`, clickeable, con el mismo detalle. -->
+    <div class="tk-split" :class="{ 'tk-split--open': isSplit && reposModalOpen }">
+    <div class="tk-list">
     <template v-if="view === 'board'">
       <div v-if="boardColumns.length" class="bd-chips">
         <button
@@ -884,7 +886,9 @@ watch(activeProjectId, (pid) => {
         Ninguna tarea tiene status: no hay columnas que mostrar.
       </p>
 
-      <div v-else class="task-table">
+      <!-- `data-kbd-list` es lo que `useKeyboardNav` busca con `closest`: sin
+           él la KbdBar de abajo anunciaría atajos que no hacen nada. -->
+      <div v-else class="task-table" data-kbd-list="tasks">
         <BucketHeader
           v-if="currentStatus"
           disposition="moving"
@@ -981,8 +985,6 @@ watch(activeProjectId, (pid) => {
       <span class="tk-moved-cta">reordenar</span>
     </button>
 
-    <div class="tk-split" :class="{ 'tk-split--open': isSplit && reposModalOpen }">
-    <div class="tk-list">
     <template v-if="filteredItems.length">
     <!-- Sin el agregado la lista NO inventa buckets: cae al orden de la fuente
          y lo dice. Agrupar por una disposición que no se pudo consultar sería
@@ -1065,8 +1067,9 @@ watch(activeProjectId, (pid) => {
       <KbdBar />
     </div>
     </template>
-    </div>
 
+    </template>
+    </div>
     <!-- Sobre --bp-split el detalle es una COLUMNA hermana, no un overlay: la
          lista queda entera y usable, que es lo que permite recorrer varias
          tareas seguidas. Debajo del breakpoint sigue siendo el panel lateral
@@ -1082,7 +1085,6 @@ watch(activeProjectId, (pid) => {
       @close="reposModalOpen = false"
     />
     </div>
-    </template>
   </section>
 
   <!-- Abortar corta trabajo real: siempre detrás de una confirmación. -->
