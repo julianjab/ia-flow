@@ -35,7 +35,7 @@ import KbdBar from '@/components/KbdBar.vue';
 import HealthVerdict from './HealthVerdict.vue';
 import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
-import { useIsSplit } from '@/composables/useIsMobile';
+import { useIsMobile, useIsSplit } from '@/composables/useIsMobile';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 import RunRow from './RunRow.vue';
@@ -213,6 +213,9 @@ const expandedId = ref<string | null>(null);
  * entera y el `↑`/`↓` del teclado sigue moviéndose con el detalle al lado.
  */
 const { isSplit } = useIsSplit();
+/** Bajo `--bp-shell` el detalle es una PANTALLA, no un panel: ocupa todo y se
+ *  cierra con `←` (A3, A5 — y la banda 1 del turno 6). */
+const { isMobile } = useIsMobile();
 
 // Per-execution cache for the related-logs sub-panel. Keyed by exec.id so
 // re-expanding a card doesn't refetch (unless the user hits "↻ recargar").
@@ -1962,7 +1965,7 @@ watch(pendingFilter, () => {
         <!-- Banda 1 · identidad. Qué run es, y nada más: el outcome lo dice el
              veredicto de abajo en grande, así que repetirlo acá como badge era
              decir dos veces lo mismo en 44px. -->
-        <header class="exec-drawer__header">
+        <header class="exec-drawer__header" :class="{ 'exec-drawer__header--back': isMobile }">
           <div class="exec-drawer__title">
             <span class="exec-drawer__id">{{ issueLabelFor(selectedExec.taskId) ?? (isAction(selectedExec) ? 'acción' : 'run') }}</span>
             <!-- El proyecto sólo en la pestaña global: en la de un proyecto ya
@@ -1978,7 +1981,7 @@ watch(pendingFilter, () => {
             aria-label="Cerrar detalle"
             data-testid="executions-detail-close"
             @click="closeDetail()"
-          >×</button>
+          >{{ isMobile ? '←' : '×' }}</button>
         </header>
 
         <div
@@ -2621,6 +2624,25 @@ watch(pendingFilter, () => {
   max-height: calc(100vh - var(--chrome-h) - 2rem);
   border-left: 1px solid var(--border);
   box-shadow: none;
+}
+
+/* Bajo --bp-shell no es un panel: es la pantalla. Medía 420px de `min-width`
+   sobre un teléfono de 390, así que tapaba la lista igual pero con 31px de su
+   contenido cortados contra el borde izquierdo — y el `×` de cerrar era lo
+   único que se alcanzaba bien. Acá ocupa todo y se cierra con `←` (A3, A5). */
+@media (max-width: 768px) {
+  .exec-drawer {
+    top: var(--chrome-h);
+    left: 0;
+    right: 0;
+    width: auto;
+    min-width: 0;
+    border-left: none;
+    box-shadow: none;
+    z-index: 70;
+  }
+  /* El `←` es volver: va primero, no en la esquina de cerrar. */
+  .exec-drawer__header--back { flex-direction: row-reverse; justify-content: flex-end; gap: 0.6rem; }
 }
 
 .exec-drawer__header {
