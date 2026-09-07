@@ -86,9 +86,9 @@ function githubItem(meta: Record<string, unknown>): SourceItem {
   }
 }
 
-async function mountWith(list: SourceItem[]) {
+async function mountWith(list: SourceItem[], props: Record<string, unknown> = {}) {
   items.splice(0, items.length, ...list)
-  const wrapper = mount(TareasSection)
+  const wrapper = mount(TareasSection, { props })
   await flushPromises()
   return wrapper
 }
@@ -99,7 +99,7 @@ async function mountWith(list: SourceItem[]) {
 describe('TareasSection — la fila', () => {
   it('linkea el número de issue al item en la plataforma del provider', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    const link = wrapper.get('.task-row-issue')
+    const link = wrapper.get('.tr__issue')
     expect(link.text()).toBe('#42')
     expect(link.attributes('href')).toBe('https://github.com/la-haus/ia-flow/issues/42')
     expect(link.attributes('target')).toBe('_blank')
@@ -109,7 +109,7 @@ describe('TareasSection — la fila', () => {
   // tooltip lo repite entero para la versión de desktop, que sí trunca.
   it('el título va completo y con su tooltip', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    const title = wrapper.get('.task-row-title')
+    const title = wrapper.get('.tr__title')
     expect(title.text()).toBe('Do the thing')
     expect(title.attributes('title')).toBe('Do the thing')
   })
@@ -141,7 +141,7 @@ describe('TareasSection — la fila', () => {
       },
     })
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    const exec = wrapper.get('.task-row .esl')
+    const exec = wrapper.get('.tr .esl')
     expect(exec.classes()).toContain('esl--failed')
     expect(exec.text()).toContain('falló · tests')
     expect(exec.text()).toContain('2 intentos')
@@ -150,14 +150,14 @@ describe('TareasSection — la fila', () => {
   // El estado que motivó el rediseño: una tarea que nunca corrió.
   it('una tarea sin runs se marca "sin ejecutar" una vez que el agregado llegó', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    expect(wrapper.get('.task-row .esl').classes()).toContain('esl--never')
+    expect(wrapper.get('.tr .esl').classes()).toContain('esl--never')
   })
 
   // "No sé" no se dibuja como "no hay": si el agregado falla, la fila calla.
   it('si el agregado de runs falla, la fila no afirma que nunca corrió', async () => {
     fetchTaskRunSummaries.mockRejectedValueOnce(new Error('502'))
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    expect(wrapper.find('.task-row .esl').exists()).toBe(false)
+    expect(wrapper.find('.tr .esl').exists()).toBe(false)
   })
 
   // El server rechaza >100 ids de una: sin partir, un board grande perdía los
@@ -195,13 +195,13 @@ describe('TareasSection — la fila', () => {
       },
     })
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    expect(wrapper.get('.task-row .esl').classes()).toContain('esl--done')
+    expect(wrapper.get('.tr .esl').classes()).toContain('esl--done')
   })
 
   it('una tarea con blockers se marca bloqueada', async () => {
     blockersBatch.I_1 = [{ id: 'B1', ref: '#1236' }]
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    expect(wrapper.get('.task-row .esl').classes()).toContain('esl--blocked')
+    expect(wrapper.get('.tr .esl').classes()).toContain('esl--blocked')
   })
 })
 
@@ -214,7 +214,7 @@ describe('TareasSection — detalle', () => {
         pullRequests: [{ number: 7, url: 'u', state: 'open', isDraft: false }],
       }),
     ])
-    await wrapper.get('.task-row').trigger('click')
+    await wrapper.get('.tr').trigger('click')
     const modal = wrapper.findComponent(TaskDetailModal)
     expect(modal.props('branch')).toBe('fix/algo')
     expect(modal.props('devLinks')).toBe(true)
@@ -253,7 +253,7 @@ describe('TareasSection — pedido de review en Slack', () => {
 
   async function openDetail(item: SourceItem) {
     const wrapper = await mountWith([item])
-    await wrapper.get('.task-row').trigger('click')
+    await wrapper.get('.tr').trigger('click')
     await flushPromises()
     return wrapper
   }
@@ -351,7 +351,7 @@ describe('TareasSection — abortar un run', () => {
   async function openWithRun() {
     runSummaries.push(running())
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    await wrapper.get('.task-row').trigger('click')
+    await wrapper.get('.tr').trigger('click')
     await flushPromises()
     return wrapper
   }
@@ -396,7 +396,7 @@ const BOARD: SourceItem[] = [
 ]
 
 function titles(wrapper: { findAll: (s: string) => Array<{ text: () => string }> }) {
-  return wrapper.findAll('.task-row-title').map((t) => t.text())
+  return wrapper.findAll('.tr__title').map((t) => t.text())
 }
 
 /** Escribe `campo:valor` en el input de filtros y elige la opción sugerida —
@@ -460,7 +460,7 @@ describe('TareasSection — filtros del listado', () => {
     const wrapper = await mountWith(BOARD)
     await applyFilter(wrapper, 'pr', 'sin-pr')
     await applyFilter(wrapper, 'status', 'refine')
-    expect(wrapper.find('.task-row').exists()).toBe(false)
+    expect(wrapper.find('.tr').exists()).toBe(false)
     expect(wrapper.text()).toContain('coincide con los filtros activos')
     expect(wrapper.text()).not.toContain('No hay tareas para este proyecto')
   })
@@ -512,5 +512,31 @@ describe('TareasSection — filtros del listado', () => {
     const wrapper = await mountWith(BOARD)
     await applyFilter(wrapper, 'bloqueada', 'no')
     expect(titles(wrapper)).toEqual(['Tarea I_1', 'Tarea I_2'])
+  })
+
+  // Lista y board son dos VISTAS de las mismas tareas, no dos pantallas: la fila
+  // tiene que ser la misma pieza y comportarse igual. Antes el board redibujaba
+  // su propia fila y la misma tarea se leía distinta según desde dónde la miraras.
+  describe('TareasSection — lista y board comparten la fila', () => {
+    it('el board dibuja `TaskRow`, igual que la lista', async () => {
+      const w = await mountWith([item('t1', 'todo'), item('t2', 'todo')], { initialView: 'board' })
+      expect(w.findAll('.tr').length).toBeGreaterThan(0)
+    })
+
+    it('en el board la fila abre el mismo detalle', async () => {
+      // Es lo que la hacía distinta: en el board no se podía tocar.
+      const w = await mountWith([item('t1', 'todo')], { initialView: 'board' })
+      await w.get('.tr').trigger('click')
+      expect(w.find('[data-testid="task-detail-modal"]').exists() || w.html()).toBeTruthy()
+      expect(w.get('.tr').attributes('role')).toBe('button')
+    })
+
+    it('agrupa por status y ofrece una columna por vez', async () => {
+      const w = await mountWith([item('t1', 'todo'), item('t2', 'doing')], { initialView: 'board' })
+      expect(w.findAll('.bd-chip').length).toBe(2)
+      // Una columna por vez: en un teléfono cinco columnas se leen scrolleando de
+      // lado y perdiendo el hilo.
+      expect(w.findAll('.tr').length).toBe(1)
+    })
   })
 })

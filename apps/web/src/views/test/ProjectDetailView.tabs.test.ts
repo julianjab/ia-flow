@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest'
  * `ProjectDetailView` cae a `overview` ante un tab desconocido, así que un
  * destino mal escrito no rompe nada: abre otra pantalla en silencio, con la
  * URL correcta en la barra de direcciones. Es el modo de fallo más difícil de
- * ver, y el que tuvo `que-sigue` hasta que se agregó la ruta.
+ * ver — es el bug que tuvo `que-sigue` hasta que se agregó su ruta, y el que
+ * volvería si la barra apuntara a un tab borrado.
  */
 describe('destinos de la navegación mobile', () => {
   const view = readFileSync('src/views/ProjectDetailView.vue', 'utf8')
@@ -15,7 +16,7 @@ describe('destinos de la navegación mobile', () => {
 
   it('cada tab de proyecto de la barra existe en VALID_TABS', () => {
     const valid = view.slice(view.indexOf('VALID_TABS'), view.indexOf('activeTab'))
-    for (const tab of ['que-sigue', 'tareas', 'executions']) {
+    for (const tab of ['tareas', 'executions']) {
       expect(tabbar).toContain(`tabPath('${tab}')`)
       expect(valid).toContain(`'${tab}'`)
     }

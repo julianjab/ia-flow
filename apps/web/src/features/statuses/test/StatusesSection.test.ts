@@ -62,11 +62,11 @@ describe('StatusesSection — board', () => {
   it('muestra una sola columna y la cambia al tocar un chip', async () => {
     items.push(task('a', 'build'), task('c', 'review'))
     const wrapper = await mountWith()
-    expect(wrapper.findAll('.bd-row')).toHaveLength(1)
-    expect(wrapper.get('.bd-row-title').text()).toContain('Tarea a')
+    expect(wrapper.findAll('.tr')).toHaveLength(1)
+    expect(wrapper.get('.tr__title').text()).toContain('Tarea a')
 
     await wrapper.findAll('.bd-chip')[1].trigger('click')
-    expect(wrapper.get('.bd-row-title').text()).toContain('Tarea c')
+    expect(wrapper.get('.tr__title').text()).toContain('Tarea c')
   })
 
   it('el chip activo va en video inverso', async () => {
@@ -96,7 +96,7 @@ describe('StatusesSection — board', () => {
     items.push(task('a', 'build'))
     const wrapper = await mountWith()
     // Dos: el glifo de la columna 1 y la línea completa debajo del título.
-    expect(wrapper.findAll('.bd-row .esl').length).toBeGreaterThanOrEqual(1)
+    expect(wrapper.findAll('.tr .esl').length).toBeGreaterThanOrEqual(1)
   })
 
   it('una columna vacía lo dice', async () => {

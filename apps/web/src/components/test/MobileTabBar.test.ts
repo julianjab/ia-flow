@@ -27,44 +27,42 @@ function mountBar(projectId: string | null = 'p1') {
   })
 }
 
-// La ruta del primer tab tiene que EXISTIR: `que-sigue` no estaba en
-// `VALID_TABS` y el tab abría el Overview en silencio, con la URL de Qué sigue
-// en la barra de direcciones.
+// Cada ruta de la barra tiene que EXISTIR en `VALID_TABS`: un tab que apunta a
+// una que no existe abre el Overview en silencio, con la URL equivocada en la
+// barra de direcciones. Es lo que pasaba con `que-sigue` antes de que existiera.
 describe('MobileTabBar', () => {
-  it('lleva los cuatro destinos, relativos al proyecto activo', () => {
+  it('lleva los tres destinos, relativos al proyecto activo', () => {
+    // Eran cuatro: "Qué sigue" se fue porque era la misma lista de Tareas con
+    // otro recorte, y dos destinos para la misma pregunta obligan a decidir por
+    // cuál entrar antes de saber qué buscabas.
     const hrefs = mountBar()
       .findAll('a')
       .map((a) => a.attributes('href'))
-    expect(hrefs).toEqual([
-      '/projects/p1/que-sigue',
-      '/projects/p1/tareas',
-      '/projects/p1/executions',
-      '/mas',
-    ])
+    expect(hrefs).toEqual(['/projects/p1/tareas', '/projects/p1/executions', '/mas'])
   })
 
-  // Sin proyecto no hay a qué proyecto entrar: los tres primeros llevan al
+  // Sin proyecto no hay a qué proyecto entrar: los de proyecto llevan al
   // listado en vez de a una URL rota.
   it('sin proyecto activo, los tabs de proyecto van al listado', () => {
     const hrefs = mountBar(null)
       .findAll('a')
       .map((a) => a.attributes('href'))
-    // `/projects/que-sigue` lo matchearía el router como el proyecto llamado
-    // "que-sigue": pantalla vacía y fetches contra un id que no existe.
-    expect(hrefs.slice(0, 3)).toEqual(['/projects', '/projects', '/projects'])
-    expect(hrefs[3]).toBe('/mas')
+    // `/projects/tareas` lo matchearía el router como el proyecto llamado
+    // "tareas": pantalla vacía y fetches contra un id que no existe.
+    expect(hrefs.slice(0, 2)).toEqual(['/projects', '/projects'])
+    expect(hrefs[2]).toBe('/mas')
   })
 
   it('marca el tab de la ruta actual', () => {
     const items = mountBar().findAll('.tabbar__item')
-    expect(items[1].classes()).toContain('is-active')
+    expect(items[0].classes()).toContain('is-active')
   })
 
-  // Board es la otra vista de Tareas: dejar los cuatro apagados mientras se
-  // mira el board haría parecer que la barra no sabe dónde estás.
+  // Board es la otra VISTA de Tareas, no un destino: dejar los tabs apagados
+  // mientras se mira el board haría parecer que la barra no sabe dónde estás.
   it('el board cuenta como Tareas', () => {
     path = '/projects/p1/board'
-    expect(mountBar().findAll('.tabbar__item')[1].classes()).toContain('is-active')
+    expect(mountBar().findAll('.tabbar__item')[0].classes()).toContain('is-active')
   })
 
   // El badge es un punto, no un número: el conteo ya está en la pantalla.
