@@ -26,20 +26,23 @@ const requestSlackReview = vi.fn(async () => ({
   threadUrl: 'https://acme.slack.com/archives/C1/p1699999999123456',
 }))
 const runTaskNow = vi.fn(async () => ({ outcome: 'dispatched' as const, status: 'build' }))
+// El listado pide dos agregados para TODAS las filas: el último run de cada
+// tarea y sus blockers. Por defecto vacíos — cada test carga lo suyo.
+const runSummaries: Array<Record<string, unknown>> = []
+const blockersBatch: Record<string, unknown[]> = {}
+const fetchTaskRunSummaries = vi.fn(async () => runSummaries)
+const fetchBlockersBatch = vi.fn(async () => blockersBatch)
 vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
   runTaskNow: (...args: unknown[]) => runTaskNow(...(args as [])),
+  fetchTaskRunSummaries: (...args: unknown[]) => fetchTaskRunSummaries(...(args as [])),
+  fetchBlockersBatch: (...args: unknown[]) => fetchBlockersBatch(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
 // Vacío por default; los tests de "bloqueada" cargan entradas por itemId.
-const blockersById: Record<string, Array<Record<string, unknown>>> = {}
 vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
-  fetchItemBlockers: vi.fn(async (_projectId: string, itemId: string) => ({
-    kind: 'github-issues',
-    blockers: blockersById[itemId] ?? [],
-  })),
   setProjectItemField: vi.fn(async () => {}),
 }))
 
@@ -57,13 +60,16 @@ vi.mock('vue-router', () => ({
 }))
 
 beforeEach(() => {
+  runSummaries.splice(0, runSummaries.length)
+  for (const k of Object.keys(blockersBatch)) delete blockersBatch[k]
+  fetchTaskRunSummaries.mockClear()
+  fetchBlockersBatch.mockClear()
   toastSuccess.mockClear()
   toastError.mockClear()
   runTaskNow.mockClear()
   routeQuery = {}
   routerReplace.mockClear()
   localStorage.clear()
-  for (const key of Object.keys(blockersById)) delete blockersById[key]
 })
 
 function githubItem(meta: Record<string, unknown>): SourceItem {
@@ -84,129 +90,77 @@ async function mountWith(list: SourceItem[]) {
   return wrapper
 }
 
-describe('TareasSection — dev links', () => {
+// La fila del listado es densa: identidad (glifo · título · #issue) y una
+// línea de estado. Los tags de repo/rama/PR y las acciones viven en el
+// detalle — ver el describe de abajo.
+describe('TareasSection — la fila', () => {
   it('linkea el número de issue al item en la plataforma del provider', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    const link = wrapper.get('.task-number-link')
+    const link = wrapper.get('.task-row-issue')
+    expect(link.text()).toBe('#42')
     expect(link.attributes('href')).toBe('https://github.com/la-haus/ia-flow/issues/42')
     expect(link.attributes('target')).toBe('_blank')
   })
 
-  it('el número queda fuera del texto que trunca y el título lleva su tooltip', async () => {
+  // El final de un título es lo que distingue una fila de otra: envuelve, y el
+  // tooltip lo repite entero para la versión de desktop, que sí trunca.
+  it('el título va completo y con su tooltip', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    // El link vive en su propio nodo: truncar el título nunca se come el #42.
-    expect(wrapper.get('.task-number-link').text()).toBe('#42↗')
-    expect(wrapper.get('.task-title').attributes('title')).toBe('Do the thing')
+    const title = wrapper.get('.task-row-title')
+    expect(title.text()).toBe('Do the thing')
+    expect(title.attributes('title')).toBe('Do the thing')
   })
 
-  it('muestra la rama remota como link y el PR con su estado', async () => {
-    const wrapper = await mountWith([
-      githubItem({
-        linkedBranch: 'fix/algo',
-        branchUrl: 'https://github.com/la-haus/ia-flow/tree/fix%2Falgo',
-        pullRequests: [
-          {
-            number: 7,
-            url: 'https://github.com/la-haus/ia-flow/pull/7',
-            state: 'merged',
-            isDraft: false,
-          },
-        ],
-      }),
-    ])
-    const branch = wrapper.get('.tag--branch')
-    expect(branch.text()).toContain('fix/algo')
-    expect(branch.attributes('href')).toBe('https://github.com/la-haus/ia-flow/tree/fix%2Falgo')
-    const pr = wrapper.get('.tag--pr')
-    expect(pr.text()).toContain('PR #7')
-    expect(pr.classes()).toContain('is-merged')
-    expect(wrapper.find('.tag-empty').exists()).toBe(false)
+  it('pide los dos agregados una sola vez para todo el listado', async () => {
+    await mountWith([githubItem({ pullRequests: [] }), { ...githubItem({}), id: 'I_2' }])
+    expect(fetchTaskRunSummaries).toHaveBeenCalledTimes(1)
+    expect(fetchBlockersBatch).toHaveBeenCalledTimes(1)
+    expect(fetchBlockersBatch).toHaveBeenCalledWith('p1', ['I_1', 'I_2'])
   })
 
-  it('marca explícitamente la ausencia de rama y de PR', async () => {
+  it('pinta el estado del último run de cada tarea', async () => {
+    runSummaries.push({
+      taskId: 'I_1',
+      attempts: 2,
+      last: {
+        id: 'r1',
+        projectId: 'p1',
+        taskId: 'I_1',
+        taskTitle: 'Do the thing',
+        agentId: 'implementer',
+        providerId: 'tmux-claude',
+        startedAt: new Date(Date.now() - 300_000).toISOString(),
+        finishedAt: new Date(Date.now() - 60_000).toISOString(),
+        outcome: 'error',
+        errorMsg: null,
+        stopReason: null,
+        failureClass: 'tests',
+      },
+    })
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    const empties = wrapper.findAll('.tag-empty').map((e) => e.text())
-    expect(empties).toEqual(['sin rama', 'sin PR'])
+    const exec = wrapper.get('.task-row .esl')
+    expect(exec.classes()).toContain('esl--failed')
+    expect(exec.text()).toContain('falló · tests')
+    expect(exec.text()).toContain('2 intentos')
   })
 
-  it('un PR en draft se rotula draft, no por su state', async () => {
-    const wrapper = await mountWith([
-      githubItem({
-        pullRequests: [{ number: 9, url: 'u', state: 'open', isDraft: true }],
-      }),
-    ])
-    const pr = wrapper.get('.tag--pr')
-    expect(pr.text()).toContain('PR #9')
-    expect(pr.classes()).toContain('is-draft')
+  // El estado que motivó el rediseño: una tarea que nunca corrió.
+  it('una tarea sin runs se marca "sin ejecutar" una vez que el agregado llegó', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    expect(wrapper.get('.task-row .esl').classes()).toContain('esl--never')
   })
 
-  it('providers sin noción de ramas/PRs no dicen nada de ramas ni PRs', async () => {
-    const wrapper = await mountWith([
-      { id: 'L_1', title: 'Local task', status: 'queued', repos: 'algo' },
-    ])
-    expect(wrapper.find('.tag--branch').exists()).toBe(false)
-    expect(wrapper.find('.tag--pr').exists()).toBe(false)
-    expect(wrapper.find('.tag-empty').exists()).toBe(false)
+  // "No sé" no se dibuja como "no hay": si el agregado falla, la fila calla.
+  it('si el agregado de runs falla, la fila no afirma que nunca corrió', async () => {
+    fetchTaskRunSummaries.mockRejectedValueOnce(new Error('502'))
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    expect(wrapper.find('.task-row .esl').exists()).toBe(false)
   })
 
-  it('los tags de repo, rama y PR viven en la misma fila, sin botón de editar', async () => {
-    const wrapper = await mountWith([
-      githubItem({
-        linkedBranch: 'fix/algo',
-        pullRequests: [{ number: 7, url: 'u', state: 'open', isDraft: false }],
-      }),
-    ])
-    const row = wrapper.get('.task-tags-row')
-    expect(row.findAll('.tag--repo').map((c) => c.text())).toEqual(['ia-flow'])
-    expect(row.findAll('.tag--branch')).toHaveLength(1)
-    expect(row.findAll('.tag--pr')).toHaveLength(1)
-    expect(wrapper.find('.btn-edit').exists()).toBe(false)
-  })
-
-  it('sin el campo Repos del board, el repo sale del PR', async () => {
-    const wrapper = await mountWith([
-      {
-        id: 'I_9',
-        title: 'Sin repos',
-        status: 'doing',
-        repos: '',
-        meta: {
-          issueNumber: 99,
-          repoName: 'subscriptions',
-          pullRequests: [
-            { number: 7, url: 'u', state: 'open', isDraft: false, headRepo: 'fork-de-alguien' },
-          ],
-        },
-      },
-    ])
-    expect(wrapper.findAll('.tag--repo').map((c) => c.text())).toEqual(['fork-de-alguien'])
-    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).not.toContain('sin repos')
-  })
-
-  it('sin campo Repos y sin PR todavía, el repo sale del issue', async () => {
-    const wrapper = await mountWith([
-      {
-        id: 'I_10',
-        title: 'Recién arrancada',
-        status: 'doing',
-        repos: '',
-        meta: {
-          issueNumber: 100,
-          repoName: 'subscriptions',
-          linkedBranch: 'feat/algo',
-          pullRequests: [],
-        },
-      },
-    ])
-    expect(wrapper.findAll('.tag--repo').map((c) => c.text())).toEqual(['subscriptions'])
-    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).not.toContain('sin repos')
-  })
-
-  it('un provider que no dice de qué repo es el issue sigue diciendo "sin repos"', async () => {
-    const wrapper = await mountWith([
-      { id: 'L_2', title: 'Local task', status: 'queued', repos: '' },
-    ])
-    expect(wrapper.findAll('.tag-empty').map((e) => e.text())).toContain('sin repos')
+  it('una tarea con blockers se marca bloqueada', async () => {
+    blockersBatch.I_1 = [{ id: 'B1', ref: '#1236' }]
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    expect(wrapper.get('.task-row .esl').classes()).toContain('esl--blocked')
   })
 })
 
@@ -219,7 +173,7 @@ describe('TareasSection — detalle', () => {
         pullRequests: [{ number: 7, url: 'u', state: 'open', isDraft: false }],
       }),
     ])
-    await wrapper.get('.task-card').trigger('click')
+    await wrapper.get('.task-row').trigger('click')
     const modal = wrapper.findComponent(TaskDetailModal)
     expect(modal.props('branch')).toBe('fix/algo')
     expect(modal.props('devLinks')).toBe(true)
@@ -246,172 +200,87 @@ function withReviewers() {
   })
 }
 
+// Pedir review es una acción SOBRE el PR: vive en el detalle, junto a las
+// demás acciones, no en la fila del listado (que es densa y de lectura). El
+// gate se sigue evaluando acá para que el botón pueda decir POR QUÉ está
+// apagado sin un round-trip.
 describe('TareasSection — pedido de review en Slack', () => {
   beforeEach(() => {
     requestSlackReview.mockClear()
     repoEntries.splice(0, repoEntries.length)
   })
 
-  it('con PR abierto, CI verde y reviewers, el botón está habilitado', async () => {
+  async function openDetail(item: SourceItem) {
+    const wrapper = await mountWith([item])
+    await wrapper.get('.task-row').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('con PR abierto, CI verde y reviewers, el detalle lo ofrece habilitado', async () => {
     withReviewers()
-    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
-    const btn = wrapper.get('.task-slack-btn')
-    expect(btn.attributes('disabled')).toBeUndefined()
-    expect(btn.text()).toContain('Solicitar review')
+    const wrapper = await openDetail(githubItem({ pullRequests: [OPEN_PR_GREEN] }))
+    expect(wrapper.findComponent(TaskDetailModal).props('slackBlockedReason')).toBeNull()
   })
 
-  // El motivo va en el title: el operador tiene que poder saber por qué está
-  // apagado sin abrir nada.
-  it('sin nada configurado queda deshabilitado y nombra el canal faltante', async () => {
-    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
-    const btn = wrapper.get('.task-slack-btn')
-    expect(btn.attributes('disabled')).toBeDefined()
-    expect(btn.attributes('title')).toMatch(/canal/i)
+  // El motivo viaja al detalle: el operador tiene que poder saber por qué está
+  // apagado sin abrir nada más.
+  it('sin nada configurado nombra el canal faltante', async () => {
+    const wrapper = await openDetail(githubItem({ pullRequests: [OPEN_PR_GREEN] }))
+    expect(wrapper.findComponent(TaskDetailModal).props('slackBlockedReason')).toMatch(/canal/i)
   })
 
   it('con canal pero sin reviewers nombra los reviewers faltantes', async () => {
     repoEntries.splice(0, repoEntries.length, { name: 'ia-flow', slackReviewChannel: 'C1' })
-    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
-    const btn = wrapper.get('.task-slack-btn')
-    expect(btn.attributes('disabled')).toBeDefined()
-    expect(btn.attributes('title')).toMatch(/reviewers/i)
+    const wrapper = await openDetail(githubItem({ pullRequests: [OPEN_PR_GREEN] }))
+    expect(wrapper.findComponent(TaskDetailModal).props('slackBlockedReason')).toMatch(/reviewers/i)
   })
 
-  it('con el CI corriendo queda deshabilitado', async () => {
+  it('con el CI corriendo lo bloquea', async () => {
     withReviewers()
-    const wrapper = await mountWith([
+    const wrapper = await openDetail(
       githubItem({ pullRequests: [{ ...OPEN_PR_GREEN, ci: 'pending' }] }),
-    ])
-    const btn = wrapper.get('.task-slack-btn')
-    expect(btn.attributes('disabled')).toBeDefined()
-    expect(btn.attributes('title')).toMatch(/CI/)
+    )
+    expect(wrapper.findComponent(TaskDetailModal).props('slackBlockedReason')).toMatch(/CI/)
   })
 
-  it('sin PR abierto queda deshabilitado', async () => {
+  it('sin PR abierto lo bloquea', async () => {
     withReviewers()
-    const wrapper = await mountWith([
+    const wrapper = await openDetail(
       githubItem({ pullRequests: [{ ...OPEN_PR_GREEN, state: 'merged' }] }),
-    ])
-    expect(wrapper.get('.task-slack-btn').attributes('disabled')).toBeDefined()
+    )
+    expect(wrapper.findComponent(TaskDetailModal).props('slackBlockedReason')).toBeTruthy()
   })
 
-  it('una tarea que ya pidió review ofrece el re-review', async () => {
+  it('una tarea que ya pidió review llega al detalle con su hilo', async () => {
     withReviewers()
-    const wrapper = await mountWith([
+    const wrapper = await openDetail(
       githubItem({
         pullRequests: [OPEN_PR_GREEN],
         slackThreadUrl: 'https://acme.slack.com/archives/C1/p1699999999123456',
       }),
-    ])
-    expect(wrapper.get('.task-slack-btn').text()).toContain('Pedir re-review')
+    )
+    expect(wrapper.findComponent(TaskDetailModal).props('slackThreadUrl')).toContain('slack.com')
   })
 
-  it('el click pide el review sin abrir el modal de repos', async () => {
+  it('el evento del detalle pide el review', async () => {
     withReviewers()
-    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
-    await wrapper.get('.task-slack-btn').trigger('click')
+    const wrapper = await openDetail(githubItem({ pullRequests: [OPEN_PR_GREEN] }))
+    wrapper.findComponent(TaskDetailModal).vm.$emit('slack-review')
     await flushPromises()
     expect(requestSlackReview).toHaveBeenCalledWith('p1', 'I_1', { allowFailedCi: false })
-    expect(wrapper.findComponent(TaskDetailModal).props('open')).toBe(false)
   })
 
   // El CI en rojo no bloquea, pero no sale sin que alguien lo decida.
   it('con el CI en rojo pide confirmación antes de publicar', async () => {
     withReviewers()
-    const wrapper = await mountWith([
+    const wrapper = await openDetail(
       githubItem({ pullRequests: [{ ...OPEN_PR_GREEN, ci: 'failure' }] }),
-    ])
-    await wrapper.get('.task-slack-btn').trigger('click')
+    )
+    wrapper.findComponent(TaskDetailModal).vm.$emit('slack-review')
     await flushPromises()
     expect(requestSlackReview).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('CI en rojo')
-  })
-})
-
-// La activación escucha `issue.status_changed`, así que una tarea quieta en su
-// status no se vuelve a despachar sola. El botón vive en el DETALLE de la
-// tarea (no en la tarjeta): correr una tarea es una decisión que se toma
-// mirando su status y sus dev links, no de pasada en el listado.
-describe('TareasSection — correr una tarea desde el detalle', () => {
-  async function openDetail(item: SourceItem) {
-    const wrapper = await mountWith([item])
-    await wrapper.get('.task-card').trigger('click')
-    await flushPromises()
-    return wrapper
-  }
-
-  it('la tarjeta ya no lleva el botón: la acción vive en el detalle', async () => {
-    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    expect(wrapper.find('.task-run-btn').exists()).toBe(false)
-  })
-
-  it('el detalle recibe el status contra el que se van a evaluar las reglas', async () => {
-    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    expect(wrapper.findComponent(TaskDetailModal).props('status')).toBe('refine')
-  })
-
-  it('el evento `run` del detalle corre la tarea', async () => {
-    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    wrapper.findComponent(TaskDetailModal).vm.$emit('run')
-    await flushPromises()
-    expect(runTaskNow).toHaveBeenCalledWith('p1', 'I_1')
-  })
-
-  // El veredicto se muestra DENTRO del modal y no sólo como toast: el caso
-  // interesante ("ninguna regla matchea") es el que hay que releer mientras se
-  // decide qué cambiar, y un toast se va solo.
-  it('el resultado vuelve al detalle', async () => {
-    runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
-    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    wrapper.findComponent(TaskDetailModal).vm.$emit('run')
-    await flushPromises()
-    expect(wrapper.findComponent(TaskDetailModal).props('runResult')).toEqual({
-      outcome: 'skipped',
-      status: 'done',
-    })
-    expect(toastSuccess).not.toHaveBeenCalled()
-    expect(toastError.mock.calls[0][0]).toContain('done')
-  })
-
-  // El pedido puede volver DESPUÉS de que el operador cambió de tarea. El
-  // veredicto es de la tarea que lo pidió: pintarlo sobre otra es peor que
-  // perderlo.
-  it('un resultado que llega tarde no se pinta sobre otra tarea', async () => {
-    let resolveRun: (r: { outcome: 'skipped'; status: string }) => void = () => {}
-    runTaskNow.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveRun = resolve as typeof resolveRun
-        }),
-    )
-    const wrapper = await mountWith([
-      githubItem({ pullRequests: [] }),
-      { ...githubItem({ pullRequests: [] }), id: 'I_2', title: 'Otra' },
-    ])
-    const cards = wrapper.findAll('.task-card')
-    await cards[0].trigger('click')
-    await flushPromises()
-    const modal = wrapper.findComponent(TaskDetailModal)
-    modal.vm.$emit('run')
-    await flushPromises()
-
-    await cards[1].trigger('click')
-    await flushPromises()
-    resolveRun({ outcome: 'skipped', status: 'done' })
-    await flushPromises()
-
-    expect(modal.props('runResult')).toBeNull()
-  })
-
-  it('abrir otra tarea no arrastra el veredicto de la anterior', async () => {
-    runTaskNow.mockResolvedValueOnce({ outcome: 'skipped', status: 'done' })
-    const wrapper = await openDetail(githubItem({ pullRequests: [] }))
-    const modal = wrapper.findComponent(TaskDetailModal)
-    modal.vm.$emit('run')
-    await flushPromises()
-    await wrapper.get('.task-card').trigger('click')
-    await flushPromises()
-    expect(modal.props('runResult')).toBeNull()
   })
 })
 
@@ -432,7 +301,7 @@ const BOARD: SourceItem[] = [
 ]
 
 function titles(wrapper: { findAll: (s: string) => Array<{ text: () => string }> }) {
-  return wrapper.findAll('.task-title').map((t) => t.text())
+  return wrapper.findAll('.task-row-title').map((t) => t.text())
 }
 
 /** Escribe `campo:valor` en el input de filtros y elige la opción sugerida —
@@ -496,7 +365,7 @@ describe('TareasSection — filtros del listado', () => {
     const wrapper = await mountWith(BOARD)
     await applyFilter(wrapper, 'pr', 'sin-pr')
     await applyFilter(wrapper, 'status', 'refine')
-    expect(wrapper.find('.task-card').exists()).toBe(false)
+    expect(wrapper.find('.task-row').exists()).toBe(false)
     expect(wrapper.text()).toContain('coincide con los filtros activos')
     expect(wrapper.text()).not.toContain('No hay tareas para este proyecto')
   })
@@ -537,14 +406,14 @@ describe('TareasSection — filtros del listado', () => {
   })
 
   it('"bloqueada:si" deja sólo las tareas con blockers sin resolver', async () => {
-    blockersById.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
+    blockersBatch.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
     const wrapper = await mountWith(BOARD)
     await applyFilter(wrapper, 'bloqueada', 'si')
     expect(titles(wrapper)).toEqual(['Tarea I_3'])
   })
 
   it('"bloqueada:no" es el complemento', async () => {
-    blockersById.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
+    blockersBatch.I_3 = [{ id: 'B_1', title: 'depende de otro issue' }]
     const wrapper = await mountWith(BOARD)
     await applyFilter(wrapper, 'bloqueada', 'no')
     expect(titles(wrapper)).toEqual(['Tarea I_1', 'Tarea I_2'])
