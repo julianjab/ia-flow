@@ -29,6 +29,15 @@ const props = withDefaults(
     open?: boolean;
     /** Se dibuja a la derecha en el bucket cerrado: `92% ok · $14.20`. */
     meta?: string;
+    /**
+     * Reemplaza el nombre de la disposición.
+     *
+     * Lo usa el board, que agrupa por STATUS y no por disposición: la pieza es
+     * la misma —el encabezado pegajoso con su cuenta— pero lo que nombra es
+     * otra cosa. Sin esto, el board tendría que dibujar su propio encabezado y
+     * las dos vistas dejarían de verse iguales.
+     */
+    labelOverride?: string;
   }>(),
   { collapsible: false, open: true },
 );
@@ -47,16 +56,16 @@ const RULE: Partial<Record<TaskDisposition, string>> = {
   <component
     :is="collapsible ? 'button' : 'div'"
     class="bh"
-    :class="[`bh--${disposition}`, { 'bh--collapsible': collapsible }]"
+    :class="[labelOverride ? 'bh--neutral' : `bh--${disposition}`, { 'bh--collapsible': collapsible }]"
     :type="collapsible ? 'button' : undefined"
     :aria-expanded="collapsible ? open : undefined"
     :data-testid="`bucket-${disposition}`"
     @click="collapsible ? emit('toggle') : undefined"
   >
     <span v-if="collapsible" class="bh__caret" aria-hidden="true">{{ open ? '▾' : '▸' }}</span>
-    <span class="bh__label">{{ DISPOSITION_LABELS[disposition] }}</span>
+    <span class="bh__label">{{ labelOverride ?? DISPOSITION_LABELS[disposition] }}</span>
     <span class="bh__count">{{ count }}</span>
-    <span v-if="RULE[disposition]" class="bh__rule">{{ RULE[disposition] }}</span>
+    <span v-if="!labelOverride && RULE[disposition]" class="bh__rule">{{ RULE[disposition] }}</span>
     <span v-if="meta" class="bh__meta">{{ meta }}</span>
   </component>
 </template>
@@ -90,6 +99,9 @@ const RULE: Partial<Record<TaskDisposition, string>> = {
 /* El único en --danger es el único que pide algo tuyo. */
 .bh--waiting-on-you { color: var(--danger); }
 .bh--closed { color: var(--fg-dimmer); }
+/* El board agrupa por status, no por disposición: el color de urgencia no
+   aplica — un status no es más urgente que otro. */
+.bh--neutral { color: var(--fg-dim); }
 
 .bh--collapsible {
   border-width: 1px 0;

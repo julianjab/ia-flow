@@ -10,6 +10,7 @@ import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
+import TaskRow from '@/components/TaskRow.vue';
 import type { TaskRunSummary } from '@ia-flow/shared';
 import {
   fetchProjectItems,
@@ -323,46 +324,34 @@ function cancelConfirm() { pendingConfirm.value = null; }
         </p>
 
         <ul v-else class="bd-list">
-          <li v-for="item in columnItems" :key="item.id" class="bd-row">
-            <span class="bd-row-glyph">
-              <ExecutionStatusLine
-                class="bd-glyph-only"
-                :execution="runsByTask[item.id]?.last ?? null"
-                :attempts="runsByTask[item.id]?.attempts"
-                :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-                :runs-known="runsKnown"
-              />
-            </span>
-            <div class="bd-row-body">
-              <p class="bd-row-title">
-                {{ item.title }}
-                <a
-                  v-if="issueNumberOf(item) && issueUrlOf(item)"
-                  class="bd-row-issue"
-                  :href="issueUrlOf(item)"
-                  target="_blank"
-                  rel="noopener"
-                >#{{ issueNumberOf(item) }}</a>
-              </p>
-              <!-- La MISMA línea de estado que el listado: una sola
-                   implementación del vocabulario, o cada pantalla dice algo
-                   distinto sobre el mismo hecho. -->
-              <ExecutionStatusLine
-                :execution="runsByTask[item.id]?.last ?? null"
-                :attempts="runsByTask[item.id]?.attempts"
-                :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-                :runs-known="runsKnown"
-              />
-            </div>
-          </li>
+          <!-- La MISMA fila que Tareas y Qué sigue: las tres son recortes del
+               mismo orden (O6), así que tienen que ser también la misma fila.
+               `stacked` porque el board vive en una columna angosta. -->
+          <TaskRow
+            v-for="item in columnItems"
+            :key="item.id"
+            layout="stacked"
+            :title="item.title"
+            :issue-number="issueNumberOf(item)"
+            :issue-url="issueUrlOf(item)"
+            :execution="runsByTask[item.id]?.last ?? null"
+            :attempts="runsByTask[item.id]?.attempts"
+            :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+            :runs-known="runsKnown"
+            :clickable="false"
+          />
         </ul>
 
         <p class="bd-note">
           Arrastrar entre columnas no existe acá: el status se cambia desde el detalle de la tarea.
+          <!-- El link lleva el status en la query: prometer "qué corre en
+               blocked" y abrir el Pipeline entero es hacer buscar a mano lo que
+               el link decía que ya estaba recortado. -->
           <router-link
             :to="{
               name: 'projects.detail',
               params: { id: projectsStore.activeProjectId, tab: 'pipeline' },
+              query: { estado: activeStatus },
             }"
             class="bd-rules-link"
           >Ver qué corre en {{ activeStatus }} →</router-link>

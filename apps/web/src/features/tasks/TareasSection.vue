@@ -8,6 +8,7 @@ import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import BucketHeader from '@/components/BucketHeader.vue';
+import TaskRow from '@/components/TaskRow.vue';
 import KbdBar from '@/components/KbdBar.vue';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsSplit } from '@/composables/useIsMobile';
@@ -255,6 +256,61 @@ const QUICK_FILTERS: Array<{ key: TaskDisposition; label: string; glyph: string 
 ];
 
 const quickFilter = ref<TaskDisposition | null>(null);
+
+/**
+ * Lista o board — dos VISTAS de las mismas tareas, no dos pantallas.
+ *
+ * El board era un destino aparte, y eso obligaba a decidir por dónde entrar
+ * antes de saber qué buscabas: las dos muestran el mismo conjunto, sólo que una
+ * lo agrupa por status. La ruta `/board` sigue viva —los links viejos no se
+ * rompen— y llega acá con la vista puesta.
+ */
+const props = withDefaults(defineProps<{ initialView?: 'lista' | 'board' }>(), {
+  initialView: 'lista',
+});
+const view = ref<'lista' | 'board'>(props.initialView);
+// El toggle navega (`/tareas` ↔ `/board`), y Vue REUSA el componente entre las
+// dos rutas: sin este watch la vista se quedaría en la que se montó primero.
+watch(() => props.initialView, (v) => { view.value = v; });
+
+/**
+ * El board: las MISMAS tareas, agrupadas por status en vez de por disposición.
+ *
+ * No es otra pantalla ni otra fila — es el mismo `TaskRow`, clickeable, con el
+ * mismo detalle. Lo único que cambia es por qué se agrupa. Antes el board era
+ * una sección aparte que redibujaba la fila por su cuenta, y la misma tarea se
+ * leía distinta según desde dónde la miraras.
+ *
+ * Una columna por vez y no un carrusel: en un teléfono un board de cinco
+ * columnas se lee scrolleando de lado y perdiendo el hilo.
+ */
+const activeStatus = ref<string | null>(null);
+
+const boardColumns = computed(() => {
+  const counts = new Map<string, number>();
+  for (const item of filteredItems.value) {
+    const key = (item.status ?? '').trim();
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  // El orden lo da la fuente (`statusOptions`), que es el del pipeline; los que
+  // aparecen en tareas pero no están configurados van al final en vez de
+  // desaparecer — esconder una columna con tareas adentro es peor que
+  // mostrarla fuera de orden.
+  const ordered = statusOptions.value.filter((s) => counts.has(s));
+  for (const s of counts.keys()) if (!ordered.includes(s)) ordered.push(s);
+  return ordered.map((name) => ({ name, count: counts.get(name) ?? 0 }));
+});
+
+/** Sin elección explícita, la primera columna con tareas. */
+const currentStatus = computed(
+  () => activeStatus.value ?? boardColumns.value[0]?.name ?? null,
+);
+
+const columnItems = computed(() =>
+  currentStatus.value
+    ? filteredItems.value.filter((i) => (i.status ?? '').trim() === currentStatus.value)
+    : [],
+);
 
 /** Sobre --bp-split el detalle deja de flotar y se vuelve la segunda columna. */
 const { isSplit } = useIsSplit();
@@ -765,7 +821,7 @@ watch(activeProjectId, (pid) => {
              no como un destino más de la navegación. -->
         <ListBoardToggle
           :project-id="activeProjectId ?? null"
-          view="lista"
+          :view="view"
           :board-available="statusOptions.length > 0"
         />
         <span v-if="projectItems.length" class="task-count" data-testid="task-count">
@@ -807,6 +863,62 @@ watch(activeProjectId, (pid) => {
       />
     </ListControlsBar>
 
+    <!-- La vista de board: las MISMAS tareas y la MISMA fila, agrupadas por
+         status en vez de por disposición. Lo único que cambia es el criterio;
+         la fila es `TaskRow`, clickeable, con el mismo detalle. -->
+    <template v-if="view === 'board'">
+      <div v-if="boardColumns.length" class="bd-chips">
+        <button
+          v-for="col in boardColumns"
+          :key="col.name"
+          type="button"
+          class="bd-chip"
+          :class="{ 'is-on': col.name === currentStatus }"
+          :aria-pressed="col.name === currentStatus"
+          :data-testid="`board-chip-${col.name}`"
+          @click="activeStatus = col.name"
+        >{{ col.name }} <b>{{ col.count }}</b></button>
+      </div>
+
+      <p v-if="!boardColumns.length" class="repos-empty">
+        Ninguna tarea tiene status: no hay columnas que mostrar.
+      </p>
+
+      <div v-else class="task-table">
+        <BucketHeader
+          v-if="currentStatus"
+          disposition="moving"
+          :count="columnItems.length"
+          :label-override="currentStatus"
+        />
+        <TaskRow
+          v-for="item in columnItems"
+          :key="item.id"
+          layout="table"
+          :title="item.title"
+          :issue-number="item.issueNumber"
+          :issue-url="item.url"
+          :reason="reasonFor(item.id)"
+          :disposition="dispositionById.get(item.id)?.disposition"
+          :execution="runsByTask[item.id]?.last ?? null"
+          :attempts="runsByTask[item.id]?.attempts"
+          :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+          :runs-known="runsKnown"
+          :pull-requests-known="item.pullRequestsKnown"
+          :has-open-pr="hasOpenPr(item)"
+          :agent="runsByTask[item.id]?.last.agentId"
+          :duration="durationOf(item)"
+          @open="openReposModal(item)"
+        />
+        <KbdBar />
+      </div>
+
+      <p class="bd-note">
+        Arrastrar entre columnas no existe acá: el status se cambia desde el detalle de la tarea.
+      </p>
+    </template>
+
+    <template v-else>
     <!-- Atajos de una tocada sobre la disposición: la pregunta "¿qué me toca?"
          se hace veinte veces por día y no debería costar abrir un panel. Un
          chip en cero no se dibuja (R10). -->
@@ -899,67 +1011,25 @@ watch(activeProjectId, (pid) => {
           class="task-list"
           data-kbd-list="tasks"
         >
-          <li
+          <TaskRow
             v-for="row in bucket.rows"
             :key="row.id"
-            class="task-row"
-            data-kbd-item
-            tabindex="0"
-            @click="openReposModal(row.item)"
-          >
-            <span class="task-row-glyph">
-              <ExecutionStatusLine
-                class="task-row-glyph-only"
-                :execution="runsByTask[row.id]?.last ?? null"
-                :attempts="runsByTask[row.id]?.attempts"
-                :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
-                :runs-known="runsKnown"
-                :pull-requests-known="row.item.pullRequestsKnown"
-                :has-open-pr="hasOpenPr(row.item)"
-              />
-            </span>
-            <span class="task-row-title" :title="row.item.title">{{ row.item.title }}</span>
-            <a
-              v-if="row.item.issueNumber && row.item.url"
-              class="task-row-issue"
-              :href="row.item.url"
-              target="_blank"
-              rel="noopener"
-              :title="`Abrir #${row.item.issueNumber} en el provider`"
-              @click.stop
-            >#{{ row.item.issueNumber }}</a>
-            <span v-else-if="row.item.issueNumber" class="task-row-issue is-plain">#{{ row.item.issueNumber }}</span>
-            <span v-else class="task-row-issue is-plain"></span>
-            <!-- La razón OCUPA la columna de ejecución, no se suma a ella (O1).
-                 Las dos contestaban lo mismo y se pisaban: la fila decía
-                 `sin ejecutar` dos veces y el título perdía la mitad de su
-                 ancho. La razón gana porque es un superconjunto — la arma el
-                 server y ya trae lo que la línea de ejecución decía
-                 (`PR #1233 · CI ✓ · traba 4 tareas`) más el porqué de que te
-                 toque a vos (`no hay regla de retry`), que es justamente lo
-                 que la línea de estado no puede saber.
-
-                 Sin disposición (el agregado no se pudo consultar) vuelve la
-                 línea de siempre: es mejor decir el estado que no decir nada. -->
-            <span
-              v-if="reasonFor(row.id)"
-              class="task-row-exec task-row-reason"
-              :class="`is-${row.disposition}`"
-              :title="reasonFor(row.id)"
-            >{{ reasonFor(row.id) }}</span>
-            <ExecutionStatusLine
-              v-else
-              class="task-row-exec"
-              :execution="runsByTask[row.id]?.last ?? null"
-              :attempts="runsByTask[row.id]?.attempts"
-              :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
-              :runs-known="runsKnown"
-              :pull-requests-known="row.item.pullRequestsKnown"
-              :has-open-pr="hasOpenPr(row.item)"
-            />
-            <span class="task-row-agent">{{ runsByTask[row.id]?.last.agentId ?? '—' }}</span>
-            <span class="task-row-dur">{{ durationOf(row.item) }}</span>
-          </li>
+            layout="table"
+            :title="row.item.title"
+            :issue-number="row.item.issueNumber"
+            :issue-url="row.item.url"
+            :reason="reasonFor(row.id)"
+            :disposition="row.disposition"
+            :execution="runsByTask[row.id]?.last ?? null"
+            :attempts="runsByTask[row.id]?.attempts"
+            :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
+            :runs-known="runsKnown"
+            :pull-requests-known="row.item.pullRequestsKnown"
+            :has-open-pr="hasOpenPr(row.item)"
+            :agent="runsByTask[row.id]?.last.agentId"
+            :duration="durationOf(row.item)"
+            @open="openReposModal(row.item)"
+          />
         </ul>
       </template>
 
@@ -968,56 +1038,23 @@ watch(activeProjectId, (pid) => {
         class="task-list"
         data-kbd-list="tasks"
       >
-        <li
+        <TaskRow
           v-for="item in filteredItems"
           :key="item.id"
-          class="task-row"
-          data-kbd-item
-          tabindex="0"
-          @click="openReposModal(item)"
-        >
-          <span class="task-row-glyph">
-            <ExecutionStatusLine
-              class="task-row-glyph-only"
-              :execution="runsByTask[item.id]?.last ?? null"
-              :attempts="runsByTask[item.id]?.attempts"
-              :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-              :runs-known="runsKnown"
-              :pull-requests-known="item.pullRequestsKnown"
-              :has-open-pr="hasOpenPr(item)"
-            />
-          </span>
-
-          <span class="task-row-title" :title="item.title">{{ item.title }}</span>
-
-          <a
-            v-if="item.issueNumber && item.url"
-            class="task-row-issue"
-            :href="item.url"
-            target="_blank"
-            rel="noopener"
-            :title="`Abrir #${item.issueNumber} en el provider`"
-            @click.stop
-          >#{{ item.issueNumber }}</a>
-          <span v-else-if="item.issueNumber" class="task-row-issue is-plain">#{{ item.issueNumber }}</span>
-          <span v-else class="task-row-issue is-plain"></span>
-
-          <!-- La misma línea en las dos resoluciones: en mobile ocupa la
-               segunda fila del bloque de texto; en desktop, la columna
-               `ejecución`. Una sola implementación del vocabulario. -->
-          <ExecutionStatusLine
-            class="task-row-exec"
-            :execution="runsByTask[item.id]?.last ?? null"
-            :attempts="runsByTask[item.id]?.attempts"
-            :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-            :runs-known="runsKnown"
-            :pull-requests-known="item.pullRequestsKnown"
-            :has-open-pr="hasOpenPr(item)"
-          />
-
-          <span class="task-row-agent">{{ runsByTask[item.id]?.last.agentId ?? '—' }}</span>
-          <span class="task-row-dur">{{ durationOf(item) }}</span>
-        </li>
+          layout="table"
+          :title="item.title"
+          :issue-number="item.issueNumber"
+          :issue-url="item.url"
+          :execution="runsByTask[item.id]?.last ?? null"
+          :attempts="runsByTask[item.id]?.attempts"
+          :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+          :runs-known="runsKnown"
+          :pull-requests-known="item.pullRequestsKnown"
+          :has-open-pr="hasOpenPr(item)"
+          :agent="runsByTask[item.id]?.last.agentId"
+          :duration="durationOf(item)"
+          @open="openReposModal(item)"
+        />
       </ul>
 
       <!-- Los atajos, al pie de la lista que gobiernan. Sólo los que existen.
@@ -1042,6 +1079,7 @@ watch(activeProjectId, (pid) => {
       @close="reposModalOpen = false"
     />
     </div>
+    </template>
   </section>
 
   <!-- Abortar corta trabajo real: siempre detrás de una confirmación. -->
@@ -1137,6 +1175,40 @@ watch(activeProjectId, (pid) => {
     gap: 1rem;
     align-items: start;
   }
+}
+
+/* Los chips del board: una columna por vez, no un carrusel horizontal. En un
+   teléfono un board de cinco columnas se lee scrolleando de lado y perdiendo
+   el hilo. Misma caja que los chips de filtro rápido — son el mismo gesto. */
+.bd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.bd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4ch;
+  height: var(--tap-h-sm);
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bd-chip:hover { border-color: var(--border-hi); }
+/* El activo en video inverso, como toda selección del sistema. */
+.bd-chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+
+.bd-note {
+  margin: 0.5rem 0 0;
+  font-size: var(--fs-micro);
+  color: var(--fg-dimmer);
 }
 
 /* Los chips de filtro rápido. `--tap-h-sm`: son chips que van en fila y su

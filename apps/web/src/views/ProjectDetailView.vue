@@ -6,8 +6,6 @@ import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
 import RulesSection from '@/features/rules/RulesSection.vue';
 import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
-import StatusesSection from '@/features/statuses/StatusesSection.vue';
-import NextUpSection from '@/features/tasks/NextUpSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
 import ProjectOverviewTab from '@/features/projects/tabs/ProjectOverviewTab.vue';
 import ProjectProviderTab from '@/features/projects/tabs/ProjectProviderTab.vue';
@@ -33,7 +31,11 @@ const projectsStore = useProjectsStore();
 // La sub-navegación del proyecto vive en el sidebar (desktop) y en la tab bar
 // (mobile). Acá sólo se resuelve el `tab` de la URL.
 const VALID_TABS = new Set([
-  'overview', 'que-sigue', 'executions', 'tareas', 'board',
+  // `board` sigue siendo una ruta válida —los links viejos no se rompen— pero
+  // ya no es una pantalla: abre Tareas en su vista de board. `que-sigue` se
+  // fue: era la misma lista con otro recorte, y Tareas ya ordena por
+  // disposición y trae los chips de corte rápido.
+  'overview', 'executions', 'tareas', 'board',
   'agentes', 'pipeline', 'acciones', 'tools', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
@@ -76,11 +78,12 @@ watch(
       v-else-if="activeTab === 'tools' && project"
       :scope="{ kind: 'project', projectId: project.id }"
     />
-    <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />
     <ProjectReposTab          v-else-if="activeTab === 'repos'" />
-    <NextUpSection            v-else-if="activeTab === 'que-sigue'" />
-    <TareasSection            v-else-if="activeTab === 'tareas'" />
+    <TareasSection
+      v-else-if="activeTab === 'tareas' || activeTab === 'board'"
+      :initial-view="activeTab === 'board' ? 'board' : 'lista'"
+    />
     <ProjectProviderTab       v-else-if="activeTab === 'provider'" :project="project" />
     <ExecutionsSection        v-else-if="activeTab === 'executions'" />
   </div>

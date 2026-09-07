@@ -75,10 +75,8 @@ type SectionId =
 // activo en el árbol. Mismo orden que ProjectDetailView.
 const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'overview',       label: 'overview' },
-  { id: 'que-sigue',      label: 'qué sigue' },
   { id: 'executions',     label: 'ejecuciones' },
   { id: 'tareas',         label: 'tareas' },
-  { id: 'board',          label: 'board' },
   { id: 'agentes',        label: 'agentes' },
   { id: 'pipeline',       label: 'pipeline' },
   { id: 'acciones',       label: 'acciones' },
@@ -234,7 +232,7 @@ const activeProjectLabel = computed(() => {
 function switchProject(projectId: string) {
   projectSheetOpen.value = false;
   if (projectId === projectsStore.activeProjectId) return;
-  const tab = route.path.match(/^\/projects\/[^/]+\/([^/]+)/)?.[1] ?? 'que-sigue';
+  const tab = route.path.match(/^\/projects\/[^/]+\/([^/]+)/)?.[1] ?? 'tareas';
   void router.push(`/projects/${projectId}/${tab}`);
 }
 
@@ -303,8 +301,10 @@ const projectChildren = computed(() =>
     id: p.id,
     label: p.name || p.id,
     path: `/projects/${p.id}/overview`,
+    // `board` ya no es un tab: es la otra VISTA de Tareas, y se elige con el
+    // segmentado de esa pantalla. Un destino aparte para el mismo conjunto de
+    // tareas obligaba a decidir por dónde entrar antes de saber qué buscabas.
     children: PROJECT_TAB_ORDER
-      .filter((t) => t.id !== 'board' || p.id !== projectsStore.activeProjectId || activeProjectHasStatuses.value)
       .map((t) => ({
         id: `${p.id}:${t.id}`,
         label: t.label,

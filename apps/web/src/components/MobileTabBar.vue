@@ -31,7 +31,10 @@ const tabPath = (tab: string) =>
   props.projectId ? `/projects/${props.projectId}/${tab}` : '/projects';
 
 const TABS = computed(() => [
-  { id: 'que-sigue', glyph: '✦', label: 'QUÉ SIGUE', to: tabPath('que-sigue') },
+  // "Qué sigue" se fue: era la misma lista de Tareas con otro recorte, y dos
+  // destinos para la misma pregunta hacían que el operador tuviera que decidir
+  // por cuál entrar. Tareas ordena por disposición y trae los chips de corte
+  // rápido, así que contesta lo mismo sin un destino aparte.
   { id: 'tareas', glyph: '▤', label: 'TAREAS', to: tabPath('tareas') },
   { id: 'executions', glyph: '●', label: 'RUNS', to: tabPath('executions'), live: true },
   { id: 'mas', glyph: '☰', label: 'MÁS', to: '/mas' },
@@ -45,7 +48,6 @@ const TABS = computed(() => [
 const activeId = computed(() => {
   const path = route.path;
   if (path === '/mas') return 'mas';
-  if (path.includes('/que-sigue')) return 'que-sigue';
   if (path.includes('/tareas') || path.includes('/board')) return 'tareas';
   if (path.includes('/executions')) return 'executions';
   return null;
