@@ -2,9 +2,14 @@ import NextUpSection from '@/features/tasks/NextUpSection.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// La cola ya NO se ordena acá: la disposición, su razón y el verbo los resuelve
+// el server, porque dependen de las reglas de retry, los blockers y el PR — las
+// tres cosas que el browser no tiene. Lo que queda para testear es lo que sí es
+// de la UI: agrupar por bucket, congelar el orden y despachar el verbo.
+
 const items: Array<Record<string, unknown>> = []
-const runSummaries: Array<Record<string, unknown>> = []
-const blockersBatch: Record<string, unknown[]> = {}
+let dispositions: Array<Record<string, unknown>> = []
+let dispositionsThrows = false
 
 vi.mock('@/features/projects/store', () => ({
   useProjectsStore: () => ({ activeProjectId: 'p1' }),
@@ -12,196 +17,178 @@ vi.mock('@/features/projects/store', () => ({
 vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
 }))
-const fetchTaskRunSummaries = vi.fn(async () => runSummaries)
-const fetchBlockersBatch = vi.fn(async () => blockersBatch)
+const runTaskNow = vi.fn(async () => ({ outcome: 'dispatched', status: 'build' }))
 vi.mock('@/features/tasks/api', () => ({
-  fetchTaskRunSummaries: (...a: unknown[]) => fetchTaskRunSummaries(...(a as [])),
-  fetchBlockersBatch: (...a: unknown[]) => fetchBlockersBatch(...(a as [])),
+  fetchTaskDispositions: vi.fn(async () => {
+    if (dispositionsThrows) throw new Error('502')
+    return dispositions
+  }),
+  runTaskNow: (...a: unknown[]) => runTaskNow(...(a as [])),
 }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+const push = vi.fn()
+vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+vi.mock('@/stores/toast', () => ({
+  useToastStore: () => ({ success: toastSuccess, error: toastError }),
+}))
 
-function task(id: string, over: Record<string, unknown> = {}) {
+function task(id: string) {
   return {
     id,
     title: `Tarea ${id}`,
     status: 'build',
-    repos: 'ia-flow',
-    meta: { issueNumber: Number(id.slice(1)), issueUrl: `https://gh/${id}`, ...over },
+    meta: { issueNumber: Number(id.slice(1)), issueUrl: `https://gh/${id}` },
   }
 }
 
-function run(taskId: string, over: Record<string, unknown> = {}) {
+function entry(taskId: string, over: Record<string, unknown> = {}) {
   return {
     taskId,
-    attempts: 1,
-    last: {
-      id: `run-${taskId}`,
-      projectId: 'p1',
-      taskId,
-      taskTitle: 'x',
-      agentId: 'implementer',
-      providerId: 'anthropic-api',
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      outcome: 'success',
-      errorMsg: null,
-      stopReason: null,
-      ...over,
-    },
+    disposition: 'waiting-on-you',
+    reason: 'falló · no hay regla de retry',
+    waitingOnYouSince: null,
+    unblocks: 0,
+    blockedBy: [],
+    verb: { label: 'Reintentar', kind: 'run' },
+    ...over,
   }
 }
 
 beforeEach(() => {
   items.splice(0, items.length)
-  runSummaries.splice(0, runSummaries.length)
-  for (const k of Object.keys(blockersBatch)) delete blockersBatch[k]
+  dispositions = []
+  dispositionsThrows = false
+  push.mockClear()
+  runTaskNow.mockClear()
 })
 
 async function mountWith() {
-  const wrapper = mount(NextUpSection)
+  const w = mount(NextUpSection)
   await flushPromises()
   await flushPromises()
-  return wrapper
+  return w
 }
 
 describe('NextUpSection', () => {
-  // El orden es la pantalla: primero lo que NO avanza solo.
-  it('ordena por severidad: falló → bloqueada → corriendo → sin ejecutar', async () => {
-    items.push(task('i1'), task('i2'), task('i3'), task('i4'))
-    runSummaries.push(
-      run('i1', { outcome: 'error', failureClass: 'tests' }),
-      run('i3', { finishedAt: null, outcome: null }),
-    )
-    blockersBatch.i2 = [{ id: 'b', ref: '#1236' }]
-    const wrapper = await mountWith()
-    const reasons = wrapper.findAll('.nu-reason').map((r) => r.text())
-    expect(reasons[0]).toContain('falló')
-    expect(reasons[1]).toContain('bloqueada por #1236')
-    expect(reasons[2]).toContain('corriendo')
-    expect(reasons[3]).toContain('sin ejecutar')
+  it('agrupa por bucket y no dibuja los vacíos', async () => {
+    items.push(task('t1'), task('t2'))
+    dispositions = [entry('t1'), entry('t2', { disposition: 'moving', verb: null })]
+    const w = await mountWith()
+    expect(w.find('[data-testid="bucket-waiting-on-you"]').exists()).toBe(true)
+    expect(w.find('[data-testid="bucket-moving"]').exists()).toBe(true)
+    // Un encabezado que cuenta cero es chrome que no informa (R10).
+    expect(w.find('[data-testid="bucket-blocked"]').exists()).toBe(false)
   })
 
-  // La razón es lo que distingue esta pantalla de un listado por fecha.
-  it('cada fila dice por qué está ahí, con el conteo de intentos', async () => {
-    items.push(task('i1'))
-    runSummaries.push({ ...run('i1', { outcome: 'error', failureClass: 'tests' }), attempts: 2 })
-    const wrapper = await mountWith()
-    const reason = wrapper.get('.nu-reason')
-    expect(reason.text()).toContain('2 intentos')
-    expect(reason.text()).toContain('no reintenta solo')
+  it('la razón viaja con la fila (O1)', async () => {
+    items.push(task('t1'))
+    dispositions = [entry('t1', { reason: 'falló 2× · no hay regla de retry' })]
+    const w = await mountWith()
+    expect(w.text()).toContain('falló 2× · no hay regla de retry')
   })
 
-  // Aprobar/mergear desde la app no existe: la acción abre el PR en GitHub.
-  it('la acción sugerida abre el PR, no promete un botón', async () => {
-    items.push(
-      task('i1', {
-        pullRequests: [
-          { number: 7, url: 'https://gh/pr/7', state: 'open', isDraft: false, ci: 'success' },
-        ],
+  it('sólo el bucket 1 lleva verbo (O2)', async () => {
+    items.push(task('t1'), task('t2'))
+    dispositions = [
+      entry('t1'),
+      entry('t2', { disposition: 'blocked', reason: 'espera #99', verb: null }),
+    ]
+    const w = await mountWith()
+    // Si no te toca, ofrecer un botón es ruido.
+    expect(w.findAll('[data-testid="next-up-verb"]')).toHaveLength(1)
+  })
+
+  it('el verbo `external` abre el PR y NO promete mergear desde la app', async () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    items.push(task('t1'))
+    dispositions = [
+      entry('t1', {
+        verb: {
+          label: 'Revisar el PR',
+          kind: 'external',
+          href: 'https://gh/pull/1',
+          hint: '↗ github',
+        },
       }),
-    )
-    runSummaries.push(run('i1'))
-    const wrapper = await mountWith()
-    const action = wrapper.get('.nu-action')
-    expect(action.attributes('href')).toBe('https://gh/pr/7')
-    expect(action.attributes('target')).toBe('_blank')
+    ]
+    const w = await mountWith()
+    await w.get('[data-testid="next-up-verb"]').trigger('click')
+    expect(open).toHaveBeenCalledWith('https://gh/pull/1', '_blank', 'noopener')
+    expect(runTaskNow).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
   })
 
-  // "No sé" no se dibuja como "no hay": sin el agregado, una tarea sin runs no
-  // entra a la cola como "sin ejecutar"…
-  it('si el agregado de runs falla, no afirma que nada corrió', async () => {
-    items.push(task('i1'))
-    fetchTaskRunSummaries.mockRejectedValueOnce(new Error('502'))
-    const wrapper = await mountWith()
-    expect(wrapper.text()).not.toContain('sin ejecutar')
+  it('el verbo `route` navega a la pantalla donde eso se hace hoy', async () => {
+    items.push(task('t1'))
+    dispositions = [
+      entry('t1', {
+        verb: { label: 'Resolver', kind: 'route', href: '/general/aborted-runs?run=e9' },
+      }),
+    ]
+    const w = await mountWith()
+    await w.get('[data-testid="next-up-verb"]').trigger('click')
+    expect(push).toHaveBeenCalledWith('/general/aborted-runs?run=e9')
   })
 
-  // …y el vacío que eso produce NO se puede leer como "no hay nada esperando":
-  // sería la afirmación falsa más cara de la pantalla.
-  it('sin el agregado, dice que la cola está incompleta en vez de "no hay nada"', async () => {
-    items.push(task('i1'))
-    fetchTaskRunSummaries.mockRejectedValueOnce(new Error('502'))
-    const wrapper = await mountWith()
-    expect(wrapper.get('.nu-degraded').text()).toContain('incompleta')
-    expect(wrapper.text()).not.toContain('No hay nada esperando')
-  })
-
-  // El resumen del proyecto lo tiene que escribir un modelo y ese endpoint no
-  // existe: mejor no dibujar la card que inventarle un texto.
-  it('no muestra card de resumen mientras el endpoint no exista', async () => {
-    items.push(task('i1'))
-    runSummaries.push(run('i1', { outcome: 'error' }))
-    const wrapper = await mountWith()
-    expect(wrapper.find('.nu-summary').exists()).toBe(false)
-  })
-
-  it('los primeros tres puestos se marcan como accionables ahora', async () => {
-    for (const id of ['i1', 'i2', 'i3', 'i4']) items.push(task(id))
-    runSummaries.push(
-      run('i1', { outcome: 'error' }),
-      run('i2', { outcome: 'error' }),
-      run('i3', { outcome: 'error' }),
-      run('i4', { outcome: 'error' }),
-    )
-    const wrapper = await mountWith()
-    const ranks = wrapper.findAll('.nu-rank')
-    expect(ranks.filter((r) => r.classes().includes('is-now'))).toHaveLength(3)
-  })
-
-  // Un id ausente del mapa de blockers es "no se pudo saber": tratarlo como
-  // "no está bloqueada" es afirmar justo lo que esta pantalla existe para
-  // decir, y sin haberlo consultado.
-  it('no afirma que una tarea está libre si no se pudieron consultar sus bloqueos', async () => {
-    items.push(task('i1'))
-    fetchBlockersBatch.mockResolvedValueOnce({})
-    const wrapper = await mountWith()
-    expect(wrapper.get('.nu-reason').text()).toContain('bloqueos sin consultar')
-  })
-
-  // El mismo agujero que el de runs, del otro lado: sin los bloqueos, "ninguna
-  // tarea está bloqueada" es una afirmación sobre datos que no llegaron.
-  it('sin los bloqueos tampoco dice "no hay nada esperando"', async () => {
-    items.push(task('i1'))
-    runSummaries.push(run('i1'))
-    fetchBlockersBatch.mockRejectedValueOnce(new Error('502'))
-    const wrapper = await mountWith()
-    expect(wrapper.get('.nu-degraded').text()).toContain('bloqueos')
-    expect(wrapper.text()).not.toContain('No hay nada esperando')
-  })
-
-  // Un batch que vuelve con menos ids de los que se pidieron es el mismo
-  // problema en su versión silenciosa.
-  it('un batch parcial también se declara', async () => {
-    items.push(task('i1'), task('i2'))
-    runSummaries.push(run('i1'), run('i2'))
-    fetchBlockersBatch.mockResolvedValueOnce({ i1: [] })
-    const wrapper = await mountWith()
-    expect(wrapper.get('.nu-degraded').text()).toContain('algunas tareas')
-  })
-
-  it('una recarga que falla no clasifica con los datos de la corrida anterior', async () => {
-    items.push(task('i1'))
-    runSummaries.push(run('i1', { outcome: 'error' }))
-    const wrapper = await mountWith()
-    expect(wrapper.get('.nu-reason').text()).toContain('falló')
-
-    fetchTaskRunSummaries.mockRejectedValueOnce(new Error('502'))
-    await wrapper.get('.section-head-actions .btn').trigger('click')
+  it('el verbo `run` llama al endpoint que existe', async () => {
+    items.push(task('t1'))
+    dispositions = [entry('t1')]
+    const w = await mountWith()
+    await w.get('[data-testid="next-up-verb"]').trigger('click')
     await flushPromises()
-    await flushPromises()
-    expect(wrapper.findAll('.nu-reason').map((r) => r.text())).not.toContain(
-      expect.stringContaining('falló'),
-    )
+    expect(runTaskNow).toHaveBeenCalledWith('p1', 't1')
   })
 
-  it('un proyecto sin nada esperando lo dice', async () => {
-    items.push(task('i1'))
-    runSummaries.push(run('i1'))
-    // Con TODO consultado —runs y bloqueos— el cartel es una afirmación
-    // legítima; es la única condición bajo la que se muestra.
-    blockersBatch.i1 = []
-    const wrapper = await mountWith()
-    // Terminada y sin PR abierto: no hay nada que decidir sobre ella.
-    expect(wrapper.get('.nu-empty').text()).toContain('No hay nada esperando')
+  it('sin el agregado, dice que la cola está incompleta — no "no hay nada"', async () => {
+    // Afirmar "nada te espera" sobre datos que nunca llegaron es peor que un
+    // error, porque no se nota.
+    items.push(task('t1'))
+    dispositionsThrows = true
+    const w = await mountWith()
+    expect(w.text()).toContain('esta cola está incompleta')
+    expect(w.text()).not.toContain('No hay tareas')
+  })
+
+  describe('el orden no se recalcula solo', () => {
+    it('sin cambios de lugar no dibuja el aviso', async () => {
+      items.push(task('t1'), task('t2'))
+      dispositions = [entry('t1'), entry('t2')]
+      const w = await mountWith()
+      expect(w.find('[data-testid="next-up-reorder"]').exists()).toBe(false)
+    })
+
+    it('el server reordena, la pantalla NO se mueve y avisa', async () => {
+      // Con el socket vivo, un orden que se recalcula solo mueve la fila que
+      // ibas a tocar bajo el dedo. Reordenar es un gesto del usuario.
+      items.push(task('t1'), task('t2'))
+      dispositions = [entry('t1'), entry('t2')]
+      const w = await mountWith()
+      expect(w.findAll('.nu-title').map((n) => n.text())).toEqual([
+        expect.stringContaining('Tarea t1'),
+        expect.stringContaining('Tarea t2'),
+      ])
+
+      dispositions = [entry('t2'), entry('t1')]
+      await w.get('.btn').trigger('click')
+      await flushPromises()
+      await flushPromises()
+
+      // Sigue en el orden viejo…
+      expect(w.findAll('.nu-title').map((n) => n.text())).toEqual([
+        expect.stringContaining('Tarea t1'),
+        expect.stringContaining('Tarea t2'),
+      ])
+      // …y lo dice.
+      const banner = w.get('[data-testid="next-up-reorder"]')
+      expect(banner.text()).toContain('2')
+
+      await banner.trigger('click')
+      expect(w.findAll('.nu-title').map((n) => n.text())).toEqual([
+        expect.stringContaining('Tarea t2'),
+        expect.stringContaining('Tarea t1'),
+      ])
+    })
   })
 })
