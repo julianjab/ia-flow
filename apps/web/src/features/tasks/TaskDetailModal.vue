@@ -66,10 +66,15 @@ const emit = defineEmits<{
 
 /** En qué estado está la tarea. Es lo que decide la barra de acciones: no hay
  *  una acción principal fija, hay una por estado. */
-const state = computed<'running' | 'failed' | 'done' | 'idle'>(() => {
+const state = computed<'running' | 'failed' | 'stopped' | 'done' | 'idle'>(() => {
   const e = props.execution;
   if (e && !e.finishedAt) return 'running';
   if (e?.outcome === 'error') return 'failed';
+  // `cancelled` y `truncated` NO son éxito: el primero lo escribe el botón de
+  // abortar de esta misma pantalla, y el segundo es un run cortado por budget.
+  // Tratarlos como "terminó" dejaba la tarjeta en verde y "Ver PR" de acción
+  // principal sobre trabajo que quedó a medias.
+  if (e?.outcome === 'cancelled' || e?.outcome === 'truncated') return 'stopped';
   if (e) return 'done';
   return 'idle';
 });
@@ -228,7 +233,7 @@ const runMessage = computed(() => {
             </button>
           </template>
 
-          <template v-else-if="state === 'failed'">
+          <template v-else-if="state === 'failed' || state === 'stopped'">
             <button class="btn" @click="emit('logs')">Logs</button>
             <button class="btn btn--primary foot-grow" :disabled="running" @click="emit('run')">
               {{ running ? 'Pidiendo…' : 'Reintentar' }}
@@ -321,6 +326,7 @@ const runMessage = computed(() => {
 .state-card.is-running { border-left-color: var(--accent); background: var(--panel); }
 .state-card.is-failed { border-left-color: var(--danger); background: var(--red-bg); }
 .state-card.is-done { border-left-color: var(--accent); background: var(--green-bg); }
+.state-card.is-stopped,
 .state-card.is-idle { border-left-color: var(--warn); background: var(--yellow-bg); }
 .state-line { font-size: var(--fs-body-sm); }
 .state-meta { margin: 0; font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }

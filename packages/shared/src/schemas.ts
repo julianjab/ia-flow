@@ -1529,7 +1529,10 @@ export const CancelExecutionResultSchema = z.object({
   alreadyFinished: z.boolean().optional(),
   orphaned: z.boolean().optional(),
   cancelRequested: z.boolean().optional(),
-  execution: ExecutionLogSchema,
+  /** La fila como quedó. Opcional porque la ruta la re-lee de la base después
+   *  de escribir y ese `getById` puede volver vacío: hacerla obligatoria
+   *  convertía un cancel EXITOSO en un error de parseo del lado del cliente. */
+  execution: ExecutionLogSchema.nullish(),
 })
 export type CancelExecutionResult = z.infer<typeof CancelExecutionResultSchema>
 

@@ -446,6 +446,7 @@ function durationOf(item: TaskRow): string {
 /** Abrir los logs del último run de esta tarea, en la tab de ejecuciones con
  *  el run ya abierto (`?runId=` lo expande solo). */
 function openLogs(item: TaskRow) {
+  if (!activeProjectId.value) return;
   const runId = runsByTask.value[item.id]?.last.id;
   void router.push({
     path: `/projects/${activeProjectId.value}/executions`,
