@@ -182,6 +182,19 @@ const hasFilters = computed(() => props.filterCount > 0);
   border-bottom: 1px solid var(--border-mute);
 }
 .lcb__sheet-body { padding: 0 1rem; }
+/* Adentro de un sheet, un popover anclado no tiene a qué anclarse: la lista de
+   sugerencias ES el contenido, así que va EN FLUJO y sin alto propio — el que
+   scrollea es el cuerpo del sheet, que llega hasta 80vh.
+   Como popover medía 278px dentro de un cuerpo de 63 y sus doce opciones
+   quedaban las doce fuera de la parte visible: el sheet se dibujaba de 178px
+   sobre una pantalla de 844 y parecía vacío. Es R6 al revés — bajo el
+   breakpoint el overlay se vuelve sheet, y adentro del sheet no hay overlays. */
+.lcb__sheet-body :deep(.fq-menu) {
+  position: static;
+  max-height: none;
+  margin-top: 0.35rem;
+  box-shadow: none;
+}
 /* Los controles de forma, arriba de los filtros y separados: son otra cosa
    —cómo se ordena la lista— y mezclarlos con los campos del filtro haría
    pensar que también filtran. */
