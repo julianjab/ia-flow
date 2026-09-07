@@ -852,8 +852,9 @@ describe('ExecutionsSection — el detalle en pantallas grandes', () => {
 
     await wrapper.get('.exec-card .rr').trigger('click')
 
-    expect(wrapper.get('[data-testid="executions-detail-drawer"]').classes())
-      .not.toContain('exec-drawer--inline')
+    expect(wrapper.get('[data-testid="executions-detail-drawer"]').classes()).not.toContain(
+      'exec-drawer--inline',
+    )
     expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
   })
 
