@@ -427,6 +427,26 @@ describe('listLatestByTask', () => {
     expect(summary.last.id).toBe('run')
   })
 
+  // Un sub-agente corre sobre la MISMA task que su padre: contarlo diría "2
+  // intentos" sobre una tarea despachada una vez, y podría quedar como `last`
+  // mostrando el agente hijo en la fila.
+  test('un sub-agente no cuenta como intento ni pisa al último run', () => {
+    const repo = setup()
+    repo.insert(fakeEntry({ id: 'padre', taskId: 'task-a' }))
+    repo.insert(
+      fakeEntry({
+        id: 'hijo',
+        taskId: 'task-a',
+        parentId: 'padre',
+        agentId: 'sub-agente',
+        startedAt: '2026-01-05T00:00:00.000Z',
+      }),
+    )
+    const [summary] = repo.listLatestByTask('proj-1')
+    expect(summary.attempts).toBe(1)
+    expect(summary.last.id).toBe('padre')
+  })
+
   test('no cruza proyectos', () => {
     const repo = setup()
     repo.insert(fakeEntry({ id: 'mine', taskId: 'task-a' }))

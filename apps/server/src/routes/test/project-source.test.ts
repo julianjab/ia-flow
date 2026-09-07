@@ -10,11 +10,18 @@ let getItemsCalls = 0
 let failFor: string | null = null
 let supportsBlockers = true
 
+let lookedUp: string[] = []
+let lookupResolves = true
+
 const source = {
   kind: 'github-issues',
   getItems: async () => {
     getItemsCalls++
     return [item('a'), item('b'), item('c')]
+  },
+  getItemById: async (id: string) => {
+    lookedUp.push(id)
+    return lookupResolves ? item(id) : null
   },
   get getBlockers() {
     if (!supportsBlockers) return undefined
@@ -44,6 +51,8 @@ function request(path: string) {
 
 function reset() {
   getBlockersCalls = []
+  lookedUp = []
+  lookupResolves = true
   getItemsCalls = 0
   failFor = null
   supportsBlockers = true
@@ -95,8 +104,20 @@ describe('GET /blockers — batch', () => {
     expect(getItemsCalls).toBe(0)
   })
 
-  test('un id que no está en el board simplemente no aparece', async () => {
+  // El snapshot de `getItems` puede no traer un id (filtrado por la fuente,
+  // cerrado, fuera de su página). Se reintenta por lookup directo: si no, el
+  // batch contradice a la ruta por item sobre la misma tarea.
+  test('un id fuera del snapshot se resuelve por lookup directo', async () => {
     reset()
+    const res = await request('/blockers?ids=a,z')
+    const body = (await res.json()) as { blockers: Record<string, Blocker[]> }
+    expect(lookedUp).toEqual(['z'])
+    expect(Object.keys(body.blockers).sort()).toEqual(['a', 'z'])
+  })
+
+  test('un id que no existe en ningún lado no aparece — ausencia es "no sé"', async () => {
+    reset()
+    lookupResolves = false
     const res = await request('/blockers?ids=a,fantasma')
     const body = (await res.json()) as { blockers: Record<string, Blocker[]> }
     expect(Object.keys(body.blockers)).toEqual(['a'])
