@@ -980,8 +980,8 @@ watch(activeProjectId, (pid) => {
 /* Degradación, no error: las tareas llegaron, su disposición no. */
 .tk-degraded { margin: 0 0 0.4rem; font-size: var(--fs-body-sm); color: var(--warn); }
 
-/* La razón, debajo del título. En desktop cede ancho antes que el título — es
-   la explicación de la fila, no su identidad. */
+/* La razón (O1). En el layout apilado va en su propia línea bajo el título,
+   que es donde hay lugar. */
 .task-row-reason {
   display: block;
   font-family: var(--font-mono);
@@ -1177,6 +1177,22 @@ watch(activeProjectId, (pid) => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* La razón va INLINE, pegada al título: la columna es `TAREA · RAZÓN`, una
+     sola línea.
+
+     No es cosmético — la fila tiene alto fijo de una línea, así que un bloque
+     debajo del título se desborda de su caja y se dibuja ENCIMA de la fila
+     siguiente. Es exactamente lo que pasaba: la lista se leía superpuesta.
+
+     El separador va por CSS y no en el template porque en el layout apilado no
+     existe: ahí la razón tiene su propia línea y un `·` colgando sobraría. */
+  .task-row-reason {
+    display: inline;
+  }
+  .task-row-reason::before {
+    content: ' · ';
+    color: var(--fg-dimmer);
   }
   /* El glifo ya está en la columna 1: repetirlo en la columna de ejecución
      sería decir dos veces lo mismo en la misma fila. */
