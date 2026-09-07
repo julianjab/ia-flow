@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #0f1113; color: #ece9e2; font-family: "IBM Plex Sans", sans-serif; }
+  a { color: #7fb8ac; text-decoration: none; }
+  a:hover { color: #9ecfc4; background: transparent; }
+  @keyframes blink { 0%,49% { opacity: 1 } 50%,100% { opacity: .35 } }
+</style>
+</helmet>
+
+<div style="max-width:1140px; margin:0 auto; padding:44px 28px 96px; display:flex; flex-direction:column; gap:44px">
+
+  <header style="display:flex; flex-direction:column; gap:11px">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#85817a">ia-flow · orden de la información</div>
+    <h1 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:34px; letter-spacing:.01em; line-height:1.15">Ordenar por quién está esperando a quién</h1>
+    <p style="margin:0; max-width:76ch; color:#b5b1a7; font-size:15px; line-height:1.6; text-wrap:pretty">Tareas, runs y ejecuciones se ordenan hoy por fecha, y una fecha contesta <em>qué pasó</em> — no <em>qué me toca</em>. Con agentes trabajando solos esas dos preguntas dejaron de coincidir: lo más reciente es casi siempre lo que avanza sin vos, y lo que te espera es justamente lo que lleva más tiempo quieto y por lo tanto queda al fondo. Un solo criterio de orden, aplicado en toda la app.</p>
+  </header>
+
+  <section style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">01</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">El mismo estado, dos órdenes</h2>
+    </div>
+    <p style="margin:0; max-width:76ch; color:#b5b1a7; font-size:14px; line-height:1.6; text-wrap:pretty">Nueve ítems reales de un proyecto, los mismos nueve en las dos columnas. A la izquierda como se ven hoy; a la derecha con el orden propuesto.</p>
+
+    <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start">
+
+      <div style="flex:1 1 380px; min-width:0; display:flex; flex-direction:column; gap:8px">
+        <div style="display:flex; align-items:center; gap:9px">
+          <span style="width:9px; height:9px; border-radius:2px; background:#e0665c"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#e0665c">hoy · por fecha del último evento</span>
+        </div>
+        <div style="border:1px solid #2c2f34; border-radius:4px; overflow:hidden; display:flex; flex-direction:column; gap:1px; background:#2c2f34">
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c">
+            <span style="width:7px; height:7px; background:#7fb8ac; animation:blink 1.6s ease-in-out infinite"></span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Limpiar tools del agente de docs</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">corriendo · refiner</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">52s</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c">
+            <span style="width:7px; height:7px; background:#7fb8ac; animation:blink 1.6s ease-in-out infinite"></span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Endpoint de leads por teléfono</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">corriendo · paso 3/5</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">4m</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c">
+            <span style="color:#c98ecb; font-size:13px">✓</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Notificar review en Slack</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">PR mergeado</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">6m</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#241716">
+            <span style="color:#e0665c; font-size:13px">✕</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Agregar SID al envío de SMS</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#e0665c">falló · tests</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">2 h</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c">
+            <span style="color:#7fb8ac; font-size:13px">✓</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Cache de leads por enterprise</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">terminó</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">4 h</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c">
+            <span style="color:#7fb8ac; font-size:13px">●</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Webhook de Wompi: reintentos</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">PR abierto · CI ✓</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">19 h</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#241716">
+            <span style="color:#7fb8ac; font-size:13px">●</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Revisar PR #1236 · dispersiones base</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">esperando review</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">22 h</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c">
+            <span style="color:#d9a441; font-size:13px">⛔</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Migrar dispersiones a EventBridge</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#d9a441">bloqueada</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#5c5952; text-align:right">—</span>
+          </div>
+          <div style="display:grid; grid-template-columns:20px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#241716">
+            <span style="color:#d9a441; font-size:13px">○</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Documentar el flujo de firma</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#d9a441">ignorada</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#5c5952; text-align:right">—</span>
+          </div>
+        </div>
+        <div style="padding:11px 13px; border:1px solid #2c2f34; border-left:2px solid #e0665c; border-radius:4px; background:#241716; font-size:13px; line-height:1.6; color:#b5b1a7">Las tres filas en rojo son las únicas que no avanzan sin vos — y quedaron en los puestos 4, 7 y 9. Los tres primeros lugares se los llevan cosas que no requieren nada: dos runs corriendo y un PR ya mergeado.</div>
+      </div>
+
+      <div style="flex:1 1 380px; min-width:0; display:flex; flex-direction:column; gap:8px">
+        <div style="display:flex; align-items:center; gap:9px">
+          <span style="width:9px; height:9px; border-radius:2px; background:#7fb8ac"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">propuesta · por disposición</span>
+        </div>
+        <div style="border:1px solid #2c2f34; border-radius:4px; overflow:hidden; display:flex; flex-direction:column">
+
+          <div style="display:flex; align-items:center; gap:9px; padding:8px 13px; background:#241716; border-bottom:1px solid #2c2f34">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#e0665c">te espera</span>
+            <span style="flex:1"></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">3</span>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr); gap:10px; padding:11px 13px; background:#17191c; border-bottom:1px solid #1e2024">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac; line-height:19px">01</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+              <span style="font-size:13px; line-height:1.4; text-wrap:pretty">Revisar PR #1236 · dispersiones base</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#e0665c">desbloquea 4 tareas · esperándote 22 h</span>
+              <span style="display:flex; align-items:center; gap:6px; font-size:13px; color:#6fbfc4"><span>→</span><span>Aprobar y mergear</span></span>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr); gap:10px; padding:11px 13px; background:#1c1e22; border-bottom:1px solid #1e2024">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac; line-height:19px">02</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+              <span style="font-size:13px; line-height:1.4; text-wrap:pretty">Documentar el flujo de firma</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#d9a441">ninguna regla la toma · esperándote 6 d</span>
+              <span style="display:flex; align-items:center; gap:6px; font-size:13px; color:#6fbfc4"><span>→</span><span>Mover a Refining o poner la label</span></span>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr); gap:10px; padding:11px 13px; background:#17191c; border-bottom:1px solid #1e2024">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac; line-height:19px">03</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+              <span style="font-size:13px; line-height:1.4; text-wrap:pretty">Agregar SID al envío de SMS</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#e0665c">falló 2× · no hay regla de retry · esperándote 2 h</span>
+              <span style="display:flex; align-items:center; gap:6px; font-size:13px; color:#6fbfc4"><span>→</span><span>Reintentar con el log del fallo</span></span>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:9px; padding:8px 13px; background:#16211f; border-top:1px solid #2c2f34; border-bottom:1px solid #2c2f34">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">avanza solo</span>
+            <span style="flex:1"></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">3</span>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c; border-bottom:1px solid #1e2024">
+            <span style="width:7px; height:7px; background:#7fb8ac; animation:blink 1.6s ease-in-out infinite"></span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Endpoint de leads por teléfono</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">implementer · paso 3/5</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#d9a441; text-align:right">4m</span>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#1c1e22; border-bottom:1px solid #1e2024">
+            <span style="width:7px; height:7px; background:#7fb8ac; animation:blink 1.6s ease-in-out infinite"></span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Limpiar tools del agente de docs</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">refiner · paso 1/3</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#d9a441; text-align:right">52s</span>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr) 7ch; gap:10px; align-items:center; padding:10px 13px; background:#17191c; border-bottom:1px solid #1e2024">
+            <span style="color:#7fb8ac; font-size:13px">●</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Webhook de Wompi: reintentos</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">review pedido a @caro · CI ✓</span></div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a; text-align:right">19 h</span>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:9px; padding:8px 13px; background:#241f14; border-top:1px solid #2c2f34; border-bottom:1px solid #2c2f34">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#d9a441">trabado por otro</span>
+            <span style="flex:1"></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#85817a">1</span>
+          </div>
+          <div style="display:grid; grid-template-columns:22px minmax(0,1fr); gap:10px; padding:10px 13px; background:#17191c; border-bottom:1px solid #1e2024">
+            <span style="color:#d9a441; font-size:13px; line-height:19px">⛔</span>
+            <div style="min-width:0; display:flex; flex-direction:column; gap:3px">
+              <span style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Migrar dispersiones a EventBridge</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#d9a441">espera <span style="color:#6fbfc4">#1236</span> · que está en el puesto 01</span>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:9px; padding:8px 13px; background:#1c1e22; border-top:1px solid #2c2f34">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#85817a">cerrado hoy</span>
+            <span style="flex:1"></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6fbfc4">2 · ver</span>
+          </div>
+        </div>
+        <div style="padding:11px 13px; border:1px solid #2c2f34; border-left:2px solid #7fb8ac; border-radius:4px; background:#16211f; font-size:13px; line-height:1.6; color:#b5b1a7">Los tres primeros puestos son lo único que no avanza sin vos, y cada uno dice cuánto cuesta no hacerlo. Lo cerrado se colapsa a una línea: es historia, no información.</div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">02</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">Cuatro disposiciones</h2>
+    </div>
+    <p style="margin:0; max-width:76ch; color:#b5b1a7; font-size:14px; line-height:1.6; text-wrap:pretty">La pregunta que decide el bucket no es en qué estado está el ítem, sino <strong style="color:#ece9e2; font-weight:600">quién tiene que mover la próxima pieza</strong>. Es la misma pregunta para una tarea, un run y una regla, y por eso sirve como orden único de la app.</p>
+
+    <div style="display:flex; flex-direction:column; gap:1px; background:#2c2f34; border:1px solid #2c2f34; border-radius:4px; overflow:hidden">
+      <div style="display:grid; grid-template-columns:22px minmax(110px,1fr) minmax(170px,1.5fr) minmax(180px,1.8fr); gap:14px; background:#22252a; padding:8px 12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#85817a">
+        <span></span><span>disposición</span><span>qué la define</span><span>qué entra</span>
+      </div>
+      <div style="display:grid; grid-template-columns:22px minmax(110px,1fr) minmax(170px,1.5fr) minmax(180px,1.8fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#e0665c">1</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#e0665c">te espera</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Nada va a pasar hasta que vos hagas algo. No hay agente ni regla que lo tome.</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Run fallido sin regla de retry · PR con CI verde esperando <em>tu</em> review · tarea que ninguna regla matchea · regla apagada que alguien espera · run abortado sin resolver.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:22px minmax(110px,1fr) minmax(170px,1.5fr) minmax(180px,1.8fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac">2</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac">avanza solo</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Hay un agente corriendo, o una regla que va a disparar. Lo mirás; no lo tocás.</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Run en vuelo · tarea en cola por capacidad · PR esperando el review de otra persona · fallo con regla de retry pendiente.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:22px minmax(110px,1fr) minmax(170px,1.5fr) minmax(180px,1.8fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#d9a441">3</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#d9a441">trabado por otro</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Espera a otro ítem de la app, no a vos. La acción real está en el bloqueante.</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Tarea bloqueada por un issue o un PR · tarea cuyo agente está sin cuota · run diferido por concurrencia.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:22px minmax(110px,1fr) minmax(170px,1.5fr) minmax(180px,1.8fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#85817a">4</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#85817a">cerrado</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">Terminó y el estado ya avanzó. Nadie espera nada.</span>
+        <span style="font-size:13px; line-height:1.5; color:#b5b1a7">PR mergeado · tarea en Done · run exitoso cuyo outcome ya movió el status.</span>
+      </div>
+    </div>
+
+    <div style="padding:12px 14px; border:1px solid #2c2f34; border-left:2px solid #6fbfc4; border-radius:4px; background:#17191c; display:flex; flex-direction:column; gap:5px">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#6fbfc4">el caso que hoy no existe</span>
+      <p style="margin:0; max-width:76ch; font-size:14px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">Un run que falló <strong style="color:#ece9e2; font-weight:600">con</strong> regla de retry y uno que falló <strong style="color:#ece9e2; font-weight:600">sin</strong> ella son idénticos en la app de hoy: los dos dicen <span style="font-family:'IBM Plex Mono',monospace; font-size:13px">✕ falló</span>. Pero uno se va a arreglar solo en dos minutos y el otro está muerto hasta que alguien lo toque. Esa distinción es la que decide entre el bucket 1 y el 2, y es la información más valiosa que el server ya tiene y la UI no muestra.</p>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">03</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">Los desempates</h2>
+    </div>
+    <p style="margin:0; max-width:76ch; color:#b5b1a7; font-size:14px; line-height:1.6; text-wrap:pretty">Dentro de <span style="font-family:'IBM Plex Mono',monospace; font-size:13px">te espera</span> el orden no es por fecha tampoco. Se aplican en cascada:</p>
+    <div style="display:flex; flex-direction:column; gap:9px">
+      <div style="display:grid; grid-template-columns:26px minmax(0,1fr); gap:12px; padding:12px 14px; border:1px solid #2c2f34; border-radius:4px; background:#17191c">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac">1º</span>
+        <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+          <span style="font-size:14px; color:#ece9e2">Cuánto desbloquea</span>
+          <p style="margin:0; max-width:76ch; font-size:13px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">Cuántos ítems del bucket 3 dependen de éste. Un PR que traba cuatro tareas vale más que un fallo aislado, incluso si el fallo es más urgente en apariencia. Es el único criterio que mide <em>consecuencia</em> en vez de antigüedad.</p>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:26px minmax(0,1fr); gap:12px; padding:12px 14px; border:1px solid #2c2f34; border-radius:4px; background:#17191c">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac">2º</span>
+        <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+          <span style="font-size:14px; color:#ece9e2">Cuánto lleva esperándote</span>
+          <p style="margin:0; max-width:76ch; font-size:13px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">No la fecha del último evento: el tiempo desde que quedó en tus manos. Son dos números distintos — una tarea ignorada seis días tiene su último evento hace seis días, pero lleva seis días esperándote, y eso es lo que hay que decir.</p>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:26px minmax(0,1fr); gap:12px; padding:12px 14px; border:1px solid #2c2f34; border-radius:4px; background:#17191c">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7fb8ac">3º</span>
+        <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+          <span style="font-size:14px; color:#ece9e2">Costo de la acción</span>
+          <p style="margin:0; max-width:76ch; font-size:13px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">A igualdad de lo anterior, primero lo que se resuelve con un toque (aprobar, reintentar, mover de status) y después lo que pide leer y decidir. No para hacer trampa con la métrica: para que la lista sea empezable en dos minutos entre reuniones.</p>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:26px minmax(0,1fr); gap:12px; padding:12px 14px; border:1px solid #2c2f34; border-radius:4px; background:#17191c">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#85817a">—</span>
+        <div style="min-width:0; display:flex; flex-direction:column; gap:4px">
+          <span style="font-size:14px; color:#ece9e2">En los buckets 2, 3 y 4</span>
+          <p style="margin:0; max-width:76ch; font-size:13px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">Ahí sí manda el reloj, y con signos distintos: en <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">avanza solo</span> primero lo que arrancó hace más (es lo que puede estar colgado); en <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">cerrado</span>, lo más reciente. Un run corriendo desde hace 40 minutos cuando el p50 del agente es 6 es la única fila del bucket 2 que merece atención, y la antigüedad la sube sola.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">04</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">Seis reglas para toda la app</h2>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:13px">
+      <div style="border:1px solid #2c2f34; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">O1 · La razón viaja con la fila</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">Una fila nunca dice sólo su estado: dice por qué está en su bucket. <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">falló · tests</span> pasa a <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#e0665c">falló 2× · no hay regla de retry</span>. La primera versión describe; la segunda te dice que sos vos.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">O2 · Cada fila termina en un verbo</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">En el bucket 1, la última línea es la acción, no un link a la entidad: <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#6fbfc4">→ Aprobar y mergear</span>. En los otros tres no hay verbo — si no te toca, ofrecer un botón es ruido.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">O3 · El reloj cambia de sujeto</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7"><span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">hace 22 h</span> es un dato sobre el sistema. <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#e0665c">esperándote 22 h</span> es el mismo número dicho sobre vos. Cuesta una plantilla de texto y cambia la lectura de toda la lista.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">O4 · Lo cerrado se colapsa</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">El bucket 4 es una línea con su contador, plegada. Hoy nueve runs terminados dominan la pantalla de ejecuciones; son la parte del día que <em>no</em> hay que mirar.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">O5 · El bloqueante es navegable</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">Una fila del bucket 3 nombra a su bloqueante y linkea. Si el bloqueante está en el bucket 1, lo dice: <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#d9a441">espera #1236 · que está en el puesto 01</span>. Así el orden se explica solo.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">O6 · Un solo orden, tres vistas</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">Tareas, Runs y Board no son tres listas con tres órdenes: son <strong style="color:#ece9e2; font-weight:600">recortes</strong> del mismo orden. Runs = los buckets 1 y 2 filtrados a lo que tiene ejecución. Board = el mismo orden agrupado por status. Nadie tiene que aprender en qué lista mirar.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">05</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">Qué cambia en cada pantalla</h2>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:1px; background:#2c2f34; border:1px solid #2c2f34; border-radius:4px; overflow:hidden">
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#22252a; padding:8px 12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#85817a">
+        <span>pantalla</span><span>cómo se ordena</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Qué sigue</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">El bucket 1 completo y numerado, el 2 abajo sin numerar, el 3 y el 4 plegados. Es la pantalla que <em>es</em> este orden.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Tareas</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">Mismo orden con los cuatro encabezados de bucket, más los filtros. El orden por fecha queda como opción, no como default.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Runs / Ejecuciones</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">Arriba lo que falló y nadie va a reintentar; después lo que corre, lo viejo primero; los terminados en una línea plegada. Es el cambio más grande: hoy es cronológico puro.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Board</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">Las columnas quedan (son los status del proyecto), pero dentro de cada una el orden es por disposición, y el encabezado cuenta el bucket 1: <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">In progress · 6 · 2 te esperan</span>.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Dashboard</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">El contador que manda pasa a ser <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">te esperan</span>. <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">fallaron hoy</span> se parte en dos: los que tienen retry y los que no.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Logs</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">No cambia. Un log <strong style="color:#ece9e2; font-weight:600">es</strong> cronológico y reordenarlo lo rompe. Lo que se agrega es un filtro <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">sólo lo que quedó sin resolver</span>.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Selector de proyecto</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">Los proyectos se ordenan por su cuenta del bucket 1, no alfabéticamente: se ve dónde hay fuego antes de entrar.</span>
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,2.4fr); gap:14px; background:#17191c; padding:10px 12px; align-items:baseline">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#ece9e2">Pipeline · Agentes</span>
+        <span style="font-size:13px; line-height:1.55; color:#b5b1a7">Una regla apagada que alguien está esperando, o un agente con éxito bajo, suben al tope de su lista. La configuración también tiene disposición.</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">06</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">Los dos riesgos</h2>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:14px">
+      <div style="flex:1 1 36ch; min-width:0; border:1px solid #2c2f34; border-left:2px solid #d9a441; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#d9a441">el orden que salta</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">Un orden que depende del estado se reordena solo, y con el socket vivo eso significa que la fila que ibas a tocar se mueve. <strong style="color:#ece9e2; font-weight:600">El orden se calcula al abrir la pantalla y no se recalcula solo.</strong> Los eventos en vivo cambian el contenido de la fila donde está, y arriba aparece una línea: <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#6fbfc4">3 cambiaron de lugar · reordenar</span>. Reordenar es un gesto del usuario.</p>
+      </div>
+      <div style="flex:1 1 36ch; min-width:0; border:1px solid #2c2f34; border-left:2px solid #d9a441; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#d9a441">el bucket 1 que crece sin fin</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7; text-wrap:pretty">Si todo termina en <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">te espera</span>, la lista vuelve a ser una bandeja de entrada y el orden no sirvió de nada. El indicador a mirar es <strong style="color:#ece9e2; font-weight:600">cuántos ítems llevan más de una semana esperándote</strong>: si son muchos, el problema no es la UI — faltan reglas en el pipeline, y ahí la app tiene que decirlo en vez de listarlos otra vez.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:14px">
+    <div style="display:flex; align-items:baseline; gap:12px; padding-bottom:8px; border-bottom:1px solid #2c2f34">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c5952">07</span>
+      <h2 style="margin:0; font-family:'IBM Plex Sans Condensed',sans-serif; font-size:20px; text-transform:uppercase; letter-spacing:.14em">Qué necesita el server</h2>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(290px, 1fr)); gap:13px">
+      <div style="border:1px solid #2c2f34; border-left:2px solid #7fb8ac; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7fb8ac">ya existe</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">La distinción <em>hay regla que lo tome / no hay</em> la contesta <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">run-preview</span>, que ya está. Es la pieza central de todo el modelo y no hay que construirla — hay que llamarla desde el listado.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-left:2px solid #d9a441; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#d9a441">falta calcular</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">El fan-out (cuántos ítems dependen de éste) es invertir el grafo de <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">getBlockers</span>, que ya existe pero se consulta de uno en uno. Y el <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">waitingOnYouSince</span>, que es el timestamp del evento que dejó al ítem sin nadie que lo tome — no el del último evento.</p>
+      </div>
+      <div style="border:1px solid #2c2f34; border-left:2px solid #6fbfc4; border-radius:4px; background:#17191c; padding:13px 15px; display:flex; flex-direction:column; gap:6px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#6fbfc4">dónde vive</span>
+        <p style="margin:0; font-size:14px; line-height:1.6; color:#b5b1a7">La disposición se decide en el server, no en el cliente: depende de las reglas, los blockers y la cuota, y el cliente no las conoce. Un campo <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">disposition</span> con su razón, en el mismo agregado que ya hacía falta para <span style="font-family:'IBM Plex Mono',monospace; font-size:12px">○ sin ejecutar</span>.</p>
+      </div>
+    </div>
+    <p style="margin:0; max-width:76ch; font-size:14px; line-height:1.6; color:#85817a; text-wrap:pretty">Sin el fan-out, el orden todavía funciona: el bucket 1 se ordena por antigüedad de espera y se pierde sólo el primer desempate. Sin <span style="font-family:'IBM Plex Mono',monospace; font-size:13px">run-preview</span> en el listado no funciona nada, porque no se puede separar el bucket 1 del 2.</p>
+  </section>
+</div>
+</x-dc>
+</body>
+</html>
