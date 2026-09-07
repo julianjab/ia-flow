@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.3.0](https://github.com/julianjab/ia-flow/compare/v1.2.0...v1.3.0) (2026-09-07)
+
+
+### Features
+
+* **agent-engine,server:** persiste structuredOutput en execution_logs y lo rinde como {{task.previous_outputs}} ([#149](https://github.com/julianjab/ia-flow/issues/149)) ([6f345c6](https://github.com/julianjab/ia-flow/commit/6f345c6ba915ae331ea08e5671c9c18ef79b58ac))
+* **engine:** propaga traceId a issue.created/issue.status_changed en polling ([f78907c](https://github.com/julianjab/ia-flow/commit/f78907c4e76a99fcfc4790a1fce1cf5c693ca8c6))
+* expone variables de PR (número, diff, archivos, CI) en el prompt ([#151](https://github.com/julianjab/ia-flow/issues/151)) ([27badfc](https://github.com/julianjab/ia-flow/commit/27badfc7d0680ea52461ba721665affabc3b05e7))
+* **server:** blockers en batch para un listado de tareas ([5a8045f](https://github.com/julianjab/ia-flow/commit/5a8045f9697061193d9d68f2f58ba82fb8f1fa4f))
+* **server:** GET /api/tasks/:id/run-preview — por qué NO levanta un run ([8cc6734](https://github.com/julianjab/ia-flow/commit/8cc67345c022591a2b5aaab0b306bb32d777f5c2))
+* **server:** POST /api/tasks/:id/run — correr una tarea sin mover el board ([e1f0615](https://github.com/julianjab/ia-flow/commit/e1f06157cf4cf2b1ac28749f713461315f5ca9bd))
+* **server:** último run + intentos por tarea en una sola request ([0fcab2b](https://github.com/julianjab/ia-flow/commit/0fcab2b861fd11141b88a840a83fd37613738f8f))
+* **tools:** fs_list recursivo, fs_grep paginado/contexto y fs_glob ([#152](https://github.com/julianjab/ia-flow/issues/152)) ([c25094c](https://github.com/julianjab/ia-flow/commit/c25094c6330ddee4af3b8f16e179c97cbaf6a49c))
+* **web:** agrega buscador y resaltado de actividad viva al panel de Pipeline ([2932e05](https://github.com/julianjab/ia-flow/commit/2932e059d096f97e3e2d3297d8eed434162ce4a4))
+* **web:** agrupa el Pipeline por evento y cambia el buscador a campo:valor ([058e80b](https://github.com/julianjab/ia-flow/commit/058e80bf52607be04a7b65a8c881733f9811db1d))
+* **web:** botón "Correr" en cada tarjeta de tarea ([63e68f8](https://github.com/julianjab/ia-flow/commit/63e68f85f3d872b8b0836c7536576c011ee5ef78))
+* **web:** el detalle explica por qué la tarea correría — o por qué no ([fafe0b9](https://github.com/julianjab/ia-flow/commit/fafe0b9f055fffda60deaeb33891605960dcaca6))
+* **webhooks:** traceId end-to-end desde el delivery hasta execution_logs ([468402b](https://github.com/julianjab/ia-flow/commit/468402b9fa37eab168759389c877c58d907560fa))
+* **web:** mover "Correr" al detalle de la tarea y darle contexto ([6709367](https://github.com/julianjab/ia-flow/commit/67093678973ec8915fe86d75388317622036d182))
+* **web:** muestra traceId como fila del drawer de ejecuciones ([dcf207e](https://github.com/julianjab/ia-flow/commit/dcf207e72c9fc890ae3b564226f2fc49c746ecca))
+* **web:** sección de ejecuciones en el detalle de la tarea ([790c820](https://github.com/julianjab/ia-flow/commit/790c82061e864739e0477c76529adc78d4d521ce))
+* **web:** traceId filtrable en Ejecuciones + link desde el drawer ([d4b3ec1](https://github.com/julianjab/ia-flow/commit/d4b3ec1b466994b2a95971e3a7051684690d340f))
+
+
+### Bug Fixes
+
+* **agent-engine:** retoma runs sync huérfanos en la misma fila en vez de abrir una nueva ([2b7a42c](https://github.com/julianjab/ia-flow/commit/2b7a42c0a30654d199e3743da85d8a7eb517c3c2))
+* **ai-providers:** autenticar contra el daemon el MCP sintético y el hook de terminal ([59ed985](https://github.com/julianjab/ia-flow/commit/59ed985ee5e9f63ac13ddfb5b7286501081a38b2))
+* **ai-providers:** reintenta 429/5xx/529 contra la Anthropic API ([#150](https://github.com/julianjab/ia-flow/issues/150)) ([75d3529](https://github.com/julianjab/ia-flow/commit/75d3529859943ff5c56e71f2f6a1b0238af78e0c)), closes [#134](https://github.com/julianjab/ia-flow/issues/134)
+* **ci:** apaga Spotlight antes de empaquetar el .dmg ([5f8cae1](https://github.com/julianjab/ia-flow/commit/5f8cae153616e93d943b45bbf5566dd401d70896))
+* effort sin default y desalineado del modelo default ([#156](https://github.com/julianjab/ia-flow/issues/156)) ([e2b4820](https://github.com/julianjab/ia-flow/commit/e2b4820510e20f98e2b942516cd4e10e3d384198))
+* **issue-sources:** no cancelar un run cuando el source reporta status vacío ([a186aa1](https://github.com/julianjab/ia-flow/commit/a186aa11925073f70f45745ef320f0b482f04bad))
+* **scripts:** usar terminal-notifier con fallback a osascript ([9cc0bfd](https://github.com/julianjab/ia-flow/commit/9cc0bfd1e46b0ccd09fb5d0fdcd020ed37fcb028))
+* **server:** acotar listLatestByTask y resolver los ids fuera del snapshot ([3907b27](https://github.com/julianjab/ia-flow/commit/3907b2716388104002a2631678322f1c259e4eb3))
+* **server:** declarar @ia-flow/rules como dependencia explícita ([#157](https://github.com/julianjab/ia-flow/issues/157)) ([67a13da](https://github.com/julianjab/ia-flow/commit/67a13daa8343b4736ad5b0db256dccb2af28aef4)), closes [#144](https://github.com/julianjab/ia-flow/issues/144)
+* **server:** mandar daemonToken sólo a los remotos async ([60801fc](https://github.com/julianjab/ia-flow/commit/60801fcac4703c0dafaf3d9abe2ea2de3673bbcd))
+* **server:** responder GET/DELETE en /api/mcp y no 404 los métodos desconocidos ([590c8a0](https://github.com/julianjab/ia-flow/commit/590c8a012d97f3841271c796157274989d8ea677))
+* **tools:** fs_read numera líneas y fs_edit/fs_write exigen lectura previa ([#158](https://github.com/julianjab/ia-flow/issues/158)) ([ee83d6c](https://github.com/julianjab/ia-flow/commit/ee83d6cc2584d0f27516c3b77e95dae3ba3dc119))
+* **tools:** no reenviar ni checkpointear un mcp_tool_use sin resolver ([bb6b36a](https://github.com/julianjab/ia-flow/commit/bb6b36ad849f2794fb31f09cf8d42cc3d4cb7e66))
+* **tools:** tokenizar parseArgv respetando comillas y escapes ([#155](https://github.com/julianjab/ia-flow/issues/155)) ([c65e63f](https://github.com/julianjab/ia-flow/commit/c65e63f85102c22ef1d857478023ea4bda7f308d)), closes [#136](https://github.com/julianjab/ia-flow/issues/136)
+* **web:** capitalizar Status en el fallback de campos sin catálogo ([f5ccc01](https://github.com/julianjab/ia-flow/commit/f5ccc01da27575cec23bc78e9e9229fa9ce17879))
+* **web:** ExecutionsSection sigue la semántica actual de firingOutcome ([#154](https://github.com/julianjab/ia-flow/issues/154)) ([d9811f7](https://github.com/julianjab/ia-flow/commit/d9811f7b1792b01eedafe7e279ba4e862ccb6f46)), closes [#153](https://github.com/julianjab/ia-flow/issues/153)
+* **web:** la duración de un run no muestra "1m 60s" ([3c6310b](https://github.com/julianjab/ia-flow/commit/3c6310be0521324f26066f9eb4cf12042ff621a4))
+* **web:** meter los chips de labels dentro del ComboBox, no al lado ([6d3ce89](https://github.com/julianjab/ia-flow/commit/6d3ce897bade69f0e1981b0e8c35944a6017d761))
+* **web:** mostrar el resultado de la última acción del pipeline ([aab336a](https://github.com/julianjab/ia-flow/commit/aab336a63a78835fc98dc142c61c3b0a4b1e58c8))
+* **web:** no colapsar el sidebar mobile al navegar a un nodo con hijos ([509991c](https://github.com/julianjab/ia-flow/commit/509991cc0c0e1724527403fdb99d292ef75093c3))
+* **web:** no pintar el veredicto de un run sobre otra tarea ([8687ac9](https://github.com/julianjab/ia-flow/commit/8687ac93a1847263e7dc051727c68ece92e510a8))
+* **web:** no truncar valores largos en el árbol JSON del drawer ([f79f6fb](https://github.com/julianjab/ia-flow/commit/f79f6fb55e69b87cf9c39002b925788633c73638))
+* **web:** usar ComboBox con valor libre en campo/valor de outcomes ([011b2b6](https://github.com/julianjab/ia-flow/commit/011b2b6a59427f53236e69e0f3609ffcdf5ff21b))
+
 ## [1.2.0](https://github.com/julianjab/ia-flow/compare/v1.1.0...v1.2.0) (2026-09-04)
 
 
