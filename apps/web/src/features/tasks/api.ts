@@ -1,6 +1,8 @@
 import {
   type Blocker,
   BlockersBatchSchema,
+  type CancelExecutionResult,
+  CancelExecutionResultSchema,
   type ExecutionLog,
   ExecutionLogArraySchema,
   type RunTaskNowResult,
@@ -135,4 +137,17 @@ export async function fetchBlockersBatch(
     Object.assign(out, BlockersBatchSchema.parse(data.blockers ?? {}))
   }
   return out
+}
+
+/**
+ * Aborta el run en vuelo de una tarea.
+ *
+ * Las cuatro ramas vienen en la respuesta y hay que distinguirlas: la más
+ * importante es `cancelRequested`, donde el run vive en OTRO daemon y lo único
+ * que se hizo fue dejarle un aviso — el contenedor sigue corriendo, y decir
+ * "abortado" sería mentir.
+ */
+export async function cancelTaskRun(executionId: string): Promise<CancelExecutionResult> {
+  const { data } = await axios.post(`/api/executions/${encodeURIComponent(executionId)}/cancel`)
+  return CancelExecutionResultSchema.parse(data)
 }
