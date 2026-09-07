@@ -27,6 +27,9 @@ function mountBar(projectId: string | null = 'p1') {
   })
 }
 
+// La ruta del primer tab tiene que EXISTIR: `que-sigue` no estaba en
+// `VALID_TABS` y el tab abría el Overview en silencio, con la URL de Qué sigue
+// en la barra de direcciones.
 describe('MobileTabBar', () => {
   it('lleva los cuatro destinos, relativos al proyecto activo', () => {
     const hrefs = mountBar()
