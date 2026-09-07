@@ -79,7 +79,7 @@ function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
   }
 }
 
-async function mountWithExecs(execs: ExecutionLog[]) {
+async function mountWithExecs(execs: ExecutionLog[], opts: { showClosed?: boolean } = {}) {
   fetchExecutionsMock.mockResolvedValueOnce(execs)
   const wrapper = mount(ExecutionsSection, { props: { scope: 'project' } })
   // Wait for onMounted → load() → executions.value = [...] → re-render.
@@ -87,7 +87,21 @@ async function mountWithExecs(execs: ExecutionLog[]) {
   // await, so we also need to flush the second microtask tick — a single
   // flushPromises() covers both because vue-test-utils waits for all pending.
   await flushPromises()
+  // El bucket `cerradas` arranca plegado (O4): son la parte del día que no hay
+  // que mirar, y nueve runs terminados dominando la pantalla es justo lo que
+  // este orden viene a arreglar. Los tests que cuentan filas terminadas lo
+  // abren, igual que haría el operador.
+  if (opts.showClosed !== false) await expandClosed(wrapper)
   return wrapper
+}
+
+/** Despliega el bucket `cerradas`, si está. */
+async function expandClosed(wrapper: VueWrapper) {
+  const header = wrapper.find('[data-testid="bucket-closed"]')
+  if (header.exists() && header.attributes('aria-expanded') === 'false') {
+    await header.trigger('click')
+    await flushPromises()
+  }
 }
 
 /** Aplica un filtro como lo hace el operador: escribe `campo:valor` en el input
