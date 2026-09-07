@@ -1082,7 +1082,15 @@ watch(activeProjectId, (pid) => {
 .task-table {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  /* `clip` y NO `hidden`, y la diferencia es funcional.
+     `overflow: hidden` convierte a la caja en un contenedor de scroll, y un
+     `position: sticky` de adentro pasa a anclarse a ELLA en vez de a la
+     página. Como la tabla no scrollea, el encabezado de bucket quedaba clavado
+     a 44px de su borde superior — tapando la primera fila para siempre, no
+     mientras scrolleabas.
+     `clip` recorta igual (que es lo único que se quería, para el radio) pero
+     NO crea contenedor de scroll, así que el sticky vuelve a mirar la página. */
+  overflow: clip;
 }
 .task-list {
   list-style: none;
