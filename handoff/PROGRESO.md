@@ -73,7 +73,27 @@ convive con la grilla de escritorio.
 salud, providers, catálogo MCP).
 
 ### P7 · Etapa 07 — pantalla por pantalla
-`02-pantallas.md`: detalle de tarea, detalle de run, dashboard, logs.
+
+🟡 **Dashboard** — los contadores se reordenaron a sus ranuras (`fallaron hoy`
+primero y en `--danger`; `terminaron hoy` atenuado, porque un contador de lo que
+ya terminó no compite por atención) y el número baja a 24px bajo `--bp-split`.
+
+⛔ **Faltan `te esperan` e `ignoradas`**, que el handoff pone al frente
+("el número que hoy nadie ve"). Los dos necesitan la disposición de CADA tarea
+de CADA proyecto, y hoy eso es **una request por proyecto** — el mismo fan-out
+que `GET /api/tasks/dispositions` vino a borrar dentro de un proyecto. Sin un
+agregado GLOBAL, dibujarlos sería inventarlos.
+**Lo que falta en el server:** `GET /api/tasks/dispositions` sin `projectId`, o
+un `GET /api/dispositions/summary` que devuelva los cuatro conteos por proyecto.
+
+⛔ **Board** — el spec describe un board de TAREAS agrupadas por status, con
+selector de columna en mobile. Hoy el tab `board` es la **configuración de
+statuses** (`StatusesSection`), no un board de tareas: no es un rediseño, es una
+pantalla nueva. Vale confirmarlo antes de construirla.
+
+⬜ **Detalle de run** y **"por qué no corre"** (§3 de `02-pantallas.md`) sin
+empezar. `run-preview` ya existe y `TaskRunPreview.vue` lo consume dentro del
+detalle de tarea; falta la vista propia.
 
 ---
 
