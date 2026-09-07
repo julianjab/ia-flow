@@ -38,6 +38,9 @@ const blockersKnown = ref<Set<string>>(new Set());
  *  sin ejecutar, y la pantalla quedaría diciendo "no hay nada esperando" sobre
  *  un proyecto que puede tener todo roto. */
 const runsFailed = ref(false);
+/** Ídem para los bloqueos: sin ellos la cola no puede decir que nada está
+ *  bloqueado. */
+const blockersFailed = ref(false);
 const loading = ref(false);
 const error = ref('');
 
@@ -45,16 +48,20 @@ const activeProjectId = computed(() => projectsStore.activeProjectId);
 
 async function load() {
   const pid = activeProjectId.value;
-  if (!pid) return;
-  loading.value = true;
-  error.value = '';
-  // Los dos mapas se limpian JUNTO con su flag: conservarlos mientras el flag
-  // dice "no sé" clasificaba filas con datos de la corrida anterior.
+  // El reset va ANTES del guard: con el proyecto deseleccionado, salir
+  // dejando `runsKnown` en true hacía que la pantalla asegurara "no hay nada
+  // esperando" sin haber consultado nada.
   runsKnown.value = false;
   runsFailed.value = false;
+  blockersFailed.value = false;
+  // Los mapas se limpian JUNTO con su flag: conservarlos mientras el flag dice
+  // "no sé" clasificaba filas con datos de la corrida anterior.
   runsByTask.value = {};
   blockersKnown.value = new Set();
   blockersByTask.value = {};
+  if (!pid) return;
+  loading.value = true;
+  error.value = '';
   try {
     const res = await fetchProjectItems(pid);
     if (activeProjectId.value !== pid) return;
@@ -76,6 +83,7 @@ async function load() {
       runsByTask.value = byTask;
       runsKnown.value = true;
     }
+    if (blockers.status === 'rejected') blockersFailed.value = true;
     if (blockers.status === 'fulfilled') {
       blockersByTask.value = blockers.value;
       blockersKnown.value = new Set(Object.keys(blockers.value));
@@ -221,6 +229,22 @@ const queue = computed<QueueRow[]>(() => {
     .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
 });
 
+/**
+ * Qué NO se pudo consultar. Es lo que decide si la pantalla puede afirmar
+ * "no hay nada esperando": con cualquiera de las dos consultas caída —o con
+ * ids que el server omitió— ese cartel sería una afirmación falsa sobre datos
+ * que nunca llegaron.
+ */
+const gaps = computed<string[]>(() => {
+  const out: string[] = [];
+  if (runsFailed.value) out.push('el estado de ejecución de las tareas');
+  if (blockersFailed.value) out.push('sus bloqueos');
+  else if (items.value.some((i) => !blockersKnown.value.has(i.id))) {
+    out.push('los bloqueos de algunas tareas');
+  }
+  return out;
+});
+
 /** Los primeros tres son los accionables ahora: el número se pinta distinto
  *  para que la cola tenga un corte visible y no sea una lista infinita. */
 const ACTIONABLE = 3;
@@ -254,11 +278,11 @@ function openTasks() {
     </div>
 
     <p v-else-if="loading && !queue.length" class="nu-empty">Cargando…</p>
-    <!-- Sin el agregado de runs la cola no puede estar completa: decirlo es
-         obligatorio antes de mostrar (o no mostrar) filas. -->
-    <p v-else-if="runsFailed" class="nu-degraded">
-      No se pudo consultar el estado de ejecución de las tareas: esta cola está
-      incompleta y no dice nada sobre lo que falló o quedó sin correr.
+    <!-- Lo que no se pudo consultar se declara ANTES de mostrar (o no mostrar)
+         filas: una cola incompleta que se lee como completa es peor que un
+         error. -->
+    <p v-else-if="gaps.length" class="nu-degraded">
+      No se pudo consultar {{ gaps.join(' ni ') }}: esta cola está incompleta.
     </p>
     <p v-else-if="!queue.length" class="nu-empty">No hay nada esperando: ninguna tarea falló, está bloqueada ni quedó sin correr.</p>
 
