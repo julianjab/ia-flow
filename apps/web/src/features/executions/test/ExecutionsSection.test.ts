@@ -429,7 +429,9 @@ describe('ExecutionsSection — cancel execution', () => {
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
     // The stop button disappears now that finishedAt is set.
     expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
-    expect(wrapper.get('.exec-outcome').text()).toContain('cancelled')
+    // El outcome ya no es un badge propio de esta pantalla: la fila lo dice con
+    // el vocabulario de `ExecutionStatusLine`, igual que Tareas y Qué sigue.
+    expect(wrapper.get('.rr__state').text()).toContain('cancelado')
 
     const toastStore = useToastStore()
     expect(toastStore.toasts.some((t) => t.variant === 'success')).toBe(true)
@@ -462,7 +464,7 @@ describe('ExecutionsSection — cancel execution', () => {
     // Still running (not actually stopped) — the stop button stays, and the
     // row now shows an advisory "cancelación solicitada" badge.
     expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
-    expect(wrapper.find('.exec-cancel-requested').exists()).toBe(true)
+    expect(wrapper.find('.rr__cancel-requested').exists()).toBe(true)
     expect(wrapper.findAll('.exec-card')).toHaveLength(1)
   })
 
@@ -698,24 +700,26 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     expect(cards[1].classes()).toContain('exec-card--nested')
     expect(cards[2].classes()).toContain('exec-card--nested')
     // Adentro manda `position`: primero corrió la notificación.
-    expect(cards[1].find('.exec-kind').text()).toBe('acción')
-    expect(cards[1].find('.exec-action-kind').text()).toBe('script')
-    expect(cards[2].find('.exec-kind').text()).toBe('agente')
+    expect(cards[1].find('.rr__title').text()).toContain('acción')
+    expect(cards[1].find('.rr__note').text()).toBe('script')
+    expect(cards[2].find('.rr__title').text()).toContain('agente')
     // El nombre va en la columna del agente, que es donde el encabezado lo
     // anuncia — y una acción NO cae al `ruleId`, que ya dijo el resumen.
-    expect(cards[1].find('.exec-agent').text()).toBe('notify-slack')
-    expect(cards[2].find('.exec-agent').text()).toBe('refiner')
+    expect(cards[1].find('.rr__agent').text()).toBe('notify-slack')
+    expect(cards[2].find('.rr__agent').text()).toBe('refiner')
     // Y no repiten el título que ya dijo el resumen.
     expect(cards[1].text()).not.toContain('Default task')
   })
 
-  it('una acción sin nombre deja vacía la columna del agente', async () => {
+  it('una acción sin nombre no cae al `ruleId`', async () => {
     const wrapper = await mountWithExecs([agent(), script({ agentId: '' })])
     await wrapper.find('.exec-card--firing .exec-row').trigger('click')
 
     // Una acción inline no tiene nombre: la identifica su regla más su
     // posición, y caer al `ruleId` la haría parecer otro run del agente.
-    expect(wrapper.findAll('.exec-card')[1].find('.exec-agent').text()).toBe('')
+    // `—` y no el nombre de la regla: el guión dice "no hay", que es la verdad;
+    // el `ruleId` la haría parecer otro run del agente.
+    expect(wrapper.findAll('.exec-card')[1].find('.rr__agent').text()).toBe('—')
   })
 
   it('el resumen abarca de la primera acción a la última', async () => {
@@ -724,9 +728,11 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     const summary = wrapper.find('.exec-card--firing')
     // Arrancó con el script (00:00:09), no con el run que quedó arriba en el
     // orden del listado, y duró hasta que cerró el agente (00:02:32).
-    expect(summary.find('.exec-date').attributes('title')).toBe('2025-01-01T00:00:09Z')
-    expect(summary.find('.exec-duration').text()).toBe('2m 23s')
-    expect(summary.find('.exec-outcome').text()).toBe('success')
+    // La columna Fecha se fue con el rediseño (5d): la duración es lo que dice
+    // que el resumen abarca las dos acciones, y la edad la pone la línea de
+    // estado (`terminó hace …`).
+    expect(summary.find('.rr__dur').text()).toBe('2m 23s')
+    expect(summary.find('.rr__state').text()).toContain('terminó')
   })
 
   it('un disparo con algo vivo está pending, y ahí va el botón de detener', async () => {
@@ -736,7 +742,7 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     ])
 
     const summary = wrapper.find('.exec-card--firing')
-    expect(summary.find('.exec-outcome').text()).toBe('pending')
+    expect(summary.find('.rr__state').text()).toContain('corriendo')
     expect(summary.find('[data-testid="executions-stop-e-agent"]').exists()).toBe(true)
   })
 
@@ -749,21 +755,21 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
 
     // `script` (position 0) falló, pero `agent` (position 1) es la última en
     // cerrar el disparo y salió bien: el resumen es su resultado, no el peor.
-    expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('success')
-    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(true)
+    expect(wrapper.find('.exec-card--firing .rr__state').text()).toContain('terminó')
+    expect(wrapper.find('.exec-card--firing .rr__warn').exists()).toBe(true)
   })
 
   it('cerrado sin tropiezos previos, no se marca ningún ⚠', async () => {
     const wrapper = await mountWithExecs([agent(), script()])
 
-    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(false)
+    expect(wrapper.find('.exec-card--firing .rr__warn').exists()).toBe(false)
   })
 
   it('si la última acción falla, el resumen es error aunque las anteriores hayan salido bien', async () => {
     const wrapper = await mountWithExecs([agent({ outcome: 'error' }), script()])
 
-    expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('error')
-    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(false)
+    expect(wrapper.find('.exec-card--firing .rr__state').text()).toContain('falló')
+    expect(wrapper.find('.exec-card--firing .rr__warn').exists()).toBe(false)
   })
 
   it('un disparo de una sola fila no se colapsa', async () => {
