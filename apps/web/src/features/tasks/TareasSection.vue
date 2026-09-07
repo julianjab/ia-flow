@@ -809,12 +809,7 @@ watch(activeProjectId, (pid) => {
                 :has-open-pr="hasOpenPr(row.item)"
               />
             </span>
-            <span class="task-row-title" :title="row.item.title">
-              {{ row.item.title }}
-              <!-- La razón viaja con la fila (O1): nunca dice sólo su estado,
-                   dice por qué está en su bucket. -->
-              <span v-if="reasonFor(row.id)" class="task-row-reason">{{ reasonFor(row.id) }}</span>
-            </span>
+            <span class="task-row-title" :title="row.item.title">{{ row.item.title }}</span>
             <a
               v-if="row.item.issueNumber && row.item.url"
               class="task-row-issue"
@@ -826,7 +821,25 @@ watch(activeProjectId, (pid) => {
             >#{{ row.item.issueNumber }}</a>
             <span v-else-if="row.item.issueNumber" class="task-row-issue is-plain">#{{ row.item.issueNumber }}</span>
             <span v-else class="task-row-issue is-plain"></span>
+            <!-- La razón OCUPA la columna de ejecución, no se suma a ella (O1).
+                 Las dos contestaban lo mismo y se pisaban: la fila decía
+                 `sin ejecutar` dos veces y el título perdía la mitad de su
+                 ancho. La razón gana porque es un superconjunto — la arma el
+                 server y ya trae lo que la línea de ejecución decía
+                 (`PR #1233 · CI ✓ · traba 4 tareas`) más el porqué de que te
+                 toque a vos (`no hay regla de retry`), que es justamente lo
+                 que la línea de estado no puede saber.
+
+                 Sin disposición (el agregado no se pudo consultar) vuelve la
+                 línea de siempre: es mejor decir el estado que no decir nada. -->
+            <span
+              v-if="reasonFor(row.id)"
+              class="task-row-exec task-row-reason"
+              :class="`is-${row.disposition}`"
+              :title="reasonFor(row.id)"
+            >{{ reasonFor(row.id) }}</span>
             <ExecutionStatusLine
+              v-else
               class="task-row-exec"
               :execution="runsByTask[row.id]?.last ?? null"
               :attempts="runsByTask[row.id]?.attempts"
@@ -980,10 +993,10 @@ watch(activeProjectId, (pid) => {
 /* Degradación, no error: las tareas llegaron, su disposición no. */
 .tk-degraded { margin: 0 0 0.4rem; font-size: var(--fs-body-sm); color: var(--warn); }
 
-/* La razón (O1). En el layout apilado va en su propia línea bajo el título,
-   que es donde hay lugar. */
+/* La razón (O1) ocupa la celda de ejecución: es la misma pregunta contestada
+   mejor, no un dato de más. El color viene de su disposición — el único en
+   --danger es el que pide algo tuyo. */
 .task-row-reason {
-  display: block;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   color: var(--fg-dim);
@@ -991,6 +1004,10 @@ watch(activeProjectId, (pid) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.task-row-reason.is-waiting-on-you { color: var(--danger); }
+.task-row-reason.is-blocked { color: var(--warn); }
+.task-row-reason.is-moving { color: var(--accent); }
+.task-row-reason.is-closed { color: var(--fg-dimmer); }
 
 /* El conteo y Actualizar viven en la fila de controles desde que el header de
    sección se borró: son lo único que ese header informaba. */
@@ -1178,22 +1195,7 @@ watch(activeProjectId, (pid) => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* La razón va INLINE, pegada al título: la columna es `TAREA · RAZÓN`, una
-     sola línea.
 
-     No es cosmético — la fila tiene alto fijo de una línea, así que un bloque
-     debajo del título se desborda de su caja y se dibuja ENCIMA de la fila
-     siguiente. Es exactamente lo que pasaba: la lista se leía superpuesta.
-
-     El separador va por CSS y no en el template porque en el layout apilado no
-     existe: ahí la razón tiene su propia línea y un `·` colgando sobraría. */
-  .task-row-reason {
-    display: inline;
-  }
-  .task-row-reason::before {
-    content: ' · ';
-    color: var(--fg-dimmer);
-  }
   /* El glifo ya está en la columna 1: repetirlo en la columna de ejecución
      sería decir dos veces lo mismo en la misma fila. */
   .task-row-exec :deep(.esl-glyph),
