@@ -5,6 +5,7 @@ import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
+import { useNow } from '@/composables/useNow';
 import {
   fetchBlockersBatch,
   fetchTaskRunSummaries,
@@ -76,6 +77,10 @@ interface TaskRow {
   repoName?: string
 }
 
+
+// El mismo tick que usa la línea de estado: la duración de un run vivo tiene
+// que correr también en la columna de desktop.
+const { now } = useNow();
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
@@ -324,12 +329,15 @@ async function loadProjectItems(refresh = false) {
 async function loadRunSummaries(projectId: string) {
   try {
     const summaries = await fetchTaskRunSummaries(projectId);
+    // El operador pudo cambiar de proyecto mientras esto volaba: pisar con la
+    // respuesta de otro proyecto mostraría runs que no son de estas tareas.
+    if (activeProjectId.value !== projectId) return;
     const byTask: Record<string, TaskRunSummary> = {};
     for (const s of summaries) byTask[s.taskId] = s;
     runsByTask.value = byTask;
     runsKnown.value = true;
   } catch {
-    runsKnown.value = false;
+    if (activeProjectId.value === projectId) runsKnown.value = false;
   }
 }
 
@@ -342,7 +350,9 @@ async function loadRunSummaries(projectId: string) {
 async function loadBlockers(projectId: string, ids: string[]) {
   if (!ids.length) return;
   try {
-    blockersByTask.value = await fetchBlockersBatch(projectId, ids);
+    const batch = await fetchBlockersBatch(projectId, ids);
+    if (activeProjectId.value !== projectId) return;
+    blockersByTask.value = batch;
   } catch {
     /* non-fatal: la fila simplemente no habla de bloqueos */
   }
@@ -423,7 +433,7 @@ function durationOf(item: TaskRow): string {
     last.durationMs ??
     (last.finishedAt
       ? new Date(last.finishedAt).getTime() - new Date(last.startedAt).getTime()
-      : Date.now() - new Date(last.startedAt).getTime());
+      : now.value - new Date(last.startedAt).getTime());
   if (!Number.isFinite(ms) || ms < 0) return '—';
   const total = Math.round(ms / 1000);
   if (total < 60) return `${total}s`;
@@ -498,6 +508,12 @@ onMounted(() => {
 // Los filtros se re-hidratan del storage del proyecto nuevo: los del anterior
 // (y su querystring) hablan de statuses que acá no existen.
 watch(activeProjectId, (pid) => {
+  // Los agregados son del proyecto anterior: con `runsKnown` en true, las
+  // filas del nuevo afirmarían `sin ejecutar` antes de saber nada — el "no sé
+  // dibujado como no hay" que ExecutionStatusLine existe para evitar.
+  runsByTask.value = {};
+  blockersByTask.value = {};
+  runsKnown.value = false;
   filters.value = loadStoredFilters(pid);
   void loadRepoNames();
   void loadStatuses();

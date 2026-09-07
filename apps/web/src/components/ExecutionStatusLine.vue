@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ExecutionLog } from '@ia-flow/shared';
 import { computed } from 'vue';
+import { useNow } from '@/composables/useNow';
 
 /**
  * La línea de estado de ejecución de una tarea — el vocabulario del handoff.
@@ -35,12 +36,29 @@ const props = defineProps<{
   hasOpenPr?: boolean;
 }>();
 
-type Kind = 'running' | 'failed' | 'done' | 'blocked' | 'ignored' | 'never' | 'unknown';
+// Un tick por segundo para la duración de un run vivo. Congelarla haría
+// parecer que el run se colgó.
+const { now } = useNow();
+
+type Kind =
+  | 'running'
+  /** `outcome: 'error'` — el agente falló. */
+  | 'failed'
+  /** Cancelado por una persona, o cortado por un límite (`truncated`). No es
+   *  un éxito ni un fallo del agente: es trabajo que quedó a medias, y es
+   *  justo el caso donde alguien tiene que intervenir. */
+  | 'stopped'
+  | 'done'
+  | 'blocked'
+  | 'ignored'
+  | 'never'
+  | 'unknown';
 
 const kind = computed<Kind>(() => {
   const e = props.execution;
   if (e && !e.finishedAt) return 'running';
   if (e?.outcome === 'error') return 'failed';
+  if (e?.outcome === 'cancelled' || e?.outcome === 'truncated') return 'stopped';
   if (e) return 'done';
   if (props.blocked) return 'blocked';
   if (props.ignoredReason) return 'ignored';
@@ -51,6 +69,7 @@ const kind = computed<Kind>(() => {
 const GLYPH: Record<Kind, string> = {
   running: '◐',
   failed: '✕',
+  stopped: '○',
   done: '✓',
   blocked: '⛔',
   ignored: '○',
@@ -83,7 +102,7 @@ function duration(e: ExecutionLog): string | null {
 /** La duración de un run vivo sigue corriendo desde `startedAt`: congelarla
  *  haría parecer que el run se colgó. El tick lo trae `now` de afuera. */
 function elapsed(e: ExecutionLog): string {
-  const ms = Date.now() - new Date(e.startedAt).getTime();
+  const ms = now.value - new Date(e.startedAt).getTime();
   const total = Math.max(0, Math.round(ms / 1000));
   if (total < 60) return `${total}s`;
   return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`;
@@ -107,6 +126,16 @@ const parts = computed<string[]>(() => {
       const d = duration(e!);
       if (d) out.push(d);
       out.push(ago(e!.finishedAt ?? e!.startedAt));
+      break;
+    }
+    case 'stopped': {
+      const why = e!.outcome === 'cancelled' ? 'cancelado' : 'cortado';
+      out.push(`${why} ${ago(e!.finishedAt ?? e!.startedAt)}`.trim());
+      // `truncated` siempre tiene una causa (budget, iteration cap, pause):
+      // sin ella la línea no dice qué hacer al respecto.
+      if (e!.failureClass) out.push(e!.failureClass);
+      const d = duration(e!);
+      if (d) out.push(d);
       break;
     }
     case 'done': {
@@ -178,6 +207,9 @@ const parts = computed<string[]>(() => {
 .esl--failed { color: var(--danger); }
 .esl--done { color: var(--fg-mute); }
 .esl--done .esl-glyph { color: var(--accent); }
+/* Cancelado/cortado comparte ranura con lo que espera una decisión humana: no
+   es un fallo del agente, pero tampoco terminó. */
+.esl--stopped,
 .esl--blocked,
 .esl--ignored { color: var(--warn); }
 .esl--never { color: var(--fg-dimmer); }

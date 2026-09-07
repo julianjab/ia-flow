@@ -108,6 +108,9 @@ export async function fetchTaskRunSummaries(projectId: string): Promise<TaskRunS
   return TaskRunSummaryArraySchema.parse(data.summaries)
 }
 
+/** El tope que declara la ruta (`MAX_BLOCKER_IDS` en project-source.ts). */
+const BLOCKERS_BATCH_SIZE = 100
+
 /**
  * Los blockers de varias tareas de una.
  *
@@ -119,9 +122,17 @@ export async function fetchBlockersBatch(
   ids: string[],
 ): Promise<Record<string, Blocker[]>> {
   if (!ids.length) return {}
-  const { data } = await axios.get<{ blockers?: unknown }>(
-    `/api/projects/${encodeURIComponent(projectId)}/source/blockers`,
-    { params: { ids: ids.join(',') } },
-  )
-  return BlockersBatchSchema.parse(data.blockers ?? {})
+  const out: Record<string, Blocker[]> = {}
+  // El server rechaza más de 100 ids de una (freno para que un `?ids=` armado
+  // a mano no dispare cientos de llamadas a la fuente). Un board de 150 tareas
+  // es normal, así que se parte acá: sin esto el 400 se comía los blockers del
+  // listado ENTERO, en silencio.
+  for (let i = 0; i < ids.length; i += BLOCKERS_BATCH_SIZE) {
+    const { data } = await axios.get<{ blockers?: unknown }>(
+      `/api/projects/${encodeURIComponent(projectId)}/source/blockers`,
+      { params: { ids: ids.slice(i, i + BLOCKERS_BATCH_SIZE).join(',') } },
+    )
+    Object.assign(out, BlockersBatchSchema.parse(data.blockers ?? {}))
+  }
+  return out
 }
