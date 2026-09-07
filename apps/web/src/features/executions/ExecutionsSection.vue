@@ -31,6 +31,7 @@ import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
+import RunRow from './RunRow.vue';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -226,6 +227,21 @@ function issueUrlFor(taskId: string): string | null {
   return issueUrlByTaskId.value[taskId] ?? null;
 }
 
+/**
+ * `#1240` — la columna `run` de 5d.
+ *
+ * Sale del final de la URL del issue, y si no hay URL del id de la tarea cuando
+ * ES un número. Un node id de Projects V2 (`PVTI_lADO…`) NO se dibuja: ocho
+ * caracteres opacos en la columna más angosta no identifican nada, y la fila ya
+ * lleva el título al lado. La columna vacía es la respuesta correcta cuando la
+ * fuente no numera sus items.
+ */
+function issueLabelFor(taskId: string): string | null {
+  const fromUrl = issueUrlFor(taskId)?.match(/\/(\d+)(?:[?#].*)?$/)?.[1];
+  if (fromUrl) return `#${fromUrl}`;
+  return /^\d+$/.test(taskId) ? `#${taskId}` : null;
+}
+
 const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
   'success', 'error', 'cancelled', 'truncated', 'pending',
 ];
@@ -388,7 +404,12 @@ const filteredExecutions = computed<ExecutionLog[]>(() => {
 
 // Client-side column sort over filteredExecutions. Server already returns
 // most-recent-first; we let the user re-sort in-place without a refetch.
-type ExecSortColumn = 'startedAt' | 'taskTitle' | 'agentId' | 'providerId' | 'duration' | 'outcome';
+// `providerId` y `outcome` ya no están: el proveedor se fue al detalle (en una
+// fila de 390px no entra, y es lo que menos se compara entre runs) y el outcome
+// dejó de ser una columna — es el bucket que agrupa la fila y el glifo que la
+// abre, así que ordenar por él sería reordenar dentro de un grupo por lo que ya
+// define al grupo.
+type ExecSortColumn = 'startedAt' | 'taskTitle' | 'agentId' | 'duration';
 const execSort = ref<{ column: ExecSortColumn; direction: 'asc' | 'desc' }>({
   column: 'startedAt',
   direction: 'desc',
@@ -429,14 +450,7 @@ const sortedExecutions = computed<ExecutionLog[]>(() => {
       case 'startedAt': cmp = a.startedAt.localeCompare(b.startedAt); break;
       case 'taskTitle': cmp = a.taskTitle.localeCompare(b.taskTitle); break;
       case 'agentId':   cmp = a.agentId.localeCompare(b.agentId); break;
-      case 'providerId': cmp = a.providerId.localeCompare(b.providerId); break;
       case 'duration':  cmp = durationMs(a) - durationMs(b); break;
-      case 'outcome': {
-        const oa = OUTCOME_RANK[a.outcome ?? 'pending'] ?? 99;
-        const ob = OUTCOME_RANK[b.outcome ?? 'pending'] ?? 99;
-        cmp = oa - ob;
-        break;
-      }
     }
     return cmp * dir;
   });
@@ -530,6 +544,30 @@ function toFiring(key: string, group: ExecutionLog[]): FiringRow {
     count: group.length,
     running: unfinished.length === 1 ? unfinished[0] : null,
     children: byPosition,
+  };
+}
+
+/**
+ * El disparo, dicho como un run.
+ *
+ * `ExecutionStatusLine` es el vocabulario de estado de TODA la app, y habla de
+ * ejecuciones: darle el resumen del disparo con esta forma es lo que hace que
+ * un grupo de acciones se lea igual que un run suelto, en vez de tener su
+ * propio badge. Los campos que un disparo no tiene van en null — no se inventan.
+ */
+function firingAsExec(f: FiringRow): ExecutionLog {
+  return {
+    id: f.key,
+    projectId: f.projectId,
+    taskId: f.taskId,
+    taskTitle: f.taskTitle,
+    agentId: f.ruleId ?? '',
+    providerId: f.providerId,
+    startedAt: f.startedAt,
+    finishedAt: f.finishedAt,
+    outcome: f.outcome,
+    errorMsg: null,
+    stopReason: null,
   };
 }
 
@@ -802,28 +840,6 @@ const outcomeCounts = computed<Record<string, number>>(() => {
   for (const e of executions.value) counts[e.outcome ?? 'pending']++;
   return counts;
 });
-
-// Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
-// for older entries. Full ISO available on hover. Locale falls back to the
-// browser's default so a Spanish machine shows "ene" and a US one shows "Jan"
-// — everything is rendered in the operator's local timezone.
-// Locale FIJO y no el del dispositivo: la app está en español, así que un
-// teléfono en inglés daría 'Aug 30, 1:53 PM' en medio de una UI en español.
-// Con i18n de verdad esto pasa a seguir la preferencia del usuario.
-const monthFormatter = new Intl.DateTimeFormat('es', { month: 'short' });
-function formatDateCompact(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const today = new Date();
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate();
-  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  return sameDay ? hms : `${pad(d.getDate())} ${monthFormatter.format(d)} ${hms}`;
-}
 
 async function loadAgents() {
   // Agent chips are per-project. In the global tab we skip them — the
@@ -1657,45 +1673,37 @@ watch(pendingFilter, () => {
     <div v-if="error" class="items-error">{{ error }}</div>
 
     <div class="exec-list-wrapper">
+      <!-- El encabezado son las columnas de 5d, y existe SÓLO donde hay
+           columnas: bajo 768px la fila se apila y un encabezado no encabeza
+           nada. Ordenar es de la tabla, no de la fila. -->
       <div class="exec-list-header" role="row">
+        <span class="exec-h-anchor" aria-hidden="true"></span>
         <button
           type="button"
-          class="exec-title exec-header-btn"
+          class="exec-h-issue exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
+          title="Ordenar por cuándo corrió"
+          @click="selectExecColumn('startedAt')"
+        >run{{ execSortArrow('startedAt') }}</button>
+        <button
+          type="button"
+          class="exec-h-main exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'taskTitle' }"
           @click="selectExecColumn('taskTitle')"
-        >Título{{ execSortArrow('taskTitle') }}</button>
+        >tarea · razón{{ execSortArrow('taskTitle') }}</button>
         <button
           type="button"
-          class="exec-meta exec-agent exec-header-btn"
+          class="exec-h-agent exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
           @click="selectExecColumn('agentId')"
-        >Agente{{ execSortArrow('agentId') }}</button>
+        >agente{{ execSortArrow('agentId') }}</button>
         <button
           type="button"
-          class="exec-meta exec-provider exec-header-btn"
-          :class="{ 'exec-header-btn--active': execSort.column === 'providerId' }"
-          @click="selectExecColumn('providerId')"
-        >Proveedor{{ execSortArrow('providerId') }}</button>
-        <button
-          type="button"
-          class="exec-meta exec-date exec-header-btn"
-          :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
-          @click="selectExecColumn('startedAt')"
-        >Fecha{{ execSortArrow('startedAt') }}</button>
-        <button
-          type="button"
-          class="exec-meta exec-duration exec-header-btn"
+          class="exec-h-dur exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'duration' }"
           @click="selectExecColumn('duration')"
-        >Duración{{ execSortArrow('duration') }}</button>
-        <button
-          type="button"
-          class="exec-outcome-col exec-header-btn"
-          :class="{ 'exec-header-btn--active': execSort.column === 'outcome' }"
-          @click="selectExecColumn('outcome')"
-        >Resultado{{ execSortArrow('outcome') }}</button>
-        <span class="exec-chevron"></span>
-        <span class="exec-stop-spacer" aria-hidden="true"></span>
+        >dur.{{ execSortArrow('duration') }}</button>
+        <span class="exec-h-verb">acción</span>
       </div>
 
       <!-- El orden no se recalcula solo: con el socket vivo, la fila que ibas a
@@ -1733,57 +1741,35 @@ watch(pendingFilter, () => {
             @toggle="closedOpen = !closedOpen"
           />
         </li>
+
+        <!-- El resumen de un disparo: la MISMA fila, con la regla en la columna
+             del agente y el caret que abre sus acciones. -->
         <li
           v-else-if="row.firing"
           class="exec-card exec-card--firing"
           :class="{ 'exec-card--open': isFiringOpen(row.firing.key) }"
         >
-          <div class="exec-card-inner">
-            <button
-              type="button"
-              class="exec-row"
-              data-kbd-item
-              :aria-expanded="isFiringOpen(row.firing.key)"
-              :title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
-              @click="toggleFiring(row.firing.key)"
-            >
-              <span
-                v-if="isGlobal"
-                class="exec-project-tag"
-                :title="`Proyecto: ${projectNameFor(row.firing.projectId)}`"
-              >{{ projectNameFor(row.firing.projectId) }}</span>
-              <span class="exec-title">
-                <span class="exec-caret" aria-hidden="true">{{ isFiringOpen(row.firing.key) ? '▾' : '▸' }}</span>
-                <a
-                  v-if="issueUrlFor(row.firing.taskId)"
-                  :href="issueUrlFor(row.firing.taskId)!"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  @click.stop
-                >{{ row.firing.taskTitle }} ↗</a>
-                <template v-else>{{ row.firing.taskTitle }}</template>
-              </span>
-              <span class="exec-kind">{{ row.firing.count }} acciones</span>
-              <span class="exec-meta exec-agent">{{ row.firing.ruleId ?? '' }}</span>
-              <span class="exec-meta exec-provider">{{ row.firing.providerId }}</span>
-              <span class="exec-meta exec-date" :title="row.firing.startedAt">{{ formatDateCompact(row.firing.startedAt) }}</span>
-              <span class="exec-meta exec-duration">{{ formatDuration(row.firing.startedAt, row.firing.finishedAt) }}</span>
-              <span
-                class="exec-outcome"
-                :style="{
-                  background: outcomeColor(row.firing.outcome).bg,
-                  color: outcomeColor(row.firing.outcome).fg,
-                }"
-              >{{ outcomeLabel(row.firing.outcome) }}</span>
-              <span
-                v-if="row.firing.hadEarlierIssue"
-                class="exec-outcome-warn"
-                aria-hidden="false"
-                title="Una acción anterior de este pipeline terminó en error/cancelled/truncated antes del resultado final mostrado."
-              >⚠</span>
-              <span class="exec-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="exec-stop-slot">
+          <RunRow
+            class="exec-row"
+            :execution="firingAsExec(row.firing)"
+            :title="row.firing.taskTitle"
+            :title-href="issueUrlFor(row.firing.taskId)"
+            :issue-label="issueLabelFor(row.firing.taskId)"
+            :agent="row.firing.ruleId ?? ''"
+            :duration="formatDuration(row.firing.startedAt, row.firing.finishedAt)"
+            :tag="isGlobal ? projectNameFor(row.firing.projectId) : null"
+            :tag-title="`Proyecto: ${projectNameFor(row.firing.projectId)}`"
+            :caret="isFiringOpen(row.firing.key) ? '▾' : '▸'"
+            :note="`${row.firing.count} acciones`"
+            :warn="row.firing.hadEarlierIssue
+              ? 'Una acción anterior de este pipeline terminó en error/cancelled/truncated antes del resultado final mostrado.'
+              : null"
+            :has-verb="!!row.firing.running"
+            :aria-expanded="isFiringOpen(row.firing.key)"
+            :note-title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
+            @open="toggleFiring(row.firing.key)"
+          >
+            <template #verb>
               <button
                 v-if="row.firing.running"
                 type="button"
@@ -1791,89 +1777,44 @@ watch(pendingFilter, () => {
                 :disabled="isCancelling(row.firing.running.id)"
                 :data-testid="`executions-stop-${row.firing.running.id}`"
                 title="Detener ejecución"
-                @click.stop="confirmCancelExecution(row.firing.running!)"
+                @click.stop="confirmCancelExecution(row.firing!.running!)"
               >{{ isCancelling(row.firing.running.id) ? '…' : '■ Detener' }}</button>
-            </div>
-          </div>
+            </template>
+          </RunRow>
         </li>
+
         <li
           v-else
           class="exec-card"
           :data-run-id="row.exec!.id"
           :class="{ 'exec-card--open': expandedId === row.exec!.id, 'exec-card--nested': row.nested }"
         >
-          <div class="exec-card-inner">
-            <button
-              type="button"
-              class="exec-row"
-              data-kbd-item
-              @click="toggleRow(row.exec!.id)"
-              :aria-expanded="expandedId === row.exec!.id"
-            >
-              <!-- En un hijo el tag queda invisible pero PRESENTE: sacarlo del
-                   todo correría sus columnas respecto de las del resumen. -->
-              <span
-                v-if="isGlobal"
-                class="exec-project-tag"
-                :class="{ 'exec-project-tag--ghost': row.nested }"
-                :title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
-              >{{ projectNameFor(row.exec!.projectId) }}</span>
-              <!-- La acción de un disparo NO repite el título ni el proyecto:
-                   los dice el resumen del que cuelga, y repetirlos tres veces
-                   es lo que hacía ilegible la lista. La columna ancha dice QUÉ
-                   es (un agente o una acción, y de qué tipo); el nombre queda
-                   en la columna del agente, que es donde el encabezado lo
-                   anuncia y donde el ojo ya lo busca. -->
-              <span v-if="row.nested" class="exec-title exec-title--action">
-                <span class="exec-kind">{{ kindLabel(row.exec!) ? 'acción' : 'agente' }}</span>
-                <span v-if="kindLabel(row.exec!)" class="exec-action-kind">{{ kindLabel(row.exec!) }}</span>
-              </span>
-              <template v-else>
-                <span class="exec-title">
-                  <a
-                    v-if="issueUrlFor(row.exec!.taskId)"
-                    :href="issueUrlFor(row.exec!.taskId)!"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @click.stop
-                  >{{ row.exec!.taskTitle }} ↗</a>
-                  <template v-else>{{ row.exec!.taskTitle }}</template>
-                </span>
-                <span
-                  v-if="kindLabel(row.exec!)"
-                  class="exec-kind"
-                  :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
-                >{{ kindLabel(row.exec!) }}</span>
-              </template>
-              <!-- En un hijo NO cae al `ruleId`: la regla ya la dijo el resumen,
-                   y repetirla en cada acción es lo que hacía parecer que la
-                   notificación la había corrido el agente. Una acción inline no
-                   tiene nombre y la columna queda vacía. -->
-              <span class="exec-meta exec-agent">{{
-                row.nested ? row.exec!.agentId : row.exec!.agentId || row.exec!.ruleId || ''
-              }}</span>
-              <span class="exec-meta exec-provider">{{ row.exec!.providerId }}</span>
-              <span v-if="row.exec!.source" class="exec-meta exec-source" :title="`Corrió en: ${row.exec!.source}`">{{ row.exec!.source }}</span>
-              <span
-                v-if="row.exec!.cancelRequestedAt"
-                class="exec-cancel-requested"
-                :title="`Cancelación solicitada: ${row.exec!.cancelRequestedAt}`"
-              >cancelación solicitada</span>
-              <span class="exec-meta exec-date" :title="row.exec!.startedAt">{{ formatDateCompact(row.exec!.startedAt) }}</span>
-              <span class="exec-meta exec-duration">{{ formatDuration(row.exec!.startedAt, row.exec!.finishedAt) }}</span>
-              <span
-                class="exec-outcome"
-                :style="{
-                  background: outcomeColor(row.exec!.outcome).bg,
-                  color: outcomeColor(row.exec!.outcome).fg,
-                }"
-              >{{ outcomeLabel(row.exec!.outcome) }}</span>
-              <span class="exec-chevron" aria-hidden="true">›</span>
-            </button>
-            <!-- La columna ACCIÓN: un verbo por fila, y sólo donde hay algo
-                 que hacer (O2). El destino existe: abortar llama a su endpoint,
-                 resolver navega a la pantalla de runs abortados. -->
-            <div class="exec-stop-slot">
+          <!-- La acción de un disparo NO repite el título ni el proyecto: los
+               dice el resumen del que cuelga, y repetirlos tres veces es lo que
+               hacía ilegible la lista. La columna ancha dice QUÉ es (un agente o
+               una acción, y de qué tipo); el nombre queda en la columna del
+               agente, que es donde el encabezado lo anuncia. -->
+          <RunRow
+            class="exec-row"
+            :execution="row.exec!"
+            :title="row.nested ? (kindLabel(row.exec!) ? 'acción' : 'agente') : row.exec!.taskTitle"
+            :title-href="row.nested ? null : issueUrlFor(row.exec!.taskId)"
+            :issue-label="row.nested ? null : issueLabelFor(row.exec!.taskId)"
+            :note="kindLabel(row.exec!)"
+            :agent="row.nested ? row.exec!.agentId : row.exec!.agentId || row.exec!.ruleId || ''"
+            :duration="formatDuration(row.exec!.startedAt, row.exec!.finishedAt)"
+            :tag="isGlobal ? projectNameFor(row.exec!.projectId) : null"
+            :tag-ghost="row.nested"
+            :tag-title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
+            :cancel-requested="!!row.exec!.cancelRequestedAt"
+            :has-verb="!!verbForRun(row.exec!)"
+            :aria-expanded="expandedId === row.exec!.id"
+            @open="toggleRow(row.exec!.id)"
+          >
+            <!-- Un verbo por fila, y sólo donde hay algo que hacer (O2). El
+                 destino existe: abortar llama a su endpoint, resolver navega a
+                 la pantalla de runs abortados. -->
+            <template #verb>
               <button
                 v-if="verbForRun(row.exec!)?.kind === 'cancel'"
                 type="button"
@@ -1893,8 +1834,8 @@ watch(pendingFilter, () => {
                 → {{ verbForRun(row.exec!)!.label }}
                 <span class="exec-verb-hint">{{ verbForRun(row.exec!)!.hint }}</span>
               </RouterLink>
-            </div>
-          </div>
+            </template>
+          </RunRow>
         </li>
       </template>
       </ul>
@@ -2327,23 +2268,34 @@ watch(pendingFilter, () => {
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 .exec-list-wrapper { position: relative; }
-.exec-list-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.4rem 0.85rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  border-radius: 6px 6px 0 0;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--fg-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  position: sticky;
-  top: 0;
-  z-index: 1;
+/* No existe bajo 768px: ahí la fila se apila y un encabezado de columnas no
+   encabeza nada. Arriba, la MISMA grilla que `RunRow` — si las dos se
+   escribieran distinto, el encabezado dejaría de nombrar la columna que tiene
+   debajo, que es lo único que hace. */
+.exec-list-header { display: none; }
+@media (min-width: 768px) {
+  .exec-list-header {
+    display: grid;
+    grid-template-columns: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch;
+    gap: 0.65rem;
+    align-items: center;
+    height: var(--row-h);
+    padding: 0 0.65rem;
+    background: var(--panel-hi);
+    border: 1px solid var(--border);
+    border-radius: 6px 6px 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-lbl);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
 }
+.exec-h-dur { text-align: right; }
+.exec-h-verb { color: var(--fg-dimmer); }
 .exec-header-btn {
   background: none;
   border: none;
@@ -2357,11 +2309,6 @@ watch(pendingFilter, () => {
 }
 .exec-header-btn:hover { color: var(--fg); }
 .exec-header-btn--active { color: var(--fg); }
-.exec-list-header .exec-outcome-col {
-  flex-shrink: 0;
-  width: 90px;
-  text-align: center;
-}
 .exec-empty {
   padding: 1.5rem 0.75rem;
   text-align: center;
@@ -2472,64 +2419,16 @@ watch(pendingFilter, () => {
 .exec-drawer-enter-from,
 .exec-drawer-leave-to { transform: translateX(100%); opacity: 0; }
 
-.exec-card-inner { display: flex; align-items: stretch; }
-.exec-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex: 1;
-  min-width: 0;
-  padding: 0.6rem 0.85rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 0.85rem;
-  color: var(--fg);
-}
-.exec-row:hover { background: var(--panel-alt); }
-
 /* El resumen de un disparo de regla. Se dibuja como una fila normal —misma
-   grilla, mismo outcome, misma altura— porque para escanear la lista ES la
+   grilla, mismo estado, misma altura— porque para escanear la lista ES la
    fila; lo único que la marca es el caret y un fondo apenas distinto. */
 .exec-card--firing { background: var(--panel-alt); }
-.exec-caret {
-  display: inline-block;
-  width: 0.9rem;
-  flex-shrink: 0;
-  color: var(--fg-dim);
-  font-size: 0.75rem;
-}
-.exec-title--action { color: var(--fg-mute); display: flex; align-items: center; gap: 0.4rem; }
-.exec-action-kind { font-size: 0.75rem; color: var(--fg-dim); }
-.exec-project-tag--ghost { visibility: hidden; }
 
 /* Una acción abierta desde el resumen de su disparo. El sangrado más la guía a
    la izquierda es lo que dice "esto lo lanzó aquella regla" — la regla es el
    padre de las dos, ninguna acción lo es de su hermana. */
-.exec-card--nested { margin-left: 1.5rem; }
-.exec-card--nested .exec-card-inner {
-  border-left: 2px solid var(--border);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
+.exec-card--nested { margin-left: 1.5rem; border-left: 2px solid var(--border); }
 
-/* Qué corrió, cuando no fue un agente. Deliberadamente discreto: la fila
-   importante de un disparo suele ser el run, no la notificación. */
-.exec-kind {
-  flex: 0 0 auto;
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.7rem;
-  color: var(--text-dim);
-  text-transform: lowercase;
-}
-/* Reserved at a fixed width whether or not the button is rendered inside it,
-   so `.exec-row`'s flex-basis stays identical across rows — otherwise rows
-   with an active "Detener" button are narrower than finished rows and the
-   fixed-width columns after the title (agent/provider/date/…) drift out of
-   alignment with the sticky header. */
 /* El verbo que navega. `--tap-h` de área porque se toca, y el `hint` dice a
    dónde lleva — que es lo que evita que prometa de más. */
 .exec-verb {
@@ -2546,15 +2445,7 @@ watch(pendingFilter, () => {
 .exec-verb:hover { background: transparent; color: var(--accent); text-decoration: underline; }
 .exec-verb-hint { color: var(--fg-dimmer); }
 
-.exec-stop-slot {
-  flex-shrink: 0;
-  align-self: center;
-  width: 84px;
-  margin-right: 0.85rem;
-  box-sizing: border-box;
-}
 .exec-stop-btn {
-  width: 100%;
   padding: 0.3rem 0.65rem;
   border: 1px solid var(--danger);
   border-radius: 6px;
@@ -2569,39 +2460,7 @@ watch(pendingFilter, () => {
 }
 .exec-stop-btn:hover { background: var(--red-bg); }
 .exec-stop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.exec-stop-spacer { flex-shrink: 0; width: 84px; }
 .exec-drawer__header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-.exec-title { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.exec-title a { color: var(--accent); text-decoration: none; }
-.exec-title a:hover { text-decoration: underline; }
-/* Fixed column widths so header cells and row cells line up regardless of
-   content length. Trimmed to the truncated-with-ellipsis floor (not the
-   longest realistic value) so `.exec-title` — the one column people actually
-   read — gets back the room these used to reserve for the rare long id. */
-.exec-meta {
-  font-size: 0.75rem;
-  color: var(--fg-dim);
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.exec-project-tag {
-  flex-shrink: 0;
-  font-size: 0.7rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  background: var(--yellow-bg);
-  color: var(--warn);
-  border: 1px solid var(--warn);
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--info); width: 140px; }
-.exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 100px; }
-.exec-source { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg-dim); width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-cancel-requested {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -2612,8 +2471,6 @@ watch(pendingFilter, () => {
   border: 1px solid var(--warn);
   white-space: nowrap;
 }
-.exec-date { font-variant-numeric: tabular-nums; width: 100px; font-family: 'SF Mono', 'Fira Code', monospace; }
-.exec-duration { font-variant-numeric: tabular-nums; width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-outcome {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -2625,14 +2482,6 @@ watch(pendingFilter, () => {
   text-align: center;
   box-sizing: border-box;
 }
-.exec-outcome-warn {
-  flex-shrink: 0;
-  font-size: 0.75rem;
-  line-height: 1;
-  color: var(--warn);
-  cursor: help;
-}
-.exec-chevron { color: var(--fg-dim); font-size: 0.85rem; flex-shrink: 0; width: 14px; text-align: right; }
 
 .exec-detail {
   padding: 0.75rem 0.85rem;
@@ -2868,20 +2717,4 @@ watch(pendingFilter, () => {
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
 
-@media (max-width: 768px) {
-  /* `.exec-row` es un flex sin `wrap` cuyos hijos no encogen: medía 477px
-     dentro de una caja de 325. Envolver es lo correcto acá y no scrollear —a
-     diferencia de la tabla del dashboard— porque una ejecución se lee como una
-     ficha (agente, outcome, duración de ESE run), no comparando columnas entre
-     filas. */
-  /* Acá NO se envuelve, y el propio código dice por qué: las columnas tienen
-     ancho fijo "so header cells and row cells line up". Envolver desalinea el
-     header de las filas y rompe justo lo que hace legible la lista.
-     
-     Una tabla scrollea DENTRO de su caja: la página deja de moverse de lado y
-     comparar columnas entre filas sigue siendo posible. El ancho mínimo sale
-     de la suma de las columnas fijas más el spacer de 84px. */
-  .exec-list-wrapper { overflow-x: auto; }
-  .exec-list { min-width: 37rem; }
-}
 </style>
