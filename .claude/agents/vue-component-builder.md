@@ -18,12 +18,38 @@ Si por descuido escribes un hex hardcoded (`#fff`, `#2563eb`, `#f3f4f6`, etc.), 
 
 **Mobile first, sin dejar de lado el desktop.** El CSS base describe el teléfono; `@media (min-width: …)` agrega densidad. Un `max-width` nuevo hay que justificarlo. Y **todo lo presionable mide `--tap-h` en cualquier ancho** — no es una concesión bajo un breakpoint.
 
+### Si te falta un control, PÍDELO — no lo inventes
+
+Un control que no está en `DESIGN_SYSTEM.md` no se resuelve dentro del componente. Un `<div>` con
+`@click` haciendo de botón, un glifo decorativo que sólo responde al mouse, o un chip que en
+realidad navega: cada uno se ve distinto, ninguno tiene estado de foco, y así nacieron las ~30
+clases de botón que el design system arrastra como deuda.
+
+Cuando te falte uno, en el mensaje final al usuario abre una sección **«Controles que pido al
+design system»** y por cada uno escribe:
+
+1. **Qué decide** el control — no cómo se ve. "Elegir el orden de una lista donde el orden
+   significa algo", no "un botón con una flecha".
+2. **Dónde MÁS aparece hoy el mismo problema.** Búscalo con `Grep` antes de escribir el pedido:
+   un control que sirve en una pantalla es una decisión local, uno que aparece en tres es una
+   pieza del sistema, y eso cambia cómo hay que diseñarlo. Nombra los archivos.
+3. **Qué se rompe sin él**: si el trabajo puede seguir con una solución provisoria, o si queda
+   bloqueado (y para quién — "reordenar es imposible en un teléfono" es bloqueante).
+
+Mientras tanto **degrada a una primitiva que ya exista** y déjalo anotado en el código. Un `.btn`
+de más es reversible; un control nuevo a medio hacer se copia a otras tres pantallas antes de que
+alguien lo revise. La tabla «Controles pedidos al design system» de `DESIGN_SYSTEM.md` tiene los
+que ya están pedidos: **léela antes de pedir uno**, puede que el tuyo ya esté ahí.
+
 Antes de inventar CSS nuevo pregúntate: ¿esto ya existe como primitiva? Los patrones cubiertos son:
 
 - Card + header → `.panel` + `.panel__header`.
 - Menú/lista con selección → `.select-row` + `.select-row--active` (video inverso).
 - Chip de tecla → `.kbd` / `.kbd--primary` en la barra inferior de hints.
 - Pulso live → `.live-dot`.
+- Reordenar una lista → `.drag-handle` (el `⠿`, que es un `button`: arrastra con mouse y mueve con
+  `ArrowUp`/`ArrowDown`). **Nunca botones `↑`/`↓`** ni un `⠿` decorativo.
+- Overlay bajo 768px → `ui/BottomSheet.vue`.
 - Labels pequeños en caja alta → `.uc-label`.
 - Sub-navegación → vive **en el sidebar** (`SettingsSidebar.vue`, prop `children`), NO como tab strip encima del contenido.
 
@@ -131,6 +157,8 @@ Importa tipos y schemas desde `@ia-flow/shared`. Para responses críticos (lista
 - **No fuentes escritas a mano.** Los tres roles son `var(--font-display)` (headings), `var(--font-body)` (default del `body`, texto de UI) y `var(--font-mono)` (**sólo lo copiable**: ids, paths, ramas, números de issue, código). Un título de tarea es prosa → Sans.
 - **No un cuarto breakpoint.** Sólo 768, 640 y 1100, y en `min-width` salvo que justifiques lo contrario.
 - **No `--row-h` como alto de algo que se toca.** Ese es `--tap-h` (R1).
+- **No inventar un control que el design system no tiene.** Se pide (ver arriba) y se degrada
+  mientras tanto. En particular: nada de botones `↑`/`↓` para reordenar — eso es `.drag-handle`.
 - **No tab strips.** La sub-navegación va en el sidebar como `children`.
 - No Options API, no mixins, no `Vue.extend`.
 - No CSS global nuevo, no `<style>` sin `scoped`. Si necesitas un token nuevo, agrégalo a `theme.css`, no lo inventes en el componente.

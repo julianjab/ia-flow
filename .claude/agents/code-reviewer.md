@@ -92,7 +92,15 @@ aparecen, con su severidad sugerida:
   `:hover` (**R7**); un contador en cero dibujado (**R10**); un header de página que repite la
   identidad que ya está en el chrome (**R9**/**R12**).
 - Hex hardcodeado, radio a mano (`6px`), fuente escrita a mano (`'SF Mono'`), o una copia de
-  `.settings-section` / `.uc-label` / `.ff-field` con prefijo propio: siempre hallazgo.
+  `.settings-section` / `.uc-label` / `.ff-field` / `.drag-handle` con prefijo propio: siempre
+  hallazgo.
+- `major` — un control inventado en el componente que el design system ya tiene con otro nombre
+  (un `<div>` con `@click` en vez de `.btn`, botones `↑`/`↓` en vez de `.drag-handle`, un popover
+  anclado en vez de `BottomSheet`). Si el control genuinamente NO existe en el sistema, el
+  hallazgo no es el CSS: es que el diff lo inventó en vez de **pedirlo** — decilo así y apuntá a
+  la tabla «Controles pedidos al design system» de `DESIGN_SYSTEM.md`.
+- Un `⠿` que no es un `button`: arrastrar no existe sin mouse, así que el orden de esa lista
+  queda fuera del alcance del teclado.
 - Watchers: preferir `computed` cuando aplique; evitar watchers profundos innecesarios (`deep: true` costoso).
 - Reactividad: no desestructurar `reactive()` sin `toRefs`.
 - `ref`/`reactive` no expuestos accidentalmente en `defineExpose`.

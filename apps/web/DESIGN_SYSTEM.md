@@ -154,6 +154,13 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
 - `.hairline` — separador de 1px.
 - `.select-row` / `.select-row--active` — fila de menú con video inverso.
+- `.drag-handle` — **el control de reordenar una lista**, y el único. Es un `button` con el glifo
+  `⠿`: se arrastra con el mouse y se mueve con `ArrowUp`/`ArrowDown` cuando tiene el foco.
+  **No hay botones `↑`/`↓`** — eran dos blancos más en una fila que ya tiene cuatro controles,
+  haciendo el trabajo que el handle ya hace, y el que sobra es el que se toca por error. Que sea
+  un `button` no es cosmético: arrastrar no existe sin mouse, y el orden de estas listas decide
+  qué regla gana y qué provider corre. Lo comparten `RulesSection`, `ActionsEditor` y
+  `ProviderChoicesEditor`, que lo tenían copiado con tres prefijos y tres alturas distintas.
 - `.live-dot` — 7px con blink, para un run en vuelo. `.cursor-block` para el cursor de terminal.
 - `[data-kbd-item]` — marcá la fila navegable y el foco lo pinta `theme.css`; no escribas tu propio `:focus-visible`.
 
@@ -235,6 +242,54 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 
 Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje literal del proceso y, debajo, una línea `→` en `--info` con la acción que lo resuelve. Copiable entera.
 
+## Cuando falta un control — se pide, no se inventa
+
+Un control que no está en este archivo **no se resuelve en el componente**. Un `<div>` con
+`@click` que hace de botón, un `⠿` decorativo que sólo funciona con mouse o un chip que en
+realidad navega son la forma en la que un sistema se desarma: cada uno se ve distinto, ninguno
+tiene estado de foco, y la deuda de treinta clases de botón de la que habla este archivo empezó
+exactamente así.
+
+**El procedimiento, en tres pasos:**
+
+1. **Buscá si ya existe con otro nombre.** Es el caso más frecuente. `.btn` y sus variantes,
+   `.select-row`, `.drag-handle`, `EditableCard`, `ScopeGroup`, `CollapsibleSection`,
+   `ConditionRowsEditor`, `ComboBox`, `BottomSheet`, `form-fields.css`. Si estás por escribir un
+   `border: 1px solid var(--border-hi)` sobre un `height`, casi seguro estás reescribiendo uno.
+2. **Si no existe, pedilo — y decí dónde MÁS sirve.** Un control que sólo sirve en una pantalla
+   es una decisión local; uno que aparece en tres es una pieza del sistema, y la diferencia
+   cambia cómo se diseña. En el pedido va: **qué decide** el control (no cómo se ve), **dónde
+   más aparece** el mismo problema hoy, y **qué se rompe** sin él —si el trabajo puede seguir con
+   una solución provisoria, o si queda bloqueado.
+3. **Mientras tanto, degradá a algo que ya exista** y anotalo. Un `.btn` de más es reversible;
+   un control nuevo a medio hacer se copia a otras tres pantallas antes de que nadie lo revise.
+
+**Un pedido bien escrito tiene esta forma:**
+
+> **Reordenar con el dedo.** Decide el orden de una lista donde el orden significa algo (qué
+> regla gana, qué provider corre). Hoy sólo hay `.drag-handle`, que usa el drag nativo de HTML5
+> y **no dispara en táctil**: bajo `--bp-shell` la lista es de sólo lectura sin que nada lo diga.
+> Aparece en `RulesSection`, `ActionsEditor` y `ProviderChoicesEditor`. Bloqueante para
+> reordenar en un teléfono; el teclado sigue funcionando en desktop.
+
+### Controles pedidos al design system
+
+Lo que hoy falta, con dónde más serviría. Un control que aparece en la columna «también sirve
+en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
+
+| Control | Qué decide | También sirve en | Estado |
+| --- | --- | --- | --- |
+| **Reordenar táctil** | El orden de una lista, con el dedo. `.drag-handle` usa drag nativo y no dispara en táctil. | Pipeline (reglas), acciones de una regla, candidatos de provider, statuses | **Pedido — bloqueante en mobile** |
+| **`StickyActionBar`** | Dónde vive `Guardar`/`Cancelar` cuando el formulario mide diez pantallas (R3, R4). Reemplaza a la tab bar, no se suma a ella. | Editor de agente, editor de regla, config de repo, entorno, crear proyecto | Pedido |
+| **`FullScreen`** | Un formulario largo bajo `--bp-shell` es una pantalla con `←`, no un modal centrado. | Los 8 modales | Pedido |
+| **Segmentado de vista** | Elegir entre dos recortes de los mismos datos (Lista/Board). Hoy es `ListBoardToggle`, escrito a mano. | Tareas/Board, y cualquier par lista/detalle futuro | Pedido |
+| **Barra de controles de lista** | La segunda fila del chrome (R12): vista · filtro activo · `filtros ⌄`. | Tareas, Board, Ejecuciones, Logs, runs abortados | Pedido |
+| **Encabezado de bucket** | Agrupar por disposición con su cuenta, pegajoso, 26px. Es lo que hace que Tareas, Runs y Board se lean como recortes de UN orden. | Tareas, Qué sigue, Ejecuciones, Board | Pedido |
+| **`DataRow`** | Una fila de datos: columnas en `ch` sobre 640px, dos líneas apiladas debajo. Reemplaza cada tabla escrita a mano. | Tareas, board, salud, providers, catálogo MCP | Pedido |
+| **`LogLine` + `FollowTail`** | Una línea de log que nunca envuelve, y el autoscroll que se pausa al primer gesto hacia arriba. | Ejecuciones, logs del daemon, logs del agent-host, runs abortados | Pedido |
+
+Cuando uno de estos llegue diseñado, se agrega arriba con su primitiva y se borra de esta tabla.
+
 ## Doce reglas transversales — R1 a R12
 
 Aplican a **cualquier** pantalla, incluidas las que ningún rediseño nombra. Son el criterio con el
@@ -287,6 +342,9 @@ que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por q
       son dos filas de `--tap-h`.
 - [ ] Un resumen nombra excepciones y no dibuja los ceros (R10).
 - [ ] Una lista de más de 8 ítems arranca en lectura y el `+ <ítem>` es su última fila (R11).
+- [ ] Si la lista se reordena, usa `.drag-handle` — no escribí `↑`/`↓` ni un `⠿` decorativo.
+- [ ] Si me faltó un control, lo pedí (ver «Cuando falta un control») en vez de inventarlo en el
+      componente, y degradé a una primitiva existente mientras tanto.
 - [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
 - [ ] Los campos usan `ui/form-fields.css` y los labels son `.uc-label` — no declaré mi propio
       `.xx-lbl` ni mi propio `.xx-field`.
