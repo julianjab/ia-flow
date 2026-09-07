@@ -17,7 +17,12 @@ import BottomSheet from '@/ui/BottomSheet.vue';
  *   [ Lista | Board ]  ————————  (filtro activo)  filtros ⌄
  *
  * El contenido de los filtros no lo conoce este componente: llega por el slot
- * por defecto, y lo único que decide acá es DÓNDE se dibuja.
+ * por defecto, y lo único que decide acá es DÓNDE se dibuja. Lo mismo hace el
+ * slot `tools` con los controles que dan forma a la lista (el orden, el
+ * contador, actualizar): en la fila cuando hay ancho, y dentro del sheet
+ * cuando no. Sin eso, Tareas metía seis controles en una fila de 390px y la
+ * pantalla terminaba con 199px de scroll horizontal (R2) — que además deja la
+ * tab bar fija apuntando a un ancho que ya no es el de la pantalla.
  *
  * Bajo `--bp-shell` es un bottom sheet detrás de `filtros ⌄` (R6: un popover
  * anclado se va de la pantalla en cuanto sube el teclado), y lo que queda en la
@@ -68,6 +73,9 @@ const hasFilters = computed(() => props.filterCount > 0);
 
       <!-- Sin slot de filtros no hay `filtros ⌄`: un botón que abre un sheet
            vacío es peor que no ofrecerlo. Es el caso del board, que no filtra. -->
+      <!-- Los controles de forma sólo entran en la fila cuando hay ancho. -->
+      <slot v-if="!isMobile" name="tools" />
+
       <template v-if="isMobile && $slots.default">
         <!-- El resumen del filtro activo es un botón: tocarlo abre el mismo
              panel, así que no hace falta apuntarle al `⌄` de al lado. -->
@@ -100,6 +108,7 @@ const hasFilters = computed(() => props.filterCount > 0);
 
     <BottomSheet v-if="isMobile && $slots.default" :open="open" :title="title" @close="open = false">
       <div class="lcb__sheet-body">
+        <div v-if="$slots.tools" class="lcb__sheet-tools"><slot name="tools" /></div>
         <slot />
       </div>
       <template #footer>
@@ -132,6 +141,7 @@ const hasFilters = computed(() => props.filterCount > 0);
 .lcb__active,
 .lcb__toggle {
   flex: 0 0 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -146,7 +156,10 @@ const hasFilters = computed(() => props.filterCount > 0);
   white-space: nowrap;
   cursor: pointer;
 }
+/* Éste SÍ se achica: es texto variable ("status: en revisión · repo: x"), y con
+   `0 0 auto` empujaba a `filtros ⌄` fuera de la pantalla en vez de truncarse. */
 .lcb__active {
+  flex: 0 1 auto;
   border-color: var(--accent);
   background: var(--green-bg);
   color: var(--accent);
@@ -169,4 +182,16 @@ const hasFilters = computed(() => props.filterCount > 0);
   border-bottom: 1px solid var(--border-mute);
 }
 .lcb__sheet-body { padding: 0 1rem; }
+/* Los controles de forma, arriba de los filtros y separados: son otra cosa
+   —cómo se ordena la lista— y mezclarlos con los campos del filtro haría
+   pensar que también filtran. */
+.lcb__sheet-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border-mute);
+}
 </style>

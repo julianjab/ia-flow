@@ -824,6 +824,12 @@ watch(activeProjectId, (pid) => {
           :view="view"
           :board-available="statusOptions.length > 0"
         />
+      </template>
+
+      <!-- Los controles que dan forma a la lista: en la fila cuando hay ancho,
+           dentro del sheet cuando no. Seis controles en 390px daban 199px de
+           scroll horizontal (R2). -->
+      <template #tools>
         <span v-if="projectItems.length" class="task-count" data-testid="task-count">
           {{ filteredItems.length }} de {{ projectItems.length }} tareas
         </span>
