@@ -55,8 +55,22 @@ provider quedan de sólo lectura **sin que nada lo diga**. Pedido al DS.
 > textarea de JSON, que ahora son `ui/JsonConfigField.vue`.
 
 ### P6 · Etapa 06 — `DataRow`, `LogLine`, `FollowTail`
-Los cuatro streams resuelven lo mismo por separado (`ExecutionsSection` 105 KB
-y `ServerLogsSection` 73 KB).
+
+🟡 **`LogLine` y `FollowTail` existen y están testeados; NO están cableados**, y
+la razón es concreta: hoy el que scrollea es la PÁGINA, no la lista. `FollowTail`
+corrige el `scrollTop` de su propio contenedor, así que para que sirva la lista
+necesita alto propio y scroll propio — que es rediseñar la pantalla del stream
+(A2), o sea P7. Cablearlo antes daría un componente montado que no hace nada,
+que es peor que no tenerlo: parece resuelto.
+
+Lo mismo con `LogLine`: la fila actual de `ServerLogsSection` es una grilla de
+columnas configurables con detalle desplegable. Reemplazarla por `LogLine`
+perdería la configuración de columnas — `LogLine` es el render de UNA LÍNEA para
+mobile (A2: "una línea de log no se parte en dos: se trunca y se abre"), y
+convive con la grilla de escritorio.
+
+⬜ **`DataRow` no está.** Reemplaza cada tabla escrita a mano (tareas, board,
+salud, providers, catálogo MCP).
 
 ### P7 · Etapa 07 — pantalla por pantalla
 `02-pantallas.md`: detalle de tarea, detalle de run, dashboard, logs.
