@@ -154,6 +154,22 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
 - `.hairline` — separador de 1px.
 - `.select-row` / `.select-row--active` — fila de menú con video inverso.
+- `ui/BottomSheet.vue` — **el overlay de la capa táctil.** Bajo `--bp-shell` un popover anclado a su
+  disparador queda fuera de pantalla en cuanto sube el teclado virtual (R6), así que todo overlay
+  es este sheet: `translateY` en 150ms, backdrop al 60% que cierra al tocar, radio superior de
+  12px. Sobre el breakpoint se dibuja centrado. Es un contenedor y nada más — el contenido va por
+  el slot, y por eso puede vivir en `ui/`.
+- `ui/StickyActionBar.vue` — **dónde vive `Guardar`** cuando el formulario mide diez pantallas
+  (R3). **Reemplaza a la tab bar, no se suma a ella** (R4): dos barras fijas son 108px de una
+  pantalla de 800 y compiten por el mismo pulgar. Lleva al lado qué hay sin guardar, porque un
+  `Guardar` deshabilitado no dice por qué.
+- `components/ListControlsBar.vue` — **la segunda fila del chrome de una lista** (R12): vista ·
+  filtro activo · `filtros ⌄`. Bajo `--bp-shell` los filtros van al sheet y en la fila queda el
+  filtro activo; arriba, el panel va inline y no hay botón — el input de filtros ES el flujo de
+  esa pantalla.
+- `components/BucketHeader.vue` — **el encabezado de un bucket de disposición**: 26px, pegajoso,
+  con la disposición, su cuenta y el desempate que gobierna abajo. Es lo que hace que Tareas, Qué
+  sigue, Runs y Board se lean como recortes del MISMO orden y no como cuatro listas.
 - `.drag-handle` — **el control de reordenar una lista**, y el único. Es un `button` con el glifo
   `⠿`: se arrastra con el mouse y se mueve con `ArrowUp`/`ArrowDown` cuando tiene el foco.
   **No hay botones `↑`/`↓`** — eran dos blancos más en una fila que ya tiene cuatro controles,
@@ -279,14 +295,14 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 
 | Control | Qué decide | También sirve en | Estado |
 | --- | --- | --- | --- |
-| **Reordenar táctil** | El orden de una lista, con el dedo. `.drag-handle` usa drag nativo y no dispara en táctil. | Pipeline (reglas), acciones de una regla, candidatos de provider, statuses | **Pedido — bloqueante en mobile** |
-| **`StickyActionBar`** | Dónde vive `Guardar`/`Cancelar` cuando el formulario mide diez pantallas (R3, R4). Reemplaza a la tab bar, no se suma a ella. | Editor de agente, editor de regla, config de repo, entorno, crear proyecto | Pedido |
+| **Reordenar táctil** | El orden de una lista, con el dedo. `.drag-handle` usa el drag nativo de HTML5, que **no dispara en táctil**: bajo `--bp-shell` esas listas quedan de sólo lectura sin que nada lo diga. | Pipeline (reglas), acciones de una regla, candidatos de provider, statuses | **Pedido — bloqueante en mobile** |
 | **`FullScreen`** | Un formulario largo bajo `--bp-shell` es una pantalla con `←`, no un modal centrado. | Los 8 modales | Pedido |
-| **Segmentado de vista** | Elegir entre dos recortes de los mismos datos (Lista/Board). Hoy es `ListBoardToggle`, escrito a mano. | Tareas/Board, y cualquier par lista/detalle futuro | Pedido |
-| **Barra de controles de lista** | La segunda fila del chrome (R12): vista · filtro activo · `filtros ⌄`. | Tareas, Board, Ejecuciones, Logs, runs abortados | Pedido |
-| **Encabezado de bucket** | Agrupar por disposición con su cuenta, pegajoso, 26px. Es lo que hace que Tareas, Runs y Board se lean como recortes de UN orden. | Tareas, Qué sigue, Ejecuciones, Board | Pedido |
 | **`DataRow`** | Una fila de datos: columnas en `ch` sobre 640px, dos líneas apiladas debajo. Reemplaza cada tabla escrita a mano. | Tareas, board, salud, providers, catálogo MCP | Pedido |
 | **`LogLine` + `FollowTail`** | Una línea de log que nunca envuelve, y el autoscroll que se pausa al primer gesto hacia arriba. | Ejecuciones, logs del daemon, logs del agent-host, runs abortados | Pedido |
+| ~~`StickyActionBar`~~ | — | — | **Hecho** — `ui/StickyActionBar.vue` |
+| ~~Barra de controles de lista~~ | — | — | **Hecho** — `components/ListControlsBar.vue` |
+| ~~Encabezado de bucket~~ | — | — | **Hecho** — `components/BucketHeader.vue` |
+| ~~Segmentado de vista~~ | — | — | Cubierto por `components/ListBoardToggle.vue` |
 
 Cuando uno de estos llegue diseñado, se agrega arriba con su primitiva y se borra de esta tabla.
 
