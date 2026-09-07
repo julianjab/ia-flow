@@ -35,11 +35,10 @@ bloqueado por algo concreto, no por falta de tiempo.
 
 ### Bloqueado en DISEÑO
 
-**Reordenar táctil.** Consecuencia de borrar los `↑`/`↓`: el drag nativo de
-HTML5 no dispara en táctil, así que bajo `--bp-shell` Pipeline, las acciones de
-una regla y los candidatos de provider quedan de **sólo lectura sin que nada lo
-diga**. Falta decidir el GESTO (long-press + mover, o un modo "reordenar"
-explícito), no escribir código.
+**Nada.** Reordenar táctil está hecho: se arrastra desde el handle con Pointer
+Events, que cubre mouse, dedo y lápiz con un solo código. Ver
+`composables/useDragReorder.ts` para por qué ese gesto y no un long-press ni un
+modo "reordenar".
 
 ### Bloqueado en SERVER
 

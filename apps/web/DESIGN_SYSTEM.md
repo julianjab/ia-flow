@@ -194,6 +194,10 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   abortar. Lo comparten Ejecuciones y Qué sigue.
 - `composables/useIsMobile.ts` — `useIsMobile()` (bajo `--bp-shell`) y `useIsSplit()` (sobre
   `--bp-split`). Un listener por query para toda la app.
+- `composables/useDragReorder.ts` — **el gesto de reordenar**, con Pointer Events. Se arrastra
+  desde el handle: es inmediato (a diferencia de un long-press), no compite con el scroll
+  (`touch-action: none` va sólo en el handle) y la afordancia ya existía. La API de drag de HTML5
+  **no dispara en táctil**, por eso no se usa.
 - `.drag-handle` — **el control de reordenar una lista**, y el único. Es un `button` con el glifo
   `⠿`: se arrastra con el mouse y se mueve con `ArrowUp`/`ArrowDown` cuando tiene el foco.
   **No hay botones `↑`/`↓`** — eran dos blancos más en una fila que ya tiene cuatro controles,
@@ -319,7 +323,7 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 
 | Control | Qué decide | También sirve en | Estado |
 | --- | --- | --- | --- |
-| **Reordenar táctil** | El orden de una lista, con el dedo. `.drag-handle` usa el drag nativo de HTML5, que **no dispara en táctil**: bajo `--bp-shell` esas listas quedan de sólo lectura sin que nada lo diga. | Pipeline (reglas), acciones de una regla, candidatos de provider, statuses | **Pedido — bloqueante en mobile** |
+| ~~Reordenar táctil~~ | — | — | **Hecho** — `composables/useDragReorder.ts`: se arrastra desde el handle con Pointer Events (mouse, dedo y lápiz por el mismo camino) |
 | ~~`StickyActionBar`~~ | — | — | **Hecho** — `ui/StickyActionBar.vue` |
 | ~~`FullScreen`~~ | — | — | **Hecho** — `ui/FullScreen.vue` |
 | ~~`LogLine` + `FollowTail`~~ | — | — | **Hechos y cableados** — `ui/`; en uso en los logs del daemon |
