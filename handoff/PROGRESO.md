@@ -69,6 +69,10 @@ en la sección 7 del README como "no existe".
   corrección de posición no tiene dónde aplicarse.
 - `DataRow` **existe**. Se migra una tabla cuando se la toca, no cinco en el
   mismo commit — eso haría irrevisable el diff.
+- **Ejecuciones: el detalle es la segunda columna sobre `--bp-split`**, como
+  Tareas. Y como el ancho de la ventana deja de decir la verdad sobre el de la
+  lista cuando hay una columna al lado, el corte de la fila es un
+  `@container` sobre la lista, no un `@media`.
 - **Ejecuciones (5b/5d) está hecha.** La lista era una tabla de siete columnas
   fijas que en 390px se resolvía con `overflow-x` + `min-width: 37rem` (R2), y
   decía el outcome con un badge propio mientras el resto de la app lo dice con

@@ -194,9 +194,12 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   cosas que cuestan caro y no se ven en un test: las medidas en `ch` se
   resuelven contra la fuente del CONTENEDOR de la grilla, así que la fila y su
   encabezado tienen que compartir base —y declarar las columnas una sola vez,
-  en una variable que las dos hereden—; y el breakpoint no sale de la tabla de
-  siempre sino de cuánto ancho le queda a la LISTA (con el sidebar puesto, a
-  820px son ~470px: ahí las columnas fijas se comen el título).
+  en una variable que las dos hereden—; y el corte entre apilada y columnas
+  sale del ancho de la LISTA, no del de la ventana. El sidebar y la columna de
+  detalle son dos anchos que el `@media` no ve: a 1600px de ventana, con el
+  detalle abierto, la lista mide 794. Por eso `RunRow` pregunta por su
+  contenedor (`@container`, con `container: <nombre> / inline-size` en el
+  wrapper) — es la excepción a los tres breakpoints, y la única que hay.
 - `components/KbdBar.vue` — **la barra de atajos** al pie de una lista navegable. Anuncia sólo lo
   que `useKeyboardNav` bindea; no se renderiza bajo `--bp-shell` (`v-if`, no `display: none`).
 - `components/FinishedTodayPanel.vue` — lo que terminó hoy, con lo que falló primero.
