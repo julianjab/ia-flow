@@ -913,6 +913,27 @@ class GitHubProjectSource {
 - **Feature nueva = vertical completa**, no una capa a la vez: schema en `shared` → port si hace
   falta → use-case/repo → ruta → feature de web → tests de cada pieza.
 
+## UI de `apps/web` — mobile first, sin dejar de lado el desktop
+
+**Antes de tocar un `.vue` o un `.css` de `apps/web`, `apps/web/DESIGN_SYSTEM.md` es lectura
+obligatoria** — es la definición vigente, no una guía opcional, y `src/styles/theme.css` es su
+fuente de tokens. Lo que hay que saber de memoria:
+
+- **El CSS arranca en el teléfono.** Reglas base para mobile y `@media (min-width: …)` para
+  agregar densidad en pantallas grandes. Un `max-width` nuevo hay que justificarlo: es un parche,
+  y por eso siempre falta uno.
+- **Tres breakpoints y ninguno más: `768` / `640` / `1100`.** 768 decide si la app es táctil
+  (tab bar, sin sidebar, sheets en vez de popovers); 640 apila `etiqueta · valor`; 1100 habilita
+  la segunda columna.
+- **`--row-h` es grilla; `--tap-h` es blanco táctil.** Todo control presionable mide `--tap-h`
+  (44px) en **cualquier** ancho — no es una concesión bajo un breakpoint. Los `input`/`textarea`
+  bajan a `--fs-input` (16px absolutos) bajo 768px: menos que eso dispara el zoom de iOS.
+- **Las doce reglas transversales R1–R12** del design system aplican a toda pantalla, la esté
+  rediseñando alguien o no. Están al final de `DESIGN_SYSTEM.md`, junto al checklist.
+
+Los subagentes que las hacen cumplir: `vue-component-builder` al escribir, `web-verifier` y
+`code-reviewer` al revisar.
+
 ## Paridad API ↔ front
 
 Cuando un cambio agrega o modifica algo consumible desde HTTP (endpoint nuevo, campo de

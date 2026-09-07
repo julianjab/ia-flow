@@ -1,6 +1,8 @@
-# apps/web — Design System v4
+# apps/web — Design System v4 · mobile-first
 
-**Rule zero:** antes de crear un componente nuevo o cambiar la UI de uno existente, **lee este archivo y `apps/web/src/styles/theme.css`**. `theme.css` es la fuente única: si algo de acá contradice al CSS, gana el CSS y este archivo está desactualizado — arréglalo en el mismo cambio.
+**Rule zero:** antes de crear un componente nuevo o cambiar la UI de uno existente, **lee este archivo y `apps/web/src/styles/theme.css`**.
+
+**Rule zero-bis — mobile first, sin dejar de lado el desktop.** El CSS base describe el teléfono y `@media (min-width: …)` **agrega** densidad para pantallas grandes. Un `max-width` es un parche, y por eso siempre falta uno. Los tres únicos anchos son `768` / `640` / `1100` (ver «Breakpoints»), y todo control presionable mide `--tap-h` en **cualquier** ancho, no sólo bajo un breakpoint. Las doce reglas transversales (R1–R12) están al final de este archivo y aplican a **toda** pantalla, incluida la que estés escribiendo ahora. `theme.css` es la fuente única: si algo de acá contradice al CSS, gana el CSS y este archivo está desactualizado — arréglalo en el mismo cambio.
 
 v4 nace del mockup de rediseño del editor de agentes (`src/features/agents/`). Arranca por los tokens porque cascadean solos a cada pantalla; migrar componente por componente es el paso siguiente. Eso quiere decir que **vas a encontrar componentes todavía en v3** (mono en todo, radio 0, verde ácido). No los tomes como referencia: la referencia es este archivo.
 
@@ -65,7 +67,45 @@ La regla práctica: **mono es para lo que el usuario podría copiar y pegar**. U
 
 Escala: `--fs-micro` · `--fs-chrome` · `--fs-body-sm` · `--fs-body`. Siempre el token, nunca `0.85rem` escrito a mano — la raíz vive en `html { font-size: 18px }` y esa es la única perilla para agrandar la interfaz entera.
 
-`--row-h` es la altura de fila del grid. Toda fila de lista, chip o control mide `--row-h` o un múltiplo; usalo también como `line-height` de los chips para que una fila de tags quede pareja.
+### Grilla vs. blanco táctil — dos números, no uno
+
+`--row-h` (`1.375rem` ≈ 25px) es la **grilla**: el ritmo vertical de una fila de tabla, el
+`line-height` de un chip, el alto de una celda. Es lo que se **mira**.
+
+Lo que se **toca** mide otra cosa. Cinco controles presionables habían tomado `--row-h` como su
+alto y dejaban un blanco de 25px en un teléfono —y un input bajo 16px dispara el zoom automático
+de iOS al enfocarlo—, así que el blanco táctil tiene tokens propios:
+
+| Var | Valor | Cuándo |
+| --- | --- | --- |
+| `--tap-h` | `2.45rem` ≈ 44px | **Default de todo control presionable.** No es una excepción para mobile: es el mínimo en cualquier ancho. |
+| `--tap-h-lg` | `2.67rem` ≈ 48px | Botón principal de pantalla, filas de una barra de acciones fija. |
+| `--tap-h-sm` | `2.22rem` ≈ 40px | Chip de filtro: van muchos en fila y el destino es ancho. Un chip que **no** navega no es presionable y se queda en `--row-h`. |
+| `--fs-input` | `16px` | Piso del texto de `input`/`textarea`. **px absolutos a propósito**: es lo único que evita el zoom de iOS, y un `rem` se escala con la raíz. |
+
+Los que ya los usan: `.ec-btn` (`EditableCard`), `.ff-add` / `.ff-drop` / `.ff-field`
+(`form-fields.css`), `.cs-header` (`CollapsibleSection`), `.select-row` (`theme.css`, y con él
+`ComboBox` y todo popover). **Un control nuevo arranca en `--tap-h`; si querés menos, justificá
+por qué no se toca.**
+
+Un ✕ dentro de una fila no crece a 44px de caja —agregaría una fila entera a la lista—: mide
+24px visibles y expande su área con `::before { content: ''; position: absolute; inset: 0 -8px }`
+sobre un `position: relative`. Blanco táctil sin costo de layout.
+
+### Breakpoints — tres, y ninguno más
+
+Un cuarto ancho hace que un formulario cambie de forma en un punto donde su pantalla contenedora
+no cambia. Los tokens viven en `theme.css` como documentación; en la media query va el número
+literal (CSS no acepta `var()` en la condición de un `@media`).
+
+| Token | Ancho | Qué cambia al cruzarlo |
+| --- | --- | --- |
+| `--bp-shell` | **768px** | El chrome. Abajo: tab bar, sin sidebar, modales a pantalla completa, popovers como sheets. **Es el único breakpoint que decide si la app es táctil.** |
+| `--bp-stack` | **640px** | Las grillas `etiqueta · valor` se apilan, `ff-row-split` se vuelve columna, la tabla pasa a filas de dos líneas. |
+| `--bp-split` | **1100px** | Aparece la segunda columna: detalle al lado de la lista, índice del editor al costado del formulario. |
+
+Escribir el número suelto está bien. Inventar un cuarto ancho, no.
+
 
 ### Radio y sombra
 
@@ -195,6 +235,41 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 
 Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje literal del proceso y, debajo, una línea `→` en `--info` con la acción que lo resuelve. Copiable entera.
 
+## Doce reglas transversales — R1 a R12
+
+Aplican a **cualquier** pantalla, incluidas las que ningún rediseño nombra. Son el criterio con el
+que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por qué en el PR.
+
+- **R1 · Blanco táctil.** Todo lo presionable mide `--tap-h` o más, **siempre** — no sólo bajo un
+  breakpoint. `--row-h` es grilla, no blanco.
+- **R2 · Nada de scroll horizontal.** Excepto una tabla de comparación explícita, y ahí con la
+  primera columna pegajosa. Un `min-width` en `rem` sobre una tabla es la señal de que faltó
+  decidir qué columnas importan.
+- **R3 · La acción principal no scrollea.** Bajo 768px el `.btn--primary` del header baja a una
+  barra fija al pie.
+- **R4 · Una barra fija por vez.** Tab bar **o** barra de acciones, nunca las dos: 108px en una
+  pantalla de 800 es el 13% gastado en chrome.
+- **R5 · La etiqueta va arriba.** Bajo 640px, toda grilla `etiqueta · valor` se apila. Una
+  etiqueta de `5rem` se lleva un cuarto del ancho de un teléfono.
+- **R6 · Overlay anclado, no.** Bajo 768px, popovers y dropdowns son bottom sheets. Un popover
+  anclado a un input queda fuera de pantalla en cuanto sube el teclado virtual.
+- **R7 · Sin hover como único camino.** Lo que sólo aparece en `:hover` es inalcanzable en
+  táctil. Si es importante, se ve siempre; si no, va en el detalle.
+- **R8 · Mobile primero en el CSS.** Reglas base para el teléfono y `min-width` para agregar
+  densidad. Un `max-width` nuevo necesita justificarse.
+- **R9 · Una sola barra de identidad.** El chrome y el encabezado de página no repiten el mismo
+  nombre. Si el nombre está en la barra pegajosa, la página arranca en su contenido — y la barra
+  mide `--tap-h`, no más, porque lo que hay ahí se toca.
+- **R10 · Un resumen nombra excepciones, no filas.** Un panel de métricas arriba de una lista
+  muestra lo que está **fuera de banda** y cuenta el resto. La tabla completa no se recorta para
+  caber: se muda a la pantalla donde se audita. Y **un contador en cero no se dibuja**.
+- **R11 · El blanco táctil es área, no alto — y editar es un modo.** R1 exige 44px de área de
+  toque; no autoriza a duplicar el alto de una lista. Una lista larga se **lee** densa
+  (`--row-h` por fila) y se **edita** a `--tap-h`, y el control de agregar es la última fila de la
+  propia lista.
+- **R12 · El chrome de una pantalla de lista son dos filas.** Identidad y controles, `--tap-h`
+  cada una, en cualquier ancho. Nada de un header de página que repita lo que ya dice la barra.
+
 ## Checklist antes de tocar UI
 
 - [ ] Leí `theme.css` y este archivo.
@@ -202,7 +277,16 @@ Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje l
 - [ ] Reutilicé una primitiva (`.btn`, `.panel`, `.uc-label`, `.kbd`) en vez de reinventarla.
 - [ ] Los botones usan `.btn` + variante; hay como mucho un `--primary` en la pantalla, y el destructivo va último y detrás de una confirmación.
 - [ ] Radios por token; ningún `0` ni `6px` a mano.
-- [ ] Las filas y chips miden `--row-h` o un múltiplo.
+- [ ] Las filas y chips miden `--row-h` o un múltiplo — y **todo lo que se toca** mide `--tap-h`
+      (R1). Los inputs bajan a `--fs-input` bajo 768px.
+- [ ] El CSS arranca en mobile y agrega con `min-width` (R8); no inventé un cuarto breakpoint.
+- [ ] Sin scroll horizontal (R2) y sin hover como único camino (R7).
+- [ ] Bajo 768px: la acción principal está en barra fija al pie (R3), hay **una** sola barra fija
+      (R4), y los popovers son sheets (R6). Bajo 640px, `etiqueta · valor` se apila (R5).
+- [ ] No repetí la identidad de la pantalla en un header propio (R9, R12): el chrome de una lista
+      son dos filas de `--tap-h`.
+- [ ] Un resumen nombra excepciones y no dibuja los ceros (R10).
+- [ ] Una lista de más de 8 ítems arranca en lectura y el `+ <ítem>` es su última fila (R11).
 - [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
 - [ ] Los campos usan `ui/form-fields.css` y los labels son `.uc-label` — no declaré mi propio
       `.xx-lbl` ni mi propio `.xx-field`.
