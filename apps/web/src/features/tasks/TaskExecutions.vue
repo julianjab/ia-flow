@@ -89,7 +89,7 @@ function isAction(e: ExecutionLog): boolean {
 <template>
   <section class="runs-block">
     <div class="runs-head">
-      <span class="uc-label">Ejecuciones</span>
+      <span class="uc-label">Qué hizo</span>
       <button type="button" class="runs-reload" :disabled="loading" @click="load()">
         {{ loading ? '◐' : '↻' }}
       </button>
@@ -97,7 +97,7 @@ function isAction(e: ExecutionLog): boolean {
 
     <p v-if="error" class="runs-error">No se pudieron cargar: {{ error }}</p>
     <p v-else-if="loading && !executions.length" class="empty">Cargando…</p>
-    <p v-else-if="!executions.length" class="empty">Esta tarea todavía no corrió ningún agente.</p>
+    <p v-else-if="!executions.length" class="empty">Todavía no hizo nada: ningún agente corrió sobre esta tarea.</p>
 
     <ul v-else class="runs-list">
       <li v-for="e in executions" :key="e.id" class="run-row">

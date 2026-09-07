@@ -59,8 +59,11 @@ const props = withDefaults(
 
     layout?: 'table' | 'stacked';
     clickable?: boolean;
+    /** La fila abierta en la columna de detalle. Con dos columnas a la vista,
+     *  sin esto no hay forma de saber cuál de todas se está mirando. */
+    selected?: boolean;
   }>(),
-  { layout: 'stacked', clickable: true, verbBusy: false },
+  { layout: 'stacked', clickable: true, verbBusy: false, selected: false },
 );
 
 const emit = defineEmits<{ open: []; verb: [] }>();
@@ -85,8 +88,9 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <div
     class="tr"
-    :class="[`tr--${layout}`, { 'tr--clickable': clickable }]"
+    :class="[`tr--${layout}`, { 'tr--clickable': clickable, 'is-selected': selected }]"
     :role="clickable ? 'button' : undefined"
+    :aria-current="selected ? 'true' : undefined"
     :tabindex="clickable ? 0 : undefined"
     data-kbd-item
     @click="clickable ? emit('open') : undefined"
@@ -180,6 +184,14 @@ function onKeydown(e: KeyboardEvent) {
 .tr + .tr { border-top: 1px solid var(--border-mute); }
 .tr--clickable { cursor: pointer; }
 .tr--clickable:hover { background: var(--panel-hi); }
+
+/* La fila abierta gana la barra del acento y la superficie alta: es el ancla
+   que ata la lista con la columna de detalle, así que pisa a la zebra y al
+   hover (de ahí que vaya después de los dos). */
+.tr.is-selected {
+  background: var(--panel-hi);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 
 .tr__glyph,
 .tr__rank { grid-area: anchor; display: flex; align-items: baseline; }

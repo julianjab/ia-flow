@@ -164,6 +164,13 @@ const runMessage = computed(() => {
             <p v-if="runMeta" class="state-meta">{{ runMeta }}</p>
           </section>
 
+          <TaskExecutions
+            v-if="open"
+            :project-id="projectId"
+            :task-id="taskId"
+            :reload-token="runResult"
+          />
+
           <section v-if="devLinks" class="dev-block">
             <span class="uc-label">Development</span>
             <TaskTags
@@ -182,13 +189,6 @@ const runMessage = computed(() => {
             </div>
             <p v-else class="empty">La fuente no reporta ningún repo para esta tarea.</p>
           </section>
-
-          <TaskExecutions
-            v-if="open"
-            :project-id="projectId"
-            :task-id="taskId"
-            :reload-token="runResult"
-          />
 
           <section class="run-block">
             <span class="uc-label">Ejecución</span>
