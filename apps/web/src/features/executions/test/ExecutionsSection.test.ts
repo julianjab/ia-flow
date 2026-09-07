@@ -633,9 +633,12 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     await wrapper.findAll('.exec-card')[1].find('.exec-row').trigger('click')
     await flushPromises()
 
+    // La meta arranca plegada: el detalle son cinco bandas y ninguna es la
+    // tabla de campos — es material de auditoría, a un click.
     const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    expect(drawer.text()).toContain('acción')
+    await drawer.get('[data-testid="executions-meta-toggle"]').trigger('click')
     const labels = drawer.findAll('.detail-label').map((l) => l.text())
-    expect(drawer.text()).toContain('Acción')
     expect(labels).toContain('regla')
     expect(labels).toContain('posición en el do[]')
     expect(labels).toContain('evento')
@@ -656,8 +659,9 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     await flushPromises()
 
     const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    expect(drawer.text()).toContain('run')
+    await drawer.get('[data-testid="executions-meta-toggle"]').trigger('click')
     const labels = drawer.findAll('.detail-label').map((l) => l.text())
-    expect(drawer.text()).toContain('Ejecución')
     expect(labels).toContain('agentId')
     expect(labels).toContain('providerId')
     // Y de dónde vino, que antes no se veía en ningún lado.
