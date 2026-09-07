@@ -32,11 +32,13 @@ const runSummaries: Array<Record<string, unknown>> = []
 const blockersBatch: Record<string, unknown[]> = {}
 const fetchTaskRunSummaries = vi.fn(async () => runSummaries)
 const fetchBlockersBatch = vi.fn(async () => blockersBatch)
+const cancelTaskRun = vi.fn(async () => ({ ok: true, execution: {} }))
 vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
   runTaskNow: (...args: unknown[]) => runTaskNow(...(args as [])),
   fetchTaskRunSummaries: (...args: unknown[]) => fetchTaskRunSummaries(...(args as [])),
   fetchBlockersBatch: (...args: unknown[]) => fetchBlockersBatch(...(args as [])),
+  cancelTaskRun: (...args: unknown[]) => cancelTaskRun(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
 // Vacío por default; los tests de "bloqueada" cargan entradas por itemId.
@@ -64,6 +66,7 @@ beforeEach(() => {
   for (const k of Object.keys(blockersBatch)) delete blockersBatch[k]
   fetchTaskRunSummaries.mockClear()
   fetchBlockersBatch.mockClear()
+  cancelTaskRun.mockClear()
   toastSuccess.mockClear()
   toastError.mockClear()
   runTaskNow.mockClear()
@@ -319,6 +322,60 @@ describe('TareasSection — pedido de review en Slack', () => {
     await flushPromises()
     expect(requestSlackReview).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('CI en rojo')
+  })
+})
+
+// Abortar corta trabajo real: siempre detrás de una confirmación, y las
+// cuatro ramas de la respuesta se dicen distinto.
+describe('TareasSection — abortar un run', () => {
+  function running() {
+    return {
+      taskId: 'I_1',
+      attempts: 1,
+      last: {
+        id: 'run-1',
+        projectId: 'p1',
+        taskId: 'I_1',
+        taskTitle: 'x',
+        agentId: 'implementer',
+        providerId: 'anthropic-api',
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        outcome: null,
+        errorMsg: null,
+        stopReason: null,
+      },
+    }
+  }
+
+  async function openWithRun() {
+    runSummaries.push(running())
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.task-row').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('pide confirmación antes de cortar nada', async () => {
+    const wrapper = await openWithRun()
+    wrapper.findComponent(TaskDetailModal).vm.$emit('cancel-run')
+    await flushPromises()
+    expect(cancelTaskRun).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Abortar el run')
+  })
+
+  // `cancelRequested` es el caso que NO se puede anunciar como éxito: el run
+  // vive en otro daemon y sigue corriendo allá.
+  it('un aborto sobre un run remoto no dice "abortado"', async () => {
+    cancelTaskRun.mockResolvedValueOnce({ ok: true, cancelRequested: true, execution: {} })
+    const wrapper = await openWithRun()
+    wrapper.findComponent(TaskDetailModal).vm.$emit('cancel-run')
+    await flushPromises()
+    await wrapper.get('.btn-confirm').trigger('click')
+    await flushPromises()
+    expect(cancelTaskRun).toHaveBeenCalledWith('run-1')
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(toastError.mock.calls[0][0]).toContain('sigue corriendo')
   })
 })
 

@@ -1516,6 +1516,27 @@ export const ExecutionLogFiltersSchema = z.object({
 export const ExecutionLogArraySchema = z.array(ExecutionLogSchema)
 
 /**
+ * `POST /api/executions/:id/cancel` — las cuatro ramas de un cancel.
+ *
+ * Están todas en la respuesta y son distintas para el operador:
+ * cancelado en vuelo (ninguna bandera), `orphaned` (fila colgada que se
+ * cerró), `alreadyFinished` (no-op) y `cancelRequested` — este último es un
+ * aviso al daemon dueño del run: **el contenedor sigue corriendo**, y decir
+ * "abortado" ahí sería mentir.
+ */
+export const CancelExecutionResultSchema = z.object({
+  ok: z.boolean(),
+  alreadyFinished: z.boolean().optional(),
+  orphaned: z.boolean().optional(),
+  cancelRequested: z.boolean().optional(),
+  /** La fila como quedó. Opcional porque la ruta la re-lee de la base después
+   *  de escribir y ese `getById` puede volver vacío: hacerla obligatoria
+   *  convertía un cancel EXITOSO en un error de parseo del lado del cliente. */
+  execution: ExecutionLogSchema.nullish(),
+})
+export type CancelExecutionResult = z.infer<typeof CancelExecutionResultSchema>
+
+/**
  * El último run de UNA tarea, más cuántas veces se intentó
  * (GET /api/executions/latest-by-task?projectId=…).
  *

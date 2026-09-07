@@ -85,6 +85,10 @@ const willNotRun = computed(() => preview.value !== null && preview.value.matche
 <style scoped>
 .preview-line {
   margin: 0;
+  min-width: 0;
+  /* Los nombres de regla y los valores son mono y pueden ser largos: sin esto
+     ensanchan el panel en vez de envolver. */
+  overflow-wrap: anywhere;
   font-size: var(--fs-micro);
   color: var(--fg-dim);
 }
@@ -100,5 +104,10 @@ const willNotRun = computed(() => preview.value !== null && preview.value.matche
   flex-direction: column;
   gap: 0.15rem;
 }
-.preview-reject { font-size: var(--fs-micro); color: var(--fg-dim); }
+.preview-reject {
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 </style>

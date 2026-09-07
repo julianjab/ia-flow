@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { PullRequestRef, RunTaskNowResult } from '@ia-flow/shared';
+import type { ExecutionLog, PullRequestRef, RunTaskNowResult } from '@ia-flow/shared';
 import { computed } from 'vue';
 import TaskTags from '@/components/TaskTags.vue';
+import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import TaskExecutions from '@/features/tasks/TaskExecutions.vue';
 import TaskRunPreview from '@/features/tasks/TaskRunPreview.vue';
 
@@ -44,13 +45,54 @@ const props = defineProps<{
   slackBusy?: boolean;
   /** Ya hay un hilo: el pedido siguiente es un re-review. */
   slackThreadUrl?: string | null;
+  /** El último run de la tarea, si corrió. Es lo que decide cuál es la acción
+   *  principal de la pantalla. */
+  execution?: ExecutionLog | null;
+  attempts?: number;
+  blocked?: boolean;
+  /** Ya llegó el agregado de runs. Sin esto no se afirma "sin ejecutar". */
+  runsKnown?: boolean;
+  /** Hay un cancel en vuelo. */
+  cancelling?: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
   run: [];
   'slack-review': [];
+  'cancel-run': [];
+  logs: [];
 }>();
+
+/** En qué estado está la tarea. Es lo que decide la barra de acciones: no hay
+ *  una acción principal fija, hay una por estado. */
+const state = computed<'running' | 'failed' | 'stopped' | 'done' | 'idle'>(() => {
+  const e = props.execution;
+  if (e && !e.finishedAt) return 'running';
+  if (e?.outcome === 'error') return 'failed';
+  // `cancelled` y `truncated` NO son éxito: el primero lo escribe el botón de
+  // abortar de esta misma pantalla, y el segundo es un run cortado por budget.
+  // Tratarlos como "terminó" dejaba la tarjeta en verde y "Ver PR" de acción
+  // principal sobre trabajo que quedó a medias.
+  if (e?.outcome === 'cancelled' || e?.outcome === 'truncated') return 'stopped';
+  if (e) return 'done';
+  return 'idle';
+});
+
+/** El PR abierto, que es lo que la acción principal de una tarea terminada
+ *  ofrece mirar. */
+const openPr = computed(() => props.pullRequests?.find((pr) => pr.state === 'open') ?? null);
+
+/** La meta del run: quién, con qué y desde cuándo. */
+const runMeta = computed(() => {
+  const e = props.execution;
+  if (!e) return null;
+  const started = new Date(e.startedAt);
+  const at = Number.isNaN(started.getTime())
+    ? null
+    : started.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return [e.agentId, e.providerId, at ? `arrancó ${at}` : null].filter(Boolean).join(' · ');
+});
 
 /** Qué decir del último intento, en el idioma del operador. */
 const runMessage = computed(() => {
@@ -91,6 +133,22 @@ const runMessage = computed(() => {
         </header>
 
         <div class="modal-body">
+          <!-- Tarjeta de estado: la primera pregunta del detalle es la misma
+               que la de la fila —¿corrió?— y acá se contesta con el motivo y
+               la meta del run, no sólo con el glifo. -->
+          <section class="state-card" :class="`is-${state}`">
+            <ExecutionStatusLine
+              class="state-line"
+              :execution="execution ?? null"
+              :attempts="attempts"
+              :blocked="blocked"
+              :runs-known="runsKnown"
+              :pull-requests-known="pullRequestsKnown"
+              :has-open-pr="!!openPr"
+            />
+            <p v-if="runMeta" class="state-meta">{{ runMeta }}</p>
+          </section>
+
           <section v-if="devLinks" class="dev-block">
             <span class="uc-label">Development</span>
             <TaskTags
@@ -120,14 +178,6 @@ const runMessage = computed(() => {
           <section class="run-block">
             <span class="uc-label">Ejecución</span>
             <div class="run-row">
-              <button
-                type="button"
-                class="btn btn--primary run-btn"
-                :disabled="running"
-                @click="emit('run')"
-              >
-                {{ running ? 'Pidiendo…' : '▷ Correr ahora' }}
-              </button>
               <p class="run-explain">
                 Vuelve a evaluar las reglas contra el status
                 <code v-if="status" class="run-status">{{ status }}</code>
@@ -168,8 +218,52 @@ const runMessage = computed(() => {
           </section>
         </div>
 
+        <!-- Una acción principal por estado, no una fija: cuando algo está
+             corriendo NO hay primary — no hay nada que iniciar. Orden neutro →
+             primario → peligroso, con el destructivo último. -->
         <footer class="modal-foot">
-          <button class="btn" @click="emit('close')">Cerrar</button>
+          <template v-if="state === 'running'">
+            <button class="btn foot-grow" @click="emit('logs')">Ver logs en vivo</button>
+            <button
+              class="btn btn--danger"
+              :disabled="cancelling"
+              @click="emit('cancel-run')"
+            >
+              {{ cancelling ? 'Abortando…' : 'Abortar' }}
+            </button>
+          </template>
+
+          <template v-else-if="state === 'failed' || state === 'stopped'">
+            <button class="btn" @click="emit('logs')">Logs</button>
+            <button class="btn btn--primary foot-grow" :disabled="running" @click="emit('run')">
+              {{ running ? 'Pidiendo…' : 'Reintentar' }}
+            </button>
+          </template>
+
+          <template v-else-if="state === 'done'">
+            <button class="btn" @click="emit('logs')">Logs</button>
+            <button class="btn" :disabled="running" @click="emit('run')">
+              {{ running ? 'Pidiendo…' : 'Correr' }}
+            </button>
+            <!-- Aprobar/mergear desde la app no existe todavía (ver Requisitos
+                 de backend): la acción abre el PR en GitHub en vez de prometer
+                 un botón que no hace nada. -->
+            <a
+              v-if="openPr"
+              class="btn btn--primary foot-grow"
+              :href="openPr.url"
+              target="_blank"
+              rel="noopener"
+            >Ver PR #{{ openPr.number }} ↗</a>
+          </template>
+
+          <template v-else>
+            <button class="btn btn--primary foot-grow" :disabled="running" @click="emit('run')">
+              {{ running ? 'Pidiendo…' : '▷ Correr ahora' }}
+            </button>
+          </template>
+
+          <button class="btn btn--ghost" @click="emit('close')">Cerrar</button>
         </footer>
       </div>
     </div>
@@ -199,7 +293,6 @@ const runMessage = computed(() => {
 .slack-why { margin: 0; font-size: var(--fs-micro); color: var(--fg-dim); }
 
 .run-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.run-btn { flex: 0 0 auto; }
 .run-explain { margin: 0; font-size: var(--fs-micro); color: var(--fg-dim); flex: 1 1 12rem; }
 .run-status {
   font-family: var(--font-mono);
@@ -216,6 +309,32 @@ const runMessage = computed(() => {
    de un run que sí arrancó. */
 .run-result.is-error { color: var(--danger); }
 
+/* La tarjeta de estado lleva la ranura del estado en el borde IZQUIERDO y su
+   fondo: es lo primero que se mira, y el color tiene que llegar antes que el
+   texto. */
+.state-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border-hi);
+  border-radius: var(--radius);
+  background: var(--panel-alt);
+}
+.state-card.is-running { border-left-color: var(--accent); background: var(--panel); }
+.state-card.is-failed { border-left-color: var(--danger); background: var(--red-bg); }
+.state-card.is-done { border-left-color: var(--accent); background: var(--green-bg); }
+.state-card.is-stopped,
+.state-card.is-idle { border-left-color: var(--warn); background: var(--yellow-bg); }
+.state-line { font-size: var(--fs-body-sm); }
+.state-meta { margin: 0; font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
+
+/* El botón que la pantalla existe para tocar ocupa el ancho que sobra; los
+   demás miden lo suyo. */
+.foot-grow { flex: 1; }
+
 .backdrop {
   position: fixed;
   inset: 0;
@@ -224,16 +343,30 @@ const runMessage = computed(() => {
   align-items: center;
   justify-content: center;
   z-index: 200;
-  padding: 1rem;
 }
+/* Bajo 768px un detalle NO es un modal centrado: es la pantalla. Un modal con
+   márgenes deja media pantalla de fondo inútil y el contenido apretado. */
 .modal {
   background: var(--panel);
-  border-radius: var(--radius);
-  width: min(520px, 100%);
-  max-height: 85vh;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+@media (min-width: 768px) {
+  /* En desktop es un panel lateral, no un modal: la lista NO se pierde al
+     abrir una tarea, que es lo que permite recorrer varias seguidas. */
+  .backdrop {
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .modal {
+    width: 400px;
+    max-width: 100%;
+    height: 100%;
+    border-left: 1px solid var(--border);
+  }
 }
 .modal-head {
   display: flex;
@@ -270,6 +403,15 @@ const runMessage = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  min-width: 0;
+}
+/* Sin esto, una línea que no envuelve (la de estado, que trunca con ellipsis)
+   le impone su ancho de contenido al panel entero y el detalle scrollea en
+   horizontal. `min-width: auto` es el default de un ítem flex, y es justo lo
+   que hay que apagar para que el truncado ocurra DENTRO de la caja. */
+.modal-body > * {
+  min-width: 0;
+  max-width: 100%;
 }
 .modal-issue-link {
   flex: 0 0 auto;

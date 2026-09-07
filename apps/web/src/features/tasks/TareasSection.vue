@@ -7,6 +7,7 @@ import { useProjectsStore } from '@/features/projects/store';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import { useNow } from '@/composables/useNow';
 import {
+  cancelTaskRun,
   fetchBlockersBatch,
   fetchTaskRunSummaries,
   requestSlackReview,
@@ -108,6 +109,8 @@ const runBusyId = ref<string | null>(null);
 // Resultado del último "correr" de la tarea abierta. Se limpia al abrir el
 // modal: un veredicto viejo sobre otra tarea sería peor que no mostrar nada.
 const runResult = ref<RunTaskNowResult | null>(null);
+const cancelBusyId = ref<string | null>(null);
+const cancelConfirm = ref<TaskRow | null>(null);
 const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
 const slackSettingsSaving = ref(false);
 
@@ -440,6 +443,54 @@ function durationOf(item: TaskRow): string {
   return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`;
 }
 
+/** Abrir los logs del último run de esta tarea, en la tab de ejecuciones con
+ *  el run ya abierto (`?runId=` lo expande solo). */
+function openLogs(item: TaskRow) {
+  if (!activeProjectId.value) return;
+  const runId = runsByTask.value[item.id]?.last.id;
+  void router.push({
+    path: `/projects/${activeProjectId.value}/executions`,
+    ...(runId ? { query: { runId } } : {}),
+  });
+}
+
+/**
+ * Abortar el run en vuelo.
+ *
+ * Las cuatro ramas de la respuesta se dicen distinto porque son distintas —
+ * sobre todo `cancelRequested`, donde el run vive en otro daemon y lo único
+ * que se hizo fue avisarle: el contenedor sigue corriendo, y decir "abortado"
+ * ahí sería mentir.
+ */
+async function doCancelRun(item: TaskRow) {
+  const runId = runsByTask.value[item.id]?.last.id;
+  if (!runId) return;
+  cancelBusyId.value = item.id;
+  try {
+    const res = await cancelTaskRun(runId);
+    if (res.cancelRequested) {
+      toastStore.error('Pedido de aborto enviado al daemon dueño del run — sigue corriendo allá');
+    } else if (res.alreadyFinished) {
+      toastStore.success('El run ya había terminado');
+    } else if (res.orphaned) {
+      toastStore.success('Run huérfano cerrado');
+    } else {
+      toastStore.success('Run abortado');
+    }
+    if (activeProjectId.value) void loadRunSummaries(activeProjectId.value);
+  } catch (e) {
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
+  } finally {
+    if (cancelBusyId.value === item.id) cancelBusyId.value = null;
+  }
+}
+
+function confirmCancelRun() {
+  const pending = cancelConfirm.value;
+  cancelConfirm.value = null;
+  if (pending) void doCancelRun(pending);
+}
+
 // ─── Correr una tarea a mano ─────────────────────────────────────────────
 //
 // La activación de un agente escucha `issue.created`/`issue.status_changed`, y
@@ -638,6 +689,17 @@ watch(activeProjectId, (pid) => {
     </div>
   </section>
 
+  <!-- Abortar corta trabajo real: siempre detrás de una confirmación. -->
+  <ConfirmDialog
+    :open="!!cancelConfirm"
+    title="Abortar el run"
+    :message="`Se corta el run en vuelo de «${cancelConfirm?.title ?? ''}». Lo que el agente haya dejado sin commitear queda en su worktree.`"
+    confirm-label="Abortar"
+    danger
+    @confirm="confirmCancelRun"
+    @cancel="cancelConfirm = null"
+  />
+
   <ConfirmDialog
     :open="!!slackConfirm"
     title="CI en rojo"
@@ -668,6 +730,13 @@ watch(activeProjectId, (pid) => {
     :slack-blocked-reason="reposModalItem ? (slackBlockedReason(reposModalItem) ?? null) : null"
     :slack-busy="slackBusyId === reposModalItem?.id"
     :slack-thread-url="reposModalItem?.slackThreadUrl ?? null"
+    :execution="reposModalItem ? (runsByTask[reposModalItem.id]?.last ?? null) : null"
+    :attempts="reposModalItem ? runsByTask[reposModalItem.id]?.attempts : undefined"
+    :blocked="reposModalItem ? (blockersByTask[reposModalItem.id]?.length ?? 0) > 0 : false"
+    :runs-known="runsKnown"
+    :cancelling="cancelBusyId === reposModalItem?.id"
+    @logs="reposModalItem && openLogs(reposModalItem)"
+    @cancel-run="cancelConfirm = reposModalItem"
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
     @run="onRunClick"
     @close="reposModalOpen = false"
