@@ -7,6 +7,8 @@ import { useProjectsStore } from '@/features/projects/store';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
+import BucketHeader from '@/components/BucketHeader.vue';
+import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useNow } from '@/composables/useNow';
 import {
   cancelTaskRun,
@@ -17,6 +19,8 @@ import {
 } from '@/features/tasks/api';
 import type {
   PullRequestRef,
+  TaskDisposition,
+  TaskDispositionEntry,
   TaskRunSummary,
   RunTaskNowResult,
   SlackMemberRef,
@@ -39,6 +43,7 @@ import {
 import { useToastStore } from '@/stores/toast';
 import { useRoute, useRouter } from 'vue-router';
 import TaskFiltersBar from '@/features/tasks/TaskFiltersBar.vue';
+import { fetchTaskDispositions } from '@/features/tasks/api';
 import {
   countActiveTaskFilters,
   EMPTY_TASK_FILTERS,
@@ -177,6 +182,73 @@ const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.
 /** Lo que la barra de controles dibuja sin abrir nada: cuántos filtros hay y
  *  cuál es el que manda. Ver `taskFilters.ts` — la lógica es pura y se testea
  *  sin montar la sección. */
+/**
+ * El orden por disposición — el MISMO que Qué sigue, Board y Ejecuciones (O6).
+ *
+ * El orden por fecha (el que devuelve la fuente) queda como **opción**, no como
+ * default: una fecha contesta *qué pasó*, y con agentes trabajando solos eso ya
+ * no coincide con *qué me toca*. Lo que te espera es justamente lo que lleva
+ * más tiempo quieto, o sea lo que un orden por fecha manda al fondo.
+ */
+const dispositions = ref<TaskDispositionEntry[]>([]);
+/** El agregado no se pudo consultar: la lista cae al orden de la fuente y lo
+ *  DICE, en vez de agrupar por buckets que no conoce. */
+const dispositionsFailed = ref(false);
+const groupByDisposition = ref(true);
+
+const dispositionById = computed(
+  () => new Map(dispositions.value.map((d) => [d.taskId, d])),
+);
+
+interface OrderedTask { id: string; disposition: TaskDisposition; item: TaskRow }
+
+const orderedInput = computed<OrderedTask[]>(() => {
+  const byId = dispositionById.value;
+  // El orden de las filas lo trae el server ya resuelto; acá sólo se
+  // intersecta con lo que el filtro dejó pasar.
+  const visible = new Set(filteredItems.value.map((i) => i.id));
+  const itemsById = new Map(filteredItems.value.map((i) => [i.id, i]));
+  const out: OrderedTask[] = [];
+  for (const d of dispositions.value) {
+    if (!visible.has(d.taskId)) continue;
+    const item = itemsById.get(d.taskId);
+    if (item) out.push({ id: d.taskId, disposition: d.disposition, item });
+  }
+  // Una tarea que el agregado no conoce (recién creada) no desaparece del
+  // listado: va al final, sin bucket que afirmar.
+  for (const item of filteredItems.value) {
+    if (!byId.has(item.id)) out.push({ id: item.id, disposition: 'waiting-on-you', item });
+  }
+  return out;
+});
+
+const { buckets, movedCount, freeze, freezeIfFirst, reset: resetOrder } =
+  useDispositionOrder(orderedInput);
+
+/** `cerrado` arranca plegado (O4): es la parte del día que no hay que mirar. */
+const closedOpen = ref(false);
+
+/** La razón de cada fila, para dibujarla debajo del título (O1). */
+function reasonFor(id: string): string {
+  return dispositionById.value.get(id)?.reason ?? '';
+}
+
+async function loadDispositions() {
+  const pid = activeProjectId.value;
+  if (!pid) return;
+  dispositionsFailed.value = false;
+  try {
+    const next = await fetchTaskDispositions(pid);
+    if (activeProjectId.value !== pid) return;
+    dispositions.value = next;
+    freezeIfFirst();
+  } catch {
+    if (activeProjectId.value !== pid) return;
+    dispositionsFailed.value = true;
+    dispositions.value = [];
+  }
+}
+
 const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
 const filterSummary = computed(() => taskFilterSummary(filters.value));
 
@@ -563,6 +635,7 @@ onMounted(() => {
   void loadRepoNames();
   void loadStatuses();
   void loadProjectItems();
+  void loadDispositions();
 });
 
 // Reload whenever the user switches projects — same pattern as StatusesSection.
@@ -576,9 +649,14 @@ watch(activeProjectId, (pid) => {
   blockersByTask.value = {};
   runsKnown.value = false;
   filters.value = loadStoredFilters(pid);
+  // El orden congelado es del proyecto anterior: conservarlo dejaría las filas
+  // del nuevo ordenadas por ids que no existen acá.
+  dispositions.value = [];
+  resetOrder();
   void loadRepoNames();
   void loadStatuses();
   void loadProjectItems();
+  void loadDispositions();
 });
 </script>
 
@@ -606,13 +684,31 @@ watch(activeProjectId, (pid) => {
         <span v-if="projectItems.length" class="task-count" data-testid="task-count">
           {{ filteredItems.length }} de {{ projectItems.length }} tareas
         </span>
+        <!-- El orden por fecha queda como OPCIÓN, no como default: una fecha
+             contesta *qué pasó*, y con agentes trabajando solos eso dejó de
+             coincidir con *qué me toca*. Pero sigue siendo el orden correcto
+             para "¿qué se movió hoy?", así que no se borra. -->
+        <button
+          type="button"
+          class="lcb-order"
+          :class="{ 'is-on': groupByDisposition }"
+          :disabled="dispositionsFailed"
+          :aria-pressed="groupByDisposition"
+          :title="dispositionsFailed
+            ? 'No se pudo consultar la disposición de las tareas'
+            : groupByDisposition
+              ? 'Agrupado por quién mueve la próxima pieza — tocá para ver el orden de la fuente'
+              : 'Orden de la fuente — tocá para agrupar por disposición'"
+          data-testid="tareas-order-toggle"
+          @click="groupByDisposition = !groupByDisposition"
+        >{{ groupByDisposition ? 'por disposición' : 'por fecha' }}</button>
         <button
           type="button"
           class="lcb-refresh"
           :disabled="itemsLoading"
           :aria-label="itemsLoading ? 'Cargando' : 'Actualizar'"
           :title="itemsLoading ? 'Cargando…' : 'Actualizar'"
-          @click="loadProjectItems(true)"
+          @click="loadProjectItems(true); loadDispositions()"
         >{{ itemsLoading ? '◐' : '↺' }}</button>
       </template>
 
@@ -651,14 +747,105 @@ watch(activeProjectId, (pid) => {
       Ninguna de las {{ projectItems.length }} tareas coincide con los filtros activos.
     </div>
 
-    <div v-else class="task-table">
+    <!-- El orden no se recalcula solo: si lo hiciera, la fila que ibas a tocar
+         se movería bajo el dedo con cada evento del socket. -->
+    <button
+      v-else-if="movedCount > 0 && groupByDisposition"
+      type="button"
+      class="tk-moved"
+      data-testid="tareas-reorder"
+      @click="freeze"
+    >
+      {{ movedCount }} {{ movedCount === 1 ? 'cambió' : 'cambiaron' }} de lugar
+      <span class="tk-moved-sep">·</span>
+      <span class="tk-moved-cta">reordenar</span>
+    </button>
+
+    <template v-if="filteredItems.length">
+    <!-- Sin el agregado la lista NO inventa buckets: cae al orden de la fuente
+         y lo dice. Agrupar por una disposición que no se pudo consultar sería
+         afirmar en qué bucket está cada tarea sin haber preguntado. -->
+    <p v-if="dispositionsFailed" class="tk-degraded">
+      No se pudo consultar el estado de las tareas: se listan en el orden de la fuente.
+    </p>
+
+    <div class="task-table">
       <!-- Encabezado sólo en desktop: en mobile la fila se apila y una
            cabecera de columnas no describiría nada. -->
       <div class="task-thead" aria-hidden="true">
         <span></span><span>tarea</span><span>issue</span><span>ejecución</span><span>agente</span>
         <span class="task-th-dur">dur.</span>
       </div>
-      <ul class="task-list" data-kbd-list="tasks">
+
+      <template v-for="bucket in (groupByDisposition && !dispositionsFailed ? buckets : [])" :key="bucket.disposition">
+        <BucketHeader
+          :disposition="bucket.disposition"
+          :count="bucket.rows.length"
+          :collapsible="bucket.disposition === 'closed'"
+          :open="closedOpen"
+          @toggle="closedOpen = !closedOpen"
+        />
+        <ul
+          v-if="bucket.disposition !== 'closed' || closedOpen"
+          class="task-list"
+          data-kbd-list="tasks"
+        >
+          <li
+            v-for="row in bucket.rows"
+            :key="row.id"
+            class="task-row"
+            data-kbd-item
+            tabindex="0"
+            @click="openReposModal(row.item)"
+          >
+            <span class="task-row-glyph">
+              <ExecutionStatusLine
+                class="task-row-glyph-only"
+                :execution="runsByTask[row.id]?.last ?? null"
+                :attempts="runsByTask[row.id]?.attempts"
+                :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
+                :runs-known="runsKnown"
+                :pull-requests-known="row.item.pullRequestsKnown"
+                :has-open-pr="hasOpenPr(row.item)"
+              />
+            </span>
+            <span class="task-row-title" :title="row.item.title">
+              {{ row.item.title }}
+              <!-- La razón viaja con la fila (O1): nunca dice sólo su estado,
+                   dice por qué está en su bucket. -->
+              <span v-if="reasonFor(row.id)" class="task-row-reason">{{ reasonFor(row.id) }}</span>
+            </span>
+            <a
+              v-if="row.item.issueNumber && row.item.url"
+              class="task-row-issue"
+              :href="row.item.url"
+              target="_blank"
+              rel="noopener"
+              :title="`Abrir #${row.item.issueNumber} en el provider`"
+              @click.stop
+            >#{{ row.item.issueNumber }}</a>
+            <span v-else-if="row.item.issueNumber" class="task-row-issue is-plain">#{{ row.item.issueNumber }}</span>
+            <span v-else class="task-row-issue is-plain"></span>
+            <ExecutionStatusLine
+              class="task-row-exec"
+              :execution="runsByTask[row.id]?.last ?? null"
+              :attempts="runsByTask[row.id]?.attempts"
+              :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
+              :runs-known="runsKnown"
+              :pull-requests-known="row.item.pullRequestsKnown"
+              :has-open-pr="hasOpenPr(row.item)"
+            />
+            <span class="task-row-agent">{{ runsByTask[row.id]?.last.agentId ?? '—' }}</span>
+            <span class="task-row-dur">{{ durationOf(row.item) }}</span>
+          </li>
+        </ul>
+      </template>
+
+      <ul
+        v-if="!groupByDisposition || dispositionsFailed"
+        class="task-list"
+        data-kbd-list="tasks"
+      >
         <li
           v-for="item in filteredItems"
           :key="item.id"
@@ -711,6 +898,7 @@ watch(activeProjectId, (pid) => {
         </li>
       </ul>
     </div>
+    </template>
   </section>
 
   <!-- Abortar corta trabajo real: siempre detrás de una confirmación. -->
@@ -768,8 +956,60 @@ watch(activeProjectId, (pid) => {
 </template>
 
 <style scoped>
+/* El aviso de reorden: información, no alarma — describe el estado del ORDEN,
+   no el de una tarea. Misma pieza que en Qué sigue. */
+.tk-moved {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0 1rem;
+  border: none;
+  background: var(--panel-alt);
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-align: left;
+  cursor: pointer;
+}
+.tk-moved:hover { background: var(--panel-hi); }
+.tk-moved-sep { color: var(--fg-dimmer); }
+.tk-moved-cta { text-decoration: underline; }
+
+/* Degradación, no error: las tareas llegaron, su disposición no. */
+.tk-degraded { margin: 0 0 0.4rem; font-size: var(--fs-body-sm); color: var(--warn); }
+
+/* La razón, debajo del título. En desktop cede ancho antes que el título — es
+   la explicación de la fila, no su identidad. */
+.task-row-reason {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* El conteo y Actualizar viven en la fila de controles desde que el header de
    sección se borró: son lo único que ese header informaba. */
+.lcb-order {
+  flex: 0 0 auto;
+  height: var(--tap-h-sm);
+  padding: 0 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lcb-order.is-on { border-color: var(--accent); color: var(--accent); }
+.lcb-order:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .lcb-refresh {
   flex: 0 0 auto;
   width: var(--tap-h);

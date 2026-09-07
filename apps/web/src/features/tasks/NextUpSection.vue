@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  DISPOSITION_ORDER,
   type TaskDisposition,
   type TaskDispositionEntry,
   type TaskVerb,
@@ -9,6 +8,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import BucketHeader from '@/components/BucketHeader.vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
+import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchProjectItems, type SourceItem } from '@/features/projects/sourceApi';
 import { fetchTaskDispositions, runTaskNow } from '@/features/tasks/api';
@@ -53,38 +53,25 @@ interface Row {
 }
 
 /**
- * El orden congelado.
- *
- * Un orden que depende del estado se reordena solo, y con el socket vivo eso
- * significa que la fila que ibas a tocar se mueve bajo el dedo. **El orden se
- * calcula al abrir la pantalla y no se recalcula solo**: los datos nuevos
- * cambian el CONTENIDO de la fila donde está, y arriba aparece
- * `N cambiaron de lugar · reordenar`. Reordenar es un gesto del usuario.
- *
- * Es una lista de ids y no un snapshot de las filas: así una fila que cambió
- * de razón se re-dibuja al instante —que es información útil— sin moverse.
+ * El orden congelado y el agrupado por bucket — la misma mecánica que usan
+ * Tareas, Board y Ejecuciones (O6). Ver `useDispositionOrder`.
  */
-const frozenOrder = ref<string[]>([]);
-
-/** Las filas tal como el server las devolvió, ya ordenadas por él. */
-const serverOrder = computed(() => dispositions.value.map((d) => d.taskId));
-
-/** Cuántas cambiarían de lugar si se reordenara ahora. Cero ⇒ no se dibuja el
- *  aviso: un cartel que dice "nada cambió" es chrome. */
-const movedCount = computed(() => {
-  const frozen = frozenOrder.value;
-  const next = serverOrder.value;
-  if (!frozen.length) return 0;
-  let moved = 0;
-  for (let i = 0; i < next.length; i++) {
-    if (frozen[i] !== next[i]) moved++;
-  }
-  return moved;
-});
-
-function applyNewOrder() {
-  frozenOrder.value = [...serverOrder.value];
-}
+const rowsUnordered = computed<Row[]>(() =>
+  dispositions.value.map((d) => {
+    const item = itemsById.value.get(d.taskId);
+    return {
+      id: d.taskId,
+      title: item?.title ?? d.taskId,
+      issueNumber: item?.meta?.issueNumber as number | undefined,
+      url: item?.meta?.issueUrl as string | undefined,
+      disposition: d.disposition,
+      reason: d.reason,
+      verb: d.verb,
+    };
+  }),
+);
+const { ordered: rows, buckets, movedCount, freeze, freezeIfFirst, reset } =
+  useDispositionOrder(rowsUnordered);
 
 async function load() {
   const pid = activeProjectId.value;
@@ -107,7 +94,7 @@ async function load() {
       dispositions.value = next;
       // Primera carga: el orden se congela acá. Las siguientes NO lo pisan —
       // ése es todo el punto.
-      if (!frozenOrder.value.length) applyNewOrder();
+      freezeIfFirst();
     } catch {
       if (activeProjectId.value !== pid) return;
       dispositionsFailed.value = true;
@@ -122,49 +109,11 @@ async function load() {
 onMounted(load);
 watch(activeProjectId, () => {
   items.value = [];
-  frozenOrder.value = [];
+  reset();
   void load();
 });
 
 const itemsById = computed(() => new Map(items.value.map((i) => [i.id, i])));
-
-/** Las filas en el orden CONGELADO. Una tarea nueva que el orden viejo no
- *  conoce va al final: meterla en su lugar sería reordenar sin permiso. */
-const rows = computed<Row[]>(() => {
-  const byId = new Map(dispositions.value.map((d) => [d.taskId, d]));
-  const seen = new Set<string>();
-  const ordered: TaskDispositionEntry[] = [];
-  for (const id of frozenOrder.value) {
-    const d = byId.get(id);
-    if (d) {
-      ordered.push(d);
-      seen.add(id);
-    }
-  }
-  for (const d of dispositions.value) if (!seen.has(d.taskId)) ordered.push(d);
-
-  return ordered.map((d) => {
-    const item = itemsById.value.get(d.taskId);
-    return {
-      id: d.taskId,
-      title: item?.title ?? d.taskId,
-      issueNumber: item?.meta?.issueNumber as number | undefined,
-      url: item?.meta?.issueUrl as string | undefined,
-      disposition: d.disposition,
-      reason: d.reason,
-      verb: d.verb,
-    };
-  });
-});
-
-/** Agrupadas por bucket, en el orden de los cuatro. Un bucket vacío no se
- *  dibuja — su encabezado sería chrome que cuenta cero (R10). */
-const buckets = computed(() =>
-  DISPOSITION_ORDER.map((disposition) => ({
-    disposition,
-    rows: rows.value.filter((r) => r.disposition === disposition),
-  })).filter((b) => b.rows.length > 0),
-);
 
 /** `cerrado` arranca plegado (O4). */
 const closedOpen = ref(false);
@@ -260,7 +209,7 @@ function openTasks() {
         type="button"
         class="nu-moved"
         data-testid="next-up-reorder"
-        @click="applyNewOrder"
+        @click="freeze"
       >
         {{ movedCount }} {{ movedCount === 1 ? 'cambió' : 'cambiaron' }} de lugar
         <span class="nu-moved-sep">·</span>

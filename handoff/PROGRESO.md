@@ -30,11 +30,11 @@ Todos ✅. Detalle en los commits; lo que quedó a medias está abajo.
 
 ## Pendiente, en orden de ejecución
 
-### P1 · El orden nuevo sólo vive en "Qué sigue"
-`BucketHeader` + `fetchTaskDispositions` tienen cero usos en `TareasSection`,
-`StatusesSection` y `ExecutionsSection`. La sección 3 del README dice que las
-cuatro son **recortes del mismo orden** (O6) y hoy tres siguen por fecha.
-Es completar algo ya construido a medias.
+> ✅ **P1 · El orden nuevo en las cuatro vistas** — hecho. `useDispositionOrder`
+> (el orden congelado + el agrupado) lo comparten Qué sigue, Tareas y
+> Ejecuciones. Board no agrupa por disposición a propósito: sus columnas SON
+> los statuses, y el orden por disposición vive DENTRO de cada una — queda para
+> P7, que es cuando se rediseña el board.
 
 ### P2 · Reordenar táctil — bloqueante en mobile
 Consecuencia de borrar los ↑/↓: el drag nativo de HTML5 no dispara en táctil, y

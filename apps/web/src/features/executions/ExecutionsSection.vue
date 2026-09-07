@@ -19,10 +19,14 @@ import {
   ExecutionLogSchema,
   ServerLogEntrySchema,
   type ServerLogLevel,
+  type TaskDisposition,
 } from '@ia-flow/shared';
 import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
+import BucketHeader from '@/components/BucketHeader.vue';
 import HealthVerdict from './HealthVerdict.vue';
+import { dispositionOfOutcome } from './verdict';
+import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 
@@ -563,6 +567,84 @@ const groupedExecutions = computed<ExecRow[]>(() => {
     if (!isFiringOpen(key)) continue;
     // Adentro manda `position`: el orden REAL en que el `do[]` las ejecutó.
     for (const child of firing.children) out.push({ key: child.id, exec: child, nested: true });
+  }
+  return out;
+});
+
+/**
+ * Las filas agrupadas por disposición — el MISMO orden que Tareas, Qué sigue y
+ * Board (O6).
+ *
+ * Arriba lo que falló y nadie va a reintentar; después lo que corre; los
+ * terminados en una línea plegada (O4). Es el cambio más grande de esta
+ * pantalla: era cronológica pura, y nueve runs terminados dominaban el alto
+ * mientras los dos que piden algo quedaban abajo.
+ *
+ * Una fila de "firing" (varias acciones de una regla) toma la disposición de la
+ * PEOR de sus hijas: un grupo donde una acción falló pide atención aunque las
+ * otras tres hayan salido bien, y mandarlo a `cerradas` lo escondería.
+ */
+const BUCKET_SEVERITY: Record<string, number> = { 'waiting-on-you': 0, moving: 1, closed: 2 };
+
+const dispositionRows = computed(() =>
+  groupedExecutions.value
+    // Las hijas de un firing abierto no se agrupan aparte: viven dentro de su
+    // grupo, y sacarlas a otro bucket rompería la relación que el grupo dibuja.
+    .filter((row) => !row.nested)
+    .map((row) => {
+      const outcomes = row.firing
+        ? row.firing.children.map((c) => c.outcome)
+        : [row.exec?.outcome ?? null];
+      const disposition = outcomes
+        .map(dispositionOfOutcome)
+        .sort((a, b) => BUCKET_SEVERITY[a] - BUCKET_SEVERITY[b])[0];
+      return { id: row.key, disposition, row };
+    }),
+);
+
+const {
+  buckets: execBuckets,
+  movedCount: execMoved,
+  freeze: freezeExecOrder,
+  freezeIfFirst: freezeExecIfFirst,
+} = useDispositionOrder(dispositionRows);
+
+/** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
+const closedOpen = ref(false);
+
+/**
+ * La lista final: los encabezados de bucket intercalados entre las filas.
+ *
+ * Plana y no anidada a propósito. La lista ya resuelve dos cosas —los grupos de
+ * "firing" con sus hijas indentadas, y la navegación por teclado sobre un solo
+ * `data-kbd-list`— y meterla dentro de un `<ul>` por bucket rompía las dos: las
+ * hijas quedarían fuera de su grupo y el foco saltaría entre listas. Un
+ * marcador en la misma secuencia deja todo eso intacto.
+ */
+type DisplayRow =
+  | { kind: 'header'; key: string; disposition: TaskDisposition; count: number }
+  | ({ kind: 'row' } & ExecRow);
+
+const displayRows = computed<DisplayRow[]>(() => {
+  const out: DisplayRow[] = [];
+  for (const bucket of execBuckets.value) {
+    out.push({
+      kind: 'header',
+      key: `bucket:${bucket.disposition}`,
+      disposition: bucket.disposition,
+      count: bucket.rows.length,
+    });
+    if (bucket.disposition === 'closed' && !closedOpen.value) continue;
+    for (const entry of bucket.rows) {
+      out.push({ kind: 'row', ...entry.row });
+      // Las hijas de un firing abierto van pegadas a su grupo, dentro del
+      // mismo bucket: son el detalle de esa fila, no filas sueltas.
+      if (entry.row.firing && isFiringOpen(entry.row.firing.key)) {
+        for (const child of entry.row.firing.children) {
+          out.push({ kind: 'row', key: child.id, exec: child, nested: true });
+        }
+      }
+    }
   }
   return out;
 });
@@ -1581,9 +1663,21 @@ watch(pendingFilter, () => {
       </p>
 
       <ul v-else class="exec-list" data-kbd-list="executions">
-      <template v-for="row in groupedExecutions" :key="row.key">
+      <template v-for="row in displayRows" :key="row.key">
+        <!-- El encabezado de bucket, en la misma secuencia que las filas: es
+             lo que hace que esta pantalla se lea como un recorte del mismo
+             orden que Tareas y Qué sigue (O6). -->
+        <li v-if="row.kind === 'header'" class="exec-bucket">
+          <BucketHeader
+            :disposition="row.disposition"
+            :count="row.count"
+            :collapsible="row.disposition === 'closed'"
+            :open="closedOpen"
+            @toggle="closedOpen = !closedOpen"
+          />
+        </li>
         <li
-          v-if="row.firing"
+          v-else-if="row.firing"
           class="exec-card exec-card--firing"
           :class="{ 'exec-card--open': isFiringOpen(row.firing.key) }"
         >

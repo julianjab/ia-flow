@@ -1,4 +1,4 @@
-import type { ExecutionStats } from '@ia-flow/shared'
+import type { ExecutionStats, TaskDisposition } from '@ia-flow/shared'
 import { CLASS_LABELS, percent } from './health-format'
 
 /**
@@ -137,4 +137,23 @@ export function dispositionCounts(counts: Record<string, number>): DispositionCo
     { key: 'closed', label: 'cerradas', count: counts.success ?? 0, outcomes: ['success'] },
   ]
   return all.filter((c) => c.count > 0)
+}
+
+/**
+ * La disposición de UN run, a partir de su outcome.
+ *
+ * Es el mismo agrupado que `dispositionCounts`, dicho por fila: los seis
+ * outcomes son tres disposiciones. `error`, `cancelled` y `truncated` se leen
+ * distinto y significan lo mismo para vos — nadie los va a tocar si no los
+ * tocás.
+ *
+ * A diferencia de la disposición de una TAREA, ésta no necesita el server: un
+ * run terminado no tiene regla de retry que consultar (la regla actuaría sobre
+ * la tarea, no sobre esta fila, y el resultado sería otro run). Por eso vive
+ * acá y no en `@ia-flow/shared`.
+ */
+export function dispositionOfOutcome(outcome: string | null | undefined): TaskDisposition {
+  if (!outcome) return 'moving'
+  if (outcome === 'success') return 'closed'
+  return 'waiting-on-you'
 }
