@@ -22,6 +22,7 @@ commiteado.
 | 07 | Pantalla por pantalla (`02-pantallas.md`) | 🟡 lo que los datos permiten |
 | 08 | Chrome de dos filas, veredicto, listas en lectura (§9) | ✅ hecho |
 | 5b/5d | La LISTA de Ejecuciones — fila apilada en 390px, columnas en desktop | ✅ hecho |
+| 6a/6b | El DETALLE de un run — cinco bandas, sin timeline inventado (R13) | ✅ hecho |
 
 ## Los siete pasos pedidos explícitamente
 
@@ -69,6 +70,13 @@ en la sección 7 del README como "no existe".
   corrección de posición no tiene dónde aplicarse.
 - `DataRow` **existe**. Se migra una tabla cuando se la toca, no cinco en el
   mismo commit — eso haría irrevisable el diff.
+- **El detalle de un run son cinco bandas** (turno 6): identidad · veredicto ·
+  causa · log · acciones. Lo que R13 deja afuera y por qué: no hay timeline ni
+  `paso 3/5` (`execution_logs` guarda una fila por run, no pasos), no hay
+  `intento 2 de 2` (nadie los cuenta), y la comparación de lentitud dice
+  «promedio» y no «p50» porque `ExecutionStats` trae `avgDurationMs` y
+  `p95DurationMs`, no la mediana. `Reintentar` tampoco: es una acción sobre la
+  TAREA, y esta feature no puede llamar al api de otra.
 - **Ejecuciones: el detalle es la segunda columna sobre `--bp-split`**, como
   Tareas. Y como el ancho de la ventana deja de decir la verdad sobre el de la
   lista cuando hay una columna al lado, el corte de la fila es un
