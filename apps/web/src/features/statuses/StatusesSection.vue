@@ -2,6 +2,7 @@
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import type { StatusConfig } from '@ia-flow/shared';
+import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
