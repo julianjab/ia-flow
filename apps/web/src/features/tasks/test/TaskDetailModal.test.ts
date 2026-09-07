@@ -164,6 +164,6 @@ describe('TaskDetailModal — repos', () => {
 
   it('una tarea sin repos lo dice en vez de mostrar un hueco', () => {
     mountModal({ repos: [] })
-    expect(need('.empty').textContent).toContain('no reporta ningún repo')
+    expect(need('.repos-block .empty').textContent).toContain('no reporta ningún repo')
   })
 })
