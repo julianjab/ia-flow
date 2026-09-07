@@ -15,7 +15,7 @@ commiteado.
 | --- | --- | --- |
 | 01 | Tokens táctiles | ✅ hecho |
 | 02 | Kit de campo — 9 forms de source/provider + 3 textarea JSON | ⬜ pendiente |
-| 03 | Contenedores: `FullScreen`, `BottomSheet`, `StickyActionBar` + los 6 modales | 🟡 `BottomSheet` y `StickyActionBar` hechos; `FullScreen` y los modales, no |
+| 03 | Contenedores: `FullScreen`, `BottomSheet`, `StickyActionBar` + los modales | ✅ hecho |
 | 04 | Navegación: tab bar, `/mas`, switcher | ✅ ya venía hecho |
 | 05 | `disposition` en el server | ✅ hecho |
 | 06 | `DataRow`, `LogLine`, `FollowTail` | ⬜ pendiente |
@@ -41,10 +41,12 @@ Consecuencia de borrar los ↑/↓: el drag nativo de HTML5 no dispara en tácti
 bajo `--bp-shell` Pipeline, las acciones de una regla y los candidatos de
 provider quedan de sólo lectura **sin que nada lo diga**. Pedido al DS.
 
-### P3 · Etapa 03 — `FullScreen` y los seis modales
-`AgentEditorModal` (40 KB), `RuleEditorModal` (24 KB), `RepoConfigModal`,
-`ProjectCreateModal`, `StatusConfigModal`, `TaskDetailModal`. A3 del README:
-"lo más roto en mobile".
+> ✅ **P3 · `FullScreen` y los modales** — hecho. `AgentEditorModal` y
+> `RuleEditorModal` ya no eran overlays fijos (reemplazan la lista dentro del
+> `<main>`), así que los que migraron son los cuatro que sí lo eran:
+> `RepoConfigModal`, `StatusConfigModal`, `ProjectCreateModal` y
+> `TaskDetailModal`. Los cuatro perdieron su copia v3 de la caja y de los
+> campos.
 
 ### P4 · `ComboBox` a bottom sheet (T11 / R6)
 Tiene los blancos táctiles pero sigue siendo un popover anclado: con el teclado

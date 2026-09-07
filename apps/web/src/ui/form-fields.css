@@ -59,6 +59,17 @@
   box-sizing: border-box;
   border-radius: var(--radius-sm);
 }
+/* Un campo con error de validación. Va acá y no copiado en cada formulario:
+   el borde rojo tiene que ser el mismo en los diez, y su par es `.ff-error`
+   —el mensaje— que ya vivía en este archivo. */
+.ff-field--error {
+  border-color: var(--danger);
+}
+.ff-field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* Un ComboBox trae su propia caja (`.cb-box`: borde, alto, chips). Pasarle
    `.ff-field` le imponía 22px de alto y un segundo borde encima, y su input
    se desbordaba sobre el control de abajo. Acá sólo se le da el ancho. */
