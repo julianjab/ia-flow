@@ -47,6 +47,44 @@ const recent24h = computed(() =>
 const successCount24h = computed(() => recent24h.value.filter((e) => e.outcome === 'success').length);
 const failCount24h = computed(() => recent24h.value.filter((e) => e.outcome === 'error').length);
 const cancelledCount24h = computed(() => recent24h.value.filter((e) => e.outcome === 'cancelled' || e.outcome === 'truncated').length);
+
+/**
+ * El patrón de fallo del día: la `failureClass` que se repite.
+ *
+ * Un contador de fallos dice CUÁNTOS; esto dice si son el MISMO problema, que
+ * es lo que decide si hay que arreglar una cosa o seis. Sale de los mismos 200
+ * runs que ya se traen — cero requests nuevas.
+ *
+ * Se muestra sólo con 2+ fallos de la misma clase: con uno solo no hay patrón,
+ * y anunciarlo como tal sería inflar un caso aislado.
+ */
+const failurePattern = computed(() => {
+  const failed = recent24h.value.filter((e) => e.outcome === 'error');
+  if (failed.length < 2) return null;
+  const byClass = new Map<string, ExecutionLog[]>();
+  for (const e of failed) {
+    // Sin `failureClass` no hay clase que agrupar: un fallo sin clasificar no
+    // se mezcla con otro sólo por ser fallo.
+    if (!e.failureClass) continue;
+    const list = byClass.get(e.failureClass) ?? [];
+    list.push(e);
+    byClass.set(e.failureClass, list);
+  }
+  let top: { failureClass: string; runs: ExecutionLog[] } | null = null;
+  for (const [failureClass, runs] of byClass) {
+    if (runs.length >= 2 && (!top || runs.length > top.runs.length)) {
+      top = { failureClass, runs };
+    }
+  }
+  if (!top) return null;
+  return {
+    failureClass: top.failureClass,
+    count: top.runs.length,
+    total: failed.length,
+    // Los issues concretos: sin ellos el patrón no es accionable.
+    tasks: [...new Map(top.runs.map((r) => [r.taskId, r])).values()].slice(0, 4),
+  };
+});
 const activeProjectsCount = computed(() => {
   let n = 0;
   for (const p of projectsStore.projects) {
@@ -179,6 +217,31 @@ function elapsed(iso: string): string {
         <template v-else>outcome=error</template>
       </span>
     </div>
+  </section>
+
+  <!-- ═══ Patrón de fallo del día ═══
+       Un contador dice cuántos fallaron; esto dice si son el mismo problema.
+       Sólo aparece cuando hay patrón (2+ de la misma clase). -->
+  <section v-if="failurePattern" class="pattern">
+    <p class="pattern__line">
+      <span class="pattern__glyph">✕</span>
+      {{ failurePattern.count }} de los {{ failurePattern.total }} fallos de hoy son
+      <code>{{ failurePattern.failureClass }}</code>
+    </p>
+    <p class="pattern__fix">
+      <span class="pattern__glyph">→</span>
+      <template v-for="(t, i) in failurePattern.tasks" :key="t.id">
+        <span v-if="i > 0"> · </span>
+        <router-link
+          class="pattern__task"
+          :to="{
+            name: 'projects.detail',
+            params: { id: t.projectId, tab: 'executions' },
+            query: { runId: t.id },
+          }"
+        >{{ t.taskTitle }}</router-link>
+      </template>
+    </p>
   </section>
 
   <!-- ═══ En ejecución + Proyectos ═══ -->
@@ -339,6 +402,24 @@ function elapsed(iso: string): string {
 </template>
 
 <style scoped>
+/* La regla de errores del design system: la línea del hecho en --danger y,
+   debajo, la que lleva a resolverlo en --info. */
+.pattern {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--red-bg);
+}
+.pattern__line { margin: 0; font-size: var(--fs-body-sm); color: var(--danger); overflow-wrap: anywhere; }
+.pattern__fix { margin: 0; font-size: var(--fs-micro); color: var(--info); overflow-wrap: anywhere; }
+.pattern__glyph { display: inline-block; width: 1.4ch; }
+.pattern__task { color: var(--info); text-decoration: none; }
+.pattern__task:hover { background: none; text-decoration: underline; }
+
 /* Prompt line at the top — the "you are here" of the console. */
 .prompt {
   display: flex;
