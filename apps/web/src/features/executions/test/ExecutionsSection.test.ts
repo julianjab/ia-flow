@@ -33,6 +33,16 @@ vi.mock('../api', () => ({
     agents: [],
   }),
 }))
+// El split (>= --bp-split) no lo puede decidir happy-dom: `matchMedia` ahí
+// siempre contesta que no. Como el detalle sólo es columna hermana arriba de
+// ese ancho, sin poder prenderlo a mano no hay forma de testear esa columna.
+// `vi.hoisted` porque el factory de `vi.mock` se iza arriba de todo, y tiene
+// que ser un `ref` de verdad: la plantilla desenvuelve refs, no objetos.
+const { isSplit } = await vi.hoisted(async () => ({ isSplit: (await import('vue')).ref(false) }))
+vi.mock('@/composables/useIsMobile', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  useIsSplit: () => ({ isSplit }),
+}))
 vi.mock('@/features/projects/availableApi', () => ({
   fetchAvailableAgents: vi.fn().mockResolvedValue([]),
   fetchAvailableSystemPrompts: vi.fn().mockResolvedValue([]),
@@ -803,5 +813,54 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     // El resumen de `ev-1` y la fila suelta de `ev-2`.
     expect(cards).toHaveLength(2)
     expect(cards.filter((c) => c.classes().includes('exec-card--firing'))).toHaveLength(1)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// El detalle como segunda columna — lo mismo que Tareas. El drawer flotante
+// tapa 60vw de la lista, y recorrer varios runs seguidos es LA forma de usar
+// esta pantalla.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — el detalle en pantallas grandes', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProjectsStore().activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    isSplit.value = false
+    vi.clearAllMocks()
+  })
+
+  it('sobre --bp-split es una columna hermana, no un panel flotante', async () => {
+    isSplit.value = true
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1', taskTitle: 'Un run' })])
+
+    await wrapper.get('.exec-card .rr').trigger('click')
+
+    const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    expect(drawer.classes()).toContain('exec-drawer--inline')
+    // La grilla aparece CON el detalle abierto: reservar 26rem vacías dejaría
+    // la lista angosta para nada.
+    expect(wrapper.get('.exec-split').classes()).toContain('exec-split--open')
+  })
+
+  it('debajo sigue siendo el panel de siempre', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1', taskTitle: 'Un run' })])
+
+    await wrapper.get('.exec-card .rr').trigger('click')
+
+    expect(wrapper.get('[data-testid="executions-detail-drawer"]').classes())
+      .not.toContain('exec-drawer--inline')
+    expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
+  })
+
+  it('sin detalle abierto no hay segunda columna', async () => {
+    isSplit.value = true
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+
+    expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
   })
 })
