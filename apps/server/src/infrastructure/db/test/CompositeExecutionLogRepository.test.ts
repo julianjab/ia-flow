@@ -50,6 +50,9 @@ class FakeRepo implements IExecutionLogRepository {
   listDistinctSources(): string[] {
     return []
   }
+  listLatestByTask(): [] {
+    return []
+  }
   listLastOutputsByAgent(): Array<{ agentId: string; structuredOutput: Record<string, unknown> }> {
     return []
   }

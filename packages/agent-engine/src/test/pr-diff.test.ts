@@ -82,6 +82,7 @@ function makeDeps(prompt: string, fetchPrDiff: PrDiffPort) {
     getById: () => null,
     sweepOrphaned: () => [],
     listDistinctSources: () => [],
+    listLatestByTask: () => [],
     listLastOutputsByAgent: () => [],
   }
 

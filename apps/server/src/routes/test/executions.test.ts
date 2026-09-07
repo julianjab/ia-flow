@@ -37,6 +37,11 @@ const fakeRepo = {
   }),
   insert: mock(() => {}),
   sweepOrphaned: mock(() => 0),
+  listLatestByTask: mock((projectId: string) =>
+    projectId === 'proj-1'
+      ? [{ taskId: 'task-1', attempts: 2, last: Array.from(rows.values())[0] }]
+      : [],
+  ),
 }
 
 let pendingTask: { cancel?: () => Promise<void> } | undefined
@@ -132,6 +137,21 @@ describe('executions router', () => {
     const res = await app.request('/active')
     const body = (await res.json()) as { executions: ExecutionLog[] }
     expect(body.executions.map((e) => e.id)).toEqual(['running'])
+  })
+
+  // Va antes de `/:id` en el router: sin eso Hono la matchea como un id de
+  // ejecución y devuelve 404 sobre una ruta que existe.
+  test('GET /latest-by-task no la come la ruta de :id', async () => {
+    seed([makeExec({ id: 'e1' })])
+    const res = await app.request('/latest-by-task?projectId=proj-1')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { summaries: Array<{ taskId: string; attempts: number }> }
+    expect(body.summaries).toEqual([expect.objectContaining({ taskId: 'task-1', attempts: 2 })])
+  })
+
+  test('GET /latest-by-task exige projectId', async () => {
+    const res = await app.request('/latest-by-task')
+    expect(res.status).toBe(400)
   })
 
   test('GET /:id returns the execution', async () => {

@@ -70,6 +70,7 @@ function makeDeps(checkpoints: RunCheckpointPort) {
     getById: () => null,
     sweepOrphaned: () => [],
     listDistinctSources: () => [],
+    listLatestByTask: () => [],
     listLastOutputsByAgent: () => [],
   }
 

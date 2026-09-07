@@ -33,6 +33,7 @@ function fakeRepo(over: Partial<IExecutionLogRepository> = {}) {
     getById: () => null,
     sweepOrphaned: () => [],
     listDistinctSources: () => [],
+    listLatestByTask: () => [],
     listLastOutputsByAgent: () => [],
     ...over,
   } as IExecutionLogRepository

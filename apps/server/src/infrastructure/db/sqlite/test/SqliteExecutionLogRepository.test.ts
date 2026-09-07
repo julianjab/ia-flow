@@ -382,6 +382,65 @@ describe('SqliteExecutionLogRepository', () => {
   })
 })
 
+// Es lo que permite pintar el estado de ejecución de un listado entero sin una
+// request por tarea — y `○ sin ejecutar` (la ausencia) sólo se puede afirmar
+// habiendo preguntado por todas de una.
+describe('listLatestByTask', () => {
+  test('devuelve el último run de cada tarea con su conteo de intentos', () => {
+    const repo = setup()
+    repo.insert(fakeEntry({ id: 'a1', taskId: 'task-a', startedAt: '2026-01-01T00:00:00.000Z' }))
+    repo.insert(
+      fakeEntry({
+        id: 'a2',
+        taskId: 'task-a',
+        startedAt: '2026-01-02T00:00:00.000Z',
+        outcome: 'error',
+      }),
+    )
+    repo.insert(fakeEntry({ id: 'b1', taskId: 'task-b' }))
+
+    const summaries = repo.listLatestByTask('proj-1')
+    expect(summaries).toHaveLength(2)
+    const a = summaries.find((s) => s.taskId === 'task-a')
+    expect(a?.attempts).toBe(2)
+    // El ÚLTIMO, no el primero: es el que decide qué glifo se pinta.
+    expect(a?.last.id).toBe('a2')
+    expect(a?.last.outcome).toBe('error')
+    expect(summaries.find((s) => s.taskId === 'task-b')?.attempts).toBe(1)
+  })
+
+  // Una acción de regla (notificar, script) no es un intento: contarla diría
+  // "2 intentos" sobre una tarea que corrió una sola vez.
+  test('ignora las acciones y sólo cuenta runs de agente', () => {
+    const repo = setup()
+    repo.insert(fakeEntry({ id: 'run', taskId: 'task-a' }))
+    repo.insert(
+      fakeEntry({
+        id: 'act',
+        taskId: 'task-a',
+        kind: 'action',
+        startedAt: '2026-01-09T00:00:00.000Z',
+      }),
+    )
+    const [summary] = repo.listLatestByTask('proj-1')
+    expect(summary.attempts).toBe(1)
+    expect(summary.last.id).toBe('run')
+  })
+
+  test('no cruza proyectos', () => {
+    const repo = setup()
+    repo.insert(fakeEntry({ id: 'mine', taskId: 'task-a' }))
+    repo.insert(fakeEntry({ id: 'other', taskId: 'task-z', projectId: 'proj-2' }))
+    expect(repo.listLatestByTask('proj-1').map((s) => s.taskId)).toEqual(['task-a'])
+  })
+
+  // La ausencia ES el dato: una tarea sin runs no aparece, y es así como la UI
+  // sabe pintar `○ sin ejecutar` en vez de no pintar nada.
+  test('un proyecto sin runs devuelve vacío', () => {
+    expect(setup().listLatestByTask('proj-1')).toEqual([])
+  })
+})
+
 describe('SqliteExecutionLogRepository.stats', () => {
   let repo: SqliteExecutionLogRepository
 

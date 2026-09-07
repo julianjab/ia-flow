@@ -88,6 +88,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       getById: () => null,
       sweepOrphaned: () => [],
       listDistinctSources: () => [],
+      listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
     }
 
@@ -228,6 +229,7 @@ describe('AgentOrchestrator.runAgent — agente sync sin exits declarados', () =
       getById: () => null,
       sweepOrphaned: () => [],
       listDistinctSources: () => [],
+      listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
     }
 
@@ -326,6 +328,7 @@ describe('AgentOrchestrator.runAgent — structuredOutput sobrevive al cierre de
       getById: () => null,
       sweepOrphaned: () => [],
       listDistinctSources: () => [],
+      listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
     }
 
@@ -388,6 +391,7 @@ describe('AgentOrchestrator.runAgent — structuredOutput sobrevive al cierre de
       getById: () => null,
       sweepOrphaned: () => [],
       listDistinctSources: () => [],
+      listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
     }
 
