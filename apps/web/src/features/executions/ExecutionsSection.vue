@@ -21,7 +21,7 @@ import {
   type ServerLogLevel,
   type TaskDisposition,
 } from '@ia-flow/shared';
-import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue';
+import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 import { formatRelative } from './relativeTime';
 import BucketHeader from '@/components/BucketHeader.vue';
