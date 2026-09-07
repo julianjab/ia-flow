@@ -20,6 +20,7 @@ import {
   ServerLogEntrySchema,
   type ServerLogLevel,
 } from '@ia-flow/shared';
+import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 import AgentHealthPanel from './AgentHealthPanel.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
@@ -1097,6 +1098,15 @@ async function doCancel(exec: ExecutionLog) {
   }
 }
 
+/** El panel de "en vuelo" no duplica el detalle: abre el de la lista de abajo,
+ *  que ya tiene el tail de logs, los hook events y el traceId. */
+function openRunFromPanel(runId: string) {
+  // El run puede no estar en la página cargada (filtros, paginado): abrirlo
+  // igual es no-op, así que se scrollea sólo si la fila existe.
+  if (expandedId.value !== runId) toggleRow(runId);
+  document.querySelector(`[data-run-id="${runId}"]`)?.scrollIntoView({ block: 'center' });
+}
+
 function confirmCancelExecution(exec: ExecutionLog) {
   askConfirm({
     title: 'Detener ejecución',
@@ -1464,6 +1474,16 @@ watch(pendingFilter, () => {
       @open="openAgentPage"
     />
 
+    <!-- Lo que está corriendo AHORA, arriba del historial: es otra pregunta
+         que "qué pasó", y es lo único sobre lo que todavía se puede actuar.
+         Una fila más en una tabla ordenada por fecha se lee igual que una
+         vieja. -->
+    <RunningRunsPanel
+      :project-id="isGlobal ? null : activeProjectId"
+      @open="openRunFromPanel"
+      @cancel="confirmCancelExecution"
+    />
+
     <FilterQueryInput
       v-model="filterTokens"
       :fields="filterFields"
@@ -1609,6 +1629,7 @@ watch(pendingFilter, () => {
         <li
           v-else
           class="exec-card"
+          :data-run-id="row.exec!.id"
           :class="{ 'exec-card--open': expandedId === row.exec!.id, 'exec-card--nested': row.nested }"
         >
           <div class="exec-card-inner">
