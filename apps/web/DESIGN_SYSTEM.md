@@ -355,7 +355,11 @@ que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por q
 - **R1 · Blanco táctil.** Todo lo presionable mide `--tap-h` o más, **siempre** — no sólo bajo un
   breakpoint. `--row-h` es grilla, no blanco.
 - **R2 · Nada de scroll horizontal.** Excepto una tabla de comparación explícita, y ahí con la
-  primera columna pegajosa. Un `min-width` en `rem` sobre una tabla es la señal de que faltó
+  primera columna pegajosa. **No es cosmético:** con la página más ancha que la ventana, la tab
+  bar fija queda anclada a un ancho que ya no es el de la pantalla — el síntoma que se reporta no
+  es "scrollea de lado" sino "se pierde el menú de abajo". Las dos formas de producirlo: una fila
+  de controles donde todo es `flex: 0 0 auto` (nada puede achicarse, así que el último empuja), y
+  un panel fijo con `min-width` mayor que el teléfono. Un `min-width` en `rem` sobre una tabla es la señal de que faltó
   decidir qué columnas importan.
 - **R3 · La acción principal no scrollea.** Bajo 768px el `.btn--primary` del header baja a una
   barra fija al pie.
