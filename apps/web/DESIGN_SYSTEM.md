@@ -170,6 +170,20 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `components/BucketHeader.vue` — **el encabezado de un bucket de disposición**: 26px, pegajoso,
   con la disposición, su cuenta y el desempate que gobierna abajo. Es lo que hace que Tareas, Qué
   sigue, Runs y Board se lean como recortes del MISMO orden y no como cuatro listas.
+- `ui/FullScreen.vue` — **un detalle o un formulario que ocupa la pantalla.** Bajo `--bp-shell` un
+  detalle es una pantalla con `←`, nunca un modal centrado (A3, A5); arriba, el diálogo centrado
+  que un mouse espera. Trae el backdrop, el `Escape`, el bloqueo del scroll de fondo y el pie que
+  no scrollea (R3), y su barra reemplaza a la tab bar (R4).
+- `ui/JsonConfigField.vue` — **el `Record<string, unknown>` editado como JSON crudo**, para el
+  source o el provider que todavía no tiene formulario propio. Era la misma pieza escrita dos
+  veces con dos prefijos.
+- `ui/FollowTail.vue` — **un stream que crece sin robarte el renglón que estás leyendo** (T7).
+  Corrige el `scrollTop` por lo que creció arriba y ofrece `↑ N nuevos`. Necesita que la lista
+  tenga scroll propio.
+- `ui/LogLine.vue` — **una línea de log, y una sola** (T7): hora · nivel · origen · mensaje, que
+  se trunca y se abre. El nivel es el color de un glifo, no un badge.
+- `composables/useDispositionOrder.ts` — **el orden congelado + el agrupado por bucket.** Lo
+  comparten las vistas que son recortes del mismo orden (O6).
 - `.drag-handle` — **el control de reordenar una lista**, y el único. Es un `button` con el glifo
   `⠿`: se arrastra con el mouse y se mueve con `ArrowUp`/`ArrowDown` cuando tiene el foco.
   **No hay botones `↑`/`↓`** — eran dos blancos más en una fila que ya tiene cuatro controles,
@@ -296,10 +310,10 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 | Control | Qué decide | También sirve en | Estado |
 | --- | --- | --- | --- |
 | **Reordenar táctil** | El orden de una lista, con el dedo. `.drag-handle` usa el drag nativo de HTML5, que **no dispara en táctil**: bajo `--bp-shell` esas listas quedan de sólo lectura sin que nada lo diga. | Pipeline (reglas), acciones de una regla, candidatos de provider, statuses | **Pedido — bloqueante en mobile** |
-| **`FullScreen`** | Un formulario largo bajo `--bp-shell` es una pantalla con `←`, no un modal centrado. | Los 8 modales | Pedido |
 | **`DataRow`** | Una fila de datos: columnas en `ch` sobre 640px, dos líneas apiladas debajo. Reemplaza cada tabla escrita a mano. | Tareas, board, salud, providers, catálogo MCP | Pedido |
-| **`LogLine` + `FollowTail`** | Una línea de log que nunca envuelve, y el autoscroll que se pausa al primer gesto hacia arriba. | Ejecuciones, logs del daemon, logs del agent-host, runs abortados | Pedido |
 | ~~`StickyActionBar`~~ | — | — | **Hecho** — `ui/StickyActionBar.vue` |
+| ~~`FullScreen`~~ | — | — | **Hecho** — `ui/FullScreen.vue` |
+| ~~`LogLine` + `FollowTail`~~ | — | — | **Hechos** — `ui/`; sin cablear hasta que el stream tenga scroll propio (ver `handoff/PROGRESO.md`) |
 | ~~Barra de controles de lista~~ | — | — | **Hecho** — `components/ListControlsBar.vue` |
 | ~~Encabezado de bucket~~ | — | — | **Hecho** — `components/BucketHeader.vue` |
 | ~~Segmentado de vista~~ | — | — | Cubierto por `components/ListBoardToggle.vue` |
