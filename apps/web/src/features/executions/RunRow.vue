@@ -19,20 +19,25 @@ import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
  *
  * Lo que varía con el ancho es la FORMA, no el contenido:
  *
- * - Hasta 1100px: cuatro líneas —meta, título, razón, verbo— con el glifo
- *   ocupándolas todas a la izquierda.
+ * - Con menos de 47rem de LISTA (~850px: el `rem` de la app son 18px): cuatro
+ *   líneas —meta, título, razón, verbo— con el glifo ocupándolas todas a la
+ *   izquierda.
  * - Arriba: una línea con las columnas de 5d. Las medidas las pone el padre en
  *   `--rr-cols` —una sola declaración para la fila Y su encabezado, que si se
  *   escribieran por separado dejarían de nombrar la columna que tienen
  *   debajo— y acá hay un default para quien no las declare.
  *
- * El corte es 1100 y no `--bp-stack` (640) como en `DataRow`, ni 768 como en
- * `TaskRow`, y la razón es medible: entre 768 y 1100 vuelve el sidebar y la
- * lista se queda con ~470px de ancho, así que las columnas fijas (50ch de
- * agente + duración + acción) dejaban el título en 119px — doce caracteres de
- * la única columna que se lee. 5d está dibujado a 1280, que es donde esas
- * medidas entran; 1100 es el breakpoint que el design system ya tiene para
- * "acá hay ancho de sobra".
+ * El corte lo decide el CONTENEDOR y no la ventana, que es la excepción a los
+ * tres breakpoints del design system y está ganada a pulso: la lista pierde
+ * ancho por dos cosas que el `@media` no ve —el sidebar sobre 768px y la
+ * columna de detalle sobre 1100—, así que a 1440px de ventana la lista puede
+ * medir 470. Con las columnas fijas (50ch entre agente, duración y acción) eso
+ * dejaba el título en 119px: doce caracteres de la única columna que se lee.
+ * Con `@container`, abrir el detalle apila la fila sola.
+ *
+ * El contenedor tiene que declararlo el padre (`container: exec-list /
+ * inline-size`); sin eso la consulta no matchea y la fila se queda apilada —
+ * que es el modo que siempre entra, así que el fallback no rompe nada.
  *
  * No usa `components/DataRow.vue` por lo mismo que `TaskRow` tampoco: aquél
  * tiene tres zonas nombradas (glifo · identidad · estado) y las celdas extra se
@@ -298,7 +303,7 @@ function onKeydown(e: KeyboardEvent) {
 .rr__verb { grid-area: verb; justify-self: start; min-width: 0; }
 
 /* ── Una línea con columnas cuando hay ancho (5d) ─────────────────────────── */
-@media (min-width: 1100px) {
+@container exec-list (min-width: 47rem) {
   .rr {
     grid-template-columns: var(--rr-cols, 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch);
     grid-template-areas: none;

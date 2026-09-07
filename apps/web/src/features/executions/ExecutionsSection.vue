@@ -29,6 +29,7 @@ import KbdBar from '@/components/KbdBar.vue';
 import HealthVerdict from './HealthVerdict.vue';
 import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
+import { useIsSplit } from '@/composables/useIsMobile';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 import RunRow from './RunRow.vue';
@@ -194,6 +195,17 @@ const sources = computed<string[]>(() => {
 const loading = ref(false);
 const error = ref<string>('');
 const expandedId = ref<string | null>(null);
+
+/**
+ * Sobre `--bp-split` el detalle deja de flotar y se vuelve la segunda columna
+ * — lo mismo que Tareas.
+ *
+ * No es sólo estética: el drawer flotante tapa 60vw de la lista, así que
+ * recorrer varios runs seguidos —que es LA forma de usar esta pantalla— era
+ * abrir, leer, cerrar, buscar dónde estabas. Como columna, la lista queda
+ * entera y el `↑`/`↓` del teclado sigue moviéndose con el detalle al lado.
+ */
+const { isSplit } = useIsSplit();
 
 // Per-execution cache for the related-logs sub-panel. Keyed by exec.id so
 // re-expanding a card doesn't refetch (unless the user hits "↻ recargar").
@@ -1672,6 +1684,11 @@ watch(pendingFilter, () => {
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
+    <!-- Sobre --bp-split la lista y el detalle se parten en dos columnas; sin
+         detalle abierto no hay grilla, porque reservar 26rem vacías dejaría la
+         lista angosta para nada. -->
+    <div class="exec-split" :class="{ 'exec-split--open': isSplit && !!selectedExec }">
+    <div class="exec-col">
     <div class="exec-list-wrapper">
       <!-- El encabezado son las columnas de 5d, y existe SÓLO donde hay
            columnas: bajo 768px la fila se apila y un encabezado no encabeza
@@ -1848,12 +1865,18 @@ watch(pendingFilter, () => {
         Cargar más
       </button>
     </div>
+    </div>
 
-    <!-- Right-side detail drawer -->
-    <transition name="exec-drawer">
+    <!-- El detalle: columna hermana sobre --bp-split, drawer flotante debajo.
+         Es el MISMO marcado — un panel que entra desde la derecha y uno que
+         está a la derecha se diferencian en dónde se posicionan, no en qué
+         dicen. La transición sólo existe cuando flota: una columna que aparece
+         deslizándose desde afuera de la pantalla no viene de ningún lado. -->
+    <transition :name="isSplit ? 'exec-inline' : 'exec-drawer'">
       <aside
         v-if="selectedExec"
         class="exec-drawer"
+        :class="{ 'exec-drawer--inline': isSplit }"
         role="dialog"
         aria-label="Detalle de la ejecución"
         data-testid="executions-detail-drawer"
@@ -2161,6 +2184,7 @@ watch(pendingFilter, () => {
         </div>
       </aside>
     </transition>
+    </div>
   </section>
 
   <ConfirmDialog
@@ -2267,18 +2291,37 @@ watch(pendingFilter, () => {
 .exec-summary__count--zero { opacity: 0.4; }
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
-.exec-list-wrapper { position: relative; }
-/* Las columnas de la lista se declaran UNA vez, acá, y las heredan la fila y su
+/* ── La segunda columna (--bp-split) ─────────────────────────────────────── */
+.exec-split { display: flex; flex-direction: column; min-width: 0; }
+.exec-col { min-width: 0; }
+@media (min-width: 1100px) {
+  .exec-split--open {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 26rem;
+    gap: 1rem;
+    align-items: start;
+  }
+}
+
+/* La lista es un CONTENEDOR de consulta, y de ahí sale si la fila se apila.
+   No es un capricho sobre el media query: con el detalle abierto al lado, la
+   ventana mide 1440 y la lista 470 — o sea que el ancho de la ventana pasa a
+   ser mentira justo cuando más importa. `RunRow` y el encabezado preguntan por
+   este contenedor, así que la fila se apila sola cuando se abre el detalle. */
+.exec-list-wrapper {
+  position: relative;
+  container: exec-list / inline-size;
+}
+/* Las columnas se declaran UNA vez, acá, y las heredan la fila y su
    encabezado: escritas por separado, la primera vez que una cambie el
    encabezado deja de nombrar la columna que tiene debajo, que es lo único que
-   hace. Son las de 5d, que está dibujado a 1280 — que es también desde dónde
-   la fila deja de apilarse (ver `RunRow`). */
+   hace. Son las de 5d, dibujado a 1280. */
 .exec-list-wrapper { --rr-cols: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch; }
 
 /* No existe donde la fila se apila: un encabezado de columnas no encabeza
-   nada. Mismo corte que `RunRow` — 1100, ver el porqué ahí. */
+   nada. Mismo umbral que `RunRow` — 47rem de LISTA, ver el porqué ahí. */
 .exec-list-header { display: none; }
-@media (min-width: 1100px) {
+@container exec-list (min-width: 47rem) {
   .exec-list-header {
     display: grid;
     grid-template-columns: var(--rr-cols);
@@ -2377,6 +2420,18 @@ watch(pendingFilter, () => {
   flex-direction: column;
   z-index: 40;
 }
+/* Como columna no flota: se queda pegado arriba mientras la lista scrollea al
+   lado, que es lo que permite recorrer runs sin perder el detalle de vista. */
+.exec-drawer--inline {
+  position: sticky;
+  top: calc(var(--chrome-h) + 0.5rem);
+  width: auto;
+  min-width: 0;
+  max-height: calc(100vh - var(--chrome-h) - 2rem);
+  border-left: 1px solid var(--border);
+  box-shadow: none;
+}
+
 .exec-drawer__header {
   display: flex;
   align-items: center;
