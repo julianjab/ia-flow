@@ -36,13 +36,12 @@ Fuente: https://platform.claude.com/docs/en/api/messages/create (parámetros top
 | `cache_control` en bloques de contenido | Parcial | El provider aplica `cache_control: ephemeral` automáticamente a los bloques de `system` (agente + deploy). No hay forma de marcar otros bloques (mensajes, tool results) como cacheables desde `providerConfig` |
 | Vision (`image` content blocks) | Indirecto | Si una tool devuelve un bloque `image`, el loop lo reenvía tal cual — no hay una tool de ia-flow que adjunte imágenes al prompt inicial hoy |
 
-## `responseLanguage` — knob muerto
+## Idioma de respuesta
 
-`anthropicApi.responseLanguage` existe en `AnthropicApiSettingsSchema` (default `'español'` en
-`DEFAULT_ANTHROPIC_SETTINGS`) pero **el provider nunca lo lee** al armar el body ni el system
-prompt. No asumas que setearlo cambia el idioma de respuesta — hoy el idioma se controla sólo
-por el contenido de `systemPrompt` / `systemPromptBlocks`. Si necesitas forzar idioma, hazlo
-explícito en el prompt/system, no vía este campo.
+No hay ningún campo de `providerConfig` ni de `AnthropicApiSettingsSchema` que controle el
+idioma de respuesta — se eliminó `responseLanguage` por no tener ningún consumidor. El idioma se
+controla sólo por el contenido de `systemPrompt` / `systemPromptBlocks`. Si necesitas forzar
+idioma, hazlo explícito en el prompt/system del agente.
 
 ## Qué puede overridear un agente vs sólo el deploy
 
@@ -59,8 +58,8 @@ providerConfig:
   fileSimplifierEnabled: true
 ```
 
-Todo lo demás (`anthropicVersion`, `anthropicBeta`, `systemPrompt`, `thinking`, `stream`,
-`responseLanguage`) sólo se configura a nivel deploy (`anthropicApi` en `providers.json` /
+Todo lo demás (`anthropicVersion`, `anthropicBeta`, `systemPrompt`, `thinking`, `stream`) sólo se
+configura a nivel deploy (`anthropicApi` en `providers.json` /
 `AnthropicApiSettingsSchema`) y aplica **a todos los agentes del deploy por igual**. Poner
 cualquiera de esos campos en el `providerConfig` de un agente hace que el schema strict lo
 rechace completo (config ignorada, no un error parcial — ver checklist en `SKILL.md`).
