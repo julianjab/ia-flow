@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
+import type { AnthropicApiSettings, WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import { EMPTY_WORKSPACE_PLAN, type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import type {
@@ -98,6 +98,144 @@ function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigS
  * flowing continuously, so it survives the same generation without tripping
  * an idle-connection timeout.
  */
+function applySseMessageStart(evt: any, message: Record<string, unknown>): void {
+  Object.assign(message, evt.message)
+  message.content = []
+}
+
+function applySseContentBlockStart(
+  evt: any,
+  blocks: Array<Record<string, unknown>>,
+  pendingToolJson: string[],
+): void {
+  const idx = evt.index as number
+  blocks[idx] = { ...evt.content_block }
+  // Any block that streams its input via input_json_delta starts with an
+  // `input` field already present — not just client-executed `tool_use`,
+  // but also remote-MCP `mcp_tool_use` (see toApiMcpServers above).
+  // `mcp_tool_result` blocks (server-computed, no `input`) fall through
+  // untouched.
+  if ('input' in blocks[idx]) pendingToolJson[idx] = ''
+}
+
+function applySseContentBlockDelta(
+  evt: any,
+  blocks: Array<Record<string, unknown>>,
+  pendingToolJson: string[],
+): void {
+  const idx = evt.index as number
+  const block = blocks[idx]
+  const delta = evt.delta
+  if (!block || !delta) return
+  if (delta.type === 'text_delta') block.text = ((block.text as string) ?? '') + delta.text
+  else if (delta.type === 'thinking_delta')
+    block.thinking = ((block.thinking as string) ?? '') + delta.thinking
+  else if (delta.type === 'signature_delta')
+    block.signature = ((block.signature as string) ?? '') + delta.signature
+  else if (delta.type === 'input_json_delta')
+    pendingToolJson[idx] = (pendingToolJson[idx] ?? '') + delta.partial_json
+}
+
+/** Log remote-MCP tool calls/results the moment each block finishes
+ *  streaming, instead of waiting for the whole message to complete — see
+ *  logMcpToolCall/logMcpToolResult below. Without this, a long (or
+ *  truncated) response with many server-side MCP round-trips logs them all
+ *  in one synchronous burst at the very end, so the Ejecuciones tab shows
+ *  them bunched under one timestamp instead of spread across the run. */
+function logSseMcpBlockActivity(
+  blocks: Array<Record<string, unknown>>,
+  block: Record<string, unknown>,
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+): void {
+  if (block.type === 'mcp_tool_use') {
+    logMcpToolCall(log, logCtx, block)
+    return
+  }
+  if (block.type !== 'mcp_tool_result') return
+  const toolUseBlock = blocks.find((b) => b?.type === 'mcp_tool_use' && b.id === block.tool_use_id)
+  if (toolUseBlock) logMcpToolResult(log, logCtx, toolUseBlock, block)
+}
+
+function applySseContentBlockStop(
+  evt: any,
+  blocks: Array<Record<string, unknown>>,
+  pendingToolJson: string[],
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+): void {
+  const idx = evt.index as number
+  const block = blocks[idx]
+  if (!block) return
+  if (pendingToolJson[idx] !== undefined) {
+    try {
+      block.input = pendingToolJson[idx] ? JSON.parse(pendingToolJson[idx]) : {}
+    } catch {
+      block.input = {}
+    }
+  }
+  logSseMcpBlockActivity(blocks, block, log, logCtx)
+}
+
+function applySseMessageDelta(evt: any, message: Record<string, unknown>): void {
+  if (evt.delta) Object.assign(message, evt.delta)
+  if (evt.usage) message.usage = { ...(message.usage as object), ...evt.usage }
+}
+
+/**
+ * Aplica un evento SSE ya parseado (`event:`/`data:`) al estado mutable que
+ * `readAnthropicSseStream` viene acumulando. Vive a nivel de módulo — no
+ * closure de `readAnthropicSseStream` — y delega cada caso a un handler
+ * propio para que la complejidad de cada uno se reporte y se limite por
+ * separado, en vez de acumularse en un solo switch.
+ */
+function applyAnthropicSseEvent(
+  eventType: string,
+  data: string,
+  message: Record<string, unknown>,
+  blocks: Array<Record<string, unknown>>,
+  pendingToolJson: string[],
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+): void {
+  const evt = JSON.parse(data)
+  switch (eventType) {
+    case 'message_start':
+      applySseMessageStart(evt, message)
+      break
+    case 'content_block_start':
+      applySseContentBlockStart(evt, blocks, pendingToolJson)
+      break
+    case 'content_block_delta':
+      applySseContentBlockDelta(evt, blocks, pendingToolJson)
+      break
+    case 'content_block_stop':
+      applySseContentBlockStop(evt, blocks, pendingToolJson, log, logCtx)
+      break
+    case 'message_delta':
+      applySseMessageDelta(evt, message)
+      break
+    case 'error':
+      throw new Error(`Anthropic API stream error: ${JSON.stringify(evt.error ?? evt)}`)
+    default:
+      // message_stop, ping — nothing to accumulate
+      break
+  }
+}
+
+/** Separa un frame SSE crudo (`event:`/`data:` sobre líneas) en su tipo y
+ *  payload — default `event: 'message'` cuando el frame no trae línea
+ *  `event:`, tal como especifica el formato SSE. */
+function parseSseFrame(raw: string): { eventType: string; data: string } {
+  let eventType = 'message'
+  let data = ''
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('event:')) eventType = line.slice('event:'.length).trim()
+    else if (line.startsWith('data:')) data += line.slice('data:'.length).trim()
+  }
+  return { eventType, data }
+}
+
 async function readAnthropicSseStream(
   res: Response,
   log: AnthropicApiProviderDeps['log'],
@@ -113,77 +251,6 @@ async function readAnthropicSseStream(
   const blocks: Array<Record<string, unknown>> = []
   const pendingToolJson: string[] = []
 
-  const applyEvent = (eventType: string, data: string) => {
-    const evt = JSON.parse(data)
-    switch (eventType) {
-      case 'message_start':
-        Object.assign(message, evt.message)
-        message.content = []
-        break
-      case 'content_block_start': {
-        const idx = evt.index as number
-        blocks[idx] = { ...evt.content_block }
-        // Any block that streams its input via input_json_delta starts with
-        // an `input` field already present — not just client-executed
-        // `tool_use`, but also remote-MCP `mcp_tool_use` (see
-        // toApiMcpServers above). `mcp_tool_result` blocks (server-computed,
-        // no `input`) fall through untouched.
-        if ('input' in blocks[idx]) pendingToolJson[idx] = ''
-        break
-      }
-      case 'content_block_delta': {
-        const idx = evt.index as number
-        const block = blocks[idx]
-        const delta = evt.delta
-        if (!block || !delta) break
-        if (delta.type === 'text_delta') block.text = ((block.text as string) ?? '') + delta.text
-        else if (delta.type === 'thinking_delta')
-          block.thinking = ((block.thinking as string) ?? '') + delta.thinking
-        else if (delta.type === 'signature_delta')
-          block.signature = ((block.signature as string) ?? '') + delta.signature
-        else if (delta.type === 'input_json_delta')
-          pendingToolJson[idx] = (pendingToolJson[idx] ?? '') + delta.partial_json
-        break
-      }
-      case 'content_block_stop': {
-        const idx = evt.index as number
-        const block = blocks[idx]
-        if (block && pendingToolJson[idx] !== undefined) {
-          try {
-            block.input = pendingToolJson[idx] ? JSON.parse(pendingToolJson[idx]) : {}
-          } catch {
-            block.input = {}
-          }
-        }
-        // Log remote-MCP tool calls/results the moment each block finishes
-        // streaming, instead of waiting for the whole message to complete —
-        // see logMcpToolCall/logMcpToolResult below. Without this, a long
-        // (or truncated) response with many server-side MCP round-trips
-        // logs them all in one synchronous burst at the very end, so the
-        // Ejecuciones tab shows them bunched under one timestamp instead of
-        // spread across the run.
-        if (block?.type === 'mcp_tool_use') {
-          logMcpToolCall(log, logCtx, block)
-        } else if (block?.type === 'mcp_tool_result') {
-          const toolUseBlock = blocks.find(
-            (b) => b?.type === 'mcp_tool_use' && b.id === block.tool_use_id,
-          )
-          if (toolUseBlock) logMcpToolResult(log, logCtx, toolUseBlock, block)
-        }
-        break
-      }
-      case 'message_delta':
-        if (evt.delta) Object.assign(message, evt.delta)
-        if (evt.usage) message.usage = { ...(message.usage as object), ...evt.usage }
-        break
-      case 'error':
-        throw new Error(`Anthropic API stream error: ${JSON.stringify(evt.error ?? evt)}`)
-      default:
-        // message_stop, ping — nothing to accumulate
-        break
-    }
-  }
-
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -192,13 +259,9 @@ async function readAnthropicSseStream(
     buffer = events.pop() ?? ''
     for (const raw of events) {
       if (!raw.trim()) continue
-      let eventType = 'message'
-      let data = ''
-      for (const line of raw.split('\n')) {
-        if (line.startsWith('event:')) eventType = line.slice('event:'.length).trim()
-        else if (line.startsWith('data:')) data += line.slice('data:'.length).trim()
-      }
-      if (data) applyEvent(eventType, data)
+      const { eventType, data } = parseSseFrame(raw)
+      if (data)
+        applyAnthropicSseEvent(eventType, data, message, blocks, pendingToolJson, log, logCtx)
     }
   }
 
@@ -274,10 +337,421 @@ function logMcpToolActivity(
   }
 }
 
+/**
+ * Resuelve el bloque `thinking` del request: fixed-budget (`enabled`) cuando
+ * el agente fuerza un `thinkingBudgetTokens`, o el default del provider
+ * (`cfgThinking`, típicamente `adaptive`) en cualquier otro caso. Devuelve
+ * `undefined` cuando no hay nada que setear — el caller decide si asigna
+ * `body.thinking`.
+ */
+function buildThinkingConfig(
+  resolvedThinkingBudgetTokens: number | undefined,
+  effectiveMaxTokens: number,
+  cfgThinking: Record<string, unknown> | undefined,
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (resolvedThinkingBudgetTokens == null) return cfgThinking
+
+  // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled` mode
+  // instead of the provider-level default (usually `adaptive`, which
+  // manages its own budget and doesn't take one). The API requires
+  // budget_tokens < max_tokens — clamp below effectiveMaxTokens (which
+  // itself can shift per-call via bumpMaxTokens) rather than trusting the
+  // config value blindly; a config that would 400 every single request
+  // (e.g. thinkingBudgetTokens == maxTokens) is a config bug, not something
+  // a run should discover by failing in production.
+  const clampedThinkingBudget = Math.min(resolvedThinkingBudgetTokens, effectiveMaxTokens - 1024)
+  if (clampedThinkingBudget >= 1024) {
+    return { type: 'enabled', budget_tokens: clampedThinkingBudget }
+  }
+  log.warn(
+    {
+      event: 'agent.config_warning',
+      ...logCtx,
+      thinkingBudgetTokens: resolvedThinkingBudgetTokens,
+      effectiveMaxTokens,
+    },
+    'thinkingBudgetTokens leaves no room under max_tokens — falling back to provider default',
+  )
+  return cfgThinking
+}
+
+/** Arma `output_config` (`effort` + `task_budget`) o `undefined` si ninguno
+ *  de los dos aplica — el caller sólo asigna `body.output_config` cuando
+ *  hay algo que mandar. */
+function buildOutputConfig(
+  resolvedEffort: string | undefined,
+  resolvedTaskBudget: number | undefined,
+): Record<string, unknown> | undefined {
+  const outputConfig: Record<string, unknown> = {}
+  if (resolvedEffort) outputConfig.effort = resolvedEffort
+  if (resolvedTaskBudget != null)
+    outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
+  return Object.keys(outputConfig).length > 0 ? outputConfig : undefined
+}
+
+/**
+ * Clasifica una falla de red/stream contra la señal del caller: si el
+ * caller abortó (polling divergence gate / shutdown), relanza tal cual para
+ * que el orquestador la clasifique vía `controller.signal`; en cualquier
+ * otro caso, la envuelve en `UpstreamAbortError`. Extraído para que las dos
+ * llamadas de `callAnthropicApi` (fetch y lectura del body) compartan la
+ * misma clasificación sin duplicar su propio try/catch en la complejidad.
+ */
+function classifyUpstreamError(
+  err: unknown,
+  signal: AbortSignal | undefined,
+  ms: number,
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+  iter: number,
+  logMessage: string,
+): never {
+  if (signal?.aborted) throw err
+  const errMsg = err instanceof Error ? err.message : String(err)
+  const errName = err instanceof Error ? err.name : undefined
+  log.error({ event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg }, logMessage)
+  throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
+    cause: err,
+  })
+}
+
+/**
+ * Ejecuta el request a la API de Anthropic (con retry) y reensambla la
+ * respuesta (streaming o `res.json()`), clasificando cualquier falla de red
+ * vía `classifyUpstreamError`. Vive a nivel de módulo para que sus dos
+ * try/catch no sumen a la complejidad de `fetchApi`.
+ */
+async function callAnthropicApi(
+  body: Record<string, unknown>,
+  useStream: boolean,
+  headers: Record<string, string>,
+  signal: AbortSignal | undefined,
+  maxRetries: number,
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+  iter: number,
+): Promise<{ json: Record<string, unknown>; ms: number; status: number }> {
+  const t0 = Date.now()
+  let res: Response
+  try {
+    res = await requestAnthropicApiWithRetry(body, {
+      headers,
+      signal,
+      maxRetries,
+      onRetry: (info) =>
+        log.warn(
+          {
+            event: 'api.retry',
+            ...logCtx,
+            iter,
+            attempt: info.attempt,
+            maxRetries: info.maxRetries,
+            delayMs: Math.round(info.delayMs),
+            status: info.status,
+            err: info.error instanceof Error ? info.error.message : info.error,
+          },
+          'Retrying Anthropic API request after transient error',
+        ),
+    })
+  } catch (err) {
+    classifyUpstreamError(
+      err,
+      signal,
+      Date.now() - t0,
+      log,
+      logCtx,
+      iter,
+      'Anthropic fetch aborted upstream (network/stream stall)',
+    )
+  }
+
+  if (!res.ok) {
+    const ms = Date.now() - t0
+    const text = await res.text()
+    log.error(
+      { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: text },
+      'Anthropic error response',
+    )
+    throw new Error(`Anthropic API ${res.status}: ${text}`)
+  }
+
+  // Headers arrived fine — read+reassemble the body next. A stall or reset
+  // while the model is still generating throws here, not in the fetch()
+  // try/catch above, so it needs its own classification.
+  let json: Record<string, unknown>
+  try {
+    json = useStream ? await readAnthropicSseStream(res, log, logCtx) : await res.json()
+  } catch (err) {
+    classifyUpstreamError(
+      err,
+      signal,
+      Date.now() - t0,
+      log,
+      logCtx,
+      iter,
+      'Anthropic stream aborted upstream (network/stream stall)',
+    )
+  }
+  return { json, ms: Date.now() - t0, status: res.status }
+}
+
 function authLabel(): string {
   if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN) return 'CLAUDE_CODE_OAUTH_TOKEN'
   if (Bun.env.ANTHROPIC_API_KEY) return 'ANTHROPIC_API_KEY'
   return 'none'
+}
+
+interface ResolvedAnthropicRunSettings {
+  resolvedModel: string | undefined
+  resolvedMaxTokens: number
+  resolvedEffort: AnthropicApiSettings['effort']
+  resolvedTaskBudget: number | undefined
+  resolvedMaxPauseTurnRetries: number | undefined
+  resolvedRetryTruncatedToolUse: boolean
+  resolvedThinkingBudgetTokens: number | undefined
+  resolvedMaxRetries: number
+  apiMcpServers: Array<Record<string, unknown>> | undefined
+  deferMcpTools: boolean
+  headers: Record<string, string>
+  systemBlocks: Array<Record<string, unknown>>
+}
+
+/**
+ * Resuelve el override por-agente (`pc`) contra la config del provider
+ * (`cfg`) en los valores efectivos de un run, arma el bloque `system` con su
+ * único breakpoint de cache y los headers con las betas condicionales. Vive
+ * a nivel de módulo para que sus `??`/ternarios no sumen a la complejidad de
+ * `run`.
+ */
+function resolveAnthropicRunSettings(
+  input: ProviderInput,
+  cfg: AnthropicApiSettings,
+  pc: z.infer<typeof AnthropicApiAgentConfigSchema> | undefined,
+): ResolvedAnthropicRunSettings {
+  const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
+  const apiMcpServers = toApiMcpServers(resolvedMcpServers)
+  const deferMcpTools = apiMcpServers !== undefined && pc?.eagerMcpTools !== true
+  const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
+
+  // Betas fijas del agente (`cfg.anthropicBeta`, editable vía
+  // providers.json) más las que este request activa condicionalmente.
+  const extraBetas: string[] = []
+  if (resolvedTaskBudget != null) extraBetas.push('task-budgets-2026-03-13')
+  if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
+
+  // UN solo breakpoint de cache, en el ÚLTIMO bloque.
+  //
+  // El caching de la API es prefix match: el breakpoint cachea todo lo que
+  // viene ANTES, así que marcar cada bloque no compra nada — y cuesta. El
+  // tope es de 4 `cache_control` por request, y marcando uno por bloque ese
+  // presupuesto lo consume la cantidad de entradas de `systemPrompts` (las
+  // del proyecto MÁS las del agente): un roster que mueve su prompt estable
+  // al system —que es exactamente donde tiene que estar para cachearse—
+  // llega a 5 bloques sin darse cuenta y el request se cae con 400.
+  //
+  // Con un breakpoint al final, la cantidad de bloques deja de importar y
+  // quedan 3 libres para lo que venga (tools, un breakpoint en messages).
+  const allSystemBlocks = [...(input.systemPromptBlocks ?? []), ...cfg.systemPrompt]
+  const systemBlocks = allSystemBlocks.map((block, i) =>
+    i === allSystemBlocks.length - 1
+      ? { ...block, cache_control: { type: 'ephemeral' as const } }
+      : { ...block },
+  )
+
+  const headers = buildAnthropicHeaders({
+    betas: cfg.anthropicBeta,
+    extraBetas,
+    version: cfg.anthropicVersion,
+  })
+
+  return {
+    resolvedModel: pc?.model ?? cfg.model,
+    resolvedMaxTokens: pc?.maxTokens ?? cfg.maxTokens ?? 32000,
+    resolvedEffort: pc?.effort ?? cfg.effort,
+    resolvedTaskBudget,
+    resolvedMaxPauseTurnRetries: pc?.maxPauseTurnRetries ?? cfg.maxPauseTurnRetries,
+    resolvedRetryTruncatedToolUse: pc?.retryTruncatedToolUse ?? cfg.retryTruncatedToolUse ?? false,
+    resolvedThinkingBudgetTokens: pc?.thinkingBudgetTokens,
+    resolvedMaxRetries: pc?.maxRetries ?? cfg.maxRetries ?? 3,
+    apiMcpServers,
+    deferMcpTools,
+    headers,
+    systemBlocks,
+  }
+}
+
+/** Arma el `Set` de policy compilada a partir de `input.policy.toolNames`.
+ *  Vive a nivel de módulo por el mismo motivo que el resto de estos
+ *  helpers: sacar sus ramas de `run`. Ver el comentario original en el
+ *  caller (ahora aquí) sobre por qué acepta Array, Set u objeto vacío. */
+function resolveAnthropicPolicy(input: ProviderInput): ProviderInput['policy'] {
+  // `input.policy.toolNames` is typed as a Set (CompiledPolicy, see
+  // packages/tools/src/contract.ts) for local providers. A remote run
+  // (RemoteAgentProvider → apps/agent-host) sends it as a plain array
+  // instead — JSON has no Set type, so RemoteAgentProvider converts it
+  // before JSON.stringify to survive the wire. Accept either shape here and
+  // rebuild a real Set before anything calls `.has()` on it (engine.ts's
+  // resolveExecutableTool) or spreads it. Defensive against a raw `{}` too
+  // (what an unconverted Set collapses to over JSON) — a client that skips
+  // the array conversion gets an empty allow-list instead of a crash.
+  const rawToolNames = input.policy?.toolNames
+  const toolNamesIterable =
+    Array.isArray(rawToolNames) || rawToolNames instanceof Set ? rawToolNames : []
+  return input.policy ? { ...input.policy, toolNames: new Set(toolNamesIterable) } : input.policy
+}
+
+/** Arma el `output_config` (`effort` + `task_budget`) o `undefined` si
+ *  ninguno de los dos aplica — el caller sólo asigna `body.tools`. Extrae
+ *  la resolución de tools + el `ToolContext` para que sus ternarios/`??`
+ *  no sumen a la complejidad de `run`. */
+function buildAnthropicToolContext(
+  input: ProviderInput,
+  pc: z.infer<typeof AnthropicApiAgentConfigSchema> | undefined,
+  policy: ProviderInput['policy'],
+): ToolContext {
+  return {
+    repoPaths: input.repoPaths ?? {},
+    sourceContext: input.sourceToolContext,
+    fileSimplifierEnabled: pc?.fileSimplifierEnabled,
+    // Absolute paths write/edit/exec tools are allowed to touch. Fed by the
+    // WorkspaceManager for implement-step runs; undefined means "no
+    // writable zones" and write tools must refuse.
+    writePaths: input.writePaths,
+    // Propagate the task id so tools that need to identify the active run
+    // without asking the agent (e.g. `workspace_reset` accepting an empty
+    // `{}` input) can read it from the context.
+    taskId: input.taskId,
+    // Identidad del namespace de las tools `memory_*`. Sale del input, no
+    // del modelo: es lo que impide que un agente escriba en la memoria de
+    // otro nombrándola.
+    agentId: input.agentId,
+    projectId: input.projectId,
+    // El roster del proyecto, que viaja en el WorkspaceRequest (`repos` ahí
+    // es `projectRepos` entero, no sólo los de la tarea) y por lo tanto
+    // sobrevive el salto a un agent-host remoto.
+    projectRepos: input.workspace?.repos.map((r) => ({
+      name: r.name,
+      githubOwner: r.githubOwner,
+      githubRepo: r.githubRepo,
+    })),
+    // Freno de la cadena de delegación, para `run_agent`.
+    agentDepth: input.agentDepth,
+    // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
+    // from here; no entry means bash_run refuses everything.
+    policy,
+    // Lets the tool dispatcher (executeLoop) refuse a tool_use for a name
+    // that isn't offered to sync providers (e.g. the async-only
+    // complete_task/fail_task) even if the model emits one anyway — see
+    // resolveExecutableTool in packages/tools/src/engine.ts.
+    providerKind: 'sync',
+    // Set nuevo por dispatch: trackea qué paths leyó `fs_read` en ESTE run
+    // para que `fs_edit`/`fs_write` puedan exigir lectura previa. Vive sólo
+    // en memoria — sin checkpoint que lo persista, un run que se reanuda
+    // vuelve a exigir lectura, que es el default seguro.
+    readPaths: new Set<string>(),
+  }
+}
+
+/** Arma el body del request a la API de Anthropic: tools (con defer/search
+ *  de MCP), `thinking` y `output_config`. Vive a nivel de módulo para que
+ *  sus ternarios/ifs no sumen a la complejidad de `fetchApi`. */
+function buildAnthropicRequestBody(params: {
+  resolvedModel: string | undefined
+  effectiveMaxTokens: number
+  systemBlocks: unknown[]
+  messages: unknown[]
+  useStream: boolean
+  apiMcpServers: Array<Record<string, unknown>> | undefined
+  deferMcpTools: boolean
+  toolDefs: unknown[]
+  resolvedThinkingBudgetTokens: number | undefined
+  cfgThinking: Record<string, unknown> | undefined
+  resolvedEffort: AnthropicApiSettings['effort']
+  resolvedTaskBudget: number | undefined
+  log: AnthropicApiProviderDeps['log']
+  logCtx: Record<string, unknown>
+}): Record<string, unknown> {
+  const {
+    resolvedModel,
+    effectiveMaxTokens,
+    systemBlocks,
+    messages,
+    useStream,
+    apiMcpServers,
+    deferMcpTools,
+    toolDefs,
+    resolvedThinkingBudgetTokens,
+    cfgThinking,
+    resolvedEffort,
+    resolvedTaskBudget,
+    log,
+    logCtx,
+  } = params
+
+  const body: Record<string, unknown> = {
+    model: resolvedModel,
+    max_tokens: effectiveMaxTokens,
+    system: systemBlocks,
+    messages,
+    stream: useStream,
+    // Auto-cache A NIVEL REQUEST, además del breakpoint explícito al final
+    // del system. Ése cubre el prefijo estable (tools + system); éste hace
+    // que la API ponga un breakpoint en el último bloque cacheable de
+    // `messages` y lo corra sola en cada vuelta. Sin él, un run de 30
+    // vueltas re-pagaba el historial entero a precio pleno 30 veces — era
+    // el 41% de cache hit del reviewer en el panel de salud. Compone con el
+    // marker de system porque ése NO está en el último bloque del request,
+    // y consume un solo slot de los 4.
+    cache_control: { type: 'ephemeral' },
+  }
+
+  // mcp-client-2025-11-20 requires exactly one MCPToolset per server named
+  // in mcp_servers — omitting it 400s. No per-tool allow/deny is configured
+  // here (default_config/configs), so this preserves the previous
+  // (deprecated mcp-client-2025-04-04) behavior of exposing every tool the
+  // server advertises.
+  //
+  // Diferidas por default (ver `eagerMcpTools`): `default_config` vale para
+  // todas las tools del server, y la tool de búsqueda es lo que le permite
+  // al modelo encontrarlas. Las tools propias del engine NO se difieren —
+  // son pocas, ya filtradas por el `tools[]` del agente, y la API exige al
+  // menos una sin diferir. Las descubiertas se anexan al final del
+  // contexto, así que el prefijo cacheado no se toca.
+  const mcpToolsets = apiMcpServers?.map((s) => ({
+    type: 'mcp_toolset',
+    mcp_server_name: s.name,
+    ...(deferMcpTools ? { default_config: { defer_loading: true } } : {}),
+  }))
+  const toolSearch = deferMcpTools
+    ? [{ type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' }]
+    : []
+  const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])]
+  if (allTools.length > 0) body.tools = allTools
+
+  // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled` mode
+  // instead of the provider-level default (usually `adaptive`, which
+  // manages its own budget and doesn't take one). The API requires
+  // budget_tokens < max_tokens — clamp below effectiveMaxTokens (which
+  // itself can shift per-call via bumpMaxTokens) rather than trusting the
+  // config value blindly; a config that would 400 every single request
+  // (e.g. thinkingBudgetTokens == maxTokens) is a config bug, not something
+  // a run should discover by failing in production.
+  const thinkingConfig = buildThinkingConfig(
+    resolvedThinkingBudgetTokens,
+    effectiveMaxTokens,
+    cfgThinking,
+    log,
+    logCtx,
+  )
+  if (thinkingConfig) body.thinking = thinkingConfig
+  if (apiMcpServers) body.mcp_servers = apiMcpServers
+
+  const outputConfig = buildOutputConfig(resolvedEffort, resolvedTaskBudget)
+  if (outputConfig) body.output_config = outputConfig
+
+  return body
 }
 
 export interface AnthropicApiProviderDeps {
@@ -387,67 +861,22 @@ export class AnthropicApiProvider implements IAgentProvider {
     // Per-agent override — validated against this provider's private schema.
     const pc = parseAgentConfig(input.providerConfig)
 
-    const resolvedModel = pc?.model ?? cfg.model
-    const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
-    const resolvedEffort = pc?.effort ?? cfg.effort
-    const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
-    const resolvedMaxPauseTurnRetries = pc?.maxPauseTurnRetries ?? cfg.maxPauseTurnRetries
-    const resolvedRetryTruncatedToolUse =
-      pc?.retryTruncatedToolUse ?? cfg.retryTruncatedToolUse ?? false
-    const resolvedThinkingBudgetTokens = pc?.thinkingBudgetTokens
-    const resolvedMaxRetries = pc?.maxRetries ?? cfg.maxRetries ?? 3
+    const {
+      resolvedModel,
+      resolvedMaxTokens,
+      resolvedEffort,
+      resolvedTaskBudget,
+      resolvedMaxPauseTurnRetries,
+      resolvedRetryTruncatedToolUse,
+      resolvedThinkingBudgetTokens,
+      resolvedMaxRetries,
+      apiMcpServers,
+      deferMcpTools,
+      headers,
+      systemBlocks,
+    } = resolveAnthropicRunSettings(input, cfg, pc)
 
-    const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
-    const apiMcpServers = toApiMcpServers(resolvedMcpServers)
-    const deferMcpTools = apiMcpServers !== undefined && pc?.eagerMcpTools !== true
-
-    // Betas fijas del agente (`cfg.anthropicBeta`, editable vía
-    // providers.json) más las que este request activa condicionalmente.
-    const extraBetas: string[] = []
-    if (resolvedTaskBudget != null) extraBetas.push('task-budgets-2026-03-13')
-    if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
-
-    // UN solo breakpoint de cache, en el ÚLTIMO bloque.
-    //
-    // El caching de la API es prefix match: el breakpoint cachea todo lo que
-    // viene ANTES, así que marcar cada bloque no compra nada — y cuesta. El
-    // tope es de 4 `cache_control` por request, y marcando uno por bloque ese
-    // presupuesto lo consume la cantidad de entradas de `systemPrompts` (las
-    // del proyecto MÁS las del agente): un roster que mueve su prompt estable
-    // al system —que es exactamente donde tiene que estar para cachearse—
-    // llega a 5 bloques sin darse cuenta y el request se cae con 400.
-    //
-    // Con un breakpoint al final, la cantidad de bloques deja de importar y
-    // quedan 3 libres para lo que venga (tools, un breakpoint en messages).
-    const allSystemBlocks = [...(input.systemPromptBlocks ?? []), ...cfg.systemPrompt]
-    const systemBlocks = allSystemBlocks.map((block, i) =>
-      i === allSystemBlocks.length - 1
-        ? { ...block, cache_control: { type: 'ephemeral' as const } }
-        : { ...block },
-    )
-
-    const headers = buildAnthropicHeaders({
-      betas: cfg.anthropicBeta,
-      extraBetas,
-      version: cfg.anthropicVersion,
-    })
-
-    // `input.policy.toolNames` is typed as a Set (CompiledPolicy, see
-    // packages/tools/src/contract.ts) for local providers. A remote run
-    // (RemoteAgentProvider → apps/agent-host) sends it as a plain
-    // array instead — JSON has no Set type, so RemoteAgentProvider converts
-    // it before JSON.stringify to survive the wire. Accept either shape
-    // here and rebuild a real Set before anything calls `.has()` on it
-    // (engine.ts's resolveExecutableTool) or spreads it. Defensive against
-    // a raw `{}` too (what an unconverted Set collapses to over JSON) —
-    // a client that skips the array conversion gets an empty allow-list
-    // instead of a crash.
-    const rawToolNames = input.policy?.toolNames
-    const toolNamesIterable =
-      Array.isArray(rawToolNames) || rawToolNames instanceof Set ? rawToolNames : []
-    const policy = input.policy
-      ? { ...input.policy, toolNames: new Set(toolNamesIterable) }
-      : input.policy
+    const policy = resolveAnthropicPolicy(input)
 
     // Single-pass resolution: filter by kind ('sync' → drops async-only
     // tools) and apply the compiled `toolNames` allow-list. Internal tools
@@ -461,47 +890,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       outputFields: input.outputFields,
     })
 
-    const toolCtx: ToolContext = {
-      repoPaths: input.repoPaths ?? {},
-      sourceContext: input.sourceToolContext,
-      fileSimplifierEnabled: pc?.fileSimplifierEnabled,
-      // Absolute paths write/edit/exec tools are allowed to touch. Fed by
-      // the WorkspaceManager for implement-step runs; undefined means "no
-      // writable zones" and write tools must refuse.
-      writePaths: input.writePaths,
-      // Propagate the task id so tools that need to identify the active
-      // run without asking the agent (e.g. `workspace_reset` accepting an
-      // empty `{}` input) can read it from the context.
-      taskId: input.taskId,
-      // Identidad del namespace de las tools `memory_*`. Sale del input, no
-      // del modelo: es lo que impide que un agente escriba en la memoria de
-      // otro nombrándola.
-      agentId: input.agentId,
-      projectId: input.projectId,
-      // El roster del proyecto, que viaja en el WorkspaceRequest (`repos` ahí
-      // es `projectRepos` entero, no sólo los de la tarea) y por lo tanto
-      // sobrevive el salto a un agent-host remoto.
-      projectRepos: input.workspace?.repos.map((r) => ({
-        name: r.name,
-        githubOwner: r.githubOwner,
-        githubRepo: r.githubRepo,
-      })),
-      // Freno de la cadena de delegación, para `run_agent`.
-      agentDepth: input.agentDepth,
-      // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
-      // from here; no entry means bash_run refuses everything.
-      policy,
-      // Lets the tool dispatcher (executeLoop) refuse a tool_use for a name
-      // that isn't offered to sync providers (e.g. the async-only
-      // complete_task/fail_task) even if the model emits one anyway — see
-      // resolveExecutableTool in packages/tools/src/engine.ts.
-      providerKind: 'sync',
-      // Set nuevo por dispatch: trackea qué paths leyó `fs_read` en ESTE run
-      // para que `fs_edit`/`fs_write` puedan exigir lectura previa. Vive sólo
-      // en memoria — sin checkpoint que lo persista, un run que se reanuda
-      // vuelve a exigir lectura, que es el default seguro.
-      readPaths: new Set<string>(),
-    }
+    const toolCtx = buildAnthropicToolContext(input, pc, policy)
 
     log.info(
       {
@@ -548,81 +937,22 @@ export class AnthropicApiProvider implements IAgentProvider {
       const effectiveMaxTokens = overrides?.bumpMaxTokens
         ? Math.max(resolvedMaxTokens, Math.min(resolvedMaxTokens * 2, 128000))
         : resolvedMaxTokens
-      const body: Record<string, unknown> = {
-        model: resolvedModel,
-        max_tokens: effectiveMaxTokens,
-        system: systemBlocks,
+      const body = buildAnthropicRequestBody({
+        resolvedModel,
+        effectiveMaxTokens,
+        systemBlocks,
         messages,
-        stream: useStream,
-        // Auto-cache A NIVEL REQUEST, además del breakpoint explícito al final
-        // del system. Ése cubre el prefijo estable (tools + system); éste hace
-        // que la API ponga un breakpoint en el último bloque cacheable de
-        // `messages` y lo corra sola en cada vuelta. Sin él, un run de 30
-        // vueltas re-pagaba el historial entero a precio pleno 30 veces — era
-        // el 41% de cache hit del reviewer en el panel de salud. Compone con
-        // el marker de system porque ése NO está en el último bloque del
-        // request, y consume un solo slot de los 4.
-        cache_control: { type: 'ephemeral' },
-      }
-      // mcp-client-2025-11-20 requires exactly one MCPToolset per server named
-      // in mcp_servers — omitting it 400s. No per-tool allow/deny is
-      // configured here (default_config/configs), so this preserves the
-      // previous (deprecated mcp-client-2025-04-04) behavior of exposing
-      // every tool the server advertises.
-      //
-      // Diferidas por default (ver `eagerMcpTools`): `default_config` vale
-      // para todas las tools del server, y la tool de búsqueda es lo que le
-      // permite al modelo encontrarlas. Las tools propias del engine NO se
-      // difieren — son pocas, ya filtradas por el `tools[]` del agente, y la
-      // API exige al menos una sin diferir. Las descubiertas se anexan al
-      // final del contexto, así que el prefijo cacheado no se toca.
-      const mcpToolsets = apiMcpServers?.map((s) => ({
-        type: 'mcp_toolset',
-        mcp_server_name: s.name,
-        ...(deferMcpTools ? { default_config: { defer_loading: true } } : {}),
-      }))
-      const toolSearch = deferMcpTools
-        ? [{ type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' }]
-        : []
-      const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])]
-      if (allTools.length > 0) body.tools = allTools
-      // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled`
-      // mode instead of the provider-level default (usually `adaptive`,
-      // which manages its own budget and doesn't take one). The API
-      // requires budget_tokens < max_tokens — clamp below effectiveMaxTokens
-      // (which itself can shift per-call via bumpMaxTokens) rather than
-      // trusting the config value blindly; a config that would 400 every
-      // single request (e.g. thinkingBudgetTokens == maxTokens) is a config
-      // bug, not something a run should discover by failing in production.
-      if (resolvedThinkingBudgetTokens != null) {
-        const clampedThinkingBudget = Math.min(
-          resolvedThinkingBudgetTokens,
-          effectiveMaxTokens - 1024,
-        )
-        if (clampedThinkingBudget >= 1024) {
-          body.thinking = { type: 'enabled', budget_tokens: clampedThinkingBudget }
-        } else {
-          log.warn(
-            {
-              event: 'agent.config_warning',
-              ...logCtx,
-              thinkingBudgetTokens: resolvedThinkingBudgetTokens,
-              effectiveMaxTokens,
-            },
-            'thinkingBudgetTokens leaves no room under max_tokens — falling back to provider default',
-          )
-          if (cfg.thinking) body.thinking = cfg.thinking
-        }
-      } else if (cfg.thinking) {
-        body.thinking = cfg.thinking
-      }
-      if (apiMcpServers) body.mcp_servers = apiMcpServers
-
-      const outputConfig: Record<string, unknown> = {}
-      if (resolvedEffort) outputConfig.effort = resolvedEffort
-      if (resolvedTaskBudget != null)
-        outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
-      if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
+        useStream,
+        apiMcpServers,
+        deferMcpTools,
+        toolDefs,
+        resolvedThinkingBudgetTokens,
+        cfgThinking: cfg.thinking,
+        resolvedEffort,
+        resolvedTaskBudget,
+        log,
+        logCtx,
+      })
 
       // El `body` completo va a `debug`, no a `info`: incluye TODO el
       // historial de mensajes y se re-emite en cada `iter`, así que su costo
@@ -642,75 +972,16 @@ export class AnthropicApiProvider implements IAgentProvider {
       )
       log.debug({ event: 'api.request', ...logCtx, iter, body }, 'Anthropic request body')
 
-      const t0 = Date.now()
-      let res: Response
-      try {
-        res = await requestAnthropicApiWithRetry(body, {
-          headers,
-          signal: input.signal,
-          maxRetries: resolvedMaxRetries,
-          onRetry: (info) =>
-            log.warn(
-              {
-                event: 'api.retry',
-                ...logCtx,
-                iter,
-                attempt: info.attempt,
-                maxRetries: info.maxRetries,
-                delayMs: Math.round(info.delayMs),
-                status: info.status,
-                err: info.error instanceof Error ? info.error.message : info.error,
-              },
-              'Retrying Anthropic API request after transient error',
-            ),
-        })
-      } catch (err) {
-        const ms = Date.now() - t0
-        const errMsg = err instanceof Error ? err.message : String(err)
-        const errName = err instanceof Error ? err.name : undefined
-        // If the caller aborted us (polling divergence gate / shutdown),
-        // rethrow untouched — the orchestrator classifies it via the
-        // shared controller.signal. Anything else is an upstream failure.
-        if (input.signal?.aborted) throw err
-        log.error(
-          { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
-          'Anthropic fetch aborted upstream (network/stream stall)',
-        )
-        throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
-          cause: err,
-        })
-      }
-
-      if (!res.ok) {
-        const ms = Date.now() - t0
-        const text = await res.text()
-        log.error(
-          { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: text },
-          'Anthropic error response',
-        )
-        throw new Error(`Anthropic API ${res.status}: ${text}`)
-      }
-
-      // Headers arrived fine — read+reassemble the body next. A stall or
-      // reset while the model is still generating throws here, not in the
-      // fetch() try/catch above, so it needs its own classification.
-      let json: Record<string, unknown>
-      try {
-        json = useStream ? await readAnthropicSseStream(res, log, logCtx) : await res.json()
-      } catch (err) {
-        const ms = Date.now() - t0
-        const errMsg = err instanceof Error ? err.message : String(err)
-        const errName = err instanceof Error ? err.name : undefined
-        if (input.signal?.aborted) throw err
-        log.error(
-          { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
-          'Anthropic stream aborted upstream (network/stream stall)',
-        )
-        throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
-          cause: err,
-        })
-      }
-      const ms = Date.now() - t0
+      const { json, ms, status } = await callAnthropicApi(
+        body,
+        useStream,
+        headers,
+        input.signal,
+        resolvedMaxRetries,
+        log,
+        logCtx,
+        iter,
+      )
       // Mismo criterio que el request: el `body` entero a `debug`. En `info`
       // quedan stop_reason y usage, que son las dos cosas por las que se mira
       // una respuesta sin estar debuggeando (¿por qué cortó?, ¿cuánto gastó?).
@@ -719,7 +990,7 @@ export class AnthropicApiProvider implements IAgentProvider {
           event: 'api.response',
           ...logCtx,
           iter,
-          status: res.status,
+          status,
           ms,
           stopReason: json.stop_reason,
           usage: json.usage,
