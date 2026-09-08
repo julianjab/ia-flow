@@ -209,11 +209,7 @@ function captureRawResponse(response: unknown): string {
     : json
 }
 
-async function compactHistory(
-  messages: ApiMessage[],
-  runLog: typeof log = log,
-): Promise<ApiMessage[]> {
-  const historyBytes = JSON.stringify(messages).length
+function logCompactionBreakdown(messages: ApiMessage[], historyBytes: number, runLog: typeof log) {
   const messageSizes = messages.map((m, i) => ({
     i,
     role: m.role,
@@ -227,25 +223,27 @@ async function compactHistory(
     { historyBytes, messageCount: messages.length, top },
     'compactHistory input breakdown',
   )
+}
 
-  // Fallback: truncate tool results to 500 chars each
-  if (!haikuAuthHeader()) {
-    runLog.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
-    return messages.map((msg) => {
-      if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
-      return {
-        ...msg,
-        content: (msg.content as any[]).map((block) =>
-          block.type === 'tool_result' &&
-          typeof block.content === 'string' &&
-          block.content.length > 500
-            ? { ...block, content: block.content.slice(0, 500) + '\n[truncated]' }
-            : block,
-        ),
-      }
-    })
-  }
+// Fallback compaction when Haiku isn't available: truncate tool results to
+// 500 chars each instead of summarizing them.
+function truncateToolResults(messages: ApiMessage[]): ApiMessage[] {
+  return messages.map((msg) => {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
+    return {
+      ...msg,
+      content: (msg.content as any[]).map((block) =>
+        block.type === 'tool_result' &&
+        typeof block.content === 'string' &&
+        block.content.length > 500
+          ? { ...block, content: block.content.slice(0, 500) + '\n[truncated]' }
+          : block,
+      ),
+    }
+  })
+}
 
+function collectToolResultTexts(messages: ApiMessage[]): string[] {
   const toolResults: string[] = []
   for (const msg of messages) {
     if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
@@ -255,7 +253,36 @@ async function compactHistory(
       }
     }
   }
+  return toolResults
+}
 
+// Preserve the last complete assistant/tool_result pair so the model sees
+// continuity (what it just tried + result) instead of restarting from
+// scratch. Without this, the model re-issues the same exploratory tool
+// calls forever because the collapsed history looks identical every turn.
+function buildCompactionTail(messages: ApiMessage[]): ApiMessage[] {
+  const tail: ApiMessage[] = []
+  const last = messages[messages.length - 1]
+  const secondLast = messages[messages.length - 2]
+  if (
+    last &&
+    secondLast &&
+    secondLast.role === 'assistant' &&
+    last.role === 'user' &&
+    Array.isArray(last.content) &&
+    (last.content as any[]).every((b) => b?.type === 'tool_result')
+  ) {
+    tail.push(secondLast, last)
+  }
+  return tail
+}
+
+async function summarizeHistoryWithHaiku(
+  messages: ApiMessage[],
+  historyBytes: number,
+  runLog: typeof log,
+): Promise<ApiMessage[]> {
+  const toolResults = collectToolResultTexts(messages)
   const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
   const t0 = Date.now()
   try {
@@ -281,23 +308,7 @@ async function compactHistory(
       role: 'user',
       content: `Key findings from previous exploration:\n${summary}`,
     }
-    // Preserve the last complete assistant/tool_result pair so the model sees
-    // continuity (what it just tried + result) instead of restarting from
-    // scratch. Without this, the model re-issues the same exploratory tool
-    // calls forever because the collapsed history looks identical every turn.
-    const tail: ApiMessage[] = []
-    const last = messages[messages.length - 1]
-    const secondLast = messages[messages.length - 2]
-    if (
-      last &&
-      secondLast &&
-      secondLast.role === 'assistant' &&
-      last.role === 'user' &&
-      Array.isArray(last.content) &&
-      (last.content as any[]).every((b) => b?.type === 'tool_result')
-    ) {
-      tail.push(secondLast, last)
-    }
+    const tail = buildCompactionTail(messages)
     const compacted: ApiMessage[] = [...initial, summaryMsg, ...tail]
     const afterBytes = JSON.stringify(compacted).length
     runLog.info(
@@ -321,6 +332,21 @@ async function compactHistory(
   }
 }
 
+async function compactHistory(
+  messages: ApiMessage[],
+  runLog: typeof log = log,
+): Promise<ApiMessage[]> {
+  const historyBytes = JSON.stringify(messages).length
+  logCompactionBreakdown(messages, historyBytes, runLog)
+
+  if (!haikuAuthHeader()) {
+    runLog.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
+    return truncateToolResults(messages)
+  }
+
+  return summarizeHistoryWithHaiku(messages, historyBytes, runLog)
+}
+
 // Anthropic returns usage per response; the cache fields are absent on
 // requests that didn't touch the cache. Missing/garbage values count as 0
 // rather than NaN-poisoning the whole run's totals.
@@ -332,6 +358,371 @@ function accumulateUsage(acc: LoopUsage, raw: unknown): void {
   acc.outputTokens += num(u.output_tokens)
   acc.cacheReadTokens += num(u.cache_read_input_tokens)
   acc.cacheCreationTokens += num(u.cache_creation_input_tokens)
+}
+
+// ─── executeLoop: per-stopReason handlers ──────────────────────────────────
+// Immutable per-iteration facts every handler needs, bundled so extracting
+// a branch doesn't mean threading a dozen individual params through it.
+type LoopStepContext = {
+  response: unknown
+  contentBlocks: any[]
+  stopReason: string
+  iters: number
+  metrics: () => Pick<LoopResult, 'usage' | 'toolCalls' | 'toolErrors' | 'toolBreakdown'>
+  textOf: () => string
+  messages: ApiMessage[]
+  runLog: typeof log
+  retryTruncatedToolUse: boolean
+  maxPauseTurnRetries: number
+}
+
+// Mutable state that survives across iterations, threaded by reference so a
+// handler's retry/pause bookkeeping is visible to the next loop turn.
+type LoopState = {
+  pauseTurnRetries: number
+  toolUseRetried: boolean
+  pausedText: string
+}
+
+type LoopStepDecision =
+  | { action: 'return'; result: LoopResult }
+  | { action: 'continue'; nextFetchOverrides?: FetchApiOverrides }
+
+function truncatedResult(ctx: LoopStepContext, state: LoopState): LoopResult {
+  return {
+    ...ctx.metrics(),
+    text: state.pausedText + ctx.textOf(),
+    iters: ctx.iters,
+    stopReason: ctx.stopReason,
+    truncated: true,
+    rawResponse: captureRawResponse(ctx.response),
+  }
+}
+
+// Drops the corrupted (truncated) assistant turn and asks the next
+// `fetchApi` call to use a higher max_tokens — the shared shape behind both
+// max_tokens retry paths below (a client `tool_use` cut mid-stream, and an
+// `mcp_tool_use` cut mid-stream).
+function prepareMaxTokensRetry(
+  messages: ApiMessage[],
+  runLog: typeof log,
+  logFields: Record<string, unknown>,
+  warnMessage: string,
+): FetchApiOverrides {
+  messages.pop()
+  runLog.warn(logFields, warnMessage)
+  return { bumpMaxTokens: true }
+}
+
+function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
+  if (ctx.retryTruncatedToolUse && !state.toolUseRetried && ctx.stopReason === 'max_tokens') {
+    state.toolUseRetried = true
+    const nextFetchOverrides = prepareMaxTokensRetry(
+      ctx.messages,
+      ctx.runLog,
+      { stopReason: ctx.stopReason },
+      'max_tokens cut off an mcp_tool_use block — retrying once with more tokens',
+    )
+    return { action: 'continue', nextFetchOverrides }
+  }
+  ctx.runLog.warn(
+    { stopReason: ctx.stopReason },
+    'assistant turn carries an unresolved mcp_tool_use with no client tool_use to defer it — ending run instead of resending or checkpointing it',
+  )
+  return { action: 'return', result: truncatedResult(ctx, state) }
+}
+
+// `pause_turn`: the server-side sampling loop for server tools (remote MCP
+// connectors, web search, …) hit its own iteration cap — default 10 per
+// Anthropic request, independent of `task_budget` — and paused the turn to
+// hand control back to us. Per Anthropic's docs
+// (platform.claude.com/docs/en/build-with-claude/handling-stop-reasons), the
+// correct continuation is resending the message list UNCHANGED: the caller
+// already pushed the paused assistant turn, so simply looping back and
+// re-calling `fetchApi(messages)` does exactly that. Bounded by
+// `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that keeps
+// re-triggering the server-tool cap can't loop forever.
+function handlePauseTurn(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
+  if (state.pauseTurnRetries < ctx.maxPauseTurnRetries) {
+    state.pauseTurnRetries++
+    state.pausedText += ctx.textOf()
+    ctx.runLog.info(
+      {
+        stopReason: ctx.stopReason,
+        pauseTurnRetries: state.pauseTurnRetries,
+        maxPauseTurnRetries: ctx.maxPauseTurnRetries,
+      },
+      'pause_turn — resuming turn unchanged',
+    )
+    return { action: 'continue' }
+  }
+  return { action: 'return', result: truncatedResult(ctx, state) }
+}
+
+// `max_tokens` / `model_context_window_exceeded`: the response itself is
+// partial (cut mid-generation), not a pause between server-tool rounds —
+// resending unchanged won't recover it, so always treat as truncated...
+// EXCEPT the one case Anthropic's docs call out as recoverable: the very
+// last block is an in-progress `tool_use` whose JSON input got cut off
+// mid-stream. Bounded to a single retry per run (not per-occurrence) so a
+// model that keeps generating huge tool inputs can't inflate cost unbounded.
+function handleMaxTokens(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
+  const lastBlock = ctx.contentBlocks[ctx.contentBlocks.length - 1]
+  if (
+    ctx.retryTruncatedToolUse &&
+    !state.toolUseRetried &&
+    ctx.stopReason === 'max_tokens' &&
+    lastBlock?.type === 'tool_use'
+  ) {
+    state.toolUseRetried = true
+    const nextFetchOverrides = prepareMaxTokensRetry(
+      ctx.messages,
+      ctx.runLog,
+      { stopReason: ctx.stopReason, tool: lastBlock.name },
+      'max_tokens cut off a tool_use block — retrying once with more tokens',
+    )
+    return { action: 'continue', nextFetchOverrides }
+  }
+  return { action: 'return', result: truncatedResult(ctx, state) }
+}
+
+type ToolBlockResult = {
+  toolResult: { type: 'tool_result'; tool_use_id: string; content: string; is_error?: true }
+  isError: boolean
+}
+
+async function executeToolBlock(
+  block: any,
+  loopCtx: ToolContext,
+  runLog: typeof log,
+  onToolCall: LoopOptions['onToolCall'],
+  onToolResult: LoopOptions['onToolResult'],
+): Promise<ToolBlockResult> {
+  const tool = resolveExecutableTool(block.name, loopCtx)
+  onToolCall?.(block.name, block.input, block.id)
+
+  let result: string
+  if (!tool) {
+    result = `Error: tool '${block.name}' not found`
+  } else {
+    try {
+      result = await tool.execute(block.input, loopCtx)
+    } catch (e) {
+      result = `Error: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+
+  if (result.length > MAX_TOOL_RESULT_BYTES) {
+    runLog.warn(
+      { tool: block.name, resultBytes: result.length, cap: MAX_TOOL_RESULT_BYTES },
+      'tool result exceeds per-block cap — truncating',
+    )
+    result =
+      result.slice(0, MAX_TOOL_RESULT_BYTES) +
+      `\n[truncated at ${MAX_TOOL_RESULT_BYTES} bytes — original ${result.length}]`
+  }
+
+  // `Error:` is the prefix both failure paths above write (unknown tool, or
+  // `execute` threw); a tool that returns its own error text without it
+  // isn't counted, which is the conservative direction.
+  const isError = result.startsWith('Error:')
+  onToolResult?.(block.name, result, block.id)
+  // `is_error` es lo que la API entiende como fallo; el prefijo `Error:` en
+  // el texto es sólo para humanos y el modelo no lo distingue del contenido
+  // de un resultado exitoso.
+  return {
+    toolResult: {
+      type: 'tool_result',
+      tool_use_id: block.id,
+      content: result,
+      ...(isError ? { is_error: true } : {}),
+    },
+    isError,
+  }
+}
+
+// Executes all tool_use blocks of one turn in parallel — this invariant is
+// load-bearing for callers that dispatch several independent tool calls in
+// one assistant turn.
+async function executeToolBlocks(
+  toolUseBlocks: any[],
+  loopCtx: ToolContext,
+  runLog: typeof log,
+  onToolCall: LoopOptions['onToolCall'],
+  onToolResult: LoopOptions['onToolResult'],
+  tally: (name: string, isError: boolean) => void,
+): Promise<{ toolResults: unknown[]; toolCalls: number; toolErrors: number }> {
+  let toolCalls = 0
+  let toolErrors = 0
+  const toolResults = await Promise.all(
+    toolUseBlocks.map(async (block) => {
+      toolCalls++
+      const { toolResult, isError } = await executeToolBlock(
+        block,
+        loopCtx,
+        runLog,
+        onToolCall,
+        onToolResult,
+      )
+      if (isError) toolErrors++
+      tally(block.name, isError)
+      return toolResult
+    }),
+  )
+  return { toolResults, toolCalls, toolErrors }
+}
+
+// Mensajes que entraron desde afuera mientras el run corría. Se drenan ACÁ
+// —antes del fetch, después del chequeo de abort— porque es el único punto
+// del turno donde agregar contenido no rompe nada: a mitad de un `tool_use`
+// pendiente, un mensaje de usuario intercalado invalida el siguiente
+// request. Se marcan entregados DESPUÉS de incorporarlos: un run que muere
+// entre el drenaje y el turno tiene que poder volver a leerlos.
+async function drainInjectedMessages(
+  drainMessages: LoopOptions['drainMessages'],
+  onMessagesDelivered: LoopOptions['onMessagesDelivered'],
+  messages: ApiMessage[],
+  runLog: typeof log,
+): Promise<void> {
+  if (!drainMessages) return
+  try {
+    const injected = await drainMessages()
+    if (!injected.length) return
+    messages.push({
+      role: 'user',
+      content: injected.map((m) => (m.author ? `[${m.author}] ${m.body}` : m.body)).join('\n\n'),
+    })
+    runLog.info({ count: injected.length }, 'Mensajes inyectados en el run')
+    await onMessagesDelivered?.(injected.map((m) => m.id))
+  } catch (err) {
+    // Un fallo del store no puede voltear el run: el agente sigue con lo que
+    // tenía, y el mensaje se vuelve a intentar el turno que viene.
+    runLog.warn({ err }, 'No se pudieron drenar los mensajes inyectados')
+  }
+}
+
+// Compacta la historia cuando excede el presupuesto de caracteres. El
+// checkpoint se guarda DESPUÉS de compactar y justo antes del request, así
+// que lo persistido es exactamente la conversación que se mandó — guardarlo
+// antes dejaría en disco una historia que este mismo run ya descartó.
+async function compactIfOverBudget(messages: ApiMessage[], runLog: typeof log): Promise<void> {
+  const histSize = JSON.stringify(messages).length
+  if (histSize <= COMPACTION_BUDGET_CHARS) return
+  const compacted = await compactHistory(messages, runLog)
+  if (compacted !== messages) {
+    messages.splice(0, messages.length, ...compacted)
+  }
+}
+
+// Un fallo del store no puede voltear el run — perder el checkpoint degrada
+// la recuperación, tirar acá tiraría el trabajo que el checkpoint existe
+// para salvar.
+async function saveLoopCheckpoint(
+  saveCheckpoint: LoopOptions['saveCheckpoint'],
+  messages: ApiMessage[],
+  runLog: typeof log,
+  iters: number,
+): Promise<void> {
+  if (!saveCheckpoint) return
+  try {
+    await saveCheckpoint({ messages: [...messages] })
+  } catch (err) {
+    runLog.warn({ err, iters }, 'No se pudo guardar el checkpoint del run')
+  }
+}
+
+// Remote MCP tool calls (`mcp_tool_use`) are resolved server-side by
+// Anthropic within the same response, normally arriving paired with their
+// `mcp_tool_result` — with one DOCUMENTED exception: per Anthropic's docs
+// (server-tools#mixing-server-tools-and-client-tools-in-one-turn), when
+// Claude calls an MCP tool in the SAME parallel batch as a client
+// `tool_use`, the API returns immediately with `stop_reason: "tool_use"`
+// and leaves the `mcp_tool_use` unpaired — it runs the deferred MCP call on
+// the NEXT request, once we send back the client tool_result blocks. That's
+// the normal tool_use path (filtered to `type === 'tool_use'`, so the
+// dangling `mcp_tool_use` is left alone and Anthropic resolves it against
+// the still-open turn). Ending the run on every occurrence — as this code
+// used to — turned a routine, self-resolving response shape into a
+// permanent stall on any task whose agent checks GitHub state via MCP while
+// also reading/running something locally.
+//
+// Genuinely unrecoverable cases stay unrecoverable: `max_tokens` cutting the
+// `mcp_tool_use` input off mid-stream (retried same as a client tool_use),
+// and a dangling `mcp_tool_use` with NO accompanying client tool_use — that
+// shape isn't documented as self-resolving and blindly persisting/resending
+// it 400s the next request with "mcp_tool_use ... found without a
+// corresponding mcp_tool_result block" (see subscriptions#1411).
+function computeMcpToolUseFlags(
+  contentBlocks: any[],
+  stopReason: string,
+  hasPendingToolUse: boolean,
+): { hasUnresolvedMcpToolUse: boolean; mcpToolUseDeferredByClientTool: boolean } {
+  const resolvedMcpToolUseIds = new Set(
+    contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
+  )
+  const hasUnresolvedMcpToolUse = contentBlocks.some(
+    (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
+  )
+  const mcpToolUseDeferredByClientTool =
+    hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
+  return { hasUnresolvedMcpToolUse, mcpToolUseDeferredByClientTool }
+}
+
+type StopReasonAction =
+  | { action: 'return'; result: LoopResult }
+  | { action: 'continue'; nextFetchOverrides?: FetchApiOverrides }
+  | { action: 'run_tools' }
+
+/** Dispatcher deliberadamente plano (sin ifs anidados): cada `stopReason`
+ *  resuelve a lo sumo delegando a su handler dedicado, así el costo de
+ *  cognitive complexity de las 6 ramas no recae sobre `executeLoop`. */
+function resolveStopReasonAction(
+  stepCtx: LoopStepContext,
+  state: LoopState,
+  hasPendingToolUse: boolean,
+  hasUnresolvedMcpToolUse: boolean,
+  mcpToolUseDeferredByClientTool: boolean,
+): StopReasonAction {
+  const { stopReason } = stepCtx
+
+  if (hasUnresolvedMcpToolUse && !mcpToolUseDeferredByClientTool) {
+    return handleUnresolvedMcpToolUse(stepCtx, state)
+  }
+  if (stopReason === 'end_turn') {
+    return {
+      action: 'return',
+      result: {
+        text: state.pausedText + stepCtx.textOf(),
+        iters: stepCtx.iters,
+        stopReason,
+        truncated: false,
+        ...stepCtx.metrics(),
+      },
+    }
+  }
+  if (stopReason === 'pause_turn' && !hasPendingToolUse) {
+    return handlePauseTurn(stepCtx, state)
+  }
+  // `refusal`: Claude declined to respond (HTTP 200, not an error — safety
+  // policy, not a budget/iteration limit). Named explicitly, rather than
+  // falling into the generic "unknown stop reason" branch below, so a
+  // refusal is distinguishable in logs/observability from a recoverable
+  // pause — resending the same request is unlikely to help; Anthropic's
+  // docs suggest a fallback model, which is a caller-level decision this
+  // engine doesn't make on its own.
+  if (stopReason === 'refusal') {
+    stepCtx.runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
+    return { action: 'return', result: truncatedResult(stepCtx, state) }
+  }
+  if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') {
+    return handleMaxTokens(stepCtx, state)
+  }
+  if (stopReason !== 'tool_use' && !(stopReason === 'pause_turn' && hasPendingToolUse)) {
+    // Unknown stop reason — surface it but flag as truncated so the caller
+    // doesn't finalize the task on partial output.
+    return { action: 'return', result: truncatedResult(stepCtx, state) }
+  }
+  return { action: 'run_tools' }
 }
 
 export async function executeLoop(
@@ -376,15 +767,14 @@ export async function executeLoop(
     toolBreakdown[name] = entry
   }
   const metrics = () => ({ usage, toolCalls, toolErrors, toolBreakdown })
-  let pauseTurnRetries = 0
-  let toolUseRetried = false
-  // Text already generated in paused turns before a pause_turn retry —
-  // `textOf()` only ever reads the CURRENT response's blocks, so without
-  // this, resuming after a pause and finishing on a later iteration would
-  // return only the text generated after the resume, silently dropping
-  // whatever Claude wrote before pausing. Prefixed onto every returned
-  // `text` below; stays '' (no-op) when no pause_turn retry happens.
-  let pausedText = ''
+  // Bundled so the per-stopReason handlers above can read/mutate it by
+  // reference instead of each taking three separate loose params.
+  // `pausedText`: text already generated in paused turns before a
+  // pause_turn retry — `textOf()` only ever reads the CURRENT response's
+  // blocks, so without this, resuming after a pause and finishing on a
+  // later iteration would return only the text generated after the resume,
+  // silently dropping whatever Claude wrote before pausing.
+  const state: LoopState = { pauseTurnRetries: 0, toolUseRetried: false, pausedText: '' }
   // Set right before a `continue` that needs the NEXT fetchApi call to
   // behave differently (currently only the max_tokens/tool_use retry
   // below, which needs one call with a higher max_tokens). Cleared every
@@ -411,33 +801,7 @@ export async function executeLoop(
     }
     iters++
 
-    // Mensajes que entraron desde afuera mientras el run corría. Se drenan
-    // ACÁ —antes del fetch, después del chequeo de abort— porque es el único
-    // punto del turno donde agregar contenido no rompe nada: a mitad de un
-    // `tool_use` pendiente, un mensaje de usuario intercalado invalida el
-    // siguiente request.
-    //
-    // Se marcan entregados DESPUÉS de incorporarlos: un run que muere entre
-    // el drenaje y el turno tiene que poder volver a leerlos.
-    if (drainMessages) {
-      try {
-        const injected = await drainMessages()
-        if (injected.length) {
-          messages.push({
-            role: 'user',
-            content: injected
-              .map((m) => (m.author ? `[${m.author}] ${m.body}` : m.body))
-              .join('\n\n'),
-          })
-          runLog.info({ count: injected.length }, 'Mensajes inyectados en el run')
-          await onMessagesDelivered?.(injected.map((m) => m.id))
-        }
-      } catch (err) {
-        // Un fallo del store no puede voltear el run: el agente sigue con lo
-        // que tenía, y el mensaje se vuelve a intentar el turno que viene.
-        runLog.warn({ err }, 'No se pudieron drenar los mensajes inyectados')
-      }
-    }
+    await drainInjectedMessages(drainMessages, onMessagesDelivered, messages, runLog)
 
     // El corte se lee ACÁ y no donde se pidió: la vuelta anterior ya agregó
     // el `tool_result` de la llamada que lo pidió, así que la historia queda
@@ -446,7 +810,7 @@ export async function executeLoop(
     if (pauseRequested) {
       runLog.info({ iters, reason: pauseReason }, 'Run pausado por pedido de una tool')
       return {
-        text: pausedText,
+        text: state.pausedText,
         iters,
         stopReason: 'paused',
         truncated: false,
@@ -455,29 +819,8 @@ export async function executeLoop(
       }
     }
 
-    const histSize = JSON.stringify(messages).length
-    if (histSize > COMPACTION_BUDGET_CHARS) {
-      const compacted = await compactHistory(messages, runLog)
-      if (compacted !== messages) {
-        messages.splice(0, messages.length, ...compacted)
-      }
-    }
-
-    // El checkpoint se guarda ACÁ: después de compactar y justo antes del
-    // request, así que lo persistido es exactamente la conversación que se
-    // mandó. Guardarlo antes de compactar dejaría en disco una historia que
-    // este mismo run ya descartó.
-    //
-    // Un fallo del store no puede voltear el run — perder el checkpoint
-    // degrada la recuperación, tirar acá tiraría el trabajo que el checkpoint
-    // existe para salvar.
-    if (saveCheckpoint) {
-      try {
-        await saveCheckpoint({ messages: [...messages] })
-      } catch (err) {
-        runLog.warn({ err, iters }, 'No se pudo guardar el checkpoint del run')
-      }
-    }
+    await compactIfOverBudget(messages, runLog)
+    await saveLoopCheckpoint(saveCheckpoint, messages, runLog, iters)
 
     const response = await fetchApi(messages, nextFetchOverrides)
     nextFetchOverrides = undefined
@@ -504,222 +847,51 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
-    // Remote MCP tool calls (`mcp_tool_use`) are resolved server-side by
-    // Anthropic within the same response, normally arriving paired with
-    // their `mcp_tool_result` — with one DOCUMENTED exception: per Anthropic's
-    // docs (server-tools#mixing-server-tools-and-client-tools-in-one-turn),
-    // when Claude calls an MCP tool in the SAME parallel batch as a client
-    // `tool_use`, the API returns immediately with `stop_reason: "tool_use"`
-    // and leaves the `mcp_tool_use` unpaired — it runs the deferred MCP call
-    // on the NEXT request, once we send back the client tool_result blocks.
-    // That's just the normal tool_use path below (filtered to `type ===
-    // 'tool_use'`, so the dangling `mcp_tool_use` is left alone and Anthropic
-    // resolves it against the still-open turn). Ending the run here on every
-    // occurrence — as this code used to — turned a routine, self-resolving
-    // response shape into a permanent stall on any task whose agent checks
-    // GitHub state via MCP while also reading/running something locally.
-    //
-    // Genuinely unrecoverable cases stay unrecoverable: `max_tokens` cutting
-    // the `mcp_tool_use` input off mid-stream (retried below same as a client
-    // tool_use), and a dangling `mcp_tool_use` with NO accompanying client
-    // tool_use — that shape isn't documented as self-resolving (only
-    // `pause_turn`, server-tool-only, resolves those, and this branch only
-    // runs for `stop_reason !== 'pause_turn'` paths below) and blindly
-    // persisting/resending it 400s the next request with "mcp_tool_use ...
-    // found without a corresponding mcp_tool_result block" (see
-    // subscriptions#1411).
-    const resolvedMcpToolUseIds = new Set(
-      contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
+    const { hasUnresolvedMcpToolUse, mcpToolUseDeferredByClientTool } = computeMcpToolUseFlags(
+      contentBlocks,
+      stopReason,
+      hasPendingToolUse,
     )
-    const hasUnresolvedMcpToolUse = contentBlocks.some(
-      (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
+    const stepCtx: LoopStepContext = {
+      response,
+      contentBlocks,
+      stopReason,
+      iters,
+      metrics,
+      textOf,
+      messages,
+      runLog,
+      retryTruncatedToolUse,
+      maxPauseTurnRetries,
+    }
+
+    const action = resolveStopReasonAction(
+      stepCtx,
+      state,
+      hasPendingToolUse,
+      hasUnresolvedMcpToolUse,
+      mcpToolUseDeferredByClientTool,
     )
-    const mcpToolUseDeferredByClientTool =
-      hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
-    if (hasUnresolvedMcpToolUse && !mcpToolUseDeferredByClientTool) {
-      // Same recoverable case as the client `tool_use` retry below: max_tokens
-      // cut the response off mid mcp_tool_use. Drop the corrupted turn and
-      // retry once with more tokens instead of ending the run outright.
-      if (retryTruncatedToolUse && !toolUseRetried && stopReason === 'max_tokens') {
-        toolUseRetried = true
-        messages.pop()
-        nextFetchOverrides = { bumpMaxTokens: true }
-        runLog.warn(
-          { stopReason },
-          'max_tokens cut off an mcp_tool_use block — retrying once with more tokens',
-        )
-        continue
-      }
-      runLog.warn(
-        { stopReason },
-        'assistant turn carries an unresolved mcp_tool_use with no client tool_use to defer it — ending run instead of resending or checkpointing it',
-      )
-      return {
-        ...metrics(),
-        text: pausedText + textOf(),
-        iters,
-        stopReason,
-        truncated: true,
-        rawResponse: captureRawResponse(response),
-      }
+    if (action.action === 'return') return action.result
+    if (action.action === 'continue') {
+      nextFetchOverrides = action.nextFetchOverrides
+      continue
     }
 
-    if (stopReason === 'end_turn') {
-      return { text: pausedText + textOf(), iters, stopReason, truncated: false, ...metrics() }
-    }
-
-    // `pause_turn`: the server-side sampling loop for server tools (remote
-    // MCP connectors, web search, …) hit its own iteration cap — default 10
-    // per Anthropic request, independent of `task_budget` — and paused the
-    // turn to hand control back to us. Per Anthropic's docs
-    // (platform.claude.com/docs/en/build-with-claude/handling-stop-reasons),
-    // the correct continuation is resending the message list UNCHANGED: we
-    // already pushed the paused assistant turn above, so simply looping
-    // back and re-calling `fetchApi(messages)` does exactly that — no new
-    // user message, no stripped history, same `tools`/`mcp_servers` (owned
-    // by the caller's `fetchApi` closure, untouched here). Bounded by
-    // `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that
-    // keeps re-triggering the server-tool cap can't loop forever.
-    if (stopReason === 'pause_turn' && !hasPendingToolUse) {
-      if (pauseTurnRetries < maxPauseTurnRetries) {
-        pauseTurnRetries++
-        pausedText += textOf()
-        runLog.info(
-          { stopReason, pauseTurnRetries, maxPauseTurnRetries },
-          'pause_turn — resuming turn unchanged',
-        )
-        continue
-      }
-      return {
-        ...metrics(),
-        text: pausedText + textOf(),
-        iters,
-        stopReason,
-        truncated: true,
-        rawResponse: captureRawResponse(response),
-      }
-    }
-
-    // `refusal`: Claude declined to respond (HTTP 200, not an error — safety
-    // policy, not a budget/iteration limit). Named explicitly, rather than
-    // falling into the generic "unknown stop reason" branch below, so a
-    // refusal is distinguishable in logs/observability from a recoverable
-    // pause — resending the same request is unlikely to help; Anthropic's
-    // docs suggest a fallback model, which is a caller-level decision this
-    // engine doesn't make on its own.
-    if (stopReason === 'refusal') {
-      runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
-      return {
-        ...metrics(),
-        text: pausedText + textOf(),
-        iters,
-        stopReason,
-        truncated: true,
-        rawResponse: captureRawResponse(response),
-      }
-    }
-
-    // `max_tokens` / `model_context_window_exceeded`: the response itself is
-    // partial (cut mid-generation), not a pause between server-tool rounds —
-    // resending unchanged won't recover it, so always treat as truncated...
-    if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') {
-      // ...EXCEPT the one case Anthropic's docs call out as recoverable: the
-      // very last block is an in-progress `tool_use` whose JSON input got
-      // cut off mid-stream. That block is unusable (can't execute a tool
-      // call with truncated input), so resending with the SAME history is
-      // pointless too — instead drop the corrupted assistant turn we just
-      // pushed and retry the exact same request once with more max_tokens.
-      // Bounded to a single retry per run (not per-occurrence) so a model
-      // that keeps generating huge tool inputs can't inflate cost unbounded.
-      const lastBlock = contentBlocks[contentBlocks.length - 1]
-      if (
-        retryTruncatedToolUse &&
-        !toolUseRetried &&
-        stopReason === 'max_tokens' &&
-        lastBlock?.type === 'tool_use'
-      ) {
-        toolUseRetried = true
-        messages.pop()
-        nextFetchOverrides = { bumpMaxTokens: true }
-        runLog.warn(
-          { stopReason, tool: lastBlock.name },
-          'max_tokens cut off a tool_use block — retrying once with more tokens',
-        )
-        continue
-      }
-      return {
-        ...metrics(),
-        text: pausedText + textOf(),
-        iters,
-        stopReason,
-        truncated: true,
-        rawResponse: captureRawResponse(response),
-      }
-    }
-
-    if (stopReason !== 'tool_use' && !(stopReason === 'pause_turn' && hasPendingToolUse)) {
-      // Unknown stop reason — surface it but flag as truncated so the caller
-      // doesn't finalize the task on partial output.
-      return {
-        ...metrics(),
-        text: pausedText + textOf(),
-        iters,
-        stopReason,
-        truncated: true,
-        rawResponse: captureRawResponse(response),
-      }
-    }
-
-    // Execute all tool_use blocks in parallel
+    // action.action === 'run_tools' — execute all tool_use blocks in parallel
     const toolUseBlocks = contentBlocks.filter((b) => b.type === 'tool_use')
-    const toolResults = await Promise.all(
-      toolUseBlocks.map(async (block) => {
-        const tool = resolveExecutableTool(block.name, loopCtx)
-        toolCalls++
-        onToolCall?.(block.name, block.input, block.id)
-
-        let result: string
-        if (!tool) {
-          result = `Error: tool '${block.name}' not found`
-        } else {
-          try {
-            result = await tool.execute(block.input, loopCtx)
-          } catch (e) {
-            result = `Error: ${e instanceof Error ? e.message : String(e)}`
-          }
-        }
-
-        if (result.length > MAX_TOOL_RESULT_BYTES) {
-          runLog.warn(
-            { tool: block.name, resultBytes: result.length, cap: MAX_TOOL_RESULT_BYTES },
-            'tool result exceeds per-block cap — truncating',
-          )
-          result =
-            result.slice(0, MAX_TOOL_RESULT_BYTES) +
-            `\n[truncated at ${MAX_TOOL_RESULT_BYTES} bytes — original ${result.length}]`
-        }
-
-        // `Error:` is the prefix both failure paths above write (unknown
-        // tool, or `execute` threw); a tool that returns its own error text
-        // without it isn't counted, which is the conservative direction.
-        const isError = result.startsWith('Error:')
-        if (isError) toolErrors++
-        tally(block.name, isError)
-
-        onToolResult?.(block.name, result, block.id)
-        // `is_error` es lo que la API entiende como fallo; el prefijo `Error:`
-        // en el texto es sólo para humanos y el modelo no lo distingue del
-        // contenido de un resultado exitoso.
-        return {
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: result,
-          ...(isError ? { is_error: true } : {}),
-        }
-      }),
+    const toolBlocksResult = await executeToolBlocks(
+      toolUseBlocks,
+      loopCtx,
+      runLog,
+      onToolCall,
+      onToolResult,
+      tally,
     )
+    toolCalls += toolBlocksResult.toolCalls
+    toolErrors += toolBlocksResult.toolErrors
 
-    messages.push({ role: 'user', content: toolResults })
+    messages.push({ role: 'user', content: toolBlocksResult.toolResults })
   }
 
   // Safety net only — should never trip on a well-configured run since the
