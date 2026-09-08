@@ -1,4 +1,9 @@
-import type { AgentRunState, DispatchOptions } from '@ia-flow/agent-engine'
+import {
+  type AgentRunState,
+  type DispatchOptions,
+  MAX_RESUME_AGE_MS,
+  MAX_RESUME_ATTEMPTS,
+} from '@ia-flow/agent-engine'
 import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 // Registro de las acciones que este daemon sabe ejecutar.
 //
@@ -7,6 +12,7 @@ import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 // mezclarlo con las definiciones de repositorios haría más difícil ver qué se
 // registra. Lo importa el arranque, una vez.
 import { registerAction } from '@ia-flow/rules'
+import type { RecoverableCheckpoint } from '@ia-flow/shared'
 import { AgentAction } from '../adapters/actions/agent-action.js'
 import { EmitAction } from '../adapters/actions/emit-action.js'
 import { HttpAction } from '../adapters/actions/http-action.js'
@@ -19,9 +25,11 @@ import { createLogger } from '../logger.js'
 import {
   agentAbortRepo,
   dispatcher,
+  executionLogRepo,
   getSourceForProjectId,
   interpolateSecrets,
   repoRepo,
+  runCheckpointRepo,
 } from './container.js'
 
 const log = createLogger('composition:actions')
@@ -116,6 +124,58 @@ export async function retryAbortRecord(record: AgentAbortRecord): Promise<void> 
       `retry-dispatch-failed: ${err instanceof Error ? err.message : String(err)}`,
     )
   }
+}
+
+/**
+ * Runs que quedaron a mitad de camino con un checkpoint resumible —
+ * `run_checkpoints`, ver docstring de la migración 066— y que NO pasaron por
+ * `agent_aborts` (eso es sólo el upstream-abort). Dos orígenes:
+ *
+ *  - Un crash del server a mitad de vuelta: `reconcileOrphanedRuns` (boot)
+ *    dejó la fila de `execution_logs` ABIERTA a propósito, reservada para que
+ *    el próximo dispatch de la task la retome.
+ *  - Un `runState.truncated` (budget/iteraciones agotadas, o un
+ *    `mcp_tool_use` sin pareo) — mismo trato: el `finally` del orquestador
+ *    conserva el checkpoint en vez de borrarlo.
+ *
+ * En los dos casos la fila de `execution_logs` sigue sin `finishedAt`, así
+ * que ya aparece en Ejecuciones como "en vuelo" — pero indefinidamente, sin
+ * nadie corriendo, hasta que algo vuelva a disparar la regla de esa task.
+ * Esta lista es lo que hace visible ESE estanque y da el botón para
+ * destrabarlo (`POST /api/tasks/:id/run`, que re-emite el status actual para
+ * que las reglas la vuelvan a tomar y el dispatch siguiente use
+ * `AgentOrchestrator.loadResume`).
+ *
+ * `resumable` repite los mismos tres gates que `loadResume` — no hay forma de
+ * preguntarle al orquestador sin dispatchar de verdad, así que se recalculan
+ * acá con las mismas constantes. Falso positivo/negativo posible si alguien
+ * cambia una constante sin tocar la otra; ambas viven en
+ * `@ia-flow/agent-engine` y se importan, no se copian.
+ */
+export async function listRecoverableCheckpoints(
+  projectId?: string,
+): Promise<RecoverableCheckpoint[]> {
+  const checkpoints = await runCheckpointRepo.listAll()
+  const now = Date.now()
+  return checkpoints
+    .filter((cp) => !projectId || cp.projectId === projectId)
+    .map((cp) => {
+      const row = executionLogRepo.getById(cp.runId)
+      const ageMs = now - Date.parse(cp.updatedAt)
+      const resumable =
+        (!Number.isFinite(ageMs) || ageMs <= MAX_RESUME_AGE_MS) && cp.attempts < MAX_RESUME_ATTEMPTS
+      return {
+        runId: cp.runId,
+        taskId: cp.taskId,
+        taskTitle: row?.taskTitle ?? null,
+        projectId: cp.projectId ?? row?.projectId ?? null,
+        agentId: cp.agentId ?? row?.agentId ?? null,
+        updatedAt: cp.updatedAt,
+        attempts: cp.attempts,
+        resumable,
+        stillOpen: row ? row.finishedAt == null : false,
+      }
+    })
 }
 
 let registered = false

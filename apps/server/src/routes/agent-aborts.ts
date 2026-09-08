@@ -1,18 +1,29 @@
-// Runs de agente abortados por el upstream (stream stall / overload) que
-// todavía no se resolvieron — ver Agent.ts (`upstream-abort`) y
-// domain/ports/IAgentAbortRepository.ts. Lista lo que el barrido automático
-// (daemon.ts) todavía no logró cerrar solo, y el botón "Reintentar" fuerza un
-// retry ya, sin esperar el backoff.
+// "Runs recuperables": dos orígenes distintos, una sola pantalla.
+//
+//  - `aborts` — runs abortados por el upstream (stream stall / overload) que
+//    todavía no se resolvieron, ver Agent.ts (`upstream-abort`) y
+//    domain/ports/IAgentAbortRepository.ts. Lo que el barrido automático
+//    (daemon.ts) todavía no logró cerrar solo, con retry propio (backoff +
+//    botón manual).
+//  - `checkpoints` — runs que quedaron a mitad de camino con un
+//    `run_checkpoints` resumible (crash del server, o un truncado por
+//    budget/iteraciones) SIN pasar por `agent_aborts`. Ver
+//    `listRecoverableCheckpoints` en composition/actions.ts. No tienen retry
+//    propio: se destraban re-emitiendo el status de la tarea.
 import { Hono } from 'hono'
-import { retryAbortRecord } from '../composition/actions.js'
+import { listRecoverableCheckpoints, retryAbortRecord } from '../composition/actions.js'
 import { agentAbortRepo } from '../composition/container.js'
 
 export function createAgentAbortsRouter() {
   const router = new Hono()
 
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const projectId = c.req.query('projectId') || undefined
-    return c.json({ aborts: agentAbortRepo.list(projectId) })
+    const [aborts, checkpoints] = await Promise.all([
+      agentAbortRepo.list(projectId),
+      listRecoverableCheckpoints(projectId),
+    ])
+    return c.json({ aborts, checkpoints })
   })
 
   router.post('/:id/retry', (c) => {

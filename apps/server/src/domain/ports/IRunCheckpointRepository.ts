@@ -44,6 +44,12 @@ export interface IRunCheckpointRepository {
    *  conoce la task (viene de la espera) pero no el run que la dejó. */
   getByTask(taskId: string): Promise<RunCheckpoint | null>
 
+  /** Todos los checkpoints vivos, más recientes primero. Tercer consumidor:
+   *  la pantalla de "runs recuperables" (`routes/agent-aborts.ts`), que
+   *  necesita ver el conjunto entero —no una task puntual— para mostrar todo
+   *  lo que un reinicio del server o un truncado dejó a mitad de camino. */
+  listAll(): Promise<RunCheckpoint[]>
+
   /**
    * Un run que terminó no tiene estado que conservar.
    *

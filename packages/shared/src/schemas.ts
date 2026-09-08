@@ -2256,3 +2256,34 @@ export const AgentAbortRecordSchema = z.object({
 
 export type AgentAbortStatus = z.infer<typeof AgentAbortStatusSchema>
 export type AgentAbortRecord = z.infer<typeof AgentAbortRecordSchema>
+
+// Un run cortado sin pasar por el camino de `agent_aborts` (crash del
+// process, o un `runState.truncated` por budget/iteraciones) pero que dejó un
+// `run_checkpoints` resumible — ver AgentOrchestrator.loadResume y
+// reconcileOrphanedRuns (apps/server/src/adapters/pending-task-rehydrator.ts).
+// Mismo destino en la web que un AgentAbortRecord (pantalla "Runs
+// recuperables"), pero NO tiene retry propio: se resuelve re-emitiendo el
+// status de la tarea (POST /api/tasks/:id/run), que es lo que hace que las
+// reglas la vuelvan a tomar y el próximo dispatch retome el checkpoint.
+export const RecoverableCheckpointSchema = z.object({
+  runId: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string().nullable(),
+  projectId: z.string().nullable(),
+  agentId: z.string().nullable(),
+  updatedAt: z.string(),
+  attempts: z.number(),
+  /** `false` cuando el checkpoint ya no pasaría los gates de
+   *  `AgentOrchestrator.loadResume` (más de 24h, o >= 10 reanudaciones) — el
+   *  próximo dispatch lo va a descartar y arrancar de cero en vez de
+   *  continuar. La fila igual se muestra: el operador puede querer saberlo
+   *  aunque la continuación ya no sea posible. */
+  resumable: z.boolean(),
+  /** La fila de `execution_logs` de este run sigue abierta (`finishedAt`
+   *  null) — es el caso normal: quedó reservada para que el próximo dispatch
+   *  la retome. `false` sólo puede pasar si algo cerró la fila sin limpiar el
+   *  checkpoint. */
+  stillOpen: z.boolean(),
+})
+
+export type RecoverableCheckpoint = z.infer<typeof RecoverableCheckpointSchema>

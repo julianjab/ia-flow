@@ -31,7 +31,7 @@ const SECTIONS: Record<string, SectionMeta> = {
   entorno:          { label: 'Entorno',        hint: 'Variables inyectadas a los procesos del daemon.',                  scope: 'global' },
   escaneo:          { label: 'Escaneo',        hint: 'Roots del filesystem que el daemon indexa.',                       scope: 'global' },
   ejecuciones:      { label: 'Ejecuciones',    hint: 'Registro global de runs — filtra por proyecto, agente u outcome.', scope: 'server' },
-  'aborted-runs':   { label: 'Runs abortados', hint: 'Runs cortados por un stall/overload upstream, esperando o agotando su reintento automático.', scope: 'server' },
+  'aborted-runs':   { label: 'Runs recuperables', hint: 'Runs cortados que se pueden retomar: abortados por stall/overload upstream, o con un checkpoint resumible esperando redispatch.', scope: 'server' },
   logs:             { label: 'Logs',           hint: 'Salida NDJSON de Pino del daemon.',                                 scope: 'server' },
 };
 

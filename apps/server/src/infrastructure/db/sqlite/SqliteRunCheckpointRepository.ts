@@ -65,4 +65,11 @@ export class SqliteRunCheckpointRepository implements IRunCheckpointRepository {
   async delete(runId: string): Promise<void> {
     this.db.run('DELETE FROM run_checkpoints WHERE run_id = ?', [runId])
   }
+
+  async listAll(): Promise<RunCheckpoint[]> {
+    const rows = this.db
+      .query('SELECT * FROM run_checkpoints ORDER BY updated_at DESC')
+      .all() as Record<string, unknown>[]
+    return rows.map(rowToCheckpoint)
+  }
 }

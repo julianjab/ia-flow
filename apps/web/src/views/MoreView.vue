@@ -93,7 +93,7 @@ const serverRows = computed<Row[]>(() => [
   { glyph: '▧', label: 'Logs del daemon', to: '/general/logs' },
   // Estaba fuera del índice, y bajo --bp-shell no hay sidebar: era una
   // pantalla sin ningún camino.
-  { glyph: '⊘', label: 'Runs abortados', to: '/general/aborted-runs' },
+  { glyph: '⊘', label: 'Runs recuperables', to: '/general/aborted-runs' },
   // El agent-host NO va acá: habla con otra máquina y con otra credencial, y
   // ofrecerlo dentro de un server es el bug que el menú del shell ya había
   // arreglado (ver AppShell). Se elige en `/servers`, como cualquier otro

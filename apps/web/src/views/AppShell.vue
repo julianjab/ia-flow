@@ -343,7 +343,7 @@ const TABS = computed<
   return [
   { id: 'dashboard',        label: 'dashboard',      icon: '', group: 'overview' },
   { id: 'ejecuciones',      label: 'ejecuciones',    icon: '', group: 'overview' },
-  { id: 'aborted-runs',     label: 'runs abortados', icon: '', group: 'overview' },
+  { id: 'aborted-runs',     label: 'runs recuperables', icon: '', group: 'overview' },
   { id: 'logs',             label: 'logs',           icon: '', group: 'overview' },
 
   { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },

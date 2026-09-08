@@ -319,7 +319,7 @@ export function verbForRun(exec: {
       label: 'Resolver',
       kind: 'route',
       href: `/general/aborted-runs?run=${encodeURIComponent(exec.id)}`,
-      hint: '· runs abortados',
+      hint: '· runs recuperables',
     }
   }
   return null
