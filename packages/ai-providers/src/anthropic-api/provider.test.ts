@@ -1061,6 +1061,27 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
     expect((startLine?.runId as string).length).toBe(8)
   })
 
+  // Sin esto, filtrar los logs crudos por traceId (a diferencia de la fila
+  // de execution_logs, que sí lo tenía desde antes) no mostraba nada: el
+  // traceId del evento que originó el dispatch nunca llegaba a la línea
+  // "Agent run started" que un operador ve primero.
+  it('stamps traceId (when the orchestrator supplies one) into agent.start', async () => {
+    globalThis.fetch = (async () => sseResponse(endTurnEvents)) as unknown as typeof fetch
+    const infoLines: Array<Record<string, unknown>> = []
+    const { port } = makeToolExecution()
+    const provider = new AnthropicApiProvider({
+      toolExecution: port,
+      loadProviderConfig: configWith(),
+      log: { ...noopLog, info: (obj) => infoLines.push(obj as Record<string, unknown>) },
+      skipContextLog: true,
+    })
+
+    await provider.run(baseInput({ traceId: 'trace-abc' }))
+
+    const startLine = infoLines.find((l) => l.event === 'agent.start')
+    expect(startLine?.traceId).toBe('trace-abc')
+  })
+
   it('logs tool.call and tool.result through the onToolCall/onToolResult callbacks passed to executeLoop', async () => {
     globalThis.fetch = (async () => sseResponse(endTurnEvents)) as unknown as typeof fetch
     const infoLines: Array<Record<string, unknown>> = []
