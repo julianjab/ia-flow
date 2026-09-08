@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { classifyFailure } from '../failure-taxonomy.js'
+import { VERIFY_FAILED_MARKER } from '../verify.js'
 
 describe('classifyFailure — nothing to explain', () => {
   it('returns null for a clean success', () => {
@@ -68,6 +69,15 @@ describe('classifyFailure — errors', () => {
 
   it('falls back to unknown for an unrecognised error', () => {
     expect(classifyFailure({ outcome: 'error', errorMsg: 'weird explosion' })).toBe('unknown')
+  })
+
+  it('recognises the verify gate marker ahead of infra patterns', () => {
+    expect(
+      classifyFailure({
+        outcome: 'error',
+        errorMsg: `${VERIFY_FAILED_MARKER} comando 1/1 "bun run typecheck" salió con exit=2\n\ngit fetch origin failed`,
+      }),
+    ).toBe('verify_failed')
   })
 })
 

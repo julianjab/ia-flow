@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.4.1](https://github.com/julianjab/ia-flow/compare/v1.4.0...v1.4.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **tools:** don't end the run on an mcp_tool_use deferred by a parallel client tool ([#170](https://github.com/julianjab/ia-flow/issues/170)) ([344f841](https://github.com/julianjab/ia-flow/commit/344f841def7660d17a676f2218041d4821866b05))
+
+## [1.4.0](https://github.com/julianjab/ia-flow/compare/v1.3.0...v1.4.0) (2026-09-07)
+
+
+### Features
+
+* **web:** detalle de tarea — pantalla completa, estado y acciones por estado ([#159](https://github.com/julianjab/ia-flow/issues/159)) ([9b11197](https://github.com/julianjab/ia-flow/commit/9b1119776856fbe3ef4de77172466cc438dd724b))
+* **web:** el board pasa a ser un board — una columna por vez ([#163](https://github.com/julianjab/ia-flow/issues/163)) ([de11afe](https://github.com/julianjab/ia-flow/commit/de11afee2427c04c1f1ea6f19b896e7aafb8a48d))
+* **web:** En vuelo — los runs corriendo, arriba del historial ([#162](https://github.com/julianjab/ia-flow/issues/162)) ([8bc68fe](https://github.com/julianjab/ia-flow/commit/8bc68fe762d26745397dfff046f366108edcc04f))
+* **web:** patrón de fallo del día en el dashboard ([#164](https://github.com/julianjab/ia-flow/issues/164)) ([1c522af](https://github.com/julianjab/ia-flow/commit/1c522af1b49e66eff2319eb7fb9a170e09b770bf))
+* **web:** Qué sigue — cola priorizada con la razón de cada puesto ([#161](https://github.com/julianjab/ia-flow/issues/161)) ([a8904d6](https://github.com/julianjab/ia-flow/commit/a8904d6f0da4a2d9c4d18f2b20cb8858211a0442))
+* **web:** RunPreviewCard — por qué la tarea está siendo ignorada ([#167](https://github.com/julianjab/ia-flow/issues/167)) ([f527eff](https://github.com/julianjab/ia-flow/commit/f527efff6cf96125818e20d829d1b388af776a58))
+
+
+### Bug Fixes
+
+* **agent-engine:** preservar el checkpoint de un run truncated ([#169](https://github.com/julianjab/ia-flow/issues/169)) ([d941eac](https://github.com/julianjab/ia-flow/commit/d941eac1f8864b7db84d6546e68e6548fc2530a4))
+
 ## [1.3.0](https://github.com/julianjab/ia-flow/compare/v1.2.0...v1.3.0) (2026-09-07)
 
 

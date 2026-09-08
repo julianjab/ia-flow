@@ -44,6 +44,7 @@ export const CLASS_LABELS: Record<string, string> = {
   iteration_cap: 'tope de iteraciones',
   server_tool_pause: 'pausa server-tool',
   refusal: 'rechazo',
+  verify_failed: 'verify falló',
   infra_error: 'infra',
   cancelled: 'cancelado',
   unknown: 'sin clasificar',

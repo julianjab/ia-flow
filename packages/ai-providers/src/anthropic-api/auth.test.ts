@@ -195,7 +195,10 @@ describe('requestAnthropicApiWithRetry', () => {
     const elapsed = Date.now() - start
 
     expect(res.status).toBe(200)
-    expect(elapsed).toBeGreaterThanOrEqual(1000)
+    // >= 995 y no >= 1000: es un `setTimeout` real contra `Date.now()`, y un
+    // runner de CI puede reportar 1-2ms menos por redondeo del reloj aunque
+    // el timer haya esperado el segundo completo (visto en CI: 999).
+    expect(elapsed).toBeGreaterThanOrEqual(995)
   }, 10000)
 
   it('no reintenta un 400 — vuelve el primer intento tal cual', async () => {

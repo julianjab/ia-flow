@@ -127,6 +127,10 @@ const requiresBranch = ref<boolean | null>(null);
 // una tolerancia del trabajo que el agente hace — ver AgentDefinitionSchema.
 const allowBlocked = ref(false);
 const maxConcurrentDispatches = ref<number | null>(null);
+// Comandos de `AgentDefinition.verify` — un patrón por línea, mismo estilo
+// que el allow/deny de bash_run en ToolsEditor. Se commitea a `verify` recién
+// en onSave (via linesFrom), no en cada tecla.
+const verifyDraft = ref('');
 
 // ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
 const outcomes = ref<AgentOutcomes>({});
@@ -209,13 +213,20 @@ const derivedRequiresBranchReason = computed(() => {
   return matched.length ? `tiene ${matched.join(', ')}` : 'sin write tools';
 });
 
-const advancedSummary = computed(() =>
-  requiresBranch.value === null
-    ? `branch: auto → ${derivedRequiresBranch.value ? 'sí' : 'no'}`
-    : requiresBranch.value
-      ? 'branch: siempre'
-      : 'branch: nunca',
-);
+const verifyCommandCount = computed(() => linesFrom(verifyDraft.value).length);
+
+const advancedSummary = computed(() => {
+  const branch =
+    requiresBranch.value === null
+      ? `branch: auto → ${derivedRequiresBranch.value ? 'sí' : 'no'}`
+      : requiresBranch.value
+        ? 'branch: siempre'
+        : 'branch: nunca';
+  const verify = verifyCommandCount.value
+    ? `verify: ${verifyCommandCount.value} comando${verifyCommandCount.value === 1 ? '' : 's'}`
+    : null;
+  return [branch, verify].filter(Boolean).join(' · ');
+});
 
 // ─── Rail de secciones — reemplaza el stack de acordeones. Cada entrada
 // resuelve su propio "¿hay algo que atender acá?" para el punto de estado;
@@ -317,6 +328,7 @@ watch(() => props.open, async (open) => {
     requiresBranch.value = a.requiresBranch ?? null;
     allowBlocked.value = a.allowBlocked ?? false;
     maxConcurrentDispatches.value = a.maxConcurrentDispatches ?? null;
+    verifyDraft.value = (a.verify ?? []).join('\n');
     outcomes.value = { onProcess: a.onProcess, exits: a.exits };
     outputContract.value = a.output;
   } else {
@@ -334,6 +346,7 @@ watch(() => props.open, async (open) => {
     requiresBranch.value = null;
     allowBlocked.value = false;
     maxConcurrentDispatches.value = null;
+    verifyDraft.value = '';
     outcomes.value = {};
     outputContract.value = undefined;
   }
@@ -459,9 +472,18 @@ function onSave() {
   if (requiresBranch.value !== null) agent.requiresBranch = requiresBranch.value;
   if (allowBlocked.value) agent.allowBlocked = true;
   if (maxConcurrentDispatches.value) agent.maxConcurrentDispatches = maxConcurrentDispatches.value;
+  const verifyCommands = linesFrom(verifyDraft.value);
+  if (verifyCommands.length) agent.verify = verifyCommands;
   Object.assign(agent, outcomes.value);
   if (outputContract.value) agent.output = outputContract.value;
   emit('save', agent);
+}
+
+function linesFrom(text: string): string[] {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
 function buildProviderConfig(): Record<string, unknown> | undefined {
@@ -647,6 +669,24 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
                   No, nunca
                 </label>
               </div>
+            </div>
+
+            <div class="field">
+              <span class="label">Verificación post-run</span>
+              <span class="field-hint">
+                Comandos que el ENGINE corre en el worktree — uno por línea — después de que el
+                agente termina y antes de aplicar la salida de éxito (sólo en runs sync). Si
+                alguno sale con código distinto de 0, el run se trata como error
+                (<code>failureClass: verify_failed</code>) en vez de avanzar el issue.
+                Vacío = sin verificación, comportamiento actual.
+              </span>
+              <textarea
+                v-model="verifyDraft"
+                class="pattern-input"
+                rows="3"
+                spellcheck="false"
+                placeholder="bun run typecheck&#10;bun test"
+              ></textarea>
             </div>
           </section>
 
@@ -863,6 +903,16 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 .chip-mono { font-family: var(--font-mono); }
 .chip-mcp-name { color: var(--fg-dim); font-size: 0.72rem; }
 .field-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; font-size: 0.7rem; }
+.pattern-input {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border-hi);
+  padding: 0.4rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  resize: vertical;
+  width: 100%;
+}
 .tri-toggle { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
 .tri-toggle label { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; cursor: pointer; }
 .tri-toggle input[type='radio'] { accent-color: var(--info); }

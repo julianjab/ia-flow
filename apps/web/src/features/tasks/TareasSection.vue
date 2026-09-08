@@ -26,7 +26,6 @@ import {
 import type {
   PullRequestRef,
   TaskDisposition,
-  TaskDispositionEntry,
   TaskRunSummary,
   RunTaskNowResult,
   SlackMemberRef,
@@ -50,7 +49,6 @@ import {
 import { useToastStore } from '@/stores/toast';
 import { useRoute, useRouter } from 'vue-router';
 import TaskFiltersBar from '@/features/tasks/TaskFiltersBar.vue';
-import { fetchTaskDispositions } from '@/features/tasks/api';
 import {
   countActiveTaskFilters,
   EMPTY_TASK_FILTERS,

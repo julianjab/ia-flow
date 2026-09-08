@@ -66,6 +66,7 @@ import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveContext, type ResolveVariable, resolveVariables } from './variable-resolver.js'
+import { VERIFY_FAILED_MARKER, buildVerifyFailedError, runVerifyCommands } from './verify.js'
 import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('agent')
@@ -545,6 +546,23 @@ export class Agent {
         .filter((part): part is string => Boolean(part))
         .join('\n\n')
 
+      // Un run que reanuda una pausa entra con la conversación que el
+      // checkpoint guardó, no con el prompt — pero el `brief` SÍ tiene que
+      // viajar, apendeado como el próximo user turn: es la única forma en
+      // que un agente pausado con `pause_until` se entera de qué pasó. Sin
+      // esto, despierta a la MISMA conversación de antes de pausar (el
+      // fallback `resumeMessages ?? [prompt]` del provider descarta el
+      // `prompt` —y con él el brief— entero en cuanto hay checkpoint), sin
+      // ningún indicio de que el evento que esperaba ya llegó.
+      const resumeMessages = input.resumeCheckpoint?.messages
+        ? briefBlock
+          ? [
+              ...(input.resumeCheckpoint.messages as Array<{ role: string; content: unknown }>),
+              { role: 'user', content: briefBlock },
+            ]
+          : input.resumeCheckpoint.messages
+        : undefined
+
       // Cancellation plumbing: the polling manager calls entry.cancel() when
       // it detects the source-side status has drifted from the one at
       // dispatch time (manual gate). For sync providers we abort the fetch;
@@ -684,12 +702,10 @@ export class Agent {
         repoPaths: effectiveRepoPaths,
         workspace: workspaceRequest,
         prompt: finalPrompt,
-        // Un run que reanuda una pausa entra con la conversación que el
-        // checkpoint guardó, no con el prompt: retomar desde el prompt
-        // perdería todo lo que el agente ya había averiguado, que es lo que
-        // la pausa existe para conservar. El prompt igual viaja — lo usan los
-        // providers de terminal, que no tienen checkpoint.
-        resumeMessages: input.resumeCheckpoint?.messages,
+        // Ver el comentario sobre `resumeMessages` más arriba: el prompt
+        // igual viaja completo — lo usan los providers de terminal, que no
+        // tienen checkpoint.
+        resumeMessages,
         systemPromptBlocks,
         // Async/terminal providers render this as a curl appendix (they don't
         // consume `policy`), so they only need the plain tool names. Default
@@ -1113,6 +1129,48 @@ export class Agent {
           // el `emit` de la regla que lo disparó). Reproducido en vivo con
           // `comment-triage`.
           //
+          // Verify gate: comandos que el ENGINE corre en el worktree antes de
+          // aplicar la salida de éxito (ver AgentDefinition.verify). Sólo se
+          // llega acá cuando el run NO fue cancelado, NO truncó, y ningún
+          // tool movió ya la task — exactamente los tres casos que el PRD
+          // excluye. Un fallo lanza un Error marcado que el catch genérico de
+          // abajo trata como cualquier otro fallo del run (postError +
+          // lifecycle.fail); `classifyFailure` lo reconoce por esa marca y le
+          // asigna `failureClass: 'verify_failed'`.
+          //
+          // Un provider `remote:*` (mismo AnthropicApiProvider, corriendo del
+          // otro lado de un agent-host) no llega a esto: su
+          // `prepareWorkspace` devuelve `EMPTY_WORKSPACE_PLAN` a propósito —
+          // el workspace real lo resuelve el agent-host en SU disco — así que
+          // `effectiveCwd` acá cae al `primaryPath` LOCAL del daemon, que no
+          // tiene una sola línea de lo que el agente escribió. Correr verify
+          // ahí sería falso-verde (código viejo que sí compila) o
+          // falso-negativo (clone local sucio) — ninguno dice nada del
+          // trabajo real. Igual que los providers async (ver PRD #135, fuera
+          // de alcance), se saltea con un aviso en vez de mentir un resultado.
+          //
+          // No recibe `controller.signal`: `removePendingTask(registryKey)` ya
+          // corrió arriba (antes del chequeo de `cancelled`), así que un
+          // cancel externo que llegue a partir de acá no encuentra entry en el
+          // registry para invocar — la ventana de cancelación ya se cerró.
+          if (agentDef.verify?.length) {
+            if (resolvedProviderId.startsWith('remote:')) {
+              log.warn(
+                { taskId: task.id, agent: agentDef.id, provider: resolvedProviderId },
+                'Agente declara verify pero corrió en un provider remoto — el worktree vive en el agent-host, no en este disco. Verify se saltea.',
+              )
+            } else if (!effectiveCwd) {
+              throw new Error(
+                `${VERIFY_FAILED_MARKER} el agente declara verify pero no se resolvió ningún worktree/cwd para correrlo`,
+              )
+            } else {
+              const verifyResult = await runVerifyCommands(agentDef.verify, effectiveCwd)
+              if (!verifyResult.ok) {
+                throw buildVerifyFailedError(verifyResult, agentDef.verify.length)
+              }
+            }
+          }
+
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the
