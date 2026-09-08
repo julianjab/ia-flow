@@ -209,7 +209,28 @@ const dispositions = computed(() => dispositionsStore.entriesFor(activeProjectId
 /** El agregado no se pudo consultar: la lista cae al orden de la fuente y lo
  *  DICE, en vez de agrupar por buckets que no conoce. */
 const dispositionsFailed = computed(() => dispositionsStore.hasFailed(activeProjectId.value));
-const groupByDisposition = ref(true);
+
+/**
+ * El criterio de orden de la lista — antes un toggle binario
+ * (`groupByDisposition`), ahora un ciclo de 3 modos. Los 3 leen las MISMAS
+ * `filteredItems`; lo único que cambia es cómo se cortan/ordenan:
+ *
+ * - `disposicion` (default): buckets + orden congelado (`useDispositionOrder`).
+ * - `repo`: lista plana ordenada alfabéticamente por repo — para "¿qué tengo
+ *   pendiente en tal repo?" sin tener que leer la columna de cada fila.
+ * - `fuente`: lista plana en el orden que devuelve la fuente, sin tocar nada.
+ *   Es el mismo comportamiento que antes tenía "por fecha" — el nombre
+ *   cambió porque nunca ordenó por ninguna fecha real (`TaskRow` no trae
+ *   `updatedAt`); esto era una etiqueta heredada, no una promesa incumplida
+ *   nueva.
+ */
+const ORDER_MODES = ['disposicion', 'repo', 'fuente'] as const;
+type OrderMode = (typeof ORDER_MODES)[number];
+const orderMode = ref<OrderMode>('disposicion');
+function cycleOrderMode(): void {
+  const i = ORDER_MODES.indexOf(orderMode.value);
+  orderMode.value = ORDER_MODES[(i + 1) % ORDER_MODES.length];
+}
 
 /**
  * El foco — la card de arriba. Store aparte del de disposiciones porque son
@@ -328,6 +349,17 @@ const orderedInput = computed<OrderedTask[]>(() => {
 
 const { buckets, movedCount, freeze, freezeIfFirst, reset: resetOrder } =
   useDispositionOrder(orderedInput);
+
+/** La lista plana que dibujan los modos `repo` y `fuente` (y el fallback de
+ *  `disposicion` cuando el agregado falló). `repo` ordena; los demás modos
+ *  dejan pasar `filteredItems` tal cual, que es exactamente el comportamiento
+ *  que ya tenía "por fecha". */
+const flatListItems = computed<TaskRow[]>(() => {
+  if (orderMode.value !== 'repo') return filteredItems.value;
+  return [...filteredItems.value].sort((a, b) =>
+    (a.repoName ?? a.repos ?? '').localeCompare(b.repoName ?? b.repos ?? ''),
+  );
+});
 
 /** `cerrado` arranca plegado (O4): es la parte del día que no hay que mirar. */
 const closedOpen = ref(false);
@@ -999,28 +1031,29 @@ watch(activeProjectId, (pid) => {
         <span v-if="projectItems.length" class="task-count" data-testid="task-count">
           {{ filteredItems.length }} de {{ projectItems.length }} tareas
         </span>
-        <!-- El orden por fecha queda como OPCIÓN, no como default: una fecha
-             contesta *qué pasó*, y con agentes trabajando solos eso dejó de
-             coincidir con *qué me toca*. Pero sigue siendo el orden correcto
-             para "¿qué se movió hoy?", así que no se borra. -->
+        <!-- Disposición sigue siendo el default: agentes trabajando solos
+             hacen que "¿qué me toca?" ya no coincida con ningún orden de
+             fecha. Repo y fuente quedan como OPCIONES, un click más allá. -->
         <button
           type="button"
           class="lcb-order"
-          :class="{ 'is-on': groupByDisposition }"
+          :class="{ 'is-on': orderMode === 'disposicion' }"
           :disabled="dispositionsFailed"
-          :aria-pressed="groupByDisposition"
+          :aria-pressed="orderMode === 'disposicion'"
           :title="dispositionsFailed
             ? 'No se pudo consultar la disposición de las tareas'
-            : groupByDisposition
-              ? 'Agrupado por quién mueve la próxima pieza — tocá para ver el orden de la fuente'
-              : 'Orden de la fuente — tocá para agrupar por disposición'"
+            : orderMode === 'disposicion'
+              ? 'Agrupado por quién mueve la próxima pieza — tocá para ordenar por repo'
+              : orderMode === 'repo'
+                ? 'Ordenado por repo — tocá para ver el orden de la fuente'
+                : 'Orden de la fuente — tocá para agrupar por disposición'"
           data-testid="tareas-order-toggle"
-          @click="groupByDisposition = !groupByDisposition"
-        >{{ groupByDisposition ? 'por disposición' : 'por fecha' }}</button>
+          @click="cycleOrderMode"
+        >{{ orderMode === 'disposicion' ? 'por disposición' : orderMode === 'repo' ? 'por repo' : 'de la fuente' }}</button>
         <!-- Sólo tiene sentido agrupando por disposición: agrupar por tema
              DENTRO de un orden por fecha mezclaría dos criterios a la vez. -->
         <button
-          v-if="groupByDisposition && hasTaskGroups"
+          v-if="orderMode === 'disposicion' && hasTaskGroups"
           type="button"
           class="lcb-order"
           :class="{ 'is-on': groupByTopic }"
@@ -1113,7 +1146,7 @@ watch(activeProjectId, (pid) => {
     <!-- Atajos de una tocada sobre la disposición: la pregunta "¿qué me toca?"
          se hace veinte veces por día y no debería costar abrir un panel. Un
          chip en cero no se dibuja (R10). -->
-    <div v-if="quickChips.length && groupByDisposition" class="quick-chips">
+    <div v-if="quickChips.length && orderMode === 'disposicion'" class="quick-chips">
       <button
         v-for="chip in quickChips"
         :key="chip.key"
@@ -1160,7 +1193,7 @@ watch(activeProjectId, (pid) => {
     <!-- El orden no se recalcula solo: si lo hiciera, la fila que ibas a tocar
          se movería bajo el dedo con cada evento del socket. -->
     <button
-      v-else-if="movedCount > 0 && groupByDisposition"
+      v-else-if="movedCount > 0 && orderMode === 'disposicion'"
       type="button"
       class="tk-moved"
       data-testid="tareas-reorder"
@@ -1176,7 +1209,7 @@ watch(activeProjectId, (pid) => {
          vez que el aviso de reorden: dos cosas pidiendo atención arriba de la
          lista empujan la primera fila fuera de la pantalla. -->
     <FocusCard
-      v-if="groupByDisposition && !dispositionsFailed"
+      v-if="orderMode === 'disposicion' && !dispositionsFailed"
       :project-id="activeProjectId"
       :focus="focusStore.focusFor(activeProjectId)"
       :loading="focusStore.isLoading(activeProjectId)"
@@ -1203,7 +1236,7 @@ watch(activeProjectId, (pid) => {
         <span class="task-th-dur">dur.</span>
       </div>
 
-      <template v-for="bucket in (groupByDisposition && !dispositionsFailed ? buckets : [])" :key="bucket.disposition">
+      <template v-for="bucket in (orderMode === 'disposicion' && !dispositionsFailed ? buckets : [])" :key="bucket.disposition">
         <BucketHeader
           :disposition="bucket.disposition"
           :count="bucket.rows.length"
@@ -1254,12 +1287,12 @@ watch(activeProjectId, (pid) => {
       </template>
 
       <ul
-        v-if="!groupByDisposition || dispositionsFailed"
+        v-if="orderMode !== 'disposicion' || dispositionsFailed"
         class="task-list"
         data-kbd-list="tasks"
       >
         <TaskRow
-          v-for="item in filteredItems"
+          v-for="item in flatListItems"
           :key="item.id"
           layout="table"
           :selected="reposModalItem?.id === item.id"
