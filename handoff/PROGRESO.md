@@ -23,6 +23,7 @@ commiteado.
 | 08 | Chrome de dos filas, veredicto, listas en lectura (§9) | ✅ hecho |
 | 5b/5d | La LISTA de Ejecuciones — fila apilada en 390px, columnas en desktop | ✅ hecho |
 | 6a/6b | El DETALLE de un run — cinco bandas, sin timeline inventado (R13) | ✅ hecho |
+| 8a/8b | La banda de salud en UNA línea + el corte de la cola | ✅ hecho |
 
 ## Los siete pasos pedidos explícitamente
 
@@ -70,6 +71,16 @@ en la sección 7 del README como "no existe".
   corrección de posición no tiene dónde aplicarse.
 - `DataRow` **existe**. Se migra una tabla cuando se la toca, no cinco en el
   mismo commit — eso haría irrevisable el diff.
+- **La banda de salud tiene tope duro** (turno 8): una línea siempre. Con
+  varios agentes fuera de banda se cuentan en vez de listarse y la segunda
+  línea es la causa compartida; sin `failureClass` la causa es "no hay
+  diagnóstico" y va en ámbar, porque rojo es "algo te espera". El bucket 1 se
+  corta en cuatro filas más una línea de resumen con el eje que comparte el
+  resto.
+- **Turno 8 contestó lo del dashboard por proyecto: no va** (R14 — un tab es un
+  lugar donde se trabaja, no un índice). El agregado que falta es
+  cross-proyecto y ya tiene puerta: el switcher de proyectos, con el conteo de
+  disposición 1 y 2 por proyecto — el único agregado nuevo que pide el diseño.
 - **El detalle de un run son cinco bandas** (turno 6): identidad · veredicto ·
   causa · log · acciones. Lo que R13 deja afuera y por qué: no hay timeline ni
   `paso 3/5` (`execution_logs` guarda una fila por run, no pasos), no hay
