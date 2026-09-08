@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useProjectsStore } from '@/features/projects/store';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
@@ -52,7 +52,14 @@ function syncActiveProject() {
   }
 }
 
-onMounted(syncActiveProject);
+// Sincrónico y no en `onMounted`: los hijos (TareasSection, ExecutionsSection…)
+// montan ANTES que este padre —Vue llama `onMounted` de abajo hacia arriba—,
+// así que un hijo que lee `activeProjectId` en su propio `onMounted` (p. ej.
+// para resolver el `?taskId=` que trae un link "Ver tarea" desde Ejecuciones)
+// todavía veía el proyecto ANTERIOR si `syncActiveProject` esperaba a este
+// `onMounted`. Corriendo en el cuerpo de `setup` queda escrito antes de que el
+// primer hijo empiece a montar.
+syncActiveProject();
 watch(() => props.id, syncActiveProject);
 
 // Si la lista de proyectos llega después del mount, hay que sincronizar otra vez.
