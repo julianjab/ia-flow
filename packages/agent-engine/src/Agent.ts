@@ -546,6 +546,23 @@ export class Agent {
         .filter((part): part is string => Boolean(part))
         .join('\n\n')
 
+      // Un run que reanuda una pausa entra con la conversación que el
+      // checkpoint guardó, no con el prompt — pero el `brief` SÍ tiene que
+      // viajar, apendeado como el próximo user turn: es la única forma en
+      // que un agente pausado con `pause_until` se entera de qué pasó. Sin
+      // esto, despierta a la MISMA conversación de antes de pausar (el
+      // fallback `resumeMessages ?? [prompt]` del provider descarta el
+      // `prompt` —y con él el brief— entero en cuanto hay checkpoint), sin
+      // ningún indicio de que el evento que esperaba ya llegó.
+      const resumeMessages = input.resumeCheckpoint?.messages
+        ? briefBlock
+          ? [
+              ...(input.resumeCheckpoint.messages as Array<{ role: string; content: unknown }>),
+              { role: 'user', content: briefBlock },
+            ]
+          : input.resumeCheckpoint.messages
+        : undefined
+
       // Cancellation plumbing: the polling manager calls entry.cancel() when
       // it detects the source-side status has drifted from the one at
       // dispatch time (manual gate). For sync providers we abort the fetch;
@@ -683,12 +700,10 @@ export class Agent {
         repoPaths: effectiveRepoPaths,
         workspace: workspaceRequest,
         prompt: finalPrompt,
-        // Un run que reanuda una pausa entra con la conversación que el
-        // checkpoint guardó, no con el prompt: retomar desde el prompt
-        // perdería todo lo que el agente ya había averiguado, que es lo que
-        // la pausa existe para conservar. El prompt igual viaja — lo usan los
-        // providers de terminal, que no tienen checkpoint.
-        resumeMessages: input.resumeCheckpoint?.messages,
+        // Ver el comentario sobre `resumeMessages` más arriba: el prompt
+        // igual viaja completo — lo usan los providers de terminal, que no
+        // tienen checkpoint.
+        resumeMessages,
         systemPromptBlocks,
         // Async/terminal providers render this as a curl appendix (they don't
         // consume `policy`), so they only need the plain tool names. Default
