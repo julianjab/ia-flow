@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   AcceptanceCriterionSchema,
+  TaskFocusSchema,
   AgentDefinitionSchema,
   AgentProviderChoiceSchema,
   AgentProviderSchema,
@@ -1338,5 +1339,27 @@ describe('validateAnthropicApiSettings', () => {
 
   it('sin model, effort ni taskBudgetTokens no es una combinación inválida', () => {
     expect(validateAnthropicApiSettings({})).toBeUndefined()
+  })
+})
+
+describe('TaskFocusSchema', () => {
+  const base = { headline: 'h', picks: [{ taskId: 't1', why: 'w', effort: 'quick' }] }
+
+  it('los clusters son opcionales y caen a []', () => {
+    const parsed = TaskFocusSchema.parse({ ...base, computedAt: '2026-09-07T12:00:00.000Z' })
+    expect(parsed.clusters).toEqual([])
+  })
+
+  it('`computedAt` es obligatorio: sin él la card no puede decir cuándo se pensó (R16)', () => {
+    expect(TaskFocusSchema.safeParse(base).success).toBe(false)
+  })
+
+  it('rechaza un effort que no es quick ni deep', () => {
+    const bad = {
+      headline: 'h',
+      picks: [{ taskId: 't1', why: 'w', effort: 'medio' }],
+      computedAt: '2026-09-07T12:00:00.000Z',
+    }
+    expect(TaskFocusSchema.safeParse(bad).success).toBe(false)
   })
 })
