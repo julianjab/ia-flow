@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/julianjab/ia-flow/compare/v1.4.0...v1.4.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **tools:** don't end the run on an mcp_tool_use deferred by a parallel client tool ([#170](https://github.com/julianjab/ia-flow/issues/170)) ([344f841](https://github.com/julianjab/ia-flow/commit/344f841def7660d17a676f2218041d4821866b05))
+
 ## [1.4.0](https://github.com/julianjab/ia-flow/compare/v1.3.0...v1.4.0) (2026-09-07)
 
 
