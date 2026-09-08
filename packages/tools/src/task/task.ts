@@ -217,11 +217,25 @@ const COMPLETE_TASK_BASE_PROPERTIES: Record<string, unknown> = {
   },
 }
 
+// Un `AgentDefinition.output` que declare un campo con uno de estos nombres
+// pisaría un campo base de complete_task en el schema (ej. un output `notes`
+// redefiniría el de siempre, o un `what_did: string` rompería
+// `formatCompleteComment`, que espera un array). Se descarta ANTES de tocar
+// el schema o el payload — silencioso a propósito: es un error de config del
+// agente, no algo que el modelo pueda corregir llamando de nuevo.
+const RESERVED_COMPLETE_TASK_FIELDS = new Set(Object.keys(COMPLETE_TASK_BASE_PROPERTIES))
+
+function nonReservedOutputFields(fields: AgentOutput): AgentOutput {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([name]) => !RESERVED_COMPLETE_TASK_FIELDS.has(name)),
+  )
+}
+
 /**
  * Extrae del input de `complete_task` sólo las claves que coinciden con
- * campos declarados en `outputFields` — el resto (`what_did`, `notes`, …) no
- * es parte del contrato de salida y `validateOutput` lo rechazaría como
- * "campo no declarado".
+ * campos declarados en `outputFields` (menos los reservados) — el resto
+ * (`what_did`, `notes`, …) no es parte del contrato de salida y
+ * `validateOutput` lo rechazaría como "campo no declarado".
  */
 function extractOutputPayload(
   fields: AgentOutput,
@@ -245,18 +259,25 @@ function extractOutputPayload(
  * Tira en vez de devolver un resultado — mismo criterio que `submit_output`:
  * el throw de una tool vuelve como `tool_result` con `is_error` y el modelo
  * corrige sin que el run se dé por cerrado.
+ *
+ * NO se llama para un cierre `frozen` (ver el caller): un `complete_task`
+ * tardío de un run viejo/duplicado no puede pisar la salida estructurada de
+ * la entry que el run VIGENTE sigue completando — mismo motivo por el que el
+ * resto de `execute` no toca estado del run activo en ese caso.
  */
 function applyInlineOutput(entry: PendingTask, input: Record<string, unknown>): void {
   const fields = entry.outputFields
   if (!fields || Object.keys(fields).length === 0) return
-  const payload = extractOutputPayload(fields, input)
+  const declared = nonReservedOutputFields(fields)
+  if (Object.keys(declared).length === 0) return
+  const payload = extractOutputPayload(declared, input)
   if (Object.keys(payload).length === 0) return
 
-  const result = validateOutput(fields, payload)
+  const result = validateOutput(declared, payload)
   if (!result.ok) {
     throw new Error(
       `La salida no cumple el contrato de este agente: ${result.errors.join('; ')}. ` +
-        `Campos declarados: ${Object.keys(fields).join(', ')}.`,
+        `Campos declarados: ${Object.keys(declared).join(', ')}.`,
     )
   }
   entry.structuredOutput = result.value
@@ -290,8 +311,10 @@ registerTool({
   specialize(opts) {
     const fields = opts?.outputFields
     if (!fields || Object.keys(fields).length === 0) return undefined
+    const declared = nonReservedOutputFields(fields)
+    if (Object.keys(declared).length === 0) return undefined
     const properties: Record<string, unknown> = { ...COMPLETE_TASK_BASE_PROPERTIES }
-    for (const [name, field] of Object.entries(fields)) {
+    for (const [name, field] of Object.entries(declared)) {
       properties[name] = describeField(name, field)
     }
     return {
@@ -308,10 +331,19 @@ registerTool({
     if (unlanded) return unlanded
     const entry = (resolved as ResolvedPendingTask).entry
 
-    // Antes de tocar nada: un payload de salida inválido tiene que volver
-    // como error de tool sin haber comentado ni transicionado — mismo
-    // criterio que `submit_output`.
-    applyInlineOutput(entry, rawInput as Record<string, unknown>)
+    // Se decide ANTES de tocar nada: un cierre congelado sólo puede comentar.
+    // Todo lo de abajo —bajar el flag de working, matar la sesión, sacar la
+    // entrada del registry, y AHORA también la salida estructurada— es
+    // estado del run VIGENTE, y aplicarlo desde un cierre ajeno liquida al
+    // agente que está trabajando: le mata la terminal, le pisa la salida que
+    // venía armando, y da su run por terminado, con lo que su cierre real se
+    // descarta después como duplicado.
+    const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
+
+    // Un payload de salida inválido tiene que volver como error de tool sin
+    // haber comentado ni transicionado — mismo criterio que `submit_output`.
+    // Congelado, ni se intenta: la entry es de OTRO run.
+    if (!frozen) applyInlineOutput(entry, rawInput as Record<string, unknown>)
 
     if (input.what_did == null) input.what_did = []
     if (input.validations == null) input.validations = []
@@ -327,14 +359,6 @@ registerTool({
       { event: 'tool.callback.received', tool: 'complete_task', ...logCtx },
       'complete_task callback received from async session',
     )
-
-    // Se decide ANTES de tocar nada: un cierre congelado sólo puede comentar.
-    // Todo lo de abajo —bajar el flag de working, matar la sesión, sacar la
-    // entrada del registry— es estado del run VIGENTE, y aplicarlo desde un
-    // cierre ajeno liquida al agente que está trabajando: le mata la terminal
-    // y da su run por terminado, con lo que su cierre real se descarta
-    // después como duplicado.
-    const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
 
     try {
       const commentBody = formatCompleteComment(entry, input)

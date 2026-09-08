@@ -353,6 +353,39 @@ describe('agnostic task tools route via ITaskSource', () => {
       expect(entry.structuredOutput).toEqual({ brief: 'ya entregado' })
       expect(calls.applyTransition).toHaveLength(1)
     })
+
+    // Regresión: un cierre `frozen` (mismo criterio que "un run cancelado
+    // acepta el cierre pero no transiciona") no puede pisar el
+    // `structuredOutput` de la entry — es la MISMA entry en memoria que
+    // referencia quien esté siguiendo el run, y aplicarle un payload inline
+    // sería mutar estado de un run que el engine ya dio por decidido.
+    it('un cierre congelado no pisa la salida estructurada existente', async () => {
+      const entry = getPendingTask(TASK_ID)!
+      entry.cancelled = true
+      entry.structuredOutput = { brief: 'ya entregado antes de cancelar' }
+
+      const tool = getTool('complete_task')!
+      const out = await tool.execute(
+        { task_id: TASK_ID, what_did: ['x'], validations: ['y'], brief: 'del cierre tardío' },
+        { repoPaths: {} },
+      )
+
+      expect(out).toContain('sin transición')
+      expect(entry.structuredOutput).toEqual({ brief: 'ya entregado antes de cancelar' })
+      expect(calls.applyTransition).toHaveLength(0)
+    })
+
+    // Un campo de output con el mismo nombre que uno base (`what_did`, etc.)
+    // no puede pisarlo en el schema ni colarse en el payload validado.
+    it('un output field con nombre reservado se descarta en vez de pisar el campo base', () => {
+      const tool = getTool('complete_task')!
+      const schema = tool.specialize?.({
+        outputFields: { ...OUTPUT_FIELDS, what_did: { type: 'string' } },
+      }) as { properties: Record<string, { type: string }> }
+      // Sigue siendo el `what_did` base (array de bullets), no el `string`
+      // que el output declaró — el nombre reservado se ignora.
+      expect(schema.properties.what_did.type).toBe('array')
+    })
   })
 
   it('complete_task skips the default exit when the prompt already moved the task', async () => {
