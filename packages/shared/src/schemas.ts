@@ -411,7 +411,6 @@ export const AnthropicApiSettingsSchema = z.object({
     })
     .optional(),
   stream: z.boolean().optional(),
-  responseLanguage: z.string().optional(),
   maxTokens: z.number().int().positive().optional(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
   taskBudgetTokens: z.number().int().min(20000).optional(),
