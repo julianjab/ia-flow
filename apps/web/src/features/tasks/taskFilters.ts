@@ -128,34 +128,46 @@ const PR_STATUS_PREDICATES: Record<PrStatusValue, (task: FilterableTask) => bool
   'sin-pr': (t) => t.pullRequestsKnown && t.pullRequests.length === 0,
 }
 
+function matchesStatus(task: FilterableTask, wanted: Set<string>): boolean {
+  return wanted.size === 0 || wanted.has((task.status ?? '').toLowerCase())
+}
+
+function matchesRepos(task: FilterableTask, wanted: Set<string>): boolean {
+  return wanted.size === 0 || taskRepos(task).some((r) => wanted.has(r.toLowerCase()))
+}
+
+function matchesAssignees(task: FilterableTask, wanted: Set<string>): boolean {
+  return wanted.size === 0 || (task.assignees ?? []).some((a) => wanted.has(a.toLowerCase()))
+}
+
+function matchesPrStatus(task: FilterableTask, values: PrStatusValue[]): boolean {
+  return values.length === 0 || values.some((v) => PR_STATUS_PREDICATES[v](task))
+}
+
+function matchesBranch(task: FilterableTask, values: BranchValue[]): boolean {
+  return (
+    values.length === 0 || values.some((v) => (v === 'con-branch' ? !!task.branch : !task.branch))
+  )
+}
+
+function matchesBlocked(task: FilterableTask, values: BlockedValue[]): boolean {
+  return values.length === 0 || values.some((v) => (v === 'si' ? !!task.blocked : !task.blocked))
+}
+
 /** Aplica todos los ejes en AND; dentro de `prStatus`/`branch` los valores son OR. */
 export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters): T[] {
   const wantedStatus = new Set(f.statuses.map((s) => s.toLowerCase()))
   const wantedRepos = new Set(f.repos.map((r) => r.toLowerCase()))
   const wantedAssignees = new Set(f.assignees.map((a) => a.toLowerCase()))
-  return tasks.filter((task) => {
-    if (wantedStatus.size > 0 && !wantedStatus.has((task.status ?? '').toLowerCase())) return false
-    if (wantedRepos.size > 0 && !taskRepos(task).some((r) => wantedRepos.has(r.toLowerCase())))
-      return false
-    if (
-      wantedAssignees.size > 0 &&
-      !(task.assignees ?? []).some((a) => wantedAssignees.has(a.toLowerCase()))
-    )
-      return false
-    if (f.prStatus.length > 0 && !f.prStatus.some((v) => PR_STATUS_PREDICATES[v](task)))
-      return false
-    if (
-      f.branch.length > 0 &&
-      !f.branch.some((v) => (v === 'con-branch' ? !!task.branch : !task.branch))
-    )
-      return false
-    if (
-      f.blocked.length > 0 &&
-      !f.blocked.some((v) => (v === 'si' ? !!task.blocked : !task.blocked))
-    )
-      return false
-    return true
-  })
+  return tasks.filter(
+    (task) =>
+      matchesStatus(task, wantedStatus) &&
+      matchesRepos(task, wantedRepos) &&
+      matchesAssignees(task, wantedAssignees) &&
+      matchesPrStatus(task, f.prStatus) &&
+      matchesBranch(task, f.branch) &&
+      matchesBlocked(task, f.blocked),
+  )
 }
 
 // ─── Serialización ───────────────────────────────────────────────────────

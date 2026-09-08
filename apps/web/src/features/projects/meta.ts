@@ -58,22 +58,28 @@ export function sourceKindLabel(kind: string): string {
  * `config.url`, que 'github-issues' nunca tuvo, así que esos proyectos
  * quedaban sin link.
  */
+function isGithubProjectsKind(kind: string): boolean {
+  return kind === 'github-projects' || kind === 'github' || kind === 'github-hybrid'
+}
+
+function githubProjectsUrl(
+  source: SourceRef,
+  owner: string | undefined,
+  repo: string | undefined,
+): string | null {
+  if (owner && repo) {
+    const repoUrl = formatGithubRepoUrl({ owner, repo })
+    if (repoUrl) return `${repoUrl}/issues`
+  }
+  const url = source.config?.url
+  return typeof url === 'string' && url ? url : null
+}
+
 export function projectSourceUrl(source: SourceRef | null | undefined): string | null {
   if (!source) return null
   const owner = typeof source.config?.owner === 'string' ? source.config.owner : undefined
   const repo = typeof source.config?.repo === 'string' ? source.config.repo : undefined
-  if (
-    source.kind === 'github-projects' ||
-    source.kind === 'github' ||
-    source.kind === 'github-hybrid'
-  ) {
-    if (owner && repo) {
-      const repoUrl = formatGithubRepoUrl({ owner, repo })
-      if (repoUrl) return `${repoUrl}/issues`
-    }
-    const url = source.config?.url
-    return typeof url === 'string' && url ? url : null
-  }
+  if (isGithubProjectsKind(source.kind)) return githubProjectsUrl(source, owner, repo)
   if (source.kind === 'github-issues') {
     const repoUrl = formatGithubRepoUrl({ owner, repo })
     return repoUrl ? `${repoUrl}/issues` : null

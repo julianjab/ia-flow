@@ -65,25 +65,30 @@ const KEY = 'ia-flow:servers:list'
  * las entradas rotas en vez de tirar — perder un server de la lista es
  * recuperable tipeándolo; una excepción acá deja la pantalla en blanco.
  */
+function parseServerEntry(entry: unknown): SavedServer | null {
+  if (!entry || typeof entry !== 'object') return null
+  const { baseUrl, label, token } = entry as Record<string, unknown>
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) return null
+  // `normalizeBaseUrl` y no un trim: es la MISMA función que usa `addServer`,
+  // así que una entrada editada a mano como `192.168.1.9:3001` queda con su
+  // esquema en vez de convertirse en una URL relativa que nunca resuelve — un
+  // server "no responde" para siempre, y sin forma de arreglarlo desde la UI
+  // porque la tarjeta sólo deja editar el token.
+  const normalized = normalizeBaseUrl(baseUrl)
+  if (!normalized) return null
+  return {
+    baseUrl: normalized,
+    ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
+    ...(typeof token === 'string' && token ? { token } : {}),
+  }
+}
+
 export function parseServers(raw: unknown): SavedServer[] {
   if (!Array.isArray(raw)) return []
   const out: SavedServer[] = []
   for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') continue
-    const { baseUrl, label, token } = entry as Record<string, unknown>
-    if (typeof baseUrl !== 'string' || !baseUrl.trim()) continue
-    // `normalizeBaseUrl` y no un trim: es la MISMA función que usa `addServer`,
-    // así que una entrada editada a mano como `192.168.1.9:3001` queda con su
-    // esquema en vez de convertirse en una URL relativa que nunca resuelve — un
-    // server "no responde" para siempre, y sin forma de arreglarlo desde la UI
-    // porque la tarjeta sólo deja editar el token.
-    const normalized = normalizeBaseUrl(baseUrl)
-    if (!normalized) continue
-    out.push({
-      baseUrl: normalized,
-      ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
-      ...(typeof token === 'string' && token ? { token } : {}),
-    })
+    const parsed = parseServerEntry(entry)
+    if (parsed) out.push(parsed)
   }
   // Sin duplicados: la baseUrl es la identidad, y dos entradas con la misma
   // dejarían al usuario editando una y viendo la otra.
@@ -194,6 +199,52 @@ async function writeBoth(b: DesktopBridge, payload: Stored): Promise<void> {
  * El síntoma era "agrego servers, entro a uno, vuelvo y no están": no se
  * borraban, se leían del lado equivocado.
  */
+// Empate a 0: NINGUNO de los dos lados tiene revisión, o sea que los dos
+// vienen de antes de que existiera este mecanismo. Es el único caso en el que
+// unir es correcto — y es obligatorio, porque acá "gana el archivo" perdía
+// datos de verdad: un server guardado sólo en localStorage (el arranque sin
+// puente, que es justamente el bug que motivó todo esto) quedaba tapado por
+// un archivo igual de viejo, y como la convergencia sólo corre cuando las
+// revisiones difieren, se repetía en CADA carga. Desaparecía para siempre.
+//
+// Unir no resucita nada borrado porque en la era pre-revisión ningún lado
+// registró un borrado: sólo hay listas incompletas. Se sella con una revisión
+// nueva, así que a partir de acá vuelve a mandar la última escritura y borrar
+// se propaga como debe.
+async function mergeLegacyCopies(
+  b: DesktopBridge,
+  local: Stored,
+  stored: Stored,
+): Promise<SavedServer[]> {
+  const merged = unionServers(stored.servers, local.servers)
+  await writeBoth(b, { rev: nextRev(), servers: merged })
+  return merged
+}
+
+// Converger al ganador, para que la próxima lectura no dependa de qué backend
+// responda. Sin revisiones distintas ya están convergidas — no hay nada que hacer.
+async function convergeWinner(
+  b: DesktopBridge,
+  winner: Stored,
+  winnerIsLocal: boolean,
+  loserRev: number,
+): Promise<void> {
+  if (winner.rev === loserRev) return
+  if (winnerIsLocal) {
+    try {
+      await b.saveServers(winner)
+    } catch {
+      /* no se pudo consolidar — la lista igual está completa en memoria */
+    }
+    return
+  }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(winner))
+  } catch {
+    /* ídem */
+  }
+}
+
 export async function loadServers(): Promise<SavedServer[]> {
   const local = fromLocal()
   lastRev = Math.max(lastRev, local.rev)
@@ -210,23 +261,7 @@ export async function loadServers(): Promise<SavedServer[]> {
   }
   lastRev = Math.max(lastRev, stored.rev)
 
-  // Empate a 0: NINGUNO de los dos lados tiene revisión, o sea que los dos
-  // vienen de antes de que existiera este mecanismo. Es el único caso en el que
-  // unir es correcto — y es obligatorio, porque acá "gana el archivo" perdía
-  // datos de verdad: un server guardado sólo en localStorage (el arranque sin
-  // puente, que es justamente el bug que motivó todo esto) quedaba tapado por
-  // un archivo igual de viejo, y como la convergencia sólo corre cuando las
-  // revisiones difieren, se repetía en CADA carga. Desaparecía para siempre.
-  //
-  // Unir no resucita nada borrado porque en la era pre-revisión ningún lado
-  // registró un borrado: sólo hay listas incompletas. Se sella con una revisión
-  // nueva, así que a partir de acá vuelve a mandar la última escritura y borrar
-  // se propaga como debe.
-  if (local.rev === 0 && stored.rev === 0) {
-    const merged = unionServers(stored.servers, local.servers)
-    await writeBoth(b, { rev: nextRev(), servers: merged })
-    return merged
-  }
+  if (local.rev === 0 && stored.rev === 0) return mergeLegacyCopies(b, local, stored)
 
   // Empate con revisión: las dos copias vienen de la MISMA escritura (saveServers
   // manda la misma rev a los dos lados), así que ya están convergidas.
@@ -234,25 +269,11 @@ export async function loadServers(): Promise<SavedServer[]> {
   // Cuando difieren gana la más nueva, sin mirar el contenido: la lista se
   // escribe siempre entera, así que la escritura más reciente es la verdad tanto
   // si agregó como si borró.
-  const winner = local.rev > stored.rev ? local : stored
-  const loser = winner === local ? stored : local
+  const localWins = local.rev > stored.rev
+  const winner = localWins ? local : stored
+  const loser = localWins ? stored : local
 
-  // Converger, para que la próxima lectura no dependa de qué backend responda.
-  if (winner.rev !== loser.rev) {
-    if (winner === local) {
-      try {
-        await b.saveServers(winner)
-      } catch {
-        /* no se pudo consolidar — la lista igual está completa en memoria */
-      }
-    } else {
-      try {
-        localStorage.setItem(KEY, JSON.stringify(winner))
-      } catch {
-        /* ídem */
-      }
-    }
-  }
+  await convergeWinner(b, winner, localWins, loser.rev)
   return winner.servers
 }
 

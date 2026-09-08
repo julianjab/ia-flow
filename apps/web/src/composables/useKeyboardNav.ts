@@ -47,67 +47,70 @@ function activeItem(): HTMLElement | null {
   return el.matches('[data-kbd-item]') ? el : null
 }
 
+function resolveList(current: HTMLElement | null): HTMLElement | null {
+  return current ? listOf(current) : firstVisibleList()
+}
+
+function navigate(current: HTMLElement | null, delta: 1 | -1): boolean {
+  const list = resolveList(current)
+  if (!list) return false
+  const items = itemsOf(list)
+  const base = current ? items.indexOf(current) : delta > 0 ? -1 : items.length
+  focusIndex(list, base + delta)
+  return true
+}
+
+function jumpToEdge(current: HTMLElement | null, toEnd: boolean): boolean {
+  const list = resolveList(current)
+  if (!list) return false
+  const items = itemsOf(list)
+  focusIndex(list, toEnd ? items.length - 1 : 0)
+  return true
+}
+
+function activate(current: HTMLElement | null): boolean {
+  if (!current) return false
+  current.click()
+  return true
+}
+
+function dismiss(current: HTMLElement | null): boolean {
+  if (!current) return false
+  current.blur()
+  return true
+}
+
+function dispatchKey(key: string, current: HTMLElement | null): boolean {
+  switch (key) {
+    case 'ArrowDown':
+    case 'j':
+      return navigate(current, 1)
+    case 'ArrowUp':
+    case 'k':
+      return navigate(current, -1)
+    case 'Home':
+      return jumpToEdge(current, false)
+    case 'End':
+      return jumpToEdge(current, true)
+    case 'Enter':
+    case ' ':
+      return activate(current)
+    case 'Escape':
+      return dismiss(current)
+    default:
+      return false
+  }
+}
+
 function handleKey(ev: KeyboardEvent) {
   if (ev.defaultPrevented) return
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return
 
-  const typing = isTypingTarget(ev.target)
-
   // If focus is inside an input, ignore. Enter/arrows must remain native there.
-  if (typing) return
+  if (isTypingTarget(ev.target)) return
 
-  const current = activeItem()
-
-  switch (ev.key) {
-    case 'ArrowDown':
-    case 'j': {
-      const list = current ? listOf(current) : firstVisibleList()
-      if (!list) return
-      const items = itemsOf(list)
-      const i = current ? items.indexOf(current) : -1
-      focusIndex(list, i + 1)
-      ev.preventDefault()
-      return
-    }
-    case 'ArrowUp':
-    case 'k': {
-      const list = current ? listOf(current) : firstVisibleList()
-      if (!list) return
-      const items = itemsOf(list)
-      const i = current ? items.indexOf(current) : items.length
-      focusIndex(list, i - 1)
-      ev.preventDefault()
-      return
-    }
-    case 'Home': {
-      const list = current ? listOf(current) : firstVisibleList()
-      if (!list) return
-      focusIndex(list, 0)
-      ev.preventDefault()
-      return
-    }
-    case 'End': {
-      const list = current ? listOf(current) : firstVisibleList()
-      if (!list) return
-      const items = itemsOf(list)
-      focusIndex(list, items.length - 1)
-      ev.preventDefault()
-      return
-    }
-    case 'Enter':
-    case ' ': {
-      if (!current) return
-      current.click()
-      ev.preventDefault()
-      return
-    }
-    case 'Escape': {
-      if (!current) return
-      current.blur()
-      ev.preventDefault()
-      return
-    }
-  }
+  const handled = dispatchKey(ev.key, activeItem())
+  if (handled) ev.preventDefault()
 }
 
 // Remembered so arrow keys after a click stay in the list the user just
