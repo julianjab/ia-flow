@@ -64,6 +64,9 @@
       },
       "security": {
         "noGlobalEval": "off"
+      },
+      "nursery": {
+        "noTemplateCurlyInString": "off"
       }
     }
   },
