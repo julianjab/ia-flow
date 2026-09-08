@@ -30,6 +30,10 @@ class FakeRepo implements IExecutionLogRepository {
     const existing = this.rows.get(id)
     if (existing) this.rows.set(id, { ...existing, ...patch })
   }
+  incrementReviewRounds(id: string): void {
+    const existing = this.rows.get(id)
+    if (existing) this.rows.set(id, { ...existing, reviewRounds: (existing.reviewRounds ?? 0) + 1 })
+  }
   list(_filters: ExecutionLogFilters): ExecutionLog[] {
     return Array.from(this.rows.values())
   }

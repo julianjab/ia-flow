@@ -37,6 +37,12 @@ class FakeExecutionLogRepository implements IExecutionLogRepository {
     const row = this.rows.find((r) => r.id === id)
     if (row) Object.assign(row, patch)
   }
+  incrementReviewRounds(id: string): void {
+    const row = this.rows.find((r) => r.id === id)
+    const reviewRounds = (row?.reviewRounds ?? 0) + 1
+    this.updates.push({ id, patch: { reviewRounds } })
+    if (row) row.reviewRounds = reviewRounds
+  }
   list(filters: ExecutionLogFilters): ExecutionLog[] {
     return this.rows.filter((r) => r.taskId === filters.taskId)
   }

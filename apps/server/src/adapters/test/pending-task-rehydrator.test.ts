@@ -39,6 +39,12 @@ function fakeRepo(rows: ExecutionLog[]): IExecutionLogRepository & { updates: un
       const target = rows.find((r) => r.id === id)
       if (target) Object.assign(target, patch)
     },
+    incrementReviewRounds(id) {
+      const target = rows.find((r) => r.id === id)
+      const reviewRounds = (target?.reviewRounds ?? 0) + 1
+      updates.push({ id, patch: { reviewRounds } })
+      if (target) target.reviewRounds = reviewRounds
+    },
     list(filters) {
       // El `limit` se respeta a propósito: es lo que hace significativo el
       // test de que el filtro por proceso no se coma el lookback.

@@ -29,6 +29,9 @@ class FakeRepo implements IExecutionLogRepository {
   update(id: string, patch: Partial<ExecutionLog>): void {
     this.updated.push({ id, patch })
   }
+  incrementReviewRounds(id: string): void {
+    this.updated.push({ id, patch: { reviewRounds: 1 } })
+  }
   list(_filters: ExecutionLogFilters): ExecutionLog[] {
     return this.inserted
   }

@@ -84,6 +84,7 @@ function makeDeps(prompt: string, fetchPrDiff: PrDiffPort) {
     listDistinctSources: () => [],
     listLatestByTask: () => [],
     listLastOutputsByAgent: () => [],
+    incrementReviewRounds: () => {},
   }
 
   const orch = new AgentOrchestrator(
