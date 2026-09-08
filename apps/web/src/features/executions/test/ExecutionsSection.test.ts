@@ -10,28 +10,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fetchExecutionsMock = vi.fn<[unknown], Promise<ExecutionLog[]>>()
 const cancelExecutionMock = vi.fn()
+/**
+ * Los totales de la VENTANA, que es de donde salen los tres contadores — no de
+ * la página cargada. Mutable porque hay tests que necesitan un cero: el mock
+ * lee esto en cada llamada.
+ */
+const statsTotals = {
+  runs: 2,
+  success: 1,
+  error: 1,
+  cancelled: 0,
+  truncated: 0,
+  successRate: 0.5,
+  failureClasses: {} as Record<string, number>,
+  tokensIn: 0,
+  tokensOut: 0,
+}
 vi.mock('../api', () => ({
   fetchExecutions: (filters: unknown) => fetchExecutionsMock(filters),
-  fetchActiveExecutions: vi.fn(),
+  // `[]` y no `undefined`: el store guarda lo que esto devuelva, y un
+  // `undefined` explota en el primer `.length` de su computed.
+  fetchActiveExecutions: vi.fn().mockResolvedValue([]),
   cancelExecution: (id: string) => cancelExecutionMock(id),
   fetchExecutionSources: vi.fn().mockResolvedValue([]),
-  // Pulled in by the embedded AgentHealthPanel on mount.
-  fetchExecutionStats: vi.fn().mockResolvedValue({
+  fetchExecutionStats: vi.fn(async () => ({
     from: null,
     to: null,
-    totals: {
-      runs: 0,
-      success: 0,
-      error: 0,
-      cancelled: 0,
-      truncated: 0,
-      successRate: null,
-      failureClasses: {},
-      tokensIn: 0,
-      tokensOut: 0,
-    },
+    totals: { ...statsTotals },
     agents: [],
-  }),
+  })),
 }))
 // El split (>= --bp-split) no lo puede decidir happy-dom: `matchMedia` ahí
 // siempre contesta que no. Como el detalle sólo es columna hermana arriba de
@@ -177,10 +184,14 @@ describe('ExecutionsSection — filtrar por resultado', () => {
 
   // R10: un contador en cero ocupa el mismo ancho que un problema y no es uno.
   it('un contador en cero no se dibuja', async () => {
+    // El cero es de la VENTANA, no de la página: los contadores dejaron de
+    // salir de `executions[]` justamente porque filtrar los movía.
+    Object.assign(statsTotals, { runs: 1, success: 1, error: 0, successRate: 1 })
     const wrapper = await mountWithExecs([makeExec({ id: 'e1', outcome: 'success' })])
     expect(wrapper.find('[data-testid="verdict-count-closed"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="verdict-count-waiting"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="verdict-count-running"]').exists()).toBe(false)
+    Object.assign(statsTotals, { runs: 2, success: 1, error: 1, successRate: 0.5 })
   })
 
   it('`resultado:pending` deja sólo las filas sin outcome', async () => {
