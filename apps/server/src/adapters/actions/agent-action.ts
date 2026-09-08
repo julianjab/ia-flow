@@ -230,10 +230,21 @@ export class AgentAction implements ActionHandler<AgentConfig> {
         // evento no puede leer lo que el agente produjo por `submit_output` —
         // sólo `agentId`/`taskId`/`outcome`, que no alcanzan para decidir un
         // siguiente paso basado en la salida.
+        //
+        // `outcome` acá es el resultado REAL del agente (`success`/`error`/
+        // `cancelled`/`truncated`, mismo campo que usa
+        // `GetTaskDispositionsUseCase` para su `run.finished` sintético) — NO
+        // el `DispatchOutcome` del dispatcher, que sólo dice "se lanzó" y por
+        // eso una regla `when: payload.outcome === 'error'` nunca matcheaba
+        // (issue #201). `runOutcome` siempre debería venir seteado en este
+        // punto (el `outcome === 'dispatched'` de más arriba ya significa que
+        // el agente corrió), pero se cae al `DispatchOutcome` en el caso
+        // límite en que no — un valor que ninguna regla sobre `Outcome` va a
+        // matchear, en vez de romper la emisión.
         {
           agentId: config.agentId,
           taskId: item.id,
-          outcome,
+          outcome: runOutcome ?? outcome,
           ...(output !== undefined && { output }),
         },
         // El scope del evento que lo causó, más el issue sobre el que corrió.

@@ -29,6 +29,7 @@ function spyDispatch(
   outcome: DispatchOutcome = 'dispatched',
   extra: Partial<ConstructorParameters<typeof AgentAction>[0]> = {},
   agentOutput?: unknown,
+  runOutcome?: 'success' | 'error' | 'cancelled' | 'truncated',
 ) {
   const calls: Array<string | undefined> = []
   const dispatched: Array<{ item: IssueItem; exits?: unknown }> = []
@@ -40,7 +41,7 @@ function spyDispatch(
       dispatch: async (item, _m, _a, _r, _e, brief, exits) => {
         calls.push(brief)
         dispatched.push({ item, exits })
-        return { outcome, output: agentOutput }
+        return { outcome, output: agentOutput, runOutcome }
       },
       ...extra,
     }),
@@ -326,5 +327,88 @@ describe('AgentAction — emitOn: exit', () => {
     await action.execute(c, { action: 'agent', agentId: 'triager', emitOn: 'exit' } as never)
 
     expect('output' in emitidos[0].payload).toBe(false)
+  })
+})
+
+// El bug de #201: `payload.outcome` tiene que ser el resultado REAL del
+// agente (`success`/`error`/`cancelled`/`truncated`), no el `DispatchOutcome`
+// del dispatcher (`dispatched`) — si no, una regla `when: payload.outcome ===
+// 'error'` nunca matchea.
+describe('AgentAction — payload.outcome es el resultado real del agente', () => {
+  const emitCtx = (): { ctx: ActionContext; emitidos: Array<Record<string, unknown>> } => {
+    const emitidos: Array<Record<string, unknown>> = []
+    const c = {
+      ...ctx(),
+      emit: async (_t: string, payload: Record<string, unknown>) => {
+        emitidos.push(payload)
+      },
+    } as ActionContext
+    return { ctx: c, emitidos }
+  }
+
+  test('éxito: payload.outcome === "success", no "dispatched"', async () => {
+    const { action } = spyDispatch('dispatched', {}, undefined, 'success')
+    const { ctx: c, emitidos } = emitCtx()
+    await action.execute(c, { action: 'agent', agentId: 'implementer', emitOn: 'exit' } as never)
+    expect(emitidos[0].outcome).toBe('success')
+  })
+
+  test('cancelado: payload.outcome === "cancelled"', async () => {
+    const { action } = spyDispatch('dispatched', {}, undefined, 'cancelled')
+    const { ctx: c, emitidos } = emitCtx()
+    await action.execute(c, { action: 'agent', agentId: 'implementer', emitOn: 'exit' } as never)
+    expect(emitidos[0].outcome).toBe('cancelled')
+  })
+
+  test('truncado: payload.outcome === "truncated"', async () => {
+    const { action } = spyDispatch('dispatched', {}, undefined, 'truncated')
+    const { ctx: c, emitidos } = emitCtx()
+    await action.execute(c, { action: 'agent', agentId: 'implementer', emitOn: 'exit' } as never)
+    expect(emitidos[0].outcome).toBe('truncated')
+  })
+
+  // `Agent.run` tira para un fallo genuino (después de aplicar su propia
+  // salida de error) — el throw se propaga hasta acá sin que nada en el
+  // medio lo capture. Antes de este cambio eso significaba que `run.finished`
+  // no se emitía NUNCA para un run que falló: ni con el outcome equivocado,
+  // ni con ninguno.
+  test('error: emite run.finished con outcome "error" ANTES de propagar el throw', async () => {
+    const { emitidos } = emitCtx()
+    let emitted: Record<string, unknown> | undefined
+    const c = {
+      ...ctx(),
+      emit: async (_t: string, payload: Record<string, unknown>) => {
+        emitted = payload
+      },
+    } as ActionContext
+    const action = new AgentAction({
+      managerFor: () => manager,
+      dispatch: async () => {
+        throw new Error('el agente falló de verdad')
+      },
+    })
+
+    await expect(
+      action.execute(c, { action: 'agent', agentId: 'implementer', emitOn: 'exit' } as never),
+    ).rejects.toThrow('el agente falló de verdad')
+
+    expect(emitted?.outcome).toBe('error')
+    expect(emitidos).toEqual([])
+  })
+
+  test('error sin emitOn: no emite nada, sólo propaga el throw', async () => {
+    const emitidos: unknown[] = []
+    const c = { ...ctx(), emit: async (t: string) => void emitidos.push(t) } as ActionContext
+    const action = new AgentAction({
+      managerFor: () => manager,
+      dispatch: async () => {
+        throw new Error('boom')
+      },
+    })
+
+    await expect(
+      action.execute(c, { action: 'agent', agentId: 'implementer' } as never),
+    ).rejects.toThrow('boom')
+    expect(emitidos).toHaveLength(0)
   })
 })
