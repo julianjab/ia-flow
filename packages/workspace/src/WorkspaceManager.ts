@@ -841,6 +841,12 @@ export class WorkspaceManager {
 
   async #doEnsureLocalClone(dest: string, repo: CloneableRepo): Promise<string> {
     if (existsSync(join(dest, '.git'))) {
+      // Un repo ya clonado antes de que `gitSigningKeyPath` se configurara
+      // (el caso normal: `reposBase` persiste entre restarts) nunca pasaría
+      // por el bloque de abajo — idempotente, así que correrlo también acá
+      // es gratis y es lo que hace que activar la firma en un deploy
+      // existente no dependa de re-clonar todo a mano.
+      await this.#configureSigning(dest)
       return dest
     }
     log.info({ repo: repo.name, dest }, 'clone')
@@ -878,9 +884,23 @@ export class WorkspaceManager {
    * push. Esta es la única de las dos vías que un `git commit` normal (el que
    * hace el agente vía `bash_run`, y el autosalvage de esta clase) puede
    * cumplir.
+   *
+   * Chequea que el archivo exista ANTES de prender `commit.gpgsign`: con la
+   * key ausente/mal montada, `commit.gpgsign=true` sin key utilizable hace
+   * fallar TODO `git commit` en el clone — incluido el autosalvage de
+   * `#commitAll`, que puede tumbar un `getOrCreateWorktree` en el camino de
+   * reuse. Degradar a "sin firmar" con un warn es preferible a romper el
+   * worktree por un secreto mal provisto.
    */
   async #configureSigning(dest: string): Promise<void> {
     if (!this.#gitSigningKeyPath) return
+    if (!this.#exists(this.#gitSigningKeyPath)) {
+      log.warn(
+        { dest, gitSigningKeyPath: this.#gitSigningKeyPath },
+        'gitSigningKeyPath configurado pero el archivo no existe — commits sin firmar',
+      )
+      return
+    }
     await this.#shell.run(['git', 'config', 'gpg.format', 'ssh'], dest)
     await this.#shell.run(['git', 'config', 'user.signingkey', this.#gitSigningKeyPath], dest)
     await this.#shell.run(['git', 'config', 'commit.gpgsign', 'true'], dest)
