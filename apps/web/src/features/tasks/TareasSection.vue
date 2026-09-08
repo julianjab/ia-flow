@@ -387,6 +387,17 @@ const flatListItems = computed<TaskRow[]>(() => {
 /** `cerrado` arranca plegado (O4): es la parte del día que no hay que mirar. */
 const closedOpen = ref(false);
 
+/** Grupos de tema colapsados, por label. Arrancan todos abiertos —a
+ *  diferencia de `cerrado`, un grupo de `waiting-on-you` sí es lo que hay
+ *  que mirar; colapsar es una acción del usuario, no un default. */
+const collapsedGroupLabels = ref<Set<string>>(new Set());
+function toggleGroup(label: string): void {
+  const next = new Set(collapsedGroupLabels.value);
+  if (next.has(label)) next.delete(label);
+  else next.add(label);
+  collapsedGroupLabels.value = next;
+}
+
 /**
  * Los chips de filtro rápido: un toque para quedarte con un bucket.
  *
@@ -1311,9 +1322,16 @@ watch(activeProjectId, (pid) => {
               disposition="waiting-on-you"
               :count="section.rows.length"
               :label-override="section.label"
+              collapsible
+              :open="!collapsedGroupLabels.has(section.label)"
               style="top: calc(var(--tap-h) + 26px)"
+              @toggle="toggleGroup(section.label)"
             />
-            <ul class="task-list" data-kbd-list="tasks">
+            <ul
+              v-if="section.kind !== 'group' || !collapsedGroupLabels.has(section.label)"
+              class="task-list"
+              data-kbd-list="tasks"
+            >
               <TaskRow
                 v-for="row in section.rows"
                 :key="row.id"
