@@ -46,14 +46,17 @@
       "correctness": {
         "noUnusedVariables": "off",
         "noUnusedImports": "warn",
-        "noSwitchDeclarations": "off"
+        "noSwitchDeclarations": "off",
+        "noUnusedPrivateClassMembers": "error",
+        "noUnusedFunctionParameters": "error"
       },
       "complexity": {
         "noForEach": "off",
         "useLiteralKeys": "off",
         "noBannedTypes": "off",
         "noUselessSwitchCase": "off",
-        "noUselessCatch": "warn"
+        "noUselessCatch": "warn",
+        "useOptionalChain": "error"
       },
       "performance": {
         "noAccumulatingSpread": "off",
