@@ -207,6 +207,7 @@ function applyAiFields(fields: Record<string, unknown>) {
       <span class="field-hint">Sobrescribe los defaults globales del provider. Vacío = usa el default global.</span>
       <component
         :is="currentProviderForm"
+        :key="primaryProviderId"
         :model-value="providerConfig"
         @update:model-value="emit('update:providerConfig', $event)"
       />
