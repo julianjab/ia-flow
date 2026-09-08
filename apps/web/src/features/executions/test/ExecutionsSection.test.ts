@@ -897,3 +897,86 @@ describe('ExecutionsSection — el detalle en pantallas grandes', () => {
     expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
   })
 })
+
+// ───────────────────────────────────────────────────────────────────────────
+// El corte del bucket 1 (turno 8): con 45 esperando, la lista completa no es
+// una decisión sino un archivo.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — el corte de la cola', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProjectsStore().activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const failed = (id: string, agentId = 'implementer') =>
+    makeExec({ id, taskId: `t-${id}`, taskTitle: `Tarea ${id}`, outcome: 'error', agentId })
+
+  it('dibuja las primeras cuatro y resume el resto', async () => {
+    const wrapper = await mountWithExecs(
+      Array.from({ length: 7 }, (_, i) => failed(`e${i}`)),
+      { showClosed: false },
+    )
+
+    expect(wrapper.findAll('.exec-card')).toHaveLength(4)
+    const more = wrapper.get('[data-testid="executions-more"]')
+    expect(more.text()).toContain('3 más')
+    // Y qué comparten: el único eje con dato cuando el fallo no está
+    // clasificado es el agente.
+    expect(more.text()).toContain('son de implementer')
+  })
+
+  it('el corte se despliega y muestra la cola entera', async () => {
+    const wrapper = await mountWithExecs(
+      Array.from({ length: 7 }, (_, i) => failed(`e${i}`)),
+      { showClosed: false },
+    )
+
+    await wrapper.get('[data-testid="executions-more"]').trigger('click')
+
+    expect(wrapper.findAll('.exec-card')).toHaveLength(7)
+    expect(wrapper.find('[data-testid="executions-more"]').exists()).toBe(false)
+  })
+
+  it('`filtrar` prende el token del MISMO eje que el texto nombra', async () => {
+    const wrapper = await mountWithExecs(
+      [
+        ...Array.from({ length: 4 }, (_, i) => failed(`a${i}`, 'refiner')),
+        ...Array.from({ length: 3 }, (_, i) => failed(`b${i}`, 'implementer')),
+      ],
+      { showClosed: false },
+    )
+    fetchExecutionsMock.mockResolvedValue([])
+
+    await wrapper.get('[data-testid="executions-more-filter"]').trigger('click')
+    await flushPromises()
+
+    // El texto decía "son de implementer", así que el filtro es ese agente: si
+    // el corte y el filtro salieran de conteos distintos, tocar `filtrar`
+    // devolvería otra cosa que la que la línea prometía.
+    expect(tokenFor(wrapper, 'agente', 'implementer').exists()).toBe(true)
+  })
+
+  it('sin un eje que cubra al menos un cuarto, sólo dice cuántas quedan', async () => {
+    const wrapper = await mountWithExecs(
+      [
+        ...Array.from({ length: 4 }, (_, i) => failed(`h${i}`, 'refiner')),
+        failed('x1', 'a'),
+        failed('x2', 'b'),
+        failed('x3', 'c'),
+        failed('x4', 'd'),
+      ],
+      { showClosed: false },
+    )
+
+    const more = wrapper.get('[data-testid="executions-more"]')
+    expect(more.text()).toContain('4 más')
+    expect(more.text()).not.toContain('son de')
+    expect(wrapper.find('[data-testid="executions-more-filter"]').exists()).toBe(false)
+  })
+})

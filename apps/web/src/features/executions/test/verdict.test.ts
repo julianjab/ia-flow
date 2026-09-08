@@ -1,6 +1,14 @@
+import type { ExecutionStats } from '@ia-flow/shared'
 import { describe, expect, it } from 'vitest'
 import type { AgentHealth } from '../verdict'
-import { dispositionCounts, isOutOfBand, summarizeHealth, verbForRun, verdictFor } from '../verdict'
+import {
+  dispositionCounts,
+  healthLine,
+  isOutOfBand,
+  summarizeHealth,
+  verbForRun,
+  verdictFor,
+} from '../verdict'
 
 function agent(over: Partial<AgentHealth> = {}): AgentHealth {
   return {
@@ -136,5 +144,93 @@ describe('verbForRun', () => {
     // Prometerlo acá abriría otra pantalla: un botón que miente sobre lo que
     // hace. El verbo vive en la fila de Tareas, que es donde pertenece.
     expect(verbForRun(run({ outcome: 'error' }))).toBeNull()
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// La banda de salud es UNA línea, siempre (turno 8). Con 51% ok los siete
+// agentes están fuera de banda: una fila por agente eran 470px de rojo que
+// empujaban la lista fuera de la pantalla, y siete tasas truncadas no dicen
+// qué hacer.
+// ───────────────────────────────────────────────────────────────────────────
+function stats(
+  over: Partial<ExecutionStats['totals']> = {},
+  agents: AgentHealth[] = [],
+): ExecutionStats {
+  return {
+    from: null,
+    to: null,
+    totals: {
+      runs: 100,
+      success: 50,
+      error: 40,
+      cancelled: 5,
+      truncated: 5,
+      successRate: 0.5,
+      failureClasses: {},
+      stopReasons: {},
+      tokensIn: 0,
+      tokensOut: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      cacheHitRate: null,
+      iters: 0,
+      costUsd: null,
+      ...over,
+    },
+    agents,
+  }
+}
+
+/** Un agente que califica como fuera de banda: 40% ok sobre muestra suficiente. */
+function broken(id: string): AgentHealth {
+  return agent({ agentId: id, runs: 10, success: 4, error: 6, successRate: 0.4 })
+}
+
+describe('healthLine', () => {
+  it('sin nadie fuera de banda no alarma', () => {
+    const line = healthLine(stats({ successRate: 0.97 }, [agent()]))
+    expect(line?.tone).toBe('ok')
+    expect(line?.headline).toContain('1 agente en banda')
+  })
+
+  it('con uno solo, la línea ES ese agente y lleva a su página', () => {
+    const line = healthLine(stats({}, [agent(), broken('reviewer')]))
+    expect(line?.agentId).toBe('reviewer')
+    expect(line?.headline).toContain('reviewer')
+    expect(line?.tone).toBe('danger')
+  })
+
+  it('con tres o más, cuenta los agentes en vez de listarlos', () => {
+    const line = healthLine(
+      stats({ failureClasses: { tool_failure: 34, unknown: 10 } }, [
+        broken('a'),
+        broken('b'),
+        broken('c'),
+        agent(),
+      ]),
+    )
+    expect(line?.headline).toBe('50% ok · 3 de 4 agentes fuera de banda')
+    // Y la segunda línea es la causa COMPARTIDA, que es lo accionable.
+    expect(line?.detail).toBe('tools fallando en 34 de 50 fallos')
+    expect(line?.agentId).toBeNull()
+  })
+
+  it('sin diagnóstico la causa es de datos, y va en ámbar', () => {
+    // Rojo es "algo te espera". Que el server no clasifique los fallos no lo
+    // es: decirlo en rojo enseña a ignorar el rojo.
+    const line = healthLine(
+      stats({ failureClasses: { unknown: 46, tool_failure: 4 } }, [
+        broken('a'),
+        broken('b'),
+        broken('c'),
+      ]),
+    )
+    expect(line?.detail).toBe('46 de 50 fallos sin failureClass · no hay diagnóstico')
+    expect(line?.tone).toBe('warn')
+  })
+
+  it('sin stats no hay línea', () => {
+    expect(healthLine(null)).toBeNull()
   })
 })
