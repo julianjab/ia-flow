@@ -228,7 +228,19 @@ export interface DispositionCount {
  * **Un contador en cero no se dibuja** (R10): "0 te esperan" ocupa el mismo
  * ancho que un problema y no es uno.
  */
-export function dispositionCounts(counts: Record<string, number>): DispositionCount[] {
+export function dispositionCounts(
+  counts: Record<string, number>,
+  /**
+   * Hay un filtro puesto.
+   *
+   * Sin esto, tocar un contador escondía a los otros dos: el contador filtra,
+   * la página filtrada deja los otros en cero, y un cero no se dibuja — así
+   * que el camino de vuelta desaparecía junto con ellos. Un cero mientras
+   * filtrás no es "no hay": es "no hay DE ESTO, con este filtro", y ése es
+   * exactamente el botón que se necesita para cambiar de recorte.
+   */
+  filtering = false,
+): DispositionCount[] {
   const waiting = (counts.error ?? 0) + (counts.cancelled ?? 0) + (counts.truncated ?? 0)
   const all: DispositionCount[] = [
     {
@@ -240,7 +252,7 @@ export function dispositionCounts(counts: Record<string, number>): DispositionCo
     { key: 'running', label: 'corriendo', count: counts.pending ?? 0, outcomes: ['pending'] },
     { key: 'closed', label: 'cerradas', count: counts.success ?? 0, outcomes: ['success'] },
   ]
-  return all.filter((c) => c.count > 0)
+  return filtering ? all : all.filter((c) => c.count > 0)
 }
 
 /**

@@ -26,7 +26,15 @@ import { type DispositionCount, dispositionCounts, healthLine } from './verdict'
  * quién y por qué, y cuando el fallo es del sistema dice la causa compartida y
  * cuenta los agentes en vez de listarlos. Las reglas viven en `verdict.ts`.
  */
-const props = defineProps<{ projectId?: string | null; outcomeCounts: Record<string, number> }>();
+const props = defineProps<{
+  projectId?: string | null;
+  outcomeCounts: Record<string, number>;
+  /** Hay filtros puestos: los contadores en cero se siguen dibujando, porque
+   *  son el camino de vuelta (ver `dispositionCounts`). */
+  filtering?: boolean;
+  /** Qué disposición está filtrada ahora, para marcarla como activa. */
+  activeKey?: string | null;
+}>();
 
 const emit = defineEmits<{
   /** Un contador prende su filtro: el contador ES el filtro, un atajo y no un
@@ -63,7 +71,9 @@ async function load(): Promise<void> {
 onMounted(load);
 watch(() => [props.projectId, windowDays.value], load);
 
-const counts = computed<DispositionCount[]>(() => dispositionCounts(props.outcomeCounts));
+const counts = computed<DispositionCount[]>(() =>
+  dispositionCounts(props.outcomeCounts, props.filtering),
+);
 /** Una línea, siempre (turno 8). Las reglas viven en `verdict.ts`, puras. */
 const line = computed(() => healthLine(stats.value));
 const totals = computed(() => stats.value?.totals ?? null);
@@ -85,16 +95,18 @@ const totalsTitle =
   <div class="hv">
     <!-- Tres contadores por disposición, no seis outcomes: la pregunta es quién
          mueve la próxima pieza. El de "te esperan" es el único en --danger,
-         porque es el único que pide algo. Un cero no se dibuja (R10). -->
+         porque es el único que pide algo. Un cero no se dibuja (R10) — salvo
+         con un filtro puesto, donde los tres son el camino de vuelta. -->
     <div v-if="counts.length" class="hv__counts" aria-label="Resumen por disposición">
       <button
         v-for="c in counts"
         :key="c.key"
         type="button"
         class="hv__count"
-        :class="`hv__count--${c.key}`"
+        :class="[`hv__count--${c.key}`, { 'hv__count--on': activeKey === c.key }]"
         :data-testid="`verdict-count-${c.key}`"
-        :title="`Filtrar por ${c.label}`"
+        :aria-pressed="activeKey === c.key"
+        :title="activeKey === c.key ? `Quitar el filtro ${c.label}` : `Filtrar por ${c.label}`"
         @click="emit('filter', c.outcomes)"
       >
         <b>{{ c.count }}</b> {{ c.label }}
@@ -177,6 +189,10 @@ const totalsTitle =
 /* El único en --danger es el único que pide algo. */
 .hv__count--waiting { border-color: var(--danger); background: var(--red-bg); color: var(--danger); }
 .hv__count--closed { color: var(--fg-dim); }
+/* El activo, en video inverso — la misma marca que toda selección del sistema.
+   Sin ella, con los tres dibujados no se sabe cuál está puesto. */
+.hv__count--on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.hv__count--on b { color: var(--panel); }
 
 /* ── La línea de salud: una, siempre ──────────────────────────────────────
    Dos líneas de texto adentro de un solo blanco táctil: la tasa arriba y la
