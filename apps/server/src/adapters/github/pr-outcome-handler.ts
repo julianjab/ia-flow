@@ -5,17 +5,21 @@
 // La atribución run → PR es deliberadamente simple: el PR se identifica por
 // su branch (`payload.pr.head.ref`), y `task/<taskId>` es la convención de
 // `packages/workspace/src/layout.ts` — de ahí sale el `taskId` sin ambigüedad
-// en el caso común (sin linked branch propia). Dentro de esa task se toma el
-// ÚLTIMO run de agente (no sub-agente): no hay tool dedicada de creación de
-// PR, así que no hay forma de saber cuál de varios agentes en cadena
-// (builder, reviewer, e2e) corrió `gh pr create` — el último es la
-// aproximación correcta en el caso común de un solo builder por task.
+// en el caso común (sin linked branch propia). Dentro de esa task, PRIMERO se
+// busca un run que ya tenga este `prNumber` (lo dejó un evento anterior del
+// MISMO PR — típicamente `pr.review_submitted` antes que `pr.merged`, días
+// después); si ninguno lo tiene todavía, se toma el ÚLTIMO run de agente (no
+// sub-agente). Sin eso, tres eventos del mismo PR en momentos distintos
+// (review, review, merge) podían repartirse entre runs DISTINTOS si el
+// pipeline disparó un run nuevo sobre la task en el medio (un reviewer, un
+// fixer) — exactamente el caso multi-ronda que `review_rounds`/`mergeRate`
+// existen para medir.
 //
-// Best-effort en las dos puntas: un branch que no seguía la convención, o una
-// task sin runs de agente, se loguea y se saltea — nunca rompe el pipeline.
-
+// Best-effort en las tres puntas: un branch que no seguía la convención, una
+// task sin runs de agente, o un run cuyo PR resuelto ya es OTRO PR distinto,
+// se loguea y se saltea — nunca rompe el pipeline.
 import type { EventHandler, EventOutcome } from '@ia-flow/rules'
-import type { EngineEvent } from '@ia-flow/shared'
+import type { EngineEvent, ExecutionLog } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
 import { createLogger } from '../../logger.js'
 import { PR_CLOSED, PR_MERGED, PR_REVIEW_SUBMITTED } from './webhook-events.js'
@@ -36,6 +40,24 @@ function taskIdFromBranch(branch: string | undefined): string | null {
   if (!branch?.startsWith(BRANCH_PREFIX)) return null
   const id = branch.slice(BRANCH_PREFIX.length)
   return id.length > 0 ? id : null
+}
+
+/**
+ * El run al que atribuir este evento, dentro de los runs de agente (no
+ * sub-agente) de la task — ver el comentario del módulo para el orden de
+ * preferencia. `null` cuando no hay ninguno, o cuando el único candidato ya
+ * tiene un PR resuelto que NO es éste (ambiguo — mejor no pisarlo).
+ */
+function selectRun(runs: ExecutionLog[], prNumber: number | undefined): ExecutionLog | null {
+  const ownRuns = runs.filter((r) => !r.parentId)
+  const matching = prNumber != null ? ownRuns.find((r) => r.prNumber === prNumber) : undefined
+  if (matching) return matching
+
+  const fallback = ownRuns[0]
+  if (!fallback) return null
+  const resolvedForOtherPr =
+    fallback.prNumber != null && prNumber != null && fallback.prNumber !== prNumber
+  return resolvedForOtherPr ? null : fallback
 }
 
 export class PrOutcomeHandler implements EventHandler {
@@ -59,13 +81,13 @@ export class PrOutcomeHandler implements EventHandler {
     }
 
     try {
-      // Los más recientes primero (list() ya ordena por started_at DESC);
-      // parentId descarta sub-agentes, que corren sobre la misma task que su
-      // padre y no son "el run que abrió el PR".
-      const runs = this.logs.list({ taskId, kind: 'agent', limit: 10 })
-      const run = runs.find((r) => !r.parentId)
+      // Sin `limit`: list() ya ordena por started_at DESC, y cortar la
+      // ventana ANTES de filtrar sub-agentes podía dejar sólo hijos de
+      // `run_agent` en una task con muchos — see review del PR.
+      const runs = this.logs.list({ taskId, kind: 'agent' })
+      const run = selectRun(runs, payload.pr?.number)
       if (!run) {
-        log.debug({ type: event.type, taskId }, 'Sin run de agente para esta task — se saltea')
+        log.debug({ type: event.type, taskId }, 'Sin run atribuible para esta task — se saltea')
         return 'skipped'
       }
 
@@ -75,7 +97,10 @@ export class PrOutcomeHandler implements EventHandler {
       } else if (event.type === PR_CLOSED) {
         this.logs.update(run.id, { prMerged: false, prNumber })
       } else {
-        this.logs.update(run.id, { reviewRounds: (run.reviewRounds ?? 0) + 1, prNumber })
+        // Incremento atómico en el repo — dos reviews casi simultáneas no se
+        // pueden pisar leyendo `run.reviewRounds` acá y escribiendo después.
+        this.logs.incrementReviewRounds(run.id)
+        if (run.prNumber !== prNumber) this.logs.update(run.id, { prNumber })
       }
       return 'dispatched'
     } catch (err) {

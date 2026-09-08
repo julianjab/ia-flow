@@ -521,6 +521,13 @@ export class SqliteExecutionLogRepository
     return out
   }
 
+  incrementReviewRounds(id: string): void {
+    this.db.run(
+      'UPDATE execution_logs SET review_rounds = COALESCE(review_rounds, 0) + 1 WHERE id = ?',
+      [id],
+    )
+  }
+
   // Aggregates in SQL, not in the caller: the useful windows (a month of
   // runs) are far bigger than any page the UI fetches, and a success rate
   // computed off the last N rows silently lies about the rest.

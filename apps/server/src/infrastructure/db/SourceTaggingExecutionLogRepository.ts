@@ -22,6 +22,10 @@ export class SourceTaggingExecutionLogRepository implements IExecutionLogReposit
     this.inner.update(id, patch)
   }
 
+  incrementReviewRounds(id: string): void {
+    this.inner.incrementReviewRounds(id)
+  }
+
   list(filters: ExecutionLogFilters): ExecutionLog[] {
     return this.inner.list(filters)
   }

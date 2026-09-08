@@ -109,6 +109,16 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
     this.post(id, { op: 'insert', entry: merged })
   }
 
+  // No hay un tercer `op` remoto para esto — se apoya en el mismo merge
+  // best-effort que `update()` ya hace contra `lastKnown` (o un patch
+  // suelto si no hay fila cacheada). El incremento atómico real vive en
+  // `SqliteExecutionLogRepository`, del lado que SÍ es la fuente de verdad;
+  // este forward siempre fue una copia eventual, nunca el store que decide.
+  incrementReviewRounds(id: string): void {
+    const known = this.lastKnown.get(id)
+    this.update(id, { reviewRounds: (known?.reviewRounds ?? 0) + 1 })
+  }
+
   list(_filters: ExecutionLogFilters): ExecutionLog[] {
     return []
   }

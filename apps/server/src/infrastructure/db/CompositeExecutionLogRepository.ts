@@ -41,6 +41,10 @@ export class CompositeExecutionLogRepository implements IExecutionLogRepository 
     this.fanOut('update', (repo) => repo.update(id, patch))
   }
 
+  incrementReviewRounds(id: string): void {
+    this.fanOut('incrementReviewRounds', (repo) => repo.incrementReviewRounds(id))
+  }
+
   list(filters: ExecutionLogFilters): ExecutionLog[] {
     return this.primary.list(filters)
   }
