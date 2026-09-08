@@ -28,7 +28,7 @@ describe('SourceFormSwitch', () => {
       props: { modelValue: { kind: 'local', config: {} } },
     })
     await flush()
-    const kinds = wrapper.findAll('.sfs-select option').map((o) => o.attributes('value'))
+    const kinds = wrapper.findAll('.ff-field option').map((o) => o.attributes('value'))
     expect(kinds).toEqual(['github', 'local', 'github-issues'])
   })
 
@@ -37,7 +37,7 @@ describe('SourceFormSwitch', () => {
       props: { modelValue: { kind: 'local', config: {} } },
     })
     await flush()
-    const options = wrapper.findAll('.sfs-select option')
+    const options = wrapper.findAll('.ff-field option')
     expect(options.map((o) => o.text())).toEqual(['GitHub Projects', 'Local', 'GitHub Repo'])
     expect(options.map((o) => o.attributes('value'))).toEqual(['github', 'local', 'github-issues'])
   })
@@ -48,7 +48,7 @@ describe('SourceFormSwitch', () => {
       props: { modelValue: { kind: 'local', config: {} } },
     })
     await flush()
-    const kinds = wrapper.findAll('.sfs-select option').map((o) => o.attributes('value'))
+    const kinds = wrapper.findAll('.ff-field option').map((o) => o.attributes('value'))
     expect(kinds).toContain('github-issues')
   })
 
@@ -58,7 +58,7 @@ describe('SourceFormSwitch', () => {
     })
     await flush()
     expect(wrapper.find('.gisf').exists()).toBe(true)
-    expect(wrapper.find('.jsf-textarea').exists()).toBe(false)
+    expect(wrapper.find('.ff-textarea').exists()).toBe(false)
   })
 
   it('keeps a server-only kind visible so the user can see it before switching', async () => {
@@ -66,7 +66,7 @@ describe('SourceFormSwitch', () => {
       props: { modelValue: { kind: 'linear', config: {} } },
     })
     await flush()
-    const kinds = wrapper.findAll('.sfs-select option').map((o) => o.attributes('value'))
+    const kinds = wrapper.findAll('.ff-field option').map((o) => o.attributes('value'))
     expect(kinds).toContain('linear')
   })
 })

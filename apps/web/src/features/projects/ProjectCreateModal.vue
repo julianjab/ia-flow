@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FullScreen from '@/ui/FullScreen.vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import type { SourceRef } from '@ia-flow/shared';
 import axios from 'axios';
@@ -89,131 +90,53 @@ async function submit() {
 </script>
 
 <template>
-  <div v-if="open" class="pc-modal-backdrop" @click.self="emit('close')">
-    <div class="pc-modal" role="dialog" aria-modal="true" aria-labelledby="pc-modal-title">
-      <header class="pc-modal__header">
-        <h2 id="pc-modal-title">Nuevo proyecto</h2>
-        <button class="pc-modal__close" @click="emit('close')" aria-label="Cerrar">×</button>
-      </header>
+  <!-- Bajo --bp-shell es una pantalla con `←` (A3): un diálogo con un selector
+       de source adentro no cabe en 390px, y su `Crear` quedaba a varias
+       pantallas de scroll DENTRO de una caja que ya no se veía entera. -->
+  <FullScreen :open="open" title="Nuevo proyecto" @close="emit('close')">
+    <label class="ff-row">
+      <span class="uc-label">Nombre *</span>
+      <input v-model="name" class="ff-field" placeholder="Mi proyecto" autofocus />
+    </label>
 
-      <div class="pc-modal__body">
-        <label class="pc-field">
-          <span class="pc-field__label">Nombre *</span>
-          <input v-model="name" class="pc-input" placeholder="Mi proyecto" autofocus />
-        </label>
+    <label class="ff-row">
+      <span class="uc-label">ID (slug) *</span>
+      <input
+        v-model="id"
+        class="ff-field ff-mono"
+        placeholder="mi-proyecto"
+        @input="idDirty = true"
+      />
+      <span class="ff-hint">Identificador único, sin espacios (a-z, 0-9, -)</span>
+    </label>
 
-        <label class="pc-field">
-          <span class="pc-field__label">ID (slug) *</span>
-          <input
-            v-model="id"
-            class="pc-input pc-input--mono"
-            placeholder="mi-proyecto"
-            @input="idDirty = true"
-          />
-          <span class="pc-field__hint">Identificador único, sin espacios (a-z, 0-9, -)</span>
-        </label>
-
-        <div class="pc-field">
-          <SourceFormSwitch v-model="source" />
-          <span class="pc-field__hint">
-            El proveedor que gestiona los items del proyecto. Puedes cambiarlo después.
-          </span>
-        </div>
-
-        <div class="pc-field">
-          <DaemonModeField v-model="daemonMode" />
-        </div>
-
-        <div v-if="error" class="pc-error">{{ error }}</div>
-      </div>
-
-      <footer class="pc-modal__footer">
-        <button class="pc-btn pc-btn--ghost" @click="emit('close')" :disabled="saving">
-          Cancelar
-        </button>
-        <button class="pc-btn pc-btn--primary" :disabled="!canSave || saving" @click="submit">
-          {{ saving ? 'Creando…' : 'Crear proyecto' }}
-        </button>
-      </footer>
+    <div class="ff-row">
+      <SourceFormSwitch v-model="source" />
+      <span class="ff-hint">
+        El proveedor que gestiona los items del proyecto. Puedes cambiarlo después.
+      </span>
     </div>
-  </div>
+
+    <div class="ff-row">
+      <DaemonModeField v-model="daemonMode" />
+    </div>
+
+    <p v-if="error" class="ff-error">{{ error }}</p>
+
+    <template #footer>
+      <button class="btn" type="button" :disabled="saving" @click="emit('close')">
+        Cancelar
+      </button>
+      <button
+        class="btn btn--primary"
+        type="button"
+        :disabled="!canSave || saving"
+        @click="submit"
+      >
+        {{ saving ? 'Creando…' : 'Crear proyecto' }}
+      </button>
+    </template>
+  </FullScreen>
 </template>
 
-<style scoped>
-.pc-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(17, 24, 39, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.pc-modal {
-  background: var(--panel);
-  border-radius: 12px;
-  width: min(480px, 92vw);
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.15);
-}
-.pc-modal__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-}
-.pc-modal__header h2 { margin: 0; font-size: 1.15rem; }
-.pc-modal__close {
-  background: none;
-  border: none;
-  font-size: 1.4rem;
-  color: var(--fg-dim);
-  cursor: pointer;
-  line-height: 1;
-}
-.pc-modal__body {
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  overflow-y: auto;
-}
-.pc-modal__footer {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  padding: 0.85rem 1.25rem;
-  border-top: 1px solid var(--border);
-}
-.pc-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.pc-field__label { font-size: 0.85rem; font-weight: 500; color: var(--fg-mute); }
-.pc-field__hint { font-size: 0.75rem; color: var(--fg-dim); }
-.pc-input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.9rem;
-}
-.pc-input--mono { font-family: ui-monospace, SFMono-Regular, monospace; }
-.pc-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.pc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.pc-btn--primary { background: var(--fg); color: var(--panel); }
-.pc-btn--ghost { background: transparent; border-color: var(--border-hi); }
-.pc-error {
-  padding: 0.5rem 0.75rem;
-  background: var(--red-bg);
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  border-radius: 6px;
-  font-size: 0.85rem;
-}
-</style>
+<style scoped src="@/ui/form-fields.css"></style>

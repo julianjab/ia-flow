@@ -54,6 +54,18 @@ const props = defineProps<{
   runsKnown?: boolean;
   /** Hay un cancel en vuelo. */
   cancelling?: boolean;
+  /**
+   * Segunda COLUMNA en vez de overlay (`--bp-split`).
+   *
+   * Sobre 1100px hay ancho para que el detalle viva al lado de la lista en vez
+   * de flotar encima: la lista queda entera y usable, que es lo que permite
+   * recorrer varias tareas seguidas con el teclado sin cerrar y abrir. Es el
+   * breakpoint que el design system define como "aparece la segunda columna".
+   *
+   * Abajo sigue siendo overlay (panel lateral) y, bajo `--bp-shell`, la
+   * pantalla completa. Un solo componente, tres formas.
+   */
+  inline?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -110,8 +122,11 @@ const runMessage = computed(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="open" class="backdrop" @click.self="emit('close')">
+  <!-- `:disabled` en vez de un `v-if` que duplique el árbol: teleportar o no es
+       lo ÚNICO que cambia entre el overlay y la columna. Con dos ramas, el
+       contenido del detalle se escribiría dos veces y divergirían. -->
+  <Teleport to="body" :disabled="inline">
+    <div v-if="open" class="backdrop" :class="{ 'backdrop--inline': inline }" @click.self="inline ? undefined : emit('close')">
       <div class="modal">
         <header class="modal-head">
           <div class="modal-head-text">
@@ -149,6 +164,13 @@ const runMessage = computed(() => {
             <p v-if="runMeta" class="state-meta">{{ runMeta }}</p>
           </section>
 
+          <TaskExecutions
+            v-if="open"
+            :project-id="projectId"
+            :task-id="taskId"
+            :reload-token="runResult"
+          />
+
           <section v-if="devLinks" class="dev-block">
             <span class="uc-label">Development</span>
             <TaskTags
@@ -167,13 +189,6 @@ const runMessage = computed(() => {
             </div>
             <p v-else class="empty">La fuente no reporta ningún repo para esta tarea.</p>
           </section>
-
-          <TaskExecutions
-            v-if="open"
-            :project-id="projectId"
-            :task-id="taskId"
-            :reload-token="runResult"
-          />
 
           <section class="run-block">
             <span class="uc-label">Ejecución</span>
@@ -355,8 +370,8 @@ const runMessage = computed(() => {
 }
 
 @media (min-width: 768px) {
-  /* En desktop es un panel lateral, no un modal: la lista NO se pierde al
-     abrir una tarea, que es lo que permite recorrer varias seguidas. */
+  /* Panel lateral, no modal centrado: la lista NO se pierde al abrir una
+     tarea, que es lo que permite recorrer varias seguidas. */
   .backdrop {
     justify-content: flex-end;
     background: rgba(0, 0, 0, 0.25);
@@ -367,6 +382,31 @@ const runMessage = computed(() => {
     height: 100%;
     border-left: 1px solid var(--border);
   }
+}
+
+/* ── Sobre --bp-split: segunda columna, no overlay ──────────────────────────
+   Deja de flotar. Sin `fixed`, sin backdrop, sin z-index: es una caja más de
+   la grilla, y la lista de al lado queda entera y usable — que es la
+   diferencia entre "abrir una tarea" y "recorrer la cola".
+
+   `sticky` para que el detalle acompañe el scroll de la lista en vez de
+   quedarse arriba: con 40 tareas, un panel anclado al tope obliga a subir para
+   leerlo. */
+.backdrop--inline {
+  position: sticky;
+  top: calc(var(--tap-h) + 0.75rem);
+  inset: auto;
+  z-index: 1;
+  display: block;
+  background: none;
+  max-height: calc(100vh - var(--tap-h) - 2rem);
+}
+.backdrop--inline .modal {
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - var(--tap-h) - 2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .modal-head {
   display: flex;

@@ -19,11 +19,27 @@ import {
   ExecutionLogSchema,
   ServerLogEntrySchema,
   type ServerLogLevel,
+  type TaskDisposition,
 } from '@ia-flow/shared';
-import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue';
-import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
-import AgentHealthPanel from './AgentHealthPanel.vue';
+import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
+import {
+  cancelExecution,
+  type ExecutionLog,
+  fetchExecutions,
+  fetchExecutionSources,
+  fetchExecutionStats,
+} from './api';
+import { formatRelative } from './relativeTime';
+import BucketHeader from '@/components/BucketHeader.vue';
+import KbdBar from '@/components/KbdBar.vue';
+import HealthVerdict from './HealthVerdict.vue';
+import { dispositionOfOutcome, verbForRun } from './verdict';
+import { useDispositionOrder } from '@/composables/useDispositionOrder';
+import { useIsMobile, useIsSplit } from '@/composables/useIsMobile';
+import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
+import RunRow from './RunRow.vue';
+import RunVerdict from './RunVerdict.vue';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -187,6 +203,20 @@ const loading = ref(false);
 const error = ref<string>('');
 const expandedId = ref<string | null>(null);
 
+/**
+ * Sobre `--bp-split` el detalle deja de flotar y se vuelve la segunda columna
+ * — lo mismo que Tareas.
+ *
+ * No es sólo estética: el drawer flotante tapa 60vw de la lista, así que
+ * recorrer varios runs seguidos —que es LA forma de usar esta pantalla— era
+ * abrir, leer, cerrar, buscar dónde estabas. Como columna, la lista queda
+ * entera y el `↑`/`↓` del teclado sigue moviéndose con el detalle al lado.
+ */
+const { isSplit } = useIsSplit();
+/** Bajo `--bp-shell` el detalle es una PANTALLA, no un panel: ocupa todo y se
+ *  cierra con `←` (A3, A5 — y la banda 1 del turno 6). */
+const { isMobile } = useIsMobile();
+
 // Per-execution cache for the related-logs sub-panel. Keyed by exec.id so
 // re-expanding a card doesn't refetch (unless the user hits "↻ recargar").
 const relatedLogs = ref<Record<string, ServerLogEntry[]>>({});
@@ -217,6 +247,21 @@ async function loadIssueUrlMap() {
 }
 function issueUrlFor(taskId: string): string | null {
   return issueUrlByTaskId.value[taskId] ?? null;
+}
+
+/**
+ * `#1240` — la columna `run` de 5d.
+ *
+ * Sale del final de la URL del issue, y si no hay URL del id de la tarea cuando
+ * ES un número. Un node id de Projects V2 (`PVTI_lADO…`) NO se dibuja: ocho
+ * caracteres opacos en la columna más angosta no identifican nada, y la fila ya
+ * lleva el título al lado. La columna vacía es la respuesta correcta cuando la
+ * fuente no numera sus items.
+ */
+function issueLabelFor(taskId: string): string | null {
+  const fromUrl = issueUrlFor(taskId)?.match(/\/(\d+)(?:[?#].*)?$/)?.[1];
+  if (fromUrl) return `#${fromUrl}`;
+  return /^\d+$/.test(taskId) ? `#${taskId}` : null;
 }
 
 const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
@@ -381,7 +426,12 @@ const filteredExecutions = computed<ExecutionLog[]>(() => {
 
 // Client-side column sort over filteredExecutions. Server already returns
 // most-recent-first; we let the user re-sort in-place without a refetch.
-type ExecSortColumn = 'startedAt' | 'taskTitle' | 'agentId' | 'providerId' | 'duration' | 'outcome';
+// `providerId` y `outcome` ya no están: el proveedor se fue al detalle (en una
+// fila de 390px no entra, y es lo que menos se compara entre runs) y el outcome
+// dejó de ser una columna — es el bucket que agrupa la fila y el glifo que la
+// abre, así que ordenar por él sería reordenar dentro de un grupo por lo que ya
+// define al grupo.
+type ExecSortColumn = 'startedAt' | 'taskTitle' | 'agentId' | 'duration';
 const execSort = ref<{ column: ExecSortColumn; direction: 'asc' | 'desc' }>({
   column: 'startedAt',
   direction: 'desc',
@@ -422,14 +472,7 @@ const sortedExecutions = computed<ExecutionLog[]>(() => {
       case 'startedAt': cmp = a.startedAt.localeCompare(b.startedAt); break;
       case 'taskTitle': cmp = a.taskTitle.localeCompare(b.taskTitle); break;
       case 'agentId':   cmp = a.agentId.localeCompare(b.agentId); break;
-      case 'providerId': cmp = a.providerId.localeCompare(b.providerId); break;
       case 'duration':  cmp = durationMs(a) - durationMs(b); break;
-      case 'outcome': {
-        const oa = OUTCOME_RANK[a.outcome ?? 'pending'] ?? 99;
-        const ob = OUTCOME_RANK[b.outcome ?? 'pending'] ?? 99;
-        cmp = oa - ob;
-        break;
-      }
     }
     return cmp * dir;
   });
@@ -526,6 +569,30 @@ function toFiring(key: string, group: ExecutionLog[]): FiringRow {
   };
 }
 
+/**
+ * El disparo, dicho como un run.
+ *
+ * `ExecutionStatusLine` es el vocabulario de estado de TODA la app, y habla de
+ * ejecuciones: darle el resumen del disparo con esta forma es lo que hace que
+ * un grupo de acciones se lea igual que un run suelto, en vez de tener su
+ * propio badge. Los campos que un disparo no tiene van en null — no se inventan.
+ */
+function firingAsExec(f: FiringRow): ExecutionLog {
+  return {
+    id: f.key,
+    projectId: f.projectId,
+    taskId: f.taskId,
+    taskTitle: f.taskTitle,
+    agentId: f.ruleId ?? '',
+    providerId: f.providerId,
+    startedAt: f.startedAt,
+    finishedAt: f.finishedAt,
+    outcome: f.outcome,
+    errorMsg: null,
+    stopReason: null,
+  };
+}
+
 /** Los disparos abiertos. Se guardan por clave del disparo y no por fila: las
  *  filas se recrean en cada refetch, así que una key de fila cerraría lo que el
  *  operador dejó abierto cada vez que llega un WS. */
@@ -562,6 +629,184 @@ const groupedExecutions = computed<ExecRow[]>(() => {
     if (!isFiringOpen(key)) continue;
     // Adentro manda `position`: el orden REAL en que el `do[]` las ejecutó.
     for (const child of firing.children) out.push({ key: child.id, exec: child, nested: true });
+  }
+  return out;
+});
+
+/**
+ * Las filas agrupadas por disposición — el MISMO orden que Tareas, Qué sigue y
+ * Board (O6).
+ *
+ * Arriba lo que falló y nadie va a reintentar; después lo que corre; los
+ * terminados en una línea plegada (O4). Es el cambio más grande de esta
+ * pantalla: era cronológica pura, y nueve runs terminados dominaban el alto
+ * mientras los dos que piden algo quedaban abajo.
+ *
+ * Una fila de "firing" (varias acciones de una regla) toma la disposición de la
+ * PEOR de sus hijas: un grupo donde una acción falló pide atención aunque las
+ * otras tres hayan salido bien, y mandarlo a `cerradas` lo escondería.
+ */
+const BUCKET_SEVERITY: Record<string, number> = { 'waiting-on-you': 0, moving: 1, closed: 2 };
+
+const dispositionRows = computed(() =>
+  groupedExecutions.value
+    // Las hijas de un firing abierto no se agrupan aparte: viven dentro de su
+    // grupo, y sacarlas a otro bucket rompería la relación que el grupo dibuja.
+    .filter((row) => !row.nested)
+    .map((row) => {
+      const outcomes = row.firing
+        ? row.firing.children.map((c) => c.outcome)
+        : [row.exec?.outcome ?? null];
+      const disposition = outcomes
+        .map(dispositionOfOutcome)
+        .sort((a, b) => BUCKET_SEVERITY[a] - BUCKET_SEVERITY[b])[0];
+      return { id: row.key, disposition, row };
+    }),
+);
+
+/**
+ * `RunningRunsPanel` y el bucket `moving` NO son la misma cosa, aunque los dos
+ * hablen de lo que está corriendo.
+ *
+ * Lo primero que pensé fue sacar el bucket, y el código me corrigió: el panel
+ * **delega en la fila** (`openRunFromPanel` la abre y scrollea hasta ella), y
+ * sacarla de la lista rompía dos cosas concretas — filtrar por
+ * `resultado:pending` no mostraba nada, y el botón de abortar de la fila
+ * quedaba inalcanzable.
+ *
+ * La división que sí es: el panel es **actuá ahora** —duración en vivo, un
+ * botón para abortar, arriba de todo— y la lista es **el registro**, donde se
+ * filtra y se abre el detalle. Que un run aparezca en los dos no es
+ * duplicación: es el resumen y su fila.
+ */
+const {
+  buckets: execBuckets,
+  movedCount: execMoved,
+  freeze: freezeExecOrder,
+  freezeIfFirst: freezeExecIfFirst,
+} = useDispositionOrder(dispositionRows);
+
+// El orden se congela con la primera carga que traiga filas. Sin esto,
+// `execMoved` nunca sube y el aviso de reorden no aparece jamás.
+watch(dispositionRows, () => freezeExecIfFirst(), { immediate: true });
+
+/**
+ * Lo que el bucket `cerradas` dice sin desplegarlo: cuánto salió bien y hace
+ * cuánto fue lo último. Es lo único que se necesita saber de la parte del día
+ * que NO hay que mirar (O4) — si esos dos números están bien, no hay razón
+ * para abrirlo.
+ */
+const closedMeta = computed<string | undefined>(() => {
+  const closed = executions.value.filter((e) => e.outcome === 'success');
+  const finished = executions.value.filter((e) => e.finishedAt);
+  if (!finished.length) return undefined;
+  const pct = Math.round((closed.length / finished.length) * 100);
+  const last = closed
+    .map((e) => e.finishedAt)
+    .filter((d): d is string => !!d)
+    .sort()
+    .at(-1);
+  return last ? `${pct}% ok · última ${formatRelative(last)}` : `${pct}% ok`;
+});
+
+
+/**
+ * El promedio de duración del agente del run abierto, para el aviso de
+ * lentitud del veredicto (banda 2).
+ *
+ * Se pide sólo cuando el run está VIVO: es la única situación donde "¿esto se
+ * colgó?" es una pregunta, y así abrir un run terminado no paga un request
+ * extra. Se cachea por agente porque la ventana es la misma para todos.
+ *
+ * Si falla, el aviso no se dibuja (R13): un run lento sin comparación es
+ * simplemente un run.
+ */
+const agentAvgMs = ref<Record<string, number | null>>({});
+const STATS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+async function loadAgentAvg(exec: ExecutionLog): Promise<void> {
+  if (exec.finishedAt || !exec.agentId) return;
+  if (exec.agentId in agentAvgMs.value) return;
+  // Se marca ANTES del await: dos aperturas seguidas del mismo run vivo
+  // dispararían dos requests idénticos mientras el primero está en vuelo.
+  agentAvgMs.value = { ...agentAvgMs.value, [exec.agentId]: null };
+  try {
+    const stats = await fetchExecutionStats({
+      from: new Date(Date.now() - STATS_WINDOW_MS).toISOString(),
+      ...(isGlobal.value || !activeProjectId.value ? {} : { projectId: activeProjectId.value }),
+    });
+    const agent = stats.agents.find((a) => a.agentId === exec.agentId);
+    agentAvgMs.value = { ...agentAvgMs.value, [exec.agentId]: agent?.avgDurationMs ?? null };
+  } catch {
+    // Ya quedó en null arriba: sin comparación, sin aviso.
+  }
+}
+
+/**
+ * La meta completa del run — plegada.
+ *
+ * El detalle son cinco bandas (turno 6) y ninguna es "la tabla de campos": lo
+ * que se mira al abrir un run es el veredicto, la causa y el log. El resto
+ * —taskId, traceId, eventId, assignees, el JSON crudo— es material de
+ * auditoría: se necesita de vez en cuando y no puede desaparecer, así que
+ * queda a un click en vez de empujar al log fuera de la pantalla.
+ */
+const metaOpen = ref(false);
+
+/**
+ * Qué se puede hacer con el run abierto (banda 5).
+ *
+ * No es una lista de botones sino la respuesta a "¿existe la acción?": abortar
+ * sólo mientras corre, `Resolver` sólo si quedó abortado, la tarea sólo si la
+ * fuente tiene una URL. Con las tres vacías la barra no se dibuja — una banda
+ * que no puede ofrecer nada se omite entera en vez de mostrar un botón muerto
+ * (R13).
+ */
+const detailActions = computed<string[]>(() => {
+  const e = selectedExec.value;
+  if (!e) return [];
+  const out: string[] = [];
+  if (!e.finishedAt) out.push('cancel');
+  if (verbForRun(e)?.href) out.push('verb');
+  if (issueUrlFor(e.taskId)) out.push('issue');
+  return out;
+});
+
+/** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
+const closedOpen = ref(false);
+
+/**
+ * La lista final: los encabezados de bucket intercalados entre las filas.
+ *
+ * Plana y no anidada a propósito. La lista ya resuelve dos cosas —los grupos de
+ * "firing" con sus hijas indentadas, y la navegación por teclado sobre un solo
+ * `data-kbd-list`— y meterla dentro de un `<ul>` por bucket rompía las dos: las
+ * hijas quedarían fuera de su grupo y el foco saltaría entre listas. Un
+ * marcador en la misma secuencia deja todo eso intacto.
+ */
+type DisplayRow =
+  | { kind: 'header'; key: string; disposition: TaskDisposition; count: number }
+  | ({ kind: 'row' } & ExecRow);
+
+const displayRows = computed<DisplayRow[]>(() => {
+  const out: DisplayRow[] = [];
+  for (const bucket of execBuckets.value) {
+    out.push({
+      kind: 'header',
+      key: `bucket:${bucket.disposition}`,
+      disposition: bucket.disposition,
+      count: bucket.rows.length,
+    });
+    if (bucket.disposition === 'closed' && !closedOpen.value) continue;
+    for (const entry of bucket.rows) {
+      out.push({ kind: 'row', ...entry.row });
+      // Las hijas de un firing abierto van pegadas a su grupo, dentro del
+      // mismo bucket: son el detalle de esa fila, no filas sueltas.
+      if (entry.row.firing && isFiringOpen(entry.row.firing.key)) {
+        for (const child of entry.row.firing.children) {
+          out.push({ kind: 'row', key: child.id, exec: child, nested: true });
+        }
+      }
+    }
   }
   return out;
 });
@@ -678,28 +923,6 @@ const outcomeCounts = computed<Record<string, number>>(() => {
   for (const e of executions.value) counts[e.outcome ?? 'pending']++;
   return counts;
 });
-
-// Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
-// for older entries. Full ISO available on hover. Locale falls back to the
-// browser's default so a Spanish machine shows "ene" and a US one shows "Jan"
-// — everything is rendered in the operator's local timezone.
-// Locale FIJO y no el del dispositivo: la app está en español, así que un
-// teléfono en inglés daría 'Aug 30, 1:53 PM' en medio de una UI en español.
-// Con i18n de verdad esto pasa a seguir la preferencia del usuario.
-const monthFormatter = new Intl.DateTimeFormat('es', { month: 'short' });
-function formatDateCompact(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const today = new Date();
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate();
-  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  return sameDay ? hms : `${pad(d.getDate())} ${monthFormatter.format(d)} ${hms}`;
-}
 
 async function loadAgents() {
   // Agent chips are per-project. In the global tab we skip them — the
@@ -977,6 +1200,8 @@ function toggleRow(id: string) {
     if (exec && !fetchedRunIds.value.has(exec.id)) {
       void loadRelatedLogs(exec);
     }
+    // El promedio del agente, sólo si el run está vivo (ver `loadAgentAvg`).
+    if (exec) void loadAgentAvg(exec);
     // Reset autoscroll so the newly-opened drawer starts pinned to bottom.
     autoScroll.value = true;
   }
@@ -1120,6 +1345,14 @@ function confirmCancelExecution(exec: ExecutionLog) {
 // needs a secure context (HTTPS or localhost), which matches our dev setup.
 function copyJson(exec: ExecutionLog) {
   void navigator.clipboard.writeText(JSON.stringify(exec, null, 2));
+}
+
+/** El error, copiable entero — lo pide la banda de causa (turno 6). Avisa,
+ *  porque copiar no deja rastro visible y sin toast no se sabe si funcionó. */
+function copyError(text: string) {
+  if (!text) return;
+  void navigator.clipboard.writeText(text);
+  toastStore.success('Error copiado al portapapeles');
 }
 
 // Formatters — kept as plain functions so the template stays declarative.
@@ -1307,6 +1540,32 @@ onBeforeUnmount(() => {
 // Reload when the active project changes — same pattern as StatusesSection.
 // Health panel → run list. Narrows to exactly the runs behind the number that
 // was clicked: that agent, that failure class.
+/**
+ * Un contador del veredicto prende su filtro.
+ *
+ * "te esperan" son tres outcomes (`error`, `cancelled`, `truncated`), así que
+ * pone los tres tokens de una: el contador cuenta una disposición y el filtro
+ * tiene que dejar exactamente eso. Volver a tocarlo apaga — es un toggle, como
+ * los conteos por outcome que reemplaza.
+ */
+function filterByDisposition(outcomes: string[]): void {
+  const already = outcomes.every((oc) => hasToken('resultado', oc));
+  const rest = filterTokens.value.filter((t) => t.field !== 'resultado');
+  filterTokens.value = already ? rest : [...rest, ...outcomes.map((value) => ({ field: 'resultado', value }))];
+}
+
+/**
+ * El filtro activo dicho corto, para la fila de controles bajo --bp-shell.
+ * Arriba del breakpoint el input está a la vista con sus tokens, así que esto
+ * no se dibuja — sería decir lo mismo dos veces.
+ */
+const mobileFilterSummary = computed<string | null>(() => {
+  const tokens = filterTokens.value;
+  if (!tokens.length) return null;
+  const first = `${tokens[0].field}: ${tokens[0].value}`;
+  return tokens.length === 1 ? first : `${first} +${tokens.length - 1}`;
+});
+
 function onHealthDrill(payload: { agentId: string; failureClass: string }): void {
   agentFilter.value = new Set([payload.agentId]);
   failureClassFilter.value = payload.failureClass;
@@ -1426,16 +1685,13 @@ watch(pendingFilter, () => {
     :editor-path="agentEditorPath"
     @close="closeAgentPage"
     @drill="onPageDrill"
+    @open="openAgentPage"
   />
   <section v-else class="settings-section">
-    <div class="section-header">
-      <div>
-        <h2>Ejecuciones</h2>
-        <p class="section-desc">
-          Historial de agentes ejecutados sobre las tareas de este proyecto.
-          Los filtros de agente, outcome y fechas se aplican en el servidor.
-        </p>
-      </div>
+    <!-- Sin `<h2>Ejecuciones</h2>` ni su descripción (R9, R12): la barra de
+         identidad del shell ya dice el proyecto y la sección, y el párrafo
+         describía lo que la lista muestra abajo. -->
+    <div class="section-header section-header--bare">
       <div class="section-head-actions">
         <button
           type="button"
@@ -1468,9 +1724,13 @@ watch(pendingFilter, () => {
       </div>
     </div>
 
-    <AgentHealthPanel
+    <!-- El resumen es un VEREDICTO: tres contadores por disposición y sólo los
+         agentes fuera de banda (R10). Reemplaza al AgentHealthPanel, cuya tabla
+         de diez columnas se mudó entera a la pantalla del agente. -->
+    <HealthVerdict
       :project-id="isGlobal ? null : activeProjectId"
-      @drill="onHealthDrill"
+      :outcome-counts="outcomeCounts"
+      @filter="filterByDisposition"
       @open="openAgentPage"
     />
 
@@ -1484,77 +1744,80 @@ watch(pendingFilter, () => {
       @cancel="confirmCancelExecution"
     />
 
-    <FilterQueryInput
-      v-model="filterTokens"
-      :fields="filterFields"
-      default-field="tarea"
-      testid="executions-filter"
-      placeholder="Filtrar… un campo (agente, resultado, tarea…) o texto plano busca por título/id"
-    />
+    <ListControlsBar
+      :filter-count="filterTokens.length"
+      :summary="mobileFilterSummary ?? undefined"
+      title="Filtrar ejecuciones"
+      @clear="filterTokens = []"
+    >
+      <template #view>
+        <span class="exec-total">{{ executions.length }} ejecuciones</span>
+      </template>
+
+      <FilterQueryInput
+        v-model="filterTokens"
+        :fields="filterFields"
+        default-field="tarea"
+        testid="executions-filter"
+        placeholder="Filtrar… un campo (agente, resultado, tarea…) o texto plano busca por título/id"
+      />
+    </ListControlsBar>
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
-    <!-- El conteo ES el filtro: clickearlo prende el token `resultado:<x>`, el
-         mismo que se escribe en el input. Un atajo, no un segundo camino. -->
-    <div class="exec-summary" aria-label="Resumen por outcome">
-      <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
-      <button
-        v-for="oc in OUTCOME_ORDER"
-        :key="oc"
-        type="button"
-        class="exec-summary__count"
-        :class="[
-          `exec-summary__count--${oc}`,
-          { 'exec-summary__count--zero': outcomeCounts[oc] === 0 },
-        ]"
-        :aria-pressed="hasToken('resultado', oc)"
-        :title="`Filtrar por resultado:${oc}`"
-        :data-testid="`executions-summary-${oc}`"
-        @click="toggleToken('resultado', oc)"
-      >{{ oc }} <b>{{ outcomeCounts[oc] }}</b></button>
-    </div>
-
+    <!-- Sobre --bp-split la lista y el detalle se parten en dos columnas; sin
+         detalle abierto no hay grilla, porque reservar 26rem vacías dejaría la
+         lista angosta para nada. -->
+    <div class="exec-split" :class="{ 'exec-split--open': isSplit && !!selectedExec }">
+    <div class="exec-col">
     <div class="exec-list-wrapper">
+      <!-- El encabezado son las columnas de 5d, y existe SÓLO donde hay
+           columnas: bajo 768px la fila se apila y un encabezado no encabeza
+           nada. Ordenar es de la tabla, no de la fila. -->
       <div class="exec-list-header" role="row">
+        <span class="exec-h-anchor" aria-hidden="true"></span>
         <button
           type="button"
-          class="exec-title exec-header-btn"
+          class="exec-h-issue exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
+          title="Ordenar por cuándo corrió"
+          @click="selectExecColumn('startedAt')"
+        >run{{ execSortArrow('startedAt') }}</button>
+        <button
+          type="button"
+          class="exec-h-main exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'taskTitle' }"
           @click="selectExecColumn('taskTitle')"
-        >Título{{ execSortArrow('taskTitle') }}</button>
+        >tarea · razón{{ execSortArrow('taskTitle') }}</button>
         <button
           type="button"
-          class="exec-meta exec-agent exec-header-btn"
+          class="exec-h-agent exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
           @click="selectExecColumn('agentId')"
-        >Agente{{ execSortArrow('agentId') }}</button>
+        >agente{{ execSortArrow('agentId') }}</button>
         <button
           type="button"
-          class="exec-meta exec-provider exec-header-btn"
-          :class="{ 'exec-header-btn--active': execSort.column === 'providerId' }"
-          @click="selectExecColumn('providerId')"
-        >Proveedor{{ execSortArrow('providerId') }}</button>
-        <button
-          type="button"
-          class="exec-meta exec-date exec-header-btn"
-          :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
-          @click="selectExecColumn('startedAt')"
-        >Fecha{{ execSortArrow('startedAt') }}</button>
-        <button
-          type="button"
-          class="exec-meta exec-duration exec-header-btn"
+          class="exec-h-dur exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'duration' }"
           @click="selectExecColumn('duration')"
-        >Duración{{ execSortArrow('duration') }}</button>
-        <button
-          type="button"
-          class="exec-outcome-col exec-header-btn"
-          :class="{ 'exec-header-btn--active': execSort.column === 'outcome' }"
-          @click="selectExecColumn('outcome')"
-        >Resultado{{ execSortArrow('outcome') }}</button>
-        <span class="exec-chevron"></span>
-        <span class="exec-stop-spacer" aria-hidden="true"></span>
+        >dur.{{ execSortArrow('duration') }}</button>
+        <span class="exec-h-verb">acción</span>
       </div>
+
+      <!-- El orden no se recalcula solo: con el socket vivo, la fila que ibas a
+           tocar se movería bajo el dedo cada vez que llega un evento. Misma
+           pieza que en Tareas y Qué sigue. -->
+      <button
+        v-if="execMoved > 0"
+        type="button"
+        class="exec-moved"
+        data-testid="executions-reorder"
+        @click="freezeExecOrder"
+      >
+        {{ execMoved }} {{ execMoved === 1 ? 'cambió' : 'cambiaron' }} de lugar
+        <span class="exec-moved-sep">·</span>
+        <span class="exec-moved-cta">reordenar</span>
+      </button>
 
       <p v-if="loading && !executions.length" class="exec-empty">Cargando ejecuciones…</p>
       <p v-else-if="!filteredExecutions.length" class="exec-empty">
@@ -1562,58 +1825,49 @@ watch(pendingFilter, () => {
       </p>
 
       <ul v-else class="exec-list" data-kbd-list="executions">
-      <template v-for="row in groupedExecutions" :key="row.key">
+      <template v-for="row in displayRows" :key="row.key">
+        <!-- El encabezado de bucket, en la misma secuencia que las filas: es
+             lo que hace que esta pantalla se lea como un recorte del mismo
+             orden que Tareas y Qué sigue (O6). -->
+        <li v-if="row.kind === 'header'" class="exec-bucket">
+          <BucketHeader
+            :disposition="row.disposition"
+            :count="row.count"
+            :collapsible="row.disposition === 'closed'"
+            :open="closedOpen"
+            :meta="row.disposition === 'closed' ? closedMeta : undefined"
+            @toggle="closedOpen = !closedOpen"
+          />
+        </li>
+
+        <!-- El resumen de un disparo: la MISMA fila, con la regla en la columna
+             del agente y el caret que abre sus acciones. -->
         <li
-          v-if="row.firing"
+          v-else-if="row.firing"
           class="exec-card exec-card--firing"
           :class="{ 'exec-card--open': isFiringOpen(row.firing.key) }"
         >
-          <div class="exec-card-inner">
-            <button
-              type="button"
-              class="exec-row"
-              data-kbd-item
-              :aria-expanded="isFiringOpen(row.firing.key)"
-              :title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
-              @click="toggleFiring(row.firing.key)"
-            >
-              <span
-                v-if="isGlobal"
-                class="exec-project-tag"
-                :title="`Proyecto: ${projectNameFor(row.firing.projectId)}`"
-              >{{ projectNameFor(row.firing.projectId) }}</span>
-              <span class="exec-title">
-                <span class="exec-caret" aria-hidden="true">{{ isFiringOpen(row.firing.key) ? '▾' : '▸' }}</span>
-                <a
-                  v-if="issueUrlFor(row.firing.taskId)"
-                  :href="issueUrlFor(row.firing.taskId)!"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  @click.stop
-                >{{ row.firing.taskTitle }} ↗</a>
-                <template v-else>{{ row.firing.taskTitle }}</template>
-              </span>
-              <span class="exec-kind">{{ row.firing.count }} acciones</span>
-              <span class="exec-meta exec-agent">{{ row.firing.ruleId ?? '' }}</span>
-              <span class="exec-meta exec-provider">{{ row.firing.providerId }}</span>
-              <span class="exec-meta exec-date" :title="row.firing.startedAt">{{ formatDateCompact(row.firing.startedAt) }}</span>
-              <span class="exec-meta exec-duration">{{ formatDuration(row.firing.startedAt, row.firing.finishedAt) }}</span>
-              <span
-                class="exec-outcome"
-                :style="{
-                  background: outcomeColor(row.firing.outcome).bg,
-                  color: outcomeColor(row.firing.outcome).fg,
-                }"
-              >{{ outcomeLabel(row.firing.outcome) }}</span>
-              <span
-                v-if="row.firing.hadEarlierIssue"
-                class="exec-outcome-warn"
-                aria-hidden="false"
-                title="Una acción anterior de este pipeline terminó en error/cancelled/truncated antes del resultado final mostrado."
-              >⚠</span>
-              <span class="exec-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="exec-stop-slot">
+          <RunRow
+            class="exec-row"
+            :execution="firingAsExec(row.firing)"
+            :title="row.firing.taskTitle"
+            :title-href="issueUrlFor(row.firing.taskId)"
+            :issue-label="issueLabelFor(row.firing.taskId)"
+            :agent="row.firing.ruleId ?? ''"
+            :duration="formatDuration(row.firing.startedAt, row.firing.finishedAt)"
+            :tag="isGlobal ? projectNameFor(row.firing.projectId) : null"
+            :tag-title="`Proyecto: ${projectNameFor(row.firing.projectId)}`"
+            :caret="isFiringOpen(row.firing.key) ? '▾' : '▸'"
+            :note="`${row.firing.count} acciones`"
+            :warn="row.firing.hadEarlierIssue
+              ? 'Una acción anterior de este pipeline terminó en error/cancelled/truncated antes del resultado final mostrado.'
+              : null"
+            :has-verb="!!row.firing.running"
+            :aria-expanded="isFiringOpen(row.firing.key)"
+            :note-title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
+            @open="toggleFiring(row.firing.key)"
+          >
+            <template #verb>
               <button
                 v-if="row.firing.running"
                 type="button"
@@ -1621,100 +1875,70 @@ watch(pendingFilter, () => {
                 :disabled="isCancelling(row.firing.running.id)"
                 :data-testid="`executions-stop-${row.firing.running.id}`"
                 title="Detener ejecución"
-                @click.stop="confirmCancelExecution(row.firing.running!)"
+                @click.stop="confirmCancelExecution(row.firing!.running!)"
               >{{ isCancelling(row.firing.running.id) ? '…' : '■ Detener' }}</button>
-            </div>
-          </div>
+            </template>
+          </RunRow>
         </li>
+
         <li
           v-else
           class="exec-card"
           :data-run-id="row.exec!.id"
           :class="{ 'exec-card--open': expandedId === row.exec!.id, 'exec-card--nested': row.nested }"
         >
-          <div class="exec-card-inner">
-            <button
-              type="button"
-              class="exec-row"
-              data-kbd-item
-              @click="toggleRow(row.exec!.id)"
-              :aria-expanded="expandedId === row.exec!.id"
-            >
-              <!-- En un hijo el tag queda invisible pero PRESENTE: sacarlo del
-                   todo correría sus columnas respecto de las del resumen. -->
-              <span
-                v-if="isGlobal"
-                class="exec-project-tag"
-                :class="{ 'exec-project-tag--ghost': row.nested }"
-                :title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
-              >{{ projectNameFor(row.exec!.projectId) }}</span>
-              <!-- La acción de un disparo NO repite el título ni el proyecto:
-                   los dice el resumen del que cuelga, y repetirlos tres veces
-                   es lo que hacía ilegible la lista. La columna ancha dice QUÉ
-                   es (un agente o una acción, y de qué tipo); el nombre queda
-                   en la columna del agente, que es donde el encabezado lo
-                   anuncia y donde el ojo ya lo busca. -->
-              <span v-if="row.nested" class="exec-title exec-title--action">
-                <span class="exec-kind">{{ kindLabel(row.exec!) ? 'acción' : 'agente' }}</span>
-                <span v-if="kindLabel(row.exec!)" class="exec-action-kind">{{ kindLabel(row.exec!) }}</span>
-              </span>
-              <template v-else>
-                <span class="exec-title">
-                  <a
-                    v-if="issueUrlFor(row.exec!.taskId)"
-                    :href="issueUrlFor(row.exec!.taskId)!"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @click.stop
-                  >{{ row.exec!.taskTitle }} ↗</a>
-                  <template v-else>{{ row.exec!.taskTitle }}</template>
-                </span>
-                <span
-                  v-if="kindLabel(row.exec!)"
-                  class="exec-kind"
-                  :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
-                >{{ kindLabel(row.exec!) }}</span>
-              </template>
-              <!-- En un hijo NO cae al `ruleId`: la regla ya la dijo el resumen,
-                   y repetirla en cada acción es lo que hacía parecer que la
-                   notificación la había corrido el agente. Una acción inline no
-                   tiene nombre y la columna queda vacía. -->
-              <span class="exec-meta exec-agent">{{
-                row.nested ? row.exec!.agentId : row.exec!.agentId || row.exec!.ruleId || ''
-              }}</span>
-              <span class="exec-meta exec-provider">{{ row.exec!.providerId }}</span>
-              <span v-if="row.exec!.source" class="exec-meta exec-source" :title="`Corrió en: ${row.exec!.source}`">{{ row.exec!.source }}</span>
-              <span
-                v-if="row.exec!.cancelRequestedAt"
-                class="exec-cancel-requested"
-                :title="`Cancelación solicitada: ${row.exec!.cancelRequestedAt}`"
-              >cancelación solicitada</span>
-              <span class="exec-meta exec-date" :title="row.exec!.startedAt">{{ formatDateCompact(row.exec!.startedAt) }}</span>
-              <span class="exec-meta exec-duration">{{ formatDuration(row.exec!.startedAt, row.exec!.finishedAt) }}</span>
-              <span
-                class="exec-outcome"
-                :style="{
-                  background: outcomeColor(row.exec!.outcome).bg,
-                  color: outcomeColor(row.exec!.outcome).fg,
-                }"
-              >{{ outcomeLabel(row.exec!.outcome) }}</span>
-              <span class="exec-chevron" aria-hidden="true">›</span>
-            </button>
-            <div class="exec-stop-slot">
+          <!-- La acción de un disparo NO repite el título ni el proyecto: los
+               dice el resumen del que cuelga, y repetirlos tres veces es lo que
+               hacía ilegible la lista. La columna ancha dice QUÉ es (un agente o
+               una acción, y de qué tipo); el nombre queda en la columna del
+               agente, que es donde el encabezado lo anuncia. -->
+          <RunRow
+            class="exec-row"
+            :execution="row.exec!"
+            :title="row.nested ? (kindLabel(row.exec!) ? 'acción' : 'agente') : row.exec!.taskTitle"
+            :title-href="row.nested ? null : issueUrlFor(row.exec!.taskId)"
+            :issue-label="row.nested ? null : issueLabelFor(row.exec!.taskId)"
+            :note="kindLabel(row.exec!)"
+            :agent="row.nested ? row.exec!.agentId : row.exec!.agentId || row.exec!.ruleId || ''"
+            :duration="formatDuration(row.exec!.startedAt, row.exec!.finishedAt)"
+            :tag="isGlobal ? projectNameFor(row.exec!.projectId) : null"
+            :tag-ghost="row.nested"
+            :tag-title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
+            :cancel-requested="!!row.exec!.cancelRequestedAt"
+            :has-verb="!!verbForRun(row.exec!)"
+            :aria-expanded="expandedId === row.exec!.id"
+            @open="toggleRow(row.exec!.id)"
+          >
+            <!-- Un verbo por fila, y sólo donde hay algo que hacer (O2). El
+                 destino existe: abortar llama a su endpoint, resolver navega a
+                 la pantalla de runs abortados. -->
+            <template #verb>
               <button
-                v-if="!row.exec!.finishedAt"
+                v-if="verbForRun(row.exec!)?.kind === 'cancel'"
                 type="button"
                 class="exec-stop-btn"
                 :disabled="isCancelling(row.exec!.id)"
                 :data-testid="`executions-stop-${row.exec!.id}`"
                 title="Detener ejecución"
                 @click.stop="confirmCancelExecution(row.exec!)"
-              >{{ isCancelling(row.exec!.id) ? '…' : '■ Detener' }}</button>
-            </div>
-          </div>
+              >{{ isCancelling(row.exec!.id) ? '…' : '■ Abortar' }}</button>
+              <RouterLink
+                v-else-if="verbForRun(row.exec!)?.href"
+                class="exec-verb"
+                :to="verbForRun(row.exec!)!.href!"
+                :data-testid="`executions-verb-${row.exec!.id}`"
+                @click.stop
+              >
+                → {{ verbForRun(row.exec!)!.label }}
+                <span class="exec-verb-hint">{{ verbForRun(row.exec!)!.hint }}</span>
+              </RouterLink>
+            </template>
+          </RunRow>
         </li>
       </template>
       </ul>
+
+      <KbdBar />
     </div>
 
     <div v-if="executions.length === limit" class="load-more">
@@ -1722,49 +1946,42 @@ watch(pendingFilter, () => {
         Cargar más
       </button>
     </div>
+    </div>
 
-    <!-- Right-side detail drawer -->
-    <transition name="exec-drawer">
+    <!-- El detalle: columna hermana sobre --bp-split, drawer flotante debajo.
+         Es el MISMO marcado — un panel que entra desde la derecha y uno que
+         está a la derecha se diferencian en dónde se posicionan, no en qué
+         dicen. La transición sólo existe cuando flota: una columna que aparece
+         deslizándose desde afuera de la pantalla no viene de ningún lado. -->
+    <transition :name="isSplit ? 'exec-inline' : 'exec-drawer'">
       <aside
         v-if="selectedExec"
         class="exec-drawer"
+        :class="{ 'exec-drawer--inline': isSplit }"
         role="dialog"
         aria-label="Detalle de la ejecución"
         data-testid="executions-detail-drawer"
       >
-        <header class="exec-drawer__header">
+        <!-- Banda 1 · identidad. Qué run es, y nada más: el outcome lo dice el
+             veredicto de abajo en grande, así que repetirlo acá como badge era
+             decir dos veces lo mismo en 44px. -->
+        <header class="exec-drawer__header" :class="{ 'exec-drawer__header--back': isMobile }">
           <div class="exec-drawer__title">
-            <h3>{{ isAction(selectedExec) ? 'Acción' : 'Ejecución' }}</h3>
-            <span
-              class="exec-outcome"
-              :style="{
-                background: outcomeColor(selectedExec.outcome).bg,
-                color: outcomeColor(selectedExec.outcome).fg,
-              }"
-            >{{ outcomeLabel(selectedExec.outcome) }}</span>
-            <span
-              v-if="selectedExec.cancelRequestedAt"
-              class="exec-cancel-requested"
-              :title="`Cancelación solicitada: ${selectedExec.cancelRequestedAt}`"
-            >cancelación solicitada</span>
+            <span class="exec-drawer__id">{{ issueLabelFor(selectedExec.taskId) ?? (isAction(selectedExec) ? 'acción' : 'run') }}</span>
+            <!-- El proyecto sólo en la pestaña global: en la de un proyecto ya
+                 lo dice la barra de identidad de la pantalla (R9). Y no se
+                 repite la palabra que el id de la izquierda ya dijo. -->
+            <span v-if="isGlobal" class="exec-drawer__crumb">
+              {{ projectNameFor(selectedExec.projectId) }}
+            </span>
           </div>
-          <div class="exec-drawer__header-actions">
-            <button
-              v-if="!selectedExec.finishedAt"
-              type="button"
-              class="exec-stop-btn"
-              :disabled="isCancelling(selectedExec.id)"
-              data-testid="executions-detail-stop"
-              @click="confirmCancelExecution(selectedExec)"
-            >{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Detener' }}</button>
-            <button
-              type="button"
-              class="exec-drawer__close"
-              aria-label="Cerrar detalle"
-              data-testid="executions-detail-close"
-              @click="closeDetail()"
-            >×</button>
-          </div>
+          <button
+            type="button"
+            class="exec-drawer__close"
+            aria-label="Cerrar detalle"
+            data-testid="executions-detail-close"
+            @click="closeDetail()"
+          >{{ isMobile ? '←' : '×' }}</button>
         </header>
 
         <div
@@ -1772,62 +1989,84 @@ watch(pendingFilter, () => {
           class="exec-drawer__body"
           @scroll.passive="onDrawerScroll"
         >
-          <p class="exec-drawer__task">
-            <a
-              v-if="issueUrlFor(selectedExec.taskId)"
-              :href="issueUrlFor(selectedExec.taskId)!"
-              target="_blank"
-              rel="noopener noreferrer"
-            >{{ selectedExec.taskTitle }} ↗</a>
-            <template v-else>{{ selectedExec.taskTitle }}</template>
-          </p>
+          <!-- Bandas 2 y 3 · veredicto y causa. -->
+          <RunVerdict
+            :execution="selectedExec"
+            :issue-url="issueUrlFor(selectedExec.taskId)"
+            :avg-duration-ms="agentAvgMs[selectedExec.agentId] ?? null"
+            :rules-href="isGlobal ? null : `/projects/${selectedExec.projectId}/pipeline`"
+            @copy-error="copyError(selectedExec.errorMsg ?? '')"
+          />
 
-          <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
-            <span class="detail-label">{{ row.label }}</span>
-            <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
-            <button
-              v-else-if="row.jumpToRunId"
-              type="button"
-              class="detail-value detail-value--link"
-              :title="row.title"
-              @click="jumpToRun(row.jumpToRunId)"
-            >{{ row.value }}</button>
-            <button
-              v-else-if="row.filterByTraceId"
-              type="button"
-              class="detail-value detail-value--link"
-              title="Filtrar por este traceId — todo lo que produjo el mismo delivery/scan"
-              data-testid="executions-filter-trace"
-              @click="applyTraceIdFilter(row.value)"
-            >{{ row.value }}</button>
-            <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
-          </div>
+          <span
+            v-if="selectedExec.cancelRequestedAt"
+            class="exec-cancel-requested"
+            :title="`Cancelación solicitada: ${selectedExec.cancelRequestedAt}`"
+          >cancelación solicitada</span>
 
-          <div class="detail-json-block">
-            <div class="detail-json-header">
-              <span class="detail-label">JSON completo</span>
+          <!-- La meta completa: material de auditoría, plegado (ver `metaOpen`). -->
+          <button
+            type="button"
+            class="detail-meta-toggle"
+            :aria-expanded="metaOpen"
+            data-testid="executions-meta-toggle"
+            @click="metaOpen = !metaOpen"
+          >
+            <span class="detail-meta-caret" aria-hidden="true">{{ metaOpen ? '▾' : '▸' }}</span>
+            meta del run
+          </button>
+
+          <template v-if="metaOpen">
+            <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
+              <span class="detail-label">{{ row.label }}</span>
+              <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
               <button
+                v-else-if="row.jumpToRunId"
                 type="button"
-                class="btn-copy"
-                data-testid="executions-copy-json"
-                @click="copyJson(selectedExec)"
-              >
-                Copiar JSON
-              </button>
+                class="detail-value detail-value--link"
+                :title="row.title"
+                @click="jumpToRun(row.jumpToRunId)"
+              >{{ row.value }}</button>
+              <button
+                v-else-if="row.filterByTraceId"
+                type="button"
+                class="detail-value detail-value--link"
+                title="Filtrar por este traceId — todo lo que produjo el mismo delivery/scan"
+                data-testid="executions-filter-trace"
+                @click="applyTraceIdFilter(row.value)"
+              >{{ row.value }}</button>
+              <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
             </div>
-            <div class="detail-json">
-              <JsonTreeNode :data="selectedExec" path="" :depth="0" />
-            </div>
-          </div>
 
+            <div class="detail-json-block">
+              <div class="detail-json-header">
+                <span class="detail-label">JSON completo</span>
+                <button
+                  type="button"
+                  class="btn-copy"
+                  data-testid="executions-copy-json"
+                  @click="copyJson(selectedExec)"
+                >
+                  Copiar JSON
+                </button>
+              </div>
+              <div class="detail-json">
+                <JsonTreeNode :data="selectedExec" path="" :depth="0" />
+              </div>
+            </div>
+          </template>
+
+          <!-- Banda 4 · el log. Es la evidencia, y ocupa lo que sobra; el log
+               COMPLETO se abre aparte (`completo ↗`) en vez de scrollearse
+               acá dentro. -->
           <div class="related-block">
             <div class="related-header">
               <span class="detail-label">
-                {{ isAction(selectedExec) ? 'Líneas del daemon de esta regla' : 'Tool calls y eventos del servidor' }}
+                {{ isAction(selectedExec) ? 'log de la regla' : 'log' }}
                 <span
                   v-if="relatedLogs[selectedExec.id]"
                   class="related-count"
-                >({{ relatedLogs[selectedExec.id].length }})</span>
+                >· {{ relatedLogs[selectedExec.id].length }} líneas</span>
               </span>
               <div class="related-actions">
                 <button
@@ -1859,7 +2098,7 @@ watch(pendingFilter, () => {
                   data-testid="executions-related-open-logs"
                   @click="openRunInLogs(selectedExec)"
                 >
-                  Ir a Logs →
+                  completo ↗
                 </button>
               </div>
             </div>
@@ -2033,8 +2272,38 @@ watch(pendingFilter, () => {
             </div>
           </div>
         </div>
+        <!-- Banda 5 · acciones. Por estado, y sólo las que EXISTEN: mientras
+             corre no hay nada que iniciar (ningún botón es primary, y el único
+             es abortar); cerrado, lo único que el detalle puede ofrecer es
+             volver al issue. Reintentar vive en la fila de la tarea, que es
+             donde la acción pertenece (ver `verbForRun`). -->
+        <footer v-if="detailActions.length" class="exec-actions" data-testid="executions-detail-actions">
+          <button
+            v-if="!selectedExec.finishedAt"
+            type="button"
+            class="exec-stop-btn exec-actions__btn"
+            :disabled="isCancelling(selectedExec.id)"
+            data-testid="executions-detail-stop"
+            @click="confirmCancelExecution(selectedExec)"
+          >{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Abortar' }}</button>
+          <RouterLink
+            v-if="verbForRun(selectedExec)?.href"
+            class="exec-actions__btn exec-actions__btn--primary"
+            :to="verbForRun(selectedExec)!.href!"
+            data-testid="executions-detail-verb"
+          >{{ verbForRun(selectedExec)!.label }}</RouterLink>
+          <a
+            v-if="issueUrlFor(selectedExec.taskId)"
+            class="exec-actions__btn"
+            :href="issueUrlFor(selectedExec.taskId)!"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="executions-detail-issue"
+          >La tarea ↗</a>
+        </footer>
       </aside>
     </transition>
+    </div>
   </section>
 
   <ConfirmDialog
@@ -2141,24 +2410,61 @@ watch(pendingFilter, () => {
 .exec-summary__count--zero { opacity: 0.4; }
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
-.exec-list-wrapper { position: relative; }
-.exec-list-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.4rem 0.85rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  border-radius: 6px 6px 0 0;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--fg-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  position: sticky;
-  top: 0;
-  z-index: 1;
+/* ── La segunda columna (--bp-split) ─────────────────────────────────────── */
+.exec-split { display: flex; flex-direction: column; min-width: 0; }
+.exec-col { min-width: 0; }
+@media (min-width: 1100px) {
+  .exec-split--open {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 26rem;
+    gap: 1rem;
+    align-items: start;
+  }
 }
+
+/* La lista es un CONTENEDOR de consulta, y de ahí sale si la fila se apila.
+   No es un capricho sobre el media query: con el detalle abierto al lado, la
+   ventana mide 1440 y la lista 470 — o sea que el ancho de la ventana pasa a
+   ser mentira justo cuando más importa. `RunRow` y el encabezado preguntan por
+   este contenedor, así que la fila se apila sola cuando se abre el detalle. */
+.exec-list-wrapper {
+  position: relative;
+  container: exec-list / inline-size;
+}
+/* Las columnas se declaran UNA vez, acá, y las heredan la fila y su
+   encabezado: escritas por separado, la primera vez que una cambie el
+   encabezado deja de nombrar la columna que tiene debajo, que es lo único que
+   hace. Son las de 5d, dibujado a 1280. */
+.exec-list-wrapper { --rr-cols: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch; }
+
+/* No existe donde la fila se apila: un encabezado de columnas no encabeza
+   nada. Mismo umbral que `RunRow` — 47rem de LISTA, ver el porqué ahí. */
+.exec-list-header { display: none; }
+@container exec-list (min-width: 47rem) {
+  .exec-list-header {
+    display: grid;
+    grid-template-columns: var(--rr-cols);
+    gap: 0.65rem;
+    align-items: center;
+    height: var(--row-h);
+    padding: 0 0.65rem;
+    background: var(--panel-hi);
+    border: 1px solid var(--border);
+    border-radius: 6px 6px 0 0;
+    /* Misma base que `.rr`: `ch` se mide contra la fuente del contenedor, y con
+       dos bases distintas el encabezado no cae sobre su columna. */
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-lbl);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}
+.exec-h-dur { text-align: right; }
+.exec-h-verb { color: var(--fg-dimmer); }
 .exec-header-btn {
   background: none;
   border: none;
@@ -2172,11 +2478,6 @@ watch(pendingFilter, () => {
 }
 .exec-header-btn:hover { color: var(--fg); }
 .exec-header-btn--active { color: var(--fg); }
-.exec-list-header .exec-outcome-col {
-  flex-shrink: 0;
-  width: 90px;
-  text-align: center;
-}
 .exec-empty {
   padding: 1.5rem 0.75rem;
   text-align: center;
@@ -2187,6 +2488,27 @@ watch(pendingFilter, () => {
   border-radius: 0 0 6px 6px;
   margin: 0;
 }
+
+/* El aviso de reorden: información, no alarma — describe el estado del ORDEN,
+   no el de un run. Misma pieza que en Tareas. */
+.exec-moved {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0 1rem;
+  border: none;
+  background: var(--panel-alt);
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-align: left;
+  cursor: pointer;
+}
+.exec-moved:hover { background: var(--panel-hi); }
+.exec-moved-sep { color: var(--fg-dimmer); }
+.exec-moved-cta { text-decoration: underline; }
 
 .exec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .exec-card {
@@ -2217,6 +2539,112 @@ watch(pendingFilter, () => {
   flex-direction: column;
   z-index: 40;
 }
+/* ── Banda 1 · identidad ─────────────────────────────────────────────────── */
+.exec-drawer__id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  font-weight: 700;
+  color: var(--fg);
+}
+.exec-drawer__crumb {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La meta completa, plegada: es material de auditoría, no lo que se viene a
+   ver. Se toca, así que mide --tap-h. */
+.detail-meta-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.detail-meta-toggle:hover { color: var(--fg); }
+.detail-meta-caret { color: var(--fg-dimmer); }
+
+/* ── Banda 5 · acciones ──────────────────────────────────────────────────── */
+.exec-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-hi);
+  background: var(--panel);
+}
+.exec-actions__btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* La fila de la acción principal de la pantalla: el pulgar la busca sin
+     mirar (--tap-h-lg, igual que `StickyActionBar`). */
+  min-height: var(--tap-h-lg);
+  padding: 0 0.9rem;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.exec-actions__btn:hover { background: var(--panel-hi); color: var(--fg); }
+.exec-actions__btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+.exec-actions__btn--primary:hover { background: var(--accent); color: var(--panel); }
+/* Abortar hereda la caja de la fila, pero acá es una acción de pantalla. */
+.exec-actions .exec-stop-btn { flex: 1 1 0; min-height: var(--tap-h-lg); }
+
+/* Como columna no flota: se queda pegado arriba mientras la lista scrollea al
+   lado, que es lo que permite recorrer runs sin perder el detalle de vista. */
+.exec-drawer--inline {
+  position: sticky;
+  top: calc(var(--chrome-h) + 0.5rem);
+  width: auto;
+  min-width: 0;
+  max-height: calc(100vh - var(--chrome-h) - 2rem);
+  border-left: 1px solid var(--border);
+  box-shadow: none;
+}
+
+/* Bajo --bp-shell no es un panel: es la pantalla. Medía 420px de `min-width`
+   sobre un teléfono de 390, así que tapaba la lista igual pero con 31px de su
+   contenido cortados contra el borde izquierdo — y el `×` de cerrar era lo
+   único que se alcanzaba bien. Acá ocupa todo y se cierra con `←` (A3, A5). */
+@media (max-width: 768px) {
+  .exec-drawer {
+    top: var(--chrome-h);
+    left: 0;
+    right: 0;
+    width: auto;
+    min-width: 0;
+    border-left: none;
+    box-shadow: none;
+    z-index: 70;
+  }
+  /* El `←` es volver: va primero, no en la esquina de cerrar. */
+  .exec-drawer__header--back { flex-direction: row-reverse; justify-content: flex-end; gap: 0.6rem; }
+}
+
 .exec-drawer__header {
   display: flex;
   align-items: center;
@@ -2266,73 +2694,33 @@ watch(pendingFilter, () => {
 .exec-drawer-enter-from,
 .exec-drawer-leave-to { transform: translateX(100%); opacity: 0; }
 
-.exec-card-inner { display: flex; align-items: stretch; }
-.exec-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex: 1;
-  min-width: 0;
-  padding: 0.6rem 0.85rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 0.85rem;
-  color: var(--fg);
-}
-.exec-row:hover { background: var(--panel-alt); }
-
 /* El resumen de un disparo de regla. Se dibuja como una fila normal —misma
-   grilla, mismo outcome, misma altura— porque para escanear la lista ES la
+   grilla, mismo estado, misma altura— porque para escanear la lista ES la
    fila; lo único que la marca es el caret y un fondo apenas distinto. */
 .exec-card--firing { background: var(--panel-alt); }
-.exec-caret {
-  display: inline-block;
-  width: 0.9rem;
-  flex-shrink: 0;
-  color: var(--fg-dim);
-  font-size: 0.75rem;
-}
-.exec-title--action { color: var(--fg-mute); display: flex; align-items: center; gap: 0.4rem; }
-.exec-action-kind { font-size: 0.75rem; color: var(--fg-dim); }
-.exec-project-tag--ghost { visibility: hidden; }
 
 /* Una acción abierta desde el resumen de su disparo. El sangrado más la guía a
    la izquierda es lo que dice "esto lo lanzó aquella regla" — la regla es el
    padre de las dos, ninguna acción lo es de su hermana. */
-.exec-card--nested { margin-left: 1.5rem; }
-.exec-card--nested .exec-card-inner {
-  border-left: 2px solid var(--border);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
+.exec-card--nested { margin-left: 1.5rem; border-left: 2px solid var(--border); }
 
-/* Qué corrió, cuando no fue un agente. Deliberadamente discreto: la fila
-   importante de un disparo suele ser el run, no la notificación. */
-.exec-kind {
-  flex: 0 0 auto;
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.7rem;
-  color: var(--text-dim);
-  text-transform: lowercase;
+/* El verbo que navega. `--tap-h` de área porque se toca, y el `hint` dice a
+   dónde lleva — que es lo que evita que prometa de más. */
+.exec-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5ch;
+  min-height: var(--tap-h);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-decoration: none;
+  white-space: nowrap;
 }
-/* Reserved at a fixed width whether or not the button is rendered inside it,
-   so `.exec-row`'s flex-basis stays identical across rows — otherwise rows
-   with an active "Detener" button are narrower than finished rows and the
-   fixed-width columns after the title (agent/provider/date/…) drift out of
-   alignment with the sticky header. */
-.exec-stop-slot {
-  flex-shrink: 0;
-  align-self: center;
-  width: 84px;
-  margin-right: 0.85rem;
-  box-sizing: border-box;
-}
+.exec-verb:hover { background: transparent; color: var(--accent); text-decoration: underline; }
+.exec-verb-hint { color: var(--fg-dimmer); }
+
 .exec-stop-btn {
-  width: 100%;
   padding: 0.3rem 0.65rem;
   border: 1px solid var(--danger);
   border-radius: 6px;
@@ -2347,39 +2735,7 @@ watch(pendingFilter, () => {
 }
 .exec-stop-btn:hover { background: var(--red-bg); }
 .exec-stop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.exec-stop-spacer { flex-shrink: 0; width: 84px; }
 .exec-drawer__header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-.exec-title { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.exec-title a { color: var(--accent); text-decoration: none; }
-.exec-title a:hover { text-decoration: underline; }
-/* Fixed column widths so header cells and row cells line up regardless of
-   content length. Trimmed to the truncated-with-ellipsis floor (not the
-   longest realistic value) so `.exec-title` — the one column people actually
-   read — gets back the room these used to reserve for the rare long id. */
-.exec-meta {
-  font-size: 0.75rem;
-  color: var(--fg-dim);
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.exec-project-tag {
-  flex-shrink: 0;
-  font-size: 0.7rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  background: var(--yellow-bg);
-  color: var(--warn);
-  border: 1px solid var(--warn);
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--info); width: 140px; }
-.exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 100px; }
-.exec-source { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg-dim); width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-cancel-requested {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -2390,8 +2746,6 @@ watch(pendingFilter, () => {
   border: 1px solid var(--warn);
   white-space: nowrap;
 }
-.exec-date { font-variant-numeric: tabular-nums; width: 100px; font-family: 'SF Mono', 'Fira Code', monospace; }
-.exec-duration { font-variant-numeric: tabular-nums; width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-outcome {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -2403,14 +2757,6 @@ watch(pendingFilter, () => {
   text-align: center;
   box-sizing: border-box;
 }
-.exec-outcome-warn {
-  flex-shrink: 0;
-  font-size: 0.75rem;
-  line-height: 1;
-  color: var(--warn);
-  cursor: help;
-}
-.exec-chevron { color: var(--fg-dim); font-size: 0.85rem; flex-shrink: 0; width: 14px; text-align: right; }
 
 .exec-detail {
   padding: 0.75rem 0.85rem;
@@ -2646,20 +2992,4 @@ watch(pendingFilter, () => {
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
 
-@media (max-width: 768px) {
-  /* `.exec-row` es un flex sin `wrap` cuyos hijos no encogen: medía 477px
-     dentro de una caja de 325. Envolver es lo correcto acá y no scrollear —a
-     diferencia de la tabla del dashboard— porque una ejecución se lee como una
-     ficha (agente, outcome, duración de ESE run), no comparando columnas entre
-     filas. */
-  /* Acá NO se envuelve, y el propio código dice por qué: las columnas tienen
-     ancho fijo "so header cells and row cells line up". Envolver desalinea el
-     header de las filas y rompe justo lo que hace legible la lista.
-     
-     Una tabla scrollea DENTRO de su caja: la página deja de moverse de lado y
-     comparar columnas entre filas sigue siendo posible. El ancho mínimo sale
-     de la suma de las columnas fijas más el spacer de 84px. */
-  .exec-list-wrapper { overflow-x: auto; }
-  .exec-list { min-width: 37rem; }
-}
 </style>

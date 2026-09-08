@@ -159,13 +159,13 @@ function modelCount(models: Record<string, number>): number {
 <template>
   <div class="health-panel">
     <div class="health-header">
-      <div>
-        <h3>Salud por agente</h3>
-        <p class="health-desc">
-          Runs terminados en la ventana. La tasa se calcula en el servidor sobre
-          todo el período, no sobre la página del listado. Una fila abre la página del agente.
-        </p>
-      </div>
+      <!-- Sin `<h3>Salud por agente</h3>`: este panel ya no vive suelto arriba
+           del listado, sino dentro de un bloque de la página del agente que lo
+           titula. Repetir el título era el mismo dato dos veces (R9). -->
+      <p class="health-desc">
+        Runs terminados en la ventana. La tasa la calcula el servidor sobre todo
+        el período, no sobre la página del listado. Una fila abre ese agente.
+      </p>
       <div class="window-chips">
         <button
           v-for="w in WINDOWS"
@@ -365,12 +365,23 @@ function modelCount(models: Record<string, number>): number {
 .health-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); margin: 0.4rem 0 0; }
 .health-totals { font-size: var(--fs-body-sm); color: var(--fg-dim); margin: 0 0 0.6rem; }
 
-/* Una tabla de verdad: comparar agentes entre filas es para lo que existe, así
-   que no se apila. Scrollea dentro de su caja para que la PÁGINA no scrollee —
-   en un celular medía 593px contra 390 de pantalla. */
+/* Una tabla de verdad: comparar agentes ENTRE filas es exactamente para lo que
+   existe, así que es la excepción de R2 — scrollea horizontalmente dentro de su
+   caja para que la PÁGINA no scrollee.
+
+   Lo que se fue es el `min-width: 38rem` bajo 768px: forzaba 684px de ancho en
+   una pantalla de 390 SIEMPRE, tuviera la tabla dos agentes o veinte. Sin él la
+   tabla ocupa lo que necesita y sólo scrollea si de verdad no entra. La primera
+   columna queda pegajosa, que es lo que R2 pide de una tabla de comparación:
+   sin el agente a la vista, las columnas de la derecha no dicen de quién son. */
 .health-table-wrap { overflow-x: auto; }
 .health-table { width: 100%; border-collapse: collapse; font-size: var(--fs-body-sm); }
-@media (max-width: 768px) { .health-table { min-width: 38rem; } }
+.health-table th:first-child,
+.health-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--panel-hi);
+}
 .health-table th {
   text-align: left;
   font-weight: 600;

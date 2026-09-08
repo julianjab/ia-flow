@@ -66,6 +66,32 @@
   --fs-body-sm: 0.8125rem;
   --fs-micro: 0.6875rem;
   --row-h: 1.375rem;
+  /* Blanco táctil — la otra mitad de `--row-h`.
+     `--row-h` es la GRILLA: el ritmo de una fila de tabla, el `line-height` de
+     un chip, el alto de una celda. Es lo que se mira. Lo que se TOCA mide
+     otra cosa, y cinco controles presionables (`.ec-btn`, `.ff-add`/`.ff-drop`,
+     `.cs-header`, `.select-row`, `.ff-field`) habían tomado ese mismo número
+     como su alto: 25px de blanco en un teléfono, en las siete pantallas de
+     configuración a la vez. Separar los dos números es lo que las arregla de
+     una, sin tocar un color ni un layout.
+     No son tokens "de mobile": 44px es el mínimo en CUALQUIER ancho (R1). */
+  --tap-h: 2.45rem; /* 44px — default de todo control presionable.        */
+  --tap-h-lg: 2.67rem; /* 48px — botón principal, filas de barra de acciones.*/
+  --tap-h-sm: 2.22rem; /* 40px — chip de filtro que navega: van muchos en fila
+                          y el destino es ancho. Un chip que NO navega no es
+                          presionable y se queda en --row-h.                 */
+  /* Piso del texto de input/textarea bajo --bp-shell. En px ABSOLUTOS a
+     propósito: bajo 16px iOS hace zoom al enfocar el campo, y un `rem` se
+     escala con la raíz de 18px — dejaría de ser un piso. */
+  --fs-input: 16px;
+
+  /* Breakpoints — documentación, no uso directo: CSS no acepta `var()` en la
+     condición de un `@media`, así que en la media query va el literal. Están
+     acá para que se vea que son TRES y que un cuarto ancho hace que un
+     formulario cambie de forma donde su pantalla contenedora no cambia. */
+  --bp-shell: 768px; /* el chrome: tab bar, sin sidebar, sheets, táctil.     */
+  --bp-stack: 640px; /* `etiqueta · valor` se apila; la tabla va a dos líneas.*/
+  --bp-split: 1100px; /* aparece la segunda columna (detalle, índice).        */
   /* Alto de la barra de chrome (AppShell). Vive acá y no en el componente
      porque los overlays fijos que deben quedar POR DEBAJO de ella
      (ej. el drawer de ejecuciones) necesitan el mismo número para su
@@ -259,7 +285,12 @@ a:hover {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  height: calc(var(--row-h) + 0.5rem);
+  /* --tap-h y no `--row-h + 0.5rem` (33.75px): es el control presionable más
+     usado de la app, así que era la violación más repetida de R1. El alto de
+     la caja NO depende del breakpoint — 44px es el mínimo en cualquier ancho,
+     y un botón que sólo es tocable en un teléfono es un botón que en la tablet
+     falla sin que nadie sepa por qué. */
+  height: var(--tap-h);
   padding: 0 1rem;
   border: 1px solid var(--border-hi);
   border-radius: var(--radius);
@@ -469,10 +500,61 @@ a:hover {
   padding: 0 0.25rem;
 }
 
+/* ── El handle de reordenar ────────────────────────────────────────────────
+   Reordenar una lista es UN gesto con dos entradas: arrastrar el handle con el
+   mouse, o las flechas con el foco puesto encima. No hay botones ↑/↓ — eran
+   dos blancos más en la fila haciendo el trabajo que este ya hace, y en una
+   fila con cinco controles el que sobra es el que se toca por error.
+
+   Es un `button` y no un glifo: arrastrar no existe sin mouse, y el orden de
+   una lista suele decidir algo (qué regla gana, qué provider corre). Un `⠿`
+   decorativo deja esa decisión fuera del alcance del teclado.
+
+   Vive acá porque `RulesSection`, `ActionsEditor` y `ProviderChoicesEditor` lo
+   tenían copiado con tres prefijos distintos (`.rs-drag`, `.ae-drag`,
+   `.pce-drag`) y tres alturas distintas. Es la tercera vez: se extrae.
+
+   OJO — el drag nativo de HTML5 no dispara en táctil. Bajo --bp-shell este
+   control mueve con el teclado y con nada más; reordenar con el dedo necesita
+   un control propio que el design system todavía no tiene (ver "Controles
+   pedidos al design system" en DESIGN_SYSTEM.md). */
+.drag-handle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-h);
+  height: var(--tap-h);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: var(--fs-body-sm);
+  line-height: 1;
+  user-select: none;
+  cursor: grab;
+  /* Lo que hace que el gesto exista en un teléfono.
+     Sin esto el navegador interpreta el arrastre como scroll y se queda con él:
+     `pointermove` deja de llegar a mitad del gesto y la fila se suelta sola —
+     toda la maquinaria de `useDragReorder` queda inerte por una línea de CSS.
+     Va SÓLO en el handle: el resto de la fila sigue scrolleando, que es lo que
+     evita tener que elegir entre reordenar y moverse por la lista. */
+  touch-action: none;
+}
+.drag-handle:hover,
+.drag-handle:focus-visible {
+  color: var(--fg);
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 /* Video-inverse selection helper (used for menu rows). */
+/* Toda fila de menú y de popover: ComboBox, selector de modelo, de evento, de
+   provider. Se toca, así que mide --tap-h y no --row-h (R1). */
 .select-row {
   padding: 0 1ch;
-  height: var(--row-h);
+  min-height: var(--tap-h);
   color: var(--fg-dim);
   cursor: pointer;
   display: flex;
@@ -539,4 +621,26 @@ a:hover {
   outline-offset: -1px;
   background: var(--panel-hi);
   color: var(--fg);
+}
+
+/* ── El piso de 16px en los campos ─────────────────────────────────────────
+   Un input cuyo texto queda bajo 16px dispara el zoom automático de iOS al
+   enfocarlo: la página salta, el layout se descoloca y volver pide un gesto
+   que la app no controla. Es un defecto de plataforma, no de diseño, y la
+   única defensa es el tamaño del texto.
+
+   Va global y no en `form-fields.css` porque alcanza a TODO campo de la app —
+   incluidos los diez archivos que todavía tienen su propia copia del input
+   (ver "Campos — deuda conocida" en DESIGN_SYSTEM.md), que es justamente
+   donde nadie se acordaría de ponerlo.
+
+   Sólo bajo --bp-shell: sobre el breakpoint no hay teclado virtual que
+   dispare el zoom, y 16px en un formulario denso de escritorio se lleva
+   puesta la densidad que ese kit existe para dar. */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: var(--fs-input);
+  }
 }

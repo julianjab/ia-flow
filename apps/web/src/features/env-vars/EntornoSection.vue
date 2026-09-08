@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { buildEnvPatch } from '@/features/env-vars/patch';
 import { useEnvVarsStore } from '@/features/env-vars/store';
 import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
+import StickyActionBar from '@/ui/StickyActionBar.vue';
 import { useToastStore } from '@/stores/toast';
 
 const envVarsStore = useEnvVarsStore();
@@ -105,6 +106,78 @@ async function onSaveEntorno() {
   }
 }
 
+/**
+ * Editar es un modo (R11).
+ *
+ * Un grupo con veinte variables son veinte campos de `--tap-h`: 1804px de
+ * formulario que hay que scrollear entero para llegar a `Guardar`, cuando lo
+ * que se venía a hacer era mirar si `WOMPI_KEY` está puesta. En lectura cada
+ * variable es una línea de `--row-h` —grilla, no blanco táctil, porque no se
+ * toca— y son 584px.
+ *
+ * El modo es POR GRUPO y no global: se viene a tocar las credenciales de
+ * GitHub, no las veinte variables del server, y abrir el grupo equivocado no
+ * debería costar el alto de los otros seis.
+ *
+ * Debajo del umbral no hay modo: montar los campos de tres variables no cuesta
+ * nada, y el toggle sería un control de más para no ahorrar nada.
+ */
+const READ_MODE_FROM = 8;
+/**
+ * Cuántas se dibujan en lectura antes de cortar con `+ N más`.
+ *
+ * Leer veinte líneas para confirmar que `WOMPI_KEY` está puesta no es leer: es
+ * scrollear. Siete entran de un vistazo en un teléfono y alcanzan para
+ * reconocer el grupo; el resto se despliega si de verdad se lo está buscando.
+ */
+const READ_PREVIEW = 7;
+/** Grupos cuyo preview el usuario expandió. */
+const expandedGroups = ref<Set<string>>(new Set());
+
+function visibleKeys(group: { group: string; keys: string[] }): string[] {
+  if (expandedGroups.value.has(group.group)) return group.keys;
+  return group.keys.slice(0, READ_PREVIEW);
+}
+
+function hiddenCount(group: { group: string; keys: string[] }): number {
+  if (expandedGroups.value.has(group.group)) return 0;
+  return Math.max(0, group.keys.length - READ_PREVIEW);
+}
+
+function expandGroup(name: string) {
+  expandedGroups.value = new Set([...expandedGroups.value, name]);
+}
+const editingGroups = ref<Set<string>>(new Set());
+
+function isEditing(group: { group: string; keys: string[] }): boolean {
+  return group.keys.length <= READ_MODE_FROM || editingGroups.value.has(group.group);
+}
+
+function startEditing(group: string) {
+  editingGroups.value = new Set([...editingGroups.value, group]);
+}
+
+/**
+ * Lo que se lee de una variable sin montar su campo.
+ *
+ * Un secreto se enmascara SIEMPRE — el modo lectura existe para ver de un
+ * vistazo qué está configurado, y un token a la vista de un vistazo es
+ * exactamente lo que no se quiere. Y `sin configurar` se dice, no se calla
+ * (DESIGN_SYSTEM · Ausencia).
+ */
+function readValue(key: string): string {
+  const state = envVarsStore.vars[key];
+  if (!state?.isSet) return 'sin configurar';
+  if (state.secret || state.kind === 'password') return '••••••••';
+  return state.value || '—';
+}
+
+/** Cuántas variables tienen cambios sin guardar. Es lo que la barra fija dice
+ *  al lado del botón: un `Guardar` solo no informa qué se está por mandar. */
+const dirtyCount = computed(
+  () => Object.keys(buildEnvPatch(envVarsStore.vars, envDrafts.value, envPristine.value)).length,
+);
+
 onMounted(async () => {
   try {
     await envVarsStore.fetch();
@@ -117,7 +190,9 @@ onMounted(async () => {
 
 <template>
   <section class="settings-section">
-    <h2>Variables de entorno</h2>
+    <!-- Sin `<h2>Variables de entorno</h2>`: la barra de identidad del shell ya
+         dice en qué sección estás (R9). La descripción SÍ queda — explica la
+         precedencia entorno/BD, que no es adivinable desde la pantalla. -->
     <p class="section-desc">
       Configura las credenciales y opciones del servidor. <strong>El entorno del proceso
       manda</strong> (shell, <code>.env</code>, el compose del deploy): lo que guardes acá se
@@ -132,116 +207,192 @@ onMounted(async () => {
 
     <form v-else class="env-var-list" autocomplete="off" @submit.prevent="onSaveEntorno">
       <div v-for="group in envGroups" :key="group.group" class="env-var-group">
-        <h3 class="env-var-group-title">{{ group.label }}</h3>
-        <div v-for="key in group.keys" :key="key" class="env-var-row">
-          <div class="env-var-meta">
-            <div class="env-var-header">
+        <h3 class="uc-label env-var-group-title">
+          {{ group.label }}
+          <span class="env-var-group-count">{{ group.keys.length }}</span>
+        </h3>
+
+        <!-- Lectura: una línea de --row-h por variable. Lo que se contesta acá
+             es "¿está puesta y de dónde sale?", que no necesita un campo. -->
+        <template v-if="!isEditing(group)">
+          <div v-for="key in visibleKeys(group)" :key="key" class="env-read">
+            <code class="env-read__key">{{ key }}</code>
+            <span class="env-read__val">{{ readValue(key) }}</span>
+            <span :class="sourceBadge(key).cls" :title="sourceBadge(key).title">{{
+              sourceBadge(key).text
+            }}</span>
+          </div>
+          <!-- `+ N más` es una fila de lectura, no un botón: sigue el ritmo de
+               --row-h de las de arriba porque es una más de la lista. -->
+          <button
+            v-if="hiddenCount(group) > 0"
+            type="button"
+            class="env-read env-read--more"
+            :data-testid="`env-more-${group.group}`"
+            @click="expandGroup(group.group)"
+          >+ {{ hiddenCount(group) }} más</button>
+
+          <button
+            type="button"
+            class="ff-add"
+            :data-testid="`env-edit-${group.group}`"
+            @click="startEditing(group.group)"
+          >
+            editar {{ group.keys.length }} variables
+          </button>
+        </template>
+
+        <template v-else>
+          <label v-for="key in group.keys" :key="key" class="ff-row env-var-row">
+            <span class="env-var-header">
               <code class="env-var-key">{{ key }}</code>
               <span :class="sourceBadge(key).cls" :title="sourceBadge(key).title">{{
                 sourceBadge(key).text
               }}</span>
-            </div>
-            <p class="env-var-desc">{{ envVarsStore.vars[key].description }}</p>
-          </div>
+            </span>
+            <span class="ff-hint">{{ envVarsStore.vars[key].description }}</span>
 
-          <input
-            v-if="envVarsStore.vars[key].kind === 'password'"
-            v-model="envDrafts[key]"
-            type="password"
-            class="input env-var-input"
-            :placeholder="envVarsStore.vars[key].isSet ? 'Dejar en blanco para conservar el valor actual' : 'Introduce el valor…'"
-            autocomplete="off"
-          />
+            <input
+              v-if="envVarsStore.vars[key].kind === 'password'"
+              v-model="envDrafts[key]"
+              type="password"
+              class="ff-field ff-mono"
+              :placeholder="envVarsStore.vars[key].isSet ? 'Dejar en blanco para conservar el valor actual' : 'Introduce el valor…'"
+              autocomplete="off"
+            />
 
-          <select
-            v-else-if="envVarsStore.vars[key].kind === 'select'"
-            v-model="envDrafts[key]"
-            class="input select env-var-input"
-          >
-            <option value="">— sin configurar —</option>
-            <option v-for="opt in envVarsStore.vars[key].options ?? []" :key="opt" :value="opt">
-              {{ opt }}
-            </option>
-          </select>
+            <select
+              v-else-if="envVarsStore.vars[key].kind === 'select'"
+              v-model="envDrafts[key]"
+              class="ff-field"
+            >
+              <option value="">— sin configurar —</option>
+              <option v-for="opt in envVarsStore.vars[key].options ?? []" :key="opt" :value="opt">
+                {{ opt }}
+              </option>
+            </select>
 
-          <input
-            v-else
-            v-model="envDrafts[key]"
-            type="text"
-            class="input env-var-input"
-            :placeholder="envVarsStore.vars[key].label"
-          />
-        </div>
+            <input
+              v-else
+              v-model="envDrafts[key]"
+              type="text"
+              class="ff-field ff-mono"
+              :placeholder="envVarsStore.vars[key].label"
+            />
+          </label>
+        </template>
       </div>
 
-      <footer class="settings-actions" style="margin-top: 1.25rem;">
-        <button type="submit" class="save-button" :disabled="envVarsStore.saving">
+      <!-- La acción principal no scrollea (R3): en un formulario de veinte
+           variables el pie del documento está a varias pantallas. La barra
+           reemplaza a la tab bar bajo --bp-shell (R4). -->
+      <StickyActionBar
+        :note="dirtyCount ? `${dirtyCount} sin guardar` : 'sin cambios'"
+      >
+        <button type="submit" class="btn btn--primary" :disabled="envVarsStore.saving || !dirtyCount">
           {{ envVarsStore.saving ? 'Guardando…' : 'Guardar variables' }}
         </button>
-      </footer>
+      </StickyActionBar>
     </form>
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
-.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
+/* Este archivo era el último en v3 entero: la familia mono escrita a mano, radios
+   de 6px, un `box-shadow` azul fuera de la paleta y su propio `.save-button`.
+   Migrado al kit de campo y a `.btn` — ver "Campos — deuda conocida" en
+   DESIGN_SYSTEM.md, que lo listaba nominalmente. */
+.repos-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); padding: 0.5rem 0; }
 
-.input {
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.84rem;
-  color: var(--fg);
-  background: var(--panel);
-  width: 100%;
-  box-sizing: border-box;
-  outline: none;
+.env-var-list { display: flex; flex-direction: column; gap: 1.25rem; }
+.env-var-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
 }
-.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-.select { cursor: pointer; }
-
-.settings-actions { display: flex; justify-content: flex-end; }
-.save-button {
-  padding: 0.5rem 1.4rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  border-radius: 6px;
-  font-weight: 500;
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-.save-button:hover { background: var(--accent); }
-.save-button:disabled { opacity: 0.6; cursor: not-allowed; }
-
-.env-var-list { display: flex; flex-direction: column; gap: 1.5rem; }
-.env-var-group { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .env-var-group:first-child { padding-top: 0; border-top: none; }
-.env-var-group-title { margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); }
-.env-var-row { display: flex; flex-direction: column; gap: 0.35rem; }
-.env-var-meta { display: flex; flex-direction: column; gap: 0.15rem; }
-.env-var-header { display: flex; align-items: center; gap: 0.5rem; }
-.env-var-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--fg); }
+.env-var-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  margin: 0;
+  /* Pegajoso: con siete grupos en una columna se pierde de vista a cuál
+     pertenece la variable que se está mirando. */
+  position: sticky;
+  top: var(--tap-h);
+  z-index: 1;
+  background: var(--bg);
+  padding: 0.25rem 0;
+}
+.env-var-group-count { color: var(--fg-dimmer); }
+
+/* La fila de LECTURA: --row-h. Es grilla, no blanco táctil (R11). */
+.env-read {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  height: var(--row-h);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+.env-read__key { color: var(--info); flex: 0 0 auto; }
+/* La fila de "hay más": misma grilla que las de arriba, atenuada. Es la última
+   línea de la lista, no un control aparte. */
+.env-read--more {
+  border: none;
+  background: none;
+  color: var(--fg-dimmer);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.env-read--more:hover { color: var(--fg-mute); }
+.env-read__val {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+
+.env-var-row { gap: 0.25rem; }
+.env-var-header { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.env-var-key {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  background: var(--panel-hi);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
 /* Un solo estilo para las dos fuentes: `bd` y `env` son ambas "configurada".
    `cursor: help` porque el detalle de cada estado vive en el tooltip. */
-.env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--green-bg); color: var(--accent); font-weight: 500; font-family: var(--mono, ui-monospace, monospace); letter-spacing: 0.02em; cursor: help; }
-.env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-dim); font-weight: 500; }
-.env-var-desc { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
-.env-var-input { max-width: 480px; }
+.env-set-badge,
+.env-unset-badge {
+  font-size: var(--fs-micro);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  flex: 0 0 auto;
+}
+.env-set-badge { background: var(--green-bg); color: var(--accent); cursor: help; }
+.env-unset-badge { background: var(--panel-hi); color: var(--fg-dim); }
 
 @media (max-width: 768px) {
-  /* Se envuelve, no scrollea: es un formulario, y el nombre de la var con su
-     badge son un par — no columnas que se comparen entre filas. `.env-var-meta`
-     medía 429px en una caja de 325 porque un flex no encoge a sus hijos por
-     debajo del contenido sin `min-width: 0`. */
-  .env-var-row, .env-var-meta { flex-wrap: wrap; }
-  .env-var-meta > *, .env-var-row > * { min-width: 0; }
-  .env-var-input { max-width: 100%; }
-  /* Lo que faltaba: `flex-wrap` no sirve si UN hijo es más ancho que la caja.
-     Los nombres de env var son identificadores largos en mono
+  /* Los nombres de env var son identificadores largos en mono
      (`IA_FLOW_MAX_CONCURRENT_DISPATCHES`) y sin puntos de corte naturales el
-     navegador no los parte — el mínimo del texto empuja a todos sus padres.
+     navegador no los parte: el mínimo del texto empuja a todos sus padres.
      `anywhere` es lo único que corta un token sin espacios. */
-  .env-var-meta, .env-var-meta * { overflow-wrap: anywhere; }
+  .env-var-header,
+  .env-var-header * { overflow-wrap: anywhere; }
+  /* En lectura, en cambio, la clave NO se parte: la fila mide --row-h y una
+     clave partida la volvería de dos líneas. Cede el valor, que se trunca. */
+  .env-read__key { overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
 }
 </style>

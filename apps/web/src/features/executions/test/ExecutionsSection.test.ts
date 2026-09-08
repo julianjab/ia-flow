@@ -33,6 +33,20 @@ vi.mock('../api', () => ({
     agents: [],
   }),
 }))
+// El split (>= --bp-split) no lo puede decidir happy-dom: `matchMedia` ahí
+// siempre contesta que no. Como el detalle sólo es columna hermana arriba de
+// ese ancho, sin poder prenderlo a mano no hay forma de testear esa columna.
+// `vi.hoisted` porque el factory de `vi.mock` se iza arriba de todo, y tiene
+// que ser un `ref` de verdad: la plantilla desenvuelve refs, no objetos.
+const { isSplit, isMobile } = await vi.hoisted(async () => {
+  const { ref } = await import('vue')
+  return { isSplit: ref(false), isMobile: ref(false) }
+})
+vi.mock('@/composables/useIsMobile', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  useIsSplit: () => ({ isSplit }),
+  useIsMobile: () => ({ isMobile }),
+}))
 vi.mock('@/features/projects/availableApi', () => ({
   fetchAvailableAgents: vi.fn().mockResolvedValue([]),
   fetchAvailableSystemPrompts: vi.fn().mockResolvedValue([]),
@@ -79,7 +93,7 @@ function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
   }
 }
 
-async function mountWithExecs(execs: ExecutionLog[]) {
+async function mountWithExecs(execs: ExecutionLog[], opts: { showClosed?: boolean } = {}) {
   fetchExecutionsMock.mockResolvedValueOnce(execs)
   const wrapper = mount(ExecutionsSection, { props: { scope: 'project' } })
   // Wait for onMounted → load() → executions.value = [...] → re-render.
@@ -87,7 +101,21 @@ async function mountWithExecs(execs: ExecutionLog[]) {
   // await, so we also need to flush the second microtask tick — a single
   // flushPromises() covers both because vue-test-utils waits for all pending.
   await flushPromises()
+  // El bucket `cerradas` arranca plegado (O4): son la parte del día que no hay
+  // que mirar, y nueve runs terminados dominando la pantalla es justo lo que
+  // este orden viene a arreglar. Los tests que cuentan filas terminadas lo
+  // abren, igual que haría el operador.
+  if (opts.showClosed !== false) await expandClosed(wrapper)
   return wrapper
+}
+
+/** Despliega el bucket `cerradas`, si está. */
+async function expandClosed(wrapper: VueWrapper) {
+  const header = wrapper.find('[data-testid="bucket-closed"]')
+  if (header.exists() && header.attributes('aria-expanded') === 'false') {
+    await header.trigger('click')
+    await flushPromises()
+  }
 }
 
 /** Aplica un filtro como lo hace el operador: escribe `campo:valor` en el input
@@ -121,26 +149,37 @@ describe('ExecutionsSection — filtrar por resultado', () => {
 
   // El conteo es un atajo del token, no un segundo camino: escribe por el mismo
   // lugar que el input, así que lo que se prende ahí se ve como token.
-  it('clickear un conteo prende y apaga su token', async () => {
+  // El resumen dejó de contar los seis outcomes y cuenta las tres
+  // DISPOSICIONES: la pregunta de esta pantalla es quién mueve la próxima
+  // pieza, y `error`/`cancelled`/`truncated` significan lo mismo para vos.
+  it('el contador "te esperan" prende y apaga los tres outcomes que agrupa', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e1', outcome: 'success' }),
       makeExec({ id: 'e2', outcome: 'error' }),
     ])
     fetchExecutionsMock.mockResolvedValue([makeExec({ id: 'e2', outcome: 'error' })])
 
-    const chip = wrapper.get('[data-testid="executions-summary-error"]')
-    expect(chip.attributes('aria-pressed')).toBe('false')
+    const chip = wrapper.get('[data-testid="verdict-count-waiting"]')
 
     await chip.trigger('click')
     await flushPromises()
     expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(true)
-    expect(chip.attributes('aria-pressed')).toBe('true')
-    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({ outcome: ['error'] })
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      outcome: ['error', 'cancelled', 'truncated'],
+    })
 
-    await chip.trigger('click')
+    await wrapper.get('[data-testid="verdict-count-waiting"]').trigger('click')
     await flushPromises()
     expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(false)
     expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('outcome')
+  })
+
+  // R10: un contador en cero ocupa el mismo ancho que un problema y no es uno.
+  it('un contador en cero no se dibuja', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1', outcome: 'success' })])
+    expect(wrapper.find('[data-testid="verdict-count-closed"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="verdict-count-waiting"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="verdict-count-running"]').exists()).toBe(false)
   })
 
   it('`resultado:pending` deja sólo las filas sin outcome', async () => {
@@ -404,7 +443,9 @@ describe('ExecutionsSection — cancel execution', () => {
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
     // The stop button disappears now that finishedAt is set.
     expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
-    expect(wrapper.get('.exec-outcome').text()).toContain('cancelled')
+    // El outcome ya no es un badge propio de esta pantalla: la fila lo dice con
+    // el vocabulario de `ExecutionStatusLine`, igual que Tareas y Qué sigue.
+    expect(wrapper.get('.rr__state').text()).toContain('cancelado')
 
     const toastStore = useToastStore()
     expect(toastStore.toasts.some((t) => t.variant === 'success')).toBe(true)
@@ -437,7 +478,7 @@ describe('ExecutionsSection — cancel execution', () => {
     // Still running (not actually stopped) — the stop button stays, and the
     // row now shows an advisory "cancelación solicitada" badge.
     expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
-    expect(wrapper.find('.exec-cancel-requested').exists()).toBe(true)
+    expect(wrapper.find('.rr__cancel-requested').exists()).toBe(true)
     expect(wrapper.findAll('.exec-card')).toHaveLength(1)
   })
 
@@ -596,9 +637,12 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     await wrapper.findAll('.exec-card')[1].find('.exec-row').trigger('click')
     await flushPromises()
 
+    // La meta arranca plegada: el detalle son cinco bandas y ninguna es la
+    // tabla de campos — es material de auditoría, a un click.
     const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    expect(drawer.text()).toContain('acción')
+    await drawer.get('[data-testid="executions-meta-toggle"]').trigger('click')
     const labels = drawer.findAll('.detail-label').map((l) => l.text())
-    expect(drawer.text()).toContain('Acción')
     expect(labels).toContain('regla')
     expect(labels).toContain('posición en el do[]')
     expect(labels).toContain('evento')
@@ -619,8 +663,9 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     await flushPromises()
 
     const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    expect(drawer.text()).toContain('run')
+    await drawer.get('[data-testid="executions-meta-toggle"]').trigger('click')
     const labels = drawer.findAll('.detail-label').map((l) => l.text())
-    expect(drawer.text()).toContain('Ejecución')
     expect(labels).toContain('agentId')
     expect(labels).toContain('providerId')
     // Y de dónde vino, que antes no se veía en ningún lado.
@@ -673,24 +718,26 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     expect(cards[1].classes()).toContain('exec-card--nested')
     expect(cards[2].classes()).toContain('exec-card--nested')
     // Adentro manda `position`: primero corrió la notificación.
-    expect(cards[1].find('.exec-kind').text()).toBe('acción')
-    expect(cards[1].find('.exec-action-kind').text()).toBe('script')
-    expect(cards[2].find('.exec-kind').text()).toBe('agente')
+    expect(cards[1].find('.rr__title').text()).toContain('acción')
+    expect(cards[1].find('.rr__note').text()).toBe('script')
+    expect(cards[2].find('.rr__title').text()).toContain('agente')
     // El nombre va en la columna del agente, que es donde el encabezado lo
     // anuncia — y una acción NO cae al `ruleId`, que ya dijo el resumen.
-    expect(cards[1].find('.exec-agent').text()).toBe('notify-slack')
-    expect(cards[2].find('.exec-agent').text()).toBe('refiner')
+    expect(cards[1].find('.rr__agent').text()).toBe('notify-slack')
+    expect(cards[2].find('.rr__agent').text()).toBe('refiner')
     // Y no repiten el título que ya dijo el resumen.
     expect(cards[1].text()).not.toContain('Default task')
   })
 
-  it('una acción sin nombre deja vacía la columna del agente', async () => {
+  it('una acción sin nombre no cae al `ruleId`', async () => {
     const wrapper = await mountWithExecs([agent(), script({ agentId: '' })])
     await wrapper.find('.exec-card--firing .exec-row').trigger('click')
 
     // Una acción inline no tiene nombre: la identifica su regla más su
     // posición, y caer al `ruleId` la haría parecer otro run del agente.
-    expect(wrapper.findAll('.exec-card')[1].find('.exec-agent').text()).toBe('')
+    // `—` y no el nombre de la regla: el guión dice "no hay", que es la verdad;
+    // el `ruleId` la haría parecer otro run del agente.
+    expect(wrapper.findAll('.exec-card')[1].find('.rr__agent').text()).toBe('—')
   })
 
   it('el resumen abarca de la primera acción a la última', async () => {
@@ -699,9 +746,11 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     const summary = wrapper.find('.exec-card--firing')
     // Arrancó con el script (00:00:09), no con el run que quedó arriba en el
     // orden del listado, y duró hasta que cerró el agente (00:02:32).
-    expect(summary.find('.exec-date').attributes('title')).toBe('2025-01-01T00:00:09Z')
-    expect(summary.find('.exec-duration').text()).toBe('2m 23s')
-    expect(summary.find('.exec-outcome').text()).toBe('success')
+    // La columna Fecha se fue con el rediseño (5d): la duración es lo que dice
+    // que el resumen abarca las dos acciones, y la edad la pone la línea de
+    // estado (`terminó hace …`).
+    expect(summary.find('.rr__dur').text()).toBe('2m 23s')
+    expect(summary.find('.rr__state').text()).toContain('terminó')
   })
 
   it('un disparo con algo vivo está pending, y ahí va el botón de detener', async () => {
@@ -711,7 +760,7 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     ])
 
     const summary = wrapper.find('.exec-card--firing')
-    expect(summary.find('.exec-outcome').text()).toBe('pending')
+    expect(summary.find('.rr__state').text()).toContain('corriendo')
     expect(summary.find('[data-testid="executions-stop-e-agent"]').exists()).toBe(true)
   })
 
@@ -724,21 +773,21 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
 
     // `script` (position 0) falló, pero `agent` (position 1) es la última en
     // cerrar el disparo y salió bien: el resumen es su resultado, no el peor.
-    expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('success')
-    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(true)
+    expect(wrapper.find('.exec-card--firing .rr__state').text()).toContain('terminó')
+    expect(wrapper.find('.exec-card--firing .rr__warn').exists()).toBe(true)
   })
 
   it('cerrado sin tropiezos previos, no se marca ningún ⚠', async () => {
     const wrapper = await mountWithExecs([agent(), script()])
 
-    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(false)
+    expect(wrapper.find('.exec-card--firing .rr__warn').exists()).toBe(false)
   })
 
   it('si la última acción falla, el resumen es error aunque las anteriores hayan salido bien', async () => {
     const wrapper = await mountWithExecs([agent({ outcome: 'error' }), script()])
 
-    expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('error')
-    expect(wrapper.find('.exec-card--firing .exec-outcome-warn').exists()).toBe(false)
+    expect(wrapper.find('.exec-card--firing .rr__state').text()).toContain('falló')
+    expect(wrapper.find('.exec-card--firing .rr__warn').exists()).toBe(false)
   })
 
   it('un disparo de una sola fila no se colapsa', async () => {
@@ -772,5 +821,79 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     // El resumen de `ev-1` y la fila suelta de `ev-2`.
     expect(cards).toHaveLength(2)
     expect(cards.filter((c) => c.classes().includes('exec-card--firing'))).toHaveLength(1)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// El detalle como segunda columna — lo mismo que Tareas. El drawer flotante
+// tapa 60vw de la lista, y recorrer varios runs seguidos es LA forma de usar
+// esta pantalla.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — el detalle en pantallas grandes', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProjectsStore().activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    isSplit.value = false
+    vi.clearAllMocks()
+  })
+
+  it('sobre --bp-split es una columna hermana, no un panel flotante', async () => {
+    isSplit.value = true
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1', taskTitle: 'Un run' })])
+
+    await wrapper.get('.exec-card .rr').trigger('click')
+
+    const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    expect(drawer.classes()).toContain('exec-drawer--inline')
+    // La grilla aparece CON el detalle abierto: reservar 26rem vacías dejaría
+    // la lista angosta para nada.
+    expect(wrapper.get('.exec-split').classes()).toContain('exec-split--open')
+  })
+
+  it('debajo sigue siendo el panel de siempre', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1', taskTitle: 'Un run' })])
+
+    await wrapper.get('.exec-card .rr').trigger('click')
+
+    expect(wrapper.get('[data-testid="executions-detail-drawer"]').classes()).not.toContain(
+      'exec-drawer--inline',
+    )
+    expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
+  })
+
+  // Bajo --bp-shell el drawer medía 420px de `min-width` sobre un teléfono de
+  // 390: tapaba la lista igual, pero con 31px de su contenido cortados contra
+  // el borde. Es una PANTALLA, y de una pantalla se vuelve.
+  it('bajo --bp-shell se cierra con `←`, no con `×`', async () => {
+    isMobile.value = true
+    try {
+      const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+      await wrapper.get('.exec-card .rr').trigger('click')
+
+      expect(wrapper.get('[data-testid="executions-detail-close"]').text()).toBe('←')
+      expect(wrapper.get('.exec-drawer__header').classes()).toContain('exec-drawer__header--back')
+    } finally {
+      isMobile.value = false
+    }
+  })
+
+  it('con mouse sigue siendo un panel que se cierra con `×`', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+    await wrapper.get('.exec-card .rr').trigger('click')
+
+    expect(wrapper.get('[data-testid="executions-detail-close"]').text()).toBe('×')
+    expect(wrapper.get('.exec-drawer__header').classes()).not.toContain('exec-drawer__header--back')
+  })
+
+  it('sin detalle abierto no hay segunda columna', async () => {
+    isSplit.value = true
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+
+    expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
   })
 })

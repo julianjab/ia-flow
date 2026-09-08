@@ -1,4 +1,4 @@
-import RunningRunsPanel from '@/features/executions/RunningRunsPanel.vue'
+import RunningRunsPanel from '@/components/RunningRunsPanel.vue'
 import { useActiveExecutionsStore } from '@/features/executions/activeStore'
 import type { ExecutionLog } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'

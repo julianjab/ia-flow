@@ -8,6 +8,7 @@ import {
   configRepo,
   enqueueRunMessageUseCase,
   getSourceForProjectId,
+  getTaskDispositionsUseCase,
   projectRepo,
   repoRepo,
   runMessageRepo,
@@ -85,6 +86,35 @@ export function createTasksRouter(broadcast: BroadcastFn) {
   router.get('/statuses', async (c) => {
     const statuses = await taskRepo.listStatuses()
     return c.json({ statuses })
+  })
+
+  /**
+   * GET /api/tasks/dispositions?projectId=…
+   *
+   * Quién tiene que mover la próxima pieza, por tarea. Es el orden de la app —
+   * Tareas, Qué sigue y Board son tres recortes del MISMO orden (O6)— y se
+   * decide acá y no en el cliente porque depende de tres cosas que el browser
+   * no tiene: si hay una regla de retry que vaya a tomar este fallo, los
+   * blockers que resuelve la fuente, y el estado del PR.
+   *
+   * Va ANTES de las rutas con `:id`: Hono matchea en orden de registro y
+   * `dispositions` entraría por el param como si fuera el id de una tarea.
+   */
+  router.get('/dispositions', async (c) => {
+    const projectId = c.req.query('projectId')
+    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
+    try {
+      const source = getSourceForProjectId(projectId)
+      const dispositions = await getTaskDispositionsUseCase.execute(projectId, source)
+      return c.json({ dispositions })
+    } catch (err) {
+      // 502 y no 500: lo que falla acá es hablar con la fuente (GitHub caído,
+      // rate limit), no este proceso. La UI lo distingue para decir "no se
+      // pudo consultar" en vez de "no hay nada esperando" — que sobre datos
+      // que nunca llegaron sería una afirmación falsa.
+      log.warn({ err: (err as Error).message, projectId }, 'no se pudieron resolver disposiciones')
+      return c.json({ error: (err as Error).message, dispositions: [] }, 502)
+    }
   })
 
   // GET /api/tasks — list all tasks

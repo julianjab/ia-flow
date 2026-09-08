@@ -78,6 +78,29 @@ tolerada preexistente que no debes reportar como hallazgo nuevo.
 - Solo Composition API con `<script setup lang="ts">`. Nada de Options API nuevo.
 - No mutar props (usar `emit` + v-model).
 - Sin CSS global; scoped o módulos.
+
+### Design system web — mobile first (`apps/web/DESIGN_SYSTEM.md`)
+Todo cambio de UI se revisa contra las doce reglas transversales R1–R12. Los hallazgos que más
+aparecen, con su severidad sugerida:
+- `major` — un control presionable con `height: var(--row-h)` o menor a 44px (**R1**): `--row-h`
+  es grilla, `--tap-h` es blanco táctil. Un `input`/`textarea` sin `font-size: var(--fs-input)`
+  bajo 768px (iOS hace zoom al enfocarlo).
+- `major` — un breakpoint fuera de `768` / `640` / `1100` (**R8**), o un `max-width` nuevo sin
+  justificar: el CSS arranca en mobile y agrega con `min-width`.
+- `minor` — scroll horizontal, típicamente un `min-width` en `rem` sobre una tabla (**R2**); un
+  popover anclado bajo 768px en vez de un bottom sheet (**R6**); una acción que sólo existe en
+  `:hover` (**R7**); un contador en cero dibujado (**R10**); un header de página que repite la
+  identidad que ya está en el chrome (**R9**/**R12**).
+- Hex hardcodeado, radio a mano (`6px`), fuente escrita a mano (`'SF Mono'`), o una copia de
+  `.settings-section` / `.uc-label` / `.ff-field` / `.drag-handle` con prefijo propio: siempre
+  hallazgo.
+- `major` — un control inventado en el componente que el design system ya tiene con otro nombre
+  (un `<div>` con `@click` en vez de `.btn`, botones `↑`/`↓` en vez de `.drag-handle`, un popover
+  anclado en vez de `BottomSheet`). Si el control genuinamente NO existe en el sistema, el
+  hallazgo no es el CSS: es que el diff lo inventó en vez de **pedirlo** — decilo así y apuntá a
+  la tabla «Controles pedidos al design system» de `DESIGN_SYSTEM.md`.
+- Un `⠿` que no es un `button`: arrastrar no existe sin mouse, así que el orden de esa lista
+  queda fuera del alcance del teclado.
 - Watchers: preferir `computed` cuando aplique; evitar watchers profundos innecesarios (`deep: true` costoso).
 - Reactividad: no desestructurar `reactive()` sin `toRefs`.
 - `ref`/`reactive` no expuestos accidentalmente en `defineExpose`.

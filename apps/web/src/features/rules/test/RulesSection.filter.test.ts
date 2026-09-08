@@ -51,8 +51,8 @@ vi.mock('@/stores/toast', () => ({
 
 enableAutoUnmount(afterEach)
 
-async function mountSection() {
-  await testRouter.replace('/general/pipeline')
+async function mountSection(query: Record<string, string> = {}) {
+  await testRouter.replace({ path: '/general/pipeline', query })
   await testRouter.isReady()
   const w = mount(RulesSection, {
     props: { scope: { kind: 'global' as const } },
@@ -126,11 +126,21 @@ describe('RulesSection — buscador y agrupado', () => {
   })
 
   it('mientras se busca, no se puede arrastrar', async () => {
+    // Reordenar una lista FILTRADA movería la regla a un lugar que no es el que
+    // se ve: el índice de la vista no es el del orden real. Sin handle no hay
+    // gesto — la ausencia del handle ES la señal.
     const w = await mountSection()
-    expect(w.find('.rs-item').attributes('draggable')).toBe('true')
+    expect(w.find('.drag-handle').exists()).toBe(true)
 
     await typeToken(w, 'evento:pr.review_submitted')
-    expect(w.find('.rs-item').attributes('draggable')).toBe('false')
-    expect(w.find('.rs-drag').exists()).toBe(false)
+    expect(w.find('.drag-handle').exists()).toBe(false)
+  })
+
+  it('llega filtrado desde la URL — el link del board promete un recorte', async () => {
+    // "Ver qué corre en blocked →" llevaba al Pipeline ENTERO: el link prometía
+    // un recorte y entregaba una lista para buscar a mano.
+    const w = await mountSection({ estado: 'blocked' })
+    const tokens = w.findAll('[data-testid^="rules-filter-token-"]').map((t) => t.text())
+    expect(tokens.join(' ')).toContain('blocked')
   })
 })

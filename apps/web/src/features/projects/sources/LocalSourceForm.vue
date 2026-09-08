@@ -18,8 +18,8 @@ defineEmits<{ 'update:modelValue': [value: Record<string, unknown>] }>();
   padding: 0.75rem 1rem;
   background: var(--panel-alt);
   border: 1px dashed var(--border-hi);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--fg-dim);
-  font-size: 0.85rem;
+  font-size: var(--fs-body-sm);
 }
 </style>

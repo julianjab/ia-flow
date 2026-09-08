@@ -61,9 +61,9 @@ const formProps = computed(() =>
 
 <template>
   <div class="sfs">
-    <label class="sfs-field">
-      <span class="sfs-label">Fuente</span>
-      <select v-model="kind" class="sfs-select">
+    <label class="ff-row">
+      <span class="uc-label">Fuente</span>
+      <select v-model="kind" class="ff-field">
         <option v-for="k in kinds" :key="k" :value="k">{{ sourceKindLabel(k) }}</option>
         <!-- If the project already has a kind not in the supported list,
              surface it so the user can see and re-pick — but they can't
@@ -83,15 +83,11 @@ const formProps = computed(() =>
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
+/* El campo es del kit (`ff-row` + `uc-label` + `ff-field`); acá queda sólo el
+   ritmo entre el selector y el formulario del kind elegido. Tenía su propia
+   copia con prefijo `.sfs-` y un radio de 6px. */
 .sfs { display: flex; flex-direction: column; gap: 0.75rem; }
-.sfs-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.sfs-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
-.sfs-select {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background: var(--panel);
-}
 </style>

@@ -164,11 +164,11 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
 
 <template>
   <div class="ghsf">
-    <label class="ghsf-field">
-      <span class="ghsf-label">GitHub Project URL</span>
+    <label class="ff-row">
+      <span class="uc-label">GitHub Project URL</span>
       <input
         v-model="url"
-        class="ghsf-input"
+        class="ff-field"
         placeholder="https://github.com/orgs/xxx/projects/N"
       />
     </label>
@@ -183,27 +183,27 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
     </a>
 
     <div class="ghsf-repo">
-      <label class="ghsf-field">
-        <span class="ghsf-label">Repo vinculado (opcional)</span>
+      <label class="ff-row">
+        <span class="uc-label">Repo vinculado (opcional)</span>
         <input
           :value="repoUrl"
-          class="ghsf-input"
+          class="ff-field"
           placeholder="https://github.com/owner/repo"
           data-testid="linked-repo-url"
           @input="onRepoUrlInput"
         />
-        <span v-if="repoUrl && !parsedRepo" class="ghsf-hint ghsf-hint--warn">
+        <span v-if="repoUrl && !parsedRepo" class="ff-hint ghsf-hint--warn">
           No parece una URL de repo. Formato: https://github.com/owner/repo
         </span>
-        <span v-else class="ghsf-hint">
+        <span v-else class="ff-hint">
           Además de este board, vigila los issues abiertos de ese repo (como GitHub Repo) y los
           mergea por issue — dejalo vacío para un GitHub Projects liso.
         </span>
       </label>
-      <label v-if="parsedRepo" class="ghsf-field">
-        <span class="ghsf-label">Anchor label</span>
-        <input v-model="anchorLabel" class="ghsf-input" placeholder="ia-flow" />
-        <span class="ghsf-hint">
+      <label v-if="parsedRepo" class="ff-row">
+        <span class="uc-label">Anchor label</span>
+        <input v-model="anchorLabel" class="ff-field" placeholder="ia-flow" />
+        <span class="ff-hint">
           Opcional: sólo los issues con esta label entran al scan. Vacío = todo issue abierto del
           repo es candidato.
         </span>
@@ -215,19 +215,19 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
          en sus guards en memoria — así que es una decisión del operador, no un
          requisito del board. -->
     <div class="ghsf-marker">
-      <label class="ghsf-check">
+      <label class="ff-check">
         <input v-model="markerEnabled" type="checkbox" data-testid="working-marker-toggle" />
-        <span class="ghsf-label">Marcar en el board el item que un agente tomó</span>
+        <span class="uc-label">Marcar en el board el item que un agente tomó</span>
       </label>
 
       <template v-if="markerEnabled">
         <div class="ghsf-row">
-          <label class="ghsf-field">
-            <span class="ghsf-label">Campo</span>
+          <label class="ff-row">
+            <span class="uc-label">Campo</span>
             <select
               v-if="fieldNames.length"
               :value="marker.field"
-              class="ghsf-input"
+              class="ff-field"
               data-testid="working-marker-field"
               @change="selectField(($event.target as HTMLSelectElement).value)"
             >
@@ -244,7 +244,7 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
             <input
               v-else
               :value="marker.field"
-              class="ghsf-input"
+              class="ff-field"
               placeholder="Working"
               data-testid="working-marker-field"
               @input="patchMarker({ field: ($event.target as HTMLInputElement).value })"
@@ -255,8 +255,8 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
                form. Autocomplete y no <select>: una label que todavía no
                existe en el board (la que va a crear el propio agente) tiene
                que poder escribirse. -->
-          <label v-if="markerOnLabels" class="ghsf-field ghsf-field--wide">
-            <span class="ghsf-label">Label</span>
+          <label v-if="markerOnLabels" class="ff-row ghsf-field--wide">
+            <span class="uc-label">Label</span>
             <ComboBox
               allow-custom
               :model-value="markerLabel"
@@ -268,12 +268,12 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
             />
           </label>
           <template v-else>
-            <label class="ghsf-field">
-              <span class="ghsf-label">Ocupado</span>
+            <label class="ff-row">
+              <span class="uc-label">Ocupado</span>
               <select
                 v-if="valueOptions.length"
                 :value="marker.on"
-                class="ghsf-input"
+                class="ff-field"
                 @change="patchMarker({ on: ($event.target as HTMLSelectElement).value })"
               >
                 <option value="" disabled>— Valor —</option>
@@ -282,19 +282,19 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
               <input
                 v-else
                 :value="marker.on"
-                class="ghsf-input"
+                class="ff-field"
                 placeholder="Yes"
                 @input="patchMarker({ on: ($event.target as HTMLInputElement).value })"
               />
             </label>
-            <label class="ghsf-field">
-              <span class="ghsf-label">Libre</span>
+            <label class="ff-row">
+              <span class="uc-label">Libre</span>
               <!-- Incluye la opción vacía a propósito: "libre" en un
                    single-select es limpiar el campo, no otro valor. -->
               <select
                 v-if="valueOptions.length"
                 :value="marker.off"
-                class="ghsf-input"
+                class="ff-field"
                 @change="patchMarker({ off: ($event.target as HTMLSelectElement).value })"
               >
                 <option value="">(vacío)</option>
@@ -303,14 +303,14 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
               <input
                 v-else
                 :value="marker.off"
-                class="ghsf-input"
+                class="ff-field"
                 placeholder="(vacío)"
                 @input="patchMarker({ off: ($event.target as HTMLInputElement).value })"
               />
             </label>
           </template>
         </div>
-        <p class="ghsf-hint">
+        <p class="ff-hint">
           {{
             markerOnLabels
               ? 'Se aplica al arrancar y se quita al terminar — también en cancel y en los paths de error.'
@@ -318,7 +318,7 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
           }}
         </p>
       </template>
-      <p v-else class="ghsf-hint ghsf-hint--warn">
+      <p v-else class="ff-hint ghsf-hint--warn">
         Sin marca: dos daemons contra este board pueden despachar el mismo issue, y un reinicio
         re-despacha runs que sigan vivos.
       </p>
@@ -326,41 +326,40 @@ const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
+/* Los campos son del kit. Lo que queda es la estructura de ESTE formulario: la
+   fila que parte campos, y los dos bloques separados por hairline (el repo y
+   el marcador de trabajo), que son agrupaciones propias del source de GitHub. */
 .ghsf { display: flex; flex-direction: column; gap: 0.35rem; }
-.ghsf-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.ghsf-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
-.ghsf-input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.9rem;
-}
 .ghsf-link {
-  font-size: 0.75rem;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  /* Navega afuera: se toca (R1). */
+  min-height: var(--tap-h);
+  font-size: var(--fs-micro);
   color: var(--accent);
   text-decoration: none;
-  align-self: flex-start;
 }
-.ghsf-link:hover { text-decoration: underline; }
-.ghsf-repo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
-}
+.ghsf-link:hover { text-decoration: underline; background: transparent; }
+.ghsf-repo,
 .ghsf-marker {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.5rem;
   padding-top: 0.5rem;
   border-top: 1px solid var(--border);
 }
-.ghsf-check { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
 .ghsf-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.ghsf-row .ghsf-field { flex: 1 1 8rem; min-width: 8rem; }
-.ghsf-row .ghsf-field--wide { flex: 2 1 16rem; }
-.ghsf-hint { margin: 0; font-size: 0.75rem; color: var(--fg-mute); }
+.ghsf-row > .ff-row { flex: 1 1 8rem; min-width: 8rem; }
+.ghsf-row > .ghsf-field--wide { flex: 2 1 16rem; }
 .ghsf-hint--warn { color: var(--warn); }
+
+/* Bajo --bp-stack la fila partida se apila: dos campos en 390px dejan ~180px
+   cada uno (R5). */
+@media (max-width: 640px) {
+  .ghsf-row { flex-direction: column; }
+}
 </style>

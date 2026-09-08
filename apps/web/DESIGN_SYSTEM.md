@@ -1,6 +1,8 @@
-# apps/web — Design System v4
+# apps/web — Design System v4 · mobile-first
 
-**Rule zero:** antes de crear un componente nuevo o cambiar la UI de uno existente, **lee este archivo y `apps/web/src/styles/theme.css`**. `theme.css` es la fuente única: si algo de acá contradice al CSS, gana el CSS y este archivo está desactualizado — arréglalo en el mismo cambio.
+**Rule zero:** antes de crear un componente nuevo o cambiar la UI de uno existente, **lee este archivo y `apps/web/src/styles/theme.css`**.
+
+**Rule zero-bis — mobile first, sin dejar de lado el desktop.** El CSS base describe el teléfono y `@media (min-width: …)` **agrega** densidad para pantallas grandes. Un `max-width` es un parche, y por eso siempre falta uno. Los tres únicos anchos son `768` / `640` / `1100` (ver «Breakpoints»), y todo control presionable mide `--tap-h` en **cualquier** ancho, no sólo bajo un breakpoint. Las doce reglas transversales (R1–R12) están al final de este archivo y aplican a **toda** pantalla, incluida la que estés escribiendo ahora. `theme.css` es la fuente única: si algo de acá contradice al CSS, gana el CSS y este archivo está desactualizado — arréglalo en el mismo cambio.
 
 v4 nace del mockup de rediseño del editor de agentes (`src/features/agents/`). Arranca por los tokens porque cascadean solos a cada pantalla; migrar componente por componente es el paso siguiente. Eso quiere decir que **vas a encontrar componentes todavía en v3** (mono en todo, radio 0, verde ácido). No los tomes como referencia: la referencia es este archivo.
 
@@ -65,7 +67,45 @@ La regla práctica: **mono es para lo que el usuario podría copiar y pegar**. U
 
 Escala: `--fs-micro` · `--fs-chrome` · `--fs-body-sm` · `--fs-body`. Siempre el token, nunca `0.85rem` escrito a mano — la raíz vive en `html { font-size: 18px }` y esa es la única perilla para agrandar la interfaz entera.
 
-`--row-h` es la altura de fila del grid. Toda fila de lista, chip o control mide `--row-h` o un múltiplo; usalo también como `line-height` de los chips para que una fila de tags quede pareja.
+### Grilla vs. blanco táctil — dos números, no uno
+
+`--row-h` (`1.375rem` ≈ 25px) es la **grilla**: el ritmo vertical de una fila de tabla, el
+`line-height` de un chip, el alto de una celda. Es lo que se **mira**.
+
+Lo que se **toca** mide otra cosa. Cinco controles presionables habían tomado `--row-h` como su
+alto y dejaban un blanco de 25px en un teléfono —y un input bajo 16px dispara el zoom automático
+de iOS al enfocarlo—, así que el blanco táctil tiene tokens propios:
+
+| Var | Valor | Cuándo |
+| --- | --- | --- |
+| `--tap-h` | `2.45rem` ≈ 44px | **Default de todo control presionable.** No es una excepción para mobile: es el mínimo en cualquier ancho. |
+| `--tap-h-lg` | `2.67rem` ≈ 48px | Botón principal de pantalla, filas de una barra de acciones fija. |
+| `--tap-h-sm` | `2.22rem` ≈ 40px | Chip de filtro: van muchos en fila y el destino es ancho. Un chip que **no** navega no es presionable y se queda en `--row-h`. |
+| `--fs-input` | `16px` | Piso del texto de `input`/`textarea`. **px absolutos a propósito**: es lo único que evita el zoom de iOS, y un `rem` se escala con la raíz. |
+
+Los que ya los usan: `.ec-btn` (`EditableCard`), `.ff-add` / `.ff-drop` / `.ff-field`
+(`form-fields.css`), `.cs-header` (`CollapsibleSection`), `.select-row` (`theme.css`, y con él
+`ComboBox` y todo popover). **Un control nuevo arranca en `--tap-h`; si querés menos, justificá
+por qué no se toca.**
+
+Un ✕ dentro de una fila no crece a 44px de caja —agregaría una fila entera a la lista—: mide
+24px visibles y expande su área con `::before { content: ''; position: absolute; inset: 0 -8px }`
+sobre un `position: relative`. Blanco táctil sin costo de layout.
+
+### Breakpoints — tres, y ninguno más
+
+Un cuarto ancho hace que un formulario cambie de forma en un punto donde su pantalla contenedora
+no cambia. Los tokens viven en `theme.css` como documentación; en la media query va el número
+literal (CSS no acepta `var()` en la condición de un `@media`).
+
+| Token | Ancho | Qué cambia al cruzarlo |
+| --- | --- | --- |
+| `--bp-shell` | **768px** | El chrome. Abajo: tab bar, sin sidebar, modales a pantalla completa, popovers como sheets. **Es el único breakpoint que decide si la app es táctil.** |
+| `--bp-stack` | **640px** | Las grillas `etiqueta · valor` se apilan, `ff-row-split` se vuelve columna, la tabla pasa a filas de dos líneas. |
+| `--bp-split` | **1100px** | Aparece la segunda columna: detalle al lado de la lista, índice del editor al costado del formulario. |
+
+Escribir el número suelto está bien. Inventar un cuarto ancho, no.
+
 
 ### Radio y sombra
 
@@ -114,6 +154,70 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
 - `.hairline` — separador de 1px.
 - `.select-row` / `.select-row--active` — fila de menú con video inverso.
+- `ui/BottomSheet.vue` — **el overlay de la capa táctil.** Bajo `--bp-shell` un popover anclado a su
+  disparador queda fuera de pantalla en cuanto sube el teclado virtual (R6), así que todo overlay
+  es este sheet: `translateY` en 150ms, backdrop al 60% que cierra al tocar, radio superior de
+  12px. Sobre el breakpoint se dibuja centrado. Es un contenedor y nada más — el contenido va por
+  el slot, y por eso puede vivir en `ui/`.
+- `ui/StickyActionBar.vue` — **dónde vive `Guardar`** cuando el formulario mide diez pantallas
+  (R3). **Reemplaza a la tab bar, no se suma a ella** (R4): dos barras fijas son 108px de una
+  pantalla de 800 y compiten por el mismo pulgar. Lleva al lado qué hay sin guardar, porque un
+  `Guardar` deshabilitado no dice por qué.
+- `components/ListControlsBar.vue` — **la segunda fila del chrome de una lista** (R12): vista ·
+  filtro activo · `filtros ⌄`. Bajo `--bp-shell` los filtros van al sheet y en la fila queda el
+  filtro activo; arriba, el panel va inline y no hay botón — el input de filtros ES el flujo de
+  esa pantalla.
+- `components/BucketHeader.vue` — **el encabezado de un bucket de disposición**: 26px, pegajoso,
+  con la disposición, su cuenta y el desempate que gobierna abajo. Es lo que hace que Tareas, Qué
+  sigue, Runs y Board se lean como recortes del MISMO orden y no como cuatro listas.
+- `ui/FullScreen.vue` — **un detalle o un formulario que ocupa la pantalla.** Bajo `--bp-shell` un
+  detalle es una pantalla con `←`, nunca un modal centrado (A3, A5); arriba, el diálogo centrado
+  que un mouse espera. Trae el backdrop, el `Escape`, el bloqueo del scroll de fondo y el pie que
+  no scrollea (R3), y su barra reemplaza a la tab bar (R4).
+- `ui/JsonConfigField.vue` — **el `Record<string, unknown>` editado como JSON crudo**, para el
+  source o el provider que todavía no tiene formulario propio. Era la misma pieza escrita dos
+  veces con dos prefijos.
+- `ui/FollowTail.vue` — **un stream que crece sin robarte el renglón que estás leyendo** (T7).
+  Corrige el `scrollTop` por lo que creció arriba y ofrece `↑ N nuevos`. Necesita que la lista
+  tenga scroll propio.
+- `ui/LogLine.vue` — **una línea de log, y una sola** (T7): hora · nivel · origen · mensaje, que
+  se trunca y se abre. El nivel es el color de un glifo, no un badge.
+- `composables/useDispositionOrder.ts` — **el orden congelado + el agrupado por bucket.** Lo
+  comparten las vistas que son recortes del mismo orden (O6).
+- `components/DataRow.vue` — **la fila de datos que entra en 390px** (T6, A4): columnas en `ch`
+  sobre `--bp-stack`, dos líneas apiladas debajo, con el glifo fijo a la izquierda. Las columnas
+  llegan por variable, así que cada tabla trae las suyas. Es para una tabla **genérica**: tiene
+  tres zonas (glifo · identidad · estado) y las celdas extra se auto-ubican. Una fila de dominio
+  con más zonas y una línea de verbo propia se escribe como pieza suya con la misma idea —
+  `components/TaskRow.vue` (la tarea, para sus tres pantallas) y
+  `features/executions/RunRow.vue` (la ejecución) son las dos que hay. Dos
+  cosas que cuestan caro y no se ven en un test: las medidas en `ch` se
+  resuelven contra la fuente del CONTENEDOR de la grilla, así que la fila y su
+  encabezado tienen que compartir base —y declarar las columnas una sola vez,
+  en una variable que las dos hereden—; y el corte entre apilada y columnas
+  sale del ancho de la LISTA, no del de la ventana. El sidebar y la columna de
+  detalle son dos anchos que el `@media` no ve: a 1600px de ventana, con el
+  detalle abierto, la lista mide 794. Por eso `RunRow` pregunta por su
+  contenedor (`@container`, con `container: <nombre> / inline-size` en el
+  wrapper) — es la excepción a los tres breakpoints, y la única que hay.
+- `components/KbdBar.vue` — **la barra de atajos** al pie de una lista navegable. Anuncia sólo lo
+  que `useKeyboardNav` bindea; no se renderiza bajo `--bp-shell` (`v-if`, no `display: none`).
+- `components/FinishedTodayPanel.vue` — lo que terminó hoy, con lo que falló primero.
+- `components/RunningRunsPanel.vue` — los runs en vuelo, con su duración corriendo y el botón de
+  abortar. Lo comparten Ejecuciones y Qué sigue.
+- `composables/useIsMobile.ts` — `useIsMobile()` (bajo `--bp-shell`) y `useIsSplit()` (sobre
+  `--bp-split`). Un listener por query para toda la app.
+- `composables/useDragReorder.ts` — **el gesto de reordenar**, con Pointer Events. Se arrastra
+  desde el handle: es inmediato (a diferencia de un long-press), no compite con el scroll
+  (`touch-action: none` va sólo en el handle) y la afordancia ya existía. La API de drag de HTML5
+  **no dispara en táctil**, por eso no se usa.
+- `.drag-handle` — **el control de reordenar una lista**, y el único. Es un `button` con el glifo
+  `⠿`: se arrastra con el mouse y se mueve con `ArrowUp`/`ArrowDown` cuando tiene el foco.
+  **No hay botones `↑`/`↓`** — eran dos blancos más en una fila que ya tiene cuatro controles,
+  haciendo el trabajo que el handle ya hace, y el que sobra es el que se toca por error. Que sea
+  un `button` no es cosmético: arrastrar no existe sin mouse, y el orden de estas listas decide
+  qué regla gana y qué provider corre. Lo comparten `RulesSection`, `ActionsEditor` y
+  `ProviderChoicesEditor`, que lo tenían copiado con tres prefijos y tres alturas distintas.
 - `.live-dot` — 7px con blink, para un run en vuelo. `.cursor-block` para el cursor de terminal.
 - `[data-kbd-item]` — marcá la fila navegable y el foco lo pinta `theme.css`; no escribas tu propio `:focus-visible`.
 
@@ -195,6 +299,96 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 
 Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje literal del proceso y, debajo, una línea `→` en `--info` con la acción que lo resuelve. Copiable entera.
 
+## Cuando falta un control — se pide, no se inventa
+
+Un control que no está en este archivo **no se resuelve en el componente**. Un `<div>` con
+`@click` que hace de botón, un `⠿` decorativo que sólo funciona con mouse o un chip que en
+realidad navega son la forma en la que un sistema se desarma: cada uno se ve distinto, ninguno
+tiene estado de foco, y la deuda de treinta clases de botón de la que habla este archivo empezó
+exactamente así.
+
+**El procedimiento, en tres pasos:**
+
+1. **Buscá si ya existe con otro nombre.** Es el caso más frecuente. `.btn` y sus variantes,
+   `.select-row`, `.drag-handle`, `EditableCard`, `ScopeGroup`, `CollapsibleSection`,
+   `ConditionRowsEditor`, `ComboBox`, `BottomSheet`, `form-fields.css`. Si estás por escribir un
+   `border: 1px solid var(--border-hi)` sobre un `height`, casi seguro estás reescribiendo uno.
+2. **Si no existe, pedilo — y decí dónde MÁS sirve.** Un control que sólo sirve en una pantalla
+   es una decisión local; uno que aparece en tres es una pieza del sistema, y la diferencia
+   cambia cómo se diseña. En el pedido va: **qué decide** el control (no cómo se ve), **dónde
+   más aparece** el mismo problema hoy, y **qué se rompe** sin él —si el trabajo puede seguir con
+   una solución provisoria, o si queda bloqueado.
+3. **Mientras tanto, degradá a algo que ya exista** y anotalo. Un `.btn` de más es reversible;
+   un control nuevo a medio hacer se copia a otras tres pantallas antes de que nadie lo revise.
+
+**Un pedido bien escrito tiene esta forma:**
+
+> **Reordenar con el dedo.** Decide el orden de una lista donde el orden significa algo (qué
+> regla gana, qué provider corre). Hoy sólo hay `.drag-handle`, que usa el drag nativo de HTML5
+> y **no dispara en táctil**: bajo `--bp-shell` la lista es de sólo lectura sin que nada lo diga.
+> Aparece en `RulesSection`, `ActionsEditor` y `ProviderChoicesEditor`. Bloqueante para
+> reordenar en un teléfono; el teclado sigue funcionando en desktop.
+
+### Controles pedidos al design system
+
+Lo que hoy falta, con dónde más serviría. Un control que aparece en la columna «también sirve
+en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
+
+| Control | Qué decide | También sirve en | Estado |
+| --- | --- | --- | --- |
+| ~~Reordenar táctil~~ | — | — | **Hecho** — `composables/useDragReorder.ts`: se arrastra desde el handle con Pointer Events (mouse, dedo y lápiz por el mismo camino) |
+| ~~`StickyActionBar`~~ | — | — | **Hecho** — `ui/StickyActionBar.vue` |
+| ~~`FullScreen`~~ | — | — | **Hecho** — `ui/FullScreen.vue` |
+| ~~`LogLine` + `FollowTail`~~ | — | — | **Hechos y cableados** — `ui/`; en uso en los logs del daemon |
+| ~~`DataRow`~~ | — | — | **Hecho** — `components/DataRow.vue`; las tablas se migran al tocarlas (Ejecuciones ya lo hizo, con `RunRow`) |
+| ~~Barra de controles de lista~~ | — | — | **Hecho** — `components/ListControlsBar.vue` |
+| ~~Encabezado de bucket~~ | — | — | **Hecho** — `components/BucketHeader.vue` |
+| ~~Segmentado de vista~~ | — | — | Cubierto por `components/ListBoardToggle.vue` |
+
+Cuando uno de estos llegue diseñado, se agrega arriba con su primitiva y se borra de esta tabla.
+
+## Doce reglas transversales — R1 a R12
+
+Aplican a **cualquier** pantalla, incluidas las que ningún rediseño nombra. Son el criterio con el
+que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por qué en el PR.
+
+- **R1 · Blanco táctil.** Todo lo presionable mide `--tap-h` o más, **siempre** — no sólo bajo un
+  breakpoint. `--row-h` es grilla, no blanco.
+- **R2 · Nada de scroll horizontal.** Excepto una tabla de comparación explícita, y ahí con la
+  primera columna pegajosa. **No es cosmético:** con la página más ancha que la ventana, la tab
+  bar fija queda anclada a un ancho que ya no es el de la pantalla — el síntoma que se reporta no
+  es "scrollea de lado" sino "se pierde el menú de abajo". Las dos formas de producirlo: una fila
+  de controles donde todo es `flex: 0 0 auto` (nada puede achicarse, así que el último empuja), y
+  un panel fijo con `min-width` mayor que el teléfono. Un `min-width` en `rem` sobre una tabla es la señal de que faltó
+  decidir qué columnas importan.
+- **R3 · La acción principal no scrollea.** Bajo 768px el `.btn--primary` del header baja a una
+  barra fija al pie.
+- **R4 · Una barra fija por vez.** Tab bar **o** barra de acciones, nunca las dos: 108px en una
+  pantalla de 800 es el 13% gastado en chrome.
+- **R5 · La etiqueta va arriba.** Bajo 640px, toda grilla `etiqueta · valor` se apila. Una
+  etiqueta de `5rem` se lleva un cuarto del ancho de un teléfono.
+- **R6 · Overlay anclado, no.** Y adentro de un sheet tampoco: un popover absoluto no cuenta para
+  el alto del sheet, así que éste se dibuja del tamaño del input y la lista cae fuera de la parte
+  visible (medido: sheet de 178px, doce opciones invisibles). Adentro, la lista va **en flujo** y
+  el que scrollea es el cuerpo del sheet. Bajo 768px, popovers y dropdowns son bottom sheets. Un popover
+  anclado a un input queda fuera de pantalla en cuanto sube el teclado virtual.
+- **R7 · Sin hover como único camino.** Lo que sólo aparece en `:hover` es inalcanzable en
+  táctil. Si es importante, se ve siempre; si no, va en el detalle.
+- **R8 · Mobile primero en el CSS.** Reglas base para el teléfono y `min-width` para agregar
+  densidad. Un `max-width` nuevo necesita justificarse.
+- **R9 · Una sola barra de identidad.** El chrome y el encabezado de página no repiten el mismo
+  nombre. Si el nombre está en la barra pegajosa, la página arranca en su contenido — y la barra
+  mide `--tap-h`, no más, porque lo que hay ahí se toca.
+- **R10 · Un resumen nombra excepciones, no filas.** Un panel de métricas arriba de una lista
+  muestra lo que está **fuera de banda** y cuenta el resto. La tabla completa no se recorta para
+  caber: se muda a la pantalla donde se audita. Y **un contador en cero no se dibuja**.
+- **R11 · El blanco táctil es área, no alto — y editar es un modo.** R1 exige 44px de área de
+  toque; no autoriza a duplicar el alto de una lista. Una lista larga se **lee** densa
+  (`--row-h` por fila) y se **edita** a `--tap-h`, y el control de agregar es la última fila de la
+  propia lista.
+- **R12 · El chrome de una pantalla de lista son dos filas.** Identidad y controles, `--tap-h`
+  cada una, en cualquier ancho. Nada de un header de página que repita lo que ya dice la barra.
+
 ## Checklist antes de tocar UI
 
 - [ ] Leí `theme.css` y este archivo.
@@ -202,7 +396,19 @@ Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje l
 - [ ] Reutilicé una primitiva (`.btn`, `.panel`, `.uc-label`, `.kbd`) en vez de reinventarla.
 - [ ] Los botones usan `.btn` + variante; hay como mucho un `--primary` en la pantalla, y el destructivo va último y detrás de una confirmación.
 - [ ] Radios por token; ningún `0` ni `6px` a mano.
-- [ ] Las filas y chips miden `--row-h` o un múltiplo.
+- [ ] Las filas y chips miden `--row-h` o un múltiplo — y **todo lo que se toca** mide `--tap-h`
+      (R1). Los inputs bajan a `--fs-input` bajo 768px.
+- [ ] El CSS arranca en mobile y agrega con `min-width` (R8); no inventé un cuarto breakpoint.
+- [ ] Sin scroll horizontal (R2) y sin hover como único camino (R7).
+- [ ] Bajo 768px: la acción principal está en barra fija al pie (R3), hay **una** sola barra fija
+      (R4), y los popovers son sheets (R6). Bajo 640px, `etiqueta · valor` se apila (R5).
+- [ ] No repetí la identidad de la pantalla en un header propio (R9, R12): el chrome de una lista
+      son dos filas de `--tap-h`.
+- [ ] Un resumen nombra excepciones y no dibuja los ceros (R10).
+- [ ] Una lista de más de 8 ítems arranca en lectura y el `+ <ítem>` es su última fila (R11).
+- [ ] Si la lista se reordena, usa `.drag-handle` — no escribí `↑`/`↓` ni un `⠿` decorativo.
+- [ ] Si me faltó un control, lo pedí (ver «Cuando falta un control») en vez de inventarlo en el
+      componente, y degradé a una primitiva existente mientras tanto.
 - [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
 - [ ] Los campos usan `ui/form-fields.css` y los labels son `.uc-label` — no declaré mi propio
       `.xx-lbl` ni mi propio `.xx-field`.

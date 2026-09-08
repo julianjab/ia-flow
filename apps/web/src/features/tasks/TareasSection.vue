@@ -5,6 +5,13 @@ import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
+import ListBoardToggle from '@/components/ListBoardToggle.vue';
+import ListControlsBar from '@/components/ListControlsBar.vue';
+import BucketHeader from '@/components/BucketHeader.vue';
+import TaskRow from '@/components/TaskRow.vue';
+import KbdBar from '@/components/KbdBar.vue';
+import { useDispositionOrder } from '@/composables/useDispositionOrder';
+import { useIsSplit } from '@/composables/useIsMobile';
 import { useNow } from '@/composables/useNow';
 import {
   cancelTaskRun,
@@ -15,6 +22,8 @@ import {
 } from '@/features/tasks/api';
 import type {
   PullRequestRef,
+  TaskDisposition,
+  TaskDispositionEntry,
   TaskRunSummary,
   RunTaskNowResult,
   SlackMemberRef,
@@ -37,9 +46,12 @@ import {
 import { useToastStore } from '@/stores/toast';
 import { useRoute, useRouter } from 'vue-router';
 import TaskFiltersBar from '@/features/tasks/TaskFiltersBar.vue';
+import { fetchTaskDispositions } from '@/features/tasks/api';
 import {
+  countActiveTaskFilters,
   EMPTY_TASK_FILTERS,
   filterTasks,
+  taskFilterSummary,
   queryHasTaskFilters,
   taskFiltersFromQuery,
   taskFiltersFromSearch,
@@ -169,6 +181,219 @@ const rowsWithBlocked = computed(() =>
   })),
 );
 const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.value));
+
+/** Lo que la barra de controles dibuja sin abrir nada: cuántos filtros hay y
+ *  cuál es el que manda. Ver `taskFilters.ts` — la lógica es pura y se testea
+ *  sin montar la sección. */
+/**
+ * El orden por disposición — el MISMO que Qué sigue, Board y Ejecuciones (O6).
+ *
+ * El orden por fecha (el que devuelve la fuente) queda como **opción**, no como
+ * default: una fecha contesta *qué pasó*, y con agentes trabajando solos eso ya
+ * no coincide con *qué me toca*. Lo que te espera es justamente lo que lleva
+ * más tiempo quieto, o sea lo que un orden por fecha manda al fondo.
+ */
+const dispositions = ref<TaskDispositionEntry[]>([]);
+/** El agregado no se pudo consultar: la lista cae al orden de la fuente y lo
+ *  DICE, en vez de agrupar por buckets que no conoce. */
+const dispositionsFailed = ref(false);
+const groupByDisposition = ref(true);
+
+const dispositionById = computed(
+  () => new Map(dispositions.value.map((d) => [d.taskId, d])),
+);
+
+interface OrderedTask { id: string; disposition: TaskDisposition; item: TaskRow }
+
+const orderedInput = computed<OrderedTask[]>(() => {
+  const byId = dispositionById.value;
+  // El orden de las filas lo trae el server ya resuelto; acá sólo se
+  // intersecta con lo que el filtro dejó pasar.
+  const visible = new Set(filteredItems.value.map((i) => i.id));
+  const itemsById = new Map(filteredItems.value.map((i) => [i.id, i]));
+  const out: OrderedTask[] = [];
+  for (const d of dispositions.value) {
+    if (!visible.has(d.taskId)) continue;
+    // El chip acota a un bucket; sin chip, pasan los cuatro.
+    if (quickFilter.value && d.disposition !== quickFilter.value) continue;
+    const item = itemsById.get(d.taskId);
+    if (item) out.push({ id: d.taskId, disposition: d.disposition, item });
+  }
+  // Una tarea que el agregado no conoce (recién creada) no desaparece del
+  // listado: va al final, sin bucket que afirmar.
+  for (const item of filteredItems.value) {
+    if (byId.has(item.id)) continue;
+    // Una tarea que el agregado no conoce no se afirma en ningún bucket, así
+    // que un chip activo la esconde en vez de mentir sobre dónde está.
+    if (quickFilter.value) continue;
+    out.push({ id: item.id, disposition: 'waiting-on-you', item });
+  }
+  return out;
+});
+
+const { buckets, movedCount, freeze, freezeIfFirst, reset: resetOrder } =
+  useDispositionOrder(orderedInput);
+
+/** `cerrado` arranca plegado (O4): es la parte del día que no hay que mirar. */
+const closedOpen = ref(false);
+
+/**
+ * Los chips de filtro rápido: un toque para quedarte con un bucket.
+ *
+ * No son un segundo sistema de filtros — son un ATAJO sobre el que ya existe.
+ * La pregunta "¿qué me toca?" se hace veinte veces por día y hoy costaba abrir
+ * el panel y escribir un token; con el orden por disposición ya calculado, el
+ * corte es gratis.
+ *
+ * **Un chip en cero no se dibuja** (R10): "0 bloqueadas" ocupa el mismo ancho
+ * que un problema y no es uno. Y el activo es un toggle — volver a tocarlo
+ * apaga, que es como se sale de un filtro sin buscar dónde.
+ */
+const QUICK_FILTERS: Array<{ key: TaskDisposition; label: string; glyph: string }> = [
+  { key: 'waiting-on-you', label: 'me toca', glyph: '' },
+  { key: 'blocked', label: 'bloqueadas', glyph: '⛔' },
+  { key: 'moving', label: 'avanzando', glyph: '◐' },
+];
+
+const quickFilter = ref<TaskDisposition | null>(null);
+
+/**
+ * Lista o board — dos VISTAS de las mismas tareas, no dos pantallas.
+ *
+ * El board era un destino aparte, y eso obligaba a decidir por dónde entrar
+ * antes de saber qué buscabas: las dos muestran el mismo conjunto, sólo que una
+ * lo agrupa por status. La ruta `/board` sigue viva —los links viejos no se
+ * rompen— y llega acá con la vista puesta.
+ */
+const props = withDefaults(defineProps<{ initialView?: 'lista' | 'board' }>(), {
+  initialView: 'lista',
+});
+const view = ref<'lista' | 'board'>(props.initialView);
+// El toggle navega (`/tareas` ↔ `/board`), y Vue REUSA el componente entre las
+// dos rutas: sin este watch la vista se quedaría en la que se montó primero.
+watch(() => props.initialView, (v) => { view.value = v; });
+
+/**
+ * El board: las MISMAS tareas, agrupadas por status en vez de por disposición.
+ *
+ * No es otra pantalla ni otra fila — es el mismo `TaskRow`, clickeable, con el
+ * mismo detalle. Lo único que cambia es por qué se agrupa. Antes el board era
+ * una sección aparte que redibujaba la fila por su cuenta, y la misma tarea se
+ * leía distinta según desde dónde la miraras.
+ *
+ * Una columna por vez y no un carrusel: en un teléfono un board de cinco
+ * columnas se lee scrolleando de lado y perdiendo el hilo.
+ */
+const activeStatus = ref<string | null>(null);
+
+const boardColumns = computed(() => {
+  const counts = new Map<string, number>();
+  for (const item of filteredItems.value) {
+    const key = (item.status ?? '').trim();
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  // El orden lo da la fuente (`statusOptions`), que es el del pipeline; los que
+  // aparecen en tareas pero no están configurados van al final en vez de
+  // desaparecer — esconder una columna con tareas adentro es peor que
+  // mostrarla fuera de orden.
+  const ordered = statusOptions.value.filter((s) => counts.has(s));
+  for (const s of counts.keys()) if (!ordered.includes(s)) ordered.push(s);
+  return ordered.map((name) => ({ name, count: counts.get(name) ?? 0 }));
+});
+
+/** Sin elección explícita, la primera columna con tareas. */
+const currentStatus = computed(
+  () => activeStatus.value ?? boardColumns.value[0]?.name ?? null,
+);
+
+const columnItems = computed(() =>
+  currentStatus.value
+    ? filteredItems.value.filter((i) => (i.status ?? '').trim() === currentStatus.value)
+    : [],
+);
+
+/** Sobre --bp-split el detalle deja de flotar y se vuelve la segunda columna. */
+const { isSplit } = useIsSplit();
+
+/**
+ * Los props del detalle, en un solo lugar.
+ *
+ * El componente se monta dos veces —columna sobre `--bp-split`, overlay
+ * debajo— y son veinte props: escribirlos dos veces garantiza que en el
+ * próximo cambio uno de los dos quede viejo, y el que quede viejo va a ser el
+ * que menos se mira.
+ */
+const detailProps = computed(() => {
+  const item = reposModalItem.value;
+  return {
+    open: reposModalOpen.value,
+    taskId: item?.id ?? null,
+    projectId: activeProjectId.value ?? null,
+    issueNumber: item?.issueNumber ?? 0,
+    issueTitle: item?.title ?? '',
+    repos: item ? currentReposOf(item) : [],
+    issueUrl: item?.url,
+    branch: item?.branch,
+    branchUrl: item?.branchUrl,
+    pullRequests: item?.pullRequests,
+    devLinks: item?.hasDevLinks,
+    pullRequestsKnown: item?.pullRequestsKnown,
+    status: item?.status,
+    running: runBusyId.value === item?.id,
+    runResult: runResult.value,
+    slackEnabled: integrations.value.slack.enabled,
+    slackBlockedReason: item ? (slackBlockedReason(item) ?? null) : null,
+    slackBusy: slackBusyId.value === item?.id,
+    slackThreadUrl: item?.slackThreadUrl ?? null,
+    execution: item ? (runsByTask.value[item.id]?.last ?? null) : null,
+    attempts: item ? runsByTask.value[item.id]?.attempts : undefined,
+    blocked: item ? (blockersByTask.value[item.id]?.length ?? 0) > 0 : false,
+    runsKnown: runsKnown.value,
+    cancelling: cancelBusyId.value === item?.id,
+  };
+});
+
+const quickCounts = computed<Record<string, number>>(() => {
+  const out: Record<string, number> = {};
+  for (const d of dispositions.value) {
+    out[d.disposition] = (out[d.disposition] ?? 0) + 1;
+  }
+  return out;
+});
+
+const quickChips = computed(() =>
+  QUICK_FILTERS.map((f) => ({ ...f, count: quickCounts.value[f.key] ?? 0 })).filter(
+    (f) => f.count > 0,
+  ),
+);
+
+function toggleQuickFilter(key: TaskDisposition) {
+  quickFilter.value = quickFilter.value === key ? null : key;
+}
+
+/** La razón de cada fila, para dibujarla debajo del título (O1). */
+function reasonFor(id: string): string {
+  return dispositionById.value.get(id)?.reason ?? '';
+}
+
+async function loadDispositions() {
+  const pid = activeProjectId.value;
+  if (!pid) return;
+  dispositionsFailed.value = false;
+  try {
+    const next = await fetchTaskDispositions(pid);
+    if (activeProjectId.value !== pid) return;
+    dispositions.value = next;
+    freezeIfFirst();
+  } catch {
+    if (activeProjectId.value !== pid) return;
+    dispositionsFailed.value = true;
+    dispositions.value = [];
+  }
+}
+
+const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
+const filterSummary = computed(() => taskFilterSummary(filters.value));
 
 // Un status seleccionado que el provider ya no lista sigue dibujándose: sin
 // esto el chip desaparece y el operador no tiene cómo apagar el filtro que
@@ -553,6 +778,7 @@ onMounted(() => {
   void loadRepoNames();
   void loadStatuses();
   void loadProjectItems();
+  void loadDispositions();
 });
 
 // Reload whenever the user switches projects — same pattern as StatusesSection.
@@ -566,44 +792,168 @@ watch(activeProjectId, (pid) => {
   blockersByTask.value = {};
   runsKnown.value = false;
   filters.value = loadStoredFilters(pid);
+  // El orden congelado es del proyecto anterior: conservarlo dejaría las filas
+  // del nuevo ordenadas por ids que no existen acá.
+  dispositions.value = [];
+  resetOrder();
   void loadRepoNames();
   void loadStatuses();
   void loadProjectItems();
+  void loadDispositions();
 });
 </script>
 
 <template>
-  <section class="settings-section">
-    <div class="section-header">
-      <div class="section-head-text">
-        <h2>Tareas del proyecto</h2>
-        <p class="section-desc">
-          Items del provider de este proyecto. Haz click en una tarea para editar sus
-          <strong>repos</strong>.
-        </p>
-      </div>
-      <div class="section-head-actions">
+  <section class="settings-section settings-section--list">
+    <!-- El `<h2>Tareas del proyecto</h2>` y su descripción se borraron (R9,
+         R12): la barra de identidad del shell ya dice el proyecto y la sección,
+         y el párrafo describía lo que la lista muestra abajo. Lo único del
+         header que informaba —el conteo y Actualizar— entra en la fila de
+         controles, que ya está ahí. -->
+    <ListControlsBar
+      :filter-count="activeFilterCount"
+      :summary="filterSummary ?? undefined"
+      title="Filtrar tareas"
+      @clear="filters = { ...EMPTY_TASK_FILTERS }"
+    >
+      <template #view>
+        <!-- Board es la misma lista agrupada por status: su entrada vive acá,
+             no como un destino más de la navegación. -->
+        <ListBoardToggle
+          :project-id="activeProjectId ?? null"
+          :view="view"
+          :board-available="statusOptions.length > 0"
+        />
+      </template>
+
+      <!-- Los controles que dan forma a la lista: en la fila cuando hay ancho,
+           dentro del sheet cuando no. Seis controles en 390px daban 199px de
+           scroll horizontal (R2). -->
+      <template #tools>
         <span v-if="projectItems.length" class="task-count" data-testid="task-count">
           {{ filteredItems.length }} de {{ projectItems.length }} tareas
         </span>
-        <button type="button" class="btn" :disabled="itemsLoading" @click="loadProjectItems(true)">
-          <span class="btn-glyph">{{ itemsLoading ? '◐' : '↺' }}</span>
-          {{ itemsLoading ? 'Cargando…' : 'Actualizar' }}
-        </button>
+        <!-- El orden por fecha queda como OPCIÓN, no como default: una fecha
+             contesta *qué pasó*, y con agentes trabajando solos eso dejó de
+             coincidir con *qué me toca*. Pero sigue siendo el orden correcto
+             para "¿qué se movió hoy?", así que no se borra. -->
+        <button
+          type="button"
+          class="lcb-order"
+          :class="{ 'is-on': groupByDisposition }"
+          :disabled="dispositionsFailed"
+          :aria-pressed="groupByDisposition"
+          :title="dispositionsFailed
+            ? 'No se pudo consultar la disposición de las tareas'
+            : groupByDisposition
+              ? 'Agrupado por quién mueve la próxima pieza — tocá para ver el orden de la fuente'
+              : 'Orden de la fuente — tocá para agrupar por disposición'"
+          data-testid="tareas-order-toggle"
+          @click="groupByDisposition = !groupByDisposition"
+        >{{ groupByDisposition ? 'por disposición' : 'por fecha' }}</button>
+        <button
+          type="button"
+          class="lcb-refresh"
+          :disabled="itemsLoading"
+          :aria-label="itemsLoading ? 'Cargando' : 'Actualizar'"
+          :title="itemsLoading ? 'Cargando…' : 'Actualizar'"
+          @click="loadProjectItems(true); loadDispositions()"
+        >{{ itemsLoading ? '◐' : '↺' }}</button>
+      </template>
+
+      <TaskFiltersBar
+        v-model="filters"
+        :statuses="statusChips"
+        :repos="repoChips"
+        :assignees="assigneeChips"
+      />
+    </ListControlsBar>
+
+    <!-- La vista de board: las MISMAS tareas y la MISMA fila, agrupadas por
+         status en vez de por disposición. Lo único que cambia es el criterio;
+         la fila es `TaskRow`, clickeable, con el mismo detalle. -->
+    <div class="tk-split" :class="{ 'tk-split--open': isSplit && reposModalOpen }">
+    <div class="tk-list">
+    <template v-if="view === 'board'">
+      <div v-if="boardColumns.length" class="bd-chips">
+        <button
+          v-for="col in boardColumns"
+          :key="col.name"
+          type="button"
+          class="bd-chip"
+          :class="{ 'is-on': col.name === currentStatus }"
+          :aria-pressed="col.name === currentStatus"
+          :data-testid="`board-chip-${col.name}`"
+          @click="activeStatus = col.name"
+        >{{ col.name }} <b>{{ col.count }}</b></button>
       </div>
+
+      <p v-if="!boardColumns.length" class="repos-empty">
+        Ninguna tarea tiene status: no hay columnas que mostrar.
+      </p>
+
+      <!-- `data-kbd-list` es lo que `useKeyboardNav` busca con `closest`: sin
+           él la KbdBar de abajo anunciaría atajos que no hacen nada. -->
+      <div v-else class="task-table" data-kbd-list="tasks">
+        <BucketHeader
+          v-if="currentStatus"
+          disposition="moving"
+          :count="columnItems.length"
+          :label-override="currentStatus"
+        />
+        <TaskRow
+          v-for="item in columnItems"
+          :key="item.id"
+          layout="table"
+          :selected="reposModalItem?.id === item.id"
+          :title="item.title"
+          :issue-number="item.issueNumber"
+          :issue-url="item.url"
+          :reason="reasonFor(item.id)"
+          :disposition="dispositionById.get(item.id)?.disposition"
+          :execution="runsByTask[item.id]?.last ?? null"
+          :attempts="runsByTask[item.id]?.attempts"
+          :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+          :runs-known="runsKnown"
+          :pull-requests-known="item.pullRequestsKnown"
+          :has-open-pr="hasOpenPr(item)"
+          :agent="runsByTask[item.id]?.last.agentId"
+          :duration="durationOf(item)"
+          @open="openReposModal(item)"
+        />
+        <KbdBar />
+      </div>
+
+      <p class="bd-note">
+        Arrastrar entre columnas no existe acá: el status se cambia desde el detalle de la tarea.
+      </p>
+    </template>
+
+    <template v-else>
+    <!-- Atajos de una tocada sobre la disposición: la pregunta "¿qué me toca?"
+         se hace veinte veces por día y no debería costar abrir un panel. Un
+         chip en cero no se dibuja (R10). -->
+    <div v-if="quickChips.length && groupByDisposition" class="quick-chips">
+      <button
+        v-for="chip in quickChips"
+        :key="chip.key"
+        type="button"
+        class="quick-chip"
+        :class="[`quick-chip--${chip.key}`, { 'is-on': quickFilter === chip.key }]"
+        :aria-pressed="quickFilter === chip.key"
+        :data-testid="`quick-filter-${chip.key}`"
+        @click="toggleQuickFilter(chip.key)"
+      >
+        <span v-if="chip.glyph" class="quick-chip__glyph" aria-hidden="true">{{ chip.glyph }}</span>
+        {{ chip.label }}
+        <b>{{ chip.count }}</b>
+      </button>
     </div>
 
     <SlackReviewSettings
       :project="projectsStore.activeProject"
       :saving="slackSettingsSaving"
       @save="saveSlackSettings"
-    />
-
-    <TaskFiltersBar
-      v-model="filters"
-      :statuses="statusChips"
-      :repos="repoChips"
-      :assignees="assigneeChips"
     />
 
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
@@ -627,65 +977,119 @@ watch(activeProjectId, (pid) => {
       Ninguna de las {{ projectItems.length }} tareas coincide con los filtros activos.
     </div>
 
-    <div v-else class="task-table">
+    <!-- El orden no se recalcula solo: si lo hiciera, la fila que ibas a tocar
+         se movería bajo el dedo con cada evento del socket. -->
+    <button
+      v-else-if="movedCount > 0 && groupByDisposition"
+      type="button"
+      class="tk-moved"
+      data-testid="tareas-reorder"
+      @click="freeze"
+    >
+      {{ movedCount }} {{ movedCount === 1 ? 'cambió' : 'cambiaron' }} de lugar
+      <span class="tk-moved-sep">·</span>
+      <span class="tk-moved-cta">reordenar</span>
+    </button>
+
+    <template v-if="filteredItems.length">
+    <!-- Sin el agregado la lista NO inventa buckets: cae al orden de la fuente
+         y lo dice. Agrupar por una disposición que no se pudo consultar sería
+         afirmar en qué bucket está cada tarea sin haber preguntado. -->
+    <p v-if="dispositionsFailed" class="tk-degraded">
+      No se pudo consultar el estado de las tareas: se listan en el orden de la fuente.
+    </p>
+
+    <div class="task-table">
       <!-- Encabezado sólo en desktop: en mobile la fila se apila y una
            cabecera de columnas no describiría nada. -->
       <div class="task-thead" aria-hidden="true">
         <span></span><span>tarea</span><span>issue</span><span>ejecución</span><span>agente</span>
         <span class="task-th-dur">dur.</span>
       </div>
-      <ul class="task-list" data-kbd-list="tasks">
-        <li
+
+      <template v-for="bucket in (groupByDisposition && !dispositionsFailed ? buckets : [])" :key="bucket.disposition">
+        <BucketHeader
+          :disposition="bucket.disposition"
+          :count="bucket.rows.length"
+          :collapsible="bucket.disposition === 'closed'"
+          :open="closedOpen"
+          @toggle="closedOpen = !closedOpen"
+        />
+        <ul
+          v-if="bucket.disposition !== 'closed' || closedOpen"
+          class="task-list"
+          data-kbd-list="tasks"
+        >
+          <TaskRow
+            v-for="row in bucket.rows"
+            :key="row.id"
+            layout="table"
+            :selected="reposModalItem?.id === row.id"
+            :title="row.item.title"
+            :issue-number="row.item.issueNumber"
+            :issue-url="row.item.url"
+            :reason="reasonFor(row.id)"
+            :disposition="row.disposition"
+            :execution="runsByTask[row.id]?.last ?? null"
+            :attempts="runsByTask[row.id]?.attempts"
+            :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
+            :runs-known="runsKnown"
+            :pull-requests-known="row.item.pullRequestsKnown"
+            :has-open-pr="hasOpenPr(row.item)"
+            :agent="runsByTask[row.id]?.last.agentId"
+            :duration="durationOf(row.item)"
+            @open="openReposModal(row.item)"
+          />
+        </ul>
+      </template>
+
+      <ul
+        v-if="!groupByDisposition || dispositionsFailed"
+        class="task-list"
+        data-kbd-list="tasks"
+      >
+        <TaskRow
           v-for="item in filteredItems"
           :key="item.id"
-          class="task-row"
-          data-kbd-item
-          tabindex="0"
-          @click="openReposModal(item)"
-        >
-          <span class="task-row-glyph">
-            <ExecutionStatusLine
-              class="task-row-glyph-only"
-              :execution="runsByTask[item.id]?.last ?? null"
-              :attempts="runsByTask[item.id]?.attempts"
-              :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-              :runs-known="runsKnown"
-              :pull-requests-known="item.pullRequestsKnown"
-              :has-open-pr="hasOpenPr(item)"
-            />
-          </span>
-
-          <span class="task-row-title" :title="item.title">{{ item.title }}</span>
-
-          <a
-            v-if="item.issueNumber && item.url"
-            class="task-row-issue"
-            :href="item.url"
-            target="_blank"
-            rel="noopener"
-            :title="`Abrir #${item.issueNumber} en el provider`"
-            @click.stop
-          >#{{ item.issueNumber }}</a>
-          <span v-else-if="item.issueNumber" class="task-row-issue is-plain">#{{ item.issueNumber }}</span>
-          <span v-else class="task-row-issue is-plain"></span>
-
-          <!-- La misma línea en las dos resoluciones: en mobile ocupa la
-               segunda fila del bloque de texto; en desktop, la columna
-               `ejecución`. Una sola implementación del vocabulario. -->
-          <ExecutionStatusLine
-            class="task-row-exec"
-            :execution="runsByTask[item.id]?.last ?? null"
-            :attempts="runsByTask[item.id]?.attempts"
-            :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-            :runs-known="runsKnown"
-            :pull-requests-known="item.pullRequestsKnown"
-            :has-open-pr="hasOpenPr(item)"
-          />
-
-          <span class="task-row-agent">{{ runsByTask[item.id]?.last.agentId ?? '—' }}</span>
-          <span class="task-row-dur">{{ durationOf(item) }}</span>
-        </li>
+          layout="table"
+          :selected="reposModalItem?.id === item.id"
+          :title="item.title"
+          :issue-number="item.issueNumber"
+          :issue-url="item.url"
+          :execution="runsByTask[item.id]?.last ?? null"
+          :attempts="runsByTask[item.id]?.attempts"
+          :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+          :runs-known="runsKnown"
+          :pull-requests-known="item.pullRequestsKnown"
+          :has-open-pr="hasOpenPr(item)"
+          :agent="runsByTask[item.id]?.last.agentId"
+          :duration="durationOf(item)"
+          @open="openReposModal(item)"
+        />
       </ul>
+
+      <!-- Los atajos, al pie de la lista que gobiernan. Sólo los que existen.
+           Sin link de escape: ya estás en el listado completo. -->
+      <KbdBar />
+    </div>
+    </template>
+
+    </template>
+    </div>
+    <!-- Sobre --bp-split el detalle es una COLUMNA hermana, no un overlay: la
+         lista queda entera y usable, que es lo que permite recorrer varias
+         tareas seguidas. Debajo del breakpoint sigue siendo el panel lateral
+         de siempre, y bajo --bp-shell la pantalla completa. -->
+    <TaskDetailModal
+      v-if="isSplit"
+      inline
+      v-bind="detailProps"
+      @logs="reposModalItem && openLogs(reposModalItem)"
+      @cancel-run="cancelConfirm = reposModalItem"
+      @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
+      @run="onRunClick"
+      @close="reposModalOpen = false"
+    />
     </div>
   </section>
 
@@ -710,31 +1114,11 @@ watch(activeProjectId, (pid) => {
     @cancel="slackConfirm = null"
   />
 
+  <!-- Debajo de --bp-split, el overlay de siempre. Mismos props que la
+       columna: `detailProps` existe para que no diverjan. -->
   <TaskDetailModal
-    :open="reposModalOpen"
-    :task-id="reposModalItem?.id ?? null"
-    :project-id="activeProjectId ?? null"
-    :issue-number="reposModalItem?.issueNumber ?? 0"
-    :issue-title="reposModalItem?.title ?? ''"
-    :repos="reposModalItem ? currentReposOf(reposModalItem) : []"
-    :issue-url="reposModalItem?.url"
-    :branch="reposModalItem?.branch"
-    :branch-url="reposModalItem?.branchUrl"
-    :pull-requests="reposModalItem?.pullRequests"
-    :dev-links="reposModalItem?.hasDevLinks"
-    :pull-requests-known="reposModalItem?.pullRequestsKnown"
-    :status="reposModalItem?.status"
-    :running="runBusyId === reposModalItem?.id"
-    :run-result="runResult"
-    :slack-enabled="integrations.slack.enabled"
-    :slack-blocked-reason="reposModalItem ? (slackBlockedReason(reposModalItem) ?? null) : null"
-    :slack-busy="slackBusyId === reposModalItem?.id"
-    :slack-thread-url="reposModalItem?.slackThreadUrl ?? null"
-    :execution="reposModalItem ? (runsByTask[reposModalItem.id]?.last ?? null) : null"
-    :attempts="reposModalItem ? runsByTask[reposModalItem.id]?.attempts : undefined"
-    :blocked="reposModalItem ? (blockersByTask[reposModalItem.id]?.length ?? 0) > 0 : false"
-    :runs-known="runsKnown"
-    :cancelling="cancelBusyId === reposModalItem?.id"
+    v-if="!isSplit"
+    v-bind="detailProps"
     @logs="reposModalItem && openLogs(reposModalItem)"
     @cancel-run="cancelConfirm = reposModalItem"
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
@@ -744,6 +1128,171 @@ watch(activeProjectId, (pid) => {
 </template>
 
 <style scoped>
+/* El aviso de reorden: información, no alarma — describe el estado del ORDEN,
+   no el de una tarea. Misma pieza que en Qué sigue. */
+.tk-moved {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0 1rem;
+  border: none;
+  background: var(--panel-alt);
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-align: left;
+  cursor: pointer;
+}
+.tk-moved:hover { background: var(--panel-hi); }
+.tk-moved-sep { color: var(--fg-dimmer); }
+.tk-moved-cta { text-decoration: underline; }
+
+/* Degradación, no error: las tareas llegaron, su disposición no. */
+.tk-degraded { margin: 0 0 0.4rem; font-size: var(--fs-body-sm); color: var(--warn); }
+
+/* La razón (O1) ocupa la celda de ejecución: es la misma pregunta contestada
+   mejor, no un dato de más. El color viene de su disposición — el único en
+   --danger es el que pide algo tuyo. */
+.task-row-reason {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-row-reason.is-waiting-on-you { color: var(--danger); }
+.task-row-reason.is-blocked { color: var(--warn); }
+.task-row-reason.is-moving { color: var(--accent); }
+.task-row-reason.is-closed { color: var(--fg-dimmer); }
+
+/* ── La segunda columna (--bp-split) ──────────────────────────────────────
+   Hasta 1100px la lista ocupa todo y el detalle flota encima. Arriba, se
+   parten: lista a la izquierda y detalle a la derecha, hermanos en la misma
+   grilla.
+
+   La grilla sólo aparece CON el detalle abierto (`--open`): sin él, reservar
+   26rem vacías dejaría la lista angosta para nada. Y la transición es de
+   `grid-template-columns`, así que la lista se acomoda en vez de saltar. */
+.tk-split { display: flex; flex-direction: column; min-width: 0; }
+.tk-list { min-width: 0; }
+
+@media (min-width: 1100px) {
+  .tk-split--open {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 26rem;
+    gap: 1rem;
+    align-items: start;
+  }
+}
+
+/* Los chips del board: una columna por vez, no un carrusel horizontal. En un
+   teléfono un board de cinco columnas se lee scrolleando de lado y perdiendo
+   el hilo. Misma caja que los chips de filtro rápido — son el mismo gesto. */
+.bd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.bd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4ch;
+  height: var(--tap-h-sm);
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bd-chip:hover { border-color: var(--border-hi); }
+/* El activo en video inverso, como toda selección del sistema. */
+.bd-chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+
+.bd-note {
+  margin: 0.5rem 0 0;
+  font-size: var(--fs-micro);
+  color: var(--fg-dimmer);
+}
+
+/* Los chips de filtro rápido. `--tap-h-sm`: son chips que van en fila y su
+   destino es ancho — la medida del chip que NAVEGA, no la del que decora. */
+.quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4ch;
+  height: var(--tap-h-sm);
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-chip:hover { border-color: var(--border-hi); }
+/* El activo en video inverso, como toda selección del sistema. */
+.quick-chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.quick-chip__glyph { color: var(--fg-dim); }
+.quick-chip.is-on .quick-chip__glyph { color: var(--panel); }
+/* El único con color propio es el que pide algo tuyo. */
+.quick-chip--waiting-on-you { border-color: var(--danger); color: var(--danger); }
+.quick-chip--waiting-on-you.is-on {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--panel);
+}
+
+/* El conteo y Actualizar viven en la fila de controles desde que el header de
+   sección se borró: son lo único que ese header informaba. */
+.lcb-order {
+  flex: 0 0 auto;
+  height: var(--tap-h-sm);
+  padding: 0 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lcb-order.is-on { border-color: var(--accent); color: var(--accent); }
+.lcb-order:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.lcb-refresh {
+  flex: 0 0 auto;
+  width: var(--tap-h);
+  height: var(--tap-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.lcb-refresh:hover:not(:disabled) { color: var(--accent); }
+.lcb-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* El contador va pegado a Actualizar porque responde a la misma pregunta que
    ese botón: qué estoy viendo, y de cuánto. */
 .task-count {
@@ -782,7 +1331,15 @@ watch(activeProjectId, (pid) => {
 .task-table {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  /* `clip` y NO `hidden`, y la diferencia es funcional.
+     `overflow: hidden` convierte a la caja en un contenedor de scroll, y un
+     `position: sticky` de adentro pasa a anclarse a ELLA en vez de a la
+     página. Como la tabla no scrollea, el encabezado de bucket quedaba clavado
+     a 44px de su borde superior — tapando la primera fila para siempre, no
+     mientras scrolleabas.
+     `clip` recorta igual (que es lo único que se quería, para el radio) pero
+     NO crea contenedor de scroll, así que el sticky vuelve a mirar la página. */
+  overflow: clip;
 }
 .task-list {
   list-style: none;
@@ -895,6 +1452,7 @@ watch(activeProjectId, (pid) => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
   /* El glifo ya está en la columna 1: repetirlo en la columna de ejecución
      sería decir dos veces lo mismo en la misma fila. */
   .task-row-exec :deep(.esl-glyph),

@@ -89,7 +89,7 @@ function isAction(e: ExecutionLog): boolean {
 <template>
   <section class="runs-block">
     <div class="runs-head">
-      <span class="uc-label">Ejecuciones</span>
+      <span class="uc-label">Qué hizo</span>
       <button type="button" class="runs-reload" :disabled="loading" @click="load()">
         {{ loading ? '◐' : '↻' }}
       </button>
@@ -97,7 +97,7 @@ function isAction(e: ExecutionLog): boolean {
 
     <p v-if="error" class="runs-error">No se pudieron cargar: {{ error }}</p>
     <p v-else-if="loading && !executions.length" class="empty">Cargando…</p>
-    <p v-else-if="!executions.length" class="empty">Esta tarea todavía no corrió ningún agente.</p>
+    <p v-else-if="!executions.length" class="empty">Todavía no hizo nada: ningún agente corrió sobre esta tarea.</p>
 
     <ul v-else class="runs-list">
       <li v-for="e in executions" :key="e.id" class="run-row">
@@ -139,15 +139,28 @@ function isAction(e: ExecutionLog): boolean {
 .runs-reload:disabled { cursor: default; }
 
 .runs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+/* Dos líneas SIEMPRE, no sólo en un teléfono: esta lista vive dentro del panel
+   de detalle, que mide 400px en escritorio y la pantalla completa en mobile —
+   nunca es ancha. En una línea, los cuatro campos de ancho fijo sumaban 377px
+   dentro de una caja de 345 y la duración quedaba cortada contra el borde: no
+   scrolleable, no truncada, simplemente invisible.
+
+   El reparto es el mismo de toda fila de datos de la app: identidad arriba
+   (resultado · agente · duración), contexto abajo (cuándo · por qué). */
 .run-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'outcome agent  dur'
+    'when    reason reason';
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.1rem 0.5rem;
   min-width: 0;
   font-size: var(--fs-micro);
   color: var(--fg-dim);
 }
 .run-outcome {
+  grid-area: outcome;
   flex: 0 0 auto;
   font-family: var(--font-mono);
   text-transform: uppercase;
@@ -160,14 +173,23 @@ function isAction(e: ExecutionLog): boolean {
 .is-cancelled,
 .is-truncated { color: var(--warn); }
 .is-running { color: var(--info); }
-.run-agent { flex: 0 0 auto; color: var(--fg); font-family: var(--font-mono); }
+.run-agent {
+  grid-area: agent;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
 /* Una acción de la regla no es un run de agente: se lee, no se analiza. */
 .run-agent.is-action { color: var(--fg-dim); font-family: inherit; font-style: italic; }
-.run-when { flex: 0 0 auto; }
-.run-duration { flex: 0 0 auto; }
+.run-when { grid-area: when; white-space: nowrap; }
+.run-duration { grid-area: dur; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* El motivo es lo primero que se recorta: identidad y resultado del run tienen
    que sobrevivir a cualquier ancho. */
 .run-reason {
+  grid-area: reason;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
