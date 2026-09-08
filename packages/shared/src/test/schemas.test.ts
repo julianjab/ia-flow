@@ -19,6 +19,7 @@ import {
   ProviderLimitSchema,
   PullRequestFileSchema,
   PullRequestRefSchema,
+  RecoverableCheckpointSchema,
   RepoContextSchema,
   RepoDependencySchema,
   RepoEntrySchema,
@@ -1367,5 +1368,33 @@ describe('TaskFocusSchema', () => {
       computedAt: '2026-09-07T12:00:00.000Z',
     }
     expect(TaskFocusSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('RecoverableCheckpointSchema', () => {
+  const base = {
+    runId: 'r1',
+    taskId: 't1',
+    taskTitle: 'Solucionar este error',
+    projectId: 'ia-flow',
+    agentId: 'refiner',
+    updatedAt: '2026-09-07T12:00:00.000Z',
+    attempts: 0,
+    resumable: true,
+    stillOpen: true,
+  }
+
+  it('round-trips un checkpoint recuperable', () => {
+    expect(RecoverableCheckpointSchema.parse(base)).toEqual(base)
+  })
+
+  it('acepta taskTitle/projectId/agentId nulos — no siempre hay execution_log para cruzar', () => {
+    const parsed = RecoverableCheckpointSchema.parse({
+      ...base,
+      taskTitle: null,
+      projectId: null,
+      agentId: null,
+    })
+    expect(parsed.taskTitle).toBeNull()
   })
 })

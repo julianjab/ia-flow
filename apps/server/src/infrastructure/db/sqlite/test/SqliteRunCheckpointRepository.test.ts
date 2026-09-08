@@ -68,4 +68,17 @@ describe('SqliteRunCheckpointRepository', () => {
     await repo.delete('nunca-existio')
     expect(db.query('SELECT * FROM run_checkpoints').all()).toHaveLength(0)
   })
+
+  test('listAll trae todos los checkpoints vivos, más recientes primero', async () => {
+    await repo.save({ runId: 'r1', taskId: 't1', state: { messages: ['a'] } })
+    db.run("UPDATE run_checkpoints SET updated_at = '2020-01-01T00:00:00.000Z' WHERE run_id = 'r1'")
+    await repo.save({ runId: 'r2', taskId: 't2', state: { messages: ['b'] } })
+
+    const all = await repo.listAll()
+    expect(all.map((c) => c.runId)).toEqual(['r2', 'r1'])
+  })
+
+  test('listAll vacío sin filas', async () => {
+    expect(await repo.listAll()).toEqual([])
+  })
 })

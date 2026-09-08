@@ -132,7 +132,7 @@ describe('verbForRun', () => {
       label: 'Resolver',
       kind: 'route',
       href: '/general/aborted-runs?run=e9',
-      hint: '· runs abortados',
+      hint: '· runs recuperables',
     })
   })
 
