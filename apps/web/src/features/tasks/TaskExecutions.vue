@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { ExecutionLog } from '@ia-flow/shared';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { fetchTaskExecutions } from '@/features/tasks/api';
+import TaskPipelineSteps from '@/features/tasks/TaskPipelineSteps.vue';
 
 const props = defineProps<{
   projectId: string | null;
@@ -10,11 +11,26 @@ const props = defineProps<{
   /** Cambia cuando algo pudo haber agregado un run (un "Correr ahora"): el
    *  listado se recarga solo en vez de obligar a cerrar y abrir el detalle. */
   reloadToken?: unknown;
+  /** El pipeline en orden, para dibujar la barra de pasos arriba de la lista.
+   *  Sin esto (fuente sin noción de pipeline, ej. local-fs) no hay stepper y
+   *  la lista se muestra igual que siempre, sin colapsar. */
+  pipelineStatuses?: string[];
+  /** Status actual de la tarea — contra qué se resalta el paso "en curso". */
+  currentStatus?: string | null;
 }>();
 
 const executions = ref<ExecutionLog[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
+
+const hasPipeline = computed(() => (props.pipelineStatuses?.length ?? 0) > 0);
+// Con stepper, el detalle fila por fila es secundario y arranca colapsado;
+// sin stepper es lo único que hay, así que se ve de entrada (preserva el
+// comportamiento de antes de este cambio).
+const expanded = ref(!hasPipeline.value);
+watch(hasPipeline, (v) => {
+  if (!v) expanded.value = true;
+});
 
 async function load() {
   if (!props.projectId || !props.taskId) return;
@@ -102,11 +118,28 @@ function runHref(e: ExecutionLog): string {
       </button>
     </div>
 
+    <TaskPipelineSteps
+      v-if="hasPipeline"
+      :statuses="pipelineStatuses ?? []"
+      :current-status="currentStatus"
+      :executions="executions"
+    />
+
     <p v-if="error" class="runs-error">No se pudieron cargar: {{ error }}</p>
     <p v-else-if="loading && !executions.length" class="empty">Cargando…</p>
     <p v-else-if="!executions.length" class="empty">Todavía no hizo nada: ningún agente corrió sobre esta tarea.</p>
 
-    <ul v-else class="runs-list">
+    <!-- Con stepper, el detalle fila por fila queda un click abajo: la barra
+         ya contesta "¿en qué va?" y esta lista es para cuando hace falta el
+         motivo puntual de un run. -->
+    <button
+      v-if="hasPipeline && executions.length"
+      type="button"
+      class="runs-toggle"
+      @click="expanded = !expanded"
+    >{{ expanded ? '▾' : '▸' }} ver ejecuciones ({{ executions.length }})</button>
+
+    <ul v-if="expanded && executions.length" class="runs-list">
       <li v-for="e in executions" :key="e.id" class="run-row">
         <RouterLink
           class="run-outcome"
@@ -224,6 +257,16 @@ function runHref(e: ExecutionLog): string {
    * `--fg-dim` es el tono más oscuro de esta paleta que sigue pasando. */
   color: var(--fg-dim);
 }
+.runs-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.runs-toggle:hover { color: var(--fg); }
 .empty { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dim); }
 .runs-error { margin: 0; font-size: var(--fs-chrome); color: var(--danger); }
 </style>

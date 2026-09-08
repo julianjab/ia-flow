@@ -41,6 +41,9 @@ const props = defineProps<{
   /** Se bumpea en cada acción que puede cambiar el veredicto —correr, mover—:
    *  es lo que hace que la preview vuelva a preguntar. */
   previewToken?: number;
+  /** El pipeline en orden — dibuja la barra de pasos de "Qué hizo". Vacío en
+   *  una fuente sin noción de pipeline (local-fs). */
+  pipelineStatuses?: string[];
   /** Slack configurado en este server. Sin credencial la acción ni se ofrece:
    *  fallaría con un 503 y sin dónde ver por qué. */
   slackEnabled?: boolean;
@@ -178,6 +181,8 @@ const runMessage = computed(() => {
             :project-id="projectId"
             :task-id="taskId"
             :reload-token="runResult"
+            :pipeline-statuses="pipelineStatuses"
+            :current-status="status"
           />
 
           <section v-if="devLinks" class="dev-block">

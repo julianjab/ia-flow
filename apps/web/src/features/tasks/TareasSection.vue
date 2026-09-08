@@ -536,6 +536,10 @@ const detailProps = computed(() => {
     blocked: item ? (blockersByTask.value[item.id]?.length ?? 0) > 0 : false,
     runsKnown: runsKnown.value,
     cancelling: cancelBusyId.value === item?.id,
+    // El orden de `statusOptions` ES el del pipeline (ver `boardColumns`):
+    // es lo que convierte "qué hizo" en una barra de pasos en vez de una
+    // lista plana.
+    pipelineStatuses: statusOptions.value,
   };
 });
 

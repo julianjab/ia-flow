@@ -117,4 +117,25 @@ describe('TaskExecutions', () => {
     await flushPromises()
     expect(fetchTaskExecutions).toHaveBeenLastCalledWith('ia-flow', 'I_2', 10)
   })
+
+  it('sin pipelineStatuses no hay stepper y la lista se ve de entrada', async () => {
+    const wrapper = await mountWith()
+    expect(wrapper.find('.pipe-steps').exists()).toBe(false)
+    expect(wrapper.find('.runs-list').exists()).toBe(true)
+    expect(wrapper.find('.runs-toggle').exists()).toBe(false)
+  })
+
+  it('con pipelineStatuses el stepper se muestra y la lista arranca colapsada', async () => {
+    const wrapper = await mountWith({
+      pipelineStatuses: ['refine', 'build'],
+      currentStatus: 'build',
+    })
+    expect(wrapper.find('.pipe-steps').exists()).toBe(true)
+    expect(wrapper.find('.runs-list').exists()).toBe(false)
+    const toggle = wrapper.get('.runs-toggle')
+    expect(toggle.text()).toContain('1')
+
+    await toggle.trigger('click')
+    expect(wrapper.find('.runs-list').exists()).toBe(true)
+  })
 })
