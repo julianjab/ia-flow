@@ -219,7 +219,17 @@ async function runOne(command: string, cwd: string): Promise<VerifyCommandResult
   if (argv.length === 0) {
     return { command, exitCode: null, output: 'comando vacío', timedOut: false }
   }
-  const proc = _verifyInternals.spawn(argv, cwd)
+  let proc: SpawnedVerifyProc
+  try {
+    // `Bun.spawn` lanza SÍNCRONO cuando el binario no existe en PATH — un
+    // comando de `verify` mal escrito (o un binario ausente en este host)
+    // no debe escapar como un error genérico sin `VERIFY_FAILED_MARKER`:
+    // se trata como cualquier otro comando que "falla", con exitCode null.
+    proc = _verifyInternals.spawn(argv, cwd)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { command, exitCode: null, output: message, timedOut: false }
+  }
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
