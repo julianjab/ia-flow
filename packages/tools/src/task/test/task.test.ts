@@ -13,6 +13,7 @@ import {
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
 
+import '../submit-output.js'
 import '../task.js'
 
 // ─── Fake manager captures port calls ─────────────────────────────────────────
@@ -265,6 +266,179 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(body).toContain('- tocó archivo A')
     expect(body).toContain('**Validaciones**')
     expect(body).toContain('- bun test ok')
+  })
+
+  // Issue #146: antes olvidar `submit_output` tiraba `missingOutput` y el run
+  // entero se caía después de haber hecho todo el trabajo. `complete_task`
+  // ahora acepta los mismos campos inline, vía `specialize` — un agente
+  // async con `output` declarado cierra con una sola llamada.
+  describe('complete_task acepta la salida estructurada inline', () => {
+    const OUTPUT_FIELDS = {
+      brief: { type: 'string' as const },
+      score: { type: 'number' as const, optional: true },
+    }
+
+    beforeEach(() => {
+      removePendingTask(TASK_ID)
+      registerPendingTask(TASK_ID, {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        exits: { success: 'Done' },
+        outputFields: OUTPUT_FIELDS,
+      })
+    })
+
+    it('complete_task ofrece los campos de output en su specialize()', () => {
+      const tool = getTool('complete_task')!
+      const schema = tool.specialize?.({ outputFields: OUTPUT_FIELDS }) as {
+        properties: Record<string, unknown>
+      }
+      expect(schema.properties).toHaveProperty('brief')
+      expect(schema.properties).toHaveProperty('what_did')
+    })
+
+    it('un agente sin output declarado ve el schema base sin cambios', () => {
+      const tool = getTool('complete_task')!
+      expect(tool.specialize?.(undefined)).toBeUndefined()
+      expect(tool.specialize?.({})).toBeUndefined()
+    })
+
+    it('cierra con una sola llamada cuando el payload de salida viene inline y es válido', async () => {
+      const entry = getPendingTask(TASK_ID)!
+      const tool = getTool('complete_task')!
+      await tool.execute(
+        {
+          task_id: TASK_ID,
+          what_did: ['x'],
+          validations: ['y'],
+          brief: 'el encargo',
+        },
+        { repoPaths: {} },
+      )
+      expect(entry.structuredOutput).toEqual({ brief: 'el encargo' })
+      expect(calls.applyTransition).toHaveLength(1)
+    })
+
+    // Sin ningún campo de output en el payload no se valida nada (gana lo que
+    // haya dejado submit_output, o nada) — el caso inválido real es un campo
+    // declarado que llega mal tipado.
+    it('un payload de salida inválido tira y NO cierra el run', async () => {
+      const tool = getTool('complete_task')!
+      await expect(
+        tool.execute(
+          { task_id: TASK_ID, what_did: ['x'], validations: ['y'], score: 'not-a-number' },
+          { repoPaths: {} },
+        ),
+      ).rejects.toThrow(/no cumple el contrato/)
+      expect(calls.postComment).toHaveLength(0)
+      expect(calls.applyTransition).toHaveLength(0)
+      expect(getPendingTask(TASK_ID)).toBeDefined()
+    })
+
+    it('submit_output previo sigue funcionando y complete_task cierra sin volver a mandar los campos', async () => {
+      await getTool('submit_output')!.execute(
+        { task_id: TASK_ID, brief: 'ya entregado' },
+        { repoPaths: {} },
+      )
+      const entry = getPendingTask(TASK_ID)!
+      expect(entry.structuredOutput).toEqual({ brief: 'ya entregado' })
+
+      const tool = getTool('complete_task')!
+      await tool.execute(
+        { task_id: TASK_ID, what_did: ['x'], validations: ['y'] },
+        { repoPaths: {} },
+      )
+      expect(entry.structuredOutput).toEqual({ brief: 'ya entregado' })
+      expect(calls.applyTransition).toHaveLength(1)
+    })
+
+    // Regresión: `submit_output` puede haber entregado varios campos y el
+    // cierre inline sólo trae uno — el otro no se puede perder. `entry.
+    // structuredOutput` se mergea, no se reemplaza.
+    it('el payload inline se mergea con lo que ya dejó submit_output, sin perder los demás campos', async () => {
+      removePendingTask(TASK_ID)
+      registerPendingTask(TASK_ID, {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        exits: { success: 'Done' },
+        outputFields: { a: { type: 'string' }, b: { type: 'string' } },
+      })
+      await getTool('submit_output')!.execute(
+        { task_id: TASK_ID, a: 'origA', b: 'origB' },
+        { repoPaths: {} },
+      )
+
+      const entry = getPendingTask(TASK_ID)!
+      const tool = getTool('complete_task')!
+      await tool.execute(
+        { task_id: TASK_ID, what_did: ['x'], validations: ['y'], a: 'nuevaA' },
+        { repoPaths: {} },
+      )
+      expect(entry.structuredOutput).toEqual({ a: 'nuevaA', b: 'origB' })
+      expect(calls.applyTransition).toHaveLength(1)
+    })
+
+    // Un campo de output con nombre reservado no se puede ofrecer inline
+    // (colisiona con el schema base), pero SIGUE siendo parte del contrato:
+    // si nunca llegó por `submit_output`, el cierre inline tiene que
+    // rechazarse — no dar el contrato por cumplido en silencio.
+    it('un campo reservado requerido, nunca entregado por submit_output, bloquea el cierre inline', async () => {
+      removePendingTask(TASK_ID)
+      registerPendingTask(TASK_ID, {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        exits: { success: 'Done' },
+        outputFields: { brief: { type: 'string' }, notes: { type: 'string' } },
+      })
+      const tool = getTool('complete_task')!
+      await expect(
+        tool.execute(
+          { task_id: TASK_ID, what_did: ['x'], validations: ['y'], brief: 'x' },
+          { repoPaths: {} },
+        ),
+      ).rejects.toThrow(/falta 'notes'/)
+      expect(calls.postComment).toHaveLength(0)
+      expect(getPendingTask(TASK_ID)).toBeDefined()
+    })
+
+    // Regresión: un cierre `frozen` (mismo criterio que "un run cancelado
+    // acepta el cierre pero no transiciona") no puede pisar el
+    // `structuredOutput` de la entry — es la MISMA entry en memoria que
+    // referencia quien esté siguiendo el run, y aplicarle un payload inline
+    // sería mutar estado de un run que el engine ya dio por decidido.
+    it('un cierre congelado no pisa la salida estructurada existente', async () => {
+      const entry = getPendingTask(TASK_ID)!
+      entry.cancelled = true
+      entry.structuredOutput = { brief: 'ya entregado antes de cancelar' }
+
+      const tool = getTool('complete_task')!
+      const out = await tool.execute(
+        { task_id: TASK_ID, what_did: ['x'], validations: ['y'], brief: 'del cierre tardío' },
+        { repoPaths: {} },
+      )
+
+      expect(out).toContain('sin transición')
+      expect(entry.structuredOutput).toEqual({ brief: 'ya entregado antes de cancelar' })
+      expect(calls.applyTransition).toHaveLength(0)
+    })
+
+    // Un campo de output con el mismo nombre que uno base (`what_did`, etc.)
+    // no puede pisarlo en el schema ni colarse en el payload validado.
+    it('un output field con nombre reservado se descarta en vez de pisar el campo base', () => {
+      const tool = getTool('complete_task')!
+      const schema = tool.specialize?.({
+        outputFields: { ...OUTPUT_FIELDS, what_did: { type: 'string' } },
+      }) as { properties: Record<string, { type: string }> }
+      // Sigue siendo el `what_did` base (array de bullets), no el `string`
+      // que el output declaró — el nombre reservado se ignora.
+      expect(schema.properties.what_did.type).toBe('array')
+    })
   })
 
   it('complete_task skips the default exit when the prompt already moved the task', async () => {

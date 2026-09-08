@@ -16,14 +16,16 @@ export interface PendingTask {
    *  de campos libre. Ver `resolveExit` en run-outcome.ts. */
   chosenExit?: string
   /** Contrato de salida estructurada del agente (`AgentDefinition.output`).
-   *  Vive acá y no sólo en las opciones del schema porque `submit_output`
-   *  valida contra él al EJECUTAR, y `ToolContext` no lleva la config del
-   *  agente — sólo el runtime del run. */
+   *  Vive acá y no sólo en las opciones del schema porque `submit_output` (y,
+   *  en async, `complete_task` con los campos inline) valida contra él al
+   *  EJECUTAR, y `ToolContext` no lleva la config del agente — sólo el
+   *  runtime del run. */
   outputFields?: AgentOutput
-  /** Lo que el agente entregó con `submit_output`, ya validado. Lo lee
-   *  `Agent.run` al terminar para publicarlo hacia la regla. Ausente con
-   *  `outputFields` declarado ⇒ el run falla: un contrato que se puede
-   *  incumplir en silencio deja al paso siguiente leyendo nada. */
+  /** Lo que el agente entregó con `submit_output`, o inline en `complete_task`
+   *  (ver `applyInlineOutput` en task.ts), ya validado. Lo lee `Agent.run` al
+   *  terminar para publicarlo hacia la regla. Ausente con `outputFields`
+   *  declarado ⇒ el run falla: un contrato que se puede incumplir en
+   *  silencio deja al paso siguiente leyendo nada. */
   structuredOutput?: Record<string, unknown>
   /** Destino por defecto de los comentarios de este agente
    *  (`AgentDefinition.comment`). Una salida puede pisarlo — ver

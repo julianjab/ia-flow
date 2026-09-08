@@ -7,11 +7,12 @@ import {
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
-import type { AgentExit } from '@ia-flow/shared'
+import type { AgentExit, AgentOutput } from '@ia-flow/shared'
 import { ERROR_EXIT, exitSet, resolveCommentTarget, SUCCESS_EXIT } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
+import { describeField, validateOutput } from './submit-output.js'
 
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
 
@@ -190,6 +191,112 @@ interface CompleteTaskInput {
   status?: string
 }
 
+// Los tres campos base de `complete_task`, factoreados porque `specialize`
+// los repite tal cual y sólo agrega los de `outputFields` encima.
+const COMPLETE_TASK_BASE_PROPERTIES: Record<string, unknown> = {
+  task_id: {
+    type: 'string',
+    description: 'Opcional — se resuelve del contexto del run.',
+  },
+  what_did: {
+    type: 'array',
+    items: { type: 'string' },
+    description:
+      'Bullets con lo que hiciste: archivos tocados, PR/branch, comandos ejecutados, decisiones clave. Un ítem por bullet.',
+  },
+  validations: {
+    type: 'array',
+    items: { type: 'string' },
+    description:
+      'Bullets con las validaciones corridas y su resultado (bun test, biome, tsc, curl al endpoint, prueba manual, etc.).',
+  },
+  notes: {
+    type: 'string',
+    description:
+      'Opcional. Contexto adicional que no encaje en Qué hice / Validaciones (riesgos, follow-ups, decisiones).',
+  },
+}
+
+// Un `AgentDefinition.output` que declare un campo con uno de estos nombres
+// pisaría un campo base de complete_task en el schema (ej. un output `notes`
+// redefiniría el de siempre, o un `what_did: string` rompería
+// `formatCompleteComment`, que espera un array). Se descarta ANTES de tocar
+// el schema o el payload — silencioso a propósito: es un error de config del
+// agente, no algo que el modelo pueda corregir llamando de nuevo.
+const RESERVED_COMPLETE_TASK_FIELDS = new Set(Object.keys(COMPLETE_TASK_BASE_PROPERTIES))
+
+function nonReservedOutputFields(fields: AgentOutput): AgentOutput {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([name]) => !RESERVED_COMPLETE_TASK_FIELDS.has(name)),
+  )
+}
+
+/**
+ * Extrae del input de `complete_task` sólo las claves que coinciden con
+ * campos declarados en `outputFields` (menos los reservados) — el resto
+ * (`what_did`, `notes`, …) no es parte del contrato de salida y
+ * `validateOutput` lo rechazaría como "campo no declarado".
+ */
+function extractOutputPayload(
+  fields: AgentOutput,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+  for (const name of Object.keys(fields)) {
+    if (name in input) payload[name] = input[name]
+  }
+  return payload
+}
+
+/**
+ * Si el agente declara `output`, un cierre por `complete_task` puede traer
+ * los campos inline en vez de una llamada previa a `submit_output` — el
+ * mismo contrato, dos formas de entregarlo, y las dos se pueden combinar: un
+ * campo con nombre reservado (`notes`, `what_did`, …) no se puede ofrecer
+ * inline (colisionaría con el schema base — ver `nonReservedOutputFields`),
+ * así que sólo puede llegar por `submit_output`, y un cierre inline con el
+ * resto del contrato tiene que conservarlo.
+ *
+ * Por eso el payload inline se MERGEA sobre lo que ya haya dejado
+ * `submit_output` (`entry.structuredOutput`), no lo reemplaza — y la
+ * validación corre contra el contrato COMPLETO (`fields`, sin filtrar), no
+ * sólo contra los campos ofrecibles inline. Sin esto, un campo reservado
+ * requerido quedaba fuera de la validación de este camino: el cierre inline
+ * daba el contrato por cumplido sin haberlo estado.
+ *
+ * Sólo corre cuando el modelo mandó al menos un campo inline en ESTE
+ * llamado: si no mandó ninguno, se deja `entry.structuredOutput` tal como
+ * está (lo que `submit_output` haya dejado, o nada — y el run falla más
+ * abajo por `declaresOutput && !structuredOutput`, igual que siempre).
+ *
+ * Tira en vez de devolver un resultado — mismo criterio que `submit_output`:
+ * el throw de una tool vuelve como `tool_result` con `is_error` y el modelo
+ * corrige sin que el run se dé por cerrado.
+ *
+ * NO se llama para un cierre `frozen` (ver el caller): un `complete_task`
+ * tardío de un run viejo/cancelado no puede pisar la salida estructurada de
+ * la entry — mismo motivo por el que el resto de `execute` no toca estado
+ * del run activo en ese caso.
+ */
+function applyInlineOutput(entry: PendingTask, input: Record<string, unknown>): void {
+  const fields = entry.outputFields
+  if (!fields || Object.keys(fields).length === 0) return
+  const acceptable = nonReservedOutputFields(fields)
+  if (Object.keys(acceptable).length === 0) return
+  const payload = extractOutputPayload(acceptable, input)
+  if (Object.keys(payload).length === 0) return
+
+  const merged = { ...(entry.structuredOutput ?? {}), ...payload }
+  const result = validateOutput(fields, merged)
+  if (!result.ok) {
+    throw new Error(
+      `La salida no cumple el contrato de este agente: ${result.errors.join('; ')}. ` +
+        `Campos declarados: ${Object.keys(fields).join(', ')}.`,
+    )
+  }
+  entry.structuredOutput = result.value
+}
+
 interface FailTaskInput {
   task_id?: string
   what_tried: string[] | string
@@ -205,33 +312,30 @@ registerTool({
   // provider's tool list entirely instead of just being unused there.
   providerKinds: ['async'],
   description:
-    'Cierra el run del agente. Publica un comentario estructurado en la tarea (# agente + Qué hice + Validaciones) y aplica la transición onFinish. Llámalo SIEMPRE al terminar exitosamente.',
+    'Cierra el run del agente. Publica un comentario estructurado en la tarea (# agente + Qué hice + Validaciones) y aplica la transición onFinish. Llámalo SIEMPRE al terminar exitosamente. Si este agente declara una salida estructurada, podés entregarla acá mismo en vez de una llamada previa a submit_output.',
   input_schema: {
     type: 'object',
-    properties: {
-      task_id: {
-        type: 'string',
-        description: 'Opcional — se resuelve del contexto del run.',
-      },
-      what_did: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Bullets con lo que hiciste: archivos tocados, PR/branch, comandos ejecutados, decisiones clave. Un ítem por bullet.',
-      },
-      validations: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Bullets con las validaciones corridas y su resultado (bun test, biome, tsc, curl al endpoint, prueba manual, etc.).',
-      },
-      notes: {
-        type: 'string',
-        description:
-          'Opcional. Contexto adicional que no encaje en Qué hice / Validaciones (riesgos, follow-ups, decisiones).',
-      },
-    },
+    properties: COMPLETE_TASK_BASE_PROPERTIES,
     required: ['what_did', 'validations'],
+  },
+  // Cuando el agente declara `output`, se ofrecen sus campos al lado de los
+  // de siempre — mismo mecanismo que arma el enum de `select_exit` y el
+  // schema de `submit_output` por dispatch. Sin `outputFields` declarados el
+  // schema base ya alcanza, así que no hace falta reemplazarlo.
+  specialize(opts) {
+    const fields = opts?.outputFields
+    if (!fields || Object.keys(fields).length === 0) return undefined
+    const declared = nonReservedOutputFields(fields)
+    if (Object.keys(declared).length === 0) return undefined
+    const properties: Record<string, unknown> = { ...COMPLETE_TASK_BASE_PROPERTIES }
+    for (const [name, field] of Object.entries(declared)) {
+      properties[name] = describeField(name, field)
+    }
+    return {
+      type: 'object',
+      properties,
+      required: ['what_did', 'validations'],
+    }
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as CompleteTaskInput
@@ -240,6 +344,20 @@ registerTool({
     const unlanded = closeWithoutRun(resolved, taskId, 'complete_task')
     if (unlanded) return unlanded
     const entry = (resolved as ResolvedPendingTask).entry
+
+    // Se decide ANTES de tocar nada: un cierre congelado sólo puede comentar.
+    // Todo lo de abajo —bajar el flag de working, matar la sesión, sacar la
+    // entrada del registry, y AHORA también la salida estructurada— es
+    // estado del run VIGENTE, y aplicarlo desde un cierre ajeno liquida al
+    // agente que está trabajando: le mata la terminal, le pisa la salida que
+    // venía armando, y da su run por terminado, con lo que su cierre real se
+    // descarta después como duplicado.
+    const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
+
+    // Un payload de salida inválido tiene que volver como error de tool sin
+    // haber comentado ni transicionado — mismo criterio que `submit_output`.
+    // Congelado, ni se intenta: la entry es de OTRO run.
+    if (!frozen) applyInlineOutput(entry, rawInput as Record<string, unknown>)
 
     if (input.what_did == null) input.what_did = []
     if (input.validations == null) input.validations = []
@@ -255,14 +373,6 @@ registerTool({
       { event: 'tool.callback.received', tool: 'complete_task', ...logCtx },
       'complete_task callback received from async session',
     )
-
-    // Se decide ANTES de tocar nada: un cierre congelado sólo puede comentar.
-    // Todo lo de abajo —bajar el flag de working, matar la sesión, sacar la
-    // entrada del registry— es estado del run VIGENTE, y aplicarlo desde un
-    // cierre ajeno liquida al agente que está trabajando: le mata la terminal
-    // y da su run por terminado, con lo que su cierre real se descarta
-    // después como duplicado.
-    const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
 
     try {
       const commentBody = formatCompleteComment(entry, input)

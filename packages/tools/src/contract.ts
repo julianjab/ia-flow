@@ -215,10 +215,11 @@ export interface ToolDefinitionsOptions {
    *  descripción del enum. `back-to-build` a secas no le dice nada al modelo. */
   selectableExits?: Array<{ name: string; when?: string }>
   /** Contrato de salida estructurada del agente de ESTE dispatch
-   *  (`AgentDefinition.output`). Alimenta el input_schema de `submit_output`:
-   *  el modelo sólo puede escribir los campos que el operador declaró, con la
-   *  forma que declaró. Vacío ⇒ el agente no produce salida y la tool ni se le
-   *  ofrece — mismo criterio que `selectableExits`. */
+   *  (`AgentDefinition.output`). Alimenta el input_schema de `submit_output`
+   *  y, en async, también el de `complete_task` — el modelo puede entregar
+   *  estos campos con una llamada previa a `submit_output` o inline al
+   *  cerrar. Vacío ⇒ el agente no produce salida y ninguna de las dos tools
+   *  ofrece los campos — mismo criterio que `selectableExits`. */
   outputFields?: AgentOutput
 }
 
