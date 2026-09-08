@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MobileTabBar from '@/components/MobileTabBar.vue';
+import { GENERAL_SECTIONS } from '@/router/sections';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import ProjectSwitcherSheet from '@/features/projects/ProjectSwitcherSheet.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
@@ -349,15 +350,15 @@ const TABS = computed<
 
   { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },
 
-  { id: 'agentes',          label: 'agentes',        icon: '', group: 'global' },
-  { id: 'pipeline',         label: 'pipeline',       icon: '', group: 'global' },
-  { id: 'acciones',         label: 'acciones',       icon: '', group: 'global' },
-  { id: 'tools',            label: 'tools',          icon: '', group: 'global' },
-  { id: 'system-prompts',   label: 'system prompts', icon: '', group: 'global' },
-  { id: 'providers',        label: 'providers',      icon: '', group: 'global' },
-  { id: 'mcp-catalog',      label: 'mcp catalog',    icon: '', group: 'global' },
-  { id: 'entorno',          label: 'entorno',        icon: '', group: 'global' },
-  { id: 'escaneo',          label: 'escaneo',        icon: '', group: 'global' },
+  // La configuración del server sale de una lista compartida con `Más`: son
+  // los mismos destinos, y tenerlos dos veces era lo que dejaba a `Más`
+  // prometiendo once y llevando a uno (ver `router/sections.ts`).
+  ...GENERAL_SECTIONS.map((sec) => ({
+    id: sec.id as SectionId,
+    label: sec.label,
+    icon: '',
+    group: 'global',
+  })),
   ];
 });
 

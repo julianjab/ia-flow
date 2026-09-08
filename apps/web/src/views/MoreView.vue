@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useProjectsStore } from '@/features/projects/store';
 import { getSelectedServer } from '@/features/servers/selection';
+import { GENERAL_SECTIONS } from '@/router/sections';
 
 /**
  * El índice completo de la app — el cuarto tab.
@@ -89,13 +90,30 @@ const serverRows = computed<Row[]>(() => [
     to: '/projects',
     note: String(projectsStore.projects.length),
   },
-  { glyph: '⛭', label: 'Configuración general', to: '/general/agentes', note: '11' },
   { glyph: '▧', label: 'Logs del daemon', to: '/general/logs' },
+  // Estaba fuera del índice, y bajo --bp-shell no hay sidebar: era una
+  // pantalla sin ningún camino.
+  { glyph: '⊘', label: 'Runs abortados', to: '/general/aborted-runs' },
   // El agent-host NO va acá: habla con otra máquina y con otra credencial, y
   // ofrecerlo dentro de un server es el bug que el menú del shell ya había
   // arreglado (ver AppShell). Se elige en `/servers`, como cualquier otro
   // destino de conexión.
 ]);
+
+/**
+ * La configuración del server, una fila por sección.
+ *
+ * Era UNA fila —"Configuración general · 11"— que navegaba a `agentes`: la
+ * cuenta prometía once destinos y entregaba uno, y como bajo `--bp-shell` no
+ * se monta el sidebar, las otras ocho no tenían camino. Mismo criterio que ya
+ * seguían las tabs del proyecto acá arriba.
+ *
+ * La lista es la MISMA que dibuja el sidebar (`router/sections.ts`): tenerla
+ * dos veces es lo que dejó que una se quedara vieja.
+ */
+const configRows = computed<Row[]>(() =>
+  GENERAL_SECTIONS.map((sec) => ({ glyph: '⛭', label: sec.label, to: sec.path })),
+);
 
 function go(to: string) {
   void router.push(to);
@@ -130,6 +148,17 @@ function go(to: string) {
           <span class="more__glyph" :class="row.glyphClass" aria-hidden="true">{{ row.glyph }}</span>
           <span class="more__label">{{ row.label }}</span>
           <span v-if="row.note" class="more__note" :class="row.noteClass">{{ row.note }}</span>
+          <span class="more__chevron" aria-hidden="true">›</span>
+        </button>
+      </li>
+    </ul>
+
+    <span class="uc-label more__group">Configuración del server</span>
+    <ul class="more__list">
+      <li v-for="row in configRows" :key="row.to">
+        <button type="button" class="more__row" @click="go(row.to)">
+          <span class="more__glyph" aria-hidden="true">{{ row.glyph }}</span>
+          <span class="more__label">{{ row.label }}</span>
           <span class="more__chevron" aria-hidden="true">›</span>
         </button>
       </li>
