@@ -111,7 +111,7 @@ function prTitle(pr: PullRequestRef): string {
       title="Hilo de review en Slack"
       @click.stop
     >
-      <span class="tag__glyph">✦</span>
+      <span class="tag__glyph">◆</span>
       <span class="tag__text">slack</span>
     </a>
   </div>
@@ -164,10 +164,10 @@ a.tag:hover {
 .tag--branch { color: var(--fg-mute); }
 .tag--branch .tag__glyph { color: var(--info); }
 .tag--pr.is-open .tag__glyph { color: var(--accent); }
-.tag--pr.is-merged .tag__glyph { color: var(--ai); }
+.tag--pr.is-merged .tag__glyph { color: var(--info); }
 .tag--pr.is-closed .tag__glyph { color: var(--danger); }
 .tag--pr.is-draft .tag__glyph { color: var(--fg-dim); }
-.tag--slack .tag__glyph { color: var(--ai); }
+.tag--slack .tag__glyph { color: var(--info); }
 
 /* El CI cuelga del chip del PR, con su propia ranura de color: el glifo de la
    izquierda sigue hablando del PR y este de su build. */

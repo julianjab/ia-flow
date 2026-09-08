@@ -95,6 +95,13 @@ export interface PendingTask {
    *  sobre la regla que lo originó, que es la pregunta "¿por qué está
    *  corriendo esto?" contestada sin cruzar pantallas. */
   ruleId?: string
+  /** El trace del webhook/scan que originó la cadena completa (evento → regla
+   *  → este run). Sólo trazabilidad, como `ruleId` — `run_agent`
+   *  (`setRunAgentPort` en `composition/container.ts`) lo lee de ESTA entrada
+   *  (la del padre) para que el hijo herede el mismo trace en vez de arrancar
+   *  uno sin trace: sin esto, filtrar `execution_logs` por `traceId` mostraba
+   *  el run padre pero no sus sub-agentes. Ver `EngineEvent.traceId`. */
+  traceId?: string
   /** El run del agente PADRE que lanzó éste con `run_agent`. Presente ⇒ esta
    *  entrada es un sub-agente.
    *

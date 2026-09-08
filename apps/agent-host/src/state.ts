@@ -37,6 +37,11 @@ export interface WorkspaceSettings {
   worktreeBase: string | null
   gitAuthorName: string | null
   gitAuthorEmail: string | null
+  /** Path a una SSH private key sin passphrase (`IA_FLOW_GIT_SIGNING_KEY_PATH`).
+   *  No es un secreto en sí — es sólo la ruta — así que puede viajar por acá
+   *  como el resto de estos campos; el contenido de la key nunca pasa por
+   *  este archivo. */
+  gitSigningKeyPath: string | null
 }
 
 export interface AgentHostState {
@@ -75,6 +80,7 @@ function envWorkspace(): WorkspaceSettings {
     worktreeBase: envOrNull('AGENT_HOST_WORKTREE_BASE'),
     gitAuthorName: envOrNull('IA_FLOW_GIT_AUTHOR_NAME'),
     gitAuthorEmail: envOrNull('IA_FLOW_GIT_AUTHOR_EMAIL'),
+    gitSigningKeyPath: envOrNull('IA_FLOW_GIT_SIGNING_KEY_PATH'),
   }
 }
 
@@ -94,6 +100,7 @@ export function sanitizeWorkspace(raw: unknown, fallback: WorkspaceSettings): Wo
     worktreeBase: textOrNull(r.worktreeBase),
     gitAuthorName: textOrNull(r.gitAuthorName),
     gitAuthorEmail: textOrNull(r.gitAuthorEmail),
+    gitSigningKeyPath: textOrNull(r.gitSigningKeyPath),
   }
 }
 

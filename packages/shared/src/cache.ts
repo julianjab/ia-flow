@@ -72,6 +72,15 @@ export function memoize<Args extends unknown[], Return>(options: MemoizeOptions<
         if (hit && hit.expiresAt > now) return hit.value as Return
       }
       const value = original.call(this, ...args)
+      // Las vencidas se sueltan en el miss, que es el único momento en que ya
+      // se está pagando trabajo. Sin esto, un método cuya key deriva del
+      // CONTENIDO (una huella de "esto es lo que había cuando lo calculé")
+      // deja una entrada muerta por cada cambio: el `ttlMs` frena las
+      // lecturas pero no libera nada, y en un daemon que vive días eso crece
+      // sin techo. Con key estable —el caso común— no hay nada que barrer.
+      if (ttlMs !== Number.POSITIVE_INFINITY) {
+        for (const [k, e] of entries) if (e.expiresAt <= now) entries.delete(k)
+      }
       const entry: Entry = { value, expiresAt: now + ttlMs }
       entries.set(cacheKey, entry)
       // Record the settled value once the promise resolves, so a later

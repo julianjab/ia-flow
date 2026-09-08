@@ -382,6 +382,7 @@ export function createServerLogsRouter() {
       sort: q.sort,
       sortBy: q.sortBy,
       runId: multi('runId'),
+      traceId: multi('traceId'),
       projectId: multi('projectId'),
       agentId: multi('agentId'),
       taskId: multi('taskId'),
@@ -428,13 +429,14 @@ export function createServerLogsRouter() {
     // strings from ?module= (no value) are dropped so they don't filter
     // everything out.
     const moduleSet = toSet(filters.module)
-    // Los cinco filtros sobre `extras` son el MISMO predicado con otra clave, así
+    // Estos filtros sobre `extras` son el MISMO predicado con otra clave, así
     // que se arman como una lista: agregar uno nuevo es una línea acá y una en
     // el schema, no otra rama en el loop de abajo.
     const extraSets: Array<[string, Set<string>]> = []
     for (const [key, raw] of [
       ['source', filters.source],
       ['runId', filters.runId],
+      ['traceId', filters.traceId],
       ['projectId', filters.projectId],
       ['agentId', filters.agentId],
       ['taskId', filters.taskId],

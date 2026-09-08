@@ -100,11 +100,25 @@ function splitCommand(command: string): string[] {
  */
 const SECRET_ENV_PATTERN = /token|key|secret|password|passwd|credential|auth/i
 
+/**
+ * Variables que matchean `SECRET_ENV_PATTERN` por nombre pero NO son un
+ * secreto — son infraestructura de git/ssh que un comando de `verify` puede
+ * necesitar de verdad (clonar/pushear un submódulo, `git ls-remote`). Sin
+ * esta excepción, `SSH_AUTH_SOCK` (matchea "auth") desaparecía del env del
+ * comando y un `verify` que necesitara red autenticada por SSH fallaba por
+ * eso — un problema de entorno que el sistema reportaba como código roto.
+ */
+const SECRET_ENV_EXCEPTIONS = new Set(['SSH_AUTH_SOCK'])
+
 /** Exportado sólo para tests — no usar fuera de `_verifyInternals.spawn`. */
 export function buildVerifyEnv(source: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined) continue
+    if (SECRET_ENV_EXCEPTIONS.has(name)) {
+      env[name] = value
+      continue
+    }
     if (SECRET_ENV_PATTERN.test(name)) continue
     env[name] = value
   }
@@ -205,7 +219,17 @@ async function runOne(command: string, cwd: string): Promise<VerifyCommandResult
   if (argv.length === 0) {
     return { command, exitCode: null, output: 'comando vacío', timedOut: false }
   }
-  const proc = _verifyInternals.spawn(argv, cwd)
+  let proc: SpawnedVerifyProc
+  try {
+    // `Bun.spawn` lanza SÍNCRONO cuando el binario no existe en PATH — un
+    // comando de `verify` mal escrito (o un binario ausente en este host)
+    // no debe escapar como un error genérico sin `VERIFY_FAILED_MARKER`:
+    // se trata como cualquier otro comando que "falla", con exitCode null.
+    proc = _verifyInternals.spawn(argv, cwd)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { command, exitCode: null, output: message, timedOut: false }
+  }
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true

@@ -66,6 +66,17 @@ describe('runVerifyCommands', () => {
     expect(result.results.every((r) => r.exitCode === 0)).toBe(true)
   })
 
+  it('un binario ausente (Bun.spawn tira sync) se reporta como fallo, no como excepción sin marcar', async () => {
+    _verifyInternals.spawn = () => {
+      throw new Error('Executable not found in $PATH: "bunx"')
+    }
+    const result = await runVerifyCommands(['bunx tsc'], '/wt/task-1')
+    expect(result.ok).toBe(false)
+    expect(result.results).toHaveLength(1)
+    expect(result.results[0].exitCode).toBeNull()
+    expect(result.results[0].output).toContain('Executable not found')
+  })
+
   it('stops at the first command that fails and does not run the rest', async () => {
     const seen: string[][] = []
     _verifyInternals.spawn = (argv) => {
@@ -176,6 +187,13 @@ describe('buildVerifyEnv', () => {
 
   it('is case-insensitive on the secret-pattern match', () => {
     expect(buildVerifyEnv({ myAuthHeader: 'x', OK: 'y' })).toEqual({ OK: 'y' })
+  })
+
+  it('keeps SSH_AUTH_SOCK — infra de git/ssh, no un secreto, aunque matchee "auth"', () => {
+    expect(buildVerifyEnv({ SSH_AUTH_SOCK: '/tmp/ssh.sock', OK: 'y' })).toEqual({
+      SSH_AUTH_SOCK: '/tmp/ssh.sock',
+      OK: 'y',
+    })
   })
 })
 

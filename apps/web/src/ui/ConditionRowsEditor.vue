@@ -243,8 +243,8 @@ function add(): void {
   border-radius: var(--radius-sm);
 }
 .cre-logic.and {
-  color: var(--ai);
-  border-color: var(--ai);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .cre-logic.or {
   color: var(--warn);

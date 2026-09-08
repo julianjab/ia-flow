@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { invalidateMemoized, memoize, peekMemoized } from '../cache.js'
 
 describe('memoize', () => {
@@ -175,5 +176,26 @@ describe('memoize', () => {
     expect(peekMemoized<string>(a, 'load', '[]')).toBeUndefined()
     await a.load()
     expect(peekMemoized<string>(a, 'load', '[]')).toBe('value')
+  })
+  it('drops expired entries on a miss, so a content-derived key does not grow forever', async () => {
+    // El caso que lo motiva: una key que es una huella del contenido deja una
+    // entrada muerta por cada cambio. El TTL frena las lecturas pero no libera
+    // nada, y un daemon que vive días acumula sin techo.
+    class ByFingerprint {
+      @memoize({ ttlMs: 5 })
+      load(fingerprint: string) {
+        return fingerprint
+      }
+    }
+    const store = new ByFingerprint()
+    store.load('a')
+    store.load('b')
+    expect(peekMemoized<string>(store, 'load', '["a"]')).toBe('a')
+    await sleep(10)
+    // Un miss con las dos vencidas: barre y deja sólo la nueva.
+    store.load('c')
+    expect(peekMemoized<string>(store, 'load', '["a"]')).toBeUndefined()
+    expect(peekMemoized<string>(store, 'load', '["b"]')).toBeUndefined()
+    expect(peekMemoized<string>(store, 'load', '["c"]')).toBe('c')
   })
 })

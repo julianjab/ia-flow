@@ -1,6 +1,7 @@
 import type { SourceItem } from '@/features/projects/sourceApi'
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TareasSection from '../TareasSection.vue'
 
@@ -41,11 +42,13 @@ vi.mock('@/features/tasks/api', () => ({
   cancelTaskRun: (...args: unknown[]) => cancelTaskRun(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
+const setProjectItemField = vi.fn(async () => {})
+const fetchProjectItemsMock = vi.fn(async () => ({ kind: 'github-issues', items }))
 // Vacío por default; los tests de "bloqueada" cargan entradas por itemId.
 vi.mock('@/features/projects/sourceApi', () => ({
-  fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
+  fetchProjectItems: (...args: unknown[]) => fetchProjectItemsMock(...(args as [])),
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
-  setProjectItemField: vi.fn(async () => {}),
+  setProjectItemField: (...args: unknown[]) => setProjectItemField(...(args as [])),
 }))
 
 // El componente lee los filtros de la query y los escribe con `replace`; el
@@ -75,6 +78,9 @@ vi.mock('vue-router', () => ({
 }))
 
 beforeEach(() => {
+  // Las disposiciones viven en un store: sin pinia activa, montar la sección
+  // falla antes de dibujar nada.
+  setActivePinia(createPinia())
   runSummaries.splice(0, runSummaries.length)
   for (const k of Object.keys(blockersBatch)) delete blockersBatch[k]
   fetchTaskRunSummaries.mockClear()
@@ -581,5 +587,67 @@ describe('TareasSection — filtros del listado', () => {
       // lado y perdiendo el hilo.
       expect(w.findAll('.tr').length).toBe(1)
     })
+  })
+})
+
+// Mover la tarea lo ejecuta ESTA pantalla, no la card que lo sugiere: el api
+// es de otra feature, y quien mueve es quien tiene que refrescar — sin eso la
+// tarea se movía de verdad y la fila seguía mostrando el status viejo.
+describe('TareasSection — mover desde la sugerencia', () => {
+  it('mueve la tarea y refresca la lista', async () => {
+    const w = await mountWith([githubItem({})])
+    setProjectItemField.mockClear()
+    const callsBefore = fetchProjectItemsMock.mock.calls.length
+
+    await w.get('.tr').trigger('click')
+    w.findComponent(TaskDetailModal).vm.$emit('move', 'refine')
+    await flushPromises()
+
+    expect(setProjectItemField).toHaveBeenCalledWith('p1', 'I_1', 'status', 'refine')
+    expect(fetchProjectItemsMock.mock.calls.length).toBeGreaterThan(callsBefore)
+  })
+
+  it('el detalle abierto queda apuntando a la fila NUEVA', async () => {
+    // `loadProjectItems` reemplaza las filas por objetos nuevos: sin
+    // re-apuntar, la lista mostraba el status nuevo y el detalle abierto
+    // seguía dibujando el anterior.
+    const w = await mountWith([githubItem({})])
+    await w.get('.tr').trigger('click')
+    items.splice(0, items.length, { ...githubItem({}), status: 'refine' })
+
+    w.findComponent(TaskDetailModal).vm.$emit('move', 'refine')
+    await flushPromises()
+
+    expect(w.findComponent(TaskDetailModal).props('status')).toBe('refine')
+  })
+
+  it('correr dos veces vuelve a pedir el veredicto, aunque devuelva lo mismo', async () => {
+    // El token era el contenido de la respuesta: dos "Correr ahora" con el
+    // mismo resultado —`skipped`, mismo status, que es justo cuando se
+    // reintenta— daban un token idéntico y la card se quedaba con lo viejo.
+    const w = await mountWith([githubItem({})])
+    await w.get('.tr').trigger('click')
+    runTaskNow.mockResolvedValue({ outcome: 'skipped', status: 'build' })
+
+    w.findComponent(TaskDetailModal).vm.$emit('run')
+    await flushPromises()
+    const first = w.findComponent(TaskDetailModal).props('previewToken')
+    w.findComponent(TaskDetailModal).vm.$emit('run')
+    await flushPromises()
+
+    expect(w.findComponent(TaskDetailModal).props('previewToken')).toBeGreaterThan(first as number)
+  })
+
+  it('si la tarea sale de la vista, el detalle se cierra en vez de quedar en blanco', async () => {
+    // Mover a otro status la saca del filtro activo, que es el caso normal:
+    // dejar el detalle abierto contra `null` lo deja vacío y sin explicación.
+    const w = await mountWith([githubItem({})])
+    await w.get('.tr').trigger('click')
+    items.splice(0, items.length)
+
+    w.findComponent(TaskDetailModal).vm.$emit('move', 'refine')
+    await flushPromises()
+
+    expect(w.findComponent(TaskDetailModal).props('open')).toBe(false)
   })
 })

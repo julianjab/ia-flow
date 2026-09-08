@@ -107,4 +107,14 @@ describe('ExecutionStatusLine', () => {
       'sin PR',
     )
   })
+
+  it('`unknown` no se dice como motivo: no es un error, es la falta de uno', () => {
+    // En la fila se leía `falló · unknown`, como si el error se llamara así.
+    // La falta de diagnóstico se cuenta una vez, en la banda de salud.
+    const el = line({
+      execution: run({ outcome: 'error', failureClass: 'unknown', stopReason: null }),
+    })
+    expect(el.text()).toContain('falló')
+    expect(el.text()).not.toContain('unknown')
+  })
 })

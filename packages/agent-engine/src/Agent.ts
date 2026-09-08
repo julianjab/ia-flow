@@ -591,6 +591,7 @@ export class Agent {
         // colgada de un proceso anterior sobre la misma tarea.
         executionId: logId,
         ruleId: input.ruleId,
+        traceId: input.traceId,
         parentRunId: input.parentRunId,
         agentDepth: input.agentDepth ?? 0,
         cancel: async () => {
@@ -690,6 +691,7 @@ export class Agent {
         // Lo que ve `run_agent` para frenar una cadena circular de delegación.
         agentDepth: input.agentDepth ?? 0,
         runId,
+        traceId: input.traceId,
         taskId: task.id,
         taskTitle: task.title,
         taskDescription: task.description,
@@ -938,11 +940,21 @@ export class Agent {
           runState.structuredOutput = pendingAfterRun.structuredOutput
         }
         task = pendingAfterRun?.task ?? task
-        removePendingTask(registryKey)
-        // El throw va DESPUÉS de soltar la entrada: si no, el run fallado se
-        // llevaría puesto el lock de la task y los slots del agente, del
-        // proyecto y del provider hasta el próximo reinicio.
+        // La entrada del registry (y con ella el slot de capacidad del
+        // agente/proyecto/provider) se suelta acá SÓLO para los caminos que
+        // no llegan a `verify` (cancelado, movido por tool, pausado) — cada
+        // uno la suelta explícitamente antes de su propio `return`. El
+        // camino de éxito la retiene hasta después de correr `verify` (más
+        // abajo): liberarla acá dejaba entrar un segundo run del mismo
+        // agente mientras éste todavía corría `bun test`/`typecheck` en el
+        // mismo disco, justo la superposición que el tope de capacidad
+        // existe para evitar. Si `verify` lanza, el `catch` de más abajo la
+        // suelta igual (idempotente).
         if (declaresOutput && !runState.structuredOutput && !cancelled) {
+          // El throw va DESPUÉS de leer `pendingAfterRun`: si no, el run
+          // fallado se llevaría puesto el lock de la task hasta el próximo
+          // reinicio. El slot lo suelta el `catch` de más abajo.
+          removePendingTask(registryKey)
           throw missingOutput()
         }
 
@@ -965,6 +977,7 @@ export class Agent {
             finishedAt: new Date().toISOString(),
             outcome: 'cancelled',
           })
+          removePendingTask(registryKey)
           return task
         }
 
@@ -1007,6 +1020,7 @@ export class Agent {
           try {
             await manager.setAgentWorking(task, false)
           } catch {}
+          removePendingTask(registryKey)
           return task
         }
 
@@ -1040,6 +1054,7 @@ export class Agent {
             outcome: 'success',
             stopReason: 'paused',
           })
+          removePendingTask(registryKey)
           return task
         }
 
@@ -1113,6 +1128,7 @@ export class Agent {
             resolveExitCommentTarget({ exits, commentTarget: agentDef.comment }, ERROR_EXIT),
           )
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
+          removePendingTask(registryKey)
         } else {
           // `exits` puede ser `undefined` acá — un agente clasificador
           // (`tools: []`, sin `onProcess`/`onFinish`) no declara ninguna a
@@ -1147,10 +1163,17 @@ export class Agent {
           // trabajo real. Igual que los providers async (ver PRD #135, fuera
           // de alcance), se saltea con un aviso en vez de mentir un resultado.
           //
-          // No recibe `controller.signal`: `removePendingTask(registryKey)` ya
-          // corrió arriba (antes del chequeo de `cancelled`), así que un
-          // cancel externo que llegue a partir de acá no encuentra entry en el
-          // registry para invocar — la ventana de cancelación ya se cerró.
+          // El slot de capacidad (registry de pending tasks) SIGUE tomado
+          // durante este bloque a propósito — se libera recién más abajo,
+          // después de que `verify` termina. Soltarlo antes (como hacía este
+          // código) dejaba entrar un segundo dispatch del mismo
+          // agente/proyecto/provider mientras éste todavía corría
+          // `bun test`/`typecheck` en el mismo worktree.
+          //
+          // No recibe `controller.signal`: la entrada del registry no se usa
+          // para cancelar desde acá — un cancel externo que llegue durante
+          // `verify` no tiene forma de interrumpirlo, sólo de que el próximo
+          // ciclo lo reconozca cuando el catch de más abajo suelte el slot.
           if (agentDef.verify?.length) {
             if (resolvedProviderId.startsWith('remote:')) {
               log.warn(
@@ -1168,6 +1191,9 @@ export class Agent {
               }
             }
           }
+          // Verify (si había) ya pasó — recién acá se suelta el slot de
+          // capacidad del agente/proyecto/provider.
+          removePendingTask(registryKey)
 
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a

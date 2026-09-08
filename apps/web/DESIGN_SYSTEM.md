@@ -50,7 +50,7 @@ Los neutros son **cálidos** (`--fg: #ece9e2`), no gris azulado: es lo que hace 
 | `--danger` (`--red`) | Errores, destructivo, PR cerrado |
 | `--warn` (`--yellow`) | En curso, refining, bloqueos |
 | `--info` (`--cyan`) | Rutas, repos, ramas, providers, referencias |
-| `--ai` (`--magenta`) | Assist, propuestas de IA, PR mergeado |
+| `--ai` (`--magenta`) | **Sólo salida de modelo** — ver R16. Nada calculado usa magenta. |
 | `--green-bg` / `--red-bg` / `--yellow-bg` | Fondos de estado |
 
 Regla: cada estado usa **una** ranura. No hay dos "ok".
@@ -293,7 +293,13 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 
 ## Glifos
 
-`●` proceso vivo / abierto · `○` detenido / draft · `◐` en curso · `✓` completado / mergeado · `✕` fallo / cerrado · `⛔` bloqueado · `⎇` rama · `▸` cursor de fila · `→` acción sugerida · `↗` abre afuera · `➜` prompt · `✦` salida de IA · `·` detalle secundario. Preferí Unicode sobre íconos SVG.
+`●` proceso vivo / abierto · `○` detenido / draft · `◐` en curso · `✓` completado / mergeado · `✕` fallo / cerrado · `⛔` bloqueado · `⎇` rama · `▸` cursor de fila · `→` acción sugerida · `↗` abre afuera · `➜` prompt · `✦` salida de IA · `◆` bot / integración (Slack, agentes) · `·` detalle secundario.
+Preferí Unicode sobre íconos SVG.
+
+`✦` y `◆` estaban mezclados: el tag de Slack, el botón de review, el bot del selector de miembros
+y la fila «Agentes» de `Más` usaban `✦`, que esta tabla ya reservaba para salida de IA. Se
+separaron al construir la card de foco (R16) — el tag de Slack se dibuja en la MISMA lista, a
+cuatro líneas de la card, que es justo la confusión que la regla existe para evitar.
 
 ## Errores
 
@@ -344,10 +350,11 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 | ~~Barra de controles de lista~~ | — | — | **Hecho** — `components/ListControlsBar.vue` |
 | ~~Encabezado de bucket~~ | — | — | **Hecho** — `components/BucketHeader.vue` |
 | ~~Segmentado de vista~~ | — | — | Cubierto por `components/ListBoardToggle.vue` |
+| `FilterByIds` | Filtrar una lista por un conjunto **explícito** de ids, sin tocar el orden. Se dibuja en la barra de controles como cualquier filtro y se saca con ✕. Los filtros de `TaskFiltersBar` son todos por campo: un conjunto de ids no se puede expresar hoy. | Runs y Board (mismo recorte, O6) · el detalle de un bloqueante, para ver las tareas que traba · el resumen de agentes, para ver los runs de una causa | **Pedido · sin aprobar.** Lo pide la card de foco (turno 9) para que un cluster se pueda tocar. Mientras tanto el cluster es texto en la línea del pick, y no se pierde nada más. |
 
 Cuando uno de estos llegue diseñado, se agrega arriba con su primitiva y se borra de esta tabla.
 
-## Doce reglas transversales — R1 a R12
+## Reglas transversales — R1 a R17
 
 Aplican a **cualquier** pantalla, incluidas las que ningún rediseño nombra. Son el criterio con el
 que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por qué en el PR.
@@ -388,6 +395,29 @@ que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por q
   propia lista.
 - **R12 · El chrome de una pantalla de lista son dos filas.** Identidad y controles, `--tap-h`
   cada una, en cualquier ancho. Nada de un header de página que repita lo que ya dice la barra.
+
+Las cinco siguientes salieron de los turnos 6, 8 y 9 del handoff y estaban sólo ahí. Se migran
+acá porque el código ya las cumple y un archivo que dice «doce» mientras el repo sigue quince es
+la forma en que una regla se pierde.
+
+- **R13 · Un dato que el server no tiene no se dibuja.** Sin pasos persistidos no hay timeline ni
+  `3/5`; sin `p50` no hay aviso de lentitud; sin `prUrl` no se afirma «sin PR». La banda se omite
+  entera, no se rellena con un placeholder.
+- **R14 · Un tab es un lugar donde se trabaja, no un índice.** Tareas, Runs y Más son los tres
+  modos de uso: decidir, vigilar, configurar. Todo lo demás —Agentes, Pipeline, Repos, Board— se
+  alcanza desde la fila o el encabezado que lo menciona, que es donde el usuario ya está mirando.
+- **R15 · Cuando todo está mal, el aviso se acorta.** Una alerta que crece con la cantidad de
+  problemas tapa exactamente lo que hay que arreglar. Un problema y muchos ocupan lo mismo; lo
+  que cambia es el texto, de un nombre propio a una causa compartida.
+- **R16 · Lo inferido no usa la voz de lo calculado.** Magenta (`--ai`) y `✦` **sólo** para salida
+  de modelo; ningún texto inferido va en `--danger`, `--warn` o `--accent` (el color de estado es
+  de lo calculado, y un `why` del modelo va siempre en `--fg-mute`); y toda inferencia lleva la
+  hora en que se pensó — un cálculo se recalcula al abrir, una inferencia puede estar hablando de
+  una lista que ya cambió. Si a tres líneas de distancia las dos se pueden confundir, la que cede
+  es la inferida.
+- **R17 · Un resumen señala; no actúa.** Lo que se puede hacer se hace en la fila, en un solo
+  lugar. Un resumen que también ejecuta obliga a mantener dos caminos para cada acción y le da al
+  modelo un botón.
 
 ## Checklist antes de tocar UI
 

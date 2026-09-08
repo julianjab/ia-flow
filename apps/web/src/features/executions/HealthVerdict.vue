@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
+import { useActiveExecutionsStore } from './activeStore';
 import { type ExecutionStats, fetchExecutionStats } from './api';
 import { compactTokens, formatUsd, percent, WINDOWS } from './health-format';
-import { type DispositionCount, dispositionCounts, summarizeHealth } from './verdict';
+import { type DispositionCount, dispositionCounts, healthLine } from './verdict';
 
 /**
  * El resumen de la pantalla de ejecuciones — un veredicto, no una tabla (R10).
@@ -19,9 +20,21 @@ import { type DispositionCount, dispositionCounts, summarizeHealth } from './ver
  * y el resto se cuenta. La tabla no se recortó a tres columnas: se mudó entera
  * a la pantalla del agente, que es donde se audita — una fila de acá lleva ahí.
  *
- * Las reglas de quién está fuera de banda viven en `verdict.ts`, puras.
+ * **Turno 8 · el tope duro.** Una fila por agente fuera de banda asumía dos o
+ * tres outliers contra una base sana; con 51% ok los siete agentes califican y
+ * la banda se vuelve 470px de rojo que empuja la lista fuera de la pantalla.
+ * Ahora la banda es **una línea, siempre**: con uno solo fuera de banda dice
+ * quién y por qué, y cuando el fallo es del sistema dice la causa compartida y
+ * cuenta los agentes en vez de listarlos. Las reglas viven en `verdict.ts`.
  */
-const props = defineProps<{ projectId?: string | null; outcomeCounts: Record<string, number> }>();
+const props = defineProps<{
+  projectId?: string | null;
+  /** Hay filtros puestos: los contadores en cero se siguen dibujando, porque
+   *  son el camino de vuelta (ver `dispositionCounts`). */
+  filtering?: boolean;
+  /** Qué disposición está filtrada ahora, para marcarla como activa. */
+  activeKey?: string | null;
+}>();
 
 const emit = defineEmits<{
   /** Un contador prende su filtro: el contador ES el filtro, un atajo y no un
@@ -36,9 +49,7 @@ const windowDays = ref<number>(7);
 const stats = ref<ExecutionStats | null>(null);
 const loading = ref(false);
 const error = ref('');
-/** Los sanos arrancan plegados: son, literalmente, la parte que no hay que
- *  mirar (O4). */
-const healthyOpen = ref(false);
+
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -60,9 +71,46 @@ async function load(): Promise<void> {
 onMounted(load);
 watch(() => [props.projectId, windowDays.value], load);
 
-const counts = computed<DispositionCount[]>(() => dispositionCounts(props.outcomeCounts));
-const verdict = computed(() => summarizeHealth(stats.value?.agents ?? []));
+/**
+ * Los tres contadores describen **la ventana**, no la página cargada.
+ *
+ * Salían de los outcomes de `executions[]`, que es el resultado del fetch CON
+ * los filtros puestos: tocar `47 te esperan` refetcheaba sólo esos, y el
+ * contador pasaba a decir `65` mientras los otros dos caían a cero. Los
+ * números se movían debajo del dedo, y ninguno de los tres era ya la respuesta
+ * a la pregunta que contestaban.
+ *
+ * `stats.totals` es del período completo y no lo toca ningún filtro de la
+ * lista; `corriendo` sale del store de runs activos, que es "lo que corre
+ * AHORA" por definición.
+ */
+const activeRuns = useActiveExecutionsStore();
+onMounted(() => {
+  if (!activeRuns.loaded) void activeRuns.fetch();
+});
+
+const counts = computed<DispositionCount[]>(() => {
+  const t = stats.value?.totals;
+  const running = props.projectId
+    ? activeRuns.countForProject(props.projectId)
+    : activeRuns.activeCount;
+  return dispositionCounts(
+    {
+      success: t?.success ?? 0,
+      error: t?.error ?? 0,
+      cancelled: t?.cancelled ?? 0,
+      truncated: t?.truncated ?? 0,
+      pending: activeRuns.loaded ? running : 0,
+    },
+    props.filtering,
+  );
+});
+/** Una línea, siempre (turno 8). Las reglas viven en `verdict.ts`, puras. */
+const line = computed(() => healthLine(stats.value));
 const totals = computed(() => stats.value?.totals ?? null);
+const activeWindowLabel = computed(
+  () => WINDOWS.find((w) => w.days === windowDays.value)?.label ?? `${windowDays.value} d`,
+);
 
 /**
  * El párrafo explicativo del panel viejo, ahora en el `title` de la línea de
@@ -78,16 +126,18 @@ const totalsTitle =
   <div class="hv">
     <!-- Tres contadores por disposición, no seis outcomes: la pregunta es quién
          mueve la próxima pieza. El de "te esperan" es el único en --danger,
-         porque es el único que pide algo. Un cero no se dibuja (R10). -->
+         porque es el único que pide algo. Un cero no se dibuja (R10) — salvo
+         con un filtro puesto, donde los tres son el camino de vuelta. -->
     <div v-if="counts.length" class="hv__counts" aria-label="Resumen por disposición">
       <button
         v-for="c in counts"
         :key="c.key"
         type="button"
         class="hv__count"
-        :class="`hv__count--${c.key}`"
+        :class="[`hv__count--${c.key}`, { 'hv__count--on': activeKey === c.key }]"
         :data-testid="`verdict-count-${c.key}`"
-        :title="`Filtrar por ${c.label}`"
+        :aria-pressed="activeKey === c.key"
+        :title="activeKey === c.key ? `Quitar el filtro ${c.label}` : `Filtrar por ${c.label}`"
         @click="emit('filter', c.outcomes)"
       >
         <b>{{ c.count }}</b> {{ c.label }}
@@ -96,74 +146,44 @@ const totalsTitle =
 
     <p v-if="error" class="hv__error">{{ error }}</p>
     <template v-else-if="stats">
-      <p v-if="totals" class="hv__totals" :title="totalsTitle">
-        <strong>{{ totals.runs }}</strong> runs ·
-        <strong>{{ percent(totals.successRate) }}</strong> ok ·
-        {{ compactTokens(totals.tokensIn) }} frescos ·
-        <strong>{{ formatUsd(totals.costUsd) }}</strong> est.
+      <!-- Una línea, siempre. El `→` lleva a donde se audita: la página del
+           agente cuando hay uno señalado, el roster cuando es el sistema. -->
+      <button
+        v-if="line"
+        type="button"
+        class="hv__line"
+        :class="`hv__line--${line.tone}`"
+        data-testid="verdict-line"
+        :title="line.agentId ? `Abrir la página de ${line.agentId}` : 'Ver la salud por agente'"
+        @click="emit('open', line.agentId ?? '')"
+      >
+        <span class="hv__line-text">
+          <span class="hv__line-head">{{ line.headline }}</span>
+          <span v-if="line.detail" class="hv__line-detail">{{ line.detail }}</span>
+        </span>
+        <span class="hv__line-go" aria-hidden="true">→</span>
+      </button>
+
+      <!-- El costo del período: una línea de 30px, no una banda. El período
+           ACTIVO lo dice el texto (`· 7 d ·`) y a la derecha quedan los otros
+           dos, que son los únicos que hacen algo al tocarlos. Sin caret: un
+           `▸` que no despliega nada promete contenido que no existe. -->
+      <p v-if="totals" class="hv__totals" data-testid="verdict-totals" :title="totalsTitle">
+        <span class="hv__totals-text">
+          <strong>{{ totals.runs }}</strong> runs · {{ activeWindowLabel }} ·
+          {{ compactTokens(totals.tokensIn) }} frescos ·
+          <strong>{{ formatUsd(totals.costUsd) }}</strong> est.
+        </span>
         <span class="hv__windows">
           <button
-            v-for="w in WINDOWS"
+            v-for="w in WINDOWS.filter((x) => x.days !== windowDays)"
             :key="w.days"
             type="button"
             class="hv__window"
-            :class="{ 'hv__window--on': windowDays === w.days }"
-            :aria-pressed="windowDays === w.days"
+            :title="`Ver los últimos ${w.label}`"
             @click="windowDays = w.days"
           >{{ w.label }}</button>
         </span>
-      </p>
-
-      <!-- Un agente fuera de banda por línea, con su razón LITERAL: `48% ok ·
-           12 de 23 por tools fallando` dice qué mirar; una barra de color
-           sólo dice que algo está mal. -->
-      <button
-        v-for="v in verdict.outOfBand"
-        :key="v.agentId"
-        type="button"
-        class="hv__agent"
-        data-testid="verdict-out-of-band"
-        :title="`Abrir la página de ${v.agentId}`"
-        @click="emit('open', v.agentId)"
-      >
-        <span class="hv__agent-id">{{ v.agentId }}</span>
-        <span class="hv__agent-reason">{{ v.reason }}</span>
-        <span class="hv__agent-go" aria-hidden="true">→</span>
-      </button>
-
-      <!-- Los sanos son UNA línea plegada con sus tasas: son la parte del día
-           que no hay que mirar, y listarlos los pone a competir con el que sí. -->
-      <button
-        v-if="verdict.healthy.length"
-        type="button"
-        class="hv__healthy"
-        :aria-expanded="healthyOpen"
-        data-testid="verdict-healthy"
-        @click="healthyOpen = !healthyOpen"
-      >
-        <span class="hv__healthy-caret" aria-hidden="true">{{ healthyOpen ? '▾' : '▸' }}</span>
-        {{ verdict.healthy.length }}
-        {{ verdict.healthy.length === 1 ? 'agente' : 'agentes' }}
-        {{ verdict.outOfBand.length ? 'más, en banda' : 'en banda' }}
-        <span class="hv__healthy-rates">
-          {{ verdict.healthy.map((a) => percent(a.successRate)).join(' · ') }}
-        </span>
-      </button>
-      <ul v-if="healthyOpen" class="hv__healthy-list">
-        <li v-for="a in verdict.healthy" :key="a.agentId">
-          <button type="button" class="hv__healthy-row" @click="emit('open', a.agentId)">
-            <span class="hv__agent-id">{{ a.agentId }}</span>
-            <span class="hv__agent-reason">{{ percent(a.successRate) }} ok · {{ a.runs }} runs</span>
-          </button>
-        </li>
-      </ul>
-
-      <!-- Pocos runs no es "en banda": es que todavía no se puede decir nada.
-           Afirmar que está sano con dos runs es inventar. -->
-      <p v-if="verdict.lowSample.length" class="hv__low">
-        {{ verdict.lowSample.length }}
-        {{ verdict.lowSample.length === 1 ? 'agente todavía sin' : 'agentes todavía sin' }}
-        muestra suficiente en esta ventana.
       </p>
     </template>
     <p v-else-if="loading" class="hv__low">Cargando salud…</p>
@@ -200,97 +220,103 @@ const totalsTitle =
 /* El único en --danger es el único que pide algo. */
 .hv__count--waiting { border-color: var(--danger); background: var(--red-bg); color: var(--danger); }
 .hv__count--closed { color: var(--fg-dim); }
+/* El activo, en video inverso — la misma marca que toda selección del sistema.
+   Sin ella, con los tres dibujados no se sabe cuál está puesto. */
+.hv__count--on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.hv__count--on b { color: var(--panel); }
+
+/* ── La línea de salud: una, siempre ──────────────────────────────────────
+   Dos líneas de texto adentro de un solo blanco táctil: la tasa arriba y la
+   causa abajo, las dos truncadas. Siete filas de agente eran 470px; esto son
+   ~50, y envolver la causa las volvería a inflar. */
+.hv__line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0.35rem 0.7rem;
+  border: none;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--yellow-bg);
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.hv__line:hover { background: var(--panel-hi); }
+/* Rojo es "algo te espera". Que el server no clasifique los fallos es un
+   problema de datos: ámbar. Y sin nadie fuera de banda no hay alarma. */
+.hv__line--danger { border-left-color: var(--danger); background: var(--red-bg); color: var(--danger); }
+.hv__line--ok {
+  border-left-color: var(--border-hi);
+  background: transparent;
+  color: var(--fg-dim);
+}
+.hv__line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.hv__line-head,
+.hv__line-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* La causa cede primero: es lo que explica, no lo que alarma. */
+.hv__line-detail { font-size: var(--fs-micro); color: var(--fg-mute); }
+.hv__line-go { flex: 0 0 auto; }
 
 .hv__totals {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.4ch;
-  flex-wrap: wrap;
+  /* Una línea de 30px, y si no entra se recorta: envolver convertía el costo
+     del período en 92px de la parte superior, que es justo lo que el turno 8
+     vino a recuperar. El texto completo está en el `title`. */
+  flex-wrap: nowrap;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.7rem;
   margin: 0;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   cursor: help;
 }
-.hv__windows { display: flex; gap: 0.25rem; margin-left: auto; }
-.hv__window {
-  height: var(--tap-h-sm);
-  padding: 0 0.6rem;
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  cursor: pointer;
-}
-.hv__window--on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
-
-.hv__agent {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  min-height: var(--tap-h);
-  padding: 0 0.7rem;
-  border: none;
-  border-left: 3px solid var(--danger);
-  border-radius: var(--radius-sm);
-  background: var(--red-bg);
-  color: var(--danger);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.hv__agent:hover { background: var(--panel-hi); }
-.hv__agent-id { flex: 0 0 auto; color: var(--fg); }
-.hv__agent-reason {
+.hv__totals-text {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--fs-micro);
 }
-.hv__agent-go { flex: 0 0 auto; }
-
-.hv__healthy {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  min-height: var(--tap-h);
-  padding: 0 0.7rem;
+.hv__windows { flex: 0 0 auto; display: flex; margin-left: auto; padding-left: 0.5ch; }
+/* Texto, no botones con caja: dos chips de 55px empujaban la línea a tres
+   renglones en 390px — 92px para decir el costo del período, que es justo lo
+   que el turno 8 vino a sacar del tope de la pantalla. */
+.hv__window {
+  padding: 0;
   border: none;
   background: none;
   color: var(--fg-dim);
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  text-align: left;
+  text-decoration: underline;
   cursor: pointer;
 }
-.hv__healthy:hover { color: var(--fg); }
-.hv__healthy-caret { color: var(--fg-dimmer); }
-.hv__healthy-rates { margin-left: auto; color: var(--accent); }
-
-.hv__healthy-list { list-style: none; margin: 0; padding: 0; }
-.hv__healthy-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  min-height: var(--tap-h);
-  padding: 0 1.5rem;
-  border: none;
-  background: none;
-  color: var(--fg-mute);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  text-align: left;
-  cursor: pointer;
+.hv__window:hover { color: var(--accent); }
+.hv__window + .hv__window::before {
+  content: '·';
+  margin: 0 0.5ch;
+  color: var(--fg-dimmer);
+  text-decoration: none;
+  display: inline-block;
 }
-.hv__healthy-row:hover { background: var(--panel-hi); color: var(--fg); }
 
 .hv__error { margin: 0; font-size: var(--fs-body-sm); color: var(--danger); }
 .hv__low { margin: 0; font-size: var(--fs-micro); color: var(--fg-dimmer); }

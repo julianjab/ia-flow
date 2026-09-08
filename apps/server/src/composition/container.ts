@@ -71,12 +71,14 @@ import { readTranscriptUsage } from '../adapters/claude-code/transcript-usage.js
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
+import { HaikuStructuredCompletion } from '../adapters/structured-completion/HaikuStructuredCompletion.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMessageUseCase.js'
 import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
 import { GetTaskDispositionsUseCase } from '../application/use-cases/GetTaskDispositionsUseCase.js'
+import { GetTaskFocusUseCase } from '../application/use-cases/GetTaskFocusUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
@@ -617,6 +619,10 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   githubToken: () => githubCredentials.getToken(),
   gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
   gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
+  // SSH private key sin passphrase, montada en disco. Ver
+  // `WorkspaceManager#configureSigning` — sin esto los commits del agente
+  // nunca salen "Verified" en repos que lo exigen.
+  gitSigningKeyPath: Bun.env.IA_FLOW_GIT_SIGNING_KEY_PATH,
   // Al limpiar un worktree terminal, si la branch no aporta nada sobre la base
   // se borra también en `origin` (evita ramas huérfanas de runs sin cambios).
   // IA_FLOW_KEEP_EMPTY_BRANCHES=1 desactiva sólo el borrado remoto.
@@ -730,6 +736,7 @@ setRunAgentPort({
       agentId,
       parentRunId,
       parentDepth,
+      traceId: parent.traceId,
     })
   },
 })
@@ -995,6 +1002,17 @@ export const getTaskDispositionsUseCase = new GetTaskDispositionsUseCase({
   // Por proyecto y no congeladas: editar una regla de retry en la UI tiene que
   // cambiar la disposición de un fallo sin reiniciar el daemon.
   loadRules: (projectId) => ruleRepo.visibleTo(projectId),
+})
+
+// El foco (GET /api/tasks/focus). Se cuelga del use case de arriba en vez de
+// recalcular: las disposiciones ya son el orden, y el foco sólo lo nombra.
+export const structuredCompletion = new HaikuStructuredCompletion()
+export const getTaskFocusUseCase = new GetTaskFocusUseCase({
+  completion: structuredCompletion,
+  loadDispositions: (projectId, source) => getTaskDispositionsUseCase.execute(projectId, source),
+  // Por llamada y no capturado: `envRepo.loadIntoProcess()` vuelca lo que el
+  // operador guardó en SQLite DESPUÉS de que este módulo se evaluó.
+  enabled: () => Bun.env.IA_FLOW_TASK_FOCUS !== '0',
 })
 
 export const runTaskNowUseCase = new RunTaskNowUseCase(

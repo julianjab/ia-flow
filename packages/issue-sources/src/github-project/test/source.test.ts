@@ -463,6 +463,47 @@ function stubCreateItemFetch(
   return { calls }
 }
 
+describe('GitHubProjectSource.setItemField', () => {
+  test('field "status" (any casing) goes through the SINGLE_SELECT mutation, not the text one', async () => {
+    const { calls } = stubFetch((v) => {
+      if (v.org || v.user) return META_RESPONSE
+      if (v.optionId) return { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } }
+      throw new Error(`stubFetch: unrouted variables ${JSON.stringify(v)}`)
+    })
+    const source = new GitHubProjectSource(URL)
+    // The quick-action ("→ mover a X") always calls with the lowercase
+    // "status" — the board's field is named "Status".
+    await source.setItemField('PVTI_1', 'status', 'build')
+    const mutationCall = calls.find((c) => c.variables.optionId)
+    expect(mutationCall?.variables).toMatchObject({ fieldId: 'f_status', optionId: 'o1' })
+  })
+
+  test('an unrecognized status option throws instead of silently doing nothing', async () => {
+    stubFetch((v) => (v.org || v.user ? META_RESPONSE : {}))
+    const source = new GitHubProjectSource(URL)
+    await expect(source.setItemField('PVTI_1', 'Status', 'nope')).rejects.toThrow(/not found/)
+  })
+
+  test('a non-status field still uses the text mutation', async () => {
+    const { calls } = stubFetch((v) => {
+      if (v.org || v.user) return META_RESPONSE
+      if (v.text !== undefined)
+        return { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } }
+      throw new Error(`stubFetch: unrouted variables ${JSON.stringify(v)}`)
+    })
+    const source = new GitHubProjectSource(URL)
+    await source.setItemField('PVTI_1', 'Working', 'Yes')
+    const mutationCall = calls.find((c) => c.variables.text !== undefined)
+    expect(mutationCall?.variables).toMatchObject({ fieldId: 'f_working', text: 'Yes' })
+  })
+
+  test('an unknown field throws', async () => {
+    stubFetch((v) => (v.org || v.user ? META_RESPONSE : {}))
+    const source = new GitHubProjectSource(URL)
+    await expect(source.setItemField('PVTI_1', 'Nope', 'x')).rejects.toThrow(/not found/)
+  })
+})
+
 describe('GitHubProjectSource.createItem', () => {
   test('draft omitted → creates a project draft issue, no REST call', async () => {
     const { calls } = stubCreateItemFetch(null)

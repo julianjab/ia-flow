@@ -79,8 +79,8 @@ function addInline() {
       </div>
       <span class="field-hint">
         Texto suelto (<code>{ text: ... }</code>), sin id de catálogo — la única forma que
-        funciona en un deploy headless. Se manda tal cual, en el orden de la lista, antes de
-        los del catálogo.
+        funciona en un deploy headless. Se manda tal cual, en el orden de la lista, después
+        de los del catálogo.
       </span>
       <div v-if="inlinePrompts.length" class="inline-list">
         <div v-for="(text, i) in inlinePrompts" :key="i" class="inline-block">

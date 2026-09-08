@@ -232,6 +232,7 @@ export class TmuxClaudeProvider implements IAgentProvider {
     const log = this.log
     const logCtx = {
       runId: input.runId,
+      traceId: input.traceId,
       agent: input.agentId,
       projectId: input.projectId,
       taskId: input.taskId,

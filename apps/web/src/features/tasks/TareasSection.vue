@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
+import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
+import FocusCard from '@/features/tasks/FocusCard.vue';
+import { useFocusStore } from '@/features/tasks/focusStore';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
@@ -23,7 +26,6 @@ import {
 import type {
   PullRequestRef,
   TaskDisposition,
-  TaskDispositionEntry,
   TaskRunSummary,
   RunTaskNowResult,
   SlackMemberRef,
@@ -40,13 +42,13 @@ import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
 import {
   fetchProjectItems,
   fetchProjectStatuses,
+  setProjectItemField,
   type Blocker,
   type SourceItem,
 } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
 import { useRoute, useRouter } from 'vue-router';
 import TaskFiltersBar from '@/features/tasks/TaskFiltersBar.vue';
-import { fetchTaskDispositions } from '@/features/tasks/api';
 import {
   countActiveTaskFilters,
   EMPTY_TASK_FILTERS,
@@ -193,11 +195,55 @@ const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.
  * no coincide con *qué me toca*. Lo que te espera es justamente lo que lleva
  * más tiempo quieto, o sea lo que un orden por fecha manda al fondo.
  */
-const dispositions = ref<TaskDispositionEntry[]>([]);
+/**
+ * Las disposiciones viven en un store compartido: el badge de la tab bar
+ * necesita el mismo dato, y `GET /api/tasks/dispositions` no es barato —por
+ * debajo hace `getItems()` contra la fuente más los blockers de cada ítem—,
+ * así que pedirlo dos veces al entrar a esta pantalla es rate limit de GitHub
+ * gastado en el mismo número.
+ */
+const dispositionsStore = useDispositionsStore();
+const dispositions = computed(() => dispositionsStore.entriesFor(activeProjectId.value));
 /** El agregado no se pudo consultar: la lista cae al orden de la fuente y lo
  *  DICE, en vez de agrupar por buckets que no conoce. */
-const dispositionsFailed = ref(false);
+const dispositionsFailed = computed(() => dispositionsStore.hasFailed(activeProjectId.value));
 const groupByDisposition = ref(true);
+
+/**
+ * El foco — la card de arriba. Store aparte del de disposiciones porque son
+ * dos preguntas con costos distintos: aquél ordena la lista y esta pantalla no
+ * se dibuja sin él; éste la comenta, tarda más (por debajo hay un modelo) y la
+ * lista se dibuja completa sin esperarlo.
+ */
+const focusStore = useFocusStore();
+
+/** Los títulos que la card necesita para sus picks. Salen de las filas que ya
+ *  están en memoria: el foco viaja con ids, no con una segunda copia del
+ *  título que pueda discrepar de la fila de abajo. */
+const titlesById = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {};
+  for (const item of projectItems.value) out[item.id] = item.title;
+  return out;
+});
+
+/**
+ * La fila a la que te mandó un pick, marcada.
+ *
+ * Es una marca, no una selección persistente: se limpia al abrir cualquier
+ * tarea, así que nunca hay dos filas en video inverso diciendo cosas distintas.
+ */
+const focusedTaskId = ref<string | null>(null);
+
+function goToTask(taskId: string): void {
+  focusedTaskId.value = taskId;
+  // En el próximo tick: con la card recién colapsada, la fila todavía no está
+  // en su posición final y el scroll caería en el lugar equivocado.
+  void nextTick(() => {
+    document
+      .querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
+}
 
 const dispositionById = computed(
   () => new Map(dispositions.value.map((d) => [d.taskId, d])),
@@ -326,6 +372,8 @@ const { isSplit } = useIsSplit();
 const detailProps = computed(() => {
   const item = reposModalItem.value;
   return {
+    movingStatus: movingStatus.value,
+    previewToken: previewToken.value,
     open: reposModalOpen.value,
     taskId: item?.id ?? null,
     projectId: activeProjectId.value ?? null,
@@ -379,16 +427,66 @@ function reasonFor(id: string): string {
 async function loadDispositions() {
   const pid = activeProjectId.value;
   if (!pid) return;
-  dispositionsFailed.value = false;
+  // El foco NO se espera: la lista se dibuja completa sin él, y su card
+  // aparece después o no aparece. Sin `force` — a diferencia de las
+  // disposiciones, que sí se re-piden al entrar: acá lo caro es el modelo, y
+  // una inferencia de hace dos minutos sobre la misma lista sigue siendo
+  // cierta (el server la cachea por huella del contenido, no por tiempo).
+  void focusStore.fetch(pid);
+  // `force`: entrar a Tareas es pedir el estado de ahora, no el de la última
+  // vez que la tab bar lo consultó.
+  await dispositionsStore.fetch(pid, { force: true });
+  if (activeProjectId.value !== pid) return;
+  freezeIfFirst();
+}
+
+/**
+ * Mover la tarea al status que la sugerencia propone (`RunPreviewCard`).
+ *
+ * Lo ejecuta esta pantalla y no la card: el PATCH vive en la feature de
+ * proyectos —una feature no importa el api de otra— y, sobre todo, quien mueve
+ * la tarea es quien tiene que refrescar. Sin eso la tarea se movía de verdad y
+ * la fila seguía mostrando el status viejo hasta un reload a mano.
+ */
+const movingStatus = ref<string | null>(null);
+/**
+ * Cuándo la preview del detalle tiene que volver a preguntar.
+ *
+ * Un CONTADOR, no el resultado de la última acción: dos "Correr ahora"
+ * seguidos devuelven casi siempre lo mismo (`skipped`, mismo status — que es
+ * justo cuando el operador reintenta), así que un token derivado del contenido
+ * no cambiaba y la card se quedaba con el veredicto viejo. Se bumpea en cada
+ * acción que puede cambiar ese veredicto: correr y mover.
+ */
+const previewToken = ref(0);
+async function moveTaskTo(status: string): Promise<void> {
+  const pid = activeProjectId.value;
+  const item = reposModalItem.value;
+  if (!pid || !item || movingStatus.value) return;
+  movingStatus.value = status;
   try {
-    const next = await fetchTaskDispositions(pid);
-    if (activeProjectId.value !== pid) return;
-    dispositions.value = next;
-    freezeIfFirst();
-  } catch {
-    if (activeProjectId.value !== pid) return;
-    dispositionsFailed.value = true;
-    dispositions.value = [];
+    await setProjectItemField(pid, item.id, 'status', status);
+    toastStore.success(`Movida a ${status}`);
+    await Promise.all([loadProjectItems(true), loadDispositions()]);
+    // `loadProjectItems` reemplaza las filas por objetos NUEVOS, y el detalle
+    // guarda una referencia a la vieja: sin re-apuntarla, la lista mostraba el
+    // status nuevo y el detalle abierto seguía con el anterior.
+    const fresh = projectItems.value.find((i) => i.id === item.id);
+    if (fresh) {
+      reposModalItem.value = fresh;
+      previewToken.value += 1;
+    } else {
+      // El status destino puede caer fuera del filtro activo —que es el caso
+      // normal al mover— y entonces la tarea ya no está en la lista. Dejar el
+      // detalle abierto contra `null` lo deja en blanco: se cierra, que es lo
+      // que la acción efectivamente hizo con ella en esta vista.
+      reposModalOpen.value = false;
+      reposModalItem.value = null;
+    }
+  } catch (e) {
+    toastStore.error(extractErrorMessage(e));
+  } finally {
+    movingStatus.value = null;
   }
 }
 
@@ -604,6 +702,9 @@ function currentReposOf(item: TaskRow): string[] {
 }
 
 function openReposModal(item: TaskRow) {
+  // Abrir una tarea apaga la marca del foco: dos filas en video inverso
+  // diciendo cosas distintas es peor que ninguna.
+  focusedTaskId.value = null;
   reposModalItem.value = item;
   runResult.value = null;
   reposModalOpen.value = true;
@@ -734,7 +835,10 @@ async function onRunClick() {
   const isStillOpen = () => reposModalItem.value?.id === item.id;
   try {
     const res = await runTaskNow(activeProjectId.value, item.id);
-    if (isStillOpen()) runResult.value = res;
+    if (isStillOpen()) {
+      runResult.value = res;
+      previewToken.value += 1;
+    }
     // Los tres outcomes son estados distintos y el operador tiene que poder
     // distinguirlos: "no matcheó ninguna regla" no es un error del server, es
     // config — y verlo como éxito sería peor que verlo como fallo. El detalle
@@ -793,8 +897,8 @@ watch(activeProjectId, (pid) => {
   runsKnown.value = false;
   filters.value = loadStoredFilters(pid);
   // El orden congelado es del proyecto anterior: conservarlo dejaría las filas
-  // del nuevo ordenadas por ids que no existen acá.
-  dispositions.value = [];
+  // del nuevo ordenadas por ids que no existen acá. Las disposiciones NO se
+  // borran: el store las tiene por proyecto, así que volver es gratis.
   resetOrder();
   void loadRepoNames();
   void loadStatuses();
@@ -992,6 +1096,22 @@ watch(activeProjectId, (pid) => {
     </button>
 
     <template v-if="filteredItems.length">
+    <!-- El foco va entre el chrome y el primer bucket, y NUNCA expandido a la
+         vez que el aviso de reorden: dos cosas pidiendo atención arriba de la
+         lista empujan la primera fila fuera de la pantalla. -->
+    <FocusCard
+      v-if="groupByDisposition && !dispositionsFailed"
+      :project-id="activeProjectId"
+      :focus="focusStore.focusFor(activeProjectId)"
+      :loading="focusStore.isLoading(activeProjectId)"
+      :failed="focusStore.hasFailed(activeProjectId)"
+      :waiting-count="quickCounts['waiting-on-you'] ?? 0"
+      :titles="titlesById"
+      :crowded="movedCount > 0"
+      @go="goToTask"
+      @retry="focusStore.fetch(activeProjectId, { force: true })"
+    />
+
     <!-- Sin el agregado la lista NO inventa buckets: cae al orden de la fuente
          y lo dice. Agrupar por una disposición que no se pudo consultar sería
          afirmar en qué bucket está cada tarea sin haber preguntado. -->
@@ -1024,7 +1144,8 @@ watch(activeProjectId, (pid) => {
             v-for="row in bucket.rows"
             :key="row.id"
             layout="table"
-            :selected="reposModalItem?.id === row.id"
+            :data-task-id="row.id"
+            :selected="reposModalItem?.id === row.id || focusedTaskId === row.id"
             :title="row.item.title"
             :issue-number="row.item.issueNumber"
             :issue-url="row.item.url"
@@ -1088,6 +1209,7 @@ watch(activeProjectId, (pid) => {
       @cancel-run="cancelConfirm = reposModalItem"
       @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
       @run="onRunClick"
+      @move="moveTaskTo"
       @close="reposModalOpen = false"
     />
     </div>
@@ -1123,6 +1245,7 @@ watch(activeProjectId, (pid) => {
     @cancel-run="cancelConfirm = reposModalItem"
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
     @run="onRunClick"
+    @move="moveTaskTo"
     @close="reposModalOpen = false"
   />
 </template>

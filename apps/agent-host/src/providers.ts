@@ -68,6 +68,7 @@ function envWorkspaceSettings(): WorkspaceSettings {
     worktreeBase: Bun.env.AGENT_HOST_WORKTREE_BASE ?? null,
     gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME ?? null,
     gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL ?? null,
+    gitSigningKeyPath: Bun.env.IA_FLOW_GIT_SIGNING_KEY_PATH ?? null,
   }
 }
 
@@ -107,6 +108,7 @@ function createWorkspaceManager(settings: WorkspaceSettings) {
     githubToken: () => githubCredentials.getToken(),
     gitAuthorName: settings.gitAuthorName ?? undefined,
     gitAuthorEmail: settings.gitAuthorEmail ?? undefined,
+    gitSigningKeyPath: settings.gitSigningKeyPath ?? undefined,
     // El daemon que despachó no ve este disco: no borramos ramas remotas
     // desde acá, sólo el que orquesta la limpieza sabe si terminó el trabajo.
     deleteEmptyBranches: false,

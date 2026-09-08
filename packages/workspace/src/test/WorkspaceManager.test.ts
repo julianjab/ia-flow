@@ -461,6 +461,102 @@ describe('ensureLocalClone', () => {
     ])
   })
 
+  it('configures SSH commit signing when gitSigningKeyPath is set', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+      exists: (p) => p === '/secrets/git-signing/id_ed25519',
+    })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    expect(shell.find(['git', 'config', 'gpg.format'])?.args).toEqual([
+      'git',
+      'config',
+      'gpg.format',
+      'ssh',
+    ])
+    expect(shell.find(['git', 'config', 'user.signingkey'])?.args).toEqual([
+      'git',
+      'config',
+      'user.signingkey',
+      '/secrets/git-signing/id_ed25519',
+    ])
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])?.args).toEqual([
+      'git',
+      'config',
+      'commit.gpgsign',
+      'true',
+    ])
+  })
+
+  it('never enables signing when gitSigningKeyPath is unset, but still reconciles it off', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+    // Reconciliación explícita, no sólo "no prender": si este clone ya tenía
+    // gpgsign=true de una corrida anterior con la key configurada, quedaría
+    // pegado (persiste en el .git/config de un repo persistente) sin este
+    // unset — y con eso, TODO `git commit` empezaría a fallar en silencio.
+    expect(shell.find(['git', 'config', '--unset-all', 'commit.gpgsign'])).toBeDefined()
+  })
+
+  it('configures signing on an already-cloned repo too — not just on the initial clone', async () => {
+    const dest = join(REPOS_BASE, 'acme', 'already-cloned')
+    mkdirSync(join(dest, '.git'), { recursive: true })
+    const shell = new StubShell(() => ok())
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+      exists: (p) => p === '/secrets/git-signing/id_ed25519',
+    })
+
+    await mgr.ensureLocalClone({
+      name: 'already-cloned',
+      githubOwner: 'acme',
+      githubRepo: 'already-cloned',
+    })
+
+    expect(shell.ran(['git', 'clone'])).toBe(false)
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])?.args).toEqual([
+      'git',
+      'config',
+      'commit.gpgsign',
+      'true',
+    ])
+  })
+
+  it('skips signing (does not set commit.gpgsign) when the key file is missing', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+      exists: () => false,
+    })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    // La identidad se setea igual — sólo la firma se salta, no el resto del clone.
+    expect(shell.find(['git', 'config', 'user.name'])).toBeDefined()
+    expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+    expect(shell.find(['git', 'config', '--unset-all', 'commit.gpgsign'])).toBeDefined()
+  })
+
   it('is idempotent — skips clone when the destination is already a git repo', async () => {
     const dest = join(REPOS_BASE, 'acme', 'already-cloned')
     mkdirSync(join(dest, '.git'), { recursive: true })

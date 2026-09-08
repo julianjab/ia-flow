@@ -731,6 +731,57 @@ describe('GitHubIssueSource — field label round-trip', () => {
   })
 })
 
+describe('GitHubIssueSource.setItemField', () => {
+  test('field "status" replaces the status: label via a fresh label read', async () => {
+    const writes: Array<{ number: number; labels: string[] }> = []
+    const api = fakeApi({
+      getById: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+      // Fresh read wins over the (potentially stale) labels from getById.
+      getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine', 'urgent'] }),
+      replaceLabels: async (_owner, _repo, number, labels) => {
+        writes.push({ number, labels })
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    await source.setItemField('ISSUE_1', 'status', 'build')
+    expect(writes).toHaveLength(1)
+    expect(writes[0].labels).toEqual(['ia-flow', 'urgent', 'status:build'])
+  })
+
+  test('field "Status" (capitalized, like the PATCH path param can arrive) is treated the same as "status"', async () => {
+    const writes: Array<{ labels: string[] }> = []
+    const api = fakeApi({
+      getById: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+      getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+      replaceLabels: async (_owner, _repo, _number, labels) => {
+        writes.push({ labels })
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    await source.setItemField('ISSUE_1', 'Status', 'build')
+    expect(writes[0].labels).toEqual(['ia-flow', 'status:build'])
+  })
+
+  test('a non-status field is persisted as a field:<name>=<value> label, other labels untouched', async () => {
+    const writes: Array<{ labels: string[] }> = []
+    const api = fakeApi({
+      getById: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+      getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+      replaceLabels: async (_owner, _repo, _number, labels) => {
+        writes.push({ labels })
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    await source.setItemField('ISSUE_1', 'Priority', 'high')
+    expect(writes[0].labels).toEqual(['ia-flow', 'status:refine', 'field:Priority=high'])
+  })
+
+  test('throws when the item does not exist', async () => {
+    const source = new GitHubIssueSource(CONFIG, fakeApi({ getById: async () => null }))
+    await expect(source.setItemField('MISSING', 'status', 'build')).rejects.toThrow()
+  })
+})
+
 describe('GitHubIssueSource.getItemById', () => {
   test('fetches directly via api.getById — not a scan over getItems()', async () => {
     let listIssuesCalls = 0

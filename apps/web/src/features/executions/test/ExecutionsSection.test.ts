@@ -10,28 +10,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fetchExecutionsMock = vi.fn<[unknown], Promise<ExecutionLog[]>>()
 const cancelExecutionMock = vi.fn()
+/**
+ * Los totales de la VENTANA, que es de donde salen los tres contadores — no de
+ * la página cargada. Mutable porque hay tests que necesitan un cero: el mock
+ * lee esto en cada llamada.
+ */
+const statsTotals = {
+  runs: 2,
+  success: 1,
+  error: 1,
+  cancelled: 0,
+  truncated: 0,
+  successRate: 0.5,
+  failureClasses: {} as Record<string, number>,
+  tokensIn: 0,
+  tokensOut: 0,
+}
 vi.mock('../api', () => ({
   fetchExecutions: (filters: unknown) => fetchExecutionsMock(filters),
-  fetchActiveExecutions: vi.fn(),
+  // `[]` y no `undefined`: el store guarda lo que esto devuelva, y un
+  // `undefined` explota en el primer `.length` de su computed.
+  fetchActiveExecutions: vi.fn().mockResolvedValue([]),
   cancelExecution: (id: string) => cancelExecutionMock(id),
   fetchExecutionSources: vi.fn().mockResolvedValue([]),
-  // Pulled in by the embedded AgentHealthPanel on mount.
-  fetchExecutionStats: vi.fn().mockResolvedValue({
+  fetchExecutionStats: vi.fn(async () => ({
     from: null,
     to: null,
-    totals: {
-      runs: 0,
-      success: 0,
-      error: 0,
-      cancelled: 0,
-      truncated: 0,
-      successRate: null,
-      failureClasses: {},
-      tokensIn: 0,
-      tokensOut: 0,
-    },
+    totals: { ...statsTotals },
     agents: [],
-  }),
+  })),
 }))
 // El split (>= --bp-split) no lo puede decidir happy-dom: `matchMedia` ahí
 // siempre contesta que no. Como el detalle sólo es columna hermana arriba de
@@ -67,8 +74,9 @@ vi.mock('@/composables/useServerEvents', () => ({
 // test can overwrite before mounting; the mock reads its current value on
 // every call, so setting it in `beforeEach` is enough.
 let currentRouteQuery: Record<string, unknown> = {}
+const routerPush = vi.fn()
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush }),
   useRoute: () => ({ query: currentRouteQuery, params: {}, name: 'general' }),
 }))
 
@@ -176,10 +184,14 @@ describe('ExecutionsSection — filtrar por resultado', () => {
 
   // R10: un contador en cero ocupa el mismo ancho que un problema y no es uno.
   it('un contador en cero no se dibuja', async () => {
+    // El cero es de la VENTANA, no de la página: los contadores dejaron de
+    // salir de `executions[]` justamente porque filtrar los movía.
+    Object.assign(statsTotals, { runs: 1, success: 1, error: 0, successRate: 1 })
     const wrapper = await mountWithExecs([makeExec({ id: 'e1', outcome: 'success' })])
     expect(wrapper.find('[data-testid="verdict-count-closed"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="verdict-count-waiting"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="verdict-count-running"]').exists()).toBe(false)
+    Object.assign(statsTotals, { runs: 2, success: 1, error: 1, successRate: 0.5 })
   })
 
   it('`resultado:pending` deja sólo las filas sin outcome', async () => {
@@ -895,5 +907,123 @@ describe('ExecutionsSection — el detalle en pantallas grandes', () => {
     const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
 
     expect(wrapper.get('.exec-split').classes()).not.toContain('exec-split--open')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// El corte del bucket 1 (turno 8): con 45 esperando, la lista completa no es
+// una decisión sino un archivo.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — el corte de la cola', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProjectsStore().activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const failed = (id: string, agentId = 'implementer') =>
+    makeExec({ id, taskId: `t-${id}`, taskTitle: `Tarea ${id}`, outcome: 'error', agentId })
+
+  it('dibuja las primeras cuatro y resume el resto', async () => {
+    const wrapper = await mountWithExecs(
+      Array.from({ length: 7 }, (_, i) => failed(`e${i}`)),
+      { showClosed: false },
+    )
+
+    expect(wrapper.findAll('.exec-card')).toHaveLength(4)
+    const more = wrapper.get('[data-testid="executions-more"]')
+    expect(more.text()).toContain('3 más')
+    // Y qué comparten: el único eje con dato cuando el fallo no está
+    // clasificado es el agente.
+    expect(more.text()).toContain('son de implementer')
+  })
+
+  it('el corte se despliega y muestra la cola entera', async () => {
+    const wrapper = await mountWithExecs(
+      Array.from({ length: 7 }, (_, i) => failed(`e${i}`)),
+      { showClosed: false },
+    )
+
+    await wrapper.get('[data-testid="executions-more"]').trigger('click')
+
+    expect(wrapper.findAll('.exec-card')).toHaveLength(7)
+    expect(wrapper.find('[data-testid="executions-more"]').exists()).toBe(false)
+  })
+
+  it('`filtrar` prende el token del MISMO eje que el texto nombra', async () => {
+    const wrapper = await mountWithExecs(
+      [
+        ...Array.from({ length: 4 }, (_, i) => failed(`a${i}`, 'refiner')),
+        ...Array.from({ length: 3 }, (_, i) => failed(`b${i}`, 'implementer')),
+      ],
+      { showClosed: false },
+    )
+    fetchExecutionsMock.mockResolvedValue([])
+
+    await wrapper.get('[data-testid="executions-more-filter"]').trigger('click')
+    await flushPromises()
+
+    // El texto decía "son de implementer", así que el filtro es ese agente: si
+    // el corte y el filtro salieran de conteos distintos, tocar `filtrar`
+    // devolvería otra cosa que la que la línea prometía.
+    expect(tokenFor(wrapper, 'agente', 'implementer').exists()).toBe(true)
+  })
+
+  it('sin un eje que cubra al menos un cuarto, sólo dice cuántas quedan', async () => {
+    const wrapper = await mountWithExecs(
+      [
+        ...Array.from({ length: 4 }, (_, i) => failed(`h${i}`, 'refiner')),
+        failed('x1', 'a'),
+        failed('x2', 'b'),
+        failed('x3', 'c'),
+        failed('x4', 'd'),
+      ],
+      { showClosed: false },
+    )
+
+    const more = wrapper.get('[data-testid="executions-more"]')
+    expect(more.text()).toContain('4 más')
+    expect(more.text()).not.toContain('son de')
+    expect(wrapper.find('[data-testid="executions-more-filter"]').exists()).toBe(false)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// El `→` de la banda de salud. Cuando el fallo es del sistema no hay UN agente
+// que señalar, y emitir `''` dejaba una flecha dibujada que no hacía nada.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — a dónde lleva la banda de salud', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProjectsStore().activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    routerPush.mockClear()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('sin un agente señalado, lleva al RESUMEN — no al roster', async () => {
+    // El roster es el editor de definiciones (qué prompt, qué tools) y no dice
+    // nada de cómo vienen corriendo. Cuando los siete están fuera de banda, lo
+    // que contesta "¿a cuál miro?" es la tabla comparativa.
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+
+    // La línea sólo existe con stats; el mock del módulo las devuelve vacías,
+    // así que se emite el evento a mano — lo que se prueba es el destino, no
+    // qué régimen dibujó la línea.
+    wrapper.findComponent({ name: 'HealthVerdict' }).vm.$emit('open', '')
+    await flushPromises()
+
+    expect(routerPush).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ detailId: 'salud' }) }),
+    )
   })
 })

@@ -120,9 +120,14 @@ const parts = computed<string[]>(() => {
       out.push('corriendo', e!.agentId, elapsed(e!));
       break;
     case 'failed': {
-      // Un ✕ nunca va sin el motivo al lado.
-      const why = e!.failureClass ?? e!.stopReason ?? 'falló';
-      out.push(`falló · ${why}`);
+      // Un ✕ nunca va sin el motivo al lado — pero `unknown` NO es un motivo:
+      // es que el server no pudo clasificar el fallo, y dicho en la fila se lee
+      // como si el error se llamara así. Eso se cuenta UNA vez, en la banda de
+      // salud (`46 de 50 fallos sin failureClass · no hay diagnóstico`), no en
+      // cada fila de la lista.
+      const cls = e!.failureClass === 'unknown' ? null : e!.failureClass;
+      const why = cls ?? e!.stopReason ?? null;
+      out.push(why ? `falló · ${why}` : 'falló');
       const d = duration(e!);
       if (d) out.push(d);
       out.push(ago(e!.finishedAt ?? e!.startedAt));

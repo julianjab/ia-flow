@@ -23,6 +23,7 @@ commiteado.
 | 08 | Chrome de dos filas, veredicto, listas en lectura (§9) | ✅ hecho |
 | 5b/5d | La LISTA de Ejecuciones — fila apilada en 390px, columnas en desktop | ✅ hecho |
 | 6a/6b | El DETALLE de un run — cinco bandas, sin timeline inventado (R13) | ✅ hecho |
+| 8a/8b | La banda de salud en UNA línea + el corte de la cola | ✅ hecho |
 
 ## Los siete pasos pedidos explícitamente
 
@@ -51,9 +52,24 @@ el mismo fan-out que `GET /api/tasks/dispositions` vino a borrar dentro de uno.
 **Falta:** ese endpoint sin `projectId`, o un `GET /api/dispositions/summary`
 con los cuatro conteos por proyecto. Un endpoint destraba las dos pantallas.
 
-**El resumen en prosa de Qué sigue** ("3 tareas en vuelo y ninguna trabada;
-#1240 falló dos veces en el mismo paso de tests"). Redactarlo en el cliente sería
-escribir una conclusión que nadie calculó.
+~~**El resumen en prosa de Qué sigue**~~ — **hecho** (turno 9, `Foco IA en
+Tareas.dc.html`). Ya no está bloqueado: lo calcula `GET /api/tasks/focus` y lo
+dibuja `features/tasks/FocusCard.vue`, arriba del bucket `te espera` de Tareas
+(la pantalla `Qué sigue` para la que se había diseñado se fusionó con ésta).
+
+Lo que NO hace, y es la decisión que ordena el resto: **no reordena**. El orden
+lo sigue calculando `compareWithinBucket` y la lista lo sigue congelando al
+abrir; la card lo nombra. Un orden que cambia porque el modelo tuvo otro día no
+se puede explicar fila por fila ni testear.
+
+Salió con dos deudas declaradas:
+
+- **`FilterByIds` está pedido y sin aprobar** (ver la tabla de "Controles
+  pedidos" en `DESIGN_SYSTEM.md`). Hasta que entre, un cluster es texto y no
+  filtra la lista. Los `taskIds` ya viajan en la respuesta.
+- **R16 obligó a sanear `--ai`**: era un magenta de propósito general en diez
+  lugares y sólo dos eran salida de modelo. El diseño lo estimó en "un color en
+  una fila"; fueron seis pantallas.
 
 ### Bloqueado en DATOS
 
@@ -70,6 +86,16 @@ en la sección 7 del README como "no existe".
   corrección de posición no tiene dónde aplicarse.
 - `DataRow` **existe**. Se migra una tabla cuando se la toca, no cinco en el
   mismo commit — eso haría irrevisable el diff.
+- **La banda de salud tiene tope duro** (turno 8): una línea siempre. Con
+  varios agentes fuera de banda se cuentan en vez de listarse y la segunda
+  línea es la causa compartida; sin `failureClass` la causa es "no hay
+  diagnóstico" y va en ámbar, porque rojo es "algo te espera". El bucket 1 se
+  corta en cuatro filas más una línea de resumen con el eje que comparte el
+  resto.
+- **Turno 8 contestó lo del dashboard por proyecto: no va** (R14 — un tab es un
+  lugar donde se trabaja, no un índice). El agregado que falta es
+  cross-proyecto y ya tiene puerta: el switcher de proyectos, con el conteo de
+  disposición 1 y 2 por proyecto — el único agregado nuevo que pide el diseño.
 - **El detalle de un run son cinco bandas** (turno 6): identidad · veredicto ·
   causa · log · acciones. Lo que R13 deja afuera y por qué: no hay timeline ni
   `paso 3/5` (`execution_logs` guarda una fila por run, no pasos), no hay

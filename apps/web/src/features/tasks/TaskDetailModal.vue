@@ -36,6 +36,11 @@ const props = defineProps<{
    *  matchea"— es justamente el que uno necesita releer mientras decide qué
    *  cambiar. */
   runResult?: RunTaskNowResult | null;
+  /** El status que se está aplicando ahora, para el botón de la sugerencia. */
+  movingStatus?: string | null;
+  /** Se bumpea en cada acción que puede cambiar el veredicto —correr, mover—:
+   *  es lo que hace que la preview vuelva a preguntar. */
+  previewToken?: number;
   /** Slack configurado en este server. Sin credencial la acción ni se ofrece:
    *  fallaría con un 503 y sin dónde ver por qué. */
   slackEnabled?: boolean;
@@ -74,6 +79,10 @@ const emit = defineEmits<{
   'slack-review': [];
   'cancel-run': [];
   logs: [];
+  /** Mover la tarea a un status, desde la sugerencia de `RunPreviewCard`. Lo
+   *  ejecuta el padre: es quien tiene el api de la fuente y quien tiene que
+   *  refrescar la lista después. */
+  move: [status: string];
 }>();
 
 /** En qué estado está la tarea. Es lo que decide la barra de acciones: no hay
@@ -207,7 +216,9 @@ const runMessage = computed(() => {
               v-if="open"
               :project-id="projectId"
               :task-id="taskId"
-              :reload-token="runResult"
+              :reload-token="previewToken"
+              :moving-status="movingStatus"
+              @move="(st) => emit('move', st)"
             />
             <p v-if="runMessage" class="run-result" :class="{ 'is-error': !runMessage.ok }">
               {{ runMessage.text }}
@@ -226,7 +237,7 @@ const runMessage = computed(() => {
               :title="slackBlockedReason ?? 'Taguea a los reviewers del repo en su canal de Slack'"
               @click="emit('slack-review')"
             >
-              <span class="btn-glyph">{{ slackBusy ? '◐' : '✦' }}</span>
+              <span class="btn-glyph">{{ slackBusy ? '◐' : '◆' }}</span>
               {{ slackThreadUrl ? 'Pedir re-review' : 'Solicitar review en Slack' }}
             </button>
             <p v-if="slackBlockedReason" class="slack-why">{{ slackBlockedReason }}</p>

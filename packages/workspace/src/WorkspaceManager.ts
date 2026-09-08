@@ -185,6 +185,8 @@ export class WorkspaceManager {
   readonly #resolveGithubToken: () => Promise<string | undefined>
   readonly #gitAuthorName: string
   readonly #gitAuthorEmail: string
+  /** Path a una SSH private key sin passphrase. Ver `#configureSigning`. */
+  readonly #gitSigningKeyPath: string | undefined
   /** Cuando true (default), la limpieza borra también la branch remota si no
    *  aporta nada sobre la base. Kill-switch en el composition root. */
   readonly #deleteEmptyBranches: boolean
@@ -203,6 +205,14 @@ export class WorkspaceManager {
       githubToken?: string | (() => Promise<string | undefined>)
       gitAuthorName?: string
       gitAuthorEmail?: string
+      /**
+       * Path a una SSH private key sin passphrase, montada en disco. Cuando
+       * está seteado, los commits del clone (agente + autosalvage) se firman
+       * con `git commit -S` vía `gpg.format=ssh`. Sin esto, git nunca firma —
+       * es lo que produce el bloqueo de GitHub "Commits must have verified
+       * signatures" en repos con esa regla.
+       */
+      gitSigningKeyPath?: string
       deleteEmptyBranches?: boolean
       /**
        * Existencia en disco. Inyectable por la misma razón que `ShellRunner`:
@@ -223,6 +233,7 @@ export class WorkspaceManager {
     this.#resolveGithubToken = typeof tok === 'function' ? tok : async () => tok
     this.#gitAuthorName = opts.gitAuthorName ?? 'ia-flow-bot'
     this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
+    this.#gitSigningKeyPath = opts.gitSigningKeyPath
     this.#deleteEmptyBranches = opts.deleteEmptyBranches ?? true
     this.#exists = opts.exists ?? existsSync
     this.#otherLiveRunsOnTask = opts.otherLiveRunsOnTask
@@ -830,6 +841,12 @@ export class WorkspaceManager {
 
   async #doEnsureLocalClone(dest: string, repo: CloneableRepo): Promise<string> {
     if (existsSync(join(dest, '.git'))) {
+      // Un repo ya clonado antes de que `gitSigningKeyPath` se configurara
+      // (el caso normal: `reposBase` persiste entre restarts) nunca pasaría
+      // por el bloque de abajo — idempotente, así que correrlo también acá
+      // es gratis y es lo que hace que activar la firma en un deploy
+      // existente no dependa de re-clonar todo a mano.
+      await this.#configureSigning(dest)
       return dest
     }
     log.info({ repo: repo.name, dest }, 'clone')
@@ -851,7 +868,63 @@ export class WorkspaceManager {
     // it from the shared `.git` config, so this is the only place it's set.
     await this.#shell.run(['git', 'config', 'user.name', this.#gitAuthorName], dest)
     await this.#shell.run(['git', 'config', 'user.email', this.#gitAuthorEmail], dest)
+    await this.#configureSigning(dest)
     return dest
+  }
+
+  /**
+   * Firma SSH de commits, opt-in vía `gitSigningKeyPath`. Se setea local (no
+   * global) por el mismo motivo que la identidad de arriba: los worktrees
+   * comparten el `.git/config` del clone, así que alcanza con hacerlo acá una
+   * vez.
+   *
+   * GitHub sólo marca "Verified" un commit creado por su propia API (Commits
+   * API / Git Data API) O uno firmado criptográficamente — nunca un `git
+   * push` de un commit sin firma, sin importar con qué token se autenticó el
+   * push. Esta es la única de las dos vías que un `git commit` normal (el que
+   * hace el agente vía `bash_run`, y el autosalvage de esta clase) puede
+   * cumplir.
+   *
+   * Chequea que el archivo exista ANTES de prender `commit.gpgsign`: con la
+   * key ausente/mal montada, `commit.gpgsign=true` sin key utilizable hace
+   * fallar TODO `git commit` en el clone — incluido el autosalvage de
+   * `#commitAll`, que puede tumbar un `getOrCreateWorktree` en el camino de
+   * reuse. Degradar a "sin firmar" con un warn es preferible a romper el
+   * worktree por un secreto mal provisto.
+   *
+   * **Reconcilia en las dos direcciones, no sólo prende.** `commit.gpgsign`
+   * vive en el `.git/config` de un clone persistente (`reposBase` sobrevive
+   * restarts, y esta función corre en CADA `ensureLocalClone`, no sólo al
+   * clonar — ver la rama de "ya clonado" arriba). Si la key se rota/desmonta
+   * o `gitSigningKeyPath` se saca de la config después de haber estado
+   * prendida, un simple "no prender de nuevo" dejaría `commit.gpgsign=true`
+   * pegado de una corrida anterior — exactamente el fallo que este chequeo
+   * dice estar evitando. Por eso la rama "no usable" apaga explícito en vez
+   * de sólo no encender.
+   */
+  async #configureSigning(dest: string): Promise<void> {
+    const keyPath = this.#gitSigningKeyPath
+    const usable = !!keyPath && this.#exists(keyPath)
+    if (!usable) {
+      if (keyPath) {
+        log.warn(
+          { dest, gitSigningKeyPath: keyPath },
+          'gitSigningKeyPath configurado pero el archivo no existe — commits sin firmar',
+        )
+      }
+      await this.#unsetGpgSign(dest)
+      return
+    }
+    await this.#shell.run(['git', 'config', 'gpg.format', 'ssh'], dest)
+    await this.#shell.run(['git', 'config', 'user.signingkey', keyPath], dest)
+    await this.#shell.run(['git', 'config', 'commit.gpgsign', 'true'], dest)
+  }
+
+  /** `--unset-all` sale con exit 5 si la key nunca estuvo seteada — no es un
+   *  error, así que no se chequea el exit code (mismo criterio que el resto
+   *  de los `git config` de este método). */
+  async #unsetGpgSign(dest: string): Promise<void> {
+    await this.#shell.run(['git', 'config', '--unset-all', 'commit.gpgsign'], dest)
   }
 
   async #doRemove(

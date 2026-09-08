@@ -145,7 +145,7 @@ function clock(time?: string): string {
 }
 .line__scope {
   flex: none;
-  color: var(--ai);
+  color: var(--info);
 }
 .line__msg {
   overflow: hidden;

@@ -122,7 +122,7 @@ const actions = computed(() => (props.rule.do ?? []).map(describeAction))
   text-overflow: ellipsis;
 }
 .rs-event { color: var(--info); }
-.rs-status { color: var(--ai); }
+.rs-status { color: var(--fg); }
 .rs-cond { color: var(--fg-mute); }
 .rs-agent { color: var(--accent); }
 .rs-ref { color: var(--info); border-style: dashed; }

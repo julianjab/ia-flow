@@ -144,7 +144,13 @@ export function createApp({
     providerId: null,
     maxConcurrentRuns: maxConcurrentRuns ?? null,
     admissionRules: [],
-    workspace: { reposBase: null, worktreeBase: null, gitAuthorName: null, gitAuthorEmail: null },
+    workspace: {
+      reposBase: null,
+      worktreeBase: null,
+      gitAuthorName: null,
+      gitAuthorEmail: null,
+      gitSigningKeyPath: null,
+    },
   }
 
   async function persist(): Promise<void> {

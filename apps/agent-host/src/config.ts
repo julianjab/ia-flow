@@ -108,6 +108,8 @@ export const AgentHostWorkspaceSchema = z
     gitAuthorName: z.string().optional(),
     /** → IA_FLOW_GIT_AUTHOR_EMAIL */
     gitAuthorEmail: z.string().optional(),
+    /** → IA_FLOW_GIT_SIGNING_KEY_PATH */
+    gitSigningKeyPath: z.string().optional(),
   })
   .strict()
 
@@ -211,6 +213,7 @@ const WORKSPACE_ENV: Record<string, string> = {
   worktreeBase: 'AGENT_HOST_WORKTREE_BASE',
   gitAuthorName: 'IA_FLOW_GIT_AUTHOR_NAME',
   gitAuthorEmail: 'IA_FLOW_GIT_AUTHOR_EMAIL',
+  gitSigningKeyPath: 'IA_FLOW_GIT_SIGNING_KEY_PATH',
 }
 
 export interface AgentHostEnvReport {

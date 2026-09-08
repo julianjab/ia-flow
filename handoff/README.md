@@ -25,6 +25,7 @@ alcanzables — sobre 768px por el sidebar de siempre, bajo 768px por la pantall
 | `Orden.dc.html` | El modelo de orden: las cuatro disposiciones, los desempates y qué cambia en cada pantalla. |
 | `Mobile IA-Flow.dc.html` | Los prototipos de pantalla. Cuatro turnos, el más nuevo arriba. |
 | `Design System Mobile.dc.html` | El mapa de las 30 pantallas y qué se toca en cada una. |
+| `Foco IA en Tareas.dc.html` | Turno 9: la card de foco dentro de Tareas — cuatro estados, dos alturas, y R16/R17. |
 | `support.js` | Runtime de los `.dc.html`. Tiene que estar al lado de ellos para que abran. |
 
 Los `.dc.html` se abren directo en un navegador, sin servidor.

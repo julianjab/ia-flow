@@ -49,3 +49,10 @@ import './github/tools.js'
 // registra sus tools con `registerSlackTools()` en vez de con un efecto de
 // importar. La flecha va en ese sentido —y no al revés— para que sacar Slack de
 // un deploy no obligue a tocar el resto de las tools. Ver packages/slack/CLAUDE.md.
+
+// La llamada a Haiku, para los ayudantes que no son del loop de tools. La
+// exporta el paquete porque la credencial y el logging ya viven acá: un
+// segundo camino a la misma API sería un segundo lugar donde acordarse de
+// leer `Bun.env` por llamada.
+export { askHaiku, haikuAuthHeader, HAIKU_MODEL } from './haiku.js'
+export type { HaikuRequest, HaikuResponse, HaikuTool } from './haiku.js'

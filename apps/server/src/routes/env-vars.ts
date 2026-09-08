@@ -48,6 +48,15 @@ export const ENV_VAR_DEFINITIONS = {
     secret: false,
     options: ['1', '0'],
   },
+  IA_FLOW_TASK_FOCUS: {
+    label: 'Foco IA en la lista de tareas',
+    description:
+      'Una card arriba del bucket «te espera» que nombra lo que el orden ya ordenó: qué mirar primero, y qué tareas comparten causa. No reordena la lista — el orden lo sigue calculando el server. En 0 la card no se dibuja. Usa la misma credencial de Anthropic de arriba, con Haiku. Default 1.',
+    kind: 'select',
+    group: 'anthropic',
+    secret: false,
+    options: ['1', '0'],
+  },
 
   // ── Figma ─────────────────────────────────────────────────────────────────
   FIGMA_MCP_TOKEN: {
