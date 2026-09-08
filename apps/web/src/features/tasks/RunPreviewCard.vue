@@ -3,8 +3,6 @@ import type { TaskRunPreview } from '@ia-flow/shared';
 import { computed, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { fetchTaskRunPreview } from '@/features/tasks/api';
-import { setProjectItemField } from '@/features/projects/sourceApi';
-import { useToastStore } from '@/stores/toast';
 
 /**
  * "¿Por qué esta tarea está siendo ignorada?"
@@ -17,9 +15,23 @@ import { useToastStore } from '@/stores/toast';
 const props = defineProps<{
   projectId: string | null;
   taskId: string | null;
-  /** Cambia después de un "Correr ahora": el veredicto puede haber cambiado. */
+  /** Cambia después de un "Correr ahora" o de mover la tarea: el veredicto
+   *  puede haber cambiado. */
   reloadToken?: unknown;
+  /** El status que se está aplicando ahora mismo, para el estado del botón. Lo
+   *  sabe quien ejecuta la acción, que no es esta card. */
+  movingStatus?: string | null;
 }>();
+
+/**
+ * Mover la tarea lo hace el PADRE, no esta card.
+ *
+ * Dos razones y las dos importan: el PATCH vive en la feature de proyectos y
+ * una feature no importa el api de otra; y quien mueve la tarea es quien tiene
+ * que refrescar la lista y la disposición — hacerlo acá dejaba el status viejo
+ * dibujado en el modal y en la fila.
+ */
+const emit = defineEmits<{ (e: 'move', status: string): void }>();
 
 const preview = ref<TaskRunPreview | null>(null);
 const error = ref<string | null>(null);
@@ -96,27 +108,6 @@ const labelHint = computed<string | null>(() => {
   return unique.length ? `También la tomaría con la label ${unique.slice(0, 3).join(' o ')}` : null;
 });
 
-const moving = ref<string | null>(null);
-const toast = useToastStore();
-const emit = defineEmits<{ (e: 'moved', status: string): void }>();
-
-async function moveTo(status: string): Promise<void> {
-  const pid = props.projectId;
-  const tid = props.taskId;
-  if (!pid || !tid || moving.value) return;
-  moving.value = status;
-  try {
-    await setProjectItemField(pid, tid, 'status', status);
-    toast.success(`Movida a ${status}`);
-    // El veredicto que esta card muestra acaba de cambiar: se re-pregunta.
-    await load();
-    emit('moved', status);
-  } catch (e) {
-    toast.error(extractErrorMessage(e));
-  } finally {
-    moving.value = null;
-  }
-}
 </script>
 
 <template>
@@ -187,10 +178,10 @@ async function moveTo(status: string): Promise<void> {
           :key="st"
           type="button"
           class="rpc-move"
-          :disabled="!!moving"
+          :disabled="!!movingStatus"
           :data-testid="`run-preview-move-${st}`"
-          @click="moveTo(st)"
-        >→ {{ moving === st ? `Moviendo a ${st}…` : `mover a ${st}` }}</button>
+          @click="emit('move', st)"
+        >→ {{ movingStatus === st ? `Moviendo a ${st}…` : `mover a ${st}` }}</button>
       </div>
       <p v-if="labelHint" class="rpc-cond-empty">{{ labelHint }}</p>
     </template>

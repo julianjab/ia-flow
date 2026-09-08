@@ -4,7 +4,7 @@
  * La tenían dos pantallas: el sidebar del shell (grupo `global`) y el índice
  * de `Más`. Mientras estuvieron por separado, `Más` prometía "Configuración
  * general · 11" y llevaba a UNA —agentes—, así que bajo `--bp-shell`, donde no
- * hay sidebar, las otras diez no tenían camino: sólo la URL a mano.
+ * hay sidebar, las otras ocho no tenían camino: sólo la URL a mano.
  *
  * Vive en `router/` porque es lo que son —rutas de la app con su nombre— y
  * porque ni el shell ni `Más` son dueños de la lista: los dos la muestran.

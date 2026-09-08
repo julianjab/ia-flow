@@ -41,6 +41,7 @@ import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
 import {
   fetchProjectItems,
   fetchProjectStatuses,
+  setProjectItemField,
   type Blocker,
   type SourceItem,
 } from '@/features/projects/sourceApi';
@@ -335,6 +336,7 @@ const { isSplit } = useIsSplit();
 const detailProps = computed(() => {
   const item = reposModalItem.value;
   return {
+    movingStatus: movingStatus.value,
     open: reposModalOpen.value,
     taskId: item?.id ?? null,
     projectId: activeProjectId.value ?? null,
@@ -393,6 +395,31 @@ async function loadDispositions() {
   await dispositionsStore.fetch(pid, { force: true });
   if (activeProjectId.value !== pid) return;
   freezeIfFirst();
+}
+
+/**
+ * Mover la tarea al status que la sugerencia propone (`RunPreviewCard`).
+ *
+ * Lo ejecuta esta pantalla y no la card: el PATCH vive en la feature de
+ * proyectos —una feature no importa el api de otra— y, sobre todo, quien mueve
+ * la tarea es quien tiene que refrescar. Sin eso la tarea se movía de verdad y
+ * la fila seguía mostrando el status viejo hasta un reload a mano.
+ */
+const movingStatus = ref<string | null>(null);
+async function moveTaskTo(status: string): Promise<void> {
+  const pid = activeProjectId.value;
+  const item = reposModalItem.value;
+  if (!pid || !item || movingStatus.value) return;
+  movingStatus.value = status;
+  try {
+    await setProjectItemField(pid, item.id, 'status', status);
+    toastStore.success(`Movida a ${status}`);
+    await Promise.all([loadProjectItems(true), loadDispositions()]);
+  } catch (e) {
+    toastStore.error(extractErrorMessage(e));
+  } finally {
+    movingStatus.value = null;
+  }
 }
 
 const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
@@ -1091,6 +1118,7 @@ watch(activeProjectId, (pid) => {
       @cancel-run="cancelConfirm = reposModalItem"
       @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
       @run="onRunClick"
+      @move="moveTaskTo"
       @close="reposModalOpen = false"
     />
     </div>
@@ -1126,6 +1154,7 @@ watch(activeProjectId, (pid) => {
     @cancel-run="cancelConfirm = reposModalItem"
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
     @run="onRunClick"
+    @move="moveTaskTo"
     @close="reposModalOpen = false"
   />
 </template>

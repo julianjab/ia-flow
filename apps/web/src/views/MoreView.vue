@@ -103,10 +103,12 @@ const serverRows = computed<Row[]>(() => [
 /**
  * La configuración del server, una fila por sección.
  *
- * Era UNA fila —"Configuración general · 11"— que navegaba a `agentes`: la
- * cuenta prometía once destinos y entregaba uno, y como bajo `--bp-shell` no
- * se monta el sidebar, las otras ocho no tenían camino. Mismo criterio que ya
- * seguían las tabs del proyecto acá arriba.
+ * Era UNA fila —"Configuración general · 11"— que navegaba a `agentes`:
+ * prometía once destinos y entregaba uno, y las otras ocho no tenían camino
+ * bajo `--bp-shell`, donde no se monta el sidebar. (Nueve, en realidad: ni la
+ * cuenta era cierta, que es lo que pasa con un número escrito a mano al lado
+ * de una lista que vive en otro archivo.) Mismo criterio que ya seguían las
+ * tabs del proyecto acá arriba.
  *
  * La lista es la MISMA que dibuja el sidebar (`router/sections.ts`): tenerla
  * dos veces es lo que dejó que una se quedara vieja.
