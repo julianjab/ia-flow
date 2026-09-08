@@ -67,8 +67,9 @@ vi.mock('@/composables/useServerEvents', () => ({
 // test can overwrite before mounting; the mock reads its current value on
 // every call, so setting it in `beforeEach` is enough.
 let currentRouteQuery: Record<string, unknown> = {}
+const routerPush = vi.fn()
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush }),
   useRoute: () => ({ query: currentRouteQuery, params: {}, name: 'general' }),
 }))
 
@@ -978,5 +979,36 @@ describe('ExecutionsSection — el corte de la cola', () => {
     expect(more.text()).toContain('4 más')
     expect(more.text()).not.toContain('son de')
     expect(wrapper.find('[data-testid="executions-more-filter"]').exists()).toBe(false)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// El `→` de la banda de salud. Cuando el fallo es del sistema no hay UN agente
+// que señalar, y emitir `''` dejaba una flecha dibujada que no hacía nada.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — a dónde lleva la banda de salud', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProjectsStore().activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    routerPush.mockClear()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('sin un agente señalado, lleva al roster', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+
+    // La línea sólo existe con stats; el mock del módulo las devuelve vacías,
+    // así que se emite el evento a mano — lo que se prueba es el destino, no
+    // qué régimen dibujó la línea.
+    wrapper.findComponent({ name: 'HealthVerdict' }).vm.$emit('open', '')
+    await flushPromises()
+
+    // En la pestaña de un proyecto, el roster es el de ESE proyecto.
+    expect(routerPush).toHaveBeenCalledWith('/projects/p-1/agentes')
   })
 })

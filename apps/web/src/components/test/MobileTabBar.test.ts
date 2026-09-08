@@ -1,5 +1,6 @@
 import MobileTabBar from '@/components/MobileTabBar.vue'
 import { useActiveExecutionsStore } from '@/features/executions/activeStore'
+import { useDispositionsStore } from '@/features/tasks/dispositionsStore'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +15,10 @@ vi.mock('vue-router', () => ({
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
 }))
 vi.mock('@/features/executions/api', () => ({ fetchActiveExecutions: vi.fn(async () => []) }))
+const fetchTaskDispositions = vi.fn(async () => [])
+vi.mock('@/features/tasks/api', () => ({
+  fetchTaskDispositions: (pid: string) => fetchTaskDispositions(pid),
+}))
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -80,5 +85,53 @@ describe('MobileTabBar', () => {
     store.executions = [{ id: 'r1' }] as never
     store.loaded = false
     expect(mountBar().find('.tabbar__dot').exists()).toBe(false)
+  })
+
+  // Turno 8 · dos señales, dos formas: el badge cuenta lo que te espera y pide
+  // una decisión; el punto que late dice que algo se mueve y no pide nada.
+  it('el badge cuenta lo que te espera, y no se dibuja en cero', async () => {
+    const store = useDispositionsStore()
+    store.byProject = {
+      p1: [
+        {
+          taskId: 't1',
+          disposition: 'waiting-on-you',
+          reason: '',
+          waitingOnYouSince: null,
+          unblocks: 0,
+          blockedBy: [],
+          verb: null,
+        },
+        {
+          taskId: 't2',
+          disposition: 'waiting-on-you',
+          reason: '',
+          waitingOnYouSince: null,
+          unblocks: 0,
+          blockedBy: [],
+          verb: null,
+        },
+        {
+          taskId: 't3',
+          disposition: 'moving',
+          reason: '',
+          waitingOnYouSince: null,
+          unblocks: 0,
+          blockedBy: [],
+          verb: null,
+        },
+      ],
+    }
+    const w = mountBar()
+    expect(w.get('.tabbar__badge').text()).toBe('2')
+
+    store.byProject = { p1: [] }
+    await w.vm.$nextTick()
+    expect(w.find('.tabbar__badge').exists()).toBe(false)
+  })
+
+  it('mientras el dato no llegó no cuenta cero: no saber no es "nada te espera"', () => {
+    const w = mountBar()
+    expect(w.find('.tabbar__badge').exists()).toBe(false)
   })
 })

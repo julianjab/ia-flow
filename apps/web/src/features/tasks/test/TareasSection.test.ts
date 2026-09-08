@@ -1,6 +1,7 @@
 import type { SourceItem } from '@/features/projects/sourceApi'
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TareasSection from '../TareasSection.vue'
 
@@ -75,6 +76,9 @@ vi.mock('vue-router', () => ({
 }))
 
 beforeEach(() => {
+  // Las disposiciones viven en un store: sin pinia activa, montar la sección
+  // falla antes de dibujar nada.
+  setActivePinia(createPinia())
   runSummaries.splice(0, runSummaries.length)
   for (const k of Object.keys(blockersBatch)) delete blockersBatch[k]
   fetchTaskRunSummaries.mockClear()
