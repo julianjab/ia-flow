@@ -40,7 +40,7 @@
         "useTemplate": "off",
         "useConst": "warn",
         "noParameterAssign": "error",
-        "noUselessElse": "off",
+        "noUselessElse": "warn",
         "useNodejsImportProtocol": "off",
         "noUnusedTemplateLiteral": "off",
         "useNumberNamespace": "off"
@@ -48,10 +48,10 @@
       "correctness": {
         "noUnusedVariables": "off",
         "noUnusedImports": "warn",
-        "noSwitchDeclarations": "off",
+        "noSwitchDeclarations": "warn",
         "noUnusedPrivateClassMembers": "error",
         "noUnusedFunctionParameters": "error",
-        "noUnsafeOptionalChaining": "off"
+        "noUnsafeOptionalChaining": "warn"
       },
       "complexity": {
         "noForEach": "off",
