@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
+import { useActiveExecutionsStore } from './activeStore';
 import { type ExecutionStats, fetchExecutionStats } from './api';
 import { compactTokens, formatUsd, percent, WINDOWS } from './health-format';
 import { type DispositionCount, dispositionCounts, healthLine } from './verdict';
@@ -28,7 +29,6 @@ import { type DispositionCount, dispositionCounts, healthLine } from './verdict'
  */
 const props = defineProps<{
   projectId?: string | null;
-  outcomeCounts: Record<string, number>;
   /** Hay filtros puestos: los contadores en cero se siguen dibujando, porque
    *  son el camino de vuelta (ver `dispositionCounts`). */
   filtering?: boolean;
@@ -71,9 +71,40 @@ async function load(): Promise<void> {
 onMounted(load);
 watch(() => [props.projectId, windowDays.value], load);
 
-const counts = computed<DispositionCount[]>(() =>
-  dispositionCounts(props.outcomeCounts, props.filtering),
-);
+/**
+ * Los tres contadores describen **la ventana**, no la página cargada.
+ *
+ * Salían de los outcomes de `executions[]`, que es el resultado del fetch CON
+ * los filtros puestos: tocar `47 te esperan` refetcheaba sólo esos, y el
+ * contador pasaba a decir `65` mientras los otros dos caían a cero. Los
+ * números se movían debajo del dedo, y ninguno de los tres era ya la respuesta
+ * a la pregunta que contestaban.
+ *
+ * `stats.totals` es del período completo y no lo toca ningún filtro de la
+ * lista; `corriendo` sale del store de runs activos, que es "lo que corre
+ * AHORA" por definición.
+ */
+const activeRuns = useActiveExecutionsStore();
+onMounted(() => {
+  if (!activeRuns.loaded) void activeRuns.fetch();
+});
+
+const counts = computed<DispositionCount[]>(() => {
+  const t = stats.value?.totals;
+  const running = props.projectId
+    ? activeRuns.countForProject(props.projectId)
+    : activeRuns.activeCount;
+  return dispositionCounts(
+    {
+      success: t?.success ?? 0,
+      error: t?.error ?? 0,
+      cancelled: t?.cancelled ?? 0,
+      truncated: t?.truncated ?? 0,
+      pending: activeRuns.loaded ? running : 0,
+    },
+    props.filtering,
+  );
+});
 /** Una línea, siempre (turno 8). Las reglas viven en `verdict.ts`, puras. */
 const line = computed(() => healthLine(stats.value));
 const totals = computed(() => stats.value?.totals ?? null);

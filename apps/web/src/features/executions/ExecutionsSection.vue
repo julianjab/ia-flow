@@ -1003,13 +1003,6 @@ function kindLabel(exec: ExecutionLog): string | null {
   return kind === 'agent' ? null : kind;
 }
 
-// Outcome counts across the loaded page — powers the summary row.
-const outcomeCounts = computed<Record<string, number>>(() => {
-  const counts: Record<string, number> = { success: 0, error: 0, cancelled: 0, truncated: 0, pending: 0 };
-  for (const e of executions.value) counts[e.outcome ?? 'pending']++;
-  return counts;
-});
-
 async function loadAgents() {
   // Agent chips are per-project. In the global tab we skip them — the
   // available-agents endpoint is scoped to a project and merging across
@@ -1836,7 +1829,6 @@ watch(pendingFilter, () => {
          de diez columnas se mudó entera a la pantalla del agente. -->
     <HealthVerdict
       :project-id="isGlobal ? null : activeProjectId"
-      :outcome-counts="outcomeCounts"
       :filtering="filterTokens.length > 0"
       :active-key="activeDispositionKey"
       @filter="filterByDisposition"
