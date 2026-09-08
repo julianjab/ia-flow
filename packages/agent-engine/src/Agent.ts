@@ -1131,6 +1131,11 @@ export class Agent {
           // falso-negativo (clone local sucio) — ninguno dice nada del
           // trabajo real. Igual que los providers async (ver PRD #135, fuera
           // de alcance), se saltea con un aviso en vez de mentir un resultado.
+          //
+          // No recibe `controller.signal`: `removePendingTask(registryKey)` ya
+          // corrió arriba (antes del chequeo de `cancelled`), así que un
+          // cancel externo que llegue a partir de acá no encuentra entry en el
+          // registry para invocar — la ventana de cancelación ya se cerró.
           if (agentDef.verify?.length) {
             if (resolvedProviderId.startsWith('remote:')) {
               log.warn(
