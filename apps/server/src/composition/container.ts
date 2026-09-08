@@ -907,7 +907,6 @@ export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
 
 export const dispatcher = new TaskDispatcher(
   orchestrator,
-  broadcast,
   configRepo,
   undefined,
   executionLogRepo,

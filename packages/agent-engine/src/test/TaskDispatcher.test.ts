@@ -5,7 +5,6 @@ import { TaskLockedError } from '@ia-flow/workspace'
 import type { AgentOrchestrator } from '../AgentOrchestrator.js'
 import { TaskDispatcher } from '../TaskDispatcher.js'
 import type {
-  IBroadcast,
   IExecutionLogRepository,
   IProjectConfigRepository,
   RunMessageEnqueuePort,
@@ -50,12 +49,11 @@ function makeConfigWithPrompt(prompt: string): ProjectConfig {
 function makeDeps(config: ProjectConfig | null) {
   const runAgent = mock(async (_task: unknown, _manager: ITaskSource) => true)
   const orchestrator = { runAgent } as unknown as AgentOrchestrator
-  const broadcast: IBroadcast = { send: () => {} }
   const configRepo: IProjectConfigRepository = {
     getConfig: async () => config,
     saveConfig: async () => {},
   } as unknown as IProjectConfigRepository
-  return { orchestrator, broadcast, configRepo, runAgent }
+  return { orchestrator, configRepo, runAgent }
 }
 
 function makeManager(over: Partial<IIssueManager> = {}): IIssueManager {
@@ -74,10 +72,10 @@ function makeManager(over: Partial<IIssueManager> = {}): IIssueManager {
 
 describe('TaskDispatcher blocker gate', () => {
   it('skips items with open blockers when allowBlocked=false', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const getBlockers = mock(async () => [{ id: 'other-task', ref: '#42 pending' }])
     const manager = makeManager({ getBlockers })
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
@@ -86,10 +84,10 @@ describe('TaskDispatcher blocker gate', () => {
   })
 
   it('runs the agent when allowBlocked=true even with open blockers', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(true))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(true))
     const getBlockers = mock(async () => [{ id: 'other-task' }])
     const manager = makeManager({ getBlockers })
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
@@ -98,9 +96,9 @@ describe('TaskDispatcher blocker gate', () => {
   })
 
   it('runs the agent when getBlockers returns []', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const manager = makeManager({ getBlockers: async () => [] })
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
@@ -108,9 +106,9 @@ describe('TaskDispatcher blocker gate', () => {
   })
 
   it('dispatches when the manager does not implement getBlockers', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const manager = makeManager() // no getBlockers
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
@@ -122,9 +120,9 @@ describe('TaskDispatcher blocker gate', () => {
     // migración 059 el dispatcher no selecciona, así que el único motivo por
     // el que puede no haber agente es que la regla nombre uno inexistente.
     // Saltear (y no caer a otro) es lo que hace visible un typo en la regla.
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const manager = makeManager()
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'no-existe')
 
@@ -139,14 +137,14 @@ describe('TaskDispatcher comments', () => {
   // gate-and-mark AFTER the provider consumes the prompt. See
   // agent-engine's Agent.ts. These tests cover only the forwarding.
   it('loads comments and forwards markCommentsUsed onto the TaskSource passed to runAgent', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(
+    const { orchestrator, configRepo, runAgent } = makeDeps(
       makeConfigWithPrompt('Context:\n{{task.comments}}\n'),
     )
     const loaded = [{ id: 'c1', body: 'please retry', created_at: '2024-01-01T00:00:00Z' }]
     const loadComments = mock(async () => loaded)
     const markCommentsUsed = mock(async () => {})
     const manager = makeManager({ loadComments, markCommentsUsed })
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
@@ -160,14 +158,14 @@ describe('TaskDispatcher comments', () => {
   })
 
   it('does not forward markCommentsUsed when the manager does not implement it', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(
+    const { orchestrator, configRepo, runAgent } = makeDeps(
       makeConfigWithPrompt('{{task.comments}}'),
     )
     const loadComments = mock(async () => [
       { id: 'c1', body: 'x', created_at: '2024-01-01T00:00:00Z' },
     ])
     const manager = makeManager({ loadComments }) // no markCommentsUsed
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
@@ -197,9 +195,9 @@ describe('TaskDispatcher — cap por agente', () => {
   }
 
   it('difiere (no skipea) cuando el agente ya está en su tope', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(2))
+    const { orchestrator, configRepo, runAgent } = makeDeps(configWithCap(2))
     const getBlockers = mock(async () => [])
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(2))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo, snapshotWith(2))
 
     const outcome = await dispatcher.dispatch(
       makeItem(),
@@ -215,8 +213,8 @@ describe('TaskDispatcher — cap por agente', () => {
   })
 
   it('deja pasar cuando todavía hay lugar', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(2))
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(1))
+    const { orchestrator, configRepo, runAgent } = makeDeps(configWithCap(2))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo, snapshotWith(1))
 
     await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
@@ -224,8 +222,8 @@ describe('TaskDispatcher — cap por agente', () => {
   })
 
   it('sin cap declarado no limita, por muchos runs que haya', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(undefined))
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(50))
+    const { orchestrator, configRepo, runAgent } = makeDeps(configWithCap(undefined))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo, snapshotWith(50))
 
     await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
@@ -233,13 +231,8 @@ describe('TaskDispatcher — cap por agente', () => {
   })
 
   it('cuenta sólo los runs de ESE agente, no los de otros', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(1))
-    const dispatcher = new TaskDispatcher(
-      orchestrator,
-      broadcast,
-      configRepo,
-      snapshotWith(3, 'otro-agente'),
-    )
+    const { orchestrator, configRepo, runAgent } = makeDeps(configWithCap(1))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo, snapshotWith(3, 'otro-agente'))
 
     await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
@@ -279,11 +272,10 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   }
 
   it('difiere si el run anterior de ESTE task se canceló hace poco', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const recentlyCancelled = cancelledRun(new Date(Date.now() - 5_000).toISOString())
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(recentlyCancelled),
@@ -298,14 +290,13 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   })
 
   it('no difiere un run sync (anthropic-api) cancelado hace poco — sin sessionKind no hay sesión zombie posible', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const recentlyCancelledSync = {
       ...cancelledRun(new Date(Date.now() - 5_000).toISOString(), null),
       providerId: 'anthropic-api',
     } as ExecutionLog
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(recentlyCancelledSync),
@@ -319,11 +310,10 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   })
 
   it('deja pasar una vez que el cooldown expiró', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const oldCancel = cancelledRun(new Date(Date.now() - 120_000).toISOString())
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(oldCancel),
@@ -337,14 +327,13 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   })
 
   it('no bloquea cuando el run anterior terminó en éxito, no cancelado', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
     const success = {
       ...cancelledRun(new Date().toISOString()),
       outcome: 'success',
     } as ExecutionLog
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(success),
@@ -358,8 +347,8 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   })
 
   it('sin executionLogRepo inyectado no aplica cooldown (comportamiento previo)', async () => {
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
@@ -373,17 +362,16 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       throw new TaskLockedError('task-1')
     })
     const orchestrator = { runAgent } as unknown as AgentOrchestrator
-    const broadcast: IBroadcast = { send: () => {} }
     const configRepo: IProjectConfigRepository = {
       getConfig: async () => config,
       saveConfig: async () => {},
     } as unknown as IProjectConfigRepository
-    return { orchestrator, broadcast, configRepo, runAgent }
+    return { orchestrator, configRepo, runAgent }
   }
 
   it('difiere (no tira) cuando el orquestador choca con el lock de la task', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
       brief: 'ajustá el PRD contra el comentario',
@@ -414,11 +402,10 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   }
 
   it('el run en vuelo es del MISMO agente en anthropic-api: encola y devuelve skipped, no deferred', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun()),
@@ -438,11 +425,10 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('el run en vuelo es de OTRO agente: no encola (le entregaría el brief al agente equivocado) y difiere', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun({ agentId: 'ia-flow-reviewer' })),
@@ -458,11 +444,10 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('el run en vuelo es de OTRO agente pero `liveInject: true`: sí encola y devuelve skipped', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun({ agentId: 'ia-flow-reviewer' })),
@@ -483,11 +468,10 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('`liveInject: true` pero sin provider que drene en vivo: sigue sin encolar, difiere', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun({ agentId: 'ia-flow-reviewer', providerId: 'iterm-claude' })),
@@ -504,11 +488,10 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('el run en vuelo es del mismo agente pero en un provider que no drena en vivo (terminal/remoto): no encola, difiere', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun({ providerId: 'iterm-claude' })),
@@ -524,16 +507,11 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('sin executionLogRepo inyectado no se puede verificar el run en vuelo: no encola, difiere', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
-    const dispatcher = new TaskDispatcher(
-      orchestrator,
-      broadcast,
-      configRepo,
-      undefined,
-      undefined,
-      { enqueue },
-    )
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo, undefined, undefined, {
+      enqueue,
+    })
 
     const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
       brief: 'ajustá el PRD contra el comentario',
@@ -544,13 +522,12 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('si el enqueue falla, no se entregó nada — difiere para reintentar, no skipea', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {
       throw new Error('DB caída')
     })
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun()),
@@ -565,11 +542,10 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
   })
 
   it('sin brief no encola nada, sólo difiere', async () => {
-    const { orchestrator, broadcast, configRepo } = makeLockedDeps(makeConfig(false))
+    const { orchestrator, configRepo } = makeLockedDeps(makeConfig(false))
     const enqueue = mock(async (_input: Parameters<RunMessageEnqueuePort['enqueue']>[0]) => {})
     const dispatcher = new TaskDispatcher(
       orchestrator,
-      broadcast,
       configRepo,
       undefined,
       fakeLogRepo(activeRun()),
@@ -587,12 +563,11 @@ describe('TaskDispatcher — TaskLockedError fallback', () => {
       throw new Error('algo distinto explotó')
     })
     const orchestrator = { runAgent } as unknown as AgentOrchestrator
-    const broadcast: IBroadcast = { send: () => {} }
     const configRepo: IProjectConfigRepository = {
       getConfig: async () => makeConfig(false),
       saveConfig: async () => {},
     } as unknown as IProjectConfigRepository
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
 
     await expect(dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')).rejects.toThrow(
       'algo distinto explotó',
