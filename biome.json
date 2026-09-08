@@ -37,7 +37,7 @@
         "noNonNullAssertion": "off",
         "useTemplate": "off",
         "useConst": "warn",
-        "noParameterAssign": "off",
+        "noParameterAssign": "error",
         "noUselessElse": "off",
         "useNodejsImportProtocol": "off",
         "noUnusedTemplateLiteral": "off",
