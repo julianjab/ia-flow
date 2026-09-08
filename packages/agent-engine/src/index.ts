@@ -51,7 +51,6 @@ export { classifyFailure } from './failure-taxonomy.js'
 export type { ClassifyFailureInput } from './failure-taxonomy.js'
 export {
   VERIFY_FAILED_MARKER,
-  VERIFY_MAX_TIMEOUT_MS,
   VERIFY_OUTPUT_MAX_BYTES,
   VERIFY_TIMEOUT_MS,
   buildVerifyFailedError,

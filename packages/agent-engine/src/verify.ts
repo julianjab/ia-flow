@@ -5,19 +5,29 @@
 // No importa `packages/tools/src/exec/exec.ts` (`bash_run`) a propósito: la
 // dependencia va al revés (`tools` importa `agent-engine`, nunca al revés),
 // así que esto duplica el spawn mínimo. A diferencia de `bash_run` corre con
-// la autoridad del engine, no del modelo: sin policy check ni writePaths
-// gate, y con shell (`sh -c`) porque el operador —no el modelo— escribe estos
-// comandos en la config del agente.
+// la autoridad del engine, no del modelo: sin policy check ni writePaths gate.
 //
-// Mismos límites que `bash_run` por consistencia: timeout default 60s, cap
-// 300s, output combinado (stdout+stderr) truncado a 20 KB.
+// Sin shell — `Bun.spawn(argv)` directo, igual que `bash_run` — a propósito:
+// con `/bin/sh -c <comando>` un `kill()` sobre el timeout mata sólo al `sh`,
+// no a los hijos que abrió (`&&`, pipelines), que quedan vivos con el pipe de
+// stdout abierto y cuelgan `runOne` para siempre reteniendo el lock de la
+// task. Sin shell, `kill()` termina el proceso real y el timeout es efectivo.
+// El costo es que cada entrada de `verify` es UN comando (sin `&&`/pipes) —
+// exactamente lo que ya pide la forma `string[]`.
+//
+// Mismos límites que `bash_run` por consistencia: timeout 60s fijo (no hay
+// override por comando — a diferencia de `bash_run`, `verify` no es un tool
+// call con `timeout_ms`), output combinado (stdout+stderr) truncado a 20 KB.
+//
+// El env del spawn NO es el del daemon completo — ver `buildVerifyEnv` más
+// abajo — porque ese output, a diferencia del de `bash_run`, va derecho a un
+// comentario público sin que el modelo lo medie.
 
 import { createLogger } from './logger.js'
 
 const log = createLogger('verify')
 
 export const VERIFY_TIMEOUT_MS = 60_000
-export const VERIFY_MAX_TIMEOUT_MS = 300_000
 export const VERIFY_OUTPUT_MAX_BYTES = 20 * 1024
 
 /** Marca estable al frente del mensaje de error que dispara este path — es
@@ -52,16 +62,58 @@ export interface SpawnedVerifyProc {
   kill: (signal?: number | string) => void
 }
 
+/**
+ * Split naive por whitespace — no es `parseArgv` de `bash_run` (sin comillas,
+ * sin escapes): estos comandos los escribe el operador en la config del
+ * agente ("bun run typecheck", "bun test"), no el modelo, así que no hace
+ * falta la gramática mínima que ahí evita el bug de `git commit -m "..."`.
+ * Un comando que de verdad necesite un argumento con espacios se escribe como
+ * dos entradas de `verify` (una por comando) en vez de una con `&&`.
+ */
+function splitCommand(command: string): string[] {
+  return command.split(/\s+/).filter(Boolean)
+}
+
+/**
+ * Nombres de variable que huelen a credencial — coincide con `GITHUB_TOKEN`,
+ * `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN`, y cualquier secreto de MCP que el
+ * daemon haya interpolado a su propio env. Hasta 20 KB de stdout+stderr de
+ * este spawn terminan en un comentario PÚBLICO del issue/PR (`postError`), así
+ * que lo que el proceso hijo puede leer del env es lo que un comando verboso
+ * (`set -x`, un test que dumpea su config) puede filtrar ahí. `Bun.spawn` sin
+ * `env` hereda el proceso completo del daemon — por eso este módulo arma el
+ * suyo en vez de dejarlo pasar tal cual.
+ *
+ * Un allowlist habría sido más angosto, pero un comando de `verify` es código
+ * del operador (bun/npm/make/pytest…) con necesidades de env impredecibles
+ * (PATH, HOME, proxies, config de npm/pip); un allowlist incompleto rompe
+ * comandos legítimos con un fallo silencioso y confuso. El blocklist cubre
+ * los nombres reales que este proceso usa.
+ */
+const SECRET_ENV_PATTERN = /token|key|secret|password|passwd|credential|auth/i
+
+/** Exportado sólo para tests — no usar fuera de `_verifyInternals.spawn`. */
+export function buildVerifyEnv(source: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined) continue
+    if (SECRET_ENV_PATTERN.test(name)) continue
+    env[name] = value
+  }
+  return env
+}
+
 /** Test-only indirection — same pattern as `_execInternals` in
  *  packages/tools/src/exec/exec.ts. `timeoutMs` is separately overridable so
  *  a test can exercise the timeout path without waiting out the real 60s. */
 export const _verifyInternals: {
-  spawn: (command: string, cwd: string) => SpawnedVerifyProc
+  spawn: (argv: string[], cwd: string) => SpawnedVerifyProc
   timeoutMs: number
 } = {
-  spawn: (command, cwd) =>
-    Bun.spawn(['/bin/sh', '-c', command], {
+  spawn: (argv, cwd) =>
+    Bun.spawn(argv, {
       cwd,
+      env: buildVerifyEnv(Bun.env),
       stdout: 'pipe',
       stderr: 'pipe',
     }) as unknown as SpawnedVerifyProc,
@@ -69,7 +121,11 @@ export const _verifyInternals: {
 }
 
 async function runOne(command: string, cwd: string): Promise<VerifyCommandResult> {
-  const proc = _verifyInternals.spawn(command, cwd)
+  const argv = splitCommand(command)
+  if (argv.length === 0) {
+    return { command, exitCode: null, output: 'comando vacío', timedOut: false }
+  }
+  const proc = _verifyInternals.spawn(argv, cwd)
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true

@@ -1602,4 +1602,84 @@ describe('AgentOrchestrator.runAgent — verify gate', () => {
       _verifyInternals.spawn = realSpawn
     }
   })
+
+  // Un `remote:*` es el MISMO AnthropicApiProvider corriendo del otro lado de
+  // un agent-host — su `prepareWorkspace` devuelve `EMPTY_WORKSPACE_PLAN` a
+  // propósito porque el workspace real vive en el disco remoto. Sin este
+  // gate, `effectiveCwd` acá caería al `primaryPath` LOCAL del daemon (que no
+  // tiene el trabajo del agente) y verify correría contra el código
+  // equivocado — falso-verde o falso-negativo, ninguno dice nada real.
+  it('un provider remote:* no corre verify — el worktree real vive en el agent-host, no acá', async () => {
+    const remoteProvider: IAgentProvider = {
+      id: 'remote:test-host',
+      kind: 'sync',
+      name: 'test-host',
+      description: '',
+      run: async () => ({ content: 'listo', mode: 'api' as const }),
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'remote:test-host' ? remoteProvider : undefined),
+      list: () => [remoteProvider],
+    } as unknown as IProviderRegistry
+
+    const { _verifyInternals } = await import('../verify.js')
+    const realSpawn = _verifyInternals.spawn
+    let spawnCalled = false
+    _verifyInternals.spawn = () => {
+      spawnCalled = true
+      return { stdout: null, stderr: null, exited: Promise.resolve(0), kill: () => {} } as never
+    }
+    try {
+      const configRepo = {
+        getConfig: async () => ({
+          agents: [
+            {
+              id: 'implementer',
+              provider: 'remote:test-host',
+              prompt: 'x',
+              tools: [],
+              verify: ['bun run typecheck'],
+            },
+          ],
+          statuses: [{ name: 'InProgress' }],
+        }),
+      } as unknown as IProjectConfigRepository
+      const update = mock(() => {})
+      const executionLogRepo: IExecutionLogRepository = {
+        insert: () => {},
+        update,
+        list: () => [],
+        listActive: () => [],
+        getById: () => null,
+        sweepOrphaned: () => [],
+        listDistinctSources: () => [],
+        listLatestByTask: () => [],
+        listLastOutputsByAgent: () => [],
+      }
+      const manager: ITaskSource = {
+        applyTransition: async (t: Task) => t,
+        saveOutput: async (t: Task) => t,
+        setAgentWorking: async (t: Task) => t,
+        postComment: async () => {},
+        postError: async () => {},
+        getCurrentStatus: async () => 'InProgress',
+      } as unknown as ITaskSource
+      const orch = new AgentOrchestrator(
+        providers,
+        configRepo,
+        repoRepo,
+        { send: () => {} } as IBroadcast,
+        undefined,
+        executionLogRepo,
+      )
+      await orch.runAgent(makeTask(), manager, 'implementer')
+      expect(spawnCalled).toBe(false)
+      const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+        outcome?: string
+      }
+      expect(patch.outcome).toBe('success')
+    } finally {
+      _verifyInternals.spawn = realSpawn
+    }
+  })
 })

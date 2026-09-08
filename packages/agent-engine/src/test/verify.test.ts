@@ -8,6 +8,7 @@ import {
   VERIFY_FAILED_MARKER,
   VERIFY_OUTPUT_MAX_BYTES,
   _verifyInternals,
+  buildVerifyEnv,
   buildVerifyFailedError,
   runVerifyCommands,
 } from '../verify.js'
@@ -64,29 +65,29 @@ describe('runVerifyCommands', () => {
   })
 
   it('stops at the first command that fails and does not run the rest', async () => {
-    const seen: string[] = []
-    _verifyInternals.spawn = (command) => {
-      seen.push(command)
-      return command.includes('typecheck')
+    const seen: string[][] = []
+    _verifyInternals.spawn = (argv) => {
+      seen.push(argv)
+      return argv.includes('typecheck')
         ? mockProc({ stderr: 'TS2345: boom\n', exitCode: 1 })
         : mockProc({ stdout: 'ok\n', exitCode: 0 })
     }
     const result = await runVerifyCommands(['bun run typecheck', 'bun test'], '/wt/task-1')
     expect(result.ok).toBe(false)
     expect(result.results).toHaveLength(1)
-    expect(seen).toEqual(['bun run typecheck'])
+    expect(seen).toEqual([['bun', 'run', 'typecheck']])
   })
 
-  it('spawns each command with its raw string and the given cwd', async () => {
-    let spawnedCommand: string | undefined
+  it('spawns each command as argv (no shell) with the given cwd', async () => {
+    let spawnedArgv: string[] | undefined
     let spawnedCwd: string | undefined
-    _verifyInternals.spawn = (command, cwd) => {
-      spawnedCommand = command
+    _verifyInternals.spawn = (argv, cwd) => {
+      spawnedArgv = argv
       spawnedCwd = cwd
       return mockProc({ exitCode: 0 })
     }
     await runVerifyCommands(['bun run check'], '/wt/task-1')
-    expect(spawnedCommand).toBe('bun run check')
+    expect(spawnedArgv).toEqual(['bun', 'run', 'check'])
     expect(spawnedCwd).toBe('/wt/task-1')
   })
 
@@ -121,6 +122,28 @@ describe('runVerifyCommands', () => {
     const result = await runVerifyCommands(['ls'], '/wt/task-1')
     expect(result.results[0].timedOut).toBe(false)
     expect(result.results[0].output).not.toContain('[timeout]')
+  })
+})
+
+describe('buildVerifyEnv', () => {
+  it('drops names that look like a credential, keeps the rest', () => {
+    const env = buildVerifyEnv({
+      PATH: '/usr/bin',
+      GITHUB_TOKEN: 'ghp_x',
+      ANTHROPIC_API_KEY: 'sk-x',
+      SLACK_BOT_TOKEN: 'xoxb-x',
+      DB_PASSWORD: 'x',
+      npm_config_registry: 'https://registry.npmjs.org',
+    })
+    expect(env).toEqual({ PATH: '/usr/bin', npm_config_registry: 'https://registry.npmjs.org' })
+  })
+
+  it('drops undefined values without throwing', () => {
+    expect(buildVerifyEnv({ PATH: undefined, HOME: '/home/x' })).toEqual({ HOME: '/home/x' })
+  })
+
+  it('is case-insensitive on the secret-pattern match', () => {
+    expect(buildVerifyEnv({ myAuthHeader: 'x', OK: 'y' })).toEqual({ OK: 'y' })
   })
 })
 

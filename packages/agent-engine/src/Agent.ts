@@ -1120,15 +1120,32 @@ export class Agent {
           // abajo trata como cualquier otro fallo del run (postError +
           // lifecycle.fail); `classifyFailure` lo reconoce por esa marca y le
           // asigna `failureClass: 'verify_failed'`.
+          //
+          // Un provider `remote:*` (mismo AnthropicApiProvider, corriendo del
+          // otro lado de un agent-host) no llega a esto: su
+          // `prepareWorkspace` devuelve `EMPTY_WORKSPACE_PLAN` a propósito —
+          // el workspace real lo resuelve el agent-host en SU disco — así que
+          // `effectiveCwd` acá cae al `primaryPath` LOCAL del daemon, que no
+          // tiene una sola línea de lo que el agente escribió. Correr verify
+          // ahí sería falso-verde (código viejo que sí compila) o
+          // falso-negativo (clone local sucio) — ninguno dice nada del
+          // trabajo real. Igual que los providers async (ver PRD #135, fuera
+          // de alcance), se saltea con un aviso en vez de mentir un resultado.
           if (agentDef.verify?.length) {
-            if (!effectiveCwd) {
+            if (resolvedProviderId.startsWith('remote:')) {
+              log.warn(
+                { taskId: task.id, agent: agentDef.id, provider: resolvedProviderId },
+                'Agente declara verify pero corrió en un provider remoto — el worktree vive en el agent-host, no en este disco. Verify se saltea.',
+              )
+            } else if (!effectiveCwd) {
               throw new Error(
                 `${VERIFY_FAILED_MARKER} el agente declara verify pero no se resolvió ningún worktree/cwd para correrlo`,
               )
-            }
-            const verifyResult = await runVerifyCommands(agentDef.verify, effectiveCwd)
-            if (!verifyResult.ok) {
-              throw buildVerifyFailedError(verifyResult, agentDef.verify.length)
+            } else {
+              const verifyResult = await runVerifyCommands(agentDef.verify, effectiveCwd)
+              if (!verifyResult.ok) {
+                throw buildVerifyFailedError(verifyResult, agentDef.verify.length)
+              }
             }
           }
 
