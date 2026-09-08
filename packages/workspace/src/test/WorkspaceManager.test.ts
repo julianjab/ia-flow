@@ -494,7 +494,7 @@ describe('ensureLocalClone', () => {
     ])
   })
 
-  it('does not touch signing config when gitSigningKeyPath is unset', async () => {
+  it('never enables signing when gitSigningKeyPath is unset, but still reconciles it off', async () => {
     const shell = new StubShell(async (args) => {
       if (args.includes('clone') || args.includes('config')) return ok()
       throw new Error(`unexpected: ${args.join(' ')}`)
@@ -505,6 +505,11 @@ describe('ensureLocalClone', () => {
 
     expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
     expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+    // Reconciliación explícita, no sólo "no prender": si este clone ya tenía
+    // gpgsign=true de una corrida anterior con la key configurada, quedaría
+    // pegado (persiste en el .git/config de un repo persistente) sin este
+    // unset — y con eso, TODO `git commit` empezaría a fallar en silencio.
+    expect(shell.find(['git', 'config', '--unset-all', 'commit.gpgsign'])).toBeDefined()
   })
 
   it('configures signing on an already-cloned repo too — not just on the initial clone', async () => {
@@ -549,6 +554,7 @@ describe('ensureLocalClone', () => {
     expect(shell.find(['git', 'config', 'user.name'])).toBeDefined()
     expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
     expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+    expect(shell.find(['git', 'config', '--unset-all', 'commit.gpgsign'])).toBeDefined()
   })
 
   it('is idempotent — skips clone when the destination is already a git repo', async () => {
