@@ -891,19 +891,40 @@ export class WorkspaceManager {
    * `#commitAll`, que puede tumbar un `getOrCreateWorktree` en el camino de
    * reuse. Degradar a "sin firmar" con un warn es preferible a romper el
    * worktree por un secreto mal provisto.
+   *
+   * **Reconcilia en las dos direcciones, no sólo prende.** `commit.gpgsign`
+   * vive en el `.git/config` de un clone persistente (`reposBase` sobrevive
+   * restarts, y esta función corre en CADA `ensureLocalClone`, no sólo al
+   * clonar — ver la rama de "ya clonado" arriba). Si la key se rota/desmonta
+   * o `gitSigningKeyPath` se saca de la config después de haber estado
+   * prendida, un simple "no prender de nuevo" dejaría `commit.gpgsign=true`
+   * pegado de una corrida anterior — exactamente el fallo que este chequeo
+   * dice estar evitando. Por eso la rama "no usable" apaga explícito en vez
+   * de sólo no encender.
    */
   async #configureSigning(dest: string): Promise<void> {
-    if (!this.#gitSigningKeyPath) return
-    if (!this.#exists(this.#gitSigningKeyPath)) {
-      log.warn(
-        { dest, gitSigningKeyPath: this.#gitSigningKeyPath },
-        'gitSigningKeyPath configurado pero el archivo no existe — commits sin firmar',
-      )
+    const keyPath = this.#gitSigningKeyPath
+    const usable = !!keyPath && this.#exists(keyPath)
+    if (!usable) {
+      if (keyPath) {
+        log.warn(
+          { dest, gitSigningKeyPath: keyPath },
+          'gitSigningKeyPath configurado pero el archivo no existe — commits sin firmar',
+        )
+      }
+      await this.#unsetGpgSign(dest)
       return
     }
     await this.#shell.run(['git', 'config', 'gpg.format', 'ssh'], dest)
-    await this.#shell.run(['git', 'config', 'user.signingkey', this.#gitSigningKeyPath], dest)
+    await this.#shell.run(['git', 'config', 'user.signingkey', keyPath], dest)
     await this.#shell.run(['git', 'config', 'commit.gpgsign', 'true'], dest)
+  }
+
+  /** `--unset-all` sale con exit 5 si la key nunca estuvo seteada — no es un
+   *  error, así que no se chequea el exit code (mismo criterio que el resto
+   *  de los `git config` de este método). */
+  async #unsetGpgSign(dest: string): Promise<void> {
+    await this.#shell.run(['git', 'config', '--unset-all', 'commit.gpgsign'], dest)
   }
 
   async #doRemove(
