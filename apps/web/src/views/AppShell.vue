@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MobileTabBar from '@/components/MobileTabBar.vue';
-import { GENERAL_SECTIONS } from '@/router/sections';
+import { GENERAL_SECTIONS, type GeneralSectionId } from '@/router/sections';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import ProjectSwitcherSheet from '@/features/projects/ProjectSwitcherSheet.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
@@ -251,15 +251,13 @@ const SECTION_PATH: Record<SectionId, string> = {
   'agent-host':     '/agent-host',
   'agent-host-logs': '/agent-host/logs',
   proyectos:        '/projects',
-  agentes:          '/general/agentes',
-  pipeline:         '/general/pipeline',
-  acciones:         '/general/acciones',
-  tools:            '/general/tools',
-  'system-prompts': '/general/system-prompts',
-  providers:        '/general/providers',
-  'mcp-catalog':    '/general/mcp-catalog',
-  entorno:          '/general/entorno',
-  escaneo:          '/general/escaneo',
+  // Los nueve `/general/*` salen de la lista compartida: escritos otra vez acá
+  // eran la segunda copia que se podía quedar vieja, que es lo mismo que
+  // dejaba a `Más` prometiendo once destinos y llevando a uno.
+  ...(Object.fromEntries(GENERAL_SECTIONS.map((s) => [s.id, s.path])) as Record<
+    GeneralSectionId,
+    string
+  >),
 };
 
 // Deriva la sección activa a partir del path — soporta rutas anidadas
@@ -354,7 +352,7 @@ const TABS = computed<
   // los mismos destinos, y tenerlos dos veces era lo que dejaba a `Más`
   // prometiendo once y llevando a uno (ver `router/sections.ts`).
   ...GENERAL_SECTIONS.map((sec) => ({
-    id: sec.id as SectionId,
+    id: sec.id,
     label: sec.label,
     icon: '',
     group: 'global',

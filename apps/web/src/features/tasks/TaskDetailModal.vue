@@ -38,6 +38,9 @@ const props = defineProps<{
   runResult?: RunTaskNowResult | null;
   /** El status que se está aplicando ahora, para el botón de la sugerencia. */
   movingStatus?: string | null;
+  /** Cambia cuando la tarea se movió: la preview tiene que volver a preguntar,
+   *  o sigue ofreciendo el mismo `mover a` que ya se aplicó. */
+  moveToken?: number;
   /** Slack configurado en este server. Sin credencial la acción ni se ofrece:
    *  fallaría con un 503 y sin dónde ver por qué. */
   slackEnabled?: boolean;
@@ -213,7 +216,7 @@ const runMessage = computed(() => {
               v-if="open"
               :project-id="projectId"
               :task-id="taskId"
-              :reload-token="runResult"
+              :reload-token="[runResult, moveToken]"
               :moving-status="movingStatus"
               @move="(st) => emit('move', st)"
             />

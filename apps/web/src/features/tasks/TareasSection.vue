@@ -337,6 +337,7 @@ const detailProps = computed(() => {
   const item = reposModalItem.value;
   return {
     movingStatus: movingStatus.value,
+    moveToken: moveToken.value,
     open: reposModalOpen.value,
     taskId: item?.id ?? null,
     projectId: activeProjectId.value ?? null,
@@ -406,6 +407,11 @@ async function loadDispositions() {
  * la fila seguía mostrando el status viejo hasta un reload a mano.
  */
 const movingStatus = ref<string | null>(null);
+/** Se bumpea al mover: es lo que hace que `RunPreviewCard` vuelva a preguntar.
+ *  Sin esto la preview se quedaba con las reglas rechazadas de ANTES del move
+ *  y volvía a ofrecer el mismo botón — un segundo PATCH al status que la tarea
+ *  ya tiene. */
+const moveToken = ref(0);
 async function moveTaskTo(status: string): Promise<void> {
   const pid = activeProjectId.value;
   const item = reposModalItem.value;
@@ -415,6 +421,11 @@ async function moveTaskTo(status: string): Promise<void> {
     await setProjectItemField(pid, item.id, 'status', status);
     toastStore.success(`Movida a ${status}`);
     await Promise.all([loadProjectItems(true), loadDispositions()]);
+    // `loadProjectItems` reemplaza las filas por objetos NUEVOS, y el detalle
+    // guarda una referencia a la vieja: sin re-apuntarla, la lista mostraba el
+    // status nuevo y el detalle abierto seguía con el anterior.
+    reposModalItem.value = projectItems.value.find((i) => i.id === item.id) ?? null;
+    moveToken.value += 1;
   } catch (e) {
     toastStore.error(extractErrorMessage(e));
   } finally {

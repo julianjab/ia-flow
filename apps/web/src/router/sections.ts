@@ -9,8 +9,25 @@
  * Vive en `router/` porque es lo que son —rutas de la app con su nombre— y
  * porque ni el shell ni `Más` son dueños de la lista: los dos la muestran.
  */
+/**
+ * Los ids son una UNIÓN, no `string`: el shell los usa como clave de su
+ * `SECTION_PATH`, y con `string` agregar una entrada acá compilaba igual para
+ * después navegar a `undefined`. Que el compilador lo agarre es la mitad de
+ * por qué la lista está compartida.
+ */
+export type GeneralSectionId =
+  | 'agentes'
+  | 'pipeline'
+  | 'acciones'
+  | 'tools'
+  | 'system-prompts'
+  | 'providers'
+  | 'mcp-catalog'
+  | 'entorno'
+  | 'escaneo'
+
 export interface AppSection {
-  id: string
+  id: GeneralSectionId
   label: string
   path: string
 }
