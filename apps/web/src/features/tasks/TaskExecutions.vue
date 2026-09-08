@@ -148,7 +148,11 @@ function runHref(e: ExecutionLog): string {
 .runs-reload:hover:not(:disabled) { color: var(--fg); }
 .runs-reload:disabled { cursor: default; }
 
-.runs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+/* `min-width: 0`: sin esto, este `<ul>` es un hijo flex de `.runs-block` con
+ * el default `min-width: auto`, y aunque cada `.run-row` ya se puede achicar
+ * a 0, ESTE nivel intermedio de la cadena no hereda ese override solo —
+ * mismo patrón que `.modal-body > *` en TaskDetailModal.vue. */
+.runs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
 /* Dos líneas SIEMPRE, no sólo en un teléfono: esta lista vive dentro del panel
    de detalle, que mide 400px en escritorio y la pantalla completa en mobile —
    nunca es ancha. En una línea, los cuatro campos de ancho fijo sumaban 377px
@@ -206,8 +210,10 @@ function runHref(e: ExecutionLog): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-dimmer);
+  /* `--fg-dimmer` sobre `--panel` da 2.52:1 — falla el mínimo de 4.5:1 (R6).
+   * `--fg-dim` es el tono más oscuro de esta paleta que sigue pasando. */
+  color: var(--fg-dim);
 }
-.empty { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dimmer); }
+.empty { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dim); }
 .runs-error { margin: 0; font-size: var(--fs-chrome); color: var(--danger); }
 </style>
