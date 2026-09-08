@@ -174,6 +174,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
           <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
           <EditableCard
             v-if="expandedSpId !== sp.id"
+            :key="`own-view-${sp.id}`"
             :clickable="true"
             @edit="toggleExpandSp(sp)"
           >
@@ -188,6 +189,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
           <SystemPromptForm
             v-else
+            :key="`own-edit-${sp.id}`"
             v-model="spEditDraft"
             :id-hint="sp.id"
             variant="edit"
@@ -220,6 +222,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
         <template v-for="sp in globalPrompts" :key="`global-${sp.id}`">
           <EditableCard
             v-if="expandedSpId !== sp.id"
+            :key="`global-view-${sp.id}`"
             clickable
             muted
             @edit="toggleExpandSp(sp, true)"
@@ -235,6 +238,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
           <SystemPromptForm
             v-else
+            :key="`global-edit-${sp.id}`"
             v-model="spEditDraft"
             :id-hint="sp.id"
             variant="edit"

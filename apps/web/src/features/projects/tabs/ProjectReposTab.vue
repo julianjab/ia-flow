@@ -150,6 +150,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
         <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
         <EditableCard
           v-if="expandedRepoName !== name"
+          :key="`view-${name}`"
           :clickable="true"
           @edit="toggleExpand(name)"
         >
@@ -170,6 +171,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
         <RepoInlineForm
           v-else
+          :key="`edit-${name}`"
           :name="name"
           :entry="entry"
           @save="(newName, newEntry) => handleInlineSave(name, newName, newEntry)"

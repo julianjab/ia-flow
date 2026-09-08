@@ -123,6 +123,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
         <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
         <EditableCard
           v-if="expandedSpId !== sp.id"
+          :key="`view-${sp.id}`"
           :clickable="true"
           @edit="toggleExpandSp(sp)"
         >
@@ -135,6 +136,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
         <SystemPromptForm
           v-else
+          :key="`edit-${sp.id}`"
           v-model="spEditDraft"
           :id-hint="sp.id"
           variant="edit"
