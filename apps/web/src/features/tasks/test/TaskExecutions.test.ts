@@ -41,9 +41,17 @@ async function mountWith(props: Record<string, unknown> = {}) {
   return wrapper
 }
 
+/** La lista arranca siempre colapsada — estos tests miran adentro de ella,
+ *  así que primero hay que abrirla. */
+async function mountExpanded(props: Record<string, unknown> = {}) {
+  const wrapper = await mountWith(props)
+  await wrapper.get('.runs-toggle').trigger('click')
+  return wrapper
+}
+
 describe('TaskExecutions', () => {
   it('pide los runs de esta tarea y los lista', async () => {
-    const wrapper = await mountWith()
+    const wrapper = await mountExpanded()
     expect(fetchTaskExecutions).toHaveBeenCalledWith('ia-flow', 'I_1', 10)
     const row = wrapper.get('.run-row')
     expect(row.text()).toContain('implementer')
@@ -54,20 +62,20 @@ describe('TaskExecutions', () => {
   // haría parecer roto.
   it('un run sin terminar se muestra como corriendo', async () => {
     fetchTaskExecutions.mockResolvedValue([run({ finishedAt: null, outcome: null })])
-    const wrapper = await mountWith()
+    const wrapper = await mountExpanded()
     expect(wrapper.get('.run-outcome').text()).toBe('corriendo')
     expect(wrapper.find('.run-duration').exists()).toBe(false)
   })
 
   it('la duración no produce "1m 60s" en el borde del minuto', async () => {
     fetchTaskExecutions.mockResolvedValue([run({ durationMs: 119_600 })])
-    const wrapper = await mountWith()
+    const wrapper = await mountExpanded()
     expect(wrapper.get('.run-duration').text()).toBe('2m 0s')
   })
 
   it('muestra el motivo cuando el run dejó uno', async () => {
     fetchTaskExecutions.mockResolvedValue([run({ outcome: 'error', errorMsg: 'boom' })])
-    const wrapper = await mountWith()
+    const wrapper = await mountExpanded()
     expect(wrapper.get('.run-reason').text()).toBe('boom')
   })
 
@@ -77,7 +85,7 @@ describe('TaskExecutions', () => {
     fetchTaskExecutions.mockResolvedValue([
       run({ outcome: 'truncated', errorMsg: 'x'.repeat(5000) }),
     ])
-    const wrapper = await mountWith()
+    const wrapper = await mountExpanded()
     expect(wrapper.get('.run-reason').text().length).toBeLessThan(200)
   })
 
@@ -85,7 +93,7 @@ describe('TaskExecutions', () => {
     fetchTaskExecutions.mockResolvedValue([
       run({ kind: 'action', agentId: 'Notificar en macOS', providerId: '', outcome: 'success' }),
     ])
-    const wrapper = await mountWith()
+    const wrapper = await mountExpanded()
     expect(wrapper.get('.run-agent').classes()).toContain('is-action')
   })
 
@@ -118,11 +126,14 @@ describe('TaskExecutions', () => {
     expect(fetchTaskExecutions).toHaveBeenLastCalledWith('ia-flow', 'I_2', 10)
   })
 
-  it('sin pipelineStatuses no hay stepper y la lista se ve de entrada', async () => {
+  it('sin pipelineStatuses no hay stepper, y la lista arranca colapsada igual', async () => {
     const wrapper = await mountWith()
     expect(wrapper.find('.pipe-steps').exists()).toBe(false)
+    expect(wrapper.find('.runs-list').exists()).toBe(false)
+    const toggle = wrapper.get('.runs-toggle')
+
+    await toggle.trigger('click')
     expect(wrapper.find('.runs-list').exists()).toBe(true)
-    expect(wrapper.find('.runs-toggle').exists()).toBe(false)
   })
 
   it('con pipelineStatuses el stepper se muestra y la lista arranca colapsada', async () => {

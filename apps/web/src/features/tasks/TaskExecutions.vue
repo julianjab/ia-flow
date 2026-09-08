@@ -12,8 +12,8 @@ const props = defineProps<{
    *  listado se recarga solo en vez de obligar a cerrar y abrir el detalle. */
   reloadToken?: unknown;
   /** El pipeline en orden, para dibujar la barra de pasos arriba de la lista.
-   *  Sin esto (fuente sin noción de pipeline, ej. local-fs) no hay stepper y
-   *  la lista se muestra igual que siempre, sin colapsar. */
+   *  Sin esto (fuente sin noción de pipeline, ej. local-fs) no hay stepper,
+   *  pero la lista de runs igual arranca colapsada. */
   pipelineStatuses?: string[];
   /** Status actual de la tarea — contra qué se resalta el paso "en curso". */
   currentStatus?: string | null;
@@ -24,13 +24,9 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 const hasPipeline = computed(() => (props.pipelineStatuses?.length ?? 0) > 0);
-// Con stepper, el detalle fila por fila es secundario y arranca colapsado;
-// sin stepper es lo único que hay, así que se ve de entrada (preserva el
-// comportamiento de antes de este cambio).
-const expanded = ref(!hasPipeline.value);
-watch(hasPipeline, (v) => {
-  if (!v) expanded.value = true;
-});
+// El detalle fila por fila es secundario frente al resumen (stepper si hay
+// pipeline, o la sola cantidad de runs si no) — arranca colapsado siempre.
+const expanded = ref(false);
 
 async function load() {
   if (!props.projectId || !props.taskId) return;
@@ -129,11 +125,11 @@ function runHref(e: ExecutionLog): string {
     <p v-else-if="loading && !executions.length" class="empty">Cargando…</p>
     <p v-else-if="!executions.length" class="empty">Todavía no hizo nada: ningún agente corrió sobre esta tarea.</p>
 
-    <!-- Con stepper, el detalle fila por fila queda un click abajo: la barra
-         ya contesta "¿en qué va?" y esta lista es para cuando hace falta el
-         motivo puntual de un run. -->
+    <!-- El detalle fila por fila queda un click abajo: si hay stepper, la
+         barra ya contesta "¿en qué va?"; si no, alcanza con saber cuántos
+         runs hubo antes de pedir el motivo puntual de cada uno. -->
     <button
-      v-if="hasPipeline && executions.length"
+      v-if="executions.length"
       type="button"
       class="runs-toggle"
       @click="expanded = !expanded"
