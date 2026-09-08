@@ -9,6 +9,7 @@ import {
   enqueueRunMessageUseCase,
   getSourceForProjectId,
   getTaskDispositionsUseCase,
+  getTaskFocusUseCase,
   projectRepo,
   repoRepo,
   runMessageRepo,
@@ -114,6 +115,41 @@ export function createTasksRouter(broadcast: BroadcastFn) {
       // que nunca llegaron sería una afirmación falsa.
       log.warn({ err: (err as Error).message, projectId }, 'no se pudieron resolver disposiciones')
       return c.json({ error: (err as Error).message, dispositions: [] }, 502)
+    }
+  })
+
+  /**
+   * GET /api/tasks/focus?projectId=…&refresh=1
+   *
+   * Qué mirar primero de lo que `/dispositions` ya ordenó. La card que dibuja
+   * esto va ENCIMA del orden y no lo toca — ver `GetTaskFocusUseCase`.
+   *
+   * Tres respuestas, y las tres importan por separado:
+   *
+   *   · `{ focus }`            hay algo que decir.
+   *   · `{ focus: null }` 200  no hay nada que decir, o la feature está
+   *                            apagada / sin credencial. La card no se dibuja,
+   *                            y no se dibuja NINGÚN hueco: no hay promesa que
+   *                            incumplir.
+   *   · 502                    se quiso y no se pudo. Eso sí se dibuja, con su
+   *                            `reintentar`, porque "no se pudo pensar" no es
+   *                            lo mismo que "no hay nada que hacer" — y la
+   *                            lista de abajo sigue completa y ordenada.
+   *
+   * Va ANTES de las rutas con `:id`, por el mismo motivo que `dispositions`.
+   */
+  router.get('/focus', async (c) => {
+    const projectId = c.req.query('projectId')
+    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
+    try {
+      const source = getSourceForProjectId(projectId)
+      const focus = await getTaskFocusUseCase.execute(projectId, source, {
+        refresh: c.req.query('refresh') === '1',
+      })
+      return c.json({ focus })
+    } catch (err) {
+      log.warn({ err: (err as Error).message, projectId }, 'no se pudo calcular el foco')
+      return c.json({ error: (err as Error).message, focus: null }, 502)
     }
   })
 

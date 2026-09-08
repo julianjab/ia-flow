@@ -37,10 +37,30 @@ export interface HaikuRequest {
    * que no tienen un run del que colgarse.
    */
   logger?: Logger
+  /**
+   * Cuando está, la vuelta es de **salida estructurada**: se manda una sola
+   * tool con este `inputSchema` y se fuerza su uso, así que la respuesta
+   * vuelve en `toolInput` y no en `text`.
+   *
+   * Es lo que evita parsear JSON de un bloque de texto — un modelo que
+   * envuelve el objeto en ```json, o que le antepone una frase, produce un
+   * fallo de parseo que no dice nada útil. El schema lo pone el que llama y
+   * viaja opaco.
+   */
+  tool?: HaikuTool
+}
+
+/** La tool sintética de una vuelta estructurada. `inputSchema` es JSON Schema. */
+export interface HaikuTool {
+  name: string
+  description: string
+  inputSchema: unknown
 }
 
 export interface HaikuResponse {
   text: string
+  /** Sólo con `tool` en el request. `null` si el modelo no la llamó. */
+  toolInput: Record<string, unknown> | null
   usage: unknown
   ms: number
 }
@@ -77,6 +97,18 @@ export async function askHaiku(req: HaikuRequest): Promise<HaikuResponse> {
       max_tokens: req.maxTokens,
       system: req.system,
       messages: [{ role: 'user', content: req.user }],
+      ...(req.tool
+        ? {
+            tools: [
+              {
+                name: req.tool.name,
+                description: req.tool.description,
+                input_schema: req.tool.inputSchema,
+              },
+            ],
+            tool_choice: { type: 'tool', name: req.tool.name },
+          }
+        : {}),
     }),
   })
   const ms = Date.now() - t0
@@ -90,15 +122,34 @@ export async function askHaiku(req: HaikuRequest): Promise<HaikuResponse> {
   }
   const data = (await res.json()) as { content?: unknown; usage?: unknown }
   const blocks = Array.isArray(data.content)
-    ? (data.content as Array<{ type?: string; text?: string }>)
+    ? (data.content as Array<{
+        type?: string
+        text?: string
+        name?: string
+        input?: Record<string, unknown>
+      }>)
     : []
   const text = blocks
     .filter((b) => b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text as string)
     .join('')
+  // `tool_choice` forzado no garantiza el bloque: un corte por `max_tokens`
+  // devuelve un `tool_use` a medio serializar y la API lo omite. Se devuelve
+  // `null` y decide el que llama — tirar acá obligaría a cada caller a
+  // envolver la llamada para distinguir "no contestó" de "no hay red".
+  const toolUse = req.tool
+    ? (blocks.find((b) => b.type === 'tool_use' && b.name === req.tool?.name)?.input ?? null)
+    : null
   reqLog.info(
-    { ...req.scope, status: res.status, ms, outBytes: text.length, usage: data.usage },
+    {
+      ...req.scope,
+      status: res.status,
+      ms,
+      outBytes: text.length,
+      usage: data.usage,
+      ...(req.tool ? { toolCalled: toolUse !== null } : {}),
+    },
     'haiku response',
   )
-  return { text, usage: data.usage, ms }
+  return { text, toolInput: toolUse, usage: data.usage, ms }
 }

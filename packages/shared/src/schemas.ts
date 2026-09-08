@@ -1666,6 +1666,68 @@ export const DISPOSITION_LABELS: Record<TaskDisposition, string> = {
   closed: 'cerrado',
 }
 
+// ─── Foco IA (GET /api/tasks/focus) ───────────────────────────────────────
+//
+// La disposición contesta *quién mueve la próxima pieza* y ordena el bucket.
+// Lo que no puede contestar es de QUÉ se tratan esas doce filas: que tres son
+// la misma cosa, que dos fallan por el mismo timeout, cuál se cierra en diez
+// minutos. Eso pide leer los issues, y es lo único que acá infiere un modelo.
+//
+// **El foco NO reordena.** El orden lo calcula `compareWithinBucket` y la
+// lista lo congela al abrir, para que la fila que ibas a tocar no se mueva
+// bajo el dedo. Esto se dibuja ENCIMA de ese orden y lo nombra.
+
+/** Un ítem señalado. Los tres campos son lo único que el modelo produce. */
+export const TaskFocusPickSchema = z.object({
+  /** Siempre uno de los ids que se le pasaron: el server descarta el resto. */
+  taskId: z.string(),
+  /** Por qué ésta. Entra en dos líneas a 390px — ver `FOCUS_WHY_MAX`. */
+  why: z.string(),
+  /** `quick` cabe en una sesión corta; `deep` no. */
+  effort: z.enum(['quick', 'deep']),
+})
+export type TaskFocusPick = z.infer<typeof TaskFocusPickSchema>
+
+/** Tareas que comparten causa. Los ids viajan aunque hoy el cluster sea texto:
+ *  es lo que hará tocable el filtro el día que `FilterByIds` se apruebe. */
+export const TaskFocusClusterSchema = z.object({
+  label: z.string(),
+  taskIds: z.array(z.string()),
+})
+export type TaskFocusCluster = z.infer<typeof TaskFocusClusterSchema>
+
+export const TaskFocusSchema = z.object({
+  /** Una línea. Es lo único que se ve con la card colapsada, que es el 90% de
+   *  las veces. */
+  headline: z.string(),
+  picks: z.array(TaskFocusPickSchema),
+  clusters: z.array(TaskFocusClusterSchema).default([]),
+  /**
+   * Cuándo se PENSÓ esto, no cuándo se pidió (R16).
+   *
+   * Viaja porque el resultado se cachea: un cálculo determinista se rehace al
+   * abrir y no necesita fecha, pero una inferencia servida del cache puede
+   * estar hablando de una lista que ya cambió, y decir "hace 2 s" sobre algo
+   * de hace cuatro minutos es exactamente la mentira que R16 prohíbe.
+   */
+  computedAt: z.string(),
+})
+export type TaskFocus = z.infer<typeof TaskFocusSchema>
+
+/**
+ * Los topes son del contrato, no del CSS.
+ *
+ * Un `max-height` recorta lo que ya se pidió y se pagó; esto hace que no se
+ * pida. Los números salen medidos a 390px (turno 9): con tres picks de dos
+ * líneas y dos clusters, la primera fila de la lista todavía se ve.
+ */
+export const FOCUS_MAX_PICKS = 3
+export const FOCUS_MAX_CLUSTERS = 2
+export const FOCUS_WHY_MAX = 90
+/** Cuántas tareas del bucket 1 se le muestran al modelo. Más arriba de esto la
+ *  lista deja de ser algo que un humano vaya a mirar entera. */
+export const FOCUS_MAX_CANDIDATES = 15
+
 // ─── Execution stats (GET /api/executions/stats) ──────────────────────────
 // Aggregate health per agent over a time window. Computed in SQL rather than
 // derived in the browser from a page of rows: the interesting windows (a
