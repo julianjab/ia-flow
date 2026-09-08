@@ -167,6 +167,17 @@ function pushDetailId(taskId: string | undefined): void {
 
 const statusOptions = ref<string[]>([]);
 
+/** La última columna del pipeline (mismo orden que arma `boardColumns`): es
+ *  la que la fuente considera "terminada", sin adivinar por el nombre — ver
+ *  el comentario de `isClosed` en `GetTaskDispositionsUseCase`. Sirve para
+ *  distinguir, en el bullet de la fila, una tarea que YA está ahí de una que
+ *  nunca se tocó: la disposición no lo hace sola porque depende de si el
+ *  issue de GitHub está `closed`, no de en qué columna del board quedó. */
+const terminalStatus = computed(() => statusOptions.value.at(-1) ?? null);
+function isDoneInSource(item: TaskRow): boolean {
+  return !!terminalStatus.value && item.status === terminalStatus.value;
+}
+
 function filtersStorageKey(projectId: string | null | undefined): string | null {
   return projectId ? `ia-flow:task-filters:${projectId}` : null;
 }
@@ -1351,6 +1362,7 @@ watch(activeProjectId, (pid) => {
                 :has-open-pr="hasOpenPr(row.item)"
                 :agent="runsByTask[row.id]?.last.agentId"
                 :duration="durationOf(row.item)"
+                :done-in-source="isDoneInSource(row.item)"
                 @open="openReposModal(row.item)"
               />
             </ul>
@@ -1379,6 +1391,7 @@ watch(activeProjectId, (pid) => {
           :has-open-pr="hasOpenPr(item)"
           :agent="runsByTask[item.id]?.last.agentId"
           :duration="durationOf(item)"
+          :done-in-source="isDoneInSource(item)"
           @open="openReposModal(item)"
         />
       </ul>

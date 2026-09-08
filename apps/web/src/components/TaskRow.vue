@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ExecutionLog, TaskDisposition, TaskVerb } from '@ia-flow/shared';
+import { computed } from 'vue';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 
 /**
@@ -51,6 +52,15 @@ const props = withDefaults(
     agent?: string;
     duration?: string;
 
+    /**
+     * La tarea ya está en la última columna del pipeline de la fuente (p. ej.
+     * `Done` en el board), aunque ningún agente la haya corrido nunca —
+     * alguien la resolvió por fuera de ia-flow. Sin esto se lee exactamente
+     * igual que una tarea que nadie tocó, y no es lo mismo: una no tiene
+     * trabajo pendiente, la otra sí.
+     */
+    doneInSource?: boolean;
+
     /** El puesto en la cola. Sólo el bucket `te espera` lo lleva. */
     rank?: string | null;
     /** El verbo, con su destino ya resuelto por el server. */
@@ -67,6 +77,11 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{ open: []; verb: [] }>();
+
+/** El bullet inicial se tiñe distinto sólo cuando `doneInSource` es la razón
+ *  real de que no haya ejecución — un run vivo, fallido o bloqueado ya tiene
+ *  su propio color y ese es el que manda. */
+const glyphDoneInSource = computed(() => props.doneInSource && !props.execution);
 
 /**
  * Abrir con el teclado.
@@ -99,7 +114,7 @@ function onKeydown(e: KeyboardEvent) {
     <!-- El puesto va donde el glifo en las otras pantallas: es el ancla
          izquierda de la fila, y sólo una de las dos existe a la vez. -->
     <span v-if="rank" class="tr__rank" aria-hidden="true">{{ rank }}</span>
-    <span v-else class="tr__glyph">
+    <span v-else class="tr__glyph" :class="{ 'tr__glyph--done-in-source': glyphDoneInSource }">
       <ExecutionStatusLine
         class="tr__glyph-only"
         :execution="execution ?? null"
@@ -195,6 +210,10 @@ function onKeydown(e: KeyboardEvent) {
 
 .tr__glyph,
 .tr__rank { grid-area: anchor; display: flex; align-items: baseline; }
+/* La fuente ya la dio por terminada aunque ningún agente la haya corrido: un
+   `○` gris se lee igual que "nadie la tocó", que es exactamente lo que NO es
+   este caso. */
+.tr__glyph--done-in-source :deep(.esl-glyph) { color: var(--accent); }
 .tr__rank {
   font-family: var(--font-mono);
   font-size: var(--fs-chrome);
