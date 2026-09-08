@@ -62,19 +62,36 @@ const routerReplace = vi.fn()
 // declarado acá abajo todavía no existiría cuando el mock se evalúa.
 // Tiene que ser un `ref` de verdad: la plantilla desenvuelve refs, no objetos
 // con `.value`, así que un `{ value: false }` se leería siempre como true.
-const { isSplit } = await vi.hoisted(async () => ({ isSplit: (await import('vue')).ref(false) }))
+//
+// `routeParams` es un `ref` por el mismo motivo, y no un objeto plano como
+// `routeQuery`: `detailIdParam` (`TareasSection.vue`) es un `computed` que lo
+// lee, y un `computed` sólo se invalida ante una dependencia REACTIVA — un
+// getter sobre una variable de closure no registra ninguna, así que el mock
+// del router real (`reactive()`) hay que imitarlo con un `ref`.
+const { isSplit, routeParams } = await vi.hoisted(async () => {
+  const vue = await import('vue')
+  return { isSplit: vue.ref(false), routeParams: vue.ref<Record<string, string>>({}) }
+})
 vi.mock('@/composables/useIsMobile', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   useIsSplit: () => ({ isSplit }),
 }))
 
+const routerPush = vi.fn((to: { params?: Record<string, string> }) => {
+  if (to.params) routeParams.value = to.params
+})
+
 vi.mock('vue-router', () => ({
   useRoute: () => ({
+    name: 'projects.detail',
     get query() {
       return routeQuery
     },
+    get params() {
+      return routeParams.value
+    },
   }),
-  useRouter: () => ({ replace: routerReplace }),
+  useRouter: () => ({ replace: routerReplace, push: routerPush }),
 }))
 
 beforeEach(() => {
@@ -90,7 +107,9 @@ beforeEach(() => {
   toastError.mockClear()
   runTaskNow.mockClear()
   routeQuery = {}
+  routeParams.value = {}
   routerReplace.mockClear()
+  routerPush.mockClear()
   localStorage.clear()
 })
 
@@ -239,6 +258,43 @@ describe('TareasSection — detalle', () => {
     expect(modal.props('devLinks')).toBe(true)
     expect(modal.props('issueUrl')).toBe('https://github.com/la-haus/ia-flow/issues/42')
     expect(modal.props('pullRequests')).toHaveLength(1)
+  })
+})
+
+// ─── La tarea abierta vive en `:detailId` ──────────────────────────────────
+
+describe('TareasSection — la tarea abierta es un path param', () => {
+  it('abrir una fila empuja el id a `params.detailId`, preservando la query', async () => {
+    // Una key que `taskFiltersFromQuery` no reconoce: prueba que la query
+    // sobrevive al push sin arriesgar que un filtro real esconda la fila.
+    routeQuery = { foo: 'bar' }
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.tr').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'projects.detail',
+      params: { detailId: 'I_1' },
+      query: { foo: 'bar' },
+    })
+  })
+
+  it('cerrar el detalle limpia `params.detailId`', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.tr').trigger('click')
+    routerPush.mockClear()
+    wrapper.findComponent(TaskDetailModal).vm.$emit('close')
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'projects.detail',
+      params: {},
+      query: {},
+    })
+  })
+
+  it('con `:detailId` ya en la URL al montar, el modal abre solo — sin volver a empujar', async () => {
+    routeParams.value = { detailId: 'I_1' }
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    expect(wrapper.findComponent(TaskDetailModal).props('open')).toBe(true)
+    expect(wrapper.findComponent(TaskDetailModal).props('taskId')).toBe('I_1')
+    expect(routerPush).not.toHaveBeenCalled()
   })
 })
 

@@ -773,11 +773,12 @@ const detailActions = computed<string[]>(() => {
   return out;
 });
 
-/** `/projects/:id/tareas?taskId=<id>` — mismo mecanismo que `?runId=` de
- *  Tareas → acá, en la otra dirección: Tareas la lee en su `onMounted` y abre
- *  el modal de esa tarea sola. */
+/** `/projects/:id/tareas/<id>` — el mismo slot `:detailId` que ya usa esta
+ *  pantalla para el detalle de un agente (`pushDetailId`/`detailAgentId` más
+ *  arriba). Tareas lo sincroniza en su `onMounted` y en cada cambio posterior
+ *  (`syncModalFromRoute`) y abre el modal de esa tarea sola. */
 function taskHref(exec: ExecutionLog): string {
-  return `/projects/${exec.projectId}/tareas?taskId=${encodeURIComponent(exec.taskId)}`;
+  return `/projects/${encodeURIComponent(exec.projectId)}/tareas/${encodeURIComponent(exec.taskId)}`;
 }
 
 /** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */

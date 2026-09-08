@@ -142,6 +142,29 @@ const activeProjectId = computed(() => projectsStore.activeProjectId);
 const route = useRoute();
 const router = useRouter();
 
+/**
+ * La tarea abierta vive en la URL como PATH PARAM (`:detailId`, compartido por
+ * todas las tabs del proyecto — `projects/:id/:tab/:detailId?` en el router),
+ * el mismo slot que ya usa ExecutionsSection para el detalle de un agente
+ * (`pushDetailId`/`detailAgentId`). Antes era un `?taskId=` de query que sólo
+ * se leía una vez en `onMounted`: no sobrevivía a "atrás" ni a abrir una
+ * segunda tarea sin salir de la pestaña.
+ */
+const detailIdParam = computed<string | null>(() => {
+  const id = route.params?.detailId;
+  return typeof id === 'string' && id ? id : null;
+});
+
+/** `query: route.query` explícito: sin él, empujar sólo `params` resetea el
+ *  querystring — y ahí viven los filtros activos de la lista. */
+function pushDetailId(taskId: string | undefined): void {
+  if (!route.name) return;
+  const params = { ...route.params };
+  if (taskId === undefined) delete params.detailId;
+  else params.detailId = taskId;
+  void router.push({ name: route.name, params, query: route.query });
+}
+
 const statusOptions = ref<string[]>([]);
 
 function filtersStorageKey(projectId: string | null | undefined): string | null {
@@ -563,7 +586,7 @@ async function moveTaskTo(status: string): Promise<void> {
       // normal al mover— y entonces la tarea ya no está en la lista. Dejar el
       // detalle abierto contra `null` lo deja en blanco: se cierra, que es lo
       // que la acción efectivamente hizo con ella en esta vista.
-      reposModalOpen.value = false;
+      closeReposModal();
       reposModalItem.value = null;
     }
   } catch (e) {
@@ -791,6 +814,28 @@ function openReposModal(item: TaskRow) {
   reposModalItem.value = item;
   runResult.value = null;
   reposModalOpen.value = true;
+  // Si ya viene de sincronizar con la URL (`syncModalFromRoute`), el param ya
+  // es este id — el guard evita un push redundante en ese camino.
+  if (detailIdParam.value !== item.id) pushDetailId(item.id);
+}
+
+function closeReposModal(): void {
+  reposModalOpen.value = false;
+  if (detailIdParam.value !== null) pushDetailId(undefined);
+}
+
+/** Abre o cierra el modal para que coincida con `:detailId` — al montar, y en
+ *  cada cambio posterior (atrás/adelante del navegador, o un link "Ver tarea"
+ *  que cambia el param sin desmontar esta pantalla). */
+function syncModalFromRoute(): void {
+  const id = detailIdParam.value;
+  if (!id) {
+    if (reposModalOpen.value) reposModalOpen.value = false;
+    return;
+  }
+  if (reposModalOpen.value && reposModalItem.value?.id === id) return;
+  const item = projectItems.value.find((i) => i.id === id);
+  if (item) openReposModal(item);
 }
 
 async function onSlackReviewClick(item: TaskRow) {
@@ -965,19 +1010,20 @@ onMounted(async () => {
   void loadRepoNames();
   void loadStatuses();
   void loadDispositions();
-  // Await the initial load so we know whether the `?taskId` from the URL is
-  // on the loaded page before deciding to auto-open the modal (mismo patrón
-  // que `?runId=` en ExecutionsSection).
+  // Await the initial load so we know whether el `:detailId` de la URL está
+  // en la página cargada antes de decidir si el modal se abre solo (mismo
+  // patrón que `?runId=` en ExecutionsSection, ahora sobre un path param).
   await loadProjectItems();
-  // Ejecuciones → esta pestaña: `?taskId=<id>` pide aterrizar con esa tarea ya
+  // Ejecuciones → esta pestaña: `/tareas/<id>` pide aterrizar con esa tarea ya
   // abierta. Sin match, no-op en silencio — la tarea puede estar filtrada por
   // status o no venir en la página cargada.
-  const taskIdParam = route.query.taskId;
-  if (typeof taskIdParam === 'string') {
-    const item = projectItems.value.find((i) => i.id === taskIdParam);
-    if (item) openReposModal(item);
-  }
+  syncModalFromRoute();
 });
+
+// `:detailId` puede cambiar sin desmontar esta pantalla (atrás/adelante del
+// navegador, o un segundo link "Ver tarea" mientras ya estás en Tareas) —
+// `onMounted` sólo cubre el estado inicial.
+watch(detailIdParam, syncModalFromRoute);
 
 // Reload whenever the user switches projects — same pattern as StatusesSection.
 // Los filtros se re-hidratan del storage del proyecto nuevo: los del anterior
@@ -1332,7 +1378,7 @@ watch(activeProjectId, (pid) => {
       @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
       @run="onRunClick"
       @move="moveTaskTo"
-      @close="reposModalOpen = false"
+      @close="closeReposModal"
     />
     </div>
   </section>
@@ -1368,7 +1414,7 @@ watch(activeProjectId, (pid) => {
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
     @run="onRunClick"
     @move="moveTaskTo"
-    @close="reposModalOpen = false"
+    @close="closeReposModal"
   />
 </template>
 

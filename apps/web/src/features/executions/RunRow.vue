@@ -54,7 +54,7 @@ const props = withDefaults(
     title: string;
     /** El issue en el provider — el título es link cuando existe. */
     titleHref?: string | null;
-    /** `/projects/:id/tareas?taskId=…` — a diferencia de `titleHref` (que
+    /** `/projects/:id/tareas/<id>` — a diferencia de `titleHref` (que
      *  depende de haber resuelto la URL del issue en el provider, y puede
      *  fallar en silencio) esto sale de datos que TODA fila ya tiene
      *  (`projectId` + `taskId`), así que sirve de red de contención: sin

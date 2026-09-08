@@ -55,7 +55,7 @@ function syncActiveProject() {
 // Sincrónico y no en `onMounted`: los hijos (TareasSection, ExecutionsSection…)
 // montan ANTES que este padre —Vue llama `onMounted` de abajo hacia arriba—,
 // así que un hijo que lee `activeProjectId` en su propio `onMounted` (p. ej.
-// para resolver el `?taskId=` que trae un link "Ver tarea" desde Ejecuciones)
+// para resolver el `:detailId` que trae un link "Ver tarea" desde Ejecuciones)
 // todavía veía el proyecto ANTERIOR si `syncActiveProject` esperaba a este
 // `onMounted`. Corriendo en el cuerpo de `setup` queda escrito antes de que el
 // primer hijo empiece a montar.
