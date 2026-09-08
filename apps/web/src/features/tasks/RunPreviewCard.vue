@@ -3,6 +3,8 @@ import type { TaskRunPreview } from '@ia-flow/shared';
 import { computed, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { fetchTaskRunPreview } from '@/features/tasks/api';
+import { setProjectItemField } from '@/features/projects/sourceApi';
+import { useToastStore } from '@/stores/toast';
 
 /**
  * "¿Por qué esta tarea está siendo ignorada?"
@@ -59,24 +61,62 @@ const REASON_LABEL: Record<string, string> = {
  * condiciones que fallaron — no un texto fijo.
  *
  * Se mira sólo el `=`: una condición `!=` dice qué NO puede ser, y de eso no
- * sale una acción concreta. Sin nada derivable la línea no se dibuja: una
+ * sale una acción concreta. Sin nada derivable no se dibuja nada: una
  * sugerencia inventada es peor que ninguna.
+ *
+ * **Las de status son botones, no texto.** Eran una línea `→ mover a \`refine\`
+ * o mover a \`build\`…` que no hacía nada: en esta app un `→` es un destino
+ * (O2), y uno que no lleva a ningún lado enseña a no tocar los que sí. Mover
+ * la tarea es un PATCH que la app ya sabe hacer, así que la sugerencia ES la
+ * acción.
  */
-const suggestion = computed<string | null>(() => {
-  const rejected = preview.value?.rejected ?? [];
-  const wants: string[] = [];
-  for (const rule of rejected) {
+const statusMoves = computed<string[]>(() => {
+  const out: string[] = [];
+  for (const rule of preview.value?.rejected ?? []) {
     for (const c of rule.failed ?? []) {
       if (c.op !== '=' || !c.value) continue;
       const field = c.field.toLowerCase();
-      if (field === 'status' || field === 'to') wants.push(`mover a \`${c.value}\``);
-      else if (field.includes('label')) wants.push(`poner la label \`${c.value}\``);
+      if (field === 'status' || field === 'to') out.push(c.value);
+    }
+  }
+  return [...new Set(out)].slice(0, 3);
+});
+
+/** Las de label se quedan en texto: no hay un PATCH de labels, y un botón que
+ *  no puede cumplir es el problema que esto vino a arreglar. */
+const labelHint = computed<string | null>(() => {
+  const wants: string[] = [];
+  for (const rule of preview.value?.rejected ?? []) {
+    for (const c of rule.failed ?? []) {
+      if (c.op !== '=' || !c.value) continue;
+      if (c.field.toLowerCase().includes('label')) wants.push(`\`${c.value}\``);
     }
   }
   const unique = [...new Set(wants)];
-  if (!unique.length) return null;
-  return unique.slice(0, 3).join(' o ');
+  return unique.length ? `También la tomaría con la label ${unique.slice(0, 3).join(' o ')}` : null;
 });
+
+const moving = ref<string | null>(null);
+const toast = useToastStore();
+const emit = defineEmits<{ (e: 'moved', status: string): void }>();
+
+async function moveTo(status: string): Promise<void> {
+  const pid = props.projectId;
+  const tid = props.taskId;
+  if (!pid || !tid || moving.value) return;
+  moving.value = status;
+  try {
+    await setProjectItemField(pid, tid, 'status', status);
+    toast.success(`Movida a ${status}`);
+    // El veredicto que esta card muestra acaba de cambiar: se re-pregunta.
+    await load();
+    emit('moved', status);
+  } catch (e) {
+    toast.error(extractErrorMessage(e));
+  } finally {
+    moving.value = null;
+  }
+}
 </script>
 
 <template>
@@ -120,7 +160,7 @@ const suggestion = computed<string | null>(() => {
              callejón sin salida. -->
         <template v-if="rule.reason === 'disabled'">
           <p class="rpc-cond-empty">deshabilitada en este proyecto</p>
-          <p class="rpc-action">→ Se edita en General → Pipeline</p>
+          <RouterLink class="rpc-move" to="/general/pipeline">→ Prenderla en Pipeline</RouterLink>
         </template>
 
         <template v-else-if="rule.failed?.length">
@@ -140,7 +180,19 @@ const suggestion = computed<string | null>(() => {
         <p v-else class="rpc-cond-empty">descartada por {{ rule.reason }}</p>
       </article>
 
-      <p v-if="suggestion" class="rpc-action">→ {{ suggestion }}</p>
+      <!-- La sugerencia ES la acción: un botón por status que la destrabaría. -->
+      <div v-if="statusMoves.length" class="rpc-moves">
+        <button
+          v-for="st in statusMoves"
+          :key="st"
+          type="button"
+          class="rpc-move"
+          :disabled="!!moving"
+          :data-testid="`run-preview-move-${st}`"
+          @click="moveTo(st)"
+        >→ {{ moving === st ? `Moviendo a ${st}…` : `mover a ${st}` }}</button>
+      </div>
+      <p v-if="labelHint" class="rpc-cond-empty">{{ labelHint }}</p>
     </template>
   </template>
 </template>
@@ -156,6 +208,25 @@ const suggestion = computed<string | null>(() => {
 .rpc-line.is-ok { color: var(--fg-dim); }
 .rpc-line.is-dim { color: var(--fg-dimmer); }
 .rpc-rule { font-family: var(--font-mono); color: var(--fg); }
+
+/* La sugerencia hecha botón. `--tap-h` de área porque se toca (R1), y sin caja
+   propia: es un verbo de fila, como el `→ Reintentar` de la lista. */
+.rpc-moves { display: flex; flex-wrap: wrap; gap: 0.9rem; }
+.rpc-move {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-h);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-decoration: none;
+  cursor: pointer;
+}
+.rpc-move:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+.rpc-move:disabled { color: var(--fg-dim); cursor: progress; }
 
 .rpc-state {
   display: flex;
