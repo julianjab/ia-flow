@@ -84,6 +84,13 @@ function reasonOf(e: ExecutionLog): string | null {
 function isAction(e: ExecutionLog): boolean {
   return (e.kind ?? 'agent') !== 'agent';
 }
+
+/** `/projects/:id/executions?runId=<id>` — mismo mecanismo que `?runId=` de
+ *  `ExecutionsSection` (ver `jumpToRun`): abre esa pantalla con esta fila ya
+ *  expandida, en vez de duplicar acá el detalle completo del run. */
+function runHref(e: ExecutionLog): string {
+  return `/projects/${e.projectId}/executions?runId=${encodeURIComponent(e.id)}`;
+}
 </script>
 
 <template>
@@ -101,9 +108,12 @@ function isAction(e: ExecutionLog): boolean {
 
     <ul v-else class="runs-list">
       <li v-for="e in executions" :key="e.id" class="run-row">
-        <span class="run-outcome" :class="`is-${isRunning(e) ? 'running' : (e.outcome ?? 'unknown')}`">
-          {{ outcomeLabel(e) }}
-        </span>
+        <RouterLink
+          class="run-outcome"
+          :class="`is-${isRunning(e) ? 'running' : (e.outcome ?? 'unknown')}`"
+          :to="runHref(e)"
+          :title="'Ver la ejecución'"
+        >{{ outcomeLabel(e) }}</RouterLink>
         <span class="run-agent" :class="{ 'is-action': isAction(e) }" :title="e.providerId || e.kind">
           {{ e.agentId }}
         </span>
@@ -165,7 +175,9 @@ function isAction(e: ExecutionLog): boolean {
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: var(--tracking-hd);
+  text-decoration: none;
 }
+.run-outcome:hover { text-decoration: underline; }
 .is-success { color: var(--accent); }
 .is-error { color: var(--danger); }
 /* Cancelado y truncado no son fallos del agente: uno lo pidió una persona y el

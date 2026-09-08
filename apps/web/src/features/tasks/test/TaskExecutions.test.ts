@@ -30,9 +30,12 @@ beforeEach(() => {
   fetchTaskExecutions.mockResolvedValue([run()])
 })
 
+const RouterLinkStub = { props: ['to'], template: '<a :href="to"><slot /></a>' }
+
 async function mountWith(props: Record<string, unknown> = {}) {
   const wrapper = mount(TaskExecutions, {
     props: { projectId: 'ia-flow', taskId: 'I_1', ...props },
+    global: { stubs: { RouterLink: RouterLinkStub } },
   })
   await flushPromises()
   return wrapper
