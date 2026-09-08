@@ -185,6 +185,8 @@ export class WorkspaceManager {
   readonly #resolveGithubToken: () => Promise<string | undefined>
   readonly #gitAuthorName: string
   readonly #gitAuthorEmail: string
+  /** Path a una SSH private key sin passphrase. Ver `#configureSigning`. */
+  readonly #gitSigningKeyPath: string | undefined
   /** Cuando true (default), la limpieza borra también la branch remota si no
    *  aporta nada sobre la base. Kill-switch en el composition root. */
   readonly #deleteEmptyBranches: boolean
@@ -203,6 +205,14 @@ export class WorkspaceManager {
       githubToken?: string | (() => Promise<string | undefined>)
       gitAuthorName?: string
       gitAuthorEmail?: string
+      /**
+       * Path a una SSH private key sin passphrase, montada en disco. Cuando
+       * está seteado, los commits del clone (agente + autosalvage) se firman
+       * con `git commit -S` vía `gpg.format=ssh`. Sin esto, git nunca firma —
+       * es lo que produce el bloqueo de GitHub "Commits must have verified
+       * signatures" en repos con esa regla.
+       */
+      gitSigningKeyPath?: string
       deleteEmptyBranches?: boolean
       /**
        * Existencia en disco. Inyectable por la misma razón que `ShellRunner`:
@@ -223,6 +233,7 @@ export class WorkspaceManager {
     this.#resolveGithubToken = typeof tok === 'function' ? tok : async () => tok
     this.#gitAuthorName = opts.gitAuthorName ?? 'ia-flow-bot'
     this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
+    this.#gitSigningKeyPath = opts.gitSigningKeyPath
     this.#deleteEmptyBranches = opts.deleteEmptyBranches ?? true
     this.#exists = opts.exists ?? existsSync
     this.#otherLiveRunsOnTask = opts.otherLiveRunsOnTask
@@ -851,7 +862,28 @@ export class WorkspaceManager {
     // it from the shared `.git` config, so this is the only place it's set.
     await this.#shell.run(['git', 'config', 'user.name', this.#gitAuthorName], dest)
     await this.#shell.run(['git', 'config', 'user.email', this.#gitAuthorEmail], dest)
+    await this.#configureSigning(dest)
     return dest
+  }
+
+  /**
+   * Firma SSH de commits, opt-in vía `gitSigningKeyPath`. Se setea local (no
+   * global) por el mismo motivo que la identidad de arriba: los worktrees
+   * comparten el `.git/config` del clone, así que alcanza con hacerlo acá una
+   * vez.
+   *
+   * GitHub sólo marca "Verified" un commit creado por su propia API (Commits
+   * API / Git Data API) O uno firmado criptográficamente — nunca un `git
+   * push` de un commit sin firma, sin importar con qué token se autenticó el
+   * push. Esta es la única de las dos vías que un `git commit` normal (el que
+   * hace el agente vía `bash_run`, y el autosalvage de esta clase) puede
+   * cumplir.
+   */
+  async #configureSigning(dest: string): Promise<void> {
+    if (!this.#gitSigningKeyPath) return
+    await this.#shell.run(['git', 'config', 'gpg.format', 'ssh'], dest)
+    await this.#shell.run(['git', 'config', 'user.signingkey', this.#gitSigningKeyPath], dest)
+    await this.#shell.run(['git', 'config', 'commit.gpgsign', 'true'], dest)
   }
 
   async #doRemove(
