@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { type ExecutionStats, fetchExecutionStats } from './api';
 import { compactTokens, formatUsd, percent, WINDOWS } from './health-format';
-import { type DispositionCount, dispositionCounts, summarizeHealth } from './verdict';
+import { type DispositionCount, dispositionCounts, healthLine } from './verdict';
 
 /**
  * El resumen de la pantalla de ejecuciones — un veredicto, no una tabla (R10).
@@ -19,7 +19,12 @@ import { type DispositionCount, dispositionCounts, summarizeHealth } from './ver
  * y el resto se cuenta. La tabla no se recortó a tres columnas: se mudó entera
  * a la pantalla del agente, que es donde se audita — una fila de acá lleva ahí.
  *
- * Las reglas de quién está fuera de banda viven en `verdict.ts`, puras.
+ * **Turno 8 · el tope duro.** Una fila por agente fuera de banda asumía dos o
+ * tres outliers contra una base sana; con 51% ok los siete agentes califican y
+ * la banda se vuelve 470px de rojo que empuja la lista fuera de la pantalla.
+ * Ahora la banda es **una línea, siempre**: con uno solo fuera de banda dice
+ * quién y por qué, y cuando el fallo es del sistema dice la causa compartida y
+ * cuenta los agentes en vez de listarlos. Las reglas viven en `verdict.ts`.
  */
 const props = defineProps<{ projectId?: string | null; outcomeCounts: Record<string, number> }>();
 
@@ -36,9 +41,7 @@ const windowDays = ref<number>(7);
 const stats = ref<ExecutionStats | null>(null);
 const loading = ref(false);
 const error = ref('');
-/** Los sanos arrancan plegados: son, literalmente, la parte que no hay que
- *  mirar (O4). */
-const healthyOpen = ref(false);
+
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -61,8 +64,15 @@ onMounted(load);
 watch(() => [props.projectId, windowDays.value], load);
 
 const counts = computed<DispositionCount[]>(() => dispositionCounts(props.outcomeCounts));
-const verdict = computed(() => summarizeHealth(stats.value?.agents ?? []));
+/** Una línea, siempre (turno 8). Las reglas viven en `verdict.ts`, puras. */
+const line = computed(() => healthLine(stats.value));
 const totals = computed(() => stats.value?.totals ?? null);
+/** Los totales arrancan plegados: son el costo del período, no lo que pide una
+ *  decisión. Plegados miden 30px y llevan adentro el selector de ventana. */
+const totalsOpen = ref(false);
+const activeWindowLabel = computed(
+  () => WINDOWS.find((w) => w.days === windowDays.value)?.label ?? `${windowDays.value} d`,
+);
 
 /**
  * El párrafo explicativo del panel viejo, ahora en el `title` de la línea de
@@ -96,75 +106,52 @@ const totalsTitle =
 
     <p v-if="error" class="hv__error">{{ error }}</p>
     <template v-else-if="stats">
-      <p v-if="totals" class="hv__totals" :title="totalsTitle">
-        <strong>{{ totals.runs }}</strong> runs ·
-        <strong>{{ percent(totals.successRate) }}</strong> ok ·
+      <!-- Una línea, siempre. El `→` lleva a donde se audita: la página del
+           agente cuando hay uno señalado, el roster cuando es el sistema. -->
+      <button
+        v-if="line"
+        type="button"
+        class="hv__line"
+        :class="`hv__line--${line.tone}`"
+        data-testid="verdict-line"
+        :title="line.agentId ? `Abrir la página de ${line.agentId}` : 'Ver la salud por agente'"
+        @click="emit('open', line.agentId ?? '')"
+      >
+        <span class="hv__line-text">
+          <span class="hv__line-head">{{ line.headline }}</span>
+          <span v-if="line.detail" class="hv__line-detail">{{ line.detail }}</span>
+        </span>
+        <span class="hv__line-go" aria-hidden="true">→</span>
+      </button>
+
+      <!-- El costo del período, plegado: no pide una decisión, y desplegado son
+           los 40px que empujaban la primera fila. Los rangos que NO están
+           activos viven adentro — el activo ya lo dice el texto. -->
+      <button
+        v-if="totals"
+        type="button"
+        class="hv__totals"
+        :aria-expanded="totalsOpen"
+        data-testid="verdict-totals"
+        :title="totalsTitle"
+        @click="totalsOpen = !totalsOpen"
+      >
+        <span class="hv__totals-caret" aria-hidden="true">{{ totalsOpen ? '▾' : '▸' }}</span>
+        <strong>{{ totals.runs }}</strong> runs · {{ activeWindowLabel }} ·
         {{ compactTokens(totals.tokensIn) }} frescos ·
         <strong>{{ formatUsd(totals.costUsd) }}</strong> est.
-        <span class="hv__windows">
-          <button
-            v-for="w in WINDOWS"
-            :key="w.days"
-            type="button"
-            class="hv__window"
-            :class="{ 'hv__window--on': windowDays === w.days }"
-            :aria-pressed="windowDays === w.days"
-            @click="windowDays = w.days"
-          >{{ w.label }}</button>
-        </span>
-      </p>
-
-      <!-- Un agente fuera de banda por línea, con su razón LITERAL: `48% ok ·
-           12 de 23 por tools fallando` dice qué mirar; una barra de color
-           sólo dice que algo está mal. -->
-      <button
-        v-for="v in verdict.outOfBand"
-        :key="v.agentId"
-        type="button"
-        class="hv__agent"
-        data-testid="verdict-out-of-band"
-        :title="`Abrir la página de ${v.agentId}`"
-        @click="emit('open', v.agentId)"
-      >
-        <span class="hv__agent-id">{{ v.agentId }}</span>
-        <span class="hv__agent-reason">{{ v.reason }}</span>
-        <span class="hv__agent-go" aria-hidden="true">→</span>
       </button>
-
-      <!-- Los sanos son UNA línea plegada con sus tasas: son la parte del día
-           que no hay que mirar, y listarlos los pone a competir con el que sí. -->
-      <button
-        v-if="verdict.healthy.length"
-        type="button"
-        class="hv__healthy"
-        :aria-expanded="healthyOpen"
-        data-testid="verdict-healthy"
-        @click="healthyOpen = !healthyOpen"
-      >
-        <span class="hv__healthy-caret" aria-hidden="true">{{ healthyOpen ? '▾' : '▸' }}</span>
-        {{ verdict.healthy.length }}
-        {{ verdict.healthy.length === 1 ? 'agente' : 'agentes' }}
-        {{ verdict.outOfBand.length ? 'más, en banda' : 'en banda' }}
-        <span class="hv__healthy-rates">
-          {{ verdict.healthy.map((a) => percent(a.successRate)).join(' · ') }}
-        </span>
-      </button>
-      <ul v-if="healthyOpen" class="hv__healthy-list">
-        <li v-for="a in verdict.healthy" :key="a.agentId">
-          <button type="button" class="hv__healthy-row" @click="emit('open', a.agentId)">
-            <span class="hv__agent-id">{{ a.agentId }}</span>
-            <span class="hv__agent-reason">{{ percent(a.successRate) }} ok · {{ a.runs }} runs</span>
-          </button>
-        </li>
-      </ul>
-
-      <!-- Pocos runs no es "en banda": es que todavía no se puede decir nada.
-           Afirmar que está sano con dos runs es inventar. -->
-      <p v-if="verdict.lowSample.length" class="hv__low">
-        {{ verdict.lowSample.length }}
-        {{ verdict.lowSample.length === 1 ? 'agente todavía sin' : 'agentes todavía sin' }}
-        muestra suficiente en esta ventana.
-      </p>
+      <div v-if="totalsOpen" class="hv__windows">
+        <button
+          v-for="w in WINDOWS"
+          :key="w.days"
+          type="button"
+          class="hv__window"
+          :class="{ 'hv__window--on': windowDays === w.days }"
+          :aria-pressed="windowDays === w.days"
+          @click="windowDays = w.days"
+        >{{ w.label }}</button>
+      </div>
     </template>
     <p v-else-if="loading" class="hv__low">Cargando salud…</p>
   </div>
@@ -206,13 +193,23 @@ const totalsTitle =
   align-items: center;
   gap: 0.4ch;
   flex-wrap: wrap;
+  width: 100%;
+  /* Plegada mide una fila de grilla y no un blanco táctil: se toca, pero es un
+     dato, no una decisión. --tap-h-sm es el compromiso que ya usa el chip. */
+  min-height: var(--tap-h-sm);
+  padding: 0 0.7rem;
   margin: 0;
+  border: none;
+  background: none;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   color: var(--fg-dim);
-  cursor: help;
+  text-align: left;
+  cursor: pointer;
 }
-.hv__windows { display: flex; gap: 0.25rem; margin-left: auto; }
+.hv__totals:hover { color: var(--fg); }
+.hv__totals-caret { color: var(--fg-dimmer); }
+.hv__windows { display: flex; gap: 0.25rem; padding: 0 0.7rem; }
 .hv__window {
   height: var(--tap-h-sm);
   padding: 0 0.6rem;
@@ -226,71 +223,46 @@ const totalsTitle =
 }
 .hv__window--on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 
-.hv__agent {
+/* ── La línea de salud: una, siempre ──────────────────────────────────────
+   Dos líneas de texto adentro de un solo blanco táctil: la tasa arriba y la
+   causa abajo. Siete filas de agente eran 470px; esto son 74. */
+.hv__line {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   width: 100%;
   min-height: var(--tap-h);
-  padding: 0 0.7rem;
+  padding: 0.35rem 0.7rem;
   border: none;
-  border-left: 3px solid var(--danger);
+  border-left: 3px solid var(--warn);
   border-radius: var(--radius-sm);
-  background: var(--red-bg);
-  color: var(--danger);
+  background: var(--yellow-bg);
+  color: var(--warn);
   font-family: var(--font-mono);
   font-size: var(--fs-body-sm);
   text-align: left;
   cursor: pointer;
 }
-.hv__agent:hover { background: var(--panel-hi); }
-.hv__agent-id { flex: 0 0 auto; color: var(--fg); }
-.hv__agent-reason {
-  flex: 1 1 auto;
-  min-width: 0;
+.hv__line:hover { background: var(--panel-hi); }
+/* Rojo es "algo te espera". Que el server no clasifique los fallos es un
+   problema de datos: ámbar. Y sin nadie fuera de banda no hay alarma. */
+.hv__line--danger { border-left-color: var(--danger); background: var(--red-bg); color: var(--danger); }
+.hv__line--ok {
+  border-left-color: var(--border-hi);
+  background: transparent;
+  color: var(--fg-dim);
+}
+.hv__line-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.hv__line-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* La causa cede primero: es lo que explica, no lo que alarma. */
+.hv__line-detail {
+  font-size: var(--fs-micro);
+  color: var(--fg-mute);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--fs-micro);
 }
-.hv__agent-go { flex: 0 0 auto; }
-
-.hv__healthy {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  min-height: var(--tap-h);
-  padding: 0 0.7rem;
-  border: none;
-  background: none;
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  text-align: left;
-  cursor: pointer;
-}
-.hv__healthy:hover { color: var(--fg); }
-.hv__healthy-caret { color: var(--fg-dimmer); }
-.hv__healthy-rates { margin-left: auto; color: var(--accent); }
-
-.hv__healthy-list { list-style: none; margin: 0; padding: 0; }
-.hv__healthy-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  min-height: var(--tap-h);
-  padding: 0 1.5rem;
-  border: none;
-  background: none;
-  color: var(--fg-mute);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  text-align: left;
-  cursor: pointer;
-}
-.hv__healthy-row:hover { background: var(--panel-hi); color: var(--fg); }
+.hv__line-go { flex: 0 0 auto; }
 
 .hv__error { margin: 0; font-size: var(--fs-body-sm); color: var(--danger); }
 .hv__low { margin: 0; font-size: var(--fs-micro); color: var(--fg-dimmer); }

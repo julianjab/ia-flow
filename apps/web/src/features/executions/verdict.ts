@@ -101,6 +101,110 @@ export function summarizeHealth(agents: AgentHealth[]): HealthVerdict {
   return { outOfBand, healthy, lowSample }
 }
 
+/**
+ * La banda de salud es **una línea, siempre** (turno 8, R10 llevado a su tope).
+ *
+ * `summarizeHealth` asumía dos o tres outliers contra una base sana: una fila
+ * por agente fuera de banda. Con 51% ok global los siete agentes califican, y
+ * la banda se vuelve 470px de rojo que empuja la primera fila fuera de la
+ * pantalla — con siete tasas truncadas que además no dicen qué hacer.
+ *
+ * Cuando el fallo es del SISTEMA, lo que hay que nombrar es la causa
+ * compartida, no los agentes. Y la causa sale de los mismos totales que la
+ * pantalla ya pide.
+ */
+export interface HealthLine {
+  /** La primera línea: la tasa y cuántos agentes están fuera de banda. */
+  headline: string
+  /** La segunda: la causa compartida, o la razón del único agente señalado. */
+  detail: string
+  /**
+   * `danger` sólo cuando hay un fallo diagnosticado: rojo es "algo te espera".
+   * Que el server no pueda clasificar los fallos es un problema de datos —
+   * eso es `warn`, y decirlo en rojo enseña a ignorar el rojo.
+   */
+  tone: 'danger' | 'warn' | 'ok'
+  /** Cuando hay UN solo agente fuera de banda, la línea es suya y lleva ahí. */
+  agentId: string | null
+}
+
+/**
+ * La causa compartida de los fallos de la ventana.
+ *
+ * `unknown` no se dice como "sin clasificar": con 56 de 59 fallos sin clase, el
+ * problema no es que la clase sea desconocida sino que **no hay diagnóstico**,
+ * que es una frase que apunta al server y no al agente.
+ */
+function sharedCause(
+  totals: ExecutionStats['totals'],
+): { text: string; tone: 'danger' | 'warn' } | null {
+  const failures = totals.error + totals.cancelled + totals.truncated
+  if (failures === 0) return null
+  const unknown = totals.failureClasses.unknown ?? 0
+  if (unknown > failures / 2) {
+    return {
+      text: `${unknown} de ${failures} fallos sin failureClass · no hay diagnóstico`,
+      tone: 'warn',
+    }
+  }
+  const [cls, count] =
+    Object.entries(totals.failureClasses)
+      .filter(([k]) => k !== 'unknown')
+      .sort((a, b) => b[1] - a[1])[0] ?? []
+  if (!cls || !count) return null
+  return { text: `${CLASS_LABELS[cls] ?? cls} en ${count} de ${failures} fallos`, tone: 'danger' }
+}
+
+/** Cuántos agentes fuera de banda dejan de ser outliers y pasan a ser el
+ *  sistema. Con dos, nombrarlos todavía sirve; con tres ya son la norma. */
+export const SYSTEMIC_AGENTS = 3
+
+export function healthLine(stats: ExecutionStats | null): HealthLine | null {
+  if (!stats) return null
+  const { outOfBand, healthy, lowSample } = summarizeHealth(stats.agents)
+  const rated = outOfBand.length + healthy.length
+  const rate = percent(stats.totals.successRate)
+
+  // Nadie fuera de banda: una línea que dice que no hay nada que mirar, y no
+  // se dibuja en rojo ni pide un click.
+  if (!outOfBand.length) {
+    if (!rated && !lowSample.length) return null
+    return {
+      headline: `${rate} ok · ${rated} ${rated === 1 ? 'agente' : 'agentes'} en banda`,
+      detail: lowSample.length
+        ? `${lowSample.length} ${lowSample.length === 1 ? 'agente todavía sin' : 'agentes todavía sin'} muestra suficiente`
+        : '',
+      tone: 'ok',
+      agentId: null,
+    }
+  }
+
+  // Uno solo: la línea ES ese agente, con su razón literal — que es lo que se
+  // necesita cuando el resto está sano.
+  if (outOfBand.length < SYSTEMIC_AGENTS) {
+    const worst = outOfBand[0]
+    return {
+      headline:
+        outOfBand.length === 1
+          ? `${worst.agentId} · ${rate} ok global`
+          : `${rate} ok · ${outOfBand.length} de ${rated} agentes fuera de banda`,
+      detail: outOfBand.length === 1 ? worst.reason : outOfBand.map((a) => a.agentId).join(' · '),
+      tone: 'danger',
+      agentId: outOfBand.length === 1 ? worst.agentId : null,
+    }
+  }
+
+  // El sistema. Los agentes se cuentan, no se listan, y la segunda línea es la
+  // causa que comparten.
+  const cause = sharedCause(stats.totals)
+  return {
+    headline: `${rate} ok · ${outOfBand.length} de ${rated} agentes fuera de banda`,
+    detail: cause?.text ?? '',
+    tone: cause?.tone ?? 'danger',
+    agentId: null,
+  }
+}
+
 export type Disposition = 'waiting' | 'running' | 'closed'
 
 export interface DispositionCount {
