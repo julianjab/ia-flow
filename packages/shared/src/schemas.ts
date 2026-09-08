@@ -1761,6 +1761,25 @@ export const FOCUS_WHY_MAX = 90
  *  lista deja de ser algo que un humano vaya a mirar entera. */
 export const FOCUS_MAX_CANDIDATES = 15
 
+// ─── Grupos por tema (GET /api/tasks/groups) ──────────────────────────────
+//
+// Hermano de FOCO, no el mismo dato: FOCO es una tarjeta advisory de 2-3 picks
+// sobre un recorte chico del bucket. Esto cubre el bucket `waiting-on-you`
+// ENTERO, para que el barrido de la lista lea temas juntos en vez de 40 filas
+// sueltas. Tampoco reordena — ver `TareasSection.vue` y `task-grouping.ts`:
+// los grupos se ubican en la posición de su integrante mejor ubicado dentro
+// del orden que `compareWithinBucket` ya calculó.
+export const TaskGroupsSchema = z.object({
+  groups: z.array(TaskFocusClusterSchema),
+  computedAt: z.string(),
+})
+export type TaskGroups = z.infer<typeof TaskGroupsSchema>
+
+/** Tope de candidatos: más que esto y las tareas que sobran quedan sueltas
+ *  (sin agrupar), no sin mostrarse. */
+export const TASK_GROUPS_MAX_CANDIDATES = 60
+export const TASK_GROUPS_MAX_GROUPS = 10
+
 // ─── Execution stats (GET /api/executions/stats) ──────────────────────────
 // Aggregate health per agent over a time window. Computed in SQL rather than
 // derived in the browser from a page of rows: the interesting windows (a
