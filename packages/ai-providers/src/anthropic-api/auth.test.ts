@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
-  CLAUDE_CODE_BETAS,
   backoffMs,
   buildAnthropicAuthHeader,
   buildAnthropicHeaders,
+  CLAUDE_CODE_BETAS,
   requestAnthropicApi,
   requestAnthropicApiWithRetry,
 } from './auth.js'

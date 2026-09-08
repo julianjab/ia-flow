@@ -1,7 +1,7 @@
-import EventTypePicker from '@/features/rules/EventTypePicker.vue'
 import { EVENT_CATALOG } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import EventTypePicker from '@/features/rules/EventTypePicker.vue'
 
 const mountPicker = (modelValue = '') => mount(EventTypePicker, { props: { modelValue } })
 

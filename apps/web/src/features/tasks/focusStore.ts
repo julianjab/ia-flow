@@ -1,7 +1,7 @@
-import { fetchTaskFocus } from '@/features/tasks/api'
 import type { TaskFocus } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { fetchTaskFocus } from '@/features/tasks/api'
 
 /**
  * El foco del proyecto, cacheado por proyecto.

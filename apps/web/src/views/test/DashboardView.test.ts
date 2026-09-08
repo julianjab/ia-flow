@@ -50,10 +50,7 @@ function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
   }
 }
 
-async function mountDashboard(opts: {
-  active: ExecutionLog[]
-  recent: ExecutionLog[]
-}) {
+async function mountDashboard(opts: { active: ExecutionLog[]; recent: ExecutionLog[] }) {
   fetchExecutionsMock.mockResolvedValueOnce(opts.recent)
   const activeStore = useActiveExecutionsStore()
   // Skip the fetch path by marking the store as already hydrated with the

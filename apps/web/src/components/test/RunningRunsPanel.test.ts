@@ -1,9 +1,9 @@
-import RunningRunsPanel from '@/components/RunningRunsPanel.vue'
-import { useActiveExecutionsStore } from '@/features/executions/activeStore'
 import type { ExecutionLog } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import RunningRunsPanel from '@/components/RunningRunsPanel.vue'
+import { useActiveExecutionsStore } from '@/features/executions/activeStore'
 
 vi.mock('@/features/executions/api', () => ({
   fetchActiveExecutions: vi.fn(async () => []),

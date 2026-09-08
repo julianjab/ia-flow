@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
-import { type EngineEvent, type Rule, type TaskComment, createEvent } from '@ia-flow/shared'
+import { createEvent, type EngineEvent, type Rule, type TaskComment } from '@ia-flow/shared'
 import { createResolveRuleConversation } from '../resolve-rule-conversation.js'
 
 // Lo que se testea es cuándo este módulo hace I/O y cuándo no: es best-effort

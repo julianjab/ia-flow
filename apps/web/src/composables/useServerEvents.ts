@@ -5,8 +5,8 @@
 // each caller registers a handler and gets a matching unregister on unmount.
 // Reconnects automatically with a bounded backoff while any handler is alive.
 
-import { getSelectedToken, wsOrigin } from '@/features/servers/selection'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { getSelectedToken, wsOrigin } from '@/features/servers/selection'
 
 export type ServerEvent =
   | { type: 'connected' }

@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  type WebhookHint,
-  type WebhookTarget,
   deliverWebhook,
   hasWebhookTarget,
   listWebhookTargets,
   registerWebhookTarget,
   triggerWebhookTarget,
+  type WebhookHint,
+  type WebhookTarget,
 } from '../webhook-registry.js'
 
 function makeTarget(

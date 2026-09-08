@@ -1,9 +1,9 @@
-import RulesSection from '@/features/rules/RulesSection.vue'
-import { dragTo, rowAt } from '@/test/dragReorder'
 import type { Pipeline, Rule } from '@ia-flow/shared'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import RulesSection from '@/features/rules/RulesSection.vue'
+import { dragTo, rowAt } from '@/test/dragReorder'
 
 // La regla abierta vive en la URL (:detailId — ver resolveRuleFromRoute), así
 // que la sección necesita un router real montado y no un stub: useRoute() sin

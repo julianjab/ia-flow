@@ -1,3 +1,6 @@
+import type { Project, SourceRef } from '@ia-flow/shared'
+import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
 import {
   archiveProject,
   createProject,
@@ -5,9 +8,6 @@ import {
   fetchProjects,
   patchProject,
 } from '@/features/projects/api'
-import type { Project, SourceRef } from '@ia-flow/shared'
-import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
 
 const ACTIVE_PROJECT_STORAGE_KEY = 'ia-flow:active-project-id'
 

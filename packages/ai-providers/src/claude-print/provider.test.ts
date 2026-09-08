@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import type { ProviderInput } from '../contract.js'
-import { ClaudePrintProvider, type SpawnedProc, _claudePrintInternals } from './provider.js'
+import { _claudePrintInternals, ClaudePrintProvider, type SpawnedProc } from './provider.js'
 
 const REAL_SPAWN = _claudePrintInternals.spawn
 

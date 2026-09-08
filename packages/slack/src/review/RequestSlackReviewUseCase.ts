@@ -3,10 +3,10 @@ import type { IssueItem, ProjectSource, SourceItem } from '@ia-flow/issue-source
 import { defaultToIssueItem, isCiFinished, openPullRequests } from '@ia-flow/issue-sources'
 import type { Project, PullRequestRef, SlackMemberRef } from '@ia-flow/shared'
 import {
-  ProjectSettingsSchema,
-  type SlackReviewKind,
   buildSlackReviewMessage,
+  ProjectSettingsSchema,
   resolveSlackReviewTarget,
+  type SlackReviewKind,
   slackReviewBlockedReason,
 } from '@ia-flow/shared'
 import { createLogger } from '../logger.js'

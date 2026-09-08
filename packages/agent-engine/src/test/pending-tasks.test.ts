@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import type { TaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import {
-  PendingTaskRegistry,
   getPendingTask,
+  PendingTaskRegistry,
   registerPendingTask,
   removePendingTask,
   waitForFinish,

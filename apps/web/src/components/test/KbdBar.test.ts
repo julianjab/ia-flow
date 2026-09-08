@@ -1,7 +1,7 @@
-import KbdBar from '@/components/KbdBar.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import KbdBar from '@/components/KbdBar.vue'
 
 async function mountAt(mobile: boolean, props: Record<string, unknown> = {}) {
   vi.resetModules()

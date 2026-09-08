@@ -1,6 +1,6 @@
-import { useDispositionOrder } from '@/composables/useDispositionOrder'
 import { describe, expect, it } from 'vitest'
 import { ref } from 'vue'
+import { useDispositionOrder } from '@/composables/useDispositionOrder'
 
 const row = (id: string, disposition = 'waiting-on-you') =>
   ({ id, disposition }) as { id: string; disposition: 'waiting-on-you' }

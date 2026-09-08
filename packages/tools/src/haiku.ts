@@ -8,7 +8,7 @@
 // importar: `envRepo.loadIntoProcess()` vuelca lo guardado en SQLite después
 // de que el composition root se evaluó, así que capturarla acá dejaría al
 // helper ciego a lo que el operador pegó en Configuración.
-import { type Logger, createLogger } from './logger.js'
+import { createLogger, type Logger } from './logger.js'
 
 const log = createLogger('haiku')
 

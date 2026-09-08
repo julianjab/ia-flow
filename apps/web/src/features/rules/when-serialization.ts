@@ -1,5 +1,5 @@
-import type { ConditionRow } from '@/ui/condition-rows'
 import type { WhenCondition } from '@ia-flow/shared'
+import type { ConditionRow } from '@/ui/condition-rows'
 
 // Convierte entre `WhenCondition[]` (lo que persiste, `packages/shared`) y
 // `ConditionRow[]` (lo que edita `ui/ConditionRowsEditor`) — la misma

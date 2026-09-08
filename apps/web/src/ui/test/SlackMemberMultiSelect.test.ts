@@ -1,8 +1,8 @@
-import SlackMemberMultiSelect from '@/ui/SlackMemberMultiSelect.vue'
 import type { SlackMemberRef } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import SlackMemberMultiSelect from '@/ui/SlackMemberMultiSelect.vue'
 
 const members: SlackMemberRef[] = [
   { id: 'U0GORDO', name: 'gordo' },

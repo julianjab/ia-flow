@@ -1,6 +1,6 @@
 import { DAEMON_MODES, envDaemonMode } from '@ia-flow/issue-sources'
 import type { Project, SourceRef } from '@ia-flow/shared'
-import { ProjectSchema, SourceRefSchema, invalidateMemoized } from '@ia-flow/shared'
+import { invalidateMemoized, ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import {
@@ -43,9 +43,11 @@ const ProjectPatchSchema = z.object({
 // el daemon se lo comía recién al arrancar. `validate` y no `get`: construye y
 // descarta, sin dejar la instancia cacheada para una fila que puede no
 // llegar a persistirse.
-function sourceConfigError(project: { id: string; name: string; source?: SourceRef }):
-  | string
-  | null {
+function sourceConfigError(project: {
+  id: string
+  name: string
+  source?: SourceRef
+}): string | null {
   try {
     sourceFactory.validate(project as Project)
     return null

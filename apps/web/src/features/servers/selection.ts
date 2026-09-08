@@ -8,8 +8,8 @@
 // Se puede apuntar a otro origen porque el server abre CORS para todos
 // (`app.use('*', cors({ origin: '*' }))`, apps/server/src/entry/server.ts).
 
-import { type ServerKind, normalizeBaseUrl } from '@/features/servers/api'
 import axios from 'axios'
+import { normalizeBaseUrl, type ServerKind } from '@/features/servers/api'
 
 const SELECTED_KEY = 'ia-flow:servers:selected'
 /**

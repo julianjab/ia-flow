@@ -12,14 +12,14 @@
 // GitHubIssueTaskSource can be unit-tested with a fake implementation
 // instead of mocking `fetch` — see test/source.test.ts.
 import { gql, isNodeNotFoundError, rest } from '../../github-shared/client.js'
-import { type IssueDevLinks, fetchIssueDevLinks } from '../../github-shared/dev-links.js'
+import { fetchIssueDevLinks, type IssueDevLinks } from '../../github-shared/dev-links.js'
 import {
-  type IssueComment,
   addBlockedBy,
   addIssueComment,
   createIssue,
   fetchIssueComments,
   getBlockingIssues,
+  type IssueComment,
   updateIssueBody,
 } from '../../github-shared/issue.js'
 import { replaceIssueLabels } from '../../github-shared/labels.js'

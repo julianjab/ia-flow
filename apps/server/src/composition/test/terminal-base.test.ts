@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import { type ProviderInput, createTerminalBase, pexec } from '@ia-flow/ai-providers'
+import { createTerminalBase, type ProviderInput, pexec } from '@ia-flow/ai-providers'
 import {
   DEFAULT_TERMINAL_SETTINGS,
   loadProviderConfig,

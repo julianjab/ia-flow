@@ -14,7 +14,7 @@
 import type { Admission, AdmissionRequest } from '@ia-flow/ai-providers'
 import { withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { AgentDefinition, AgentProviderChoice, ProviderLimit, Task } from '@ia-flow/shared'
-import { type PendingSnapshot, countRunningByProvider } from './capacity.js'
+import { countRunningByProvider, type PendingSnapshot } from './capacity.js'
 import { evalWhen } from './outcomes.js'
 
 /**

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { ProjectSettingsSchema } from '../schemas.js'
 import {
-  DEFAULT_SLACK_REVIEW_MESSAGES,
   buildSlackReviewMessage,
   compactSlackReviewMessage,
+  DEFAULT_SLACK_REVIEW_MESSAGES,
   renderMentions,
   resolveSlackReviewTarget,
   slackReviewBlockedReason,

@@ -1,6 +1,6 @@
-import TaskRow from '@/components/TaskRow.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import TaskRow from '@/components/TaskRow.vue'
 
 const base = { title: 'Arreglar el proxy', issueNumber: 42 }
 

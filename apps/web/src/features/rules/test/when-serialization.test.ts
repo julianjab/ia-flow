@@ -1,5 +1,5 @@
-import { rowsToWhen, whenToRows } from '@/features/rules/when-serialization'
 import { describe, expect, it } from 'vitest'
+import { rowsToWhen, whenToRows } from '@/features/rules/when-serialization'
 
 describe('whenToRows', () => {
   it('convierte WhenCondition[] a filas, con logic "and" forzado en la primera', () => {

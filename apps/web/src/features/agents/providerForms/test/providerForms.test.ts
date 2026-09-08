@@ -1,8 +1,8 @@
+import { mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
 import AnthropicApiProviderForm from '@/features/agents/providerForms/AnthropicApiProviderForm.vue'
 import JsonProviderForm from '@/features/agents/providerForms/JsonProviderForm.vue'
 import TerminalClaudeProviderForm from '@/features/agents/providerForms/TerminalClaudeProviderForm.vue'
-import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
 
 // El form lee el catálogo de modelos del store de providers. Se stubea porque
 // lo que se está testeando es que MONTE y use el kit, no de dónde saca la lista.

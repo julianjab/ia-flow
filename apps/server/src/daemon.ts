@@ -3,18 +3,18 @@ import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources
 import {
   type EventProducer,
   IntervalEventProducer,
-  RuleEngineHandler,
-  WaitHandler,
   matchesCron,
   parseCron,
+  RuleEngineHandler,
   scheduleTickEvent,
+  WaitHandler,
 } from '@ia-flow/rules'
 import {
+  createEvent,
+  deriveEvent,
   type EngineEvent,
   WAIT_EXPIRED,
   WAIT_RESUMED,
-  createEvent,
-  deriveEvent,
 } from '@ia-flow/shared'
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'

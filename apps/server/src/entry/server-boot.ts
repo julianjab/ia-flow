@@ -13,6 +13,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { reconcileOrphanedRuns } from '../adapters/pending-task-rehydrator.js'
 import {
+  actionRepo,
   anthropicApiProvider,
   broadcast,
   envRepo,
@@ -23,8 +24,8 @@ import {
   runCheckpointRepo,
   slack,
   tmuxClaudeProvider,
+  toolRepo,
 } from '../composition/container.js'
-import { actionRepo, toolRepo } from '../composition/container.js'
 import { applyEditableTools } from '../composition/editable-tools.js'
 import { setBroadcast, startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'

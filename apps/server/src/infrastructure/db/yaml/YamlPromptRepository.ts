@@ -1,6 +1,6 @@
-import { readFileSync } from 'fs'
 import type { StepType, YamlPromptCatalog } from '@ia-flow/shared'
 import { YamlPromptCatalogSchema } from '@ia-flow/shared'
+import { readFileSync } from 'fs'
 import { parse as parseYaml } from 'yaml'
 import type { IPromptRepository } from '../../../domain/ports/IPromptRepository.js'
 

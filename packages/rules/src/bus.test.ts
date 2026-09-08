@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { type EngineEvent, MAX_EVENT_DEPTH, createEvent } from '@ia-flow/shared'
-import { type EventHandler, type EventOutcome, InMemoryEventBus, aggregateOutcomes } from './bus.js'
+import { createEvent, type EngineEvent, MAX_EVENT_DEPTH } from '@ia-flow/shared'
+import { aggregateOutcomes, type EventHandler, type EventOutcome, InMemoryEventBus } from './bus.js'
 
 function ev(over: Partial<EngineEvent> = {}): EngineEvent {
   return createEvent({

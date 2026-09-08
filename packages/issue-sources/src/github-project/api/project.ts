@@ -6,9 +6,9 @@ import type { WorkingMarker } from '@ia-flow/shared'
 // (upsertValidationComment → addIssueComment).
 import { gql, isNodeNotFoundError } from '../../github-shared/client.js'
 import {
-  type PullRequestRef,
   issueDevLinksSelection,
   mapDevLinks,
+  type PullRequestRef,
   withDevLinksFallback,
 } from '../../github-shared/dev-links.js'
 import { addIssueComment } from '../../github-shared/issue.js'

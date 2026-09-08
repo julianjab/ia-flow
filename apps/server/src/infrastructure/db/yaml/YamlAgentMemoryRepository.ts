@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
 import { type AgentMemoryEntry, AgentMemoryEntrySchema } from '@ia-flow/shared'
+import { readFileSync } from 'fs'
 import { parse as parseYaml } from 'yaml'
 import type { IAgentMemoryRepository } from '../../../domain/ports/IAgentMemoryRepository.js'
 

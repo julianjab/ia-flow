@@ -16,7 +16,7 @@ import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { AgentOutcomes, Task } from '@ia-flow/shared'
 import type { IBroadcast } from './contract.js'
 import { applyOutcome } from './outcomes.js'
-import { type OutcomeEntry, applyErrorOutcome, applySuccessOutcome } from './run-outcome.js'
+import { applyErrorOutcome, applySuccessOutcome, type OutcomeEntry } from './run-outcome.js'
 
 export class AgentLifecycle {
   constructor(

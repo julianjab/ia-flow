@@ -1,7 +1,7 @@
 import { getPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import { ExecutionLogFiltersSchema, ExecutionStatsFiltersSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { INSTANCE_ID, executionLogRepo, executionStatsRepo } from '../composition/container.js'
+import { executionLogRepo, executionStatsRepo, INSTANCE_ID } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('executions-route')

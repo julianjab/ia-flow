@@ -8,8 +8,9 @@
 //                 execution log.
 // AgentOrchestrator only resolves which agents apply to a task's status and
 // loops calling `Agent.run` for each — this class is the "run one" part.
-import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
+
 import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
+import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import { openPullRequests, selectCommentWindow } from '@ia-flow/issue-sources'
 import type {
@@ -25,8 +26,8 @@ import type {
 import {
   EMPTY_WORKSPACE_PLAN,
   ERROR_EXIT,
-  SUCCESS_EXIT,
   intersectWritePaths,
+  SUCCESS_EXIT,
 } from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
 import type {
@@ -49,8 +50,8 @@ import {
 } from './execution-log.js'
 import { buildGitContext } from './git-context.js'
 import {
-  type LinkedBranchNamer,
   defaultLinkedBranchNamer,
+  type LinkedBranchNamer,
   resolveLinkedBranch,
 } from './linked-branch.js'
 import { createLogger } from './logger.js'
@@ -66,7 +67,7 @@ import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveContext, type ResolveVariable, resolveVariables } from './variable-resolver.js'
-import { VERIFY_FAILED_MARKER, buildVerifyFailedError, runVerifyCommands } from './verify.js'
+import { buildVerifyFailedError, runVerifyCommands, VERIFY_FAILED_MARKER } from './verify.js'
 import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('agent')

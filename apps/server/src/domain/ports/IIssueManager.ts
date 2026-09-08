@@ -1,11 +1,11 @@
 // Re-exports the canonical port from @ia-flow/issue-sources. Extracted there
 // as part of the composable-engine refactor (docs/prd/composable-engine-refactor.md).
 export type {
+  Blocker,
+  Disposable,
   IIssueManager,
   IssueItem,
   SourceItem,
   ValidationResult,
-  Disposable,
-  Blocker,
 } from '@ia-flow/issue-sources'
 export { defaultToIssueItem, issueItemToTask } from '@ia-flow/issue-sources'

@@ -1,7 +1,7 @@
-import { dragTo, rowAt } from '@/test/dragReorder'
 import type { AgentProviderChoice } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { dragTo, rowAt } from '@/test/dragReorder'
 import ProviderChoicesEditor from '../ProviderChoicesEditor.vue'
 
 const PROVIDERS = [

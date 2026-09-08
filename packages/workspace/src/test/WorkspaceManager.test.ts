@@ -2,14 +2,14 @@ import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { WorkspaceManager } from '../WorkspaceManager.js'
 import {
-  DEFAULT_WORKTREE_BASE,
   branchNameFor,
+  DEFAULT_WORKTREE_BASE,
   worktreeNameFor,
   worktreePathFor,
 } from '../layout.js'
 import type { ShellResult, ShellRunner } from '../shell.js'
+import { WorkspaceManager } from '../WorkspaceManager.js'
 
 // ─── Test doubles ────────────────────────────────────────────────────────
 

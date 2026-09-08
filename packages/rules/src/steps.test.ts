@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { type Steps, referencesSteps, resolveSteps } from './steps.js'
+import { referencesSteps, resolveSteps, type Steps } from './steps.js'
 
 const steps: Steps = {
   triage: {

@@ -1,6 +1,6 @@
-import FinishedTodayPanel from '@/components/FinishedTodayPanel.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import FinishedTodayPanel from '@/components/FinishedTodayPanel.vue'
 
 let rows: Array<Record<string, unknown>> = []
 let throws = false

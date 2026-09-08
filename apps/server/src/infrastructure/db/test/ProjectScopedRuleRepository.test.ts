@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { Project } from '@ia-flow/shared'
-import type { Rule } from '@ia-flow/shared'
+import type { Project, Rule } from '@ia-flow/shared'
 import type { IProjectRepository } from '../../../domain/ports/IProjectRepository.js'
 import type { IRuleRepository } from '../../../domain/ports/IRuleRepository.js'
 import { ProjectScopedRuleRepository } from '../ProjectScopedRuleRepository.js'

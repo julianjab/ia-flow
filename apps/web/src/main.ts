@@ -1,6 +1,6 @@
-import { restoreSelectedServer } from '@/features/servers/selection'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
+import { restoreSelectedServer } from '@/features/servers/selection'
 import App from './App.vue'
 import router from './router'
 import './styles/theme.css'

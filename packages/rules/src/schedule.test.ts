@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { SCHEDULE_TICK, matchesCron, parseCron, scheduleTickEvent } from './schedule.js'
+import { matchesCron, parseCron, SCHEDULE_TICK, scheduleTickEvent } from './schedule.js'
 
 function at(iso: string) {
   return new Date(iso)

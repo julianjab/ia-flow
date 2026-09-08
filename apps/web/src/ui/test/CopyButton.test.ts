@@ -1,6 +1,6 @@
-import CopyButton from '@/ui/CopyButton.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import CopyButton from '@/ui/CopyButton.vue'
 
 const writeText = vi.fn(async () => {})
 

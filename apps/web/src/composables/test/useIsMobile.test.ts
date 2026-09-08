@@ -1,7 +1,7 @@
-import { useIsMobile, useIsSplit } from '@/composables/useIsMobile'
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
+import { useIsMobile, useIsSplit } from '@/composables/useIsMobile'
 
 // Los dos breakpoints comparten maquinaria: un `matchMedia` por query, un solo
 // listener para toda la app, liberado cuando se va el último consumidor.

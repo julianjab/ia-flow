@@ -1,5 +1,3 @@
-import type { VariableGroup } from '@/features/prompts/PromptField.vue'
-import { apiBase } from '@/features/servers/selection'
 import type { VariableDefinition } from '@ia-flow/shared'
 import axios from 'axios'
 // Carga y agrupa las variables de template disponibles para un prompt de
@@ -8,7 +6,9 @@ import axios from 'axios'
 // Vive en composables/ y no dentro de features/agents/ porque es lógica
 // reactiva transversal: cualquier editor que monte un PromptField necesita
 // exactamente esto, y no depende de nada del dominio de agentes.
-import { type Ref, onMounted, ref } from 'vue'
+import { onMounted, type Ref, ref } from 'vue'
+import type { VariableGroup } from '@/features/prompts/PromptField.vue'
+import { apiBase } from '@/features/servers/selection'
 
 const API_BASE = apiBase()
 

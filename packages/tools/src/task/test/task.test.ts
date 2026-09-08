@@ -6,9 +6,9 @@ import {
   setPendingTaskRehydrator,
 } from '@ia-flow/agent-engine'
 import {
+  mergeSourceFieldsIntoTask,
   type TaskSource,
   type TransferTarget,
-  mergeSourceFieldsIntoTask,
 } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'

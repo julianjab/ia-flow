@@ -1,13 +1,13 @@
+import { mount } from '@vue/test-utils'
+import { describe, expect, it } from 'vitest'
 import ActionFields from '@/features/rules/ActionFields.vue'
 import JsonActionForm from '@/features/rules/actionForms/JsonActionForm.vue'
-import ScriptActionForm from '@/features/rules/actionForms/ScriptActionForm.vue'
 import {
   actionFormFor,
   blankActionFor,
   hasDedicatedForm,
 } from '@/features/rules/actionForms/registry'
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import ScriptActionForm from '@/features/rules/actionForms/ScriptActionForm.vue'
 
 type Entry = Record<string, unknown> & { action: string }
 

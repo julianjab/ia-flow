@@ -1,7 +1,7 @@
-import { useToastStore } from '@/stores/toast'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useToastStore } from '@/stores/toast'
 import type { AgentAbortRecord } from '../agent-aborts-api'
 
 const listMock = vi.fn<[], Promise<AgentAbortRecord[]>>()

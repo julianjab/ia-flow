@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { ActionContext } from '@ia-flow/rules'
 import { createEvent } from '@ia-flow/shared'
-import { ScriptAction, resolveInsideWorkspace } from '../script-action.js'
+import { resolveInsideWorkspace, ScriptAction } from '../script-action.js'
 
 // Las guardas son la razón de ser de esta acción, así que son lo que se testea.
 // Un `script` sin ellas es una shell remota configurable desde el navegador.

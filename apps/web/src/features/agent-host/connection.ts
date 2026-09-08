@@ -15,8 +15,8 @@
 // que corresponde. Este módulo es lo que queda: traducir esa elección a un
 // cliente HTTP.
 
-import { currentBaseUrl, getSelectedKind, getSelectedToken } from '@/features/servers/selection'
 import type { AxiosInstance } from 'axios'
+import { currentBaseUrl, getSelectedKind, getSelectedToken } from '@/features/servers/selection'
 import { agentHostClient } from './api'
 
 /**

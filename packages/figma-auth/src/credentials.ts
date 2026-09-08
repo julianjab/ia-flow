@@ -2,10 +2,10 @@ import type { CredentialDescription, ICredentialProvider } from '@ia-flow/shared
 import { createLogger } from './logger.js'
 import {
   type AuthServerMetadata,
-  type OAuthDeps,
-  type TokenSet,
   discoverAuthServer,
+  type OAuthDeps,
   refreshAccessToken,
+  type TokenSet,
 } from './oauth.js'
 import { type FigmaSession, type FigmaTokenStore, FileTokenStore } from './store.js'
 

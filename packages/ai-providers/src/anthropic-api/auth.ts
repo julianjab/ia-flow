@@ -38,11 +38,7 @@ export function buildAnthropicAuthHeader(): Record<string, string> {
  * hay `mcp_servers`), sin pisar la lista base.
  */
 export function buildAnthropicHeaders(
-  opts: {
-    betas?: readonly string[]
-    extraBetas?: readonly string[]
-    version?: string
-  } = {},
+  opts: { betas?: readonly string[]; extraBetas?: readonly string[]; version?: string } = {},
 ): Record<string, string> {
   const betas = new Set<string>(opts.betas ?? CLAUDE_CODE_BETAS)
   for (const b of opts.extraBetas ?? []) betas.add(b)

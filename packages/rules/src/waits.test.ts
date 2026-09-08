@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { type EngineEvent, type Wait, createEvent } from '@ia-flow/shared'
-import { expiredWaits, isPause, matchWaits, matchesWait } from './waits.js'
+import { createEvent, type EngineEvent, type Wait } from '@ia-flow/shared'
+import { expiredWaits, isPause, matchesWait, matchWaits } from './waits.js'
 
 const NOW = Date.parse('2026-01-01T12:00:00.000Z')
 const IN_AN_HOUR = new Date(NOW + 3_600_000).toISOString()

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
-import { readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, join, relative, resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'

@@ -1,5 +1,5 @@
-import { type EnvVarState, getEnvVars, updateEnvVars } from '@/features/env-vars/api'
 import { defineStore } from 'pinia'
+import { type EnvVarState, getEnvVars, updateEnvVars } from '@/features/env-vars/api'
 
 interface State {
   vars: Record<string, EnvVarState>

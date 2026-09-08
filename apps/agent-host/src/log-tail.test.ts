@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SCAN_BYTES, matchLine, readLogTail, tailFrom } from './log-tail.js'
+import { matchLine, readLogTail, SCAN_BYTES, tailFrom } from './log-tail.js'
 
 function line(msg: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({

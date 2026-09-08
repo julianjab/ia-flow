@@ -13,17 +13,17 @@
 // verdad es la fila de `execution_logs`, que ya tiene todo salvo lo que la
 // migración 048 agregó (`initial_status`, `on_finish`/`on_error`, hoy `exits`).
 import {
+  getPendingTask,
   MAX_RESUME_AGE_MS,
   MAX_RESUME_ATTEMPTS,
   type PendingTask,
   type PendingTaskRehydrator,
   type ResolvedPendingTask,
   type RunCheckpointPort,
-  getPendingTask,
 } from '@ia-flow/agent-engine'
 import type { Liveness } from '@ia-flow/ai-providers'
 import { itermLiveness, tmuxLiveness } from '@ia-flow/ai-providers'
-import { type ProjectSource, defaultToIssueItem, issueItemToTask } from '@ia-flow/issue-sources'
+import { defaultToIssueItem, issueItemToTask, type ProjectSource } from '@ia-flow/issue-sources'
 import type { ExecutionLog } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
 import { createLogger } from '../logger.js'

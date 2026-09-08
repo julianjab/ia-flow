@@ -1,13 +1,13 @@
 // Lo que un proyecto puede hacer con una regla GLOBAL: no editarla, decidir si
 // corre acá.
 
-import RulesSection from '@/features/rules/RulesSection.vue'
-import * as api from '@/features/rules/api'
-import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 import type { Pipeline, Rule } from '@ia-flow/shared'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import * as api from '@/features/rules/api'
+import RulesSection from '@/features/rules/RulesSection.vue'
+import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 
 const testRouter = createRouter({
   history: createMemoryHistory(),

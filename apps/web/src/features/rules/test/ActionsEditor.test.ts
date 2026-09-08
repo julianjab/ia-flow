@@ -1,8 +1,8 @@
-import ActionsEditor from '@/features/rules/ActionsEditor.vue'
-import { dragTo, rowAt } from '@/test/dragReorder'
 import type { RuleActionEntry } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import ActionsEditor from '@/features/rules/ActionsEditor.vue'
+import { dragTo, rowAt } from '@/test/dragReorder'
 
 function mountEditor(
   modelValue: RuleActionEntry[] = [],

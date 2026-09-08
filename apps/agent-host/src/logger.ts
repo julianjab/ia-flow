@@ -17,13 +17,13 @@
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Writable } from 'node:stream'
-import { SeverityNumber, logs } from '@opentelemetry/api-logs'
+import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { setGlobalErrorHandler } from '@opentelemetry/core'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import {
-  type Resource,
   detectResources,
   envDetector,
+  type Resource,
   resourceFromAttributes,
 } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'

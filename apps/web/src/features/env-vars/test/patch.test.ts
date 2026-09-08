@@ -1,5 +1,5 @@
-import type { EnvVarState } from '@/features/env-vars/api'
 import { describe, expect, it } from 'vitest'
+import type { EnvVarState } from '@/features/env-vars/api'
 import { buildEnvPatch } from '../patch'
 
 function v(over: Partial<EnvVarState> = {}): EnvVarState {

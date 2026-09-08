@@ -18,8 +18,8 @@
 // `<configDir>/desktop-servers.json`, expuesto al renderer por IPC — ver
 // `registerServersIpc` más abajo.
 
-import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import {
   chmodSync,
@@ -33,8 +33,8 @@ import {
 import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
-import { type StoredList, normalizeList } from './servers-store.js'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { normalizeList, type StoredList } from './servers-store.js'
 
 /** Lo que ve el renderer cuando no hay nada guardado, o cuando no es él quien pregunta. */
 const EMPTY_LIST: StoredList = { rev: 0, servers: [] }

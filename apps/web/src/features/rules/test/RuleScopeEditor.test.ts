@@ -1,7 +1,7 @@
-import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
-import type { ConditionRow } from '@/ui/condition-rows'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
+import type { ConditionRow } from '@/ui/condition-rows'
 
 const OPS = [
   { value: '=', label: '= igual' },

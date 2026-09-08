@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import type { RenderableComment } from '../comment-window.js'
 import {
-  SYSTEM_COMMENT_MARKER,
   isCommentByAgent,
   renderConversationWindow,
+  SYSTEM_COMMENT_MARKER,
   selectCommentWindow,
 } from '../comment-window.js'
 

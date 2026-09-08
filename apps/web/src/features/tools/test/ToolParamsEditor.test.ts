@@ -1,7 +1,7 @@
-import ToolParamsEditor from '@/features/tools/ToolParamsEditor.vue'
 import type { NamedActionBody, ToolParam } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import ToolParamsEditor from '@/features/tools/ToolParamsEditor.vue'
 
 // El input del modelo viaja como `event.payload` y la acción lo lee con
 // `{{event.payload.<campo>}}`. Los dos lados NO son independientes, y lo que se

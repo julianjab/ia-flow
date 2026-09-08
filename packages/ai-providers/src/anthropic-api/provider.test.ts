@@ -13,9 +13,10 @@ const EMPTY_USAGE = {
   cacheReadTokens: 0,
   cacheCreationTokens: 0,
 }
+
 import type { LoadProviderConfig, ProviderInput, ToolExecutionPort } from '../contract.js'
-import { AnthropicApiProvider, UpstreamAbortError } from './provider.js'
 import type { AnthropicApiProviderDeps } from './provider.js'
+import { AnthropicApiProvider, UpstreamAbortError } from './provider.js'
 
 const originalFetch = globalThis.fetch
 const originalOauth = Bun.env.CLAUDE_CODE_OAUTH_TOKEN

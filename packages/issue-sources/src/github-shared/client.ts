@@ -3,9 +3,9 @@
 import { createLogger } from '../logger.js'
 import { getGitHubToken } from './credentials.js'
 import {
-  type RateLimitResource,
   getRateLimit,
   markRateLimited,
+  type RateLimitResource,
   updateFromHeaders,
 } from './rate-limit.js'
 

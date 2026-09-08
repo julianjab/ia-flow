@@ -23,6 +23,8 @@
 // puramente local a esta instancia — el server principal registra el
 // agent-host sin saber (ni necesitar saber) cuál de los dos implementa. Se
 // resuelve acá vía `AGENT_HOST_PROVIDER` (default: anthropic-api).
+
+import type { IAgentProvider } from '@ia-flow/ai-providers'
 import {
   AnthropicApiProvider,
   ClaudePrintProvider,
@@ -30,7 +32,6 @@ import {
   ItermClaudeProvider,
   TmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
-import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-auth'
 import { installSlackTools } from '@ia-flow/slack'
 import {
@@ -41,10 +42,10 @@ import {
 } from '@ia-flow/tools'
 import {
   BunShellRunner,
+  setLoggerFactory as setWorkspaceLoggerFactory,
   TerminalWorkspaceProvisioner,
   WorkspaceManager,
   WorktreeWorkspaceProvisioner,
-  setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
 import { createLogger } from './logger.js'
 import type { WorkspaceSettings } from './state.js'

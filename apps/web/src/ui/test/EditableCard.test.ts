@@ -1,6 +1,6 @@
-import EditableCard from '@/ui/EditableCard.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import EditableCard from '@/ui/EditableCard.vue'
 
 describe('EditableCard', () => {
   it('la fila entera abre el editor cuando es clickable', async () => {

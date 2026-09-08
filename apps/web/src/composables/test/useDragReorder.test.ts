@@ -1,5 +1,5 @@
-import { useDragReorder } from '@/composables/useDragReorder'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useDragReorder } from '@/composables/useDragReorder'
 
 // El gesto es Pointer Events y no la API de drag de HTML5, que es de mouse y en
 // un teléfono no dispara nada. Acá se verifica la máquina de estados; el

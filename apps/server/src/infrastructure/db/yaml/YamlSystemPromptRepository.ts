@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
 import { type SystemPromptDef, SystemPromptDefSchema } from '@ia-flow/shared'
+import { readFileSync } from 'fs'
 import { parse as parseYaml } from 'yaml'
 import type { ISystemPromptRepository } from '../../../domain/ports/ISystemPromptRepository.js'
 

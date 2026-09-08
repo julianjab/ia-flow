@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { type EngineEvent, type Rule, createEvent } from '@ia-flow/shared'
+import { createEvent, type EngineEvent, type Rule } from '@ia-flow/shared'
 import { matchRules, summarizeRuleRejections } from './match.js'
 
 function rule(over: Partial<Rule> = {}): Rule {

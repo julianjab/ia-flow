@@ -1,15 +1,15 @@
 import { describe, expect, it, mock } from 'bun:test'
-import type { IIssueManager, ITaskSource, IssueItem } from '@ia-flow/issue-sources'
+import type { IIssueManager, IssueItem, ITaskSource } from '@ia-flow/issue-sources'
 import type { ExecutionLog, ProjectConfig } from '@ia-flow/shared'
 import { TaskLockedError } from '@ia-flow/workspace'
 import type { AgentOrchestrator } from '../AgentOrchestrator.js'
-import { TaskDispatcher } from '../TaskDispatcher.js'
 import type {
   IExecutionLogRepository,
   IProjectConfigRepository,
   RunMessageEnqueuePort,
 } from '../contract.js'
 import type { PendingTask } from '../pending-tasks.js'
+import { TaskDispatcher } from '../TaskDispatcher.js'
 
 function makeItem(over: Partial<IssueItem> = {}): IssueItem {
   return {

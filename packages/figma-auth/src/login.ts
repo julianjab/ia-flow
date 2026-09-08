@@ -1,11 +1,11 @@
 import { createLogger } from './logger.js'
 import {
-  FIGMA_MCP_SCOPE,
-  type FetchLike,
-  type OAuthClient,
   buildAuthorizationUrl,
   discoverAuthServer,
   exchangeCode,
+  type FetchLike,
+  FIGMA_MCP_SCOPE,
+  type OAuthClient,
   registerClient,
 } from './oauth.js'
 import { createPkcePair, randomState } from './pkce.js'

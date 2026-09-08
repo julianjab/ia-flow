@@ -1,6 +1,6 @@
-import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 
 describe('ToggleSwitch', () => {
   it('es un switch accesible que declara su estado', () => {

@@ -1,4 +1,4 @@
-import { type Rule, isRuleDisabledInProject } from '@ia-flow/shared'
+import { isRuleDisabledInProject, type Rule } from '@ia-flow/shared'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { IRuleRepository } from '../../domain/ports/IRuleRepository.js'
 

@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
 import { type YamlGlobalSettings, YamlGlobalSettingsSchema } from '@ia-flow/shared'
+import { readFileSync } from 'fs'
 import { parse as parseYaml } from 'yaml'
 import type { IGlobalSettingsRepository } from '../../../domain/ports/IGlobalSettingsRepository.js'
 

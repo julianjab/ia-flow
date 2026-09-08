@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  type FilterFieldDef,
   addToken,
+  type FilterFieldDef,
   isDateValue,
   labelForToken,
   suggest,

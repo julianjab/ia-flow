@@ -30,7 +30,7 @@ import {
 } from './env.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
 import { isProjectPaused } from './polling-pause.js'
-import { type ProjectFilter, matchesProjectFilter } from './project-filter.js'
+import { matchesProjectFilter, type ProjectFilter } from './project-filter.js'
 
 const log = createLogger('source-dispatcher')
 

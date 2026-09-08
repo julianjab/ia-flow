@@ -2,8 +2,8 @@
 // Abrirla en iTerm es opt-in (`tmuxClaude.surfaceInTerminal`): la sesión de
 // tmux existe igual y se mira cuando uno quiere con `tmux attach`.
 import { spawn } from 'node:child_process'
-import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { TerminalProviderSettings, WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type {
   IAgentProvider,
   Liveness,
@@ -14,10 +14,10 @@ import type {
   WorkspaceProvisionerPort,
 } from '../../contract.js'
 import {
-  type RunLabelSource,
-  type TerminalBaseDeps,
   createTerminalBase,
   pexec,
+  type RunLabelSource,
+  type TerminalBaseDeps,
   tmuxSessionLabel,
 } from '../base.js'
 

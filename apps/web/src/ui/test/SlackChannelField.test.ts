@@ -1,7 +1,7 @@
-import SlackChannelField from '@/ui/SlackChannelField.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import SlackChannelField from '@/ui/SlackChannelField.vue'
 
 const lookupChannel = vi.fn(async (key: string) =>
   key === 'C0AGHAKPG6T' ? { id: 'C0AGHAKPG6T', name: 'ia-flow-reviews' } : undefined,

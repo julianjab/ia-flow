@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  type FieldAssignment,
-  LABELS_FIELD,
-  type OutcomesFormValue,
   emptyOutcomesForm,
   entryToWhen,
+  type FieldAssignment,
   formToOutcomes,
   isLabelsField,
+  LABELS_FIELD,
   normalizeWhen,
+  type OutcomesFormValue,
   outcomesToForm,
   parseLabelTokens,
   serializeAssignments,

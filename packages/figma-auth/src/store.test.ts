@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FileTokenStore, defaultSessionPath } from './store.js'
+import { defaultSessionPath, FileTokenStore } from './store.js'
 
 const dirs: string[] = []
 async function tmpStore(): Promise<FileTokenStore> {

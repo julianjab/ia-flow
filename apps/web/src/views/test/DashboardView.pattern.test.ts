@@ -1,8 +1,8 @@
-import DashboardView from '@/views/DashboardView.vue'
 import type { ExecutionLog } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import DashboardView from '@/views/DashboardView.vue'
 
 const recent: ExecutionLog[] = []
 

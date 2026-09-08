@@ -1,6 +1,7 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
-import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
+
 import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type {
   IAgentProvider,
   Liveness,
@@ -9,7 +10,7 @@ import type {
   SessionHandle,
   WorkspaceProvisionerPort,
 } from '../../contract.js'
-import { type TerminalBaseDeps, createTerminalBase, itermTabTitle, pexec } from '../base.js'
+import { createTerminalBase, itermTabTitle, pexec, type TerminalBaseDeps } from '../base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')

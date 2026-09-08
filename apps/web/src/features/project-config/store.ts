@@ -1,8 +1,8 @@
-import { fetchProjectConfig } from '@/features/project-config/api'
-import { useProjectsStore } from '@/features/projects/store'
 import type { ProjectConfig } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { fetchProjectConfig } from '@/features/project-config/api'
+import { useProjectsStore } from '@/features/projects/store'
 
 // Read-only cache of the project-scoped overlay view. Mutations happen via the
 // granular per-domain APIs; call `fetch()` afterwards to refresh.

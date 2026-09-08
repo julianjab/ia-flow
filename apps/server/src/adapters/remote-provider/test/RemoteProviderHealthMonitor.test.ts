@@ -3,9 +3,9 @@ import type {
   IProviderRegistrationRepository,
   ProviderRegistration,
 } from '../../../domain/ports/IProviderRegistrationRepository.js'
+import type { ProbeResult } from '../health.js'
 import { remoteProviderId } from '../RemoteAgentProvider.js'
 import { RemoteProviderHealthMonitor } from '../RemoteProviderHealthMonitor.js'
-import type { ProbeResult } from '../health.js'
 
 function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRegistration {
   return {

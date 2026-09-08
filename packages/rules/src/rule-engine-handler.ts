@@ -7,7 +7,7 @@
 import type { EngineEvent, Rule } from '@ia-flow/shared'
 import type { EventHandler, EventOutcome } from './bus.js'
 import { aggregateOutcomes } from './bus.js'
-import { type RejectedRule, matchRules, summarizeRuleRejections } from './match.js'
+import { matchRules, type RejectedRule, summarizeRuleRejections } from './match.js'
 import type { RunRuleDeps } from './runner.js'
 import { runRule } from './runner.js'
 

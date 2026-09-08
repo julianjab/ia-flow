@@ -1,10 +1,11 @@
-import { existsSync } from 'fs'
-import type { Dirent } from 'fs'
-import { join } from 'path'
 import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
-import { readFile, readdir, stat } from 'fs/promises'
+import type { Dirent } from 'fs'
+import { existsSync } from 'fs'
+import { readdir, readFile, stat } from 'fs/promises'
+import { join } from 'path'
 
 type DirentString = Dirent<string>
+
 import { repoRepo, settingsRepo } from './composition/container.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'

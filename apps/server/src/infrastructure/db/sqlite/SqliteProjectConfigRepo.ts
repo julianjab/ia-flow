@@ -1,4 +1,4 @@
-import { type ProjectConfig, SystemPromptRefSchema, memoize } from '@ia-flow/shared'
+import { memoize, type ProjectConfig, SystemPromptRefSchema } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 import type { IGlobalSettingsRepository } from '../../../domain/ports/IGlobalSettingsRepository.js'
 import type { IProjectConfigRepository } from '../../../domain/ports/IProjectConfigRepository.js'

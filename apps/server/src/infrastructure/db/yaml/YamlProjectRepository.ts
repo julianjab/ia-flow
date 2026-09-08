@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
 import { type Project, ProjectSchema } from '@ia-flow/shared'
+import { readFileSync } from 'fs'
 import { parse as parseYaml } from 'yaml'
 import type { IProjectRepository, ProjectInput } from '../../../domain/ports/IProjectRepository.js'
 

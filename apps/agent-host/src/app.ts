@@ -4,12 +4,12 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
-import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
+import { intersectWritePaths, WorkspaceRequestSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
-import { type Log, clearRunLogTarget, setRunLogTarget } from './logger.js'
+import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
 import { type AgentHostState, sanitizeWorkspace } from './state.js'
 
 export interface CreateAppDeps {

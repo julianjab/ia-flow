@@ -1,6 +1,6 @@
-import GitHubSourceForm from '@/features/projects/sources/GitHubSourceForm.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import GitHubSourceForm from '@/features/projects/sources/GitHubSourceForm.vue'
 
 // Migró del prefijo `.ghsf-` al kit de campo con reemplazos de texto, y no
 // tenía quien lo montara. Ver RepoConfigModal.test.ts para el porqué.

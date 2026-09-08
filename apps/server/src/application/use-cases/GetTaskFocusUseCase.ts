@@ -3,11 +3,11 @@ import {
   FOCUS_MAX_CLUSTERS,
   FOCUS_MAX_PICKS,
   FOCUS_WHY_MAX,
+  memoize,
   type TaskDispositionEntry,
   type TaskFocus,
   type TaskFocusCluster,
   type TaskFocusPick,
-  memoize,
 } from '@ia-flow/shared'
 import type { SourceItem } from '../../domain/ports/IIssueManager.js'
 import type { IStructuredCompletion } from '../../domain/ports/IStructuredCompletion.js'

@@ -1,17 +1,18 @@
 import {
+  applyOutcome,
   type PendingTask,
   type ResolvedPendingTask,
-  applyOutcome,
   removePendingTask,
   resolveExitCommentTarget,
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
 import type { AgentExit } from '@ia-flow/shared'
-import { ERROR_EXIT, SUCCESS_EXIT, exitSet, resolveCommentTarget } from '@ia-flow/shared'
+import { ERROR_EXIT, exitSet, resolveCommentTarget, SUCCESS_EXIT } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
+
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
 
 const log = createLogger('tool-task')
