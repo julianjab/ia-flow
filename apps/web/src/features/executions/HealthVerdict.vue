@@ -67,9 +67,6 @@ const counts = computed<DispositionCount[]>(() => dispositionCounts(props.outcom
 /** Una línea, siempre (turno 8). Las reglas viven en `verdict.ts`, puras. */
 const line = computed(() => healthLine(stats.value));
 const totals = computed(() => stats.value?.totals ?? null);
-/** Los totales arrancan plegados: son el costo del período, no lo que pide una
- *  decisión. Plegados miden 30px y llevan adentro el selector de ventana. */
-const totalsOpen = ref(false);
 const activeWindowLabel = computed(
   () => WINDOWS.find((w) => w.days === windowDays.value)?.label ?? `${windowDays.value} d`,
 );
@@ -124,34 +121,27 @@ const totalsTitle =
         <span class="hv__line-go" aria-hidden="true">→</span>
       </button>
 
-      <!-- El costo del período, plegado: no pide una decisión, y desplegado son
-           los 40px que empujaban la primera fila. Los rangos que NO están
-           activos viven adentro — el activo ya lo dice el texto. -->
-      <button
-        v-if="totals"
-        type="button"
-        class="hv__totals"
-        :aria-expanded="totalsOpen"
-        data-testid="verdict-totals"
-        :title="totalsTitle"
-        @click="totalsOpen = !totalsOpen"
-      >
-        <span class="hv__totals-caret" aria-hidden="true">{{ totalsOpen ? '▾' : '▸' }}</span>
-        <strong>{{ totals.runs }}</strong> runs · {{ activeWindowLabel }} ·
-        {{ compactTokens(totals.tokensIn) }} frescos ·
-        <strong>{{ formatUsd(totals.costUsd) }}</strong> est.
-      </button>
-      <div v-if="totalsOpen" class="hv__windows">
-        <button
-          v-for="w in WINDOWS"
-          :key="w.days"
-          type="button"
-          class="hv__window"
-          :class="{ 'hv__window--on': windowDays === w.days }"
-          :aria-pressed="windowDays === w.days"
-          @click="windowDays = w.days"
-        >{{ w.label }}</button>
-      </div>
+      <!-- El costo del período: una línea de 30px, no una banda. El período
+           ACTIVO lo dice el texto (`· 7 d ·`) y a la derecha quedan los otros
+           dos, que son los únicos que hacen algo al tocarlos. Sin caret: un
+           `▸` que no despliega nada promete contenido que no existe. -->
+      <p v-if="totals" class="hv__totals" data-testid="verdict-totals" :title="totalsTitle">
+        <span class="hv__totals-text">
+          <strong>{{ totals.runs }}</strong> runs · {{ activeWindowLabel }} ·
+          {{ compactTokens(totals.tokensIn) }} frescos ·
+          <strong>{{ formatUsd(totals.costUsd) }}</strong> est.
+        </span>
+        <span class="hv__windows">
+          <button
+            v-for="w in WINDOWS.filter((x) => x.days !== windowDays)"
+            :key="w.days"
+            type="button"
+            class="hv__window"
+            :title="`Ver los últimos ${w.label}`"
+            @click="windowDays = w.days"
+          >{{ w.label }}</button>
+        </span>
+      </p>
     </template>
     <p v-else-if="loading" class="hv__low">Cargando salud…</p>
   </div>
@@ -188,44 +178,10 @@ const totalsTitle =
 .hv__count--waiting { border-color: var(--danger); background: var(--red-bg); color: var(--danger); }
 .hv__count--closed { color: var(--fg-dim); }
 
-.hv__totals {
-  display: flex;
-  align-items: center;
-  gap: 0.4ch;
-  flex-wrap: wrap;
-  width: 100%;
-  /* Plegada mide una fila de grilla y no un blanco táctil: se toca, pero es un
-     dato, no una decisión. --tap-h-sm es el compromiso que ya usa el chip. */
-  min-height: var(--tap-h-sm);
-  padding: 0 0.7rem;
-  margin: 0;
-  border: none;
-  background: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-  text-align: left;
-  cursor: pointer;
-}
-.hv__totals:hover { color: var(--fg); }
-.hv__totals-caret { color: var(--fg-dimmer); }
-.hv__windows { display: flex; gap: 0.25rem; padding: 0 0.7rem; }
-.hv__window {
-  height: var(--tap-h-sm);
-  padding: 0 0.6rem;
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  cursor: pointer;
-}
-.hv__window--on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
-
 /* ── La línea de salud: una, siempre ──────────────────────────────────────
    Dos líneas de texto adentro de un solo blanco táctil: la tasa arriba y la
-   causa abajo. Siete filas de agente eran 470px; esto son 74. */
+   causa abajo, las dos truncadas. Siete filas de agente eran 470px; esto son
+   ~50, y envolver la causa las volvería a inflar. */
 .hv__line {
   display: flex;
   align-items: center;
@@ -252,17 +208,68 @@ const totalsTitle =
   background: transparent;
   color: var(--fg-dim);
 }
-.hv__line-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
-.hv__line-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* La causa cede primero: es lo que explica, no lo que alarma. */
+.hv__line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.hv__line-head,
 .hv__line-detail {
-  font-size: var(--fs-micro);
-  color: var(--fg-mute);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* La causa cede primero: es lo que explica, no lo que alarma. */
+.hv__line-detail { font-size: var(--fs-micro); color: var(--fg-mute); }
 .hv__line-go { flex: 0 0 auto; }
+
+.hv__totals {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4ch;
+  /* Una línea de 30px, y si no entra se recorta: envolver convertía el costo
+     del período en 92px de la parte superior, que es justo lo que el turno 8
+     vino a recuperar. El texto completo está en el `title`. */
+  flex-wrap: nowrap;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.7rem;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  cursor: help;
+}
+.hv__totals-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hv__windows { flex: 0 0 auto; display: flex; margin-left: auto; padding-left: 0.5ch; }
+/* Texto, no botones con caja: dos chips de 55px empujaban la línea a tres
+   renglones en 390px — 92px para decir el costo del período, que es justo lo
+   que el turno 8 vino a sacar del tope de la pantalla. */
+.hv__window {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.hv__window:hover { color: var(--accent); }
+.hv__window + .hv__window::before {
+  content: '·';
+  margin: 0 0.5ch;
+  color: var(--fg-dimmer);
+  text-decoration: none;
+  display: inline-block;
+}
 
 .hv__error { margin: 0; font-size: var(--fs-body-sm); color: var(--danger); }
 .hv__low { margin: 0; font-size: var(--fs-micro); color: var(--fg-dimmer); }

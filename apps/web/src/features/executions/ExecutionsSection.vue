@@ -1675,8 +1675,20 @@ function pushDetailId(agentId: string | undefined): void {
   void router.push({ name: route.name, params });
 }
 
+/**
+ * A dónde lleva el `→` de la banda de salud.
+ *
+ * Con un agente señalado, a su página — que es donde se mudó la tabla de
+ * diez columnas. Cuando el fallo es del SISTEMA no hay agente que señalar, y
+ * antes eso emitía `''`: el `→` estaba dibujado y no hacía nada. Ahí el
+ * destino es el roster, que es donde se comparan los siete.
+ */
 function openAgentPage(agentId: string): void {
-  pushDetailId(agentId);
+  if (agentId) {
+    pushDetailId(agentId);
+    return;
+  }
+  void router.push(isGlobal.value ? '/general/agentes' : `/projects/${activeProjectId.value}/agentes`);
 }
 
 function closeAgentPage(): void {
