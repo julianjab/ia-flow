@@ -15,10 +15,12 @@ import {
 
 const REAL_SPAWN = _verifyInternals.spawn
 const REAL_TIMEOUT_MS = _verifyInternals.timeoutMs
+const REAL_GRACE_MS = _verifyInternals.graceMs
 
 afterEach(() => {
   _verifyInternals.spawn = REAL_SPAWN
   _verifyInternals.timeoutMs = REAL_TIMEOUT_MS
+  _verifyInternals.graceMs = REAL_GRACE_MS
 })
 
 function mockProc(
@@ -122,6 +124,36 @@ describe('runVerifyCommands', () => {
     const result = await runVerifyCommands(['ls'], '/wt/task-1')
     expect(result.results[0].timedOut).toBe(false)
     expect(result.results[0].output).not.toContain('[timeout]')
+  })
+
+  // Regression: kill() sólo termina el proceso directo. Un nieto que sigue
+  // vivo (tsc detrás de `bun run typecheck`, workers de vitest) sostiene el
+  // pipe de stdout heredado abierto para siempre — antes de HARD_DEADLINE_
+  // GRACE_MS, `Response(stream).text()` esperaba ese cierre y `runOne` nunca
+  // resolvía, colgando el run entero y reteniendo su lock indefinidamente.
+  it('resuelve dentro del deadline duro aunque el stdout nunca cierre tras el kill', async () => {
+    _verifyInternals.timeoutMs = 10
+    _verifyInternals.graceMs = 30
+    const neverClosingStdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('partial output del nieto\n'))
+        // Deliberadamente nunca se cierra — simula un nieto vivo.
+      },
+    })
+    _verifyInternals.spawn = () => ({
+      stdout: neverClosingStdout,
+      stderr: null,
+      exited: new Promise<number>(() => {}), // tampoco resuelve nunca
+      kill: () => {},
+    })
+    const started = Date.now()
+    const result = await runVerifyCommands(['bun run typecheck'], '/wt/task-1')
+    const elapsedMs = Date.now() - started
+    expect(elapsedMs).toBeLessThan(2_000)
+    expect(result.ok).toBe(false)
+    expect(result.results[0].timedOut).toBe(true)
+    expect(result.results[0].output).toContain('partial output del nieto')
+    expect(result.results[0].exitCode).toBeNull()
   })
 })
 

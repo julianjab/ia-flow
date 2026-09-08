@@ -9,11 +9,19 @@
 //
 // Sin shell — `Bun.spawn(argv)` directo, igual que `bash_run` — a propósito:
 // con `/bin/sh -c <comando>` un `kill()` sobre el timeout mata sólo al `sh`,
-// no a los hijos que abrió (`&&`, pipelines), que quedan vivos con el pipe de
-// stdout abierto y cuelgan `runOne` para siempre reteniendo el lock de la
-// task. Sin shell, `kill()` termina el proceso real y el timeout es efectivo.
-// El costo es que cada entrada de `verify` es UN comando (sin `&&`/pipes) —
-// exactamente lo que ya pide la forma `string[]`.
+// no a los hijos que abrió (`&&`, pipelines). El costo es que cada entrada de
+// `verify` es UN comando (sin `&&`/pipes) — exactamente lo que ya pide la
+// forma `string[]`.
+//
+// Ni siquiera sin shell alcanza: un comando SIN `&&` puede forkear hijos por
+// su cuenta (`tsc` desde `bun run typecheck`, workers de `vitest`, `make`),
+// y `kill()` sólo mata al proceso directo — un nieto vivo sostiene el pipe de
+// stdout heredado abierto, así que esperar a que el stream CIERRE (como hacía
+// `Response(stream).text()`) podía colgar `runOne` para siempre, reteniendo
+// el lock de la task y el slot de capacidad. `readWithDeadline` reemplaza esa
+// espera por un límite de reloj: lee lo que haya hasta `timeoutMs +
+// HARD_DEADLINE_GRACE_MS` y se rinde ahí, cierre o no el stream — `runOne`
+// SIEMPRE resuelve.
 //
 // Mismos límites que `bash_run` por consistencia: timeout 60s fijo (no hay
 // override por comando — a diferencia de `bash_run`, `verify` no es un tool
@@ -103,12 +111,25 @@ export function buildVerifyEnv(source: Record<string, string | undefined>): Reco
   return env
 }
 
+/**
+ * Extra que se le da a un comando después de `timeoutMs` para que sus
+ * streams terminen de cerrar tras el `kill()`, antes de dejar de esperar.
+ * `kill()` sólo termina el proceso directo — un comando que forkeó hijos
+ * (`tsc` desde `bun run typecheck`, workers de `vitest`, `make`) puede
+ * dejarlos vivos con el pipe heredado abierto, y sin este segundo límite
+ * `runOne` nunca resolvería: `Response(stream).text()` espera a que el
+ * pipe cierre, no a que el proceso que mata `kill()` muera.
+ */
+export const HARD_DEADLINE_GRACE_MS = 5_000
+
 /** Test-only indirection — same pattern as `_execInternals` in
- *  packages/tools/src/exec/exec.ts. `timeoutMs` is separately overridable so
- *  a test can exercise the timeout path without waiting out the real 60s. */
+ *  packages/tools/src/exec/exec.ts. `timeoutMs`/`graceMs` son separadamente
+ *  overridable así un test ejercita el timeout/deadline sin esperar los 60s
+ *  (o los 5s de gracia) reales. */
 export const _verifyInternals: {
   spawn: (argv: string[], cwd: string) => SpawnedVerifyProc
   timeoutMs: number
+  graceMs: number
 } = {
   spawn: (argv, cwd) =>
     Bun.spawn(argv, {
@@ -118,6 +139,49 @@ export const _verifyInternals: {
       stderr: 'pipe',
     }) as unknown as SpawnedVerifyProc,
   timeoutMs: VERIFY_TIMEOUT_MS,
+  graceMs: HARD_DEADLINE_GRACE_MS,
+}
+
+/**
+ * Lee `stream` hasta que cierra o hasta `deadlineAt` (epoch ms), lo que
+ * pase primero. Deliberadamente NO usa `Response(stream).text()` —esa API
+ * sólo resuelve con el cierre del stream, exactamente lo que un pipe
+ * heredado por un nieto vivo nunca hace—, sino un loop de lectura manual
+ * que se puede abandonar a mitad de camino sin perder lo ya leído.
+ */
+async function readWithDeadline(
+  stream: ReadableStream<Uint8Array> | null,
+  deadlineAt: number,
+): Promise<string> {
+  if (!stream) return ''
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  const TIMED_OUT = Symbol('timed-out')
+  let result = ''
+  try {
+    while (true) {
+      const remaining = deadlineAt - Date.now()
+      if (remaining <= 0) break
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<typeof TIMED_OUT>((resolve) => setTimeout(() => resolve(TIMED_OUT), remaining)),
+      ])
+      if (next === TIMED_OUT) break
+      const { done, value } = next
+      if (done) break
+      result += decoder.decode(value, { stream: true })
+    }
+  } catch {
+    // el proceso murió a mitad de lectura, o el reader ya se canceló — lo
+    // leído hasta acá se conserva igual.
+  } finally {
+    try {
+      await reader.cancel()
+    } catch {
+      // best-effort — el stream puede ya estar cerrado
+    }
+  }
+  return result
 }
 
 async function runOne(command: string, cwd: string): Promise<VerifyCommandResult> {
@@ -130,16 +194,27 @@ async function runOne(command: string, cwd: string): Promise<VerifyCommandResult
   const timer = setTimeout(() => {
     timedOut = true
     try {
-      proc.kill()
+      proc.kill('SIGKILL')
     } catch {
       // best-effort — el proceso puede ya estar muerto
     }
   }, _verifyInternals.timeoutMs)
 
+  // Deadline duro, independiente de si el proceso (o sus hijos) sueltan el
+  // pipe: `runOne` SIEMPRE resuelve antes de `timeoutMs + graceMs`, así que
+  // un comando colgado no retiene el lock de la task ni el slot de
+  // capacidad para siempre — sólo hasta acá.
+  const deadlineAt = Date.now() + _verifyInternals.timeoutMs + _verifyInternals.graceMs
+
   const [stdoutText, stderrText, exitCode] = await Promise.all([
-    proc.stdout ? new Response(proc.stdout).text().catch(() => '') : Promise.resolve(''),
-    proc.stderr ? new Response(proc.stderr).text().catch(() => '') : Promise.resolve(''),
-    proc.exited.catch(() => null as unknown as number),
+    readWithDeadline(proc.stdout, deadlineAt),
+    readWithDeadline(proc.stderr, deadlineAt),
+    Promise.race([
+      proc.exited.catch(() => null as unknown as number),
+      new Promise<number | null>((resolve) =>
+        setTimeout(() => resolve(null), Math.max(0, deadlineAt - Date.now())),
+      ),
+    ]),
   ])
   clearTimeout(timer)
 
