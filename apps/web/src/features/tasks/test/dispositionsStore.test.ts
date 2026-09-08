@@ -95,7 +95,10 @@ describe('useDispositionsStore', () => {
     const store = useDispositionsStore()
     let resolveFirst: (v: TaskDispositionEntry[]) => void = () => {}
     fetchTaskDispositions.mockImplementationOnce(
-      () => new Promise((res) => { resolveFirst = res }),
+      () =>
+        new Promise((res) => {
+          resolveFirst = res
+        }),
     )
     fetchTaskDispositions.mockResolvedValueOnce([entry({ taskId: 't9' })])
 
