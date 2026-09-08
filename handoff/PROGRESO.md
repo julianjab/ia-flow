@@ -52,9 +52,24 @@ el mismo fan-out que `GET /api/tasks/dispositions` vino a borrar dentro de uno.
 **Falta:** ese endpoint sin `projectId`, o un `GET /api/dispositions/summary`
 con los cuatro conteos por proyecto. Un endpoint destraba las dos pantallas.
 
-**El resumen en prosa de Qué sigue** ("3 tareas en vuelo y ninguna trabada;
-#1240 falló dos veces en el mismo paso de tests"). Redactarlo en el cliente sería
-escribir una conclusión que nadie calculó.
+~~**El resumen en prosa de Qué sigue**~~ — **hecho** (turno 9, `Foco IA en
+Tareas.dc.html`). Ya no está bloqueado: lo calcula `GET /api/tasks/focus` y lo
+dibuja `features/tasks/FocusCard.vue`, arriba del bucket `te espera` de Tareas
+(la pantalla `Qué sigue` para la que se había diseñado se fusionó con ésta).
+
+Lo que NO hace, y es la decisión que ordena el resto: **no reordena**. El orden
+lo sigue calculando `compareWithinBucket` y la lista lo sigue congelando al
+abrir; la card lo nombra. Un orden que cambia porque el modelo tuvo otro día no
+se puede explicar fila por fila ni testear.
+
+Salió con dos deudas declaradas:
+
+- **`FilterByIds` está pedido y sin aprobar** (ver la tabla de "Controles
+  pedidos" en `DESIGN_SYSTEM.md`). Hasta que entre, un cluster es texto y no
+  filtra la lista. Los `taskIds` ya viajan en la respuesta.
+- **R16 obligó a sanear `--ai`**: era un magenta de propósito general en diez
+  lugares y sólo dos eran salida de modelo. El diseño lo estimó en "un color en
+  una fila"; fueron seis pantallas.
 
 ### Bloqueado en DATOS
 
