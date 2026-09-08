@@ -16,8 +16,9 @@ provider async, no ninguna).
 
 | Tool | `providerKinds` | Qué hace |
 | --- | --- | --- |
-| `complete_task` | **`['async']`** | Cierra el run con éxito: publica un comentario estructurado (# agente + Qué hice + Validaciones) y aplica `onFinish`. |
+| `complete_task` | **`['async']`** | Cierra el run con éxito: publica un comentario estructurado (# agente + Qué hice + Validaciones) y aplica `onFinish`. Si el agente declara `output`, su schema se **especializa** con esos campos (`specialize()`, mismo mecanismo que arma el enum de `select_exit`) — puede recibirlos inline y cerrar en una sola llamada, sin pasar por `submit_output` antes. |
 | `fail_task` | `['sync','async']` | Cierra el run como fallido: comentario (# agente ❌ + Qué intenté + Dónde falló) y aplica `onError`. |
+| `submit_output` | `['sync','async']` | Entrega la salida ESTRUCTURADA que otro paso va a LEER por programa (no prosa para un humano). Ver § `output` / `submit_output` más abajo. |
 
 **`complete_task` NO está siempre disponible — es async-only.** A un provider sync
 (`anthropic-api`) ni siquiera se le ofrece: `resolveTools` la saca de las definiciones que
@@ -42,6 +43,47 @@ ninguna forma de reportar un fallo — el run que se dio por vencido se cierra c
 aplica `onFinish`, moviendo el issue hacia adelante con el trabajo sin hacer. Frases como
 "terminá con un error explícito" o "la task quedará en su estado actual" **no son
 ejecutables**: si el prompt no nombra `fail_task`, no pasa nada de eso.
+
+### `output` / `submit_output` — handoff estructurado entre agentes
+
+Un agente cierra con prosa, y esa prosa es lo que el engine publica como comentario del
+issue — sirve para un humano, no para el paso siguiente: nadie puede leer "el brief para el
+implementer" de un párrafo sin volver a llamar a un modelo. `AgentDefinition.output`
+(`AgentOutputSchema`) es el contrato de lo que SÍ tiene que leerse por programa:
+
+```yaml
+output:
+  actionable:
+    type: boolean
+    description: 'true si el comentario pide un cambio real.'
+  summary:
+    type: string
+    description: 'Qué hay que hacer, para el agente que reciba el encargo.'
+    optional: true
+```
+
+- **Es opt-in y sin default.** La mayoría de los agentes cierra con prosa y alcanza. Declarás
+  `output` cuando otro paso necesita LEER lo que este produjo — y declararlo lo vuelve
+  **obligatorio**: el run falla si el agente cierra sin entregarlo. Un contrato que se puede
+  incumplir en silencio es peor que no tener contrato.
+- **`submit_output` es el canal, y funciona igual en sync y en async** — es justo por eso que
+  existe como tool en vez de usar `output_config.format` de la Messages API (que sólo aplica a
+  `anthropic-api` y no haría nada en tmux/iterm, el mismo modo de falla que los `fs_*` en
+  terminal). Un payload inválido vuelve como error de tool y el modelo corrige — no mata el run.
+- **No cierra el run.** Es una entrega ANTES del cierre; el agente la llama y después cierra
+  como siempre (`fail_task`, `complete_task`, o silencio-éxito en sync).
+- **En async, `complete_task` puede recibir los mismos campos inline** (ver tabla de arriba):
+  ahorra la segunda llamada cuando no hace falta entregar antes de terminar. `submit_output`
+  sigue sirviendo para un run largo que quiere asegurar su salida antes de seguir trabajando, o
+  para dejarla disponible aunque después falle (`fail_task` no la descarta).
+- **Se lee con `{{task.previous_outputs}}`** (`references/variables.md`) — la última entrega de
+  cada agente distinto que corrió sobre la task, no un historial completo.
+- ⚠️ **Persistencia:** hoy `output` sólo sobrevive en un deploy headless (`runner.yaml`, parseado
+  directo con `AgentDefinitionSchema`). Un agente creado o editado desde la UI/API contra la DB
+  de este server usa `SqliteAgentRepository`, que **no mapea el campo `output`** — se pierde en
+  el primer guardado sin aviso. Verificá esto antes de asumir que un agente SQLite puede declarar
+  `output`; si el gap sigue sin resolverse, documentalo en el propio issue en vez de asumir que
+  funciona.
 
 ### Filesystem (lectura)
 
