@@ -99,7 +99,7 @@ export class GitHubProjectSource implements ProjectSource {
   ) {}
 
   @memoize({ ttlMs: META_TTL_MS, key: () => META_KEY, bypass: bypassOnRefresh })
-  private loadMeta(opts?: { refresh?: boolean }): Promise<ProjectMeta> {
+  private loadMeta(_opts?: { refresh?: boolean }): Promise<ProjectMeta> {
     return getProjectMeta(this.url)
   }
 

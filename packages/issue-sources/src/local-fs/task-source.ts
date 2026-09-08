@@ -70,7 +70,7 @@ export class LocalTaskSource implements TaskSource {
     return updated
   }
 
-  async markBlockedBy(task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {
+  async markBlockedBy(_task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {
     // For local, both sides of the relation live as markdown sections:
     //   · Blocked issue: `## Blocked by` gains blockingIssueId.
     //   · Blocking issue: `## Blocks` gains blockedIssueId (mirror).
