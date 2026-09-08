@@ -52,17 +52,6 @@ function updateMcp(value: McpServers) {
     </div>
 
     <div class="ff-row">
-      <label class="uc-label" for="anthropic-response-language">Response language</label>
-      <input
-        id="anthropic-response-language"
-        type="text"
-        class="ff-field"
-        :value="modelValue.responseLanguage"
-        @input="update('responseLanguage', ($event.target as HTMLInputElement).value)"
-      />
-    </div>
-
-    <div class="ff-row">
       <label class="uc-label" for="anthropic-thinking-type">Thinking type</label>
       <select
         class="ff-field"

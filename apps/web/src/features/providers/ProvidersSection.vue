@@ -24,7 +24,6 @@ const steps = ref<Record<StepId, ProviderId>>({
 
 const anthropicApi = ref<AnthropicApiSettings>({
   model: '',
-  responseLanguage: '',
   thinking: { type: 'enabled', budget_tokens: 0 },
   stream: false,
   systemPrompt: [],
@@ -53,7 +52,6 @@ function hydrateFromStore() {
   steps.value = { ...steps.value, ...resolvedSteps };
   anthropicApi.value = {
     model: cfg.anthropicApi.model ?? '',
-    responseLanguage: cfg.anthropicApi.responseLanguage ?? '',
     thinking: cfg.anthropicApi.thinking ?? { type: 'enabled', budget_tokens: 0 },
     stream: cfg.anthropicApi.stream ?? false,
     systemPrompt: cfg.anthropicApi.systemPrompt ?? [],
