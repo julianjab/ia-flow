@@ -337,7 +337,7 @@ const detailProps = computed(() => {
   const item = reposModalItem.value;
   return {
     movingStatus: movingStatus.value,
-    moveToken: moveToken.value,
+    previewToken: previewToken.value,
     open: reposModalOpen.value,
     taskId: item?.id ?? null,
     projectId: activeProjectId.value ?? null,
@@ -407,11 +407,16 @@ async function loadDispositions() {
  * la fila seguía mostrando el status viejo hasta un reload a mano.
  */
 const movingStatus = ref<string | null>(null);
-/** Se bumpea al mover: es lo que hace que `RunPreviewCard` vuelva a preguntar.
- *  Sin esto la preview se quedaba con las reglas rechazadas de ANTES del move
- *  y volvía a ofrecer el mismo botón — un segundo PATCH al status que la tarea
- *  ya tiene. */
-const moveToken = ref(0);
+/**
+ * Cuándo la preview del detalle tiene que volver a preguntar.
+ *
+ * Un CONTADOR, no el resultado de la última acción: dos "Correr ahora"
+ * seguidos devuelven casi siempre lo mismo (`skipped`, mismo status — que es
+ * justo cuando el operador reintenta), así que un token derivado del contenido
+ * no cambiaba y la card se quedaba con el veredicto viejo. Se bumpea en cada
+ * acción que puede cambiar ese veredicto: correr y mover.
+ */
+const previewToken = ref(0);
 async function moveTaskTo(status: string): Promise<void> {
   const pid = activeProjectId.value;
   const item = reposModalItem.value;
@@ -427,7 +432,7 @@ async function moveTaskTo(status: string): Promise<void> {
     const fresh = projectItems.value.find((i) => i.id === item.id);
     if (fresh) {
       reposModalItem.value = fresh;
-      moveToken.value += 1;
+      previewToken.value += 1;
     } else {
       // El status destino puede caer fuera del filtro activo —que es el caso
       // normal al mover— y entonces la tarea ya no está en la lista. Dejar el
@@ -785,7 +790,10 @@ async function onRunClick() {
   const isStillOpen = () => reposModalItem.value?.id === item.id;
   try {
     const res = await runTaskNow(activeProjectId.value, item.id);
-    if (isStillOpen()) runResult.value = res;
+    if (isStillOpen()) {
+      runResult.value = res;
+      previewToken.value += 1;
+    }
     // Los tres outcomes son estados distintos y el operador tiene que poder
     // distinguirlos: "no matcheó ninguna regla" no es un error del server, es
     // config — y verlo como éxito sería peor que verlo como fallo. El detalle
