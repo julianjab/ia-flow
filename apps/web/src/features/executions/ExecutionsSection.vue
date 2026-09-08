@@ -38,6 +38,7 @@ import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsMobile, useIsSplit } from '@/composables/useIsMobile';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
+import AgentHealthPanel from './AgentHealthPanel.vue';
 import RunRow from './RunRow.vue';
 import RunVerdict from './RunVerdict.vue';
 
@@ -1633,6 +1634,22 @@ onBeforeUnmount(() => {
  * tiene que dejar exactamente eso. Volver a tocarlo apaga — es un toggle, como
  * los conteos por outcome que reemplaza.
  */
+/**
+ * Qué disposición está filtrada ahora, si es exactamente una de las tres.
+ *
+ * Es lo que marca el contador activo — sin eso, con los tres dibujados no se
+ * sabe cuál está puesto.
+ */
+const activeDispositionKey = computed<string | null>(() => {
+  const on = filterTokens.value.filter((t) => t.field === 'resultado').map((t) => t.value);
+  if (!on.length) return null;
+  const same = (a: string[]) => a.length === on.length && a.every((v) => on.includes(v));
+  if (same(['error', 'cancelled', 'truncated'])) return 'waiting';
+  if (same(['pending'])) return 'running';
+  if (same(['success'])) return 'closed';
+  return null;
+});
+
 function filterByDisposition(outcomes: string[]): void {
   const already = outcomes.every((oc) => hasToken('resultado', oc));
   const rest = filterTokens.value.filter((t) => t.field !== 'resultado');
@@ -1662,10 +1679,23 @@ function onHealthDrill(payload: { agentId: string; failureClass: string }): void
 // Qué agente está abierto vive en la URL (`:detailId`), igual que el editor
 // de agentes y el de reglas: deep-linkable, y el sidebar no se pierde. Con un
 // id en la ruta esta sección deja de ser el listado y pasa a ser la página.
-const detailAgentId = computed<string | null>(() => {
+/**
+ * El `:detailId` de la ruta abre una de DOS páginas: la de un agente, o —con
+ * el valor reservado `salud`— la tabla comparativa de todos.
+ *
+ * Un id de agente no puede ser `salud` porque los ids salen del roster y ése
+ * no es uno; y usar la misma ranura mantiene las dos deep-linkables con el
+ * mismo mecanismo, en vez de un segundo estado que la URL no refleja.
+ */
+const HEALTH_SUMMARY_ID = 'salud';
+const detailId = computed<string | null>(() => {
   const id = route.params?.detailId;
   return typeof id === 'string' && id ? id : null;
 });
+const healthSummaryOpen = computed(() => detailId.value === HEALTH_SUMMARY_ID);
+const detailAgentId = computed<string | null>(() =>
+  healthSummaryOpen.value ? null : detailId.value,
+);
 
 function pushDetailId(agentId: string | undefined): void {
   if (!route.name) return;
@@ -1678,24 +1708,14 @@ function pushDetailId(agentId: string | undefined): void {
 /**
  * A dónde lleva el `→` de la banda de salud.
  *
- * Con un agente señalado, a su página — que es donde se mudó la tabla de
- * diez columnas. Cuando el fallo es del SISTEMA no hay agente que señalar, y
- * antes eso emitía `''`: el `→` estaba dibujado y no hacía nada. Ahí el
- * destino es el roster, que es donde se comparan los siete.
+ * Con un agente señalado, a su página. Cuando el fallo es del SISTEMA no hay
+ * uno que señalar y el destino es **el resumen**: la tabla comparativa de
+ * todos, que es lo que contesta "¿a cuál miro?" cuando los siete están fuera
+ * de banda. NO el roster de agentes: ése es el editor de definiciones —qué
+ * prompt, qué tools— y no dice nada de cómo vienen corriendo.
  */
 function openAgentPage(agentId: string): void {
-  if (agentId) {
-    pushDetailId(agentId);
-    return;
-  }
-  if (isGlobal.value) {
-    void router.push('/general/agentes');
-    return;
-  }
-  // Sin proyecto resuelto no hay roster al que ir: `/projects/null/agentes` es
-  // una pantalla que sólo puede fallar. Mismo guard que `agentHref`.
-  const pid = activeProjectId.value;
-  if (pid) void router.push(`/projects/${pid}/agentes`);
+  pushDetailId(agentId || HEALTH_SUMMARY_ID);
 }
 
 function closeAgentPage(): void {
@@ -1782,8 +1802,24 @@ watch(pendingFilter, () => {
 </script>
 
 <template>
+  <!-- El resumen de salud: la misma tabla comparativa que la página de un
+       agente lleva al final, sola. Es a donde apunta el `→` cuando el fallo
+       es del sistema y no hay UN agente que señalar. -->
+  <section v-if="healthSummaryOpen" class="settings-section">
+    <div class="section-header section-header--bare">
+      <button type="button" class="btn" data-testid="health-summary-back" @click="closeAgentPage()">
+        ← Ejecuciones
+      </button>
+    </div>
+    <AgentHealthPanel
+      :project-id="isGlobal ? null : activeProjectId"
+      @drill="onPageDrill"
+      @open="openAgentPage"
+    />
+  </section>
+
   <AgentHealthPage
-    v-if="detailAgentId"
+    v-else-if="detailAgentId"
     :agent-id="detailAgentId"
     :project-id="isGlobal ? null : activeProjectId"
     :editor-path="agentEditorPath"
@@ -1801,6 +1837,8 @@ watch(pendingFilter, () => {
     <HealthVerdict
       :project-id="isGlobal ? null : activeProjectId"
       :outcome-counts="outcomeCounts"
+      :filtering="filterTokens.length > 0"
+      :active-key="activeDispositionKey"
       @filter="filterByDisposition"
       @open="openAgentPage"
     />
