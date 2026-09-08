@@ -377,9 +377,20 @@ export class GitHubProjectSource implements ProjectSource {
 
   async setItemField(itemId: string, field: string, value: string): Promise<void> {
     const meta = await this.loadMeta()
-    const f = meta.fields[field]
-    if (!f) throw new Error(`Field '${field}' not found in project`)
-    await setProjectTextField(meta.projectId, itemId, f, value)
+    // "status" (the quick-action's fixed field name — see RunPreviewCard.vue)
+    // doesn't match the board's "Status" key, and even matched it wouldn't
+    // work: Status is a SINGLE_SELECT and `setProjectTextField` writes a
+    // `{ text }` value, which GitHub rejects for that field type. Same
+    // special-case `applyFields` already makes for `patch.status`.
+    if (field.toLowerCase() === 'status') {
+      const statusField = meta.fields.Status
+      if (!statusField) throw new Error(`Field 'Status' not found in project`)
+      await updateItemStatus(meta.projectId, itemId, statusField, value)
+    } else {
+      const f = meta.fields[field]
+      if (!f) throw new Error(`Field '${field}' not found in project`)
+      await setProjectTextField(meta.projectId, itemId, f, value)
+    }
     // Any mutation invalidates the items cache — statuses (meta) are unchanged.
     invalidateMemoized(this, 'fetchItems')
   }

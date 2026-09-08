@@ -221,16 +221,33 @@ export class GithubHybridSource implements ProjectSource {
       : this.issues.setSlackThreadUrl(item, url)
   }
 
+  /** Mismo fallback que `updateItem`: un issue fuera del board no tiene
+   * columna que escribir, así que el camino de labels de `github-issues` es
+   * el único posible ahí — no un error, es el estado normal de un issue que
+   * todavía no entró al board.
+   *
+   * Deliberately does NOT reuse `getItemById`'s `meta.projectItemId`:
+   * `attachProjectCounterpart` swallows a failed board read into "no
+   * projectItemId", indistinguishable from "genuinely not on board". Falling
+   * back to labels in that case would silently write a status the board's
+   * own field overwrites on its next scan — a quick-action that reports
+   * success but doesn't move anything. Looking the board up here instead
+   * lets a board failure throw, same as before this fallback existed. */
   async setItemField(itemId: string, field: string, value: string): Promise<void> {
-    if (!this.project.setItemField) {
-      throw new Error(`setItemField no soportado: '${field}' no es un campo del board`)
-    }
     const item = await this.getItemById(itemId)
-    const projectItemId = item?.meta?.projectItemId as string | undefined
-    if (!projectItemId) {
-      throw new Error(`setItemField no soportado: '${itemId}' no está en el board`)
+    const issueId = item?.id ?? itemId
+    // A direct, non-memoized lookup — not `getItems()` bulk — so this always
+    // sees an issue added to the board seconds ago, and a board read failure
+    // throws here instead of being swallowed the way it is in `getItemById`.
+    const boardMatch = await this.project.getItemByIssueId(issueId)
+    if (boardMatch) {
+      if (!this.project.setItemField) {
+        throw new Error(`setItemField no soportado: '${field}' no es un campo del board`)
+      }
+      await this.project.setItemField(boardMatch.id, field, value)
+      return
     }
-    await this.project.setItemField(projectItemId, field, value)
+    await this.issues.setItemField(issueId, field, value)
   }
 
   /** Crea el issue vía `github-issues` (labels/ancla) — no lo agrega al

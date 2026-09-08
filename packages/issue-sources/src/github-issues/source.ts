@@ -440,6 +440,30 @@ export class GitHubIssueSource implements ProjectSource {
     return refreshed ?? current
   }
 
+  /**
+   * Backs the "→ mover a X" quick-action button (`RunPreviewCard.vue`), which
+   * always targets `field: 'status'` — same contract as
+   * `GitHubProjectSource.setItemField`, just against labels instead of a
+   * board column. Re-reads labels fresh for the same reason `updateItem`
+   * does: `current.meta.labels` can be up to 60s stale from `fetchItems`'
+   * memoized cache, and a replace built off it would drop a label added
+   * elsewhere in that window.
+   */
+  async setItemField(itemId: string, field: string, value: string): Promise<void> {
+    const current = await this.getItemById(itemId)
+    if (!current) throw new Error(`Item '${itemId}' not found`)
+    const { owner, repo } = this.config
+    const issueNumber = current.meta?.issueNumber as number
+    const fresh = await this.api.getByNumber(owner, repo, issueNumber)
+    const freshLabels = fresh?.labels ?? (current.meta?.labels as string[] | undefined) ?? []
+    const nextLabels =
+      field.toLowerCase() === 'status'
+        ? this.statusLabels.withStatus(freshLabels, value)
+        : this.fieldLabels.withField(freshLabels, field, value)
+    await this.api.replaceLabels(owner, repo, issueNumber, nextLabels)
+    invalidateMemoized(this, 'fetchItems')
+  }
+
   // Crash-recovery: any issue left with the Working label from a previous run
   // gets it cleared so poll() doesn't skip it forever.
   async onDaemonStart(): Promise<void> {
