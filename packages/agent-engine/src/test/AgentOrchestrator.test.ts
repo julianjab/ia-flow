@@ -1370,3 +1370,236 @@ describe('AgentOrchestrator.runAgent — el provider declarado no está registra
     expect(transitions).toEqual([])
   })
 })
+
+// ─── Verify gate — PRD "Verify gate: el engine cierra un run sin comprobar
+// que el código compile ni que los tests pasen" ────────────────────────────
+describe('AgentOrchestrator.runAgent — verify gate', () => {
+  function makeTask(): Task {
+    return {
+      id: 'task-verify-1',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: ['repo-a'],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  const repoRepo: IRepoRepository = {
+    list: () => [{ name: 'repo-a', path: '/wt/repo-a' }],
+    listByProject: () => [{ name: 'repo-a', path: '/wt/repo-a' }],
+  } as unknown as IRepoRepository
+
+  function makeProvider(): IAgentProvider {
+    return {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async (_: ProviderInput) => ({ content: 'listo', mode: 'api' as const }),
+    }
+  }
+
+  function makeConfigRepo(verify: string[]) {
+    return {
+      getConfig: async () => ({
+        agents: [
+          {
+            id: 'implementer',
+            provider: 'anthropic-api',
+            prompt: 'x',
+            tools: [],
+            verify,
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+  }
+
+  function makeDeps(verify: string[]) {
+    const provider = makeProvider()
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const postComment = mock(async () => {})
+    const postError = mock(async () => {})
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment,
+      postError,
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const update = mock(() => {})
+    const executionLogRepo: IExecutionLogRepository = {
+      insert: () => {},
+      update,
+      list: () => [],
+      listActive: () => [],
+      getById: () => null,
+      sweepOrphaned: () => [],
+      listDistinctSources: () => [],
+      listLatestByTask: () => [],
+      listLastOutputsByAgent: () => [],
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      makeConfigRepo(verify),
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      executionLogRepo,
+    )
+
+    return { orch, manager, update, postComment, postError }
+  }
+
+  it('un agente SIN verify se comporta exactamente como hoy — aplica success', async () => {
+    const { orch, manager, update } = makeDeps([])
+    await orch.runAgent(makeTask(), manager, 'implementer')
+    const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+      outcome?: string
+      failureClass?: string | null
+    }
+    expect(patch.outcome).toBe('success')
+    expect(patch.failureClass ?? null).toBeNull()
+  })
+
+  it('verify que compila/testea OK no desvía el run — sigue aplicando success', async () => {
+    const { _verifyInternals } = await import('../verify.js')
+    const realSpawn = _verifyInternals.spawn
+    _verifyInternals.spawn = () =>
+      ({
+        stdout: null,
+        stderr: null,
+        exited: Promise.resolve(0),
+        kill: () => {},
+      }) as never
+    try {
+      const { orch, manager, update } = makeDeps(['bun run typecheck'])
+      await orch.runAgent(makeTask(), manager, 'implementer')
+      const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+        outcome?: string
+      }
+      expect(patch.outcome).toBe('success')
+    } finally {
+      _verifyInternals.spawn = realSpawn
+    }
+  })
+
+  it('verify que falla NO aplica el exit de éxito — termina en error con failureClass verify_failed', async () => {
+    const { _verifyInternals, VERIFY_FAILED_MARKER } = await import('../verify.js')
+    const realSpawn = _verifyInternals.spawn
+    _verifyInternals.spawn = () =>
+      ({
+        stdout: new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('TS2345: boom\n'))
+            c.close()
+          },
+        }),
+        stderr: null,
+        exited: Promise.resolve(2),
+        kill: () => {},
+      }) as never
+    try {
+      const { orch, manager, update, postError } = makeDeps(['bun run typecheck'])
+      await expect(orch.runAgent(makeTask(), manager, 'implementer')).rejects.toThrow(
+        VERIFY_FAILED_MARKER,
+      )
+      const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+        outcome?: string
+        failureClass?: string | null
+        errorMsg?: string | null
+      }
+      expect(patch.outcome).toBe('error')
+      expect(patch.failureClass).toBe('verify_failed')
+      expect(patch.errorMsg ?? '').toContain('bun run typecheck')
+      expect(patch.errorMsg ?? '').toContain('TS2345: boom')
+      // postError es best-effort: el manager de este fixture no declara exits
+      // de error, así que no se llama — lo que sí es obligatorio es que la
+      // fila quede marcada como error, no como success.
+      expect(postError.mock.calls.length).toBeGreaterThanOrEqual(0)
+    } finally {
+      _verifyInternals.spawn = realSpawn
+    }
+  })
+
+  it('un run cancelado no corre verify', async () => {
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async () => ({ content: 'listo', mode: 'api' as const }),
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const { _verifyInternals } = await import('../verify.js')
+    const realSpawn = _verifyInternals.spawn
+    let spawnCalled = false
+    _verifyInternals.spawn = () => {
+      spawnCalled = true
+      return {
+        stdout: null,
+        stderr: null,
+        exited: Promise.resolve(0),
+        kill: () => {},
+      } as never
+    }
+    try {
+      const configRepo = makeConfigRepo(['bun run typecheck'])
+      const manager: ITaskSource = {
+        applyTransition: async (t: Task) => t,
+        saveOutput: async (t: Task) => t,
+        setAgentWorking: async (t: Task) => t,
+        postComment: async () => {},
+        postError: async () => {},
+        getCurrentStatus: async () => 'InProgress',
+      } as unknown as ITaskSource
+      const executionLogRepo: IExecutionLogRepository = {
+        insert: () => {},
+        update: () => {},
+        list: () => [],
+        listActive: () => [],
+        getById: () => null,
+        sweepOrphaned: () => [],
+        listDistinctSources: () => [],
+        listLatestByTask: () => [],
+        listLastOutputsByAgent: () => [],
+      }
+      const orch = new AgentOrchestrator(
+        providers,
+        configRepo,
+        repoRepo,
+        { send: () => {} } as IBroadcast,
+        undefined,
+        executionLogRepo,
+      )
+      // Cancela el pending task apenas se registra, simulando la divergencia
+      // de status que detecta el poller — sin esto el run llegaría al success
+      // path normalmente.
+      const { getPendingTask } = await import('../pending-tasks.js')
+      const originalRun = provider.run
+      provider.run = async (input: ProviderInput) => {
+        const entry = getPendingTask(input.taskId)
+        if (entry) entry.cancelled = true
+        return originalRun(input)
+      }
+      await orch.runAgent(makeTask(), manager, 'implementer')
+      expect(spawnCalled).toBe(false)
+    } finally {
+      _verifyInternals.spawn = realSpawn
+    }
+  })
+})

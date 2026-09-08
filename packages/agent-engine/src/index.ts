@@ -49,6 +49,15 @@ export {
 export type { RunToolTelemetry, TranscriptUsage } from './run-telemetry.js'
 export { classifyFailure } from './failure-taxonomy.js'
 export type { ClassifyFailureInput } from './failure-taxonomy.js'
+export {
+  VERIFY_FAILED_MARKER,
+  VERIFY_MAX_TIMEOUT_MS,
+  VERIFY_OUTPUT_MAX_BYTES,
+  VERIFY_TIMEOUT_MS,
+  buildVerifyFailedError,
+  runVerifyCommands,
+} from './verify.js'
+export type { VerifyCommandResult, VerifyRunResult } from './verify.js'
 export { Agent, setSecretResolver } from './Agent.js'
 export type { AgentRunInput, AgentRunState, CompilePolicy, SecretResolver } from './Agent.js'
 export { AgentLifecycle } from './AgentLifecycle.js'

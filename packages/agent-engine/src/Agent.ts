@@ -66,6 +66,7 @@ import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveContext, type ResolveVariable, resolveVariables } from './variable-resolver.js'
+import { VERIFY_FAILED_MARKER, buildVerifyFailedError, runVerifyCommands } from './verify.js'
 import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('agent')
@@ -1111,6 +1112,26 @@ export class Agent {
           // el `emit` de la regla que lo disparó). Reproducido en vivo con
           // `comment-triage`.
           //
+          // Verify gate: comandos que el ENGINE corre en el worktree antes de
+          // aplicar la salida de éxito (ver AgentDefinition.verify). Sólo se
+          // llega acá cuando el run NO fue cancelado, NO truncó, y ningún
+          // tool movió ya la task — exactamente los tres casos que el PRD
+          // excluye. Un fallo lanza un Error marcado que el catch genérico de
+          // abajo trata como cualquier otro fallo del run (postError +
+          // lifecycle.fail); `classifyFailure` lo reconoce por esa marca y le
+          // asigna `failureClass: 'verify_failed'`.
+          if (agentDef.verify?.length) {
+            if (!effectiveCwd) {
+              throw new Error(
+                `${VERIFY_FAILED_MARKER} el agente declara verify pero no se resolvió ningún worktree/cwd para correrlo`,
+              )
+            }
+            const verifyResult = await runVerifyCommands(agentDef.verify, effectiveCwd)
+            if (!verifyResult.ok) {
+              throw buildVerifyFailedError(verifyResult, agentDef.verify.length)
+            }
+          }
+
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the
