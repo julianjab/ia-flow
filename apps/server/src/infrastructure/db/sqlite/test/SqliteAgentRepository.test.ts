@@ -30,7 +30,8 @@ function setup(): SqliteAgentRepository {
       exits TEXT,
       comment            TEXT,
       enabled            INTEGER NOT NULL DEFAULT 1,
-      max_concurrent_dispatches INTEGER
+      max_concurrent_dispatches INTEGER,
+      verify             TEXT
     )
   `)
   return new SqliteAgentRepository(db)
@@ -87,6 +88,26 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
       error: '$set:status=Failed,Labels=+needs-attention',
       'back-to-build': '$set:status=Build',
     })
+  })
+
+  it('round-trips `verify` through upsert + inScope', () => {
+    repo.upsert(
+      {
+        id: 'builder',
+        provider: 'anthropic',
+        prompt: 'build it',
+        verify: ['bun run typecheck', 'bun test'],
+      },
+      0,
+      'p1',
+    )
+    const [row] = repo.inScope('p1')
+    expect(row.verify).toEqual(['bun run typecheck', 'bun test'])
+  })
+
+  it('sin `verify` vuelve undefined — sin cambio de comportamiento', () => {
+    repo.upsert({ id: 'plain', provider: 'anthropic', prompt: 'go' }, 0, 'p1')
+    expect(repo.inScope('p1')[0]?.verify).toBeUndefined()
   })
 
   it('defaults enabled to true and omits unset activation/outcome fields', () => {
