@@ -19,9 +19,9 @@ import type {
   ProviderOutput,
   SessionHandle,
 } from '@ia-flow/ai-providers'
-import { ADMIT, ProviderAtCapacityError, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
-import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
+import { ADMIT, decline, ProviderAtCapacityError, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { WorkspacePlan } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 import { createLogger } from '../../logger.js'
 import { daemonPublicUrl } from '../../server-port.js'

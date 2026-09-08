@@ -4,13 +4,13 @@
 
 import { afterEach, describe, expect, it } from 'bun:test'
 import {
-  type SpawnedVerifyProc,
-  VERIFY_FAILED_MARKER,
-  VERIFY_OUTPUT_MAX_BYTES,
   _verifyInternals,
   buildVerifyEnv,
   buildVerifyFailedError,
   runVerifyCommands,
+  type SpawnedVerifyProc,
+  VERIFY_FAILED_MARKER,
+  VERIFY_OUTPUT_MAX_BYTES,
 } from '../verify.js'
 
 const REAL_SPAWN = _verifyInternals.spawn
@@ -24,12 +24,7 @@ afterEach(() => {
 })
 
 function mockProc(
-  opts: {
-    stdout?: string
-    stderr?: string
-    exitCode?: number
-    delayMs?: number
-  } = {},
+  opts: { stdout?: string; stderr?: string; exitCode?: number; delayMs?: number } = {},
 ): SpawnedVerifyProc {
   const stdoutText = opts.stdout ?? ''
   const stderrText = opts.stderr ?? ''

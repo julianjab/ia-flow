@@ -1,5 +1,5 @@
-import { invalidateMemoized, memoize } from '@ia-flow/shared'
 import type { PullRequestRef, TaskComment } from '@ia-flow/shared'
+import { invalidateMemoized, memoize } from '@ia-flow/shared'
 import type {
   BroadcastFn,
   CreateItemInput,
@@ -19,7 +19,7 @@ import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fetchConversation } from '../github-shared/conversation.js'
-import { type IssueDevLinks, branchTreeUrl, openPullRequests } from '../github-shared/dev-links.js'
+import { branchTreeUrl, type IssueDevLinks, openPullRequests } from '../github-shared/dev-links.js'
 import { markCommentsUsed as markIssueCommentsUsed } from '../github-shared/issue.js'
 import { readSlackThreadUrlFromPr, saveSlackThreadUrlInPr } from '../github-shared/pull-request.js'
 import {
@@ -29,7 +29,7 @@ import {
   upsertSlackSection,
 } from '../github-shared/slack-section.js'
 import { createLogger } from '../logger.js'
-import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
+import { fromWebhookPayload, GitHubIssuesApi, type RestIssue } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
 import { StatusLabelCodec, WORKING_LABEL, withWorking } from './status-label.js'
 import { GitHubIssueTaskSource } from './task-source.js'

@@ -4,16 +4,16 @@
 // per-status entry) so WhenConditionsEditor / OutcomesEditor / AgentEditorModal
 // can share the same conversion logic.
 
+import type { AgentOutcomes, WhenCondition } from '@ia-flow/shared'
 import {
   type AgentExit,
   type CommentTarget,
   ERROR_EXIT,
-  SUCCESS_EXIT,
   exitComment,
   exitSet,
   exitWhen,
+  SUCCESS_EXIT,
 } from '@ia-flow/shared'
-import type { AgentOutcomes, WhenCondition } from '@ia-flow/shared'
 
 export type ConditionOp =
   | '='

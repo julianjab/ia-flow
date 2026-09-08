@@ -1,6 +1,6 @@
-import LogLine from '@/ui/LogLine.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import LogLine from '@/ui/LogLine.vue'
 
 describe('LogLine', () => {
   it('dibuja los cuatro datos en el orden de lectura', () => {

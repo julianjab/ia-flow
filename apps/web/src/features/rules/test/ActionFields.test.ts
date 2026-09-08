@@ -1,6 +1,6 @@
-import ActionFields from '@/features/rules/ActionFields.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import ActionFields from '@/features/rules/ActionFields.vue'
 
 type Entry = Record<string, unknown> & { action: string }
 

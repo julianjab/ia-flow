@@ -1,4 +1,4 @@
-import { type EventOutcome, diffStatus } from '@ia-flow/rules'
+import { diffStatus, type EventOutcome } from '@ia-flow/rules'
 import type { IEventBus } from '../../domain/ports/IEventBus.js'
 import type { IssueItem } from '../../domain/ports/IIssueManager.js'
 import type { ISeenItemRepository } from '../../domain/ports/ISeenItemRepository.js'

@@ -4,30 +4,31 @@
 // consumidores que no comparten nada más: el daemon (`apps/server`) y el
 // agent-host remoto (`apps/agent-host`), que necesita clonar y armar su
 // propio worktree sin arrastrar el engine de dispatch entero.
+
 export {
-  WorkspaceManager,
-  TaskLockedError,
-  type CloneableRepo,
-  type GetOrCreateOptions,
-  type LiveRunsProbe,
-  type ResolveScopesContext,
-  type ResolvedScopes,
-  type WorkspaceTask,
-} from './WorkspaceManager.js'
-export {
+  branchNameFor,
   DEFAULT_WORKTREE_BASE,
   FALLBACK_BASE_BRANCH,
+  legacyWorktreePathFor,
   PROTECTED_BRANCHES,
   type WorktreeNameSource,
-  branchNameFor,
-  legacyWorktreePathFor,
   worktreeNameFor,
   worktreePathFor,
 } from './layout.js'
+export { createLogger, type Logger, type LoggerFactory, setLoggerFactory } from './logger.js'
 export {
   TerminalWorkspaceProvisioner,
-  WorktreeWorkspaceProvisioner,
   type WorkspaceProvisioner,
+  WorktreeWorkspaceProvisioner,
 } from './provisioners.js'
 export { BunShellRunner, type ShellResult, type ShellRunner } from './shell.js'
-export { createLogger, setLoggerFactory, type Logger, type LoggerFactory } from './logger.js'
+export {
+  type CloneableRepo,
+  type GetOrCreateOptions,
+  type LiveRunsProbe,
+  type ResolvedScopes,
+  type ResolveScopesContext,
+  TaskLockedError,
+  WorkspaceManager,
+  type WorkspaceTask,
+} from './WorkspaceManager.js'

@@ -1,3 +1,4 @@
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AgentHostConsole from '@/features/agent-host/AgentHostConsole.vue'
 import AgentHostLogsView from '@/features/agent-host/AgentHostLogsView.vue'
 import { getSelectedKind, getSelectedServer } from '@/features/servers/selection'
@@ -8,7 +9,6 @@ import MoreView from '@/views/MoreView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import ProjectsListView from '@/views/ProjectsListView.vue'
 import ServerPickerView from '@/views/ServerPickerView.vue'
-import { type RouteRecordRaw, createRouter, createWebHistory } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   // Fuera de AppShell a propósito: elegir server pasa ANTES de entrar a la

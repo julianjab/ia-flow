@@ -1,8 +1,8 @@
-import type { SourceItem } from '@/features/projects/sourceApi'
-import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SourceItem } from '@/features/projects/sourceApi'
+import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import TareasSection from '../TareasSection.vue'
 
 const items: SourceItem[] = []

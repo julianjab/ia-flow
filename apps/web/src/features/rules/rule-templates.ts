@@ -1,4 +1,4 @@
-import { type Rule, isRecurringEventType } from '@ia-flow/shared'
+import { isRecurringEventType, type Rule } from '@ia-flow/shared'
 
 // Plantillas de regla.
 //

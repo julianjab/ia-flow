@@ -14,12 +14,12 @@ import {
   type AgentExit,
   type CommentTarget,
   ERROR_EXIT,
-  SUCCESS_EXIT,
-  type Task,
   exitComment,
   exitSet,
   exitWhen,
   resolveCommentTarget,
+  SUCCESS_EXIT,
+  type Task,
 } from '@ia-flow/shared'
 import { createLogger } from './logger.js'
 import { applyOutcome } from './outcomes.js'

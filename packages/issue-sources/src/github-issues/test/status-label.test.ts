@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { StatusLabelCodec, WORKING_LABEL, isTracked, withWorking } from '../status-label.js'
+import { isTracked, StatusLabelCodec, WORKING_LABEL, withWorking } from '../status-label.js'
 
 describe('StatusLabelCodec', () => {
   const codec = new StatusLabelCodec()

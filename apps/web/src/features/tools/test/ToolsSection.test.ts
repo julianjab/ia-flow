@@ -1,7 +1,7 @@
-import ToolsSection from '@/features/tools/ToolsSection.vue'
 import type { ConfigScope, EditableTool, NamedAction } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import ToolsSection from '@/features/tools/ToolsSection.vue'
 
 const GLOBAL: ConfigScope = { kind: 'global' }
 const PROJECT: ConfigScope = { kind: 'project', projectId: 'ia-flow' }

@@ -1,7 +1,7 @@
-import RuleSentence from '@/features/rules/RuleSentence.vue'
 import type { Rule } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import RuleSentence from '@/features/rules/RuleSentence.vue'
 
 const rule = (over: Partial<Rule> = {}): Rule =>
   ({ id: 'r1', on: ['pr.opened'], do: [], ...over }) as Rule

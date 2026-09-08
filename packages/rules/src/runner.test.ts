@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { type EngineEvent, type Rule, type RuleActionEntry, createEvent } from '@ia-flow/shared'
+import { createEvent, type EngineEvent, type Rule, type RuleActionEntry } from '@ia-flow/shared'
 import { z } from 'zod'
-import { clearActionRegistry, registerAction } from './actions.js'
 import type { ActionResult } from './actions.js'
+import { clearActionRegistry, registerAction } from './actions.js'
 import { runRule } from './runner.js'
 
 const noopEmit = async () => {}

@@ -1,9 +1,9 @@
-import MobileTabBar from '@/components/MobileTabBar.vue'
-import { useActiveExecutionsStore } from '@/features/executions/activeStore'
-import { useDispositionsStore } from '@/features/tasks/dispositionsStore'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import MobileTabBar from '@/components/MobileTabBar.vue'
+import { useActiveExecutionsStore } from '@/features/executions/activeStore'
+import { useDispositionsStore } from '@/features/tasks/dispositionsStore'
 
 let path = '/projects/p1/tareas'
 vi.mock('vue-router', () => ({

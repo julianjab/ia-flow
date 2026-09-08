@@ -11,11 +11,11 @@
 // cualquier cosa escuchando en :3014 entraba a la lista como si fuera un
 // server de ia-flow.
 
-import { type ProbedServer, normalizeBaseUrl, probeServer } from '@/features/servers/api'
-import { applySelectedToken, currentBaseUrl, getSelectedServer } from '@/features/servers/selection'
-import { type SavedServer, loadServers, saveServers } from '@/features/servers/storage'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { normalizeBaseUrl, type ProbedServer, probeServer } from '@/features/servers/api'
+import { applySelectedToken, currentBaseUrl, getSelectedServer } from '@/features/servers/selection'
+import { loadServers, type SavedServer, saveServers } from '@/features/servers/storage'
 
 export const useServersStore = defineStore('servers', () => {
   /** Lo declarado — la fuente de verdad. */

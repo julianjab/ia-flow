@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import type { WorkspaceRequest } from '@ia-flow/shared'
-import { WorkspaceManager } from '../WorkspaceManager.js'
 import { worktreeNameFor, worktreePathFor } from '../layout.js'
 import { TerminalWorkspaceProvisioner, WorktreeWorkspaceProvisioner } from '../provisioners.js'
 import type { ShellResult, ShellRunner } from '../shell.js'
+import { WorkspaceManager } from '../WorkspaceManager.js'
 
 const BASE = '/tmp/ia-flow-prov-test'
 const REPO = '/repos/demo'

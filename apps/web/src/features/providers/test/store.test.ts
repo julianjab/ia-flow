@@ -1,8 +1,8 @@
-import type { ProvidersResponse } from '@/features/providers/api'
 import type { AnthropicApiSettings, ProviderConfig } from '@ia-flow/shared'
 import axios from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { ProvidersResponse } from '@/features/providers/api'
 import { useProvidersStore } from '../store'
 
 const snap = <T>(v: T): T => JSON.parse(JSON.stringify(v))

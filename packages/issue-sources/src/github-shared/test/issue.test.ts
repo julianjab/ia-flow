@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import {
   ERROR_COMMENT_MARKER,
-  SYSTEM_COMMENT_MARKER,
-  USED_COMMENT_MARKER,
   fetchIssueComments,
   markCommentsUsed,
+  SYSTEM_COMMENT_MARKER,
+  USED_COMMENT_MARKER,
 } from '../issue.js'
 
 // ─── fetch helpers ────────────────────────────────────────────────────────────

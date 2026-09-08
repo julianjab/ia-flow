@@ -1,22 +1,21 @@
-import { join } from 'path'
 import {
   AgentOrchestrator,
-  type PrDiffPort,
-  TaskDispatcher,
   getPendingTask,
   listPendingTasks,
+  type PrDiffPort,
   removePendingTask,
   setLoggerFactory as setAgentEngineLoggerFactory,
   setPendingTaskRehydrator,
   setSecretResolver,
   setTranscriptUsageReader,
+  TaskDispatcher,
 } from '@ia-flow/agent-engine'
 import {
   AnthropicApiProvider,
-  ItermClaudeProvider,
-  TmuxClaudeProvider,
   createAgentClassifier,
   createProviderClassifier,
+  ItermClaudeProvider,
+  TmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
 import {
   FigmaCredentials,
@@ -28,17 +27,17 @@ import {
   setLoggerFactory as setGithubAuthLoggerFactory,
 } from '@ia-flow/github-auth'
 import {
+  createDefaultSourceFactory,
   DivergenceReconciler,
+  defaultToIssueItem,
+  fetchPullRequestDiff,
   LocalProjectSource,
   type PendingTaskRegistryPort,
   type ProjectSource,
-  SourceDispatcher,
-  createDefaultSourceFactory,
-  defaultToIssueItem,
-  fetchPullRequestDiff,
   resolveCatchUp,
   resolveDaemonMode,
   resolveProjectFilter,
+  SourceDispatcher,
   setGitHubCredentials,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
@@ -46,7 +45,6 @@ import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
 import { installSlack } from '@ia-flow/slack'
 import {
-  TASK_MESSAGE_EVENT,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
@@ -58,14 +56,16 @@ import {
   setLoggerFactory as setToolsLoggerFactory,
   setWaitPort,
   setWorkspaceManagerPort,
+  TASK_MESSAGE_EVENT,
 } from '@ia-flow/tools'
 import {
   BunShellRunner,
+  setLoggerFactory as setWorkspaceLoggerFactory,
   TerminalWorkspaceProvisioner,
   WorkspaceManager,
   WorktreeWorkspaceProvisioner,
-  setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
+import { join } from 'path'
 import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.js'
 import { readTranscriptUsage } from '../adapters/claude-code/transcript-usage.js'
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
@@ -106,7 +106,9 @@ import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
   CompositeExecutionLogRepository,
+  getDb,
   ProjectScopedRuleRepository,
+  pickRepo,
   RemoteExecutionLogRepository,
   SourceTaggingExecutionLogRepository,
   SqliteActionRepository,
@@ -141,8 +143,6 @@ import {
   YamlRuleRepository,
   YamlStatusRepository,
   YamlSystemPromptRepository,
-  getDb,
-  pickRepo,
 } from '../infrastructure/db/index.js'
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { IssueSourcesPollingGate } from '../infrastructure/polling/IssueSourcesPollingGate.js'

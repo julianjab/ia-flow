@@ -1,6 +1,6 @@
-import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
 
 const mountModal = () =>
   mount(RuleEditorModal, {

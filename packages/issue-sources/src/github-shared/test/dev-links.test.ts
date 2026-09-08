@@ -1,12 +1,12 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import {
-  PR_DIFF_MAX_CHARS,
   branchTreeUrl,
   fetchPullRequestDiff,
   isCiFinished,
-  isUnsupportedPullRequestFieldError,
   issueDevLinksSelection,
+  isUnsupportedPullRequestFieldError,
   mapDevLinks,
+  PR_DIFF_MAX_CHARS,
   pickPrimaryBranch,
 } from '../dev-links.js'
 

@@ -12,15 +12,15 @@ import { setGitTokenPort } from '../../ports.js'
 // Side-effect import — registers `bash_run` in the process-wide registry.
 import '../exec.js'
 import {
-  DEFAULT_TIMEOUT_MS,
-  MAX_TIMEOUT_MS,
-  OUTPUT_MAX_BYTES,
-  type SpawnedProc,
   _execInternals,
   assertBashCommandAllowed,
   assertCwdInWritePaths,
+  DEFAULT_TIMEOUT_MS,
+  MAX_TIMEOUT_MS,
   normalizeTimeoutMs,
+  OUTPUT_MAX_BYTES,
   parseArgv,
+  type SpawnedProc,
   truncateOutput,
 } from '../exec.js'
 

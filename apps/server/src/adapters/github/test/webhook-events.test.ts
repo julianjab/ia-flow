@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'bun:test'
 import {
   CI_FINISHED,
+  githubWebhookEvent,
+  isBusEvent,
   PR_CLOSED,
   PR_MERGED,
   PR_OPENED,
   PR_REVIEW_SUBMITTED,
   PR_SYNCHRONIZED,
   type ScopeResolver,
-  githubWebhookEvent,
-  isBusEvent,
 } from '../webhook-events.js'
 
 const resolve: ScopeResolver = (owner, repo) =>

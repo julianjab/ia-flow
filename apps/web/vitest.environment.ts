@@ -1,4 +1,4 @@
-import { type Environment, builtinEnvironments } from 'vitest/environments'
+import { builtinEnvironments, type Environment } from 'vitest/environments'
 
 /**
  * Entorno de tests: happy-dom, más el arreglo de `localStorage` bajo Node ≥ 22.

@@ -6,10 +6,10 @@
 // `continueOnError`, y correr en paralelo no es un default sino algo que habría
 // que pedir explícitamente.
 import type { EngineEvent, Rule, RuleAction, RuleActionEntry } from '@ia-flow/shared'
-import { getActionHandler } from './actions.js'
 import type { ActionContext, ActionResult } from './actions.js'
+import { getActionHandler } from './actions.js'
 import type { EventOutcome } from './bus.js'
-import { type Steps, referencesSteps, resolveSteps } from './steps.js'
+import { referencesSteps, resolveSteps, type Steps } from './steps.js'
 import { evalWhen } from './when.js'
 
 export interface ActionRunRecorder {

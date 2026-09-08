@@ -1,7 +1,7 @@
-import { fetchProjectConfig } from '@/features/project-config/api'
 import type { ProjectConfig } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { fetchProjectConfig } from '@/features/project-config/api'
 
 // Read-only cache of the global scope (project_id IS NULL). Mutations happen
 // via the granular per-domain APIs; call `fetch()` afterwards to refresh.

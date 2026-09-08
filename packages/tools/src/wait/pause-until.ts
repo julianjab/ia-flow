@@ -1,4 +1,4 @@
-import { type WaitRequest, describeEventType } from '@ia-flow/shared'
+import { describeEventType, type WaitRequest } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'

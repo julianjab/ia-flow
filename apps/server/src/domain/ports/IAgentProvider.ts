@@ -6,7 +6,7 @@
 export type {
   IAgentProvider,
   ProviderInput,
-  ProviderOutput,
   ProviderKind,
+  ProviderOutput,
   SessionHandle,
 } from '@ia-flow/ai-providers'

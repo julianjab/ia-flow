@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 import {
-  RegistrationInputSchema,
   duplicateNameError,
   fetchAgentHostProvider,
+  RegistrationInputSchema,
   toPublicRegistration,
 } from '../provider-registrations-logic.js'
 

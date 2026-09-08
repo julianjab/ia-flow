@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { type EngineEvent, type Wait, createEvent } from '@ia-flow/shared'
+import { createEvent, type EngineEvent, type Wait } from '@ia-flow/shared'
 import { WaitHandler } from './wait-handler.js'
 
 function wait(over: Partial<Wait> = {}): Wait {

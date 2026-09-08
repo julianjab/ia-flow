@@ -1,8 +1,8 @@
-import RunPreviewCard from '@/features/tasks/RunPreviewCard.vue'
 import type { TaskRunPreview as Preview } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import RunPreviewCard from '@/features/tasks/RunPreviewCard.vue'
 
 const fetchTaskRunPreview = vi.fn()
 vi.mock('@/features/tasks/api', () => ({

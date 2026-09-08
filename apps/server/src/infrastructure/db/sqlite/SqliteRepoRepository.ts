@@ -1,6 +1,11 @@
 import type { Database } from 'bun:sqlite'
-import type { RepoMapping, RepoMappingEntry, RepoWorkflow, SlackMemberRef } from '@ia-flow/shared'
-import type { SlackReviewMessage } from '@ia-flow/shared'
+import type {
+  RepoMapping,
+  RepoMappingEntry,
+  RepoWorkflow,
+  SlackMemberRef,
+  SlackReviewMessage,
+} from '@ia-flow/shared'
 import { SlackMemberRefSchema, SlackReviewMessageSchema } from '@ia-flow/shared'
 import type { DbRepoEntry, IRepoRepository } from '../../../domain/ports/IRepoRepository.js'
 

@@ -1,5 +1,5 @@
-import { invalidateMemoized, memoize, peekMemoized } from '@ia-flow/shared'
 import type { PullRequestRef, TaskComment, WorkingMarker } from '@ia-flow/shared'
+import { invalidateMemoized, memoize, peekMemoized } from '@ia-flow/shared'
 import type {
   BroadcastFn,
   CreateItemInput,
@@ -16,9 +16,9 @@ import type {
   WebhookMatchHint,
 } from '../contract.js'
 import {
-  MULTI_SELECT_DATA_TYPE,
   applyMultiValueOps,
   isMultiValueField,
+  MULTI_SELECT_DATA_TYPE,
 } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
@@ -33,9 +33,6 @@ import { replaceIssueLabels } from '../github-shared/labels.js'
 import { readSlackThreadUrlFromPr, saveSlackThreadUrlInPr } from '../github-shared/pull-request.js'
 import { createLogger } from '../logger.js'
 import {
-  type ProjectField,
-  type ProjectItem,
-  type ProjectMeta,
   addProjectItem,
   clearItemWorking,
   createProjectDraftIssue,
@@ -44,6 +41,9 @@ import {
   getProjectItemByIssueId,
   getProjectMeta,
   listProjectItems,
+  type ProjectField,
+  type ProjectItem,
+  type ProjectMeta,
   setProjectTextField,
   updateItemStatus,
   updateProjectDraftIssue,
@@ -731,11 +731,7 @@ function resolveRepos(repos: unknown, hostRepo: string | undefined): string[] {
   return hostRepo ? [hostRepo] : []
 }
 
-function buildDraftBody(input: {
-  description?: string
-  type?: string
-  repos?: string[]
-}): string {
+function buildDraftBody(input: { description?: string; type?: string; repos?: string[] }): string {
   const parts: string[] = []
   if (input.description) parts.push(input.description.trim())
   const meta: string[] = []

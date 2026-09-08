@@ -9,9 +9,9 @@ import type { Disposable, SourceItem, WatchOptions, WebhookMatchHint } from '../
 import type { Logger } from '../logger.js'
 import { pollIntervalMs, webhookDebounceMs, webhookFallbackMs } from './env.js'
 import {
+  registerWebhookTarget,
   type WebhookDelivery,
   type WebhookTargetStats,
-  registerWebhookTarget,
 } from './webhook-registry.js'
 
 /**

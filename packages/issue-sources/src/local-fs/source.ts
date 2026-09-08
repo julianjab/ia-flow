@@ -1,13 +1,13 @@
-import { basename } from 'path'
 import type { Task } from '@ia-flow/shared'
 import chokidar from 'chokidar'
+import { basename } from 'path'
 import type {
   Blocker,
   BroadcastFn,
   CreateItemInput,
   Disposable,
-  ITaskRepository,
   IssueItem,
+  ITaskRepository,
   ProjectSource,
   SourceItem,
   SourceProjectField,

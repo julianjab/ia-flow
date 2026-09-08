@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import {
   type AgentCondition,
   type ConditionOp,
@@ -5,7 +6,6 @@ import {
   opTakesValue,
   whenToConditions,
 } from '@/features/agents/outcomes-serialization'
-import { describe, expect, it } from 'vitest'
 
 // Los operadores nuevos (`>`, `>=`, `<`, `<=`, `$contains`, `$matches`) tienen
 // que sobrevivir el round-trip editor ↔ wire igual que `=` y `!=`. El

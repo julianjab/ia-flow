@@ -1,6 +1,6 @@
-import DataRow from '@/components/DataRow.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import DataRow from '@/components/DataRow.vue'
 
 const slots = {
   glyph: '<i class="g">✕</i>',

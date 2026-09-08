@@ -27,12 +27,12 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
+  branchNameFor,
   DEFAULT_WORKTREE_BASE,
   FALLBACK_BASE_BRANCH,
+  legacyWorktreePathFor,
   PROTECTED_BRANCHES,
   type WorktreeNameSource,
-  branchNameFor,
-  legacyWorktreePathFor,
   worktreeNameFor,
   worktreePathFor,
 } from './layout.js'

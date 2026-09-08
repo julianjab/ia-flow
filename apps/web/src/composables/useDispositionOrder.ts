@@ -1,5 +1,5 @@
 import { DISPOSITION_ORDER, type TaskDisposition } from '@ia-flow/shared'
-import { type Ref, computed, ref } from 'vue'
+import { computed, type Ref, ref } from 'vue'
 
 /**
  * El orden por disposición, congelado — la mecánica que comparten las cuatro

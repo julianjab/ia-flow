@@ -1,6 +1,6 @@
-import FullScreen from '@/ui/FullScreen.vue'
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
+import FullScreen from '@/ui/FullScreen.vue'
 
 afterEach(() => {
   document.body.style.overflow = ''

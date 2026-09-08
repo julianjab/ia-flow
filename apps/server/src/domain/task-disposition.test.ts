@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { ExecutionLog } from '@ia-flow/shared'
 import {
-  type DispositionFacts,
   compareWithinBucket,
+  type DispositionFacts,
   resolveDisposition,
 } from './task-disposition.js'
 

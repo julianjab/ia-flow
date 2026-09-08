@@ -1,7 +1,7 @@
-import FollowTail from '@/ui/FollowTail.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
+import FollowTail from '@/ui/FollowTail.vue'
 
 // El defecto que este componente existe para evitar: en una lista que crece por
 // ARRIBA, cada entrada nueva empuja hacia abajo lo que estás leyendo, y con el

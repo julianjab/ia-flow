@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import {
   type AuthServerMetadata,
-  FIGMA_MCP_URL,
   buildAuthorizationUrl,
   discoverAuthServer,
   exchangeCode,
+  FIGMA_MCP_URL,
   refreshAccessToken,
   registerClient,
 } from './oauth.js'

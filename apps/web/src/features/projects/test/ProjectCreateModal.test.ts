@@ -1,6 +1,6 @@
-import ProjectCreateModal from '@/features/projects/ProjectCreateModal.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import ProjectCreateModal from '@/features/projects/ProjectCreateModal.vue'
 
 // Smoke de montaje — ver RepoConfigModal.test.ts para el porqué: un `.vue`
 // puede compilar, pasar biome y pasar los tests, y no cargar.

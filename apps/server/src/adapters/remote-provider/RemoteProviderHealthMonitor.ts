@@ -24,8 +24,8 @@ import type {
   ProviderRegistration,
 } from '../../domain/ports/IProviderRegistrationRepository.js'
 import { createLogger } from '../../logger.js'
+import { applyProbe, isAvailable, type ProbeResult, UNKNOWN_HEALTH } from './health.js'
 import { RemoteAgentProvider, remoteProviderId } from './RemoteAgentProvider.js'
-import { type ProbeResult, UNKNOWN_HEALTH, applyProbe, isAvailable } from './health.js'
 
 const log = createLogger('remote-health')
 

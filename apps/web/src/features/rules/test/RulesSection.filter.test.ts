@@ -1,8 +1,8 @@
-import RulesSection from '@/features/rules/RulesSection.vue'
 import type { Pipeline, Rule } from '@ia-flow/shared'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import RulesSection from '@/features/rules/RulesSection.vue'
 
 // Buscador (`FilterQueryInput`, campo:valor) y agrupado por `on[0]` — ver
 // `RulesSection.vue` (`matchesToken`, `groupByEvent`). Mismo router real que

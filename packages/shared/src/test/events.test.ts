@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EngineEventSchema, EventScopeSchema, createEvent, deriveEvent } from '../events.js'
+import { createEvent, deriveEvent, EngineEventSchema, EventScopeSchema } from '../events.js'
 
 describe('EngineEventSchema', () => {
   it('acepta un evento mínimo y aplica el default de depth', () => {

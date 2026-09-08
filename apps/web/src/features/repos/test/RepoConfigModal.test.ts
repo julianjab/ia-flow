@@ -1,6 +1,6 @@
-import RepoConfigModal from '@/features/repos/RepoConfigModal.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import RepoConfigModal from '@/features/repos/RepoConfigModal.vue'
 
 /**
  * Un smoke test de montaje, y no es trivial: este componente estuvo **roto** —

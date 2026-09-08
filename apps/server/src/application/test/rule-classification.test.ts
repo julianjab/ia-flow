@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { type EngineEvent, type Rule, createEvent } from '@ia-flow/shared'
+import { createEvent, type EngineEvent, type Rule } from '@ia-flow/shared'
 import { firstAgentIdOf, toRuleClassificationInput } from '../rule-classification.js'
 
 const event = (payload: Record<string, unknown>): EngineEvent =>

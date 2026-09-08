@@ -1,8 +1,8 @@
-import SlackReviewFields from '@/ui/SlackReviewFields.vue'
 import { DEFAULT_SLACK_REVIEW_MESSAGES } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
+import SlackReviewFields from '@/ui/SlackReviewFields.vue'
 
 // Un `ref` de verdad y no un objeto con `.value`: el template auto-desenvuelve
 // refs, así que un doble plano deja `integrations.slack` en undefined.

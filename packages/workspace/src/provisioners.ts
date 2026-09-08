@@ -13,8 +13,8 @@
 // (`IAgentProvider.prepareWorkspace`). El engine ya no elige — describe el
 // trabajo y el provider aterriza.
 import type { WorkspacePlan, WorkspaceRepoRef, WorkspaceRequest } from '@ia-flow/shared'
-import type { WorkspaceManager } from './WorkspaceManager.js'
 import { createLogger } from './logger.js'
+import type { WorkspaceManager } from './WorkspaceManager.js'
 
 const log = createLogger('workspace-provisioner')
 

@@ -1,7 +1,7 @@
-import TaskExecutions from '@/features/tasks/TaskExecutions.vue'
 import type { ExecutionLog } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import TaskExecutions from '@/features/tasks/TaskExecutions.vue'
 
 const fetchTaskExecutions = vi.fn()
 vi.mock('@/features/tasks/api', () => ({

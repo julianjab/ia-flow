@@ -1,9 +1,9 @@
 import { ISSUE_STATUS_CHANGED, matchRules } from '@ia-flow/rules'
 import type { EngineEvent, Rule, TaskRunPreview } from '@ia-flow/shared'
-import { type RunTaskNowResult, createEvent } from '@ia-flow/shared'
+import { createEvent, type RunTaskNowResult } from '@ia-flow/shared'
 import type { IEventBus } from '../../domain/ports/IEventBus.js'
-import { defaultToIssueItem } from '../../domain/ports/IIssueManager.js'
 import type { IssueItem, SourceItem } from '../../domain/ports/IIssueManager.js'
+import { defaultToIssueItem } from '../../domain/ports/IIssueManager.js'
 
 /** Lo mínimo que el caso de uso necesita de la fuente: encontrar UN item. */
 export interface RunTaskNowSource {

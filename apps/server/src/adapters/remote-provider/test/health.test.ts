@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { UNKNOWN_HEALTH, applyProbe, isAvailable } from '../health.js'
+import { applyProbe, isAvailable, UNKNOWN_HEALTH } from '../health.js'
 
 const AT = '2026-01-01T00:00:05Z'
 

@@ -1,6 +1,6 @@
-import ListBoardToggle from '@/components/ListBoardToggle.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import ListBoardToggle from '@/components/ListBoardToggle.vue'
 
 const push = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))

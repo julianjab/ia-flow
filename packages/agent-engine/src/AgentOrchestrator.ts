@@ -1,11 +1,11 @@
-import { join } from 'path'
 import type { Admission, AdmissionRequest, IAgentProvider } from '@ia-flow/ai-providers'
 import { ADMIT, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
 import type { AgentExit, ProviderLimit, Task } from '@ia-flow/shared'
 import type { WorkspaceManager } from '@ia-flow/workspace'
+import { join } from 'path'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
-import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
+import { atCap, countRunningByAgent, type PendingSnapshot } from './capacity.js'
 import type {
   AgentAbortPort,
   IBroadcast,
@@ -19,7 +19,7 @@ import type {
   RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
-import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
+import { defaultLinkedBranchNamer, type LinkedBranchNamer } from './linked-branch.js'
 import { createLogger } from './logger.js'
 import { type ProviderClassifier, resolveProvider } from './provider-selection.js'
 import { resolveRunContext } from './run-context.js'

@@ -1,4 +1,4 @@
-import { type RunMessage, TASK_MESSAGE_EVENT, createEvent } from '@ia-flow/shared'
+import { createEvent, type RunMessage, TASK_MESSAGE_EVENT } from '@ia-flow/shared'
 import type { IEventBus } from '../../domain/ports/IEventBus.js'
 import type { IRunMessageRepository } from '../../domain/ports/IRunMessageRepository.js'
 import type { IWaitRepository } from '../../domain/ports/IWaitRepository.js'

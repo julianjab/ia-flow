@@ -1,4 +1,4 @@
-import { type ToolContext, registerTool } from '@ia-flow/tools'
+import { registerTool, type ToolContext } from '@ia-flow/tools'
 
 // `request_slack_review` — pedir review del PR de la tarea en Slack.
 //

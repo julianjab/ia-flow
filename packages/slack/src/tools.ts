@@ -1,10 +1,10 @@
 import { registerTool } from '@ia-flow/tools'
 import {
-  type SlackMessage,
   conversationsHistory,
   conversationsReplies,
   getUserName,
   postMessage,
+  type SlackMessage,
 } from './client.js'
 import { parseSlackPermalink } from './permalink.js'
 

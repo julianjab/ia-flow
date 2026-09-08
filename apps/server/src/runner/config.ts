@@ -10,7 +10,7 @@
 // `settings` al env antes de arrancar el daemon aprovecha esa misma
 // propiedad — sin tocar una línea de esos paquetes, y sin una segunda forma
 // de configurarlos que pueda divergir.
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { AgentDefinitionSchema, ProjectSchema, RepoDefSchema, RuleSchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'

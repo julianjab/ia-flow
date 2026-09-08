@@ -1,7 +1,7 @@
-import { fetchTaskDispositions } from '@/features/tasks/api'
 import type { TaskDispositionEntry } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { fetchTaskDispositions } from '@/features/tasks/api'
 
 /**
  * Las disposiciones del proyecto, cacheadas por proyecto.

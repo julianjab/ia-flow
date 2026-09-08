@@ -4,7 +4,7 @@ import type { AgentExit } from '@ia-flow/shared'
 import { TaskLockedError } from '@ia-flow/workspace'
 import type { AgentRunState } from './Agent.js'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
-import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
+import { atCap, countRunningByAgent, type PendingSnapshot } from './capacity.js'
 import type {
   IExecutionLogRepository,
   IProjectConfigRepository,

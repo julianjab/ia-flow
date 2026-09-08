@@ -3,9 +3,9 @@
 // component opening its own fetch/WS subscription — mirrors
 // features/executions/activeStore.ts.
 
-import { type RateLimitSnapshot, getRateLimit } from '@/features/github/api'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { getRateLimit, type RateLimitSnapshot } from '@/features/github/api'
 
 export const useRateLimitStore = defineStore('github-rate-limit', () => {
   const snapshot = ref<RateLimitSnapshot | null>(null)

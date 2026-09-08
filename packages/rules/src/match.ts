@@ -12,7 +12,7 @@
 // envolviéndolo, igual que `agent-text-gate.ts` envuelve a `selectAgent`.
 import type { EngineEvent, Rule } from '@ia-flow/shared'
 import { matchScope } from './scope.js'
-import { type WhenTrace, traceWhenAll } from './when.js'
+import { traceWhenAll, type WhenTrace } from './when.js'
 
 /** Filtro que descartó a una regla. El orden del union es el de evaluación.
  *  `whenText` no se decide acá — lo produce el gate semántico, que es impuro.

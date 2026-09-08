@@ -20,6 +20,7 @@ export {
   SYSTEM_COMMENT_MARKER,
   USED_COMMENT_MARKER,
 } from '../dispatch/comment-window.js'
+
 import { ERROR_COMMENT_MARKER, USED_COMMENT_MARKER } from '../dispatch/comment-window.js'
 
 export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {

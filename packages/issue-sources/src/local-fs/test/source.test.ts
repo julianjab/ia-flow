@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { tmpdir } from 'os'
-import { join } from 'path'
 import type { Task } from '@ia-flow/shared'
 import { mkdtemp, rm, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import type { ITaskRepository, SourceItem } from '../../contract.js'
 import { LocalProjectSource } from '../source.js'
 

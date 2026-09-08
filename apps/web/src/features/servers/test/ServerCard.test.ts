@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import ServerCard from '../ServerCard.vue'
 import type { ProbedServer } from '../api'
+import ServerCard from '../ServerCard.vue'
 
 function probed(overrides: Partial<ProbedServer> = {}): ProbedServer {
   return {

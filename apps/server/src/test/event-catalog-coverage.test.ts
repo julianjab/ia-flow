@@ -1,26 +1,26 @@
 import { describe, expect, test } from 'bun:test'
 import { ISSUE_CREATED, ISSUE_STATUS_CHANGED, SCHEDULE_TICK } from '@ia-flow/rules'
 import {
+  describeEventType,
   EVENT_CATALOG,
   RUN_FINISHED,
   TASK_MESSAGE_EVENT,
   WAIT_EXPIRED,
   WAIT_RESUMED,
-  describeEventType,
 } from '@ia-flow/shared'
 import { SLACK_MESSAGE } from '@ia-flow/slack'
 import {
   CI_FINISHED,
-  ISSUES_OPENED,
   ISSUE_COMMENT_CREATED,
-  PROJECTS_V2_EDITED,
-  PROJECTS_V2_ITEM_EDITED,
+  ISSUES_OPENED,
   PR_CLOSED,
   PR_MERGED,
   PR_OPENED,
   PR_READY,
   PR_REVIEW_SUBMITTED,
   PR_SYNCHRONIZED,
+  PROJECTS_V2_EDITED,
+  PROJECTS_V2_ITEM_EDITED,
 } from '../adapters/github/webhook-events.js'
 
 // El guard de deriva del catálogo.

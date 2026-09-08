@@ -1,6 +1,6 @@
-import { formatGithubRepoUrl } from '@/composables/parseGithubRepoRef'
-import { type ProjectsMeta, fetchProjectsMeta } from '@/features/projects/api'
 import type { SourceRef } from '@ia-flow/shared'
+import { formatGithubRepoUrl } from '@/composables/parseGithubRepoRef'
+import { fetchProjectsMeta, type ProjectsMeta } from '@/features/projects/api'
 
 // Choices for the project forms (source kinds, daemon modes), resolved by the
 // server from what it actually has wired. The constants below are only a

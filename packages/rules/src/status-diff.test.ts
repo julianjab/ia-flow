@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ISSUE_CREATED, ISSUE_STATUS_CHANGED, diffStatus } from './status-diff.js'
+import { diffStatus, ISSUE_CREATED, ISSUE_STATUS_CHANGED } from './status-diff.js'
 
 const item = { id: 'i1', status: 'Ready', repos: ['api'], projectId: 'p1' }
 

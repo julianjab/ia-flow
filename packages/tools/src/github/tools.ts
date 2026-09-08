@@ -3,12 +3,12 @@
 // and route through TransitionManager so they work for any source.
 
 import {
-  type GitHubToolContext,
-  type ReactionName,
   addProjectItem,
   addSubIssue,
   createIssue,
+  type GitHubToolContext,
   listSubIssues,
+  type ReactionName,
   reactToComment,
   replyToReviewThread,
   resolveReviewThread,

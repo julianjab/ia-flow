@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { EMPTY_WORKSPACE_PLAN, type McpServers, McpServersSchema } from '@ia-flow/shared'
 import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN, type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import type {
   IAgentProvider,

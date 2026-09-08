@@ -1,7 +1,7 @@
-import type { EnvVarState } from '@/features/env-vars/api'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EnvVarState } from '@/features/env-vars/api'
 import EntornoSection from '../EntornoSection.vue'
 
 // El estado que devuelve `GET /api/env-vars`. Lo relevante para este test:

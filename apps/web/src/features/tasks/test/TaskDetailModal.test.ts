@@ -1,7 +1,7 @@
-import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 
 // `RunPreviewCard`, que el modal monta, mueve la tarea y avisa por toast: eso
 // vive en un store, y sin pinia activa el modal no llega a dibujarse.

@@ -1,6 +1,6 @@
-import AgentActionForm from '@/features/rules/actionForms/AgentActionForm.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import AgentActionForm from '@/features/rules/actionForms/AgentActionForm.vue'
 
 // El editor de "Redirigir salidas" tiene un requisito que no se ve en el
 // schema: una fila a medio escribir tiene que poder existir en la UI sin

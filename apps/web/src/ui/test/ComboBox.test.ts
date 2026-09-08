@@ -1,6 +1,6 @@
-import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 
 const OPCIONES: ComboOption[] = [
   { value: 'pr.opened', hint: 'se abrió un PR', glyph: '◆' },

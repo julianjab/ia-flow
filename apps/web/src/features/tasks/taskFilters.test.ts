@@ -1,13 +1,13 @@
 import type { PullRequestRef } from '@ia-flow/shared'
 import { describe, expect, it } from 'vitest'
 import {
+  countActiveTaskFilters,
   EMPTY_TASK_FILTERS,
   type FilterableTask,
-  type TaskFilters,
-  countActiveTaskFilters,
   filterTasks,
   hasActiveTaskFilters,
   queryHasTaskFilters,
+  type TaskFilters,
   taskFilterSummary,
   taskFiltersFromQuery,
   taskFiltersFromSearch,

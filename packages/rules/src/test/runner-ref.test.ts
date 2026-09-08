@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { createEvent } from '@ia-flow/shared'
 import type { Rule, RuleActionEntry } from '@ia-flow/shared'
+import { createEvent } from '@ia-flow/shared'
 import { clearActionRegistry, registerAction } from '../actions.js'
 import { runRule } from '../runner.js'
 

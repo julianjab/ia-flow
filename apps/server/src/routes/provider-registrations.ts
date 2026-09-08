@@ -14,9 +14,9 @@ import {
 } from '../composition/container.js'
 import type { ProviderRegistration } from '../domain/ports/IProviderRegistrationRepository.js'
 import {
-  RegistrationInputSchema,
   duplicateNameError,
   fetchAgentHostProvider,
+  RegistrationInputSchema,
   toPublicRegistration,
 } from './provider-registrations-logic.js'
 

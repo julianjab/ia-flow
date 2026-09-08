@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
 import { type McpCatalogEntry, McpCatalogEntrySchema } from '@ia-flow/shared'
+import { readFileSync } from 'fs'
 import { parse as parseYaml } from 'yaml'
 import type { IMcpCatalogRepository } from '../../../domain/ports/IMcpCatalogRepository.js'
 

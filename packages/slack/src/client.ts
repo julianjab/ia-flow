@@ -172,10 +172,7 @@ export interface UsersListResponse extends SlackResponse {
  * usuarios: para autocompletar hay que listar y filtrar del lado nuestro, que
  * es lo que hace SlackDirectory en el server. Requiere el scope `users:read`.
  */
-export function usersList(params: {
-  limit?: number
-  cursor?: string
-}): Promise<UsersListResponse> {
+export function usersList(params: { limit?: number; cursor?: string }): Promise<UsersListResponse> {
   return call<UsersListResponse>('users.list', params, 'GET')
 }
 

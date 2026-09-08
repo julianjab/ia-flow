@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { GitHubGraphQLError, crossedQuotaFloor, isNodeNotFoundError } from '../client.js'
+import { crossedQuotaFloor, GitHubGraphQLError, isNodeNotFoundError } from '../client.js'
 
 // `crossedQuotaFloor` lleva estado por recurso a nivel de módulo (es lo que le
 // permite responder por la transición y no por el nivel). No hay reset, así

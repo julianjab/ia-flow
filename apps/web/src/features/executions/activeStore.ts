@@ -4,10 +4,10 @@
 // execution:started adds/updates a row, execution:updated removes it once
 // finishedAt is populated.
 
-import { fetchActiveExecutions } from '@/features/executions/api'
 import { type ExecutionLog, ExecutionLogSchema } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { fetchActiveExecutions } from '@/features/executions/api'
 
 export const useActiveExecutionsStore = defineStore('active-executions', () => {
   const executions = ref<ExecutionLog[]>([])

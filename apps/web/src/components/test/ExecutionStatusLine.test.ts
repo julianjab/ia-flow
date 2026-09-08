@@ -1,7 +1,7 @@
-import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue'
 import type { ExecutionLog } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue'
 
 function run(over: Partial<ExecutionLog> = {}): ExecutionLog {
   return {

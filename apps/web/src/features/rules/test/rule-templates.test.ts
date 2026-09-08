@@ -1,5 +1,5 @@
-import { RULE_TEMPLATES, recurringRuleWarning } from '@/features/rules/rule-templates'
 import { describe, expect, it } from 'vitest'
+import { RULE_TEMPLATES, recurringRuleWarning } from '@/features/rules/rule-templates'
 
 const byKey = (k: string) => RULE_TEMPLATES.find((t) => t.key === k)!
 

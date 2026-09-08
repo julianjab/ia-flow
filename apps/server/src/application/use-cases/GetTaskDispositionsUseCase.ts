@@ -1,14 +1,14 @@
 import { matchRules } from '@ia-flow/rules'
+import type { ExecutionLog } from '@ia-flow/shared'
 import {
+  createEvent,
   type EngineEvent,
   RUN_FINISHED,
   type Rule,
   type TaskDispositionEntry,
-  createEvent,
 } from '@ia-flow/shared'
-import type { ExecutionLog } from '@ia-flow/shared'
-import { defaultToIssueItem } from '../../domain/ports/IIssueManager.js'
 import type { IssueItem, SourceItem } from '../../domain/ports/IIssueManager.js'
+import { defaultToIssueItem } from '../../domain/ports/IIssueManager.js'
 import { type DispositionFacts, resolveDisposition } from '../../domain/task-disposition.js'
 
 /**

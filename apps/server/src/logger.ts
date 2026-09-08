@@ -6,7 +6,7 @@ import { Writable } from 'node:stream'
 // which itself defaults to ~/.config/ia-flow/logs). Kept out of the repo so
 // running the server or the test suite doesn't pollute the working tree.
 import { DiagLogLevel, diag } from '@opentelemetry/api'
-import { type AnyValueMap, SeverityNumber, logs } from '@opentelemetry/api-logs'
+import { type AnyValueMap, logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'
@@ -129,7 +129,7 @@ export interface OtelLogRecord {
  * El archivo NDJSON y el broadcast WS **sí** siguen viendo la entrada: lo
  * único que se corta es la re-exportación.
  */
-export { logMaxSize, logMaxFiles }
+export { logMaxFiles, logMaxSize }
 
 export function toOtelRecord(chunk: string): OtelLogRecord | null {
   let parsed: unknown

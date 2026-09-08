@@ -25,8 +25,8 @@ vi.mock('@/composables/useServerEvents', () => ({
   useServerEvents: () => ({ connected: { value: false } }),
 }))
 
-import ServerLogsSection from '../ServerLogsSection.vue'
 import { fetchServerLogModules, fetchServerLogs } from '../api'
+import ServerLogsSection from '../ServerLogsSection.vue'
 
 const EMPTY_PAGE = {
   entries: [] as ServerLogEntry[],

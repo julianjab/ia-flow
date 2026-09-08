@@ -16,20 +16,20 @@ import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { postToTarget } from '../github-shared/conversation.js'
 import {
-  ERROR_COMMENT_MARKER,
-  SYSTEM_COMMENT_MARKER,
   addBlockedBy,
   addIssueComment,
+  ERROR_COMMENT_MARKER,
+  SYSTEM_COMMENT_MARKER,
   transferIssue,
   updateIssueBody,
 } from '../github-shared/issue.js'
 import { replaceIssueLabels } from '../github-shared/labels.js'
 import { createLogger } from '../logger.js'
 import {
-  type ProjectField,
-  type ProjectMeta,
   clearItemWorking,
   getItemSingleSelectValue,
+  type ProjectField,
+  type ProjectMeta,
   setProjectTextField,
   updateItemStatus,
 } from './api/project.js'

@@ -1,6 +1,6 @@
-import InlineEdit from '@/ui/InlineEdit.vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import InlineEdit from '@/ui/InlineEdit.vue'
 
 const LARGO = 'Read the contents of a file in one of the task repos. Use "<repo>/path" format.'
 

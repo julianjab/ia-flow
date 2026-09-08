@@ -18,14 +18,14 @@ import type { ProjectSource } from '@ia-flow/issue-sources'
 import { unregisterTool } from '@ia-flow/tools'
 import { chatGetPermalink, postMessage } from './client.js'
 import { SlackDirectory } from './directory.js'
-import { type SlackStatus, isSlackEnabled, slackStatus } from './enabled.js'
-import { type LoggerFactory, createLogger, setLoggerFactory } from './logger.js'
-import { SLACK_REVIEW_TOOL, registerSlackReviewTool, setSlackReviewPort } from './review-tool.js'
+import { isSlackEnabled, type SlackStatus, slackStatus } from './enabled.js'
+import { createLogger, type LoggerFactory, setLoggerFactory } from './logger.js'
 import {
   type IProjectLookup,
   RequestSlackReviewUseCase,
 } from './review/RequestSlackReviewUseCase.js'
-import { SLACK_TOOL_NAMES, registerSlackTools } from './tools.js'
+import { registerSlackReviewTool, SLACK_REVIEW_TOOL, setSlackReviewPort } from './review-tool.js'
+import { registerSlackTools, SLACK_TOOL_NAMES } from './tools.js'
 import { SlackWebhookTranslator } from './webhook.js'
 
 /**
