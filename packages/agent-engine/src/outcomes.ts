@@ -87,23 +87,24 @@ export async function applyOutcome(
 
   const assignments = parseFieldAssignments(outcome.slice(5))
   const extraFields: Record<string, string> = {}
+  let current = task
   for (const { field, value } of assignments) {
     if (field.toLowerCase() === 'status') {
-      task = await manager.applyTransition(task, value)
+      current = await manager.applyTransition(current, value)
     } else {
       extraFields[field] = value
     }
   }
   if (Object.keys(extraFields).length > 0) {
     if (manager.setFields) {
-      task = await manager.setFields(task, extraFields)
+      current = await manager.setFields(current, extraFields)
     } else {
       log.warn(
-        { taskId: task.id, outcome },
+        { taskId: current.id, outcome },
         'El source no soporta setFields — outcome aplicado sólo en memoria',
       )
-      task = { ...task, ...extraFields } as Task
+      current = { ...current, ...extraFields } as Task
     }
   }
-  return task
+  return current
 }

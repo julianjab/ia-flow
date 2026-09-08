@@ -26,12 +26,12 @@ export class AgentLifecycle {
 
   /** onStart: setAgentWorking(true) + onProcess + broadcast. */
   async start(task: Task, entry: Pick<AgentOutcomes, 'onProcess'>): Promise<Task> {
-    task = await this.taskSource.setAgentWorking(task, true)
+    let current = await this.taskSource.setAgentWorking(task, true)
     if (entry.onProcess) {
-      task = await applyOutcome(task, entry.onProcess, this.taskSource)
+      current = await applyOutcome(current, entry.onProcess, this.taskSource)
     }
-    this.broadcast.send({ type: 'task:updated', task })
-    return task
+    this.broadcast.send({ type: 'task:updated', task: current })
+    return current
   }
 
   /** onEnd: applies the success exit (o la elegida) + broadcast. */

@@ -99,8 +99,9 @@ export async function applySuccessOutcome(
 ): Promise<Task> {
   const outcome = resolveExit(entry, SUCCESS_EXIT)
   if (outcome) {
-    task = await applyOutcome(task, outcome, manager)
-    broadcast({ type: 'task:updated', task })
+    const updated = await applyOutcome(task, outcome, manager)
+    broadcast({ type: 'task:updated', task: updated })
+    return updated
   }
   return task
 }
@@ -122,8 +123,9 @@ export async function applyErrorOutcome(
   const outcome = resolveExit(entry, ERROR_EXIT)
   if (outcome) {
     const input = errMsg !== undefined ? ({ ...task, error: errMsg } as Task) : task
-    task = await applyOutcome(input, outcome, manager)
-    broadcast({ type: 'task:updated', task })
+    const updated = await applyOutcome(input, outcome, manager)
+    broadcast({ type: 'task:updated', task: updated })
+    return updated
   }
   return task
 }
