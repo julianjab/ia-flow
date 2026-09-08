@@ -19,6 +19,7 @@ import type {
   IProjectConfigRepository,
   IProviderRegistry,
   IRepoRepository,
+  RunCheckpointPort,
 } from '../contract.js'
 import { removePendingTask } from '../pending-tasks.js'
 
@@ -1681,5 +1682,129 @@ describe('AgentOrchestrator.runAgent — verify gate', () => {
     } finally {
       _verifyInternals.spawn = realSpawn
     }
+  })
+})
+
+// Regresión del bug real de producción: un agente pausado con `pause_until`
+// que se reanuda vía una regla (`wait.resumed` con `brief`) despertaba a la
+// MISMA conversación de antes de pausar, sin ningún indicio de qué evento lo
+// destrabó — el fallback `resumeMessages ?? [prompt]` del provider descartaba
+// el prompt (y con él el brief) entero en cuanto había checkpoint. Ver
+// Agent.ts — el brief ahora se apendea como el próximo user turn.
+describe('AgentOrchestrator.runAgent — reanudar un checkpoint con brief', () => {
+  function makeTask(): Task {
+    return {
+      id: 'task-resume-1',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  it('el brief de la regla que reanuda llega como mensaje nuevo, sin perder la conversación pausada', async () => {
+    let capturedInput: ProviderInput | undefined
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async (input: ProviderInput) => {
+        capturedInput = input
+        return { content: 'listo', mode: 'api' as const }
+      },
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [{ id: 'implementer', provider: 'anthropic-api', prompt: 'x', tools: [] }],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const repoRepo: IRepoRepository = {
+      list: () => [],
+      listByProject: () => [],
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const checkpointMessages = [
+      { role: 'user', content: 'contexto previo de la conversación pausada' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'pause_until', input: { on: ['ci.finished'] } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_1',
+            content: 'Pausado (w1). Seguís cuando llegue: ci.finished.',
+          },
+        ],
+      },
+    ]
+    const runCheckpoints: RunCheckpointPort = {
+      save: async () => {},
+      getByTask: async () => ({
+        runId: 'run-old',
+        agentId: 'implementer',
+        state: { messages: checkpointMessages },
+        attempts: 0,
+        updatedAt: new Date().toISOString(),
+      }),
+      delete: async () => {},
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined, // mcpCatalogRepo
+      undefined, // executionLogRepo
+      undefined, // workspaceManager
+      undefined, // compilePolicyPort
+      undefined, // linkedBranchNamer (usa el default)
+      undefined, // resolveVariable (usa el default)
+      undefined, // classifyProvider (usa el default)
+      undefined, // providerLimits (usa el default)
+      undefined, // pendingSnapshot
+      undefined, // runMessages
+      undefined, // pauseCheckpoint
+      runCheckpoints,
+    )
+
+    await orch.runAgent(makeTask(), manager, 'implementer', {
+      brief: 'El CI del PR #3967 terminó: FAILURE. Ver https://github.com/x/y/actions/runs/1',
+    })
+
+    expect(capturedInput).toBeDefined()
+    const sent = capturedInput?.resumeMessages as Array<{ role: string; content: unknown }>
+    // La conversación pausada sigue intacta, en orden...
+    expect(sent.slice(0, 3)).toEqual(checkpointMessages)
+    // ...y el brief llega COMO UN TURNO NUEVO al final, no perdido.
+    expect(sent).toHaveLength(4)
+    expect(sent[3]).toEqual({
+      role: 'user',
+      content:
+        '## Por qué estás corriendo\n\nEl CI del PR #3967 terminó: FAILURE. Ver https://github.com/x/y/actions/runs/1',
+    })
   })
 })
