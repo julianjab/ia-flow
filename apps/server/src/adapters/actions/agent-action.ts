@@ -238,13 +238,14 @@ export class AgentAction implements ActionHandler<AgentConfig> {
         // eso una regla `when: payload.outcome === 'error'` nunca matcheaba
         // (issue #201). `runOutcome` siempre debería venir seteado en este
         // punto (el `outcome === 'dispatched'` de más arriba ya significa que
-        // el agente corrió), pero se cae al `DispatchOutcome` en el caso
-        // límite en que no — un valor que ninguna regla sobre `Outcome` va a
-        // matchear, en vez de romper la emisión.
+        // el agente corrió) — el fallback a `'error'` es sólo para el caso
+        // límite en que no vino, y es la opción segura: una regla de retry que
+        // dispara de más ante un caso ambiguo es preferible a una tarea que se
+        // queda esperando un evento que nunca va a matchear nada.
         {
           agentId: config.agentId,
           taskId: item.id,
-          outcome: runOutcome ?? outcome,
+          outcome: runOutcome ?? 'error',
           ...(output !== undefined && { output }),
         },
         // El scope del evento que lo causó, más el issue sobre el que corrió.
