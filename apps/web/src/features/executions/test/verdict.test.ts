@@ -187,6 +187,21 @@ function broken(id: string): AgentHealth {
   return agent({ agentId: id, runs: 10, success: 4, error: 6, successRate: 0.4 })
 }
 
+describe('dispositionCounts', () => {
+  it('un cero no se dibuja', () => {
+    const out = dispositionCounts({ success: 3, error: 0, pending: 0 })
+    expect(out.map((c) => c.key)).toEqual(['closed'])
+  })
+
+  it('con un filtro puesto sí: los ceros son el camino de vuelta', () => {
+    // Tocar un contador filtra, la página filtrada deja los otros en cero, y
+    // un cero no se dibuja: los otros dos desaparecían justo cuando eran el
+    // único modo de cambiar de recorte.
+    const out = dispositionCounts({ success: 3, error: 0, pending: 0 }, true)
+    expect(out.map((c) => c.key)).toEqual(['waiting', 'running', 'closed'])
+  })
+})
+
 describe('healthLine', () => {
   it('sin nadie fuera de banda no alarma', () => {
     const line = healthLine(stats({ successRate: 0.97 }, [agent()]))

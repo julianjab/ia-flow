@@ -999,7 +999,10 @@ describe('ExecutionsSection — a dónde lleva la banda de salud', () => {
     vi.clearAllMocks()
   })
 
-  it('sin un agente señalado, lleva al roster', async () => {
+  it('sin un agente señalado, lleva al RESUMEN — no al roster', async () => {
+    // El roster es el editor de definiciones (qué prompt, qué tools) y no dice
+    // nada de cómo vienen corriendo. Cuando los siete están fuera de banda, lo
+    // que contesta "¿a cuál miro?" es la tabla comparativa.
     const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
 
     // La línea sólo existe con stats; el mock del módulo las devuelve vacías,
@@ -1008,7 +1011,8 @@ describe('ExecutionsSection — a dónde lleva la banda de salud', () => {
     wrapper.findComponent({ name: 'HealthVerdict' }).vm.$emit('open', '')
     await flushPromises()
 
-    // En la pestaña de un proyecto, el roster es el de ESE proyecto.
-    expect(routerPush).toHaveBeenCalledWith('/projects/p-1/agentes')
+    expect(routerPush).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ detailId: 'salud' }) }),
+    )
   })
 })
