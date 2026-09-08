@@ -85,6 +85,19 @@ const emit = defineEmits<{
   move: [status: string];
 }>();
 
+/**
+ * Cuándo la preview tiene que volver a preguntar: cuando se corrió la tarea o
+ * cuando se la movió.
+ *
+ * Un ESCALAR, no `[runResult, moveToken]`: la card compara el token por
+ * identidad, y un array literal es otro objeto en cada render — cambiar
+ * `movingStatus` a un status y de vuelta a `null` ya disparaba dos fetches de
+ * más por cada move.
+ */
+const previewToken = computed(
+  () => `${props.moveToken ?? 0}|${props.runResult ? `${props.runResult.outcome}:${props.runResult.status}` : ''}`,
+);
+
 /** En qué estado está la tarea. Es lo que decide la barra de acciones: no hay
  *  una acción principal fija, hay una por estado. */
 const state = computed<'running' | 'failed' | 'stopped' | 'done' | 'idle'>(() => {
@@ -216,7 +229,7 @@ const runMessage = computed(() => {
               v-if="open"
               :project-id="projectId"
               :task-id="taskId"
-              :reload-token="[runResult, moveToken]"
+              :reload-token="previewToken"
               :moving-status="movingStatus"
               @move="(st) => emit('move', st)"
             />

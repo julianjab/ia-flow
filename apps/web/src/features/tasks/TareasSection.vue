@@ -424,8 +424,18 @@ async function moveTaskTo(status: string): Promise<void> {
     // `loadProjectItems` reemplaza las filas por objetos NUEVOS, y el detalle
     // guarda una referencia a la vieja: sin re-apuntarla, la lista mostraba el
     // status nuevo y el detalle abierto seguía con el anterior.
-    reposModalItem.value = projectItems.value.find((i) => i.id === item.id) ?? null;
-    moveToken.value += 1;
+    const fresh = projectItems.value.find((i) => i.id === item.id);
+    if (fresh) {
+      reposModalItem.value = fresh;
+      moveToken.value += 1;
+    } else {
+      // El status destino puede caer fuera del filtro activo —que es el caso
+      // normal al mover— y entonces la tarea ya no está en la lista. Dejar el
+      // detalle abierto contra `null` lo deja en blanco: se cierra, que es lo
+      // que la acción efectivamente hizo con ella en esta vista.
+      reposModalOpen.value = false;
+      reposModalItem.value = null;
+    }
   } catch (e) {
     toastStore.error(extractErrorMessage(e));
   } finally {
