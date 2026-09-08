@@ -1,6 +1,13 @@
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+// `RunPreviewCard`, que el modal monta, mueve la tarea y avisa por toast: eso
+// vive en un store, y sin pinia activa el modal no llega a dibujarse.
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 // El modal se teletransporta al body, así que las queries van contra el DOM y
 // no contra el wrapper (que sólo contiene los marcadores del Teleport).

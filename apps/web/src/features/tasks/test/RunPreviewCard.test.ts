@@ -1,6 +1,7 @@
 import RunPreviewCard from '@/features/tasks/RunPreviewCard.vue'
 import type { TaskRunPreview as Preview } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fetchTaskRunPreview = vi.fn()
@@ -18,6 +19,7 @@ const preview = (over: Partial<Preview> = {}): Preview => ({
 })
 
 beforeEach(() => {
+  setActivePinia(createPinia())
   fetchTaskRunPreview.mockReset()
   fetchTaskRunPreview.mockResolvedValue(preview())
 })
@@ -25,6 +27,7 @@ beforeEach(() => {
 async function mountWith(props: Record<string, unknown> = {}) {
   const wrapper = mount(RunPreviewCard, {
     props: { projectId: 'ia-flow', taskId: 'I_1', ...props },
+    global: { stubs: { RouterLink: { props: ['to'], template: '<a><slot /></a>' } } },
   })
   await flushPromises()
   return wrapper
@@ -126,7 +129,9 @@ describe('RunPreviewCard', () => {
     )
     const wrapper = await mountWith()
     expect(wrapper.get('.rpc-cond-empty').text()).toContain('deshabilitada')
-    expect(wrapper.get('.rpc-action').text()).toContain('General → Pipeline')
+    // Y es un LINK, no una frase: "se edita en Pipeline" sin camino es un
+    // callejón sin salida con forma de ayuda.
+    expect(wrapper.get('.rpc-move').text()).toContain('Pipeline')
   })
 
   // La sugerencia sale de las condiciones que fallaron, no de un texto fijo.
@@ -145,8 +150,8 @@ describe('RunPreviewCard', () => {
       }),
     )
     const wrapper = await mountWith()
-    expect(wrapper.get('.rpc-action').text()).toContain('mover a')
-    expect(wrapper.get('.rpc-action').text()).toContain('refine')
+    expect(wrapper.get('.rpc-move').text()).toContain('mover a')
+    expect(wrapper.get('.rpc-move').text()).toContain('refine')
   })
 
   // De un `!=` no sale una acción concreta: decir algo igual sería inventarlo.
@@ -165,7 +170,7 @@ describe('RunPreviewCard', () => {
       }),
     )
     const wrapper = await mountWith()
-    expect(wrapper.find('.rpc-action').exists()).toBe(false)
+    expect(wrapper.find('.rpc-move').exists()).toBe(false)
   })
 
   it('un run en curso se avisa aunque haya regla que matchee', async () => {
@@ -187,5 +192,52 @@ describe('RunPreviewCard', () => {
     await wrapper.setProps({ taskId: 'I_2' })
     await flushPromises()
     expect(fetchTaskRunPreview).toHaveBeenLastCalledWith('ia-flow', 'I_2')
+  })
+
+  // El `→ mover a \`refine\`` era texto: en esta app un `→` es un destino (O2),
+  // y uno que no lleva a ningún lado enseña a no tocar los que sí.
+  it('la sugerencia de status ES la acción: avisa qué mover', async () => {
+    fetchTaskRunPreview.mockResolvedValue(
+      preview({
+        matched: [],
+        rejected: [
+          {
+            id: 'r1',
+            name: 'refinar',
+            reason: 'when',
+            failed: [{ field: 'status', op: '=', value: 'refine', actual: 'build' }],
+          },
+        ],
+      }),
+    )
+    const wrapper = await mountWith()
+
+    await wrapper.get('[data-testid="run-preview-move-refine"]').trigger('click')
+
+    // Mover lo ejecuta el PADRE: el api es de otra feature, y quien mueve es
+    // quien tiene que refrescar la lista y la disposición.
+    expect(wrapper.emitted('move')).toEqual([['refine']])
+  })
+
+  it('lo que no se puede ejecutar se queda en texto', async () => {
+    // No hay PATCH de labels: un botón que no puede cumplir es el problema que
+    // esto vino a arreglar.
+    fetchTaskRunPreview.mockResolvedValue(
+      preview({
+        matched: [],
+        rejected: [
+          {
+            id: 'r1',
+            name: 'por label',
+            reason: 'when',
+            failed: [{ field: 'labels', op: '=', value: 'ready', actual: null }],
+          },
+        ],
+      }),
+    )
+    const wrapper = await mountWith()
+
+    expect(wrapper.findAll('.rpc-move')).toHaveLength(0)
+    expect(wrapper.text()).toContain('label')
   })
 })
