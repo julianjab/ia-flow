@@ -66,6 +66,7 @@ import { resolveEffectiveExits, resolveExitCommentTarget, selectableExits } from
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveContext, type ResolveVariable, resolveVariables } from './variable-resolver.js'
+import { VERIFY_FAILED_MARKER, buildVerifyFailedError, runVerifyCommands } from './verify.js'
 import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('agent')
@@ -1111,6 +1112,48 @@ export class Agent {
           // el `emit` de la regla que lo disparó). Reproducido en vivo con
           // `comment-triage`.
           //
+          // Verify gate: comandos que el ENGINE corre en el worktree antes de
+          // aplicar la salida de éxito (ver AgentDefinition.verify). Sólo se
+          // llega acá cuando el run NO fue cancelado, NO truncó, y ningún
+          // tool movió ya la task — exactamente los tres casos que el PRD
+          // excluye. Un fallo lanza un Error marcado que el catch genérico de
+          // abajo trata como cualquier otro fallo del run (postError +
+          // lifecycle.fail); `classifyFailure` lo reconoce por esa marca y le
+          // asigna `failureClass: 'verify_failed'`.
+          //
+          // Un provider `remote:*` (mismo AnthropicApiProvider, corriendo del
+          // otro lado de un agent-host) no llega a esto: su
+          // `prepareWorkspace` devuelve `EMPTY_WORKSPACE_PLAN` a propósito —
+          // el workspace real lo resuelve el agent-host en SU disco — así que
+          // `effectiveCwd` acá cae al `primaryPath` LOCAL del daemon, que no
+          // tiene una sola línea de lo que el agente escribió. Correr verify
+          // ahí sería falso-verde (código viejo que sí compila) o
+          // falso-negativo (clone local sucio) — ninguno dice nada del
+          // trabajo real. Igual que los providers async (ver PRD #135, fuera
+          // de alcance), se saltea con un aviso en vez de mentir un resultado.
+          //
+          // No recibe `controller.signal`: `removePendingTask(registryKey)` ya
+          // corrió arriba (antes del chequeo de `cancelled`), así que un
+          // cancel externo que llegue a partir de acá no encuentra entry en el
+          // registry para invocar — la ventana de cancelación ya se cerró.
+          if (agentDef.verify?.length) {
+            if (resolvedProviderId.startsWith('remote:')) {
+              log.warn(
+                { taskId: task.id, agent: agentDef.id, provider: resolvedProviderId },
+                'Agente declara verify pero corrió en un provider remoto — el worktree vive en el agent-host, no en este disco. Verify se saltea.',
+              )
+            } else if (!effectiveCwd) {
+              throw new Error(
+                `${VERIFY_FAILED_MARKER} el agente declara verify pero no se resolvió ningún worktree/cwd para correrlo`,
+              )
+            } else {
+              const verifyResult = await runVerifyCommands(agentDef.verify, effectiveCwd)
+              if (!verifyResult.ok) {
+                throw buildVerifyFailedError(verifyResult, agentDef.verify.length)
+              }
+            }
+          }
+
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the

@@ -1,4 +1,5 @@
 import type { FailureClass } from '@ia-flow/shared'
+import { VERIFY_FAILED_MARKER } from './verify.js'
 
 // Turns one run's raw signals into a class you can GROUP BY.
 //
@@ -78,6 +79,13 @@ function looksLikeInfra(errorMsg: string | null | undefined): boolean {
   return INFRA_PATTERNS.some((p) => lower.includes(p))
 }
 
+/** `runVerifyCommands` (verify.ts) prefija el mensaje con esta marca antes de
+ *  tirar — es lo único que distingue "el worktree no compila" de cualquier
+ *  otro crash sin que este módulo importe el runner de verify. */
+function looksLikeVerifyFailure(errorMsg: string | null | undefined): boolean {
+  return errorMsg?.startsWith(VERIFY_FAILED_MARKER) ?? false
+}
+
 function toolErrorRatioTripped(input: ClassifyFailureInput): boolean {
   const calls = input.toolCalls
   const errors = input.toolErrors
@@ -104,6 +112,10 @@ export function classifyFailure(input: ClassifyFailureInput): FailureClass | nul
       return classifyStopReason(input.stopReason)
 
     case 'error':
+      // El verify gate se chequea antes que infra: un `git clone failed`
+      // dentro del output de un comando de verify no debería clasificarse
+      // como infra — el run SÍ terminó, lo que falló fue la verificación.
+      if (looksLikeVerifyFailure(input.errorMsg)) return 'verify_failed'
       // A crash whose message names an environmental cause is infra even if
       // tools were also failing — the tool errors are usually downstream of
       // the same broken workspace.
