@@ -155,6 +155,7 @@ describe('createApp — PUT /v1/provider', () => {
           worktreeBase: null,
           gitAuthorName: null,
           gitAuthorEmail: null,
+          gitSigningKeyPath: null,
         },
       },
       onStateChange: (st) => {
@@ -477,7 +478,13 @@ describe('POST /v1/run — workspace remoto', () => {
 
 describe('/v1/workspace — la config editable desde la consola', () => {
   const auth = { authorization: 'Bearer secret' }
-  const EMPTY = { reposBase: null, worktreeBase: null, gitAuthorName: null, gitAuthorEmail: null }
+  const EMPTY = {
+    reposBase: null,
+    worktreeBase: null,
+    gitAuthorName: null,
+    gitAuthorEmail: null,
+    gitSigningKeyPath: null,
+  }
 
   function appWithWorkspace() {
     const built: Array<{ id: string; workspace: unknown }> = []
@@ -527,6 +534,7 @@ describe('/v1/workspace — la config editable desde la consola', () => {
       worktreeBase: null,
       gitAuthorName: 'Julian',
       gitAuthorEmail: null,
+      gitSigningKeyPath: null,
     })
     expect(built).toHaveLength(1)
     expect(built[0]).toMatchObject({
@@ -617,6 +625,7 @@ describe('admisión editable', () => {
           worktreeBase: null,
           gitAuthorName: null,
           gitAuthorEmail: null,
+          gitSigningKeyPath: null,
         },
       },
       onStateChange: (s) => {
@@ -695,6 +704,7 @@ describe('registro editable', () => {
           worktreeBase: null,
           gitAuthorName: null,
           gitAuthorEmail: null,
+          gitSigningKeyPath: null,
         },
       },
       registerTo: async (urls) => {
@@ -756,6 +766,7 @@ describe('registrar contra algo que no es un server', () => {
           worktreeBase: null,
           gitAuthorName: null,
           gitAuthorEmail: null,
+          gitSigningKeyPath: null,
         },
       },
       onStateChange: (s) => {
@@ -909,6 +920,7 @@ describe('cómo vuelve el agente al daemon', () => {
           worktreeBase: null,
           gitAuthorName: null,
           gitAuthorEmail: null,
+          gitSigningKeyPath: null,
         },
       },
     })
