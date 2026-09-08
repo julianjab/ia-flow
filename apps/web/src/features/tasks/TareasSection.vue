@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
+import FocusCard from '@/features/tasks/FocusCard.vue';
+import { useFocusStore } from '@/features/tasks/focusStore';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
@@ -209,6 +211,42 @@ const dispositions = computed(() => dispositionsStore.entriesFor(activeProjectId
 const dispositionsFailed = computed(() => dispositionsStore.hasFailed(activeProjectId.value));
 const groupByDisposition = ref(true);
 
+/**
+ * El foco — la card de arriba. Store aparte del de disposiciones porque son
+ * dos preguntas con costos distintos: aquél ordena la lista y esta pantalla no
+ * se dibuja sin él; éste la comenta, tarda más (por debajo hay un modelo) y la
+ * lista se dibuja completa sin esperarlo.
+ */
+const focusStore = useFocusStore();
+
+/** Los títulos que la card necesita para sus picks. Salen de las filas que ya
+ *  están en memoria: el foco viaja con ids, no con una segunda copia del
+ *  título que pueda discrepar de la fila de abajo. */
+const titlesById = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {};
+  for (const item of projectItems.value) out[item.id] = item.title;
+  return out;
+});
+
+/**
+ * La fila a la que te mandó un pick, marcada.
+ *
+ * Es una marca, no una selección persistente: se limpia al abrir cualquier
+ * tarea, así que nunca hay dos filas en video inverso diciendo cosas distintas.
+ */
+const focusedTaskId = ref<string | null>(null);
+
+function goToTask(taskId: string): void {
+  focusedTaskId.value = taskId;
+  // En el próximo tick: con la card recién colapsada, la fila todavía no está
+  // en su posición final y el scroll caería en el lugar equivocado.
+  void nextTick(() => {
+    document
+      .querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
+}
+
 const dispositionById = computed(
   () => new Map(dispositions.value.map((d) => [d.taskId, d])),
 );
@@ -391,6 +429,12 @@ function reasonFor(id: string): string {
 async function loadDispositions() {
   const pid = activeProjectId.value;
   if (!pid) return;
+  // El foco NO se espera: la lista se dibuja completa sin él, y su card
+  // aparece después o no aparece. Sin `force` — a diferencia de las
+  // disposiciones, que sí se re-piden al entrar: acá lo caro es el modelo, y
+  // una inferencia de hace dos minutos sobre la misma lista sigue siendo
+  // cierta (el server la cachea por huella del contenido, no por tiempo).
+  void focusStore.fetch(pid);
   // `force`: entrar a Tareas es pedir el estado de ahora, no el de la última
   // vez que la tab bar lo consultó.
   await dispositionsStore.fetch(pid, { force: true });
@@ -660,6 +704,9 @@ function currentReposOf(item: TaskRow): string[] {
 }
 
 function openReposModal(item: TaskRow) {
+  // Abrir una tarea apaga la marca del foco: dos filas en video inverso
+  // diciendo cosas distintas es peor que ninguna.
+  focusedTaskId.value = null;
   reposModalItem.value = item;
   runResult.value = null;
   reposModalOpen.value = true;
@@ -1051,6 +1098,22 @@ watch(activeProjectId, (pid) => {
     </button>
 
     <template v-if="filteredItems.length">
+    <!-- El foco va entre el chrome y el primer bucket, y NUNCA expandido a la
+         vez que el aviso de reorden: dos cosas pidiendo atención arriba de la
+         lista empujan la primera fila fuera de la pantalla. -->
+    <FocusCard
+      v-if="groupByDisposition && !dispositionsFailed"
+      :project-id="activeProjectId"
+      :focus="focusStore.focusFor(activeProjectId)"
+      :loading="focusStore.isLoading(activeProjectId)"
+      :failed="focusStore.hasFailed(activeProjectId)"
+      :waiting-count="quickCounts['waiting-on-you'] ?? 0"
+      :titles="titlesById"
+      :crowded="movedCount > 0"
+      @go="goToTask"
+      @retry="focusStore.fetch(activeProjectId, { force: true })"
+    />
+
     <!-- Sin el agregado la lista NO inventa buckets: cae al orden de la fuente
          y lo dice. Agrupar por una disposición que no se pudo consultar sería
          afirmar en qué bucket está cada tarea sin haber preguntado. -->
@@ -1083,7 +1146,8 @@ watch(activeProjectId, (pid) => {
             v-for="row in bucket.rows"
             :key="row.id"
             layout="table"
-            :selected="reposModalItem?.id === row.id"
+            :data-task-id="row.id"
+            :selected="reposModalItem?.id === row.id || focusedTaskId === row.id"
             :title="row.item.title"
             :issue-number="row.item.issueNumber"
             :issue-url="row.item.url"
