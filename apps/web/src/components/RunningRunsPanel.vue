@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ExecutionLog } from '@ia-flow/shared';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useNow } from '@/composables/useNow';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 
@@ -31,6 +31,11 @@ const emit = defineEmits<{
 const store = useActiveExecutionsStore();
 const { now } = useNow();
 
+/** Arranca desplegado —es lo que está pasando ahora—, pero con muchos runs a
+ *  la vez la lista puede tapar el resto de la columna, así que se puede
+ *  plegar igual que el bucket `avanza solo` de Ejecuciones. */
+const open = ref(true);
+
 const runs = computed<ExecutionLog[]>(() =>
   props.projectId
     ? (store.byProject[props.projectId] ?? [])
@@ -54,8 +59,17 @@ function meta(run: ExecutionLog): string {
 
 <template>
   <section v-if="runs.length" class="rr">
-    <span class="uc-label">En vuelo</span>
-    <ul class="rr-list">
+    <button
+      type="button"
+      class="rr-head-toggle"
+      :aria-expanded="open"
+      @click="open = !open"
+    >
+      <span class="rr-caret" aria-hidden="true">{{ open ? '▾' : '▸' }}</span>
+      <span class="uc-label">En vuelo</span>
+      <span class="rr-count">{{ runs.length }}</span>
+    </button>
+    <ul v-if="open" class="rr-list">
       <li v-for="run in runs" :key="run.id" class="rr-card">
         <div class="rr-head">
           <span class="live-dot" aria-hidden="true"></span>
@@ -82,6 +96,28 @@ function meta(run: ExecutionLog): string {
 
 <style scoped>
 .rr { display: flex; flex-direction: column; gap: 0.4rem; }
+.rr-head-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  width: 100%;
+  min-height: var(--tap-h);
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.rr-head-toggle:hover .uc-label { color: var(--fg); }
+.rr-caret { flex: 0 0 auto; color: var(--fg-dimmer); }
+.rr-count {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  color: var(--fg-dimmer);
+}
 .rr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .rr-card {
   display: flex;
