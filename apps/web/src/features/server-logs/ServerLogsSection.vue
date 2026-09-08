@@ -85,6 +85,12 @@ const ruleFilter = ref<Set<string>>(new Set(queryStrArr('ruleId')));
 // `runId` deja de ser uno solo: es el mismo campo que los de arriba y no hay
 // razón para que no se puedan mirar dos corridas juntas.
 const runFilter = ref<Set<string>>(new Set(queryStr('runId') ? [queryStr('runId')] : []));
+// El trace del webhook/scan que originó todo — evento, regla, el run y sus
+// sub-agentes. A diferencia de `runId` (un solo run), un `traceId` agrupa
+// VARIOS runIds: es lo que responde "qué produjo este delivery/scan de
+// punta a punta", no sólo "los logs de esta corrida". Mismo link desde
+// ExecutionsSection que ya arma `?traceId=`.
+const traceFilter = ref<Set<string>>(new Set(queryStr('traceId') ? [queryStr('traceId')] : []));
 // Búsqueda por regexp sobre CUALQUIER campo de `extras`, no sólo los seis con
 // selector propio arriba — cada token es `<clave>:<regexp>`
 // (`extra:err:ECONNRESET`, `extra:clearDedupe:^http`). Multi-select: varios
@@ -129,6 +135,7 @@ const discoveredExtras = ref<Record<string, Set<string>>>({
   ruleId: new Set(),
   projectId: new Set(),
   runId: new Set(),
+  traceId: new Set(),
 });
 function extraValues(key: string, active: Set<string>): string[] {
   const merged = new Set(discoveredExtras.value[key] ?? []);
@@ -185,6 +192,7 @@ const EXTRA_COLUMN_LABELS: Record<string, string> = {
   projectId: 'Proyecto',
   ruleId: 'Regla',
   runId: 'Run',
+  traceId: 'Trace',
   source: 'Contenedor',
 };
 function columnLabel(key: string): string {
@@ -640,6 +648,12 @@ const FILTER_FIELDS: Array<{
     values: () => extraValues('runId', runFilter.value),
     free: true,
   },
+  {
+    key: 'trace',
+    hint: 'todo lo que produjo el mismo delivery/scan — evento, reglas, run(s) y sub-agentes',
+    values: () => extraValues('traceId', traceFilter.value),
+    free: true,
+  },
   { key: 'msg', hint: 'contains del mensaje, sin caja (*/? comodines)', free: true },
   {
     key: 'extra',
@@ -695,6 +709,7 @@ const filterTokens = computed<FilterToken[]>({
     ...setTokens('proyecto', Array.from(projectFilter.value)),
     ...setTokens('regla', Array.from(ruleFilter.value)),
     ...setTokens('run', Array.from(runFilter.value)),
+    ...setTokens('trace', Array.from(traceFilter.value)),
     ...setTokens('extra', Array.from(extraFilter.value)),
     ...setTokens('msg', searchInput.value ? [searchInput.value] : []),
     ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
@@ -710,6 +725,7 @@ const filterTokens = computed<FilterToken[]>({
     assignSet(projectFilter, of('proyecto'));
     assignSet(ruleFilter, of('regla'));
     assignSet(runFilter, of('run'));
+    assignSet(traceFilter, of('trace'));
     assignSet(extraFilter, of('extra'));
     // El nivel es uno solo: dos tokens serían dos niveles a la vez, que el
     // endpoint no soporta (`level` es un valor, no una lista). Gana el último.
@@ -758,6 +774,7 @@ function buildFilters(): ServerLogFilters {
   if (projectFilter.value.size > 0) f.projectId = Array.from(projectFilter.value);
   if (ruleFilter.value.size > 0) f.ruleId = Array.from(ruleFilter.value);
   if (runFilter.value.size > 0) f.runId = Array.from(runFilter.value);
+  if (traceFilter.value.size > 0) f.traceId = Array.from(traceFilter.value);
   if (extraFilter.value.size > 0) f.extra = Array.from(extraFilter.value);
   return f;
 }
@@ -974,6 +991,7 @@ watch(
     projectFilter,
     ruleFilter,
     runFilter,
+    traceFilter,
     extraFilter,
     searchApplied,
     fromFilter,

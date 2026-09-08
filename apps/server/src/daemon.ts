@@ -170,6 +170,8 @@ function registerRuleEngine(): void {
           // reproducir el evento a mano.
           log.info(
             {
+              eventId: event.id,
+              traceId: event.traceId,
               type: event.type,
               scope: event.scope,
               rejected: rejectedSummary,
@@ -206,6 +208,8 @@ function registerRuleEngine(): void {
         }
         log.info(
           {
+            eventId: event.id,
+            traceId: event.traceId,
             type: event.type,
             matched: matched.map((r) => r.id),
             rejected: rejectedSummary,

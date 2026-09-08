@@ -310,13 +310,17 @@ export class AgentOrchestrator {
     agentId: string
     parentRunId: string
     parentDepth: number
+    /** El trace del padre — ver `PendingTask.traceId`. Opcional: un padre sin
+     *  trace (dispatch manual, test) simplemente deja al hijo sin trace
+     *  también, en vez de inventar uno nuevo que no conecta con nada. */
+    traceId?: string
   }): Promise<{ ok: true; output: string } | { ok: false; reason: string }> {
     const state: AgentRunState = {}
     const outcome = await this.runAgent(
       input.task,
       input.manager,
       input.agentId,
-      { parentRunId: input.parentRunId, agentDepth: input.parentDepth + 1 },
+      { parentRunId: input.parentRunId, agentDepth: input.parentDepth + 1, traceId: input.traceId },
       state,
     )
     if (outcome !== 'dispatched') {

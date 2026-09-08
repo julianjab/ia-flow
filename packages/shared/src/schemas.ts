@@ -1983,6 +1983,11 @@ export const ServerLogFiltersSchema = z.object({
   // Filters entries whose extras.runId matches — the correlation id shared
   // by every log line and the execution_logs row of a single agent run.
   runId: z.union([z.string(), z.array(z.string())]).optional(),
+  // Filters entries whose extras.traceId matches — the id of the webhook
+  // delivery/scan that started the whole cascade (event → rule → run →
+  // sub-agents). Spans multiple runIds; use it to see everything one
+  // triggering event caused, not just one run. See `EngineEvent.traceId`.
+  traceId: z.union([z.string(), z.array(z.string())]).optional(),
   /** `extras.agentId` — qué agente escribió la línea. */
   agentId: z.union([z.string(), z.array(z.string())]).optional(),
   /** `extras.taskId` — sobre qué issue. Es el mismo id que la columna

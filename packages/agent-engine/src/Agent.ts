@@ -573,6 +573,7 @@ export class Agent {
         // colgada de un proceso anterior sobre la misma tarea.
         executionId: logId,
         ruleId: input.ruleId,
+        traceId: input.traceId,
         parentRunId: input.parentRunId,
         agentDepth: input.agentDepth ?? 0,
         cancel: async () => {
