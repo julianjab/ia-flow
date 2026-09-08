@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import AgentHealthPanel from './AgentHealthPanel.vue';
 import { type AgentDetail, fetchAgentDetail } from './api';
 import {
   CLASS_LABELS,
@@ -31,9 +30,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'drill', payload: { agentId: string; failureClass: string }): void;
-  /** Otra fila de la tabla comparativa: se cambia de agente sin volver al
-   *  listado. La navegación la hace el padre, que es quien sabe el scope. */
-  (e: 'open', agentId: string): void;
 }>();
 
 const windowDays = ref<number>(7);
@@ -349,24 +345,6 @@ function itersPerRun(): string {
         </ul>
       </section>
     </template>
-
-      <!-- La tabla de diez columnas por agente. Vivía arriba del listado de
-           ejecuciones, donde medía 418px y ponía la primera fila de runs a
-           610px del borde. No se recortó a tres columnas: se mudó ACÁ, que es
-           donde la pregunta que contesta —cuánto cuesta cada agente, cuántas
-           vueltas da, cuánto cachea— es la pregunta que se está haciendo. La
-           pantalla de vigilancia se quedó con el veredicto (R10).
-
-           Va última y no primera: la página arranca por ESTE agente, y la
-           comparación es el paso siguiente, no el primero. -->
-      <section class="block">
-        <h3>Comparar con los demás</h3>
-        <AgentHealthPanel
-          :project-id="projectId"
-          @drill="(p) => emit('drill', p)"
-          @open="(id) => emit('open', id)"
-        />
-      </section>
   </section>
 </template>
 

@@ -1,4 +1,3 @@
-import { dragTo, rowAt } from '@/test/dragReorder'
 import type { AgentProviderChoice } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
@@ -103,19 +102,17 @@ describe('ProviderChoicesEditor', () => {
     ])
   })
 
-  it('hides reorder controls (drag handle, position) with a single candidate', async () => {
+  it('hides reorder controls (drag handle, position, move buttons) with a single candidate', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: { modelValue: [{ providerId: 'anthropic-api' }], providers: PROVIDERS },
     })
     await wrapper.get('.pce-trigger').trigger('click')
-    // Sin handle no hay gesto: su ausencia ES la señal de que no se reordena.
-    expect(wrapper.find('.drag-handle').exists()).toBe(false)
+    expect(wrapper.find('.pce-drag').exists()).toBe(false)
+    expect(wrapper.find('.pce-move').exists()).toBe(false)
+    expect(wrapper.get('.pce-row').attributes('draggable')).toBe('false')
   })
 
-  // Arrastrar no existe sin mouse, y el orden entre candidatos decide qué
-  // provider corre: el handle tiene que mover con el teclado. Reemplaza a los
-  // ↑/↓, que eran dos blancos más haciendo este mismo movimiento.
-  it('reorders candidates with the arrow keys on the drag handle', async () => {
+  it('reorders candidates with the move up/down buttons once there are 2+', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: {
         modelValue: [
@@ -128,7 +125,7 @@ describe('ProviderChoicesEditor', () => {
     })
     await wrapper.get('.pce-trigger').trigger('click')
     const rows = wrapper.findAll('.pce-row')
-    await rows[1].get('.drag-handle').trigger('keydown', { key: 'ArrowDown' })
+    await rows[1].findAll('.pce-move-btn')[1].trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([
       { providerId: 'anthropic-api' },
       { providerId: 'remote:julianbuitrago-mac' },
@@ -136,18 +133,7 @@ describe('ProviderChoicesEditor', () => {
     ])
   })
 
-  it('the drag handle is a button — a decorative glyph is unreachable by keyboard', async () => {
-    const wrapper = mount(ProviderChoicesEditor, {
-      props: {
-        modelValue: [{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude' }],
-        providers: PROVIDERS,
-      },
-    })
-    await wrapper.get('.pce-trigger').trigger('click')
-    expect(wrapper.get('.drag-handle').element.tagName).toBe('BUTTON')
-  })
-
-  it('reorders candidates dragging the handle inside the dropdown', async () => {
+  it('reorders candidates via drag and drop inside the dropdown', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: {
         modelValue: [
@@ -159,9 +145,9 @@ describe('ProviderChoicesEditor', () => {
       },
     })
     await wrapper.get('.pce-trigger').trigger('click')
-    // Pointer Events, no la API de drag de HTML5: aquélla es de mouse y en un
-    // teléfono no dispara nada.
-    await dragTo(wrapper.findAll('.drag-handle')[0], rowAt(wrapper, 2))
+    const rows = wrapper.findAll('.pce-row')
+    await rows[0].trigger('dragstart')
+    await rows[2].trigger('drop')
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([
       { providerId: 'tmux-claude' },
       { providerId: 'remote:julianbuitrago-mac' },

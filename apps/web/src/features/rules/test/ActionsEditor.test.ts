@@ -1,5 +1,4 @@
 import ActionsEditor from '@/features/rules/ActionsEditor.vue'
-import { dragTo, rowAt } from '@/test/dragReorder'
 import type { RuleActionEntry } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
@@ -119,13 +118,14 @@ describe('ActionsEditor', () => {
     })
   })
 
-  it('arrastrar el handle sobre otra acción reordena sin perder ninguna', async () => {
-    // Pointer Events, no la API de drag de HTML5: aquélla es de mouse.
+  it('arrastrar una acción sobre otra reordena sin perder ninguna', async () => {
     const wrapper = mountEditor([
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
       { action: 'agent', agentId: 'b' } as RuleActionEntry,
     ])
-    await dragTo(wrapper.findAll('.drag-handle')[1], rowAt(wrapper, 0))
+    const heads = wrapper.findAll('.ae-head')
+    await heads[1].trigger('dragstart', { dataTransfer: { setData() {} } })
+    await wrapper.findAll('.ae-card')[0].trigger('drop')
     expect(lastEmitted(wrapper).map((a) => (a as { agentId: string }).agentId)).toEqual(['b', 'a'])
   })
 
@@ -134,7 +134,8 @@ describe('ActionsEditor', () => {
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
       { action: 'agent', agentId: 'b' } as RuleActionEntry,
     ])
-    await dragTo(wrapper.findAll('.drag-handle')[1], rowAt(wrapper, 1))
+    await wrapper.findAll('.ae-head')[1].trigger('dragstart', { dataTransfer: { setData() {} } })
+    await wrapper.findAll('.ae-card')[1].trigger('drop')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
@@ -145,14 +146,14 @@ describe('ActionsEditor', () => {
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
       { action: 'agent', agentId: 'b' } as RuleActionEntry,
     ])
-    await wrapper.findAll('.drag-handle')[1].trigger('keydown', { key: 'ArrowUp' })
+    await wrapper.findAll('.ae-drag')[1].trigger('keydown', { key: 'ArrowUp' })
     expect(lastEmitted(wrapper).map((a) => (a as { agentId: string }).agentId)).toEqual(['b', 'a'])
   })
 
   it('con una sola acción no hay nada que reordenar', () => {
-    // Sin handle no hay gesto: su ausencia ES la señal.
     const wrapper = mountEditor([{ action: 'agent', agentId: 'a' } as RuleActionEntry])
-    expect(wrapper.find('.drag-handle').exists()).toBe(false)
+    expect(wrapper.find('.ae-drag').exists()).toBe(false)
+    expect(wrapper.get('.ae-head').attributes('draggable')).toBe('false')
   })
 
   it('un body JSON inválido se guarda como texto en vez de perderse', async () => {

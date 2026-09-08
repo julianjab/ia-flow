@@ -4,11 +4,9 @@ import {
   EMPTY_TASK_FILTERS,
   type FilterableTask,
   type TaskFilters,
-  countActiveTaskFilters,
   filterTasks,
   hasActiveTaskFilters,
   queryHasTaskFilters,
-  taskFilterSummary,
   taskFiltersFromQuery,
   taskFiltersFromSearch,
   taskFiltersToQuery,
@@ -204,33 +202,5 @@ describe('serialización', () => {
   it('un `pr`/`rama` desconocido se descarta en vez de filtrar por basura', () => {
     expect(taskFiltersFromQuery({ pr: 'quizas' }).prStatus).toEqual([])
     expect(taskFiltersFromQuery({ rama: 'quizas' }).branch).toEqual([])
-  })
-})
-
-describe('countActiveTaskFilters / taskFilterSummary', () => {
-  it('sin filtros no hay resumen — "sin filtros" es chrome que no informa', () => {
-    expect(countActiveTaskFilters(EMPTY_TASK_FILTERS)).toBe(0)
-    expect(taskFilterSummary(EMPTY_TASK_FILTERS)).toBeNull()
-  })
-
-  it('cuenta VALORES y no ejes: dos statuses son dos filtros para quien mira', () => {
-    const f = { ...EMPTY_TASK_FILTERS, statuses: ['todo', 'doing'] }
-    expect(countActiveTaskFilters(f)).toBe(2)
-  })
-
-  it('con uno solo lo nombra', () => {
-    expect(taskFilterSummary({ ...EMPTY_TASK_FILTERS, statuses: ['en revisión'] })).toBe(
-      'en revisión',
-    )
-  })
-
-  it('con varios dice el primero y cuántos más — enumerarlos vuelve a ser la fila de chips', () => {
-    const f = {
-      ...EMPTY_TASK_FILTERS,
-      statuses: ['todo'],
-      repos: ['api'],
-      blocked: ['si' as const],
-    }
-    expect(taskFilterSummary(f)).toBe('todo +2')
   })
 })

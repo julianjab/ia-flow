@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useDragReorder } from '@/composables/useDragReorder'
 import type { AgentProviderChoice, WhenCondition } from '@ia-flow/shared'
 import WhenConditionsEditor from '@/features/agents/WhenConditionsEditor.vue'
 
@@ -9,12 +8,9 @@ import WhenConditionsEditor from '@/features/agents/WhenConditionsEditor.vue'
 // elegible (ver AgentProviderSchema en packages/shared/src/schemas.ts). El
 // control se ve y se abre como un <select> nativo (mismo estilo que
 // AgentDefinitionSection `.input`); a diferencia de uno, el menú se queda
-// abierto para tildar varios. El orden de evaluación se edita aparte, debajo,
-// arrastrando — y desde el teclado con las flechas SOBRE EL HANDLE, que es un
-// `button` justamente por eso. Los ↑/↓ que había antes eran dos blancos más en
-// una fila que ya tiene cinco controles, y hacían el trabajo del handle: el
-// handle es la única afordancia de reordenar del sistema (mismo patrón que
-// RulesSection y ActionsEditor).
+// abierto para tildar varios. El orden de evaluación se edita aparte,
+// debajo, arrastrando (con botones ↑/↓ como alternativa por teclado — drag
+// nativo no lo es).
 //
 // Cada candidato tiene DOS formas de condicionarse, y son distintas:
 //
@@ -115,6 +111,14 @@ function updateChoice(i: number, patch: Partial<AgentProviderChoice>) {
   emitChoices(choices.value.map((c, idx) => (idx === i ? { ...c, ...patch } : c)))
 }
 
+function move(i: number, dir: -1 | 1) {
+  const j = i + dir
+  if (j < 0 || j >= choices.value.length) return
+  const next = [...choices.value]
+  ;[next[i], next[j]] = [next[j], next[i]]
+  emitChoices(next)
+}
+
 function reorder(from: number, to: number) {
   if (from === to) return
   const next = [...choices.value]
@@ -123,31 +127,23 @@ function reorder(from: number, to: number) {
   emitChoices(next)
 }
 
-/** El mismo movimiento que el drag, desde el teclado.
- *
- *  Por eso el handle es un `button` y no un glifo decorativo: arrastrar no
- *  existe sin mouse, y el orden entre candidatos decide cuál provider gana. Es
- *  el reemplazo de los ↑/↓ — mismo movimiento, un blanco en vez de dos, y en
- *  el mismo elemento que ya dice "esto se reordena". */
-function onHandleKey(i: number, event: KeyboardEvent) {
-  if (event.key === 'ArrowUp') reorder(i, i - 1)
-  else if (event.key === 'ArrowDown') reorder(i, i + 1)
-  else return
+// Drag nativo (HTML5) — sin librería: dataTransfer lleva el índice de
+// origen, drop en la fila destino reordena. `dragover` necesita
+// preventDefault para que el navegador permita soltar ahí.
+const dragIndex = ref<number | null>(null)
+
+function onDragStart(i: number, event: DragEvent) {
+  dragIndex.value = i
+  event.dataTransfer?.setData('text/plain', String(i))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+function onDragOver(event: DragEvent) {
   event.preventDefault()
 }
-
-/**
- * Reordenar arrastrando el handle — mouse, dedo y lápiz por el mismo camino.
- *
- * Antes era la API de drag de HTML5, que **es de mouse**: en un teléfono esos
- * eventos no se disparan y la lista quedaba de sólo lectura sin decirlo. Ver
- * `useDragReorder` para el porqué del gesto.
- */
-const {
-  dragging: dragIndex,
-  over: overIndex,
-  start: onHandleDown,
-} = useDragReorder({ onReorder: reorder })
+function onDrop(i: number) {
+  if (dragIndex.value !== null) reorder(dragIndex.value, i)
+  dragIndex.value = null
+}
 
 function nameFor(providerId: string): string {
   return props.providers.find((p) => p.id === providerId)?.name ?? providerId
@@ -206,21 +202,12 @@ function onTriggerKeydown(event: KeyboardEvent) {
           <template v-for="(c, i) in choices" :key="c.providerId">
             <div
               class="pce-row"
-              :class="{ 'pce-row--over': overIndex === i && dragIndex !== null && dragIndex !== i }"
-              :data-drag-index="i"
+              :draggable="choices.length > 1"
+              @dragstart="onDragStart(i, $event)"
+              @dragover="onDragOver"
+              @drop="onDrop(i)"
             >
-            <!-- El handle ES el control de reordenar: arrastrarlo con el mouse,
-                 o las flechas con el foco puesto encima. -->
-            <button
-              v-if="choices.length > 1"
-              type="button"
-              class="drag-handle"
-              :aria-label="`Reordenar ${nameFor(c.providerId)} (flechas para mover)`"
-              title="Arrastrar para reordenar"
-              @click.stop
-              @pointerdown="onHandleDown(i, $event)"
-              @keydown="onHandleKey(i, $event)"
-            >⠿</button>
+            <span v-if="choices.length > 1" class="pce-drag" aria-hidden="true" title="Arrastrar para reordenar">⠿</span>
             <span v-if="choices.length > 1" class="pce-pos" :title="`Orden ${i + 1}`">{{ i + 1 }}</span>
             <span class="pce-row-name">{{ nameFor(c.providerId) }}</span>
             <input
@@ -230,6 +217,16 @@ function onTriggerKeydown(event: KeyboardEvent) {
               @click.stop
               @input="updateChoice(i, { whenText: ($event.target as HTMLInputElement).value || undefined })"
             />
+            <div v-if="choices.length > 1" class="pce-move">
+              <button type="button" class="pce-move-btn" aria-label="Subir" :disabled="i === 0" @click="move(i, -1)">↑</button>
+              <button
+                type="button"
+                class="pce-move-btn"
+                aria-label="Bajar"
+                :disabled="i === choices.length - 1"
+                @click="move(i, 1)"
+              >↓</button>
+            </div>
             <button
               type="button"
               class="pce-cond"
@@ -345,8 +342,7 @@ function onTriggerKeydown(event: KeyboardEvent) {
 .pce-row[draggable='true'] { cursor: grab; }
 .pce-row[draggable='true']:active { cursor: grabbing; }
 
-/* El handle es `.drag-handle` de theme.css. Con los ↑/↓ borrados es la ÚNICA
-   afordancia de reordenar, así que no puede ser un blanco de 12px. */
+.pce-drag { flex-shrink: 0; color: var(--fg-dim); user-select: none; }
 .pce-pos {
   flex-shrink: 0;
   width: 1.4rem;
@@ -412,6 +408,18 @@ function onTriggerKeydown(event: KeyboardEvent) {
   font-size: var(--fs-body-sm);
   min-width: 0;
 }
+
+.pce-move { display: flex; gap: 0.15rem; flex-shrink: 0; }
+.pce-move-btn {
+  width: 1.6rem;
+  height: var(--row-h);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg-mute);
+  cursor: pointer;
+}
+.pce-move-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pce-move-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .pce-remove {
   flex-shrink: 0;

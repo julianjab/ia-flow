@@ -89,7 +89,7 @@ describe('TaskExecutions', () => {
   it('una tarea sin runs lo dice', async () => {
     fetchTaskExecutions.mockResolvedValue([])
     const wrapper = await mountWith()
-    expect(wrapper.get('.empty').text()).toContain('Todavía no hizo nada')
+    expect(wrapper.get('.empty').text()).toContain('todavía no corrió')
   })
 
   it('un fallo al cargar no rompe la sección', async () => {

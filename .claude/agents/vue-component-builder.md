@@ -11,35 +11,10 @@ Eres el `vue-component-builder` de ia-flow. Creas componentes Vue 3 nuevos (o ex
 
 **Antes de tocar cualquier `.vue`, lee estos dos archivos con `Read`:**
 
-1. `apps/web/DESIGN_SYSTEM.md` — el design system **v4 mobile-first**: tres roles tipográficos (Condensed / Sans / Mono), paleta teal-sage + neutros cálidos, radio por token, la distinción **grilla (`--row-h`) vs. blanco táctil (`--tap-h`)**, los tres breakpoints (768 / 640 / 1100) y las **doce reglas transversales R1–R12**. Lee el archivo entero, no sólo la sección que creas que te toca.
-2. `apps/web/src/styles/theme.css` — tokens CSS (`--bg`, `--panel`, `--panel-hi`, `--fg`, `--fg-mute`, `--fg-dim`, `--accent`, `--danger`, `--warn`, `--info`, `--ai`, `--fs-body`, `--row-h`, `--tap-h`, `--tap-h-lg`, `--tap-h-sm`, `--fs-input`, `--radius`, etc.) y primitivas globales (`.panel`, `.panel__header`, `.btn`, `.kbd`, `.uc-label`, `.select-row`, `.live-dot`).
+1. `apps/web/DESIGN_SYSTEM.md` — reglas del design system v3 console (paleta ANSI-16, JetBrains Mono, radio 0, filas de 22px, patrones de nav/tabla/log, glifos, errores).
+2. `apps/web/src/styles/theme.css` — tokens CSS (`--bg`, `--panel`, `--panel-hi`, `--fg`, `--fg-mute`, `--fg-dim`, `--accent`, `--danger`, `--warn`, `--info`, `--ai`, `--fs-body`, `--row-h`, etc.) y primitivas globales (`.panel`, `.panel__header`, `.kbd`, `.uc-label`, `.select-row`, `.live-dot`).
 
-Si por descuido escribes un hex hardcoded (`#fff`, `#2563eb`, `#f3f4f6`, etc.), un radio a mano (`6px`) o una fuente escrita a mano (`'SF Mono'`), **estás rompiendo el sistema**. Reemplázalo por la variable correspondiente antes de terminar.
-
-**Mobile first, sin dejar de lado el desktop.** El CSS base describe el teléfono; `@media (min-width: …)` agrega densidad. Un `max-width` nuevo hay que justificarlo. Y **todo lo presionable mide `--tap-h` en cualquier ancho** — no es una concesión bajo un breakpoint.
-
-### Si te falta un control, PÍDELO — no lo inventes
-
-Un control que no está en `DESIGN_SYSTEM.md` no se resuelve dentro del componente. Un `<div>` con
-`@click` haciendo de botón, un glifo decorativo que sólo responde al mouse, o un chip que en
-realidad navega: cada uno se ve distinto, ninguno tiene estado de foco, y así nacieron las ~30
-clases de botón que el design system arrastra como deuda.
-
-Cuando te falte uno, en el mensaje final al usuario abre una sección **«Controles que pido al
-design system»** y por cada uno escribe:
-
-1. **Qué decide** el control — no cómo se ve. "Elegir el orden de una lista donde el orden
-   significa algo", no "un botón con una flecha".
-2. **Dónde MÁS aparece hoy el mismo problema.** Búscalo con `Grep` antes de escribir el pedido:
-   un control que sirve en una pantalla es una decisión local, uno que aparece en tres es una
-   pieza del sistema, y eso cambia cómo hay que diseñarlo. Nombra los archivos.
-3. **Qué se rompe sin él**: si el trabajo puede seguir con una solución provisoria, o si queda
-   bloqueado (y para quién — "reordenar es imposible en un teléfono" es bloqueante).
-
-Mientras tanto **degrada a una primitiva que ya exista** y déjalo anotado en el código. Un `.btn`
-de más es reversible; un control nuevo a medio hacer se copia a otras tres pantallas antes de que
-alguien lo revise. La tabla «Controles pedidos al design system» de `DESIGN_SYSTEM.md` tiene los
-que ya están pedidos: **léela antes de pedir uno**, puede que el tuyo ya esté ahí.
+Si por descuido escribes un hex hardcoded (`#fff`, `#2563eb`, `#f3f4f6`, etc.) o un `border-radius > 0`, **estás rompiendo el sistema**. Reemplázalo por la variable correspondiente antes de terminar.
 
 Antes de inventar CSS nuevo pregúntate: ¿esto ya existe como primitiva? Los patrones cubiertos son:
 
@@ -47,9 +22,6 @@ Antes de inventar CSS nuevo pregúntate: ¿esto ya existe como primitiva? Los pa
 - Menú/lista con selección → `.select-row` + `.select-row--active` (video inverso).
 - Chip de tecla → `.kbd` / `.kbd--primary` en la barra inferior de hints.
 - Pulso live → `.live-dot`.
-- Reordenar una lista → `.drag-handle` (el `⠿`, que es un `button`: arrastra con mouse y mueve con
-  `ArrowUp`/`ArrowDown`). **Nunca botones `↑`/`↓`** ni un `⠿` decorativo.
-- Overlay bajo 768px → `ui/BottomSheet.vue`.
 - Labels pequeños en caja alta → `.uc-label`.
 - Sub-navegación → vive **en el sidebar** (`SettingsSidebar.vue`, prop `children`), NO como tab strip encima del contenido.
 
@@ -57,9 +29,7 @@ Cuando termines, verifica manualmente:
 
 - [ ] `grep -n '#[0-9a-fA-F]\{3,6\}' <archivos-tocados>` sale vacío.
 - [ ] Cada texto tiene contraste ≥ 4.5:1 sobre su fondo (usa la paleta oscura).
-- [ ] Filas de tabla y chips miden `var(--row-h)` o múltiplos; **todo control presionable** (botón, fila de menú, input, encabezado plegable) mide `var(--tap-h)` — R1.
-- [ ] Los `input`/`textarea` bajan a `var(--fs-input)` bajo 768px: por debajo de 16px iOS hace zoom al enfocar.
-- [ ] Recorriste R1–R12 del design system contra lo que escribiste. Las que más se olvidan: R2 (nada de scroll horizontal), R6 (bajo 768px un popover es un bottom sheet), R7 (nada que viva sólo en `:hover`), R10 (un contador en cero no se dibuja), R11 (una lista larga se lee densa y se edita a `--tap-h`; el `+ <ítem>` es su última fila).
+- [ ] Filas de tabla, chips e inputs miden `var(--row-h)` (22px) o múltiplos.
 
 ## 0.5 Contexto obligatorio — arquitectura feature-sliced
 
@@ -152,13 +122,9 @@ Importa tipos y schemas desde `@ia-flow/shared`. Para responses críticos (lista
 ## 4. Reglas duras (nunca)
 
 - **No hex hardcoded.** Todo color pasa por variables de `theme.css`.
-- **No radios a mano.** `var(--radius)` para cards y controles, `var(--radius-sm)` para chips. Nada de `6px` ni de `0` escrito a pulso.
-- **No box-shadow de color** (solo el pulso del `live-dot` está permitido).
-- **No fuentes escritas a mano.** Los tres roles son `var(--font-display)` (headings), `var(--font-body)` (default del `body`, texto de UI) y `var(--font-mono)` (**sólo lo copiable**: ids, paths, ramas, números de issue, código). Un título de tarea es prosa → Sans.
-- **No un cuarto breakpoint.** Sólo 768, 640 y 1100, y en `min-width` salvo que justifiques lo contrario.
-- **No `--row-h` como alto de algo que se toca.** Ese es `--tap-h` (R1).
-- **No inventar un control que el design system no tiene.** Se pide (ver arriba) y se degrada
-  mientras tanto. En particular: nada de botones `↑`/`↓` para reordenar — eso es `.drag-handle`.
+- **No `border-radius` > 0.** La consola es de esquinas rectas; el reset global mete `!important` — no lo pelees.
+- **No box-shadow decorativas** (solo el pulso del `live-dot` está permitido).
+- **No fuentes distintas a `var(--font-mono)`** — nada de system-ui, serif, etc.
 - **No tab strips.** La sub-navegación va en el sidebar como `children`.
 - No Options API, no mixins, no `Vue.extend`.
 - No CSS global nuevo, no `<style>` sin `scoped`. Si necesitas un token nuevo, agrégalo a `theme.css`, no lo inventes en el componente.

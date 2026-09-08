@@ -147,39 +147,20 @@ function onKeydown(e: KeyboardEvent) {
   flex-shrink: 0;
 }
 
-/* T2 · Bajo --bp-stack las acciones caen a su PROPIA fila en vez de comprimir
-   el cuerpo. Con el ✕ a --tap-h en el margen derecho, el nombre y la
-   descripción de la fila se quedaban con ~200px de un teléfono de 390. El
-   `flex-basis: 100%` usa el `flex-wrap` que la caja ya tenía. */
-@media (max-width: 640px) {
-  .editable-card__actions {
-    flex-basis: 100%;
-    justify-content: flex-end;
-  }
-}
-
 /* `:slotted` para que una operación extra (↑ ↓, ↺) puesta por la lista se vea
    igual que el ✕ sin que cada sección re-escriba el botón —y sin exportar la
    clase a `theme.css`, que la volvería global para toda la app. */
-/* El ✕, el ↺ y las flechas de reordenar de TODA lista editable. Se tocan, así
-   que miden --tap-h y no --row-h (R1): a 25px eran el blanco más chico de las
-   siete pantallas de configuración, y son el gesto que se hace con el pulgar
-   mientras se scrollea. */
 .ec-btn,
 .editable-card__actions :slotted(button) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--fg-mute);
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  line-height: 1;
-  padding: 0 0.75ch;
-  height: var(--tap-h);
-  min-width: var(--tap-h);
+  line-height: var(--row-h);
+  padding: 0 0.5ch;
+  min-width: var(--row-h);
   cursor: pointer;
   white-space: nowrap;
   transition: border-color 0.1s, color 0.1s, background 0.1s;

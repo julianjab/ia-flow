@@ -4,7 +4,6 @@ import { getSelectedKind, getSelectedServer } from '@/features/servers/selection
 import AppShell from '@/views/AppShell.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import GeneralView from '@/views/GeneralView.vue'
-import MoreView from '@/views/MoreView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import ProjectsListView from '@/views/ProjectsListView.vue'
 import ServerPickerView from '@/views/ServerPickerView.vue'
@@ -33,12 +32,6 @@ const routes: RouteRecordRaw[] = [
         },
       },
       { path: 'dashboard', name: 'dashboard', component: DashboardView },
-
-      // El índice completo de la app: el cuarto tab de la navegación mobile y
-      // el único camino a las pantallas que el drawer cubría. En desktop la
-      // ruta existe igual (nada se vuelve inalcanzable) pero no se ofrece:
-      // ahí manda el sidebar.
-      { path: 'mas', name: 'mas', component: MoreView },
 
       // La consola del agent-host. Era un bundle aparte (`agent-host.html`)
       // porque habla con OTRO proceso y con otra credencial — pero eso no

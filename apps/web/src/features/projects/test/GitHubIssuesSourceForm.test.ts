@@ -28,7 +28,7 @@ describe('GitHubIssuesSourceForm', () => {
   it('flags a URL without a repo instead of saving half a config', async () => {
     const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: {} } })
     await wrapper.findAll('input')[0].setValue('https://github.com/julianjab')
-    expect(wrapper.get('.ff-error').text()).toContain('https://github.com/owner/repo')
+    expect(wrapper.get('.gisf-error').text()).toContain('https://github.com/owner/repo')
     expect(lastEmit(wrapper)).toEqual({ owner: '', repo: '' })
   })
 
@@ -38,7 +38,7 @@ describe('GitHubIssuesSourceForm', () => {
     })
     const input = wrapper.findAll('input')[0].element as HTMLInputElement
     expect(input.value).toBe('https://github.com/julianjab/accountant')
-    expect(wrapper.get('.ff-hint').text()).toContain('julianjab')
+    expect(wrapper.get('.gisf-hint').text()).toContain('julianjab')
   })
 
   it('keeps owner/repo when the anchor label changes', async () => {
@@ -60,7 +60,7 @@ describe('GitHubIssuesSourceForm', () => {
   ])('rejects %s instead of reading the host as the owner', async (input) => {
     const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: {} } })
     await wrapper.findAll('input')[0].setValue(input)
-    expect(wrapper.find('.ff-error').exists()).toBe(true)
+    expect(wrapper.find('.gisf-error').exists()).toBe(true)
     expect(lastEmit(wrapper)).toEqual({ owner: '', repo: '' })
   })
 
@@ -75,7 +75,7 @@ describe('GitHubIssuesSourceForm', () => {
     await wrapper.setProps({ modelValue: { owner: '', repo: '' } })
 
     expect((input.element as HTMLInputElement).value).toBe('https://github.com/julianjab/')
-    expect(wrapper.find('.ff-error').exists()).toBe(true)
+    expect(wrapper.find('.gisf-error').exists()).toBe(true)
   })
 
   it('resyncs the URL when the parent swaps to another project', async () => {

@@ -8,8 +8,6 @@ import {
   type RunTaskNowResult,
   RunTaskNowResultSchema,
   type SlackMemberRef,
-  type TaskDispositionEntry,
-  TaskDispositionEntryArraySchema,
   type TaskRunPreview,
   TaskRunPreviewSchema,
   type TaskRunSummary,
@@ -110,24 +108,6 @@ export async function fetchTaskRunSummaries(projectId: string): Promise<TaskRunS
     params: { projectId },
   })
   return TaskRunSummaryArraySchema.parse(data.summaries)
-}
-
-/**
- * La disposición de cada tarea del proyecto — quién mueve la próxima pieza.
- *
- * Es UNA request y no una por fila: sin el agregado, un listado de 40 tareas
- * eran 40 llamadas. Y se calcula en el server porque depende de las reglas de
- * retry, los blockers y el PR — tres cosas que el browser no tiene.
- *
- * Un 502 es "no se pudo hablar con la fuente", no "no hay nada": el llamador
- * tiene que distinguirlo para no afirmar "nada te espera" sobre datos que
- * nunca llegaron.
- */
-export async function fetchTaskDispositions(projectId: string): Promise<TaskDispositionEntry[]> {
-  const { data } = await axios.get<{ dispositions: unknown }>('/api/tasks/dispositions', {
-    params: { projectId },
-  })
-  return TaskDispositionEntryArraySchema.parse(data.dispositions)
 }
 
 /** El tope que declara la ruta (`MAX_BLOCKER_IDS` en project-source.ts). */

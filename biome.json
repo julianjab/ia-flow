@@ -8,8 +8,7 @@
       "**/.playwright-mcp",
       "**/logs",
       "**/*.sqlite",
-      "apps/web/src/**/*.vue",
-      "handoff"
+      "apps/web/src/**/*.vue"
     ]
   },
   "formatter": {

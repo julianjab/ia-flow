@@ -1,5 +1,4 @@
 import RulesSection from '@/features/rules/RulesSection.vue'
-import { dragTo, rowAt } from '@/test/dragReorder'
 import type { Pipeline, Rule } from '@ia-flow/shared'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -173,14 +172,15 @@ describe('RulesSection — lo que corre encima', () => {
   // fila misma: sin las flechas ↑↓ que había que apretar N veces para mover una
   // regla al final de la lista.
   describe('orden y borrado', () => {
-    it('arrastrar el handle sobre otra fila reordena y lo persiste', async () => {
-      // El gesto es Pointer Events, no la API de drag de HTML5: la de HTML5 es
-      // de mouse y en un teléfono no dispara nada.
+    it('arrastrar una fila sobre otra reordena y lo persiste', async () => {
       rules = [rule({ id: 'a' }), rule({ id: 'b' })]
       const api = await import('@/features/rules/api')
 
       const w = await mountSection()
-      await dragTo(w.findAll('.drag-handle')[1], rowAt(w, 0))
+      const items = w.findAll('.rs-item')
+      await items[1].trigger('dragstart', { dataTransfer: { setData: vi.fn() } })
+      await items[0].trigger('dragover')
+      await items[0].trigger('drop')
 
       expect(vi.mocked(api.reorderRules)).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a'])
       expect(w.findAll('.rs-id').map((e) => e.text())).toEqual(['b', 'a'])
@@ -194,7 +194,7 @@ describe('RulesSection — lo que corre encima', () => {
       const api = await import('@/features/rules/api')
 
       const w = await mountSection()
-      await w.findAll('.drag-handle')[1].trigger('keydown', { key: 'ArrowUp' })
+      await w.findAll('.rs-drag')[1].trigger('keydown', { key: 'ArrowUp' })
 
       expect(vi.mocked(api.reorderRules)).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a'])
       expect(testRouter.currentRoute.value.params.detailId).toBeFalsy()
@@ -222,9 +222,8 @@ describe('RulesSection — lo que corre encima', () => {
       })
 
       const w = await mountSection()
-      // Sin handle no hay gesto: el `draggable` ya no existe como atributo, y
-      // la ausencia del handle ES la señal de que la lista no se reordena.
-      expect(w.find('.drag-handle').exists()).toBe(false)
+      expect(w.find('.rs-item').attributes('draggable')).toBe('false')
+      expect(w.find('.rs-drag').exists()).toBe(false)
     })
 
     // Sólo lectura sigue dejando ABRIR el detalle —si no, la única vista de la
@@ -241,7 +240,7 @@ describe('RulesSection — lo que corre encima', () => {
 
       const w = await mountSection()
       expect(w.findAll('button').map((b) => b.text())).not.toContain('Editar')
-      expect(w.find('.drag-handle').exists()).toBe(false)
+      expect(w.find('.rs-drag').exists()).toBe(false)
       // La fila sigue siendo clicable: abre el detalle en sólo-lectura.
       expect(w.find('.editable-card--clickable').exists()).toBe(true)
 

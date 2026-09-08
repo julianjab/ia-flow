@@ -25,7 +25,6 @@ import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 import type { Pipeline, RunningAgent } from '@ia-flow/shared'
 import type { Rule } from '@ia-flow/shared'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useDragReorder } from '@/composables/useDragReorder'
 import { useRoute, useRouter } from 'vue-router'
 
 // Listado y CRUD de reglas de un ámbito. El ámbito es prop y no estado propio:
@@ -232,29 +231,7 @@ function hasLiveRuns(rule: Rule): boolean {
 // coincide con la posición real en `rules`, que es lo que decide qué regla
 // exclusiva gana), así que arrastrar se apaga con el mismo criterio que el
 // modo sólo-lectura.
-/**
- * El filtro arranca desde la URL.
- *
- * Es lo que hace que un link pueda mandarte a "las reglas del status X" y que
- * llegues ahí filtrado. Sin esto, "Ver qué corre en blocked" abría el Pipeline
- * entero y te dejaba buscar a mano — el link prometía un recorte y entregaba
- * una lista.
- *
- * Sólo se lee al montar: después el filtro es del usuario, y re-hidratarlo en
- * cada cambio de query le pisaría lo que escribió.
- */
-function tokensFromQuery(): FilterToken[] {
-  const out: FilterToken[] = []
-  for (const field of ['q', 'evento', 'estado', 'agente', 'repo'] as const) {
-    const raw = route.query[field]
-    for (const value of Array.isArray(raw) ? raw : [raw]) {
-      if (typeof value === 'string' && value) out.push({ field, value })
-    }
-  }
-  return out
-}
-
-const filterTokens = ref<FilterToken[]>(tokensFromQuery())
+const filterTokens = ref<FilterToken[]>([])
 const searching = computed(() => filterTokens.value.length > 0)
 
 /** El status que una regla condiciona, si lo condiciona — misma extracción
@@ -565,24 +542,35 @@ function onHandleKey(i: number, event: KeyboardEvent) {
   event.preventDefault()
 }
 
-/**
- * Reordenar arrastrando el handle — mouse, dedo y lápiz por el mismo camino.
- *
- * Antes era la API de drag de HTML5, que **es de mouse**: en un teléfono no se
- * dispara y la lista quedaba de sólo lectura sin decirlo. Ver `useDragReorder`.
- */
-const {
-  dragging: dragIndex,
-  over: overIndex,
-  start: onHandleDown,
-} = useDragReorder({
-  onReorder(from, to) {
-    const next = [...rules.value]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    void persistOrder(next)
-  },
-})
+// Drag nativo (HTML5), el mismo patrón que ya usan ProviderChoicesEditor y el
+// editor de prompts: `dataTransfer` lleva el índice de origen y el drop en la
+// fila destino reordena. Sin librería y sin un modo "reordenar" aparte.
+const dragIndex = ref<number | null>(null)
+const overIndex = ref<number | null>(null)
+
+function onDragStart(i: number, event: DragEvent) {
+  dragIndex.value = i
+  event.dataTransfer?.setData('text/plain', String(i))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+function onDragOver(i: number, event: DragEvent) {
+  // Sin `preventDefault` el navegador no permite soltar acá.
+  event.preventDefault()
+  overIndex.value = i
+}
+function onDragEnd() {
+  dragIndex.value = null
+  overIndex.value = null
+}
+function onDrop(to: number) {
+  const from = dragIndex.value
+  onDragEnd()
+  if (from === null || from === to) return
+  const next = [...rules.value]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  void persistOrder(next)
+}
 </script>
 
 <template>
@@ -682,7 +670,11 @@ const {
               dragIndex !== rules.indexOf(row.rule),
             'rs-item--live': hasLiveRuns(row.rule),
           }"
-          :data-drag-index="rules.indexOf(row.rule)"
+          :draggable="!readOnly && !searching && rules.length > 1"
+          @dragstart="onDragStart(rules.indexOf(row.rule), $event)"
+          @dragover="onDragOver(rules.indexOf(row.rule), $event)"
+          @dragend="onDragEnd"
+          @drop="onDrop(rules.indexOf(row.rule))"
         >
           <!-- La fila entera abre el editor: el lápiz al final era un blanco de
                24px en un teléfono y no decía qué editaba. Es el mismo gesto y la
@@ -711,11 +703,10 @@ const {
               <button
                 v-if="!readOnly && !searching && rules.length > 1"
                 type="button"
-                class="drag-handle"
+                class="rs-drag"
                 :aria-label="`Reordenar ${row.rule.id} (flechas para mover)`"
                 title="Arrastrar para reordenar"
                 @click.stop
-                @pointerdown="onHandleDown(rules.indexOf(row.rule), $event)"
                 @keydown="onHandleKey(rules.indexOf(row.rule), $event)"
               >⠿</button>
               <span class="rs-id">{{ row.rule.id }}</span>
@@ -953,8 +944,17 @@ const {
    está corriendo", ahora en el borde izquierdo de la fila — así se ve sin
    tener que leer la línea `◐ agente · #issue` de cada tarjeta. */
 .rs-item--live > * { border-left: 2px solid var(--info); }
-/* El handle es `.drag-handle` de theme.css — la misma pieza que usan
-   ActionsEditor y ProviderChoicesEditor. Vivía copiada acá con su propio alto. */
+.rs-drag {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--fg-dim);
+  user-select: none;
+  cursor: grab;
+}
+.rs-drag:hover,
+.rs-drag:focus-visible { color: var(--fg); }
 
 /* Sólo el CONTENIDO de la fila: la caja, el hover y el atenuado de una regla
    deshabilitada los pone `EditableCard`. */

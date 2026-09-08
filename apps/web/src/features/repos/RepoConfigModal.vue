@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import FullScreen from '@/ui/FullScreen.vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch } from 'vue';
 import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
@@ -163,38 +162,40 @@ function onSave() {
   emit('save', name, props.editingName, entry);
 }
 
+function onBackdropClick(e: MouseEvent) {
+  if (e.target === e.currentTarget) emit('close');
+}
 // El ComboBox describe cada opción con un objeto; acá la lista son strings
 // pelados y el value ES lo que se muestra.
 const comboOptions = computed<ComboOption[]>(() => localPathOptions.value.map((value) => ({ value })));
 </script>
 
 <template>
-  <!-- Bajo --bp-shell esto es una PANTALLA con `←`, no un diálogo de 520px
-       centrado en un teléfono de 390 (A3, A5). `FullScreen` trae el backdrop,
-       el Escape, el bloqueo de scroll y el pie fijo. -->
-  <FullScreen
-    :open="open"
-    :title="editingName != null ? 'Editar repo' : 'Agregar repo'"
-    @close="$emit('close')"
-  >
-    <template #default>
-          <label class="ff-row">
-            <span class="uc-label">Nombre *</span>
+  <Teleport to="body">
+    <div v-if="open" class="modal-backdrop" @click="onBackdropClick">
+      <div class="modal" role="dialog" aria-modal="true">
+        <header class="modal-header">
+          <h2>{{ editingName != null ? 'Editar repo' : 'Agregar repo' }}</h2>
+          <button class="close-btn" type="button" aria-label="Cerrar" @click="$emit('close')">✕</button>
+        </header>
+
+        <div class="modal-body">
+          <div class="field">
+            <label for="repo-name">Nombre *</label>
             <input
               id="repo-name"
               v-model="form.name"
               type="text"
-              class="ff-field"
-              :class="{ 'ff-field--error': nameError }"
               placeholder="subscriptions"
+              :class="{ error: nameError }"
               @input="nameError = ''"
             />
-            <span v-if="nameError" class="ff-error">{{ nameError }}</span>
-            <span v-else class="ff-hint">Identificador del repo en tareas</span>
-          </label>
+            <span v-if="nameError" class="field-error">{{ nameError }}</span>
+            <span v-else class="field-hint">Identificador del repo en tareas</span>
+          </div>
 
-          <label class="ff-row">
-            <span class="uc-label">Path local</span>
+          <div class="field">
+            <label for="repo-path">Path local</label>
             <ComboBox
               allow-custom
               input-id="repo-path"
@@ -206,38 +207,38 @@ const comboOptions = computed<ComboOption[]>(() => localPathOptions.value.map((v
               empty-text="Sin repos que coincidan"
               @update:model-value="(v) => onPathChange(Array.isArray(v) ? (v[0] ?? '') : v)"
             />
-            <span class="ff-hint">Autocompleta desde <code>~/development/lahaus</code> y <code>EXTRA_REPOS</code>. Podés escribir un path manual también.</span>
-          </label>
+            <span class="field-hint">Autocompleta desde <code>~/development/lahaus</code> y <code>EXTRA_REPOS</code>. Podés escribir un path manual también.</span>
+          </div>
 
-          <label class="ff-row">
-            <span class="uc-label">Repo de GitHub</span>
+          <div class="field">
+            <label for="repo-gh">Repo de GitHub</label>
             <GithubRepoField
               id="repo-gh"
               :owner="form.githubOwner"
               :repo="form.githubRepo"
               @update:model-value="onGithubChange"
             />
-          </label>
+          </div>
 
-          <label class="ff-row">
-            <span class="uc-label">Workflow</span>
-            <select id="repo-workflow" v-model="form.workflow" class="ff-field">
+          <div class="field">
+            <label for="repo-workflow">Workflow</label>
+            <select id="repo-workflow" v-model="form.workflow">
               <option value="">— sin configurar —</option>
               <option value="worktree">Worktree — worktree paralelo en directorio hermano</option>
               <option value="branch">Branch — rama nueva sobre el checkout actual</option>
               <option value="main">Main — commit directo en la rama principal</option>
             </select>
-          </label>
+          </div>
 
-          <label class="ff-row">
+          <div class="field">
             <SlackReviewFields
               v-model:channel="form.slackReviewChannel"
               v-model:reviewers="form.slackReviewers"
               v-model:message="form.slackReviewMessage"
             />
-          </label>
+          </div>
 
-          <label class="ff-row">
+          <div class="field">
             <RepoDescriptionField
               v-model="form.description"
               :context-fallback="descriptionContext"
@@ -248,32 +249,138 @@ const comboOptions = computed<ComboOption[]>(() => localPathOptions.value.map((v
               system-prompt-id="repoDescriptionAssistant"
               placeholder="Breve descripción (qué es, para qué se usa)."
             />
-            <span class="ff-hint">Se muestra a los agentes vía <code v-pre>{{project.repos}}</code>.</span>
-          </label>
-    </template>
+            <span class="field-hint">Se muestra a los agentes vía <code v-pre>{{project.repos}}</code>.</span>
+          </div>
+        </div>
 
-    <template #footer>
-      <button type="button" class="btn" @click="$emit('close')">Cancelar</button>
-      <button type="button" class="btn btn--primary" @click="onSave">Guardar</button>
-    </template>
-  </FullScreen>
+        <footer class="modal-footer">
+          <button type="button" class="btn-secondary" @click="$emit('close')">Cancelar</button>
+          <button type="button" class="btn-primary" @click="onSave">Guardar</button>
+        </footer>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
-<style scoped src="@/ui/form-fields.css"></style>
-
 <style scoped>
-/* La caja, el backdrop, el pie fijo y el Escape los pone `FullScreen`; los
-   campos, `form-fields.css`. Lo que vivía acá era una copia v3 de las dos
-   cosas —radios de 6px, un `#111` en el hover del ✕, un `box-shadow` azul
-   fuera de la paleta y sus propios `.btn-primary`/`.btn-secondary`— y se
-   borró entera. Queda sólo lo que es de ESTE formulario. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: var(--fg-dim);
+  line-height: 1;
+  padding: 0.25rem;
+}
+.close-btn:hover {
+  color: #111;
+}
+.modal-body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.field label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--fg-mute);
+}
+.field input,
+.field select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--panel);
+}
+.field input.error {
+  border-color: var(--danger);
+}
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.field-hint {
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+}
+.field-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
 .field-group {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
 }
-/* Bajo --bp-stack una grilla de dos columnas deja ~170px por campo (R5). */
-@media (max-width: 640px) {
-  .field-group { grid-template-columns: 1fr; }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid var(--border);
+}
+.btn-primary {
+  padding: 0.45rem 1.1rem;
+  background: var(--accent);
+  color: var(--panel);
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background: var(--accent);
+}
+.btn-secondary {
+  padding: 0.45rem 1.1rem;
+  background: var(--panel);
+  color: var(--fg-mute);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-secondary:hover {
+  background: var(--panel-alt);
 }
 </style>

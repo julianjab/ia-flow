@@ -67,19 +67,12 @@ defineExpose({ open, forceOpen })
   background: var(--panel-alt);
 }
 
-/* El encabezado plegable ES la navegación interna del editor de agentes (40 KB
-   de formulario) y del de reglas: se toca una vez por bloque, así que mide
-   --tap-h y no --row-h (R1). Pegajoso porque en un formulario largo saber en
-   qué bloque estás es la mitad de la orientación. */
 .cs-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  height: var(--tap-h);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  height: var(--row-h);
   padding: 0 0.75ch;
   background: var(--panel-hi);
   border: none;
@@ -119,13 +112,6 @@ defineExpose({ open, forceOpen })
   letter-spacing: normal;
   font-size: var(--fs-body-sm);
   text-align: right;
-}
-
-/* Bajo --bp-shell el resumen truncado del encabezado plegado no entra: a 390px
-   competía por el ancho con el título, que es lo único que identifica al
-   bloque (T5). */
-@media (max-width: 768px) {
-  .cs-summary { display: none; }
 }
 
 .cs-panel {

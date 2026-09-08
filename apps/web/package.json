@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "bun run check:sfc && vue-tsc --noEmit",
-    "check:sfc": "bun run scripts/check-sfc.ts"
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "axios": "^1.7.7",

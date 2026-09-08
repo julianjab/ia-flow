@@ -506,37 +506,24 @@ export async function executeLoop(
 
     // Remote MCP tool calls (`mcp_tool_use`) are resolved server-side by
     // Anthropic within the same response, normally arriving paired with
-    // their `mcp_tool_result` — with one DOCUMENTED exception: per Anthropic's
-    // docs (server-tools#mixing-server-tools-and-client-tools-in-one-turn),
-    // when Claude calls an MCP tool in the SAME parallel batch as a client
-    // `tool_use`, the API returns immediately with `stop_reason: "tool_use"`
-    // and leaves the `mcp_tool_use` unpaired — it runs the deferred MCP call
-    // on the NEXT request, once we send back the client tool_result blocks.
-    // That's just the normal tool_use path below (filtered to `type ===
-    // 'tool_use'`, so the dangling `mcp_tool_use` is left alone and Anthropic
-    // resolves it against the still-open turn). Ending the run here on every
-    // occurrence — as this code used to — turned a routine, self-resolving
-    // response shape into a permanent stall on any task whose agent checks
-    // GitHub state via MCP while also reading/running something locally.
-    //
-    // Genuinely unrecoverable cases stay unrecoverable: `max_tokens` cutting
-    // the `mcp_tool_use` input off mid-stream (retried below same as a client
-    // tool_use), and a dangling `mcp_tool_use` with NO accompanying client
-    // tool_use — that shape isn't documented as self-resolving (only
-    // `pause_turn`, server-tool-only, resolves those, and this branch only
-    // runs for `stop_reason !== 'pause_turn'` paths below) and blindly
-    // persisting/resending it 400s the next request with "mcp_tool_use ...
-    // found without a corresponding mcp_tool_result block" (see
-    // subscriptions#1411).
+    // their `mcp_tool_result` — but a response cut off mid-stream (max_tokens)
+    // or an anomalous `pause_turn` can leave an `mcp_tool_use` with no
+    // matching result. Unlike a dangling client `tool_use` (handled below,
+    // per-branch), a dangling `mcp_tool_use` isn't something this loop can
+    // execute or resolve — it can only come back paired, from Anthropic
+    // itself. Blindly persisting/resending that turn 400s the very next
+    // request with "mcp_tool_use ... found without a corresponding
+    // mcp_tool_result block" (see subscriptions#1411): the `pause_turn`
+    // "resend unchanged" retry and the checkpoint autosave below would both
+    // reuse this same broken `messages` array. Catch it here, before any
+    // stop-reason branch gets a chance to resend or checkpoint it.
     const resolvedMcpToolUseIds = new Set(
       contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
     )
     const hasUnresolvedMcpToolUse = contentBlocks.some(
       (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
     )
-    const mcpToolUseDeferredByClientTool =
-      hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
-    if (hasUnresolvedMcpToolUse && !mcpToolUseDeferredByClientTool) {
+    if (hasUnresolvedMcpToolUse) {
       // Same recoverable case as the client `tool_use` retry below: max_tokens
       // cut the response off mid mcp_tool_use. Drop the corrupted turn and
       // retry once with more tokens instead of ending the run outright.
@@ -552,7 +539,7 @@ export async function executeLoop(
       }
       runLog.warn(
         { stopReason },
-        'assistant turn carries an unresolved mcp_tool_use with no client tool_use to defer it — ending run instead of resending or checkpointing it',
+        'assistant turn carries an unresolved mcp_tool_use — ending run instead of resending or checkpointing it',
       )
       return {
         ...metrics(),

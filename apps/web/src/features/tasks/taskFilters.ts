@@ -72,47 +72,6 @@ export function hasActiveTaskFilters(f: TaskFilters): boolean {
   )
 }
 
-/** Cuántos ejes tienen algo puesto. Es lo que dibuja el contador de `filtros`
- *  en la barra de controles: cuenta VALORES, no ejes — dos statuses elegidos
- *  son dos filtros para quien mira la lista, aunque sean un solo eje. */
-export function countActiveTaskFilters(f: TaskFilters): number {
-  return (
-    f.statuses.length +
-    f.repos.length +
-    f.assignees.length +
-    f.prStatus.length +
-    f.branch.length +
-    f.blocked.length
-  )
-}
-
-/**
- * El filtro activo, dicho en una línea corta.
- *
- * Es lo único de los filtros que la barra dibuja siempre, porque contesta la
- * pregunta que una lista filtrada tiene que poder contestar sin abrir nada:
- * *¿por qué no veo la tarea que busco?*. Con un solo valor lo nombra; con
- * varios dice el primero y cuántos más — el detalle vive en el panel, y una
- * enumeración completa vuelve a ser la fila de chips con scroll horizontal que
- * este control existe para borrar (R2).
- *
- * `null` cuando no hay ninguno: un resumen que dice "sin filtros" es chrome que
- * no informa nada.
- */
-export function taskFilterSummary(f: TaskFilters): string | null {
-  const values = [
-    ...f.statuses,
-    ...f.repos,
-    ...f.assignees,
-    ...f.prStatus.map((v) => `pr: ${v}`),
-    ...f.branch,
-    ...f.blocked.map((v) => `bloqueada: ${v}`),
-  ]
-  if (values.length === 0) return null
-  if (values.length === 1) return values[0]
-  return `${values[0]} +${values.length - 1}`
-}
-
 /** `task.repos` es un string que puede traer más de uno (épicas multi-repo). */
 function taskRepos(task: FilterableTask): string[] {
   return (task.repos ?? '').split(/[,\s]+/).filter(Boolean)

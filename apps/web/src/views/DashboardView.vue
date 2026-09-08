@@ -189,31 +189,12 @@ function elapsed(iso: string): string {
     <span class="prompt__hint">— {{ projectsStore.projects.length }} proyectos · {{ activeExecutionsStore.activeCount }} corriendo</span>
   </div>
 
-  <!-- ═══ Contadores ═══
-       El que MANDA es el que pide algo tuyo, y por eso va primero y en
-       --danger: un dashboard que abre con "éxitos" ordena por lo que salió
-       bien, que es justamente lo que no hay que mirar. Los otros tres lo
-       acompañan en su ranura semántica (§3 del handoff).
-
-       Falta el contador que el handoff pone al frente, `te esperan`, y su
-       hermano `ignoradas` — "el número que hoy nadie ve". Los dos necesitan la
-       disposición de CADA tarea de CADA proyecto, y hoy eso es una request por
-       proyecto: el mismo fan-out que el agregado por proyecto vino a borrar.
-       Sin un agregado global, dibujarlos sería inventarlos. Ver
-       handoff/PROGRESO.md. -->
+  <!-- ═══ Tiles ═══ -->
   <section class="tiles">
-    <div class="tile">
-      <div class="tile__hd"><span class="uc-label">fallaron hoy</span></div>
-      <span class="tile__val" :class="{ 'tile__val--danger': failCount24h > 0, 'tile__val--idle': failCount24h === 0 }">{{ failCount24h }}</span>
-      <span class="tile__note">
-        <template v-if="cancelledCount24h > 0">+ {{ cancelledCount24h }} canceladas/truncadas</template>
-        <template v-else>sin cancelaciones</template>
-      </span>
-    </div>
     <div class="tile">
       <div class="tile__hd">
         <span class="live-dot" v-if="activeExecutionsStore.activeCount > 0" />
-        <span class="uc-label">corriendo</span>
+        <span class="uc-label">en ejecución</span>
       </div>
       <span class="tile__val tile__val--accent">{{ activeExecutionsStore.activeCount }}</span>
       <span class="tile__note">runs abiertos</span>
@@ -224,9 +205,17 @@ function elapsed(iso: string): string {
       <span class="tile__note">polling encendido</span>
     </div>
     <div class="tile">
-      <div class="tile__hd"><span class="uc-label">terminaron hoy</span></div>
-      <span class="tile__val tile__val--idle">{{ successCount24h }}</span>
-      <span class="tile__note">nada que hacer con éstas</span>
+      <div class="tile__hd"><span class="uc-label">éxitos 24h</span></div>
+      <span class="tile__val">{{ successCount24h }}</span>
+      <span class="tile__note">outcome=success</span>
+    </div>
+    <div class="tile">
+      <div class="tile__hd"><span class="uc-label">fallos 24h</span></div>
+      <span class="tile__val" :style="{ color: failCount24h > 0 ? 'var(--danger)' : 'var(--fg-dim)' }">{{ failCount24h }}</span>
+      <span class="tile__note">
+        <template v-if="cancelledCount24h > 0">+ {{ cancelledCount24h }} canceladas/truncadas</template>
+        <template v-else>outcome=error</template>
+      </span>
     </div>
   </section>
 
@@ -468,10 +457,6 @@ function elapsed(iso: string): string {
   color: var(--fg);
 }
 .tile__val--accent { color: var(--accent); }
-.tile__val--danger { color: var(--danger); }
-/* Un contador de lo que YA terminó no compite por atención con el que pide
-   algo: se atenúa en vez de pintarse. */
-.tile__val--idle { color: var(--fg-dim); }
 .tile__val-sub { color: var(--fg-dimmer); font-size: 1rem; font-weight: 400; }
 .tile__note { font-size: var(--fs-chrome); color: var(--fg-dim); line-height: 1.5; }
 
@@ -482,14 +467,8 @@ function elapsed(iso: string): string {
   gap: 1rem;
   align-items: start;
 }
-/* Bajo --bp-split el panel deja de convivir con su vecino y se apila.
-   Era 900px; sube a 1100 para no ser un cuarto ancho propio del dashboard. */
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* El número baja a 24px: a 2.2rem (40px) dos contadores por fila en 390px
-     desbordan su celda. */
-  .tile__val { font-size: 1.35rem; }
-  .tile { padding: 0.7rem 0.8rem; }
   .split { grid-template-columns: 1fr; }
   /* El `minmax(0, …)` deja que la COLUMNA encoja, pero el panel adentro sigue
      con su ancho mínimo de contenido (433px). Sin este `min-width: 0` la

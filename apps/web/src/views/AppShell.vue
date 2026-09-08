@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import MobileTabBar from '@/components/MobileTabBar.vue';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
-import ProjectSwitcherSheet from '@/features/projects/ProjectSwitcherSheet.vue';
-import { useIsMobile } from '@/composables/useIsMobile';
 import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
-import ChromeMoreSheet from '@/components/ChromeMoreSheet.vue';
 import RateLimitChip from '@/components/RateLimitChip.vue';
 import Toast from '@/ui/Toast.vue';
 import { useProvidersStore } from '@/features/providers/store';
@@ -75,8 +71,10 @@ type SectionId =
 // activo en el árbol. Mismo orden que ProjectDetailView.
 const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'overview',       label: 'overview' },
+  { id: 'que-sigue',      label: 'qué sigue' },
   { id: 'executions',     label: 'ejecuciones' },
   { id: 'tareas',         label: 'tareas' },
+  { id: 'board',          label: 'board' },
   { id: 'agentes',        label: 'agentes' },
   { id: 'pipeline',       label: 'pipeline' },
   { id: 'acciones',       label: 'acciones' },
@@ -149,91 +147,32 @@ const TAB_GROUP_LABELS: Record<string, string> = {
   global: 'GLOBAL',
 };
 
-/**
- * Bajo 768px el sidebar NO se renderiza y manda la tab bar; sobre 768px, al
- * revés. Es un `v-if`, no un `display: none`: un pie que nadie va a ver no se
- * monta, y el drawer mobile —con su estado, su backdrop y el ☰ que lo abría—
- * deja de existir. El ☰ ahora es el tab `Más`, y navega.
- *
- * El colapso del sidebar queda como lo que siempre fue en desktop: una
- * preferencia del usuario, sin default que dependa del ancho.
- */
-const { isMobile: mobile } = useIsMobile();
+// Desktop: sidebar expanded by default (no hamburger-only rail).
+// Mobile: collapsed by default (overlay, opened via topbar toggle).
+//
+// El breakpoint se escucha, no se lee una sola vez al montar: en desktop el
+// panel colapsado mide 0px y NO hay forma de reabrirlo (el ☰ y el backdrop
+// son `display: none` fuera de mobile), así que un colapso hecho en mobile
+// dejaba el menú desaparecido para siempre al agrandar la ventana. Cruzar el
+// breakpoint reimpone el default de cada lado.
+const MOBILE_QUERY = '(max-width: 768px)';
+const mobileMq =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(MOBILE_QUERY)
+    : null;
+const mobile = ref(mobileMq?.matches ?? false);
 const isMobile = () => mobile.value;
-const sidebarCollapsed = ref(false);
+const sidebarCollapsed = ref(mobile.value);
 function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
 
-const projectSheetOpen = ref(false);
-/** El `⋯` de la barra: lo que ya no se dibuja en ella (rate limit, conteo de
- *  activos, server). Ver `ChromeMoreSheet`. */
-const moreSheetOpen = ref(false);
-
-/**
- * La sección, como migaja de pan.
- *
- * Dentro de un proyecto la barra ya dice el proyecto, así que lo que falta es
- * el TAB — `tareas`, `ejecuciones`. Fuera de un proyecto la sección misma es
- * la identidad de la pantalla. En los dos casos es una sola palabra: es una
- * migaja, no un título (R9).
- */
-const breadcrumb = computed<string>(() => {
-  const tab = route.path.match(/^\/projects\/[^/]+\/([^/]+)/)?.[1];
-  if (tab) return PROJECT_TAB_ORDER.find((t) => t.id === tab)?.label ?? tab;
-  return activeSection.value.replace(/-/g, ' ');
-});
-
-/**
- * `←` — volver.
- *
- * Es historial y no una ruta fija: la barra no sabe de dónde viniste, y
- * mandarte siempre a `/projects` desde una tarea abierta sería perder el
- * listado en el que estabas. Sin historial propio (entraste por un deep link)
- * cae al listado de proyectos, que es el único destino que siempre existe.
- */
-function goBack() {
-  if (window.history.length > 1) router.back();
-  else void router.push('/projects');
+function onBreakpointChange(e: MediaQueryListEvent) {
+  if (e.matches === mobile.value) return;
+  mobile.value = e.matches;
+  sidebarCollapsed.value = e.matches;
 }
-
-/**
- * ¿Hay algo corriendo? — el punto vivo de la barra.
- *
- * Se pinta sólo cuando el store CONTESTÓ y hay runs: un punto quieto insinúa
- * actividad que no hay, y con el socket caído sería una mentira sobre el
- * estado del server (DESIGN_SYSTEM · vocabulario de estado).
- */
-const anythingRunning = computed(
-  () => activeExecutionsStore.loaded && activeExecutionsStore.activeCount > 0,
-);
-
-/**
- * Dónde SÍ va la tab bar.
- *
- * Fuera del agent-host: otro proceso, otra credencial, su propia navegación.
- * `/servers` no hace falta filtrarlo — es una ruta top-level que ni siquiera
- * monta este shell. El detalle de tarea tampoco muestra la barra, pero eso lo
- * resuelve él: es pantalla completa con su propia barra de acciones, y dos
- * barras se comerían 108px de alto en chrome.
- */
-const showTabBar = computed(() => mobile.value && !isAgentHost);
-
-/** El proyecto activo, como lo muestra el header mobile. */
-const activeProjectLabel = computed(() => {
-  const id = projectsStore.activeProjectId;
-  if (!id) return null;
-  return projectsStore.projects.find((p) => p.id === id)?.name ?? id;
-});
-
-/**
- * Cambiar de proyecto mantiene el TAB: se navega al mismo lugar del proyecto
- * nuevo, no a su raíz. Cambiar de contexto no debería costar volver a buscar
- * dónde estabas.
- */
-function switchProject(projectId: string) {
-  projectSheetOpen.value = false;
-  if (projectId === projectsStore.activeProjectId) return;
-  const tab = route.path.match(/^\/projects\/[^/]+\/([^/]+)/)?.[1] ?? 'tareas';
-  void router.push(`/projects/${projectId}/${tab}`);
+if (mobileMq) {
+  mobileMq.addEventListener('change', onBreakpointChange);
+  onUnmounted(() => mobileMq.removeEventListener('change', onBreakpointChange));
 }
 
 const route = useRoute();
@@ -301,10 +240,8 @@ const projectChildren = computed(() =>
     id: p.id,
     label: p.name || p.id,
     path: `/projects/${p.id}/overview`,
-    // `board` ya no es un tab: es la otra VISTA de Tareas, y se elige con el
-    // segmentado de esa pantalla. Un destino aparte para el mismo conjunto de
-    // tareas obligaba a decidir por dónde entrar antes de saber qué buscabas.
     children: PROJECT_TAB_ORDER
+      .filter((t) => t.id !== 'board' || p.id !== projectsStore.activeProjectId || activeProjectHasStatuses.value)
       .map((t) => ({
         id: `${p.id}:${t.id}`,
         label: t.label,
@@ -423,87 +360,28 @@ watch(
 
 <template>
   <section class="app-shell">
-    <!-- LA barra de identidad — una sola, en cualquier ancho (R9, R12).
-         `←` · proyecto (abre el switcher) · sección como migaja · punto vivo ·
-         `⋯`. Nada más: el id del proyecto y la URL del source viven en
-         `overview`, y el rate limit y el conteo de activos en el sheet de `⋯`.
-         Antes esto eran DOS encabezados —éste y el `.pd-header` del detalle de
-         proyecto— que repetían el mismo nombre y sumaban 200px de alto en un
-         teléfono. -->
+    <!-- Window chrome — breadcrumb centre, chip right. -->
     <header class="app-shell__chrome">
-      <!-- El primer blanco de la barra: en desktop abre y cierra el sidebar;
-           en mobile no hay sidebar que plegar y el gesto que falta es volver. -->
       <button
-        v-if="!mobile"
         type="button"
-        class="app-shell__icon"
-        aria-label="Plegar el menú"
+        class="app-shell__toggle"
+        aria-label="Toggle menu"
         @click="toggleSidebar"
       >☰</button>
-      <button
-        v-else
-        type="button"
-        class="app-shell__icon"
-        aria-label="Volver"
-        @click="goBack"
-      >←</button>
-
-      <!-- La identidad: qué proyecto y en qué parte de él. Bajo --bp-shell van
-           en dos líneas dentro de la misma fila de --tap-h; sobre él, en una
-           con el separador. El proyecto es un botón porque cambiarlo es la
-           acción más frecuente de la barra. -->
-      <div class="app-shell__identity">
-        <button
-          v-if="activeProjectLabel"
-          type="button"
-          class="app-shell__project"
-          :aria-label="`Proyecto ${activeProjectLabel} — cambiar`"
-          @click="projectSheetOpen = true"
-        >
-          <span class="app-shell__project-name">{{ activeProjectLabel }}</span>
-          <span class="app-shell__project-caret" aria-hidden="true">⌄</span>
-        </button>
-        <span v-else class="app-shell__project-name app-shell__project-name--static">ia-flow</span>
-        <span class="app-shell__crumb">{{ breadcrumb }}</span>
-      </div>
-
-      <!-- Sobre --bp-shell hay ancho de sobra y los dos chips son un dato que
-           se mira de reojo. Bajo el breakpoint no entran, y su contenido vive
-           en el sheet de `⋯`: es lo que baja el chrome de 200px a 44. -->
-      <template v-if="!mobile">
-        <button type="button" class="app-shell__server" title="cambiar de server" @click="goToServers">
-          <span class="app-shell__server-dot" />{{ viewingServerLabel }}
-        </button>
-        <RateLimitChip v-if="!isAgentHost" />
-        <ActiveExecutionsChip v-if="!isAgentHost" />
-      </template>
-
-      <!-- El punto vivo: lo único del estado del server que vale un blanco
-           propio en la barra. Se dibuja SÓLO si hay algo corriendo — un punto
-           quieto insinúa actividad que no hay. -->
-      <span
-        v-if="mobile && !isAgentHost && anythingRunning"
-        class="app-shell__icon app-shell__live"
-        :title="`${activeExecutionsStore.activeCount} en curso`"
-      ><span class="live-dot" aria-hidden="true"></span></span>
-
-      <!-- `⋯` va en CUALQUIER ancho: bajo --bp-shell porque es donde viven el
-           rate limit y el conteo de activos que la barra ya no dibuja, y en
-           desktop porque es donde quedó la pausa de polling del proyecto —
-           que antes estaba en el `.pd-header` que este cambio borra. Sobre el
-           breakpoint el sheet se dibuja centrado, no desde abajo. -->
-      <button
-        type="button"
-        class="app-shell__icon"
-        aria-label="Estado del server"
-        :aria-expanded="moreSheetOpen"
-        @click="moreSheetOpen = true"
-      >⋯</button>
+      <span class="app-shell__title">ia-flow — {{ activeSection }}</span>
+      <!-- Qué daemon estás mirando. Con varios runners/* levantados es la
+           diferencia entre leer los datos correctos y los de otra máquina. -->
+      <button type="button" class="app-shell__server" title="cambiar de server" @click="goToServers">
+        <span class="app-shell__server-dot" />{{ viewingServerLabel }}
+      </button>
+      <!-- Los dos leen del server: el rate limit de GitHub y las ejecuciones
+           en curso. Un agent-host no tiene ni lo uno ni lo otro. -->
+      <RateLimitChip v-if="!isAgentHost" />
+      <ActiveExecutionsChip v-if="!isAgentHost" />
     </header>
 
     <div class="app-shell__body">
       <SettingsSidebar
-        v-if="!mobile"
         :tabs="TABS"
         :active-tab="activeSection"
         :active-path="route.path"
@@ -514,29 +392,10 @@ watch(
         @toggle-collapsed="toggleSidebar"
       />
 
-      <main class="app-shell__main" :class="{ 'has-tabbar': showTabBar }">
+      <main class="app-shell__main">
         <router-view />
       </main>
     </div>
-
-    <!-- La tab bar no aparece en /servers ni en el agent-host: el primero es
-         de dónde se elige el server (no hay proyecto todavía) y el segundo
-         tiene su propio contexto y credencial. -->
-    <MobileTabBar v-if="showTabBar" :project-id="projectsStore.activeProjectId" />
-
-    <ChromeMoreSheet
-      :open="moreSheetOpen"
-      :server-label="viewingServerLabel"
-      :project-id="isAgentHost ? null : projectsStore.activeProjectId"
-      @close="moreSheetOpen = false"
-      @go-servers="moreSheetOpen = false; goToServers()"
-    />
-
-    <ProjectSwitcherSheet
-      :open="projectSheetOpen"
-      @close="projectSheetOpen = false"
-      @pick="switchProject"
-    />
 
     <Toast />
   </section>
@@ -555,106 +414,29 @@ watch(
 .app-shell__chrome {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0 0.25rem;
-  background: var(--panel);
+  gap: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--panel-hi);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 50;
-  /* --tap-h y no --chrome-h: TODO lo que hay en esta fila se toca (R1, R12).
-     El token viejo (2.25rem) sigue existiendo porque los overlays fijos que
-     deben quedar por debajo de la barra calculan su `top` contra ella. */
-  height: var(--tap-h);
+  /* En px (32) el contenido no entraba al subir la escala tipográfica: los
+     chips miden var(--row-h) y con el padding pasan de 39px. El token va en
+     rem para que la barra crezca con el texto. */
+  height: var(--chrome-h);
   box-sizing: border-box;
 }
-
-/* Los blancos de ícono de la barra: ←/☰, el punto vivo y ⋯. Cuadrados de
-   --tap-h — es lo que los hace tocables sin que la barra crezca. */
-.app-shell__icon {
-  flex: 0 0 auto;
-  width: var(--tap-h);
-  height: var(--tap-h);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
+.app-shell__toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
   color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
   cursor: pointer;
+  padding: 0 0.5rem;
+  height: 20px;
+  font: 500 var(--fs-chrome)/1 var(--font-mono);
 }
-.app-shell__icon:hover { color: var(--fg); }
-.app-shell__live { cursor: default; }
-
-/* La identidad ocupa lo que sobra y CEDE: el nombre del proyecto se trunca en
-   vez de empujar los íconos fuera de la barra. */
-.app-shell__identity {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0;
-  padding: 0 0.25rem;
-}
-
-.app-shell__project {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  font-weight: 500;
-  line-height: 1.25;
-  text-align: left;
-  cursor: pointer;
-}
-.app-shell__project:hover { color: var(--accent); }
-.app-shell__project-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.app-shell__project-name--static {
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  font-weight: 500;
-  line-height: 1.25;
-  color: var(--fg);
-}
-.app-shell__project-caret { flex: 0 0 auto; color: var(--fg-dimmer); }
-
-/* La migaja: segunda línea bajo --bp-shell, misma línea arriba. En los dos
-   casos es una palabra en caja alta — no compite con el nombre del proyecto,
-   lo completa. */
-.app-shell__crumb {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  line-height: 1.25;
-}
-@media (min-width: 768px) {
-  .app-shell__identity { flex-direction: row; align-items: baseline; gap: 0.5rem; }
-  .app-shell__crumb::before { content: '· '; color: var(--fg-dimmer); }
-}
-
-/* La última fila de una lista no puede quedar tapada por la tab bar. */
-.app-shell__main.has-tabbar { padding-bottom: 60px; }
-
 .app-shell__server {
   display: inline-flex;
   align-items: center;
@@ -674,6 +456,14 @@ watch(
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+.app-shell__title {
+  flex: 1;
+  text-align: center;
+  font-size: var(--fs-chrome);
+  color: var(--fg-dim);
+  letter-spacing: 0.06em;
 }
 
 .app-shell__body {
@@ -696,23 +486,42 @@ watch(
   box-sizing: border-box;
 }
 
-/* Los chips y el server sólo se renderizan sobre --bp-shell (`v-if` en el
-   template), así que ya no hay nada que esconder acá: bajo el breakpoint la
-   barra tiene cinco blancos de --tap-h y ninguno puede desbordar. Lo que queda
-   es el respiro de la página. */
 @media (max-width: 768px) {
+  .app-shell__toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .app-shell__title { display: none; }
   .app-shell__main { padding: 0.75rem 0.75rem 2rem; }
-  /* Bajo la tab bar el padding de abajo se suma al de la barra. */
-  .app-shell__main.has-tabbar { padding-bottom: calc(60px + 0.75rem); }
+
+  /* Los chips de la derecha no entraban en 390px y empujaban la página a
+     484px. Como el header es `sticky` y vive en el shell, ese desborde le daba
+     scroll horizontal a TODAS las vistas.
+
+     La solución NO es dejarlo envolver: `height` es fija —y tiene que serlo,
+     porque el `top` del sidebar abierto se calcula contra ella— así que una
+     segunda fila se renderiza FUERA de la caja, montada sobre el contenido.
+     Lo que se achica es el contenido.
+
+     `min-width: 0` es lo que permite encogerlos: sin eso el mínimo de un hijo
+     de flex es el de su contenido, y ni `overflow: hidden` alcanza. */
+  .app-shell__chrome { gap: 0.4rem; padding: 0.4rem 0.5rem; overflow: hidden; }
+  .app-shell__chrome > * { min-width: 0; flex-shrink: 1; }
+
+  /* El nombre del server se trunca en vez de empujar: cuál daemon mirás
+     importa, pero el largo del label no. */
+  .app-shell__server {
+    margin-left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 45vw;
+  }
 }
 
-/* Bajo --bp-stack, de los chips sobra la ETIQUETA — el glifo y el número son
-   el dato ("◆ 4682/5000" se entiende sin el "gh api"). Sigue acá porque el
-   sidebar abierto bajo --bp-split deja la barra sin ancho de sobra.
+/* En lo angosto, de los chips sobra la ETIQUETA — el glifo y el número son el
+   dato ("◆ 4682/5000" se entiende sin el "gh api"; "○ 0" sin el "corriendo").
 
    `:deep()` porque los chips son componentes hijos y este bloque es `scoped`:
    sin eso la regla nunca los alcanza. */
-@media (max-width: 1100px) {
+@media (max-width: 560px) {
   .app-shell__chrome :deep(.chip__label) { display: none; }
   .app-shell__chrome :deep(.chip) { padding: 0 0.45rem; }
 }

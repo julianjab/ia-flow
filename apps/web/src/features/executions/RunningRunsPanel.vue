@@ -5,17 +5,12 @@ import { useNow } from '@/composables/useNow';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 
 /**
- * Los runs EN VUELO.
+ * Los runs EN VUELO, arriba del historial.
  *
  * La lista de ejecuciones responde "qué pasó"; esto responde "qué está pasando
  * ahora", que es otra pregunta y por eso es otra caja: una fila más en una
  * tabla ordenada por fecha se lee igual que una vieja, y lo que está corriendo
  * es lo único sobre lo que todavía se puede actuar.
- *
- * Vive en `components/` y no en `features/executions/` porque lo comparten dos
- * pantallas de dos features: Ejecuciones (arriba del historial) y Qué sigue (la
- * columna derecha del frame 3b, "la cola y lo que corre, en la misma vista").
- * Una feature no importa de otra, así que lo que comparten dos sube acá.
  */
 const props = defineProps<{
   /** `null` = vista global (todas las ejecuciones del server). */

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { RuleActionEntry, WhenCondition } from '@ia-flow/shared'
 import { computed, ref, watch } from 'vue'
-import { useDragReorder } from '@/composables/useDragReorder'
 import ActionFields from '@/features/rules/ActionFields.vue'
 import ActionWhenEditor from '@/features/rules/ActionWhenEditor.vue'
 import {
@@ -150,22 +149,36 @@ function reorder(from: number, to: number) {
   openFlags.value = nextFlags
 }
 
-/**
- * Reordenar arrastrando el handle — mouse, dedo y lápiz por el mismo camino.
- *
- * Antes era la API de drag de HTML5, que **es de mouse**: en un teléfono no se
- * dispara y la lista quedaba de sólo lectura. Ver `useDragReorder`.
- *
- * Se arrastra desde el HANDLE y no desde el encabezado: el cuerpo de la tarjeta
- * es un formulario, y un `draggable` encima le robaba al navegador el gesto de
- * seleccionar texto dentro de sus inputs. Con Pointer Events eso desaparece
- * solo — el gesto arranca donde uno lo agarra.
- */
-const {
-  dragging: dragIndex,
-  over: overIndex,
-  start: onHandleDown,
-} = useDragReorder({ onReorder: reorder })
+// Drag nativo (HTML5), el mismo patrón que el listado de reglas y
+// ProviderChoicesEditor: `dataTransfer` lleva el índice de origen y el drop en
+// la tarjeta destino reordena. Sin librería y sin un modo "reordenar" aparte.
+//
+// Lo que arrastra es el ENCABEZADO, no la tarjeta entera: el cuerpo es un
+// formulario, y con `draggable` encima el navegador se queda con el gesto de
+// seleccionar texto adentro de sus inputs.
+const dragIndex = ref<number | null>(null)
+const overIndex = ref<number | null>(null)
+
+function onDragStart(i: number, event: DragEvent) {
+  dragIndex.value = i
+  event.dataTransfer?.setData('text/plain', String(i))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+function onDragOver(i: number, event: DragEvent) {
+  // Sin `preventDefault` el navegador no permite soltar acá.
+  event.preventDefault()
+  overIndex.value = i
+}
+function onDragEnd() {
+  dragIndex.value = null
+  overIndex.value = null
+}
+function onDrop(to: number) {
+  const from = dragIndex.value
+  onDragEnd()
+  if (from === null || from === to) return
+  reorder(from, to)
+}
 
 /** El mismo reordenado desde el teclado. El handle es un `button` y no un
  *  `span` justamente para esto: arrastrar no existe sin mouse, y el orden de
@@ -186,18 +199,21 @@ function onHandleKey(i: number, event: KeyboardEvent) {
       :key="i"
       class="ae-card"
       :class="{ 'ae-card--over': overIndex === i && dragIndex !== null && dragIndex !== i }"
-      :data-drag-index="i"
+      @dragover="onDragOver(i, $event)"
+      @drop="onDrop(i)"
     >
       <div
         class="ae-head"
+        :draggable="entries.length > 1"
+        @dragstart="onDragStart(i, $event)"
+        @dragend="onDragEnd"
       >
         <button
           v-if="entries.length > 1"
           type="button"
-          class="drag-handle"
+          class="ae-drag"
           aria-label="Reordenar acción (flechas para mover)"
           title="Arrastrar para reordenar"
-          @pointerdown="onHandleDown(i, $event)"
           @keydown="onHandleKey(i, $event)"
         >⠿</button>
         <button
@@ -310,7 +326,18 @@ function onHandleKey(i: number, event: KeyboardEvent) {
 .ae-head[draggable='true'] { cursor: grab; }
 .ae-head[draggable='true']:active { cursor: grabbing; }
 
-/* El handle es `.drag-handle` de theme.css — ver RulesSection. */
+.ae-drag {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  cursor: grab;
+  user-select: none;
+}
+.ae-drag:hover,
+.ae-drag:focus-visible { color: var(--fg); }
 
 .ae-idx {
   font-family: var(--font-mono);

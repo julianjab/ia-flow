@@ -1,41 +1,40 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { projectSourceUrl } from '@/features/projects/meta';
 import { useProjectsStore } from '@/features/projects/store';
+import { useProjectConfigStore } from '@/features/project-config/store';
+import { useServerEvents } from '@/composables/useServerEvents';
+import { useToastStore } from '@/stores/toast';
+import {
+  fetchPollingStatus,
+  pausePolling,
+  resumePolling,
+} from '@/features/projects/api';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
 import RulesSection from '@/features/rules/RulesSection.vue';
 import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
+import StatusesSection from '@/features/statuses/StatusesSection.vue';
+import NextUpSection from '@/features/tasks/NextUpSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
 import ProjectOverviewTab from '@/features/projects/tabs/ProjectOverviewTab.vue';
 import ProjectProviderTab from '@/features/projects/tabs/ProjectProviderTab.vue';
 import ProjectReposTab from '@/features/projects/tabs/ProjectReposTab.vue';
 import ProjectSystemPromptsTab from '@/features/projects/tabs/ProjectSystemPromptsTab.vue';
 
-/**
- * El detalle de un proyecto: resuelve el `tab` de la URL a su sección y nada
- * más.
- *
- * Tenía además un `.pd-header` con el nombre del proyecto, su id, la URL del
- * source y el toggle de polling. Se borró entero (R9, R12): el nombre ya lo
- * dice la barra de identidad del shell —repetirlo era el mismo dato dos veces
- * y 200px de chrome en un teléfono—, el id y la URL viven en `overview`, que
- * es donde se van a buscar, y el toggle de polling se mudó al sheet de `⋯`
- * como `ProjectPollingToggle`, con su estado y su suscripción al WS adentro.
- * Lo que queda es composición, que es lo único que una `view` debería tener.
- */
 const props = defineProps<{ id: string; tab: string }>();
 
 const projectsStore = useProjectsStore();
+const projectConfigStore = useProjectConfigStore();
+const toastStore = useToastStore();
+const router = useRouter();
 
-// La sub-navegación del proyecto vive en el sidebar (desktop) y en la tab bar
-// (mobile). Acá sólo se resuelve el `tab` de la URL.
+// Sub-nav for the project now lives in the sidebar. The view just resolves
+// the URL's `tab` param to whichever section it should render.
 const VALID_TABS = new Set([
-  // `board` sigue siendo una ruta válida —los links viejos no se rompen— pero
-  // ya no es una pantalla: abre Tareas en su vista de board. `que-sigue` se
-  // fue: era la misma lista con otro recorte, y Tareas ya ordena por
-  // disposición y trae los chips de corte rápido.
-  'overview', 'executions', 'tareas', 'board',
+  'overview', 'que-sigue', 'executions', 'tareas', 'board',
   'agentes', 'pipeline', 'acciones', 'tools', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
@@ -44,8 +43,10 @@ const project = computed(() =>
   projectsStore.projects.find((p) => p.id === props.id) ?? null,
 );
 
-// Apunta el store de config compartido al proyecto de la URL. AppShell tiene
-// un watcher que re-fetchea cuando cambia `activeProjectId`.
+const githubUrl = computed(() => projectSourceUrl(project.value?.source));
+
+// Point the shared project-config store at the URL project. AppShell has a
+// watcher that re-fetches whenever activeProjectId changes.
 function syncActiveProject() {
   if (projectsStore.activeProjectId !== props.id) {
     projectsStore.setActiveProjectId(props.id);
@@ -55,14 +56,108 @@ function syncActiveProject() {
 onMounted(syncActiveProject);
 watch(() => props.id, syncActiveProject);
 
-// Si la lista de proyectos llega después del mount, hay que sincronizar otra vez.
+// If the projects list arrives after mount, we may need to sync again.
 watch(
   () => projectsStore.projects.length,
   () => syncActiveProject(),
 );
+
+// ─── Polling pause (per-project) ─────────────────────────────────────────
+// Header-level so it's visible from any tab. El backend persiste el flag en
+// projects.settings.pollingPaused (ver apps/server/src/application/polling-pause.ts),
+// así que la pausa sobrevive al reinicio del daemon.
+const pollingPaused = ref(false);
+// false sólo cuando el server avisa que no pudo persistir el flip.
+const pollingPersisted = ref(true);
+const pollingLoading = ref(false);
+const pollingToggling = ref(false);
+
+async function loadPollingStatus() {
+  pollingLoading.value = true;
+  try {
+    const s = await fetchPollingStatus(props.id);
+    pollingPaused.value = s.paused;
+  } catch {
+    // 404s while the projects list is warming up are normal — leave paused=false.
+  } finally {
+    pollingLoading.value = false;
+  }
+}
+
+onMounted(loadPollingStatus);
+watch(() => props.id, loadPollingStatus);
+
+// Server broadcasts on any pause/resume so a second tab stays in sync.
+useServerEvents((msg) => {
+  if (msg.type !== 'project:polling') return;
+  if (msg.projectId !== props.id) return;
+  pollingPaused.value = Boolean(msg.paused);
+  pollingPersisted.value = msg.persisted !== false;
+});
+
+async function togglePolling() {
+  if (pollingToggling.value) return;
+  pollingToggling.value = true;
+  const target = !pollingPaused.value;
+  try {
+    const s = target ? await pausePolling(props.id) : await resumePolling(props.id);
+    pollingPaused.value = s.paused;
+    pollingPersisted.value = s.persisted !== false;
+    const what = s.paused ? 'Polling pausado' : 'Polling reanudado';
+    if (pollingPersisted.value) toastStore.success(what);
+    else toastStore.error(`${what}, pero no se pudo guardar: se pierde al reiniciar el daemon`);
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    pollingToggling.value = false;
+  }
+}
 </script>
 
 <template>
+  <header class="pd-header">
+    <button class="pd-header__back" @click="router.push('/projects')">← Proyectos</button>
+    <div class="pd-header__main">
+      <div class="pd-header__left">
+        <div class="pd-header__title-row">
+          <h1>{{ project?.name ?? props.id }}</h1>
+          <code class="pd-header__id">{{ props.id }}</code>
+        </div>
+        <a
+          v-if="githubUrl"
+          class="pd-header__link"
+          :href="githubUrl"
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          🔗 {{ githubUrl }} ↗
+        </a>
+      </div>
+      <button
+        class="pd-polling"
+        :class="{ 'pd-polling--paused': pollingPaused }"
+        :disabled="pollingLoading || pollingToggling"
+        :title="pollingPaused
+          ? 'Polling en pausa — click para reanudar'
+          : pollingPersisted
+            ? 'Polling activo — click para pausar (se mantiene al reiniciar el daemon)'
+            : 'Polling activo — click para pausar (no se pudo guardar: se pierde al reiniciar)'"
+        data-testid="project-polling-toggle"
+        role="switch"
+        :aria-checked="!pollingPaused"
+        @click="togglePolling"
+      >
+        <span class="pd-polling__dot" :class="{ 'pd-polling__dot--paused': pollingPaused }" />
+        <span class="pd-polling__label">
+          <template v-if="pollingLoading">…</template>
+          <template v-else-if="pollingToggling">{{ pollingPaused ? 'Reanudando…' : 'Pausando…' }}</template>
+          <template v-else>{{ pollingPaused ? 'Polling pausado' : 'Polling activo' }}</template>
+        </span>
+      </button>
+    </div>
+  </header>
+
+
   <div class="pd-content">
     <ProjectOverviewTab       v-if="activeTab === 'overview'" :project="project" />
     <AgentesSection           v-else-if="activeTab === 'agentes'" scope="project" />
@@ -78,17 +173,113 @@ watch(
       v-else-if="activeTab === 'tools' && project"
       :scope="{ kind: 'project', projectId: project.id }"
     />
+    <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />
     <ProjectReposTab          v-else-if="activeTab === 'repos'" />
-    <TareasSection
-      v-else-if="activeTab === 'tareas' || activeTab === 'board'"
-      :initial-view="activeTab === 'board' ? 'board' : 'lista'"
-    />
+    <NextUpSection            v-else-if="activeTab === 'que-sigue'" />
+    <TareasSection            v-else-if="activeTab === 'tareas'" />
     <ProjectProviderTab       v-else-if="activeTab === 'provider'" :project="project" />
     <ExecutionsSection        v-else-if="activeTab === 'executions'" />
   </div>
 </template>
 
 <style scoped>
+.pd-header { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.75rem; }
+.pd-header__main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.pd-header__left { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; flex: 1; }
+
+.pd-polling {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.7rem;
+  height: 22px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pd-polling:hover:not(:disabled) { border-color: var(--accent); }
+.pd-polling:disabled { opacity: 0.6; cursor: not-allowed; }
+.pd-polling--paused { color: var(--danger); }
+.pd-polling--paused:hover:not(:disabled) { border-color: var(--danger); }
+
+.pd-polling__dot {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  animation: blink 1.6s ease-in-out infinite;
+}
+.pd-polling__dot--paused { background: var(--danger); animation: none; }
+
+.pd-header__back {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  align-self: flex-start;
+  padding: 0;
+}
+.pd-header__back:hover { color: var(--fg); }
+
+.pd-header__title-row { display: flex; align-items: baseline; gap: 0.75rem; }
+.pd-header__title-row h1 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-hd);
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.pd-header__id {
+  background: var(--panel-hi);
+  padding: 0.1rem 0.4rem;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+}
+.pd-header__link {
+  display: inline-block;
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  word-break: break-all;
+}
+.pd-header__link:hover { background: var(--accent); color: var(--panel); }
+
 .pd-content { display: flex; flex-direction: column; gap: 1.25rem; }
+
+@media (max-width: 640px) {
+  /* El header del detalle metia titulo + id + estado de polling en una sola
+     fila de 390px. El resultado: el titulo partido en dos lineas, el chip del
+     id comprimido a ~160px y envolviendo por dentro, y la URL cortada a la
+     mitad de un token.
+
+     Se apila: cada cosa en su linea, que es como se lee un encabezado en un
+     telefono. `align-items: stretch` para que el chip de polling no quede
+     colgado a la derecha de una caja vacia. */
+  .pd-header__main { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  .pd-header__title-row { flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  /* El titulo no compite con el chip por el ancho: toma su linea entera. */
+  .pd-header__title-row h1 { flex: 1 1 100%; font-size: 1.15rem; }
+  /* El id es un token corto: `nowrap` para que no se parta adentro de su caja,
+     que es peor que truncarlo. */
+  .pd-header__id { white-space: nowrap; }
+  /* La URL del source si puede cortarse en cualquier lado — es larga y sin
+     espacios, y el corte feo es preferible a que empuje la pagina. */
+  .pd-header__left { overflow-wrap: anywhere; }
+}
 </style>
