@@ -617,6 +617,10 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   githubToken: () => githubCredentials.getToken(),
   gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
   gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
+  // SSH private key sin passphrase, montada en disco. Ver
+  // `WorkspaceManager#configureSigning` — sin esto los commits del agente
+  // nunca salen "Verified" en repos que lo exigen.
+  gitSigningKeyPath: Bun.env.IA_FLOW_GIT_SIGNING_KEY_PATH,
   // Al limpiar un worktree terminal, si la branch no aporta nada sobre la base
   // se borra también en `origin` (evita ramas huérfanas de runs sin cambios).
   // IA_FLOW_KEEP_EMPTY_BRANCHES=1 desactiva sólo el borrado remoto.
