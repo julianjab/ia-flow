@@ -32,8 +32,9 @@ const log = createLogger('tool-submit-output')
 
 /** Describe un campo para el modelo: su descripción más lo que el schema ya
  *  impone. Un campo sin `description` deja al modelo con el nombre pelado —
- *  el mismo problema que tenía una salida sin `when`. */
-function describeField(name: string, field: AgentOutputField): Record<string, unknown> {
+ *  el mismo problema que tenía una salida sin `when`. Exportada porque
+ *  `complete_task` (task.ts) la reusa para ofrecer los mismos campos inline. */
+export function describeField(name: string, field: AgentOutputField): Record<string, unknown> {
   const parts = [field.description?.trim()].filter(Boolean)
   if (field.optional) parts.push('(opcional)')
   return {
