@@ -440,12 +440,13 @@ function onSave() {
     provider,
     prompt: prompt.value,
   };
-  // Las entradas {text} preservadas (no editables acá) van primero, seguidas
-  // de los ids que sí administra este editor — no reconstruye el orden
-  // original si venían intercaladas, pero no pierde ninguna.
+  // Los ids del catálogo (los que sí administra este editor) van primero,
+  // seguidos de las entradas {text} preservadas (no editables acá) — no
+  // reconstruye el orden original si venían intercaladas, pero no pierde
+  // ninguna.
   const systemPromptRefs: SystemPromptRef[] = [
-    ...preservedSystemPromptRefs.value,
     ...selectedSysprompts.value,
+    ...preservedSystemPromptRefs.value,
   ];
   if (systemPromptRefs.length) agent.systemPrompts = systemPromptRefs;
   const vars = kvToRecord(variables.value);
