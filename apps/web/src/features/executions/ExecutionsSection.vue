@@ -783,8 +783,63 @@ const closedOpen = ref(false);
  * hijas quedarían fuera de su grupo y el foco saltaría entre listas. Un
  * marcador en la misma secuencia deja todo eso intacto.
  */
+/**
+ * Cuántas filas del bucket `te espera` se dibujan antes del corte (turno 8).
+ *
+ * Con 45 esperando, la lista completa no es una decisión: es un archivo. Las
+ * primeras cuatro son las que el orden puso arriba —lo que más desbloquea,
+ * después lo que más lleva esperando— y el resto se resume en una línea que
+ * dice CUÁNTAS son y qué tienen en común.
+ */
+const WAITING_HEAD = 4;
+
+/**
+ * El eje que comparte el resto de la cola: `34 son tool_failure`, o
+ * `14 son de implementer`.
+ *
+ * La clase de fallo manda cuando existe; con los fallos sin clasificar el
+ * único eje con dato es el agente, y decir "34 son sin clasificar" no es un
+ * corte útil sino la misma frase que ya dijo la banda de salud.
+ */
+function commonAxis(execs: ExecutionLog[]): string | null {
+  if (execs.length < 2) return null;
+  const tally = (pick: (e: ExecutionLog) => string | null | undefined) => {
+    const counts = new Map<string, number>();
+    for (const e of execs) {
+      const k = pick(e);
+      if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  };
+  // Un eje que cubre el 10% del resto no es lo que tienen en común: es ruido
+  // con forma de dato. Debajo de un cuarto, la línea sólo dice cuántas son.
+  const enough = ([, n]: [string, number]) => n >= Math.max(2, execs.length / 4);
+  // `cancelled` y `unknown` quedan afuera: el primero repite el outcome que el
+  // glifo ya dice, y el segundo es la NO-clasificación — decir "34 son sin
+  // clasificar" repite la banda de salud en vez de cortar la cola.
+  const byClass = tally((e) =>
+    e.failureClass && e.failureClass !== 'unknown' && e.failureClass !== 'cancelled'
+      ? e.failureClass
+      : null,
+  );
+  if (byClass && enough(byClass)) return `${byClass[1]} son ${byClass[0]}`;
+  const byAgent = tally((e) => e.agentId);
+  if (byAgent && enough(byAgent)) return `${byAgent[1]} son de ${byAgent[0]}`;
+  return null;
+}
+
+/** Prende el token del corte: `agente:implementer`, `fallo:tool_failure`. */
+function applyAxisToken(token: string): void {
+  const [field, ...rest] = token.split(':');
+  toggleToken(field, rest.join(':'));
+}
+
+/** El bucket 1 arranca cortado; se despliega desde su propia línea. */
+const waitingExpanded = ref(false);
+
 type DisplayRow =
   | { kind: 'header'; key: string; disposition: TaskDisposition; count: number }
+  | { kind: 'more'; key: string; hidden: number; axis: string | null; token: string | null }
   | ({ kind: 'row' } & ExecRow);
 
 const displayRows = computed<DisplayRow[]>(() => {
@@ -797,7 +852,13 @@ const displayRows = computed<DisplayRow[]>(() => {
       count: bucket.rows.length,
     });
     if (bucket.disposition === 'closed' && !closedOpen.value) continue;
-    for (const entry of bucket.rows) {
+    // El corte del bucket 1: las primeras cuatro, y el resto en una línea.
+    const cut =
+      bucket.disposition === 'waiting-on-you' && !waitingExpanded.value
+        ? bucket.rows.slice(0, WAITING_HEAD)
+        : bucket.rows;
+    const hidden = bucket.rows.length - cut.length;
+    for (const entry of cut) {
       out.push({ kind: 'row', ...entry.row });
       // Las hijas de un firing abierto van pegadas a su grupo, dentro del
       // mismo bucket: son el detalle de esa fila, no filas sueltas.
@@ -807,9 +868,33 @@ const displayRows = computed<DisplayRow[]>(() => {
         }
       }
     }
+    if (hidden > 0) {
+      const rest = bucket.rows
+        .slice(WAITING_HEAD)
+        .map((e) => e.row.exec ?? e.row.firing?.children[0])
+        .filter((e): e is ExecutionLog => !!e);
+      const axis = commonAxis(rest);
+      out.push({
+        kind: 'more',
+        key: `more:${bucket.disposition}`,
+        hidden,
+        axis,
+        token: axisToken(rest, axis),
+      });
+    }
   }
   return out;
 });
+
+/** El campo:valor que reproduce el corte. Se arma del MISMO conteo que el
+ *  texto, así que "14 son de implementer" y el filtro no pueden divergir. */
+function axisToken(execs: ExecutionLog[], axis: string | null): string | null {
+  if (!axis) return null;
+  const m = axis.match(/^\d+ son (?:de )?(.+)$/);
+  if (!m) return null;
+  const value = m[1];
+  return execs.some((e) => e.agentId === value) ? `agente:${value}` : `fallo:${value}`;
+}
 
 /** El lugar de la fila dentro del `do[]` de su regla. Sin posición va al final
  *  y no al principio: un `?? 0` la empataría con la primera acción y decidiría
@@ -1691,39 +1776,6 @@ watch(pendingFilter, () => {
     <!-- Sin `<h2>Ejecuciones</h2>` ni su descripción (R9, R12): la barra de
          identidad del shell ya dice el proyecto y la sección, y el párrafo
          describía lo que la lista muestra abajo. -->
-    <div class="section-header section-header--bare">
-      <div class="section-head-actions">
-        <button
-          type="button"
-          class="live-toggle"
-          :class="{
-            'live-toggle--on': liveMode && liveConnected,
-            'live-toggle--pending': liveMode && !liveConnected,
-          }"
-          :aria-pressed="liveMode"
-          :title="
-            liveMode
-              ? liveConnected
-                ? 'Live: recibiendo eventos en tiempo real'
-                : 'Live: intentando reconectar…'
-              : 'Live desactivado — los cambios sólo aparecen al recargar'
-          "
-          @click="liveMode = !liveMode"
-        >
-          <span class="live-toggle-dot" aria-hidden="true"></span>
-          Live
-        </button>
-        <button
-          type="button"
-          class="btn-primary"
-          :disabled="loading"
-          @click="load()"
-        >
-          {{ loading ? 'Cargando…' : '↺ Actualizar' }}
-        </button>
-      </div>
-    </div>
-
     <!-- El resumen es un VEREDICTO: tres contadores por disposición y sólo los
          agentes fuera de banda (R10). Reemplaza al AgentHealthPanel, cuya tabla
          de diez columnas se mudó entera a la pantalla del agente. -->
@@ -1750,8 +1802,39 @@ watch(pendingFilter, () => {
       title="Filtrar ejecuciones"
       @clear="filterTokens = []"
     >
-      <template #view>
-        <span class="exec-total">{{ executions.length }} ejecuciones</span>
+      <!-- `Live` y `Actualizar` son controles de la LISTA, no encabezado de la
+           pantalla: arriba ocupaban 90px antes de la primera fila (turno 8).
+           El total de filas tampoco: la línea plegada del veredicto ya dice
+           cuántos runs tiene el período, y decirlo dos veces no lo aclara. -->
+      <template #tools>
+        <button
+          type="button"
+          class="live-toggle"
+          :class="{
+            'live-toggle--on': liveMode && liveConnected,
+            'live-toggle--pending': liveMode && !liveConnected,
+          }"
+          :aria-pressed="liveMode"
+          :title="
+            liveMode
+              ? liveConnected
+                ? 'Live: recibiendo eventos en tiempo real'
+                : 'Live: intentando reconectar…'
+              : 'Live desactivado — los cambios sólo aparecen al recargar'
+          "
+          @click="liveMode = !liveMode"
+        >
+          <span class="live-toggle-dot" aria-hidden="true"></span>
+          Live
+        </button>
+        <button
+          type="button"
+          class="lcb-refresh"
+          :disabled="loading"
+          :aria-label="loading ? 'Cargando' : 'Actualizar'"
+          :title="loading ? 'Cargando…' : 'Actualizar'"
+          @click="load()"
+        >{{ loading ? '◐' : '↺' }}</button>
       </template>
 
       <FilterQueryInput
@@ -1842,6 +1925,28 @@ watch(pendingFilter, () => {
 
         <!-- El resumen de un disparo: la MISMA fila, con la regla en la columna
              del agente y el caret que abre sus acciones. -->
+        <!-- El corte del bucket 1 (turno 8): cuántas quedan y qué comparten.
+             `filtrar` prende el token de ese mismo eje — el texto y el filtro
+             salen del mismo conteo, así que no pueden divergir. -->
+        <li v-else-if="row.kind === 'more'" class="exec-more">
+          <button
+            type="button"
+            class="exec-more__expand"
+            data-testid="executions-more"
+            @click="waitingExpanded = true"
+          >
+            {{ row.hidden }} más
+            <span v-if="row.axis" class="exec-more__axis">· {{ row.axis }}</span>
+          </button>
+          <button
+            v-if="row.token"
+            type="button"
+            class="exec-more__filter"
+            data-testid="executions-more-filter"
+            @click="applyAxisToken(row.token)"
+          >filtrar</button>
+        </li>
+
         <li
           v-else-if="row.firing"
           class="exec-card exec-card--firing"
@@ -2488,6 +2593,49 @@ watch(pendingFilter, () => {
   border-radius: 0 0 6px 6px;
   margin: 0;
 }
+
+/* Mismo control que en Tareas: un blanco táctil con el glifo, sin caja. */
+.lcb-refresh {
+  flex: 0 0 auto;
+  width: var(--tap-h);
+  height: var(--tap-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.lcb-refresh:hover:not(:disabled) { color: var(--accent); }
+.lcb-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* El corte del bucket 1: dice cuántas quedan y qué comparten. Es una fila de
+   la lista, no un botón suelto — vive en la secuencia, donde el orden la puso. */
+.exec-more {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--border-mute);
+  background: var(--panel-alt);
+}
+.exec-more__expand,
+.exec-more__filter {
+  min-height: var(--tap-h);
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.exec-more__expand { flex: 1 1 auto; min-width: 0; color: var(--fg-mute); text-align: left; }
+.exec-more__expand:hover { color: var(--fg); }
+.exec-more__axis { color: var(--fg-dim); }
+.exec-more__filter { flex: 0 0 auto; color: var(--accent); text-decoration: underline; }
 
 /* El aviso de reorden: información, no alarma — describe el estado del ORDEN,
    no el de un run. Misma pieza que en Tareas. */

@@ -19,9 +19,11 @@ import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
  *
  * Lo que varía con el ancho es la FORMA, no el contenido:
  *
- * - Con menos de 47rem de LISTA (~850px: el `rem` de la app son 18px): cuatro
- *   líneas —meta, título, razón, verbo— con el glifo ocupándolas todas a la
- *   izquierda.
+ * - Con menos de 47rem de LISTA (~850px: el `rem` de la app son 18px): tres
+ *   líneas —título con su duración, después `#issue · agente · razón`, después
+ *   el verbo— con el glifo ocupándolas todas a la izquierda. El título va
+ *   PRIMERO (turno 8): es lo que identifica la fila, y tenerlo en la segunda
+ *   línea hacía leer un id opaco antes que el trabajo del que habla.
  * - Arriba: una línea con las columnas de 5d. Las medidas las pone el padre en
  *   `--rr-cols` —una sola declaración para la fila Y su encabezado, que si se
  *   escribieran por separado dejarían de nombrar la columna que tienen
@@ -127,7 +129,7 @@ function onKeydown(e: KeyboardEvent) {
       <ExecutionStatusLine class="rr__glyph-only" :execution="execution" runs-known />
     </span>
 
-    <span class="rr__issue">
+    <span class="rr__issue" :class="{ 'is-empty': !issueLabel && !tag }">
       <span v-if="tag" class="rr__tag" :class="{ 'is-ghost': tagGhost }" :title="tagTitle">{{ tag }}</span>
       <a
         v-if="issueLabel && titleHref"
@@ -182,12 +184,15 @@ function onKeydown(e: KeyboardEvent) {
    cuando hay ancho. */
 .rr {
   display: grid;
-  grid-template-columns: 20px auto minmax(0, 1fr) auto;
+  /* La tercera columna acotada, y no `auto`: con `auto` un `frontend-refiner`
+     se llevaba 130px de los 390 y la razón —lo que la fila vino a decir—
+     quedaba en una columna de 56 que la partía en cuatro renglones. Acá el
+     nombre se recorta y la razón se queda con el resto. */
+  grid-template-columns: 20px auto minmax(0, 9ch) minmax(0, 1fr) auto;
   grid-template-areas:
-    'anchor issue agent dur'
-    'anchor title title title'
-    'anchor state state cancel'
-    'anchor verb  verb  verb';
+    'anchor title title title dur'
+    'anchor issue agent state cancel'
+    'anchor verb  verb  verb  verb';
   gap: 0.2rem 0.55rem;
   align-items: baseline;
   padding: 0.55rem 0.9rem;
@@ -283,7 +288,19 @@ function onKeydown(e: KeyboardEvent) {
 
 .rr__warn { flex: 0 0 auto; margin-left: 0.6ch; color: var(--warn); cursor: help; }
 
+/* Apilada, la segunda línea se lee como UNA frase —`#1408 · implementer ·
+   traba 4 tareas`— y no como tres celdas: el `·` lo ponen las celdas de la
+   izquierda, que en columnas no lo llevan. */
+.rr__issue:not(.is-empty)::after,
+.rr__agent::after {
+  content: '·';
+  margin-left: 0.55ch;
+  color: var(--fg-dimmer);
+}
+.rr__issue.is-empty { display: none; }
+
 .rr__state { grid-area: state; min-width: 0; }
+
 /* El glifo ya está en el ancla, a la izquierda de las cuatro líneas. */
 .rr__state :deep(.esl-glyph),
 .rr__state :deep(.esl-live) { display: none; }
@@ -334,6 +351,9 @@ function onKeydown(e: KeyboardEvent) {
     min-width: 0;
   }
   .rr__verb { justify-self: start; }
+  .rr__issue:not(.is-empty)::after,
+  .rr__agent::after { content: none; }
+  .rr__issue.is-empty { display: block; }
 
   .rr__title {
     flex: 0 1 auto;
