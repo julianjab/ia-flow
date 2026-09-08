@@ -535,7 +535,7 @@ describe('bash_run — allow/deny pattern enforcement', () => {
   it('spawns a quoted commit message as a single argv token (the bug this fixes)', async () => {
     const tool = getTool('bash_run')!
     const captured: { argv?: string[] } = {}
-    _execInternals.spawn = (argv, cwd) => {
+    _execInternals.spawn = (argv, _cwd) => {
       captured.argv = argv
       return mockProc({ exitCode: 0 })
     }

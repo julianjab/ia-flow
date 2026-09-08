@@ -123,7 +123,7 @@ export class GitHubTaskSource implements TaskSource {
   // donde dejar el estado. Por eso `alreadyCommented` corta — si no,
   // `fail_task` (que ya publicó su reporte estructurado por `postComment`)
   // dejaba DOS comentarios por el mismo fallo.
-  async postError(task: Task, error: string, opts?: PostErrorOptions): Promise<void> {
+  async postError(_task: Task, error: string, opts?: PostErrorOptions): Promise<void> {
     if (opts?.alreadyCommented) {
       log.error({ issueId: this.issueId, error }, 'Run fallido — ya comentado por fail_task')
       return

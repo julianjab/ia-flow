@@ -104,7 +104,7 @@ describe('memoize', () => {
     let calls = 0
     class Flaky {
       @memoize({ key: () => 'const', bypass: (refresh?: boolean) => refresh === true })
-      async load(refresh?: boolean) {
+      async load(_refresh?: boolean) {
         calls++
         if (calls === 1) {
           // First call is slow to fail.

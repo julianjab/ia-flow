@@ -264,7 +264,7 @@ describe('ClaudePrintProvider', () => {
 
   it('sin env en providerConfig → spawn recibe env undefined (hereda process.env por default de Bun.spawn)', async () => {
     let capturedEnv: Record<string, string> | undefined
-    _claudePrintInternals.spawn = (argv, _cwd, env) => {
+    _claudePrintInternals.spawn = (_argv, _cwd, env) => {
       capturedEnv = env
       return mockProc({ stdout: 'ok', exitCode: 0 })
     }
@@ -276,7 +276,7 @@ describe('ClaudePrintProvider', () => {
 
   it('env con valores no-string se filtra', async () => {
     let capturedEnv: Record<string, string> | undefined
-    _claudePrintInternals.spawn = (argv, _cwd, env) => {
+    _claudePrintInternals.spawn = (_argv, _cwd, env) => {
       capturedEnv = env
       return mockProc({ stdout: 'ok', exitCode: 0 })
     }

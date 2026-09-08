@@ -6,7 +6,6 @@ import type { AgentRunState } from './Agent.js'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type {
-  IBroadcast,
   IExecutionLogRepository,
   IProjectConfigRepository,
   RunMessageEnqueuePort,
@@ -88,7 +87,6 @@ export interface DispatchOptions {
 export class TaskDispatcher {
   constructor(
     private orchestrator: AgentOrchestrator,
-    private broadcast: IBroadcast,
     private configRepo: IProjectConfigRepository,
     // Snapshot de runs en vuelo para el cap por agente. Default: el registry
     // compartido (ver capacity.ts) — inyectable sólo para tests.

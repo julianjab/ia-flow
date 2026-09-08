@@ -157,7 +157,7 @@ select,
 input,
 textarea,
 select {
-  color: var(--fg) !important;
+  color: var(--fg);
   caret-color: var(--accent);
 }
 
