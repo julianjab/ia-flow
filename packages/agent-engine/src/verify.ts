@@ -162,10 +162,19 @@ async function readWithDeadline(
     while (true) {
       const remaining = deadlineAt - Date.now()
       if (remaining <= 0) break
+      // El timer de esta vuelta se limpia SIEMPRE al resolver la carrera —
+      // sin esto, un stream verboso (muchos chunks) deja un timer de hasta
+      // `remaining` ms vivo por cada `read()` que ganó, así que un comando
+      // con salida grande podía dejar cientos colgados durante el minuto
+      // siguiente al fin del run.
+      let raceTimer: ReturnType<typeof setTimeout>
       const next = await Promise.race([
         reader.read(),
-        new Promise<typeof TIMED_OUT>((resolve) => setTimeout(() => resolve(TIMED_OUT), remaining)),
+        new Promise<typeof TIMED_OUT>((resolve) => {
+          raceTimer = setTimeout(() => resolve(TIMED_OUT), remaining)
+        }),
       ])
+      clearTimeout(raceTimer!)
       if (next === TIMED_OUT) break
       const { done, value } = next
       if (done) break
@@ -175,12 +184,19 @@ async function readWithDeadline(
     // el proceso murió a mitad de lectura, o el reader ya se canceló — lo
     // leído hasta acá se conserva igual.
   } finally {
-    try {
-      await reader.cancel()
-    } catch {
-      // best-effort — el stream puede ya estar cerrado
-    }
+    // Fire-and-forget, sin `await`: `cancel()` sobre un pipe que un nieto
+    // vivo sostiene abierto no tiene garantía de resolver, y esperarlo acá
+    // reintroduciría exactamente la espera ilimitada que este deadline
+    // existe para evitar.
+    reader.cancel().catch(() => {
+      // best-effort — el stream puede ya estar cerrado, o nunca resolver
+    })
   }
+  // Flush final: un carácter multibyte cortado justo en el límite entre dos
+  // chunks queda en el buffer interno del decoder hasta este llamado sin
+  // `stream: true` — sin él, ese carácter se pierde en vez de aparecer
+  // (posiblemente incompleto) al final del output.
+  result += decoder.decode()
   return result
 }
 
@@ -206,17 +222,21 @@ async function runOne(command: string, cwd: string): Promise<VerifyCommandResult
   // capacidad para siempre — sólo hasta acá.
   const deadlineAt = Date.now() + _verifyInternals.timeoutMs + _verifyInternals.graceMs
 
+  let exitRaceTimer: ReturnType<typeof setTimeout> | undefined
+  const exitWithDeadline = Promise.race([
+    proc.exited.catch(() => null as unknown as number),
+    new Promise<number | null>((resolve) => {
+      exitRaceTimer = setTimeout(() => resolve(null), Math.max(0, deadlineAt - Date.now()))
+    }),
+  ])
+
   const [stdoutText, stderrText, exitCode] = await Promise.all([
     readWithDeadline(proc.stdout, deadlineAt),
     readWithDeadline(proc.stderr, deadlineAt),
-    Promise.race([
-      proc.exited.catch(() => null as unknown as number),
-      new Promise<number | null>((resolve) =>
-        setTimeout(() => resolve(null), Math.max(0, deadlineAt - Date.now())),
-      ),
-    ]),
+    exitWithDeadline,
   ])
   clearTimeout(timer)
+  clearTimeout(exitRaceTimer)
 
   const combined = [stdoutText, stderrText].filter((s) => s.length > 0).join('\n')
   return {
