@@ -354,6 +354,59 @@ describe('agnostic task tools route via ITaskSource', () => {
       expect(calls.applyTransition).toHaveLength(1)
     })
 
+    // Regresión: `submit_output` puede haber entregado varios campos y el
+    // cierre inline sólo trae uno — el otro no se puede perder. `entry.
+    // structuredOutput` se mergea, no se reemplaza.
+    it('el payload inline se mergea con lo que ya dejó submit_output, sin perder los demás campos', async () => {
+      removePendingTask(TASK_ID)
+      registerPendingTask(TASK_ID, {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        exits: { success: 'Done' },
+        outputFields: { a: { type: 'string' }, b: { type: 'string' } },
+      })
+      await getTool('submit_output')!.execute(
+        { task_id: TASK_ID, a: 'origA', b: 'origB' },
+        { repoPaths: {} },
+      )
+
+      const entry = getPendingTask(TASK_ID)!
+      const tool = getTool('complete_task')!
+      await tool.execute(
+        { task_id: TASK_ID, what_did: ['x'], validations: ['y'], a: 'nuevaA' },
+        { repoPaths: {} },
+      )
+      expect(entry.structuredOutput).toEqual({ a: 'nuevaA', b: 'origB' })
+      expect(calls.applyTransition).toHaveLength(1)
+    })
+
+    // Un campo de output con nombre reservado no se puede ofrecer inline
+    // (colisiona con el schema base), pero SIGUE siendo parte del contrato:
+    // si nunca llegó por `submit_output`, el cierre inline tiene que
+    // rechazarse — no dar el contrato por cumplido en silencio.
+    it('un campo reservado requerido, nunca entregado por submit_output, bloquea el cierre inline', async () => {
+      removePendingTask(TASK_ID)
+      registerPendingTask(TASK_ID, {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        exits: { success: 'Done' },
+        outputFields: { brief: { type: 'string' }, notes: { type: 'string' } },
+      })
+      const tool = getTool('complete_task')!
+      await expect(
+        tool.execute(
+          { task_id: TASK_ID, what_did: ['x'], validations: ['y'], brief: 'x' },
+          { repoPaths: {} },
+        ),
+      ).rejects.toThrow(/falta 'notes'/)
+      expect(calls.postComment).toHaveLength(0)
+      expect(getPendingTask(TASK_ID)).toBeDefined()
+    })
+
     // Regresión: un cierre `frozen` (mismo criterio que "un run cancelado
     // acepta el cierre pero no transiciona") no puede pisar el
     // `structuredOutput` de la entry — es la MISMA entry en memoria que

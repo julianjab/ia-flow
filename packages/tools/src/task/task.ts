@@ -251,9 +251,22 @@ function extractOutputPayload(
 /**
  * Si el agente declara `output`, un cierre por `complete_task` puede traer
  * los campos inline en vez de una llamada previa a `submit_output` — el
- * mismo contrato, dos formas de entregarlo. Sólo valida cuando el modelo
- * mandó al menos uno de esos campos en ESTE llamado: si no mandó ninguno,
- * gana lo que ya haya dejado `submit_output` (o nada, y el run falla más
+ * mismo contrato, dos formas de entregarlo, y las dos se pueden combinar: un
+ * campo con nombre reservado (`notes`, `what_did`, …) no se puede ofrecer
+ * inline (colisionaría con el schema base — ver `nonReservedOutputFields`),
+ * así que sólo puede llegar por `submit_output`, y un cierre inline con el
+ * resto del contrato tiene que conservarlo.
+ *
+ * Por eso el payload inline se MERGEA sobre lo que ya haya dejado
+ * `submit_output` (`entry.structuredOutput`), no lo reemplaza — y la
+ * validación corre contra el contrato COMPLETO (`fields`, sin filtrar), no
+ * sólo contra los campos ofrecibles inline. Sin esto, un campo reservado
+ * requerido quedaba fuera de la validación de este camino: el cierre inline
+ * daba el contrato por cumplido sin haberlo estado.
+ *
+ * Sólo corre cuando el modelo mandó al menos un campo inline en ESTE
+ * llamado: si no mandó ninguno, se deja `entry.structuredOutput` tal como
+ * está (lo que `submit_output` haya dejado, o nada — y el run falla más
  * abajo por `declaresOutput && !structuredOutput`, igual que siempre).
  *
  * Tira en vez de devolver un resultado — mismo criterio que `submit_output`:
@@ -261,23 +274,24 @@ function extractOutputPayload(
  * corrige sin que el run se dé por cerrado.
  *
  * NO se llama para un cierre `frozen` (ver el caller): un `complete_task`
- * tardío de un run viejo/duplicado no puede pisar la salida estructurada de
- * la entry que el run VIGENTE sigue completando — mismo motivo por el que el
- * resto de `execute` no toca estado del run activo en ese caso.
+ * tardío de un run viejo/cancelado no puede pisar la salida estructurada de
+ * la entry — mismo motivo por el que el resto de `execute` no toca estado
+ * del run activo en ese caso.
  */
 function applyInlineOutput(entry: PendingTask, input: Record<string, unknown>): void {
   const fields = entry.outputFields
   if (!fields || Object.keys(fields).length === 0) return
-  const declared = nonReservedOutputFields(fields)
-  if (Object.keys(declared).length === 0) return
-  const payload = extractOutputPayload(declared, input)
+  const acceptable = nonReservedOutputFields(fields)
+  if (Object.keys(acceptable).length === 0) return
+  const payload = extractOutputPayload(acceptable, input)
   if (Object.keys(payload).length === 0) return
 
-  const result = validateOutput(declared, payload)
+  const merged = { ...(entry.structuredOutput ?? {}), ...payload }
+  const result = validateOutput(fields, merged)
   if (!result.ok) {
     throw new Error(
       `La salida no cumple el contrato de este agente: ${result.errors.join('; ')}. ` +
-        `Campos declarados: ${Object.keys(declared).join(', ')}.`,
+        `Campos declarados: ${Object.keys(fields).join(', ')}.`,
     )
   }
   entry.structuredOutput = result.value
