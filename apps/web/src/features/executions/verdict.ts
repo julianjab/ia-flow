@@ -159,50 +159,61 @@ function sharedCause(
  *  sistema. Con dos, nombrarlos todavía sirve; con tres ya son la norma. */
 export const SYSTEMIC_AGENTS = 3
 
-export function healthLine(stats: ExecutionStats | null): HealthLine | null {
-  if (!stats) return null
-  const { outOfBand, healthy, lowSample } = summarizeHealth(stats.agents)
-  const rated = outOfBand.length + healthy.length
-  const rate = percent(stats.totals.successRate)
-
-  // Nadie fuera de banda: una línea que dice que no hay nada que mirar, y no
-  // se dibuja en rojo ni pide un click.
-  if (!outOfBand.length) {
-    if (!rated && !lowSample.length) return null
-    return {
-      headline: `${rate} ok · ${rated} ${rated === 1 ? 'agente' : 'agentes'} en banda`,
-      detail: lowSample.length
-        ? `${lowSample.length} ${lowSample.length === 1 ? 'agente todavía sin' : 'agentes todavía sin'} muestra suficiente`
-        : '',
-      tone: 'ok',
-      agentId: null,
-    }
+// Nadie fuera de banda: una línea que dice que no hay nada que mirar, y no se
+// dibuja en rojo ni pide un click.
+function noOutOfBandLine(rate: string, rated: number, lowSample: AgentHealth[]): HealthLine | null {
+  if (!rated && !lowSample.length) return null
+  return {
+    headline: `${rate} ok · ${rated} ${rated === 1 ? 'agente' : 'agentes'} en banda`,
+    detail: lowSample.length
+      ? `${lowSample.length} ${lowSample.length === 1 ? 'agente todavía sin' : 'agentes todavía sin'} muestra suficiente`
+      : '',
+    tone: 'ok',
+    agentId: null,
   }
+}
 
-  // Uno solo: la línea ES ese agente, con su razón literal — que es lo que se
-  // necesita cuando el resto está sano.
-  if (outOfBand.length < SYSTEMIC_AGENTS) {
-    const worst = outOfBand[0]
-    return {
-      headline:
-        outOfBand.length === 1
-          ? `${worst.agentId} · ${rate} ok global`
-          : `${rate} ok · ${outOfBand.length} de ${rated} agentes fuera de banda`,
-      detail: outOfBand.length === 1 ? worst.reason : outOfBand.map((a) => a.agentId).join(' · '),
-      tone: 'danger',
-      agentId: outOfBand.length === 1 ? worst.agentId : null,
-    }
+// Uno o dos: la línea ES ese agente, con su razón literal — que es lo que se
+// necesita cuando el resto está sano.
+function fewOutOfBandLine(rate: string, rated: number, outOfBand: AgentVerdict[]): HealthLine {
+  const worst = outOfBand[0]
+  return {
+    headline:
+      outOfBand.length === 1
+        ? `${worst.agentId} · ${rate} ok global`
+        : `${rate} ok · ${outOfBand.length} de ${rated} agentes fuera de banda`,
+    detail: outOfBand.length === 1 ? worst.reason : outOfBand.map((a) => a.agentId).join(' · '),
+    tone: 'danger',
+    agentId: outOfBand.length === 1 ? worst.agentId : null,
   }
+}
 
-  // El sistema. Los agentes se cuentan, no se listan, y la segunda línea es la
-  // causa que comparten.
-  const cause = sharedCause(stats.totals)
+// El sistema. Los agentes se cuentan, no se listan, y la segunda línea es la
+// causa que comparten.
+function systemicLine(
+  rate: string,
+  rated: number,
+  outOfBand: AgentVerdict[],
+  totals: ExecutionStats['totals'],
+): HealthLine {
+  const cause = sharedCause(totals)
   return {
     headline: `${rate} ok · ${outOfBand.length} de ${rated} agentes fuera de banda`,
     detail: cause?.text ?? '',
     tone: cause?.tone ?? 'danger',
     agentId: null,
   }
+}
+
+export function healthLine(stats: ExecutionStats | null): HealthLine | null {
+  if (!stats) return null
+  const { outOfBand, healthy, lowSample } = summarizeHealth(stats.agents)
+  const rated = outOfBand.length + healthy.length
+  const rate = percent(stats.totals.successRate)
+
+  if (!outOfBand.length) return noOutOfBandLine(rate, rated, lowSample)
+  if (outOfBand.length < SYSTEMIC_AGENTS) return fewOutOfBandLine(rate, rated, outOfBand)
+  return systemicLine(rate, rated, outOfBand, stats.totals)
 }
 
 export type Disposition = 'waiting' | 'running' | 'closed'

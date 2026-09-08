@@ -193,6 +193,27 @@ export function serializeAssignments(assignments: FieldAssignment[]): string {
 // dentro del mismo `$set:` en vez de necesitar un campo on-wire aparte. Si esta
 // función y la del engine divergen, un outcome guardado desde la UI se aplica
 // distinto de como se lee — mantenerlas iguales es parte del contrato.
+function mergeAssignmentValue(target: FieldAssignment, value: string): void {
+  target.value = target.value ? `${target.value},${value}` : value
+}
+
+/** Token sin `=` (o con `=` en la posición 0): continúa el valor de la fila anterior. */
+function applyContinuationToken(pairs: FieldAssignment[], token: string): void {
+  const last = pairs[pairs.length - 1]
+  const cont = token.trim()
+  if (last && cont) mergeAssignmentValue(last, cont)
+}
+
+/** Token `field=value`: agrega una fila nueva o acumula sobre una existente (mismo field). */
+function applyFieldToken(pairs: FieldAssignment[], token: string, eq: number): void {
+  const field = token.slice(0, eq).trim()
+  const value = token.slice(eq + 1).trim()
+  if (!field) return
+  const existing = pairs.find((p) => p.field.toLowerCase() === field.toLowerCase())
+  if (existing) mergeAssignmentValue(existing, value)
+  else pairs.push({ field, value })
+}
+
 export function deserializeAssignments(raw: string | undefined): FieldAssignment[] {
   if (!raw) return []
   if (!raw.startsWith('$set:')) return [{ field: 'status', value: raw }]
@@ -200,18 +221,8 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
   const pairs: FieldAssignment[] = []
   for (const token of raw.slice(5).split(',')) {
     const eq = token.indexOf('=')
-    if (eq <= 0) {
-      const last = pairs[pairs.length - 1]
-      const cont = token.trim()
-      if (last && cont) last.value = last.value ? `${last.value},${cont}` : cont
-      continue
-    }
-    const field = token.slice(0, eq).trim()
-    const value = token.slice(eq + 1).trim()
-    if (!field) continue
-    const existing = pairs.find((p) => p.field.toLowerCase() === field.toLowerCase())
-    if (existing) existing.value = existing.value ? `${existing.value},${value}` : value
-    else pairs.push({ field, value })
+    if (eq <= 0) applyContinuationToken(pairs, token)
+    else applyFieldToken(pairs, token, eq)
   }
   return pairs
 }
@@ -328,6 +339,22 @@ export function outcomesToForm(outcomes: AgentOutcomes | undefined): OutcomesFor
 
 // OutcomesFormValue → AgentOutcomes, omitting empty slots (mirrors how the
 // rest of AgentDefinition omits blank optional fields on save).
+/** Serializa una fila de salida, o `null` si no tiene nada que emitir. */
+function buildExitEntry(row: ExitRow): AgentExit | null {
+  const serialized = serializeAssignments(row.assignments)
+  if (!serialized) return null
+  const when = row.when?.trim()
+  // La forma corta (string pelado) se conserva cuando no hay nada más que
+  // decir: es la que usa el 90% del roster y ensuciarla con un objeto de una
+  // sola clave haría ruido en todos los diffs de config.
+  if (!when && !row.comment) return serialized
+  return {
+    set: serialized,
+    ...(when ? { when } : {}),
+    ...(row.comment ? { comment: row.comment } : {}),
+  }
+}
+
 export function formToOutcomes(form: OutcomesFormValue): AgentOutcomes {
   const outcomes: AgentOutcomes = {}
   // Varias filas `Labels` en una misma salida se emiten como claves repetidas
@@ -344,20 +371,8 @@ export function formToOutcomes(form: OutcomesFormValue): AgentOutcomes {
     if (problems[i]) continue
     const name = row.name.trim()
     if (!name) continue
-    const serialized = serializeAssignments(row.assignments)
-    if (!serialized) continue
-    const when = row.when?.trim()
-    // La forma corta (string pelado) se conserva cuando no hay nada más que
-    // decir: es la que usa el 90% del roster y ensuciarla con un objeto de una
-    // sola clave haría ruido en todos los diffs de config.
-    exits[name] =
-      when || row.comment
-        ? {
-            set: serialized,
-            ...(when ? { when } : {}),
-            ...(row.comment ? { comment: row.comment } : {}),
-          }
-        : serialized
+    const entry = buildExitEntry(row)
+    if (entry) exits[name] = entry
   }
   if (Object.keys(exits).length) outcomes.exits = exits
   if (form.comment) outcomes.comment = form.comment
