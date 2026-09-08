@@ -1205,6 +1205,18 @@ export const AgentDefinitionSchema = z
      * mutilado, que es peor que no tener contrato.
      */
     output: AgentOutputSchema.optional(),
+    /**
+     * Comandos que el ENGINE —no el modelo— corre en el worktree después del
+     * loop y antes de aplicar la salida de éxito. Un exit distinto de 0 en
+     * cualquiera desvía el run al path de error (failureClass
+     * `verify_failed`) en vez de aplicar `onFinish`.
+     *
+     * Sin `writePaths` gate ni policy check: lo ejecuta el engine con su
+     * propia autoridad, así que no compite con el allowlist de `bash_run` del
+     * agente. No corre en runs `truncated`, cancelados, ni cuando un tool ya
+     * movió el task — esos casos ya terminan antes de llegar a esta rama.
+     */
+    verify: z.array(z.string()).optional(),
   })
   // El agente declara QUÉ hace y cómo termina. El CUÁNDO se fue a `rules` en
   // la migración 059 — ver RuleSchema.
@@ -1285,6 +1297,8 @@ export const FailureClassSchema = z.enum([
   // The agent's own configuration is wrong.
   'tool_failure', //      a large share of its tool calls errored
   'no_op', //             finished "successfully" without doing any work
+  'verify_failed', //     agentDef.verify caught the code not compiling/testing
+  //                      before the success exit was applied
   // Everything around the agent.
   'infra_error', //       git/network/workspace threw before or during the run
   'cancelled', //         a human or the divergence gate stopped it
