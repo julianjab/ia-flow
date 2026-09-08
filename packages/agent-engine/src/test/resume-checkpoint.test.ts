@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from 'bun:test'
 import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
-import { AgentOrchestrator } from '../AgentOrchestrator.js'
+import { AgentOrchestrator, MAX_RESUME_ATTEMPTS } from '../AgentOrchestrator.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -158,7 +158,7 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
           runId: 'viejo',
           agentId: 'implementer',
           state: { messages: [{ role: 'user', content: 'veneno' }] },
-          attempts: 3,
+          attempts: MAX_RESUME_ATTEMPTS,
           updatedAt: new Date().toISOString(),
         }),
       }),
