@@ -1,15 +1,16 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "ignore": [
-      "**/node_modules",
-      "**/dist",
-      "**/.playwright-mcp",
-      "**/logs",
-      "**/*.sqlite",
-      "apps/web/src/**/*.vue",
-      "handoff"
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.playwright-mcp",
+      "!**/logs",
+      "!**/*.sqlite",
+      "!**/apps/web/src/**/*.vue",
+      "!**/handoff"
     ]
   },
   "formatter": {
@@ -19,18 +20,19 @@
     "lineWidth": 100,
     "lineEnding": "lf"
   },
-  "organizeImports": { "enabled": true },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": {
         "noExplicitAny": "off",
-        "noConsoleLog": "off",
         "noArrayIndexKey": "off",
         "noAssignInExpressions": "off",
         "noImplicitAnyLet": "off",
-        "noThenProperty": "off"
+        "noThenProperty": "off",
+        "noConsole": { "level": "off", "options": { "allow": ["log"] } },
+        "noTemplateCurlyInString": "off"
       },
       "style": {
         "useImportType": "off",
@@ -48,7 +50,8 @@
         "noUnusedImports": "warn",
         "noSwitchDeclarations": "off",
         "noUnusedPrivateClassMembers": "error",
-        "noUnusedFunctionParameters": "error"
+        "noUnusedFunctionParameters": "error",
+        "noUnsafeOptionalChaining": "off"
       },
       "complexity": {
         "noForEach": "off",
@@ -56,20 +59,21 @@
         "noBannedTypes": "off",
         "noUselessSwitchCase": "off",
         "noUselessCatch": "warn",
-        "useOptionalChain": "error"
+        "useOptionalChain": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": { "maxAllowedComplexity": 15 }
+        }
       },
       "performance": {
         "noAccumulatingSpread": "off",
         "noDelete": "off"
       },
       "a11y": {
-        "recommended": false
+        "preset": "none"
       },
       "security": {
         "noGlobalEval": "off"
-      },
-      "nursery": {
-        "noTemplateCurlyInString": "off"
       }
     }
   },

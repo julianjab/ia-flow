@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun run dev:server & bun run dev:web",
     "dev:server": "bun run --cwd apps/server dev",
@@ -52,7 +55,11 @@
     "test:slack": "bun run --cwd packages/slack test"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4"
+    "@biomejs/biome": "2.5.12"
   },
-  "trustedDependencies": ["@biomejs/biome", "esbuild", "vue-demi"]
+  "trustedDependencies": [
+    "@biomejs/biome",
+    "esbuild",
+    "vue-demi"
+  ]
 }
