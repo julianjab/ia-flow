@@ -396,6 +396,18 @@ describe('AgentAction — payload.outcome es el resultado real del agente', () =
     expect(emitidos).toEqual([])
   })
 
+  // Caso límite: el dispatcher dice 'dispatched' (el agente corrió) pero por
+  // algún motivo no vino `runOutcome`. Cae a 'error' — nunca a 'dispatched',
+  // que ninguna regla sobre `Outcome` puede matchear — porque una regla de
+  // retry que dispara de más es preferible a una tarea que queda esperando un
+  // evento que nunca la va a alcanzar.
+  test('dispatched sin runOutcome: cae a "error", nunca a "dispatched"', async () => {
+    const { action } = spyDispatch('dispatched')
+    const { ctx: c, emitidos } = emitCtx()
+    await action.execute(c, { action: 'agent', agentId: 'implementer', emitOn: 'exit' } as never)
+    expect(emitidos[0].outcome).toBe('error')
+  })
+
   test('error sin emitOn: no emite nada, sólo propaga el throw', async () => {
     const emitidos: unknown[] = []
     const c = { ...ctx(), emit: async (t: string) => void emitidos.push(t) } as ActionContext
