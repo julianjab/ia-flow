@@ -476,7 +476,8 @@ const runMessage = computed(() => {
   font-family: var(--font-mono);
   white-space: nowrap;
 }
-.modal-issue-link:hover:not(.is-plain) { color: var(--info); }
+/* Sin `background: transparent` el `a:hover` global lo pinta de teal entero. */
+.modal-issue-link:hover:not(.is-plain) { background: transparent; color: var(--info); }
 .modal-issue-glyph { margin-left: 0.15rem; color: var(--fg-dimmer); }
 .modal-issue-link:hover:not(.is-plain) .modal-issue-glyph { color: var(--info); }
 

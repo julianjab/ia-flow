@@ -2906,7 +2906,8 @@ watch(pendingFilter, () => {
   font-size: 0.95rem;
 }
 .exec-drawer__task a { color: var(--accent); text-decoration: none; }
-.exec-drawer__task a:hover { text-decoration: underline; }
+/* Sin `background: transparent` el `a:hover` global lo pinta de teal entero. */
+.exec-drawer__task a:hover { background: transparent; text-decoration: underline; }
 
 .exec-drawer-enter-active,
 .exec-drawer-leave-active { transition: transform 0.18s ease, opacity 0.18s ease; }

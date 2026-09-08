@@ -181,14 +181,24 @@ function runHref(e: ExecutionLog): string {
   letter-spacing: var(--tracking-hd);
   text-decoration: none;
 }
-.run-outcome:hover { text-decoration: underline; }
+/* `background: transparent` porque si no el `a:hover` global lo pinta de
+   teal entero; el color de cada outcome se repite en su propio `:hover`
+   porque, si no, ese mismo `a:hover` global también se lo pisa a `--panel` —
+   el color del outcome es información (éxito/fallo/cancelado), no algo que
+   deba cambiar sólo porque el mouse está encima. */
+.run-outcome:hover { text-decoration: underline; background: transparent; }
 .is-success { color: var(--accent); }
+.is-success:hover { color: var(--accent); }
 .is-error { color: var(--danger); }
+.is-error:hover { color: var(--danger); }
 /* Cancelado y truncado no son fallos del agente: uno lo pidió una persona y el
    otro es un límite del run. Se distinguen del rojo a propósito. */
 .is-cancelled,
 .is-truncated { color: var(--warn); }
+.is-cancelled:hover,
+.is-truncated:hover { color: var(--warn); }
 .is-running { color: var(--info); }
+.is-running:hover { color: var(--info); }
 .run-agent {
   grid-area: agent;
   min-width: 0;

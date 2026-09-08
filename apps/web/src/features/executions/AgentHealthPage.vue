@@ -386,7 +386,9 @@ function itersPerRun(): string {
 }
 .agent-page__title { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .agent-page__title h2 { margin: 0; font-size: 1.15rem; }
-.agent-page__editor { font-size: var(--fs-body-sm); color: var(--info); }
+.agent-page__editor { font-size: var(--fs-body-sm); color: var(--info); text-decoration: none; }
+/* Sin `background: transparent` el `a:hover` global lo pinta de teal entero. */
+.agent-page__editor:hover { background: transparent; color: var(--fg); text-decoration: underline; }
 .agent-page__error { font-size: var(--fs-body-sm); color: var(--danger); margin: 0; }
 .agent-page__empty { font-size: var(--fs-body-sm); color: var(--fg-dim); margin: 0; }
 
