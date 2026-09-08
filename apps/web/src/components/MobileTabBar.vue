@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
+import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 
 /**
  * La navegación mobile: cuatro destinos al pie, en lugar del drawer.
@@ -19,6 +20,16 @@ const props = defineProps<{
 
 const route = useRoute();
 const activeExecutions = useActiveExecutionsStore();
+/**
+ * Lo que te espera, para el badge de Tareas (turno 8).
+ *
+ * Se pide una vez por proyecto y se cachea en el store: es el mismo dato que
+ * la pantalla de Tareas usa, y `GET /api/tasks/dispositions` no es barato.
+ * Sin `force`, entrar a Tareas después no vuelve a pagarlo.
+ */
+const dispositions = useDispositionsStore();
+onMounted(() => void dispositions.fetch(props.projectId));
+watch(() => props.projectId, (pid) => void dispositions.fetch(pid));
 
 /**
  * Sin proyecto activo los tres primeros van al LISTADO, no a una URL armada.
@@ -30,12 +41,26 @@ const activeExecutions = useActiveExecutionsStore();
 const tabPath = (tab: string) =>
   props.projectId ? `/projects/${props.projectId}/${tab}` : '/projects';
 
+/**
+ * Dos señales, dos formas (turno 8): el **badge** cuenta lo que te espera y
+ * pide una decisión; el **punto que late** dice que algo se mueve y no pide
+ * nada. Nunca los dos en el mismo tab — un tab que grita dos cosas a la vez
+ * no dice ninguna.
+ *
+ * El badge no se dibuja en cero ni mientras el dato no llegó: contar cero
+ * sobre algo que no se sabe afirma "no te espera nada", que es lo contrario
+ * de no saber.
+ */
+const waiting = computed(() =>
+  dispositions.isLoaded(props.projectId) ? dispositions.waitingCount(props.projectId) : 0,
+);
+
 const TABS = computed(() => [
   // "Qué sigue" se fue: era la misma lista de Tareas con otro recorte, y dos
   // destinos para la misma pregunta hacían que el operador tuviera que decidir
   // por cuál entrar. Tareas ordena por disposición y trae los chips de corte
   // rápido, así que contesta lo mismo sin un destino aparte.
-  { id: 'tareas', glyph: '▤', label: 'TAREAS', to: tabPath('tareas') },
+  { id: 'tareas', glyph: '▤', label: 'TAREAS', to: tabPath('tareas'), badge: waiting.value },
   { id: 'executions', glyph: '●', label: 'RUNS', to: tabPath('executions'), live: true },
   { id: 'mas', glyph: '☰', label: 'MÁS', to: '/mas' },
 ]);
@@ -74,7 +99,12 @@ const hasRunning = computed(() => activeExecutions.loaded && activeExecutions.ac
     >
       <span class="tabbar__glyph" aria-hidden="true">{{ tab.glyph }}</span>
       <span class="tabbar__label">{{ tab.label }}</span>
-      <span v-if="tab.live && hasRunning" class="tabbar__dot" aria-hidden="true"></span>
+      <span
+        v-if="tab.badge"
+        class="tabbar__badge"
+        :title="`${tab.badge} ${tab.badge === 1 ? 'tarea te espera' : 'tareas te esperan'}`"
+      >{{ tab.badge }}</span>
+      <span v-else-if="tab.live && hasRunning" class="tabbar__dot" aria-hidden="true"></span>
     </RouterLink>
   </nav>
 </template>
@@ -112,6 +142,25 @@ const hasRunning = computed(() => activeExecutions.loaded && activeExecutions.ac
 }
 .tabbar__item.is-active:hover { color: var(--accent); }
 .tabbar__item.is-active .tabbar__label { font-weight: 700; }
+
+/* El badge pide una decisión: --danger, con el número, arriba a la derecha del
+   glifo — donde una app de teléfono lo pone. */
+.tabbar__badge {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  margin-left: 0.4rem;
+  min-width: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--panel);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  line-height: 1.05rem;
+  text-align: center;
+}
 
 .tabbar__glyph { font-size: 0.78rem; line-height: 1; }
 .tabbar__label {

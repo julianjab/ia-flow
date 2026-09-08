@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
+import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
@@ -193,10 +194,18 @@ const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.
  * no coincide con *qué me toca*. Lo que te espera es justamente lo que lleva
  * más tiempo quieto, o sea lo que un orden por fecha manda al fondo.
  */
-const dispositions = ref<TaskDispositionEntry[]>([]);
+/**
+ * Las disposiciones viven en un store compartido: el badge de la tab bar
+ * necesita el mismo dato, y `GET /api/tasks/dispositions` no es barato —por
+ * debajo hace `getItems()` contra la fuente más los blockers de cada ítem—,
+ * así que pedirlo dos veces al entrar a esta pantalla es rate limit de GitHub
+ * gastado en el mismo número.
+ */
+const dispositionsStore = useDispositionsStore();
+const dispositions = computed(() => dispositionsStore.entriesFor(activeProjectId.value));
 /** El agregado no se pudo consultar: la lista cae al orden de la fuente y lo
  *  DICE, en vez de agrupar por buckets que no conoce. */
-const dispositionsFailed = ref(false);
+const dispositionsFailed = computed(() => dispositionsStore.hasFailed(activeProjectId.value));
 const groupByDisposition = ref(true);
 
 const dispositionById = computed(
@@ -379,17 +388,11 @@ function reasonFor(id: string): string {
 async function loadDispositions() {
   const pid = activeProjectId.value;
   if (!pid) return;
-  dispositionsFailed.value = false;
-  try {
-    const next = await fetchTaskDispositions(pid);
-    if (activeProjectId.value !== pid) return;
-    dispositions.value = next;
-    freezeIfFirst();
-  } catch {
-    if (activeProjectId.value !== pid) return;
-    dispositionsFailed.value = true;
-    dispositions.value = [];
-  }
+  // `force`: entrar a Tareas es pedir el estado de ahora, no el de la última
+  // vez que la tab bar lo consultó.
+  await dispositionsStore.fetch(pid, { force: true });
+  if (activeProjectId.value !== pid) return;
+  freezeIfFirst();
 }
 
 const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
@@ -793,8 +796,8 @@ watch(activeProjectId, (pid) => {
   runsKnown.value = false;
   filters.value = loadStoredFilters(pid);
   // El orden congelado es del proyecto anterior: conservarlo dejaría las filas
-  // del nuevo ordenadas por ids que no existen acá.
-  dispositions.value = [];
+  // del nuevo ordenadas por ids que no existen acá. Las disposiciones NO se
+  // borran: el store las tiene por proyecto, así que volver es gratis.
   resetOrder();
   void loadRepoNames();
   void loadStatuses();
