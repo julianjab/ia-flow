@@ -410,12 +410,17 @@ const runMessage = computed(() => {
   z-index: 1;
   display: block;
   background: none;
-  max-height: calc(100vh - var(--tap-h) - 2rem);
+  height: calc(100vh - var(--tap-h) - 2rem);
 }
 .backdrop--inline .modal {
   width: 100%;
-  height: auto;
-  max-height: calc(100vh - var(--tap-h) - 2rem);
+  /* Fija, no `auto`: con `auto` el flex column calcula su alto ANTES de
+     aplicar `max-height`, así que un `.modal-body` largo desbordaba la caja
+     entera en vez de activar su propio scroll — dos scrolls (el de la lista
+     y el del contenido que se escapaba) y el pie de acciones empujado fuera
+     de la pantalla. Con la altura fija de entrada, el flex column reparte el
+     espacio de una y `.modal-body` es quien absorbe el sobrante. */
+  height: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
