@@ -4,9 +4,9 @@
 
 import { afterEach, describe, expect, it } from 'bun:test'
 import {
+  type SpawnedVerifyProc,
   VERIFY_FAILED_MARKER,
   VERIFY_OUTPUT_MAX_BYTES,
-  type SpawnedVerifyProc,
   _verifyInternals,
   buildVerifyFailedError,
   runVerifyCommands,
