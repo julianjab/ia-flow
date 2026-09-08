@@ -167,15 +167,35 @@ function pushDetailId(taskId: string | undefined): void {
 
 const statusOptions = ref<string[]>([]);
 
-/** La última columna del pipeline (mismo orden que arma `boardColumns`): es
- *  la que la fuente considera "terminada", sin adivinar por el nombre — ver
- *  el comentario de `isClosed` en `GetTaskDispositionsUseCase`. Sirve para
- *  distinguir, en el bullet de la fila, una tarea que YA está ahí de una que
- *  nunca se tocó: la disposición no lo hace sola porque depende de si el
- *  issue de GitHub está `closed`, no de en qué columna del board quedó. */
-const terminalStatus = computed(() => statusOptions.value.at(-1) ?? null);
+/** El mismo orden que arma `boardColumns` (línea ~460): `statusOptions` primero,
+ *  y cualquier status que aparezca en las tareas pero no esté configurado se
+ *  agrega al final — así un `Done` recién creado, o un `statusOptions` que
+ *  todavía no se refrescó, no deja a la columna terminal real afuera. */
+const pipelineStatusOrder = computed(() => {
+  const seen = new Set(statusOptions.value);
+  const ordered = [...statusOptions.value];
+  for (const item of projectItems.value) {
+    const s = (item.status ?? '').trim();
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      ordered.push(s);
+    }
+  }
+  return ordered;
+});
+/** La última columna del pipeline: es la que la fuente considera "terminada",
+ *  sin adivinar por el nombre — ver el comentario de `isClosed` en
+ *  `GetTaskDispositionsUseCase`. Sirve para distinguir, en el bullet de la
+ *  fila, una tarea que YA está ahí de una que nunca se tocó: la disposición
+ *  no lo hace sola porque depende de si el issue de GitHub está `closed`, no
+ *  de en qué columna del board quedó. */
+const terminalStatus = computed(() => pipelineStatusOrder.value.at(-1) ?? null);
 function isDoneInSource(item: TaskRow): boolean {
-  return !!terminalStatus.value && item.status === terminalStatus.value;
+  if (!terminalStatus.value) return false;
+  // Mismo criterio que `statusChips` (case-insensitive) y que `boardColumns`
+  // (trim): un `Done` real no debe apagarse por un espacio o una mayúscula
+  // que difiera entre la fuente y lo cacheado.
+  return item.status.trim().toLowerCase() === terminalStatus.value.trim().toLowerCase();
 }
 
 function filtersStorageKey(projectId: string | null | undefined): string | null {
