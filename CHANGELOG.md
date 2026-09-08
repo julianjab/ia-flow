@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/julianjab/ia-flow/compare/v1.4.1...v1.5.0) (2026-09-08)
+
+
+### Features
+
+* **agent-engine:** verify gate — el engine valida el código antes de cerrar un run ([#173](https://github.com/julianjab/ia-flow/issues/173)) ([2ad5c0a](https://github.com/julianjab/ia-flow/commit/2ad5c0a059e21bbc5cde070ea65472b02d225b79))
+
+
+### Bug Fixes
+
+* **agent-engine:** el brief de wait.resumed llega al reanudar un checkpoint ([#172](https://github.com/julianjab/ia-flow/issues/172)) ([3a0efdd](https://github.com/julianjab/ia-flow/commit/3a0efddfbd4d1aff5fdd3d980760809834c3254e))
+
 ## [1.4.1](https://github.com/julianjab/ia-flow/compare/v1.4.0...v1.4.1) (2026-09-08)
 
 
