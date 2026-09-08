@@ -878,11 +878,22 @@ function confirmSlackReview() {
   if (pending) void doSlackReview(pending.item, true);
 }
 
-onMounted(() => {
+onMounted(async () => {
   void loadRepoNames();
   void loadStatuses();
-  void loadProjectItems();
   void loadDispositions();
+  // Await the initial load so we know whether the `?taskId` from the URL is
+  // on the loaded page before deciding to auto-open the modal (mismo patrón
+  // que `?runId=` en ExecutionsSection).
+  await loadProjectItems();
+  // Ejecuciones → esta pestaña: `?taskId=<id>` pide aterrizar con esa tarea ya
+  // abierta. Sin match, no-op en silencio — la tarea puede estar filtrada por
+  // status o no venir en la página cargada.
+  const taskIdParam = route.query.taskId;
+  if (typeof taskIdParam === 'string') {
+    const item = projectItems.value.find((i) => i.id === taskIdParam);
+    if (item) openReposModal(item);
+  }
 });
 
 // Reload whenever the user switches projects — same pattern as StatusesSection.

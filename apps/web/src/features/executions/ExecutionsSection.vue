@@ -768,9 +768,17 @@ const detailActions = computed<string[]>(() => {
   const out: string[] = [];
   if (!e.finishedAt) out.push('cancel');
   if (verbForRun(e)?.href) out.push('verb');
+  out.push('task');
   if (issueUrlFor(e.taskId)) out.push('issue');
   return out;
 });
+
+/** `/projects/:id/tareas?taskId=<id>` — mismo mecanismo que `?runId=` de
+ *  Tareas → acá, en la otra dirección: Tareas la lee en su `onMounted` y abre
+ *  el modal de esa tarea sola. */
+function taskHref(exec: ExecutionLog): string {
+  return `/projects/${exec.projectId}/tareas?taskId=${encodeURIComponent(exec.taskId)}`;
+}
 
 /** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
 const closedOpen = ref(false);
@@ -2452,6 +2460,11 @@ watch(pendingFilter, () => {
             :to="verbForRun(selectedExec)!.href!"
             data-testid="executions-detail-verb"
           >{{ verbForRun(selectedExec)!.label }}</RouterLink>
+          <RouterLink
+            class="exec-actions__btn"
+            :to="taskHref(selectedExec)"
+            data-testid="executions-detail-task"
+          >Ver tarea</RouterLink>
           <a
             v-if="issueUrlFor(selectedExec.taskId)"
             class="exec-actions__btn"
