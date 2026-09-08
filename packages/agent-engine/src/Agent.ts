@@ -312,6 +312,19 @@ interface RunFrame {
   readonly systemPromptHash: string | undefined
   readonly controller: AbortController
   readonly task: Task
+  /**
+   * Última foto conocida de `task`, mutable y compartida por referencia
+   * entre `run()` y todos los handlers que reciben este frame (incluidos
+   * los que a su vez arman un frame nuevo con `{ ...frame, task }` — el
+   * spread copia la MISMA referencia). Un handler que reasigna su `task`
+   * local y puede lanzar después (p.ej. `handleSyncRun` tras fusionar
+   * `pendingAfterRun.task`, antes de `throw missingOutput()`) actualiza
+   * `taskRef.current` en el mismo paso — así, si lanza, `run()`'s `catch`
+   * arma la task de error con la fusión más reciente y no con la foto
+   * previa a la llamada, que perdería las mutaciones de las tool calls
+   * in-process.
+   */
+  readonly taskRef: { current: Task }
 }
 
 export class Agent {
@@ -422,6 +435,8 @@ export class Agent {
     agentDef: AgentDefinition
     task: Task
     runId: string
+    runState: AgentRunState
+    taskRef: { current: Task }
     projectRepos: RunContext['projectRepos']
     repoPaths: Record<string, string>
     primaryRepoName: string | undefined
@@ -434,12 +449,13 @@ export class Agent {
     effectiveRepoPaths: Record<string, string>
     effectiveWritePaths: string[] | undefined
     effectiveCwd: string | undefined
-    release: (() => Promise<void>) | undefined
     gitContext: string
   }> {
     const {
       agentDef,
       runId,
+      runState,
+      taskRef,
       projectRepos,
       repoPaths,
       primaryRepoName,
@@ -486,6 +502,16 @@ export class Agent {
     // `resolveLinkedBranch` ya la seteó, o el fallback `task/<id>`) se
     // refleja de vuelta en el Task.
     if (plan.branch) task = { ...task, branch: plan.branch }
+    // Sincroniza ANTES de `buildGitContext`, que puede lanzar: si lo hace,
+    // el `catch` de `run()` no debe perder la branch recién resuelta (ver
+    // el doc de `RunFrame.taskRef`).
+    taskRef.current = task
+    // La limpieza viaja con el plan; el orquestador la corre en su
+    // `finally` sin saber de qué provider vino. Se publica ACÁ —antes de
+    // `buildGitContext`, que puede lanzar— para que un worktree ya
+    // materializado por `prepareWorkspace` no quede sin `release`
+    // registrado si el paso siguiente falla.
+    runState.releaseWorkspace = plan.release
 
     // Prepend engine-provided git context to the resolved prompt.
     const gitContext = await buildGitContext({
@@ -505,9 +531,6 @@ export class Agent {
       effectiveRepoPaths,
       effectiveWritePaths,
       effectiveCwd,
-      // La limpieza viaja con el plan; el orquestador la corre en su
-      // `finally` sin saber de qué provider vino.
-      release: plan.release,
       gitContext,
     }
   }
@@ -855,6 +878,11 @@ export class Agent {
     // `controller.signal.aborted` to disambiguate our manual cancel from an
     // upstream abort.
     const controller = new AbortController()
+    // Última foto de `task` compartida por referencia con los handlers
+    // extraídos (ver el doc de `RunFrame.taskRef`) — declarada afuera del
+    // `try`, igual que `controller`, para que el `catch` la lea aunque el
+    // throw haya venido de un handler que ya la había actualizado.
+    const taskRef: { current: Task } = { current: task }
 
     try {
       // PASOS 2-4 — arma el ProviderInput y llama al ai-provider (que posee
@@ -911,6 +939,8 @@ export class Agent {
         agentDef,
         task,
         runId,
+        runState,
+        taskRef,
         projectRepos,
         repoPaths,
         primaryRepoName,
@@ -926,9 +956,6 @@ export class Agent {
         effectiveCwd,
         gitContext,
       } = workspace
-      // La limpieza viaja con el plan; el orquestador la corre en su
-      // `finally` sin saber de qué provider vino.
-      runState.releaseWorkspace = workspace.release
 
       // Orden del user turn: git context → brief → prompt del agente.
       //
@@ -1077,6 +1104,7 @@ export class Agent {
             'y cerró el run sin llamar a `submit_output`.',
         )
 
+      taskRef.current = task
       const frame: RunFrame = {
         input,
         runState,
@@ -1096,6 +1124,7 @@ export class Agent {
         systemPromptHash,
         controller,
         task,
+        taskRef,
       }
       task =
         output.mode === 'tmux'
@@ -1103,7 +1132,7 @@ export class Agent {
           : await this.handleSyncRun(frame, output, declaresOutput, missingOutput)
     } catch (err) {
       return await this.handleRunError(err, {
-        task,
+        taskRef,
         registryKey,
         controller,
         input,
@@ -1320,6 +1349,7 @@ export class Agent {
       agentPromptHash,
       systemPromptHash,
       lifecycle,
+      taskRef,
     } = frame
     let task = frame.task
 
@@ -1339,6 +1369,11 @@ export class Agent {
       runState.structuredOutput = pendingAfterRun.structuredOutput
     }
     task = pendingAfterRun?.task ?? task
+    // Sincroniza ANTES del `throw missingOutput()` de abajo: si el agente
+    // declaraba salida y no la entregó, el `catch` de `run()` no debe
+    // perder lo que una tool in-process ya mutó sobre la task (ver el doc
+    // de `RunFrame.taskRef`).
+    taskRef.current = task
     // La entrada del registry (y con ella el slot de capacidad del
     // agente/proyecto/provider) se suelta acá SÓLO para los caminos que
     // no llegan a `verify` (cancelado, movido por tool, pausado) — cada
@@ -1383,6 +1418,9 @@ export class Agent {
     if (freshPostStatus !== task.status) {
       task = { ...task, status: freshPostStatus }
     }
+    // Sincroniza antes del bloque de pausa (`attachCheckpoint` puede
+    // lanzar) — mismo motivo que arriba.
+    taskRef.current = task
     if (finalizedByTool || task.status.toLowerCase() !== initialStatus.toLowerCase()) {
       return await this.finalizeMovedByToolSyncRun({ ...frame, task }, output, finalizedByTool)
     }
@@ -1422,6 +1460,9 @@ export class Agent {
     }
 
     task = await manager.setAgentWorking(task, false)
+    // Sincroniza antes de delegar: `handleTruncatedSyncRun` postea un
+    // comentario que puede lanzar antes de reasignar su propio `task`.
+    taskRef.current = task
     const settledFrame: RunFrame = { ...frame, task }
 
     return output.truncated
@@ -1714,7 +1755,7 @@ export class Agent {
   private async handleRunError(
     err: unknown,
     params: {
-      task: Task
+      taskRef: { current: Task }
       registryKey: string
       controller: AbortController
       input: AgentRunInput
@@ -1734,6 +1775,7 @@ export class Agent {
     },
   ): Promise<Task> {
     const {
+      taskRef,
       registryKey,
       controller,
       input,
@@ -1763,7 +1805,11 @@ export class Agent {
     // ProviderAtCapacityError. Se maneja acá arriba, antes del camino de
     // error, porque justamente NO es un error: nada del trabajo se intentó.
     const atCapacity = err instanceof ProviderAtCapacityError && !explicitlyCancelled
-    const task = pendingEntry?.task ?? params.task
+    // `taskRef.current` — no la `task` de cuando arrancó el dispatch — para
+    // no perder lo que una tool in-process ya mutó (branch, status,
+    // description) si el throw vino de un handler que la había fusionado
+    // pero no llegó a devolverla (ver el doc de `RunFrame.taskRef`).
+    const task = pendingEntry?.task ?? taskRef.current
     removePendingTask(registryKey)
 
     const frame: RunFrame = {
@@ -1785,6 +1831,7 @@ export class Agent {
       systemPromptHash,
       controller,
       task,
+      taskRef: { current: task },
     }
 
     if (atCapacity) {
