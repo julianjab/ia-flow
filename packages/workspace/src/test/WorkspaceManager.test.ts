@@ -461,6 +461,51 @@ describe('ensureLocalClone', () => {
     ])
   })
 
+  it('configures SSH commit signing when gitSigningKeyPath is set', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+    })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    expect(shell.find(['git', 'config', 'gpg.format'])?.args).toEqual([
+      'git',
+      'config',
+      'gpg.format',
+      'ssh',
+    ])
+    expect(shell.find(['git', 'config', 'user.signingkey'])?.args).toEqual([
+      'git',
+      'config',
+      'user.signingkey',
+      '/secrets/git-signing/id_ed25519',
+    ])
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])?.args).toEqual([
+      'git',
+      'config',
+      'commit.gpgsign',
+      'true',
+    ])
+  })
+
+  it('does not touch signing config when gitSigningKeyPath is unset', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+  })
+
   it('is idempotent — skips clone when the destination is already a git repo', async () => {
     const dest = join(REPOS_BASE, 'acme', 'already-cloned')
     mkdirSync(join(dest, '.git'), { recursive: true })
