@@ -44,7 +44,7 @@ const options = computed<ComboOption[]>(() => {
     // El id va en TODAS las opciones. Un bot que mostraba sólo la palabra
     // "bot" es justo el caso donde el nombre menos identifica.
     hint: m.isBot ? `bot · ${m.id}` : m.id,
-    glyph: m.isBot ? '✦' : '●',
+    glyph: m.isBot ? '◆' : '●',
     title: `${label(m)} (${m.id})`,
   }));
 });

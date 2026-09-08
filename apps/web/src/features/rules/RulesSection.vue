@@ -1051,7 +1051,7 @@ const {
   font-family: var(--font-mono);
   font-size: var(--fs-body-sm);
   line-height: var(--row-h);
-  color: var(--ai);
+  color: var(--warn);
 }
 .rs-dim { color: var(--fg-dim); }
 .rs-gap {

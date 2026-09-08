@@ -58,7 +58,7 @@ const projectRows = computed<Row[]>(() => {
     { glyph: '●', glyphClass: 'is-accent', label: 'Ejecuciones del proyecto', to: `${base}/executions` },
     { glyph: '⎇', glyphClass: 'is-info', label: 'Repos y ramas', to: `${base}/repos` },
     { glyph: '⛭', glyphClass: 'is-warn', label: 'Pipeline y reglas', to: `${base}/pipeline` },
-    { glyph: '✦', glyphClass: 'is-ai', label: 'Agentes', to: `${base}/agentes` },
+    { glyph: '◆', glyphClass: 'is-accent', label: 'Agentes', to: `${base}/agentes` },
     { glyph: '▤', label: 'Overview', to: `${base}/overview` },
     { glyph: '➜', label: 'System prompts', to: `${base}/system-prompts` },
     { glyph: '⛭', label: 'Provider', to: `${base}/provider` },
@@ -216,7 +216,6 @@ function go(to: string) {
 .more__glyph { flex: 0 0 auto; width: 14px; color: var(--fg-dim); }
 .more__glyph.is-info { color: var(--info); }
 .more__glyph.is-warn { color: var(--warn); }
-.more__glyph.is-ai { color: var(--ai); }
 .more__glyph.is-accent { color: var(--accent); }
 .more__label {
   flex: 1 1 auto;

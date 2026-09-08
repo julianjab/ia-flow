@@ -383,8 +383,8 @@ function onTriggerKeydown(event: KeyboardEvent) {
   color: var(--fg);
 }
 .pce-cond--on {
-  color: var(--ai);
-  border-color: var(--ai);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .pce-cond--open {
   background: var(--panel-hi);

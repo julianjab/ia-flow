@@ -237,7 +237,7 @@ const runMessage = computed(() => {
               :title="slackBlockedReason ?? 'Taguea a los reviewers del repo en su canal de Slack'"
               @click="emit('slack-review')"
             >
-              <span class="btn-glyph">{{ slackBusy ? '◐' : '✦' }}</span>
+              <span class="btn-glyph">{{ slackBusy ? '◐' : '◆' }}</span>
               {{ slackThreadUrl ? 'Pedir re-review' : 'Solicitar review en Slack' }}
             </button>
             <p v-if="slackBlockedReason" class="slack-why">{{ slackBlockedReason }}</p>
