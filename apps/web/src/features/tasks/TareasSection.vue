@@ -835,7 +835,15 @@ function syncModalFromRoute(): void {
   }
   if (reposModalOpen.value && reposModalItem.value?.id === id) return;
   const item = projectItems.value.find((i) => i.id === id);
-  if (item) openReposModal(item);
+  if (item) {
+    openReposModal(item);
+  } else if (reposModalOpen.value) {
+    // La URL apunta a una tarea que no está en esta página (filtrada por
+    // status, o fuera del batch cargado): dejar el modal viejo abierto
+    // mentiría sobre a qué tarea corresponde el id de la URL. No tocamos el
+    // param — no sabemos si la tarea no existe o sólo no cargó todavía.
+    reposModalOpen.value = false;
+  }
 }
 
 async function onSlackReviewClick(item: TaskRow) {

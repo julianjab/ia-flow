@@ -296,6 +296,21 @@ describe('TareasSection — la tarea abierta es un path param', () => {
     expect(wrapper.findComponent(TaskDetailModal).props('taskId')).toBe('I_1')
     expect(routerPush).not.toHaveBeenCalled()
   })
+
+  // Atrás/adelante del navegador cambia `:detailId` sin desmontar la pantalla.
+  // Si la tarea nueva no está en esta página (filtrada, u otra página del
+  // batch), dejar el modal viejo abierto mostraría la tarea EQUIVOCADA para
+  // el id que ahora dice la URL.
+  it('si `:detailId` cambia a una tarea que no está cargada, cierra en vez de dejar la vieja', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    await wrapper.get('.tr').trigger('click')
+    expect(wrapper.findComponent(TaskDetailModal).props('open')).toBe(true)
+
+    routeParams.value = { detailId: 'no-existe' }
+    await flushPromises()
+
+    expect(wrapper.findComponent(TaskDetailModal).props('open')).toBe(false)
+  })
 })
 
 // ─── Pedido de review en Slack ─────────────────────────────────────────────
