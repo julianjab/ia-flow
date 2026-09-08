@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.6.0](https://github.com/julianjab/ia-flow/compare/v1.5.0...v1.6.0) (2026-09-08)
+
+
+### Features
+
+* **web:** permitir colapsar el bucket EN VUELO en ejecuciones ([69559ce](https://github.com/julianjab/ia-flow/commit/69559ce04214b7823eace040cd939b6ae6d3857b))
+* **web:** rediseño mobile — blanco táctil, orden por disposición y chrome de dos filas ([#165](https://github.com/julianjab/ia-flow/issues/165)) ([1665f56](https://github.com/julianjab/ia-flow/commit/1665f56b0ec07eaf18e1713b8cc42dc661492c49))
+
+
+### Bug Fixes
+
+* sacar responseLanguage — config muerta que ningún provider lee ([#189](https://github.com/julianjab/ia-flow/issues/189)) ([2ab16d2](https://github.com/julianjab/ia-flow/commit/2ab16d233f53765c9954ea91ccaedc479c428cef))
+
 ## [1.5.0](https://github.com/julianjab/ia-flow/compare/v1.4.1...v1.5.0) (2026-09-08)
 
 
