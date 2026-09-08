@@ -245,6 +245,9 @@ function itersPerRun(): string {
                 <th>Config</th>
                 <th class="num">Runs</th>
                 <th class="num">Éxito</th>
+                <th class="num" title="De los runs con PR resuelto (mergeado o cerrado sin merge), fracción mergeada — si el resultado no es sólo si el run terminó bien, sino si sirvió">
+                  Merge
+                </th>
                 <th class="num">Iters/run</th>
                 <th class="num">Cache</th>
                 <th class="num">Costo/run</th>
@@ -256,6 +259,7 @@ function itersPerRun(): string {
                 <td class="mono">{{ v.promptHash ?? 'sin versión' }}</td>
                 <td class="num">{{ v.runs }}</td>
                 <td class="num">{{ percent(v.successRate) }}</td>
+                <td class="num">{{ percent(v.mergeRate) }}</td>
                 <td class="num">{{ perRun(v.iters, v.runs) }}</td>
                 <td class="num">{{ percent(v.cacheHitRate) }}</td>
                 <td class="num">{{ costPerRun(v.costUsd, v.runs) }}</td>
@@ -278,6 +282,7 @@ function itersPerRun(): string {
                 <td class="mono">{{ v.systemPromptHash ?? 'sin versión' }}</td>
                 <td class="num">{{ v.runs }} runs</td>
                 <td class="num">{{ percent(v.successRate) }}</td>
+                <td class="num">{{ percent(v.mergeRate) }} merge</td>
                 <td class="num">{{ perRun(v.iters, v.runs) }} iters/run</td>
                 <td class="num">{{ costPerRun(v.costUsd, v.runs) }}/run</td>
                 <td class="dim">{{ shortDate(v.firstSeen) }} → {{ shortDate(v.lastSeen) }}</td>

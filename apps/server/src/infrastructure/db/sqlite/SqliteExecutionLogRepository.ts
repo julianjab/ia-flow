@@ -69,6 +69,9 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     structuredOutput: r.structured_output
       ? (JSON.parse(r.structured_output as string) as ExecutionLog['structuredOutput'])
       : null,
+    prNumber: (r.pr_number as number | null) ?? null,
+    prMerged: r.pr_merged == null ? null : r.pr_merged === 1,
+    reviewRounds: (r.review_rounds as number | null) ?? null,
   }
 }
 
@@ -104,8 +107,9 @@ export class SqliteExecutionLogRepository
          duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
          initial_status, exits, finalized_by_tool, assignees,
          kind, rule_id, event_id, event_type, position, parent_id,
-         model, system_prompt_hash, tool_breakdown, resumed_from_run_id, trace_id, structured_output)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         model, system_prompt_hash, tool_breakdown, resumed_from_run_id, trace_id, structured_output,
+         pr_number, pr_merged, review_rounds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -147,7 +151,10 @@ export class SqliteExecutionLogRepository
          tool_breakdown = excluded.tool_breakdown,
          resumed_from_run_id = excluded.resumed_from_run_id,
          trace_id = excluded.trace_id,
-         structured_output = excluded.structured_output`,
+         structured_output = excluded.structured_output,
+         pr_number = excluded.pr_number,
+         pr_merged = excluded.pr_merged,
+         review_rounds = excluded.review_rounds`,
       [
         entry.id,
         entry.projectId,
@@ -191,6 +198,9 @@ export class SqliteExecutionLogRepository
         entry.resumedFromRunId ?? null,
         entry.traceId ?? null,
         entry.structuredOutput ? JSON.stringify(entry.structuredOutput) : null,
+        entry.prNumber ?? null,
+        entry.prMerged == null ? null : entry.prMerged ? 1 : 0,
+        entry.reviewRounds ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -239,6 +249,9 @@ export class SqliteExecutionLogRepository
       resumedFromRunId: 'resumed_from_run_id',
       traceId: 'trace_id',
       structuredOutput: 'structured_output',
+      prNumber: 'pr_number',
+      prMerged: 'pr_merged',
+      reviewRounds: 'review_rounds',
     }
 
     const setClauses: string[] = []
@@ -341,7 +354,7 @@ export class SqliteExecutionLogRepository
                       failure_class, run_id, agent_prompt_hash, initial_status, exits,
                       finalized_by_tool, assignees, kind, rule_id, event_id, event_type, position,
                       parent_id, model, system_prompt_hash, tool_breakdown, resumed_from_run_id,
-                      trace_id
+                      trace_id, pr_number, pr_merged, review_rounds
                  FROM execution_logs`
     if (whereClauses.length > 0) {
       sql += ` WHERE ${whereClauses.join(' AND ')}`
@@ -828,6 +841,7 @@ export class SqliteExecutionLogRepository
     tokensIn: number
     cacheHitRate: number | null
     costUsd: number | null
+    mergeRate: number | null
   }> {
     // El hash es NULL para todo run anterior a que existiera la columna;
     // ésos caen en un solo bucket "sin versión" en vez de desaparecer —
@@ -841,7 +855,9 @@ export class SqliteExecutionLogRepository
                      MAX(started_at)                                       AS lastSeen,
                      COALESCE(SUM(iters), 0)                               AS iters,
                      COALESCE(SUM(tokens_in), 0)                           AS tokensIn,
-                     COALESCE(SUM(cache_read_tokens), 0)                   AS cacheReadTokens
+                     COALESCE(SUM(cache_read_tokens), 0)                   AS cacheReadTokens,
+                     SUM(CASE WHEN pr_merged = 1 THEN 1 ELSE 0 END)        AS prMerged,
+                     SUM(CASE WHEN pr_merged = 0 THEN 1 ELSE 0 END)        AS prClosed
                 FROM execution_logs ${where}
                GROUP BY ${hashCol}
                ORDER BY lastSeen DESC`)
@@ -854,6 +870,13 @@ export class SqliteExecutionLogRepository
       const tokensIn = Number(r.tokensIn ?? 0)
       const cacheRead = Number(r.cacheReadTokens ?? 0)
       const hash = (r.hash as string | null) ?? null
+      // Sólo cuenta contra runs con un PR YA resuelto (merged o closed sin
+      // merge) — uno con PR todavía abierto no es ni éxito ni fracaso, y
+      // contarlo como fracaso hundiría la tasa de una versión reciente sin
+      // decir nada de su calidad real.
+      const prMerged = Number(r.prMerged ?? 0)
+      const prClosed = Number(r.prClosed ?? 0)
+      const resolved = prMerged + prClosed
       return {
         hash,
         runs,
@@ -865,6 +888,7 @@ export class SqliteExecutionLogRepository
         tokensIn,
         cacheHitRate: cacheRead + tokensIn > 0 ? cacheRead / (cacheRead + tokensIn) : null,
         costUsd: cost.get(hash)?.costUsd ?? null,
+        mergeRate: resolved > 0 ? prMerged / resolved : null,
       }
     })
   }
