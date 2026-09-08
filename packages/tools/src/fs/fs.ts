@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { type Dirent, existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, join, relative, resolve } from 'node:path'
@@ -300,6 +300,70 @@ async function resolvePath(path: string, repoPaths: Record<string, string>): Pro
   )
 }
 
+/**
+ * Página `content` entre `offset`/`limit` (1-indexed), acotada al mismo
+ * `MAX_FILE_BYTES` que una lectura sin paginar — sin esto, `{offset:1}` sin
+ * `limit` sobre un archivo de varios MB volcaba TODO de una sola llamada
+ * (el gate de escritura, que exige cubrir el archivo entero, lo hacía
+ * además el camino más barato en turnos). El corte es por LÍNEAS
+ * efectivamente incluidas, no por el rango pedido: lo que se marca como
+ * leído es lo que realmente volvió, nunca más.
+ */
+function readPaginatedRange(
+  ctx: ToolContext,
+  abs: string,
+  content: string,
+  offset: number | undefined,
+  limit: number | undefined,
+): string {
+  const lines = content.split('\n')
+  const start = Math.max(0, (offset ?? 1) - 1)
+  const requestedEnd = Math.min(lines.length, limit ? start + limit : lines.length)
+  const numbered = lines.slice(start, requestedEnd).map((l, i) => `${start + i + 1}\t${l}`)
+  // Progreso garantizado: la primera línea SIEMPRE entra, sin importar su
+  // tamaño — el chequeo del tope sólo corta a partir de la segunda. Sin
+  // esto, una única línea >40 KB (un bundle minificado, un blob
+  // base64/JSON sin saltos) daba `actualCount = 0`: página vacía, el aviso
+  // de "continuar" repetía el MISMO offset, y el agente quedaba en loop
+  // infinito sin poder avanzar ni un byte.
+  let bytes = 0
+  let actualCount = 0
+  for (let i = 0; i < numbered.length; i++) {
+    const lineBytes = Buffer.byteLength(numbered[i]!) + 1 // +1 por el '\n'
+    if (actualCount > 0 && bytes + lineBytes > MAX_FILE_BYTES) break
+    bytes += lineBytes
+    actualCount = i + 1
+  }
+  const actualEnd = start + actualCount
+  const body = numbered.slice(0, actualCount).join('\n')
+  // Se acumula por rango, no por llamada: paginar en varias vueltas (offset
+  // 1/limit 500, 501/500, …, o el continue del corte de arriba) hasta
+  // cubrir el archivo entero marca el path igual que una sola lectura
+  // completa — es justo el flujo que la descripción de la tool recomienda
+  // para archivos grandes. Un rango parcial que nunca se completa sigue
+  // sin marcar, como el focus de Haiku.
+  //
+  // Una única línea que por sí sola ya excede el tope (bundle minificado,
+  // blob base64/JSON sin saltos) SÍ cuenta como cubierta acá — a
+  // diferencia de un focus o una cabecera recortada, no hay ninguna
+  // llamada posterior que pueda mostrar MÁS de esa misma línea (offset
+  // avanza por líneas, no por bytes dentro de una); tratarla como "nunca
+  // leída" dejaría el archivo imposible de editar para siempre, un
+  // callejón sin salida peor que aceptar la vista truncada.
+  const singleOversizedLine = actualCount === 1 && bytes > MAX_FILE_BYTES
+  recordRangeRead(ctx, abs, start, actualEnd, lines.length)
+  if (actualCount >= numbered.length && !singleOversizedLine) return body
+  const shownBody = singleOversizedLine ? body.slice(0, MAX_FILE_BYTES) : body
+  const reason = singleOversizedLine
+    ? ` (una sola línea excede ${MAX_FILE_BYTES} bytes — cortada)`
+    : ''
+  return (
+    shownBody +
+    `\n\n[Página cortada a ${MAX_FILE_BYTES} bytes${reason} — leíste las líneas ` +
+    `${start + 1}-${actualEnd} de ${lines.length}. Pasa offset:${actualEnd + 1} para continuar.]`
+  )
+}
+
 // ─── read_file ────────────────────────────────────────────────────────────
 
 registerTool({
@@ -349,60 +413,7 @@ registerTool({
     const content = await readFile(abs, 'utf-8')
 
     if (input.offset || input.limit) {
-      const lines = content.split('\n')
-      const start = Math.max(0, (input.offset ?? 1) - 1)
-      const requestedEnd = Math.min(lines.length, input.limit ? start + input.limit : lines.length)
-      const numbered = lines.slice(start, requestedEnd).map((l, i) => `${start + i + 1}\t${l}`)
-      // Tope de bytes por página, mismo `MAX_FILE_BYTES` que una lectura sin
-      // paginar — sin esto, `{offset:1}` sin `limit` sobre un archivo de
-      // varios MB volcaba TODO de una sola llamada (el gate de escritura,
-      // que exige cubrir el archivo entero, lo hacía además el camino más
-      // barato en turnos). El corte es por LÍNEAS efectivamente incluidas,
-      // no por el rango pedido: lo que se marca como leído es lo que
-      // realmente volvió, nunca más.
-      //
-      // Progreso garantizado: la primera línea SIEMPRE entra, sin importar
-      // su tamaño — el chequeo del tope sólo corta a partir de la segunda.
-      // Sin esto, una única línea >40 KB (un bundle minificado, un blob
-      // base64/JSON sin saltos) daba `actualCount = 0`: página vacía, el
-      // aviso de "continuar" repetía el MISMO offset, y el agente quedaba
-      // en loop infinito sin poder avanzar ni un byte.
-      let bytes = 0
-      let actualCount = 0
-      for (let i = 0; i < numbered.length; i++) {
-        const lineBytes = Buffer.byteLength(numbered[i]!) + 1 // +1 por el '\n'
-        if (actualCount > 0 && bytes + lineBytes > MAX_FILE_BYTES) break
-        bytes += lineBytes
-        actualCount = i + 1
-      }
-      const actualEnd = start + actualCount
-      const body = numbered.slice(0, actualCount).join('\n')
-      // Se acumula por rango, no por llamada: paginar en varias vueltas
-      // (offset 1/limit 500, 501/500, …, o el continue del corte de arriba)
-      // hasta cubrir el archivo entero marca el path igual que una sola
-      // lectura completa — es justo el flujo que la descripción de la tool
-      // recomienda para archivos grandes. Un rango parcial que nunca se
-      // completa sigue sin marcar, como el focus de Haiku.
-      //
-      // Una única línea que por sí sola ya excede el tope (bundle
-      // minificado, blob base64/JSON sin saltos) SÍ cuenta como cubierta acá
-      // — a diferencia de un focus o una cabecera recortada, no hay ninguna
-      // llamada posterior que pueda mostrar MÁS de esa misma línea (offset
-      // avanza por líneas, no por bytes dentro de una); tratarla como "nunca
-      // leída" dejaría el archivo imposible de editar para siempre, un
-      // callejón sin salida peor que aceptar la vista truncada.
-      const singleOversizedLine = actualCount === 1 && bytes > MAX_FILE_BYTES
-      recordRangeRead(ctx, abs, start, actualEnd, lines.length)
-      if (actualCount >= numbered.length && !singleOversizedLine) return body
-      const shownBody = singleOversizedLine ? body.slice(0, MAX_FILE_BYTES) : body
-      const reason = singleOversizedLine
-        ? ` (una sola línea excede ${MAX_FILE_BYTES} bytes — cortada)`
-        : ''
-      return (
-        shownBody +
-        `\n\n[Página cortada a ${MAX_FILE_BYTES} bytes${reason} — leíste las líneas ` +
-        `${start + 1}-${actualEnd} de ${lines.length}. Pasa offset:${actualEnd + 1} para continuar.]`
-      )
+      return readPaginatedRange(ctx, abs, content, input.offset, input.limit)
     }
 
     const focus = typeof input.focus === 'string' ? input.focus.trim() : ''
@@ -436,6 +447,32 @@ const FS_LIST_MAX_ENTRIES = 2000
 /** Tope de `depth`, independiente de lo que pida el modelo. */
 const FS_LIST_MAX_DEPTH = 10
 
+/** Entradas hard-excluidas u ocultas por `.gitignore` — ninguna de las dos
+ *  aporta al listado. */
+function shouldSkipListEntry(name: string, full: string, ctx: ToolContext): boolean {
+  if (HARD_EXCLUDED_DIRS.has(name)) return true
+  return isIgnored(full, ctx.repoPaths)
+}
+
+/** Procesa una entrada del directorio: la agrega a `out` (salvo que esté
+ *  excluida) y recurre si es un directorio y queda profundidad. Devuelve
+ *  `true` si la recursión se cortó por `FS_LIST_MAX_ENTRIES`. */
+async function processListEntry(
+  e: Dirent,
+  abs: string,
+  rel: string,
+  depth: number,
+  ctx: ToolContext,
+  out: string[],
+): Promise<boolean> {
+  const full = join(abs, e.name)
+  if (shouldSkipListEntry(e.name, full, ctx)) return false
+  const relPath = rel ? `${rel}/${e.name}` : e.name
+  out.push(`${e.isDirectory() ? 'd' : 'f'} ${relPath}`)
+  if (!e.isDirectory() || depth <= 1) return false
+  return listTree(full, relPath, depth - 1, ctx, out)
+}
+
 /** Devuelve `true` si se cortó por `FS_LIST_MAX_ENTRIES` — deja de recorrer
  *  en cuanto se detecta, en vez de seguir juntando entradas que después se
  *  descartarían igual. */
@@ -451,15 +488,7 @@ async function listTree(
   entries.sort((a, b) => a.name.localeCompare(b.name))
   for (const e of entries) {
     if (out.length >= FS_LIST_MAX_ENTRIES) return true
-    if (HARD_EXCLUDED_DIRS.has(e.name)) continue
-    const full = join(abs, e.name)
-    if (isIgnored(full, ctx.repoPaths)) continue
-    const relPath = rel ? `${rel}/${e.name}` : e.name
-    out.push(`${e.isDirectory() ? 'd' : 'f'} ${relPath}`)
-    if (e.isDirectory() && depth > 1) {
-      const capped = await listTree(full, relPath, depth - 1, ctx, out)
-      if (capped) return true
-    }
+    if (await processListEntry(e, abs, rel, depth, ctx, out)) return true
   }
   return false
 }
@@ -540,6 +569,144 @@ function globToRegex(glob: string): RegExp {
   return new RegExp('^' + pattern + '$')
 }
 
+/** El `+ '/'` importa: sin él, un repo "/x/api" matchea también contra
+ *  "/x/api-web/..." (prefijo de string, no de path) y el label sale mal
+ *  formado — mismo chequeo que `assertInRepo`/`resolveOwningRepo`. */
+function resolveGrepLabel(full: string, repoPaths: Record<string, string>): string {
+  const root =
+    Object.entries(repoPaths).find(([, p]) => full === p || full.startsWith(p + '/'))?.[0] ?? ''
+  const rel = root ? relative(repoPaths[root], full) : full
+  return `${root}/${rel}`
+}
+
+/** Junta la línea de match con sus `contextLines` de antes/después, en el
+ *  formato `<label>-<n>- <content>` / `<label>:<n>: <content>` de rg -C. */
+function buildGrepMatchBlock(
+  lines: string[],
+  i: number,
+  label: string,
+  contextLines: number,
+): string {
+  const start = Math.max(0, i - contextLines)
+  const end = Math.min(lines.length - 1, i + contextLines)
+  const block: string[] = []
+  for (let j = start; j < i; j++) block.push(`${label}-${j + 1}- ${lines[j].trim()}`)
+  block.push(`${label}:${i + 1}: ${lines[i].trim()}`)
+  for (let j = i + 1; j <= end; j++) block.push(`${label}-${j + 1}- ${lines[j].trim()}`)
+  return block.join('\n')
+}
+
+/** Busca `regex` dentro de un único archivo y acumula matches/label en
+ *  `results`/`matchedFiles` (por referencia — mismo patrón que `search`,
+ *  para no duplicar el estado del walk en cada llamada). */
+/** Recorre las líneas de un archivo ya leído probando `regex` contra cada
+ *  una, empujando bloques de match a `results` — separado de
+ *  `matchFileForGrep` para no sumar la complejidad del loop a los early
+ *  returns/try-catch de resolución del archivo. Devuelve si hubo al menos
+ *  un match (lo que necesita el caller para `files_only`). */
+function matchLinesInFile(
+  lines: string[],
+  regex: RegExp,
+  label: string,
+  contextLines: number,
+  filesOnly: boolean,
+  results: string[],
+): boolean {
+  let hasMatch = false
+  for (let i = 0; i < lines.length; i++) {
+    const subject =
+      lines[i]!.length > MAX_GREP_LINE_LENGTH ? lines[i]!.slice(0, MAX_GREP_LINE_LENGTH) : lines[i]!
+    if (!regex.test(subject)) continue
+    hasMatch = true
+    if (filesOnly) break
+    results.push(buildGrepMatchBlock(lines, i, label, contextLines))
+    if (results.length >= GREP_SAFETY_CAP) break
+  }
+  return hasMatch
+}
+
+async function matchFileForGrep(
+  full: string,
+  name: string,
+  ctx: ToolContext,
+  regex: RegExp,
+  globRe: RegExp | null,
+  contextLines: number,
+  filesOnly: boolean,
+  results: string[],
+  matchedFiles: string[],
+): Promise<void> {
+  if (results.length >= GREP_SAFETY_CAP) return
+  if (globRe && !globRe.test(name)) return
+  if (isIgnored(full, ctx.repoPaths)) return
+  // `Dirent.isDirectory()` da `false` para un symlink, así que un archivo
+  // symlinkeado (`link.txt -> /etc/passwd`) llega hasta acá sin que el
+  // walk lo filtre solo — sin este chequeo, `readFile` lo sigue y vuelca
+  // contenido de fuera del repo.
+  if (!(await realPathStaysInRepo(full, ctx.repoPaths))) return
+  try {
+    const content = await readFile(full, 'utf-8')
+    const lines = content.split('\n')
+    const label = resolveGrepLabel(full, ctx.repoPaths)
+    const hasMatch = matchLinesInFile(lines, regex, label, contextLines, filesOnly, results)
+    if (filesOnly && hasMatch) matchedFiles.push(label)
+  } catch {
+    /* skip binary files */
+  }
+}
+
+/** Recorre `dir` recursivamente delegando cada archivo a `matchFileForGrep`.
+ *  Mismo patrón de walk que `listTree`/`walkGlobDir`: excluidos hard-coded +
+ *  `.gitignore`, orden determinístico para que la paginación por `cursor`
+ *  sea estable entre llamadas. */
+async function searchDirForGrep(
+  dir: string,
+  ctx: ToolContext,
+  regex: RegExp,
+  globRe: RegExp | null,
+  contextLines: number,
+  filesOnly: boolean,
+  results: string[],
+  matchedFiles: string[],
+): Promise<void> {
+  if (results.length >= GREP_SAFETY_CAP && !filesOnly) return
+  if (filesOnly && matchedFiles.length >= GREP_SAFETY_CAP) return
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  // Orden determinístico: paginar con `cursor` asume que dos corridas del
+  // mismo patrón devuelven los matches en el mismo orden. `readdir` no lo
+  // garantiza (y `rg` recorre en paralelo, ver `--sort path` más abajo).
+  entries.sort((a, b) => a.name.localeCompare(b.name))
+  for (const e of entries) {
+    const full = join(dir, e.name)
+    if (e.isDirectory()) {
+      if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
+      if (isIgnored(full, ctx.repoPaths)) continue
+      await searchDirForGrep(
+        full,
+        ctx,
+        regex,
+        globRe,
+        contextLines,
+        filesOnly,
+        results,
+        matchedFiles,
+      )
+    } else {
+      await matchFileForGrep(
+        full,
+        e.name,
+        ctx,
+        regex,
+        globRe,
+        contextLines,
+        filesOnly,
+        results,
+        matchedFiles,
+      )
+    }
+  }
+}
+
 /**
  * JS-based recursive walk. Kept as fallback for environments without
  * ripgrep installed. Behaviour is identical to the pre-rg implementation:
@@ -575,77 +742,22 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
   const results: string[] = []
   const matchedFiles: string[] = []
 
-  async function matchFile(full: string, name: string): Promise<void> {
-    if (results.length >= GREP_SAFETY_CAP) return
-    if (globRe && !globRe.test(name)) return
-    if (isIgnored(full, ctx.repoPaths)) return
-    // `Dirent.isDirectory()` da `false` para un symlink, así que un archivo
-    // symlinkeado (`link.txt -> /etc/passwd`) llega hasta acá sin que el
-    // walk lo filtre solo — sin este chequeo, `readFile` lo sigue y vuelca
-    // contenido de fuera del repo.
-    if (!(await realPathStaysInRepo(full, ctx.repoPaths))) return
-    try {
-      const content = await readFile(full, 'utf-8')
-      const lines = content.split('\n')
-      // El `+ '/'` importa: sin él, un repo "/x/api" matchea también contra
-      // "/x/api-web/..." (prefijo de string, no de path) y el label sale
-      // mal formado — mismo chequeo que `assertInRepo`/`resolveOwningRepo`.
-      const root =
-        Object.entries(ctx.repoPaths).find(
-          ([, p]) => full === p || full.startsWith(p + '/'),
-        )?.[0] ?? ''
-      const rel = root ? relative(ctx.repoPaths[root], full) : full
-      const label = `${root}/${rel}`
-      let hasMatch = false
-      for (let i = 0; i < lines.length; i++) {
-        const subject =
-          lines[i]!.length > MAX_GREP_LINE_LENGTH
-            ? lines[i]!.slice(0, MAX_GREP_LINE_LENGTH)
-            : lines[i]!
-        if (!regex.test(subject)) continue
-        hasMatch = true
-        if (filesOnly) break
-        const start = Math.max(0, i - contextLines)
-        const end = Math.min(lines.length - 1, i + contextLines)
-        const block: string[] = []
-        for (let j = start; j < i; j++) block.push(`${label}-${j + 1}- ${lines[j].trim()}`)
-        block.push(`${label}:${i + 1}: ${lines[i].trim()}`)
-        for (let j = i + 1; j <= end; j++) block.push(`${label}-${j + 1}- ${lines[j].trim()}`)
-        results.push(block.join('\n'))
-        if (results.length >= GREP_SAFETY_CAP) return
-      }
-      if (filesOnly && hasMatch) matchedFiles.push(label)
-    } catch {
-      /* skip binary files */
-    }
-  }
-
-  async function search(dir: string): Promise<void> {
-    if (results.length >= GREP_SAFETY_CAP && !filesOnly) return
-    if (filesOnly && matchedFiles.length >= GREP_SAFETY_CAP) return
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
-    // Orden determinístico: paginar con `cursor` asume que dos corridas del
-    // mismo patrón devuelven los matches en el mismo orden. `readdir` no lo
-    // garantiza (y `rg` recorre en paralelo, ver `--sort path` más abajo).
-    entries.sort((a, b) => a.name.localeCompare(b.name))
-    for (const e of entries) {
-      const full = join(dir, e.name)
-      if (e.isDirectory()) {
-        if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
-        if (isIgnored(full, ctx.repoPaths)) continue
-        await search(full)
-      } else {
-        await matchFile(full, e.name)
-      }
-    }
-  }
-
   const s = await stat(abs).catch(() => null)
   if (s?.isDirectory()) {
-    await search(abs)
+    await searchDirForGrep(abs, ctx, regex, globRe, contextLines, filesOnly, results, matchedFiles)
   } else if (s?.isFile()) {
     // Parity with rg: when a file path is provided, search only that file.
-    await matchFile(abs, basename(abs))
+    await matchFileForGrep(
+      abs,
+      basename(abs),
+      ctx,
+      regex,
+      globRe,
+      contextLines,
+      filesOnly,
+      results,
+      matchedFiles,
+    )
   }
   return filesOnly ? matchedFiles.sort().slice(0, GREP_SAFETY_CAP) : results
 }
@@ -700,54 +812,164 @@ async function readBounded(
  * líneas de contexto contiguas (mismo archivo, número de línea consecutivo)
  * se le suman antes/después.
  */
-function groupRgJsonContext(stdout: string, repoName: string): string[] {
-  const entries: Array<{
-    type: 'match' | 'context'
-    label: string
-    line: number
-    content: string
-  }> = []
-  for (const rawLine of stdout.split('\n')) {
-    if (!rawLine) continue
-    let obj: unknown
-    try {
-      obj = JSON.parse(rawLine)
-    } catch {
-      continue // línea incompleta — puede pasar si `readBounded` cortó a mitad de un objeto
-    }
-    const rec = obj as { type?: string; data?: Record<string, unknown> }
-    if (rec.type !== 'match' && rec.type !== 'context') continue
-    const path = (rec.data?.path as { text?: string } | undefined)?.text
-    const line = rec.data?.line_number
-    const text = (rec.data?.lines as { text?: string } | undefined)?.text
-    if (typeof path !== 'string' || typeof line !== 'number' || typeof text !== 'string') continue
-    entries.push({
-      type: rec.type,
-      label: `${repoName}/${path}`,
-      line,
-      content: text.replace(/\n$/, '').trim(),
-    })
-  }
+type RgJsonEntry = { type: 'match' | 'context'; label: string; line: number; content: string }
 
+/** Parsea una línea NDJSON de `rg --json` a un `RgJsonEntry`, o `null` si no
+ *  es una línea `match`/`context` utilizable (vacía, JSON incompleto —puede
+ *  pasar si `readBounded` cortó a mitad de un objeto—, o le faltan campos). */
+function parseRgJsonLine(rawLine: string, repoName: string): RgJsonEntry | null {
+  if (!rawLine) return null
+  let obj: unknown
+  try {
+    obj = JSON.parse(rawLine)
+  } catch {
+    return null
+  }
+  const rec = obj as { type?: string; data?: Record<string, unknown> }
+  if (rec.type !== 'match' && rec.type !== 'context') return null
+  const path = (rec.data?.path as { text?: string } | undefined)?.text
+  const line = rec.data?.line_number
+  const text = (rec.data?.lines as { text?: string } | undefined)?.text
+  if (typeof path !== 'string' || typeof line !== 'number' || typeof text !== 'string') return null
+  return {
+    type: rec.type,
+    label: `${repoName}/${path}`,
+    line,
+    content: text.replace(/\n$/, '').trim(),
+  }
+}
+
+function parseRgJsonEntries(stdout: string, repoName: string): RgJsonEntry[] {
+  const entries: RgJsonEntry[] = []
+  for (const rawLine of stdout.split('\n')) {
+    const entry = parseRgJsonLine(rawLine, repoName)
+    if (entry) entries.push(entry)
+  }
+  return entries
+}
+
+/** Contexto contiguo (mismo archivo, número de línea consecutivo) antes del
+ *  match en `entries[i]`, más cercano primero al armar el bloque. */
+function collectRgContextBefore(entries: RgJsonEntry[], i: number): string[] {
+  const e = entries[i]!
+  const before: string[] = []
+  for (let j = i - 1; j >= 0; j--) {
+    const c = entries[j]!
+    if (c.type !== 'context' || c.label !== e.label || c.line !== e.line - (i - j)) break
+    before.unshift(`${c.label}-${c.line}- ${c.content}`)
+  }
+  return before
+}
+
+function collectRgContextAfter(entries: RgJsonEntry[], i: number): string[] {
+  const e = entries[i]!
+  const after: string[] = []
+  for (let j = i + 1; j < entries.length; j++) {
+    const c = entries[j]!
+    if (c.type !== 'context' || c.label !== e.label || c.line !== e.line + (j - i)) break
+    after.push(`${c.label}-${c.line}- ${c.content}`)
+  }
+  return after
+}
+
+function buildBlocksFromRgEntries(entries: RgJsonEntry[]): string[] {
   const blocks: string[] = []
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]!
     if (e.type !== 'match') continue
-    const before: string[] = []
-    for (let j = i - 1; j >= 0; j--) {
-      const c = entries[j]!
-      if (c.type !== 'context' || c.label !== e.label || c.line !== e.line - (i - j)) break
-      before.unshift(`${c.label}-${c.line}- ${c.content}`)
-    }
-    const after: string[] = []
-    for (let j = i + 1; j < entries.length; j++) {
-      const c = entries[j]!
-      if (c.type !== 'context' || c.label !== e.label || c.line !== e.line + (j - i)) break
-      after.push(`${c.label}-${c.line}- ${c.content}`)
-    }
+    const before = collectRgContextBefore(entries, i)
+    const after = collectRgContextAfter(entries, i)
     blocks.push([...before, `${e.label}:${e.line}: ${e.content}`, ...after].join('\n'))
   }
   return blocks
+}
+
+/**
+ * Reconstruye bloques por match a partir de NDJSON de `rg --json` (con
+ * `--context` opcional). Cada objeto `data.path.text`/`data.line_number` es
+ * exacto — a diferencia de parsear el output de texto plano de rg, no hay
+ * ambigüedad posible con un path que contenga `:` o `-` seguidos de dígitos
+ * (ej. `src/step-2-form.vue`). Una línea de match ancla un bloque; las
+ * líneas de contexto contiguas (mismo archivo, número de línea consecutivo)
+ * se le suman antes/después.
+ */
+function groupRgJsonContext(stdout: string, repoName: string): string[] {
+  return buildBlocksFromRgEntries(parseRgJsonEntries(stdout, repoName))
+}
+
+function buildGrepRgArgs(
+  input: GrepInput,
+  searchTarget: string,
+  contextLines: number,
+  filesOnly: boolean,
+): string[] {
+  const args = ['--regexp', input.pattern]
+  if (filesOnly) {
+    args.push('--files-with-matches', '--color', 'never')
+  } else {
+    args.push('--json')
+    if (contextLines > 0) args.push('--context', String(contextLines))
+  }
+  if (input.case_insensitive) args.push('--ignore-case')
+  if (input.glob) args.push('--glob', input.glob)
+  // Parity with `fs_list`/`grepWithJs`: dotfiles/dot-directories are visible
+  // (rg skips them by default, unlike the JS walk) — only .git and the
+  // build/vendor noise stay excluded.
+  args.push('--hidden')
+  for (const dir of ['.git', 'node_modules', 'dist', '__pycache__', 'vendor']) {
+    args.push('--glob', `!${dir}`)
+  }
+  // rg recorre en paralelo y no garantiza orden entre archivos por default.
+  // `fs_grep` pagina con `cursor` asumiendo que dos corridas del mismo
+  // patrón devuelven los matches en el mismo orden — sin esto, la página 2
+  // podía repetir matches de la 1 y omitir otros.
+  args.push('--sort', 'path')
+  // `--` separa flags del argumento posicional: sin esto, un archivo/repo
+  // llamado literalmente "-algo" haría que rg lo interprete como flag en
+  // vez de como el path a buscar.
+  args.push('--', searchTarget)
+  return args
+}
+
+/** Corre `rg` con `args`, lee su stdout acotado a `maxLines` y devuelve
+ *  `null` cuando hay que caer al walk JS (spawn falló, o rg terminó con un
+ *  exit code que no es "hubo matches"/"no hubo matches"). Compartido por
+ *  `grepWithRg` y `globWithRg`, que spawnean rg con la misma forma. */
+async function spawnRgAndCollectStdout(
+  rgPath: string,
+  args: string[],
+  cwd: string,
+  maxLines: number,
+): Promise<string | null> {
+  let proc: ReturnType<typeof Bun.spawn>
+  try {
+    proc = Bun.spawn([rgPath, ...args], {
+      cwd,
+      stdout: 'pipe',
+      // No se lee nunca — un rg que escribe más que el buffer del pipe
+      // (warnings de binarios/paths ilegibles en un árbol grande) bloquearía
+      // escribiendo y `await proc.exited` no resolvería jamás.
+      stderr: 'ignore',
+    })
+  } catch (err) {
+    log.debug(
+      { err: err instanceof Error ? err.message : String(err) },
+      'rg spawn failed, falling back to JS walk',
+    )
+    return null
+  }
+
+  const stdout = await readBounded(proc, maxLines)
+  const exitCode = await proc.exited
+  // rg exit codes: 0 = matches, 1 = no matches, 2 = error. Un kill por corte
+  // temprano en `readBounded` también deja un exit code no-cero — no es un
+  // error de rg, así que no lo tratamos como fallback.
+  const cutEarly = stdout.split('\n').length > maxLines
+  if (!cutEarly && exitCode !== 0 && exitCode !== 1) {
+    log.debug({ exitCode }, 'rg errored, falling back to JS walk')
+    return null
+  }
+  return stdout
 }
 
 /**
@@ -777,62 +999,11 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   )
   const filesOnly = !!input.files_only
 
-  const args = ['--regexp', input.pattern]
-  if (filesOnly) {
-    args.push('--files-with-matches', '--color', 'never')
-  } else {
-    args.push('--json')
-    if (contextLines > 0) args.push('--context', String(contextLines))
-  }
-  if (input.case_insensitive) args.push('--ignore-case')
-  if (input.glob) args.push('--glob', input.glob)
-  // Parity with `fs_list`/`grepWithJs`: dotfiles/dot-directories are visible
-  // (rg skips them by default, unlike the JS walk) — only .git and the
-  // build/vendor noise stay excluded.
-  args.push('--hidden')
-  for (const dir of ['.git', 'node_modules', 'dist', '__pycache__', 'vendor']) {
-    args.push('--glob', `!${dir}`)
-  }
-  // rg recorre en paralelo y no garantiza orden entre archivos por default.
-  // `fs_grep` pagina con `cursor` asumiendo que dos corridas del mismo
-  // patrón devuelven los matches en el mismo orden — sin esto, la página 2
-  // podía repetir matches de la 1 y omitir otros.
-  args.push('--sort', 'path')
-  // `--` separa flags del argumento posicional: sin esto, un archivo/repo
-  // llamado literalmente "-algo" haría que rg lo interprete como flag en
-  // vez de como el path a buscar.
-  args.push('--', searchTarget)
-
-  let proc: ReturnType<typeof Bun.spawn>
-  try {
-    proc = Bun.spawn([rgPath, ...args], {
-      cwd: repoRoot,
-      stdout: 'pipe',
-      // No se lee nunca — un rg que escribe más que el buffer del pipe
-      // (warnings de binarios/paths ilegibles en un árbol grande) bloquearía
-      // escribiendo y `await proc.exited` no resolvería jamás.
-      stderr: 'ignore',
-    })
-  } catch (err) {
-    log.debug(
-      { err: err instanceof Error ? err.message : String(err) },
-      'rg spawn failed, falling back to JS walk',
-    )
-    return null
-  }
-
+  const args = buildGrepRgArgs(input, searchTarget, contextLines, filesOnly)
   // Cada match no-files_only produce varias líneas NDJSON (match + contexto
   // + begin/end por archivo), de ahí el margen sobre GREP_SAFETY_CAP.
-  const stdout = await readBounded(proc, GREP_SAFETY_CAP * 4)
-  const exitCode = await proc.exited
-  // rg exit codes: 0 = matches, 1 = no matches, 2 = error. Un kill por corte
-  // temprano en `readBounded` también deja un exit code no-cero — no es un
-  // error de rg, así que no lo tratamos como fallback.
-  const cutEarly = stdout.split('\n').length > GREP_SAFETY_CAP * 4
-  if (!cutEarly && exitCode !== 0 && exitCode !== 1) {
-    log.debug({ exitCode }, 'rg errored, falling back to JS walk')
-    return null
-  }
+  const stdout = await spawnRgAndCollectStdout(rgPath, args, repoRoot, GREP_SAFETY_CAP * 4)
+  if (stdout === null) return null
 
   if (filesOnly) {
     return stdout
@@ -858,6 +1029,60 @@ function parseGrepCursor(cursor: unknown): number {
         ? cursor
         : 0
   return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/** rg → JS walk fallback compartido por `fs_grep.execute`. Un `SyntaxError`
+ *  del `new RegExp` de la JS walk (patrón válido para rg/Rust pero no para
+ *  JS, p.ej. `(?P<x>...)`) se convierte en un mensaje de error de la tool;
+ *  cualquier otro throw (p.ej. `assertInRepo`) sigue escalando como lo
+ *  hacen `fs_read`/`fs_list`. */
+async function resolveGrepResults(
+  grepInput: GrepInput,
+  ctx: ToolContext,
+): Promise<{ results: string[] } | { error: string }> {
+  let results: string[] | null = null
+  try {
+    results = await grepWithRg(grepInput, ctx)
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'rg backend threw, falling back to JS walk',
+    )
+    results = null
+  }
+  if (results !== null) return { results }
+
+  try {
+    return { results: await grepWithJs(grepInput, ctx) }
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      return { error: `Invalid pattern '${grepInput.pattern}': ${err.message}` }
+    }
+    throw err
+  }
+}
+
+function formatGrepPage(results: string[], cursor: unknown, grepInput: GrepInput): string {
+  const total = results.length
+  const requestedOffset = parseGrepCursor(cursor)
+  if (requestedOffset >= total) {
+    return `No more matches — the cursor is past the last one (${total} total).`
+  }
+  const offset = requestedOffset
+  const page = results.slice(offset, offset + DEFAULT_GREP_LIMIT)
+  const end = offset + page.length
+  const kind = grepInput.files_only ? 'files' : 'matches'
+  const capped = total >= GREP_SAFETY_CAP
+  const hasMore = end < total
+  const header =
+    offset > 0 || hasMore || capped
+      ? `[Showing ${kind} ${offset + 1}-${end} of ${total}` +
+        (capped ? ` (search capped at ${GREP_SAFETY_CAP}, there may be more)` : '') +
+        (hasMore ? `. Pass cursor: "${end}" for the next page` : '') +
+        '.]\n\n'
+      : ''
+  const sep = grepInput.context_lines ? '\n--\n' : '\n'
+  return header + page.join(sep)
 }
 
 registerTool({
@@ -893,57 +1118,12 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const grepInput = input as GrepInput
-    let results: string[] | null = null
-    try {
-      results = await grepWithRg(grepInput, ctx)
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'rg backend threw, falling back to JS walk',
-      )
-      results = null
-    }
-    if (results === null) {
-      try {
-        results = await grepWithJs(grepInput, ctx)
-      } catch (err) {
-        // Un patrón válido para la sintaxis de regex de rg (Rust) puede no
-        // serlo para `new RegExp` (JS) — p.ej. `(?P<x>...)`. Cuando rg no
-        // está disponible y cae acá, ese throw no puede escapar de la tool.
-        // Sólo el error de sintaxis del propio RegExp se convierte en este
-        // mensaje — un rechazo de `assertInRepo` (path fuera del repo) es un
-        // Error genérico, no un SyntaxError, y tiene que seguir escalando
-        // como lo hacen `fs_read`/`fs_list` (el engine lo envuelve en
-        // "Error: ...").
-        if (err instanceof SyntaxError) {
-          return `Invalid pattern '${input.pattern}': ${err.message}`
-        }
-        throw err
-      }
-    }
+    const resolved = await resolveGrepResults(grepInput, ctx)
+    if ('error' in resolved) return resolved.error
 
+    const { results } = resolved
     if (results.length === 0) return `No matches found for '${input.pattern}'`
-
-    const total = results.length
-    const requestedOffset = parseGrepCursor(input.cursor)
-    if (requestedOffset >= total) {
-      return `No more matches — the cursor is past the last one (${total} total).`
-    }
-    const offset = requestedOffset
-    const page = results.slice(offset, offset + DEFAULT_GREP_LIMIT)
-    const end = offset + page.length
-    const kind = grepInput.files_only ? 'files' : 'matches'
-    const capped = total >= GREP_SAFETY_CAP
-    const hasMore = end < total
-    const header =
-      offset > 0 || hasMore || capped
-        ? `[Showing ${kind} ${offset + 1}-${end} of ${total}` +
-          (capped ? ` (search capped at ${GREP_SAFETY_CAP}, there may be more)` : '') +
-          (hasMore ? `. Pass cursor: "${end}" for the next page` : '') +
-          '.]\n\n'
-        : ''
-    const sep = grepInput.context_lines ? '\n--\n' : '\n'
-    return header + page.join(sep)
+    return formatGrepPage(results, input.cursor, grepInput)
   },
 })
 
@@ -995,6 +1175,56 @@ function resolveOwningRepo(
   return owner ?? null
 }
 
+type GlobMatch = { label: string; mtime: number }
+
+/** Evalúa un único archivo contra el patrón de glob y, si matchea, lo agrega
+ *  a `results` con su mtime — la rama "archivo" de `walkGlobDir`, separada
+ *  para no sumar su propia complejidad al walk recursivo. */
+async function matchGlobFile(
+  full: string,
+  name: string,
+  relPath: string,
+  ctx: ToolContext,
+  regex: RegExp,
+  hasSlash: boolean,
+  repoName: string,
+  repoRoot: string,
+  results: GlobMatch[],
+): Promise<void> {
+  if (isIgnored(full, ctx.repoPaths)) return
+  if (!regex.test(hasSlash ? relPath : name)) return
+  // Mismo motivo que en `grepWithJs`: un symlink a archivo no es una
+  // `isDirectory()`, así que llega hasta acá sin filtrar solo.
+  if (!(await realPathStaysInRepo(full, ctx.repoPaths))) return
+  const s = await stat(full).catch(() => null)
+  results.push({ label: `${repoName}/${relative(repoRoot, full)}`, mtime: s?.mtimeMs ?? 0 })
+}
+
+async function walkGlobDir(
+  dir: string,
+  rel: string,
+  ctx: ToolContext,
+  regex: RegExp,
+  hasSlash: boolean,
+  repoName: string,
+  repoRoot: string,
+  results: GlobMatch[],
+): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  for (const e of entries) {
+    if (results.length >= GLOB_MAX_RESULTS * 10) return
+    const full = join(dir, e.name)
+    const relPath = rel ? `${rel}/${e.name}` : e.name
+    if (e.isDirectory()) {
+      if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
+      if (isIgnored(full, ctx.repoPaths)) continue
+      await walkGlobDir(full, relPath, ctx, regex, hasSlash, repoName, repoRoot, results)
+    } else {
+      await matchGlobFile(full, e.name, relPath, ctx, regex, hasSlash, repoName, repoRoot, results)
+    }
+  }
+}
+
 /**
  * JS-based recursive glob walk, fallback for environments without ripgrep.
  * The pattern matches against the path relative to the given `path` (the
@@ -1013,33 +1243,11 @@ async function globWithJs(input: GlobInput, ctx: ToolContext): Promise<string[]>
   // `globToPathRegex('*.ts')` (anclado a todo el path) sólo encontraba
   // archivos en la raíz — divergiendo de lo que devuelve `globWithRg`.
   const hasSlash = input.pattern.includes('/')
-  const results: Array<{ label: string; mtime: number }> = []
-
-  async function walk(dir: string, rel: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
-    for (const e of entries) {
-      if (results.length >= GLOB_MAX_RESULTS * 10) return
-      const full = join(dir, e.name)
-      const relPath = rel ? `${rel}/${e.name}` : e.name
-      if (e.isDirectory()) {
-        if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
-        if (isIgnored(full, ctx.repoPaths)) continue
-        await walk(full, relPath)
-      } else {
-        if (isIgnored(full, ctx.repoPaths)) continue
-        if (!regex.test(hasSlash ? relPath : e.name)) continue
-        // Mismo motivo que en `grepWithJs`: un symlink a archivo no es una
-        // `isDirectory()`, así que llega hasta acá sin filtrar solo.
-        if (!(await realPathStaysInRepo(full, ctx.repoPaths))) continue
-        const s = await stat(full).catch(() => null)
-        results.push({ label: `${repoName}/${relative(repoRoot, full)}`, mtime: s?.mtimeMs ?? 0 })
-      }
-    }
-  }
+  const results: GlobMatch[] = []
 
   const s = await stat(abs).catch(() => null)
   if (s?.isDirectory()) {
-    await walk(abs, '')
+    await walkGlobDir(abs, '', ctx, regex, hasSlash, repoName, repoRoot, results)
   } else if (s?.isFile() && regex.test(basename(abs))) {
     results.push({ label: `${repoName}/${relative(repoRoot, abs)}`, mtime: s.mtimeMs })
   }
