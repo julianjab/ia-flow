@@ -177,6 +177,13 @@ describe('buildVerifyEnv', () => {
   it('is case-insensitive on the secret-pattern match', () => {
     expect(buildVerifyEnv({ myAuthHeader: 'x', OK: 'y' })).toEqual({ OK: 'y' })
   })
+
+  it('keeps SSH_AUTH_SOCK — infra de git/ssh, no un secreto, aunque matchee "auth"', () => {
+    expect(buildVerifyEnv({ SSH_AUTH_SOCK: '/tmp/ssh.sock', OK: 'y' })).toEqual({
+      SSH_AUTH_SOCK: '/tmp/ssh.sock',
+      OK: 'y',
+    })
+  })
 })
 
 describe('buildVerifyFailedError', () => {
