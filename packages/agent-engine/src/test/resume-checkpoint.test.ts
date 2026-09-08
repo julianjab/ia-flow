@@ -75,6 +75,7 @@ function makeDeps(
     listDistinctSources: () => [],
     listLatestByTask: () => [],
     listLastOutputsByAgent: () => [],
+    incrementReviewRounds: () => {},
   }
 
   const orch = new AgentOrchestrator(

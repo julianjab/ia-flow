@@ -25,6 +25,12 @@ export class BroadcastingExecutionLogRepository implements IExecutionLogReposito
     if (fresh) this.broadcast.send({ type: 'execution:updated', log: fresh })
   }
 
+  incrementReviewRounds(id: string): void {
+    this.inner.incrementReviewRounds(id)
+    const fresh = this.inner.getById(id)
+    if (fresh) this.broadcast.send({ type: 'execution:updated', log: fresh })
+  }
+
   list(filters: ExecutionLogFilters): ExecutionLog[] {
     return this.inner.list(filters)
   }

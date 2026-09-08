@@ -34,6 +34,10 @@ class FakeRepo implements IExecutionLogRepository {
     if (this.throwOnUpdate) throw new Error('update failed')
     this.updated.push({ id, patch })
   }
+  incrementReviewRounds(id: string): void {
+    if (this.throwOnUpdate) throw new Error('update failed')
+    this.updated.push({ id, patch: { reviewRounds: 1 } })
+  }
   list(_filters: ExecutionLogFilters): ExecutionLog[] {
     return this.inserted
   }

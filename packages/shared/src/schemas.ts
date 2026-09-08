@@ -1496,6 +1496,26 @@ export const ExecutionLogSchema = z.object({
    * por `getById` o vía `{{task.previous_outputs}}`.
    */
   structuredOutput: z.record(z.string(), z.unknown()).nullable().optional(),
+
+  // ─── Resultado del PR (migración 073) ───────────────────────────────────
+  // Lo que le faltaba a la telemetría existente: no cómo terminó el run, sino
+  // si lo que produjo sirvió. Se puebla asíncronamente desde
+  // `pr.merged`/`pr.closed`/`pr.review_submitted` (ver
+  // `apps/server/src/adapters/github/pr-outcome-handler.ts`) — el resultado se
+  // conoce horas o días después del run, nunca en su `finally`.
+  //
+  // El PR se atribuye al run que lo abrió por convención de branch
+  // (`task/<taskId>`), tomando el último run de agente (no sub-agente) de esa
+  // task. Es una aproximación deliberada: sin una tool dedicada de creación de
+  // PR no hay forma de saber, entre varios agentes en cadena, cuál corrió
+  // `gh pr create` — el último es correcto en el caso común de un solo
+  // builder por task.
+  /** `null` = sin PR conocido todavía. */
+  prNumber: z.number().nullable().optional(),
+  /** `null` = PR todavía abierto (o sin PR). `true`/`false` = mergeado / cerrado sin merge. */
+  prMerged: z.boolean().nullable().optional(),
+  /** Cuántas `pr.review_submitted` recibió el PR atribuido a este run. `null` = ninguna todavía. */
+  reviewRounds: z.number().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -1883,6 +1903,13 @@ const VersionStatsFields = {
   cacheHitRate: z.number().nullable().default(null),
   /** Costo estimado; null cuando ningún run de la versión trae modelo. */
   costUsd: z.number().nullable().default(null),
+  /**
+   * Fracción de los runs con PR resuelto (`prMerged` no nulo) que terminaron
+   * mergeados. `null` cuando ningún run de la versión tiene un PR resuelto
+   * todavía — es lo que convierte `agentPromptHash` en un A/B real: la tasa
+   * de éxito del run dice si terminó bien, ésta dice si lo que produjo sirvió.
+   */
+  mergeRate: z.number().nullable().default(null),
 }
 
 export const PromptVersionStatsSchema = z.object({

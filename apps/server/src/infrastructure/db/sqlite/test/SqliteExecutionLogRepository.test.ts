@@ -52,7 +52,10 @@ function makeDb(): Database {
     tool_breakdown        TEXT,
     resumed_from_run_id   TEXT,
     trace_id              TEXT,
-    structured_output     TEXT
+    structured_output     TEXT,
+    pr_number             INTEGER,
+    pr_merged             INTEGER,
+    review_rounds         INTEGER
   )`)
   return db
 }
@@ -105,6 +108,9 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     resumedFromRunId: null,
     traceId: null,
     structuredOutput: null,
+    prNumber: null,
+    prMerged: null,
+    reviewRounds: null,
     ...overrides,
   }
 }

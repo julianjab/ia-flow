@@ -16,6 +16,7 @@ import {
   WAIT_EXPIRED,
   WAIT_RESUMED,
 } from '@ia-flow/shared'
+import { PrOutcomeHandler } from './adapters/github/pr-outcome-handler.js'
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
 import {
@@ -33,6 +34,7 @@ import {
   classifyAgent,
   divergenceReconciler,
   eventBus,
+  executionLogRepo,
   pollingPause,
   projectRepo,
   publishScannedItemUseCase,
@@ -261,6 +263,14 @@ function registerWaits(): void {
   )
 }
 
+// Igual que `registerWaits`: se suscribe APARTE del motor de reglas — no es
+// una regla, es telemetría que se cruza con cada `pr.merged`/`pr.closed`/
+// `pr.review_submitted` publicado por el traductor de GitHub, aunque ninguna
+// regla escuche esos eventos.
+function registerPrOutcomeTracking(): void {
+  eventBus.subscribe(new PrOutcomeHandler(executionLogRepo))
+}
+
 /**
  * Barrido de esperas vencidas.
  *
@@ -444,6 +454,7 @@ export async function startDaemon(): Promise<void> {
   // suscripto para no perderse los eventos del scan de boot.
   registerRuleEngine()
   registerWaits()
+  registerPrOutcomeTracking()
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys

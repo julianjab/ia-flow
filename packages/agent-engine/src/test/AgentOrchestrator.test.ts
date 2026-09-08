@@ -91,6 +91,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -232,6 +233,7 @@ describe('AgentOrchestrator.runAgent — agente sync sin exits declarados', () =
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -331,6 +333,7 @@ describe('AgentOrchestrator.runAgent — structuredOutput sobrevive al cierre de
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -394,6 +397,7 @@ describe('AgentOrchestrator.runAgent — structuredOutput sobrevive al cierre de
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -475,6 +479,7 @@ describe('AgentOrchestrator.runSubAgent — hereda el traceId del padre', () => 
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -548,6 +553,7 @@ describe('AgentOrchestrator.runSubAgent — hereda el traceId del padre', () => 
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -1608,6 +1614,7 @@ describe('AgentOrchestrator.runAgent — verify gate', () => {
       listDistinctSources: () => [],
       listLatestByTask: () => [],
       listLastOutputsByAgent: () => [],
+      incrementReviewRounds: () => {},
     }
 
     const orch = new AgentOrchestrator(
@@ -1738,6 +1745,7 @@ describe('AgentOrchestrator.runAgent — verify gate', () => {
         listDistinctSources: () => [],
         listLatestByTask: () => [],
         listLastOutputsByAgent: () => [],
+        incrementReviewRounds: () => {},
       }
       const orch = new AgentOrchestrator(
         providers,
@@ -1816,6 +1824,7 @@ describe('AgentOrchestrator.runAgent — verify gate', () => {
         listDistinctSources: () => [],
         listLatestByTask: () => [],
         listLastOutputsByAgent: () => [],
+        incrementReviewRounds: () => {},
       }
       const manager: ITaskSource = {
         applyTransition: async (t: Task) => t,

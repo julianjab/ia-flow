@@ -62,6 +62,15 @@ export interface IExecutionLogRepository {
     taskId: string,
   ): Array<{ agentId: string; structuredOutput: Record<string, unknown> }>
   /**
+   * Suma 1 a `reviewRounds` (arrancando de 0 si era `null`) — atómico en el
+   * store, no un `update({ reviewRounds: leído + 1 })` desde el caller: dos
+   * `pr.review_submitted` casi simultáneos del mismo PR no pueden pisarse
+   * leyendo el mismo valor viejo. Ver `PrOutcomeHandler`
+   * (`apps/server/src/adapters/github/pr-outcome-handler.ts`), su único
+   * consumidor hoy.
+   */
+  incrementReviewRounds(id: string): void
+  /**
    * Wait for any fire-and-forget write still in flight (the remote forward
    * in RemoteExecutionLogRepository). Only implementations with async
    * writes define it; purely synchronous repos leave it undefined. Call it
