@@ -209,11 +209,16 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .tr__glyph,
-.tr__rank { grid-area: anchor; display: flex; align-items: baseline; }
+.tr__rank { grid-area: anchor; display: flex; align-items: baseline; overflow: hidden; }
 /* La fuente ya la dio por terminada aunque ningún agente la haya corrido: un
    `○` gris se lee igual que "nadie la tocó", que es exactamente lo que NO es
    este caso. */
 .tr__glyph--done-in-source :deep(.esl-glyph) { color: var(--accent); }
+/* `ExecutionStatusLine` siempre trae su texto (`esl-text`) pegado al glifo —
+   acá sólo hay lugar para el glifo (el texto completo vive en `.tr__state` /
+   la fila de abajo). Sin ocultarlo, ese texto se desbordaba de la columna de
+   16-20px y quedaba una esquirla asomando debajo del título. */
+.tr__glyph-only :deep(.esl-text) { display: none; }
 .tr__rank {
   font-family: var(--font-mono);
   font-size: var(--fs-chrome);
