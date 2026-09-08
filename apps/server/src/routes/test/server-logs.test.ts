@@ -113,6 +113,8 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
         extraLine('builder en la 12', { agentId: 'builder', taskId: 't-12', projectId: 'p1' }) +
         extraLine('refiner en la 99', { agentId: 'refiner', taskId: 't-99', projectId: 'p2' }) +
         extraLine('script de la regla', { ruleId: 'ia-flow-refine' }) +
+        extraLine('evento y run del mismo trace', { runId: 'run-1', traceId: 'trace-1' }) +
+        extraLine('sub-agente del mismo trace', { runId: 'run-2', traceId: 'trace-1' }) +
         extraLine('migración', {}),
     )
   }
@@ -139,6 +141,16 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
     seed()
     expect((await fetchEntries('?sort=asc&ruleId=ia-flow-refine')).map((e) => e.msg)).toEqual([
       'script de la regla',
+    ])
+  })
+
+  // El traceId agrupa VARIOS runId — es la cadena completa (evento → run →
+  // sub-agente), a diferencia de `runId` que sólo correlaciona un run.
+  test('filtra por traceId — agrupa runs distintos del mismo delivery/scan', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&traceId=trace-1')).map((e) => e.msg)).toEqual([
+      'evento y run del mismo trace',
+      'sub-agente del mismo trace',
     ])
   })
 
@@ -179,7 +191,7 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
   // Un query mal armado no puede vaciar el listado en silencio.
   test('un valor vacío no filtra nada', async () => {
     seed()
-    expect(await fetchEntries('?sort=asc&agentId=')).toHaveLength(5)
+    expect(await fetchEntries('?sort=asc&agentId=')).toHaveLength(7)
   })
 })
 

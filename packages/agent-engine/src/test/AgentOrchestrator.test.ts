@@ -413,6 +413,166 @@ describe('AgentOrchestrator.runAgent — structuredOutput sobrevive al cierre de
   })
 })
 
+// Cubre la propagación de `traceId` a un sub-agente: sin ella, filtrar
+// `execution_logs` por el traceId del evento que originó todo mostraba el run
+// padre pero no el hijo que lanzó con `run_agent` — la traza se cortaba justo
+// en el punto que más interesa auditar.
+describe('AgentOrchestrator.runSubAgent — hereda el traceId del padre', () => {
+  function makeSubTask(): Task {
+    return {
+      id: 'task-sub-trace-1',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  it('la fila de execution_logs del hijo lleva el mismo traceId que el padre', async () => {
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async (_: ProviderInput) => ({ content: 'listo', mode: 'api' as const }),
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [{ id: 'implementer', provider: 'anthropic-api', prompt: 'x', tools: [] }],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const repoRepo: IRepoRepository = {
+      list: () => [],
+      listByProject: () => [],
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const insert = mock(() => {})
+    const executionLogRepo: IExecutionLogRepository = {
+      insert,
+      update: () => {},
+      list: () => [],
+      listActive: () => [],
+      getById: () => null,
+      sweepOrphaned: () => [],
+      listDistinctSources: () => [],
+      listLatestByTask: () => [],
+      listLastOutputsByAgent: () => [],
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      executionLogRepo,
+    )
+
+    const outcome = await orch.runSubAgent({
+      task: makeSubTask(),
+      manager,
+      agentId: 'implementer',
+      parentRunId: 'run-padre-1',
+      parentDepth: 0,
+      traceId: 'trace-evento-1',
+    })
+
+    expect(outcome.ok).toBe(true)
+    const row = (insert.mock.calls.at(-1) as unknown as unknown[])?.[0] as {
+      traceId?: string | null
+      parentId?: string | null
+    }
+    expect(row.traceId).toBe('trace-evento-1')
+    expect(row.parentId).toBe('run-padre-1')
+  })
+
+  it('un padre sin traceId no le inventa uno al hijo', async () => {
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async (_: ProviderInput) => ({ content: 'listo', mode: 'api' as const }),
+    }
+    const providers: IProviderRegistry = {
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [{ id: 'implementer', provider: 'anthropic-api', prompt: 'x', tools: [] }],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const repoRepo: IRepoRepository = {
+      list: () => [],
+      listByProject: () => [],
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+
+    const insert = mock(() => {})
+    const executionLogRepo: IExecutionLogRepository = {
+      insert,
+      update: () => {},
+      list: () => [],
+      listActive: () => [],
+      getById: () => null,
+      sweepOrphaned: () => [],
+      listDistinctSources: () => [],
+      listLatestByTask: () => [],
+      listLastOutputsByAgent: () => [],
+    }
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      executionLogRepo,
+    )
+
+    await orch.runSubAgent({
+      task: makeSubTask(),
+      manager,
+      agentId: 'implementer',
+      parentRunId: 'run-padre-2',
+      parentDepth: 0,
+    })
+
+    const row = (insert.mock.calls.at(-1) as unknown as unknown[])?.[0] as {
+      traceId?: string | null
+    }
+    expect(row.traceId).toBeNull()
+  })
+})
+
 // ─── WorkspaceManager integration ────────────────────────────────────────
 //
 // End-to-end (in-process): a real `WorkspaceManager` wired with a stub
