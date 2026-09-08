@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
   AcceptanceCriterionSchema,
-  TaskFocusSchema,
   AgentDefinitionSchema,
   AgentProviderChoiceSchema,
   AgentProviderSchema,
@@ -32,6 +31,7 @@ import {
   StepOverrideSchema,
   StepTypeSchema,
   SystemPromptDefSchema,
+  TaskFocusSchema,
   TaskSchema,
   TaskStatusSchema,
   TaskTypeSchema,
