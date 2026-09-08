@@ -112,7 +112,11 @@ const hasRunning = computed(() => activeExecutions.loaded && activeExecutions.ac
 <style scoped>
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Una columna por tab, sean tres o cuatro: con `repeat(4, 1fr)` fijo, los
+     tres destinos actuales ocupaban tres cuartos de la barra y el cuarto
+     quedaba vacío contra el borde derecho. */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   border-top: 1px solid var(--border);
   background: var(--panel);
   position: fixed;
