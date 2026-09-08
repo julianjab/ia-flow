@@ -5,7 +5,12 @@ import {
   type ActionResult,
   renderBrief,
 } from '@ia-flow/rules'
-import { AgentActionSchema, type EngineEvent, RUN_FINISHED } from '@ia-flow/shared'
+import {
+  AgentActionSchema,
+  type EngineEvent,
+  type ExecutionLog,
+  RUN_FINISHED,
+} from '@ia-flow/shared'
 import type { z } from 'zod'
 import { createLogger } from '../../logger.js'
 
@@ -24,6 +29,14 @@ export interface AgentActionDeps {
    * vocabulario del dispatcher —soltar el item o devolverlo al backlog— y a un
    * `SourceDispatcher` no le sirve de nada un texto. Acá el consumidor es una
    * regla, que puede pasárselo al paso siguiente.
+   *
+   * `runOutcome` es el resultado REAL del agente (`success`/`error`/
+   * `cancelled`/`truncated`, el mismo valor que queda en
+   * `execution_logs.outcome`) — no confundir con `outcome`, que es el
+   * `DispatchOutcome` del dispatcher (`dispatched`/`skipped`/`deferred`, sólo
+   * dice si se pudo lanzar). Es lo que `execute` publica en `run.finished`
+   * cuando `emitOn: 'exit'`. Puede faltar en un caso ya cubierto por un
+   * `outcome !== 'dispatched'` (el agente nunca corrió).
    */
   dispatch(
     item: IssueItem,
@@ -37,7 +50,11 @@ export interface AgentActionDeps {
     exits?: AgentConfig['exits'],
     /** Ver `AgentActionSchema.liveInject`. */
     liveInject?: boolean,
-  ): Promise<{ outcome: DispatchOutcome; output?: unknown }>
+  ): Promise<{
+    outcome: DispatchOutcome
+    output?: unknown
+    runOutcome?: NonNullable<ExecutionLog['outcome']>
+  }>
   /**
    * Resuelve el issue sobre el que correr, cuando el evento no lo trae.
    *
@@ -155,24 +172,47 @@ export class AgentAction implements ActionHandler<AgentConfig> {
           rendered
         : rendered
 
-    const { outcome, output } = await this.deps.dispatch(
-      item,
-      manager,
-      config.agentId,
-      ctx.rule.id,
-      {
-        id: ctx.event.id,
-        type: ctx.event.type,
-        // La posición de ESTA acción en el `do[]`: sin ella la fila del run
-        // empataría en 0 con la primera acción y el orden del grupo en la UI
-        // quedaría a merced del sort del listado.
-        position: ctx.position,
-        traceId: ctx.event.traceId,
-      },
-      brief,
-      config.exits,
-      config.liveInject,
-    )
+    let outcome: DispatchOutcome
+    let output: unknown
+    let runOutcome: NonNullable<ExecutionLog['outcome']> | undefined
+    try {
+      ;({ outcome, output, runOutcome } = await this.deps.dispatch(
+        item,
+        manager,
+        config.agentId,
+        ctx.rule.id,
+        {
+          id: ctx.event.id,
+          type: ctx.event.type,
+          // La posición de ESTA acción en el `do[]`: sin ella la fila del run
+          // empataría en 0 con la primera acción y el orden del grupo en la
+          // UI quedaría a merced del sort del listado.
+          position: ctx.position,
+          traceId: ctx.event.traceId,
+        },
+        brief,
+        config.exits,
+        config.liveInject,
+      ))
+    } catch (err) {
+      // `Agent.run` tira para un fallo GENUINO del agente (después de aplicar
+      // su propia salida de error y loguear `execution_logs.outcome: 'error'`
+      // — ver el doc de `Agent.run`), y ese throw se propaga sin que nada en
+      // el medio lo capture. Sin este catch, `run.finished` nunca se emitía
+      // para ese caso — ni con el outcome mal (el bug que este cambio
+      // arregla) ni con ningún outcome: la regla de retry no tenía NADA
+      // contra qué matchear. Se emite acá, con el mismo outcome que ya quedó
+      // en el log, y se vuelve a tirar para no perder la visibilidad de
+      // "falló" que el runner de reglas ya le daba a este error.
+      if (config.emitOn === 'exit') {
+        await ctx.emit(
+          config.emitType ?? RUN_FINISHED,
+          { agentId: config.agentId, taskId: item.id, outcome: 'error' },
+          { ...ctx.event.scope, issueId: item.id },
+        )
+      }
+      throw err
+    }
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 
     // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra
