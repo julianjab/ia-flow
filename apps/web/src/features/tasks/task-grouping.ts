@@ -15,27 +15,28 @@ export type GroupedSection<T> =
   | { kind: 'group'; label: string; rows: T[] }
   | { kind: 'loose'; rows: T[] }
 
+/** El label de cada tarea agrupada, por id. Una tarea en dos grupos ya no
+ *  puede llegar acá (el server dedupea), pero por las dudas gana el primero. */
+function labelById(groups: TaskGroups['groups']): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const g of groups) {
+    for (const id of g.taskIds) if (!out.has(id)) out.set(id, g.label)
+  }
+  return out
+}
+
 export function sectionRows<T extends { id: string }>(
   rows: T[],
   groups: TaskGroups | null,
 ): GroupedSection<T>[] {
-  if (!groups || !groups.groups.length) {
+  if (!groups?.groups.length) {
     return rows.length ? [{ kind: 'loose', rows }] : []
   }
 
-  const groupOf = new Map<string, string>()
-  for (const g of groups.groups) {
-    for (const id of g.taskIds) if (!groupOf.has(id)) groupOf.set(id, g.label)
-  }
-
-  const sections: GroupedSection<T>[] = []
+  const groupOf = labelById(groups.groups)
   const rendered = new Set<string>()
+  const sections: GroupedSection<T>[] = []
   let loose: T[] = []
-
-  const flushLoose = () => {
-    if (loose.length) sections.push({ kind: 'loose', rows: loose })
-    loose = []
-  }
 
   for (const row of rows) {
     if (rendered.has(row.id)) continue
@@ -44,12 +45,15 @@ export function sectionRows<T extends { id: string }>(
       loose.push(row)
       continue
     }
-    flushLoose()
+    if (loose.length) {
+      sections.push({ kind: 'loose', rows: loose })
+      loose = []
+    }
     const members = rows.filter((r) => groupOf.get(r.id) === label && !rendered.has(r.id))
     for (const m of members) rendered.add(m.id)
     sections.push({ kind: 'group', label, rows: members })
   }
-  flushLoose()
+  if (loose.length) sections.push({ kind: 'loose', rows: loose })
 
   return sections
 }

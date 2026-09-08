@@ -7,6 +7,8 @@ import { useProjectsStore } from '@/features/projects/store';
 import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 import FocusCard from '@/features/tasks/FocusCard.vue';
 import { useFocusStore } from '@/features/tasks/focusStore';
+import { useTaskGroupsStore } from '@/features/tasks/groupsStore';
+import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar from '@/components/ListControlsBar.vue';
@@ -216,6 +218,53 @@ const groupByDisposition = ref(true);
  * lista se dibuja completa sin esperarlo.
  */
 const focusStore = useFocusStore();
+
+/**
+ * Los grupos por tema — sección opcional dentro del bucket `waiting-on-you`.
+ *
+ * Store aparte del de foco por el mismo motivo que el foco es aparte de las
+ * disposiciones: es otra llamada a Haiku, con otro costo y otro interruptor
+ * (`IA_FLOW_TASK_GROUPS`), y la lista se dibuja completa sin esperarla.
+ */
+const taskGroupsStore = useTaskGroupsStore();
+/** Persistido por proyecto, igual patrón que `FocusCard`'s `STORAGE_PREFIX`. */
+const GROUP_BY_TOPIC_PREFIX = 'tasks.groupByTopic.';
+const groupByTopic = ref(true);
+function readGroupByTopic(projectId: string | null): boolean {
+  if (!projectId) return true;
+  try {
+    const raw = localStorage.getItem(GROUP_BY_TOPIC_PREFIX + projectId);
+    return raw === null ? true : raw === '1';
+  } catch {
+    return true;
+  }
+}
+function setGroupByTopic(next: boolean): void {
+  groupByTopic.value = next;
+  const pid = activeProjectId.value;
+  if (!pid) return;
+  try {
+    localStorage.setItem(GROUP_BY_TOPIC_PREFIX + pid, next ? '1' : '0');
+  } catch {
+    /* el agrupamiento es una conveniencia, no estado que haya que garantizar */
+  }
+}
+watch(activeProjectId, (pid) => { groupByTopic.value = readGroupByTopic(pid); }, { immediate: true });
+/** Sin grupos no hay nada que alternar: el toggle no se dibuja para no ser
+ *  chrome que no cambia nada. */
+const hasTaskGroups = computed(
+  () => (taskGroupsStore.groupsFor(activeProjectId.value)?.groups.length ?? 0) > 0,
+);
+type BucketRowSection = GroupedSection<OrderedTask>;
+/** Las filas de un bucket, cortadas en secciones. Sólo `waiting-on-you` se
+ *  agrupa por tema; los demás buckets vuelven como una única sección suelta,
+ *  que es exactamente el `<ul>` de siempre. */
+function bucketSections(bucket: { disposition: TaskDisposition; rows: OrderedTask[] }): BucketRowSection[] {
+  if (bucket.disposition !== 'waiting-on-you' || !groupByTopic.value) {
+    return bucket.rows.length ? [{ kind: 'loose', rows: bucket.rows }] : [];
+  }
+  return sectionRows(bucket.rows, taskGroupsStore.groupsFor(activeProjectId.value));
+}
 
 /** Los títulos que la card necesita para sus picks. Salen de las filas que ya
  *  están en memoria: el foco viaja con ids, no con una segunda copia del
@@ -433,6 +482,8 @@ async function loadDispositions() {
   // una inferencia de hace dos minutos sobre la misma lista sigue siendo
   // cierta (el server la cachea por huella del contenido, no por tiempo).
   void focusStore.fetch(pid);
+  // Mismo trato que el foco: no se espera, no lleva `force`.
+  void taskGroupsStore.fetch(pid);
   // `force`: entrar a Tareas es pedir el estado de ahora, no el de la última
   // vez que la tab bar lo consultó.
   await dispositionsStore.fetch(pid, { force: true });
@@ -966,6 +1017,20 @@ watch(activeProjectId, (pid) => {
           data-testid="tareas-order-toggle"
           @click="groupByDisposition = !groupByDisposition"
         >{{ groupByDisposition ? 'por disposición' : 'por fecha' }}</button>
+        <!-- Sólo tiene sentido agrupando por disposición: agrupar por tema
+             DENTRO de un orden por fecha mezclaría dos criterios a la vez. -->
+        <button
+          v-if="groupByDisposition && hasTaskGroups"
+          type="button"
+          class="lcb-order"
+          :class="{ 'is-on': groupByTopic }"
+          :aria-pressed="groupByTopic"
+          :title="groupByTopic
+            ? 'Te espera agrupado por tema — tocá para ver la lista suelta'
+            : 'Lista suelta — tocá para agrupar por tema'"
+          data-testid="tareas-group-by-topic-toggle"
+          @click="setGroupByTopic(!groupByTopic)"
+        >{{ groupByTopic ? 'agrupado por tema' : 'sin agrupar' }}</button>
         <button
           type="button"
           class="lcb-refresh"
@@ -1146,33 +1211,46 @@ watch(activeProjectId, (pid) => {
           :open="closedOpen"
           @toggle="closedOpen = !closedOpen"
         />
-        <ul
-          v-if="bucket.disposition !== 'closed' || closedOpen"
-          class="task-list"
-          data-kbd-list="tasks"
-        >
-          <TaskRow
-            v-for="row in bucket.rows"
-            :key="row.id"
-            layout="table"
-            :data-task-id="row.id"
-            :selected="reposModalItem?.id === row.id || focusedTaskId === row.id"
-            :title="row.item.title"
-            :issue-number="row.item.issueNumber"
-            :issue-url="row.item.url"
-            :reason="reasonFor(row.id)"
-            :disposition="row.disposition"
-            :execution="runsByTask[row.id]?.last ?? null"
-            :attempts="runsByTask[row.id]?.attempts"
-            :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
-            :runs-known="runsKnown"
-            :pull-requests-known="row.item.pullRequestsKnown"
-            :has-open-pr="hasOpenPr(row.item)"
-            :agent="runsByTask[row.id]?.last.agentId"
-            :duration="durationOf(row.item)"
-            @open="openReposModal(row.item)"
-          />
-        </ul>
+        <template v-if="bucket.disposition !== 'closed' || closedOpen">
+          <template
+            v-for="(section, si) in bucketSections(bucket)"
+            :key="`${bucket.disposition}-${si}`"
+          >
+            <!-- Sub-encabezado del grupo: reusa `BucketHeader` (labelOverride
+                 lo pone en su variante neutral) desplazado un renglón para no
+                 pisar el encabezado del bucket, que también es sticky. -->
+            <BucketHeader
+              v-if="section.kind === 'group'"
+              disposition="waiting-on-you"
+              :count="section.rows.length"
+              :label-override="section.label"
+              style="top: calc(var(--tap-h) + 26px)"
+            />
+            <ul class="task-list" data-kbd-list="tasks">
+              <TaskRow
+                v-for="row in section.rows"
+                :key="row.id"
+                layout="table"
+                :data-task-id="row.id"
+                :selected="reposModalItem?.id === row.id || focusedTaskId === row.id"
+                :title="row.item.title"
+                :issue-number="row.item.issueNumber"
+                :issue-url="row.item.url"
+                :reason="reasonFor(row.id)"
+                :disposition="row.disposition"
+                :execution="runsByTask[row.id]?.last ?? null"
+                :attempts="runsByTask[row.id]?.attempts"
+                :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
+                :runs-known="runsKnown"
+                :pull-requests-known="row.item.pullRequestsKnown"
+                :has-open-pr="hasOpenPr(row.item)"
+                :agent="runsByTask[row.id]?.last.agentId"
+                :duration="durationOf(row.item)"
+                @open="openReposModal(row.item)"
+              />
+            </ul>
+          </template>
+        </template>
       </template>
 
       <ul
