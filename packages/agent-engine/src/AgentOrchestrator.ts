@@ -43,8 +43,10 @@ function expandHome(p: string): string {
  * Cuántas veces se puede reanudar un run desde su checkpoint.
  *
  * Sin tope, un run que hace crashear al proceso (OOM, un loop de tools) se
- * reanuda al bootear, lo vuelve a matar, y el reinicio queda en bucle. Tres
- * intentos alcanzan para un fallo transitorio y cortan uno determinista.
+ * reanuda al bootear, lo vuelve a matar, y el reinicio queda en bucle. Diez
+ * intentos dan margen a una racha de restarts del proceso (ej. reinicios
+ * seguidos del pod) sin perder el checkpoint, y siguen cortando uno
+ * determinista.
  *
  * Exportado (y no `private static` de `AgentOrchestrator`) porque
  * `pending-task-rehydrator.ts` necesita el MISMO criterio para decidir, al
@@ -52,7 +54,7 @@ function expandHome(p: string): string {
  * abierta en vez de cerrarla como huérfana — duplicar el número ahí sería el
  * bug de "los dos límites dicen distinto" esperando a pasar.
  */
-export const MAX_RESUME_ATTEMPTS = 3
+export const MAX_RESUME_ATTEMPTS = 10
 
 /**
  * Hasta cuándo un checkpoint sigue representando "dónde iba" la task.

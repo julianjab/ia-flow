@@ -605,7 +605,7 @@ caro:
 | Gate | Por qué |
 | --- | --- |
 | Otro agente | la conversación es de quien la escribió; dársela a otro es darle un contexto que no es suyo |
-| > 3 intentos | un run que hace crashear al proceso se reanudaría al bootear, lo volvería a matar, y el reinicio quedaría en bucle |
+| > 10 intentos (`MAX_RESUME_ATTEMPTS`) | un run que hace crashear al proceso se reanudaría al bootear, lo volvería a matar, y el reinicio quedaría en bucle |
 | > 24h | nadie lo borra cuando la task sale del pipeline: un issue que vuelve meses después reanudaría una conversación de otra era |
 | Sub-agente | corre sobre la misma task que su padre, así que `getByTask` le daría el checkpoint del PADRE |
 | El store falló | leer el checkpoint es una optimización, no un requisito |
