@@ -775,6 +775,11 @@ const detailActions = computed<string[]>(() => {
 /** `cerradas` arranca plegado: es la parte del día que NO hay que mirar (O4). */
 const closedOpen = ref(false);
 
+/** `en vuelo` arranca desplegado —es lo que se está mirando ahora—, pero se
+ *  puede plegar igual que `cerradas`: con muchos runs corriendo a la vez la
+ *  banda tapa el resto de la lista tanto como una banda de cerrados larga. */
+const movingOpen = ref(true);
+
 /**
  * La lista final: los encabezados de bucket intercalados entre las filas.
  *
@@ -853,6 +858,7 @@ const displayRows = computed<DisplayRow[]>(() => {
       count: bucket.rows.length,
     });
     if (bucket.disposition === 'closed' && !closedOpen.value) continue;
+    if (bucket.disposition === 'moving' && !movingOpen.value) continue;
     // El corte del bucket 1: las primeras cuatro, y el resto en una línea.
     const cut =
       bucket.disposition === 'waiting-on-you' && !waitingExpanded.value
@@ -1965,10 +1971,10 @@ watch(pendingFilter, () => {
           <BucketHeader
             :disposition="row.disposition"
             :count="row.count"
-            :collapsible="row.disposition === 'closed'"
-            :open="closedOpen"
+            :collapsible="row.disposition === 'closed' || row.disposition === 'moving'"
+            :open="row.disposition === 'closed' ? closedOpen : row.disposition === 'moving' ? movingOpen : true"
             :meta="row.disposition === 'closed' ? closedMeta : undefined"
-            @toggle="closedOpen = !closedOpen"
+            @toggle="row.disposition === 'closed' ? (closedOpen = !closedOpen) : (movingOpen = !movingOpen)"
           />
         </li>
 
