@@ -116,7 +116,6 @@ describe('AnthropicApiSettings type', () => {
       anthropicBeta: ['computer-use-2024-10-22'],
       systemPrompt: [{ type: 'text', text: 'You are helpful' }],
       stream: true,
-      responseLanguage: 'es',
     })
     expect(settings.anthropicBeta).toContain('computer-use-2024-10-22')
     expect(settings.systemPrompt[0].type).toBe('text')

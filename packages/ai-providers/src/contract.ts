@@ -486,7 +486,6 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   systemPrompt: [],
   thinking: { type: 'adaptive' },
   stream: true,
-  responseLanguage: 'español',
   // Decisión explícita, no un default heredado de "omitido = high" en la API.
   // 'high' es lo más alto que soporta el modelo default de arriba (Sonnet
   // 4.6) — 'xhigh' recién existe en Opus 4.7 y rompería este mismo default.

@@ -626,14 +626,20 @@ describe('AnthropicApiSettingsSchema', () => {
     expect(result.thinking?.budget_tokens).toBeUndefined()
   })
 
-  it('parses stream and responseLanguage', () => {
+  it('parses stream', () => {
     const result = AnthropicApiSettingsSchema.parse({
       ...base,
       stream: true,
-      responseLanguage: 'es',
     })
     expect(result.stream).toBe(true)
-    expect(result.responseLanguage).toBe('es')
+  })
+
+  it('ignores a stale responseLanguage field from an old saved config', () => {
+    const result = AnthropicApiSettingsSchema.parse({
+      ...base,
+      responseLanguage: 'es',
+    })
+    expect(result).not.toHaveProperty('responseLanguage')
   })
 
   it('rejects invalid thinking type', () => {
