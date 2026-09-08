@@ -79,7 +79,7 @@ export class GhCliCredentials implements ICredentialProvider {
    */
   async probeIdentity(): Promise<string | undefined> {
     const res = await this.#run(['gh', 'api', 'user', '--jq', '.login']).catch(() => null)
-    if (!res || res.code !== 0) return undefined
+    if (res?.code !== 0) return undefined
     this.#login = res.stdout.trim() || undefined
     return this.#login
   }

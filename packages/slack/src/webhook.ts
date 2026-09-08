@@ -73,7 +73,7 @@ export function slackMessageEvent(
   if (env?.type !== 'event_callback') return null
 
   const ev = env.event
-  if (!ev || ev.type !== 'message') return null
+  if (ev?.type !== 'message') return null
   if (ev.subtype) return null
   if (ev.bot_id) return null
   const text = (ev.text ?? '').trim()

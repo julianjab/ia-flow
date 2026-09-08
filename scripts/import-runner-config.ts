@@ -371,7 +371,9 @@ db.transaction(() => {
     )
   }
   const base = mcpRepo.list().length
-  mcpToWrite.forEach((entry, index) => mcpRepo.upsert(entry, base + index))
+  mcpToWrite.forEach((entry, index) => {
+    mcpRepo.upsert(entry, base + index)
+  })
 })()
 
 console.log('\n✅ Importado.\n')
