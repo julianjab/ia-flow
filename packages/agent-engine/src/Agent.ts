@@ -673,6 +673,7 @@ export class Agent {
         // Lo que ve `run_agent` para frenar una cadena circular de delegación.
         agentDepth: input.agentDepth ?? 0,
         runId,
+        traceId: input.traceId,
         taskId: task.id,
         taskTitle: task.title,
         taskDescription: task.description,

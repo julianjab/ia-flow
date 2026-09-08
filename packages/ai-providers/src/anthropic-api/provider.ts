@@ -374,6 +374,7 @@ export class AnthropicApiProvider implements IAgentProvider {
     const runId = input.runId ?? randomUUID().slice(0, 8)
     const logCtx = {
       runId,
+      traceId: input.traceId,
       agent: input.agentId,
       projectId: input.projectId,
       taskId: input.taskId,
