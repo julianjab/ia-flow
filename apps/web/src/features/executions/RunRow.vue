@@ -54,6 +54,14 @@ const props = withDefaults(
     title: string;
     /** El issue en el provider — el título es link cuando existe. */
     titleHref?: string | null;
+    /** `/projects/:id/tareas?taskId=…` — a diferencia de `titleHref` (que
+     *  depende de haber resuelto la URL del issue en el provider, y puede
+     *  fallar en silencio) esto sale de datos que TODA fila ya tiene
+     *  (`projectId` + `taskId`), así que sirve de red de contención: sin
+     *  `titleHref` ni `issueLabel`, es lo único que deja identificar a qué
+     *  tarea pertenece esta ejecución — antes la fila no llevaba a ningún
+     *  lado. */
+    taskHref?: string | null;
     /** `#1240`. Vacío cuando el id de la tarea no es un número (un node id de
      *  Projects V2 no le dice nada a nadie: mejor la columna en blanco). */
     issueLabel?: string | null;
@@ -139,6 +147,12 @@ function onKeydown(e: KeyboardEvent) {
         :title="`Abrir ${issueLabel} en el provider`"
         @click.stop
       >{{ issueLabel }}</a>
+      <RouterLink
+        v-else-if="issueLabel && taskHref"
+        :to="taskHref"
+        :title="`Ver ${issueLabel} en ia-flow`"
+        @click.stop
+      >{{ issueLabel }}</RouterLink>
       <template v-else-if="issueLabel">{{ issueLabel }}</template>
     </span>
 
@@ -159,6 +173,11 @@ function onKeydown(e: KeyboardEvent) {
             rel="noopener noreferrer"
             @click.stop
           >{{ title }}</a>
+          <RouterLink
+            v-else-if="!titleHref && !issueLabel && taskHref"
+            :to="taskHref"
+            @click.stop
+          >{{ title }}</RouterLink>
           <template v-else>{{ title }}</template>
         </span>
         <span v-if="note" class="rr__note" :title="noteTitle">{{ note }}</span>
