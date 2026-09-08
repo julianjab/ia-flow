@@ -50,33 +50,50 @@ export const useDispositionsStore = defineStore('task-dispositions', () => {
     return entriesFor(projectId).filter((d) => d.disposition === 'waiting-on-you').length
   }
 
+  /** El request en sí. `fetch` decide CUÁNDO; esto sólo lo hace. */
+  async function load(projectId: string): Promise<void> {
+    try {
+      const next = await fetchTaskDispositions(projectId)
+      byProject.value = { ...byProject.value, [projectId]: next }
+      failed.value = { ...failed.value, [projectId]: false }
+    } catch {
+      // Se marca el fallo y se deja el proyecto SIN entrada: con `[]` la
+      // pantalla no podría distinguir "no hay tareas" de "no se pudo pedir".
+      failed.value = { ...failed.value, [projectId]: true }
+    }
+  }
+
   /**
    * Trae las disposiciones del proyecto.
    *
-   * Por default NO refetchea lo ya cargado: el consumidor que quiere datos
-   * frescos (el `↺` de Tareas, un evento del socket) pasa `force`.
+   * Por default NO refetchea lo ya cargado ni duplica un fetch en vuelo: es lo
+   * que hace que la tab bar y la pantalla de Tareas montando a la vez paguen
+   * un solo request.
+   *
+   * Con `force` sí refetchea, y **no se dedupea contra el fetch en vuelo**: el
+   * `↺` pide el estado de AHORA, y colgarse de una promesa que ya salió
+   * devuelve lo que aquélla pidió — el operador toca refrescar y no pasa nada.
+   * Se encadena detrás en vez de correr en paralelo, así dos toques seguidos
+   * no son dos requests simultáneos contra la fuente.
    */
   async function fetch(projectId: string | null, opts: { force?: boolean } = {}): Promise<void> {
     if (!projectId) return
-    if (!opts.force && projectId in byProject.value) return
     const running = inFlight.get(projectId)
-    if (running) return running
+    if (!opts.force) {
+      if (projectId in byProject.value) return
+      if (running) return running
+    }
 
-    const p = (async () => {
-      try {
-        const next = await fetchTaskDispositions(projectId)
-        byProject.value = { ...byProject.value, [projectId]: next }
-        failed.value = { ...failed.value, [projectId]: false }
-      } catch {
-        // Se marca el fallo y se deja el proyecto SIN entrada: con `[]` la
-        // pantalla no podría distinguir "no hay tareas" de "no se pudo pedir".
-        failed.value = { ...failed.value, [projectId]: true }
-      } finally {
-        inFlight.delete(projectId)
-      }
-    })()
+    const p = (running ?? Promise.resolve()).then(() => load(projectId))
     inFlight.set(projectId, p)
-    return p
+    try {
+      await p
+    } finally {
+      // Sólo si sigue siendo la última: un `force` que entró mientras ésta
+      // corría ya dejó la suya, y borrarla haría que el próximo consumidor
+      // creyera que no hay nada en vuelo.
+      if (inFlight.get(projectId) === p) inFlight.delete(projectId)
+    }
   }
 
   return {

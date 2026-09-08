@@ -1688,7 +1688,14 @@ function openAgentPage(agentId: string): void {
     pushDetailId(agentId);
     return;
   }
-  void router.push(isGlobal.value ? '/general/agentes' : `/projects/${activeProjectId.value}/agentes`);
+  if (isGlobal.value) {
+    void router.push('/general/agentes');
+    return;
+  }
+  // Sin proyecto resuelto no hay roster al que ir: `/projects/null/agentes` es
+  // una pantalla que sólo puede fallar. Mismo guard que `agentHref`.
+  const pid = activeProjectId.value;
+  if (pid) void router.push(`/projects/${pid}/agentes`);
 }
 
 function closeAgentPage(): void {
