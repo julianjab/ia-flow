@@ -21,9 +21,12 @@ function onDocClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('mousedown', onDocClick));
 onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
 
-function goExecution(projectId: string) {
+function goExecution(execution: { projectId: string; id: string }) {
   open.value = false;
-  void router.push(`/projects/${projectId}/executions`);
+  void router.push({
+    path: `/projects/${execution.projectId}/executions`,
+    query: { runId: execution.id },
+  });
 }
 </script>
 
@@ -49,7 +52,7 @@ function goExecution(projectId: string) {
           v-for="e in store.executions"
           :key="e.id"
           class="popover__item"
-          @click="goExecution(e.projectId)"
+          @click="goExecution(e)"
         >
           <span class="popover__glyph">◐</span>
           <span class="popover__title">{{ e.taskTitle || e.taskId }}</span>
