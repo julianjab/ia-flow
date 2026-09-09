@@ -240,37 +240,37 @@ function renderCandidates(candidates: FocusCandidate[]): string {
  * tarea que no existe, en la única parte de la app que el usuario no puede
  * verificar de un vistazo.
  */
-function sanitize(
-  raw: Record<string, unknown>,
-  candidates: FocusCandidate[],
-  computedAt: string,
-): TaskFocus | null {
-  const known = new Set(candidates.map((c) => c.taskId))
-  const headline = typeof raw.headline === 'string' ? raw.headline.trim() : ''
-  // Sin headline no hay card: es lo único que se ve colapsada, que es el
-  // estado por default.
-  if (!headline) return null
+/** Un `raw.picks[i]` → `TaskFocusPick`, o `undefined` si no vale (taskId
+ *  desconocido/repetido, o sin `why`). */
+function toPick(p: unknown, known: Set<string>, seen: Set<string>): TaskFocusPick | undefined {
+  const pick = p as Record<string, unknown>
+  const taskId = typeof pick.taskId === 'string' ? pick.taskId : ''
+  if (!known.has(taskId) || seen.has(taskId)) return undefined
+  const why = typeof pick.why === 'string' ? pick.why.trim() : ''
+  if (!why) return undefined
+  seen.add(taskId)
+  return {
+    taskId,
+    why: clamp(why, FOCUS_WHY_MAX),
+    // Ante cualquier otra cosa, `deep`: prometer que algo es rápido y que no
+    // lo sea cuesta más que lo contrario.
+    effort: pick.effort === 'quick' ? 'quick' : 'deep',
+  }
+}
 
+function sanitizePicks(raw: Record<string, unknown>, known: Set<string>): TaskFocusPick[] {
   const seen = new Set<string>()
   const picks: TaskFocusPick[] = []
   for (const p of Array.isArray(raw.picks) ? raw.picks : []) {
-    const pick = p as Record<string, unknown>
-    const taskId = typeof pick.taskId === 'string' ? pick.taskId : ''
-    if (!known.has(taskId) || seen.has(taskId)) continue
-    const why = typeof pick.why === 'string' ? pick.why.trim() : ''
-    if (!why) continue
-    seen.add(taskId)
-    picks.push({
-      taskId,
-      why: clamp(why, FOCUS_WHY_MAX),
-      // Ante cualquier otra cosa, `deep`: prometer que algo es rápido y que no
-      // lo sea cuesta más que lo contrario.
-      effort: pick.effort === 'quick' ? 'quick' : 'deep',
-    })
+    const pick = toPick(p, known, seen)
+    if (!pick) continue
+    picks.push(pick)
     if (picks.length >= FOCUS_MAX_PICKS) break
   }
-  if (!picks.length) return null
+  return picks
+}
 
+function sanitizeClusters(raw: Record<string, unknown>, known: Set<string>): TaskFocusCluster[] {
   const clusters: TaskFocusCluster[] = []
   for (const c of Array.isArray(raw.clusters) ? raw.clusters : []) {
     const cluster = c as Record<string, unknown>
@@ -284,6 +284,24 @@ function sanitize(
     clusters.push({ label, taskIds })
     if (clusters.length >= FOCUS_MAX_CLUSTERS) break
   }
+  return clusters
+}
+
+function sanitize(
+  raw: Record<string, unknown>,
+  candidates: FocusCandidate[],
+  computedAt: string,
+): TaskFocus | null {
+  const known = new Set(candidates.map((c) => c.taskId))
+  const headline = typeof raw.headline === 'string' ? raw.headline.trim() : ''
+  // Sin headline no hay card: es lo único que se ve colapsada, que es el
+  // estado por default.
+  if (!headline) return null
+
+  const picks = sanitizePicks(raw, known)
+  if (!picks.length) return null
+
+  const clusters = sanitizeClusters(raw, known)
 
   return { headline, picks, clusters, computedAt }
 }
