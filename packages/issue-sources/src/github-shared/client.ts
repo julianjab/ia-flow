@@ -141,6 +141,26 @@ function looksLikeRateLimit(msg: string): boolean {
   return m.includes('rate limit') || m.includes('secondary rate') || m.includes('abuse detection')
 }
 
+/** `x-ratelimit-reset` de la respuesta, o `null` si no vino o no es numérico. */
+function resetAtFromHeaders(res: Response): number | null {
+  const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
+  return Number.isFinite(reset) ? reset : null
+}
+
+/** Marca el rate limit cuando una respuesta HTTP no-ok lo indica (403/429, o
+ *  el texto del body suena a rate limit). */
+function markIfRateLimitedResponse(resource: RateLimitResource, res: Response, text: string): void {
+  if (res.status !== 403 && res.status !== 429 && !looksLikeRateLimit(text)) return
+  markRateLimited(resource, text || `HTTP ${res.status}`, resetAtFromHeaders(res))
+}
+
+/** Marca el rate limit cuando un mensaje de error (GraphQL `errors[]`) suena a
+ *  rate limit — la respuesta HTTP en sí fue `ok`. */
+function markIfRateLimitedMessage(resource: RateLimitResource, res: Response, msg: string): void {
+  if (!looksLikeRateLimit(msg)) return
+  markRateLimited(resource, msg, resetAtFromHeaders(res))
+}
+
 export async function gql<T = unknown>(
   query: string,
   variables: Record<string, unknown> = {},
@@ -180,24 +200,14 @@ export async function gql<T = unknown>(
 
   if (!res.ok) {
     const text = await res.text()
-    if (res.status === 403 || res.status === 429 || looksLikeRateLimit(text)) {
-      const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
-      markRateLimited(
-        'graphql',
-        text || `HTTP ${res.status}`,
-        Number.isFinite(reset) ? reset : null,
-      )
-    }
+    markIfRateLimitedResponse('graphql', res, text)
     throw new Error(`GitHub API HTTP ${res.status}: ${text}`)
   }
 
   const json = (await res.json()) as GQLResponse<T>
   if (json.errors?.length) {
     const msg = json.errors.map((e) => e.message).join('; ')
-    if (looksLikeRateLimit(msg)) {
-      const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
-      markRateLimited('graphql', msg, Number.isFinite(reset) ? reset : null)
-    }
+    markIfRateLimitedMessage('graphql', res, msg)
     throw new GitHubGraphQLError(`GitHub GraphQL errors: ${msg}`, json.errors)
   }
 
@@ -254,10 +264,7 @@ export async function rest(
 
   if (!res.ok) {
     const text = await res.text()
-    if (res.status === 403 || res.status === 429 || looksLikeRateLimit(text)) {
-      const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
-      markRateLimited('rest', text || `HTTP ${res.status}`, Number.isFinite(reset) ? reset : null)
-    }
+    markIfRateLimitedResponse('rest', res, text)
     throw new Error(`GitHub REST ${options.method ?? 'GET'} ${path} → ${res.status}: ${text}`)
   }
 

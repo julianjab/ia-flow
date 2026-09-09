@@ -26,34 +26,50 @@
  * Un token sin prefijo se trata como `+`: es el error de tipeo más probable y
  * "añadir" es la interpretación segura (no destruye lo que ya estaba).
  */
+interface ParsedTokens {
+  replace: string[]
+  // Separado de `replace.length` a propósito: un `=` pelado significa
+  // "reemplazar por nada" (vaciar), que es distinto de no traer ningún token
+  // `=`. Sin esta bandera, vaciar el campo sería inexpresable.
+  hasReplace: boolean
+  add: string[]
+  remove: Set<string>
+}
+
+/** Clasifica UN token con signo en el balde que le corresponde. */
+function applyToken(sink: ParsedTokens, token: string): void {
+  const prefix = token[0]
+  const name = token.slice(1).trim()
+  if (prefix === '=') {
+    sink.hasReplace = true
+    if (name) sink.replace.push(name)
+    return
+  }
+  if (prefix === '-') {
+    if (name) sink.remove.add(name)
+    return
+  }
+  if (prefix === '+') {
+    if (name) sink.add.push(name)
+    return
+  }
+  sink.add.push(token)
+}
+
+/** Clasifica cada token con signo en su balde (`=`/`-`/`+`/sin prefijo). */
+function parseMultiValueTokens(tokens: string[]): ParsedTokens {
+  const sink: ParsedTokens = { replace: [], hasReplace: false, add: [], remove: new Set() }
+  for (const token of tokens) applyToken(sink, token)
+  return sink
+}
+
 export function applyMultiValueOps(current: string[], spec: string): string[] {
   const tokens = spec
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
 
-  const replace: string[] = []
-  // Separado de `replace.length` a propósito: un `=` pelado significa
-  // "reemplazar por nada" (vaciar), que es distinto de no traer ningún token
-  // `=`. Sin esta bandera, vaciar el campo sería inexpresable.
-  let hasReplace = false
-  const add: string[] = []
-  const remove = new Set<string>()
-
-  for (const token of tokens) {
-    const prefix = token[0]
-    const name = token.slice(1).trim()
-    if (prefix === '=') {
-      hasReplace = true
-      if (name) replace.push(name)
-    } else if (prefix === '-') {
-      if (name) remove.add(name)
-    } else if (prefix === '+') {
-      if (name) add.push(name)
-    } else {
-      add.push(token)
-    }
-  }
+  const { replace, hasReplace, add, remove } = parseMultiValueTokens(tokens)
 
   const base = hasReplace ? replace : current
   const result: string[] = []

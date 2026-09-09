@@ -49,6 +49,46 @@ function isBuiltinBoardField(field: string): boolean {
   return BUILTIN_ISSUE_FIELDS.some((f) => f.toLowerCase() === field.toLowerCase())
 }
 
+/** Separa el spec multi-valor (`Labels`, ver field-ops.ts) del resto de los
+ *  campos, que sí son columnas single-select/texto del board. */
+function splitMultiValueFields(fields: Record<string, string>): {
+  plainFields: Record<string, string>
+  multiValueSpec: string | undefined
+} {
+  const plainFields: Record<string, string> = {}
+  let multiValueSpec: string | undefined
+  for (const [field, value] of Object.entries(fields)) {
+    if (isMultiValueField(field)) multiValueSpec = value
+    else plainFields[field] = value
+  }
+  return { plainFields, multiValueSpec }
+}
+
+/** Clasifica cada campo plano contra las columnas reales del board: resuelto
+ *  (existe como `ProjectField`), pseudo (built-in del issue, no del board) o
+ *  faltante (ni una cosa ni la otra — error para el caller). */
+function resolveProjectFields(
+  plainFields: Record<string, string>,
+  projectFields: Record<string, ProjectField>,
+): {
+  resolved: Array<[string, ProjectField, string]>
+  missing: string[]
+  pseudo: string[]
+} {
+  const resolved: Array<[string, ProjectField, string]> = []
+  const missing: string[] = []
+  const pseudo: string[] = []
+  for (const [field, value] of Object.entries(plainFields)) {
+    const projectField = Object.entries(projectFields).find(
+      ([name]) => name.toLowerCase() === field.toLowerCase(),
+    )?.[1]
+    if (projectField) resolved.push([field, projectField, value])
+    else if (isBuiltinBoardField(field)) pseudo.push(field)
+    else missing.push(field)
+  }
+  return { resolved, missing, pseudo }
+}
+
 export class GitHubTaskSource implements TaskSource {
   constructor(
     private readonly meta: ProjectMeta,
@@ -141,12 +181,7 @@ export class GitHubTaskSource implements TaskSource {
     // con signo que se resuelven contra las labels vigentes, no un valor a
     // asignar. Se separa del resto para que no caiga en `updateItemStatus`,
     // que sólo sabe escribir single-selects del board.
-    const plainFields: Record<string, string> = {}
-    let multiValueSpec: string | undefined
-    for (const [field, value] of Object.entries(fields)) {
-      if (isMultiValueField(field)) multiValueSpec = value
-      else plainFields[field] = value
-    }
+    const { plainFields, multiValueSpec } = splitMultiValueFields(fields)
 
     // Un campo que el board no tiene es un ERROR, no un warning.
     //
@@ -164,17 +199,7 @@ export class GitHubTaskSource implements TaskSource {
     // arreglar es el orden de `applyOutcome`, que aplica la transición de
     // status ANTES de llamar acá — un `$set:Status=X,CampoInexistente=Y`
     // mueve la card igual y falla después.)
-    const resolved: Array<[string, ProjectField, string]> = []
-    const missing: string[] = []
-    const pseudo: string[] = []
-    for (const [field, value] of Object.entries(plainFields)) {
-      const projectField = Object.entries(this.meta.fields).find(
-        ([name]) => name.toLowerCase() === field.toLowerCase(),
-      )?.[1]
-      if (projectField) resolved.push([field, projectField, value])
-      else if (isBuiltinBoardField(field)) pseudo.push(field)
-      else missing.push(field)
-    }
+    const { resolved, missing, pseudo } = resolveProjectFields(plainFields, this.meta.fields)
     // Los built-ins NO son columnas del board y por eso nunca están en
     // `meta.fields` — pero `GitHubProjectSource.getFields` los ofrece igual en
     // el editor de outcomes, así que un `$set:Assignees=…` es config válida que
@@ -266,51 +291,8 @@ export class GitHubTaskSource implements TaskSource {
     // campo `Repos`. Tratarlo como fallo dejaba esa inconsistencia trabada
     // para siempre; repetir el reconcile la repara y corta el loop.
     const alreadyThere = this.repoName?.toLowerCase() === targetRepo.toLowerCase()
-    let issue: { number: number; url: string }
-    if (alreadyThere) {
-      // Las coordenadas se REUSAN, no se fabrican: un `issueNumber ?? 0` con
-      // una URL sin número terminaba en el resultado del tool y en el log del
-      // run como si fuera una coordenada real. Sin número no hay nada honesto
-      // que devolver — y no tenerlo acá es un síntoma, no un caso normal (el
-      // item del board siempre lo trae).
-      const number = this.issueNumber ?? task.issueNumber
-      if (!number) {
-        throw new Error(
-          `La tarea ya vive en '${targetRepo}' pero no se conoce el número de su issue — no hay nada que reconciliar sin él`,
-        )
-      }
-      issue = {
-        number,
-        url:
-          task.issueUrl ?? `https://github.com/${this.meta.owner}/${targetRepo}/issues/${number}`,
-      }
-    } else {
-      // Coordenadas reales, no el nombre local: los dos coinciden casi
-      // siempre, y cuando no, mandar el local apunta a un repo que no existe
-      // o —peor— a uno homónimo de otro.
-      issue = await transferIssue(
-        this.issueId,
-        target.githubOwner ?? this.meta.owner,
-        target.githubRepo ?? targetRepo,
-      )
-    }
-
-    let reposFieldSynced = false
-    if (reposField) {
-      try {
-        await setProjectTextField(this.meta.projectId, this.itemId, reposField, targetRepo)
-        reposFieldSynced = true
-      } catch (err) {
-        // En `alreadyThere` esta ES la única operación del método: si falla, no
-        // se hizo nada y el caller tiene que enterarse. Después de un transfer
-        // real, en cambio, degradar es lo correcto (ver el doc de arriba).
-        if (alreadyThere) throw err
-        log.warn(
-          { issueId: this.issueId, to: targetRepo, err },
-          'Issue transferido pero no se pudo sincronizar el campo Repos — el próximo scan lo reintenta',
-        )
-      }
-    }
+    const issue = await this.#resolveTransferredIssue(task, target, targetRepo, alreadyThere)
+    const reposFieldSynced = await this.#syncReposField(reposField, targetRepo, alreadyThere)
 
     log.info(
       {
@@ -327,6 +309,65 @@ export class GitHubTaskSource implements TaskSource {
     )
     this.broadcast({ type: 'task:updated', task: { ...task, repos: [targetRepo] } })
     return { repo: targetRepo, issueNumber: issue.number, issueUrl: issue.url }
+  }
+
+  /**
+   * Coordenadas del issue transferido: reusadas si ya estaba en el destino
+   * (ver el doc de `transferToRepo`), pedidas a GitHub si no.
+   */
+  async #resolveTransferredIssue(
+    task: Task,
+    target: TransferTarget,
+    targetRepo: string,
+    alreadyThere: boolean,
+  ): Promise<{ number: number; url: string }> {
+    if (!alreadyThere) {
+      // Coordenadas reales, no el nombre local: los dos coinciden casi
+      // siempre, y cuando no, mandar el local apunta a un repo que no existe
+      // o —peor— a uno homónimo de otro.
+      return transferIssue(
+        this.issueId,
+        target.githubOwner ?? this.meta.owner,
+        target.githubRepo ?? targetRepo,
+      )
+    }
+    // Las coordenadas se REUSAN, no se fabrican: un `issueNumber ?? 0` con
+    // una URL sin número terminaba en el resultado del tool y en el log del
+    // run como si fuera una coordenada real. Sin número no hay nada honesto
+    // que devolver — y no tenerlo acá es un síntoma, no un caso normal (el
+    // item del board siempre lo trae).
+    const number = this.issueNumber ?? task.issueNumber
+    if (!number) {
+      throw new Error(
+        `La tarea ya vive en '${targetRepo}' pero no se conoce el número de su issue — no hay nada que reconciliar sin él`,
+      )
+    }
+    return {
+      number,
+      url: task.issueUrl ?? `https://github.com/${this.meta.owner}/${targetRepo}/issues/${number}`,
+    }
+  }
+
+  /** Reconcilia el campo `Repos` del board tras un transfer. Best-effort salvo
+   *  cuando `alreadyThere` — ahí es la única operación del método, así que un
+   *  fallo debe subir (ver el doc de `transferToRepo`). */
+  async #syncReposField(
+    reposField: ProjectField | undefined,
+    targetRepo: string,
+    alreadyThere: boolean,
+  ): Promise<boolean> {
+    if (!reposField) return false
+    try {
+      await setProjectTextField(this.meta.projectId, this.itemId, reposField, targetRepo)
+      return true
+    } catch (err) {
+      if (alreadyThere) throw err
+      log.warn(
+        { issueId: this.issueId, to: targetRepo, err },
+        'Issue transferido pero no se pudo sincronizar el campo Repos — el próximo scan lo reintenta',
+      )
+      return false
+    }
   }
 
   async getCurrentStatus(_task: Task): Promise<string | null> {

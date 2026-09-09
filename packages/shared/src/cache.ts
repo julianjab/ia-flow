@@ -35,6 +35,52 @@ function entriesFor(instance: object, methodName: string): Map<string, Entry> {
   return entries
 }
 
+/** Sentinel devuelto por `tryCacheHit` en un miss — distinguible de cualquier
+ *  valor real cacheado (incluido `undefined`). */
+const MISS = Symbol('memoize-miss')
+
+function tryCacheHit<Return>(
+  entries: Map<string, Entry>,
+  cacheKey: string,
+  now: number,
+): Return | typeof MISS {
+  const hit = entries.get(cacheKey)
+  if (hit && hit.expiresAt > now) return hit.value as Return
+  return MISS
+}
+
+// Las vencidas se sueltan en el miss, que es el único momento en que ya se
+// está pagando trabajo. Sin esto, un método cuya key deriva del CONTENIDO
+// (una huella de "esto es lo que había cuando lo calculé") deja una entrada
+// muerta por cada cambio: el `ttlMs` frena las lecturas pero no libera nada,
+// y en un daemon que vive días eso crece sin techo. Con key estable —el caso
+// común— no hay nada que barrer.
+function evictExpired(entries: Map<string, Entry>, now: number): void {
+  for (const [k, e] of entries) if (e.expiresAt <= now) entries.delete(k)
+}
+
+// Record the settled value once the promise resolves, so a later
+// peekMemoized (which never awaits) can read it — `entry.value` stays the
+// Promise itself, so a hit always returns a thenable, matching the method's
+// declared return type. A rejection drops the entry, but only if it's still
+// the same one — a slow reject must not clobber a fresh entry a bypassed
+// (refresh) call already wrote under the same key.
+function trackSettlement(
+  entries: Map<string, Entry>,
+  cacheKey: string,
+  entry: Entry,
+  value: Promise<unknown>,
+): void {
+  value.then(
+    (resolved) => {
+      entry.settled = { value: resolved }
+    },
+    () => {
+      if (entries.get(cacheKey) === entry) entries.delete(cacheKey)
+    },
+  )
+}
+
 export interface MemoizeOptions<Args extends unknown[] = unknown[]> {
   /** How long a value stays fresh. Default: forever, until invalidated. */
   ttlMs?: number
@@ -68,37 +114,14 @@ export function memoize<Args extends unknown[], Return>(options: MemoizeOptions<
       const cacheKey = keyFn(...args)
       const now = Date.now()
       if (!bypassFn?.(...args)) {
-        const hit = entries.get(cacheKey)
-        if (hit && hit.expiresAt > now) return hit.value as Return
+        const hit = tryCacheHit<Return>(entries, cacheKey, now)
+        if (hit !== MISS) return hit
       }
       const value = original.call(this, ...args)
-      // Las vencidas se sueltan en el miss, que es el único momento en que ya
-      // se está pagando trabajo. Sin esto, un método cuya key deriva del
-      // CONTENIDO (una huella de "esto es lo que había cuando lo calculé")
-      // deja una entrada muerta por cada cambio: el `ttlMs` frena las
-      // lecturas pero no libera nada, y en un daemon que vive días eso crece
-      // sin techo. Con key estable —el caso común— no hay nada que barrer.
-      if (ttlMs !== Number.POSITIVE_INFINITY) {
-        for (const [k, e] of entries) if (e.expiresAt <= now) entries.delete(k)
-      }
+      if (ttlMs !== Number.POSITIVE_INFINITY) evictExpired(entries, now)
       const entry: Entry = { value, expiresAt: now + ttlMs }
       entries.set(cacheKey, entry)
-      // Record the settled value once the promise resolves, so a later
-      // peekMemoized (which never awaits) can read it — `entry.value` stays
-      // the Promise itself, so a hit always returns a thenable, matching the
-      // method's declared return type. A rejection drops the entry, but only
-      // if it's still the same one — a slow reject must not clobber a fresh
-      // entry a bypassed (refresh) call already wrote under the same key.
-      if (value instanceof Promise) {
-        value.then(
-          (resolved) => {
-            entry.settled = { value: resolved }
-          },
-          () => {
-            if (entries.get(cacheKey) === entry) entries.delete(cacheKey)
-          },
-        )
-      }
+      if (value instanceof Promise) trackSettlement(entries, cacheKey, entry, value)
       return value
     }
   }

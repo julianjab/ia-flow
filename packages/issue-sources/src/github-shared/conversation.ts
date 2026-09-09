@@ -295,6 +295,44 @@ function mapReviewThread(raw: RawReviewThread, prNumber: number): TaskComment | 
   }
 }
 
+function pushIssueComments(node: RawNode, out: TaskComment[]): void {
+  for (const raw of node.comments?.nodes ?? []) {
+    const mapped = mapComment(raw, 'issue')
+    if (mapped) out.push(mapped)
+  }
+}
+
+function pushPullRequestEntries(node: RawNode, prNumber: number, out: TaskComment[]): void {
+  for (const raw of node.comments?.nodes ?? []) {
+    const mapped = mapComment(raw, 'pr', prNumber)
+    if (mapped) out.push(mapped)
+  }
+  for (const raw of node.reviewThreads?.nodes ?? []) {
+    const mapped = mapReviewThread(raw, prNumber)
+    if (mapped) out.push(mapped)
+  }
+}
+
+/** Vuelca los `TaskComment` de UN nodo (`Issue` o `PullRequest`) de la
+ *  respuesta cruda en `out`. El número del ref (`prByNodeId`) es más
+ *  confiable que el del nodo sólo por consistencia con lo que la web ya
+ *  muestra; si el nodo lo trae, da igual cuál se use. */
+function collectConversationNode(
+  node: RawNode | null,
+  prByNodeId: Map<string, PullRequestRef>,
+  out: TaskComment[],
+): void {
+  if (!node) return
+  if (node.__typename === 'Issue') {
+    pushIssueComments(node, out)
+    return
+  }
+  if (node.__typename !== 'PullRequest') return
+  const prNumber = prByNodeId.get(node.id ?? '')?.number ?? node.number
+  if (prNumber == null) return
+  pushPullRequestEntries(node, prNumber, out)
+}
+
 /**
  * Timeline completo de la task, en orden cronológico (viejo → nuevo).
  *
@@ -324,27 +362,7 @@ export async function fetchConversation(
 
   const out: TaskComment[] = []
   for (const node of data?.nodes ?? []) {
-    if (!node) continue
-    if (node.__typename === 'Issue') {
-      for (const raw of node.comments?.nodes ?? []) {
-        const mapped = mapComment(raw, 'issue')
-        if (mapped) out.push(mapped)
-      }
-      continue
-    }
-    if (node.__typename !== 'PullRequest') continue
-    // El número del ref es más confiable que el del nodo sólo por consistencia
-    // con lo que la web ya muestra; si el nodo lo trae, da igual cuál se use.
-    const prNumber = prByNodeId.get(node.id ?? '')?.number ?? node.number
-    if (prNumber == null) continue
-    for (const raw of node.comments?.nodes ?? []) {
-      const mapped = mapComment(raw, 'pr', prNumber)
-      if (mapped) out.push(mapped)
-    }
-    for (const raw of node.reviewThreads?.nodes ?? []) {
-      const mapped = mapReviewThread(raw, prNumber)
-      if (mapped) out.push(mapped)
-    }
+    collectConversationNode(node, prByNodeId, out)
   }
 
   out.sort((a, b) => a.created_at.localeCompare(b.created_at))

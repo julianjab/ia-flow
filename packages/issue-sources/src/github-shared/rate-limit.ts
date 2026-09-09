@@ -65,37 +65,32 @@ function autoClear() {
   }
 }
 
-function snapshot(): RateLimitSnapshot {
-  // Aggregate: prefer the resource still limited with the later reset, so
-  // the banner surfaces the longer wait when both are exhausted.
+/** Recursos actualmente limitados, con su estado. */
+function findLimitedResources(): Array<{ key: RateLimitResource; s: ResourceState }> {
   const candidates: Array<{ key: RateLimitResource; s: ResourceState }> = []
   for (const key of Object.keys(perResource) as RateLimitResource[]) {
     const s = perResource[key]
     if (s.limited) candidates.push({ key, s })
   }
-  if (candidates.length === 0) {
-    // Nothing currently limited — still surface live counters (e.g. for a
-    // header chip) instead of blanking them out. Pick whichever resource is
-    // proportionally closest to exhausted, same "worst case wins" rule as
-    // the limited branch below, so a REST call (budget of 60) never masks
-    // a GraphQL budget (5000) sitting near zero, or vice versa.
-    let worst: { key: RateLimitResource; s: ResourceState; ratio: number } | null = null
-    for (const key of Object.keys(perResource) as RateLimitResource[]) {
-      const s = perResource[key]
-      if (s.remaining === null || s.limit === null || s.limit === 0) continue
-      const ratio = s.remaining / s.limit
-      if (!worst || ratio < worst.ratio) worst = { key, s, ratio }
-    }
-    if (worst) {
-      return {
-        limited: false,
-        resource: worst.key,
-        resetAt: worst.s.resetAt,
-        limit: worst.s.limit,
-        remaining: worst.s.remaining,
-        message: null,
-      }
-    }
+  return candidates
+}
+
+/**
+ * Nada está limitado ahora — igual surface los contadores en vivo (p. ej.
+ * para un chip del header) en vez de vaciarlos. Elige el recurso
+ * proporcionalmente más cerca de agotarse, misma regla "gana el peor caso"
+ * que la rama limitada de `snapshot`, para que un REST call (budget de 60)
+ * nunca tape a un budget de GraphQL (5000) cerca de cero, o viceversa.
+ */
+function worstUnlimitedSnapshot(): RateLimitSnapshot {
+  let worst: { key: RateLimitResource; s: ResourceState; ratio: number } | null = null
+  for (const key of Object.keys(perResource) as RateLimitResource[]) {
+    const s = perResource[key]
+    if (s.remaining === null || s.limit === null || s.limit === 0) continue
+    const ratio = s.remaining / s.limit
+    if (!worst || ratio < worst.ratio) worst = { key, s, ratio }
+  }
+  if (!worst) {
     return {
       limited: false,
       resource: null,
@@ -105,6 +100,22 @@ function snapshot(): RateLimitSnapshot {
       message: null,
     }
   }
+  return {
+    limited: false,
+    resource: worst.key,
+    resetAt: worst.s.resetAt,
+    limit: worst.s.limit,
+    remaining: worst.s.remaining,
+    message: null,
+  }
+}
+
+function snapshot(): RateLimitSnapshot {
+  const candidates = findLimitedResources()
+  if (candidates.length === 0) return worstUnlimitedSnapshot()
+
+  // Aggregate: prefer the resource still limited with the later reset, so
+  // the banner surfaces the longer wait when both are exhausted.
   candidates.sort((a, b) => (b.s.resetAt ?? 0) - (a.s.resetAt ?? 0))
   const { key, s } = candidates[0]
   return {

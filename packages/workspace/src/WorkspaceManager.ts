@@ -761,59 +761,99 @@ export class WorkspaceManager {
     await this.#shell.run(['git', 'worktree', 'prune'], repoBasePath)
 
     let exists = await this.#worktreeExists(repoBasePath, worktree)
-
-    // El worktree de esta task existe pero quedó en OTRA branch: pasa cuando
-    // la linked branch del issue cambia entre runs (o venía del naming
-    // legacy). git no reconcilia branches en un worktree existente, así que
-    // hay que reciclarlo — pero sólo si no hay trabajo en riesgo. Con cambios
-    // sin commitear o commits sin pushear, se falla con un mensaje accionable
-    // en vez de destruirlos.
     if (exists) {
-      const current = await this.#branchOfWorktree(repoBasePath, worktree)
-      if (current && current !== branch) {
-        const safe = await this.isWorktreeSafeToRemove(worktree, current).catch(() => false)
-        if (!safe) {
-          throw new Error(
-            `El worktree "${worktree}" está en la branch "${current}" y esta task ahora usa ` +
-              `"${branch}", pero tiene trabajo sin commitear o sin pushear. Rescatalo y después ` +
-              `removelo: git -C "${repoBasePath}" worktree remove --force "${worktree}"`,
-          )
-        }
-        log.warn(
-          { taskId, worktree, from: current, to: branch },
-          'Worktree stale en otra branch y sin trabajo en riesgo — reciclando',
-        )
-        await this.#doRemove(task, repoBasePath, current, worktree)
-        exists = false
-      }
+      exists = await this.#recycleStaleBranchWorktree(task, repoBasePath, worktree, branch)
     }
 
     if (!exists) {
-      // La branch ya está checkouteada en OTRO worktree (típicamente uno
-      // legacy, nombrado con la convención anterior). git rechazaría el
-      // `add`; el mensaje propio dice exactamente qué borrar.
-      const owner = await this.#worktreeForBranch(repoBasePath, branch)
-      if (owner && !samePath(owner, worktree)) {
-        throw new Error(
-          `La branch "${branch}" ya está checkouteada en el worktree "${owner}", ` +
-            `distinto al que esta task usa ahora ("${worktree}"). ` +
-            `Removelo para reciclarla: git -C "${repoBasePath}" worktree remove --force "${owner}"`,
-        )
-      }
-      // Directorio ocupado pero NO registrado como worktree de ESTE repo:
-      // resto de un clone anterior o de otro checkout.
-      if (existsSync(worktree)) {
-        throw new Error(
-          `El directorio "${worktree}" existe pero no es un worktree de "${repoBasePath}". ` +
-            `Revisalo y borralo para reciclarlo: rm -rf "${worktree}"`,
-        )
-      }
-      log.info({ taskId, worktree, branch }, 'create')
-      await this.#createWorktree(repoBasePath, worktree, branch)
+      await this.#createFreshWorktree(task, repoBasePath, worktree, branch)
       return { path: worktree, branch }
     }
 
-    // ── Reuse path ─────────────────────────────────────────────────────
+    return this.#reuseWorktree(taskId, worktree, branch, opts)
+  }
+
+  /**
+   * El worktree de esta task existe pero quedó en OTRA branch: pasa cuando
+   * la linked branch del issue cambia entre runs (o venía del naming
+   * legacy). git no reconcilia branches en un worktree existente, así que
+   * hay que reciclarlo — pero sólo si no hay trabajo en riesgo. Con cambios
+   * sin commitear o commits sin pushear, se falla con un mensaje accionable
+   * en vez de destruirlos.
+   *
+   * Devuelve si el worktree SIGUE existiendo tras esta llamada (false cuando
+   * se recicló).
+   */
+  async #recycleStaleBranchWorktree(
+    task: WorktreeNameSource,
+    repoBasePath: string,
+    worktree: string,
+    branch: string,
+  ): Promise<boolean> {
+    const taskId = task.id
+    const current = await this.#branchOfWorktree(repoBasePath, worktree)
+    if (!current || current === branch) return true
+
+    const safe = await this.isWorktreeSafeToRemove(worktree, current).catch(() => false)
+    if (!safe) {
+      throw new Error(
+        `El worktree "${worktree}" está en la branch "${current}" y esta task ahora usa ` +
+          `"${branch}", pero tiene trabajo sin commitear o sin pushear. Rescatalo y después ` +
+          `removelo: git -C "${repoBasePath}" worktree remove --force "${worktree}"`,
+      )
+    }
+    log.warn(
+      { taskId, worktree, from: current, to: branch },
+      'Worktree stale en otra branch y sin trabajo en riesgo — reciclando',
+    )
+    await this.#doRemove(task, repoBasePath, current, worktree)
+    return false
+  }
+
+  /**
+   * Crea el worktree cuando no hay uno existente para esta task, con los
+   * guards que evitan pisar un directorio o una branch que ya están en uso
+   * en otro lado.
+   */
+  async #createFreshWorktree(
+    task: WorktreeNameSource,
+    repoBasePath: string,
+    worktree: string,
+    branch: string,
+  ): Promise<void> {
+    const taskId = task.id
+    // La branch ya está checkouteada en OTRO worktree (típicamente uno
+    // legacy, nombrado con la convención anterior). git rechazaría el
+    // `add`; el mensaje propio dice exactamente qué borrar.
+    const owner = await this.#worktreeForBranch(repoBasePath, branch)
+    if (owner && !samePath(owner, worktree)) {
+      throw new Error(
+        `La branch "${branch}" ya está checkouteada en el worktree "${owner}", ` +
+          `distinto al que esta task usa ahora ("${worktree}"). ` +
+          `Removelo para reciclarla: git -C "${repoBasePath}" worktree remove --force "${owner}"`,
+      )
+    }
+    // Directorio ocupado pero NO registrado como worktree de ESTE repo:
+    // resto de un clone anterior o de otro checkout.
+    if (existsSync(worktree)) {
+      throw new Error(
+        `El directorio "${worktree}" existe pero no es un worktree de "${repoBasePath}". ` +
+          `Revisalo y borralo para reciclarlo: rm -rf "${worktree}"`,
+      )
+    }
+    log.info({ taskId, worktree, branch }, 'create')
+    await this.#createWorktree(repoBasePath, worktree, branch)
+  }
+
+  /** Reutiliza un worktree existente: autosalvage si hay cambios sucios,
+   *  fast-forward contra la base real cuando es posible, o deja el árbol
+   *  intacto ante divergencia real. */
+  async #reuseWorktree(
+    taskId: string,
+    worktree: string,
+    branch: string,
+    opts: GetOrCreateOptions,
+  ): Promise<{ path: string; branch: string }> {
     log.info({ taskId, worktree, branch }, 'reuse')
 
     if (await this.#statusDirty(worktree)) {
