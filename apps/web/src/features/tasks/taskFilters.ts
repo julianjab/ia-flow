@@ -37,10 +37,15 @@ export interface TaskFilters {
   prStatus: PrStatusValue[]
   branch: BranchValue[]
   blocked: BlockedValue[]
+  /** Substrings buscados en el título. Vacío ⇒ cualquiera. `contains`,
+   *  case-insensitive y sin acentos (ver `normalizeSearchText`) — OR entre
+   *  varios términos, igual que el resto de los ejes multi-valor. */
+  text: string[]
 }
 
 /** Los campos del `TaskRow` que alimentan los predicados — nada más. */
 export interface FilterableTask {
+  title: string
   status: string
   repos?: string
   assignees?: string[]
@@ -59,6 +64,7 @@ export const EMPTY_TASK_FILTERS: TaskFilters = {
   prStatus: [],
   branch: [],
   blocked: [],
+  text: [],
 }
 
 export function hasActiveTaskFilters(f: TaskFilters): boolean {
@@ -68,7 +74,8 @@ export function hasActiveTaskFilters(f: TaskFilters): boolean {
     f.assignees.length > 0 ||
     f.prStatus.length > 0 ||
     f.branch.length > 0 ||
-    f.blocked.length > 0
+    f.blocked.length > 0 ||
+    f.text.length > 0
   )
 }
 
@@ -82,8 +89,17 @@ export function countActiveTaskFilters(f: TaskFilters): number {
     f.assignees.length +
     f.prStatus.length +
     f.branch.length +
-    f.blocked.length
+    f.blocked.length +
+    f.text.length
   )
+}
+
+/** Minúsculas y sin diacríticos — "cómo" y "como" matchean lo mismo. */
+export function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
 }
 
 /**
@@ -107,6 +123,7 @@ export function taskFilterSummary(f: TaskFilters): string | null {
     ...f.prStatus.map((v) => `pr: ${v}`),
     ...f.branch,
     ...f.blocked.map((v) => `bloqueada: ${v}`),
+    ...f.text.map((v) => `texto: ${v}`),
   ]
   if (values.length === 0) return null
   if (values.length === 1) return values[0]
@@ -154,11 +171,18 @@ function matchesBlocked(task: FilterableTask, values: BlockedValue[]): boolean {
   return values.length === 0 || values.some((v) => (v === 'si' ? !!task.blocked : !task.blocked))
 }
 
-/** Aplica todos los ejes en AND; dentro de `prStatus`/`branch` los valores son OR. */
+function matchesText(task: FilterableTask, needles: string[]): boolean {
+  if (needles.length === 0) return true
+  const haystack = normalizeSearchText(task.title ?? '')
+  return needles.some((n) => haystack.includes(n))
+}
+
+/** Aplica todos los ejes en AND; dentro de `prStatus`/`branch`/`text` los valores son OR. */
 export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters): T[] {
   const wantedStatus = new Set(f.statuses.map((s) => s.toLowerCase()))
   const wantedRepos = new Set(f.repos.map((r) => r.toLowerCase()))
   const wantedAssignees = new Set(f.assignees.map((a) => a.toLowerCase()))
+  const wantedText = f.text.map((t) => normalizeSearchText(t))
   return tasks.filter(
     (task) =>
       matchesStatus(task, wantedStatus) &&
@@ -166,7 +190,8 @@ export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters
       matchesAssignees(task, wantedAssignees) &&
       matchesPrStatus(task, f.prStatus) &&
       matchesBranch(task, f.branch) &&
-      matchesBlocked(task, f.blocked),
+      matchesBlocked(task, f.blocked) &&
+      matchesText(task, wantedText),
   )
 }
 
@@ -200,6 +225,7 @@ export function taskFiltersFromQuery(query: QueryRecord): TaskFilters {
     blocked: queryStrArr(query, 'bloqueada').filter((v): v is BlockedValue =>
       BLOCKED_VALUES.includes(v as BlockedValue),
     ),
+    text: queryStrArr(query, 'texto'),
   }
 }
 
@@ -212,6 +238,7 @@ export function taskFiltersToQuery(f: TaskFilters): Record<string, string | stri
   if (f.prStatus.length > 0) query.pr = [...f.prStatus]
   if (f.branch.length > 0) query.rama = [...f.branch]
   if (f.blocked.length > 0) query.bloqueada = [...f.blocked]
+  if (f.text.length > 0) query.texto = [...f.text]
   return query
 }
 
