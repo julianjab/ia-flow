@@ -55,6 +55,7 @@ import m071 from './071-execution-logs-structured-output.js'
 import m072 from './072-agents-verify.js'
 import m073 from './073-execution-logs-pr-outcome.js'
 import m074 from './074-task-annotations.js'
+import m075 from './075-assist-caller-configs.js'
 
 const log = createLogger('migrations')
 
@@ -131,6 +132,7 @@ function loadMigrations(): Migration[] {
     m072,
     m073,
     m074,
+    m075,
   ]
 }
 

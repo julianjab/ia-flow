@@ -632,6 +632,20 @@ export const YamlPromptCatalogSchema = z.object({
 export const SystemPromptRefSchema = z.union([z.string(), z.object({ text: z.string() }).strict()])
 export type SystemPromptRef = z.infer<typeof SystemPromptRefSchema>
 
+// Config editable sin redeploy para un caller AD-HOC de AssistWithAiUseCase —
+// uno que pasa un `agentId` fijo en código (hoy `task-chat`, `repo-description`)
+// en vez de ser un AgentDefinition real del engine. Antes cada caller tenía que
+// pasar `systemPromptIds` a mano o hardcodear su prompt estático en el use-case
+// (ver `buildTaskChatPrompt` en `TaskChatUseCase.ts`); esta tabla es el
+// equivalente de `AgentDefinition.systemPrompts` para esos callers. MISMO shape
+// que ese campo y que `ProjectSettings.systemPrompts` — se pueden mezclar ids
+// del catálogo (`SystemPromptDef`) con texto inline (`{text}`) de uso único.
+export const AssistCallerConfigSchema = z.object({
+  agentId: z.string(),
+  systemPrompts: z.array(SystemPromptRefSchema).optional(),
+})
+export type AssistCallerConfig = z.infer<typeof AssistCallerConfigSchema>
+
 export const WhenConditionSchema = z.object({
   field: z.string(),
   op: z.string(),

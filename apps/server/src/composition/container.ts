@@ -90,6 +90,7 @@ import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentAbortRepository } from '../domain/ports/IAgentAbortRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
+import type { IAssistCallerConfigRepository } from '../domain/ports/IAssistCallerConfigRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionStatsRepository } from '../domain/ports/IExecutionStatsRepository.js'
 import type { IGlobalSettingsRepository } from '../domain/ports/IGlobalSettingsRepository.js'
@@ -120,6 +121,7 @@ import {
   SqliteAgentAbortRepository,
   SqliteAgentMemoryRepository,
   SqliteAgentRepository,
+  SqliteAssistCallerConfigRepository,
   SqliteEnvVarRepository,
   SqliteExecutionLogRepository,
   SqliteGlobalSettingsRepository,
@@ -394,6 +396,12 @@ export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
 // declararlas, porque no tendría sentido.
 export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
 export const taskAnnotationRepo: ITaskAnnotationRepository = new SqliteTaskAnnotationRepository(db)
+
+// Sin variante YAML, mismo motivo que arriba: qué system prompts usa un
+// caller ad-hoc (`task-chat`, `repo-description`) es config del operador que
+// vive en la DB, editable vía `routes/assist-configs.ts` — ver issue #225.
+export const assistCallerConfigRepo: IAssistCallerConfigRepository =
+  new SqliteAssistCallerConfigRepository(db)
 
 // Aparte del anterior aunque compartan la migración que las creó: sus
 // consumidores son distintos —el loop del agente drena, la ruta encola— y
@@ -989,7 +997,12 @@ export const divergenceReconciler = new DivergenceReconciler({
 
 // ─── Use cases ────────────────────────────────────────────────────────────
 
-export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
+export const assistWithAiUseCase = new AssistWithAiUseCase(
+  systemPromptRepo,
+  projectRepo,
+  assistCallerConfigRepo,
+  agentRepo,
+)
 export const taskChatUseCase = new TaskChatUseCase(assistWithAiUseCase, CHAT_ASSISTANT_READ_TOOLS)
 // `enqueueRunMessageUseCase` está declarado más arriba, junto a `dispatcher`
 // (lo necesita como dependencia) — ver el comentario ahí.

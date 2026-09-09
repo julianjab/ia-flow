@@ -1,6 +1,8 @@
 import { ANTHROPIC_API_URL, buildAnthropicAuthHeader } from '@ia-flow/ai-providers'
-import type { SystemPromptDef } from '@ia-flow/shared'
+import type { SystemPromptDef, SystemPromptRef } from '@ia-flow/shared'
 import type { ReadOnlyTool } from '@ia-flow/tools'
+import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
+import type { IAssistCallerConfigRepository } from '../../domain/ports/IAssistCallerConfigRepository.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
@@ -56,6 +58,15 @@ export interface AssistInput {
    *  `TaskChatUseCase`). Opcional y sin efecto en los caminos que no lo
    *  pasan; sólo lo lee `runFormFill` hoy. */
   signal?: AbortSignal
+  /** Ver issue #225. Sólo se usa cuando `agentId` es un caller AD-HOC (no un
+   *  AgentDefinition real) y `assist_caller_configs` NO tiene fila para él
+   *  todavía — el caso de un deploy nuevo antes de que alguien cargue esa
+   *  fila vía `PUT /api/assist-configs/:agentId`. Una fila real SIEMPRE gana
+   *  sobre esto: es lo que hace que este fallback sea seguro por default y
+   *  editable sin redeploy una vez que alguien lo necesita distinto. El
+   *  caller es dueño de su propio texto (`TaskChatUseCase` trae el suyo) —
+   *  `AssistWithAiUseCase` no conoce a ningún caller en particular. */
+  fallbackSystemPrompts?: SystemPromptRef[]
 }
 
 export interface AssistResult {
@@ -123,6 +134,38 @@ interface AssistContext {
   missingExtras: string[]
 }
 
+// Resuelve el `systemPrompts[]` de un AssistCallerConfig (issue #225) contra
+// el catálogo del proyecto — mismo shape/semántica que `resolveSystemPromptBlocks`
+// en @ia-flow/agent-engine (id string → catálogo, `{text}` → literal), pero
+// no se reusa ese helper: toma un `AgentDefinition` + `ProjectConfig` como
+// forma de entrada, y acá no hay ninguno de los dos — sólo un array de refs
+// suelto y el catálogo que `buildContext` ya cargó.
+// `includedIds` se muta: un id ya cubierto por `systemPromptIds` (el extra
+// explícito del caller) no se duplica.
+export function resolveCallerConfigBlocks(
+  refs: SystemPromptRef[],
+  availablePrompts: SystemPromptDef[],
+  includedIds: Set<string>,
+): { blocks: Array<{ type: 'text'; text: string }>; missing: string[] } {
+  const blocks: Array<{ type: 'text'; text: string }> = []
+  const missing: string[] = []
+  for (const ref of refs) {
+    if (typeof ref === 'string') {
+      if (includedIds.has(ref)) continue
+      const sp = availablePrompts.find((s) => s.id === ref)
+      if (sp) {
+        blocks.push({ type: 'text', text: sp.text })
+        includedIds.add(ref)
+      } else {
+        missing.push(ref)
+      }
+    } else {
+      blocks.push({ type: 'text', text: ref.text })
+    }
+  }
+  return { blocks, missing }
+}
+
 function validateAssistInput(input: AssistInput): void {
   if (input.mode === 'generate' && !input.description?.trim()) {
     throw new AssistValidationError('description is required for generate mode')
@@ -149,7 +192,56 @@ export class AssistWithAiUseCase {
   constructor(
     private systemPromptRepo: ISystemPromptRepository,
     private projectRepo: IProjectRepository,
+    // Opcionales: sólo hace falta pasarlos para que un `agentId` ad-hoc
+    // (ver issue #225) resuelva su config de `assist_caller_configs`. Sin
+    // ellos (tests viejos, callers que no usan `agentId`) el use-case se
+    // comporta exactamente igual que antes.
+    private assistCallerConfigRepo?: IAssistCallerConfigRepository,
+    private agentRepo?: IAgentRepository,
   ) {}
+
+  // Un `agentId` ad-hoc (no un AgentDefinition real — ese ya resuelve sus
+  // propios system prompts por su campo `systemPrompts[]`) puede tener una
+  // fila en `assist_caller_configs`. Separado de `buildContext` para no
+  // subirle la complejidad ciclomática — es una decisión propia (gate +
+  // fallback), no sólo un cálculo derivado.
+  private resolveCallerConfigBlocks(
+    input: AssistInput,
+    availablePrompts: SystemPromptDef[],
+    includedIds: Set<string>,
+  ): { blocks: Array<{ type: 'text'; text: string }>; missing: string[] } {
+    const { agentId } = input
+    const isRealAgent = agentId
+      ? (this.agentRepo?.inScope().some((a) => a.id === agentId) ?? false)
+      : false
+    if (!agentId || isRealAgent) return { blocks: [], missing: [] }
+
+    const callerConfig = this.assistCallerConfigRepo?.getById(agentId)
+    // Sin fila todavía (deploy nuevo, nadie la cargó vía
+    // PUT /api/assist-configs/:agentId), caé al fallback que el CALLER trajo
+    // — nunca a "sin instrucciones" en silencio. Una fila real CON refs que
+    // sí resuelven gana siempre, y una fila con `systemPrompts: []` a
+    // propósito también gana (refs.length === 0 abajo, no entra al fallback).
+    const refs = callerConfig
+      ? (callerConfig.systemPrompts ?? [])
+      : (input.fallbackSystemPrompts ?? [])
+    if (!refs.length) return { blocks: [], missing: [] }
+
+    const resolved = resolveCallerConfigBlocks(refs, availablePrompts, includedIds)
+    // `blocks` vacío con `missing` TAMBIÉN vacío no es una fila rota: es
+    // refs válidas que `includedIds` ya cubría (deduplicadas contra
+    // `systemPromptIds`) — devolverlas tal cual, sin caer al fallback,
+    // evita duplicar instrucciones que ya van a ir por el otro camino.
+    if (resolved.blocks.length > 0 || !resolved.missing.length) return resolved
+
+    // Acá sí: la fila TENÍA refs y AL MENOS UNA no resolvió (prompt borrado
+    // del catálogo, catálogo de otro scope de proyecto, id mal escrito) —
+    // distinto de "vacío a propósito" o "todo deduplicado". Dejar el
+    // asistente sin rol/defensa por un dato roto es peor que ignorar la
+    // fila rota y usar el fallback.
+    if (!callerConfig || !input.fallbackSystemPrompts?.length) return resolved
+    return resolveCallerConfigBlocks(input.fallbackSystemPrompts, availablePrompts, includedIds)
+  }
 
   private buildContext(input: AssistInput, requestId: string): AssistContext {
     const { agentVariables, agentSystemPromptIds, systemPromptIds, projectId } = input
@@ -170,7 +262,8 @@ export class AssistWithAiUseCase {
     })
     const userMessage = buildUserMessage(input, agentContextBlock)
 
-    const extraBlocks = systemPromptIds?.length
+    const includedIds = new Set(systemPromptIds ?? [])
+    const explicitBlocks = systemPromptIds?.length
       ? availablePrompts
           .filter((sp) => systemPromptIds.includes(sp.id))
           .map((sp) => ({ type: 'text' as const, text: sp.text }))
@@ -178,6 +271,13 @@ export class AssistWithAiUseCase {
     const missingExtras = (systemPromptIds ?? []).filter(
       (id) => !availablePrompts.some((sp) => sp.id === id),
     )
+
+    // Va ANTES de los bloques explícitos — mismo orden general→específico
+    // que `resolveSystemPromptBlocks` en @ia-flow/agent-engine.
+    const callerConfig = this.resolveCallerConfigBlocks(input, availablePrompts, includedIds)
+    missingExtras.push(...callerConfig.missing)
+
+    const extraBlocks = [...callerConfig.blocks, ...explicitBlocks]
     if (missingExtras.length) {
       log.warn(
         { requestId, missing: missingExtras, projectId: resolvedProjectId },
