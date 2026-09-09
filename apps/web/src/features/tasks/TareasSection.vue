@@ -1599,7 +1599,30 @@ watch(activeProjectId, (pid) => {
     display: grid;
     grid-template-columns: var(--split-cols, minmax(0, 1fr) 26rem);
     gap: 1rem;
-    align-items: start;
+    align-items: stretch;
+  }
+  /* Con el detalle abierto, la SECCIÓN pasa a altura acotada — mismo
+     presupuesto que ya usaba el panel de detalle
+     (`calc(100vh - var(--tap-h) - 2rem)`) — y de ahí en más lista y detalle
+     son las ÚNICAS dos regiones que scrollean. Antes la lista no tenía techo
+     propio: crecía con el contenido y era la PÁGINA la que scrolleaba para
+     revelar el resto, mientras el detalle scrolleaba por su cuenta (con
+     `position: sticky`) — dos scrolls compitiendo por la misma rueda del
+     mouse. Sin detalle abierto (`:has` no matchea) la sección sigue en flujo
+     normal: la lista sola scrollea la página, que es lo esperado. */
+  .settings-section--list:has(.tk-split--open) {
+    height: calc(100vh - var(--tap-h) - 2rem);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-section--list:has(.tk-split--open) .tk-split--open {
+    flex: 1;
+    min-height: 0;
+  }
+  .settings-section--list:has(.tk-split--open) .tk-list {
+    min-height: 0;
+    overflow-y: auto;
   }
   /* `position: absolute` para no contar como un tercer ítem de la grilla —
      la grilla sólo declara dos tracks (lista, detalle). Ancla al borde

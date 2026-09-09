@@ -405,17 +405,21 @@ const runMessage = computed(() => {
    la grilla, y la lista de al lado queda entera y usable — que es la
    diferencia entre "abrir una tarea" y "recorrer la cola".
 
-   `sticky` para que el detalle acompañe el scroll de la lista en vez de
-   quedarse arriba: con 40 tareas, un panel anclado al tope obliga a subir para
-   leerlo. */
+   Ya NO es `position: sticky` — lo era para acompañar el scroll de la lista,
+   pero la lista tenía SU PROPIO scroll (el de la página, sin techo propio) y
+   el sticky sólo enganchaba después de scrollear lo que medían los filtros de
+   arriba: dos scrolls compitiendo (el de la página y el de `.modal-body`) en
+   vez de uno cada uno. Ahora `TareasSection.vue` acota la altura de toda la
+   sección cuando el split está abierto (`.settings-section--list:has(.tk-
+   split--open)`) y la fila del grid (`align-items: stretch`) le da a este
+   panel su alto real sin que tenga que calcularlo por su cuenta — sólo
+   `.tk-list` y `.modal-body` scrollean. */
 .backdrop--inline {
-  position: sticky;
-  top: calc(var(--tap-h) + 0.75rem);
   inset: auto;
   z-index: 1;
   display: block;
   background: none;
-  height: calc(100vh - var(--tap-h) - 2rem);
+  min-height: 0;
 }
 .backdrop--inline .modal {
   width: 100%;
