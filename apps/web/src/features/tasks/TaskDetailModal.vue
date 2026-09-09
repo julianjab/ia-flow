@@ -415,6 +415,11 @@ const runMessage = computed(() => {
    panel su alto real sin que tenga que calcularlo por su cuenta — sólo
    `.tk-list` y `.modal-body` scrollean. */
 .backdrop--inline {
+  /* `.backdrop` base es `position: fixed` — sin pisarlo acá, este elemento
+     sigue siendo un overlay de viewport completo aunque el resto de sus
+     propiedades cambien: es EXACTAMENTE el bug que dejó el detalle tapando
+     casi toda la pantalla con la lista reducida a una esquirla. */
+  position: static;
   inset: auto;
   z-index: 1;
   display: block;
