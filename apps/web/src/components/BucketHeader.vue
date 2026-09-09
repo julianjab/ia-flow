@@ -82,9 +82,14 @@ const RULE: Partial<Record<TaskDisposition, string>> = {
   padding: 0 1rem;
   box-sizing: border-box;
   /* Pegajoso: con veinte filas se pierde de vista en qué bucket estás, y la
-     razón de cada fila queda sin marco. `top` contra la barra de identidad. */
+     razón de cada fila queda sin marco. `top: 0` y no `var(--tap-h)`: los
+     dos consumidores (`.task-table` en TareasSection.vue, `.exec-list-
+     wrapper` en ExecutionsSection.vue) son SU PROPIO contenedor de scroll —
+     la barra de chrome fija vive afuera, no adentro de lo que este sticky
+     recorre, así que compensarla empujaba el encabezado fuera de lugar en
+     vez de pegarlo al borde de arriba. */
   position: sticky;
-  top: var(--tap-h);
+  top: 0;
   z-index: 2;
   background: var(--panel-hi);
   border-bottom: 1px solid var(--border);

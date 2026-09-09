@@ -1413,7 +1413,7 @@ watch(activeProjectId, (pid) => {
               :label-override="section.label"
               collapsible
               :open="!collapsedGroupLabels.has(section.label)"
-              style="top: calc(var(--tap-h) + 26px)"
+              style="top: 26px"
               @toggle="toggleGroup(section.label)"
             />
             <ul
@@ -1592,7 +1592,19 @@ watch(activeProjectId, (pid) => {
    preguntan para decidir si hay ancho para columnas. Es el ancho de ESTA
    caja, no el de la ventana — con el detalle abierto al lado (o agrandado
    arrastrando el split), la ventana puede medir 1440 y la lista 470. */
-.tk-list { min-width: 0; container: tasks-list / inline-size; }
+/* Flex column y no block: `.task-table` (la única caja que de verdad
+   necesita scrollear — ver ahí) toma `flex: 1` para quedarse con lo que
+   sobra debajo de los chips del board / FocusCard, en vez de crecer con su
+   contenido. `min-height: 0` para poder achicarse por debajo de eso mismo
+   cuando `.tk-split--open` la acota (si no, un flex item mide como mínimo
+   su contenido y la fila del split desborda en vez de scrollear). */
+.tk-list {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container: tasks-list / inline-size;
+}
 
 @media (min-width: 1100px) {
   .tk-split--open {
@@ -1619,10 +1631,6 @@ watch(activeProjectId, (pid) => {
   .settings-section--list:has(.tk-split--open) .tk-split--open {
     flex: 1;
     min-height: 0;
-  }
-  .settings-section--list:has(.tk-split--open) .tk-list {
-    min-height: 0;
-    overflow-y: auto;
   }
   /* `position: absolute` para no contar como un tercer ítem de la grilla —
      la grilla sólo declara dos tracks (lista, detalle). Ancla al borde
@@ -1796,15 +1804,22 @@ watch(activeProjectId, (pid) => {
 .task-table {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  /* `clip` y NO `hidden`, y la diferencia es funcional.
-     `overflow: hidden` convierte a la caja en un contenedor de scroll, y un
-     `position: sticky` de adentro pasa a anclarse a ELLA en vez de a la
-     página. Como la tabla no scrollea, el encabezado de bucket quedaba clavado
-     a 44px de su borde superior — tapando la primera fila para siempre, no
-     mientras scrolleabas.
-     `clip` recorta igual (que es lo único que se quería, para el radio) pero
-     NO crea contenedor de scroll, así que el sticky vuelve a mirar la página. */
-  overflow: clip;
+  /* ÚNICA caja que scrollea, en los dos ejes. Antes era `overflow: clip`
+     —recorta pero no crea contenedor de scroll, así que el `position:
+     sticky` de BucketHeader/`.task-thead` seguía anclado a la página en vez
+     de a esta caja— pero eso mismo impedía el scroll horizontal: `clip`
+     descarta el contenido que se sale en vez de dejarlo scrolleable, así que
+     con columnas anchas (arrastradas) el texto se cortaba sin ninguna forma
+     de verlo.
+     `auto` SÍ crea contenedor de scroll — es lo que hace falta para poder
+     arrastrar el scroll horizontal — así que el sticky ahora ancla ACÁ, no a
+     la página. Es exactamente el ancla que querés: con `.tk-list` como
+     columna flex (`flex: 1` en esta caja, ver ahí) y sin scroll propio,
+     ÉSTA es la única caja que crece y se acota, así que es la única con la
+     que un sticky de adentro tiene sentido que se alinee. */
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .task-list {
   list-style: none;
