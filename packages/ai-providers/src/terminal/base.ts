@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
-import { type McpServers, McpServersSchema } from '@ia-flow/shared'
+import { type McpServers, McpServersSchema, type TerminalProviderSettings } from '@ia-flow/shared'
 import { z } from 'zod'
 import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
 import type { LoadProviderConfig, ProviderInput } from '../contract.js'
@@ -259,6 +259,146 @@ export interface TerminalBaseDeps {
   loadProviderConfig: LoadProviderConfig
 }
 
+// ─── Helpers de `buildClaudeCommand` ──────────────────────────────────────
+//
+// Cada uno cubre una responsabilidad bien delimitada de armar el comando
+// final: resolver settings del provider, el flag string, el MCP sintético de
+// tools, el sysprompt, las env vars y el wrapper de branch inline. Extraídos
+// como funciones puras (module-level) para que `buildClaudeCommand` quede
+// como la orquestación, no la lógica — el comando resultante es byte a byte
+// el mismo que antes de la extracción.
+
+type ResolvedTerminalSettings = {
+  model?: string
+  dangerouslySkipPermissions?: boolean
+  mcpServers?: McpServers
+}
+
+/** Per-agent override (`providerConfig` del agente) sobre defaults del
+ *  provider (`tmuxClaude`/`itermClaude` en la config global). El agente
+ *  gana campo por campo, no todo-o-nada. */
+function resolveTerminalSettings(
+  pc: z.infer<typeof TerminalAgentConfigSchema> | undefined,
+  termDefaults: TerminalProviderSettings,
+): ResolvedTerminalSettings {
+  return {
+    model: pc?.model ?? termDefaults.model,
+    dangerouslySkipPermissions:
+      pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions,
+    mcpServers: pc?.mcpServers ?? termDefaults.mcpServers,
+  }
+}
+
+function buildModelAndPermissionFlags(model: string | undefined, dsp: boolean | undefined): string {
+  let flags = ''
+  if (model) flags += ` --model ${model}`
+  if (dsp) flags += ' --dangerously-skip-permissions'
+  return flags
+}
+
+/** `input.daemonUrl` cuando el run viene de otra máquina (un agent-host); el
+ *  localhost de siempre cuando el daemon corre acá al lado. */
+function resolveDaemonUrl(input: ProviderInput): string {
+  return (
+    input.daemonUrl ?? `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
+  )
+}
+
+/** El env sólo vale cuando el daemon es el local: si el run vino de otra
+ *  máquina (`input.daemonUrl`), el `IA_FLOW_API_TOKEN` de este proceso es el
+ *  del agent-host y no abre nada del daemon de origen — ese lo manda el
+ *  daemon en `input.daemonToken`. */
+function resolveDaemonToken(input: ProviderInput): string | undefined {
+  return (
+    input.daemonToken?.trim() || (input.daemonUrl ? undefined : Bun.env.IA_FLOW_API_TOKEN?.trim())
+  )
+}
+
+/** El MCP sintético `ia-flow-tools` que apunta al `/api/mcp` del daemon. Las
+ *  tools del agente, `run`/`agent`/`project`/`task` viajan en la URL porque
+ *  MCP no tiene dónde colgar contexto por llamada. */
+function buildIaFlowToolsMcpServer(
+  input: ProviderInput,
+  daemonUrl: string,
+  daemonToken: string | undefined,
+): McpServers[string] {
+  const params = new URLSearchParams({ tools: (input.tools ?? []).join(',') })
+  if (input.runId) params.set('run', input.runId)
+  if (input.agentId) params.set('agent', input.agentId)
+  if (input.projectId) params.set('project', input.projectId)
+  if (input.taskId) params.set('task', input.taskId)
+  return {
+    type: 'http',
+    url: `${daemonUrl}/api/mcp?${params.toString()}`,
+    // `writeMcpConfigFile` lo traduce a `Authorization: Bearer <token>`, que
+    // es una de las dos formas que acepta el guard del daemon.
+    ...(daemonToken ? { authorizationToken: daemonToken } : {}),
+  }
+}
+
+/** Merge de los MCP servers configurados con el sintético `ia-flow-tools`
+ *  cuando el agente declara `tools`. */
+function resolveMcpServers(
+  input: ProviderInput,
+  resolvedMcpServers: McpServers | undefined,
+  daemonUrl: string,
+  daemonToken: string | undefined,
+): McpServers {
+  const mcpServers: McpServers = { ...(resolvedMcpServers ?? {}) }
+  if (input.tools?.length) {
+    mcpServers['ia-flow-tools'] = buildIaFlowToolsMcpServer(input, daemonUrl, daemonToken)
+  }
+  return mcpServers
+}
+
+/** Los `systemPromptBlocks` del agente + la nota de sesión desatendida
+ *  (siempre última: es del engine y describe el modo de ejecución, así que
+ *  gana sobre cualquier cosa que el prompt del agente diga al respecto). */
+function buildSyspromptText(input: ProviderInput): string {
+  const agentSystemText = (input.systemPromptBlocks ?? [])
+    .map((b) => b.text)
+    .filter((t) => t.trim())
+    .join('\n\n')
+  return agentSystemText
+    ? `${agentSystemText}\n\n${UNATTENDED_SESSION_NOTE}`
+    : UNATTENDED_SESSION_NOTE
+}
+
+/** Env vars del terminal (`settings.json` → `env:`), incluyendo el OAuth
+ *  token de fallback y las vars que consume `terminal/hook-tool-use.ts`. */
+function buildRunEnv(
+  input: ProviderInput,
+  termDefaults: TerminalProviderSettings,
+  daemonUrl: string,
+  daemonToken: string | undefined,
+): Record<string, string> {
+  const runEnv: Record<string, string> = { ...(termDefaults.env ?? {}) }
+  if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
+    runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+  }
+  if (input.runId) {
+    runEnv.IA_FLOW_RUN_ID = input.runId
+    runEnv.IA_FLOW_SERVER_URL = daemonUrl
+    if (daemonToken) runEnv.IA_FLOW_API_TOKEN = daemonToken
+  }
+  return runEnv
+}
+
+/** Wrapper de shell que hace `git checkout` in-place cuando el workflow es
+ *  `branch` (no `worktree`) y el repo tiene un base branch resoluble. Sólo
+ *  aplica al step `implement`, que es el único que muta el working tree. */
+async function resolveInlineBranchWrapper(
+  input: ProviderInput,
+  branchName: string,
+): Promise<string> {
+  if (input.step !== 'implement' || !input.cwd) return ''
+  const workflow = input.workflow ?? 'branch'
+  if (workflow !== 'branch') return ''
+  const baseBranch = await resolveBaseBranch(input.cwd)
+  if (!baseBranch) return ''
+  return `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && `
+}
+
 /** Factory: builds the `buildClaudeCommand` closure with its two injected
  *  dependencies bound, so tmux/iterm providers don't each need to thread
  *  them through by hand. */
@@ -288,72 +428,33 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     const branchName = input.branch?.trim() || `task/${input.taskId}`
 
     const config = await loadProviderConfig()
-    const termDefaults =
+    const termDefaults: TerminalProviderSettings =
       providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
 
     // Per-agent override — validated against this provider's private schema.
     const pc = parseTerminalAgentConfig(input.providerConfig)
+    const {
+      model,
+      dangerouslySkipPermissions: dsp,
+      mcpServers: resolvedMcpServers,
+    } = resolveTerminalSettings(pc, termDefaults)
 
-    const model = pc?.model ?? termDefaults.model
-    const dsp = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
-    const resolvedMcpServers = pc?.mcpServers ?? termDefaults.mcpServers
+    let claudeFlags = buildModelAndPermissionFlags(model, dsp)
 
-    let claudeFlags = ''
-    if (model) claudeFlags += ` --model ${model}`
-    if (dsp) claudeFlags += ' --dangerously-skip-permissions'
-
-    // `input.daemonUrl` cuando el run viene de otra máquina (un agent-host); el
-    // localhost de siempre cuando el daemon corre acá al lado. Notar que en un
-    // agent-host `PORT` es el suyo (3002), así que sin esto apuntaríamos las
-    // tools del agente al propio agent-host, que no tiene /api/mcp.
-    const daemonUrl =
-      input.daemonUrl ?? `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
-
-    // Token del guard de la API del daemon (`createApiAuthMiddleware`). Sin él
-    // el MCP sintético y el hook de tool_use contestan 401 apenas alguien
-    // configura `IA_FLOW_API_TOKEN`, y el síntoma del lado del CLI es un
-    // "failed to connect" del server `ia-flow-tools`: el run arranca sin
-    // NINGUNA tool del agente.
-    //
-    // El env sólo vale cuando el daemon es el local: si el run vino de otra
-    // máquina (`input.daemonUrl`), el `IA_FLOW_API_TOKEN` de este proceso es el
-    // del agent-host y no abre nada del daemon de origen — ese lo manda el
-    // daemon en `input.daemonToken`.
-    const daemonToken =
-      input.daemonToken?.trim() || (input.daemonUrl ? undefined : Bun.env.IA_FLOW_API_TOKEN?.trim())
+    // Notar que en un agent-host `PORT` es el suyo (3002), así que sin
+    // `daemonUrl` apuntaríamos las tools del agente al propio agent-host, que
+    // no tiene /api/mcp. Token del guard de la API del daemon
+    // (`createApiAuthMiddleware`): sin él el MCP sintético y el hook de
+    // tool_use contestan 401 apenas alguien configura `IA_FLOW_API_TOKEN`, y
+    // el síntoma del lado del CLI es un "failed to connect" del server
+    // `ia-flow-tools`: el run arranca sin NINGUNA tool del agente.
+    const daemonUrl = resolveDaemonUrl(input)
+    const daemonToken = resolveDaemonToken(input)
 
     // Agent-declared tools reach the CLI as one more MCP server pointing at
     // the daemon's own /api/mcp endpoint — same wire format as any catalog
-    // entry (github-mcp, etc), instead of the old curl-recipe appendix. The
-    // agent's tool names travel in the URL (`?tools=a,b,c`) since MCP's
-    // `tools/list` has no per-call scoping argument.
-    const mcpServers: McpServers = { ...(resolvedMcpServers ?? {}) }
-    if (input.tools?.length) {
-      // `run` identifica la EJECUCIÓN, no sólo la tarea: es lo que permite
-      // que un cierre tardío de una sesión que el watchdog soltó por error no
-      // aplique transiciones sobre un run posterior de la misma tarea. Viaja
-      // en la URL por lo mismo que `tools`: MCP no tiene dónde colgar
-      // contexto por llamada.
-      const params = new URLSearchParams({ tools: input.tools.join(',') })
-      if (input.runId) params.set('run', input.runId)
-      // `agent`/`project` son el namespace de las tools `memory_*`. Viajan
-      // acá por lo mismo que `tools` y `run`: una sesión de terminal no tiene
-      // otro canal donde colgar quién es, y dejar que el modelo lo escriba
-      // convertiría el aislamiento entre agentes en un argumento de tool.
-      if (input.agentId) params.set('agent', input.agentId)
-      if (input.projectId) params.set('project', input.projectId)
-      // `task` es el mismo fallback que ya usa `workspace_reset` del lado
-      // sync (`ctx.taskId`): sin esto, las tools de cierre de `task.ts` sólo
-      // podían identificar la tarea si el modelo transcribía el id a mano.
-      if (input.taskId) params.set('task', input.taskId)
-      mcpServers['ia-flow-tools'] = {
-        type: 'http',
-        url: `${daemonUrl}/api/mcp?${params.toString()}`,
-        // `writeMcpConfigFile` lo traduce a `Authorization: Bearer <token>`,
-        // que es una de las dos formas que acepta el guard del daemon.
-        ...(daemonToken ? { authorizationToken: daemonToken } : {}),
-      }
-    }
+    // entry (github-mcp, etc), instead of the old curl-recipe appendix.
+    const mcpServers = resolveMcpServers(input, resolvedMcpServers, daemonUrl, daemonToken)
 
     let mcpConfigFile: string | undefined
     if (Object.keys(mcpServers).length > 0) {
@@ -369,42 +470,14 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     // run caía en un provider de terminal. Silencioso y difícil de ver, porque
     // el agente igual corre — con menos instrucciones de las que su definición
     // dice que tiene.
-    //
-    // La nota queda ÚLTIMA a propósito: es del engine y describe el modo de
-    // ejecución (nadie va a contestar una pregunta), así que tiene que ganar
-    // sobre cualquier cosa que el prompt del agente diga al respecto.
     const syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
-    const agentSystemText = (input.systemPromptBlocks ?? [])
-      .map((b) => b.text)
-      .filter((t) => t.trim())
-      .join('\n\n')
-    const syspromptText = agentSystemText
-      ? `${agentSystemText}\n\n${UNATTENDED_SESSION_NOTE}`
-      : UNATTENDED_SESSION_NOTE
-    await writeFile(syspromptFile, syspromptText, { mode: 0o600 })
+    await writeFile(syspromptFile, buildSyspromptText(input), { mode: 0o600 })
     claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
 
     // Env vars del terminal viven en settings.json (`env:`) — no se exportan en
     // el shell, evita filtrarlas al buffer visible y unifica la convención con
     // el hook WorktreeCreate (ambos comparten el mismo archivo `--settings`).
-    const runEnv: Record<string, string> = { ...(termDefaults.env ?? {}) }
-    if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
-      runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-    }
-    // Consumed by `terminal/hook-tool-use.ts` (registrado como
-    // PostToolUse en el settings.json per-run): el hook POSTea
-    // tool_use/tool_result a $IA_FLOW_SERVER_URL/api/hook-events tagged con
-    // $IA_FLOW_RUN_ID para que el drawer de ejecuciones renderice tarjetas de
-    // tool.call/tool.result en runs async (tmux/iterm) igual que el provider
-    // anthropic-api. Sin IA_FLOW_RUN_ID el hook es no-op.
-    if (input.runId) {
-      runEnv.IA_FLOW_RUN_ID = input.runId
-      runEnv.IA_FLOW_SERVER_URL = daemonUrl
-      // `/api/hook-events` pasa por el mismo guard que `/api/mcp`: sin el
-      // token el hook postea contra un 401 y el drawer de ejecuciones queda
-      // vacío para todo run de terminal.
-      if (daemonToken) runEnv.IA_FLOW_API_TOKEN = daemonToken
-    }
+    const runEnv = buildRunEnv(input, termDefaults, daemonUrl, daemonToken)
 
     // El texto "git context" (branch, worktree, workflow) lo inyecta el
     // orquestador via `buildGitContext` para que ambos providers reciban el
@@ -425,18 +498,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     // nuestro y su stdout puede ganar como cwd de la sesión: quedarían DOS
     // worktrees para la misma task. Sin el flag no hay evento, no hay merge
     // de hooks y el path lo decide ia-flow, igual en cualquier máquina.
-    let inlineBranchWrapper = ''
-    if (input.step === 'implement' && input.cwd) {
-      const workflow = input.workflow ?? 'branch'
-      if (workflow === 'branch') {
-        // Checkout in-place: es construcción de shell, no preparación de
-        // terreno, así que vive acá y no en el provisioner.
-        const baseBranch = await resolveBaseBranch(input.cwd)
-        if (baseBranch) {
-          inlineBranchWrapper = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && `
-        }
-      }
-    }
+    const inlineBranchWrapper = await resolveInlineBranchWrapper(input, branchName)
 
     const settingsFile = await writeRunSettings({
       env: runEnv,

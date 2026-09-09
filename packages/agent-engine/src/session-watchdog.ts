@@ -55,6 +55,23 @@ const DEFAULT_CONFIRM_CHECKS = 2
 const DEFAULT_UNKNOWN_BUDGET = 10 * 60_000
 
 /**
+ * Sondea `handle.liveness()` traduciendo un throw a `unknown` — el adapter
+ * debería haber hecho esa traducción, pero no dependemos de su disciplina
+ * para no matar un run sano por una excepción de la sonda misma.
+ */
+async function probeLiveness(handle: SessionHandle): Promise<Liveness> {
+  try {
+    return await handle.liveness()
+  } catch (err) {
+    log.debug(
+      { kind: handle.kind, id: handle.id, err: (err as Error).message },
+      'liveness lanzó — se cuenta como unknown',
+    )
+    return 'unknown'
+  }
+}
+
+/**
  * Start polling `handle.liveness()`; call `onGone` at most once, con el motivo.
  *
  * Returns an `unwatch` fn that must be called when the run finishes normally
@@ -85,58 +102,54 @@ export function watchSession(
     }
   }
 
-  const tick = async (): Promise<void> => {
-    if (disposed) return
-    let state: Liveness
-    try {
-      state = await handle.liveness()
-    } catch (err) {
-      // Que la sonda misma explote es un `unknown` más — el adapter debería
-      // haberlo traducido, pero no dependemos de su disciplina para no matar
-      // un run sano.
+  const scheduleNext = (): void => {
+    timer = setTimeout(tick, intervalMs)
+  }
+
+  const handleAlive = (): void => {
+    consecutiveDead = 0
+    unknownSinceMs = null
+    scheduleNext()
+  }
+
+  // `unknown` no toca el contador de muertes: no es media evidencia de
+  // muerte, es ausencia de evidencia. Lleva su propio reloj.
+  const handleUnknown = (): void => {
+    const now = Date.now()
+    if (unknownSinceMs == null) unknownSinceMs = now
+    const elapsed = now - unknownSinceMs
+    if (elapsed < unknownBudgetMs) {
       log.debug(
-        { kind: handle.kind, id: handle.id, err: (err as Error).message },
-        'liveness lanzó — se cuenta como unknown',
+        { kind: handle.kind, id: handle.id, elapsedMs: elapsed, unknownBudgetMs },
+        'Liveness desconocida — sigo esperando, no es evidencia de muerte',
       )
-      state = 'unknown'
-    }
-    if (disposed) return
-
-    if (state === 'alive') {
-      consecutiveDead = 0
-      unknownSinceMs = null
-      timer = setTimeout(tick, intervalMs)
+      scheduleNext()
       return
     }
+    fire('liveness-unknown', { elapsedMs: elapsed, unknownBudgetMs })
+  }
 
-    if (state === 'unknown') {
-      // `unknown` no toca el contador de muertes: no es media evidencia de
-      // muerte, es ausencia de evidencia. Lleva su propio reloj.
-      const now = Date.now()
-      if (unknownSinceMs == null) unknownSinceMs = now
-      const elapsed = now - unknownSinceMs
-      if (elapsed < unknownBudgetMs) {
-        log.debug(
-          { kind: handle.kind, id: handle.id, elapsedMs: elapsed, unknownBudgetMs },
-          'Liveness desconocida — sigo esperando, no es evidencia de muerte',
-        )
-        timer = setTimeout(tick, intervalMs)
-        return
-      }
-      fire('liveness-unknown', { elapsedMs: elapsed, unknownBudgetMs })
-      return
-    }
-
+  const handleDead = (): void => {
     consecutiveDead += 1
     if (consecutiveDead < confirmChecks) {
       log.debug(
         { kind: handle.kind, id: handle.id, consecutiveDead, confirmChecks },
         'Session read as dead — awaiting confirmation before firing onGone',
       )
-      timer = setTimeout(tick, intervalMs)
+      scheduleNext()
       return
     }
     fire('confirmed-dead', { consecutiveDead })
+  }
+
+  const tick = async (): Promise<void> => {
+    if (disposed) return
+    const state = await probeLiveness(handle)
+    if (disposed) return
+
+    if (state === 'alive') return handleAlive()
+    if (state === 'unknown') return handleUnknown()
+    return handleDead()
   }
 
   timer = setTimeout(tick, graceMs)

@@ -68,31 +68,43 @@ export class SlackDirectory {
     const warnings: string[] = []
 
     for (const type of ['public_channel', 'private_channel']) {
-      let cursor: string | undefined
       try {
-        for (let page = 0; page < MAX_PAGES; page++) {
-          const res = await conversationsList({
-            types: type,
-            exclude_archived: true,
-            limit: PAGE,
-            cursor,
-          })
-          for (const ch of res.channels ?? []) {
-            if (ch.is_archived) continue
-            out.push({ id: ch.id, name: ch.name, ...(ch.is_private ? { isPrivate: true } : {}) })
-          }
-          cursor = res.response_metadata?.next_cursor || undefined
-          if (!cursor) break
-        }
+        await this.loadChannelsOfType(type, out)
       } catch (err) {
         // Lo que ya se juntó vale: media lista es mejor que ninguna, y el
         // motivo llega a la UI para que "faltan canales" sea diagnosticable.
+        // `out` ya tiene las páginas resueltas antes del fallo — loadChannelsOfType
+        // empuja ahí dentro del loop, no al final, para no perderlas si una
+        // página intermedia tira.
         const msg = (err as Error).message
         warnings.push(`${type}: ${msg}`)
         log.warn({ type, err: msg }, 'No se pudieron listar canales de este tipo')
       }
     }
     return { channels: out.sort((a, b) => a.name.localeCompare(b.name)), warnings }
+  }
+
+  /**
+   * Pagina un único `types` (`public_channel` o `private_channel`) hasta
+   * agotarlo, empujando a `out` página por página — así una página que tira
+   * a mitad de camino no descarta las anteriores.
+   */
+  private async loadChannelsOfType(type: string, out: SlackChannelRef[]): Promise<void> {
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await conversationsList({
+        types: type,
+        exclude_archived: true,
+        limit: PAGE,
+        cursor,
+      })
+      for (const ch of res.channels ?? []) {
+        if (ch.is_archived) continue
+        out.push({ id: ch.id, name: ch.name, ...(ch.is_private ? { isPrivate: true } : {}) })
+      }
+      cursor = res.response_metadata?.next_cursor || undefined
+      if (!cursor) break
+    }
   }
 
   /**

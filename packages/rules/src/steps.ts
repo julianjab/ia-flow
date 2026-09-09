@@ -154,42 +154,66 @@ export function resolveSteps(config: unknown, steps: Steps): ResolveStepsResult 
     })
   }
 
-  const lookup = (path: string, field?: string): unknown => {
-    const [stepId, ...rest] = path.split('.')
-    const step = steps[stepId]
-    if (!step) {
-      errors.push(
-        `'{{steps.${path}}}' apunta al paso '${stepId}', que no corrió antes en esta regla` +
-          (Object.keys(steps).length
-            ? ` (hay: ${Object.keys(steps).join(', ')})`
-            : ' (no hay ninguno)'),
-      )
-      return undefined
-    }
-    if (field && EXECUTION_FIELDS.has(field) && step.from === 'agent' && !isGated(config, field)) {
-      const gate = EXECUTION_FIELD_GATES[field]
-      errors.push(
-        `'${field}' no puede salir de un agente ('${stepId}'): ese campo decide qué se ejecuta ` +
-          'o adónde se manda, y el valor lo escribió un modelo' +
-          (gate ? `. Declarando \`${gate}\` con los destinos posibles, sí puede` : ''),
-      )
-      return undefined
-    }
-    used.set(stepId, step.from)
+  /** El paso referenciado no corrió antes en esta regla. */
+  const missingStepError = (path: string, stepId: string): string =>
+    `'{{steps.${path}}}' apunta al paso '${stepId}', que no corrió antes en esta regla` +
+    (Object.keys(steps).length ? ` (hay: ${Object.keys(steps).join(', ')})` : ' (no hay ninguno)')
 
-    let current: unknown = { output: step.output }
+  /** Un campo de ejecución (`agentId`, `url`, …) alimentado por un agente, sin
+   *  que la config haya declarado la lista de destinos posibles. */
+  const gatedFieldError = (field: string, stepId: string): string => {
+    const gate = EXECUTION_FIELD_GATES[field]
+    return (
+      `'${field}' no puede salir de un agente ('${stepId}'): ese campo decide qué se ejecuta ` +
+      'o adónde se manda, y el valor lo escribió un modelo' +
+      (gate ? `. Declarando \`${gate}\` con los destinos posibles, sí puede` : '')
+    )
+  }
+
+  /** Camina `rest` (los segmentos después del stepId) sobre `{ output }`.
+   *  `undefined` en el resultado ya distingue "no existe" del `errors.push`
+   *  que hace el caller — acá sólo se resuelve el valor. */
+  const walkStepPath = (
+    path: string,
+    stepId: string,
+    output: unknown,
+    rest: string[],
+  ): { value: unknown; error?: string } => {
+    let current: unknown = { output }
     for (const segment of rest) {
       if (current == null || typeof current !== 'object') {
-        errors.push(`'{{steps.${path}}}' no existe: '${segment}' no cuelga de nada`)
-        return undefined
+        return {
+          value: undefined,
+          error: `'{{steps.${path}}}' no existe: '${segment}' no cuelga de nada`,
+        }
       }
       current = (current as Record<string, unknown>)[segment]
     }
     if (current === undefined) {
-      errors.push(`'{{steps.${path}}}' no existe en lo que dejó el paso '${stepId}'`)
+      return {
+        value: undefined,
+        error: `'{{steps.${path}}}' no existe en lo que dejó el paso '${stepId}'`,
+      }
+    }
+    return { value: current }
+  }
+
+  const lookup = (path: string, field?: string): unknown => {
+    const [stepId, ...rest] = path.split('.')
+    const step = steps[stepId]
+    if (!step) {
+      errors.push(missingStepError(path, stepId))
       return undefined
     }
-    return current
+    if (field && EXECUTION_FIELDS.has(field) && step.from === 'agent' && !isGated(config, field)) {
+      errors.push(gatedFieldError(field, stepId))
+      return undefined
+    }
+    used.set(stepId, step.from)
+
+    const { value, error } = walkStepPath(path, stepId, step.output, rest)
+    if (error) errors.push(error)
+    return value
   }
 
   const value = walk(config)

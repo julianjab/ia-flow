@@ -1,6 +1,6 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
-import type { AgentExit } from '@ia-flow/shared'
+import type { AgentDefinition, AgentExit, ProjectConfig } from '@ia-flow/shared'
 import { TaskLockedError } from '@ia-flow/workspace'
 import type { AgentRunState } from './Agent.js'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
@@ -102,6 +102,213 @@ export class TaskDispatcher {
     private cancelCooldownMs: number = DEFAULT_CANCEL_COOLDOWN_MS,
   ) {}
 
+  /** Gate de validación del item — ver comment original en `dispatch`. */
+  private async isItemValid(item: IssueItem, manager: IIssueManager): Promise<boolean> {
+    if (!manager.validate) return true
+    const { ok, reason } = await manager.validate(item)
+    if (!ok) {
+      log.debug(
+        { id: item.id, issue: issueRef(item), reason },
+        `Item ${issueRef(item)} failed validation — skipping`,
+      )
+    }
+    return ok
+  }
+
+  /**
+   * Cada item trae su `projectId` estampado por el polling manager — sin él
+   * no se puede resolver la config del proyecto. Ver comment original.
+   */
+  private resolveProjectId(item: IssueItem): string | undefined {
+    const projectId = item.projectId
+    if (!projectId) {
+      log.warn(
+        { id: item.id, issue: issueRef(item) },
+        `Item ${issueRef(item)} missing projectId — skipping (manager did not stamp it)`,
+      )
+    }
+    return projectId
+  }
+
+  /** Safety net de salud de la fuente — ver comment original en `dispatch`. */
+  private async isSourceHealthy(
+    manager: IIssueManager,
+    item: IssueItem,
+    projectId: string,
+  ): Promise<boolean> {
+    if (!manager.getHealth) return true
+    const health = await manager.getHealth().catch(() => null)
+    if (health && !health.ok) {
+      log.warn(
+        {
+          id: item.id,
+          issue: issueRef(item),
+          projectId,
+          missing: health.missing.map((f) => f.name),
+          message: health.message,
+        },
+        `Source unhealthy — skipping dispatch of ${issueRef(item)}`,
+      )
+      return false
+    }
+    return true
+  }
+
+  /** `agentId` que no existe en el roster del proyecto — ver comment original. */
+  private findAgentDefinition(
+    config: ProjectConfig,
+    agentId: string,
+    item: IssueItem,
+    projectId: string,
+  ): AgentDefinition | undefined {
+    const agent = (config.agents ?? []).find((a) => a.id === agentId)
+    if (!agent) {
+      log.error(
+        { id: item.id, issue: issueRef(item), projectId, agentId },
+        `La regla nombró un agente que no existe en este proyecto (${agentId}) — skipping`,
+      )
+    }
+    return agent
+  }
+
+  /** Cap por agente — pre-check barato, ver comment original en `dispatch`. */
+  private isAgentAtCapacity(agent: AgentDefinition, item: IssueItem, projectId: string): boolean {
+    const agentRunning = countRunningByAgent(agent.id, this.pendingSnapshot)
+    const atCapacity = atCap(agentRunning, agent.maxConcurrentDispatches)
+    if (atCapacity) {
+      log.info(
+        {
+          id: item.id,
+          issue: issueRef(item),
+          projectId,
+          agent: agent.id,
+          running: agentRunning,
+          cap: agent.maxConcurrentDispatches,
+        },
+        `Agente '${agent.id}' al tope de runs simultáneos — ${issueRef(item)} diferido`,
+      )
+    }
+    return atCapacity
+  }
+
+  /** Cooldown post-cancelación — ver comment original en `dispatch`. */
+  private isInCancelCooldown(item: IssueItem, agent: AgentDefinition, projectId: string): boolean {
+    if (!this.executionLogRepo) return false
+    const [lastRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
+    if (!(lastRun?.outcome === 'cancelled' && lastRun.finishedAt && lastRun.sessionKind)) {
+      return false
+    }
+    const elapsedMs = Date.now() - new Date(lastRun.finishedAt).getTime()
+    const inCooldown = elapsedMs >= 0 && elapsedMs < this.cancelCooldownMs
+    if (inCooldown) {
+      log.warn(
+        {
+          id: item.id,
+          issue: issueRef(item),
+          projectId,
+          agent: agent.id,
+          lastRunId: lastRun.id,
+          elapsedMs,
+          cooldownMs: this.cancelCooldownMs,
+        },
+        `Run anterior de ${issueRef(item)} cancelado hace poco (posible falso positivo del session-watchdog) — difiero en vez de abrir una segunda sesión en paralelo`,
+      )
+    }
+    return inCooldown
+  }
+
+  /** Blocker gate — ver comment original en `dispatch`. */
+  private async hasUnresolvedBlockers(
+    agent: AgentDefinition,
+    manager: IIssueManager,
+    item: IssueItem,
+    projectId: string,
+  ): Promise<boolean> {
+    if (agent.allowBlocked || !manager.getBlockers) return false
+    const blockers = await manager.getBlockers(item).catch((err) => {
+      log.warn(
+        { id: item.id, issue: issueRef(item), projectId, err: (err as Error).message },
+        `getBlockers threw for ${issueRef(item)} — dispatching anyway`,
+      )
+      return [] as Array<{ id: string; ref?: string }>
+    })
+    if (!blockers.length) return false
+    log.info(
+      {
+        id: item.id,
+        issue: issueRef(item),
+        projectId,
+        status: item.status,
+        blockers: blockers.map((b) => b.ref ?? b.id),
+      },
+      `Item ${issueRef(item)} skipped — blocked by unfinished issues`,
+    )
+    return true
+  }
+
+  /** Carga lazy de comentarios — ver comment original en `dispatch`. Muta `item` in-place. */
+  private async loadItemComments(manager: IIssueManager, item: IssueItem): Promise<void> {
+    if (!manager.loadComments || item.comments?.length) return
+    try {
+      item.comments = await manager.loadComments(item)
+    } catch (err) {
+      log.warn(
+        { id: item.id, err: (err as Error).message },
+        'loadComments threw — dispatching without comments',
+      )
+    }
+  }
+
+  /**
+   * Maneja el choque contra el lock de la task (`TaskLockedError`) — ver el
+   * comment original, ahora colgado acá para que `dispatch` no cargue con la
+   * lógica de entrega en vivo del `brief`.
+   */
+  private async handleTaskLockedError(
+    item: IssueItem,
+    agentId: string,
+    brief: string | undefined,
+    liveInject: boolean | undefined,
+  ): Promise<DispatchOutcome> {
+    let delivered = false
+    if (brief && this.runMessageEnqueuer && this.executionLogRepo) {
+      const [activeRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
+      const canDeliverLive =
+        activeRun != null &&
+        activeRun.finishedAt == null &&
+        activeRun.providerId === LIVE_DRAIN_PROVIDER_ID &&
+        (activeRun.agentId === agentId || liveInject === true)
+      if (canDeliverLive) {
+        delivered = await this.runMessageEnqueuer
+          .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })
+          .then(() => true)
+          .catch((enqueueErr) => {
+            log.warn(
+              { id: item.id, issue: issueRef(item), err: (enqueueErr as Error).message },
+              `No se pudo encolar el brief tras chocar con el lock de ${issueRef(item)} — se pierde este intento`,
+            )
+            return false
+          })
+      }
+    }
+    // `skipped`, NO `deferred`, cuando el encolado funcionó: `deferred`
+    // es la señal de "reintentá" (vuelve al backlog de `SourceDispatcher`
+    // y un item de scan lo republica en el próximo ciclo), y reintentar
+    // acá volvería a encolar el MISMO brief cada vez — duplicados
+    // acumulándose en la cola mientras el run en vuelo no termina, más
+    // uno de más si el reintento eventualmente entra (brief del run
+    // nuevo + el que ya quedó encolado). Una vez entregado no hay nada
+    // más que este dispatch pueda aportar: el run vivo lo va a drenar
+    // (`RunMessagePort` en `Agent.ts`) solo, sin que nadie reintente.
+    // Sin `brief` o sin poder entregarlo, en cambio, no se perdió nada
+    // reintentable — ahí sí vale `deferred`.
+    log.info(
+      { id: item.id, issue: issueRef(item), agentId, delivered },
+      `${issueRef(item)} ya tiene un run en vuelo — ${delivered ? 'brief encolado' : 'dispatch diferido'}`,
+    )
+    return delivered ? 'skipped' : 'deferred'
+  }
+
   /**
    * `agentId` es el agente que la regla eligió, y es obligatorio: desde la
    * migración 059 el dispatcher ya no selecciona.
@@ -116,27 +323,16 @@ export class TaskDispatcher {
     opts: DispatchOptions = {},
   ): Promise<DispatchOutcome> {
     const { ruleId, event, brief, exits, liveInject } = opts
-    if (manager.validate) {
-      const { ok, reason } = await manager.validate(item)
-      if (!ok) {
-        log.debug(
-          { id: item.id, issue: issueRef(item), reason },
-          `Item ${issueRef(item)} failed validation — skipping`,
-        )
-        return 'skipped'
-      }
+    if (!(await this.isItemValid(item, manager))) {
+      return 'skipped'
     }
 
     // Every item carries its ia-flow projectId (stamped by the polling
     // manager). Without it we can't resolve which statuses/agents are wired,
     // so we can't dispatch — this used to silently fall through to the single
     // "default" config in the pre-multi-tenant era.
-    const projectId = item.projectId
+    const projectId = this.resolveProjectId(item)
     if (!projectId) {
-      log.warn(
-        { id: item.id, issue: issueRef(item) },
-        `Item ${issueRef(item)} missing projectId — skipping (manager did not stamp it)`,
-      )
       return 'skipped'
     }
 
@@ -144,21 +340,8 @@ export class TaskDispatcher {
     // dispatch could be reached through an in-memory item that pre-dated a
     // health degradation (URL edited to something invalid mid-cycle, token
     // expired, …). Bail before we run an agent against a broken source.
-    if (manager.getHealth) {
-      const health = await manager.getHealth().catch(() => null)
-      if (health && !health.ok) {
-        log.warn(
-          {
-            id: item.id,
-            issue: issueRef(item),
-            projectId,
-            missing: health.missing.map((f) => f.name),
-            message: health.message,
-          },
-          `Source unhealthy — skipping dispatch of ${issueRef(item)}`,
-        )
-        return 'skipped'
-      }
+    if (!(await this.isSourceHealthy(manager, item, projectId))) {
+      return 'skipped'
     }
 
     const config = await this.configRepo.getConfig(projectId)
@@ -191,12 +374,8 @@ export class TaskDispatcher {
     // Built without comments (loaded lazily below, only once we've committed
     // to dispatching) — fine for this gate, `selectAgent`'s filters never
     // look at `task.comments`.
-    const agent = (config.agents ?? []).find((a) => a.id === agentId)
+    const agent = this.findAgentDefinition(config, agentId, item, projectId)
     if (!agent) {
-      log.error(
-        { id: item.id, issue: issueRef(item), projectId, agentId },
-        `La regla nombró un agente que no existe en este proyecto (${agentId}) — skipping`,
-      )
       return 'skipped'
     }
 
@@ -206,19 +385,7 @@ export class TaskDispatcher {
     // pena seguir, y el chequeo autoritativo lo hace el orquestador contra el
     // agente que realmente va a correr (puede re-seleccionar otro tras el
     // fresh-read del status). Diferido, no skipeado: hay trabajo, falta lugar.
-    const agentRunning = countRunningByAgent(agent.id, this.pendingSnapshot)
-    if (atCap(agentRunning, agent.maxConcurrentDispatches)) {
-      log.info(
-        {
-          id: item.id,
-          issue: issueRef(item),
-          projectId,
-          agent: agent.id,
-          running: agentRunning,
-          cap: agent.maxConcurrentDispatches,
-        },
-        `Agente '${agent.id}' al tope de runs simultáneos — ${issueRef(item)} diferido`,
-      )
+    if (this.isAgentAtCapacity(agent, item, projectId)) {
       return 'deferred'
     }
 
@@ -231,53 +398,16 @@ export class TaskDispatcher {
     // escribe dentro de `output.mode === 'tmux'`) — más confiable que mirar
     // `agent.provider` acá: cubre también `remote:*`, cuyo kind resuelto
     // varía por dispatch y no se puede saber desde la config del agente.
-    if (this.executionLogRepo) {
-      const [lastRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
-      if (lastRun?.outcome === 'cancelled' && lastRun.finishedAt && lastRun.sessionKind) {
-        const elapsedMs = Date.now() - new Date(lastRun.finishedAt).getTime()
-        if (elapsedMs >= 0 && elapsedMs < this.cancelCooldownMs) {
-          log.warn(
-            {
-              id: item.id,
-              issue: issueRef(item),
-              projectId,
-              agent: agent.id,
-              lastRunId: lastRun.id,
-              elapsedMs,
-              cooldownMs: this.cancelCooldownMs,
-            },
-            `Run anterior de ${issueRef(item)} cancelado hace poco (posible falso positivo del session-watchdog) — difiero en vez de abrir una segunda sesión en paralelo`,
-          )
-          return 'deferred'
-        }
-      }
+    if (this.isInCancelCooldown(item, agent, projectId)) {
+      return 'deferred'
     }
 
     // Blocker gate: unless the matched agent explicitly opts into
     // `allowBlocked`, skip items whose source-native dependencies are still
     // open. Sources that don't model dependencies (or fail to fetch them)
     // return empty.
-    if (!agent.allowBlocked && manager.getBlockers) {
-      const blockers = await manager.getBlockers(item).catch((err) => {
-        log.warn(
-          { id: item.id, issue: issueRef(item), projectId, err: (err as Error).message },
-          `getBlockers threw for ${issueRef(item)} — dispatching anyway`,
-        )
-        return [] as Array<{ id: string; ref?: string }>
-      })
-      if (blockers.length) {
-        log.info(
-          {
-            id: item.id,
-            issue: issueRef(item),
-            projectId,
-            status: item.status,
-            blockers: blockers.map((b) => b.ref ?? b.id),
-          },
-          `Item ${issueRef(item)} skipped — blocked by unfinished issues`,
-        )
-        return 'skipped'
-      }
+    if (await this.hasUnresolvedBlockers(agent, manager, item, projectId)) {
+      return 'skipped'
     }
 
     const transitions = manager.getTransitionManager(item)
@@ -299,16 +429,7 @@ export class TaskDispatcher {
     // between this load and the provider actually running (lock contention,
     // worktree setup, provider connection failure) doesn't burn a human
     // comment nobody ever saw.
-    if (manager.loadComments && !item.comments?.length) {
-      try {
-        item.comments = await manager.loadComments(item)
-      } catch (err) {
-        log.warn(
-          { id: item.id, err: (err as Error).message },
-          'loadComments threw — dispatching without comments',
-        )
-      }
-    }
+    await this.loadItemComments(manager, item)
 
     const task = issueItemToTask(item)
 
@@ -337,63 +458,27 @@ export class TaskDispatcher {
       // logueaba (`Rule action failed`) y perdía el `brief` para siempre —
       // el humano que comentó nunca veía su feedback llegar al agente en
       // vuelo.
+      // La cola es POR TASK, no por agente ni por run (`RunMessagePort.
+      // pending(taskId)` no filtra por quién la va a leer) — así que
+      // encolar a ciegas puede entregarle el brief de un dispatch al run
+      // EQUIVOCADO: si el lock lo tiene el agente B (o A, pero en un
+      // provider que no drena en vivo), B se come instrucciones dirigidas
+      // a A, y el dispatch de A queda `skipped` creyendo que se entregó
+      // cuando en realidad se perdió. Por default sólo se puede afirmar la
+      // entrega cuando la fila más reciente de ESTA task (mismo criterio
+      // que usa el cooldown de cancelación, arriba) es del MISMO agente que
+      // pidió este dispatch y sigue en vuelo (`finishedAt` null) sobre el
+      // único provider que drena `RunMessagePort` en vivo.
+      //
+      // `liveInject: true` (la regla lo declara en la acción `agent`, ver
+      // `AgentActionSchema`) releja ESE último chequeo: no exige que sea el
+      // MISMO agente, sólo que el run activo esté vivo sobre ese provider.
+      // Es el caso de un triage que choca con el lock antes de poder
+      // siquiera decidir a quién despachar — sin la relajación, el brief
+      // nunca se entrega porque el agente que chocó (el triage) nunca va a
+      // ser el mismo que el run activo.
       if (err instanceof TaskLockedError) {
-        let delivered = false
-        // La cola es POR TASK, no por agente ni por run (`RunMessagePort.
-        // pending(taskId)` no filtra por quién la va a leer) — así que
-        // encolar a ciegas puede entregarle el brief de un dispatch al run
-        // EQUIVOCADO: si el lock lo tiene el agente B (o A, pero en un
-        // provider que no drena en vivo), B se come instrucciones dirigidas
-        // a A, y el dispatch de A queda `skipped` creyendo que se entregó
-        // cuando en realidad se perdió. Por default sólo se puede afirmar la
-        // entrega cuando la fila más reciente de ESTA task (mismo criterio
-        // que usa el cooldown de cancelación, arriba) es del MISMO agente que
-        // pidió este dispatch y sigue en vuelo (`finishedAt` null) sobre el
-        // único provider que drena `RunMessagePort` en vivo.
-        //
-        // `liveInject: true` (la regla lo declara en la acción `agent`, ver
-        // `AgentActionSchema`) releja ESE último chequeo: no exige que sea el
-        // MISMO agente, sólo que el run activo esté vivo sobre ese provider.
-        // Es el caso de un triage que choca con el lock antes de poder
-        // siquiera decidir a quién despachar — sin la relajación, el brief
-        // nunca se entrega porque el agente que chocó (el triage) nunca va a
-        // ser el mismo que el run activo.
-        if (brief && this.runMessageEnqueuer && this.executionLogRepo) {
-          const [activeRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
-          const canDeliverLive =
-            activeRun != null &&
-            activeRun.finishedAt == null &&
-            activeRun.providerId === LIVE_DRAIN_PROVIDER_ID &&
-            (activeRun.agentId === agentId || liveInject === true)
-          if (canDeliverLive) {
-            delivered = await this.runMessageEnqueuer
-              .enqueue({ taskId: item.id, body: brief, source: 'rule-dispatch' })
-              .then(() => true)
-              .catch((enqueueErr) => {
-                log.warn(
-                  { id: item.id, issue: issueRef(item), err: (enqueueErr as Error).message },
-                  `No se pudo encolar el brief tras chocar con el lock de ${issueRef(item)} — se pierde este intento`,
-                )
-                return false
-              })
-          }
-        }
-        // `skipped`, NO `deferred`, cuando el encolado funcionó: `deferred`
-        // es la señal de "reintentá" (vuelve al backlog de `SourceDispatcher`
-        // y un item de scan lo republica en el próximo ciclo), y reintentar
-        // acá volvería a encolar el MISMO brief cada vez — duplicados
-        // acumulándose en la cola mientras el run en vuelo no termina, más
-        // uno de más si el reintento eventualmente entra (brief del run
-        // nuevo + el que ya quedó encolado). Una vez entregado no hay nada
-        // más que este dispatch pueda aportar: el run vivo lo va a drenar
-        // (`RunMessagePort` en `Agent.ts`) solo, sin que nadie reintente.
-        // Sin `brief` o sin poder entregarlo, en cambio, no se perdió nada
-        // reintentable — ahí sí vale `deferred`.
-        log.info(
-          { id: item.id, issue: issueRef(item), agentId, delivered },
-          `${issueRef(item)} ya tiene un run en vuelo — ${delivered ? 'brief encolado' : 'dispatch diferido'}`,
-        )
-        return delivered ? 'skipped' : 'deferred'
+        return await this.handleTaskLockedError(item, agentId, brief, liveInject)
       }
       throw err
     }

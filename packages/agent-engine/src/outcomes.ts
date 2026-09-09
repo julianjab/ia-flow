@@ -34,28 +34,44 @@ export interface FieldAssignment {
  * Una clave repetida (`Labels=+a,Labels=-b`) acumula en vez de pisar, así el
  * editor de outcomes puede emitir una fila por operación sin perder ninguna.
  */
+/**
+ * Continuación del valor anterior. `eq === 0` entra acá a propósito: es el
+ * token `=reemplazar` del DSL multi-valor, que sin esta rama se leía como
+ * "par con nombre de campo vacío" y se descartaba en silencio — perdiendo el
+ * reemplazo de un `Labels=+a,=c`.
+ * Sin par previo no hay a qué adjuntarla — se ignora (un `$set:` que arranca
+ * así está mal escrito).
+ */
+function appendContinuation(pairs: FieldAssignment[], token: string): void {
+  const last = pairs[pairs.length - 1]
+  const cont = token.trim()
+  if (last && cont) last.value = last.value ? `${last.value},${cont}` : cont
+}
+
+function mergeMultiValue(existing: string, value: string): string {
+  return existing ? `${existing},${value}` : value
+}
+
+/** Inserta o acumula un par campo/valor — una clave repetida (`Labels=+a,Labels=-b`)
+ *  se junta en vez de pisarse, ver el comentario de `parseFieldAssignments`. */
+function upsertAssignment(pairs: FieldAssignment[], field: string, value: string): void {
+  const existing = pairs.find((p) => p.field.toLowerCase() === field.toLowerCase())
+  if (existing) existing.value = mergeMultiValue(existing.value, value)
+  else pairs.push({ field, value })
+}
+
 export function parseFieldAssignments(body: string): FieldAssignment[] {
   const pairs: FieldAssignment[] = []
   for (const token of body.split(',')) {
     const eq = token.indexOf('=')
     if (eq <= 0) {
-      // Continuación del valor anterior. `eq === 0` entra acá a propósito: es
-      // el token `=reemplazar` del DSL multi-valor, que sin esta rama se leía
-      // como "par con nombre de campo vacío" y se descartaba en silencio —
-      // perdiendo el reemplazo de un `Labels=+a,=c`.
-      // Sin par previo no hay a qué adjuntarla — se ignora (un `$set:` que
-      // arranca así está mal escrito).
-      const last = pairs[pairs.length - 1]
-      const cont = token.trim()
-      if (last && cont) last.value = last.value ? `${last.value},${cont}` : cont
+      appendContinuation(pairs, token)
       continue
     }
     const field = token.slice(0, eq).trim()
     const value = token.slice(eq + 1).trim()
     if (!field) continue
-    const existing = pairs.find((p) => p.field.toLowerCase() === field.toLowerCase())
-    if (existing) existing.value = existing.value ? `${existing.value},${value}` : value
-    else pairs.push({ field, value })
+    upsertAssignment(pairs, field, value)
   }
   return pairs
 }

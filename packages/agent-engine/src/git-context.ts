@@ -89,6 +89,114 @@ export interface GitContextOptions {
   branch?: string
 }
 
+function renderSyncWorktreeBlock(
+  providerId: string,
+  branch: string,
+  baseBranch: string,
+  worktreePath: string,
+): string {
+  return [
+    '## Git context',
+    `- Provider: **${providerId}** — worktree materializado por el engine (no crear branches manualmente).`,
+    `- Branch: \`${branch}\` (based on \`${baseBranch}\`)`,
+    `- Worktree path: \`${worktreePath}\``,
+    `- When done: push \`${branch}\` y abrí PR contra \`${baseBranch}\` (usa el tool de GitHub MCP si está disponible).`,
+  ].join('\n')
+}
+
+// Read-only agent (no writePaths) — read desde el base repo.
+function renderSyncReadOnlyBlock(
+  providerId: string,
+  cwd: string,
+  branch: string,
+  hasWriteAccess: boolean | undefined,
+): string {
+  return [
+    '## Git context',
+    `- Provider: **${providerId}** (read-only).`,
+    `- Read path: \`${cwd}\`.`,
+    hasWriteAccess === false
+      ? `- Sin write tools — no toques git. Si necesitás ver lo que un builder previo dejó, mirá commits en \`${branch}\`.`
+      : `- Branch nominal: \`${branch}\`.`,
+  ].join('\n')
+}
+
+async function buildSyncGitContext(input: {
+  provider: IAgentProvider
+  cwd: string | undefined
+  repoBase: string | undefined
+  branch: string
+  worktreePath: string | undefined
+  hasWriteAccess: boolean | undefined
+}): Promise<string> {
+  const { provider, cwd, repoBase, branch, worktreePath, hasWriteAccess } = input
+  if (!cwd || !repoBase) return ''
+  if (worktreePath) {
+    const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
+    return renderSyncWorktreeBlock(provider.id, branch, baseBranch, worktreePath)
+  }
+  return renderSyncReadOnlyBlock(provider.id, cwd, branch, hasWriteAccess)
+}
+
+function renderAsyncMainBlock(baseBranch: string, cwd: string): string {
+  return [
+    '## Git context',
+    `- Workflow: **main** — commit directly on \`${baseBranch}\`, no branch needed.`,
+    `- Repo path: \`${cwd}\`.`,
+  ].join('\n')
+}
+
+function renderAsyncWorktreeBlock(
+  branch: string,
+  baseBranch: string,
+  worktreePath: string,
+  repoBase: string,
+): string {
+  return [
+    '## Git context',
+    // `prepareWorkspace` ya materializó el worktree y dejó la sesión
+    // arrancando adentro (no hay flag `--worktree` ni hook de por medio),
+    // así que este path es exactamente donde corre.
+    `- Workflow: **worktree** — ia-flow created this worktree before the session started.`,
+    `- Worktree path: \`${worktreePath}\` (you are already inside it).`,
+    `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
+    `- Main repo: \`${repoBase}\`.`,
+    `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,
+  ].join('\n')
+}
+
+function renderAsyncBranchBlock(branch: string, baseBranch: string, cwd: string): string {
+  return [
+    '## Git context',
+    `- Workflow: **branch** — a new branch has been checked out in-place.`,
+    `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
+    `- Repo path: \`${cwd}\`.`,
+    `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,
+  ].join('\n')
+}
+
+async function buildAsyncGitContext(input: {
+  cwd: string | undefined
+  repoBase: string | undefined
+  workflow: 'main' | 'branch' | 'worktree' | undefined
+  branch: string
+  worktreePath: string | undefined
+}): Promise<string> {
+  const { cwd, repoBase, workflow, branch, worktreePath } = input
+  if (!cwd || !repoBase) return ''
+  if (workflow === 'main') {
+    const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
+    return renderAsyncMainBlock(baseBranch, cwd)
+  }
+  // Nunca dejamos el bloque vacío por un fallo transitorio de git; caemos a 'main'.
+  const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
+  if (workflow === 'worktree' && worktreePath) {
+    return renderAsyncWorktreeBlock(branch, baseBranch, worktreePath, repoBase)
+  }
+  // default: branch (in-place)
+  return renderAsyncBranchBlock(branch, baseBranch, cwd)
+}
+
 /**
  * Renders the git-context markdown block for a single agent run.
  *
@@ -102,59 +210,8 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
   const repoBase = opts.repoBasePath ?? cwd
 
   if (provider.kind === 'sync') {
-    if (!cwd || !repoBase) return ''
-    const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
-    if (worktreePath) {
-      return [
-        '## Git context',
-        `- Provider: **${provider.id}** — worktree materializado por el engine (no crear branches manualmente).`,
-        `- Branch: \`${branch}\` (based on \`${baseBranch}\`)`,
-        `- Worktree path: \`${worktreePath}\``,
-        `- When done: push \`${branch}\` y abrí PR contra \`${baseBranch}\` (usa el tool de GitHub MCP si está disponible).`,
-      ].join('\n')
-    }
-    // Read-only agent (no writePaths) — read desde el base repo.
-    return [
-      '## Git context',
-      `- Provider: **${provider.id}** (read-only).`,
-      `- Read path: \`${cwd}\`.`,
-      hasWriteAccess === false
-        ? `- Sin write tools — no toques git. Si necesitás ver lo que un builder previo dejó, mirá commits en \`${branch}\`.`
-        : `- Branch nominal: \`${branch}\`.`,
-    ].join('\n')
+    return buildSyncGitContext({ provider, cwd, repoBase, branch, worktreePath, hasWriteAccess })
   }
-
   // provider.kind === 'async' (terminal: tmux/iterm)
-  if (!cwd || !repoBase) return ''
-  if (workflow === 'main') {
-    const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
-    return [
-      '## Git context',
-      `- Workflow: **main** — commit directly on \`${baseBranch}\`, no branch needed.`,
-      `- Repo path: \`${cwd}\`.`,
-    ].join('\n')
-  }
-  // Nunca dejamos el bloque vacío por un fallo transitorio de git; caemos a 'main'.
-  const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
-  if (workflow === 'worktree' && worktreePath) {
-    return [
-      '## Git context',
-      // `prepareWorkspace` ya materializó el worktree y dejó la sesión
-      // arrancando adentro (no hay flag `--worktree` ni hook de por medio),
-      // así que este path es exactamente donde corre.
-      `- Workflow: **worktree** — ia-flow created this worktree before the session started.`,
-      `- Worktree path: \`${worktreePath}\` (you are already inside it).`,
-      `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
-      `- Main repo: \`${repoBase}\`.`,
-      `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,
-    ].join('\n')
-  }
-  // default: branch (in-place)
-  return [
-    '## Git context',
-    `- Workflow: **branch** — a new branch has been checked out in-place.`,
-    `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
-    `- Repo path: \`${cwd}\`.`,
-    `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,
-  ].join('\n')
+  return buildAsyncGitContext({ cwd, repoBase, workflow, branch, worktreePath })
 }

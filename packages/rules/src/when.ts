@@ -115,62 +115,79 @@ function resolveFieldValue(subject: Record<string, unknown>, key: string): unkno
   )
 }
 
+/** `$null` / `$not_null`: "vacío" incluye `null`/`undefined`, arrays vacíos y
+ *  el string vacío — no sólo `== null`. */
+function evalNullCheck(raw: unknown, wantNull: boolean): boolean {
+  const isEmpty = raw == null || (Array.isArray(raw) ? raw.length === 0 : String(raw) === '')
+  return wantNull ? isEmpty : !isEmpty
+}
+
+function evalContains(raw: unknown, operand: string): boolean {
+  const needle = operand.toLowerCase()
+  // Arrays: pertenencia, misma semántica que `=` sobre un array.
+  if (Array.isArray(raw)) return raw.map((v) => String(v).toLowerCase()).includes(needle)
+  return String(raw ?? '')
+    .toLowerCase()
+    .includes(needle)
+}
+
+function evalMatches(raw: unknown, operand: string): boolean {
+  // Una regex inválida es un error de config, no del sujeto: no matchea
+  // en vez de tirar y voltear el dispatch entero.
+  let re: RegExp
+  try {
+    re = new RegExp(operand)
+  } catch {
+    return false
+  }
+  if (Array.isArray(raw)) return raw.some((v) => re.test(String(v)))
+  return re.test(String(raw ?? ''))
+}
+
+function evalNotEqual(raw: unknown, operand: string): boolean {
+  if (Array.isArray(raw)) return !raw.map(String).includes(operand)
+  return (raw == null ? '' : String(raw)) !== operand
+}
+
+/** Un operador con prefijo (`$gt:500`, `$contains:foo`, …) ya partido. */
+function evalPrefixedOp(prefix: string, operand: string, raw: unknown): boolean {
+  switch (prefix) {
+    case '$gt':
+      return compareNumeric(raw, operand, (a, b) => a > b)
+    case '$gte':
+      return compareNumeric(raw, operand, (a, b) => a >= b)
+    case '$lt':
+      return compareNumeric(raw, operand, (a, b) => a < b)
+    case '$lte':
+      return compareNumeric(raw, operand, (a, b) => a <= b)
+    case '$contains':
+      return evalContains(raw, operand)
+    case '$matches':
+      return evalMatches(raw, operand)
+    case '$ne':
+      return evalNotEqual(raw, operand)
+    default:
+      return false
+  }
+}
+
+/** Igualdad (el op pelado es el valor esperado). Arrays (labels, assignees)
+ *  → membership semantics. */
+function evalEquals(raw: unknown, op: string): boolean {
+  if (Array.isArray(raw)) return raw.map(String).includes(op)
+  return (raw == null ? '' : String(raw)) === op
+}
+
 function evalCondition(subject: Record<string, unknown>, key: string, op: string): boolean {
   const raw = resolveFieldValue(subject, key)
 
-  if (op === '$null') {
-    if (raw == null) return true
-    if (Array.isArray(raw)) return raw.length === 0
-    return String(raw) === ''
-  }
-  if (op === '$not_null') {
-    if (raw == null) return false
-    if (Array.isArray(raw)) return raw.length > 0
-    return String(raw) !== ''
-  }
+  if (op === '$null') return evalNullCheck(raw, true)
+  if (op === '$not_null') return evalNullCheck(raw, false)
 
   const prefixed = splitOp(op)
-  if (prefixed) {
-    const [prefix, operand] = prefixed
-    switch (prefix) {
-      case '$gt':
-        return compareNumeric(raw, operand, (a, b) => a > b)
-      case '$gte':
-        return compareNumeric(raw, operand, (a, b) => a >= b)
-      case '$lt':
-        return compareNumeric(raw, operand, (a, b) => a < b)
-      case '$lte':
-        return compareNumeric(raw, operand, (a, b) => a <= b)
-      case '$contains': {
-        const needle = operand.toLowerCase()
-        // Arrays: pertenencia, misma semántica que `=` sobre un array.
-        if (Array.isArray(raw)) return raw.map((v) => String(v).toLowerCase()).includes(needle)
-        return String(raw ?? '')
-          .toLowerCase()
-          .includes(needle)
-      }
-      case '$matches': {
-        // Una regex inválida es un error de config, no del sujeto: no matchea
-        // en vez de tirar y voltear el dispatch entero.
-        let re: RegExp
-        try {
-          re = new RegExp(operand)
-        } catch {
-          return false
-        }
-        if (Array.isArray(raw)) return raw.some((v) => re.test(String(v)))
-        return re.test(String(raw ?? ''))
-      }
-      case '$ne':
-        if (Array.isArray(raw)) return !raw.map(String).includes(operand)
-        return (raw == null ? '' : String(raw)) !== operand
-    }
-  }
+  if (prefixed) return evalPrefixedOp(prefixed[0], prefixed[1], raw)
 
-  // Igualdad (el op pelado es el valor esperado).
-  // Arrays (labels, assignees) → membership semantics.
-  if (Array.isArray(raw)) return raw.map(String).includes(op)
-  return (raw == null ? '' : String(raw)) === op
+  return evalEquals(raw, op)
 }
 
 type RawCond = { field: string; op: string; value?: string; logic?: string }

@@ -7,6 +7,7 @@ import {
   ProjectSettingsSchema,
   resolveSlackReviewTarget,
   type SlackReviewKind,
+  type SlackReviewTarget,
   slackReviewBlockedReason,
 } from '@ia-flow/shared'
 import { createLogger } from '../logger.js'
@@ -73,40 +74,12 @@ export class RequestSlackReviewUseCase {
     if (!project) throw new SlackReviewError(`Proyecto '${input.projectId}' no encontrado`)
 
     const item = await this.loadItem(source, input.taskId)
-    const pr = openPullRequests(item.meta?.pullRequests as PullRequestRef[] | undefined)[0]
-    if (!pr) throw new SlackReviewError('La tarea no tiene ningún PR abierto')
-    if (!isCiFinished(pr)) {
-      throw new SlackReviewError(`El CI del PR #${pr.number} todavía está corriendo`)
-    }
-    if (!input.allowFailedCi && (pr.ci === 'failure' || pr.ci === 'error')) {
-      throw new SlackReviewError(
-        `El CI del PR #${pr.number} terminó en ${pr.ci} — confirmá para pedir review igual`,
-      )
-    }
-
-    const target = resolveSlackReviewTarget(
-      this.resolveRepo(item, input.projectId),
-      // El bag de settings es abierto: se parsea acá para no leer campos a
-      // ciegas de un `Record<string, unknown>`.
-      ProjectSettingsSchema.partial().safeParse(project.settings ?? {}).data,
-    )
-    const blocked = slackReviewBlockedReason(target)
-    if (blocked || !target.channel) throw new SlackReviewError(blocked ?? 'Falta canal de Slack')
+    const pr = this.resolveEligiblePr(item, input.allowFailedCi)
+    const target = this.resolveTarget(item, input.projectId, project.settings ?? {})
 
     const previousThread = await source.getSlackThreadUrl?.(item)
     const kind: SlackReviewKind = previousThread ? 're-review' : 'first'
-
-    const posted = await this.slack.postMessage({
-      channel: target.channel,
-      text: buildSlackReviewMessage({
-        kind,
-        reviewers: target.reviewers,
-        prUrl: pr.url,
-        prTitle: pr.title,
-        messages: target.messages,
-      }),
-      ...(previousThread ? { thread_ts: threadTsFrom(previousThread) } : {}),
-    })
+    const posted = await this.postReviewMessage(target, pr, kind, previousThread)
 
     // ── A partir de acá el mensaje YA está publicado ───────────────────────
     const threadUrl =
@@ -125,6 +98,59 @@ export class RequestSlackReviewUseCase {
       if (failure) result.threadNotPersisted = failure
     }
     return result
+  }
+
+  /** El único PR abierto de la tarea, validado contra CI. Tira si no hay uno,
+   *  si su CI sigue corriendo, o si terminó en rojo sin confirmación. */
+  private resolveEligiblePr(item: IssueItem, allowFailedCi?: boolean): PullRequestRef {
+    const pr = openPullRequests(item.meta?.pullRequests as PullRequestRef[] | undefined)[0]
+    if (!pr) throw new SlackReviewError('La tarea no tiene ningún PR abierto')
+    if (!isCiFinished(pr)) {
+      throw new SlackReviewError(`El CI del PR #${pr.number} todavía está corriendo`)
+    }
+    if (!allowFailedCi && (pr.ci === 'failure' || pr.ci === 'error')) {
+      throw new SlackReviewError(
+        `El CI del PR #${pr.number} terminó en ${pr.ci} — confirmá para pedir review igual`,
+      )
+    }
+    return pr
+  }
+
+  /** Canal + reviewers + plantillas, ya resueltos entre repo y proyecto. Tira
+   *  si el resultado está bloqueado (sin canal, o sin reviewers). */
+  private resolveTarget(
+    item: IssueItem,
+    projectId: string,
+    settings: Record<string, unknown>,
+  ): SlackReviewTarget & { channel: string } {
+    const target = resolveSlackReviewTarget(
+      this.resolveRepo(item, projectId),
+      // El bag de settings es abierto: se parsea acá para no leer campos a
+      // ciegas de un `Record<string, unknown>`.
+      ProjectSettingsSchema.partial().safeParse(settings).data,
+    )
+    const blocked = slackReviewBlockedReason(target)
+    if (blocked || !target.channel) throw new SlackReviewError(blocked ?? 'Falta canal de Slack')
+    return target as SlackReviewTarget & { channel: string }
+  }
+
+  private async postReviewMessage(
+    target: SlackReviewTarget & { channel: string },
+    pr: PullRequestRef,
+    kind: SlackReviewKind,
+    previousThread: string | undefined,
+  ): Promise<{ channel: string; ts: string }> {
+    return this.slack.postMessage({
+      channel: target.channel,
+      text: buildSlackReviewMessage({
+        kind,
+        reviewers: target.reviewers,
+        prUrl: pr.url,
+        prTitle: pr.title,
+        messages: target.messages,
+      }),
+      ...(previousThread ? { thread_ts: threadTsFrom(previousThread) } : {}),
+    })
   }
 
   private async loadItem(source: ProjectSource, taskId: string): Promise<IssueItem> {

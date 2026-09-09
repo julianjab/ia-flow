@@ -964,6 +964,20 @@ const CLEANUP_REPO = '/repos/cleanup-demo'
  *  abajo no es un problema de orden. */
 const ON_DISK = (path: string) => path === `${REPO}/.git` || path === `${CLEANUP_REPO}/.git`
 
+// Predicados de matching de comandos para el ShellRunner simulado de
+// makeCleanupShell — extraídos para que `run` sea una cadena de ifs planos
+// (sin `&&` compuestos) y se mantenga legible para noExcessiveCognitiveComplexity.
+const isStatusPorcelain = (args: string[]): boolean =>
+  args[1] === 'status' && args[2] === '--porcelain'
+const isLsRemoteExitCode = (args: string[]): boolean =>
+  args[1] === 'ls-remote' && args[2] === '--exit-code'
+const isLogOneline = (args: string[]): boolean => args[1] === 'log' && args[2] === '--oneline'
+const isWorktreeList = (args: string[]): boolean => args[1] === 'worktree' && args[2] === 'list'
+const isWorktreeRemove = (args: string[]): boolean => args[1] === 'worktree' && args[2] === 'remove'
+const isBranchDelete = (args: string[]): boolean => args[1] === 'branch' && args[2] === '-D'
+
+const okResult = (): ShellResult => ({ stdout: '', stderr: '', exitCode: 0 })
+
 /**
  * ShellRunner for terminal worktree cleanup tests.
  * Controls `git status --porcelain` and `git log` output via `opts`.
@@ -977,40 +991,30 @@ function makeCleanupShell(opts: {
    *  (branch absent) and log origin/HEAD..HEAD is used instead. */
   remoteAheadOut?: string
 }): ShellRunner & { removeCalls: string[][] } {
+  // Remote branch exists → ls-remote exit 0; absent → exit 2.
+  const lsRemoteResult = (): ShellResult =>
+    opts.remoteAheadOut !== undefined
+      ? { stdout: 'abc123\trefs/heads/task/x\n', stderr: '', exitCode: 0 }
+      : { stdout: '', stderr: '', exitCode: 2 }
+
   const shell = {
     removeCalls: [] as string[][],
     async run(args: string[]): Promise<ShellResult> {
-      // git status --porcelain
-      if (args[1] === 'status' && args[2] === '--porcelain') {
+      if (isStatusPorcelain(args)) {
         return { stdout: opts.dirty ? 'M file.ts\n' : '', stderr: '', exitCode: 0 }
       }
-      // git ls-remote --exit-code origin refs/heads/<branch>
-      if (args[1] === 'ls-remote' && args[2] === '--exit-code') {
-        if (opts.remoteAheadOut !== undefined) {
-          // Remote branch exists
-          return { stdout: 'abc123\trefs/heads/task/x\n', stderr: '', exitCode: 0 }
-        }
-        // Remote branch absent → exit 2
-        return { stdout: '', stderr: '', exitCode: 2 }
-      }
+      if (isLsRemoteExitCode(args)) return lsRemoteResult()
       // git log ... (both origin/HEAD..HEAD and origin/<branch>..HEAD)
-      if (args[1] === 'log' && args[2] === '--oneline') {
-        return { stdout: opts.remoteAheadOut ?? '', stderr: '', exitCode: 0 }
-      }
+      if (isLogOneline(args)) return { stdout: opts.remoteAheadOut ?? '', stderr: '', exitCode: 0 }
       // worktree list (needed by WorkspaceManager internal checks)
-      if (args[1] === 'worktree' && args[2] === 'list') {
+      if (isWorktreeList(args))
         return { stdout: `worktree ${CLEANUP_REPO}\n`, stderr: '', exitCode: 0 }
-      }
       // Track remove / branch -D calls
-      if (args[1] === 'worktree' && args[2] === 'remove') {
+      if (isWorktreeRemove(args) || isBranchDelete(args)) {
         shell.removeCalls.push(args)
-        return { stdout: '', stderr: '', exitCode: 0 }
+        return okResult()
       }
-      if (args[1] === 'branch' && args[2] === '-D') {
-        shell.removeCalls.push(args)
-        return { stdout: '', stderr: '', exitCode: 0 }
-      }
-      return { stdout: '', stderr: '', exitCode: 0 }
+      return okResult()
     },
   }
   return shell
@@ -1169,21 +1173,25 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
 
 const CLONE_REPO_NAME = 'no-path-yet'
 
+// Predicados de matching para el ShellRunner simulado de clone-on-missing-path
+// — mismo motivo que en makeCleanupShell: mantener `run` como ifs planos.
+const isGitClone = (args: string[]): boolean => args[0] === 'git' && args[1] === 'clone'
+const isGitConfig = (args: string[]): boolean => args[0] === 'git' && args[1] === 'config'
+const isGitWorktreeList = (args: string[]): boolean =>
+  args[0] === 'git' && args[1] === 'worktree' && args[2] === 'list'
+const isGitRevParse = (args: string[]): boolean => args[0] === 'git' && args[1] === 'rev-parse'
+
 describe('AgentOrchestrator — clones the repo when it has no local path', () => {
   it('clones via WorkspaceManager, persists the path, and runs the agent against it', async () => {
     const clonedBase = `/tmp/ia-flow-clone-orch-${Date.now()}`
     const clonedPath = `${clonedBase}/acme/${CLONE_REPO_NAME}`
     const shell: ShellRunner = {
       async run(args: string[]): Promise<ShellResult> {
-        if (args[0] === 'git' && args[1] === 'clone') return { stdout: '', stderr: '', exitCode: 0 }
-        if (args[0] === 'git' && args[1] === 'config')
-          return { stdout: '', stderr: '', exitCode: 0 }
-        if (args[0] === 'git' && args[1] === 'worktree' && args[2] === 'list') {
+        if (isGitClone(args) || isGitConfig(args)) return { stdout: '', stderr: '', exitCode: 0 }
+        if (isGitWorktreeList(args)) {
           return { stdout: `worktree ${clonedPath}\n`, stderr: '', exitCode: 0 }
         }
-        if (args[0] === 'git' && args[1] === 'rev-parse') {
-          return { stdout: '', stderr: '', exitCode: 1 }
-        }
+        if (isGitRevParse(args)) return { stdout: '', stderr: '', exitCode: 1 }
         return { stdout: '', stderr: '', exitCode: 0 }
       },
     }

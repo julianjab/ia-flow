@@ -287,6 +287,113 @@ export async function unregisterFrom(
   }
 }
 
+/** Servers a probar: los que vinieron por parámetro, o los del env
+ *  (`IA_FLOW_REGISTER_SERVER_URLS`, coma-separado) en el arranque frío. */
+function resolveServerUrls(serverUrls?: string[]): string[] {
+  return (
+    serverUrls ??
+    (Bun.env.IA_FLOW_REGISTER_SERVER_URLS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  )
+}
+
+type AttemptResult = Awaited<ReturnType<typeof attemptRegister>>
+
+/**
+ * Prueba las URLs alternativas cuando el server no nos alcanza por la que
+ * veníamos usando (probablemente vive dentro de un container y le dijimos
+ * "localhost"). Devuelve el primer intento que funcionó, o `null` si ninguno.
+ */
+async function tryAlternativeUrls(
+  params: Omit<AttemptParams, 'publicUrl'>,
+  candidateUrl: string,
+  log: Log,
+): Promise<{ result: AttemptResult; publicUrl: string } | null> {
+  for (const alt of alternativePublicUrls(candidateUrl)) {
+    const retried = await attemptRegister({ ...params, publicUrl: alt })
+    if (retried.ok) {
+      log.info(
+        { serverUrl: params.serverUrl, publicUrl: alt },
+        'ese server nos alcanza por otra URL',
+      )
+      return { result: retried, publicUrl: alt }
+    }
+  }
+  return null
+}
+
+/**
+ * Da de alta contra UN server, reintentando hasta `maxAttempts` veces y
+ * probando URLs alternativas cuando el fallo parece ser de alcanzabilidad.
+ * No lanza: el motivo del último fallo viaja en el resultado.
+ */
+async function registerWithRetries(
+  params: Omit<AttemptParams, 'publicUrl'>,
+  publicUrl: string,
+  maxAttempts: number,
+  retryDelayMs: number,
+  log: Log,
+): Promise<{ result: AttemptResult | undefined; usedPublicUrl: string }> {
+  let result: AttemptResult | undefined
+  let usedPublicUrl = publicUrl
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    result = await attemptRegister({ ...params, publicUrl: usedPublicUrl })
+    if (result.ok) break
+
+    // No hay un server ahí: ni reintentar ni probar otras URLs de vuelta va
+    // a cambiar el resultado.
+    if (result.notAServer) break
+
+    // El server no nos alcanza por esa URL: se prueban las alternativas antes
+    // de gastar el reintento — reintentar la misma URL daría lo mismo.
+    if (looksUnreachable(result.reason)) {
+      const alt = await tryAlternativeUrls(params, usedPublicUrl, log)
+      if (alt) {
+        result = alt.result
+        usedPublicUrl = alt.publicUrl
+        break
+      }
+    }
+    if (attempt < maxAttempts) {
+      log.warn(
+        { serverUrl: params.serverUrl, attempt, maxAttempts, reason: result.reason },
+        'self-registro falló, reintentando',
+      )
+      await sleep(retryDelayMs)
+    }
+  }
+  return { result, usedPublicUrl }
+}
+
+/** Arma el `RegisterResult` final para un server, logueando el desenlace. */
+function buildRegisterOutcome(
+  serverUrl: string,
+  name: string,
+  result: AttemptResult | undefined,
+  usedPublicUrl: string,
+  maxAttempts: number,
+  log: Log,
+): RegisterResult {
+  if (result?.ok) {
+    log.info({ serverUrl, id: result.id, name }, 'self-registro ok')
+    return { serverUrl, ok: true, id: result.id, publicUrl: usedPublicUrl }
+  }
+  log.warn(
+    { serverUrl, reason: result?.reason },
+    `self-registro falló tras ${maxAttempts} intentos`,
+  )
+  return {
+    serverUrl,
+    ok: false,
+    reason: result?.reason,
+    publicUrl: usedPublicUrl,
+    notAServer: result && !result.ok ? result.notAServer : undefined,
+  }
+}
+
 /** No lanza — un self-registro fallido (server abajo, red, lo que sea) no
  *  debe tumbar el boot del agent-host, solo queda logueado. */
 export async function registerSelf({
@@ -295,12 +402,7 @@ export async function registerSelf({
   serverUrls,
   publicUrl: publicUrlOverride,
 }: RegisterDeps): Promise<RegisterResult[]> {
-  const servers =
-    serverUrls ??
-    (Bun.env.IA_FLOW_REGISTER_SERVER_URLS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
+  const servers = resolveServerUrls(serverUrls)
   if (servers.length === 0) return []
 
   const id = identity()
@@ -323,67 +425,14 @@ export async function registerSelf({
   const results: RegisterResult[] = []
 
   for (const serverUrl of servers) {
-    let result: Awaited<ReturnType<typeof attemptRegister>> | undefined
-    let usedPublicUrl = publicUrl
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      result = await attemptRegister({
-        serverUrl,
-        name,
-        publicUrl: usedPublicUrl,
-        token,
-        fetchImpl,
-      })
-      if (result.ok) break
-
-      // No hay un server ahí: ni reintentar ni probar otras URLs de vuelta va
-      // a cambiar el resultado.
-      if (result.notAServer) break
-
-      // El server no nos alcanza por esa URL: probablemente vive dentro de un
-      // container y le dijimos "localhost". Se prueban las alternativas antes
-      // de gastar el reintento — reintentar la misma URL daría lo mismo.
-      if (looksUnreachable(result.reason)) {
-        for (const alt of alternativePublicUrls(usedPublicUrl)) {
-          const retried = await attemptRegister({
-            serverUrl,
-            name,
-            publicUrl: alt,
-            token,
-            fetchImpl,
-          })
-          if (retried.ok) {
-            log.info({ serverUrl, publicUrl: alt }, 'ese server nos alcanza por otra URL')
-            result = retried
-            usedPublicUrl = alt
-            break
-          }
-        }
-        if (result.ok) break
-      }
-      if (attempt < maxAttempts) {
-        log.warn(
-          { serverUrl, attempt, maxAttempts, reason: result.reason },
-          'self-registro falló, reintentando',
-        )
-        await sleep(retryDelayMs)
-      }
-    }
-    if (result?.ok) {
-      log.info({ serverUrl, id: result.id, name }, 'self-registro ok')
-      results.push({ serverUrl, ok: true, id: result.id, publicUrl: usedPublicUrl })
-    } else {
-      log.warn(
-        { serverUrl, reason: result?.reason },
-        `self-registro falló tras ${maxAttempts} intentos`,
-      )
-      results.push({
-        serverUrl,
-        ok: false,
-        reason: result?.reason,
-        publicUrl: usedPublicUrl,
-        notAServer: result && !result.ok ? result.notAServer : undefined,
-      })
-    }
+    const { result, usedPublicUrl } = await registerWithRetries(
+      { serverUrl, name, token, fetchImpl },
+      publicUrl,
+      maxAttempts,
+      retryDelayMs,
+      log,
+    )
+    results.push(buildRegisterOutcome(serverUrl, name, result, usedPublicUrl, maxAttempts, log))
   }
 
   return results
