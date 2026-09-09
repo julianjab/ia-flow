@@ -28,11 +28,14 @@ import {
   fetchExecutions,
   fetchExecutionSources,
   fetchExecutionStats,
+  fetchRecoverableRunIds,
 } from './api';
 import { formatRelative } from './relativeTime';
 import BucketHeader from '@/components/BucketHeader.vue';
 import KbdBar from '@/components/KbdBar.vue';
+import DispositionChips from './DispositionChips.vue';
 import HealthVerdict from './HealthVerdict.vue';
+import { useExecutionHealthStats } from './useExecutionHealthStats';
 import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsMobile, useIsSplit } from '@/composables/useIsMobile';
@@ -69,6 +72,17 @@ const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const allProjects = computed(() => projectsStore.projects);
+
+/** Compartida por `HealthVerdict` (arriba de todo) y `DispositionChips`
+ *  (pegado al filtro, ver el template) — un solo fetch de stats para las
+ *  dos piezas del layout que antes eran un único componente. */
+const healthProjectId = computed(() => (isGlobal.value ? null : activeProjectId.value));
+const {
+  windowDays: healthWindowDays,
+  stats: healthStats,
+  loading: healthLoading,
+  error: healthError,
+} = useExecutionHealthStats(healthProjectId);
 const router = useRouter();
 // `route` is only read in onMounted to pick up an optional `?runId=<id>`
 // coming from the dashboard's execution click. Kept as a plain ref (no
@@ -204,6 +218,18 @@ const sources = computed<string[]>(() => {
 const loading = ref(false);
 const error = ref<string>('');
 const expandedId = ref<string | null>(null);
+
+/** Runs `cancelled` que `verbForRun` puede ofrecer "Resolver" — ver ese
+ *  docstring. Se refresca junto con `load()`; si falla se queda como estaba,
+ *  que en el peor caso oculta el link de más (nunca lo inventa). */
+const recoverableRunIds = ref<Set<string>>(new Set());
+async function loadRecoverableRunIds() {
+  try {
+    recoverableRunIds.value = await fetchRecoverableRunIds();
+  } catch {
+    // Silencioso: sin esto el link "Resolver" simplemente no aparece.
+  }
+}
 
 /**
  * Sobre `--bp-split` el detalle deja de flotar y se vuelve la segunda columna
@@ -813,7 +839,7 @@ const detailActions = computed<string[]>(() => {
   if (!e) return [];
   const out: string[] = [];
   if (!e.finishedAt) out.push('cancel');
-  if (verbForRun(e)?.href) out.push('verb');
+  if (verbForRun(e, recoverableRunIds.value)?.href) out.push('verb');
   out.push('task');
   if (issueUrlFor(e.taskId)) out.push('issue');
   return out;
@@ -1088,6 +1114,7 @@ async function load() {
   }
   loading.value = true;
   error.value = '';
+  void loadRecoverableRunIds();
   try {
     executions.value = await fetchExecutions({
       ...(isGlobal.value
@@ -1885,14 +1912,18 @@ watch(pendingFilter, () => {
     <!-- Sin `<h2>Ejecuciones</h2>` ni su descripción (R9, R12): la barra de
          identidad del shell ya dice el proyecto y la sección, y el párrafo
          describía lo que la lista muestra abajo. -->
-    <!-- El resumen es un VEREDICTO: tres contadores por disposición y sólo los
-         agentes fuera de banda (R10). Reemplaza al AgentHealthPanel, cuya tabla
-         de diez columnas se mudó entera a la pantalla del agente. -->
+    <!-- El resumen es un VEREDICTO: la línea de salud y el costo del período
+         (R10). Reemplaza al AgentHealthPanel, cuya tabla de diez columnas se
+         mudó entera a la pantalla del agente. Los tres contadores por
+         disposición que antes vivían acá se movieron pegados al filtro
+         (`DispositionChips`, más abajo): son un atajo de filtro, y el lugar
+         natural de un atajo de filtro es al lado de donde se filtra a mano. -->
     <HealthVerdict
-      :project-id="isGlobal ? null : activeProjectId"
-      :filtering="filterTokens.length > 0"
-      :active-key="activeDispositionKey"
-      @filter="filterByDisposition"
+      :stats="healthStats"
+      :loading="healthLoading"
+      :error="healthError"
+      :window-days="healthWindowDays"
+      @update:window-days="healthWindowDays = $event"
       @open="openAgentPage"
     />
 
@@ -1904,6 +1935,16 @@ watch(pendingFilter, () => {
       :project-id="isGlobal ? null : activeProjectId"
       @open="openRunFromPanel"
       @cancel="confirmCancelExecution"
+    />
+
+    <!-- El atajo de filtro rápido, pegado al filtro que en realidad prende —
+         no arriba de todo, donde quedaba lejos de `FilterQueryInput`. -->
+    <DispositionChips
+      :project-id="isGlobal ? null : activeProjectId"
+      :stats="healthStats"
+      :filtering="filterTokens.length > 0"
+      :active-key="activeDispositionKey"
+      @filter="filterByDisposition"
     />
 
     <ListControlsBar
@@ -2171,7 +2212,7 @@ watch(pendingFilter, () => {
             :tag-ghost="row.nested"
             :tag-title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
             :cancel-requested="!!row.exec!.cancelRequestedAt"
-            :has-verb="!!verbForRun(row.exec!)"
+            :has-verb="!!verbForRun(row.exec!, recoverableRunIds)"
             :aria-expanded="expandedId === row.exec!.id"
             @open="toggleRow(row.exec!.id)"
           >
@@ -2180,7 +2221,7 @@ watch(pendingFilter, () => {
                  la pantalla de runs abortados. -->
             <template #verb>
               <button
-                v-if="verbForRun(row.exec!)?.kind === 'cancel'"
+                v-if="verbForRun(row.exec!, recoverableRunIds)?.kind === 'cancel'"
                 type="button"
                 class="exec-stop-btn"
                 :disabled="isCancelling(row.exec!.id)"
@@ -2189,14 +2230,14 @@ watch(pendingFilter, () => {
                 @click.stop="confirmCancelExecution(row.exec!)"
               >{{ isCancelling(row.exec!.id) ? '…' : '■ Abortar' }}</button>
               <RouterLink
-                v-else-if="verbForRun(row.exec!)?.href"
+                v-else-if="verbForRun(row.exec!, recoverableRunIds)?.href"
                 class="exec-verb"
-                :to="verbForRun(row.exec!)!.href!"
+                :to="verbForRun(row.exec!, recoverableRunIds)!.href!"
                 :data-testid="`executions-verb-${row.exec!.id}`"
                 @click.stop
               >
-                → {{ verbForRun(row.exec!)!.label }}
-                <span class="exec-verb-hint">{{ verbForRun(row.exec!)!.hint }}</span>
+                → {{ verbForRun(row.exec!, recoverableRunIds)!.label }}
+                <span class="exec-verb-hint">{{ verbForRun(row.exec!, recoverableRunIds)!.hint }}</span>
               </RouterLink>
             </template>
           </RunRow>
@@ -2553,11 +2594,11 @@ watch(pendingFilter, () => {
             @click="confirmCancelExecution(selectedExec)"
           >{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Abortar' }}</button>
           <RouterLink
-            v-if="verbForRun(selectedExec)?.href"
+            v-if="verbForRun(selectedExec, recoverableRunIds)?.href"
             class="exec-actions__btn exec-actions__btn--primary"
-            :to="verbForRun(selectedExec)!.href!"
+            :to="verbForRun(selectedExec, recoverableRunIds)!.href!"
             data-testid="executions-detail-verb"
-          >{{ verbForRun(selectedExec)!.label }}</RouterLink>
+          >{{ verbForRun(selectedExec, recoverableRunIds)!.label }}</RouterLink>
           <RouterLink
             class="exec-actions__btn"
             :to="taskHref(selectedExec)"
@@ -2683,18 +2724,7 @@ watch(pendingFilter, () => {
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 /* ── La segunda columna (--bp-split) ─────────────────────────────────────── */
 .exec-split { display: flex; flex-direction: column; min-width: 0; position: relative; }
-/* Flex column y no block: `.exec-list-wrapper` (la única caja que scrollea
-   — ver ahí) toma `flex: 1` para quedarse con lo que sobra debajo de
-   "Cargar más", que se queda afuera del scroll con su alto natural.
-   `min-height: 0` para poder achicarse cuando `.exec-split--open` acota la
-   fila (si no, un flex item mide como mínimo su contenido y desborda en vez
-   de scrollear). */
-.exec-col {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
+.exec-col { min-width: 0; }
 @media (min-width: 1100px) {
   .exec-split--open {
     display: grid;
@@ -2720,6 +2750,20 @@ watch(pendingFilter, () => {
   .settings-section--list:has(.exec-split--open) .exec-split--open {
     flex: 1;
     min-height: 0;
+  }
+  /* `.exec-col` pasa a columna flex para que `.exec-list-wrapper` (el
+     encabezado + la lista + "Cargar más") absorba el alto disponible y
+     scrollee, con "Cargar más" siempre visible debajo — no adentro del
+     scroll. */
+  .settings-section--list:has(.exec-split--open) .exec-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .settings-section--list:has(.exec-split--open) .exec-list-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
   /* `position: absolute` para no contar como un tercer ítem de la grilla de
      dos tracks. Ancla al borde IZQUIERDO del panel — mismo cálculo que en
@@ -2756,17 +2800,11 @@ watch(pendingFilter, () => {
 .exec-list-wrapper {
   position: relative;
   container: exec-list / inline-size;
-  /* ÚNICA caja que scrollea, en los dos ejes — mismo motivo que
-     `.task-table` en TareasSection.vue: con columnas arrastradas más anchas
-     que el panel, el texto se cortaba sin ninguna forma de verlo. `flex: 1`
-     porque `.exec-col` (el padre) es ahora columna flex: esta caja se queda
-     con lo que sobra debajo de "Cargar más", que se queda afuera del scroll.
-     `.exec-list-header` (sticky, `top: 0`) ancla ACÁ — que es justo lo que
-     ya declaraba `container: exec-list`, así que no hace falta nada nuevo
-     para que el sticky siga funcionando. */
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  /* Se intentó `overflow: auto` acá para sumar scroll horizontal cuando las
+     columnas exceden el ancho — funcionaba en un repro aislado, pero rompió
+     la alineación de columnas contra datos reales en producción (aún sin
+     diagnosticar: el repro no lo reprodujo). Revertido hasta poder
+     investigarlo con acceso al caso real. */
 }
 /* Las columnas se declaran UNA vez, acá —ahora vía `:style` desde
    `execColumns.gridTemplateColumns`, con el mismo literal como fallback— y

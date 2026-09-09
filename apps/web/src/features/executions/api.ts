@@ -1,4 +1,5 @@
 import {
+  AgentAbortRecordSchema,
   type AgentDetail,
   AgentDetailSchema,
   type ExecutionLog,
@@ -8,6 +9,7 @@ import {
   type ExecutionStats,
   type ExecutionStatsFilters,
   ExecutionStatsSchema,
+  RecoverableCheckpointSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -101,6 +103,23 @@ export async function fetchAgentDetail(
     if (axios.isAxiosError(err) && err.response?.status === 404) return null
     throw err
   }
+}
+
+// Los ids de run que "Resolver" (verdict.ts → verbForRun) puede realmente
+// destrabar en /general/aborted-runs — un abort sin resolver o un checkpoint
+// resumible. Sin esto, un run `cancelled` cuyo checkpoint ya se limpió (el
+// caso normal: se borra al cerrar cualquier run) ofrecía un link a una lista
+// donde esa fila no existe. GET /api/agent-aborts es el mismo endpoint que
+// alimenta esa pantalla — no se duplica su lógica, sólo se lee acá para saber
+// qué ids están ahí.
+export async function fetchRecoverableRunIds(): Promise<Set<string>> {
+  const { data } = await axios.get<{ aborts: unknown; checkpoints: unknown }>('/api/agent-aborts')
+  const aborts = AgentAbortRecordSchema.array().parse(data.aborts)
+  const checkpoints = RecoverableCheckpointSchema.array().parse(data.checkpoints)
+  const ids = new Set<string>()
+  for (const abort of aborts) if (abort.runId) ids.add(abort.runId)
+  for (const cp of checkpoints) ids.add(cp.runId)
+  return ids
 }
 
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared

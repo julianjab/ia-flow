@@ -307,14 +307,24 @@ export interface RunVerb {
  * fila de Tareas y en el detalle de la tarea, que es donde la acción pertenece.
  * Prometerlo acá y que abriera otra pantalla sería un botón que miente sobre lo
  * que hace.
+ *
+ * Un `cancelled` con `finishedAt` sólo lleva "Resolver" si `recoverableRunIds`
+ * todavía lo tiene — un abort sin resolver, o un checkpoint que no se borró.
+ * El cierre normal de CUALQUIER run borra su checkpoint (ver
+ * IRunCheckpointRepository.delete), así que la mayoría de los cancelados ya
+ * no tienen nada que destrabar en /general/aborted-runs: sin este chequeo el
+ * link prometía una fila que esa pantalla no iba a mostrar nunca.
  */
-export function verbForRun(exec: {
-  id: string
-  outcome: string | null
-  finishedAt: string | null
-}): RunVerb | null {
+export function verbForRun(
+  exec: {
+    id: string
+    outcome: string | null
+    finishedAt: string | null
+  },
+  recoverableRunIds?: ReadonlySet<string>,
+): RunVerb | null {
   if (!exec.finishedAt) return { label: 'Abortar', kind: 'cancel' }
-  if (exec.outcome === 'cancelled') {
+  if (exec.outcome === 'cancelled' && recoverableRunIds?.has(exec.id)) {
     return {
       label: 'Resolver',
       kind: 'route',
