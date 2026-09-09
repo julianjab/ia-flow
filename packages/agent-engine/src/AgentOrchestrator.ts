@@ -1,13 +1,20 @@
 import type { Admission, AdmissionRequest, IAgentProvider } from '@ia-flow/ai-providers'
 import { ADMIT, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
-import type { AgentExit, ProviderLimit, Task } from '@ia-flow/shared'
+import type {
+  AgentDefinition,
+  AgentExit,
+  ProjectConfig,
+  ProviderLimit,
+  Task,
+} from '@ia-flow/shared'
 import type { WorkspaceManager } from '@ia-flow/workspace'
 import { join } from 'path'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
 import { atCap, countRunningByAgent, type PendingSnapshot } from './capacity.js'
 import type {
   AgentAbortPort,
+  DbRepoEntry,
   IBroadcast,
   IExecutionLogRepository,
   IMcpCatalogRepository,
@@ -338,6 +345,182 @@ export class AgentOrchestrator {
     return { ok: true, output: state.output?.trim() || '(el agente terminó sin producir texto)' }
   }
 
+  /**
+   * Filtro de profundidad de delegación (ver comment del caller). Puro salvo
+   * el log — separado de `runAgent` para que ese método no tenga que cargar
+   * con la forma del bloque `if` + log + return.
+   */
+  private isDelegationTooDeep(
+    task: Task,
+    agentId: string,
+    origin: { parentRunId?: string; agentDepth?: number } | undefined,
+    isSub: boolean,
+  ): boolean {
+    if (!isSub || (origin?.agentDepth ?? 0) <= AgentOrchestrator.MAX_AGENT_DEPTH) return false
+    log.error(
+      {
+        taskId: task.id,
+        agentId,
+        depth: origin?.agentDepth,
+        max: AgentOrchestrator.MAX_AGENT_DEPTH,
+        parentRunId: origin?.parentRunId,
+      },
+      'Cadena de sub-agentes demasiado profunda — posible delegación circular',
+    )
+    return true
+  }
+
+  /**
+   * Fresh-read del status contra la fuente y, si cambió, la task con el
+   * status actualizado — ver comment original en `runAgent` sobre por qué
+   * hace falta re-leer antes de seleccionar.
+   */
+  private async refreshTaskStatus(task: Task, manager: ITaskSource): Promise<Task> {
+    const freshStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
+    if (freshStatus === task.status) return task
+    log.debug(
+      { taskId: task.id, staleStatus: task.status, currentStatus: freshStatus },
+      'Status cambió antes del dispatch — seleccionando contra el status fresco',
+    )
+    return { ...task, status: freshStatus }
+  }
+
+  /** `agentId` que no existe en el roster del proyecto — ver comment original. */
+  private findAgentDefinition(
+    config: ProjectConfig,
+    agentId: string,
+    task: Task,
+  ): AgentDefinition | undefined {
+    const agent = (config.agents ?? []).find((a) => a.id === agentId)
+    if (!agent) {
+      log.error(
+        { taskId: task.id, agentId, projectId: task.projectId },
+        'La regla nombró un agente que no existe en este proyecto — dispatch salteado',
+      )
+    }
+    return agent
+  }
+
+  /**
+   * Clona el repo primario si nunca se vio localmente — ver comment original
+   * en `runAgent`. Devuelve el `primaryPath` resultante (sin cambios si no
+   * aplicaba clonar).
+   */
+  private async ensureClonedPrimaryPath(
+    task: Task,
+    primaryPath: string | undefined,
+    primaryTaskRepo: DbRepoEntry | undefined,
+  ): Promise<string | undefined> {
+    if (
+      primaryPath ||
+      !this.workspaceManager ||
+      !primaryTaskRepo?.githubOwner ||
+      !primaryTaskRepo?.githubRepo
+    ) {
+      return primaryPath
+    }
+    const clonedPath = await this.workspaceManager.ensureLocalClone(primaryTaskRepo)
+    this.repoRepo.upsert({ ...primaryTaskRepo, path: clonedPath })
+    log.info(
+      { taskId: task.id, repo: primaryTaskRepo.name, path: clonedPath },
+      'Repo clonado — no tenía path local',
+    )
+    return clonedPath
+  }
+
+  /**
+   * Resuelve qué provider corre este dispatch, incluyendo el log de
+   * selección y el manejo de los dos outcomes negativos (`saturated`/`none`)
+   * — ver comment original en `runAgent`.
+   */
+  private async resolveRunProvider(
+    task: Task,
+    agent: AgentDefinition,
+    primaryRepoName: string | undefined,
+  ): Promise<{ outcome: 'deferred' | 'skipped' } | { outcome: 'ok'; providerId: string }> {
+    const resolution = await resolveProvider(
+      agent.provider,
+      task,
+      this.classifyProvider,
+      {
+        limits: await this.providerLimits(),
+        snapshot: this.pendingSnapshot,
+        admit: (providerId, req) => this.admitProvider(providerId, req),
+        registeredIds: () => this.providers.list().map((p) => p.id),
+      },
+      agent.id,
+    )
+    if (resolution.kind === 'saturated') {
+      log.info(
+        { taskId: task.id, agent: agent.id, declined: resolution.declined },
+        'Ningún provider candidato aceptó la tarea — diferido',
+      )
+      return { outcome: 'deferred' }
+    }
+    if (resolution.kind === 'none') {
+      log.warn(
+        { taskId: task.id, agent: agent.id, provider: agent.provider },
+        'Ningún provider candidato resuelto — skipping',
+      )
+      return { outcome: 'skipped' }
+    }
+    const resolvedProviderId = resolution.providerId
+    log.info(
+      {
+        taskId: task.id,
+        projectId: task.projectId,
+        status: task.status,
+        agent: agent.id,
+        provider: resolvedProviderId,
+        repo: primaryRepoName,
+      },
+      'Agente seleccionado',
+    )
+    return { outcome: 'ok', providerId: resolvedProviderId }
+  }
+
+  /**
+   * Limpieza de fin de run — el cuerpo del `finally` de `runAgent`, separado
+   * para que ese método no tenga que cargar con las tres ramas (lock,
+   * workspace, checkpoint) inline. Mismo orden, mismo comportamiento
+   * best-effort en cada paso.
+   */
+  private async finalizeRunAgent(
+    task: Task,
+    runState: AgentRunState,
+    workspaceLockHeld: boolean,
+    isSub: boolean,
+  ): Promise<void> {
+    if (workspaceLockHeld) {
+      this.workspaceManager!.releaseTask(task.id)
+    }
+
+    if (runState.releaseWorkspace) {
+      await runState.releaseWorkspace().catch((err: unknown) => {
+        log.warn(
+          { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
+          'La limpieza del workspace falló — queda en disco',
+        )
+      })
+    }
+
+    if (runState.runId && this.runCheckpoints) {
+      if (runState.truncated && !isSub) {
+        log.info(
+          { taskId: task.id, runId: runState.runId },
+          'Run truncado — se conserva el checkpoint para el próximo dispatch',
+        )
+      } else {
+        await this.runCheckpoints.delete(runState.runId).catch((err: unknown) => {
+          log.warn(
+            { taskId: task.id, runId: runState.runId, err },
+            'No se pudo borrar el checkpoint del run',
+          )
+        })
+      }
+    }
+  }
+
   async runAgent(
     task: Task,
     manager: ITaskSource,
@@ -386,17 +569,7 @@ export class AgentOrchestrator {
     //
     // `skipped` y no `deferred`: la profundidad no se despeja esperando.
     const isSub = origin?.parentRunId != null
-    if (isSub && (origin?.agentDepth ?? 0) > AgentOrchestrator.MAX_AGENT_DEPTH) {
-      log.error(
-        {
-          taskId: task.id,
-          agentId,
-          depth: origin?.agentDepth,
-          max: AgentOrchestrator.MAX_AGENT_DEPTH,
-          parentRunId: origin?.parentRunId,
-        },
-        'Cadena de sub-agentes demasiado profunda — posible delegación circular',
-      )
+    if (this.isDelegationTooDeep(task, agentId, origin, isSub)) {
       return 'skipped'
     }
 
@@ -407,25 +580,13 @@ export class AgentOrchestrator {
     // detrás de otro dispatch que ya lo movió, y elegir contra un status en
     // memoria viejo correría el agente equivocado. Es el mismo chequeo que
     // antes vivía entre agentes de la cadena, ahora adelantado a la selección.
-    const freshStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
-    let current = task
-    if (freshStatus !== task.status) {
-      log.debug(
-        { taskId: task.id, staleStatus: task.status, currentStatus: freshStatus },
-        'Status cambió antes del dispatch — seleccionando contra el status fresco',
-      )
-      current = { ...task, status: freshStatus }
-    }
+    let current = await this.refreshTaskStatus(task, manager)
 
     // Un `agentId` que no existe en el roster se saltea con un error ruidoso:
     // caer a otro agente sería correr algo que el operador no pidió, en
     // silencio, y ése es el modo de falla más caro de este sistema.
-    const agent = (config.agents ?? []).find((a) => a.id === agentId)
+    const agent = this.findAgentDefinition(config, agentId, current)
     if (!agent) {
-      log.error(
-        { taskId: current.id, agentId, projectId: current.projectId },
-        'La regla nombró un agente que no existe en este proyecto — dispatch salteado',
-      )
       return 'skipped'
     }
 
@@ -462,19 +623,7 @@ export class AgentOrchestrator {
     // persistimos el path resultante para que el próximo dispatch ya lo
     // encuentre. Sin esto el run seguiría con `primaryPath` undefined y el
     // agente no tendría dónde leer/escribir.
-    if (
-      !primaryPath &&
-      this.workspaceManager &&
-      primaryTaskRepo?.githubOwner &&
-      primaryTaskRepo?.githubRepo
-    ) {
-      primaryPath = await this.workspaceManager.ensureLocalClone(primaryTaskRepo)
-      this.repoRepo.upsert({ ...primaryTaskRepo, path: primaryPath })
-      log.info(
-        { taskId: current.id, repo: primaryTaskRepo.name, path: primaryPath },
-        'Repo clonado — no tenía path local',
-      )
-    }
+    primaryPath = await this.ensureClonedPrimaryPath(current, primaryPath, primaryTaskRepo)
 
     // Resuelve QUÉ provider corre este dispatch — `agent.provider` puede ser
     // un string plano (resuelve directo, sin I/O) o un array de candidatos
@@ -487,48 +636,11 @@ export class AgentOrchestrator {
     // lo da el provider (ver IAgentProvider.canAccept), no lo deduce el
     // engine: la RAM del host o el trabajo que no vino de este daemon sólo
     // los conoce él.
-    const resolution = await resolveProvider(
-      agent.provider,
-      current,
-      this.classifyProvider,
-      {
-        limits: await this.providerLimits(),
-        snapshot: this.pendingSnapshot,
-        admit: (providerId, req) => this.admitProvider(providerId, req),
-        // Snapshot del registry para expandir comodines (`remote:*`): la
-        // oferta va a los que EXISTEN en este momento — un agent-host que se
-        // registró hace un minuto ya recibe ofertas, uno caído no está.
-        registeredIds: () => this.providers.list().map((p) => p.id),
-      },
-      agent.id,
-    )
-    if (resolution.kind === 'saturated') {
-      log.info(
-        { taskId: current.id, agent: agent.id, declined: resolution.declined },
-        'Ningún provider candidato aceptó la tarea — diferido',
-      )
-      return 'deferred'
+    const providerResolution = await this.resolveRunProvider(current, agent, primaryRepoName)
+    if (providerResolution.outcome !== 'ok') {
+      return providerResolution.outcome
     }
-    if (resolution.kind === 'none') {
-      log.warn(
-        { taskId: current.id, agent: agent.id, provider: agent.provider },
-        'Ningún provider candidato resuelto — skipping',
-      )
-      return 'skipped'
-    }
-    const resolvedProviderId = resolution.providerId
-
-    log.info(
-      {
-        taskId: current.id,
-        projectId: current.projectId,
-        status: current.status,
-        agent: agent.id,
-        provider: resolvedProviderId,
-        repo: primaryRepoName,
-      },
-      'Agente seleccionado',
-    )
+    const resolvedProviderId = providerResolution.providerId
 
     // ── Task lock ─────────────────────────────────────────────────────
     // El lock por task es del ENGINE, no del provider: cubre todo el run
@@ -593,25 +705,14 @@ export class AgentOrchestrator {
       // (success return, agent throw, upstream abort) got us here.
       // `releaseTask` is idempotent so a duplicate call from a mis-wired
       // test wouldn't harm anything.
-      if (workspaceLockHeld) {
-        this.workspaceManager!.releaseTask(current.id)
-      }
-
+      //
       // Limpieza del workspace: la decide y la arma el provider en su
       // `prepareWorkspace` (hoy sólo los terminal con workflow=worktree la
       // piden). Acá sólo se invoca — antes este bloque tenía cableado el
       // caso de tmux/iterm, incluyendo cómo derivar el path del worktree.
       // Best-effort: un fallo de limpieza no puede tapar el resultado del
       // run.
-      if (runState.releaseWorkspace) {
-        await runState.releaseWorkspace().catch((err: unknown) => {
-          log.warn(
-            { taskId: current.id, err: err instanceof Error ? err.message : String(err) },
-            'La limpieza del workspace falló — queda en disco',
-          )
-        })
-      }
-
+      //
       // El checkpoint es estado de trabajo de un run VIVO: cuando el run
       // terminó —bien, mal o pausado— ya no queda nadie que lo continúe con
       // ese id. Una pausa no lo pierde: `attachCheckpoint` ya lo copió a su
@@ -627,21 +728,7 @@ export class AgentOrchestrator {
       //
       // Sin este borrado (en el caso normal) la conversación entera de cada
       // run quedaría en disco para siempre.
-      if (runState.runId && this.runCheckpoints) {
-        if (runState.truncated && !isSub) {
-          log.info(
-            { taskId: current.id, runId: runState.runId },
-            'Run truncado — se conserva el checkpoint para el próximo dispatch',
-          )
-        } else {
-          await this.runCheckpoints.delete(runState.runId).catch((err: unknown) => {
-            log.warn(
-              { taskId: current.id, runId: runState.runId, err },
-              'No se pudo borrar el checkpoint del run',
-            )
-          })
-        }
-      }
+      await this.finalizeRunAgent(current, runState, workspaceLockHeld, isSub)
     }
   }
 }
