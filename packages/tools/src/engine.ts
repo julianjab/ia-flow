@@ -605,13 +605,61 @@ async function drainInjectedMessages(
 // checkpoint se guarda DESPUÉS de compactar y justo antes del request, así
 // que lo persistido es exactamente la conversación que se mandó — guardarlo
 // antes dejaría en disco una historia que este mismo run ya descartó.
-async function compactIfOverBudget(messages: ApiMessage[], runLog: typeof log): Promise<void> {
-  const histSize = JSON.stringify(messages).length
-  if (histSize <= COMPACTION_BUDGET_CHARS) return
+//
+// Devuelve el JSON ya serializado de `messages` (post-compactación si
+// corrió) para que el llamador lo reuse tanto en el chequeo de presupuesto
+// como en la decisión de si toca guardar el checkpoint de esta vuelta — un
+// solo `JSON.stringify` del array completo por vuelta, no dos.
+async function compactIfOverBudget(messages: ApiMessage[], runLog: typeof log): Promise<string> {
+  let json = JSON.stringify(messages)
+  if (json.length <= COMPACTION_BUDGET_CHARS) return json
   const compacted = await compactHistory(messages, runLog)
   if (compacted !== messages) {
     messages.splice(0, messages.length, ...compacted)
+    json = JSON.stringify(messages)
   }
+  return json
+}
+
+// Cada cuántas vueltas se persiste el checkpoint como tope, aun si la
+// historia casi no creció — pone un piso a cuánto puede atrasarse el
+// checkpoint respecto del request real.
+const CHECKPOINT_EVERY_ITERS = 5
+
+// O antes, si la historia creció esto en bytes desde el último guardado — una
+// vuelta con un tool_result grande no debería esperar `CHECKPOINT_EVERY_ITERS`
+// para persistirse.
+const CHECKPOINT_MIN_GROWTH_BYTES = 50_000
+
+// Decide si ESTA vuelta debe escribir el checkpoint, en vez de hacerlo en
+// cada una.
+//
+// INVARIANTE que se sacrifica: antes, el checkpoint en disco era siempre la
+// conversación exacta que se mandó al último request — espaciar los
+// guardados puede dejarlo hasta `CHECKPOINT_EVERY_ITERS - 1` vueltas atrás.
+// Es aceptable porque el checkpoint de CUALQUIER vuelta anterior sigue siendo
+// un punto de reanudación válido: los pares `tool_use`/`tool_result` se
+// completan dentro de la misma vuelta antes de agregar el turno, así que
+// nunca queda un `tool_use` colgado en el array persistido. El único costo es
+// repetir en la API las últimas vueltas no checkpointeadas al reanudar — nunca
+// un request inválido.
+//
+// Por qué esto pasa de cuadrático a mucho más barato: hoy la escritura pisa
+// la fila entera en SQLite (ver migración 066), así que su costo de I/O crece
+// con el tamaño de la historia — y en un run de N vueltas donde la historia
+// crece con cada una, escribir en TODAS las vueltas es O(N²) total. Escribir
+// cada `CHECKPOINT_EVERY_ITERS` vueltas divide esa cuenta por esa constante
+// sin cambiar la corrección del resume.
+function shouldCheckpoint(
+  iters: number,
+  lastCheckpointIters: number,
+  historyBytes: number,
+  lastCheckpointBytes: number,
+): boolean {
+  return (
+    iters - lastCheckpointIters >= CHECKPOINT_EVERY_ITERS ||
+    historyBytes - lastCheckpointBytes >= CHECKPOINT_MIN_GROWTH_BYTES
+  )
 }
 
 // Un fallo del store no puede voltear el run — perder el checkpoint degrada
@@ -785,6 +833,11 @@ export async function executeLoop(
   // corte, y el loop lo lee al tope de la vuelta siguiente.
   let pauseReason: string | undefined
   let pauseRequested = false
+  // Vuelta y tamaño de historia (bytes) del último checkpoint efectivamente
+  // guardado — lo que `shouldCheckpoint` necesita para decidir la vuelta que
+  // viene. Arrancan en 0 así la primera vuelta cuenta como "recién arrancó".
+  let lastCheckpointIters = 0
+  let lastCheckpointBytes = 0
   const loopCtx: ToolContext = {
     ...ctx,
     control: {
@@ -819,8 +872,12 @@ export async function executeLoop(
       }
     }
 
-    await compactIfOverBudget(messages, runLog)
-    await saveLoopCheckpoint(saveCheckpoint, messages, runLog, iters)
+    const historyJson = await compactIfOverBudget(messages, runLog)
+    if (shouldCheckpoint(iters, lastCheckpointIters, historyJson.length, lastCheckpointBytes)) {
+      await saveLoopCheckpoint(saveCheckpoint, messages, runLog, iters)
+      lastCheckpointIters = iters
+      lastCheckpointBytes = historyJson.length
+    }
 
     const response = await fetchApi(messages, nextFetchOverrides)
     nextFetchOverrides = undefined
