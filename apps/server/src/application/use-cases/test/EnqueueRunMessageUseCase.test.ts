@@ -24,6 +24,7 @@ function harness(wait: Wait | null) {
     getByTask: async () => wait,
     create: async (w) => w,
     consume: async () => true,
+    deleteByTask: async () => 0,
   }
   const bus: IEventBus = {
     subscribe: () => () => {},

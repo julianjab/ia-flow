@@ -56,6 +56,7 @@ function harness(opts: {
     getByTask: async () => null,
     create: async (w) => w,
     consume: async () => true,
+    deleteByTask: async () => 0,
   }
 
   return new GetPipelineUseCase(rules, waits, {
