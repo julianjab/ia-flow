@@ -102,6 +102,7 @@ import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepositor
 import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import type { ITaskAnnotationRepository } from '../domain/ports/ITaskAnnotationRepository.js'
 import type { IToolRepository } from '../domain/ports/IToolRepository.js'
 import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
 import {
@@ -133,6 +134,7 @@ import {
   SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
+  SqliteTaskAnnotationRepository,
   SqliteToolRepository,
   SqliteWaitRepository,
   YamlAgentMemoryRepository,
@@ -389,6 +391,7 @@ export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
 // headless las crea y las consume igual — lo que no tiene es un archivo donde
 // declararlas, porque no tendría sentido.
 export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
+export const taskAnnotationRepo: ITaskAnnotationRepository = new SqliteTaskAnnotationRepository(db)
 
 // Aparte del anterior aunque compartan la migración que las creó: sus
 // consumidores son distintos —el loop del agente drena, la ruta encola— y
