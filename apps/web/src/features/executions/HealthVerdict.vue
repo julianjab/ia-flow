@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
-import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import { useActiveExecutionsStore } from './activeStore';
-import { type ExecutionStats, fetchExecutionStats } from './api';
+import { computed } from 'vue';
+import { type ExecutionStats } from './api';
 import { compactTokens, formatUsd, percent, WINDOWS } from './health-format';
-import { type DispositionCount, dispositionCounts, healthLine } from './verdict';
+import { healthLine } from './verdict';
 
 /**
  * El resumen de la pantalla de ejecuciones — un veredicto, no una tabla (R10).
@@ -26,90 +24,30 @@ import { type DispositionCount, dispositionCounts, healthLine } from './verdict'
  * Ahora la banda es **una línea, siempre**: con uno solo fuera de banda dice
  * quién y por qué, y cuando el fallo es del sistema dice la causa compartida y
  * cuenta los agentes en vez de listarlos. Las reglas viven en `verdict.ts`.
+ *
+ * Ya no busca sus propias stats: las recibe (`useExecutionHealthStats`, que
+ * también alimenta los `quickFilters` de `ListControlsBar`, pegados al
+ * filtro más abajo). Un fetch, dos lugares del layout.
  */
 const props = defineProps<{
-  projectId?: string | null;
-  /** Hay filtros puestos: los contadores en cero se siguen dibujando, porque
-   *  son el camino de vuelta (ver `dispositionCounts`). */
-  filtering?: boolean;
-  /** Qué disposición está filtrada ahora, para marcarla como activa. */
-  activeKey?: string | null;
+  stats: ExecutionStats | null;
+  loading?: boolean;
+  error?: string;
+  windowDays: number;
 }>();
 
 const emit = defineEmits<{
-  /** Un contador prende su filtro: el contador ES el filtro, un atajo y no un
-   *  segundo camino. */
-  (e: 'filter', outcomes: string[]): void;
   /** Una línea abre la página del agente. La navegación la hace el padre, que
    *  es quien sabe en qué scope estamos. */
   (e: 'open', agentId: string): void;
+  (e: 'update:windowDays', days: number): void;
 }>();
 
-const windowDays = ref<number>(7);
-const stats = ref<ExecutionStats | null>(null);
-const loading = ref(false);
-const error = ref('');
-
-
-async function load(): Promise<void> {
-  loading.value = true;
-  error.value = '';
-  try {
-    const from = new Date(Date.now() - windowDays.value * 24 * 60 * 60 * 1000).toISOString();
-    stats.value = await fetchExecutionStats({
-      from,
-      ...(props.projectId ? { projectId: props.projectId } : {}),
-    });
-  } catch (err) {
-    error.value = extractErrorMessage(err);
-    stats.value = null;
-  } finally {
-    loading.value = false;
-  }
-}
-
-onMounted(load);
-watch(() => [props.projectId, windowDays.value], load);
-
-/**
- * Los tres contadores describen **la ventana**, no la página cargada.
- *
- * Salían de los outcomes de `executions[]`, que es el resultado del fetch CON
- * los filtros puestos: tocar `47 te esperan` refetcheaba sólo esos, y el
- * contador pasaba a decir `65` mientras los otros dos caían a cero. Los
- * números se movían debajo del dedo, y ninguno de los tres era ya la respuesta
- * a la pregunta que contestaban.
- *
- * `stats.totals` es del período completo y no lo toca ningún filtro de la
- * lista; `corriendo` sale del store de runs activos, que es "lo que corre
- * AHORA" por definición.
- */
-const activeRuns = useActiveExecutionsStore();
-onMounted(() => {
-  if (!activeRuns.loaded) void activeRuns.fetch();
-});
-
-const counts = computed<DispositionCount[]>(() => {
-  const t = stats.value?.totals;
-  const running = props.projectId
-    ? activeRuns.countForProject(props.projectId)
-    : activeRuns.activeCount;
-  return dispositionCounts(
-    {
-      success: t?.success ?? 0,
-      error: t?.error ?? 0,
-      cancelled: t?.cancelled ?? 0,
-      truncated: t?.truncated ?? 0,
-      pending: activeRuns.loaded ? running : 0,
-    },
-    props.filtering,
-  );
-});
 /** Una línea, siempre (turno 8). Las reglas viven en `verdict.ts`, puras. */
-const line = computed(() => healthLine(stats.value));
-const totals = computed(() => stats.value?.totals ?? null);
+const line = computed(() => healthLine(props.stats));
+const totals = computed(() => props.stats?.totals ?? null);
 const activeWindowLabel = computed(
-  () => WINDOWS.find((w) => w.days === windowDays.value)?.label ?? `${windowDays.value} d`,
+  () => WINDOWS.find((w) => w.days === props.windowDays)?.label ?? `${props.windowDays} d`,
 );
 
 /**
@@ -124,26 +62,6 @@ const totalsTitle =
 
 <template>
   <div class="hv">
-    <!-- Tres contadores por disposición, no seis outcomes: la pregunta es quién
-         mueve la próxima pieza. El de "te esperan" es el único en --danger,
-         porque es el único que pide algo. Un cero no se dibuja (R10) — salvo
-         con un filtro puesto, donde los tres son el camino de vuelta. -->
-    <div v-if="counts.length" class="hv__counts" aria-label="Resumen por disposición">
-      <button
-        v-for="c in counts"
-        :key="c.key"
-        type="button"
-        class="hv__count"
-        :class="[`hv__count--${c.key}`, { 'hv__count--on': activeKey === c.key }]"
-        :data-testid="`verdict-count-${c.key}`"
-        :aria-pressed="activeKey === c.key"
-        :title="activeKey === c.key ? `Quitar el filtro ${c.label}` : `Filtrar por ${c.label}`"
-        @click="emit('filter', c.outcomes)"
-      >
-        <b>{{ c.count }}</b> {{ c.label }}
-      </button>
-    </div>
-
     <p v-if="error" class="hv__error">{{ error }}</p>
     <template v-else-if="stats">
       <!-- Una línea, siempre. El `→` lleva a donde se audita: la página del
@@ -181,7 +99,7 @@ const totalsTitle =
             type="button"
             class="hv__window"
             :title="`Ver los últimos ${w.label}`"
-            @click="windowDays = w.days"
+            @click="emit('update:windowDays', w.days)"
           >{{ w.label }}</button>
         </span>
       </p>
@@ -197,33 +115,6 @@ const totalsTitle =
   gap: 0.25rem;
   margin-bottom: 0.4rem;
 }
-
-.hv__counts { display: flex; gap: 0.4rem; }
-.hv__count {
-  flex: 1;
-  /* Se toca (prende su filtro): --tap-h-sm, que es la medida del chip que
-     navega — van tres en fila y el destino es ancho. */
-  height: var(--tap-h-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35ch;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-family: var(--font-mono);
-  font-size: var(--fs-chrome);
-  cursor: pointer;
-}
-.hv__count:hover { border-color: var(--border-hi); }
-/* El único en --danger es el único que pide algo. */
-.hv__count--waiting { border-color: var(--danger); background: var(--red-bg); color: var(--danger); }
-.hv__count--closed { color: var(--fg-dim); }
-/* El activo, en video inverso — la misma marca que toda selección del sistema.
-   Sin ella, con los tres dibujados no se sabe cuál está puesto. */
-.hv__count--on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
-.hv__count--on b { color: var(--panel); }
 
 /* ── La línea de salud: una, siempre ──────────────────────────────────────
    Dos líneas de texto adentro de un solo blanco táctil: la tasa arriba y la

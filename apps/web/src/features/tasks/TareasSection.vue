@@ -11,7 +11,7 @@ import { useTaskGroupsStore } from '@/features/tasks/groupsStore';
 import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
-import ListControlsBar from '@/components/ListControlsBar.vue';
+import ListControlsBar, { type QuickFilter } from '@/components/ListControlsBar.vue';
 import BucketHeader from '@/components/BucketHeader.vue';
 import TaskRow from '@/components/TaskRow.vue';
 import KbdBar from '@/components/KbdBar.vue';
@@ -484,9 +484,15 @@ const taskColumns = useResizableColumns('tasks', [
   { key: 'glyph', track: '16px' },
   { key: 'title', defaultWidth: 400, minWidth: 200, maxWidth: 900 },
   { key: 'issue', defaultWidth: 90, minWidth: 60, maxWidth: 200 },
-  { key: 'state', defaultWidth: 100, minWidth: 60 },
-  { key: 'agent', defaultWidth: 86, minWidth: 50 },
-  { key: 'dur', defaultWidth: 54, minWidth: 40 },
+  // `state`/`agent`/`dur` sin `maxWidth` dejaban que un ancho corrupto en
+  // localStorage (de un arrastre que se fue de largo, o de una versión
+  // anterior de la columna) quedara pegado ahí para siempre — visible en
+  // Ejecuciones como "ACCIÓN" empujada muy a la derecha por un `dur` sin
+  // tope. Un ancho guardado que exceda el máximo se descarta solo al cargar
+  // y vuelve al default, así que este fix se autoaplica en el próximo load.
+  { key: 'state', defaultWidth: 100, minWidth: 60, maxWidth: 240 },
+  { key: 'agent', defaultWidth: 86, minWidth: 50, maxWidth: 200 },
+  { key: 'dur', defaultWidth: 54, minWidth: 40, maxWidth: 160 },
   { key: 'spacer', track: 'minmax(0, 1fr)' },
 ]);
 
@@ -580,14 +586,26 @@ const quickCounts = computed<Record<string, number>>(() => {
   return out;
 });
 
-const quickChips = computed(() =>
-  QUICK_FILTERS.map((f) => ({ ...f, count: quickCounts.value[f.key] ?? 0 })).filter(
-    (f) => f.count > 0,
-  ),
-);
+/**
+ * En el vocabulario genérico de `ListControlsBar` (`QuickFilter`). Sólo tiene
+ * sentido agrupando por disposición y en la lista (no en el board, que ya
+ * agrupa por status) — fuera de ahí, vacío, y `ListControlsBar` no dibuja
+ * nada.
+ */
+const quickChips = computed<QuickFilter[]>(() => {
+  if (view.value === 'board' || orderMode.value !== 'disposicion') return [];
+  return QUICK_FILTERS.map((f) => ({
+    key: f.key,
+    label: f.label,
+    glyph: f.glyph || undefined,
+    count: quickCounts.value[f.key] ?? 0,
+    tone: f.key === 'waiting-on-you' ? ('danger' as const) : undefined,
+  })).filter((f) => f.count > 0);
+});
 
-function toggleQuickFilter(key: TaskDisposition) {
-  quickFilter.value = quickFilter.value === key ? null : key;
+function toggleQuickFilter(key: string) {
+  const disposition = key as TaskDisposition;
+  quickFilter.value = quickFilter.value === disposition ? null : disposition;
 }
 
 /** La razón de cada fila, para dibujarla debajo del título (O1). */
@@ -663,8 +681,23 @@ async function moveTaskTo(status: string): Promise<void> {
   }
 }
 
-const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
-const filterSummary = computed(() => taskFilterSummary(filters.value));
+/**
+ * El chip rápido ES un filtro, aunque viva fuera de `TaskFilters` — recorta
+ * la lista tanto como cualquier token del panel. Sin sumarlo acá, prenderlo
+ * dejaba `filtros` en 0 y el resumen mudo: la pregunta "¿por qué no veo la
+ * tarea que busco?" quedaba sin responder cuando la respuesta era el chip.
+ */
+const quickFilterLabel = computed<string | null>(
+  () => QUICK_FILTERS.find((f) => f.key === quickFilter.value)?.label ?? null,
+);
+const activeFilterCount = computed(
+  () => countActiveTaskFilters(filters.value) + (quickFilter.value ? 1 : 0),
+);
+const filterSummary = computed(() => {
+  const rest = taskFilterSummary(filters.value);
+  if (!quickFilterLabel.value) return rest;
+  return rest ? `${quickFilterLabel.value} · ${rest}` : quickFilterLabel.value;
+});
 
 // Un status seleccionado que el provider ya no lista sigue dibujándose: sin
 // esto el chip desaparece y el operador no tiene cómo apagar el filtro que
@@ -1137,7 +1170,10 @@ watch(activeProjectId, (pid) => {
       :filter-count="activeFilterCount"
       :summary="filterSummary ?? undefined"
       title="Filtrar tareas"
-      @clear="filters = { ...EMPTY_TASK_FILTERS }"
+      :quick-filters="quickChips"
+      :active-quick-filter="quickFilter"
+      @clear="filters = { ...EMPTY_TASK_FILTERS }; quickFilter = null"
+      @quick-filter="toggleQuickFilter"
     >
       <template #view>
         <!-- Board es la misma lista agrupada por status: su entrada vive acá,
@@ -1278,25 +1314,9 @@ watch(activeProjectId, (pid) => {
     </template>
 
     <template v-else>
-    <!-- Atajos de una tocada sobre la disposición: la pregunta "¿qué me toca?"
-         se hace veinte veces por día y no debería costar abrir un panel. Un
-         chip en cero no se dibuja (R10). -->
-    <div v-if="quickChips.length && orderMode === 'disposicion'" class="quick-chips">
-      <button
-        v-for="chip in quickChips"
-        :key="chip.key"
-        type="button"
-        class="quick-chip"
-        :class="[`quick-chip--${chip.key}`, { 'is-on': quickFilter === chip.key }]"
-        :aria-pressed="quickFilter === chip.key"
-        :data-testid="`quick-filter-${chip.key}`"
-        @click="toggleQuickFilter(chip.key)"
-      >
-        <span v-if="chip.glyph" class="quick-chip__glyph" aria-hidden="true">{{ chip.glyph }}</span>
-        {{ chip.label }}
-        <b>{{ chip.count }}</b>
-      </button>
-    </div>
+    <!-- Los atajos de una tocada sobre la disposición viven ahora en
+         `quickFilters` de `ListControlsBar` (arriba de todo, pegados al
+         filtro) — no acá abajo. -->
 
     <SlackReviewSettings
       :project="projectsStore.activeProject"
@@ -1687,41 +1707,8 @@ watch(activeProjectId, (pid) => {
   color: var(--fg-dimmer);
 }
 
-/* Los chips de filtro rápido. `--tap-h-sm`: son chips que van en fila y su
-   destino es ancho — la medida del chip que NAVEGA, no la del que decora. */
-.quick-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
-}
-.quick-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4ch;
-  height: var(--tap-h-sm);
-  padding: 0 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-family: var(--font-mono);
-  font-size: var(--fs-chrome);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.quick-chip:hover { border-color: var(--border-hi); }
-/* El activo en video inverso, como toda selección del sistema. */
-.quick-chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
-.quick-chip__glyph { color: var(--fg-dim); }
-.quick-chip.is-on .quick-chip__glyph { color: var(--panel); }
-/* El único con color propio es el que pide algo tuyo. */
-.quick-chip--waiting-on-you { border-color: var(--danger); color: var(--danger); }
-.quick-chip--waiting-on-you.is-on {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: var(--panel);
-}
+/* Los chips de filtro rápido se mudaron a `.lcb__quick-chip` en
+   ListControlsBar.vue — ahí vive su estilo, compartido con Ejecuciones. */
 
 /* El conteo y Actualizar viven en la fila de controles desde que el header de
    sección se borró: son lo único que ese header informaba. */

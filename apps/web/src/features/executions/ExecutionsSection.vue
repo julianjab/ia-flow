@@ -540,11 +540,19 @@ function execSortArrow(column: ExecSortColumn): string {
  *  `--rr-cols`. */
 const execColumns = useResizableColumns('executions', [
   { key: 'anchor', track: '16px' },
-  { key: 'issue', defaultWidth: 64, minWidth: 48 },
+  { key: 'issue', defaultWidth: 64, minWidth: 48, maxWidth: 160 },
   { key: 'main', defaultWidth: 400, minWidth: 240, maxWidth: 800 },
   { key: 'agent', defaultWidth: 96, minWidth: 60, maxWidth: 240 },
-  { key: 'dur', defaultWidth: 64, minWidth: 48 },
-  { key: 'verb', defaultWidth: 176, minWidth: 96 },
+  // `dur`/`verb` sin `maxWidth` dejaban que un ancho corrupto en
+  // localStorage (guardado sin tope, de una versión anterior de esta
+  // columna, o de un arrastre que se fue de largo) quedara pegado ahí para
+  // siempre — con `text-align: right` en ambas celdas, eso empuja el texto
+  // (y todo lo que sigue, ACCIÓN incluida) muy a la derecha. Al cargar, un
+  // ancho guardado que exceda este máximo se descarta solo y vuelve al
+  // default — así que este fix se autoaplica en el próximo load, sin que el
+  // operador tenga que limpiar nada a mano.
+  { key: 'dur', defaultWidth: 64, minWidth: 48, maxWidth: 160 },
+  { key: 'verb', defaultWidth: 176, minWidth: 96, maxWidth: 320 },
   { key: 'spacer', track: 'minmax(0, 1fr)' },
 ]);
 
@@ -1955,9 +1963,10 @@ watch(pendingFilter, () => {
     <!-- El resumen es un VEREDICTO: la línea de salud y el costo del período
          (R10). Reemplaza al AgentHealthPanel, cuya tabla de diez columnas se
          mudó entera a la pantalla del agente. Los tres contadores por
-         disposición que antes vivían acá se movieron pegados al filtro
-         (`DispositionChips`, más abajo): son un atajo de filtro, y el lugar
-         natural de un atajo de filtro es al lado de donde se filtra a mano. -->
+         disposición que antes vivían acá se movieron a `quickFilters` de
+         `ListControlsBar`, pegados al filtro: son un atajo de filtro, y el
+         lugar natural de un atajo de filtro es al lado de donde se filtra a
+         mano. -->
     <HealthVerdict
       :stats="healthStats"
       :loading="healthLoading"
@@ -1977,21 +1986,14 @@ watch(pendingFilter, () => {
       @cancel="confirmCancelExecution"
     />
 
-    <!-- El atajo de filtro rápido, pegado al filtro que en realidad prende —
-         no arriba de todo, donde quedaba lejos de `FilterQueryInput`. -->
-    <DispositionChips
-      :project-id="isGlobal ? null : activeProjectId"
-      :stats="healthStats"
-      :filtering="filterTokens.length > 0"
-      :active-key="activeDispositionKey"
-      @filter="filterByDisposition"
-    />
-
     <ListControlsBar
       :filter-count="filterTokens.length"
       :summary="mobileFilterSummary ?? undefined"
       title="Filtrar ejecuciones"
+      :quick-filters="execQuickFilters"
+      :active-quick-filter="activeDispositionKey"
       @clear="filterTokens = []"
+      @quick-filter="onExecQuickFilter"
     >
       <!-- `Live` y `Actualizar` son controles de la LISTA, no encabezado de la
            pantalla: arriba ocupaban 90px antes de la primera fila (turno 8).
