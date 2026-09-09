@@ -2683,7 +2683,18 @@ watch(pendingFilter, () => {
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 /* ── La segunda columna (--bp-split) ─────────────────────────────────────── */
 .exec-split { display: flex; flex-direction: column; min-width: 0; position: relative; }
-.exec-col { min-width: 0; }
+/* Flex column y no block: `.exec-list-wrapper` (la única caja que scrollea
+   — ver ahí) toma `flex: 1` para quedarse con lo que sobra debajo de
+   "Cargar más", que se queda afuera del scroll con su alto natural.
+   `min-height: 0` para poder achicarse cuando `.exec-split--open` acota la
+   fila (si no, un flex item mide como mínimo su contenido y desborda en vez
+   de scrollear). */
+.exec-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 @media (min-width: 1100px) {
   .exec-split--open {
     display: grid;
@@ -2709,20 +2720,6 @@ watch(pendingFilter, () => {
   .settings-section--list:has(.exec-split--open) .exec-split--open {
     flex: 1;
     min-height: 0;
-  }
-  /* `.exec-col` pasa a columna flex para que `.exec-list-wrapper` (el
-     encabezado + la lista + "Cargar más") absorba el alto disponible y
-     scrollee, con "Cargar más" siempre visible debajo — no adentro del
-     scroll. */
-  .settings-section--list:has(.exec-split--open) .exec-col {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .settings-section--list:has(.exec-split--open) .exec-list-wrapper {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
   }
   /* `position: absolute` para no contar como un tercer ítem de la grilla de
      dos tracks. Ancla al borde IZQUIERDO del panel — mismo cálculo que en
@@ -2759,6 +2756,17 @@ watch(pendingFilter, () => {
 .exec-list-wrapper {
   position: relative;
   container: exec-list / inline-size;
+  /* ÚNICA caja que scrollea, en los dos ejes — mismo motivo que
+     `.task-table` en TareasSection.vue: con columnas arrastradas más anchas
+     que el panel, el texto se cortaba sin ninguna forma de verlo. `flex: 1`
+     porque `.exec-col` (el padre) es ahora columna flex: esta caja se queda
+     con lo que sobra debajo de "Cargar más", que se queda afuera del scroll.
+     `.exec-list-header` (sticky, `top: 0`) ancla ACÁ — que es justo lo que
+     ya declaraba `container: exec-list`, así que no hace falta nada nuevo
+     para que el sticky siga funcionando. */
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 /* Las columnas se declaran UNA vez, acá —ahora vía `:style` desde
    `execColumns.gridTemplateColumns`, con el mismo literal como fallback— y
