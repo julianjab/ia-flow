@@ -140,78 +140,94 @@ export function createExecutionsRouter() {
       return c.json({ ok: true, alreadyFinished: true, execution })
     }
     if (execution.source && execution.source !== INSTANCE_ID) {
-      // Forwarded row (source = OTHER process's IA_FLOW_INSTANCE_ID) — this
-      // daemon has no `pendingTask` for it, so the orphan branch below would
-      // close it as cancelled while the agent keeps running in the OTHER
-      // process, and the next forwarded update would silently overwrite that
-      // lie. There's also no safe network path to reach into that container
-      // and actually stop it (its public port only proxies the webhook route
-      // — see scripts/webhook-proxy.ts — the full API has no auth of its
-      // own). So this only stamps an advisory marker instead of lying that
-      // the run stopped; the container keeps running until it finishes or
-      // someone stops it there.
-      //
-      // A row whose `source` equals THIS process's own INSTANCE_ID isn't
-      // forwarded from anywhere — every row this daemon inserts is
-      // self-tagged (SourceTaggingExecutionLogRepository), restart after
-      // restart, so a same-instance row falls through instead: it's either
-      // still live (pendingTask branch) or truly orphaned from a previous
-      // life of THIS process (orphan branch below can actually close it).
-      executionLogRepo.update(execution.id, { cancelRequestedAt: new Date().toISOString() })
-      log.info(
-        { id: execution.id, source: execution.source },
-        'Cancel requested on remote-owned execution (advisory only, not actually stopped)',
-      )
-      return c.json({
-        ok: true,
-        cancelRequested: true,
-        execution: executionLogRepo.getById(execution.id),
-      })
+      return c.json(await cancelRemoteOwned(execution))
     }
 
     const pending = getPendingTask(execution.taskId)
-    if (pending) {
-      try {
-        await pending.cancel?.()
-      } catch (err) {
-        log.warn({ err, id: execution.id }, 'pending.cancel threw — continuing cleanup')
-      }
-      // Async provider: cancel() doesn't unblock waitForFinish on its own,
-      // so we resolve it explicitly. Sync provider: the AbortController
-      // triggered inside cancel() will make the provider throw and the
-      // orchestrator will removePendingTask itself; calling it here is
-      // still safe (map lookup → no-op).
-      removePendingTask(execution.taskId, { cancelled: true })
-      log.info({ id: execution.id, taskId: execution.taskId }, 'Execution cancelled via HTTP')
-      return c.json({ ok: true, execution: executionLogRepo.getById(execution.id) })
-    }
+    if (pending) return c.json(await cancelInFlight(execution, pending))
 
-    // Orphan branch — best-effort tab close by kind + session id.
-    if (execution.sessionKind === 'iterm' && execution.sessionId) {
-      const { closeItermSession } = await import('@ia-flow/ai-providers')
-      await closeItermSession(execution.sessionId).catch(() => {})
-    } else if (execution.sessionKind === 'tmux' && execution.sessionId) {
-      const { spawn } = await import('node:child_process')
-      try {
-        spawn('tmux', ['kill-session', '-t', execution.sessionId], {
-          detached: true,
-          stdio: 'ignore',
-        }).unref()
-      } catch {
-        /* nothing to kill */
-      }
-    }
-    executionLogRepo.update(execution.id, {
-      finishedAt: new Date().toISOString(),
-      outcome: 'cancelled',
-      errorMsg: 'cancelled: manual (orphaned)',
-    })
-    log.warn(
-      { id: execution.id, taskId: execution.taskId },
-      'Orphaned execution finalized as cancelled',
-    )
-    return c.json({ ok: true, orphaned: true, execution: executionLogRepo.getById(execution.id) })
+    return c.json(await cancelOrphan(execution))
   })
 
   return app
+}
+
+type ExecutionRow = NonNullable<ReturnType<typeof executionLogRepo.getById>>
+
+// Forwarded row (source = OTHER process's IA_FLOW_INSTANCE_ID) — this
+// daemon has no `pendingTask` for it, so the orphan branch would close it
+// as cancelled while the agent keeps running in the OTHER process, and the
+// next forwarded update would silently overwrite that lie. There's also no
+// safe network path to reach into that container and actually stop it (its
+// public port only proxies the webhook route — see scripts/webhook-proxy.ts
+// — the full API has no auth of its own). So this only stamps an advisory
+// marker instead of lying that the run stopped; the container keeps
+// running until it finishes or someone stops it there.
+//
+// A row whose `source` equals THIS process's own INSTANCE_ID isn't
+// forwarded from anywhere — every row this daemon inserts is self-tagged
+// (SourceTaggingExecutionLogRepository), restart after restart, so a
+// same-instance row falls through instead: it's either still live
+// (pendingTask branch) or truly orphaned from a previous life of THIS
+// process (orphan branch can actually close it).
+async function cancelRemoteOwned(execution: ExecutionRow) {
+  executionLogRepo.update(execution.id, { cancelRequestedAt: new Date().toISOString() })
+  log.info(
+    { id: execution.id, source: execution.source },
+    'Cancel requested on remote-owned execution (advisory only, not actually stopped)',
+  )
+  return { ok: true, cancelRequested: true, execution: executionLogRepo.getById(execution.id) }
+}
+
+async function cancelInFlight(
+  execution: ExecutionRow,
+  pending: NonNullable<ReturnType<typeof getPendingTask>>,
+) {
+  try {
+    await pending.cancel?.()
+  } catch (err) {
+    log.warn({ err, id: execution.id }, 'pending.cancel threw — continuing cleanup')
+  }
+  // Async provider: cancel() doesn't unblock waitForFinish on its own,
+  // so we resolve it explicitly. Sync provider: the AbortController
+  // triggered inside cancel() will make the provider throw and the
+  // orchestrator will removePendingTask itself; calling it here is
+  // still safe (map lookup → no-op).
+  removePendingTask(execution.taskId, { cancelled: true })
+  log.info({ id: execution.id, taskId: execution.taskId }, 'Execution cancelled via HTTP')
+  return { ok: true, execution: executionLogRepo.getById(execution.id) }
+}
+
+/** Best-effort tab close by kind + session id. */
+async function closeOrphanSession(execution: ExecutionRow): Promise<void> {
+  if (execution.sessionKind === 'iterm' && execution.sessionId) {
+    const { closeItermSession } = await import('@ia-flow/ai-providers')
+    await closeItermSession(execution.sessionId).catch(() => {})
+    return
+  }
+  if (execution.sessionKind === 'tmux' && execution.sessionId) {
+    const { spawn } = await import('node:child_process')
+    try {
+      spawn('tmux', ['kill-session', '-t', execution.sessionId], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref()
+    } catch {
+      /* nothing to kill */
+    }
+  }
+}
+
+async function cancelOrphan(execution: ExecutionRow) {
+  await closeOrphanSession(execution)
+  executionLogRepo.update(execution.id, {
+    finishedAt: new Date().toISOString(),
+    outcome: 'cancelled',
+    errorMsg: 'cancelled: manual (orphaned)',
+  })
+  log.warn(
+    { id: execution.id, taskId: execution.taskId },
+    'Orphaned execution finalized as cancelled',
+  )
+  return { ok: true, orphaned: true, execution: executionLogRepo.getById(execution.id) }
 }
