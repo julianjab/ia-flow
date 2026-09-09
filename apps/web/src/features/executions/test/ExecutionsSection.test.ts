@@ -83,6 +83,7 @@ vi.mock('vue-router', () => ({
 import { useProjectsStore } from '@/features/projects/store'
 import { useToastStore } from '@/stores/toast'
 import ExecutionsSection from '../ExecutionsSection.vue'
+import RunRow from '../RunRow.vue'
 
 function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
   return {
@@ -292,6 +293,65 @@ describe('ExecutionsSection — filtrar por resultado', () => {
     // `error` no prende el flag de pending: son dos valores del mismo campo.
     expect(tokenFor(wrapper, 'resultado', 'pending').exists()).toBe(false)
     expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(true)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// "TE ESPERA" no cuenta un reintento viejo aparte del que en verdad hace
+// falta: una tarea sin cerrar que se corrió varias veces deja un intento
+// cancelado/cortado por vuelta, y todos piden la MISMA acción (una sobre la
+// tarea). Sin colapsar por taskId, tres reintentos viejos inflaban el
+// contador a tres en vez de uno.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — TE ESPERA colapsa reintentos de la misma tarea', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const store = useProjectsStore()
+    store.activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('sólo el intento más reciente de una tarea queda en "te espera"', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({
+        id: 'e-old',
+        taskId: 't-1',
+        outcome: 'cancelled',
+        startedAt: '2025-01-01T00:00:00Z',
+        finishedAt: '2025-01-01T00:00:05Z',
+      }),
+      makeExec({
+        id: 'e-new',
+        taskId: 't-1',
+        outcome: 'cancelled',
+        startedAt: '2025-01-01T01:00:00Z',
+        finishedAt: '2025-01-01T01:00:05Z',
+      }),
+      makeExec({
+        id: 'e-other-task',
+        taskId: 't-2',
+        outcome: 'error',
+        startedAt: '2025-01-01T00:30:00Z',
+        finishedAt: '2025-01-01T00:30:05Z',
+      }),
+    ])
+
+    // Dos tareas distintas piden atención — no tres intentos.
+    const count = wrapper.get('[data-testid="bucket-waiting-on-you"] .bh__count').text()
+    expect(count).toBe('2')
+
+    const waitingIds = wrapper
+      .findAllComponents(RunRow)
+      .slice(0, 2)
+      .map((c) => c.props('execution').id)
+    expect(waitingIds).toContain('e-new')
+    expect(waitingIds).toContain('e-other-task')
+    expect(waitingIds).not.toContain('e-old')
   })
 })
 

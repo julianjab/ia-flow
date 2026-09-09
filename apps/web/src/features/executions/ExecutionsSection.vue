@@ -777,8 +777,8 @@ const groupedExecutions = computed<ExecRow[]>(() => {
  */
 const BUCKET_SEVERITY: Record<string, number> = { 'waiting-on-you': 0, moving: 1, closed: 2 };
 
-const dispositionRows = computed(() =>
-  groupedExecutions.value
+const dispositionRows = computed(() => {
+  const rows = groupedExecutions.value
     // Las hijas de un firing abierto no se agrupan aparte: viven dentro de su
     // grupo, y sacarlas a otro bucket rompería la relación que el grupo dibuja.
     .filter((row) => !row.nested)
@@ -786,7 +786,7 @@ const dispositionRows = computed(() =>
       const outcomes = row.firing
         ? row.firing.children.map((c) => c.outcome)
         : [row.exec?.outcome ?? null];
-      let disposition = outcomes
+      let disposition: TaskDisposition = outcomes
         .map(dispositionOfOutcome)
         .sort((a, b) => BUCKET_SEVERITY[a] - BUCKET_SEVERITY[b])[0];
       // `dispositionOfOutcome` sólo mira el outcome guardado del run, así que un
@@ -798,9 +798,29 @@ const dispositionRows = computed(() =>
       if (disposition === 'waiting-on-you' && taskId && closedTaskIds.value.has(taskId)) {
         disposition = 'closed';
       }
-      return { id: row.key, disposition, row };
-    }),
-);
+      const startedAt = row.firing ? row.firing.startedAt : (row.exec?.startedAt ?? '');
+      return { id: row.key, disposition, row, taskId, startedAt };
+    });
+
+  // Una tarea todavía abierta que se reintentó varias veces deja un intento
+  // cancelado/cortado por vuelta: sin esto, "TE ESPERA" contaba cada intento
+  // viejo aparte de la acción que en verdad hace falta (una sola, sobre la
+  // tarea). Sólo el intento más reciente por taskId queda pidiendo atención;
+  // los anteriores pasan a `closed` — siguen visibles en el historial, no
+  // desaparecen, sólo dejan de duplicar el conteo de "te espera".
+  const latestWaitingStartedAt = new Map<string, string>();
+  for (const r of rows) {
+    if (r.disposition !== 'waiting-on-you' || !r.taskId) continue;
+    const prev = latestWaitingStartedAt.get(r.taskId);
+    if (!prev || r.startedAt > prev) latestWaitingStartedAt.set(r.taskId, r.startedAt);
+  }
+  return rows.map((r) => {
+    if (r.disposition !== 'waiting-on-you' || !r.taskId) return { id: r.id, disposition: r.disposition, row: r.row };
+    const isLatest = latestWaitingStartedAt.get(r.taskId) === r.startedAt;
+    const disposition: TaskDisposition = isLatest ? r.disposition : 'closed';
+    return { id: r.id, disposition, row: r.row };
+  });
+});
 
 /**
  * `RunningRunsPanel` se sacó de esta pantalla: duplicaba el bucket `moving`
