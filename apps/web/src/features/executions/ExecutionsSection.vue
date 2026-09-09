@@ -230,19 +230,28 @@ const relatedError = ref<Record<string, string>>({});
 // across sources (GitHub Projects items where the taskId is an opaque node
 // id, plain GitHub issues where it's a number, local files, etc.).
 const issueUrlByTaskId = ref<Record<string, string>>({});
+// Mismo fetch que `issueUrlByTaskId`: qué tasks del proyecto YA están cerradas
+// en la fuente ahora mismo. `dispositionRows` lo usa para no mandar a "TE ESPERA"
+// un run viejo (cortado/cancelado/con error) de una tarea que ya se resolvió —
+// mismo criterio (`item.meta.state === 'closed'`) que usa
+// `GetTaskDispositionsUseCase` para Tareas/Board (O6: un solo orden en toda la app).
+const closedTaskIds = ref<Set<string>>(new Set());
 async function loadIssueUrlMap() {
   // Cross-project issueUrl lookup would need N fetches; skip in global tab.
-  if (isGlobal.value) { issueUrlByTaskId.value = {}; return; }
+  if (isGlobal.value) { issueUrlByTaskId.value = {}; closedTaskIds.value = new Set(); return; }
   const pid = activeProjectId.value;
-  if (!pid) { issueUrlByTaskId.value = {}; return; }
+  if (!pid) { issueUrlByTaskId.value = {}; closedTaskIds.value = new Set(); return; }
   try {
     const res = await fetchProjectItems(pid);
     const next: Record<string, string> = {};
+    const closed = new Set<string>();
     for (const item of res.items ?? []) {
       const url = item.meta?.issueUrl;
       if (typeof url === 'string' && url) next[item.id] = url;
+      if ((item.meta as { state?: string } | undefined)?.state === 'closed') closed.add(item.id);
     }
     issueUrlByTaskId.value = next;
+    closedTaskIds.value = closed;
   } catch {
     // Non-fatal — the title just stays plain text.
   }
@@ -469,6 +478,13 @@ const execColumns = useResizableColumns('executions', [
   { key: 'dur', defaultWidth: 64, minWidth: 48 },
   { key: 'verb', defaultWidth: 176, minWidth: 96 },
 ]);
+
+/** Ancho del panel de detalle sobre `--bp-split` — mismo patrón que
+ *  `splitColumns` en TareasSection.vue (lista `1fr`, detalle invertido). */
+const splitColumns = useResizableColumns('exec-split', [
+  { key: 'list', track: 'minmax(0, 1fr)' },
+  { key: 'detail', defaultWidth: 26 * 18, minWidth: 320, maxWidth: 720, invert: true },
+]);
 // Tick used to compute live elapsed time for still-open executions. Updated
 // every second by the interval below, but only while at least one row is
 // still in-flight — otherwise the ref sits idle.
@@ -676,9 +692,18 @@ const dispositionRows = computed(() =>
       const outcomes = row.firing
         ? row.firing.children.map((c) => c.outcome)
         : [row.exec?.outcome ?? null];
-      const disposition = outcomes
+      let disposition = outcomes
         .map(dispositionOfOutcome)
         .sort((a, b) => BUCKET_SEVERITY[a] - BUCKET_SEVERITY[b])[0];
+      // `dispositionOfOutcome` sólo mira el outcome guardado del run, así que un
+      // intento viejo cortado/cancelado/con error de una tarea que YA se cerró
+      // se quedaba en "TE ESPERA" para siempre — nada en esa función consulta el
+      // estado vivo de la tarea. Cruzarlo acá contra `closedTaskIds` es lo mismo
+      // que ya hace `GetTaskDispositionsUseCase.isClosed` para Tareas/Board.
+      const taskId = row.firing ? row.firing.taskId : row.exec?.taskId;
+      if (disposition === 'waiting-on-you' && taskId && closedTaskIds.value.has(taskId)) {
+        disposition = 'closed';
+      }
       return { id: row.key, disposition, row };
     }),
 );
@@ -1933,7 +1958,17 @@ watch(pendingFilter, () => {
     <!-- Sobre --bp-split la lista y el detalle se parten en dos columnas; sin
          detalle abierto no hay grilla, porque reservar 26rem vacías dejaría la
          lista angosta para nada. -->
-    <div class="exec-split" :class="{ 'exec-split--open': isSplit && !!selectedExec }">
+    <div
+      class="exec-split"
+      :class="{ 'exec-split--open': isSplit && !!selectedExec }"
+      :style="{ '--exec-split-cols': splitColumns.gridTemplateColumns.value, '--exec-split-detail-w': `${splitColumns.widths.detail}px` }"
+    >
+      <div
+        v-if="isSplit && !!selectedExec"
+        class="split-resize-handle"
+        title="Arrastrar para cambiar el ancho"
+        @pointerdown="splitColumns.startResize('detail', $event)"
+      ></div>
     <div class="exec-col">
     <div class="exec-list-wrapper" :style="{ '--rr-cols': execColumns.gridTemplateColumns.value }">
       <!-- El encabezado son las columnas de 5d, y existe SÓLO donde hay
@@ -2636,15 +2671,42 @@ watch(pendingFilter, () => {
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 /* ── La segunda columna (--bp-split) ─────────────────────────────────────── */
-.exec-split { display: flex; flex-direction: column; min-width: 0; }
+.exec-split { display: flex; flex-direction: column; min-width: 0; position: relative; }
 .exec-col { min-width: 0; }
 @media (min-width: 1100px) {
   .exec-split--open {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 26rem;
+    /* `--exec-split-cols`: mismo patrón que `--split-cols` en TareasSection —
+       `splitColumns` lo escribe, el handle de abajo lo arrastra. */
+    grid-template-columns: var(--exec-split-cols, minmax(0, 1fr) 26rem);
     gap: 1rem;
     align-items: start;
   }
+  /* `position: absolute` para no contar como un tercer ítem de la grilla de
+     dos tracks. Ancla al borde IZQUIERDO del panel — mismo cálculo que en
+     TareasSection: `right` cuenta desde el borde derecho del split. */
+  .split-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: calc(var(--exec-split-detail-w, 26rem) + 0.5rem);
+    width: 0.65rem;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 2;
+  }
+  .split-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 10%;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    height: 80%;
+    background: var(--border-hi);
+    opacity: 0.7;
+  }
+  .split-resize-handle:hover::after { background: var(--accent); opacity: 1; }
 }
 
 /* La lista es un CONTENEDOR de consulta, y de ahí sale si la fila se apila.
@@ -2736,16 +2798,20 @@ watch(pendingFilter, () => {
      columna — mismo motivo que `useDragReorder` en su handle. */
   touch-action: none;
 }
+/* Visible EN REPOSO, no sólo al pasar el mouse — un hairline de 1px que sólo
+   aparece en hover es indistinguible de "no hay nada acá". */
 .col-resize-handle::after {
   content: '';
   position: absolute;
-  top: 15%;
+  top: 10%;
   left: 50%;
-  width: 1px;
-  height: 70%;
+  width: 2px;
+  margin-left: -1px;
+  height: 80%;
   background: var(--border-hi);
+  opacity: 0.7;
 }
-.col-resize-handle:hover::after { background: var(--accent); }
+.col-resize-handle:hover::after { background: var(--accent); opacity: 1; }
 .exec-header-btn--active { color: var(--fg); }
 .exec-empty {
   padding: 1.5rem 0.75rem;
