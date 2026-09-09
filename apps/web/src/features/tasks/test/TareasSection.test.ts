@@ -2,8 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SourceItem } from '@/features/projects/sourceApi'
-import TaskChatDrawer from '@/features/tasks/TaskChatDrawer.vue'
+import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue'
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
+import { useTaskChatStore } from '@/features/tasks/taskChatStore'
 import TareasSection from '../TareasSection.vue'
 
 const items: SourceItem[] = []
@@ -51,10 +52,23 @@ vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
   setProjectItemField: (...args: unknown[]) => setProjectItemField(...(args as [])),
 }))
-// El drawer de chat vive detrás de su propio api — sin mockearlo, montar
+// La barra de comandos vive detrás de su propio api — sin mockearlo, montar
 // TareasSection saldría a la red de verdad.
+const createTaskAnnotation = vi.fn(async () => ({
+  id: 'a1',
+  projectId: 'p1',
+  taskId: 'I_1',
+  text: 'nota',
+  origin: 'assistant' as const,
+  createdAt: '2026-09-09T00:00:00.000Z',
+}))
 vi.mock('@/features/tasks/chatApi', () => ({
-  sendTaskChatMessage: vi.fn(async () => ({ reply: 'ok', actions: [] })),
+  sendTaskChatMessage: vi.fn(async () => ({
+    reply: 'ok',
+    scope: { type: 'project' },
+    actions: [],
+  })),
+  createTaskAnnotation: (...args: unknown[]) => createTaskAnnotation(...(args as [])),
 }))
 
 // El componente lee los filtros de la query y los escribe con `replace`; el
@@ -729,40 +743,90 @@ describe('TareasSection — mover desde la sugerencia', () => {
   })
 })
 
-// El botón abre el drawer, y "Aplicar" lo ejecuta esta pantalla — mismo
-// criterio que "mover desde la sugerencia": el drawer no tiene `setProjectItemField`,
-// sólo emite las acciones y quien las aplica refresca después.
+// El botón abre/cierra la barra de comandos (no un drawer — ver #215/#216,
+// regla R18), y "Aplicar" lo ejecuta esta pantalla: la barra no persiste
+// nada por sí misma, sólo emite las acciones y quien las aplica refresca
+// después (mismo criterio que "mover desde la sugerencia").
 describe('TareasSection — asistente de tareas', () => {
-  it('el botón ✦ Asistente abre el drawer', async () => {
+  it('el botón ✦ Asistente abre/cierra la barra de comandos', async () => {
     const w = await mountWith([githubItem({})])
-    expect(w.findComponent(TaskChatDrawer).props('open')).toBe(false)
+    expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
 
     await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    expect(w.findComponent(TaskCommandBar).exists()).toBe(true)
 
-    expect(w.findComponent(TaskChatDrawer).props('open')).toBe(true)
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
   })
 
-  it('aplicar una acción set-field llama a setProjectItemField y refresca la lista', async () => {
+  it('aplicar `tag` llama a setProjectItemField con +labels y refresca la lista', async () => {
     const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
     setProjectItemField.mockClear()
     const callsBefore = fetchProjectItemsMock.mock.calls.length
 
-    w.findComponent(TaskChatDrawer).vm.$emit('apply', [
-      { type: 'set-field', itemId: 'I_1', field: 'status', value: 'doing' },
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'tag', taskId: 'I_1', tags: ['urgente', 'backend'] },
     ])
     await flushPromises()
 
-    expect(setProjectItemField).toHaveBeenCalledWith('p1', 'I_1', 'status', 'doing')
+    expect(setProjectItemField).toHaveBeenCalledWith('p1', 'I_1', 'Labels', '+urgente,+backend')
     expect(fetchProjectItemsMock.mock.calls.length).toBeGreaterThan(callsBefore)
+  })
+
+  it('aplicar `note` llama a createTaskAnnotation y NO refresca la lista (no toca el source)', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    createTaskAnnotation.mockClear()
+    const callsBefore = fetchProjectItemsMock.mock.calls.length
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'note', taskId: 'I_1', text: 'Depende de #99' },
+    ])
+    await flushPromises()
+
+    expect(createTaskAnnotation).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 'I_1',
+      text: 'Depende de #99',
+      origin: 'assistant',
+    })
+    expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('aplicar `reorder` guarda la preferencia en localStorage, no en el server', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    setProjectItemField.mockClear()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'reorder', taskIds: ['I_1'] }])
+    await flushPromises()
+
+    expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBe(JSON.stringify(['I_1']))
+    expect(setProjectItemField).not.toHaveBeenCalled()
+  })
+
+  it('aplicar `highlight` lo guarda en el store de sesión, sin llamar al server', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    const store = useTaskChatStore()
+    setProjectItemField.mockClear()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'highlight', taskId: 'I_1', reason: 'Bloquea al equipo' },
+    ])
+    await flushPromises()
+
+    expect(store.highlights.I_1).toBe('Bloquea al equipo')
+    expect(setProjectItemField).not.toHaveBeenCalled()
   })
 
   it('una acción que falla no bloquea la refresca ni tira un error sin manejar', async () => {
     const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
     setProjectItemField.mockRejectedValueOnce(new Error('boom'))
 
-    w.findComponent(TaskChatDrawer).vm.$emit('apply', [
-      { type: 'set-field', itemId: 'I_1', field: 'status', value: 'doing' },
-    ])
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'tag', taskId: 'I_1', tags: ['x'] }])
     await flushPromises()
 
     expect(toastError).toHaveBeenCalled()
