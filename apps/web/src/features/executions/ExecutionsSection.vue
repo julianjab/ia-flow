@@ -1881,7 +1881,7 @@ watch(pendingFilter, () => {
     @drill="onPageDrill"
     @open="openAgentPage"
   />
-  <section v-else class="settings-section">
+  <section v-else class="settings-section settings-section--list">
     <!-- Sin `<h2>Ejecuciones</h2>` ni su descripción (R9, R12): la barra de
          identidad del shell ya dice el proyecto y la sección, y el párrafo
          describía lo que la lista muestra abajo. -->
@@ -2691,7 +2691,38 @@ watch(pendingFilter, () => {
        `splitColumns` lo escribe, el handle de abajo lo arrastra. */
     grid-template-columns: var(--exec-split-cols, minmax(0, 1fr) 26rem);
     gap: 1rem;
-    align-items: start;
+    align-items: stretch;
+  }
+  /* Con el detalle abierto, la SECCIÓN pasa a altura acotada — mismo
+     presupuesto que ya usaba el drawer (`calc(100vh - var(--tap-h) - 2rem)`,
+     ver `.exec-drawer--inline`) — y de ahí en más lista y detalle son las
+     ÚNICAS dos regiones que scrollean, igual que en TareasSection.vue. Antes
+     `.exec-list-wrapper` no tenía techo propio: era la PÁGINA la que
+     scrolleaba para revelar el resto, mientras el drawer scrolleaba por su
+     cuenta — dos scrolls compitiendo por la misma rueda del mouse. */
+  .settings-section--list:has(.exec-split--open) {
+    height: calc(100vh - var(--tap-h) - 2rem);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-section--list:has(.exec-split--open) .exec-split--open {
+    flex: 1;
+    min-height: 0;
+  }
+  /* `.exec-col` pasa a columna flex para que `.exec-list-wrapper` (el
+     encabezado + la lista + "Cargar más") absorba el alto disponible y
+     scrollee, con "Cargar más" siempre visible debajo — no adentro del
+     scroll. */
+  .settings-section--list:has(.exec-split--open) .exec-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .settings-section--list:has(.exec-split--open) .exec-list-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
   /* `position: absolute` para no contar como un tercer ítem de la grilla de
      dos tracks. Ancla al borde IZQUIERDO del panel — mismo cálculo que en
@@ -3004,12 +3035,20 @@ watch(pendingFilter, () => {
 
 /* Como columna no flota: se queda pegado arriba mientras la lista scrollea al
    lado, que es lo que permite recorrer runs sin perder el detalle de vista. */
+/* Ya NO es `position: sticky` — la sección entera pasa a altura acotada
+   cuando el split está abierto (`.settings-section--list:has(.exec-split
+   --open)`) y la fila del grid (`align-items: stretch`) le da a este panel
+   su alto real; `.exec-drawer__body` es quien scrollea, igual que
+   `.modal-body` en TaskDetailModal.vue. Con `position: sticky` el panel
+   enganchaba recién después de scrollear lo que medían los filtros de
+   arriba — la página scrolleaba hasta ese punto Y el drawer scrolleaba por
+   su cuenta, dos scrolls por la misma rueda del mouse. */
 .exec-drawer--inline {
-  position: sticky;
-  top: calc(var(--chrome-h) + 0.5rem);
+  position: static;
   width: auto;
   min-width: 0;
-  max-height: calc(100vh - var(--chrome-h) - 2rem);
+  height: 100%;
+  min-height: 0;
   border-left: 1px solid var(--border);
   box-shadow: none;
 }
