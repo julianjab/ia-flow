@@ -1,6 +1,7 @@
 import {
   type AgentRunState,
   type DispatchOptions,
+  listPendingTasks,
   MAX_RESUME_AGE_MS,
   MAX_RESUME_ATTEMPTS,
 } from '@ia-flow/agent-engine'
@@ -185,9 +186,21 @@ export async function listRecoverableCheckpoints(
     return (item?.meta as { state?: string } | undefined)?.state === 'closed'
   }
 
+  // El checkpoint se guarda EN CADA VUELTA del loop (ver AgentOrchestrator),
+  // no sólo al crashear — así que un run que sigue corriendo normalmente
+  // también tiene una fila viva en `run_checkpoints` en todo momento. Sin
+  // este filtro, todo run en curso aparecía acá como "recuperable" aunque
+  // nada se hubiera cortado. El registro de pending tasks es la única fuente
+  // que sabe qué corre DE VERDAD ahora mismo en este proceso.
+  const runningRunIds = new Set(
+    listPendingTasks()
+      .map(([, p]) => p.runId)
+      .filter((id): id is string => Boolean(id)),
+  )
+
   const now = Date.now()
   return scoped
-    .filter((cp) => !isTaskClosed(cp))
+    .filter((cp) => !isTaskClosed(cp) && !runningRunIds.has(cp.runId))
     .map((cp) => {
       const row = executionLogRepo.getById(cp.runId)
       const ageMs = now - Date.parse(cp.updatedAt)
