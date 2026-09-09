@@ -5,7 +5,7 @@ import { timingSafeEqual } from 'node:crypto'
 import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { intersectWritePaths, WorkspaceRequestSchema } from '@ia-flow/shared'
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
@@ -101,6 +101,29 @@ function secretEquals(provided: string | undefined, secret: string): boolean {
   // — y el largo no es lo que este guard protege.
   if (a.length !== b.length) return false
   return timingSafeEqual(a, b)
+}
+
+/** Valida el `maxConcurrentRuns` de un PUT /v1/admission. Devuelve el motivo
+ *  del rechazo, o `null` si es válido. */
+function validateMaxConcurrentRunsUpdate(raw: unknown): string | null {
+  if (raw !== null && (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0)) {
+    return 'maxConcurrentRuns debe ser un número >= 0, o null'
+  }
+  return null
+}
+
+/** 0 se guarda como null: "sin tope", el mismo criterio que el engine. */
+function normalizeMaxConcurrentRuns(raw: number | null): number | null {
+  return raw === null || raw === 0 ? null : raw
+}
+
+/** Valida el `rules` de un PUT /v1/admission. Devuelve el motivo del
+ *  rechazo, o `null` si es válido. */
+function validateAdmissionRulesUpdate(rules: unknown): string | null {
+  if (!Array.isArray(rules) || !rules.every(isAdmissionRule)) {
+    return 'rules debe ser una lista de {field, op, value}'
+  }
+  return null
 }
 
 export interface RegistrationOutcome {
@@ -372,18 +395,14 @@ export function createApp({
     if (!body) return c.json({ error: 'invalid JSON body' }, 400)
 
     if ('maxConcurrentRuns' in body) {
-      const raw = body.maxConcurrentRuns
-      if (raw !== null && (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0)) {
-        return c.json({ error: 'maxConcurrentRuns debe ser un número >= 0, o null' }, 400)
-      }
-      // 0 se guarda como null: "sin tope", el mismo criterio que el engine.
-      state.maxConcurrentRuns = raw === null || raw === 0 ? null : (raw as number)
+      const error = validateMaxConcurrentRunsUpdate(body.maxConcurrentRuns)
+      if (error) return c.json({ error }, 400)
+      state.maxConcurrentRuns = normalizeMaxConcurrentRuns(body.maxConcurrentRuns as number | null)
     }
 
     if ('rules' in body) {
-      if (!Array.isArray(body.rules) || !body.rules.every(isAdmissionRule)) {
-        return c.json({ error: 'rules debe ser una lista de {field, op, value}' }, 400)
-      }
+      const error = validateAdmissionRulesUpdate(body.rules)
+      if (error) return c.json({ error }, 400)
       state.admissionRules = body.rules as AdmissionRule[]
     }
 
@@ -595,38 +614,27 @@ export function createApp({
     }
   }
 
-  app.post('/v1/run', async (c) => {
-    let body: unknown
+  /** Lee y valida el body de POST /v1/run. No lanza — un JSON inválido o que
+   *  no tiene forma de `ProviderInput` es un 400, no una excepción. */
+  async function readRunBody(
+    c: Context,
+  ): Promise<{ ok: true; body: ProviderInput } | { ok: false; error: string }> {
+    let raw: unknown
     try {
-      body = await c.req.json()
+      raw = await c.req.json()
     } catch {
-      return c.json({ error: 'invalid JSON body' }, 400)
+      return { ok: false, error: 'invalid JSON body' }
     }
-    if (!isProviderInput(body)) {
-      return c.json({ error: 'body must be a ProviderInput (needs at least taskId, prompt)' }, 400)
+    if (!isProviderInput(raw)) {
+      return { ok: false, error: 'body must be a ProviderInput (needs at least taskId, prompt)' }
     }
+    return { ok: true, body: raw }
+  }
 
-    // Saturado: 503, no 500. Es "volvé después", no "esto falló" — el
-    // daemon lo difiere y reintenta cuando se libera un slot, en vez de
-    // marcar el run como error.
-    const { accepting, reason } = capacity({
-      repos: body.repos,
-      agentId: body.agentId,
-      projectId: body.projectId,
-      taskType: body.taskType,
-      assignees: body.assignees,
-    })
-    if (!accepting) {
-      log.warn(
-        { running, maxConcurrentRuns: capOf(), reason, taskId: body.taskId },
-        'no tomo este run — 503',
-      )
-      return c.json(
-        { error: reason ?? 'agent-host at capacity', running, maxConcurrentRuns: capOf() },
-        503,
-      )
-    }
-
+  /** Corre el provider para un run ya admitido: cuenta el slot, redirige los
+   *  logs al daemon que despachó, y libera todo en el `finally` pase lo que
+   *  pase. */
+  async function runAcceptedProvider(c: Context, body: ProviderInput): Promise<Response> {
     running++
     // El destino del redrive de logs es propiedad del RUN: este agent-host puede
     // estar registrado contra varios daemons y las líneas tienen que volver al
@@ -657,6 +665,35 @@ export function createApp({
       // mandaría líneas al daemon equivocado.
       if (redriveRunId) clearRunLogTarget(redriveRunId)
     }
+  }
+
+  app.post('/v1/run', async (c) => {
+    const parsed = await readRunBody(c)
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400)
+    const { body } = parsed
+
+    // Saturado: 503, no 500. Es "volvé después", no "esto falló" — el
+    // daemon lo difiere y reintenta cuando se libera un slot, en vez de
+    // marcar el run como error.
+    const { accepting, reason } = capacity({
+      repos: body.repos,
+      agentId: body.agentId,
+      projectId: body.projectId,
+      taskType: body.taskType,
+      assignees: body.assignees,
+    })
+    if (!accepting) {
+      log.warn(
+        { running, maxConcurrentRuns: capOf(), reason, taskId: body.taskId },
+        'no tomo este run — 503',
+      )
+      return c.json(
+        { error: reason ?? 'agent-host at capacity', running, maxConcurrentRuns: capOf() },
+        503,
+      )
+    }
+
+    return runAcceptedProvider(c, body)
   })
 
   return app
