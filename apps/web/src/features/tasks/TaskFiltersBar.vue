@@ -35,6 +35,7 @@ const filterFields = computed<FilterFieldDef[]>(() => [
   { key: 'pr', hint: 'estado del PR', values: [...PR_STATUS_VALUES] },
   { key: 'rama', hint: 'branch linkeada', values: [...BRANCH_VALUES] },
   { key: 'bloqueada', hint: '¿tiene blockers sin resolver?', values: [...BLOCKED_VALUES] },
+  { key: 'texto', hint: 'contiene… en el título', free: true },
 ]);
 
 const filterTokens = computed<FilterToken[]>({
@@ -45,6 +46,7 @@ const filterTokens = computed<FilterToken[]>({
     ...props.modelValue.prStatus.map((value) => ({ field: 'pr', value })),
     ...props.modelValue.branch.map((value) => ({ field: 'rama', value })),
     ...props.modelValue.blocked.map((value) => ({ field: 'bloqueada', value })),
+    ...props.modelValue.text.map((value) => ({ field: 'texto', value })),
   ],
   set: (tokens) => {
     const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
@@ -55,6 +57,7 @@ const filterTokens = computed<FilterToken[]>({
       prStatus: of('pr') as PrStatusValue[],
       branch: of('rama') as BranchValue[],
       blocked: of('bloqueada') as BlockedValue[],
+      text: of('texto'),
     });
   },
 });
@@ -66,7 +69,7 @@ const filterTokens = computed<FilterToken[]>({
       v-model="filterTokens"
       :fields="filterFields"
       testid="task-filters"
-      placeholder="Filtrar… escribí un campo (status, repo, asignado, pr, rama, bloqueada) y elegí su valor"
+      placeholder="Filtrar… escribí un campo (status, repo, asignado, pr, rama, bloqueada, texto) y elegí su valor"
     />
   </div>
 </template>
