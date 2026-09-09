@@ -462,21 +462,24 @@ function execSortArrow(column: ExecSortColumn): string {
   return execSort.value.direction === 'asc' ? ' ▲' : ' ▼';
 }
 
-/** Anchos de columna de la vista de 5d — anchor queda afuera (fijo). `main`
- *  ("tarea · razón") es la que el operador arrastra más — es la arrastrable,
- *  con handle en su propio borde derecho — y `agent` pasa a ser la flexible
- *  que absorbe el resto, sin handle propio: con handle ahí (como antes),
- *  agrandar "agente" arrastrando cerca suyo no tocaba nada, porque la
- *  frontera con `main` no tenía ningún handle encima — mismo bug que ya se
- *  arregló en Tareas con `title`/`issue`. Mismo orden que el DOM de
- *  `.exec-list-header` y de `RunRow` en su modo columnas: ver `--rr-cols`. */
+/** Anchos de columna de la vista de 5d — anchor queda afuera (fijo). TODA
+ *  columna con etiqueta es arrastrable, con handle en su propio borde
+ *  derecho: una columna sin handle se lee como una rota, no como "flexible a
+ *  propósito" (dos rondas de feedback seguidas sobre "agente"/"issue" sin
+ *  resize, cuando la intención había sido que absorbieran el resto). El
+ *  track final (`spacer`) es el que absorbe: no tiene celda en el DOM — un
+ *  track de más en `grid-template-columns` no necesita ítem, queda vacío. Ver
+ *  el mismo patrón en `taskColumns` de TareasSection.vue. Mismo orden que el
+ *  DOM de `.exec-list-header` y de `RunRow` en su modo columnas —
+ *  `--rr-cols`. */
 const execColumns = useResizableColumns('executions', [
   { key: 'anchor', track: '16px' },
   { key: 'issue', defaultWidth: 64, minWidth: 48 },
-  { key: 'main', defaultWidth: 480, minWidth: 240, maxWidth: 800 },
-  { key: 'agent', track: 'minmax(60px, 1fr)' },
+  { key: 'main', defaultWidth: 400, minWidth: 240, maxWidth: 800 },
+  { key: 'agent', defaultWidth: 96, minWidth: 60, maxWidth: 240 },
   { key: 'dur', defaultWidth: 64, minWidth: 48 },
   { key: 'verb', defaultWidth: 176, minWidth: 96 },
+  { key: 'spacer', track: 'minmax(0, 1fr)' },
 ]);
 
 /** Ancho del panel de detalle sobre `--bp-split` — mismo patrón que
@@ -2010,7 +2013,15 @@ watch(pendingFilter, () => {
           class="exec-h-agent exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
           @click="selectExecColumn('agentId')"
-        ><span class="exec-h-label">agente{{ execSortArrow('agentId') }}</span></button>
+        >
+          <span class="exec-h-label">agente{{ execSortArrow('agentId') }}</span>
+          <span
+            class="col-resize-handle"
+            title="Arrastrar para cambiar el ancho"
+            @click.stop
+            @pointerdown="execColumns.startResize('agent', $event)"
+          ></span>
+        </button>
         <button
           type="button"
           class="exec-h-dur exec-header-btn"
@@ -2723,7 +2734,7 @@ watch(pendingFilter, () => {
    las heredan la fila y su encabezado: escritas por separado, la primera vez
    que una cambie el encabezado deja de nombrar la columna que tiene debajo,
    que es lo único que hace. Son las de 5d, dibujado a 1280. */
-.exec-list-wrapper { --rr-cols: 16px 8ch 30ch minmax(60px, 1fr) 8ch 22ch; }
+.exec-list-wrapper { --rr-cols: 16px 8ch 30ch 10ch 8ch 22ch minmax(0, 1fr); }
 
 /* No existe donde la fila se apila: un encabezado de columnas no encabeza
    nada. Mismo umbral que `RunRow` — 47rem de LISTA, ver el porqué ahí. */
@@ -2766,20 +2777,19 @@ watch(pendingFilter, () => {
 }
 .exec-header-btn:hover { color: var(--fg); }
 
-/* `run`/`tarea · razón`/`dur.`/`acción` son las columnas arrastrables —
-   necesitan `relative` para anclar su handle y `min-width: 0` para poder
-   angostarse por debajo de su propio contenido (si no, un grid item mide
-   como mínimo su min-content y el arrastre no hace nada). `agente` no tiene
-   handle propio (es la flexible que absorbe el resto) pero necesita el mismo
-   `min-width: 0` para poder angostarse cuando el resto crece. */
+/* Todas las columnas con etiqueta son arrastrables — necesitan `relative`
+   para anclar su handle y `min-width: 0` para poder angostarse por debajo de
+   su propio contenido (si no, un grid item mide como mínimo su min-content y
+   el arrastre no hace nada). Lo que sobra o falta lo absorbe el track
+   `spacer` al final de `--rr-cols`, sin celda propia. */
 .exec-h-issue,
 .exec-h-main,
+.exec-h-agent,
 .exec-h-dur,
 .exec-h-verb {
   position: relative;
   min-width: 0;
 }
-.exec-h-agent { min-width: 0; }
 /* La etiqueta trunca ANTES de desbordar sobre la columna vecina. */
 .exec-h-label {
   display: block;

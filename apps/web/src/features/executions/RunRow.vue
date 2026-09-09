@@ -341,7 +341,7 @@ function onKeydown(e: KeyboardEvent) {
 /* ── Una línea con columnas cuando hay ancho (5d) ─────────────────────────── */
 @container exec-list (min-width: 47rem) {
   .rr {
-    grid-template-columns: var(--rr-cols, 16px 8ch 30ch minmax(60px, 1fr) 8ch 22ch);
+    grid-template-columns: var(--rr-cols, 16px 8ch 30ch 10ch 8ch 22ch minmax(0, 1fr));
     grid-template-areas: none;
     gap: 0.65rem;
     align-items: center;

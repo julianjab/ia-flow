@@ -302,7 +302,7 @@ function onKeydown(e: KeyboardEvent) {
      * con los anchos que el operador arrastró — mismo patrón que `--rr-cols`
      * en RunRow/ExecutionsSection, para que el encabezado de columnas y cada
      * fila midan siempre lo mismo sin declararlo dos veces. */
-    grid-template-columns: var(--tr-cols, 16px 40ch minmax(60px, 1fr) 13ch 11ch 7ch);
+    grid-template-columns: var(--tr-cols, 16px 40ch 10ch 13ch 11ch 7ch minmax(0, 1fr));
     grid-template-areas: none;
     gap: 0.65rem;
     align-items: center;
