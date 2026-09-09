@@ -30,6 +30,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
@@ -207,59 +208,88 @@ async function isOurs(port: number): Promise<boolean> {
  * del cliente y no archivos — sin el fallback devolverían 404 y la ventana
  * abriría en blanco.
  */
+/**
+ * El desafío que identifica a ESTE server como nuestro. Se responde un HMAC
+ * del nonce que manda el cliente, NO el secreto.
+ *
+ * Servir el secreto entero anulaba su propósito: un proceso local lo leía
+ * mientras la app corría, esperaba a que cerrara, se quedaba con el puerto y
+ * respondía el mismo valor — `isOurs` daba true y la ventana siguiente
+ * cargaba esa página CON `--ia-flow-trusted`, o sea con los tokens. Con un
+ * nonce fresco por chequeo, haber visto respuestas anteriores no sirve de
+ * nada.
+ */
+function handleMarkerRequest(req: IncomingMessage, res: ServerResponse): void {
+  const nonce = new URL(req.url ?? '/', 'http://localhost').searchParams.get('n') ?? ''
+  if (!nonce) {
+    res.writeHead(400).end('missing nonce')
+    return
+  }
+  res
+    .writeHead(200, { 'content-type': 'text/plain' })
+    .end(createHmac('sha256', marker()).update(nonce).digest('hex'))
+}
+
+/**
+ * `/api` y `/ws` NUNCA caen en el fallback de la SPA. Este server no proxea
+ * nada: devolver index.html con 200 haría que axios parsee HTML como JSON y
+ * la app se rompa sin un solo error legible. Un 404 dice la verdad — acá no
+ * hay API.
+ */
+function isApiOrWsPath(pathname: string): boolean {
+  return pathname === '/api' || pathname.startsWith('/api/') || pathname.startsWith('/ws')
+}
+
+function respondNoApiHere(res: ServerResponse): void {
+  res.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"no api here"}')
+}
+
+/**
+ * Resuelve qué archivo del bundle sirve un path pedido, o `null` si no hay
+ * nada que servir.
+ *
+ * Ancla el path dentro del root: sin eso, un `..` en la URL leería cualquier
+ * archivo de la máquina. Una ruta del router (sin extensión) cae al index
+ * cuando `spaFallback` está activo; un asset que falta sigue siendo `null`,
+ * para que un bundle incompleto se vea como lo que es y no como una página
+ * que carga a medias.
+ */
+function resolveStaticTarget(pathname: string, spaFallback: boolean): string | null {
+  const rel = pathname === '/' ? '/index.html' : pathname
+  const file = join(WEB_ROOT, normalize(rel).replace(/^(\.\.[/\\])+/, ''))
+  const hit = file.startsWith(WEB_ROOT) && existsSync(file) && statSync(file).isFile()
+  if (hit) return file
+  return spaFallback && !extname(rel) ? join(WEB_ROOT, 'index.html') : null
+}
+
+function serveStaticFile(res: ServerResponse, target: string): void {
+  res.writeHead(200, {
+    'content-type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream',
+  })
+  createReadStream(target).pipe(res)
+}
+
 function serveWeb(port: number, spaFallback: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const requested = new URL(req.url ?? '/', 'http://localhost').pathname
 
-      // El desafío que identifica a ESTE server como nuestro. Se responde un
-      // HMAC del nonce que manda el cliente, NO el secreto.
-      //
-      // Servir el secreto entero anulaba su propósito: un proceso local lo
-      // leía mientras la app corría, esperaba a que cerrara, se quedaba con el
-      // puerto y respondía el mismo valor — `isOurs` daba true y la ventana
-      // siguiente cargaba esa página CON `--ia-flow-trusted`, o sea con los
-      // tokens. Con un nonce fresco por chequeo, haber visto respuestas
-      // anteriores no sirve de nada.
       if (requested === MARKER_PATH) {
-        const nonce = new URL(req.url ?? '/', 'http://localhost').searchParams.get('n') ?? ''
-        if (!nonce) {
-          res.writeHead(400).end('missing nonce')
-          return
-        }
-        res
-          .writeHead(200, { 'content-type': 'text/plain' })
-          .end(createHmac('sha256', marker()).update(nonce).digest('hex'))
+        handleMarkerRequest(req, res)
         return
       }
 
-      // `/api` y `/ws` NUNCA caen en el fallback de la SPA. Este server no
-      // proxea nada: devolver index.html con 200 haría que axios parsee HTML
-      // como JSON y la app se rompa sin un solo error legible. Un 404 dice la
-      // verdad — acá no hay API.
-      if (requested === '/api' || requested.startsWith('/api/') || requested.startsWith('/ws')) {
-        res.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"no api here"}')
+      if (isApiOrWsPath(requested)) {
+        respondNoApiHere(res)
         return
       }
 
-      const rel = requested === '/' ? '/index.html' : requested
-      // Ancla el path dentro del root: sin esto, un `..` en la URL leería
-      // cualquier archivo de la máquina.
-      const file = join(WEB_ROOT, normalize(rel).replace(/^(\.\.[/\\])+/, ''))
-      const hit = file.startsWith(WEB_ROOT) && existsSync(file) && statSync(file).isFile()
-
-      // Una ruta del router (sin extensión) cae al index; un asset que falta
-      // sigue siendo 404, para que un bundle incompleto se vea como lo que es
-      // y no como una página que carga a medias.
-      const target = hit ? file : spaFallback && !extname(rel) ? join(WEB_ROOT, 'index.html') : null
+      const target = resolveStaticTarget(requested, spaFallback)
       if (!target || !existsSync(target)) {
         res.writeHead(404).end('not found')
         return
       }
-      res.writeHead(200, {
-        'content-type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream',
-      })
-      createReadStream(target).pipe(res)
+      serveStaticFile(res, target)
     })
     server.on('error', reject)
     server.listen(port, '127.0.0.1', () => {
