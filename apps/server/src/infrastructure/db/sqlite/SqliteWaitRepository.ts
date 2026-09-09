@@ -89,6 +89,10 @@ export class SqliteWaitRepository implements IWaitRepository {
   async consume(id: string): Promise<boolean> {
     return this.db.run('DELETE FROM waits WHERE id = ?', [id]).changes > 0
   }
+
+  async deleteByTask(taskId: string): Promise<number> {
+    return this.db.run('DELETE FROM waits WHERE task_id = ?', [taskId]).changes
+  }
 }
 
 /**

@@ -31,4 +31,10 @@ export interface IWaitRepository {
    *  puede volver a hacerlo, y ese borrado ES la clave de idempotencia contra
    *  los reintentos de la fuente. */
   consume(id: string): Promise<boolean>
+
+  /** Borra todas las esperas de una task (a lo sumo una hoy, pero no lo
+   *  asume) y devuelve cuántas borró. Al borrar la task no queda evento
+   *  futuro que las vaya a consumir — dejarlas vivas las condena a esperar
+   *  hasta su TTL sin que nada las vuelva a mirar. */
+  deleteByTask(taskId: string): Promise<number>
 }

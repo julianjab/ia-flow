@@ -18,6 +18,7 @@ import {
   settingsRepo,
   slack,
   taskRepo,
+  waitRepo,
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { clearRepoCache, listRepos } from '../repos.js'
@@ -299,6 +300,14 @@ export function createTasksRouter(broadcast: BroadcastFn) {
 
     try {
       await source.deleteItem(id)
+      // Best-effort: una task borrada no tiene evento futuro que vaya a
+      // consumir su wait, así que quedaría esperando hasta el TTL sin que
+      // nada la vuelva a mirar. Que falle esto no debe voltear el borrado.
+      try {
+        await waitRepo.deleteByTask(id)
+      } catch (err) {
+        log.warn({ err, projectId, id }, 'No se pudo limpiar waits de la task borrada')
+      }
       broadcast({ type: 'task:deleted', projectId, id })
       return c.json({ ok: true })
     } catch (err) {
