@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
@@ -8,6 +8,11 @@ import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 import FocusCard from '@/features/tasks/FocusCard.vue';
 import { useFocusStore } from '@/features/tasks/focusStore';
 import { useTaskGroupsStore } from '@/features/tasks/groupsStore';
+import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue';
+import TaskChatRowOverlay from '@/features/tasks/TaskChatRowOverlay.vue';
+import { useTaskChatStore } from '@/features/tasks/taskChatStore';
+import { createTaskAnnotation } from '@/features/tasks/chatApi';
+import { applyTaskOrderPref, clearTaskOrderPref, getTaskOrderPref, setTaskOrderPref } from '@/features/tasks/taskOrderPref';
 import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
@@ -28,12 +33,15 @@ import {
 } from '@/features/tasks/api';
 import type {
   PullRequestRef,
+  TaskChatAction,
+  TaskChatTaskContext,
   TaskDisposition,
   TaskRunSummary,
   RunTaskNowResult,
   SlackMemberRef,
   SlackReviewMessage,
 } from '@ia-flow/shared';
+import { TASK_CHAT_MAX_TASKS } from '@ia-flow/shared';
 import {
   ProjectSettingsSchema,
   resolveSlackReviewTarget,
@@ -296,6 +304,109 @@ function cycleOrderMode(): void {
 const focusStore = useFocusStore();
 
 /**
+ * La barra de comandos del asistente — abierta/cerrada acá (chrome de esta
+ * pantalla), pero el historial/propuesta viven en `taskChatStore` (ver su
+ * comentario): otra fila (`TaskChatRowOverlay`) necesita el mismo estado sin
+ * que este componente le pase props.
+ */
+const chatOpen = ref(false);
+const taskChatStore = useTaskChatStore();
+// Sin hilo entre sesiones (#215): la conversación muere con la pantalla.
+onUnmounted(() => taskChatStore.reset());
+
+const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
+  // Tope del contrato (`TASK_CHAT_MAX_TASKS`): un proyecto con más tareas
+  // visibles que eso igual arranca la conversación, sólo que el asistente
+  // no ve las que quedan afuera del recorte.
+  filteredItems.value.slice(0, TASK_CHAT_MAX_TASKS).map((item) => ({
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    // Ningún adapter de `issue-sources` publica labels en `meta` todavía
+    // (deuda fuera de alcance — ver el comentario de `TaskChatTaskContextSchema`
+    // en `packages/shared`): el asistente no ve tags reales por ahora.
+    tags: [],
+    disposition: dispositionById.value.get(item.id)?.disposition,
+    blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
+    assignees: item.assignees,
+  })),
+);
+
+/**
+ * "Aplicar" en la barra de comandos emite las 4 acciones acá — cada tipo
+ * tiene su propia persistencia (ver la tabla del schema en
+ * `packages/shared`, `TaskChatActionSchema`):
+ * - `tag`: `setProjectItemField(..., 'Labels', ...)`, igual mecanismo que
+ *   la tool `set_task_labels` del engine.
+ * - `note`: `POST /api/tasks/assistant/notes` (`createTaskAnnotation`).
+ * - `reorder`: `localStorage`, vía `taskOrderPref.ts` — nunca al server.
+ * - `highlight`: estado de sesión del store, nunca persistido.
+ *
+ * Una acción que falla no aborta las demás: son cambios independientes.
+ */
+async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
+  const pid = activeProjectId.value;
+  if (!pid || !actions.length) return;
+  taskChatStore.recordHighlights(actions);
+
+  let failed = 0;
+  let touchedServer = false;
+  for (const action of actions) {
+    try {
+      if (action.type === 'tag') {
+        const titled = filteredItems.value.find((i) => i.id === action.taskId)?.title ?? action.taskId;
+        try {
+          await setProjectItemField(pid, action.taskId, 'Labels', action.tags.map((t) => `+${t}`).join(','));
+          touchedServer = true;
+        } catch (e) {
+          failed += 1;
+          toastStore.error(`No se pudieron añadir tags en «${titled}»: ${extractErrorMessage(e)}`);
+        }
+      } else if (action.type === 'note') {
+        await createTaskAnnotation({ projectId: pid, taskId: action.taskId, text: action.text, origin: 'assistant' });
+      } else if (action.type === 'reorder') {
+        setTaskOrderPref(pid, action.taskIds);
+        // `localStorage` no es reactivo — sin esto la lista no se
+        // reordenaba hasta cambiar de proyecto o recargar la página.
+        taskOrderPref.value = action.taskIds;
+      }
+      // `highlight` ya se resolvió arriba, con `recordHighlights`.
+    } catch (e) {
+      failed += 1;
+      toastStore.error(`No se pudo aplicar «${action.type}»: ${extractErrorMessage(e)}`);
+    }
+  }
+  taskChatStore.discard();
+
+  const applied = actions.length - failed;
+  if (applied > 0) toastStore.success(applied === 1 ? 'Cambio aplicado' : `${applied} cambios aplicados`);
+  if (touchedServer) await Promise.all([loadProjectItems(true), loadDispositions()]);
+}
+
+/**
+ * La preferencia de VISTA de `reorder` — sólo se aplica al modo "fuente"
+ * (ver el comentario de `taskOrderPref.ts`: los otros modos tienen su propio
+ * criterio de orden, y mezclar una preferencia ahí encima está fuera de
+ * alcance).
+ *
+ * `ref`, NO `computed(() => getTaskOrderPref(...))`: `localStorage` no es
+ * reactivo, así que un computed que sólo depende de `activeProjectId`
+ * quedaría cacheado para siempre después de la primera lectura — aplicar
+ * `reorder` escribiría el storage pero `flatListItems` nunca se entera.
+ */
+const taskOrderPref = ref<string[] | null>(getTaskOrderPref(activeProjectId.value ?? ''));
+watch(activeProjectId, (pid) => { taskOrderPref.value = getTaskOrderPref(pid ?? ''); });
+
+/** El link "volver al calculado" que pide el diseño (10f) — reorder es
+ *  reversible sin dejar rastro server-side. */
+function resetTaskOrder(): void {
+  const pid = activeProjectId.value;
+  if (!pid) return;
+  clearTaskOrderPref(pid);
+  taskOrderPref.value = null;
+}
+
+/**
  * Los grupos por tema — sección opcional dentro del bucket `waiting-on-you`.
  *
  * Store aparte del de foco por el mismo motivo que el foco es aparte de las
@@ -410,10 +521,15 @@ const { buckets, movedCount, freeze, freezeIfFirst, reset: resetOrder } =
  *  dejan pasar `filteredItems` tal cual, que es exactamente el comportamiento
  *  que ya tenía "por fecha". */
 const flatListItems = computed<TaskRow[]>(() => {
-  if (orderMode.value !== 'repo') return filteredItems.value;
-  return [...filteredItems.value].sort((a, b) =>
-    (a.repoName ?? a.repos ?? '').localeCompare(b.repoName ?? b.repos ?? ''),
-  );
+  if (orderMode.value === 'repo') {
+    return [...filteredItems.value].sort((a, b) =>
+      (a.repoName ?? a.repos ?? '').localeCompare(b.repoName ?? b.repos ?? ''),
+    );
+  }
+  // "fuente" es el único modo donde `reorder` del asistente aplica — ver el
+  // comentario de `taskOrderPref.value` más arriba.
+  if (orderMode.value === 'fuente') return applyTaskOrderPref(filteredItems.value, taskOrderPref.value);
+  return filteredItems.value;
 });
 
 /** `cerrado` arranca plegado (O4): es la parte del día que no hay que mirar. */
@@ -1213,6 +1329,15 @@ watch(activeProjectId, (pid) => {
         >{{ groupByTopic ? 'agrupado por tema' : 'sin agrupar' }}</button>
         <button
           type="button"
+          class="lcb-order chat-trigger"
+          :class="{ 'is-on': chatOpen }"
+          :aria-pressed="chatOpen"
+          title="Preguntarle al asistente sobre esta lista"
+          data-testid="tareas-chat-toggle"
+          @click="chatOpen = !chatOpen"
+        >✦ Asistente</button>
+        <button
+          type="button"
           class="lcb-refresh"
           :disabled="itemsLoading"
           :aria-label="itemsLoading ? 'Cargando' : 'Actualizar'"
@@ -1228,6 +1353,17 @@ watch(activeProjectId, (pid) => {
         :assignees="assigneeChips"
       />
     </ListControlsBar>
+
+    <!-- La barra de comandos del asistente — 44px, integrada acá abajo del
+         filtro (R18: nada de drawer/sheet separado). `chatOpen` la
+         colapsa/expande; el historial y la propuesta viven en el store, no
+         en este componente, para sobrevivir a que se colapse. -->
+    <TaskCommandBar
+      v-if="chatOpen && activeProjectId"
+      :project-id="activeProjectId"
+      :tasks="chatTasksContext"
+      @apply="onChatApplyActions"
+    />
 
     <!-- La vista de board: las MISMAS tareas y la MISMA fila, agrupadas por
          status en vez de por disposición. Lo único que cambia es el criterio;
@@ -1345,6 +1481,20 @@ watch(activeProjectId, (pid) => {
       <span class="tk-moved-cta">reordenar</span>
     </button>
 
+    <!-- La preferencia de `reorder` del asistente — sólo VISTA, reversible
+         sin dejar rastro server-side (10f del diseño). -->
+    <button
+      v-if="orderMode === 'fuente' && taskOrderPref"
+      type="button"
+      class="tk-moved"
+      data-testid="tareas-order-pref-reset"
+      @click="resetTaskOrder"
+    >
+      Vista reordenada por el asistente
+      <span class="tk-moved-sep">·</span>
+      <span class="tk-moved-cta">volver al calculado</span>
+    </button>
+
     <template v-if="filteredItems.length">
     <!-- El foco va entre el chrome y el primer bucket, y NUNCA expandido a la
          vez que el aviso de reorden: dos cosas pidiendo atención arriba de la
@@ -1427,28 +1577,29 @@ watch(activeProjectId, (pid) => {
               class="task-list"
               data-kbd-list="tasks"
             >
-              <TaskRow
-                v-for="row in section.rows"
-                :key="row.id"
-                layout="table"
-                :data-task-id="row.id"
-                :selected="reposModalItem?.id === row.id || focusedTaskId === row.id"
-                :title="row.item.title"
-                :issue-number="row.item.issueNumber"
-                :issue-url="row.item.url"
-                :reason="reasonFor(row.id)"
-                :disposition="row.disposition"
-                :execution="runsByTask[row.id]?.last ?? null"
-                :attempts="runsByTask[row.id]?.attempts"
-                :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
-                :runs-known="runsKnown"
-                :pull-requests-known="row.item.pullRequestsKnown"
-                :has-open-pr="hasOpenPr(row.item)"
-                :agent="runsByTask[row.id]?.last.agentId"
-                :duration="durationOf(row.item)"
-                :done-in-source="isDoneInSource(row.item)"
-                @open="openReposModal(row.item)"
-              />
+              <template v-for="row in section.rows" :key="row.id">
+                <TaskRow
+                  layout="table"
+                  :data-task-id="row.id"
+                  :selected="reposModalItem?.id === row.id || focusedTaskId === row.id"
+                  :title="row.item.title"
+                  :issue-number="row.item.issueNumber"
+                  :issue-url="row.item.url"
+                  :reason="reasonFor(row.id)"
+                  :disposition="row.disposition"
+                  :execution="runsByTask[row.id]?.last ?? null"
+                  :attempts="runsByTask[row.id]?.attempts"
+                  :blocked="(blockersByTask[row.id]?.length ?? 0) > 0"
+                  :runs-known="runsKnown"
+                  :pull-requests-known="row.item.pullRequestsKnown"
+                  :has-open-pr="hasOpenPr(row.item)"
+                  :agent="runsByTask[row.id]?.last.agentId"
+                  :duration="durationOf(row.item)"
+                  :done-in-source="isDoneInSource(row.item)"
+                  @open="openReposModal(row.item)"
+                />
+                <TaskChatRowOverlay v-if="chatOpen" :task-id="row.id" />
+              </template>
             </ul>
           </template>
         </template>
@@ -1459,25 +1610,26 @@ watch(activeProjectId, (pid) => {
         class="task-list"
         data-kbd-list="tasks"
       >
-        <TaskRow
-          v-for="item in flatListItems"
-          :key="item.id"
-          layout="table"
-          :selected="reposModalItem?.id === item.id"
-          :title="item.title"
-          :issue-number="item.issueNumber"
-          :issue-url="item.url"
-          :execution="runsByTask[item.id]?.last ?? null"
-          :attempts="runsByTask[item.id]?.attempts"
-          :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
-          :runs-known="runsKnown"
-          :pull-requests-known="item.pullRequestsKnown"
-          :has-open-pr="hasOpenPr(item)"
-          :agent="runsByTask[item.id]?.last.agentId"
-          :duration="durationOf(item)"
-          :done-in-source="isDoneInSource(item)"
-          @open="openReposModal(item)"
-        />
+        <template v-for="item in flatListItems" :key="item.id">
+          <TaskRow
+            layout="table"
+            :selected="reposModalItem?.id === item.id"
+            :title="item.title"
+            :issue-number="item.issueNumber"
+            :issue-url="item.url"
+            :execution="runsByTask[item.id]?.last ?? null"
+            :attempts="runsByTask[item.id]?.attempts"
+            :blocked="(blockersByTask[item.id]?.length ?? 0) > 0"
+            :runs-known="runsKnown"
+            :pull-requests-known="item.pullRequestsKnown"
+            :has-open-pr="hasOpenPr(item)"
+            :agent="runsByTask[item.id]?.last.agentId"
+            :duration="durationOf(item)"
+            :done-in-source="isDoneInSource(item)"
+            @open="openReposModal(item)"
+          />
+          <TaskChatRowOverlay v-if="chatOpen" :task-id="item.id" />
+        </template>
       </ul>
 
       <!-- Los atajos, al pie de la lista que gobiernan. Sólo los que existen.
@@ -1713,6 +1865,9 @@ watch(activeProjectId, (pid) => {
 }
 .lcb-order.is-on { border-color: var(--accent); color: var(--accent); }
 .lcb-order:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Entrada al panel de chat — siempre resaltado, no un toggle: no hay estado
+   "prendido" que reflejar acá, sólo una acción que abre otra cosa. */
+.chat-trigger { border-color: var(--accent); color: var(--accent); }
 
 .lcb-refresh {
   flex: 0 0 auto;

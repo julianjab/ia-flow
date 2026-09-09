@@ -84,6 +84,7 @@ import { GetTaskGroupsUseCase } from '../application/use-cases/GetTaskGroupsUseC
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
+import { TaskChatUseCase } from '../application/use-cases/TaskChatUseCase.js'
 import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentAbortRepository } from '../domain/ports/IAgentAbortRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
@@ -102,6 +103,7 @@ import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepositor
 import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import type { ITaskAnnotationRepository } from '../domain/ports/ITaskAnnotationRepository.js'
 import type { IToolRepository } from '../domain/ports/IToolRepository.js'
 import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
 import {
@@ -133,6 +135,7 @@ import {
   SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
+  SqliteTaskAnnotationRepository,
   SqliteToolRepository,
   SqliteWaitRepository,
   YamlAgentMemoryRepository,
@@ -389,6 +392,7 @@ export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
 // headless las crea y las consume igual — lo que no tiene es un archivo donde
 // declararlas, porque no tendría sentido.
 export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
+export const taskAnnotationRepo: ITaskAnnotationRepository = new SqliteTaskAnnotationRepository(db)
 
 // Aparte del anterior aunque compartan la migración que las creó: sus
 // consumidores son distintos —el loop del agente drena, la ruta encola— y
@@ -985,6 +989,7 @@ export const divergenceReconciler = new DivergenceReconciler({
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
+export const taskChatUseCase = new TaskChatUseCase(assistWithAiUseCase)
 // `enqueueRunMessageUseCase` está declarado más arriba, junto a `dispatcher`
 // (lo necesita como dependencia) — ver el comentario ahí.
 

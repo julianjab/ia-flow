@@ -11,7 +11,12 @@
 // agregara en uno solo y el otro quedara silenciosamente atrás.
 import type { Hono } from 'hono'
 import { createGithubRouter } from '../adapters/github/routes.js'
-import { assistWithAiUseCase, systemPromptRepo } from '../composition/container.js'
+import {
+  assistWithAiUseCase,
+  systemPromptRepo,
+  taskAnnotationRepo,
+  taskChatUseCase,
+} from '../composition/container.js'
 import { createActionsRouter } from './actions.js'
 import { createAgentAbortsRouter } from './agent-aborts.js'
 import { createAgentsRouter } from './agents.js'
@@ -35,6 +40,7 @@ import { createServerLogsRouter } from './server-logs.js'
 import { createSlackRouter } from './slack.js'
 import { createStatusesRouter } from './statuses.js'
 import { createSystemPromptsRouter } from './system-prompts.js'
+import { createTaskChatRouter } from './task-chat.js'
 import { createReposRouter, createTasksRouter } from './tasks.js'
 import { createToolsRouter } from './tools.js'
 import { createToolsCrudRouter } from './tools-crud.js'
@@ -58,6 +64,10 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/tools', createToolsRouter())
   app.route('/api/mcp', createMcpRouter())
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
+  app.route(
+    '/api/tasks/assistant',
+    createTaskChatRouter(taskChatUseCase, taskAnnotationRepo, broadcastFn),
+  )
   app.route('/api/agents-crud', createAgentsCrudRouter())
   app.route('/api/rules', createRulesRouter())
   app.route('/api/pipeline', createPipelineRouter())

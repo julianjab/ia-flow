@@ -2306,3 +2306,123 @@ export const RecoverableCheckpointSchema = z.object({
 })
 
 export type RecoverableCheckpoint = z.infer<typeof RecoverableCheckpointSchema>
+
+// ─── Asistente de tareas (POST /api/tasks/assistant/chat) ─────────────────
+//
+// La barra de comandos de `TareasSection.vue` (reemplaza al viejo drawer, ver
+// #216/#215): el operador le pregunta al modelo sobre la lista de tareas del
+// proyecto activo y recibe una respuesta más, opcionalmente, acciones STAGED
+// — nunca se mutan solas, hace falta "Aplicar".
+
+/**
+ * Dónde se dibuja la respuesta — decidido por el MODELO, no inferido acá.
+ *
+ * `project`: la respuesta habla del proyecto en general (o de varias tareas
+ * a la vez) y se muestra en la barra de comandos misma. `task`: la respuesta
+ * es sobre UNA tarea puntual y tiene que expandirse DENTRO de la fila de esa
+ * tarea (R18 del diseño) — sin este campo el front no puede distinguir los
+ * dos casos sin adivinar mirando el texto.
+ */
+export const TaskChatScopeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('project') }),
+  z.object({ type: z.literal('task'), taskId: z.string() }),
+])
+export type TaskChatScope = z.infer<typeof TaskChatScopeSchema>
+
+/**
+ * Las 4 acciones concretas que el asistente puede proponer — ya no un
+ * `set-field` genérico. `type` es discriminante: el chip y "Aplicar" ramifican
+ * por él sin adivinar la forma del resto del objeto.
+ *
+ * Persistencia por tipo (decisión de diseño, no releer — ver #215):
+ * - `reorder`: preferencia de VISTA, sólo `localStorage`, nunca toca el orden
+ *   real que calcula `GetTaskDispositionsUseCase`.
+ * - `tag`: escribe de verdad — reusa `setProjectItemField(..., 'Labels', ...)`,
+ *   el mismo mecanismo que ya usa la tool `set_task_labels`.
+ * - `note`: tabla nueva (`task_annotations`), editable/borrable por el
+ *   usuario — NO es un comentario de GitHub.
+ * - `highlight`: dura la sesión, estado de cliente únicamente.
+ */
+export const TaskChatActionSchema = z.discriminatedUnion('type', [
+  /** Reordena la vista — no la lista real. `taskIds` en el orden propuesto. */
+  z.object({ type: z.literal('reorder'), taskIds: z.array(z.string()).min(1) }),
+  /** Tags a añadir a `taskId` (no reemplaza las que ya tiene). */
+  z.object({ type: z.literal('tag'), taskId: z.string(), tags: z.array(z.string()).min(1) }),
+  /** Anotación nueva sobre `taskId` — persiste en `task_annotations`. */
+  z.object({ type: z.literal('note'), taskId: z.string(), text: z.string().min(1) }),
+  /** Resalta `taskId` con un motivo — sólo estado de cliente, de sesión. */
+  z.object({ type: z.literal('highlight'), taskId: z.string(), reason: z.string().min(1) }),
+])
+export type TaskChatAction = z.infer<typeof TaskChatActionSchema>
+
+/** Un turno del historial — sólo texto: las acciones de un turno viejo ya se
+ *  aplicaron o se descartaron, no tiene sentido re-proponerlas al reenviar el
+ *  historial al modelo. */
+export const TaskChatMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string(),
+})
+export type TaskChatMessage = z.infer<typeof TaskChatMessageSchema>
+
+/** La forma que el modelo tiene que devolver — forzada vía `fill_form`/tool
+ *  choice (ver `TaskChatUseCase`). */
+export const TaskChatReplySchema = z.object({
+  reply: z.string(),
+  scope: TaskChatScopeSchema,
+  actions: z.array(TaskChatActionSchema).default([]),
+})
+export type TaskChatReply = z.infer<typeof TaskChatReplySchema>
+
+/** Recorte de una tarea visible que se le pasa al modelo como contexto — no
+ *  la tarea entera, sólo lo que un humano necesitaría para contestar.
+ *
+ *  `tags`: opcional y hoy casi siempre vacío — ningún adapter de
+ *  `issue-sources` publica labels en `SourceItem.meta` todavía (deuda fuera
+ *  de alcance de este cambio), así que el overlay de `tag` no puede dibujar
+ *  el diff contra las tags reales hasta que eso se resuelva aparte. */
+export const TaskChatTaskContextSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  tags: z.array(z.string()).default([]),
+  disposition: TaskDispositionSchema.optional(),
+  blocked: z.boolean().optional(),
+  assignees: z.array(z.string()).optional(),
+})
+export type TaskChatTaskContext = z.infer<typeof TaskChatTaskContextSchema>
+
+/** Topes del request — el prompt entero (tareas + historial) es lo que se le
+ *  manda a Anthropic en cada turno. Sin cota, un proyecto grande o una
+ *  conversación larga excede el contexto del modelo y el 400 de Anthropic
+ *  vuelve como un 500 opaco para el operador. */
+export const TASK_CHAT_MAX_MESSAGES = 20
+export const TASK_CHAT_MAX_TASKS = 100
+
+/** El body de `POST /api/tasks/assistant/chat`: `message` es el turno nuevo
+ *  del usuario, `history` son los turnos previos (sin `message` — ver la
+ *  nota de "sin hilo" más abajo), y `tasks` el recorte de tareas visibles. */
+export const TaskChatRequestSchema = z.object({
+  projectId: z.string(),
+  message: z.string().min(1),
+  history: z.array(TaskChatMessageSchema).max(TASK_CHAT_MAX_MESSAGES).default([]),
+  tasks: z.array(TaskChatTaskContextSchema).max(TASK_CHAT_MAX_TASKS),
+})
+export type TaskChatRequest = z.infer<typeof TaskChatRequestSchema>
+
+// ─── Anotaciones de tareas (acción `note` del asistente) ──────────────────
+//
+// NO es un comentario de GitHub — es un dato propio de ia-flow, editable y
+// borrable desde acá, con timestamp y marca de origen. Vive en la tabla
+// `task_annotations` (migración 074).
+
+export const TaskAnnotationSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  text: z.string().min(1),
+  /** Quién la escribió — hoy sólo el asistente la crea, pero el schema deja
+   *  lugar para que un humano anote directamente más adelante. */
+  origin: z.enum(['assistant', 'user']),
+  createdAt: z.string(),
+})
+export type TaskAnnotation = z.infer<typeof TaskAnnotationSchema>

@@ -27,6 +27,11 @@ export interface AssistInput {
   // schema) instead of `prompt`. The schema is owned by the calling form
   // (web) — the server passes it through opaquely.
   responseSchema?: unknown
+  /** Cuando el caller quiere poder cortar el upstream (p. ej. el asistente
+   *  de tareas propaga el `AbortSignal` de la request HTTP entrante — ver
+   *  `TaskChatUseCase`). Opcional y sin efecto en los caminos que no lo
+   *  pasan; sólo lo lee `runFormFill` hoy. */
+  signal?: AbortSignal
 }
 
 export interface AssistResult {
@@ -342,6 +347,7 @@ export class AssistWithAiUseCase {
         systemBlocks: ctx.extraBlocks,
         userMessage: ctx.userMessage,
         responseSchema: input.responseSchema,
+        signal: input.signal,
       })
     }
 
@@ -358,6 +364,7 @@ export class AssistWithAiUseCase {
     systemBlocks: Array<{ type: 'text'; text: string }>
     userMessage: string
     responseSchema: unknown
+    signal?: AbortSignal
   }): Promise<AssistResult> {
     const {
       requestId,
@@ -369,6 +376,7 @@ export class AssistWithAiUseCase {
       systemBlocks,
       userMessage,
       responseSchema,
+      signal,
     } = args
 
     const fillToolPrompt = {
@@ -401,6 +409,7 @@ export class AssistWithAiUseCase {
         ...buildAnthropicAuthHeader(),
       },
       body: JSON.stringify(requestBody),
+      signal,
     })
     const apiMs = Date.now() - tApi
 

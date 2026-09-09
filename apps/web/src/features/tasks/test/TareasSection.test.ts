@@ -2,7 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SourceItem } from '@/features/projects/sourceApi'
+import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue'
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
+import { useTaskChatStore } from '@/features/tasks/taskChatStore'
 import TareasSection from '../TareasSection.vue'
 
 const items: SourceItem[] = []
@@ -34,12 +36,17 @@ const blockersBatch: Record<string, unknown[]> = {}
 const fetchTaskRunSummaries = vi.fn(async () => runSummaries)
 const fetchBlockersBatch = vi.fn(async () => blockersBatch)
 const cancelTaskRun = vi.fn(async () => ({ ok: true, execution: {} }))
+// Vacío = sin fallo: `dispositionsFailed` queda en `false` (no en `true`, que
+// es lo que pasaría sin mockear esto — deshabilitando el toggle de orden en
+// los tests que necesitan ciclar a "fuente").
+const fetchTaskDispositions = vi.fn(async () => [])
 vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
   runTaskNow: (...args: unknown[]) => runTaskNow(...(args as [])),
   fetchTaskRunSummaries: (...args: unknown[]) => fetchTaskRunSummaries(...(args as [])),
   fetchBlockersBatch: (...args: unknown[]) => fetchBlockersBatch(...(args as [])),
   cancelTaskRun: (...args: unknown[]) => cancelTaskRun(...(args as [])),
+  fetchTaskDispositions: (...args: unknown[]) => fetchTaskDispositions(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
 const setProjectItemField = vi.fn(async () => {})
@@ -49,6 +56,24 @@ vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: (...args: unknown[]) => fetchProjectItemsMock(...(args as [])),
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
   setProjectItemField: (...args: unknown[]) => setProjectItemField(...(args as [])),
+}))
+// La barra de comandos vive detrás de su propio api — sin mockearlo, montar
+// TareasSection saldría a la red de verdad.
+const createTaskAnnotation = vi.fn(async () => ({
+  id: 'a1',
+  projectId: 'p1',
+  taskId: 'I_1',
+  text: 'nota',
+  origin: 'assistant' as const,
+  createdAt: '2026-09-09T00:00:00.000Z',
+}))
+vi.mock('@/features/tasks/chatApi', () => ({
+  sendTaskChatMessage: vi.fn(async () => ({
+    reply: 'ok',
+    scope: { type: 'project' },
+    actions: [],
+  })),
+  createTaskAnnotation: (...args: unknown[]) => createTaskAnnotation(...(args as [])),
 }))
 
 // El componente lee los filtros de la query y los escribe con `replace`; el
@@ -720,5 +745,118 @@ describe('TareasSection — mover desde la sugerencia', () => {
     await flushPromises()
 
     expect(w.findComponent(TaskDetailModal).props('open')).toBe(false)
+  })
+})
+
+// El botón abre/cierra la barra de comandos (no un drawer — ver #215/#216,
+// regla R18), y "Aplicar" lo ejecuta esta pantalla: la barra no persiste
+// nada por sí misma, sólo emite las acciones y quien las aplica refresca
+// después (mismo criterio que "mover desde la sugerencia").
+describe('TareasSection — asistente de tareas', () => {
+  it('el botón ✦ Asistente abre/cierra la barra de comandos', async () => {
+    const w = await mountWith([githubItem({})])
+    expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
+
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    expect(w.findComponent(TaskCommandBar).exists()).toBe(true)
+
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
+  })
+
+  it('aplicar `tag` llama a setProjectItemField con +labels y refresca la lista', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    setProjectItemField.mockClear()
+    const callsBefore = fetchProjectItemsMock.mock.calls.length
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'tag', taskId: 'I_1', tags: ['urgente', 'backend'] },
+    ])
+    await flushPromises()
+
+    expect(setProjectItemField).toHaveBeenCalledWith('p1', 'I_1', 'Labels', '+urgente,+backend')
+    expect(fetchProjectItemsMock.mock.calls.length).toBeGreaterThan(callsBefore)
+  })
+
+  it('aplicar `note` llama a createTaskAnnotation y NO refresca la lista (no toca el source)', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    createTaskAnnotation.mockClear()
+    const callsBefore = fetchProjectItemsMock.mock.calls.length
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'note', taskId: 'I_1', text: 'Depende de #99' },
+    ])
+    await flushPromises()
+
+    expect(createTaskAnnotation).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 'I_1',
+      text: 'Depende de #99',
+      origin: 'assistant',
+    })
+    expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('aplicar `reorder` guarda la preferencia en localStorage, no en el server', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    setProjectItemField.mockClear()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'reorder', taskIds: ['I_1'] }])
+    await flushPromises()
+
+    expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBe(JSON.stringify(['I_1']))
+    expect(setProjectItemField).not.toHaveBeenCalled()
+  })
+
+  it('aplicar `reorder` en modo "fuente" se ve al toque — sin recargar ni cambiar de proyecto', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    // Ciclar a "fuente" (disposición -> repo -> fuente), el único modo
+    // donde `reorder` aplica.
+    await w.get('[data-testid="tareas-order-toggle"]').trigger('click')
+    await w.get('[data-testid="tareas-order-toggle"]').trigger('click')
+    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(false)
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'reorder', taskIds: ['I_1'] }])
+    await flushPromises()
+
+    // El link "volver al calculado" aparece SIN necesitar remount — es la
+    // señal de que `flatListItems` se recalculó con la preferencia nueva
+    // (antes del fix, `taskOrderPref` era un `computed` sobre localStorage
+    // y quedaba cacheado para siempre).
+    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(true)
+
+    await w.get('[data-testid="tareas-order-pref-reset"]').trigger('click')
+    expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBeNull()
+    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(false)
+  })
+
+  it('aplicar `highlight` lo guarda en el store de sesión, sin llamar al server', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    const store = useTaskChatStore()
+    setProjectItemField.mockClear()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'highlight', taskId: 'I_1', reason: 'Bloquea al equipo' },
+    ])
+    await flushPromises()
+
+    expect(store.highlights.I_1).toBe('Bloquea al equipo')
+    expect(setProjectItemField).not.toHaveBeenCalled()
+  })
+
+  it('una acción que falla no bloquea la refresca ni tira un error sin manejar', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    setProjectItemField.mockRejectedValueOnce(new Error('boom'))
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'tag', taskId: 'I_1', tags: ['x'] }])
+    await flushPromises()
+
+    expect(toastError).toHaveBeenCalled()
   })
 })

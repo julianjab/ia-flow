@@ -33,6 +33,12 @@ import {
   StepOverrideSchema,
   StepTypeSchema,
   SystemPromptDefSchema,
+  TASK_CHAT_MAX_MESSAGES,
+  TaskAnnotationSchema,
+  TaskChatActionSchema,
+  TaskChatReplySchema,
+  TaskChatRequestSchema,
+  TaskChatScopeSchema,
   TaskFocusSchema,
   TaskSchema,
   TaskStatusSchema,
@@ -1368,6 +1374,112 @@ describe('TaskFocusSchema', () => {
       computedAt: '2026-09-07T12:00:00.000Z',
     }
     expect(TaskFocusSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () => {
+  it('round-trips scope de proyecto', () => {
+    expect(TaskChatScopeSchema.parse({ type: 'project' })).toEqual({ type: 'project' })
+  })
+
+  it('round-trips scope de tarea puntual', () => {
+    const scope = { type: 'task' as const, taskId: 't1' }
+    expect(TaskChatScopeSchema.parse(scope)).toEqual(scope)
+  })
+
+  it('round-trips las 4 acciones concretas', () => {
+    const reorder = { type: 'reorder' as const, taskIds: ['t1', 't2'] }
+    const tag = { type: 'tag' as const, taskId: 't1', tags: ['urgente'] }
+    const note = { type: 'note' as const, taskId: 't1', text: 'Depende de #99' }
+    const highlight = { type: 'highlight' as const, taskId: 't1', reason: 'Bloquea al equipo' }
+    for (const action of [reorder, tag, note, highlight]) {
+      expect(TaskChatActionSchema.parse(action)).toEqual(action)
+    }
+  })
+
+  it('rechaza un type que no sea uno de los 4 conocidos', () => {
+    expect(
+      TaskChatActionSchema.safeParse({
+        type: 'set-field',
+        itemId: 't1',
+        field: 'status',
+        value: 'Done',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('reorder rechaza taskIds vacío', () => {
+    expect(TaskChatActionSchema.safeParse({ type: 'reorder', taskIds: [] }).success).toBe(false)
+  })
+
+  it('actions cae a [] cuando la respuesta no propone ningún cambio', () => {
+    const parsed = TaskChatReplySchema.parse({
+      reply: 'Nada bloqueado ahora mismo.',
+      scope: { type: 'project' },
+    })
+    expect(parsed.actions).toEqual([])
+  })
+
+  it('reply y scope son obligatorios', () => {
+    expect(TaskChatReplySchema.safeParse({ actions: [] }).success).toBe(false)
+    expect(TaskChatReplySchema.safeParse({ reply: 'hola', actions: [] }).success).toBe(false)
+  })
+})
+
+describe('TaskChatRequestSchema', () => {
+  const base = {
+    projectId: 'p1',
+    message: '¿Qué está bloqueado?',
+    tasks: [{ id: 't1', title: 'Arreglar el bug', status: 'In Progress' }],
+  }
+
+  it('acepta el request mínimo — un mensaje y una tarea, sin history', () => {
+    expect(TaskChatRequestSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('rechaza message vacío — el server no tiene qué contestar', () => {
+    expect(TaskChatRequestSchema.safeParse({ ...base, message: '' }).success).toBe(false)
+  })
+
+  it('history sin dar cae a [] y una tarea sin tags cae a []', () => {
+    const parsed = TaskChatRequestSchema.parse(base)
+    expect(parsed.history).toEqual([])
+    expect(parsed.tasks[0]?.tags).toEqual([])
+  })
+
+  it('history por encima de TASK_CHAT_MAX_MESSAGES se rechaza', () => {
+    const history = Array.from({ length: TASK_CHAT_MAX_MESSAGES + 1 }, () => ({
+      role: 'user' as const,
+      content: 'hola',
+    }))
+    expect(TaskChatRequestSchema.safeParse({ ...base, history }).success).toBe(false)
+  })
+})
+
+describe('TaskAnnotationSchema', () => {
+  it('round-trips una anotación del asistente', () => {
+    const note = {
+      id: 'a1',
+      projectId: 'p1',
+      taskId: 't1',
+      text: 'Depende de que se resuelva #99 primero.',
+      origin: 'assistant' as const,
+      createdAt: '2026-09-09T12:00:00.000Z',
+    }
+    expect(TaskAnnotationSchema.parse(note)).toEqual(note)
+  })
+
+  it('rechaza text vacío', () => {
+    expect(
+      TaskAnnotationSchema.safeParse({
+        id: 'a1',
+        projectId: 'p1',
+        taskId: 't1',
+        text: '',
+        origin: 'assistant',
+        createdAt: '2026-09-09T12:00:00.000Z',
+      }).success,
+    ).toBe(false)
   })
 })
 
