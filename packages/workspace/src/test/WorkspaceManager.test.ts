@@ -29,6 +29,34 @@ function exact(args: string[], expected: string[]): boolean {
   return args.length === expected.length && expected.every((p, i) => args[i] === p)
 }
 
+type RuleMatch = string[] | ((args: string[]) => boolean)
+type RuleResult =
+  | ShellResult
+  | ((args: string[], cwd: string) => ShellResult | Promise<ShellResult>)
+type Rule = [RuleMatch, RuleResult]
+
+/**
+ * Arma un `Handler` de `StubShell` a partir de reglas prefijo/predicado →
+ * resultado, evaluadas en orden (gana la primera que matchea). Reemplaza las
+ * cadenas largas de `if (starts/exact(...)) return …` que un stub con muchos
+ * comandos distintos necesitaba — mismo comportamiento (incluido el "no
+ * matcheó nada" final), factorizado para no acumular complejidad ciclomática
+ * por test.
+ */
+function router(rules: Rule[]): Handler {
+  return async (args, cwd) => {
+    for (const [match, result] of rules) {
+      const hit = Array.isArray(match) ? starts(args, match) : match(args)
+      if (!hit) continue
+      return typeof result === 'function' ? result(args, cwd) : result
+    }
+    throw new Error(`unexpected call: ${args.join(' ')}`)
+  }
+}
+
+/** Predicado de match exacto, para usar como primer elemento de un `Rule`. */
+const exactly = (expected: string[]) => (args: string[]) => exact(args, expected)
+
 class StubShell implements ShellRunner {
   calls: Array<{ args: string[]; cwd: string }> = []
   constructor(private handler: Handler) {}
@@ -94,22 +122,25 @@ describe('helpers', () => {
 
 describe('getOrCreateWorktree — create path', () => {
   it('fetches origin, sees no existing worktree/branch and creates from origin/main', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
         // Only the main worktree exists.
-        return ok(`worktree ${REPO}\nHEAD abc\nbranch refs/heads/main\n`)
-      }
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('missing', 1)
-      // La task branch no existe en el remoto — el primer intento falla y la
-      // cadena cae a la base.
-      if (starts(args, ['git', 'worktree', 'add'])) {
-        return args.at(-1) === `origin/${BR}` ? fail('invalid reference', 128) : ok()
-      }
-      throw new Error(`unexpected call: ${args.join(' ')}`)
-    })
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\nHEAD abc\nbranch refs/heads/main\n`),
+        ],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        // La task branch no existe en el remoto — el primer intento falla y la
+        // cadena cae a la base.
+        [
+          ['git', 'worktree', 'add'],
+          (args) => (args.at(-1) === `origin/${BR}` ? fail('invalid reference', 128) : ok()),
+        ],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     const { path, branch } = await mgr.getOrCreateWorktree(TASK, REPO)
@@ -125,17 +156,16 @@ describe('getOrCreateWorktree — create path', () => {
   })
 
   it('reattaches to existing branch when worktree is gone (edge case)', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n`) // only main
-      }
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (starts(args, ['git', 'rev-parse', '--verify'])) return ok() // branch exists
-      if (starts(args, ['git', 'worktree', 'add'])) return ok()
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)], // only main
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], ok()], // branch exists
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
     await mgr.getOrCreateWorktree(TASK, REPO)
 
@@ -147,18 +177,20 @@ describe('getOrCreateWorktree — create path', () => {
 
 describe('getOrCreateWorktree — reuse paths', () => {
   it('clean tree + fast-forwardable → applies ff, no autosalvage', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/${BR}\n`)
-      }
-      if (exact(args, ['git', 'status', '--porcelain'])) return ok('') // clean
-      if (starts(args, ['git', 'merge-base', '--is-ancestor'])) return ok() // FF ok
-      if (exact(args, ['git', 'merge', '--ff-only', 'origin/main'])) return ok()
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/${BR}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok('')], // clean
+        [['git', 'merge-base', '--is-ancestor'], ok()], // FF ok
+        [exactly(['git', 'merge', '--ff-only', 'origin/main']), ok()],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     await mgr.getOrCreateWorktree(TASK, REPO)
@@ -171,20 +203,22 @@ describe('getOrCreateWorktree — reuse paths', () => {
   })
 
   it('dirty tree → autosalvage commit tagged with prevRunId, then ff', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n\nworktree ${WT}\n`)
-      }
-      if (exact(args, ['git', 'status', '--porcelain'])) return ok(' M foo.ts\n')
-      if (exact(args, ['git', 'add', '-A'])) return ok()
-      if (starts(args, ['git', 'commit'])) return ok()
-      if (starts(args, ['git', 'merge-base', '--is-ancestor'])) return ok()
-      if (exact(args, ['git', 'merge', '--ff-only', 'origin/main'])) return ok()
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok(' M foo.ts\n')],
+        [exactly(['git', 'add', '-A']), ok()],
+        [['git', 'commit'], ok()],
+        [['git', 'merge-base', '--is-ancestor'], ok()],
+        [exactly(['git', 'merge', '--ff-only', 'origin/main']), ok()],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     await mgr.getOrCreateWorktree(TASK, REPO, { prevRunId: 'run-42' })
@@ -199,19 +233,21 @@ describe('getOrCreateWorktree — reuse paths', () => {
   })
 
   it('uses recorded runId when prevRunId is not passed explicitly', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n\nworktree ${WT}\n`)
-      }
-      if (exact(args, ['git', 'status', '--porcelain'])) return ok(' M foo.ts\n')
-      if (exact(args, ['git', 'add', '-A'])) return ok()
-      if (starts(args, ['git', 'commit'])) return ok()
-      if (starts(args, ['git', 'merge-base', '--is-ancestor'])) return fail('diverged', 1)
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok(' M foo.ts\n')],
+        [exactly(['git', 'add', '-A']), ok()],
+        [['git', 'commit'], ok()],
+        [['git', 'merge-base', '--is-ancestor'], fail('diverged', 1)],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
     mgr.recordRunId(TASK, 'run-prev-99')
 
@@ -223,17 +259,19 @@ describe('getOrCreateWorktree — reuse paths', () => {
   })
 
   it('divergence (not ff-able) → no merge, no rebase — just leaves tree alone', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n\nworktree ${WT}\n`)
-      }
-      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
-      if (starts(args, ['git', 'merge-base', '--is-ancestor'])) return fail('nope', 1)
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok('')],
+        [['git', 'merge-base', '--is-ancestor'], fail('nope', 1)],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     const { path } = await mgr.getOrCreateWorktree(TASK, REPO)
@@ -340,23 +378,23 @@ describe('mutexes', () => {
   it('serializes concurrent getOrCreateWorktree on the same repoBasePath', async () => {
     let running = 0
     let peak = 0
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) {
-        running++
-        peak = Math.max(peak, running)
-        await Bun.sleep(5)
-        running--
-        return ok()
-      }
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n`)
-      }
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('nope', 1)
-      if (starts(args, ['git', 'worktree', 'add'])) return ok()
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const trackFetch = async (): Promise<ShellResult> => {
+      running++
+      peak = Math.max(peak, running)
+      await Bun.sleep(5)
+      running--
+      return ok()
+    }
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), trackFetch],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], fail('nope', 1)],
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     await Promise.all([
@@ -739,18 +777,20 @@ const SHA = 'a1b2c3d4e5f6'
  * branch vacía de una con trabajo real).
  */
 function emptyBranchShell(overrides: Handler): StubShell {
-  return new StubShell(async (args, cwd) => {
-    if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
-    if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-    if (starts(args, ['git', 'fetch'])) return ok()
-    if (starts(args, ['git', 'ls-remote'])) return ok(`${SHA}\trefs/heads/x`)
-    if (starts(args, ['git', 'rev-parse', '--verify'])) return ok(`${SHA}\n`)
-    if (starts(args, ['git', 'log', '--oneline'])) return ok('')
-    if (starts(args, ['git', 'worktree', 'remove'])) return ok()
-    if (starts(args, ['git', 'branch', '-D'])) return ok()
-    if (starts(args, ['git', 'push'])) return ok()
-    return overrides(args, cwd)
-  })
+  return new StubShell(
+    router([
+      [exactly(['git', 'status', '--porcelain']), ok('')],
+      [['git', 'symbolic-ref'], ok('origin/main\n')],
+      [['git', 'fetch'], ok()],
+      [['git', 'ls-remote'], ok(`${SHA}\trefs/heads/x`)],
+      [['git', 'rev-parse', '--verify'], ok(`${SHA}\n`)],
+      [['git', 'log', '--oneline'], ok('')],
+      [['git', 'worktree', 'remove'], ok()],
+      [['git', 'branch', '-D'], ok()],
+      [['git', 'push'], ok()],
+      [() => true, overrides],
+    ]),
+  )
 }
 
 describe('isBranchEmptyVsBase', () => {
@@ -916,23 +956,25 @@ describe('cleanupTerminalWorktree — borrado remoto', () => {
 
 describe('getOrCreateWorktree — reconciliación de branch', () => {
   it('recicla el worktree cuando quedó en otra branch y no hay trabajo en riesgo', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
-        return ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/feat/legacy\n`)
-      }
-      // Limpio y sin commits por delante → seguro de remover.
-      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
-      if (starts(args, ['git', 'ls-remote'])) return ok('abc\trefs/heads/feat/legacy\n')
-      if (starts(args, ['git', 'log'])) return ok('')
-      if (starts(args, ['git', 'worktree', 'remove'])) return ok()
-      if (starts(args, ['git', 'branch', '-D'])) return ok()
-      if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('missing', 1)
-      if (starts(args, ['git', 'worktree', 'add'])) return ok()
-      throw new Error(`unexpected: ${args.join(' ')}`)
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/feat/legacy\n`),
+        ],
+        // Limpio y sin commits por delante → seguro de remover.
+        [exactly(['git', 'status', '--porcelain']), ok('')],
+        [['git', 'ls-remote'], ok('abc\trefs/heads/feat/legacy\n')],
+        [['git', 'log'], ok('')],
+        [['git', 'worktree', 'remove'], ok()],
+        [['git', 'branch', '-D'], ok()],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     const { path, branch } = await mgr.getOrCreateWorktree(TASK, REPO, { branch: 'feat/nueva' })
@@ -1042,15 +1084,17 @@ describe('getOrCreateWorktree — terreno ocupado', () => {
   })
 
   it('agota la cadena de fallbacks de `worktree add` y reporta cada intento', async () => {
-    const shell = new StubShell(async (args) => {
-      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
-      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
-      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) return ok(`worktree ${REPO}\n`)
-      if (starts(args, ['git', 'symbolic-ref'])) return fail('no HEAD', 1)
-      if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('missing', 1)
-      if (starts(args, ['git', 'worktree', 'add'])) return fail('invalid reference', 128)
-      return ok()
-    })
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)],
+        [['git', 'symbolic-ref'], fail('no HEAD', 1)],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        [['git', 'worktree', 'add'], fail('invalid reference', 128)],
+        [() => true, ok()],
+      ]),
+    )
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(/invalid reference/)
