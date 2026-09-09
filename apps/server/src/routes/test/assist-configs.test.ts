@@ -118,6 +118,22 @@ describe('CRUD /api/assist-configs', () => {
     expect(repo.getById('task-chat')).toBeNull()
   })
 
+  it('PUT /:agentId 400 con body {} — systemPrompts es requerido, no default a []', async () => {
+    // Si un {} vacío persistiera systemPrompts:[], eso es indistinguible de
+    // "vacío a propósito" (ver AssistWithAiUseCase) y apagaría el fallback
+    // en silencio — el gate que existe justamente para no dejar el
+    // asistente sin instrucciones por accidente.
+    const repo = fakeRepo()
+    const app = createAssistConfigsRouter(repo, fakeSystemPromptRepo())
+    const res = await app.request('/task-chat', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(res.status).toBe(400)
+    expect(repo.getById('task-chat')).toBeNull()
+  })
+
   it('PUT /:agentId 400 con systemPrompts inválido (shape)', async () => {
     const app = createAssistConfigsRouter(fakeRepo(), fakeSystemPromptRepo())
     const res = await app.request('/task-chat', {

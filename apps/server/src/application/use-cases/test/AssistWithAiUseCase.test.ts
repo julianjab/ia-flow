@@ -276,4 +276,33 @@ describe('AssistWithAiUseCase.buildContext — fallbackSystemPrompts (sin fila t
     )
     expect(ctx.extraBlocks).toEqual([])
   })
+
+  test('refs válidas pero YA cubiertas por systemPromptIds no disparan el fallback (dedup, no roto)', () => {
+    // resolveCallerConfigBlocks saltea ids ya en includedIds — eso también
+    // deja `blocks: []`, pero es MUY distinto de "ninguna resolvió": no hay
+    // nada roto, sólo texto que ya iba a mandarse por el otro camino. Sin
+    // el gate por `missing.length`, esto duplicaría instrucciones cayendo
+    // al fallback encima.
+    const catalog: SystemPromptDef[] = [{ id: 'sp1', name: 'x', text: 'ya incluido' }]
+    const useCase = new AssistWithAiUseCase(
+      fakeSystemPromptRepo(catalog),
+      fakeProjectRepo(),
+      fakeCallerConfigRepo([{ agentId: 'task-chat', systemPrompts: ['sp1'] }]),
+      fakeAgentRepo([]),
+    ) as AnyUseCase
+
+    const ctx = useCase.buildContext(
+      {
+        mode: 'generate',
+        description: 'x',
+        agentId: 'task-chat',
+        systemPromptIds: ['sp1'],
+        fallbackSystemPrompts: [{ text: 'no debería aplicar' }],
+      },
+      'req1',
+    )
+    // 'sp1' entra una sola vez, por el camino de systemPromptIds — no se
+    // duplica, y el fallback no se agrega encima.
+    expect(ctx.extraBlocks).toEqual([{ type: 'text', text: 'ya incluido' }])
+  })
 })
