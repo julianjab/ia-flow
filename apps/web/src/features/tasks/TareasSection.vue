@@ -12,7 +12,7 @@ import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue';
 import TaskChatRowOverlay from '@/features/tasks/TaskChatRowOverlay.vue';
 import { useTaskChatStore } from '@/features/tasks/taskChatStore';
 import { createTaskAnnotation } from '@/features/tasks/chatApi';
-import { applyTaskOrderPref, getTaskOrderPref, setTaskOrderPref } from '@/features/tasks/taskOrderPref';
+import { applyTaskOrderPref, clearTaskOrderPref, getTaskOrderPref, setTaskOrderPref } from '@/features/tasks/taskOrderPref';
 import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
@@ -366,6 +366,9 @@ async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
         await createTaskAnnotation({ projectId: pid, taskId: action.taskId, text: action.text, origin: 'assistant' });
       } else if (action.type === 'reorder') {
         setTaskOrderPref(pid, action.taskIds);
+        // `localStorage` no es reactivo — sin esto la lista no se
+        // reordenaba hasta cambiar de proyecto o recargar la página.
+        taskOrderPref.value = action.taskIds;
       }
       // `highlight` ya se resolvió arriba, con `recordHighlights`.
     } catch (e) {
@@ -380,11 +383,28 @@ async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
   if (touchedServer) await Promise.all([loadProjectItems(true), loadDispositions()]);
 }
 
-/** La preferencia de VISTA de `reorder` — sólo se aplica al modo "fuente"
- *  (ver el comentario de `taskOrderPref.ts`: los otros modos tienen su
- *  propio criterio de orden, y mezclar una preferencia ahí encima está
- *  fuera de alcance). */
-const taskOrderPref = computed(() => getTaskOrderPref(activeProjectId.value ?? ''));
+/**
+ * La preferencia de VISTA de `reorder` — sólo se aplica al modo "fuente"
+ * (ver el comentario de `taskOrderPref.ts`: los otros modos tienen su propio
+ * criterio de orden, y mezclar una preferencia ahí encima está fuera de
+ * alcance).
+ *
+ * `ref`, NO `computed(() => getTaskOrderPref(...))`: `localStorage` no es
+ * reactivo, así que un computed que sólo depende de `activeProjectId`
+ * quedaría cacheado para siempre después de la primera lectura — aplicar
+ * `reorder` escribiría el storage pero `flatListItems` nunca se entera.
+ */
+const taskOrderPref = ref<string[] | null>(getTaskOrderPref(activeProjectId.value ?? ''));
+watch(activeProjectId, (pid) => { taskOrderPref.value = getTaskOrderPref(pid ?? ''); });
+
+/** El link "volver al calculado" que pide el diseño (10f) — reorder es
+ *  reversible sin dejar rastro server-side. */
+function resetTaskOrder(): void {
+  const pid = activeProjectId.value;
+  if (!pid) return;
+  clearTaskOrderPref(pid);
+  taskOrderPref.value = null;
+}
 
 /**
  * Los grupos por tema — sección opcional dentro del bucket `waiting-on-you`.
@@ -1459,6 +1479,20 @@ watch(activeProjectId, (pid) => {
       {{ movedCount }} {{ movedCount === 1 ? 'cambió' : 'cambiaron' }} de lugar
       <span class="tk-moved-sep">·</span>
       <span class="tk-moved-cta">reordenar</span>
+    </button>
+
+    <!-- La preferencia de `reorder` del asistente — sólo VISTA, reversible
+         sin dejar rastro server-side (10f del diseño). -->
+    <button
+      v-if="orderMode === 'fuente' && taskOrderPref"
+      type="button"
+      class="tk-moved"
+      data-testid="tareas-order-pref-reset"
+      @click="resetTaskOrder"
+    >
+      Vista reordenada por el asistente
+      <span class="tk-moved-sep">·</span>
+      <span class="tk-moved-cta">volver al calculado</span>
     </button>
 
     <template v-if="filteredItems.length">

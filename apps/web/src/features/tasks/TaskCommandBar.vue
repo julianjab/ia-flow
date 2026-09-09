@@ -105,7 +105,7 @@ function onApply(): void {
 
     <div v-if="store.error" class="command-error">
       <p class="command-error-line"><span class="error-glyph">✕</span>{{ store.error }}</p>
-      <button type="button" class="command-error-retry" @click="ask(store.history.at(-2)?.content ?? '')">
+      <button type="button" class="command-error-retry" @click="ask(store.lastAttemptedMessage ?? '')">
         <span class="error-glyph">→</span>reintentar
       </button>
     </div>

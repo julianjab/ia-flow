@@ -1,8 +1,9 @@
-import type {
-  TaskChatAction,
-  TaskChatMessage,
-  TaskChatReply,
-  TaskChatTaskContext,
+import {
+  TASK_CHAT_MAX_MESSAGES,
+  type TaskChatAction,
+  type TaskChatMessage,
+  type TaskChatReply,
+  type TaskChatTaskContext,
 } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -32,6 +33,12 @@ export const useTaskChatStore = defineStore('task-chat', () => {
   const busy = ref(false)
   const error = ref<string | null>(null)
   const highlights = ref<Record<string, string>>({})
+  /** El último mensaje intentado — es lo que "reintentar" reenvía tras un
+   *  fallo. Separado de `history` porque un turno fallido NUNCA se empuja
+   *  ahí (ver `ask`): sin esto, `history.at(-1)` después de un fallo es el
+   *  turno anterior EXITOSO, y "reintentar" reenviaría la pregunta
+   *  equivocada — o, si el primer intento falla, nada en absoluto. */
+  const lastAttemptedMessage = ref<string | null>(null)
   let controller: AbortController | null = null
 
   const pendingActionsByTask = computed<Record<string, TaskChatAction[]>>(() => {
@@ -61,22 +68,26 @@ export const useTaskChatStore = defineStore('task-chat', () => {
     busy.value = true
     error.value = null
     pending.value = null
+    lastAttemptedMessage.value = input.message
     controller = new AbortController()
     try {
       const reply = await sendTaskChatMessage(
         {
           projectId: input.projectId,
           message: input.message,
-          history: history.value,
+          // El contrato tope a TASK_CHAT_MAX_MESSAGES (ver
+          // TaskChatRequestSchema) — sin este slice, el turno 11 en
+          // adelante falla la validación de Zod con un 400 permanente.
+          history: history.value.slice(-TASK_CHAT_MAX_MESSAGES),
           tasks: input.tasks,
         },
         { signal: controller.signal },
       )
       history.value = [
         ...history.value,
-        { role: 'user', content: input.message },
-        { role: 'assistant', content: reply.reply },
-      ]
+        { role: 'user' as const, content: input.message },
+        { role: 'assistant' as const, content: reply.reply },
+      ].slice(-TASK_CHAT_MAX_MESSAGES)
       pending.value = reply
     } catch (e) {
       if (controller?.signal.aborted) {
@@ -121,6 +132,7 @@ export const useTaskChatStore = defineStore('task-chat', () => {
     pending.value = null
     error.value = null
     highlights.value = {}
+    lastAttemptedMessage.value = null
     controller?.abort()
     controller = null
   }
@@ -131,6 +143,7 @@ export const useTaskChatStore = defineStore('task-chat', () => {
     busy,
     error,
     highlights,
+    lastAttemptedMessage,
     pendingActionsByTask,
     pendingReplyForTask,
     ask,
