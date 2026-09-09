@@ -138,6 +138,34 @@ export function hashSystemPrompt(systemPromptBlocks: unknown): string {
   return hashPrompt(canonicalJson(systemPromptBlocks ?? []))
 }
 
+/** Lo que se pudo observar de un run — de las métricas del provider si las
+ *  hay, si no del tally del hook forwarder. Ver el comentario de
+ *  `buildFinishPatch` sobre por qué lo no observado queda `null`/`undefined`
+ *  en vez de un cero. */
+interface ResolvedRunTelemetry {
+  toolCalls: number | null
+  toolErrors: number | null
+  usage: RunMetrics['usage'] | undefined
+  toolBreakdown: RunMetrics['toolBreakdown'] | undefined
+  model: string | null
+}
+
+function resolveRunTelemetry(input: FinishPatchInput): ResolvedRunTelemetry {
+  // Sync providers measured everything themselves. For async runs the only
+  // observer was the Claude Code hook forwarder: it counts tool calls, and —
+  // cuando el hook mandó el path de la transcripción y el daemon tiene un
+  // lector cableado— también trae el usage y el modelo de la sesión. Lo que
+  // no se pudo observar queda null: "not measurable here", not zero.
+  const hookTally = input.metrics ? undefined : takeRunTelemetry(input.runId)
+  return {
+    toolCalls: input.metrics?.toolCalls ?? hookTally?.toolCalls ?? null,
+    toolErrors: input.metrics?.toolErrors ?? hookTally?.toolErrors ?? null,
+    usage: input.metrics?.usage ?? hookTally?.usage,
+    toolBreakdown: input.metrics?.toolBreakdown ?? hookTally?.toolBreakdown,
+    model: input.metrics?.model ?? hookTally?.model ?? null,
+  }
+}
+
 /**
  * Builds the telemetry half of a finishing execution-log update. Kept here
  * rather than inlined at each of Agent.ts's several finish branches so every
@@ -146,16 +174,7 @@ export function hashSystemPrompt(systemPromptBlocks: unknown): string {
  * the interesting ones (truncated, cancelled, errored).
  */
 export function buildFinishPatch(input: FinishPatchInput): Partial<ExecutionLog> {
-  // Sync providers measured everything themselves. For async runs the only
-  // observer was the Claude Code hook forwarder: it counts tool calls, and —
-  // cuando el hook mandó el path de la transcripción y el daemon tiene un
-  // lector cableado— también trae el usage y el modelo de la sesión. Lo que
-  // no se pudo observar queda null: "not measurable here", not zero.
-  const hookTally = input.metrics ? undefined : takeRunTelemetry(input.runId)
-  const toolCalls = input.metrics?.toolCalls ?? hookTally?.toolCalls ?? null
-  const toolErrors = input.metrics?.toolErrors ?? hookTally?.toolErrors ?? null
-  const usage = input.metrics?.usage ?? hookTally?.usage
-  const toolBreakdown = input.metrics?.toolBreakdown ?? hookTally?.toolBreakdown
+  const { toolCalls, toolErrors, usage, toolBreakdown, model } = resolveRunTelemetry(input)
   const hasBreakdown = toolBreakdown !== undefined && Object.keys(toolBreakdown).length > 0
 
   return {
@@ -163,7 +182,7 @@ export function buildFinishPatch(input: FinishPatchInput): Partial<ExecutionLog>
     runId: input.runId,
     agentPromptHash: input.agentPromptHash ?? null,
     systemPromptHash: input.systemPromptHash ?? null,
-    model: input.metrics?.model ?? hookTally?.model ?? null,
+    model,
     tokensIn: usage?.inputTokens ?? null,
     tokensOut: usage?.outputTokens ?? null,
     cacheReadTokens: usage?.cacheReadTokens ?? null,
