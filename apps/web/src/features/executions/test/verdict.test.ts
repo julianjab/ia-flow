@@ -127,13 +127,19 @@ describe('verbForRun', () => {
     })
   })
 
-  it('un abortado a mano manda a su pantalla, con el run en la URL', () => {
-    expect(verbForRun(run({ outcome: 'cancelled', id: 'e9' }))).toEqual({
+  it('un abortado a mano manda a su pantalla, con el run en la URL — sólo si sigue recuperable', () => {
+    expect(verbForRun(run({ outcome: 'cancelled', id: 'e9' }), new Set(['e9']))).toEqual({
       label: 'Resolver',
       kind: 'route',
       href: '/general/aborted-runs?run=e9',
       hint: '· runs recuperables',
     })
+  })
+
+  it('un cancelado cuyo checkpoint ya se limpió no ofrece "Resolver" — no hay nada que destrabar', () => {
+    expect(verbForRun(run({ outcome: 'cancelled', id: 'e9' }))).toBeNull()
+    expect(verbForRun(run({ outcome: 'cancelled', id: 'e9' }), new Set())).toBeNull()
+    expect(verbForRun(run({ outcome: 'cancelled', id: 'e9' }), new Set(['other']))).toBeNull()
   })
 
   it('un run que terminó bien NO lleva verbo — si no te toca, un botón es ruido', () => {
