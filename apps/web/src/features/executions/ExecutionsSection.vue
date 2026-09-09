@@ -2826,7 +2826,15 @@ watch(pendingFilter, () => {
      columnas exceden el ancho — funcionaba en un repro aislado, pero rompió
      la alineación de columnas contra datos reales en producción (aún sin
      diagnosticar: el repro no lo reprodujo). Revertido hasta poder
-     investigarlo con acceso al caso real. */
+     investigarlo con acceso al caso real.
+     `clip` sí quedó, y no es opcional: con TODA columna arrastrable de forma
+     independiente (`execColumns`), la suma de sus anchos puede superar el
+     ancho real del contenedor si el operador las arrastra cerca de su
+     máximo — el track `spacer` sólo absorbe cuando SOBRA espacio, no puede
+     compensar cuando FALTA (su mínimo es 0, no negativo). Sin `clip` esa
+     diferencia se pintaba literalmente fuera de la tabla, encima del resto
+     de la página. Mismo mecanismo que `.task-table` en TareasSection.vue. */
+  overflow: clip;
 }
 /* Las columnas se declaran UNA vez, acá —ahora vía `:style` desde
    `execColumns.gridTemplateColumns`, con el mismo literal como fallback— y
