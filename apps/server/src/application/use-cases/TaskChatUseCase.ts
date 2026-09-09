@@ -203,10 +203,22 @@ export class TaskChatUseCase {
     private readTools: ReadOnlyTool[] = CHAT_ASSISTANT_READ_TOOLS,
   ) {}
 
-  /** Envuelve cada `ReadOnlyTool` para reportar progreso y para juntar, de
-   *  sus resultados, los `taskId` reales que el modelo descubrió — ver el
-   *  comentario de la clase. */
+  /** Envuelve cada `ReadOnlyTool` para reportar progreso, para juntar de sus
+   *  resultados los `taskId` reales que el modelo descubrió, y sobre todo
+   *  para FIJAR `project_id` del lado del server.
+   *
+   *  El prompt le pide al modelo que llame a las tools con
+   *  `project_id="<projectId>"`, pero eso es sólo una instrucción de texto —
+   *  el input de un `tool_use` lo arma el modelo, y el título/descripción de
+   *  un issue (contenido no confiable de terceros, ver el comentario de la
+   *  clase) podría inyectar un `project_id` distinto para leer OTRO
+   *  proyecto. Sin este override, `verify()` confiaría en los `taskId` de
+   *  esa respuesta como si fueran del proyecto del request — exactamente lo
+   *  que dice evitar. Pisar `project_id` acá, antes de llamar a la tool
+   *  real, hace que el argumento del modelo no tenga efecto: siempre se lee
+   *  el proyecto del request. */
   private instrumentReadTools(
+    projectId: string,
     discoveredIds: Set<string>,
     onProgress?: (e: TaskChatProgressEvent) => void,
   ): ReadOnlyTool[] {
@@ -220,7 +232,8 @@ export class TaskChatUseCase {
           index: callCount,
           label: describeToolCall(tool.name, input),
         })
-        const result = await tool.execute(input)
+        const scopedInput = { ...(input as Record<string, unknown>), project_id: projectId }
+        const result = await tool.execute(scopedInput)
         collectTaskIds(result, discoveredIds)
         return result
       },
@@ -269,7 +282,7 @@ export class TaskChatUseCase {
       projectId,
       description: buildTaskChatPrompt({ message, history, tasks, projectId }),
       responseSchema: TASK_CHAT_RESPONSE_SCHEMA,
-      readTools: this.instrumentReadTools(discoveredIds, opts.onProgress),
+      readTools: this.instrumentReadTools(projectId, discoveredIds, opts.onProgress),
       signal: opts.signal,
     })
 

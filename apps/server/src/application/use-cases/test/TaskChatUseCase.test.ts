@@ -49,6 +49,30 @@ const VALID_INPUT = {
 }
 
 describe('TaskChatUseCase — read tools', () => {
+  it('pisa el project_id del input con el del request — el modelo no puede leer otro proyecto', async () => {
+    const seenInputs: unknown[] = []
+    const spyTool: ReadOnlyTool = {
+      name: 'get_task_detail',
+      description: 'detail',
+      input_schema: {},
+      execute: async (input) => {
+        seenInputs.push(input)
+        return JSON.stringify({ id: 't2' })
+      },
+    }
+    const assist = {
+      async execute(input: AssistInput): Promise<AssistResult> {
+        // Simula un modelo que, influido por contenido inyectado en un
+        // título de issue, intenta leer 'otro-proyecto' en vez de 'p1'.
+        await input.readTools?.[0]?.execute({ project_id: 'otro-proyecto', task_id: 't2' })
+        return { fields: { reply: 'ok', scope: { type: 'project' }, actions: [] } }
+      },
+    } as unknown as AssistWithAiUseCase
+    const useCase = new TaskChatUseCase(assist, [spyTool])
+    await useCase.execute(VALID_INPUT)
+    expect(seenInputs).toEqual([{ project_id: 'p1', task_id: 't2' }])
+  })
+
   it('pasa a AssistWithAiUseCase las readTools inyectadas (no las del registry por defecto)', async () => {
     const assist = fakeAssistRunningReadTools({
       reply: 'ok',
