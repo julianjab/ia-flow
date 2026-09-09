@@ -66,6 +66,7 @@ trae.
 | `task.message` | `body`, `author`, `messageId` | default de `pause_until`: el próximo mensaje de la tarea |
 | `wait.expired` | `waitId`, `agentId`, `taskId` | la espera venció sin que llegara el evento |
 | `wait.resumed` | `waitId`, `agentId`, `taskId` | llegó el evento esperado y el run retoma |
+| `run.finished` | `agentId`, `outcome`, `exit` | `outcome` es el resultado real del run (`success`/`error`/`cancelled`/`truncated`), no un estado del dispatcher — sirve para esperar a que OTRO agente termine y condicionar sobre cómo terminó, ej. `on: ['run.finished'], when: [{field:'agentId', op:'=', value:'implementer'}, {field:'outcome', op:'=', value:'error'}]` |
 
 Cualquier otra acción de un evento ya listado (`issue_comment.deleted`, `issues.reopened`, …) se
 publica con el mismo prefijo aunque no aparezca en la tabla — la tabla trae las más comunes, no
