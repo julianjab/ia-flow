@@ -160,6 +160,56 @@ describe('POST /api/tasks/assistant/chat', () => {
     const body = (await res.json()) as { error: string }
     expect(body.error).toContain('boom')
   })
+
+  it('propaga el status real del upstream (429 rate limit) en vez de aplanarlo a 500', async () => {
+    const { AssistUpstreamError } = await import(
+      '../../application/use-cases/AssistWithAiUseCase.js'
+    )
+    const { app } = routerWith(async () => {
+      throw new AssistUpstreamError('Anthropic API error 429: rate_limit_error', 429)
+    })
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(429)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toContain('rate_limit_error')
+  })
+
+  it('mapea a 502 un status del upstream que colisiona con la semántica propia de ia-flow (401)', async () => {
+    // Un 401 de Anthropic (API key revocada del daemon) NO debe salir como
+    // 401 propio de ia-flow — ese código ya significa "tu x-ia-flow-token
+    // está mal" en el resto de la app.
+    const { AssistUpstreamError } = await import(
+      '../../application/use-cases/AssistWithAiUseCase.js'
+    )
+    const { app } = routerWith(async () => {
+      throw new AssistUpstreamError('Anthropic API error 401: invalid x-api-key', 401)
+    })
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(502)
+  })
+
+  it('cae a 502 cuando el upstream trae un status fuera de rango HTTP válido', async () => {
+    const { AssistUpstreamError } = await import(
+      '../../application/use-cases/AssistWithAiUseCase.js'
+    )
+    const { app } = routerWith(async () => {
+      throw new AssistUpstreamError('status inesperado', 0)
+    })
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(502)
+  })
 })
 
 describe('CRUD de anotaciones (/api/tasks/assistant/notes)', () => {
