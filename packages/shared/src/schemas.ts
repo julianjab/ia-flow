@@ -2319,7 +2319,14 @@ export type RecoverableCheckpoint = z.infer<typeof RecoverableCheckpointSchema>
 export const TaskChatActionSchema = z.object({
   type: z.literal('set-field'),
   itemId: z.string(),
-  /** Para el chip: repetir el id no dice nada, el título sí. */
+  /** Para el chip: repetir el id no dice nada, el título sí.
+   *
+   *  En la RESPUESTA del server (`TaskChatUseCase`) esto SIEMPRE viene
+   *  resuelto contra las tareas que el propio request mandó, nunca copiado
+   *  de lo que el modelo escribió — un `itemId`/`itemTitle` inconsistentes
+   *  harían que el chip mostrara una tarea distinta de la que "Aplicar" va
+   *  a mutar. El campo sigue siendo opcional acá porque el mismo schema
+   *  también valida el `fill_form` crudo, donde el modelo puede omitirlo. */
   itemTitle: z.string().optional(),
   field: z.string(),
   value: z.string(),
@@ -2358,9 +2365,16 @@ export const TaskChatTaskContextSchema = z.object({
 })
 export type TaskChatTaskContext = z.infer<typeof TaskChatTaskContextSchema>
 
+/** Topes del request — el prompt entero (tareas + historial) es lo que se le
+ *  manda a Anthropic en cada turno. Sin cota, un proyecto grande o una
+ *  conversación larga excede el contexto del modelo y el 400 de Anthropic
+ *  vuelve como un 500 opaco para el operador. */
+export const TASK_CHAT_MAX_MESSAGES = 40
+export const TASK_CHAT_MAX_TASKS = 150
+
 export const TaskChatRequestSchema = z.object({
   projectId: z.string(),
-  messages: z.array(TaskChatMessageSchema).min(1),
-  tasks: z.array(TaskChatTaskContextSchema),
+  messages: z.array(TaskChatMessageSchema).min(1).max(TASK_CHAT_MAX_MESSAGES),
+  tasks: z.array(TaskChatTaskContextSchema).max(TASK_CHAT_MAX_TASKS),
 })
 export type TaskChatRequest = z.infer<typeof TaskChatRequestSchema>

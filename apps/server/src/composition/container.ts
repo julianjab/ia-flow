@@ -83,6 +83,7 @@ import { GetTaskGroupsUseCase } from '../application/use-cases/GetTaskGroupsUseC
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
+import { TaskChatUseCase } from '../application/use-cases/TaskChatUseCase.js'
 import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentAbortRepository } from '../domain/ports/IAgentAbortRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
@@ -957,6 +958,7 @@ export const divergenceReconciler = new DivergenceReconciler({
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
+export const taskChatUseCase = new TaskChatUseCase(assistWithAiUseCase)
 // `enqueueRunMessageUseCase` está declarado más arriba, junto a `dispatcher`
 // (lo necesita como dependencia) — ver el comentario ahí.
 

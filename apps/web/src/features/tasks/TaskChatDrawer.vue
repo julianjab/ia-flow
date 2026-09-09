@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { TaskChatAction, TaskChatMessage, TaskChatTaskContext } from '@ia-flow/shared';
-import { computed, nextTick, ref, watch } from 'vue';
+import { TASK_CHAT_MAX_MESSAGES } from '@ia-flow/shared';
+import { nextTick, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { sendTaskChatMessage } from '@/features/tasks/chatApi';
 import ChatBubble from '@/features/tasks/ChatBubble.vue';
@@ -59,7 +60,10 @@ async function requestReply(): Promise<void> {
   sending.value = true;
   error.value = null;
   try {
-    const reply = await sendTaskChatMessage(props.projectId, messages.value, props.tasks);
+    // Tope del contrato (`TASK_CHAT_MAX_MESSAGES`): una conversación larga
+    // manda sólo su cola — el modelo pierde el arranque, no el turno actual.
+    const history = messages.value.slice(-TASK_CHAT_MAX_MESSAGES);
+    const reply = await sendTaskChatMessage(props.projectId, history, props.tasks);
     messages.value.push({ role: 'assistant', content: reply.reply, actions: reply.actions, resolved: false });
     scrollToEnd();
   } catch (e) {

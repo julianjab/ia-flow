@@ -11,7 +11,7 @@
 // agregara en uno solo y el otro quedara silenciosamente atrás.
 import type { Hono } from 'hono'
 import { createGithubRouter } from '../adapters/github/routes.js'
-import { assistWithAiUseCase, systemPromptRepo } from '../composition/container.js'
+import { assistWithAiUseCase, systemPromptRepo, taskChatUseCase } from '../composition/container.js'
 import { createActionsRouter } from './actions.js'
 import { createAgentAbortsRouter } from './agent-aborts.js'
 import { createAgentsRouter } from './agents.js'
@@ -57,7 +57,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/github', createGithubRouter())
   app.route('/api/tools', createToolsRouter())
   app.route('/api/mcp', createMcpRouter())
-  app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
+  app.route('/api/agents', createAgentsRouter(assistWithAiUseCase, taskChatUseCase))
   app.route('/api/agents-crud', createAgentsCrudRouter())
   app.route('/api/rules', createRulesRouter())
   app.route('/api/pipeline', createPipelineRouter())

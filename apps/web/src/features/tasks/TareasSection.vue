@@ -37,6 +37,7 @@ import type {
   SlackMemberRef,
   SlackReviewMessage,
 } from '@ia-flow/shared';
+import { TASK_CHAT_MAX_TASKS } from '@ia-flow/shared';
 import {
   ProjectSettingsSchema,
   resolveSlackReviewTarget,
@@ -305,7 +306,10 @@ const focusStore = useFocusStore();
  */
 const chatOpen = ref(false);
 const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
-  filteredItems.value.map((item) => ({
+  // Tope del contrato (`TASK_CHAT_MAX_TASKS`): un proyecto con más tareas
+  // visibles que eso igual arranca la conversación, sólo que el asistente
+  // no ve las que quedan afuera del recorte.
+  filteredItems.value.slice(0, TASK_CHAT_MAX_TASKS).map((item) => ({
     id: item.id,
     title: item.title,
     status: item.status,
