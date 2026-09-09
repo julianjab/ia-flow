@@ -1,3 +1,4 @@
+import { TASK_CHAT_MAX_MESSAGES } from '@ia-flow/shared'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -51,6 +52,37 @@ describe('taskChatStore', () => {
     await s.ask({ projectId: 'p1', message: 'hola', tasks: TASKS })
     expect(s.error).toBe('boom')
     expect(s.pending).toBeNull()
+  })
+
+  it('el history nunca pasa TASK_CHAT_MAX_MESSAGES — ni lo que se manda ni lo que se guarda', async () => {
+    sendTaskChatMessage.mockResolvedValue({ reply: 'ok', scope: { type: 'project' }, actions: [] })
+    const s = useTaskChatStore()
+    // Cada ask() agrega 2 turnos — TASK_CHAT_MAX_MESSAGES/2 + 3 vueltas
+    // garantiza pasar el tope varias veces.
+    for (let i = 0; i < TASK_CHAT_MAX_MESSAGES / 2 + 3; i++) {
+      await s.ask({ projectId: 'p1', message: `pregunta ${i}`, tasks: TASKS })
+    }
+    expect(s.history.length).toBeLessThanOrEqual(TASK_CHAT_MAX_MESSAGES)
+    for (const call of sendTaskChatMessage.mock.calls) {
+      expect((call[0] as { history: unknown[] }).history.length).toBeLessThanOrEqual(
+        TASK_CHAT_MAX_MESSAGES,
+      )
+    }
+  })
+
+  it('lastAttemptedMessage guarda el último mensaje intentado, incluso si falla', async () => {
+    sendTaskChatMessage.mockRejectedValueOnce(new Error('boom'))
+    const s = useTaskChatStore()
+    await s.ask({ projectId: 'p1', message: 'primer intento', tasks: TASKS })
+    expect(s.lastAttemptedMessage).toBe('primer intento')
+
+    sendTaskChatMessage.mockResolvedValueOnce({
+      reply: 'ok',
+      scope: { type: 'project' },
+      actions: [],
+    })
+    await s.ask({ projectId: 'p1', message: s.lastAttemptedMessage ?? '', tasks: TASKS })
+    expect(sendTaskChatMessage.mock.calls[1]?.[0]?.message).toBe('primer intento')
   })
 
   it('pendingActionsByTask agrupa las acciones (menos reorder) por taskId', async () => {
@@ -107,5 +139,6 @@ describe('taskChatStore', () => {
     expect(s.history).toEqual([])
     expect(s.pending).toBeNull()
     expect(s.highlights).toEqual({})
+    expect(s.lastAttemptedMessage).toBeNull()
   })
 })

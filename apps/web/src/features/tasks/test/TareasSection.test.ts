@@ -36,12 +36,17 @@ const blockersBatch: Record<string, unknown[]> = {}
 const fetchTaskRunSummaries = vi.fn(async () => runSummaries)
 const fetchBlockersBatch = vi.fn(async () => blockersBatch)
 const cancelTaskRun = vi.fn(async () => ({ ok: true, execution: {} }))
+// Vacío = sin fallo: `dispositionsFailed` queda en `false` (no en `true`, que
+// es lo que pasaría sin mockear esto — deshabilitando el toggle de orden en
+// los tests que necesitan ciclar a "fuente").
+const fetchTaskDispositions = vi.fn(async () => [])
 vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
   runTaskNow: (...args: unknown[]) => runTaskNow(...(args as [])),
   fetchTaskRunSummaries: (...args: unknown[]) => fetchTaskRunSummaries(...(args as [])),
   fetchBlockersBatch: (...args: unknown[]) => fetchBlockersBatch(...(args as [])),
   cancelTaskRun: (...args: unknown[]) => cancelTaskRun(...(args as [])),
+  fetchTaskDispositions: (...args: unknown[]) => fetchTaskDispositions(...(args as [])),
 }))
 const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
 const setProjectItemField = vi.fn(async () => {})
@@ -804,6 +809,29 @@ describe('TareasSection — asistente de tareas', () => {
 
     expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBe(JSON.stringify(['I_1']))
     expect(setProjectItemField).not.toHaveBeenCalled()
+  })
+
+  it('aplicar `reorder` en modo "fuente" se ve al toque — sin recargar ni cambiar de proyecto', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    // Ciclar a "fuente" (disposición -> repo -> fuente), el único modo
+    // donde `reorder` aplica.
+    await w.get('[data-testid="tareas-order-toggle"]').trigger('click')
+    await w.get('[data-testid="tareas-order-toggle"]').trigger('click')
+    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(false)
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'reorder', taskIds: ['I_1'] }])
+    await flushPromises()
+
+    // El link "volver al calculado" aparece SIN necesitar remount — es la
+    // señal de que `flatListItems` se recalculó con la preferencia nueva
+    // (antes del fix, `taskOrderPref` era un `computed` sobre localStorage
+    // y quedaba cacheado para siempre).
+    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(true)
+
+    await w.get('[data-testid="tareas-order-pref-reset"]').trigger('click')
+    expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBeNull()
+    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(false)
   })
 
   it('aplicar `highlight` lo guarda en el store de sesión, sin llamar al server', async () => {

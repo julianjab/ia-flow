@@ -104,6 +104,24 @@ describe('TaskCommandBar', () => {
     expect(w.find('.command-error-retry').text()).toContain('reintentar')
   })
 
+  it('"reintentar" reenvía EXACTAMENTE el mensaje que falló, incluso en el primer intento', async () => {
+    sendTaskChatMessage.mockRejectedValueOnce(new Error('boom'))
+    const w = mountBar()
+    await w.find('[data-testid="chat-input"]').setValue('¿qué está bloqueado?')
+    await w.find('[data-testid="chat-send"]').trigger('click')
+    await flushPromises()
+
+    sendTaskChatMessage.mockResolvedValueOnce({
+      reply: 'ok',
+      scope: { type: 'project' },
+      actions: [],
+    })
+    await w.find('.command-error-retry').trigger('click')
+    await flushPromises()
+
+    expect(sendTaskChatMessage.mock.calls[1]?.[0]?.message).toBe('¿qué está bloqueado?')
+  })
+
   it('"Detener" aborta el pedido en vuelo', async () => {
     sendTaskChatMessage.mockImplementation(
       (_payload: unknown, opts: { signal?: AbortSignal }) =>
