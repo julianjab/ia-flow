@@ -38,6 +38,15 @@ export interface ResizableColumn {
   key: string
   defaultWidth: number
   minWidth?: number
+  maxWidth?: number
+  /**
+   * El handle está en el borde IZQUIERDO de la columna, no el derecho — el
+   * caso de un panel a la derecha de un split (Tareas: lista | detalle),
+   * donde arrastrar hacia la izquierda tiene que agrandarlo. Sin esto el
+   * signo es el de un handle a la derecha (arrastrar hacia la derecha
+   * agranda), que es lo que ya vale para toda columna de una tabla.
+   */
+  invert?: boolean
 }
 
 export type ColumnSpec = StaticColumn | ResizableColumn
@@ -65,7 +74,9 @@ export function useResizableColumns(storageKey: string, columns: ColumnSpec[]) {
     if (!isResizable(col)) continue
     const saved = stored[col.key]
     const min = col.minWidth ?? 0
-    widths[col.key] = typeof saved === 'number' && saved >= min ? saved : col.defaultWidth
+    const max = col.maxWidth ?? Number.POSITIVE_INFINITY
+    widths[col.key] =
+      typeof saved === 'number' && saved >= min && saved <= max ? saved : col.defaultWidth
   }
 
   function persist() {
@@ -80,20 +91,31 @@ export function useResizableColumns(storageKey: string, columns: ColumnSpec[]) {
     columns.map((c) => (isResizable(c) ? `${widths[c.key]}px` : c.track)).join(' '),
   )
 
-  function onMove(key: string, min: number, startX: number, startWidth: number) {
+  function onMove(
+    key: string,
+    min: number,
+    max: number,
+    sign: 1 | -1,
+    startX: number,
+    startWidth: number,
+  ) {
     return (e: PointerEvent) => {
-      widths[key] = Math.max(min, Math.round(startWidth + (e.clientX - startX)))
+      const next = startWidth + sign * (e.clientX - startX)
+      widths[key] = Math.min(max, Math.max(min, Math.round(next)))
     }
   }
 
-  /** Se cablea al `pointerdown` del handle, al borde derecho de la columna. */
+  /** Se cablea al `pointerdown` del handle — al borde derecho de la columna
+   *  salvo que declare `invert`, ver ahí. */
   function startResize(key: string, e: PointerEvent) {
     const col = columns.find((c) => c.key === key)
     if (!col || !isResizable(col)) return
     if (e.button !== 0) return
     if (e.cancelable) e.preventDefault()
     const min = col.minWidth ?? 0
-    const move = onMove(key, min, e.clientX, widths[key])
+    const max = col.maxWidth ?? Number.POSITIVE_INFINITY
+    const sign = col.invert ? -1 : 1
+    const move = onMove(key, min, max, sign, e.clientX, widths[key])
     function stop() {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
