@@ -135,9 +135,41 @@ describe('list_tasks', () => {
     })
     const raw = await listTasks.execute({ project_id: 'p1' })
     const parsed = JSON.parse(raw)
-    expect(parsed).toHaveLength(2)
-    expect(parsed[0]).toMatchObject({ id: 'i1', title: 'Uno', status: 'Build', priority: 'high' })
-    expect(parsed[1]).toMatchObject({ id: 'i2', title: 'Dos', status: 'Refine', priority: 'low' })
+    expect(parsed.total).toBe(2)
+    expect(parsed.truncated).toBe(false)
+    expect(parsed.tasks).toHaveLength(2)
+    expect(parsed.tasks[0]).toMatchObject({
+      id: 'i1',
+      title: 'Uno',
+      status: 'Build',
+      priority: 'high',
+    })
+    expect(parsed.tasks[1]).toMatchObject({
+      id: 'i2',
+      title: 'Dos',
+      status: 'Refine',
+      priority: 'low',
+    })
+  })
+
+  it('corta a MAX_RESULTS y marca truncated cuando hay más items', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => issue({ id: `i${i}`, title: `Item ${i}` }))
+    setProjectReadPort({
+      async listItems() {
+        return many
+      },
+      async getItem() {
+        return null
+      },
+      async loadComments() {
+        return []
+      },
+    })
+    const raw = await listTasks.execute({ project_id: 'p1' })
+    const parsed = JSON.parse(raw)
+    expect(parsed.total).toBe(60)
+    expect(parsed.truncated).toBe(true)
+    expect(parsed.tasks).toHaveLength(50)
   })
 })
 
@@ -163,8 +195,9 @@ describe('search_tasks', () => {
     })
     const raw = await searchTasks.execute({ project_id: 'p1', query: 'LOGIN' })
     const parsed = JSON.parse(raw)
-    expect(parsed).toHaveLength(1)
-    expect(parsed[0].id).toBe('i1')
+    expect(parsed.tasks).toHaveLength(1)
+    expect(parsed.tasks[0].id).toBe('i1')
+    expect(parsed.total).toBe(1)
     expect(listCalls).toBe(1)
   })
 
@@ -182,11 +215,11 @@ describe('search_tasks', () => {
     })
     const raw = await searchTasks.execute({ project_id: 'p1', query: 'oscuro' })
     const parsed = JSON.parse(raw)
-    expect(parsed).toHaveLength(1)
-    expect(parsed[0].id).toBe('i2')
+    expect(parsed.tasks).toHaveLength(1)
+    expect(parsed.tasks[0].id).toBe('i2')
   })
 
-  it('sin matches devuelve un array vacío', async () => {
+  it('sin matches devuelve una lista vacía con total 0', async () => {
     setProjectReadPort({
       async listItems() {
         return items
@@ -199,6 +232,23 @@ describe('search_tasks', () => {
       },
     })
     const raw = await searchTasks.execute({ project_id: 'p1', query: 'no existe esto' })
-    expect(JSON.parse(raw)).toEqual([])
+    expect(JSON.parse(raw)).toEqual({ tasks: [], total: 0, truncated: false })
+  })
+
+  it('rechaza un query vacío en vez de listar todo el board', async () => {
+    setProjectReadPort({
+      async listItems() {
+        return items
+      },
+      async getItem() {
+        return null
+      },
+      async loadComments() {
+        return []
+      },
+    })
+    await expect(searchTasks.execute({ project_id: 'p1', query: '  ' })).rejects.toThrow(
+      "'query' no puede estar vacío",
+    )
   })
 })
