@@ -15,6 +15,42 @@ function serializeProvider(provider: AgentProvider): string {
   return typeof provider === 'string' ? provider : JSON.stringify(provider)
 }
 
+/** Tri-state → columna NULLable: `false` es 0, `true` es 1, ausente es NULL. */
+function triState(v: boolean | undefined): number | null {
+  return v === false ? 0 : v === true ? 1 : null
+}
+
+/** Los valores del `INSERT`/`ON CONFLICT` de `upsert`, en el mismo orden que
+ *  la sentencia SQL. */
+function agentToRow(
+  agent: AgentDefinition,
+  position: number,
+  pid: string | null,
+): Array<string | number | null> {
+  return [
+    agent.id,
+    position,
+    serializeProvider(agent.provider),
+    agent.prompt,
+    agent.variables ? JSON.stringify(agent.variables) : null,
+    agent.tools?.length ? JSON.stringify(agent.tools) : null,
+    agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
+    triState(agent.save_output),
+    agent.providerConfig && Object.keys(agent.providerConfig).length > 0
+      ? JSON.stringify(agent.providerConfig)
+      : null,
+    agent.mcpCatalogIds?.length ? JSON.stringify(agent.mcpCatalogIds) : null,
+    pid,
+    triState(agent.requiresBranch),
+    agent.allowBlocked === true ? 1 : 0,
+    agent.onProcess ?? null,
+    agent.exits ? JSON.stringify(agent.exits) : null,
+    agent.comment ?? null,
+    agent.maxConcurrentDispatches ?? null,
+    agent.verify?.length ? JSON.stringify(agent.verify) : null,
+  ]
+}
+
 function rowToAgent(r: Record<string, unknown>): AgentDefinition {
   return {
     id: r.id as string,
@@ -121,28 +157,7 @@ export class SqliteAgentRepository implements IAgentRepository {
          comment             = excluded.comment,
          max_concurrent_dispatches = excluded.max_concurrent_dispatches,
          verify              = excluded.verify`,
-      [
-        agent.id,
-        position,
-        serializeProvider(agent.provider),
-        agent.prompt,
-        agent.variables ? JSON.stringify(agent.variables) : null,
-        agent.tools?.length ? JSON.stringify(agent.tools) : null,
-        agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
-        agent.save_output === false ? 0 : agent.save_output === true ? 1 : null,
-        agent.providerConfig && Object.keys(agent.providerConfig).length > 0
-          ? JSON.stringify(agent.providerConfig)
-          : null,
-        agent.mcpCatalogIds?.length ? JSON.stringify(agent.mcpCatalogIds) : null,
-        pid,
-        agent.requiresBranch === false ? 0 : agent.requiresBranch === true ? 1 : null,
-        agent.allowBlocked === true ? 1 : 0,
-        agent.onProcess ?? null,
-        agent.exits ? JSON.stringify(agent.exits) : null,
-        agent.comment ?? null,
-        agent.maxConcurrentDispatches ?? null,
-        agent.verify?.length ? JSON.stringify(agent.verify) : null,
-      ],
+      agentToRow(agent, position, pid),
     )
   }
 
