@@ -205,6 +205,33 @@ const PRESET_PERMISSIONS: Record<string, string[]> = {
   ],
 }
 
+interface LegacyAgentRow {
+  id: string
+  tools: string | null
+  disabled_tools: string | null
+  permissions: string | null
+  preset_id: string | null
+}
+
+/** Las tools nuevas de una fila legacy: presets/permissions ganan sobre
+ *  tools[]/disabled_tools[] cuando hay algo que convertir. */
+function toolsForRow(row: LegacyAgentRow): ToolEntry[] {
+  const presetPerms = row.preset_id ? (PRESET_PERMISSIONS[row.preset_id] ?? []) : []
+  const explicitPerms = row.permissions ? (JSON.parse(row.permissions) as string[]) : []
+  if (presetPerms.length || explicitPerms.length) {
+    return toolsFromPermissions([...presetPerms, ...explicitPerms])
+  }
+  const legacyTools = row.tools ? (JSON.parse(row.tools) as string[]) : []
+  const legacyDisabled = row.disabled_tools ? (JSON.parse(row.disabled_tools) as string[]) : []
+  if (legacyTools.length) {
+    console.log(
+      `[037-agent-tools-unified] agent "${row.id}" had leftover legacy tools[] (not migrated by 035) — converting directly`,
+    )
+    return toolsFromLegacy(legacyTools, legacyDisabled)
+  }
+  return []
+}
+
 const migration: Migration = {
   id: '037-agent-tools-unified',
   description:
@@ -228,24 +255,7 @@ const migration: Migration = {
     }>
 
     const newTools = new Map<string, ToolEntry[]>()
-    for (const row of rows) {
-      const presetPerms = row.preset_id ? (PRESET_PERMISSIONS[row.preset_id] ?? []) : []
-      const explicitPerms = row.permissions ? (JSON.parse(row.permissions) as string[]) : []
-      if (presetPerms.length || explicitPerms.length) {
-        newTools.set(row.id, toolsFromPermissions([...presetPerms, ...explicitPerms]))
-        continue
-      }
-      const legacyTools = row.tools ? (JSON.parse(row.tools) as string[]) : []
-      const legacyDisabled = row.disabled_tools ? (JSON.parse(row.disabled_tools) as string[]) : []
-      if (legacyTools.length) {
-        console.log(
-          `[037-agent-tools-unified] agent "${row.id}" had leftover legacy tools[] (not migrated by 035) — converting directly`,
-        )
-        newTools.set(row.id, toolsFromLegacy(legacyTools, legacyDisabled))
-        continue
-      }
-      newTools.set(row.id, [])
-    }
+    for (const row of rows) newTools.set(row.id, toolsForRow(row))
 
     db.run('ALTER TABLE agents ADD COLUMN tools_v2 TEXT')
     const update = db.query('UPDATE agents SET tools_v2 = ? WHERE id = ?')
