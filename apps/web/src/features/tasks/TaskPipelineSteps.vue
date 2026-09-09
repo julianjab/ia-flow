@@ -13,7 +13,7 @@ const props = defineProps<{
   executions: ExecutionLog[];
 }>();
 
-type StepGlyphState = 'success' | 'error' | 'cancelled' | 'truncated' | 'running' | 'done' | 'current' | 'pending';
+type StepGlyphState = 'success' | 'error' | 'cancelled' | 'truncated' | 'running' | 'current' | 'pending';
 
 interface Step {
   name: string;
@@ -28,25 +28,26 @@ function norm(s: string | null | undefined): string {
 }
 
 const steps = computed<Step[]>(() => {
-  const currentIndex = props.statuses.findIndex((s) => norm(s) === norm(props.currentStatus));
-  return props.statuses.map((name, i) => {
+  // Nada de inferir "hecho" por posición: un status ANTES del actual en el
+  // pipeline no implica que la tarea haya pasado por ahí — una regla puede
+  // saltarlo entero (de `draft` directo a `refine`, sin pasar por `merge`).
+  // Sólo se pinta lo que una ejecución de verdad evidencia.
+  return props.statuses.map((name) => {
     // La ejecución más reciente que arrancó con este status como
     // `initialStatus` — es la única pista que una fila deja de "por dónde
     // pasó", ya que no hay un status "resultante" persistido por run.
     const execution = props.executions.find((e) => norm(e.initialStatus) === norm(name)) ?? null;
     let state: StepGlyphState;
     if (execution && !execution.finishedAt) state = 'running';
-    else if (execution) state = (execution.outcome ?? 'done') as StepGlyphState;
-    else if (currentIndex === -1) state = 'pending';
-    else if (i < currentIndex) state = 'done';
-    else if (i === currentIndex) state = 'current';
+    else if (execution) state = (execution.outcome ?? 'pending') as StepGlyphState;
+    else if (norm(name) === norm(props.currentStatus)) state = 'current';
     else state = 'pending';
     return { name, state, execution };
   });
 });
 
 function glyphOf(state: StepGlyphState): string {
-  if (state === 'success' || state === 'done') return '✓';
+  if (state === 'success') return '✓';
   if (state === 'error') return '✕';
   if (state === 'cancelled' || state === 'truncated') return '–';
   if (state === 'running') return '◐';
@@ -112,7 +113,6 @@ function titleOf(step: Step): string {
   border-color: var(--info);
   color: var(--info);
 }
-.pipe-dot.is-done,
 .pipe-dot.is-success {
   border-color: var(--accent);
   background: var(--accent);
