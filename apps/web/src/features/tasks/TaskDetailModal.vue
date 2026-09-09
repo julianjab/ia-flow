@@ -393,7 +393,7 @@ const runMessage = computed(() => {
     background: rgba(0, 0, 0, 0.25);
   }
   .modal {
-    width: 400px;
+    width: 60%;
     max-width: 100%;
     height: 100%;
     border-left: 1px solid var(--border);
