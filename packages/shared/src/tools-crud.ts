@@ -143,6 +143,25 @@ export function toolParamsToInputSchema(params: ToolParam[]): Record<string, unk
  * que abrir el editor y guardar lo destruyera en silencio. Con `null` la UI
  * muestra el schema y manda a editarlo por donde se escribió.
  */
+/** Un property del JSON Schema → `ToolParam`, o `null` si dice algo que la
+ *  lista plana no puede expresar. */
+function parseSchemaProperty(name: string, raw: unknown, required: Set<unknown>): ToolParam | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  const p = raw as Record<string, unknown>
+  if (Object.keys(p).some((k) => k !== 'type' && k !== 'description')) return null
+  if (typeof p.type !== 'string' || !TOOL_PARAM_TYPES.includes(p.type as ToolParam['type'])) {
+    return null
+  }
+  if (p.description !== undefined && typeof p.description !== 'string') return null
+  const parsed = ToolParamSchema.safeParse({
+    name,
+    type: p.type,
+    ...(p.description ? { description: p.description } : {}),
+    ...(required.has(name) ? { required: true } : {}),
+  })
+  return parsed.success ? parsed.data : null
+}
+
 export function inputSchemaToToolParams(schema: unknown): ToolParam[] | null {
   if (schema == null) return []
   if (typeof schema !== 'object' || Array.isArray(schema)) return null
@@ -160,21 +179,9 @@ export function inputSchemaToToolParams(schema: unknown): ToolParam[] | null {
 
   const params: ToolParam[] = []
   for (const [name, raw] of Object.entries(props as Record<string, unknown>)) {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
-    const p = raw as Record<string, unknown>
-    if (Object.keys(p).some((k) => k !== 'type' && k !== 'description')) return null
-    if (typeof p.type !== 'string' || !TOOL_PARAM_TYPES.includes(p.type as ToolParam['type'])) {
-      return null
-    }
-    if (p.description !== undefined && typeof p.description !== 'string') return null
-    const parsed = ToolParamSchema.safeParse({
-      name,
-      type: p.type,
-      ...(p.description ? { description: p.description } : {}),
-      ...(required.has(name) ? { required: true } : {}),
-    })
-    if (!parsed.success) return null
-    params.push(parsed.data)
+    const parsed = parseSchemaProperty(name, raw, required)
+    if (!parsed) return null
+    params.push(parsed)
   }
   return params
 }
