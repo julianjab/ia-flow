@@ -1,8 +1,14 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useToastStore } from '@/stores/toast'
 import type { AgentAbortRecord, RecoverableCheckpoint, RecoverableRuns } from '../agent-aborts-api'
+
+// `TaskExecutions` embebido pide sus runs al montar; sin desmontar entre
+// tests, la instancia de un test anterior queda viva y su fetch resuelve
+// tarde contra un mock que el siguiente test ya reseteó — reventando con
+// "Cannot read properties of undefined" fuera de cualquier test puntual.
+enableAutoUnmount(afterEach)
 
 const listMock = vi.fn<[], Promise<RecoverableRuns>>()
 const retryAbortMock = vi.fn()
@@ -16,8 +22,17 @@ vi.mock('../agent-aborts-api', () => ({
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
 }))
+// `TaskExecutions` (embebido para mostrar ejecuciones pasadas de la tarea)
+// pide sus runs solo al montar — sin este mock cada test dispararía un
+// axios.get real contra un server que no existe en jsdom.
+const fetchTaskExecutionsMock = vi.fn().mockResolvedValue([])
+vi.mock('@/features/tasks/api', () => ({
+  fetchTaskExecutions: (...args: unknown[]) => fetchTaskExecutionsMock(...args),
+}))
 
 import AgentAbortsSection from '../AgentAbortsSection.vue'
+
+const RouterLinkStub = { props: ['to'], template: '<a :href="to"><slot /></a>' }
 
 function makeAbort(overrides: Partial<AgentAbortRecord> = {}): AgentAbortRecord {
   return {
@@ -63,6 +78,11 @@ beforeEach(() => {
   listMock.mockReset()
   retryAbortMock.mockReset()
   retryCheckpointMock.mockReset()
+  // `restoreAllMocks()` de abajo limpia también la implementación de este
+  // `vi.fn()` (no es un spy, así que "restaurar" es "sin implementación") —
+  // sin re-armarlo acá, desde el segundo test `fetchTaskExecutions` vuelve
+  // `undefined` en vez de una promesa.
+  fetchTaskExecutionsMock.mockReset().mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -72,7 +92,7 @@ afterEach(() => {
 describe('AgentAbortsSection', () => {
   it('carga y muestra los aborts al montar', async () => {
     listMock.mockResolvedValueOnce(runs({ aborts: [makeAbort()] }))
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     expect(listMock).toHaveBeenCalledTimes(1)
@@ -85,7 +105,7 @@ describe('AgentAbortsSection', () => {
 
   it('muestra el estado vacío cuando no hay nada recuperable', async () => {
     listMock.mockResolvedValueOnce(runs())
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('Sin runs recuperables pendientes.')
@@ -93,7 +113,7 @@ describe('AgentAbortsSection', () => {
 
   it('marca exhausted con su propio badge', async () => {
     listMock.mockResolvedValueOnce(runs({ aborts: [makeAbort({ status: 'exhausted' })] }))
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('agotado')
@@ -105,7 +125,7 @@ describe('AgentAbortsSection', () => {
     retryAbortMock.mockResolvedValueOnce(undefined)
     listMock.mockResolvedValueOnce(runs())
 
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     await wrapper.find('.entry-actions button').trigger('click')
@@ -119,7 +139,7 @@ describe('AgentAbortsSection', () => {
     listMock.mockResolvedValueOnce(runs({ aborts: [makeAbort()] }))
     retryAbortMock.mockRejectedValueOnce(new Error('409 conflict'))
 
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     await wrapper.find('.entry-actions button').trigger('click')
@@ -136,7 +156,7 @@ describe('AgentAbortsSection', () => {
 
   it('muestra un toast de error cuando falla la carga inicial', async () => {
     listMock.mockRejectedValueOnce(new Error('network down'))
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('Sin runs recuperables pendientes.')
@@ -148,7 +168,7 @@ describe('AgentAbortsSection', () => {
 
   it('muestra los checkpoints recuperables con su propio grupo', async () => {
     listMock.mockResolvedValueOnce(runs({ checkpoints: [makeCheckpoint()] }))
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('Checkpoints recuperables')
@@ -160,7 +180,7 @@ describe('AgentAbortsSection', () => {
 
   it('un checkpoint que ya no pasa los gates se marca no resumible, con el motivo', async () => {
     listMock.mockResolvedValueOnce(runs({ checkpoints: [makeCheckpoint({ resumable: false })] }))
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('no resumible')
@@ -172,7 +192,7 @@ describe('AgentAbortsSection', () => {
     retryCheckpointMock.mockResolvedValueOnce(undefined)
     listMock.mockResolvedValueOnce(runs())
 
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     await wrapper.find('.entry-actions button').trigger('click')
@@ -184,7 +204,7 @@ describe('AgentAbortsSection', () => {
 
   it('sin projectId el botón de reintentar un checkpoint queda deshabilitado', async () => {
     listMock.mockResolvedValueOnce(runs({ checkpoints: [makeCheckpoint({ projectId: null })] }))
-    const wrapper = mount(AgentAbortsSection)
+    const wrapper = mount(AgentAbortsSection, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
     const button = wrapper.find('.entry-actions button')
