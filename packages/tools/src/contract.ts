@@ -1,5 +1,6 @@
 import type { ProviderKind } from '@ia-flow/ai-providers'
-import type { AgentOutput, BashRunConfig } from '@ia-flow/shared'
+import type { IssueItem } from '@ia-flow/issue-sources'
+import type { AgentOutput, BashRunConfig, TaskComment } from '@ia-flow/shared'
 
 // ─── Tool engine types ──────────────────────────────────────────────────────
 
@@ -376,4 +377,25 @@ export interface RepoResolverPort {
     localName: string,
     defaultOwner: string,
   ): Promise<{ owner: string; repo: string }>
+}
+
+/**
+ * Vista de sólo lectura de `ProjectSource` (`@ia-flow/issue-sources`),
+ * consumida por las tools de lectura del asistente de chat
+ * (`task/task-read.ts`: get_task_detail, list_tasks, search_tasks).
+ *
+ * Deliberadamente angosta: sólo los tres reads que esas tools necesitan, sin
+ * ningún miembro mutador de `ProjectSource` (setItemField, createItem,
+ * updateItem, deleteItem, ...) — así el port en sí mismo es la garantía de
+ * que estas tools no pueden escribir nada, no una convención que hay que
+ * recordar en cada `execute`.
+ */
+export interface ProjectReadPort {
+  /** Todos los items del proyecto, sin filtro de status — la tool decide. */
+  listItems(projectId: string): Promise<IssueItem[]>
+  /** Un item por su id source-nativo, o `null` si no existe. */
+  getItem(projectId: string, itemId: string): Promise<IssueItem | null>
+  /** La conversación del item (comentarios + review threads sin resolver).
+   *  Array vacío cuando el source no tiene noción de comentarios. */
+  loadComments(projectId: string, item: IssueItem): Promise<TaskComment[]>
 }

@@ -51,6 +51,7 @@ import {
   setAgentMemoryPort,
   setGitTokenPort,
   setPausePort,
+  setProjectReadPort,
   setRepoResolverPort,
   setRunAgentPort,
   setLoggerFactory as setToolsLoggerFactory,
@@ -678,6 +679,27 @@ export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(wor
 // concrete (DB-backed) implementations as injected ports here, same
 // composition-root pattern as the AI providers below.
 setRepoResolverPort({ resolveGithubRepo })
+// Sólo lectura, para las tools del futuro asistente de chat (get_task_detail,
+// list_tasks, search_tasks — ver packages/tools/src/task/task-read.ts). Usa
+// el mismo `getSourceForProjectId` que el resto del server, así que un item
+// del asistente y uno del daemon vienen del mismo ProjectSource cacheado.
+setProjectReadPort({
+  async listItems(projectId) {
+    const source = getSourceForProjectId(projectId)
+    const items = await source.getItems()
+    return items.map((item) => source.toIssueItem?.(item) ?? defaultToIssueItem(item))
+  },
+  async getItem(projectId, itemId) {
+    const source = getSourceForProjectId(projectId)
+    const raw = (await source.getItemById?.(itemId)) ?? null
+    if (!raw) return null
+    return source.toIssueItem?.(raw) ?? defaultToIssueItem(raw)
+  },
+  async loadComments(projectId, item) {
+    const source = getSourceForProjectId(projectId)
+    return (await source.loadComments?.(item)) ?? []
+  },
+})
 // El port de memoria es async y el repo es sync (bun:sqlite): el adaptador
 // existe para que mover el store a algo remoto no obligue a tocar las tools.
 setAgentMemoryPort({

@@ -53,6 +53,19 @@ export { setRepoResolverPort } from './github/tools.js'
 
 import './github/tools.js'
 
+// task-read.ts NO se importa por side-effect: sus tools no llaman a
+// `registerTool()` a propósito (ver el header del archivo) — sólo se
+// exportan para que el asistente de chat las consuma directamente.
+export {
+  CHAT_ASSISTANT_READ_TOOLS,
+  getProjectReadPort,
+  getTaskDetail,
+  listTasks,
+  type ReadOnlyTool,
+  searchTasks,
+  setProjectReadPort,
+} from './task/task-read.js'
+
 // Slack NO está acá: vive en `@ia-flow/slack`, que depende de este paquete y
 // registra sus tools con `registerSlackTools()` en vez de con un efecto de
 // importar. La flecha va en ese sentido —y no al revés— para que sacar Slack de
