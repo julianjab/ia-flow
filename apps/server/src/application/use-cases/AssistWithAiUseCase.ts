@@ -219,13 +219,23 @@ export class AssistWithAiUseCase {
     const callerConfig = this.assistCallerConfigRepo?.getById(agentId)
     // Sin fila todavía (deploy nuevo, nadie la cargó vía
     // PUT /api/assist-configs/:agentId), caé al fallback que el CALLER trajo
-    // — nunca a "sin instrucciones" en silencio. Una fila real, aunque su
-    // `systemPrompts` esté vacío a propósito, gana siempre.
+    // — nunca a "sin instrucciones" en silencio. Una fila real CON refs que
+    // sí resuelven gana siempre, y una fila con `systemPrompts: []` a
+    // propósito también gana (refs.length === 0 abajo, no entra al fallback).
     const refs = callerConfig
       ? (callerConfig.systemPrompts ?? [])
       : (input.fallbackSystemPrompts ?? [])
     if (!refs.length) return { blocks: [], missing: [] }
-    return resolveCallerConfigBlocks(refs, availablePrompts, includedIds)
+
+    const resolved = resolveCallerConfigBlocks(refs, availablePrompts, includedIds)
+    if (resolved.blocks.length > 0) return resolved
+
+    // La fila TENÍA refs pero ninguna resolvió (prompt borrado del catálogo,
+    // catálogo de otro scope de proyecto, id mal escrito) — eso es distinto
+    // de "vacío a propósito", y dejar el asistente sin rol/defensa por un
+    // dato roto es peor que ignorar la fila rota y usar el fallback.
+    if (!callerConfig || !input.fallbackSystemPrompts?.length) return resolved
+    return resolveCallerConfigBlocks(input.fallbackSystemPrompts, availablePrompts, includedIds)
   }
 
   private buildContext(input: AssistInput, requestId: string): AssistContext {

@@ -71,7 +71,10 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
     createTaskChatRouter(taskChatUseCase, taskAnnotationRepo, broadcastFn),
   )
   app.route('/api/agents-crud', createAgentsCrudRouter())
-  app.route('/api/assist-configs', createAssistConfigsRouter(assistCallerConfigRepo))
+  app.route(
+    '/api/assist-configs',
+    createAssistConfigsRouter(assistCallerConfigRepo, systemPromptRepo),
+  )
   app.route('/api/rules', createRulesRouter())
   app.route('/api/pipeline', createPipelineRouter())
   app.route('/api/actions', createActionsRouter())
