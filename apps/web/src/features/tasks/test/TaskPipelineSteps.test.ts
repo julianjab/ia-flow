@@ -27,12 +27,15 @@ describe('TaskPipelineSteps', () => {
     expect(wrapper.find('.pipe-steps').exists()).toBe(false)
   })
 
-  it('marca como pendientes los statuses después del actual', () => {
+  // Un status antes del actual en el pipeline no implica que la tarea haya
+  // pasado por ahí — una regla puede saltarlo entero. Sin una ejecución que
+  // lo evidencie, queda pendiente aunque esté "atrás".
+  it('un status anterior sin ejecución queda pendiente, no "hecho"', () => {
     const wrapper = mount(TaskPipelineSteps, {
       props: { statuses: ['refine', 'build', 'review'], currentStatus: 'build', executions: [] },
     })
     const dots = wrapper.findAll('.pipe-dot')
-    expect(dots[0]?.classes()).toContain('is-done')
+    expect(dots[0]?.classes()).toContain('is-pending')
     expect(dots[1]?.classes()).toContain('is-current')
     expect(dots[2]?.classes()).toContain('is-pending')
   })
