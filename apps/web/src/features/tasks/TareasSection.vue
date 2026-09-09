@@ -471,14 +471,21 @@ watch(() => props.initialView, (v) => { view.value = v; });
  */
 const activeStatus = ref<string | null>(null);
 
-/** Anchos de las columnas de la vista tabla — el glifo (fijo) y el título
- *  (flexible, absorbe el resto) quedan afuera: sólo lo que el operador puede
- *  angostar/ensanchar arrastrando el encabezado. Mismo orden que el DOM de
- *  `.task-thead` y de `TaskRow` en `layout="table"` — ver `--tr-cols` ahí. */
+/** Anchos de las columnas de la vista tabla — el glifo queda afuera (fijo).
+ *  El título es la columna que el operador arrastra más — la que se quiere
+ *  agrandar — así que ES la arrastrable, con handle en su propio borde
+ *  derecho (arrastrar hacia la derecha la agranda, como cualquier otra).
+ *  `issue` pasa a ser la flexible que absorbe lo que sobra: no tiene handle
+ *  propio porque su ancho es una CONSECUENCIA de las demás, no algo que se
+ *  arrastre — con handle ahí, agrandar "issue" arrastrando su borde no tocaba
+ *  el título, que es lo que el operador esperaba mover. `minmax(60px, 1fr)`
+ *  y no `minmax(0, 1fr)`: sin piso, agrandar el título de más colapsa "issue"
+ *  a 0 en vez de desbordar la fila. Mismo orden que el DOM de `.task-thead` y
+ *  de `TaskRow` en `layout="table"` — ver `--tr-cols` ahí. */
 const taskColumns = useResizableColumns('tasks', [
   { key: 'glyph', track: '16px' },
-  { key: 'title', track: 'minmax(0, 1fr)' },
-  { key: 'issue', defaultWidth: 54, minWidth: 40 },
+  { key: 'title', defaultWidth: 560, minWidth: 200, maxWidth: 900 },
+  { key: 'issue', track: 'minmax(60px, 1fr)' },
   { key: 'state', defaultWidth: 100, minWidth: 60 },
   { key: 'agent', defaultWidth: 86, minWidth: 50 },
   { key: 'dur', defaultWidth: 54, minWidth: 40 },
@@ -1362,11 +1369,11 @@ watch(activeProjectId, (pid) => {
            cabecera de columnas no describiría nada. -->
       <div class="task-thead">
         <span aria-hidden="true"></span>
-        <span aria-hidden="true">tarea</span>
         <span class="task-th-col">
-          <span class="task-th-label">issue</span>
-          <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('issue', $event)"></span>
+          <span class="task-th-label" aria-hidden="true">tarea</span>
+          <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('title', $event)"></span>
         </span>
+        <span aria-hidden="true">issue</span>
         <span class="task-th-col">
           <span class="task-th-label">ejecución</span>
           <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('state', $event)"></span>
