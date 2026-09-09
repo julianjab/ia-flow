@@ -291,7 +291,11 @@ function onKeydown(e: KeyboardEvent) {
 /* ── `table`: columnas cuando hay ancho ───────────────────────────────────── */
 @media (min-width: 768px) {
   .tr--table {
-    grid-template-columns: 16px minmax(0, 1fr) 7ch 13ch 11ch 7ch;
+    /* El padre (`.task-table` en TareasSection.vue) puede pisar `--tr-cols`
+     * con los anchos que el operador arrastró — mismo patrón que `--rr-cols`
+     * en RunRow/ExecutionsSection, para que el encabezado de columnas y cada
+     * fila midan siempre lo mismo sin declararlo dos veces. */
+    grid-template-columns: var(--tr-cols, 16px minmax(0, 1fr) 7ch 13ch 11ch 7ch);
     grid-template-areas: none;
     gap: 0.65rem;
     align-items: center;

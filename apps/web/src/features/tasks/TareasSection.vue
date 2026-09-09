@@ -18,6 +18,7 @@ import KbdBar from '@/components/KbdBar.vue';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsSplit } from '@/composables/useIsMobile';
 import { useNow } from '@/composables/useNow';
+import { useResizableColumns } from '@/composables/useResizableColumns';
 import {
   cancelTaskRun,
   fetchBlockersBatch,
@@ -469,6 +470,19 @@ watch(() => props.initialView, (v) => { view.value = v; });
  * columnas se lee scrolleando de lado y perdiendo el hilo.
  */
 const activeStatus = ref<string | null>(null);
+
+/** Anchos de las columnas de la vista tabla — el glifo (fijo) y el título
+ *  (flexible, absorbe el resto) quedan afuera: sólo lo que el operador puede
+ *  angostar/ensanchar arrastrando el encabezado. Mismo orden que el DOM de
+ *  `.task-thead` y de `TaskRow` en `layout="table"` — ver `--tr-cols` ahí. */
+const taskColumns = useResizableColumns('tasks', [
+  { key: 'glyph', track: '16px' },
+  { key: 'title', track: 'minmax(0, 1fr)' },
+  { key: 'issue', defaultWidth: 54, minWidth: 40 },
+  { key: 'state', defaultWidth: 100, minWidth: 60 },
+  { key: 'agent', defaultWidth: 86, minWidth: 50 },
+  { key: 'dur', defaultWidth: 54, minWidth: 40 },
+]);
 
 const boardColumns = computed(() => {
   const counts = new Map<string, number>();
@@ -1182,7 +1196,7 @@ watch(activeProjectId, (pid) => {
          status en vez de por disposición. Lo único que cambia es el criterio;
          la fila es `TaskRow`, clickeable, con el mismo detalle. -->
     <div class="tk-split" :class="{ 'tk-split--open': isSplit && reposModalOpen }">
-    <div class="tk-list">
+    <div class="tk-list" :style="{ '--tr-cols': taskColumns.gridTemplateColumns.value }">
     <template v-if="view === 'board'">
       <div v-if="boardColumns.length" class="bd-chips">
         <button
@@ -1327,9 +1341,25 @@ watch(activeProjectId, (pid) => {
     <div class="task-table">
       <!-- Encabezado sólo en desktop: en mobile la fila se apila y una
            cabecera de columnas no describiría nada. -->
-      <div class="task-thead" aria-hidden="true">
-        <span></span><span>tarea</span><span>issue</span><span>ejecución</span><span>agente</span>
-        <span class="task-th-dur">dur.</span>
+      <div class="task-thead">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true">tarea</span>
+        <span class="task-th-col">
+          <span class="task-th-label">issue</span>
+          <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('issue', $event)"></span>
+        </span>
+        <span class="task-th-col">
+          <span class="task-th-label">ejecución</span>
+          <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('state', $event)"></span>
+        </span>
+        <span class="task-th-col">
+          <span class="task-th-label">agente</span>
+          <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('agent', $event)"></span>
+        </span>
+        <span class="task-th-dur task-th-col">
+          <span class="task-th-label">dur.</span>
+          <span class="col-resize-handle" title="Arrastrar para cambiar el ancho" @pointerdown="taskColumns.startResize('dur', $event)"></span>
+        </span>
       </div>
 
       <template v-for="bucket in (orderMode === 'disposicion' && !dispositionsFailed ? buckets : [])" :key="bucket.disposition">
@@ -1763,7 +1793,10 @@ watch(activeProjectId, (pid) => {
   .task-thead,
   .task-row {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) 7ch 13ch 11ch 7ch;
+    /* Mismo `--tr-cols` que `TaskRow.vue` en `layout="table"` — declarado acá
+       (ver `taskColumns` / `:style` en `.tk-list`) para que el encabezado y
+       cada fila midan siempre lo mismo sin escribirlo dos veces. */
+    grid-template-columns: var(--tr-cols, 16px minmax(0, 1fr) 7ch 13ch 11ch 7ch);
     grid-template-areas: none;
     gap: 0.65rem;
     align-items: center;
@@ -1789,6 +1822,44 @@ watch(activeProjectId, (pid) => {
     color: var(--fg-dim);
   }
   .task-th-dur { text-align: right; }
+
+  /* La celda del encabezado necesita `relative` para anclar el handle a su
+     borde derecho — que es EXACTAMENTE el borde de la columna que arrastra,
+     no el del `gap` de al lado. `min-width: 0` es lo que deja angostar la
+     celda por debajo del ancho de su contenido: sin él, un grid item mide
+     como mínimo su `min-content`, así que angostar la columna no hacía nada
+     y el handle sólo se llevaba puesto el próximo arrastre. */
+  .task-th-col { position: relative; min-width: 0; }
+  /* La etiqueta trunca ANTES de desbordar sobre la columna vecina — sin esto
+     un handle en su mínimo dejaba el texto pintado encima de "agente" en vez
+     de cortado, y parecía que el arrastre movía la columna equivocada. */
+  .task-th-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -0.65rem;
+    width: 0.65rem;
+    height: 100%;
+    cursor: col-resize;
+    /* Sin esto un arrastre en touch scrollea la lista en vez de mover la
+       columna — mismo motivo que `useDragReorder` en su handle. */
+    touch-action: none;
+  }
+  .col-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 15%;
+    left: 50%;
+    width: 1px;
+    height: 70%;
+    background: var(--border-hi);
+  }
+  .col-resize-handle:hover::after { background: var(--accent); }
 
   .task-row {
     height: calc(var(--row-h) * 1.2);
