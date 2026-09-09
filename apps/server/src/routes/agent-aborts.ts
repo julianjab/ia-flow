@@ -12,7 +12,7 @@
 //    propio: se destraban re-emitiendo el status de la tarea.
 import { Hono } from 'hono'
 import { listRecoverableCheckpoints, retryAbortRecord } from '../composition/actions.js'
-import { agentAbortRepo } from '../composition/container.js'
+import { agentAbortRepo, runCheckpointRepo } from '../composition/container.js'
 
 export function createAgentAbortsRouter() {
   const router = new Hono()
@@ -41,6 +41,16 @@ export function createAgentAbortsRouter() {
     // reapareciendo (o desapareciendo) en el próximo `GET /`.
     void retryAbortRecord(record)
     return c.json({ status: 'retrying' }, 202)
+  })
+
+  // Descarta un checkpoint sin reintentarlo — la task no se va a re-emitir,
+  // así que la fila desaparece de esta lista igual que si el run hubiera
+  // cerrado solo. No toca `execution_logs`: es lo mismo que hace el cierre
+  // normal de un run (ver `IRunCheckpointRepository.delete`), sólo que a mano.
+  router.delete('/checkpoints/:runId', async (c) => {
+    const runId = c.req.param('runId')
+    await runCheckpointRepo.delete(runId)
+    return c.json({ status: 'deleted' })
   })
 
   return router

@@ -4,7 +4,7 @@ import {
   MAX_RESUME_AGE_MS,
   MAX_RESUME_ATTEMPTS,
 } from '@ia-flow/agent-engine'
-import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
+import type { IIssueManager, IssueItem, SourceItem } from '@ia-flow/issue-sources'
 // Registro de las acciones que este daemon sabe ejecutar.
 //
 // Vive en `composition/` y no en el container mismo porque es cableado con
@@ -21,6 +21,7 @@ import { createResolveEventItem } from '../adapters/actions/resolve-event-item.j
 import { createResolveRuleConversation } from '../adapters/actions/resolve-rule-conversation.js'
 import { ScriptAction } from '../adapters/actions/script-action.js'
 import type { AgentAbortRecord } from '../domain/ports/IAgentAbortRepository.js'
+import type { RunCheckpoint } from '../domain/ports/IRunCheckpointRepository.js'
 import { createLogger } from '../logger.js'
 import {
   agentAbortRepo,
@@ -156,9 +157,37 @@ export async function listRecoverableCheckpoints(
   projectId?: string,
 ): Promise<RecoverableCheckpoint[]> {
   const checkpoints = await runCheckpointRepo.listAll()
+  const scoped = checkpoints.filter((cp) => !projectId || cp.projectId === projectId)
+
+  // Una task que la fuente ya marca cerrada no tiene nada que recuperar —
+  // mismo criterio que domain/task-disposition.ts (`meta.state === 'closed'`),
+  // para no inventar una segunda definición de "terminada". Se resuelve UNA
+  // vez por proyecto (getItems() está memoizado con TTL en las fuentes
+  // GitHub) y no por fila, para no convertir este GET en N requests.
+  const itemsByProject = new Map<string, Map<string, SourceItem>>()
+  for (const projId of new Set(
+    scoped.map((cp) => cp.projectId).filter((id): id is string => Boolean(id)),
+  )) {
+    try {
+      const items = await getSourceForProjectId(projId).getItems()
+      itemsByProject.set(projId, new Map(items.map((item) => [item.id, item])))
+    } catch (err) {
+      log.warn(
+        { err, projectId: projId },
+        'No se pudo cargar items del proyecto para filtrar checkpoints de tasks cerradas',
+      )
+    }
+  }
+
+  function isTaskClosed(cp: RunCheckpoint): boolean {
+    if (!cp.projectId) return false
+    const item = itemsByProject.get(cp.projectId)?.get(cp.taskId)
+    return (item?.meta as { state?: string } | undefined)?.state === 'closed'
+  }
+
   const now = Date.now()
-  return checkpoints
-    .filter((cp) => !projectId || cp.projectId === projectId)
+  return scoped
+    .filter((cp) => !isTaskClosed(cp))
     .map((cp) => {
       const row = executionLogRepo.getById(cp.runId)
       const ageMs = now - Date.parse(cp.updatedAt)
