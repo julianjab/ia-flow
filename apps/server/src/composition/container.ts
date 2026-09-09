@@ -691,7 +691,13 @@ setProjectReadPort({
   },
   async getItem(projectId, itemId) {
     const source = getSourceForProjectId(projectId)
-    const raw = (await source.getItemById?.(itemId)) ?? null
+    // `getItemById` es opcional — su ausencia significa "el caller cae a
+    // getItems()" (ver el doc del método en contract.ts), no "el item no
+    // existe". Sin este fallback, un source futuro que no lo implemente le
+    // mentiría al asistente con un falso "no se encontró" en vez de listar.
+    const raw = source.getItemById
+      ? await source.getItemById(itemId)
+      : ((await source.getItems()).find((i) => i.id === itemId) ?? null)
     if (!raw) return null
     return source.toIssueItem?.(raw) ?? defaultToIssueItem(raw)
   },

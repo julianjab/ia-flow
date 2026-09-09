@@ -49,6 +49,27 @@ export interface ReadOnlyTool<TInput = unknown> {
   execute(input: TInput): Promise<string>
 }
 
+// Tope duro sobre lo que se manda al modelo de una sola llamada. Un board
+// con cientos de items, cada uno con título/repos/labels/assignees/url,
+// indentado a 2 espacios, puede desbordar la ventana de contexto del
+// asistente o encarecer cada turno — así que se corta y se avisa en vez de
+// volcar todo.
+const MAX_RESULTS = 50
+
+interface TaskListResult {
+  tasks: TaskSummary[]
+  total: number
+  truncated: boolean
+}
+
+function limitResults(items: IssueItem[]): TaskListResult {
+  return {
+    tasks: items.slice(0, MAX_RESULTS).map(summarize),
+    total: items.length,
+    truncated: items.length > MAX_RESULTS,
+  }
+}
+
 interface TaskSummary {
   id: string
   title: string
@@ -111,8 +132,7 @@ interface ListTasksInput {
 
 export const listTasks: ReadOnlyTool<ListTasksInput> = {
   name: 'list_tasks',
-  description:
-    'Lista todos los items del proyecto (priority, status, repos, assignees, labels), sin requerir un run activo. Sólo lectura.',
+  description: `Lista los items del proyecto (priority, status, repos, assignees, labels), sin requerir un run activo. Sólo lectura. Corta a los primeros ${MAX_RESULTS} (\`truncated: true\` + \`total\` cuando hay más) — usá search_tasks para acotar por texto.`,
   input_schema: {
     type: 'object',
     properties: {
@@ -123,7 +143,7 @@ export const listTasks: ReadOnlyTool<ListTasksInput> = {
   async execute(input: ListTasksInput): Promise<string> {
     const port = requirePort()
     const items = await port.listItems(input.project_id)
-    return JSON.stringify(items.map(summarize), null, 2)
+    return JSON.stringify(limitResults(items), null, 2)
   },
 }
 
@@ -134,8 +154,7 @@ interface SearchTasksInput {
 
 export const searchTasks: ReadOnlyTool<SearchTasksInput> = {
   name: 'search_tasks',
-  description:
-    'Busca items del proyecto cuyo título o descripción contenga el query (case-insensitive). Filtra en memoria sobre list_tasks — no hace ningún request extra al source. Sólo lectura.',
+  description: `Busca items del proyecto cuyo título o descripción contenga el query (case-insensitive, obligatorio — no lista el board entero). Filtra en memoria sobre getItems() — no hace ningún request extra al source. Sólo lectura. Corta a los primeros ${MAX_RESULTS} matches (\`truncated: true\` + \`total\` cuando hay más).`,
   input_schema: {
     type: 'object',
     properties: {
@@ -147,13 +166,14 @@ export const searchTasks: ReadOnlyTool<SearchTasksInput> = {
   async execute(input: SearchTasksInput): Promise<string> {
     const port = requirePort()
     const q = input.query.trim().toLowerCase()
+    if (!q) {
+      throw new Error("'query' no puede estar vacío — para listar todo el board usá list_tasks.")
+    }
     const items = await port.listItems(input.project_id)
-    const matches = q
-      ? items.filter(
-          (i) => i.title.toLowerCase().includes(q) || i.description.toLowerCase().includes(q),
-        )
-      : items
-    return JSON.stringify(matches.map(summarize), null, 2)
+    const matches = items.filter(
+      (i) => i.title.toLowerCase().includes(q) || i.description.toLowerCase().includes(q),
+    )
+    return JSON.stringify(limitResults(matches), null, 2)
   },
 }
 
