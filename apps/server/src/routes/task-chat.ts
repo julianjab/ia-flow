@@ -26,19 +26,20 @@ function assistErrorResponse(err: unknown): { body: { error: string }; status: 4
  * `POST /api/tasks/assistant/chat` + CRUD mínimo de anotaciones — el borde
  * HTTP de la barra de comandos de `TareasSection.vue` (ver #215/#216).
  *
- * **Progreso en vivo — parcial, a propósito.** El diseño final (10c) pide
- * "leyendo N de M tareas" mientras el asistente lee — eso requiere el
- * tool-loop de lectura de #214 (`get_task_detail`/`list_tasks`/
- * `search_tasks`), que TODAVÍA NO EXISTE en este repo (el contexto de tareas
- * hoy se manda inline en el request, igual que antes). Sin esa pieza no hay
- * conteo real que emitir. Lo que SÍ se implementa:
- * - un evento `task-chat:progress` (`started`/`done`/`error`) por el MISMO
- *   canal WS que ya usa el resto de la app (`broadcastFn`), para que el
- *   front pueda mostrar "Pensando…" sin colgarse;
- * - cancelación real: el front aborta el `fetch` y esta ruta propaga
- *   `c.req.raw.signal` hasta el `fetch` a Anthropic (`TaskChatUseCase` →
- *   `AssistWithAiUseCase.runFormFill`), así que "detener" corta la llamada
- *   upstream de verdad, sin inventar un endpoint de cancelación aparte.
+ * **Progreso en vivo.** Por el MISMO canal WS que ya usa el resto de la app
+ * (`broadcastFn`) se emiten eventos `task-chat:progress`:
+ * - `started` / `done` / `error` — el ciclo de vida del turno completo.
+ * - `reading` — uno por cada `get_task_detail`/`list_tasks`/`search_tasks`
+ *   que el modelo dispara mientras arma la respuesta (`TaskChatUseCase` →
+ *   `AssistWithAiUseCase.runFormFill`, ver #215). Trae `tool`, `index`
+ *   (1-based, el N-ésimo tool call de este turno) y `label` (texto legible,
+ *   p. ej. `Leyendo la tarea #42`) — no hay un `M` total porque el modelo
+ *   decide en vuelo cuántas lecturas necesita, no hay forma de anticiparlo.
+ *
+ * Además, cancelación real: el front aborta el `fetch` y esta ruta propaga
+ * `c.req.raw.signal` hasta el `fetch` a Anthropic (en cada vuelta del loop
+ * de lectura), así que "detener" corta la llamada upstream de verdad, sin
+ * inventar un endpoint de cancelación aparte.
  */
 export function createTaskChatRouter(
   taskChat: TaskChatUseCase,
@@ -69,7 +70,20 @@ export function createTaskChatRouter(
     })
 
     try {
-      const result = await taskChat.execute(parsed.data, { signal: c.req.raw.signal })
+      const result = await taskChat.execute(parsed.data, {
+        signal: c.req.raw.signal,
+        onProgress: (e) => {
+          broadcast({
+            type: 'task-chat:progress',
+            chatId,
+            projectId: parsed.data.projectId,
+            phase: 'reading',
+            tool: e.tool,
+            index: e.index,
+            label: e.label,
+          })
+        },
+      })
       broadcast({
         type: 'task-chat:progress',
         chatId,
