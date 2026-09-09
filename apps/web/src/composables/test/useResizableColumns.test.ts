@@ -91,4 +91,43 @@ describe('useResizableColumns', () => {
     const b = useResizableColumns('t8b', columns)
     expect(b.gridTemplateColumns.value).toBe('16px minmax(0, 1fr) 60px')
   })
+
+  it('no sube del máximo declarado', () => {
+    const withMax = [
+      { key: 'list', track: 'minmax(0, 1fr)' },
+      { key: 'detail', defaultWidth: 100, minWidth: 50, maxWidth: 150 },
+    ]
+    const { startResize, gridTemplateColumns } = useResizableColumns('t9', withMax)
+    startResize('detail', press(100))
+    move(500)
+    up()
+    expect(gridTemplateColumns.value).toBe('minmax(0, 1fr) 150px')
+  })
+
+  // El panel de detalle vive a la DERECHA del split: su handle está en el
+  // borde IZQUIERDO, así que arrastrar hacia la izquierda tiene que
+  // agrandarlo — signo opuesto al de una columna de tabla.
+  it('`invert` agranda arrastrando hacia la izquierda', () => {
+    const inverted = [
+      { key: 'list', track: 'minmax(0, 1fr)' },
+      { key: 'detail', defaultWidth: 100, minWidth: 50, invert: true },
+    ]
+    const { startResize, gridTemplateColumns } = useResizableColumns('t10', inverted)
+    startResize('detail', press(200))
+    move(160)
+    up()
+    expect(gridTemplateColumns.value).toBe('minmax(0, 1fr) 140px')
+  })
+
+  it('`invert` respeta igual el mínimo', () => {
+    const inverted = [
+      { key: 'list', track: 'minmax(0, 1fr)' },
+      { key: 'detail', defaultWidth: 100, minWidth: 50, invert: true },
+    ]
+    const { startResize, gridTemplateColumns } = useResizableColumns('t11', inverted)
+    startResize('detail', press(200))
+    move(300)
+    up()
+    expect(gridTemplateColumns.value).toBe('minmax(0, 1fr) 50px')
+  })
 })
