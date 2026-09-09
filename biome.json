@@ -51,7 +51,7 @@
         "noSwitchDeclarations": "warn",
         "noUnusedPrivateClassMembers": "error",
         "noUnusedFunctionParameters": "error",
-        "noUnsafeOptionalChaining": "warn"
+        "noUnsafeOptionalChaining": "error"
       },
       "complexity": {
         "noForEach": "off",

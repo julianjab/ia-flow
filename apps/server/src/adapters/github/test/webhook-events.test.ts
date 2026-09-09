@@ -173,8 +173,8 @@ describe('pull_request_review', () => {
     expect(e?.type).toBe(PR_REVIEW_SUBMITTED)
     // Normalizado a minúsculas: una regla no debería tener que saber que
     // GitHub lo manda en mayúsculas.
-    expect((e?.payload as { state: string }).state).toBe('changes_requested')
-    expect((e?.payload as { reviewer: string }).reviewer).toBe('reviewer')
+    expect((e!.payload as { state: string }).state).toBe('changes_requested')
+    expect((e!.payload as { reviewer: string }).reviewer).toBe('reviewer')
   })
 
   it('edited y dismissed no son un veredicto nuevo', () => {
@@ -214,8 +214,8 @@ describe('ci.finished', () => {
     )
     expect(suite?.type).toBe(CI_FINISHED)
     expect(run?.type).toBe(CI_FINISHED)
-    expect((suite?.payload as { conclusion: string }).conclusion).toBe('success')
-    expect((run?.payload as { conclusion: string }).conclusion).toBe('failure')
+    expect((suite!.payload as { conclusion: string }).conclusion).toBe('success')
+    expect((run!.payload as { conclusion: string }).conclusion).toBe('failure')
   })
 
   it('conserva de qué mecanismo vino, por si una regla los distingue', () => {
@@ -224,7 +224,7 @@ describe('ci.finished', () => {
       { action: 'completed', repository, check_suite: { conclusion: 'success' } },
       resolve,
     )
-    expect((e?.payload as { kind: string }).kind).toBe('check_suite')
+    expect((e!.payload as { kind: string }).kind).toBe('check_suite')
   })
 
   it('ata el resultado a un PR cuando GitHub lo conoce', () => {
@@ -252,7 +252,7 @@ describe('ci.finished', () => {
     )
     expect(e).not.toBeNull()
     expect(e?.scope.prNumber).toBeUndefined()
-    expect((e?.payload as { branch: string }).branch).toBe('main')
+    expect((e!.payload as { branch: string }).branch).toBe('main')
   })
 
   it('una corrida que todavía no terminó no produce evento', () => {
@@ -362,7 +362,7 @@ describe('issues', () => {
       resolve,
     )
     expect(e?.type).toBe('issues.labeled')
-    expect((e?.payload as { labelName?: string }).labelName).toBe('bug')
+    expect((e!.payload as { labelName?: string }).labelName).toBe('bug')
   })
 
   // `issue.labels` trae el set COMPLETO y actual, no sólo la label que
@@ -379,7 +379,7 @@ describe('issues', () => {
       },
       resolve,
     )
-    expect((e?.payload as { labels?: string[] }).labels).toEqual(['epic', 'enhancement'])
+    expect((e!.payload as { labels?: string[] }).labels).toEqual(['epic', 'enhancement'])
   })
 
   it('assigned produce issues.assigned con assignee, desde el assignee a nivel raíz', () => {
@@ -389,7 +389,7 @@ describe('issues', () => {
       resolve,
     )
     expect(e?.type).toBe('issues.assigned')
-    expect((e?.payload as { assignee?: string }).assignee).toBe('juli')
+    expect((e!.payload as { assignee?: string }).assignee).toBe('juli')
   })
 
   it('sin issue no produce evento', () => {

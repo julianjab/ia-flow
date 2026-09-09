@@ -25,7 +25,8 @@ describe('SqliteRunCheckpointRepository', () => {
     expect(rows).toHaveLength(1)
 
     const found = await repo.getByTask('t1')
-    expect((found?.state as { messages: unknown[] }).messages).toHaveLength(2)
+    expect(found).not.toBeNull()
+    expect((found!.state as { messages: unknown[] }).messages).toHaveLength(2)
   })
 
   test('`attempts` sólo cuenta en el INSERT — los saves siguientes no lo mueven', async () => {

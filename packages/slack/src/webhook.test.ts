@@ -29,7 +29,7 @@ describe('slackMessageEvent', () => {
     const e = slackMessageEvent(envelope())
     expect(e?.type).toBe(SLACK_MESSAGE)
     expect(e?.scope).toEqual({})
-    expect((e?.payload as { text: string }).text).toBe('el login anda mal en staging')
+    expect((e!.payload as { text: string }).text).toBe('el login anda mal en staging')
   })
 
   it('descarta los mensajes de bots', () => {
@@ -50,8 +50,8 @@ describe('slackMessageEvent', () => {
   it('marca si es respuesta en un hilo', () => {
     const raiz = slackMessageEvent(envelope({ thread_ts: '1700000000.000100' }))
     const respuesta = slackMessageEvent(envelope({ thread_ts: '1699999999.000000' }))
-    expect((raiz?.payload as { isThreadReply: boolean }).isThreadReply).toBe(false)
-    expect((respuesta?.payload as { isThreadReply: boolean }).isThreadReply).toBe(true)
+    expect((raiz!.payload as { isThreadReply: boolean }).isThreadReply).toBe(false)
+    expect((respuesta!.payload as { isThreadReply: boolean }).isThreadReply).toBe(true)
   })
 
   it('el event_id de Slack es la identidad — Slack reintenta', () => {

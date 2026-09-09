@@ -17,7 +17,9 @@ describe('AgentHostAdmissionCard', () => {
     // El console re-lee cada 5s: mismo contenido, objeto nuevo.
     await wrapper.setProps({ modelValue: admission({ rules: [...stored.rules] }) })
 
-    expect((wrapper.findAll('input').at(-1)?.element as HTMLInputElement).value).toBe('otro-user')
+    const input = wrapper.findAll('input').at(-1)
+    expect(input).toBeDefined()
+    expect((input!.element as HTMLInputElement).value).toBe('otro-user')
   })
 
   it('adopta las reglas del agent-host cuando cambiaron de verdad', async () => {
