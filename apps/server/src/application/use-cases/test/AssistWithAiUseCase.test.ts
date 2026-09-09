@@ -241,4 +241,39 @@ describe('AssistWithAiUseCase.buildContext — fallbackSystemPrompts (sin fila t
     )
     expect(ctx.extraBlocks).toEqual([])
   })
+
+  test('una fila con refs que NO resuelven (id borrado del catálogo) cae al fallback, no queda vacía', () => {
+    const useCase = new AssistWithAiUseCase(
+      fakeSystemPromptRepo([]), // el catálogo no tiene 'sp-borrado'
+      fakeProjectRepo(),
+      fakeCallerConfigRepo([{ agentId: 'task-chat', systemPrompts: ['sp-borrado'] }]),
+      fakeAgentRepo([]),
+    ) as AnyUseCase
+
+    const ctx = useCase.buildContext(
+      {
+        mode: 'generate',
+        description: 'x',
+        agentId: 'task-chat',
+        fallbackSystemPrompts: [{ text: 'fallback de rescate' }],
+      },
+      'req1',
+    )
+    expect(ctx.extraBlocks).toEqual([{ type: 'text', text: 'fallback de rescate' }])
+  })
+
+  test('una fila con refs rotas y SIN fallback no explota — sólo queda vacía', () => {
+    const useCase = new AssistWithAiUseCase(
+      fakeSystemPromptRepo([]),
+      fakeProjectRepo(),
+      fakeCallerConfigRepo([{ agentId: 'task-chat', systemPrompts: ['sp-borrado'] }]),
+      fakeAgentRepo([]),
+    ) as AnyUseCase
+
+    const ctx = useCase.buildContext(
+      { mode: 'generate', description: 'x', agentId: 'task-chat' },
+      'req1',
+    )
+    expect(ctx.extraBlocks).toEqual([])
+  })
 })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import type { AssistCallerConfig } from '@ia-flow/shared'
+import type { AssistCallerConfig, SystemPromptDef } from '@ia-flow/shared'
 import type { IAssistCallerConfigRepository } from '../../domain/ports/IAssistCallerConfigRepository.js'
+import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createAssistConfigsRouter } from '../assist-configs.js'
 
 function fakeRepo(seed: AssistCallerConfig[] = []): IAssistCallerConfigRepository {
@@ -20,10 +21,22 @@ function fakeRepo(seed: AssistCallerConfig[] = []): IAssistCallerConfigRepositor
   }
 }
 
+function fakeSystemPromptRepo(prompts: SystemPromptDef[] = []): ISystemPromptRepository {
+  return {
+    getById: (id: string) => prompts.find((p) => p.id === id) ?? null,
+    inScope: () => prompts,
+    visibleTo: () => prompts,
+    upsert: () => {},
+    deleteById: () => {},
+    clearScope: () => {},
+  } as unknown as ISystemPromptRepository
+}
+
 describe('CRUD /api/assist-configs', () => {
   it('GET / lista las configs', async () => {
     const app = createAssistConfigsRouter(
       fakeRepo([{ agentId: 'task-chat', systemPrompts: [{ text: 'x' }] }]),
+      fakeSystemPromptRepo(),
     )
     const res = await app.request('/')
     expect(res.status).toBe(200)
@@ -32,7 +45,7 @@ describe('CRUD /api/assist-configs', () => {
   })
 
   it('GET /:agentId 404 cuando no existe', async () => {
-    const app = createAssistConfigsRouter(fakeRepo())
+    const app = createAssistConfigsRouter(fakeRepo(), fakeSystemPromptRepo())
     const res = await app.request('/task-chat')
     expect(res.status).toBe(404)
   })
@@ -40,6 +53,7 @@ describe('CRUD /api/assist-configs', () => {
   it('GET /:agentId 200 cuando existe', async () => {
     const app = createAssistConfigsRouter(
       fakeRepo([{ agentId: 'task-chat', systemPrompts: [{ text: 'x' }] }]),
+      fakeSystemPromptRepo(),
     )
     const res = await app.request('/task-chat')
     expect(res.status).toBe(200)
@@ -49,7 +63,7 @@ describe('CRUD /api/assist-configs', () => {
 
   it('PUT /:agentId crea o reemplaza, tomando el agentId de la URL (no del body)', async () => {
     const repo = fakeRepo()
-    const app = createAssistConfigsRouter(repo)
+    const app = createAssistConfigsRouter(repo, fakeSystemPromptRepo())
     const res = await app.request('/task-chat', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -66,8 +80,23 @@ describe('CRUD /api/assist-configs', () => {
     expect(repo.getById('otro-id-ignorado')).toBeNull()
   })
 
-  it('PUT /:agentId 400 con systemPrompts inválido', async () => {
-    const app = createAssistConfigsRouter(fakeRepo())
+  it('PUT /:agentId acepta un id string que SÍ existe en el catálogo', async () => {
+    const repo = fakeRepo()
+    const app = createAssistConfigsRouter(
+      repo,
+      fakeSystemPromptRepo([{ id: 'sp1', name: 'x', text: 'y' }]),
+    )
+    const res = await app.request('/task-chat', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ systemPrompts: ['sp1'] }),
+    })
+    expect(res.status).toBe(200)
+    expect(repo.getById('task-chat')).toEqual({ agentId: 'task-chat', systemPrompts: ['sp1'] })
+  })
+
+  it('PUT /:agentId 400 con systemPrompts inválido (shape)', async () => {
+    const app = createAssistConfigsRouter(fakeRepo(), fakeSystemPromptRepo())
     const res = await app.request('/task-chat', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -76,9 +105,23 @@ describe('CRUD /api/assist-configs', () => {
     expect(res.status).toBe(400)
   })
 
+  it('PUT /:agentId 400 con un id de system prompt que no existe en ningún catálogo', async () => {
+    const repo = fakeRepo()
+    const app = createAssistConfigsRouter(repo, fakeSystemPromptRepo([]))
+    const res = await app.request('/task-chat', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ systemPrompts: ['no-existe'] }),
+    })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toContain('no-existe')
+    expect(repo.getById('task-chat')).toBeNull()
+  })
+
   it('DELETE /:agentId 200 cuando existe, 404 cuando no', async () => {
     const repo = fakeRepo([{ agentId: 'task-chat', systemPrompts: [] }])
-    const app = createAssistConfigsRouter(repo)
+    const app = createAssistConfigsRouter(repo, fakeSystemPromptRepo())
     const ok = await app.request('/task-chat', { method: 'DELETE' })
     expect(ok.status).toBe(200)
     const missing = await app.request('/task-chat', { method: 'DELETE' })
