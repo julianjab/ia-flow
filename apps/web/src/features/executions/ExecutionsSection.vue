@@ -2210,23 +2210,10 @@ watch(pendingFilter, () => {
             :warn="row.firing.hadEarlierIssue
               ? 'Una acción anterior de este pipeline terminó en error/cancelled/truncated antes del resultado final mostrado.'
               : null"
-            :has-verb="!!row.firing.running"
             :aria-expanded="isFiringOpen(row.firing.key)"
             :note-title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
             @open="toggleFiring(row.firing.key)"
-          >
-            <template #verb>
-              <button
-                v-if="row.firing.running"
-                type="button"
-                class="exec-stop-btn"
-                :disabled="isCancelling(row.firing.running.id)"
-                :data-testid="`executions-stop-${row.firing.running.id}`"
-                title="Detener ejecución"
-                @click.stop="confirmCancelExecution(row.firing!.running!)"
-              >{{ isCancelling(row.firing.running.id) ? '…' : '■ Detener' }}</button>
-            </template>
-          </RunRow>
+          />
         </li>
 
         <li
@@ -2254,25 +2241,18 @@ watch(pendingFilter, () => {
             :tag-ghost="row.nested"
             :tag-title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
             :cancel-requested="!!row.exec!.cancelRequestedAt"
-            :has-verb="!!verbForRun(row.exec!, recoverableRunIds)"
+            :has-verb="verbForRun(row.exec!, recoverableRunIds)?.kind === 'route'"
             :aria-expanded="expandedId === row.exec!.id"
             @open="toggleRow(row.exec!.id)"
           >
-            <!-- Un verbo por fila, y sólo donde hay algo que hacer (O2). El
-                 destino existe: abortar llama a su endpoint, resolver navega a
-                 la pantalla de runs abortados. -->
+            <!-- Un verbo por fila, y sólo donde hay algo que hacer (O2). Sólo
+                 "Resolver" navega desde acá — abortar es una acción del
+                 detalle (ver `.exec-actions` más abajo): la fila es donde se
+                 ESCANEA, y un botón destructivo ahí se toca por error al
+                 barrer la lista con el dedo. -->
             <template #verb>
-              <button
-                v-if="verbForRun(row.exec!, recoverableRunIds)?.kind === 'cancel'"
-                type="button"
-                class="exec-stop-btn"
-                :disabled="isCancelling(row.exec!.id)"
-                :data-testid="`executions-stop-${row.exec!.id}`"
-                title="Detener ejecución"
-                @click.stop="confirmCancelExecution(row.exec!)"
-              >{{ isCancelling(row.exec!.id) ? '…' : '■ Abortar' }}</button>
               <RouterLink
-                v-else-if="verbForRun(row.exec!, recoverableRunIds)?.href"
+                v-if="verbForRun(row.exec!, recoverableRunIds)?.href"
                 class="exec-verb"
                 :to="verbForRun(row.exec!, recoverableRunIds)!.href!"
                 :data-testid="`executions-verb-${row.exec!.id}`"
@@ -3118,7 +3098,8 @@ watch(pendingFilter, () => {
   color: var(--panel);
 }
 .exec-actions__btn--primary:hover { background: var(--accent); color: var(--panel); }
-/* Abortar hereda la caja de la fila, pero acá es una acción de pantalla. */
+/* Mismo `.exec-stop-btn` que definía la fila cuando "Abortar" vivía ahí —
+   ahora sólo corre acá, la caja de acciones del detalle. */
 .exec-actions .exec-stop-btn { flex: 1 1 0; min-height: var(--tap-h-lg); }
 
 /* Como columna no flota: se queda pegado arriba mientras la lista scrollea al
