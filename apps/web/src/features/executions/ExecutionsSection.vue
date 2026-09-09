@@ -33,14 +33,14 @@ import {
 import { formatRelative } from './relativeTime';
 import BucketHeader from '@/components/BucketHeader.vue';
 import KbdBar from '@/components/KbdBar.vue';
-import DispositionChips from './DispositionChips.vue';
+import { useActiveExecutionsStore } from './activeStore';
 import HealthVerdict from './HealthVerdict.vue';
 import { useExecutionHealthStats } from './useExecutionHealthStats';
-import { dispositionOfOutcome, verbForRun } from './verdict';
+import { dispositionCounts, dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsMobile, useIsSplit } from '@/composables/useIsMobile';
 import { useResizableColumns } from '@/composables/useResizableColumns';
-import ListControlsBar from '@/components/ListControlsBar.vue';
+import ListControlsBar, { type QuickFilter } from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 import AgentHealthPanel from './AgentHealthPanel.vue';
 import RunRow from './RunRow.vue';
@@ -73,9 +73,9 @@ const toastStore = useToastStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const allProjects = computed(() => projectsStore.projects);
 
-/** Compartida por `HealthVerdict` (arriba de todo) y `DispositionChips`
- *  (pegado al filtro, ver el template) — un solo fetch de stats para las
- *  dos piezas del layout que antes eran un único componente. */
+/** Compartida por `HealthVerdict` (arriba de todo) y los `quickFilters` de
+ *  `ListControlsBar` (pegados al filtro, ver el template) — un solo fetch de
+ *  stats para las dos piezas del layout que antes eran un único componente. */
 const healthProjectId = computed(() => (isGlobal.value ? null : activeProjectId.value));
 const {
   windowDays: healthWindowDays,
@@ -83,6 +83,46 @@ const {
   loading: healthLoading,
   error: healthError,
 } = useExecutionHealthStats(healthProjectId);
+
+/**
+ * Los tres atajos de filtro rápido por disposición, dichos en el vocabulario
+ * genérico de `ListControlsBar` (`QuickFilter`). Describen **la ventana** de
+ * `healthStats`, no la página filtrada — ver el mismo razonamiento en
+ * `dispositionCounts`.
+ */
+const activeRuns = useActiveExecutionsStore();
+onMounted(() => {
+  if (!activeRuns.loaded) void activeRuns.fetch();
+});
+const execDispositionCounts = computed(() => {
+  const t = healthStats.value?.totals;
+  const running = healthProjectId.value
+    ? activeRuns.countForProject(healthProjectId.value)
+    : activeRuns.activeCount;
+  return dispositionCounts(
+    {
+      success: t?.success ?? 0,
+      error: t?.error ?? 0,
+      cancelled: t?.cancelled ?? 0,
+      truncated: t?.truncated ?? 0,
+      pending: activeRuns.loaded ? running : 0,
+    },
+    filterTokens.value.length > 0,
+  );
+});
+const execQuickFilters = computed<QuickFilter[]>(() =>
+  execDispositionCounts.value.map((c) => ({
+    key: c.key,
+    label: c.label,
+    count: c.count,
+    tone: c.key === 'waiting' ? 'danger' : undefined,
+  })),
+);
+function onExecQuickFilter(key: string): void {
+  const c = execDispositionCounts.value.find((x) => x.key === key);
+  if (c) filterByDisposition(c.outcomes);
+}
+
 const router = useRouter();
 // `route` is only read in onMounted to pick up an optional `?runId=<id>`
 // coming from the dashboard's execution click. Kept as a plain ref (no
