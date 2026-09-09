@@ -178,17 +178,23 @@ function projectItemNodeFields(): string {
  * que un board que ya la usa no necesita configurar nada; `null` = el proyecto
  * declaró que no usa marca, y entonces ningún item está nunca marcado.
  */
+/** `fieldValues.nodes` → `{ nombre del campo: valor }`, single-select o texto. */
+function buildFieldMap(raw: any): Record<string, string> {
+  const fieldMap: Record<string, string> = {}
+  for (const fv of raw.fieldValues.nodes) {
+    const fieldName = fv.field?.name
+    if (fieldName) fieldMap[fieldName] = fv.name ?? fv.text ?? ''
+  }
+  return fieldMap
+}
+
 export function mapProjectItemNode(
   raw: any,
   marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
 ): ProjectItem | null {
   if (!raw?.content?.number) return null
 
-  const fieldMap: Record<string, string> = {}
-  for (const fv of raw.fieldValues.nodes) {
-    const fieldName = fv.field?.name
-    if (fieldName) fieldMap[fieldName] = fv.name ?? fv.text ?? ''
-  }
+  const fieldMap = buildFieldMap(raw)
 
   const labels: string[] = (raw.content.labels?.nodes ?? [])
     .map((n: { name?: string }) => n?.name ?? '')

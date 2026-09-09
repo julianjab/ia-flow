@@ -141,6 +141,16 @@ const MAX_CONVERSATION_CHARS = 4000
  *
  * Pura: no hace I/O, sólo formatea lo que el caller ya cargó.
  */
+/** Dónde vive un comentario, para el encabezado `[fecha · origen · autor]`. */
+function describeCommentOrigin(c: RenderableComment): string {
+  if (c.origin === 'pr-review') {
+    const at = c.path ? ` · ${c.path}${c.line ? `:${c.line}` : ''}` : ''
+    return `PR #${c.prNumber ?? '?'} · review${at}`
+  }
+  if (c.origin === 'pr') return `PR #${c.prNumber ?? '?'}`
+  return 'issue'
+}
+
 export function renderConversationWindow<T extends RenderableComment>(
   comments: readonly T[],
   agentId: string,
@@ -151,14 +161,8 @@ export function renderConversationWindow<T extends RenderableComment>(
   const text = unseen
     .slice(-MAX_CONVERSATION_COMMENTS)
     .map((c) => {
-      const where =
-        c.origin === 'pr-review'
-          ? `PR #${c.prNumber ?? '?'} · review${c.path ? ` · ${c.path}${c.line ? `:${c.line}` : ''}` : ''}`
-          : c.origin === 'pr'
-            ? `PR #${c.prNumber ?? '?'}`
-            : 'issue'
       const who = c.author ? ` · ${c.author}` : ''
-      return `[${c.created_at} · ${where}${who}]\n${c.body.trim()}`
+      return `[${c.created_at} · ${describeCommentOrigin(c)}${who}]\n${c.body.trim()}`
     })
     .join('\n\n')
 
