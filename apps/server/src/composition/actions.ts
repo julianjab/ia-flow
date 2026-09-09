@@ -216,7 +216,17 @@ export function registerActions(): void {
           liveInject,
           state,
         })
-        return { outcome, output: state.structuredOutput ?? state.output }
+        // `state.runOutcome` es el resultado REAL del run (`success`/`error`/
+        // `cancelled`/`truncated`) — lo escribe `Agent.run` en `runState` a la
+        // vez que lo persiste en `execution_logs.outcome` (ver
+        // `AgentRunState.runOutcome`). `AgentAction` lo usa para publicar
+        // `run.finished` con el outcome real en vez del `DispatchOutcome` de
+        // acá arriba.
+        return {
+          outcome,
+          output: state.structuredOutput ?? state.output,
+          runOutcome: state.runOutcome,
+        }
       },
       // Los eventos de GitHub (`pr.*`, `ci.finished`) traen el PR, no el issue
       // del board. Sin esto una regla sobre cualquiera de ellos no dispara.

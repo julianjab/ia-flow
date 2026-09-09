@@ -5,7 +5,12 @@ import {
   type ActionResult,
   renderBrief,
 } from '@ia-flow/rules'
-import { AgentActionSchema, type EngineEvent, RUN_FINISHED } from '@ia-flow/shared'
+import {
+  AgentActionSchema,
+  type EngineEvent,
+  type ExecutionLog,
+  RUN_FINISHED,
+} from '@ia-flow/shared'
 import type { z } from 'zod'
 import { createLogger } from '../../logger.js'
 
@@ -24,6 +29,14 @@ export interface AgentActionDeps {
    * vocabulario del dispatcher —soltar el item o devolverlo al backlog— y a un
    * `SourceDispatcher` no le sirve de nada un texto. Acá el consumidor es una
    * regla, que puede pasárselo al paso siguiente.
+   *
+   * `runOutcome` es el resultado REAL del agente (`success`/`error`/
+   * `cancelled`/`truncated`, el mismo valor que queda en
+   * `execution_logs.outcome`) — no confundir con `outcome`, que es el
+   * `DispatchOutcome` del dispatcher (`dispatched`/`skipped`/`deferred`, sólo
+   * dice si se pudo lanzar). Es lo que `execute` publica en `run.finished`
+   * cuando `emitOn: 'exit'`. Puede faltar en un caso ya cubierto por un
+   * `outcome !== 'dispatched'` (el agente nunca corrió).
    */
   dispatch(
     item: IssueItem,
@@ -37,7 +50,11 @@ export interface AgentActionDeps {
     exits?: AgentConfig['exits'],
     /** Ver `AgentActionSchema.liveInject`. */
     liveInject?: boolean,
-  ): Promise<{ outcome: DispatchOutcome; output?: unknown }>
+  ): Promise<{
+    outcome: DispatchOutcome
+    output?: unknown
+    runOutcome?: NonNullable<ExecutionLog['outcome']>
+  }>
   /**
    * Resuelve el issue sobre el que correr, cuando el evento no lo trae.
    *
@@ -155,60 +172,20 @@ export class AgentAction implements ActionHandler<AgentConfig> {
           rendered
         : rendered
 
-    const { outcome, output } = await this.deps.dispatch(
+    const { outcome, output, runOutcome } = await this.dispatchAndReportErrors(
+      ctx,
+      config,
       item,
       manager,
-      config.agentId,
-      ctx.rule.id,
-      {
-        id: ctx.event.id,
-        type: ctx.event.type,
-        // La posición de ESTA acción en el `do[]`: sin ella la fila del run
-        // empataría en 0 con la primera acción y el orden del grupo en la UI
-        // quedaría a merced del sort del listado.
-        position: ctx.position,
-        traceId: ctx.event.traceId,
-      },
       brief,
-      config.exits,
-      config.liveInject,
     )
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 
-    // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra
-    // al bus como un evento derivado, que es lo que permite que un triager
-    // tome un mensaje sin scope y produzca uno ya ruteable.
-    //
     // Se emite sólo si el run arrancó: publicar el "resultado" de un dispatch
     // que nunca corrió le daría a la regla siguiente un evento que no
     // representa nada.
     if (config.emitOn === 'exit' && outcome === 'dispatched') {
-      await ctx.emit(
-        config.emitType ?? RUN_FINISHED,
-        // `output` viaja igual que en el `ActionResult` de este mismo paso
-        // (ver el `return` de más abajo): sin él, una regla que escucha este
-        // evento no puede leer lo que el agente produjo por `submit_output` —
-        // sólo `agentId`/`taskId`/`outcome`, que no alcanzan para decidir un
-        // siguiente paso basado en la salida.
-        {
-          agentId: config.agentId,
-          taskId: item.id,
-          outcome,
-          ...(output !== undefined && { output }),
-        },
-        // El scope del evento que lo causó, más el issue sobre el que corrió.
-        //
-        // Sin esto el derivado nacía con `scope: {}` (ver `daemon.ts`: el emit
-        // hace `scope ?? {}`), así que una regla que escuchara `run.finished`
-        // con `action: agent` cortaba en el primer gate — "evento sin
-        // projectId". El camino de encadenamiento por eventos que documenta el
-        // CLAUDE.md no llegaba a un agente.
-        //
-        // Propagar el scope no es inventarlo: el run pasó en ese proyecto,
-        // sobre ese issue. `issueId` además hace que `resolveItem` del paso
-        // siguiente lo encuentre por lookup directo, sin barrer el board.
-        { ...ctx.event.scope, issueId: item.id },
-      )
+      await this.emitRunFinished(ctx, config, item, runOutcome, output)
     }
 
     // El `skipped` del dispatcher es el MISMO hecho que el del item sin
@@ -225,5 +202,103 @@ export class AgentAction implements ActionHandler<AgentConfig> {
     // encadenable por texto, así que adoptar `output` es agente por agente y no
     // una migración del roster entero.
     return { ok: outcome === 'dispatched', detail: outcome, output }
+  }
+
+  /**
+   * `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra
+   * al bus como un evento derivado, que es lo que permite que un triager tome
+   * un mensaje sin scope y produzca uno ya ruteable.
+   */
+  private async emitRunFinished(
+    ctx: ActionContext,
+    config: AgentConfig,
+    item: IssueItem,
+    // `outcome` acá es el resultado REAL del agente (`success`/`error`/
+    // `cancelled`/`truncated`, mismo campo que usa
+    // `GetTaskDispositionsUseCase` para su `run.finished` sintético) — NO el
+    // `DispatchOutcome` del dispatcher, que sólo dice "se lanzó" y por eso una
+    // regla `when: payload.outcome === 'error'` nunca matcheaba (issue #201).
+    // Siempre debería venir seteado (el caller sólo llama acá cuando el
+    // dispatch fue `'dispatched'`, o sea que el agente corrió) — el fallback
+    // a `'error'` es sólo para el caso límite en que no vino, y es la opción
+    // segura: una regla de retry que dispara de más ante un caso ambiguo es
+    // preferible a una tarea que se queda esperando un evento que nunca va a
+    // matchear nada.
+    runOutcome: NonNullable<ExecutionLog['outcome']> | undefined,
+    // `output` viaja igual que en el `ActionResult` de este mismo paso (ver
+    // el `return` de `execute`): sin él, una regla que escucha este evento no
+    // puede leer lo que el agente produjo por `submit_output` — sólo
+    // `agentId`/`taskId`/`outcome`, que no alcanzan para decidir un siguiente
+    // paso basado en la salida.
+    output: unknown,
+  ): Promise<void> {
+    await ctx.emit(
+      config.emitType ?? RUN_FINISHED,
+      {
+        agentId: config.agentId,
+        taskId: item.id,
+        outcome: runOutcome ?? 'error',
+        ...(output !== undefined && { output }),
+      },
+      // El scope del evento que lo causó, más el issue sobre el que corrió.
+      //
+      // Sin esto el derivado nacía con `scope: {}` (ver `daemon.ts`: el emit
+      // hace `scope ?? {}`), así que una regla que escuchara `run.finished`
+      // con `action: agent` cortaba en el primer gate — "evento sin
+      // projectId". El camino de encadenamiento por eventos que documenta el
+      // CLAUDE.md no llegaba a un agente.
+      //
+      // Propagar el scope no es inventarlo: el run pasó en ese proyecto,
+      // sobre ese issue. `issueId` además hace que `resolveItem` del paso
+      // siguiente lo encuentre por lookup directo, sin barrer el board.
+      { ...ctx.event.scope, issueId: item.id },
+    )
+  }
+
+  /**
+   * Envuelve `this.deps.dispatch` para que un fallo GENUINO del agente
+   * también publique `run.finished` antes de propagarse.
+   *
+   * `Agent.run` tira para ese caso (después de aplicar su propia salida de
+   * error y loguear `execution_logs.outcome: 'error'` — ver el doc de
+   * `Agent.run`), y ese throw llega hasta acá sin que nada en el medio lo
+   * capture. Sin este catch, `run.finished` no se emitía para ese caso — ni
+   * con el outcome mal (el bug que este cambio arregla), ni con ningún
+   * outcome: la regla de retry no tenía NADA contra qué matchear. Se emite
+   * acá con `outcome: 'error'` y se vuelve a tirar, para no perder la
+   * visibilidad de "falló" que el runner de reglas ya le daba a este caso.
+   */
+  private async dispatchAndReportErrors(
+    ctx: ActionContext,
+    config: AgentConfig,
+    item: IssueItem,
+    manager: IIssueManager,
+    brief: string | undefined,
+  ): ReturnType<AgentActionDeps['dispatch']> {
+    try {
+      return await this.deps.dispatch(
+        item,
+        manager,
+        config.agentId,
+        ctx.rule.id,
+        {
+          id: ctx.event.id,
+          type: ctx.event.type,
+          // La posición de ESTA acción en el `do[]`: sin ella la fila del run
+          // empataría en 0 con la primera acción y el orden del grupo en la
+          // UI quedaría a merced del sort del listado.
+          position: ctx.position,
+          traceId: ctx.event.traceId,
+        },
+        brief,
+        config.exits,
+        config.liveInject,
+      )
+    } catch (err) {
+      if (config.emitOn === 'exit') {
+        await this.emitRunFinished(ctx, config, item, 'error', undefined)
+      }
+      throw err
+    }
   }
 }

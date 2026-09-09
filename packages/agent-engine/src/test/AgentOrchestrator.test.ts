@@ -12,6 +12,7 @@ import {
   worktreeNameFor,
   worktreePathFor,
 } from '@ia-flow/workspace'
+import type { AgentRunState } from '../Agent.js'
 import { AgentOrchestrator } from '../AgentOrchestrator.js'
 import type {
   IBroadcast,
@@ -132,6 +133,33 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       (c) => (c as unknown as unknown[])[1] === false,
     )
     expect(clearedWorking).toBe(true)
+  })
+
+  // #201: `agent-action.ts` publica `run.finished` leyendo `runState.runOutcome`
+  // en vez del `DispatchOutcome` (`dispatched`) que devuelve `runAgent` — así
+  // que ese campo tiene que reflejar el MISMO outcome que queda en
+  // `execution_logs`, no sólo loguearse ahí.
+  it('espeja el outcome real en runState.runOutcome (cancelled)', async () => {
+    const err = new UpstreamAbortError('upstream stall')
+    const { orch, manager } = makeDeps(err)
+    const runState: AgentRunState = {}
+
+    await orch.runAgent(makeTask(), manager, 'implementer', undefined, runState)
+
+    expect(runState.runOutcome).toBe('cancelled')
+  })
+
+  it('espeja el outcome real en runState.runOutcome (error) aunque el run tire', async () => {
+    const err = new Error('operation aborted')
+    err.name = 'AbortError'
+    const { orch, manager } = makeDeps(err)
+    const runState: AgentRunState = {}
+
+    await expect(
+      orch.runAgent(makeTask(), manager, 'implementer', undefined, runState),
+    ).rejects.toThrow('operation aborted')
+
+    expect(runState.runOutcome).toBe('error')
   })
 
   // A plain AbortError (name === 'AbortError') that is NOT an UpstreamAbortError

@@ -23,6 +23,7 @@ import type {
   AgentDefinition,
   AgentExit,
   AgentToolEntry,
+  ExecutionLog,
   McpServers,
   ProjectConfig,
   Task,
@@ -204,6 +205,15 @@ export interface AgentRunState {
    * reanudar la misma conversación probablemente repite el rechazo.
    */
   truncated?: boolean
+  /**
+   * El outcome REAL con el que terminó (o va a terminar, si el run todavía
+   * está por tirar) este run — el mismo valor que `Agent.run` persiste en
+   * `execution_logs.outcome`. Lo lee `agent-action.ts` para publicar el
+   * `run.finished` real en vez del `DispatchOutcome` del dispatcher
+   * (`dispatched`/`skipped`/`deferred`, que sólo dice si se pudo lanzar el
+   * agente, no qué pasó adentro del run).
+   */
+  runOutcome?: NonNullable<ExecutionLog['outcome']>
 }
 
 // Replaces ${VAR} placeholders in every string value inside an McpServers map
@@ -362,6 +372,21 @@ export class Agent {
     const mcpServers: McpServers = await interpolateMcpServers({ ...merged, ...inlineServers })
     if (!Object.keys(mcpServers).length) return agentDef.providerConfig
     return { ...(agentDef.providerConfig ?? {}), mcpServers }
+  }
+
+  /**
+   * Envuelve `safeUpdateLog` para las escrituras que CIERRAN el run —
+   * espeja el mismo `outcome` en `frame.runState.runOutcome`, que es lo que
+   * `agent-action.ts` lee para publicar el `run.finished` real en vez del
+   * `DispatchOutcome` del dispatcher (ver el comment de
+   * `AgentRunState.runOutcome`).
+   */
+  private finishLog(
+    frame: RunFrame,
+    patch: Partial<ExecutionLog> & { outcome: NonNullable<ExecutionLog['outcome']> },
+  ): void {
+    safeUpdateLog(this.executionLogRepo, frame.logId, patch)
+    frame.runState.runOutcome = patch.outcome
   }
 
   /**
@@ -1249,7 +1274,7 @@ export class Agent {
           { taskId: task.id, agent: agentDef.id },
           'Async agent run cancelled — skipping transition',
         )
-        safeUpdateLog(this.executionLogRepo, logId, {
+        this.finishLog(frame, {
           ...buildFinishPatch({
             outcome: 'cancelled',
             startedAtMs,
@@ -1272,7 +1297,7 @@ export class Agent {
       // marcado para que un cierre repetido —la misma sesión
       // reintentando después de un reinicio— se reconozca como duplicado
       // en vez de volver a comentar y transicionar.
-      safeUpdateLog(this.executionLogRepo, logId, {
+      this.finishLog(frame, {
         finalizedByTool: finish.finalizedByTool === true,
         ...buildFinishPatch({
           outcome: 'success',
@@ -1359,7 +1384,7 @@ export class Agent {
 
     if (cancelled) {
       log.info({ taskId: task.id, agent: agentDef.id }, 'Agent run cancelled — skipping transition')
-      safeUpdateLog(this.executionLogRepo, logId, {
+      this.finishLog(frame, {
         ...buildFinishPatch({
           outcome: 'cancelled',
           startedAtMs,
@@ -1401,7 +1426,7 @@ export class Agent {
       // agente, sólo que dormido. Limpiarlo dejaría que el próximo scan la
       // tome con otro agente y pise el worktree del pausado.
       await this.pausePort?.attachCheckpoint(task.id, output.checkpoint)
-      safeUpdateLog(this.executionLogRepo, logId, {
+      this.finishLog(frame, {
         ...buildFinishPatch({
           outcome: 'success',
           stopReason: 'paused',
@@ -1457,7 +1482,7 @@ export class Agent {
       { taskId: task.id, agent: agentDef.id, from: initialStatus, to: task.status },
       'Task moved by tool call during run — skipping default transition',
     )
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       // Se persiste igual que en la rama async: es lo que hace que un
       // cierre TARDÍO (otra sesión, otro proceso, un reintento después
       // de un reinicio) se reconozca como duplicado en el rehidratador
@@ -1521,7 +1546,7 @@ export class Agent {
       { taskId: task.id, agent: agentDef.id, stopReason: output.stopReason ?? 'unknown' },
       'Agent run truncated — posting pause notice',
     )
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       ...buildFinishPatch({
         outcome: 'truncated',
         stopReason: output.stopReason,
@@ -1680,7 +1705,7 @@ export class Agent {
         ),
       )
     }
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       ...buildFinishPatch({
         outcome: 'success',
         stopReason: output.stopReason,
@@ -1829,7 +1854,7 @@ export class Agent {
     // `cancelled`, no `error`: el run nunca llegó a hacer nada, así que
     // contarlo como fallo ensuciaría las métricas y la clasificación de
     // fallas. Mismo criterio que el upstream abort de abajo.
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       ...buildFinishPatch({
         outcome: 'cancelled',
         errorMsg: `provider-at-capacity: ${errMsg}`,
@@ -1872,7 +1897,7 @@ export class Agent {
       },
       'Agent run cancelled by status divergence',
     )
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       ...buildFinishPatch({
         outcome: 'cancelled',
         startedAtMs,
@@ -1910,7 +1935,7 @@ export class Agent {
       },
       'Agent run aborted by upstream API (network/stream stall)',
     )
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       ...buildFinishPatch({
         outcome: 'cancelled',
         errorMsg: `upstream-abort: ${errMsg}`,
@@ -1995,7 +2020,7 @@ export class Agent {
         { taskId: task.id, from: initialStatus, to: task.status, err: errMsg },
         'Task moved by tool call before error surfaced — skipping the error exit',
       )
-      safeUpdateLog(this.executionLogRepo, logId, {
+      this.finishLog(frame, {
         ...buildFinishPatch({
           outcome: 'error',
           errorMsg: errMsg,
@@ -2024,7 +2049,7 @@ export class Agent {
       { event: 'agent.error', taskId: task.id, agent: agentDef.id, err: errMsg },
       'Agent run failed',
     )
-    safeUpdateLog(this.executionLogRepo, logId, {
+    this.finishLog(frame, {
       ...buildFinishPatch({
         outcome: 'error',
         errorMsg: errMsg,
