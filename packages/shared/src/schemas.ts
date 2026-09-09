@@ -2306,3 +2306,61 @@ export const RecoverableCheckpointSchema = z.object({
 })
 
 export type RecoverableCheckpoint = z.infer<typeof RecoverableCheckpointSchema>
+
+// ─── Asistente de tareas (POST /api/agents/task-chat) ─────────────────────
+//
+// El panel de chat de `TareasSection.vue`: el operador le pregunta al modelo
+// sobre la lista de tareas del proyecto activo y recibe una respuesta más,
+// opcionalmente, acciones STAGED — nunca se mutan solas, hace falta "Aplicar".
+
+/** Hoy sólo hay una acción posible: proponer un valor de campo. `type` es
+ *  discriminante a propósito — el día que se sume otra (mover status, asignar)
+ *  el chip y el "Aplicar" ya saben ramificar por él en vez de asumir forma. */
+export const TaskChatActionSchema = z.object({
+  type: z.literal('set-field'),
+  itemId: z.string(),
+  /** Para el chip: repetir el id no dice nada, el título sí. */
+  itemTitle: z.string().optional(),
+  field: z.string(),
+  value: z.string(),
+})
+export type TaskChatAction = z.infer<typeof TaskChatActionSchema>
+
+/** Una burbuja del historial. `actions` sólo aparece en mensajes del
+ *  asistente que proponen algo — viaja junto al mensaje para que el drawer
+ *  pueda re-pintar el historial completo sin recalcular nada. */
+export const TaskChatMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string(),
+  actions: z.array(TaskChatActionSchema).default([]),
+})
+export type TaskChatMessage = z.infer<typeof TaskChatMessageSchema>
+
+/** La forma que `fill_form` tiene que devolver — es el `responseSchema` que
+ *  el server le pasa a `AssistWithAiUseCase` en modo form-fill (ver
+ *  `routes/agents.ts::/task-chat`). */
+export const TaskChatReplySchema = z.object({
+  reply: z.string(),
+  actions: z.array(TaskChatActionSchema).default([]),
+})
+export type TaskChatReply = z.infer<typeof TaskChatReplySchema>
+
+/** Lo que el drawer manda: el mensaje nuevo del usuario ya empujado al final
+ *  de `messages`, y un recorte de la lista de tareas visibles — no toda la
+ *  tarea, sólo lo que un humano necesitaría para contestar. */
+export const TaskChatTaskContextSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  disposition: TaskDispositionSchema.optional(),
+  blocked: z.boolean().optional(),
+  assignees: z.array(z.string()).optional(),
+})
+export type TaskChatTaskContext = z.infer<typeof TaskChatTaskContextSchema>
+
+export const TaskChatRequestSchema = z.object({
+  projectId: z.string(),
+  messages: z.array(TaskChatMessageSchema).min(1),
+  tasks: z.array(TaskChatTaskContextSchema),
+})
+export type TaskChatRequest = z.infer<typeof TaskChatRequestSchema>

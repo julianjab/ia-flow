@@ -8,6 +8,7 @@ import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 import FocusCard from '@/features/tasks/FocusCard.vue';
 import { useFocusStore } from '@/features/tasks/focusStore';
 import { useTaskGroupsStore } from '@/features/tasks/groupsStore';
+import TaskChatDrawer from '@/features/tasks/TaskChatDrawer.vue';
 import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
@@ -28,6 +29,8 @@ import {
 } from '@/features/tasks/api';
 import type {
   PullRequestRef,
+  TaskChatAction,
+  TaskChatTaskContext,
   TaskDisposition,
   TaskRunSummary,
   RunTaskNowResult,
@@ -294,6 +297,46 @@ function cycleOrderMode(): void {
  * lista se dibuja completa sin esperarlo.
  */
 const focusStore = useFocusStore();
+
+/**
+ * El panel de chat — abierto/cerrado y el recorte de tareas que ve el
+ * asistente. Sin store propio: la sesión de chat vive y muere con el
+ * componente (ver `TaskChatDrawer.vue`), así que un `ref` local alcanza.
+ */
+const chatOpen = ref(false);
+const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
+  filteredItems.value.map((item) => ({
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    disposition: dispositionById.value.get(item.id)?.disposition,
+    blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
+    assignees: item.assignees,
+  })),
+);
+
+/**
+ * "Aplicar" en el drawer emite las acciones acá: es esta pantalla la que
+ * tiene `setProjectItemField` y la que refresca la lista después — mismo
+ * criterio que `moveTaskTo` (ver el comentario de ahí). Una acción que falla
+ * no aborta las demás: son cambios independientes sobre tareas distintas.
+ */
+async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
+  const pid = activeProjectId.value;
+  if (!pid || !actions.length) return;
+  let failed = 0;
+  for (const action of actions) {
+    try {
+      await setProjectItemField(pid, action.itemId, action.field, action.value);
+    } catch (e) {
+      failed += 1;
+      toastStore.error(`No se pudo aplicar en «${action.itemTitle ?? action.itemId}»: ${extractErrorMessage(e)}`);
+    }
+  }
+  const applied = actions.length - failed;
+  if (applied > 0) toastStore.success(applied === 1 ? 'Cambio aplicado' : `${applied} cambios aplicados`);
+  await Promise.all([loadProjectItems(true), loadDispositions()]);
+}
 
 /**
  * Los grupos por tema — sección opcional dentro del bucket `waiting-on-you`.
@@ -1213,6 +1256,13 @@ watch(activeProjectId, (pid) => {
         >{{ groupByTopic ? 'agrupado por tema' : 'sin agrupar' }}</button>
         <button
           type="button"
+          class="lcb-order chat-trigger"
+          title="Preguntarle al asistente sobre esta lista"
+          data-testid="tareas-chat-toggle"
+          @click="chatOpen = true"
+        >✦ Asistente</button>
+        <button
+          type="button"
           class="lcb-refresh"
           :disabled="itemsLoading"
           :aria-label="itemsLoading ? 'Cargando' : 'Actualizar'"
@@ -1539,6 +1589,14 @@ watch(activeProjectId, (pid) => {
     @move="moveTaskTo"
     @close="closeReposModal"
   />
+
+  <TaskChatDrawer
+    :open="chatOpen"
+    :project-id="activeProjectId"
+    :tasks="chatTasksContext"
+    @close="chatOpen = false"
+    @apply="onChatApplyActions"
+  />
 </template>
 
 <style scoped>
@@ -1713,6 +1771,9 @@ watch(activeProjectId, (pid) => {
 }
 .lcb-order.is-on { border-color: var(--accent); color: var(--accent); }
 .lcb-order:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Entrada al panel de chat — siempre resaltado, no un toggle: no hay estado
+   "prendido" que reflejar acá, sólo una acción que abre otra cosa. */
+.chat-trigger { border-color: var(--accent); color: var(--accent); }
 
 .lcb-refresh {
   flex: 0 0 auto;
