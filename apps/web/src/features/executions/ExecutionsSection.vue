@@ -21,7 +21,6 @@ import {
   type ServerLogLevel,
   type TaskDisposition,
 } from '@ia-flow/shared';
-import RunningRunsPanel from '@/components/RunningRunsPanel.vue';
 import {
   cancelExecution,
   type ExecutionLog,
@@ -786,19 +785,11 @@ const dispositionRows = computed(() =>
 );
 
 /**
- * `RunningRunsPanel` y el bucket `moving` NO son la misma cosa, aunque los dos
- * hablen de lo que está corriendo.
- *
- * Lo primero que pensé fue sacar el bucket, y el código me corrigió: el panel
- * **delega en la fila** (`openRunFromPanel` la abre y scrollea hasta ella), y
- * sacarla de la lista rompía dos cosas concretas — filtrar por
- * `resultado:pending` no mostraba nada, y el botón de abortar de la fila
- * quedaba inalcanzable.
- *
- * La división que sí es: el panel es **actuá ahora** —duración en vivo, un
- * botón para abortar, arriba de todo— y la lista es **el registro**, donde se
- * filtra y se abre el detalle. Que un run aparezca en los dos no es
- * duplicación: es el resumen y su fila.
+ * `RunningRunsPanel` se sacó de esta pantalla: duplicaba el bucket `moving`
+ * ("avanza solo") de esta misma lista — misma info, dos veces, con su propio
+ * título "EN VUELO" arriba de todo. El bucket sigue siendo la única
+ * superficie de "lo que está corriendo" acá: se filtra por
+ * `resultado:pending` y se abre igual que cualquier otra fila.
  */
 const {
   buckets: execBuckets,
@@ -1538,15 +1529,6 @@ async function doCancel(exec: ExecutionLog) {
   }
 }
 
-/** El panel de "en vuelo" no duplica el detalle: abre el de la lista de abajo,
- *  que ya tiene el tail de logs, los hook events y el traceId. */
-function openRunFromPanel(runId: string) {
-  // El run puede no estar en la página cargada (filtros, paginado): abrirlo
-  // igual es no-op, así que se scrollea sólo si la fila existe.
-  if (expandedId.value !== runId) toggleRow(runId);
-  document.querySelector(`[data-run-id="${runId}"]`)?.scrollIntoView({ block: 'center' });
-}
-
 function confirmCancelExecution(exec: ExecutionLog) {
   askConfirm({
     title: 'Detener ejecución',
@@ -1974,16 +1956,6 @@ watch(pendingFilter, () => {
       :window-days="healthWindowDays"
       @update:window-days="healthWindowDays = $event"
       @open="openAgentPage"
-    />
-
-    <!-- Lo que está corriendo AHORA, arriba del historial: es otra pregunta
-         que "qué pasó", y es lo único sobre lo que todavía se puede actuar.
-         Una fila más en una tabla ordenada por fecha se lee igual que una
-         vieja. -->
-    <RunningRunsPanel
-      :project-id="isGlobal ? null : activeProjectId"
-      @open="openRunFromPanel"
-      @cancel="confirmCancelExecution"
     />
 
     <ListControlsBar
