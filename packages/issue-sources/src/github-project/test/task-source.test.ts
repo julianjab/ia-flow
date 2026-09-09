@@ -494,7 +494,7 @@ describe('transferToRepo', () => {
       String(c.body?.query).includes('updateProjectV2ItemFieldValue'),
     )
     expect(fieldWrite).toBeDefined()
-    expect((fieldWrite?.body?.variables as Record<string, unknown>).text).toBe('infra')
+    expect((fieldWrite!.body!.variables as Record<string, unknown>).text).toBe('infra')
   })
 
   // El transfer ya movió el issue cuando esto corre: tirar acá dejaría al run

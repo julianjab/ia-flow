@@ -21,7 +21,7 @@ describe('diffStatus', () => {
     // Para que una condición escrita contra `issue.scanned` siga significando
     // lo mismo cuando se la aplica a este evento.
     const e = diffStatus({ item, before: 'Backlog', bootstrap: false })
-    expect((e?.payload as { status: string }).status).toBe('Ready')
+    expect((e!.payload as { status: string }).status).toBe('Ready')
   })
 
   test('un item nunca visto es issue.created', () => {

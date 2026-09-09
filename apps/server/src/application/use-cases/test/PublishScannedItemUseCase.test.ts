@@ -56,7 +56,7 @@ describe('PublishScannedItemUseCase', () => {
 
     expect(published).toHaveLength(1)
     expect(published[0]?.type).toBe('issue.status_changed')
-    expect((published[0]?.payload as { item: IssueItem }).item.title).toBe('Arreglar el login')
+    expect((published[0]!.payload as { item: IssueItem }).item.title).toBe('Arreglar el login')
     expect(outcome).toBe('dispatched')
   })
 

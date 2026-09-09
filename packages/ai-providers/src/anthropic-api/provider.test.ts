@@ -235,7 +235,7 @@ describe('AnthropicApiProvider.run — SSE reassembly (default stream: true)', (
 
     await provider.run(baseInput())
 
-    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    const block = (capture.response!.content as Array<Record<string, unknown>>)[0]
     expect(block.type).toBe('tool_use')
     expect(block.input).toEqual({ path: 'a.ts' })
   })
@@ -258,7 +258,7 @@ describe('AnthropicApiProvider.run — SSE reassembly (default stream: true)', (
 
     await provider.run(baseInput())
 
-    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    const block = (capture.response!.content as Array<Record<string, unknown>>)[0]
     expect(block.input).toEqual({})
   })
 
@@ -284,7 +284,7 @@ describe('AnthropicApiProvider.run — SSE reassembly (default stream: true)', (
 
     await provider.run(baseInput())
 
-    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    const block = (capture.response!.content as Array<Record<string, unknown>>)[0]
     expect(block.input).toEqual({})
   })
 
@@ -324,7 +324,7 @@ describe('AnthropicApiProvider.run — SSE reassembly (default stream: true)', (
 
     await provider.run(baseInput())
 
-    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    const block = (capture.response!.content as Array<Record<string, unknown>>)[0]
     expect(block.type).toBe('mcp_tool_use')
     expect(block.server_name).toBe('github-mcp')
     expect(block.input).toEqual({ issue_number: 42 })
@@ -353,7 +353,7 @@ describe('AnthropicApiProvider.run — SSE reassembly (default stream: true)', (
 
     await provider.run(baseInput())
 
-    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    const block = (capture.response!.content as Array<Record<string, unknown>>)[0]
     expect(block).toEqual({
       type: 'mcp_tool_result',
       tool_use_id: 'mcptoolu_1',
@@ -1058,8 +1058,9 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
     await provider.run(baseInput())
 
     const startLine = infoLines.find((l) => l.event === 'agent.start')
-    expect(typeof startLine?.runId).toBe('string')
-    expect((startLine?.runId as string).length).toBe(8)
+    expect(startLine).toBeDefined()
+    expect(typeof startLine!.runId).toBe('string')
+    expect((startLine!.runId as string).length).toBe(8)
   })
 
   // Sin esto, filtrar los logs crudos por traceId (a diferencia de la fila
@@ -1119,7 +1120,8 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
       toolUseId: 'tu_1',
       input: { path: 'a.ts' },
     })
-    expect((resultLine?.result as string).length).toBe(500)
+    expect(resultLine).toBeDefined()
+    expect((resultLine!.result as string).length).toBe(500)
   })
 
   it('threads writePaths, taskId, and policy through to ToolContext via executeLoop', async () => {
