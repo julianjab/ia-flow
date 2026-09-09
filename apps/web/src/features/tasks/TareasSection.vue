@@ -484,6 +484,15 @@ const taskColumns = useResizableColumns('tasks', [
   { key: 'dur', defaultWidth: 54, minWidth: 40 },
 ]);
 
+/** Ancho del panel de detalle sobre `--bp-split` — la lista es `1fr` y
+ *  absorbe lo que sobra. `invert`: el handle vive en el borde IZQUIERDO del
+ *  panel (a la derecha de la lista), así que arrastrar hacia la izquierda es
+ *  lo que lo agranda. `26 * 18` porque el `rem` de la app es 18px, no 16. */
+const splitColumns = useResizableColumns('tk-split', [
+  { key: 'list', track: 'minmax(0, 1fr)' },
+  { key: 'detail', defaultWidth: 26 * 18, minWidth: 320, maxWidth: 720, invert: true },
+]);
+
 const boardColumns = computed(() => {
   const counts = new Map<string, number>();
   for (const item of filteredItems.value) {
@@ -1195,7 +1204,17 @@ watch(activeProjectId, (pid) => {
     <!-- La vista de board: las MISMAS tareas y la MISMA fila, agrupadas por
          status en vez de por disposición. Lo único que cambia es el criterio;
          la fila es `TaskRow`, clickeable, con el mismo detalle. -->
-    <div class="tk-split" :class="{ 'tk-split--open': isSplit && reposModalOpen }">
+    <div
+      class="tk-split"
+      :class="{ 'tk-split--open': isSplit && reposModalOpen }"
+      :style="{ '--split-cols': splitColumns.gridTemplateColumns.value, '--split-detail-w': `${splitColumns.widths.detail}px` }"
+    >
+      <div
+        v-if="isSplit && reposModalOpen"
+        class="split-resize-handle"
+        title="Arrastrar para cambiar el ancho"
+        @pointerdown="splitColumns.startResize('detail', $event)"
+      ></div>
     <div class="tk-list" :style="{ '--tr-cols': taskColumns.gridTemplateColumns.value }">
     <template v-if="view === 'board'">
       <div v-if="boardColumns.length" class="bd-chips">
@@ -1555,17 +1574,45 @@ watch(activeProjectId, (pid) => {
 
    La grilla sólo aparece CON el detalle abierto (`--open`): sin él, reservar
    26rem vacías dejaría la lista angosta para nada. Y la transición es de
-   `grid-template-columns`, así que la lista se acomoda en vez de saltar. */
-.tk-split { display: flex; flex-direction: column; min-width: 0; }
+   `grid-template-columns`, así que la lista se acomoda en vez de saltar.
+
+   El ancho del panel sale de `--split-cols` (mismo patrón que `--tr-cols` /
+   `--rr-cols`): `useResizableColumns` lo escribe, el handle lo arrastra. */
+.tk-split { display: flex; flex-direction: column; min-width: 0; position: relative; }
 .tk-list { min-width: 0; }
 
 @media (min-width: 1100px) {
   .tk-split--open {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 26rem;
+    grid-template-columns: var(--split-cols, minmax(0, 1fr) 26rem);
     gap: 1rem;
     align-items: start;
   }
+  /* `position: absolute` para no contar como un tercer ítem de la grilla —
+     la grilla sólo declara dos tracks (lista, detalle). Ancla al borde
+     IZQUIERDO del panel: `right` cuenta desde el borde derecho del split, así
+     que alcanza con el ancho del panel + la mitad del `gap`, sin necesidad de
+     saber cuánto mide la lista. */
+  .split-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: calc(var(--split-detail-w, 26rem) + 0.5rem);
+    width: 0.65rem;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 2;
+  }
+  .split-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 10%;
+    left: 50%;
+    width: 1px;
+    height: 80%;
+    background: var(--border-hi);
+  }
+  .split-resize-handle:hover::after { background: var(--accent); }
 }
 
 /* Los chips del board: una columna por vez, no un carrusel horizontal. En un
