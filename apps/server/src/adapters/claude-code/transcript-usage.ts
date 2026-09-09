@@ -44,33 +44,48 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
  * subagente en Haiku) y el costo exacto por modelo no está a este nivel —
  * el que domina es el que le pone precio al grueso de los tokens.
  */
-export function parseTranscriptUsage(text: string): TranscriptUsage | undefined {
-  const byMessage = new Map<string, { usage: TranscriptUsageBlock; model?: string }>()
+type MessageUsage = { usage: TranscriptUsageBlock; model?: string }
+
+/** Una línea del JSONL → su `(id, usage)`, o `undefined` si no aporta (no es
+ *  JSON, no es del assistant, o no trae `usage`). */
+function parseUsageLine(
+  rawLine: string,
+  anonymousId: string,
+): { id: string; entry: MessageUsage } | undefined {
+  const line = rawLine.trim()
+  if (!line) return undefined
+  let parsed: TranscriptLine
+  try {
+    parsed = JSON.parse(line) as TranscriptLine
+  } catch {
+    return undefined
+  }
+  if (parsed.type !== 'assistant') return undefined
+  const usage = parsed.message?.usage
+  if (!usage || typeof usage !== 'object') return undefined
+  return { id: parsed.message?.id ?? anonymousId, entry: { usage, model: parsed.message?.model } }
+}
+
+/** Dedupe por `message.id` —el CLI repite el mismo `usage` en varias líneas
+ *  del mismo mensaje—, quedándose con la última. */
+function collectByMessage(text: string): Map<string, MessageUsage> {
+  const byMessage = new Map<string, MessageUsage>()
   let anonymous = 0
   for (const rawLine of text.split('\n')) {
-    const line = rawLine.trim()
-    if (!line) continue
-    let parsed: TranscriptLine
-    try {
-      parsed = JSON.parse(line) as TranscriptLine
-    } catch {
-      continue
-    }
-    if (parsed.type !== 'assistant') continue
-    const usage = parsed.message?.usage
-    if (!usage || typeof usage !== 'object') continue
-    const id = parsed.message?.id ?? `anon-${anonymous++}`
-    byMessage.set(id, { usage, model: parsed.message?.model })
+    const parsed = parseUsageLine(rawLine, `anon-${anonymous}`)
+    if (!parsed) continue
+    if (parsed.id.startsWith('anon-')) anonymous++
+    byMessage.set(parsed.id, parsed.entry)
   }
-  if (byMessage.size === 0) return undefined
+  return byMessage
+}
 
-  const totals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 }
+/** El modelo que más mensajes produjo: una sesión puede mezclar (un
+ *  subagente en Haiku) y el que domina es el que le pone precio al grueso
+ *  de los tokens. */
+function dominantModel(entries: Iterable<MessageUsage>): string | undefined {
   const modelCount = new Map<string, number>()
-  for (const { usage, model } of byMessage.values()) {
-    totals.inputTokens += num(usage.input_tokens)
-    totals.outputTokens += num(usage.output_tokens)
-    totals.cacheReadTokens += num(usage.cache_read_input_tokens)
-    totals.cacheCreationTokens += num(usage.cache_creation_input_tokens)
+  for (const { model } of entries) {
     if (model) modelCount.set(model, (modelCount.get(model) ?? 0) + 1)
   }
   let model: string | undefined
@@ -81,6 +96,21 @@ export function parseTranscriptUsage(text: string): TranscriptUsage | undefined 
       model = m
     }
   }
+  return model
+}
+
+export function parseTranscriptUsage(text: string): TranscriptUsage | undefined {
+  const byMessage = collectByMessage(text)
+  if (byMessage.size === 0) return undefined
+
+  const totals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 }
+  for (const { usage } of byMessage.values()) {
+    totals.inputTokens += num(usage.input_tokens)
+    totals.outputTokens += num(usage.output_tokens)
+    totals.cacheReadTokens += num(usage.cache_read_input_tokens)
+    totals.cacheCreationTokens += num(usage.cache_creation_input_tokens)
+  }
+  const model = dominantModel(byMessage.values())
   return { usage: totals, ...(model ? { model } : {}) }
 }
 

@@ -133,6 +133,14 @@ function prPayload(pr: Record<string, unknown>): Record<string, unknown> {
  * consecuencias distintas, y obligar a condicionar sobre un flag es la clase
  * de detalle que se olvida y produce una regla que dispara de más.
  */
+function pullRequestEventType(action: string | undefined, merged: unknown): string | null {
+  if (action === 'opened' || action === 'reopened') return PR_OPENED
+  if (action === 'synchronize') return PR_SYNCHRONIZED
+  if (action === 'ready_for_review') return PR_READY
+  if (action === 'closed') return merged === true ? PR_MERGED : PR_CLOSED
+  return null
+}
+
 export function pullRequestEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
@@ -142,18 +150,7 @@ export function pullRequestEvent(
   const pr = payload.pull_request
   if (!pr) return null
 
-  const type =
-    payload.action === 'opened' || payload.action === 'reopened'
-      ? PR_OPENED
-      : payload.action === 'synchronize'
-        ? PR_SYNCHRONIZED
-        : payload.action === 'ready_for_review'
-          ? PR_READY
-          : payload.action === 'closed'
-            ? pr.merged === true
-              ? PR_MERGED
-              : PR_CLOSED
-            : null
+  const type = pullRequestEventType(payload.action, pr.merged)
   if (!type) return null
 
   const number = typeof pr.number === 'number' ? pr.number : undefined

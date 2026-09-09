@@ -82,25 +82,25 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
     return id
   }
 
+  /** Ni `deferred` ni `skipped` son fallos: el primero es "hay trabajo, no hay
+   *  capacidad" y el segundo "no había nada que hacer". Mostrarlos en rojo al
+   *  lado de una llamada HTTP que de verdad se cayó haría el listado inútil
+   *  justo cuando hay algo roto de verdad. */
+  private outcomeOf(
+    result: Parameters<NonNullable<ActionRunRecorder['onActionEnd']>>[0]['result'],
+    error: unknown,
+  ): ExecutionLog['outcome'] {
+    if (error) return 'error'
+    if (result.deferred || result.skipped) return 'cancelled'
+    return result.ok ? 'success' : 'error'
+  }
+
   async onActionEnd(
     info: Parameters<NonNullable<ActionRunRecorder['onActionEnd']>>[0],
   ): Promise<void> {
     if (info.kind === 'agent') return
     const { result, error } = info
-    // `deferred` no es un fallo: es "hay trabajo, no hay capacidad". Se
-    // registra como su propio outcome para que el listado no lo muestre en
-    // rojo al lado de una llamada HTTP que de verdad se cayó.
-    // Ni `deferred` ni `skipped` son fallos: el primero es "hay trabajo, no hay
-    // capacidad" y el segundo "no había nada que hacer". Mostrarlos en rojo al
-    // lado de una llamada HTTP que de verdad se cayó haría el listado inútil
-    // justo cuando hay algo roto de verdad.
-    const outcome: ExecutionLog['outcome'] = error
-      ? 'error'
-      : result.deferred || result.skipped
-        ? 'cancelled'
-        : result.ok
-          ? 'success'
-          : 'error'
+    const outcome = this.outcomeOf(result, error)
     const detail = error ? String((error as Error)?.message ?? error) : (result.detail ?? null)
 
     // El cierre TAMBIÉN va al log, no sólo a SQLite. Los handlers loguean que
