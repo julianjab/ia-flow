@@ -23,8 +23,8 @@ function fakeSystemPromptRepo(prompts: SystemPromptDef[]): ISystemPromptReposito
   } as unknown as ISystemPromptRepository
 }
 
-function fakeProjectRepo(): IProjectRepository {
-  return { getDefaultId: () => 'p1' } as unknown as IProjectRepository
+function fakeProjectRepo(defaultId: string | null = 'p1'): IProjectRepository {
+  return { getDefaultId: () => defaultId } as unknown as IProjectRepository
 }
 
 function fakeCallerConfigRepo(configs: AssistCallerConfig[]): IAssistCallerConfigRepository {
@@ -304,5 +304,43 @@ describe('AssistWithAiUseCase.buildContext — fallbackSystemPrompts (sin fila t
     // 'sp1' entra una sola vez, por el camino de systemPromptIds — no se
     // duplica, y el fallback no se agrega encima.
     expect(ctx.extraBlocks).toEqual([{ type: 'text', text: 'ya incluido' }])
+  })
+})
+
+describe('AssistWithAiUseCase.buildContext — sin proyecto default (deploy sin proyectos)', () => {
+  test('sin projectId explícito y sin proyecto default, cae a prompts globales en vez de tirar', () => {
+    const globalPrompt: SystemPromptDef = {
+      id: 'sp-global',
+      name: 'global',
+      text: 'prompt global',
+      projectId: null,
+    }
+    const systemPromptRepo: ISystemPromptRepository = {
+      getById: () => null,
+      // visibleTo requiere un projectId real — si buildContext lo llamara
+      // con null/undefined en este escenario, esto explota y el test lo
+      // detecta.
+      visibleTo: () => {
+        throw new Error('visibleTo no debería llamarse sin proyecto resuelto')
+      },
+      inScope: (projectId?: string | null) => (projectId === null ? [globalPrompt] : []),
+      upsert: () => {},
+      deleteById: () => {},
+      clearScope: () => {},
+    } as unknown as ISystemPromptRepository
+
+    const useCase = new AssistWithAiUseCase(
+      systemPromptRepo,
+      fakeProjectRepo(null),
+      fakeCallerConfigRepo([]),
+      fakeAgentRepo([]),
+    ) as AnyUseCase
+
+    const ctx = useCase.buildContext(
+      { mode: 'generate', description: 'x', systemPromptIds: ['sp-global'] },
+      'req1',
+    )
+    expect(ctx.resolvedProjectId).toBeNull()
+    expect(ctx.extraBlocks).toEqual([{ type: 'text', text: 'prompt global' }])
   })
 })

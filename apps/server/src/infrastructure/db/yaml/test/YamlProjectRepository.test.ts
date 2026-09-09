@@ -61,7 +61,7 @@ describe('YamlProjectRepository', () => {
     expect(repo.getDefaultId()).toBe('first-active')
   })
 
-  it('getDefaultId tira si no hay ningún proyecto no archivado', () => {
+  it('getDefaultId devuelve null si no hay ningún proyecto no archivado', () => {
     const filePath = writeFile(`
 - id: p1
   name: Archived
@@ -69,7 +69,7 @@ describe('YamlProjectRepository', () => {
 `)
     const repo = new YamlProjectRepository(filePath)
 
-    expect(() => repo.getDefaultId()).toThrow()
+    expect(repo.getDefaultId()).toBeNull()
   })
 
   it('tira error legible si el archivo no existe', () => {
