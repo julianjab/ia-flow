@@ -167,7 +167,7 @@ describe('ExecutionsSection — filtrar por resultado', () => {
     ])
     fetchExecutionsMock.mockResolvedValue([makeExec({ id: 'e2', outcome: 'error' })])
 
-    const chip = wrapper.get('[data-testid="verdict-count-waiting"]')
+    const chip = wrapper.get('[data-testid="quick-filter-waiting"]')
 
     await chip.trigger('click')
     await flushPromises()
@@ -176,7 +176,7 @@ describe('ExecutionsSection — filtrar por resultado', () => {
       outcome: ['error', 'cancelled', 'truncated'],
     })
 
-    await wrapper.get('[data-testid="verdict-count-waiting"]').trigger('click')
+    await wrapper.get('[data-testid="quick-filter-waiting"]').trigger('click')
     await flushPromises()
     expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(false)
     expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('outcome')
@@ -188,9 +188,9 @@ describe('ExecutionsSection — filtrar por resultado', () => {
     // salir de `executions[]` justamente porque filtrar los movía.
     Object.assign(statsTotals, { runs: 1, success: 1, error: 0, successRate: 1 })
     const wrapper = await mountWithExecs([makeExec({ id: 'e1', outcome: 'success' })])
-    expect(wrapper.find('[data-testid="verdict-count-closed"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="verdict-count-waiting"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="verdict-count-running"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="quick-filter-closed"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="quick-filter-waiting"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="quick-filter-running"]').exists()).toBe(false)
     Object.assign(statsTotals, { runs: 2, success: 1, error: 1, successRate: 0.5 })
   })
 
