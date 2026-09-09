@@ -1,36 +1,29 @@
 <script setup lang="ts">
-import type { TaskChatAction } from '@ia-flow/shared';
-
 /**
- * Las acciones que un mensaje del asistente propone, en estado STAGED.
+ * La barra "Aplicar"/"Descartar" — UNA sola, visible mientras haya una
+ * propuesta staged, sin importar si sus acciones caen sobre la barra de
+ * comandos (`scope: project`) o dentro de una fila (`scope: task`): el
+ * diseño final (10f) la trata como un único control, no uno por fila.
  *
- * Nada acá muta nada: los chips son de sólo lectura y la barra de abajo es lo
- * único que dispara algo, y sólo cuando el operador la toca. `resolved` lo
- * decide el padre (`TaskChatDrawer`) — una vez aplicadas o descartadas, este
- * bloque desaparece del historial en vez de quedar ahí ofreciendo un botón
- * que ya actuó.
+ * En mobile (≤768px) reemplaza la tab-bar mientras está visible (fixed
+ * bottom); en desktop va inline, en el encabezado del bloque que la mostró,
+ * con el borde de color que la distingue del resto del chrome.
  */
 defineProps<{
-  actions: TaskChatAction[];
-}>();
+  actionsCount: number
+}>()
 
 defineEmits<{
-  apply: [];
-  discard: [];
-}>();
+  apply: []
+  discard: []
+}>()
 </script>
 
 <template>
-  <div class="task-action-block">
-    <ul class="chip-list">
-      <li v-for="(action, i) in actions" :key="i" class="action-chip">
-        <span class="chip-item">{{ action.itemTitle ?? action.itemId }}</span>
-        <span class="chip-sep">·</span>
-        <span class="chip-field">{{ action.field }}</span>
-        <span class="chip-arrow">→</span>
-        <span class="chip-value">{{ action.value }}</span>
-      </li>
-    </ul>
+  <div class="task-action-block" data-testid="chat-action-block">
+    <span class="action-summary">
+      {{ actionsCount }} {{ actionsCount === 1 ? 'cambio propuesto' : 'cambios propuestos' }}
+    </span>
     <div class="action-bar">
       <button type="button" class="btn btn--primary" data-testid="chat-apply" @click="$emit('apply')">
         Aplicar
@@ -45,35 +38,32 @@ defineEmits<{
 <style scoped>
 .task-action-block {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  padding: 0.5rem;
-  border: 1px solid var(--border);
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--accent);
   background: var(--panel-alt);
 }
-.chip-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.action-chip {
-  display: flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  flex-wrap: wrap;
+.action-summary {
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  color: var(--fg);
+  color: var(--fg-dim);
 }
-.chip-item { font-weight: 700; }
-.chip-sep,
-.chip-arrow { color: var(--fg-dimmer); }
-.chip-field { color: var(--fg-dim); }
-.chip-value { color: var(--accent); }
-.action-bar { display: flex; gap: 0.5rem; }
-.action-bar .btn { height: var(--tap-h-sm); padding: 0 0.75rem; font-size: var(--fs-micro); }
+.action-bar { display: flex; gap: 0.5rem; flex: none; }
+.action-bar .btn { height: var(--tap-h); padding: 0 0.75rem; font-size: var(--fs-micro); }
+
+/* En mobile, la barra reemplaza la tab-bar mientras hay una propuesta
+   abierta: mismo z-index/posición que ese chrome, para no competir con él. */
+@media (max-width: 768px) {
+  .task-action-block {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    height: var(--tap-h);
+    padding: 0 0.75rem;
+  }
+}
 </style>
