@@ -68,6 +68,7 @@ const filterTokens = computed<FilterToken[]>({
     <FilterQueryInput
       v-model="filterTokens"
       :fields="filterFields"
+      default-field="texto"
       testid="task-filters"
       placeholder="Filtrar… escribí un campo (status, repo, asignado, pr, rama, bloqueada, texto) y elegí su valor"
     />
