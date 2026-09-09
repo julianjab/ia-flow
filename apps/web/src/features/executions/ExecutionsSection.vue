@@ -36,6 +36,7 @@ import HealthVerdict from './HealthVerdict.vue';
 import { dispositionOfOutcome, verbForRun } from './verdict';
 import { useDispositionOrder } from '@/composables/useDispositionOrder';
 import { useIsMobile, useIsSplit } from '@/composables/useIsMobile';
+import { useResizableColumns } from '@/composables/useResizableColumns';
 import ListControlsBar from '@/components/ListControlsBar.vue';
 import AgentHealthPage from './AgentHealthPage.vue';
 import AgentHealthPanel from './AgentHealthPanel.vue';
@@ -451,6 +452,18 @@ function execSortArrow(column: ExecSortColumn): string {
   if (execSort.value.column !== column) return '';
   return execSort.value.direction === 'asc' ? ' ▲' : ' ▼';
 }
+
+/** Anchos de columna de la vista de 5d — anchor (fijo) y main (flexible,
+ *  absorbe el resto) quedan afuera. Mismo orden que el DOM de
+ *  `.exec-list-header` y de `RunRow` en su modo columnas: ver `--rr-cols`. */
+const execColumns = useResizableColumns('executions', [
+  { key: 'anchor', track: '16px' },
+  { key: 'issue', defaultWidth: 64, minWidth: 48 },
+  { key: 'main', track: 'minmax(0, 1fr)' },
+  { key: 'agent', defaultWidth: 96, minWidth: 60 },
+  { key: 'dur', defaultWidth: 64, minWidth: 48 },
+  { key: 'verb', defaultWidth: 176, minWidth: 96 },
+]);
 // Tick used to compute live elapsed time for still-open executions. Updated
 // every second by the interval below, but only while at least one row is
 // still in-flight — otherwise the ref sits idle.
@@ -1917,7 +1930,7 @@ watch(pendingFilter, () => {
          lista angosta para nada. -->
     <div class="exec-split" :class="{ 'exec-split--open': isSplit && !!selectedExec }">
     <div class="exec-col">
-    <div class="exec-list-wrapper">
+    <div class="exec-list-wrapper" :style="{ '--rr-cols': execColumns.gridTemplateColumns.value }">
       <!-- El encabezado son las columnas de 5d, y existe SÓLO donde hay
            columnas: bajo 768px la fila se apila y un encabezado no encabeza
            nada. Ordenar es de la tabla, no de la fila. -->
@@ -1929,7 +1942,15 @@ watch(pendingFilter, () => {
           :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
           title="Ordenar por cuándo corrió"
           @click="selectExecColumn('startedAt')"
-        >run{{ execSortArrow('startedAt') }}</button>
+        >
+          <span class="exec-h-label">run{{ execSortArrow('startedAt') }}</span>
+          <span
+            class="col-resize-handle"
+            title="Arrastrar para cambiar el ancho"
+            @click.stop
+            @pointerdown="execColumns.startResize('issue', $event)"
+          ></span>
+        </button>
         <button
           type="button"
           class="exec-h-main exec-header-btn"
@@ -1941,14 +1962,37 @@ watch(pendingFilter, () => {
           class="exec-h-agent exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
           @click="selectExecColumn('agentId')"
-        >agente{{ execSortArrow('agentId') }}</button>
+        >
+          <span class="exec-h-label">agente{{ execSortArrow('agentId') }}</span>
+          <span
+            class="col-resize-handle"
+            title="Arrastrar para cambiar el ancho"
+            @click.stop
+            @pointerdown="execColumns.startResize('agent', $event)"
+          ></span>
+        </button>
         <button
           type="button"
           class="exec-h-dur exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'duration' }"
           @click="selectExecColumn('duration')"
-        >dur.{{ execSortArrow('duration') }}</button>
-        <span class="exec-h-verb">acción</span>
+        >
+          <span class="exec-h-label">dur.{{ execSortArrow('duration') }}</span>
+          <span
+            class="col-resize-handle"
+            title="Arrastrar para cambiar el ancho"
+            @click.stop
+            @pointerdown="execColumns.startResize('dur', $event)"
+          ></span>
+        </button>
+        <span class="exec-h-verb">
+          <span class="exec-h-label">acción</span>
+          <span
+            class="col-resize-handle"
+            title="Arrastrar para cambiar el ancho"
+            @pointerdown="execColumns.startResize('verb', $event)"
+          ></span>
+        </span>
       </div>
 
       <!-- El orden no se recalcula solo: con el socket vivo, la fila que ibas a
@@ -2607,10 +2651,11 @@ watch(pendingFilter, () => {
   position: relative;
   container: exec-list / inline-size;
 }
-/* Las columnas se declaran UNA vez, acá, y las heredan la fila y su
-   encabezado: escritas por separado, la primera vez que una cambie el
-   encabezado deja de nombrar la columna que tiene debajo, que es lo único que
-   hace. Son las de 5d, dibujado a 1280. */
+/* Las columnas se declaran UNA vez, acá —ahora vía `:style` desde
+   `execColumns.gridTemplateColumns`, con el mismo literal como fallback— y
+   las heredan la fila y su encabezado: escritas por separado, la primera vez
+   que una cambie el encabezado deja de nombrar la columna que tiene debajo,
+   que es lo único que hace. Son las de 5d, dibujado a 1280. */
 .exec-list-wrapper { --rr-cols: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch; }
 
 /* No existe donde la fila se apila: un encabezado de columnas no encabeza
@@ -2653,6 +2698,46 @@ watch(pendingFilter, () => {
   text-transform: uppercase;
 }
 .exec-header-btn:hover { color: var(--fg); }
+
+/* `run`/`agente`/`dur.`/`acción` son las columnas arrastrables — necesitan
+   `relative` para anclar su handle y `min-width: 0` para poder angostarse
+   por debajo de su propio contenido (si no, un grid item mide como mínimo su
+   min-content y el arrastre no hace nada). */
+.exec-h-issue,
+.exec-h-agent,
+.exec-h-dur,
+.exec-h-verb {
+  position: relative;
+  min-width: 0;
+}
+/* La etiqueta trunca ANTES de desbordar sobre la columna vecina. */
+.exec-h-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -0.65rem;
+  width: 0.65rem;
+  height: 100%;
+  cursor: col-resize;
+  /* Sin esto un arrastre en touch scrollea la lista en vez de mover la
+     columna — mismo motivo que `useDragReorder` en su handle. */
+  touch-action: none;
+}
+.col-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  width: 1px;
+  height: 70%;
+  background: var(--border-hi);
+}
+.col-resize-handle:hover::after { background: var(--accent); }
 .exec-header-btn--active { color: var(--fg); }
 .exec-empty {
   padding: 1.5rem 0.75rem;
