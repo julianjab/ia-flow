@@ -106,6 +106,15 @@ function findRepo(repos: RepoDef[] | undefined, name: string): RepoDef | undefin
   return repos?.find((r) => r.name === name)
 }
 
+/** `tree` | `tree.N` → el árbol del repo a esa profundidad. `''` sin path. */
+function resolveTreeField(repo: RepoDef, field: string): string {
+  if (!repo.path?.trim()) return ''
+  const rest = field === 'tree' ? '' : field.slice('tree.'.length)
+  const parsed = rest ? Number.parseInt(rest, 10) : TREE_DEFAULT_DEPTH
+  const depth = Number.isFinite(parsed) && parsed > 0 ? parsed : TREE_DEFAULT_DEPTH
+  return formatRepoTree(repo.path, depth)
+}
+
 /** Resolves a `field` (path | github | workflow | context | tree[.N] | '' for description) against a RepoDef. */
 export function resolveRepoField(repo: RepoDef, field: string | undefined): string {
   if (!field) return repo.description ?? ''
@@ -115,14 +124,33 @@ export function resolveRepoField(repo: RepoDef, field: string | undefined): stri
   }
   if (field === 'workflow') return repo.workflow ?? ''
   if (field === 'context') return formatRepoContext(repo)
-  if (field === 'tree' || field.startsWith('tree.')) {
-    if (!repo.path?.trim()) return ''
-    const rest = field === 'tree' ? '' : field.slice('tree.'.length)
-    const parsed = rest ? Number.parseInt(rest, 10) : TREE_DEFAULT_DEPTH
-    const depth = Number.isFinite(parsed) && parsed > 0 ? parsed : TREE_DEFAULT_DEPTH
-    return formatRepoTree(repo.path, depth)
-  }
+  if (field === 'tree' || field.startsWith('tree.')) return resolveTreeField(repo, field)
   return ''
+}
+
+/** Los `Dirent` visibles de `dir` (sin ignorados), directorios primero,
+ *  alfabético dentro de cada grupo. `[]` si `dir` no se puede leer. */
+function listVisibleEntries(dir: string): import('node:fs').Dirent[] {
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries
+    .filter((e) => !TREE_IGNORE.has(e.name) && !e.name.startsWith('.git'))
+    .sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+}
+
+/** La línea ASCII de una entrada del árbol (`├── foo` / `└── bar/`), más el
+ *  prefijo que hereda su descendencia. */
+function treeLine(prefix: string, last: boolean, name: string, isDir: boolean): string {
+  const branch = last ? '└── ' : '├── '
+  const label = isDir ? `${name}/` : name
+  return `${prefix}${branch}${label}`
 }
 
 function formatRepoTree(root: string, maxDepth: number): string {
@@ -131,27 +159,13 @@ function formatRepoTree(root: string, maxDepth: number): string {
   const lines: string[] = []
   const walk = (dir: string, depth: number, prefix: string) => {
     if (depth > maxDepth) return
-    let entries: import('node:fs').Dirent[]
-    try {
-      entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    const visible = entries
-      .filter((e) => !TREE_IGNORE.has(e.name) && !e.name.startsWith('.git'))
-      .sort((a, b) => {
-        if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
-        return a.name.localeCompare(b.name)
-      })
+    const visible = listVisibleEntries(dir)
     for (let i = 0; i < visible.length; i++) {
       const entry = visible[i]
       const last = i === visible.length - 1
-      const branch = last ? '└── ' : '├── '
-      const name = entry.isDirectory() ? `${entry.name}/` : entry.name
-      lines.push(`${prefix}${branch}${name}`)
-      if (entry.isDirectory()) {
-        walk(join(dir, entry.name), depth + 1, prefix + (last ? '    ' : '│   '))
-      }
+      const isDir = entry.isDirectory()
+      lines.push(treeLine(prefix, last, entry.name, isDir))
+      if (isDir) walk(join(dir, entry.name), depth + 1, prefix + (last ? '    ' : '│   '))
     }
   }
   walk(root, 1, '')
@@ -160,17 +174,10 @@ function formatRepoTree(root: string, maxDepth: number): string {
 
 type TreeNode = { name: string; isDir: boolean; children: Map<string, TreeNode> }
 
-function formatRepoTreeFromGit(root: string, maxDepth: number): string | null {
-  const result = spawnSync(
-    'git',
-    ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard'],
-    { encoding: 'utf8' },
-  )
-  if (result.status !== 0 || typeof result.stdout !== 'string') return null
-
-  const paths = result.stdout.split('\n').filter(Boolean)
+/** Los paths de `git ls-files` → un árbol de directorios/archivos, sin
+ *  tocar disco (los directorios intermedios no existen como Dirent). */
+function buildTreeFromPaths(paths: string[]): TreeNode {
   const rootNode: TreeNode = { name: '', isDir: true, children: new Map() }
-
   for (const rel of paths) {
     const parts = rel.split('/')
     let node = rootNode
@@ -185,23 +192,37 @@ function formatRepoTreeFromGit(root: string, maxDepth: number): string | null {
       node = child
     }
   }
+  return rootNode
+}
+
+/** Los hijos de un `TreeNode`, directorios primero y alfabético dentro de
+ *  cada grupo — mismo criterio que `listVisibleEntries`. */
+function sortedChildren(node: TreeNode): TreeNode[] {
+  return [...node.children.values()].sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function formatRepoTreeFromGit(root: string, maxDepth: number): string | null {
+  const result = spawnSync(
+    'git',
+    ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard'],
+    { encoding: 'utf8' },
+  )
+  if (result.status !== 0 || typeof result.stdout !== 'string') return null
+
+  const rootNode = buildTreeFromPaths(result.stdout.split('\n').filter(Boolean))
 
   const lines: string[] = []
   const render = (node: TreeNode, depth: number, prefix: string) => {
     if (depth > maxDepth) return
-    const entries = [...node.children.values()].sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
+    const entries = sortedChildren(node)
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i]
       const last = i === entries.length - 1
-      const branch = last ? '└── ' : '├── '
-      const name = entry.isDir ? `${entry.name}/` : entry.name
-      lines.push(`${prefix}${branch}${name}`)
-      if (entry.isDir) {
-        render(entry, depth + 1, prefix + (last ? '    ' : '│   '))
-      }
+      lines.push(treeLine(prefix, last, entry.name, entry.isDir))
+      if (entry.isDir) render(entry, depth + 1, prefix + (last ? '    ' : '│   '))
     }
   }
   render(rootNode, 1, '')
