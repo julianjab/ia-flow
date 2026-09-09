@@ -62,6 +62,35 @@ export function isBuiltInName(name: string): boolean {
  * decirlo explícitamente —`source: 'tool'`— es mejor que pasarle un evento falso
  * de otro tipo que sus condiciones podrían malinterpretar.
  */
+/** El `ActionContext` sintético que ejecuta la acción de una tool definida —
+ *  ver el docstring de `toolFromAction` sobre por qué hace falta. */
+function buildToolActionContext(
+  tool: Extract<EditableTool, { kind: 'defined' }>,
+  ctx: { projectId?: string; taskId?: string },
+  input: unknown,
+): ActionContext {
+  const event: EngineEvent = createEvent({
+    type: `tool.${tool.name}`,
+    source: 'tool',
+    scope: {
+      ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
+      ...(ctx.taskId ? { issueId: ctx.taskId } : {}),
+    },
+    // Lo que el modelo mandó viaja como payload, así que la acción puede
+    // interpolarlo igual que interpola un evento real.
+    payload: (input ?? {}) as Record<string, unknown>,
+  })
+
+  return {
+    event,
+    rule: { id: `tool:${tool.name}` } as ActionContext['rule'],
+    // Una tool ejecuta UNA acción, no una secuencia: no hay `do[]` del que
+    // ser el índice, y 0 es la única posición que existe acá.
+    position: 0,
+    emit: async () => {},
+  }
+}
+
 export function toolFromAction(
   tool: Extract<EditableTool, { kind: 'defined' }>,
   action: NamedAction,
@@ -92,26 +121,7 @@ export function toolFromAction(
       const handler = getActionHandler(action.body.action)
       if (!handler) return `Este daemon no sabe ejecutar acciones de tipo '${action.body.action}'`
 
-      const event: EngineEvent = createEvent({
-        type: `tool.${tool.name}`,
-        source: 'tool',
-        scope: {
-          ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
-          ...(ctx.taskId ? { issueId: ctx.taskId } : {}),
-        },
-        // Lo que el modelo mandó viaja como payload, así que la acción puede
-        // interpolarlo igual que interpola un evento real.
-        payload: (input ?? {}) as Record<string, unknown>,
-      })
-
-      const actionCtx: ActionContext = {
-        event,
-        rule: { id: `tool:${tool.name}` } as ActionContext['rule'],
-        // Una tool ejecuta UNA acción, no una secuencia: no hay `do[]` del que
-        // ser el índice, y 0 es la única posición que existe acá.
-        position: 0,
-        emit: async () => {},
-      }
+      const actionCtx = buildToolActionContext(tool, ctx, input)
 
       const parsed = handler.configSchema.safeParse(action.body)
       if (!parsed.success) return `La acción '${action.id}' tiene config inválida`
@@ -120,6 +130,40 @@ export function toolFromAction(
       return result.ok ? (result.detail ?? 'ok') : `Falló: ${result.detail ?? 'sin detalle'}`
     },
   }
+}
+
+/** Una override sobre un nombre que no existe no es un error del daemon:
+ *  puede ser una built-in que se removió en un update. Se avisa y sigue. */
+function applyOverride(t: Extract<EditableTool, { kind: 'override' }>): void {
+  if (!setToolDescription(t.name, t.description)) {
+    log.warn({ name: t.name }, 'Override de una tool que no existe — ignorada')
+  }
+}
+
+/** Registra una tool definida. Devuelve si se aplicó, para que el llamador
+ *  la sume a `applied`. */
+async function applyDefinedTool(
+  t: Extract<EditableTool, { kind: 'defined' }>,
+  deps: EditableToolsDeps,
+): Promise<boolean> {
+  if (isBuiltInName(t.name)) {
+    // No puede pasar por el CRUD, pero la fila pudo escribirse por otro
+    // camino. Tapar una built-in cambiaría en silencio lo que hace un agente
+    // que la declara.
+    log.error({ name: t.name }, 'Una tool definida choca con una built-in — ignorada')
+    return false
+  }
+
+  const action = await deps.getAction(t.actionId).catch(() => null)
+  if (!action) {
+    log.warn({ name: t.name, actionId: t.actionId }, 'Tool sin acción — ignorada')
+    return false
+  }
+
+  registerTool(toolFromAction(t, action))
+  registeredDefined.add(t.name)
+  log.info({ name: t.name, actionId: t.actionId }, 'Tool definida registrada')
+  return true
 }
 
 /**
@@ -148,32 +192,10 @@ export async function applyEditableTools(deps: EditableToolsDeps): Promise<void>
 
   for (const t of tools) {
     if (t.kind === 'override') {
-      // Una override sobre un nombre que no existe no es un error del daemon:
-      // puede ser una built-in que se removió en un update. Se avisa y sigue.
-      if (!setToolDescription(t.name, t.description)) {
-        log.warn({ name: t.name }, 'Override de una tool que no existe — ignorada')
-      }
+      applyOverride(t)
       continue
     }
-
-    if (isBuiltInName(t.name)) {
-      // No puede pasar por el CRUD, pero la fila pudo escribirse por otro
-      // camino. Tapar una built-in cambiaría en silencio lo que hace un agente
-      // que la declara.
-      log.error({ name: t.name }, 'Una tool definida choca con una built-in — ignorada')
-      continue
-    }
-
-    const action = await deps.getAction(t.actionId).catch(() => null)
-    if (!action) {
-      log.warn({ name: t.name, actionId: t.actionId }, 'Tool sin acción — ignorada')
-      continue
-    }
-
-    registerTool(toolFromAction(t, action))
-    registeredDefined.add(t.name)
-    applied.add(t.name)
-    log.info({ name: t.name, actionId: t.actionId }, 'Tool definida registrada')
+    if (await applyDefinedTool(t, deps)) applied.add(t.name)
   }
 
   for (const name of registeredDefined) {
