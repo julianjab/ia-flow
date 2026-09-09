@@ -33,6 +33,9 @@ import {
   StepOverrideSchema,
   StepTypeSchema,
   SystemPromptDefSchema,
+  TaskChatActionSchema,
+  TaskChatReplySchema,
+  TaskChatRequestSchema,
   TaskFocusSchema,
   TaskSchema,
   TaskStatusSchema,
@@ -1368,6 +1371,52 @@ describe('TaskFocusSchema', () => {
       computedAt: '2026-09-07T12:00:00.000Z',
     }
     expect(TaskFocusSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('TaskChatActionSchema / TaskChatReplySchema', () => {
+  const action = { type: 'set-field' as const, itemId: 't1', field: 'status', value: 'Done' }
+
+  it('round-trips una acción set-field', () => {
+    expect(TaskChatActionSchema.parse(action)).toEqual(action)
+  })
+
+  it('itemTitle es opcional', () => {
+    expect(TaskChatActionSchema.parse(action).itemTitle).toBeUndefined()
+  })
+
+  it('rechaza un type que no sea set-field — hoy no hay otro tipo de acción', () => {
+    expect(TaskChatActionSchema.safeParse({ ...action, type: 'move-status' }).success).toBe(false)
+  })
+
+  it('actions cae a [] cuando la respuesta no propone ningún cambio', () => {
+    const parsed = TaskChatReplySchema.parse({ reply: 'Nada bloqueado ahora mismo.' })
+    expect(parsed.actions).toEqual([])
+  })
+
+  it('reply es obligatorio', () => {
+    expect(TaskChatReplySchema.safeParse({ actions: [] }).success).toBe(false)
+  })
+})
+
+describe('TaskChatRequestSchema', () => {
+  const base = {
+    projectId: 'p1',
+    messages: [{ role: 'user', content: '¿Qué está bloqueado?' }],
+    tasks: [{ id: 't1', title: 'Arreglar el bug', status: 'In Progress' }],
+  }
+
+  it('acepta el request mínimo — un mensaje de usuario y una tarea', () => {
+    expect(TaskChatRequestSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('rechaza messages vacío — el server no tiene qué contestar', () => {
+    expect(TaskChatRequestSchema.safeParse({ ...base, messages: [] }).success).toBe(false)
+  })
+
+  it('un TaskChatMessage sin actions cae a [] (para pintar el historial completo)', () => {
+    const parsed = TaskChatRequestSchema.parse(base)
+    expect(parsed.messages[0]?.actions).toEqual([])
   })
 })
 
