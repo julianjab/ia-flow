@@ -46,8 +46,7 @@ async function resolveWantedItems(source: ProjectSource, ids: string[]): Promise
  *  es una request por issue. Un fallo por item NO tira la respuesta entera:
  *  la clave simplemente no aparece, y "no sé" se distingue de "no hay". */
 async function fetchBlockersBatch(
-  source: ProjectSource,
-  getBlockers: NonNullable<ProjectSource['getBlockers']>,
+  source: ProjectSource & { getBlockers: NonNullable<ProjectSource['getBlockers']> },
   wanted: SourceItem[],
 ): Promise<Record<string, Blocker[]>> {
   const blockers: Record<string, Blocker[]> = {}
@@ -56,7 +55,9 @@ async function fetchBlockersBatch(
     for (let item = queue.shift(); item; item = queue.shift()) {
       const issueItem = source.toIssueItem ? source.toIssueItem(item) : defaultToIssueItem(item)
       try {
-        blockers[item.id] = await getBlockers(issueItem)
+        // Llamado como método (`source.getBlockers(...)`), no desatado: las
+        // implementaciones reales usan `this` adentro.
+        blockers[item.id] = await source.getBlockers(issueItem)
       } catch (err) {
         log.warn(
           { err: (err as Error).message, itemId: item.id },
@@ -193,7 +194,10 @@ export function createProjectSourceRouter() {
       if (!source.getBlockers) return c.json({ kind: source.kind, blockers: {} })
 
       const wanted = await resolveWantedItems(source, ids)
-      const blockers = await fetchBlockersBatch(source, source.getBlockers, wanted)
+      const blockers = await fetchBlockersBatch(
+        source as ProjectSource & { getBlockers: NonNullable<ProjectSource['getBlockers']> },
+        wanted,
+      )
 
       return c.json({ kind: source.kind, blockers })
     } catch (err) {
