@@ -304,6 +304,75 @@ interface FailTaskInput {
   validations: string[] | string
 }
 
+/**
+ * Baja el flag de working, reconcilia el status contra una lectura fresca del
+ * source, y aplica la transición de éxito que corresponda (`select_exit` >
+ * default, salvo que el prompt ya haya movido la task — ver el comentario de
+ * `pickExit`). Devuelve la salida aplicada (si alguna) y el motivo de rechazo
+ * de `pickExit`, para que el caller arme el mensaje final.
+ */
+async function applyCompleteExitTransition(
+  entry: PendingTask,
+  initialStatus: string,
+  logCtx: Record<string, unknown>,
+): Promise<{ targetOutcome?: string; rejected?: string }> {
+  const { manager, broadcast } = entry
+
+  // Write every mutation back to entry.task so the orchestrator sees the
+  // post-transition state when the run returns. Skipping this made the
+  // "status changed → skip default onFinish" guard read stale data and
+  // clobber tool-driven moves (e.g. epic → Blocked overridden by Build).
+  entry.task = await manager.setAgentWorking(entry.task, false)
+
+  // Prefer a fresh read from the source over the in-memory `entry.task` — if
+  // `setFields` was called with the source-native field name and the adapter
+  // didn't normalize it, the in-memory copy still reports the stale status
+  // and this guard would silently overwrite the intentional move with
+  // `onFinish`. Fall back to `entry.task.status` if the source doesn't
+  // expose a fresh reader.
+  const freshStatus = (await manager.getCurrentStatus?.(entry.task)) ?? entry.task.status
+  const statusChangedByPrompt = freshStatus.toLowerCase() !== initialStatus.toLowerCase()
+  if (freshStatus !== entry.task.status) {
+    entry.task = { ...entry.task, status: freshStatus }
+  }
+  const picked = pickExit(entry, SUCCESS_EXIT)
+  // Una salida elegida con `select_exit` gana sobre el guard: el agente la
+  // nombró a propósito, no está arrastrando el default.
+  const targetOutcome = entry.chosenExit || !statusChangedByPrompt ? picked.outcome : undefined
+  if (statusChangedByPrompt && !entry.chosenExit) {
+    log.info(
+      { ...logCtx, from: initialStatus, to: entry.task.status },
+      'Task already moved by tool call — skipping default exit',
+    )
+  }
+  if (targetOutcome) {
+    entry.task = await applyOutcome(entry.task, targetOutcome, manager)
+    broadcast({ type: 'task:updated', task: entry.task })
+    log.info(
+      { event: 'agent.finalize', ...logCtx, outcome: targetOutcome, status: entry.task.status },
+      'Applied finish transition',
+    )
+  }
+  return { targetOutcome, rejected: picked.rejected }
+}
+
+/** Cierra la sesión del provider (best-effort) y suelta la pending task —
+ *  común a `complete_task` y `fail_task` en su camino no congelado. */
+async function closeSessionAndForgetTask(
+  entry: PendingTask,
+  taskId: string,
+  logCtx: Record<string, unknown>,
+  tool: string,
+): Promise<void> {
+  try {
+    await entry.killSession?.()
+    log.info({ event: 'session.killed', ...logCtx }, 'Provider session closed')
+  } catch (e) {
+    log.warn({ ...logCtx, err: e }, `killSession threw on ${tool}`)
+  }
+  removePendingTask(taskId, { finalizedByTool: true })
+}
+
 registerTool({
   name: 'complete_task',
   internal: true,
@@ -362,7 +431,7 @@ registerTool({
     if (input.what_did == null) input.what_did = []
     if (input.validations == null) input.validations = []
 
-    const { manager, broadcast, initialStatus } = entry
+    const { manager, initialStatus } = entry
     const logCtx = {
       runId: entry.runId,
       agent: entry.agentId,
@@ -392,49 +461,13 @@ registerTool({
         return `Cierre registrado para '${entry.task.title}', sin transición: ${frozen}`
       }
 
-      // Write every mutation back to entry.task so the orchestrator sees the
-      // post-transition state when the run returns. Skipping this made the
-      // "status changed → skip default onFinish" guard read stale data and
-      // clobber tool-driven moves (e.g. epic → Blocked overridden by Build).
-      entry.task = await manager.setAgentWorking(entry.task, false)
+      const { targetOutcome, rejected } = await applyCompleteExitTransition(
+        entry,
+        initialStatus,
+        logCtx,
+      )
 
-      // Prefer a fresh read from the source over the in-memory `entry.task`
-      // — if `setFields` was called with the source-native field name and the
-      // adapter didn't normalize it, the in-memory copy still reports the
-      // stale status and this guard would silently overwrite the intentional
-      // move with `onFinish`. Fall back to `entry.task.status` if the source
-      // doesn't expose a fresh reader.
-      const freshStatus = (await manager.getCurrentStatus?.(entry.task)) ?? entry.task.status
-      const statusChangedByPrompt = freshStatus.toLowerCase() !== initialStatus.toLowerCase()
-      if (freshStatus !== entry.task.status) {
-        entry.task = { ...entry.task, status: freshStatus }
-      }
-      const picked = pickExit(entry, SUCCESS_EXIT)
-      // Una salida elegida con `select_exit` gana sobre el guard: el agente la
-      // nombró a propósito, no está arrastrando el default.
-      const targetOutcome = entry.chosenExit || !statusChangedByPrompt ? picked.outcome : undefined
-      if (statusChangedByPrompt && !entry.chosenExit) {
-        log.info(
-          { ...logCtx, from: initialStatus, to: entry.task.status },
-          'Task already moved by tool call — skipping default exit',
-        )
-      }
-      if (targetOutcome) {
-        entry.task = await applyOutcome(entry.task, targetOutcome, manager)
-        broadcast({ type: 'task:updated', task: entry.task })
-        log.info(
-          { event: 'agent.finalize', ...logCtx, outcome: targetOutcome, status: entry.task.status },
-          'Applied finish transition',
-        )
-      }
-
-      try {
-        await entry.killSession?.()
-        log.info({ event: 'session.killed', ...logCtx }, 'Provider session closed')
-      } catch (e) {
-        log.warn({ ...logCtx, err: e }, 'killSession threw on complete_task')
-      }
-      removePendingTask(taskId, { finalizedByTool: true })
+      await closeSessionAndForgetTask(entry, taskId, logCtx, 'complete_task')
       // Sólo en entradas rehidratadas: el orquestador que lanzó este run ya
       // no existe, así que la fila la cierra el tool o no la cierra nadie.
       resolved?.finalize?.('success')
@@ -442,7 +475,7 @@ registerTool({
         { event: 'agent.complete', ...logCtx, outcome: targetOutcome },
         'task completed via tool',
       )
-      return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}${picked.rejected ? ` (${picked.rejected})` : ''}`
+      return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}${rejected ? ` (${rejected})` : ''}`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'complete_task failed')
       throw err
@@ -641,6 +674,93 @@ registerTool({
 // deja la tarea en su MISMO status. El próximo scan la re-despacha ya en el
 // repo correcto, con el prompt renderizado de nuevo.
 
+type DeclaredRepo = NonNullable<ToolContext['projectRepos']>[number]
+type TaskManager = PendingTask['manager']
+
+/**
+ * El destino tiene que ser un repo del proyecto. Además de evitar un transfer
+ * a un repo que ningún agente después va a poder clonar, es lo que corta el
+ * ping-pong: un repo "inbox" (deliberadamente NO declarado en el roster, para
+ * que no se ofrezca como destino) no puede ser elegido como llegada. Sin
+ * repos declarados no hay contra qué validar, y frenar ahí dejaría la tool
+ * inservible en esa config: se deja pasar.
+ *
+ * Contra `projectRepos` y NO contra `repoPaths`: este último sólo tiene los
+ * repos con clone local, y en un run remoto el agent-host lo reescribe con
+ * los del workspace de esta tarea — validar contra él rechazaba todo destino
+ * en remoto, y cualquier repo del proyecto todavía sin clonar.
+ */
+function resolveDeclaredRepoMatch(
+  declared: DeclaredRepo[],
+  target: string,
+): DeclaredRepo | undefined {
+  const match = declared.find((r) => r.name.toLowerCase() === target.toLowerCase())
+  if (declared.length && !match) {
+    throw new Error(
+      `'${target}' no es un repo de este proyecto. Declarados: ${declared.map((r) => r.name).join(', ')}`,
+    )
+  }
+  return match
+}
+
+/**
+ * La marca de "agente trabajando" se limpia ANTES del transfer: cuando el
+ * marker vive en `Labels`, escribirla necesita el owner/repo/número del
+ * issue, y después de mover el issue esos tres cambiaron.
+ *
+ * Y si no se puede limpiar, NO se transfiere. Degradar a warn acá dejaba la
+ * tarea muerta en silencio: la marca viaja con el issue (las labels se
+ * preservan), después del transfer no hay coordenadas con qué borrarla, y
+ * `SourceDispatcher.shouldSkip` descarta todo item marcado — la tarea no se
+ * vuelve a despachar nunca. Devolverle el error al modelo deja el run vivo y
+ * el issue intacto, que es recuperable.
+ */
+async function clearWorkingMarkerBeforeTransfer(
+  manager: TaskManager,
+  entry: PendingTask,
+  logCtx: Record<string, unknown>,
+): Promise<void> {
+  try {
+    entry.task = await manager.setAgentWorking(entry.task, false)
+  } catch (e) {
+    log.error({ ...logCtx, err: e }, 'No se pudo limpiar la marca — transfer abortado')
+    throw new Error(
+      `No se pudo limpiar la marca de "agente trabajando" antes de mover el issue (${(e as Error).message}). No se transfirió nada: con la marca puesta el issue quedaría fuera de todos los scans siguientes.`,
+    )
+  }
+}
+
+/**
+ * Las coordenadas de GitHub salen del roster, no del nombre que escribió el
+ * modelo: `name` es el nombre local del repo y `githubRepo` el real, y cuando
+ * difieren mandar el local apunta a un repo que no existe.
+ *
+ * El transfer tiene caminos que tiran SIN haber movido nada (la task declara
+ * varios repos, el `Repos` del board no es de texto, el repo destino no
+ * existe). En todos ellos el run sigue vivo y la pending task no se suelta —
+ * pero la marca ya se limpió, así que el próximo scan vería el issue libre y
+ * lo re-despacharía en paralelo. Se repone antes de devolverle el error al
+ * modelo.
+ */
+async function performRepoTransfer(
+  manager: TaskManager,
+  entry: PendingTask,
+  target: string,
+  match: DeclaredRepo | undefined,
+  logCtx: Record<string, unknown>,
+): Promise<Awaited<ReturnType<NonNullable<TaskManager['transferToRepo']>>>> {
+  try {
+    return await manager.transferToRepo!(entry.task, match ?? { name: target })
+  } catch (err) {
+    try {
+      entry.task = await manager.setAgentWorking(entry.task, true)
+    } catch (e) {
+      log.error({ ...logCtx, err: e }, 'Transfer fallido y la marca quedó sin reponer')
+    }
+    throw err
+  }
+}
+
 registerTool({
   name: 'transfer_task_repo',
   description: [
@@ -691,27 +811,10 @@ registerTool({
       throw new Error(`La tarea ya está en '${target}' — no hay nada que mover`)
     }
 
-    // El destino tiene que ser un repo del proyecto. Además de evitar un
-    // transfer a un repo que ningún agente después va a poder clonar, es lo
-    // que corta el ping-pong: un repo "inbox" (deliberadamente NO declarado en
-    // el roster, para que no se ofrezca como destino) no puede ser elegido
-    // como llegada. Sin repos declarados no hay contra qué validar, y frenar
-    // ahí dejaría la tool inservible en esa config: se deja pasar.
-    //
-    // Contra `projectRepos` y NO contra `repoPaths`: este último sólo tiene
-    // los repos con clone local, y en un run remoto el agent-host lo reescribe
-    // con los del workspace de esta tarea — validar contra él rechazaba todo
-    // destino en remoto, y cualquier repo del proyecto todavía sin clonar.
     const declared = ctx?.projectRepos ?? []
-    const match = declared.find((r) => r.name.toLowerCase() === target.toLowerCase())
-    if (declared.length && !match) {
-      throw new Error(
-        `'${target}' no es un repo de este proyecto. Declarados: ${declared.map((r) => r.name).join(', ')}`,
-      )
-    }
+    const match = resolveDeclaredRepoMatch(declared, target)
 
     const logCtx = { taskId: entry.task.id, from: current.join(', ') || '(ninguno)', to: target }
-
     if (!declared.length) {
       // Sin roster la validación de arriba se saltea entera. Es un tradeoff
       // deliberado (frenar dejaría la tool inservible), pero tiene que quedar
@@ -719,45 +822,9 @@ registerTool({
       log.warn(logCtx, 'transfer_task_repo sin roster del proyecto — el destino no se validó')
     }
 
-    // La marca de "agente trabajando" se limpia ANTES del transfer: cuando el
-    // marker vive en `Labels`, escribirla necesita el owner/repo/número del
-    // issue, y después de mover el issue esos tres cambiaron.
-    //
-    // Y si no se puede limpiar, NO se transfiere. Degradar a warn acá dejaba la
-    // tarea muerta en silencio: la marca viaja con el issue (las labels se
-    // preservan), después del transfer no hay coordenadas con qué borrarla, y
-    // `SourceDispatcher.shouldSkip` descarta todo item marcado — la tarea no
-    // se vuelve a despachar nunca. Devolverle el error al modelo deja el run
-    // vivo y el issue intacto, que es recuperable.
-    try {
-      entry.task = await manager.setAgentWorking(entry.task, false)
-    } catch (e) {
-      log.error({ ...logCtx, err: e }, 'No se pudo limpiar la marca — transfer abortado')
-      throw new Error(
-        `No se pudo limpiar la marca de "agente trabajando" antes de mover el issue (${(e as Error).message}). No se transfirió nada: con la marca puesta el issue quedaría fuera de todos los scans siguientes.`,
-      )
-    }
+    await clearWorkingMarkerBeforeTransfer(manager, entry, logCtx)
+    const moved = await performRepoTransfer(manager, entry, target, match, logCtx)
 
-    // Las coordenadas de GitHub salen del roster, no del nombre que escribió el
-    // modelo: `name` es el nombre local del repo y `githubRepo` el real, y
-    // cuando difieren mandar el local apunta a un repo que no existe.
-    let moved: Awaited<ReturnType<NonNullable<typeof manager.transferToRepo>>>
-    try {
-      moved = await manager.transferToRepo(entry.task, match ?? { name: target })
-    } catch (err) {
-      // El transfer tiene caminos que tiran SIN haber movido nada (la task
-      // declara varios repos, el `Repos` del board no es de texto, el repo
-      // destino no existe). En todos ellos el run sigue vivo y la pending task
-      // no se suelta — pero la marca ya se limpió, así que el próximo scan
-      // vería el issue libre y lo re-despacharía en paralelo. Se repone antes
-      // de devolverle el error al modelo.
-      try {
-        entry.task = await manager.setAgentWorking(entry.task, true)
-      } catch (e) {
-        log.error({ ...logCtx, err: e }, 'Transfer fallido y la marca quedó sin reponer')
-      }
-      throw err
-    }
     entry.task = { ...entry.task, repos: [moved.repo] }
     entry.broadcast({ type: 'task:updated', task: entry.task })
     log.info(

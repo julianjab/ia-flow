@@ -62,72 +62,88 @@ export const OUTPUT_MAX_BYTES = 20 * 1024 // 20 KB
  * If the agent needs anything shell-y (pipes, redirection, glob expansion)
  * it must chain multiple `bash_run` invocations.
  */
+interface ParseArgvState {
+  argv: string[]
+  current: string
+  inToken: boolean
+  quote: '"' | "'" | null
+}
+
+/** Un char dentro de `'…'`: literal, sin escapes. Devuelve el próximo índice. */
+function stepInSingleQuote(command: string, i: number, state: ParseArgvState): number {
+  const ch = command[i] as string
+  if (ch === "'") {
+    state.quote = null
+  } else {
+    state.current += ch
+  }
+  return i + 1
+}
+
+/** Un char dentro de `"…"`: `\"` y `\\` escapan, cualquier otro `\x` es literal. */
+function stepInDoubleQuote(command: string, i: number, state: ParseArgvState): number {
+  const ch = command[i] as string
+  if (ch === '"') {
+    state.quote = null
+    return i + 1
+  }
+  if (ch === '\\' && (command[i + 1] === '"' || command[i + 1] === '\\')) {
+    state.current += command[i + 1]
+    return i + 2
+  }
+  state.current += ch
+  return i + 1
+}
+
+/** Un char fuera de comillas: abre quote, escapa el siguiente char, corta en
+ *  espacio, o se acumula tal cual. */
+function stepUnquoted(command: string, i: number, state: ParseArgvState): number {
+  const ch = command[i] as string
+
+  if (ch === "'" || ch === '"') {
+    state.quote = ch
+    state.inToken = true
+    return i + 1
+  }
+
+  if (ch === '\\' && i + 1 < command.length) {
+    state.current += command[i + 1]
+    state.inToken = true
+    return i + 2
+  }
+
+  if (/\s/.test(ch)) {
+    if (state.inToken) {
+      state.argv.push(state.current)
+      state.current = ''
+      state.inToken = false
+    }
+    return i + 1
+  }
+
+  state.current += ch
+  state.inToken = true
+  return i + 1
+}
+
 export function parseArgv(command: string): string[] {
-  const argv: string[] = []
-  let current = ''
-  let inToken = false
-  let quote: '"' | "'" | null = null
+  const state: ParseArgvState = { argv: [], current: '', inToken: false, quote: null }
   let i = 0
 
   while (i < command.length) {
-    const ch = command[i] as string
-
-    if (quote === "'") {
-      if (ch === "'") {
-        quote = null
-      } else {
-        current += ch
-      }
-      i++
-      continue
+    if (state.quote === "'") {
+      i = stepInSingleQuote(command, i, state)
+    } else if (state.quote === '"') {
+      i = stepInDoubleQuote(command, i, state)
+    } else {
+      i = stepUnquoted(command, i, state)
     }
-
-    if (quote === '"') {
-      if (ch === '"') {
-        quote = null
-      } else if (ch === '\\' && (command[i + 1] === '"' || command[i + 1] === '\\')) {
-        current += command[i + 1]
-        i++
-      } else {
-        current += ch
-      }
-      i++
-      continue
-    }
-
-    if (ch === "'" || ch === '"') {
-      quote = ch
-      inToken = true
-      i++
-      continue
-    }
-
-    if (ch === '\\' && i + 1 < command.length) {
-      current += command[i + 1]
-      inToken = true
-      i += 2
-      continue
-    }
-
-    if (/\s/.test(ch)) {
-      if (inToken) {
-        argv.push(current)
-        current = ''
-        inToken = false
-      }
-      i++
-      continue
-    }
-
-    current += ch
-    inToken = true
-    i++
   }
 
-  if (quote) throw new Error(`comilla ${quote} sin cerrar en el comando`)
-  if (inToken) argv.push(current)
+  if (state.quote) throw new Error(`comilla ${state.quote} sin cerrar en el comando`)
+  if (state.inToken) state.argv.push(state.current)
 
-  return argv
+  return state.argv
 }
 
 /**
@@ -237,21 +253,37 @@ const GIT_DENIED_SUBCOMMANDS = new Set(['config', 'var'])
  */
 const GIT_GLOBALS_WITH_VALUE = new Set(['--namespace', '--attr-source', '--super-prefix'])
 
-function assertNoScopeChangingGitFlags(argv: string[]): void {
-  let subcommand: string | undefined
+/** `-C` / `--git-dir` / `--work-tree` (espacio o `=`) — redirigen el árbol de
+ *  trabajo fuera del worktree del task. */
+function rejectGitWorktreeRedirectFlag(a: string): void {
+  if (a === '-C' || a === '--git-dir' || a === '--work-tree') {
+    throw new Error(`git flag no permitido: ${a} (redirige el sandbox fuera del worktree)`)
+  }
+  if (a.startsWith('--git-dir=') || a.startsWith('--work-tree=')) {
+    const flag = a.split('=')[0]
+    throw new Error(`git flag no permitido: ${flag} (redirige el sandbox fuera del worktree)`)
+  }
+}
+
+/** `-c` / `--config-env` en posición GLOBAL — config arbitraria es ejecución
+ *  de comandos o filtración de la credencial inyectada. */
+function rejectGitGlobalConfigFlag(a: string): void {
+  if (a === '-c' || a === '--config-env' || a.startsWith('--config-env=')) {
+    const flag = a.startsWith('--config-env=') ? '--config-env' : a
+    throw new Error(`git flag no permitido: ${flag} (config arbitraria escapa del allowlist)`)
+  }
+}
+
+/**
+ * Recorre los flags globales (antes del subcomando), tirando en el primer
+ * flag prohibido, y devuelve el nombre del subcomando detectado —o
+ * `undefined` si el argv sólo trae flags globales.
+ */
+function findGitSubcommand(argv: string[]): string | undefined {
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i]
-    if (a === '-C' || a === '--git-dir' || a === '--work-tree') {
-      throw new Error(`git flag no permitido: ${a} (redirige el sandbox fuera del worktree)`)
-    }
-    if (a.startsWith('--git-dir=') || a.startsWith('--work-tree=')) {
-      const flag = a.split('=')[0]
-      throw new Error(`git flag no permitido: ${flag} (redirige el sandbox fuera del worktree)`)
-    }
-    if (a === '-c' || a === '--config-env' || a.startsWith('--config-env=')) {
-      const flag = a.startsWith('--config-env=') ? '--config-env' : a
-      throw new Error(`git flag no permitido: ${flag} (config arbitraria escapa del allowlist)`)
-    }
+    rejectGitWorktreeRedirectFlag(a)
+    rejectGitGlobalConfigFlag(a)
     // Global con valor separado: el token que sigue es SU argumento, no el
     // subcomando. La forma `--flag=valor` no necesita esto.
     if (GIT_GLOBALS_WITH_VALUE.has(a)) {
@@ -260,25 +292,40 @@ function assertNoScopeChangingGitFlags(argv: string[]): void {
     }
     // Frontera entre los flags globales y el subcomando.
     if (!a.startsWith('-')) {
-      subcommand = a
-      break
+      return a
     }
   }
+  return undefined
+}
 
+/** `config` / `var` leen o persisten la credencial inyectada por `gitAuthArgs`. */
+function rejectDeniedGitSubcommand(subcommand: string | undefined): void {
   if (subcommand && GIT_DENIED_SUBCOMMANDS.has(subcommand)) {
     throw new Error(
       `git ${subcommand} no permitido (lee o persiste la credencial inyectada en el run)`,
     )
   }
+}
 
-  // Estos van en cualquier posición: son opciones del subcomando, así que el
-  // barrido de arriba —que corta en el subcomando— nunca los vería.
+/**
+ * Opciones que ejecutan un programa del otro lado (`--upload-pack`,
+ * `--receive-pack`, `--exec-path`, `--exec`, `--config` de `clone`). Van en
+ * cualquier posición como opción DEL subcomando, así que `findGitSubcommand`
+ * —que corta en el subcomando— nunca las vería.
+ */
+function rejectGitExecFlags(argv: string[]): void {
   for (const a of argv.slice(1)) {
     const flag = GIT_EXEC_FLAGS.find((f) => a === f || a.startsWith(`${f}=`))
     if (flag) {
       throw new Error(`git flag no permitido: ${flag} (ejecuta un programa fuera del allowlist)`)
     }
   }
+}
+
+function assertNoScopeChangingGitFlags(argv: string[]): void {
+  const subcommand = findGitSubcommand(argv)
+  rejectDeniedGitSubcommand(subcommand)
+  rejectGitExecFlags(argv)
 }
 
 /**
@@ -408,6 +455,98 @@ export const _execInternals: {
     }) as unknown as SpawnedProc,
 }
 
+// ─── execute() helpers ────────────────────────────────────────────────────
+// Cada uno devuelve el argv/cwd/proc en el camino feliz, o el string
+// `bash_run failed: …` que `execute()` puede retornar tal cual — así el
+// cuerpo de la tool queda como una cadena de "si falló esto, cortá acá".
+
+/** `parseArgv` + el chequeo de argv vacío, colapsados en un solo resultado. */
+function parseArgvOrFailure(command: string): string[] | string {
+  try {
+    const argv = parseArgv(command)
+    if (argv.length === 0) return 'bash_run failed: comando vacío'
+    return argv
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `bash_run failed: ${msg}`
+  }
+}
+
+/** Allow/deny + scope de cwd, colapsados en un solo resultado. El éxito va
+ *  envuelto en un objeto: tanto el cwd resuelto como el mensaje de falla son
+ *  strings, así que un `string` pelado no alcanzaría para distinguirlos. */
+function resolveExecCwdOrFailure(
+  argv: string[],
+  ctx: ToolContext,
+  cwd: string | undefined,
+): { cwd: string } | string {
+  try {
+    assertBashCommandAllowed(argv, ctx.policy?.bashRun)
+    return { cwd: assertCwdInWritePaths(cwd, ctx.writePaths) }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `bash_run failed: ${msg}`
+  }
+}
+
+function spawnOrFailure(spawnArgv: string[], cwd: string): SpawnedProc | string {
+  try {
+    return _execInternals.spawn(spawnArgv, cwd)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `bash_run failed: spawn error: ${msg}`
+  }
+}
+
+interface RunResult {
+  stdoutText: string
+  stderrText: string
+  exitCode: number | null
+  timedOut: boolean
+}
+
+/**
+ * Race del proceso contra el timer. No se puede usar `Promise.race` con
+ * `proc.exited` en el camino rápido porque también hacen falta los buffers
+ * de stdout/stderr — resuelven independientes de `exited`. Por eso el timer
+ * se cablea a `proc.kill()` y `Promise.all` junta los buffers más el exit
+ * code (posiblemente producido por la señal).
+ */
+async function runToCompletion(proc: SpawnedProc, timeoutMs: number): Promise<RunResult> {
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    try {
+      proc.kill()
+    } catch {
+      // best-effort — the process may already be dead
+    }
+  }, timeoutMs)
+
+  const [stdoutText, stderrText, exitCode] = await Promise.all([
+    proc.stdout ? new Response(proc.stdout).text().catch(() => '') : Promise.resolve(''),
+    proc.stderr ? new Response(proc.stderr).text().catch(() => '') : Promise.resolve(''),
+    proc.exited.catch(() => null as unknown as number),
+  ])
+  clearTimeout(timer)
+
+  return { stdoutText, stderrText, exitCode, timedOut }
+}
+
+function formatRunOutput(
+  stdoutText: string,
+  stderrText: string,
+  exitCode: number | null,
+  timedOut: boolean,
+): string {
+  const combined = [stdoutText, stderrText].filter((s) => s.length > 0).join('\n')
+  const truncated = truncateOutput(combined)
+  const timeoutMark = timedOut ? '\n[timeout]' : ''
+  const exitLabel = exitCode == null ? 'unknown' : String(exitCode)
+  const header = `exit=${exitLabel}${timedOut ? ' (killed after timeout)' : ''}`
+  return [header, truncated + timeoutMark].filter((s) => s.length > 0).join('\n')
+}
+
 // ─── Tool registration ────────────────────────────────────────────────────
 
 interface RunCommandInput {
@@ -470,29 +609,17 @@ registerTool({
       return 'bash_run failed: command es requerido y debe ser un string no vacío'
     }
 
-    let argv: string[]
-    try {
-      argv = parseArgv(input.command)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return `bash_run failed: ${msg}`
-    }
-    if (argv.length === 0) {
-      return 'bash_run failed: comando vacío'
-    }
+    const parsed = parseArgvOrFailure(input.command)
+    if (typeof parsed === 'string') return parsed
+    const argv = parsed
 
     // Guards 2–3: allow/deny pattern match, cwd scope. Any throw becomes a
     // stable `bash_run failed: <reason>` string so the agent can react
     // without a try/catch. Patterns come from the agent's `bash_run` entry
     // in `tools[]` (see contract.ts::CompiledPolicy) — no entry, no run.
-    let cwd: string
-    try {
-      assertBashCommandAllowed(argv, ctx.policy?.bashRun)
-      cwd = assertCwdInWritePaths(input.cwd, ctx.writePaths)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return `bash_run failed: ${msg}`
-    }
+    const cwdOrFailure = resolveExecCwdOrFailure(argv, ctx, input.cwd)
+    if (typeof cwdOrFailure === 'string') return cwdOrFailure
+    const { cwd } = cwdOrFailure
 
     const timeoutMs = normalizeTimeoutMs(input.timeout_ms)
 
@@ -506,41 +633,10 @@ registerTool({
     // token. `git` los toma como config de esta invocación solamente.
     const spawnArgv = [argv[0], ...(await gitAuthArgs(argv)), ...argv.slice(1)]
 
-    let proc: SpawnedProc
-    try {
-      proc = _execInternals.spawn(spawnArgv, cwd)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return `bash_run failed: spawn error: ${msg}`
-    }
+    const spawned = spawnOrFailure(spawnArgv, cwd)
+    if (typeof spawned === 'string') return spawned
 
-    // Race the process against the timer. We can't use `Promise.race` with
-    // `proc.exited` on the fast path because we also need the stdout/stderr
-    // buffers — they resolve independently of `exited`. So we wire the
-    // timer to `proc.kill()` and let `Promise.all` gather the buffers plus
-    // the (possibly signal-driven) exit code.
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      try {
-        proc.kill()
-      } catch {
-        // best-effort — the process may already be dead
-      }
-    }, timeoutMs)
-
-    const [stdoutText, stderrText, exitCode] = await Promise.all([
-      proc.stdout ? new Response(proc.stdout).text().catch(() => '') : Promise.resolve(''),
-      proc.stderr ? new Response(proc.stderr).text().catch(() => '') : Promise.resolve(''),
-      proc.exited.catch(() => null as unknown as number),
-    ])
-    clearTimeout(timer)
-
-    const combined = [stdoutText, stderrText].filter((s) => s.length > 0).join('\n')
-    const truncated = truncateOutput(combined)
-    const timeoutMark = timedOut ? '\n[timeout]' : ''
-    const exitLabel = exitCode == null ? 'unknown' : String(exitCode)
-    const header = `exit=${exitLabel}${timedOut ? ' (killed after timeout)' : ''}`
-    return [header, truncated + timeoutMark].filter((s) => s.length > 0).join('\n')
+    const { stdoutText, stderrText, exitCode, timedOut } = await runToCompletion(spawned, timeoutMs)
+    return formatRunOutput(stdoutText, stderrText, exitCode, timedOut)
   },
 })

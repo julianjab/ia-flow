@@ -12,6 +12,14 @@
 //   - Anything else must match the command token exactly.
 //   - A pattern with no trailing "*" requires an exact token-count match.
 
+/** ¿Matchea un solo token del comando contra un solo token del patrón? */
+function matchesToken(pTok: string, cTok: string | undefined): boolean {
+  if (cTok === undefined) return false
+  if (pTok === '*') return true // wildcard token — matches any single token
+  if (pTok.endsWith('*')) return cTok.startsWith(pTok.slice(0, -1))
+  return cTok === pTok
+}
+
 export function matchesBashPattern(command: readonly string[], pattern: string): boolean {
   const patternTokens = pattern.trim().split(/\s+/).filter(Boolean)
   if (patternTokens.length === 0) return false
@@ -20,15 +28,7 @@ export function matchesBashPattern(command: readonly string[], pattern: string):
     const pTok = patternTokens[i] as string
     const isLast = i === patternTokens.length - 1
     if (isLast && pTok === '*') return true // consumes the rest of the command
-
-    const cTok = command[i]
-    if (cTok === undefined) return false
-    if (pTok === '*') continue // wildcard token — matches any single token
-    if (pTok.endsWith('*')) {
-      if (!cTok.startsWith(pTok.slice(0, -1))) return false
-      continue
-    }
-    if (cTok !== pTok) return false
+    if (!matchesToken(pTok, command[i])) return false
   }
 
   return command.length === patternTokens.length
