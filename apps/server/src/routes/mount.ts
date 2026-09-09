@@ -12,6 +12,7 @@
 import type { Hono } from 'hono'
 import { createGithubRouter } from '../adapters/github/routes.js'
 import {
+  assistCallerConfigRepo,
   assistWithAiUseCase,
   systemPromptRepo,
   taskAnnotationRepo,
@@ -21,6 +22,7 @@ import { createActionsRouter } from './actions.js'
 import { createAgentAbortsRouter } from './agent-aborts.js'
 import { createAgentsRouter } from './agents.js'
 import { createAgentsCrudRouter } from './agents-crud.js'
+import { createAssistConfigsRouter } from './assist-configs.js'
 import { createEnvVarsRouter } from './env-vars.js'
 import { createExecutionsRouter } from './executions.js'
 import { createHookEventsRouter } from './hook-events.js'
@@ -69,6 +71,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
     createTaskChatRouter(taskChatUseCase, taskAnnotationRepo, broadcastFn),
   )
   app.route('/api/agents-crud', createAgentsCrudRouter())
+  app.route('/api/assist-configs', createAssistConfigsRouter(assistCallerConfigRepo))
   app.route('/api/rules', createRulesRouter())
   app.route('/api/pipeline', createPipelineRouter())
   app.route('/api/actions', createActionsRouter())
