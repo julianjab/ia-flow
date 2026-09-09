@@ -20,8 +20,10 @@ import { useRoute } from 'vue-router';
 import axios from 'axios';
 import { useToastStore } from '@/stores/toast';
 import TaskExecutions from '@/components/TaskExecutions.vue';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import {
   type AgentAbortRecord,
+  deleteRecoverableCheckpoint,
   listRecoverableRuns,
   type RecoverableCheckpoint,
   retryAgentAbort,
@@ -35,6 +37,8 @@ const aborts = ref<AgentAbortRecord[]>([]);
 const checkpoints = ref<RecoverableCheckpoint[]>([]);
 const loading = ref(false);
 const retrying = ref<string | null>(null);
+const deleting = ref<string | null>(null);
+const pendingDelete = ref<RecoverableCheckpoint | null>(null);
 
 /** El `?run=` que deja el link "Resolver" de Ejecuciones (verdict.ts) —
  *  resalta la fila que trajo al operador acá, sea abort o checkpoint. */
@@ -88,6 +92,26 @@ async function retryCheckpoint(cp: RecoverableCheckpoint) {
     toastStore.error(`No se pudo destrabar: ${extractError(err)}`);
   } finally {
     retrying.value = null;
+  }
+}
+
+function askDelete(cp: RecoverableCheckpoint) {
+  pendingDelete.value = cp;
+}
+
+async function confirmDelete() {
+  const cp = pendingDelete.value;
+  if (!cp) return;
+  pendingDelete.value = null;
+  deleting.value = cp.runId;
+  try {
+    await deleteRecoverableCheckpoint(cp.runId);
+    toastStore.success(`Checkpoint de '${cp.taskId}' eliminado`);
+    await load();
+  } catch (err) {
+    toastStore.error(`No se pudo eliminar: ${extractError(err)}`);
+  } finally {
+    deleting.value = null;
   }
 }
 
@@ -256,11 +280,19 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="btn btn--primary"
-                :disabled="retrying === cp.runId || !cp.projectId"
+                :disabled="retrying === cp.runId || deleting === cp.runId || !cp.projectId"
                 :title="cp.projectId ? undefined : 'Sin projectId — no se puede re-despachar'"
                 @click="retryCheckpoint(cp)"
               >
                 {{ retrying === cp.runId ? 'Destrabando…' : 'Reintentar ahora' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn--danger"
+                :disabled="retrying === cp.runId || deleting === cp.runId"
+                @click="askDelete(cp)"
+              >
+                {{ deleting === cp.runId ? 'Eliminando…' : 'Eliminar' }}
               </button>
             </div>
           </li>
@@ -269,6 +301,18 @@ onUnmounted(() => {
     </template>
 
     <p v-if="empty && !loading" class="muted">Sin runs recuperables pendientes.</p>
+
+    <ConfirmDialog
+      :open="!!pendingDelete"
+      title="Eliminar checkpoint"
+      :message="pendingDelete
+        ? `Se descarta el checkpoint de '${pendingDelete.taskTitle ?? pendingDelete.taskId}'. No se re-despacha la tarea — si querés eso, usá 'Reintentar ahora' en vez de esto.`
+        : ''"
+      confirm-label="Eliminar"
+      danger
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
   </section>
 </template>
 
@@ -317,5 +361,5 @@ a.entry-id:hover { background: transparent; text-decoration: underline; }
   white-space: pre-wrap;
 }
 .entry-meta { font-size: var(--fs-micro); color: var(--fg-dim); }
-.entry-actions { display: flex; flex-direction: column; justify-content: center; }
+.entry-actions { display: flex; flex-direction: column; justify-content: center; gap: 0.4rem; }
 </style>

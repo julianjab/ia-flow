@@ -38,3 +38,9 @@ export async function retryAgentAbort(id: string): Promise<void> {
 export async function retryRecoverableCheckpoint(taskId: string, projectId: string): Promise<void> {
   await axios.post(`/api/tasks/${encodeURIComponent(taskId)}/run`, { projectId })
 }
+
+/** Descarta el checkpoint sin re-despachar la tarea — para cuando no hay
+ *  nada que retomar (la tarea ya no aplica) y sólo estorba en la lista. */
+export async function deleteRecoverableCheckpoint(runId: string): Promise<void> {
+  await axios.delete(`/api/agent-aborts/checkpoints/${encodeURIComponent(runId)}`)
+}
