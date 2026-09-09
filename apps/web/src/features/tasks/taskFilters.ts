@@ -30,7 +30,8 @@ export const BLOCKED_VALUES: BlockedValue[] = ['si', 'no']
 export interface TaskFilters {
   /** Statuses aceptados. Vacío ⇒ cualquiera. Se comparan case-insensitive. */
   statuses: string[]
-  /** Repos aceptados (`task.repos` puede traer más de uno). Vacío ⇒ cualquiera. */
+  /** Repos aceptados (`task.repos` puede traer más de uno, sumado a los
+   *  `headRepo` de los PRs vinculados — ver `taskRepos`). Vacío ⇒ cualquiera. */
   repos: string[]
   /** Logins aceptados. Vacío ⇒ cualquiera. */
   assignees: string[]
@@ -62,6 +63,9 @@ export interface FilterableTask {
   title: string
   status: string
   repos?: string
+  /** Repo dueño del issue — el último fallback de `taskRepos` cuando ni el
+   *  campo `repos` ni los PRs vinculados dicen nada. */
+  repoName?: string
   assignees?: string[]
   branch?: string
   pullRequests: PullRequestRef[]
@@ -172,9 +176,28 @@ export function taskFilterSummary(f: TaskFilters): string | null {
   return `${values[0]} +${values.length - 1}`
 }
 
-/** `task.repos` es un string que puede traer más de uno (épicas multi-repo). */
-function taskRepos(task: FilterableTask): string[] {
-  return (task.repos ?? '').split(/[,\s]+/).filter(Boolean)
+/**
+ * `task.repos` es un string que puede traer más de uno (épicas multi-repo),
+ * pero el campo es manual y puede quedar sin llenar. En cascada, de más a
+ * menos específico:
+ *   1. lo explícito en `repos`;
+ *   2. el `headRepo` de los PRs vinculados — puede ser otro repo que el del
+ *      issue, y es la señal que faltaba: sin ella, filtrar por el repo de un
+ *      PR real daba 0 resultados aunque `pr: abierto` sí lo detectara;
+ *   3. el repo dueño del issue (`repoName`), que existe siempre — sin este
+ *      último paso una tarea sin PR todavía (el caso normal recién arrancada)
+ *      quedaba "sin repo" para el filtro aunque la tarjeta sí lo mostrara.
+ * Mismo criterio que `currentReposOf` en `TareasSection.vue`, que es lo que
+ * la fila pinta — esta es la única definición, para que las dos no diverjan.
+ */
+export function taskRepos(task: FilterableTask): string[] {
+  const explicit = (task.repos ?? '').split(/[,\s]+/).filter(Boolean)
+  if (explicit.length) return explicit
+  const fromPrs = [
+    ...new Set(task.pullRequests.map((pr) => pr.headRepo).filter((r): r is string => !!r)),
+  ]
+  if (fromPrs.length) return fromPrs
+  return task.repoName ? [task.repoName] : []
 }
 
 const PR_STATUS_PREDICATES: Record<PrStatusValue, (task: FilterableTask) => boolean> = {

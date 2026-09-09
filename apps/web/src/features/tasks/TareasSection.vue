@@ -58,6 +58,7 @@ import {
   filterTasks,
   QUICK_DISPOSITION_FILTERS,
   taskFilterSummary,
+  taskRepos,
   queryHasTaskFilters,
   taskFiltersFromQuery,
   taskFiltersFromSearch,
@@ -713,7 +714,7 @@ const statusChips = computed<string[]>(() => {
 const repoChips = computed<string[]>(() => {
   const chips = new Set(availableRepoNames.value);
   for (const item of projectItems.value) {
-    for (const r of item.repos.split(',').map((r) => r.trim()).filter(Boolean)) chips.add(r);
+    for (const r of taskRepos(item)) chips.add(r);
   }
   for (const r of filters.value.repos) chips.add(r);
   return [...chips].sort();
@@ -887,22 +888,10 @@ async function loadBlockers(projectId: string, ids: string[]) {
   }
 }
 
-function currentReposOf(item: TaskRow): string[] {
-  const explicit = item.repos.split(',').map((r) => r.trim()).filter(Boolean);
-  if (explicit.length) return explicit;
-  // El campo "Repos" del board es manual y puede quedar sin llenar. Cuando lo
-  // está, el repo se infiere de lo que la plataforma YA sabe, de lo más
-  // específico a lo más general:
-  //   1. el `headRepo` de sus PRs — puede ser otro repo que el del issue;
-  //   2. el repo dueño del issue (`repoName`), que existe siempre.
-  // Sin (2) una tarea sin PR todavía —el caso normal recién arrancada— decía
-  // "sin repos" con su rama a la vista, y el board entero se veía sin repo.
-  const fromPrs = [
-    ...new Set(item.pullRequests.map((pr) => pr.headRepo).filter((r): r is string => !!r)),
-  ];
-  if (fromPrs.length) return fromPrs;
-  return item.repoName ? [item.repoName] : [];
-}
+// La cascada (explícito → headRepo de los PRs → repoName del issue) vive en
+// `taskRepos` (taskFilters.ts) — es la misma que necesita el filtro, así que
+// hay una sola definición en vez de dos que puedan divergir.
+const currentReposOf = taskRepos;
 
 function openReposModal(item: TaskRow) {
   // Abrir una tarea apaga la marca del foco: dos filas en video inverso
