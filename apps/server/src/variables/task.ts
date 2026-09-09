@@ -212,32 +212,31 @@ function resolvePrField(subpath: string | undefined, ctx: ResolveContext): strin
   return ''
 }
 
+function resolveBranch(ctx: ResolveContext): string {
+  const t = ctx.task as { id?: string; branch?: string }
+  if (t.branch?.trim()) return t.branch.trim()
+  return t.id ? branchNameFor(t.id) : ''
+}
+
+function resolveRepo(subpath: string | undefined, ctx: ResolveContext): string {
+  const repoName = resolveCurrentRepoName(ctx)
+  if (!repoName) return ''
+  const repo = ctx.projectRepos?.find((r) => r.name === repoName)
+  if (!repo) return ''
+  if (subpath === 'name') return repo.name
+  return resolveRepoField(repo, subpath)
+}
+
 export function resolve(
   key: string,
   subpath: string | undefined,
   ctx: ResolveContext,
 ): string | undefined {
   if (key === 'comments') return formatComments(ctx.task.comments)
-
   if (key === 'previous_outputs') return formatPreviousOutputs(ctx.previousOutputs)
-
-  if (key === 'branch') {
-    const t = ctx.task as { id?: string; branch?: string }
-    if (t.branch?.trim()) return t.branch.trim()
-    return t.id ? branchNameFor(t.id) : ''
-  }
-
-  if (key === 'repo') {
-    const repoName = resolveCurrentRepoName(ctx)
-    if (!repoName) return ''
-    const repo = ctx.projectRepos?.find((r) => r.name === repoName)
-    if (!repo) return ''
-    if (subpath === 'name') return repo.name
-    return resolveRepoField(repo, subpath)
-  }
-
+  if (key === 'branch') return resolveBranch(ctx)
+  if (key === 'repo') return resolveRepo(subpath, ctx)
   if (key === 'pr') return resolvePrField(subpath, ctx)
-
   if (key === 'ci') return primaryOpenPullRequest(ctx.task)?.ci ?? ''
 
   const task = ctx.task as Record<string, unknown>

@@ -597,17 +597,33 @@ setPendingTaskRehydrator(
  * Sólo cuentan las filas de ESTE container: las reenviadas por otro daemon
  * describen runs en otra máquina, que no comparten este disco.
  */
-function otherLiveRunsOnTask(taskId: string, excludeRunId?: string): string[] {
-  const runIds = new Set<string>()
+function addPendingRunIds(
+  taskId: string,
+  excludeRunId: string | undefined,
+  runIds: Set<string>,
+): void {
   for (const [id, entry] of listPendingTasks()) {
     if (id !== taskId || entry.cancelled) continue
     if (entry.runId && entry.runId !== excludeRunId) runIds.add(entry.runId)
   }
+}
+
+function addActiveExecutionRunIds(
+  taskId: string,
+  excludeRunId: string | undefined,
+  runIds: Set<string>,
+): void {
   for (const row of executionLogRepo.listActive()) {
     if (row.taskId !== taskId) continue
     if ((row.source ?? null) !== (INSTANCE_ID ?? null)) continue
     if (row.runId && row.runId !== excludeRunId) runIds.add(row.runId)
   }
+}
+
+function otherLiveRunsOnTask(taskId: string, excludeRunId?: string): string[] {
+  const runIds = new Set<string>()
+  addPendingRunIds(taskId, excludeRunId, runIds)
+  addActiveExecutionRunIds(taskId, excludeRunId, runIds)
   return [...runIds]
 }
 

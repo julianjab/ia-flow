@@ -387,64 +387,71 @@ export function createEnvVarsRouter() {
     return c.json({ vars })
   })
 
+  interface TouchedGroups {
+    daemon: boolean
+    github: boolean
+    slack: boolean
+  }
+
+  /** Aplica un único `key: value` del PUT. Muta `touched` con los grupos que
+   *  tocó; devuelve `false` cuando el valor es inválido (queda sin aplicar). */
+  function applyEnvVarUpdate(key: string, value: string, touched: TouchedGroups): boolean {
+    // `ALL_KEYS` y NO `visibleKeys()`: escribir se valida contra el catálogo
+    // entero. Un PUT puede cambiar el modo de auth Y el valor que ese modo
+    // vuelve relevante en la misma llamada — filtrar por la visibilidad
+    // ANTERIOR descartaría el segundo campo y dejaría al operador con el
+    // modo cambiado y sin credencial.
+    if (!ALL_KEYS.includes(key)) return true
+    const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
+    // Un `select` sólo acepta sus propias opciones. Sin esto, un típo entra a
+    // la DB y el error aparece lejos, cuando quien lee el valor lo parsea.
+    if (value !== '' && 'options' in def && !def.options.includes(value)) return false
+
+    // `Bun.env` lo mueve el repositorio, no esta ruta: es el único que sabe
+    // qué traía el ambiente antes de que la DB lo tapara, y por lo tanto el
+    // único que puede DEVOLVERLE el valor al borrar la fila. Cuando el
+    // borrado se hacía acá con un `delete Bun.env[key]`, limpiar la variable
+    // desde la pantalla destruía el valor del shell o del compose: el
+    // proceso quedaba sin ninguno hasta reiniciar.
+    if (value === '') envRepo.delete(key)
+    else envRepo.set(key, value)
+    if (DAEMON_KEYS.has(key)) touched.daemon = true
+    // Por grupo y no por lista de keys: una variable de auth nueva queda
+    // cubierta sola.
+    if (def.group === 'github') touched.github = true
+    if (def.group === 'slack') touched.slack = true
+    return true
+  }
+
   // PUT /api/env-vars — update one or more env vars.
   // Body: { [KEY]: string }  — empty string clears the var, non-empty sets it.
   router.put('/', async (c) => {
     const body = await c.req.json<Record<string, string>>()
-    let daemonTouched = false
-    let githubTouched = false
-    let slackTouched = false
+    const touched: TouchedGroups = { daemon: false, github: false, slack: false }
     const invalid: string[] = []
     for (const [key, value] of Object.entries(body)) {
-      // `ALL_KEYS` y NO `visibleKeys()`: escribir se valida contra el catálogo
-      // entero. Un PUT puede cambiar el modo de auth Y el valor que ese modo
-      // vuelve relevante en la misma llamada — filtrar por la visibilidad
-      // ANTERIOR descartaría el segundo campo y dejaría al operador con el
-      // modo cambiado y sin credencial.
-      if (!ALL_KEYS.includes(key)) continue
-      const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
-      // Un `select` sólo acepta sus propias opciones. Sin esto, un típo entra a
-      // la DB y el error aparece lejos, cuando quien lee el valor lo parsea.
-      if (value !== '' && 'options' in def && !def.options.includes(value)) {
-        invalid.push(key)
-        continue
-      }
-      // `Bun.env` lo mueve el repositorio, no esta ruta: es el único que sabe
-      // qué traía el ambiente antes de que la DB lo tapara, y por lo tanto el
-      // único que puede DEVOLVERLE el valor al borrar la fila. Cuando el
-      // borrado se hacía acá con un `delete Bun.env[key]`, limpiar la variable
-      // desde la pantalla destruía el valor del shell o del compose: el
-      // proceso quedaba sin ninguno hasta reiniciar.
-      if (value === '') envRepo.delete(key)
-      else envRepo.set(key, value)
-      if (DAEMON_KEYS.has(key)) daemonTouched = true
-      // Por grupo y no por lista de keys: una variable de auth nueva queda
-      // cubierta sola.
-      if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'github')
-        githubTouched = true
-      if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'slack')
-        slackTouched = true
+      if (!applyEnvVarUpdate(key, value, touched)) invalid.push(key)
     }
     // Swap the running managers so a mode/interval change applies now. The
     // secret is read per-request, so it needs no reload.
-    if (daemonTouched) reloadManagers()
+    if (touched.daemon) reloadManagers()
     // El token SÍ se lee por request, pero la *estrategia* que lo produce se
     // resuelve una vez y queda cacheada: sin este reset, un arranque sin
     // credenciales deja un provider sin token para siempre y pegar el PAT acá
     // no cambia nada hasta reiniciar.
-    if (githubTouched) githubCredentials.reset()
+    if (touched.github) githubCredentials.reset()
     // El token de Slack es su interruptor: pegarlo tiene que registrar las
     // tools `slack_*` (y borrarlo, sacarlas) sin reiniciar. Lo demás del
     // paquete se lee por uso y no necesita aviso; el registry de tools es lo
     // único con estado.
-    if (slackTouched) slack.sync()
+    if (touched.slack) slack.sync()
     if (invalid.length)
       return c.json({ error: `valor inválido para: ${invalid.join(', ')}`, invalid }, 400)
     return c.json({
       ok: true,
-      daemonReloaded: daemonTouched,
-      githubAuthReset: githubTouched,
-      slackSynced: slackTouched,
+      daemonReloaded: touched.daemon,
+      githubAuthReset: touched.github,
+      slackSynced: touched.slack,
     })
   })
 

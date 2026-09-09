@@ -60,6 +60,41 @@ export function remoteProviderId(registrationId: string): string {
   return `remote:${registrationId}`
 }
 
+/** Las pistas de la tarea viajan en la query para que las admissionRules del
+ *  agent-host se evalúen ACÁ, en la sonda — ver el docstring de `canAccept`. */
+function buildCapacityProbeUrl(baseUrl: string, req: AdmissionRequest): URL {
+  const probe = new URL(`${baseUrl}/v1/capacity`)
+  for (const repo of req.task?.repos ?? []) probe.searchParams.append('repo', repo)
+  // `assignees: []` (conocido y vacío — los sources de GitHub siempre lo
+  // setean) viaja como un marcador `assignee=` vacío: así el agent-host puede
+  // distinguir "sin asignar" de "no sé quién está asignado" (daemon viejo,
+  // sin pistas) y una regla `assignee equals X` rechaza el issue sin
+  // asignar en vez de dejarlo pasar.
+  const assignees = req.task?.assignees
+  if (assignees && assignees.length === 0) probe.searchParams.append('assignee', '')
+  for (const login of assignees ?? []) probe.searchParams.append('assignee', login)
+  if (req.agentId) probe.searchParams.set('agentId', req.agentId)
+  if (req.task?.projectId) probe.searchParams.set('projectId', req.task.projectId)
+  if (req.task?.type) probe.searchParams.set('taskType', req.task.type)
+  return probe
+}
+
+async function parseCapacityResponse(res: Response): Promise<Admission> {
+  if (!res.ok) return ADMIT
+  const body = (await res.json()) as {
+    accepting?: unknown
+    reason?: unknown
+    retryAfterMs?: unknown
+  }
+  if (body.accepting !== false) return ADMIT
+  return decline(
+    typeof body.reason === 'string' && body.reason
+      ? `agent-host: ${body.reason}`
+      : 'el agent-host no está aceptando trabajo',
+    typeof body.retryAfterMs === 'number' ? body.retryAfterMs : undefined,
+  )
+}
+
 export class RemoteAgentProvider implements IAgentProvider {
   readonly id: string
   readonly kind: ProviderKind
@@ -90,25 +125,12 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     const { baseUrl, token } = this.registration
     const startedAt = Date.now()
-    // Las pistas de la tarea viajan en la query para que las admissionRules
-    // del agent-host se evalúen ACÁ, en la sonda — un rechazo acá hace que
-    // `resolveProvider` pruebe el siguiente candidato del agente. Sin pistas,
-    // una regla sobre la tarea recién corta en el POST /v1/run (503), y un
-    // 503 difiere el issue en vez de pasar al siguiente provider — para una
-    // regla estática (assignee, repo) eso es diferir para siempre.
-    const probe = new URL(`${baseUrl}/v1/capacity`)
-    for (const repo of req.task?.repos ?? []) probe.searchParams.append('repo', repo)
-    // `assignees: []` (conocido y vacío — los sources de GitHub siempre lo
-    // setean) viaja como un marcador `assignee=` vacío: así el agent-host puede
-    // distinguir "sin asignar" de "no sé quién está asignado" (daemon viejo,
-    // sin pistas) y una regla `assignee equals X` rechaza el issue sin
-    // asignar en vez de dejarlo pasar.
-    const assignees = req.task?.assignees
-    if (assignees && assignees.length === 0) probe.searchParams.append('assignee', '')
-    for (const login of assignees ?? []) probe.searchParams.append('assignee', login)
-    if (req.agentId) probe.searchParams.set('agentId', req.agentId)
-    if (req.task?.projectId) probe.searchParams.set('projectId', req.task.projectId)
-    if (req.task?.type) probe.searchParams.set('taskType', req.task.type)
+    // Un rechazo acá hace que `resolveProvider` pruebe el siguiente candidato
+    // del agente. Sin pistas, una regla sobre la tarea recién corta en el
+    // POST /v1/run (503), y un 503 difiere el issue en vez de pasar al
+    // siguiente provider — para una regla estática (assignee, repo) eso es
+    // diferir para siempre.
+    const probe = buildCapacityProbeUrl(baseUrl, req)
     log.debug(
       {
         providerId: this.id,
@@ -127,19 +149,7 @@ export class RemoteAgentProvider implements IAgentProvider {
         { providerId: this.id, status: res.status, elapsedMs: Date.now() - startedAt },
         'remote: sonda de capacidad respondió',
       )
-      if (!res.ok) return ADMIT
-      const body = (await res.json()) as {
-        accepting?: unknown
-        reason?: unknown
-        retryAfterMs?: unknown
-      }
-      if (body.accepting !== false) return ADMIT
-      return decline(
-        typeof body.reason === 'string' && body.reason
-          ? `agent-host: ${body.reason}`
-          : 'el agent-host no está aceptando trabajo',
-        typeof body.retryAfterMs === 'number' ? body.retryAfterMs : undefined,
-      )
+      return await parseCapacityResponse(res)
     } catch (err) {
       // Fail-open, pero que se vea: sin este log un agent-host inalcanzable en la
       // sonda es indistinguible de uno que admitió.
@@ -179,27 +189,7 @@ export class RemoteAgentProvider implements IAgentProvider {
     // ...iterable[Symbol.iterator] to be a function"). Rebuild the body as
     // a plain array here so the agent-host (packages/ai-providers/src/
     // anthropic-api/provider.ts) gets the real tool names back.
-    const withDaemon: ProviderInput = {
-      ...input,
-      // El default de los providers de terminal es `localhost`, que allá
-      // apunta al agent-host (y su PORT es el suyo, no el nuestro). Se manda la
-      // URL por la que ESTA máquina es alcanzable desde afuera; sin esto un
-      // run async remoto arranca sin tools y sin poder reportar el final.
-      daemonUrl: input.daemonUrl ?? daemonPublicUrl(),
-      // Y con qué autenticarse contra ella: el `IA_FLOW_API_TOKEN` de allá es
-      // el del agent-host, no el nuestro, así que sin esto un run async remoto
-      // vuelve a arrancar sin tools apenas este daemon tiene el guard puesto.
-      //
-      // Sólo para remotos ASYNC, que son los únicos que lo consumen: un run
-      // sync (`AGENT_HOST_PROVIDER=anthropic-api`) ejecuta sus tools allá y
-      // nunca le habla a `/api/mcp`. Este token abre `PUT /api/env-vars` y
-      // `POST /api/tasks` de ESTE daemon, y del otro lado aterriza en el
-      // settings.json per-run y en el env del CLI —cuyo Bash nativo no pasa
-      // por el deny-list de `bash_run`—, así que no viaja donde no hace falta.
-      ...(this.kind === 'async'
-        ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
-        : {}),
-    }
+    const withDaemon = this.withDaemonFields(input)
     const body = withDaemon.policy
       ? {
           ...withDaemon,
@@ -264,23 +254,7 @@ export class RemoteAgentProvider implements IAgentProvider {
       'remote: /v1/run respondió',
     )
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      // 503 = el agent-host está al tope. Es la contracara de `canAccept`: la
-      // sonda admitió y otro dispatch se comió el último slot en la ventana
-      // entre sonda y run (es consultiva, no reserva). Tratarlo como error
-      // dispararía el `onError` del agente — mover el issue de status y
-      // comentar un fallo que no pasó. Se difiere en su lugar.
-      if (res.status === 503) {
-        throw new ProviderAtCapacityError(
-          `RemoteAgentProvider(${this.id}): el agent-host está al tope — ${body.slice(0, 200)}`,
-          retryAfterMsFrom(res),
-        )
-      }
-      throw new Error(
-        `RemoteAgentProvider(${this.id}): ${baseUrl} respondió ${res.status} — ${body.slice(0, 500)}`,
-      )
-    }
+    if (!res.ok) await this.throwForFailedRun(res, baseUrl)
 
     const output = (await res.json()) as ProviderOutput
     log.debug(
@@ -297,6 +271,51 @@ export class RemoteAgentProvider implements IAgentProvider {
     // serializar. Se rehidrata contra los endpoints del agent-host para que el
     // watchdog y el cancel del orquestador funcionen igual que en local.
     return output.session ? { ...output, session: this.remoteSession(output.session) } : output
+  }
+
+  /** Los campos que sólo este daemon puede completar antes de mandar el
+   *  input al agent-host — ver los comentarios de cada campo más abajo. */
+  private withDaemonFields(input: ProviderInput): ProviderInput {
+    return {
+      ...input,
+      // El default de los providers de terminal es `localhost`, que allá
+      // apunta al agent-host (y su PORT es el suyo, no el nuestro). Se manda la
+      // URL por la que ESTA máquina es alcanzable desde afuera; sin esto un
+      // run async remoto arranca sin tools y sin poder reportar el final.
+      daemonUrl: input.daemonUrl ?? daemonPublicUrl(),
+      // Y con qué autenticarse contra ella: el `IA_FLOW_API_TOKEN` de allá es
+      // el del agent-host, no el nuestro, así que sin esto un run async remoto
+      // vuelve a arrancar sin tools apenas este daemon tiene el guard puesto.
+      //
+      // Sólo para remotos ASYNC, que son los únicos que lo consumen: un run
+      // sync (`AGENT_HOST_PROVIDER=anthropic-api`) ejecuta sus tools allá y
+      // nunca le habla a `/api/mcp`. Este token abre `PUT /api/env-vars` y
+      // `POST /api/tasks` de ESTE daemon, y del otro lado aterriza en el
+      // settings.json per-run y en el env del CLI —cuyo Bash nativo no pasa
+      // por el deny-list de `bash_run`—, así que no viaja donde no hace falta.
+      ...(this.kind === 'async'
+        ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
+        : {}),
+    }
+  }
+
+  /** Interpreta un `/v1/run` que no respondió 2xx y tira. Nunca retorna. */
+  private async throwForFailedRun(res: Response, baseUrl: string): Promise<never> {
+    const body = await res.text().catch(() => '')
+    // 503 = el agent-host está al tope. Es la contracara de `canAccept`: la
+    // sonda admitió y otro dispatch se comió el último slot en la ventana
+    // entre sonda y run (es consultiva, no reserva). Tratarlo como error
+    // dispararía el `onError` del agente — mover el issue de status y
+    // comentar un fallo que no pasó. Se difiere en su lugar.
+    if (res.status === 503) {
+      throw new ProviderAtCapacityError(
+        `RemoteAgentProvider(${this.id}): el agent-host está al tope — ${body.slice(0, 200)}`,
+        retryAfterMsFrom(res),
+      )
+    }
+    throw new Error(
+      `RemoteAgentProvider(${this.id}): ${baseUrl} respondió ${res.status} — ${body.slice(0, 500)}`,
+    )
   }
 
   /** Un `SessionHandle` que vive del otro lado del cable. */

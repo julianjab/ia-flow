@@ -177,6 +177,48 @@ async function discoverFromDevelopment(localName: string): Promise<ResolvedGithu
   return walkForRepo(developmentRoot, localName, 3)
 }
 
+/** Subdirectorios elegibles para bajar (ni ocultos, ni `node_modules`). */
+function isWalkable(entry: DirentString): boolean {
+  return entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules'
+}
+
+/** El match directo en este nivel: un subdirectorio con el nombre buscado
+ *  cuyo `.git/config` apunta a GitHub. */
+async function findDirectMatch(
+  dir: string,
+  entries: DirentString[],
+  targetName: string,
+): Promise<ResolvedGithubRepo | null> {
+  for (const entry of entries) {
+    if (!isWalkable(entry) || entry.name !== targetName) continue
+    const found = await discoverFromPath(join(dir, entry.name))
+    if (found) return found
+  }
+  return null
+}
+
+/** Baja un nivel a cada subdirectorio que no matcheó directo, en orden. */
+async function searchNested(
+  dir: string,
+  entries: DirentString[],
+  targetName: string,
+  depthRemaining: number,
+): Promise<ResolvedGithubRepo | null> {
+  for (const entry of entries) {
+    if (!isWalkable(entry) || entry.name === targetName) continue
+    const full = join(dir, entry.name)
+    try {
+      const st = await stat(full)
+      if (!st.isDirectory()) continue
+    } catch {
+      continue
+    }
+    const nested = await walkForRepo(full, targetName, depthRemaining - 1)
+    if (nested) return nested
+  }
+  return null
+}
+
 async function walkForRepo(
   dir: string,
   targetName: string,
@@ -189,31 +231,10 @@ async function walkForRepo(
   } catch {
     return null
   }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
-    const full = join(dir, entry.name)
-    if (entry.name === targetName) {
-      const found = await discoverFromPath(full)
-      if (found) return found
-    }
-  }
+  const direct = await findDirectMatch(dir, entries, targetName)
+  if (direct) return direct
   // Recurse only if not found at this level
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
-    if (entry.name === targetName) continue
-    const full = join(dir, entry.name)
-    try {
-      const st = await stat(full)
-      if (!st.isDirectory()) continue
-    } catch {
-      continue
-    }
-    const nested = await walkForRepo(full, targetName, depthRemaining - 1)
-    if (nested) return nested
-  }
-  return null
+  return searchNested(dir, entries, targetName, depthRemaining)
 }
 
 export type { RepoMappingEntry }

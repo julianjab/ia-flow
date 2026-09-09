@@ -1,3 +1,4 @@
+import type { EditableTool } from '@ia-flow/shared'
 import { EditableToolSchema } from '@ia-flow/shared'
 import { getAllTools } from '@ia-flow/tools'
 import type { Context } from 'hono'
@@ -27,6 +28,114 @@ function resolveScope(
   if (!projectId) return { ok: false, error: 'scope=global o projectId=<id> es obligatorio' }
   if (!projectRepo.get(projectId)) return { ok: false, error: `Proyecto ${projectId} no existe` }
   return { ok: true, target: projectId }
+}
+
+type RouteError = { body: { error: string }; status: 400 | 404 | 409 }
+
+/** El nombre es global, así que un choque NO se resuelve por ámbito: la fila
+ *  existente manda. Sin esto, el `ON CONFLICT DO UPDATE` del repo le movía
+ *  el `project_id` a la tool de otro ámbito y se la robaba en silencio. */
+function nameConflictError(
+  name: string,
+  existing: EditableTool | null,
+  target: string | null,
+): RouteError | null {
+  if (!existing || (existing.projectId ?? null) === target) return null
+  return {
+    body: {
+      error:
+        existing.projectId == null
+          ? `'${name}' es una tool global: para modificarla, editala desde General`
+          : `'${name}' ya existe en el proyecto '${existing.projectId}' — el nombre de una tool es único en todo el daemon`,
+    },
+    status: 409,
+  }
+}
+
+async function validateDefinedTool(
+  tool: Extract<EditableTool, { kind: 'defined' }>,
+  existing: EditableTool | null,
+  name: string,
+  target: string | null,
+): Promise<RouteError | null> {
+  // Tapar una built-in cambiaría en silencio lo que hace un agente que la
+  // declara — el modo de falla más caro de esta feature.
+  if (isBuiltInName(name) && existing?.kind !== 'defined') {
+    return {
+      body: {
+        error: `'${name}' es una tool built-in: no se puede reemplazar, sólo ajustar su descripción (kind: override)`,
+      },
+      status: 409,
+    }
+  }
+  const action = await actionRepo.getById(tool.actionId)
+  if (!action) return { body: { error: `La acción '${tool.actionId}' no existe` }, status: 400 }
+
+  // El ámbito de la tool no puede ser más ancho NI ajeno al de lo que
+  // ejecuta. Una global que corre una acción de proyecto sería visible
+  // desde todos lados y ejecutable desde uno solo; una de A que corre una
+  // acción de B le daría a los agentes de A el Slack, el GitHub y el repo
+  // de B. Una acción global la puede ejecutar cualquiera — es lo que
+  // significa ser global.
+  if (action.projectId != null && action.projectId !== target) {
+    return {
+      body: {
+        error:
+          target === null
+            ? `La acción '${tool.actionId}' es del proyecto '${action.projectId}': una tool global no puede ejecutarla`
+            : `La acción '${tool.actionId}' es del proyecto '${action.projectId}', no de '${target}'`,
+      },
+      status: 400,
+    }
+  }
+  return null
+}
+
+/** Parsea el body del PUT contra el schema, con el ámbito forzado desde la
+ *  query — y rechaza una `override` fuera de General. */
+function parseToolPut(
+  body: Record<string, unknown>,
+  name: string,
+  target: string | null,
+):
+  | { tool: EditableTool }
+  | { error: true; body: { error: string; issues?: unknown }; status: 400 | 409 } {
+  const parsed = EditableToolSchema.safeParse({
+    ...body,
+    name,
+    // El ámbito sale de la query, nunca del body: sin esto una escritura
+    // desde un proyecto podría mandar `projectId: null` y promover su tool a
+    // global —o pisar una global— sin que nada lo diga.
+    projectId: body.kind === 'override' ? null : target,
+  })
+  if (!parsed.success) {
+    return {
+      error: true,
+      body: { error: 'Payload inválido', issues: parsed.error.issues },
+      status: 400,
+    }
+  }
+  const tool = parsed.data
+  // Una override sólo tiene sentido en General: `setToolDescription` pisa el
+  // registry del proceso, uno solo para todos los proyectos.
+  if (tool.kind === 'override' && target !== null) {
+    return {
+      error: true,
+      body: {
+        error:
+          'La descripción de una tool built-in es global: se ajusta desde General, no desde un proyecto',
+      },
+      status: 409,
+    }
+  }
+  return { tool }
+}
+
+/** Una override sobre algo que no existe no ajusta nada, y guardarla haría
+ *  creer que sí. */
+function validateOverrideTarget(name: string): RouteError | null {
+  if (isBuiltInName(name)) return null
+  return { body: { error: `No hay ninguna tool built-in llamada '${name}'` }, status: 404 }
 }
 
 export function createToolsCrudRouter() {
@@ -90,84 +199,22 @@ export function createToolsCrudRouter() {
 
     const name = c.req.param('name')
     const body = (await c.req.json()) as Record<string, unknown>
-    const parsed = EditableToolSchema.safeParse({
-      ...body,
-      name,
-      // El ámbito sale de la query, nunca del body: sin esto una escritura
-      // desde un proyecto podría mandar `projectId: null` y promover su tool a
-      // global —o pisar una global— sin que nada lo diga.
-      projectId: body.kind === 'override' ? null : s.target,
-    })
-    if (!parsed.success) {
-      return c.json({ error: 'Payload inválido', issues: parsed.error.issues }, 400)
-    }
-    const tool = parsed.data
-
-    // Una override sólo tiene sentido en General: `setToolDescription` pisa el
-    // registry del proceso, uno solo para todos los proyectos.
-    if (tool.kind === 'override' && s.target !== null) {
-      return c.json(
-        {
-          error:
-            'La descripción de una tool built-in es global: se ajusta desde General, no desde un proyecto',
-        },
-        409,
-      )
-    }
+    const parsedOrError = parseToolPut(body, name, s.target)
+    if ('error' in parsedOrError) return c.json(parsedOrError.body, parsedOrError.status)
+    const tool = parsedOrError.tool
 
     // El nombre es global, así que un choque NO se resuelve por ámbito: la fila
     // existente manda. Sin esto, el `ON CONFLICT DO UPDATE` del repo le movía
     // el `project_id` a la tool de otro ámbito y se la robaba en silencio.
     const existing = await toolRepo.getByName(name)
-    if (existing && (existing.projectId ?? null) !== s.target) {
-      return c.json(
-        {
-          error:
-            existing.projectId == null
-              ? `'${name}' es una tool global: para modificarla, editala desde General`
-              : `'${name}' ya existe en el proyecto '${existing.projectId}' — el nombre de una tool es único en todo el daemon`,
-        },
-        409,
-      )
-    }
+    const conflict = nameConflictError(name, existing, s.target)
+    if (conflict) return c.json(conflict.body, conflict.status)
 
-    if (tool.kind === 'defined') {
-      // Tapar una built-in cambiaría en silencio lo que hace un agente que la
-      // declara — el modo de falla más caro de esta feature.
-      if (isBuiltInName(name) && existing?.kind !== 'defined') {
-        return c.json(
-          {
-            error: `'${name}' es una tool built-in: no se puede reemplazar, sólo ajustar su descripción (kind: override)`,
-          },
-          409,
-        )
-      }
-      const action = await actionRepo.getById(tool.actionId)
-      if (!action) {
-        return c.json({ error: `La acción '${tool.actionId}' no existe` }, 400)
-      }
-      // El ámbito de la tool no puede ser más ancho NI ajeno al de lo que
-      // ejecuta. Una global que corre una acción de proyecto sería visible
-      // desde todos lados y ejecutable desde uno solo; una de A que corre una
-      // acción de B le daría a los agentes de A el Slack, el GitHub y el repo
-      // de B. Una acción global la puede ejecutar cualquiera — es lo que
-      // significa ser global.
-      if (action.projectId != null && action.projectId !== s.target) {
-        return c.json(
-          {
-            error:
-              s.target === null
-                ? `La acción '${tool.actionId}' es del proyecto '${action.projectId}': una tool global no puede ejecutarla`
-                : `La acción '${tool.actionId}' es del proyecto '${action.projectId}', no de '${s.target}'`,
-          },
-          400,
-        )
-      }
-    } else if (!isBuiltInName(name)) {
-      // Una override sobre algo que no existe no ajusta nada, y guardarla haría
-      // creer que sí.
-      return c.json({ error: `No hay ninguna tool built-in llamada '${name}'` }, 404)
-    }
+    const invalid =
+      tool.kind === 'defined'
+        ? await validateDefinedTool(tool, existing, name, s.target)
+        : validateOverrideTarget(name)
+    if (invalid) return c.json(invalid.body, invalid.status)
 
     const saved = await toolRepo.upsert(tool)
     await reapplyEditableTools()

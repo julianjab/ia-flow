@@ -128,6 +128,43 @@ function matchPreset(sortedPerms: string[]): string | null {
   return null
 }
 
+interface AgentPermissionsRow {
+  id: string
+  tools: string | null
+  disabled_tools: string | null
+  permissions: string | null
+  preset_id: string | null
+}
+
+/** Backfills una fila que todavía no tiene `permissions`/`preset_id`. No-op
+ *  si el operador ya la pobló a mano, o si no hay `tools[]` de dónde derivar. */
+function backfillRow(db: Parameters<Migration['up']>[0], row: AgentPermissionsRow): void {
+  if (row.permissions || row.preset_id) return
+  const tools = row.tools ? (JSON.parse(row.tools) as string[]) : []
+  const disabled = row.disabled_tools ? (JSON.parse(row.disabled_tools) as string[]) : []
+  if (tools.length === 0) return
+  const derived = derivePermissions(tools, disabled)
+  if (derived.length === 0) return
+  const preset = matchPreset(derived)
+  // Also clear tools/disabled_tools on the same row — the provider now
+  // treats `policy` as authoritative and ignores `tools[]` when the
+  // agent opted into the DSL. Leaving the legacy columns populated
+  // would be a footgun for anyone who reads the raw row and assumes
+  // both are still in force (the DB shape stops matching the runtime
+  // contract). See pre-push review finding #1.
+  if (preset) {
+    db.run('UPDATE agents SET preset_id = ?, tools = NULL, disabled_tools = NULL WHERE id = ?', [
+      preset,
+      row.id,
+    ])
+  } else {
+    db.run('UPDATE agents SET permissions = ?, tools = NULL, disabled_tools = NULL WHERE id = ?', [
+      JSON.stringify(derived),
+      row.id,
+    ])
+  }
+}
+
 const migration: Migration = {
   id: '035-agent-permissions',
   description:
@@ -144,40 +181,9 @@ const migration: Migration = {
     // (e.g. via the CRUD endpoint post-035).
     const rows = db
       .query('SELECT id, tools, disabled_tools, permissions, preset_id FROM agents')
-      .all() as Array<{
-      id: string
-      tools: string | null
-      disabled_tools: string | null
-      permissions: string | null
-      preset_id: string | null
-    }>
+      .all() as AgentPermissionsRow[]
 
-    for (const row of rows) {
-      if (row.permissions || row.preset_id) continue
-      const tools = row.tools ? (JSON.parse(row.tools) as string[]) : []
-      const disabled = row.disabled_tools ? (JSON.parse(row.disabled_tools) as string[]) : []
-      if (tools.length === 0) continue
-      const derived = derivePermissions(tools, disabled)
-      if (derived.length === 0) continue
-      const preset = matchPreset(derived)
-      // Also clear tools/disabled_tools on the same row — the provider now
-      // treats `policy` as authoritative and ignores `tools[]` when the
-      // agent opted into the DSL. Leaving the legacy columns populated
-      // would be a footgun for anyone who reads the raw row and assumes
-      // both are still in force (the DB shape stops matching the runtime
-      // contract). See pre-push review finding #1.
-      if (preset) {
-        db.run(
-          'UPDATE agents SET preset_id = ?, tools = NULL, disabled_tools = NULL WHERE id = ?',
-          [preset, row.id],
-        )
-      } else {
-        db.run(
-          'UPDATE agents SET permissions = ?, tools = NULL, disabled_tools = NULL WHERE id = ?',
-          [JSON.stringify(derived), row.id],
-        )
-      }
-    }
+    for (const row of rows) backfillRow(db, row)
   },
 }
 

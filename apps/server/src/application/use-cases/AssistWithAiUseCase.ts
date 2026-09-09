@@ -83,33 +83,47 @@ function buildAgentContextBlock(input: {
 
 // ─── Use Case ──────────────────────────────────────────────────────────────
 
+interface AssistContext {
+  resolvedProjectId: string
+  availablePrompts: SystemPromptDef[]
+  normalizedVars: Array<{ key: string; value: string }>
+  resolvedAgentSysprompts: SystemPromptDef[]
+  missingAgentSysprompts: string[]
+  userMessage: string
+  extraBlocks: Array<{ type: 'text'; text: string }>
+  missingExtras: string[]
+}
+
+function validateAssistInput(input: AssistInput): void {
+  if (input.mode === 'generate' && !input.description?.trim()) {
+    throw new AssistValidationError('description is required for generate mode')
+  }
+  if (input.mode === 'refine' && !input.currentPrompt?.trim()) {
+    throw new AssistValidationError('currentPrompt is required for refine mode')
+  }
+}
+
+function buildUserMessage(input: AssistInput, agentContextBlock: string): string {
+  const { mode, agentId, description, currentPrompt } = input
+  const baseUserMessage =
+    mode === 'generate'
+      ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
+      : [
+          `Agent ID: ${agentId || 'unknown'}`,
+          description?.trim() ? `\nInstructions for the refinement:\n${description}` : '',
+          `\nCurrent prompt to refine:\n${currentPrompt}`,
+        ].join('')
+  return agentContextBlock ? `${agentContextBlock}\n\n${baseUserMessage}` : baseUserMessage
+}
+
 export class AssistWithAiUseCase {
   constructor(
     private systemPromptRepo: ISystemPromptRepository,
     private projectRepo: IProjectRepository,
   ) {}
 
-  async execute(input: AssistInput): Promise<AssistResult> {
-    const requestId = crypto.randomUUID().slice(0, 8)
-    const t0 = Date.now()
-    const {
-      mode,
-      description,
-      currentPrompt,
-      agentId,
-      systemPromptIds,
-      agentVariables,
-      agentSystemPromptIds,
-      projectId,
-    } = input
-
-    if (mode === 'generate' && !description?.trim()) {
-      throw new AssistValidationError('description is required for generate mode')
-    }
-    if (mode === 'refine' && !currentPrompt?.trim()) {
-      throw new AssistValidationError('currentPrompt is required for refine mode')
-    }
-
+  private buildContext(input: AssistInput, requestId: string): AssistContext {
+    const { agentVariables, agentSystemPromptIds, systemPromptIds, projectId } = input
     const resolvedProjectId = projectId ?? this.projectRepo.getDefaultId()
     const availablePrompts = this.systemPromptRepo.visibleTo(resolvedProjectId)
     const normalizedVars = normalizeAgentVariables(agentVariables)
@@ -125,22 +139,12 @@ export class AssistWithAiUseCase {
       agentSystemPromptIds,
       allSystemPrompts: availablePrompts,
     })
-    const baseUserMessage =
-      mode === 'generate'
-        ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
-        : [
-            `Agent ID: ${agentId || 'unknown'}`,
-            description?.trim() ? `\nInstructions for the refinement:\n${description}` : '',
-            `\nCurrent prompt to refine:\n${currentPrompt}`,
-          ].join('')
-    const userMessage = agentContextBlock
-      ? `${agentContextBlock}\n\n${baseUserMessage}`
-      : baseUserMessage
+    const userMessage = buildUserMessage(input, agentContextBlock)
 
     const extraBlocks = systemPromptIds?.length
       ? availablePrompts
           .filter((sp) => systemPromptIds.includes(sp.id))
-          .map((sp) => ({ type: 'text', text: sp.text }))
+          .map((sp) => ({ type: 'text' as const, text: sp.text }))
       : []
     const missingExtras = (systemPromptIds ?? []).filter(
       (id) => !availablePrompts.some((sp) => sp.id === id),
@@ -152,100 +156,108 @@ export class AssistWithAiUseCase {
       )
     }
 
+    return {
+      resolvedProjectId,
+      availablePrompts,
+      normalizedVars,
+      resolvedAgentSysprompts,
+      missingAgentSysprompts,
+      userMessage,
+      extraBlocks,
+      missingExtras,
+    }
+  }
+
+  private logStart(requestId: string, input: AssistInput, ctx: AssistContext): void {
     log.info(
       {
         requestId,
-        mode,
-        agentId: agentId ?? null,
-        currentPromptLen: currentPrompt?.length ?? 0,
-        descriptionLen: description?.length ?? 0,
-        agentVariableKeys: normalizedVars.map((v) => v.key),
-        agentSystemPrompts: resolvedAgentSysprompts.map((sp) => ({
+        mode: input.mode,
+        agentId: input.agentId ?? null,
+        currentPromptLen: input.currentPrompt?.length ?? 0,
+        descriptionLen: input.description?.length ?? 0,
+        agentVariableKeys: ctx.normalizedVars.map((v) => v.key),
+        agentSystemPrompts: ctx.resolvedAgentSysprompts.map((sp) => ({
           id: sp.id,
           name: sp.name,
           textLen: sp.text.length,
         })),
-        agentSystemPromptsMissing: missingAgentSysprompts,
-        extraSystemPromptIds: systemPromptIds ?? [],
-        userMessageLen: userMessage.length,
+        agentSystemPromptsMissing: ctx.missingAgentSysprompts,
+        extraSystemPromptIds: input.systemPromptIds ?? [],
+        userMessageLen: ctx.userMessage.length,
       },
-      `assist: ${mode} start`,
+      `assist: ${input.mode} start`,
     )
+  }
 
-    const config = await loadProviderConfig()
-    const { model, anthropicVersion } = config.anthropicApi
-    const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
-
-    // Tool-aware path: reuse the existing anthropic-api provider so we
-    // don't reimplement executeLoop / tool wiring / repoPaths / thinking.
-    if (input.tools?.length) {
-      const repoPaths: Record<string, string> = {}
-      for (const r of input.repoContexts ?? []) {
-        if (r.path) repoPaths[r.name] = expandHome(r.path)
-      }
-      const tApiTool = Date.now()
-      try {
-        // Dynamic import to avoid a static cycle with composition/container.ts,
-        // which instantiates this use case (same pattern as
-        // `tools/index.ts::compactHistory`).
-        const { anthropicApiProvider } = await import('../../composition/container.js')
-        const result = await anthropicApiProvider.run({
-          step: 'refine-functional',
-          taskId: `assist-${requestId}`,
-          taskTitle: `assist ${input.agentId ?? 'unknown'}`,
-          taskDescription: description ?? '',
-          taskType: 'assist',
-          repos: Object.keys(repoPaths),
-          repoPaths,
-          prompt: userMessage,
-          systemPromptBlocks: extraBlocks as Array<{ type: 'text'; text: string }>,
-          tools: input.tools,
-        })
-        const output = result.content.trim()
-        log.info(
-          {
-            requestId,
-            mode,
-            model,
-            apiMs: Date.now() - tApiTool,
-            totalMs: Date.now() - t0,
-            tools: input.tools,
-            outputLen: output.length,
-          },
-          `assist: ${mode} done (tool-aware)`,
-        )
-        return { prompt: output }
-      } catch (err) {
-        throw new AssistUpstreamError(
-          `Tool-aware assist failed: ${err instanceof Error ? err.message : String(err)}`,
-          500,
-        )
-      }
+  /** Tool-aware path: reuse the existing anthropic-api provider so we don't
+   *  reimplement executeLoop / tool wiring / repoPaths / thinking. */
+  private async runToolAware(
+    input: AssistInput,
+    ctx: AssistContext,
+    meta: { requestId: string; t0: number; model: string },
+  ): Promise<AssistResult> {
+    const { requestId, t0, model } = meta
+    const repoPaths: Record<string, string> = {}
+    for (const r of input.repoContexts ?? []) {
+      if (r.path) repoPaths[r.name] = expandHome(r.path)
     }
-
-    // Structured "form-fill" mode: forced tool_use with the caller's schema.
-    if (input.responseSchema && typeof input.responseSchema === 'object') {
-      return this.runFormFill({
-        requestId,
-        t0,
-        mode,
-        agentId,
-        model,
-        anthropicVersion,
-        systemBlocks: extraBlocks as Array<{ type: 'text'; text: string }>,
-        userMessage,
-        responseSchema: input.responseSchema,
+    const tApiTool = Date.now()
+    try {
+      // Dynamic import to avoid a static cycle with composition/container.ts,
+      // which instantiates this use case (same pattern as
+      // `tools/index.ts::compactHistory`).
+      const { anthropicApiProvider } = await import('../../composition/container.js')
+      const result = await anthropicApiProvider.run({
+        step: 'refine-functional',
+        taskId: `assist-${requestId}`,
+        taskTitle: `assist ${input.agentId ?? 'unknown'}`,
+        taskDescription: input.description ?? '',
+        taskType: 'assist',
+        repos: Object.keys(repoPaths),
+        repoPaths,
+        prompt: ctx.userMessage,
+        systemPromptBlocks: ctx.extraBlocks,
+        tools: input.tools as string[],
       })
+      const output = result.content.trim()
+      log.info(
+        {
+          requestId,
+          mode: input.mode,
+          model,
+          apiMs: Date.now() - tApiTool,
+          totalMs: Date.now() - t0,
+          tools: input.tools,
+          outputLen: output.length,
+        },
+        `assist: ${input.mode} done (tool-aware)`,
+      )
+      return { prompt: output }
+    } catch (err) {
+      throw new AssistUpstreamError(
+        `Tool-aware assist failed: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      )
     }
+  }
 
+  private async runPlainCompletion(
+    input: AssistInput,
+    ctx: AssistContext,
+    meta: { requestId: string; t0: number; model: string; anthropicVersion: string },
+  ): Promise<AssistResult> {
+    const { requestId, t0, model, anthropicVersion } = meta
+    const { mode, agentId } = input
+    const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
     const requestBody = {
       model,
       max_tokens: 16000,
-      system: extraBlocks,
-      messages: [{ role: 'user', content: userMessage }],
+      system: ctx.extraBlocks,
+      messages: [{ role: 'user', content: ctx.userMessage }],
     }
     log.debug(
-      { requestId, model, system: extraBlocks, userMessage },
+      { requestId, model, system: ctx.extraBlocks, userMessage: ctx.userMessage },
       'assist: anthropic request payload',
     )
 
@@ -300,6 +312,40 @@ export class AssistWithAiUseCase {
     log.debug({ requestId, output }, 'assist: output text')
 
     return { prompt: output }
+  }
+
+  async execute(input: AssistInput): Promise<AssistResult> {
+    const requestId = crypto.randomUUID().slice(0, 8)
+    const t0 = Date.now()
+
+    validateAssistInput(input)
+
+    const ctx = this.buildContext(input, requestId)
+    this.logStart(requestId, input, ctx)
+
+    const config = await loadProviderConfig()
+    const { model, anthropicVersion } = config.anthropicApi
+
+    if (input.tools?.length) {
+      return this.runToolAware(input, ctx, { requestId, t0, model })
+    }
+
+    // Structured "form-fill" mode: forced tool_use with the caller's schema.
+    if (input.responseSchema && typeof input.responseSchema === 'object') {
+      return this.runFormFill({
+        requestId,
+        t0,
+        mode: input.mode,
+        agentId: input.agentId,
+        model,
+        anthropicVersion,
+        systemBlocks: ctx.extraBlocks,
+        userMessage: ctx.userMessage,
+        responseSchema: input.responseSchema,
+      })
+    }
+
+    return this.runPlainCompletion(input, ctx, { requestId, t0, model, anthropicVersion })
   }
 
   private async runFormFill(args: {

@@ -123,6 +123,215 @@ function uniqueId(db: Database, baseId: string): string {
   return `${baseId}-${n}`
 }
 
+type StatusRow = { project_id: string; name: string; position: number; agents: string }
+
+function addNewColumns(db: Database): void {
+  db.run('ALTER TABLE agents ADD COLUMN repo_name TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN status_name TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN when_conditions TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN on_process TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN on_finish TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN on_error TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN on_process_labels TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN on_finish_labels TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN on_error_labels TEXT')
+  db.run('ALTER TABLE agents ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1')
+}
+
+/** Primera vez que este agente aparece: la activación entra en su propia fila. */
+function updateOriginalAgent(
+  db: Database,
+  status: StatusRow,
+  entry: StatusAgentEntry,
+  whenConditions: WhenCondition[] | null,
+  position: number,
+  originalId: string,
+): void {
+  db.run(
+    `UPDATE agents SET
+       status_name = ?,
+       when_conditions = ?,
+       on_process = ?,
+       on_finish = ?,
+       on_error = ?,
+       on_process_labels = ?,
+       on_finish_labels = ?,
+       on_error_labels = ?,
+       position = ?,
+       enabled = 1
+     WHERE id = ?`,
+    [
+      status.name,
+      whenConditions ? JSON.stringify(whenConditions) : null,
+      entry.onProcess ?? null,
+      entry.onFinish ?? null,
+      entry.onError ?? null,
+      entry.onProcessLabels ?? null,
+      entry.onFinishLabels ?? null,
+      entry.onErrorLabels ?? null,
+      position,
+      originalId,
+    ],
+  )
+}
+
+/** Ya vimos este agente en otro status — status_name es una sola columna, así
+ *  que esta activación extra necesita su propia fila clonada. */
+function cloneAgentForStatus(
+  db: Database,
+  status: StatusRow,
+  entry: StatusAgentEntry,
+  whenConditions: WhenCondition[] | null,
+  position: number,
+  original: AgentDefRow,
+  originalId: string,
+): void {
+  const cloneBaseId = `${originalId}--${slugify(status.name)}`
+  const cloneId = uniqueId(db, cloneBaseId)
+
+  const cols = DEF_COLUMNS.join(', ')
+  const placeholders = DEF_COLUMNS.map(() => '?').join(', ')
+  const values = DEF_COLUMNS.map((c) => original[c as keyof AgentDefRow])
+
+  db.run(
+    `INSERT INTO agents (
+       id, ${cols},
+       status_name, when_conditions,
+       on_process, on_finish, on_error,
+       on_process_labels, on_finish_labels, on_error_labels,
+       position, enabled
+     ) VALUES (?, ${placeholders}, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    [
+      cloneId,
+      ...values,
+      status.name,
+      whenConditions ? JSON.stringify(whenConditions) : null,
+      entry.onProcess ?? null,
+      entry.onFinish ?? null,
+      entry.onError ?? null,
+      entry.onProcessLabels ?? null,
+      entry.onFinishLabels ?? null,
+      entry.onErrorLabels ?? null,
+      position,
+    ],
+  )
+
+  console.log(
+    `[036-agents-as-primary-entity] cloned agent "${originalId}" -> "${cloneId}" for status "${status.name}" (project ${status.project_id})`,
+  )
+}
+
+interface BackfillState {
+  seq: number
+  seen: Set<string>
+}
+
+function applyStatusAgentEntry(
+  db: Database,
+  status: StatusRow,
+  entry: StatusAgentEntry,
+  state: BackfillState,
+): void {
+  const originalId = entry.agent
+  const original = db
+    .query('SELECT * FROM agents WHERE id = ?')
+    .get(originalId) as AgentDefRow | null
+  if (!original) {
+    console.log(
+      `[036-agents-as-primary-entity] skipping orphan entry: agent "${originalId}" referenced by status "${status.name}" (project ${status.project_id}) does not exist`,
+    )
+    return
+  }
+
+  const whenConditions = normalizeWhen(entry.when)
+  const position = state.seq
+  state.seq++
+
+  if (!state.seen.has(originalId)) {
+    state.seen.add(originalId)
+    updateOriginalAgent(db, status, entry, whenConditions, position, originalId)
+  } else {
+    cloneAgentForStatus(db, status, entry, whenConditions, position, original, originalId)
+  }
+}
+
+// ─── Step 2 — backfill from statuses.agents ─────────────────────────────
+function backfillFromStatuses(db: Database): number {
+  const statusRows = db
+    .query(
+      'SELECT project_id, name, position, agents FROM statuses ORDER BY project_id, position ASC',
+    )
+    .all() as StatusRow[]
+
+  const state: BackfillState = { seq: 0, seen: new Set() }
+
+  for (const status of statusRows) {
+    let entries: StatusAgentEntry[]
+    try {
+      entries = JSON.parse(status.agents) as StatusAgentEntry[]
+    } catch {
+      continue
+    }
+    if (!Array.isArray(entries)) continue
+
+    for (const entry of entries) applyStatusAgentEntry(db, status, entry, state)
+  }
+  return state.seq
+}
+
+// Agents that were never referenced by any status kept the pre-migration
+// schema's actual behavior: a status decides who runs, so an agent not
+// listed anywhere never ran. Now that `status_name = NULL` means "matches
+// every status", leaving these rows untouched would make them start
+// running everywhere — a behavior change this migration must NOT
+// introduce. So they're explicitly disabled (`enabled = 0`) instead,
+// preserving "never runs" until an operator opts them in deliberately.
+// They still get consecutive positions, continuing after every migrated
+// row, so their relative order (definition order) is stable once enabled.
+function disableUnreferencedAgents(db: Database, startSeq: number): void {
+  const unreferenced = db
+    .query('SELECT id FROM agents WHERE status_name IS NULL ORDER BY id')
+    .all() as Array<{ id: string }>
+
+  let seq = startSeq
+  for (const row of unreferenced) {
+    db.run('UPDATE agents SET enabled = 0, position = ? WHERE id = ?', [seq, row.id])
+    seq++
+  }
+}
+
+// ─── Step 3 — drop statuses.agents ───────────────────────────────────────
+function recreateStatusesTable(db: Database): void {
+  const statusCols = db.query('PRAGMA table_info(statuses)').all() as { name: string }[]
+  const hasAllowBlocked = statusCols.some((c) => c.name === 'allow_blocked')
+
+  db.run(`
+    CREATE TABLE statuses_new (
+      project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
+      position      INTEGER NOT NULL DEFAULT 0,
+      context_repos TEXT,
+      allow_blocked INTEGER,
+      PRIMARY KEY (project_id, name)
+    )
+  `)
+
+  if (hasAllowBlocked) {
+    db.run(`
+      INSERT INTO statuses_new (project_id, name, position, context_repos, allow_blocked)
+      SELECT project_id, name, position, context_repos, allow_blocked FROM statuses
+    `)
+  } else {
+    db.run(`
+      INSERT INTO statuses_new (project_id, name, position, context_repos)
+      SELECT project_id, name, position, context_repos FROM statuses
+    `)
+  }
+
+  db.run('DROP TABLE statuses')
+  db.run('ALTER TABLE statuses_new RENAME TO statuses')
+}
+
 const migration: Migration = {
   id: '036-agents-as-primary-entity',
   description:
@@ -132,171 +341,10 @@ const migration: Migration = {
     const cols = db.query('PRAGMA table_info(agents)').all() as { name: string }[]
     if (cols.some((c) => c.name === 'status_name')) return
 
-    db.run('ALTER TABLE agents ADD COLUMN repo_name TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN status_name TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN when_conditions TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN on_process TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN on_finish TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN on_error TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN on_process_labels TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN on_finish_labels TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN on_error_labels TEXT')
-    db.run('ALTER TABLE agents ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1')
-
-    // ─── Step 2 — backfill from statuses.agents ───────────────────────────
-
-    const statusRows = db
-      .query(
-        'SELECT project_id, name, position, agents FROM statuses ORDER BY project_id, position ASC',
-      )
-      .all() as Array<{ project_id: string; name: string; position: number; agents: string }>
-
-    let seq = 0
-    const seen = new Set<string>()
-
-    for (const status of statusRows) {
-      let entries: StatusAgentEntry[]
-      try {
-        entries = JSON.parse(status.agents) as StatusAgentEntry[]
-      } catch {
-        continue
-      }
-      if (!Array.isArray(entries)) continue
-
-      for (const entry of entries) {
-        const originalId = entry.agent
-        const original = db
-          .query('SELECT * FROM agents WHERE id = ?')
-          .get(originalId) as AgentDefRow | null
-        if (!original) {
-          console.log(
-            `[036-agents-as-primary-entity] skipping orphan entry: agent "${originalId}" referenced by status "${status.name}" (project ${status.project_id}) does not exist`,
-          )
-          continue
-        }
-
-        const whenConditions = normalizeWhen(entry.when)
-        const position = seq
-        seq++
-
-        if (!seen.has(originalId)) {
-          seen.add(originalId)
-          db.run(
-            `UPDATE agents SET
-               status_name = ?,
-               when_conditions = ?,
-               on_process = ?,
-               on_finish = ?,
-               on_error = ?,
-               on_process_labels = ?,
-               on_finish_labels = ?,
-               on_error_labels = ?,
-               position = ?,
-               enabled = 1
-             WHERE id = ?`,
-            [
-              status.name,
-              whenConditions ? JSON.stringify(whenConditions) : null,
-              entry.onProcess ?? null,
-              entry.onFinish ?? null,
-              entry.onError ?? null,
-              entry.onProcessLabels ?? null,
-              entry.onFinishLabels ?? null,
-              entry.onErrorLabels ?? null,
-              position,
-              originalId,
-            ],
-          )
-        } else {
-          // Same agent already wired to a previous status — status_name is a
-          // single column, so this extra wiring can't live on the same row.
-          // Clone the row's definition columns into a new agent id and give
-          // the clone this entry's activation criteria.
-          const cloneBaseId = `${originalId}--${slugify(status.name)}`
-          const cloneId = uniqueId(db, cloneBaseId)
-
-          const cols = DEF_COLUMNS.join(', ')
-          const placeholders = DEF_COLUMNS.map(() => '?').join(', ')
-          const values = DEF_COLUMNS.map((c) => original[c as keyof AgentDefRow])
-
-          db.run(
-            `INSERT INTO agents (
-               id, ${cols},
-               status_name, when_conditions,
-               on_process, on_finish, on_error,
-               on_process_labels, on_finish_labels, on_error_labels,
-               position, enabled
-             ) VALUES (?, ${placeholders}, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-            [
-              cloneId,
-              ...values,
-              status.name,
-              whenConditions ? JSON.stringify(whenConditions) : null,
-              entry.onProcess ?? null,
-              entry.onFinish ?? null,
-              entry.onError ?? null,
-              entry.onProcessLabels ?? null,
-              entry.onFinishLabels ?? null,
-              entry.onErrorLabels ?? null,
-              position,
-            ],
-          )
-
-          console.log(
-            `[036-agents-as-primary-entity] cloned agent "${originalId}" -> "${cloneId}" for status "${status.name}" (project ${status.project_id})`,
-          )
-        }
-      }
-    }
-
-    // Agents that were never referenced by any status kept the pre-migration
-    // schema's actual behavior: a status decides who runs, so an agent not
-    // listed anywhere never ran. Now that `status_name = NULL` means "matches
-    // every status", leaving these rows untouched would make them start
-    // running everywhere — a behavior change this migration must NOT
-    // introduce. So they're explicitly disabled (`enabled = 0`) instead,
-    // preserving "never runs" until an operator opts them in deliberately.
-    // They still get consecutive positions, continuing after every migrated
-    // row, so their relative order (definition order) is stable once enabled.
-    const unreferenced = db
-      .query('SELECT id FROM agents WHERE status_name IS NULL ORDER BY id')
-      .all() as Array<{ id: string }>
-
-    for (const row of unreferenced) {
-      db.run('UPDATE agents SET enabled = 0, position = ? WHERE id = ?', [seq, row.id])
-      seq++
-    }
-
-    // ─── Step 3 — drop statuses.agents ─────────────────────────────────────
-
-    const statusCols = db.query('PRAGMA table_info(statuses)').all() as { name: string }[]
-    const hasAllowBlocked = statusCols.some((c) => c.name === 'allow_blocked')
-
-    db.run(`
-      CREATE TABLE statuses_new (
-        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        name          TEXT NOT NULL,
-        position      INTEGER NOT NULL DEFAULT 0,
-        context_repos TEXT,
-        allow_blocked INTEGER,
-        PRIMARY KEY (project_id, name)
-      )
-    `)
-
-    if (hasAllowBlocked) {
-      db.run(`
-        INSERT INTO statuses_new (project_id, name, position, context_repos, allow_blocked)
-        SELECT project_id, name, position, context_repos, allow_blocked FROM statuses
-      `)
-    } else {
-      db.run(`
-        INSERT INTO statuses_new (project_id, name, position, context_repos)
-        SELECT project_id, name, position, context_repos FROM statuses
-      `)
-    }
-
-    db.run('DROP TABLE statuses')
-    db.run('ALTER TABLE statuses_new RENAME TO statuses')
+    addNewColumns(db)
+    const seq = backfillFromStatuses(db)
+    disableUnreferencedAgents(db, seq)
+    recreateStatusesTable(db)
   },
 }
 

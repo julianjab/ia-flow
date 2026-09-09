@@ -92,6 +92,71 @@ async function ownersFromViewer(): Promise<Owner[]> {
   ]
 }
 
+/** Los repos accesibles bajo un owner. Instalación: filtra su propia lista.
+ *  Identidad de usuario: no sabemos si el owner es org o persona — probamos
+ *  org primero y caemos a user. */
+async function resolveReposFor(owner: string): Promise<string[]> {
+  if (await usesInstallationToken()) {
+    // La instalación ya sabe a qué llega: filtrar su lista evita pegarle a
+    // `/orgs/:owner/repos`, que devolvería repos que el token no puede leer.
+    return (await listInstallationRepos())
+      .filter((r) => r.owner.login.toLowerCase() === owner.toLowerCase())
+      .map((r) => r.name)
+  }
+  try {
+    const orgRepos = (await rest(
+      `/orgs/${encodeURIComponent(owner)}/repos?per_page=100&sort=pushed`,
+    )) as Array<{ name: string }>
+    return orgRepos.map((r) => r.name)
+  } catch {
+    const userRepos = (await rest(
+      `/users/${encodeURIComponent(owner)}/repos?per_page=100&sort=pushed`,
+    )) as Array<{ name: string }>
+    return userRepos.map((r) => r.name)
+  }
+}
+
+/** El `url` del source GitHub Projects del proyecto, o el error a devolver. */
+async function resolveGithubProjectUrl(
+  projectId: string,
+): Promise<{ url: string } | { error: string; status: 400 }> {
+  const { projectRepo } = await import('../../composition/container.js')
+  const project = projectRepo.get(projectId)
+  // Las dos grafías: 'github-projects' es la canónica, 'github' el alias
+  // deprecado que siguen teniendo las filas viejas (ver createDefaultSourceFactory).
+  const kind = project?.source?.kind
+  if (!project || (kind !== 'github-projects' && kind !== 'github')) {
+    return { error: "Project source is not 'github-projects'", status: 400 }
+  }
+  // `kind` ya probó que `project.source` existe, pero el narrowing se pierde
+  // al leerlo en una variable aparte — de ahí el acceso opcional.
+  const url = project.source?.config?.url
+  if (typeof url !== 'string' || !url) {
+    return { error: 'Project github source has no url configured', status: 400 }
+  }
+  return { url }
+}
+
+async function removeObsoleteStatusOptions(
+  url: string,
+  toRemove: string[],
+): Promise<{ removed: string[]; remaining: string[] } | { error: string; status: 404 }> {
+  const meta = await getProjectMeta(url)
+  const statusField = meta.fields['Status']
+  if (!statusField) return { error: 'Status field not found in project', status: 404 }
+
+  const before = statusField.options?.map((o) => o.name) ?? []
+  await removeStatusOptions(meta.projectId, statusField, toRemove)
+  const remaining = (statusField.options ?? [])
+    .filter((o) => !toRemove.map((n) => n.toLowerCase()).includes(o.name.toLowerCase()))
+    .map((o) => o.name)
+
+  return {
+    removed: toRemove.filter((n) => before.map((b) => b.toLowerCase()).includes(n.toLowerCase())),
+    remaining,
+  }
+}
+
 export function createGithubRouter() {
   const router = new Hono()
 
@@ -124,30 +189,7 @@ export function createGithubRouter() {
     }
 
     try {
-      let repos: string[] = []
-      if (await usesInstallationToken()) {
-        // La instalación ya sabe a qué llega: filtrar su lista evita pegarle a
-        // `/orgs/:owner/repos`, que devolvería repos que el token no puede leer.
-        repos = (await listInstallationRepos())
-          .filter((r) => r.owner.login.toLowerCase() === owner.toLowerCase())
-          .map((r) => r.name)
-        const data = { repos }
-        reposCache.set(owner, { at: Date.now(), data })
-        return c.json(data)
-      }
-      // Identidad de usuario: no sabemos si el owner es org o persona. Probamos
-      // org primero y caemos a user.
-      try {
-        const orgRepos = (await rest(
-          `/orgs/${encodeURIComponent(owner)}/repos?per_page=100&sort=pushed`,
-        )) as Array<{ name: string }>
-        repos = orgRepos.map((r) => r.name)
-      } catch {
-        const userRepos = (await rest(
-          `/users/${encodeURIComponent(owner)}/repos?per_page=100&sort=pushed`,
-        )) as Array<{ name: string }>
-        repos = userRepos.map((r) => r.name)
-      }
+      const repos = await resolveReposFor(owner)
       const data = { repos }
       reposCache.set(owner, { at: Date.now(), data })
       return c.json(data)
@@ -163,42 +205,18 @@ export function createGithubRouter() {
   router.delete('/status-options', async (c) => {
     const projectId = c.req.query('projectId')
     if (!projectId) return c.json({ error: 'projectId query param required' }, 400)
-    const { projectRepo } = await import('../../composition/container.js')
-    const project = projectRepo.get(projectId)
-    // Las dos grafías: 'github-projects' es la canónica, 'github' el alias
-    // deprecado que siguen teniendo las filas viejas (ver createDefaultSourceFactory).
-    const kind = project?.source?.kind
-    if (!project || (kind !== 'github-projects' && kind !== 'github')) {
-      return c.json({ error: "Project source is not 'github-projects'" }, 400)
-    }
-    // `kind` ya probó que `project.source` existe, pero el narrowing se pierde
-    // al leerlo en una variable aparte — de ahí el acceso opcional.
-    const url = project.source?.config?.url
-    if (typeof url !== 'string' || !url) {
-      return c.json({ error: 'Project github source has no url configured' }, 400)
-    }
+
+    const urlOrError = await resolveGithubProjectUrl(projectId)
+    if ('error' in urlOrError) return c.json({ error: urlOrError.error }, urlOrError.status)
 
     const body = (await c.req.json().catch(() => ({}))) as { options?: string[] }
     const toRemove: string[] = body.options ?? ['Refining', 'Implementing', 'Triaging']
     if (!toRemove.length) return c.json({ removed: [] })
 
     try {
-      const meta = await getProjectMeta(url)
-      const statusField = meta.fields['Status']
-      if (!statusField) return c.json({ error: 'Status field not found in project' }, 404)
-
-      const before = statusField.options?.map((o) => o.name) ?? []
-      await removeStatusOptions(meta.projectId, statusField, toRemove)
-      const after = (statusField.options ?? [])
-        .filter((o) => !toRemove.map((n) => n.toLowerCase()).includes(o.name.toLowerCase()))
-        .map((o) => o.name)
-
-      return c.json({
-        removed: toRemove.filter((n) =>
-          before.map((b) => b.toLowerCase()).includes(n.toLowerCase()),
-        ),
-        remaining: after,
-      })
+      const result = await removeObsoleteStatusOptions(urlOrError.url, toRemove)
+      if ('error' in result) return c.json({ error: result.error }, result.status)
+      return c.json(result)
     } catch (err) {
       return c.json({ error: (err as Error).message }, 502)
     }

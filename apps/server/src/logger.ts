@@ -448,6 +448,46 @@ function normalize(arg1: unknown, arg2: unknown): { msg: string; extras: Record<
   return { msg: '', extras: {} }
 }
 
+/** Mirrors one entry to the WS clients as `log:entry`, when a broadcast fn is set. */
+function broadcastEntry(
+  fn: BroadcastFn | null,
+  level: string,
+  module: string,
+  msg: string,
+  extras: Record<string, unknown>,
+): void {
+  if (!fn) return
+  fn({
+    type: 'log:entry',
+    entry: {
+      time: new Date().toISOString(),
+      level: level as BroadcastLevel,
+      module,
+      msg,
+      extras,
+    },
+  })
+}
+
+/** POSTs the entry to `IA_FLOW_REMOTE_LOG_URL`, when configured. Fire-and-forget. */
+function forwardRemoteLog(
+  level: string,
+  module: string,
+  msg: string,
+  extras: Record<string, unknown>,
+): void {
+  if (!REMOTE_LOG_URL) return
+  fetch(REMOTE_LOG_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(REMOTE_LOG_TOKEN ? { 'x-ia-flow-token': REMOTE_LOG_TOKEN } : {}),
+    },
+    body: JSON.stringify({ level, module, msg, extras }),
+    signal: AbortSignal.timeout(REMOTE_LOG_TIMEOUT_MS),
+  }).catch(() => {})
+}
+
 // Child logger factory — adds `module` field to every log line and, when a
 // broadcast fn is set, mirrors each entry to the WS clients as `log:entry`.
 export function createLogger(module: string) {
@@ -466,29 +506,8 @@ export function createLogger(module: string) {
         // process's own WS clients, or the main daemon once forwarded) can
         // tell which container the line came from — see INSTANCE_ID above.
         const extras = INSTANCE_ID ? { ...rawExtras, source: INSTANCE_ID } : rawExtras
-        if (fn) {
-          fn({
-            type: 'log:entry',
-            entry: {
-              time: new Date().toISOString(),
-              level: level as BroadcastLevel,
-              module,
-              msg,
-              extras,
-            },
-          })
-        }
-        if (REMOTE_LOG_URL) {
-          fetch(REMOTE_LOG_URL, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              ...(REMOTE_LOG_TOKEN ? { 'x-ia-flow-token': REMOTE_LOG_TOKEN } : {}),
-            },
-            body: JSON.stringify({ level, module, msg, extras }),
-            signal: AbortSignal.timeout(REMOTE_LOG_TIMEOUT_MS),
-          }).catch(() => {})
-        }
+        broadcastEntry(fn, level, module, msg, extras)
+        forwardRemoteLog(level, module, msg, extras)
       } catch {
         // Never let a broadcast/remote-forward failure interfere with logging itself.
       }

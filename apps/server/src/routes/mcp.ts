@@ -1,6 +1,7 @@
 import { selectableExits } from '@ia-flow/agent-engine'
 import type { ToolDefinitionsOptions } from '@ia-flow/tools'
 import { resolveExecutableTool, resolveTools } from '@ia-flow/tools'
+import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { configRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
@@ -38,6 +39,109 @@ function rpcError(id: string | number | null | undefined, code: number, message:
   return { jsonrpc: '2.0' as const, id: id ?? null, error: { code, message } }
 }
 
+type JsonRpcId = JsonRpcRequest['id']
+
+function handleInitialize(c: Context, id: JsonRpcId) {
+  return c.json(
+    rpcResult(id, {
+      protocolVersion: '2025-06-18',
+      capabilities: { tools: {} },
+      serverInfo: { name: 'ia-flow-tools', version: '1.0.0' },
+    }),
+  )
+}
+
+async function handleToolsList(c: Context, id: JsonRpcId, toolNames: string[] | undefined) {
+  // Las tools que se ESPECIALIZAN por agente (`select_exit`,
+  // `submit_output`) necesitan la config del agente, no sólo su lista de
+  // nombres. En sync la trae el `ProviderInput`; acá hay que ir a
+  // buscarla con el `?agent=`/`?project=` que ya viaja en la conexión.
+  //
+  // Sin esto, `specialize` recibía `undefined` y `hideWhen` escondía la
+  // tool: `select_exit` sencillamente NO EXISTÍA para un agente de
+  // terminal, aunque su definición declarara salidas elegibles.
+  const perAgent = await agentToolOptions(c.req.query('agent'), c.req.query('project'))
+  const tools = resolveTools({ providerKind: 'async', toolNames, ...perAgent }).map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.input_schema,
+  }))
+  return c.json(rpcResult(id, { tools }))
+}
+
+/** El `ToolContext` de una llamada MCP — mismas reglas que `tools/list` usó
+ *  para decidir qué se OFRECE, re-aplicadas acá para que un cliente no
+ *  pueda invocar una tool que nunca se le ofreció sólo nombrándola. */
+function buildMcpToolContext(c: Context, toolNames: string[] | undefined) {
+  return {
+    ...buildToolContext(c.req.query('project')),
+    providerKind: 'async' as const,
+    policy: toolNames ? { toolNames: new Set(toolNames) } : undefined,
+    // Qué EJECUCIÓN está hablando. Igual que `tools`, viaja en la
+    // conexión porque MCP no tiene un argumento por llamada donde
+    // colgarlo. Los tools de cierre lo usan para no pisar un run más
+    // nuevo de la misma tarea con el cierre tardío de uno viejo.
+    runId: c.req.query('run'),
+    // Namespace de las tools `memory_*`. Viaja en la conexión, igual
+    // que `tools` y `run`, y NO como argumento de la llamada: es lo que
+    // impide que un agente lea o escriba la memoria de otro nombrándola.
+    agentId: c.req.query('agent'),
+    projectId: c.req.query('project'),
+    // Mismo canal que `run`/`agent`/`project`: las tools de cierre de
+    // `task.ts` lo usan como fallback cuando el modelo no transcribe
+    // `task_id` (ver `ToolContext.taskId`, ya poblado del lado sync).
+    taskId: c.req.query('task'),
+  }
+}
+
+async function handleToolsCall(
+  c: Context,
+  id: JsonRpcId,
+  params: Record<string, unknown> | undefined,
+  toolNames: string[] | undefined,
+) {
+  const name = params?.name as string | undefined
+  const args = (params?.arguments as unknown) ?? {}
+  if (!name) return c.json(rpcError(id, -32602, 'Missing tool name'))
+
+  const ctx = buildMcpToolContext(c, toolNames)
+  const tool = resolveExecutableTool(name, ctx)
+  if (!tool) {
+    return c.json(
+      rpcResult(id, {
+        content: [{ type: 'text', text: `Tool '${name}' not found` }],
+        isError: true,
+      }),
+    )
+  }
+
+  log.debug({ tool: name, args }, 'mcp tool call')
+  try {
+    const result = await tool.execute(args, ctx)
+    return c.json(rpcResult(id, { content: [{ type: 'text', text: result }] }))
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log.warn({ tool: name, err: msg }, 'mcp tool call failed')
+    return c.json(rpcResult(id, { content: [{ type: 'text', text: msg }], isError: true }))
+  }
+}
+
+function handleUnknownMethod(c: Context, id: JsonRpcId, method: string) {
+  // Notificaciones (`notifications/*`, y cualquier request sin `id`): el
+  // cliente no espera cuerpo de respuesta y JSON-RPC prohíbe contestarle
+  // un error. Un 404 acá era el "HTTP 404 dialing …/api/mcp" con el que
+  // el CLI daba por muerta la conexión entera apenas mandaba una
+  // notificación que no fuera `notifications/initialized`.
+  if (method.startsWith('notifications/') || id === undefined || id === null) {
+    return c.body(null, 202)
+  }
+  // Método desconocido = error de JSON-RPC, no de HTTP: el transporte
+  // funcionó. Un 404 hace que el cliente descarte el body y reporte un
+  // fallo de conexión en vez del `-32601`.
+  log.debug({ method }, 'mcp: método no soportado')
+  return c.json(rpcError(id, -32601, `Method not found: ${method}`))
+}
+
 export function createMcpRouter() {
   const app = new Hono()
 
@@ -56,103 +160,13 @@ export function createMcpRouter() {
     const toolNamesParam = c.req.query('tools')
     const toolNames = toolNamesParam ? toolNamesParam.split(',').filter(Boolean) : undefined
 
-    switch (method) {
-      case 'initialize':
-        return c.json(
-          rpcResult(id, {
-            protocolVersion: '2025-06-18',
-            capabilities: { tools: {} },
-            serverInfo: { name: 'ia-flow-tools', version: '1.0.0' },
-          }),
-        )
-
-      // Keep-alive del transporte. Responde `{}` — no tiene contenido, pero
-      // un cliente que lo manda espera un result, no un error.
-      case 'ping':
-        return c.json(rpcResult(id, {}))
-
-      case 'tools/list': {
-        // Las tools que se ESPECIALIZAN por agente (`select_exit`,
-        // `submit_output`) necesitan la config del agente, no sólo su lista de
-        // nombres. En sync la trae el `ProviderInput`; acá hay que ir a
-        // buscarla con el `?agent=`/`?project=` que ya viaja en la conexión.
-        //
-        // Sin esto, `specialize` recibía `undefined` y `hideWhen` escondía la
-        // tool: `select_exit` sencillamente NO EXISTÍA para un agente de
-        // terminal, aunque su definición declarara salidas elegibles.
-        const perAgent = await agentToolOptions(c.req.query('agent'), c.req.query('project'))
-        const tools = resolveTools({ providerKind: 'async', toolNames, ...perAgent }).map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.input_schema,
-        }))
-        return c.json(rpcResult(id, { tools }))
-      }
-
-      case 'tools/call': {
-        const name = params?.name as string | undefined
-        const args = (params?.arguments as unknown) ?? {}
-        if (!name) return c.json(rpcError(id, -32602, 'Missing tool name'))
-
-        // Same rules `tools/list` used to decide what's *offered* — re-applied
-        // here so a client can't call a tool it was never handed just by
-        // naming it (async-only tools, or ones outside this connection's
-        // `?tools=` allow-list). See resolveExecutableTool's doc.
-        const ctx = {
-          ...buildToolContext(c.req.query('project')),
-          providerKind: 'async' as const,
-          policy: toolNames ? { toolNames: new Set(toolNames) } : undefined,
-          // Qué EJECUCIÓN está hablando. Igual que `tools`, viaja en la
-          // conexión porque MCP no tiene un argumento por llamada donde
-          // colgarlo. Los tools de cierre lo usan para no pisar un run más
-          // nuevo de la misma tarea con el cierre tardío de uno viejo.
-          runId: c.req.query('run'),
-          // Namespace de las tools `memory_*`. Viaja en la conexión, igual
-          // que `tools` y `run`, y NO como argumento de la llamada: es lo que
-          // impide que un agente lea o escriba la memoria de otro nombrándola.
-          agentId: c.req.query('agent'),
-          projectId: c.req.query('project'),
-          // Mismo canal que `run`/`agent`/`project`: las tools de cierre de
-          // `task.ts` lo usan como fallback cuando el modelo no transcribe
-          // `task_id` (ver `ToolContext.taskId`, ya poblado del lado sync).
-          taskId: c.req.query('task'),
-        }
-        const tool = resolveExecutableTool(name, ctx)
-        if (!tool) {
-          return c.json(
-            rpcResult(id, {
-              content: [{ type: 'text', text: `Tool '${name}' not found` }],
-              isError: true,
-            }),
-          )
-        }
-
-        log.debug({ tool: name, args }, 'mcp tool call')
-        try {
-          const result = await tool.execute(args, ctx)
-          return c.json(rpcResult(id, { content: [{ type: 'text', text: result }] }))
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          log.warn({ tool: name, err: msg }, 'mcp tool call failed')
-          return c.json(rpcResult(id, { content: [{ type: 'text', text: msg }], isError: true }))
-        }
-      }
-
-      default:
-        // Notificaciones (`notifications/*`, y cualquier request sin `id`): el
-        // cliente no espera cuerpo de respuesta y JSON-RPC prohíbe contestarle
-        // un error. Un 404 acá era el "HTTP 404 dialing …/api/mcp" con el que
-        // el CLI daba por muerta la conexión entera apenas mandaba una
-        // notificación que no fuera `notifications/initialized`.
-        if (method.startsWith('notifications/') || id === undefined || id === null) {
-          return c.body(null, 202)
-        }
-        // Método desconocido = error de JSON-RPC, no de HTTP: el transporte
-        // funcionó. Un 404 hace que el cliente descarte el body y reporte un
-        // fallo de conexión en vez del `-32601`.
-        log.debug({ method }, 'mcp: método no soportado')
-        return c.json(rpcError(id, -32601, `Method not found: ${method}`))
-    }
+    if (method === 'initialize') return handleInitialize(c, id)
+    // Keep-alive del transporte. Responde `{}` — no tiene contenido, pero
+    // un cliente que lo manda espera un result, no un error.
+    if (method === 'ping') return c.json(rpcResult(id, {}))
+    if (method === 'tools/list') return handleToolsList(c, id, toolNames)
+    if (method === 'tools/call') return handleToolsCall(c, id, params, toolNames)
+    return handleUnknownMethod(c, id, method)
   })
 
   // El POST no es el único método del transporte. Un cliente Streamable HTTP

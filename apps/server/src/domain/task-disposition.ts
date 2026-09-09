@@ -63,159 +63,166 @@ function attemptsSuffix(attempts: number): string {
   return attempts > 1 ? ` ${attempts}×` : ''
 }
 
+// ── 4 · cerrado ──────────────────────────────────────────────────────────
+// Va PRIMERO porque gana a todo lo demás: una tarea en Done con un run viejo
+// fallido no te espera, ya pasó. Ordenar por el run y no por el status era
+// exactamente lo que ponía basura arriba.
+function closedVerdict(f: DispositionFacts): DispositionVerdict | null {
+  if (!f.isClosed) return null
+  return { disposition: 'closed', reason: 'cerrada', waitingOnYouSince: null, verb: null }
+}
+
+// ── 2 · avanza solo (corriendo) ──────────────────────────────────────────
+// Antes que los bloqueos: si YA está corriendo, el bloqueo no la frena — el
+// dispatcher la dejó pasar. Decir "bloqueada" sobre algo que está corriendo
+// sería contradecir a la pantalla de al lado.
+function runningVerdict(f: DispositionFacts): DispositionVerdict | null {
+  if (!(f.last && !f.last.finishedAt)) return null
+  return {
+    disposition: 'moving',
+    reason: `corriendo · ${f.last.agentId}`,
+    waitingOnYouSince: null,
+    verb: null,
+  }
+}
+
+// ── 3 · trabado por otro ─────────────────────────────────────────────────
+function blockedVerdict(blockers: string[]): DispositionVerdict | null {
+  if (!blockers.length) return null
+  return {
+    disposition: 'blocked',
+    reason: `espera ${blockers.slice(0, 2).join(', ')}${blockers.length > 2 ? ` +${blockers.length - 2}` : ''}`,
+    waitingOnYouSince: null,
+    verb: null,
+  }
+}
+
+// ── 1 vs 2 · el fallo, que es donde está la decisión ─────────────────────
+function failureVerdict(f: DispositionFacts): DispositionVerdict | null {
+  if (!(f.last && f.last.outcome === 'error')) return null
+  const what = f.last.failureClass ? ` · ${f.last.failureClass}` : ''
+  if (f.hasRetryRule) {
+    return {
+      disposition: 'moving',
+      reason: `falló${attemptsSuffix(f.attempts)}${what} · reintenta solo`,
+      waitingOnYouSince: null,
+      verb: null,
+    }
+  }
+  return {
+    disposition: 'waiting-on-you',
+    reason: `falló${attemptsSuffix(f.attempts)}${what} · no hay regla de retry`,
+    // Desde que quedó en tus manos = desde que terminó el run que nadie va a
+    // reintentar. NO desde el último evento de la tarea.
+    waitingOnYouSince: f.last.finishedAt ?? f.last.startedAt ?? null,
+    verb: { label: 'Reintentar', kind: 'run' },
+  }
+}
+
+// Un run abortado a mano y sin resolver sigue esperándote: nadie lo va a
+// retomar, y a diferencia de un fallo no hay regla que pueda tomarlo.
+function cancelledVerdict(f: DispositionFacts): DispositionVerdict | null {
+  if (!(f.last && f.last.outcome === 'cancelled')) return null
+  return {
+    disposition: 'waiting-on-you',
+    reason: 'abortado a mano · sin resolver',
+    waitingOnYouSince: f.last.finishedAt ?? f.last.startedAt ?? null,
+    verb: {
+      label: 'Resolver',
+      kind: 'route',
+      href: `/general/aborted-runs?run=${encodeURIComponent(f.last.id)}`,
+      hint: '· runs abortados',
+    },
+  }
+}
+
+// ── El PR abierto ────────────────────────────────────────────────────────
+// Con el CI terminado, la próxima pieza la mueve un humano — vos. Con el CI
+// todavía corriendo, no: esperar a que termine es que avance solo.
+function openPrVerdict(f: DispositionFacts): DispositionVerdict | null {
+  if (!f.openPr) return null
+  const ci = f.openPr.ci
+  if (ci === 'pending' || ci === undefined) {
+    return {
+      disposition: 'moving',
+      reason: `PR #${f.openPr.number} · CI corriendo`,
+      waitingOnYouSince: null,
+      verb: null,
+    }
+  }
+  return {
+    disposition: 'waiting-on-you',
+    reason:
+      `PR #${f.openPr.number} · CI ${ci === 'success' ? '✓' : '✕'}` +
+      (f.unblocks > 0 ? ` · traba ${f.unblocks} ${f.unblocks === 1 ? 'tarea' : 'tareas'}` : ''),
+    waitingOnYouSince: f.last?.finishedAt ?? null,
+    // Aprobar o mergear desde la app NO existe (ver §7 del handoff). La fila
+    // no ofrece un botón que finja hacerlo: linkea al PR. El día que exista,
+    // cambia el destino del verbo y nada más de la fila.
+    verb: {
+      label: 'Revisar el PR',
+      kind: 'external',
+      href: f.openPr.url,
+      hint: '↗ github',
+    },
+  }
+}
+
+// ── Nunca corrió ─────────────────────────────────────────────────────────
+function neverRanVerdict(f: DispositionFacts, blockersUnknown: boolean): DispositionVerdict | null {
+  if (f.last) return null
+  // Sin saber de sus bloqueos se dice lo que SÍ se sabe y nada más: "sin
+  // ejecutar" es cierto; "no está bloqueada" no consta.
+  return {
+    disposition: 'waiting-on-you',
+    reason: blockersUnknown
+      ? 'sin ejecutar · bloqueos sin consultar'
+      : 'sin ejecutar · ninguna regla la tomó',
+    waitingOnYouSince: null,
+    verb: { label: 'Elegir agente y correr', kind: 'run' },
+  }
+}
+
+// Terminó bien, sin PR abierto y sin bloqueos: el outcome del run ya movió
+// el status y nadie espera nada.
+//
+// Se clasifica como cerrado aunque la fuente no lo confirme, y la dirección
+// del error es deliberada: el riesgo real de este modelo es que el bucket 1
+// crezca sin fin hasta volver a ser una bandeja de entrada, y ahí el orden no
+// sirvió de nada. Un cerrado de más se pliega (O4); un "te espera" de más
+// compite con los que sí te esperan.
+function successVerdict(f: DispositionFacts): DispositionVerdict | null {
+  if (!(f.last && f.last.outcome === 'success')) return null
+  return { disposition: 'closed', reason: 'terminó', waitingOnYouSince: null, verb: null }
+}
+
+// Terminado de cualquier otra forma (truncado, sin outcome): no hay quién lo
+// retome.
+function fallbackVerdict(f: DispositionFacts): DispositionVerdict {
+  const last = f.last as ExecutionLog
+  return {
+    disposition: 'waiting-on-you',
+    reason: last.outcome ? `terminó ${last.outcome} · sin regla que lo tome` : 'sin resultado',
+    waitingOnYouSince: last.finishedAt ?? null,
+    verb: { label: 'Reintentar', kind: 'run' },
+  }
+}
+
 export function resolveDisposition(f: DispositionFacts): DispositionVerdict {
   const blockers = f.blockers ?? []
   const blockersUnknown = f.blockers === undefined
 
-  // ── 4 · cerrado ──────────────────────────────────────────────────────────
-  // Va PRIMERO porque gana a todo lo demás: una tarea en Done con un run viejo
-  // fallido no te espera, ya pasó. Ordenar por el run y no por el status era
-  // exactamente lo que ponía basura arriba.
-  if (f.isClosed) {
-    return {
-      disposition: 'closed',
-      reason: 'cerrada',
-      waitingOnYouSince: null,
-      verb: null,
-    }
-  }
-
-  // ── 2 · avanza solo (corriendo) ──────────────────────────────────────────
-  // Antes que los bloqueos: si YA está corriendo, el bloqueo no la frena — el
-  // dispatcher la dejó pasar. Decir "bloqueada" sobre algo que está corriendo
-  // sería contradecir a la pantalla de al lado.
-  if (f.last && !f.last.finishedAt) {
-    return {
-      disposition: 'moving',
-      reason: `corriendo · ${f.last.agentId}`,
-      waitingOnYouSince: null,
-      verb: null,
-    }
-  }
-
-  // ── 3 · trabado por otro ─────────────────────────────────────────────────
-  if (blockers.length) {
-    return {
-      disposition: 'blocked',
-      reason: `espera ${blockers.slice(0, 2).join(', ')}${blockers.length > 2 ? ` +${blockers.length - 2}` : ''}`,
-      waitingOnYouSince: null,
-      verb: null,
-    }
-  }
-
-  // ── 1 vs 2 · el fallo, que es donde está la decisión ─────────────────────
-  if (f.last && f.last.outcome === 'error') {
-    const what = f.last.failureClass ? ` · ${f.last.failureClass}` : ''
-    if (f.hasRetryRule) {
-      return {
-        disposition: 'moving',
-        reason: `falló${attemptsSuffix(f.attempts)}${what} · reintenta solo`,
-        waitingOnYouSince: null,
-        verb: null,
-      }
-    }
-    return {
-      disposition: 'waiting-on-you',
-      reason: `falló${attemptsSuffix(f.attempts)}${what} · no hay regla de retry`,
-      // Desde que quedó en tus manos = desde que terminó el run que nadie va a
-      // reintentar. NO desde el último evento de la tarea.
-      waitingOnYouSince: f.last.finishedAt ?? f.last.startedAt ?? null,
-      verb: { label: 'Reintentar', kind: 'run' },
-    }
-  }
-
-  // Un run abortado a mano y sin resolver sigue esperándote: nadie lo va a
-  // retomar, y a diferencia de un fallo no hay regla que pueda tomarlo.
-  if (f.last && f.last.outcome === 'cancelled') {
-    return {
-      disposition: 'waiting-on-you',
-      reason: 'abortado a mano · sin resolver',
-      waitingOnYouSince: f.last.finishedAt ?? f.last.startedAt ?? null,
-      verb: {
-        label: 'Resolver',
-        kind: 'route',
-        href: `/general/aborted-runs?run=${encodeURIComponent(f.last.id)}`,
-        hint: '· runs abortados',
-      },
-    }
-  }
-
-  // ── El PR abierto ────────────────────────────────────────────────────────
-  // Con el CI terminado, la próxima pieza la mueve un humano — vos. Con el CI
-  // todavía corriendo, no: esperar a que termine es que avance solo.
-  if (f.openPr) {
-    const ci = f.openPr.ci
-    if (ci === 'pending' || ci === undefined) {
-      return {
-        disposition: 'moving',
-        reason: `PR #${f.openPr.number} · CI corriendo`,
-        waitingOnYouSince: null,
-        verb: null,
-      }
-    }
-    return {
-      disposition: 'waiting-on-you',
-      reason:
-        `PR #${f.openPr.number} · CI ${ci === 'success' ? '✓' : '✕'}` +
-        (f.unblocks > 0 ? ` · traba ${f.unblocks} ${f.unblocks === 1 ? 'tarea' : 'tareas'}` : ''),
-      waitingOnYouSince: f.last?.finishedAt ?? null,
-      // Aprobar o mergear desde la app NO existe (ver §7 del handoff). La fila
-      // no ofrece un botón que finja hacerlo: linkea al PR. El día que exista,
-      // cambia el destino del verbo y nada más de la fila.
-      verb: {
-        label: 'Revisar el PR',
-        kind: 'external',
-        href: f.openPr.url,
-        hint: '↗ github',
-      },
-    }
-  }
-
-  // ── Nunca corrió ─────────────────────────────────────────────────────────
-  if (!f.last) {
-    // Sin saber de sus bloqueos se dice lo que SÍ se sabe y nada más: "sin
-    // ejecutar" es cierto; "no está bloqueada" no consta.
-    if (blockersUnknown) {
-      return {
-        disposition: 'waiting-on-you',
-        reason: 'sin ejecutar · bloqueos sin consultar',
-        waitingOnYouSince: null,
-        verb: { label: 'Elegir agente y correr', kind: 'run' },
-      }
-    }
-    return {
-      disposition: 'waiting-on-you',
-      reason: 'sin ejecutar · ninguna regla la tomó',
-      waitingOnYouSince: null,
-      verb: { label: 'Elegir agente y correr', kind: 'run' },
-    }
-  }
-
-  // Terminó bien, sin PR abierto y sin bloqueos: el outcome del run ya movió
-  // el status y nadie espera nada.
-  //
-  // Se clasifica como cerrado aunque la fuente no lo confirme, y la dirección
-  // del error es deliberada: el riesgo real de este modelo es que el bucket 1
-  // crezca sin fin hasta volver a ser una bandeja de entrada, y ahí el orden no
-  // sirvió de nada. Un cerrado de más se pliega (O4); un "te espera" de más
-  // compite con los que sí te esperan.
-  if (f.last.outcome === 'success') {
-    return {
-      disposition: 'closed',
-      reason: 'terminó',
-      waitingOnYouSince: null,
-      verb: null,
-    }
-  }
-
-  // Terminado de cualquier otra forma (truncado, sin outcome): no hay quién lo
-  // retome.
-  return {
-    disposition: 'waiting-on-you',
-    reason: f.last.outcome ? `terminó ${f.last.outcome} · sin regla que lo tome` : 'sin resultado',
-    waitingOnYouSince: f.last.finishedAt ?? null,
-    verb: { label: 'Reintentar', kind: 'run' },
-  }
+  return (
+    closedVerdict(f) ??
+    runningVerdict(f) ??
+    blockedVerdict(blockers) ??
+    failureVerdict(f) ??
+    cancelledVerdict(f) ??
+    openPrVerdict(f) ??
+    neverRanVerdict(f, blockersUnknown) ??
+    successVerdict(f) ??
+    fallbackVerdict(f)
+  )
 }
 
 /**
@@ -248,19 +255,25 @@ export interface SortableEntry {
   at: string | null
 }
 
-export function compareWithinBucket(a: SortableEntry, b: SortableEntry): number {
-  if (a.disposition === 'waiting-on-you') {
-    if (a.unblocks !== b.unblocks) return b.unblocks - a.unblocks
-    const aw = a.waitingOnYouSince ?? ''
-    const bw = b.waitingOnYouSince ?? ''
-    // Sin timestamp va último dentro de su escalón: no se puede afirmar que
-    // lleva esperando, y adelantarlo sería inventar antigüedad.
-    if (aw !== bw) return (aw || '9999') < (bw || '9999') ? -1 : 1
-    return VERB_COST[a.verb?.kind ?? 'external'] - VERB_COST[b.verb?.kind ?? 'external']
-  }
+function compareWaitingOnYou(a: SortableEntry, b: SortableEntry): number {
+  if (a.unblocks !== b.unblocks) return b.unblocks - a.unblocks
+  const aw = a.waitingOnYouSince ?? ''
+  const bw = b.waitingOnYouSince ?? ''
+  // Sin timestamp va último dentro de su escalón: no se puede afirmar que
+  // lleva esperando, y adelantarlo sería inventar antigüedad.
+  if (aw !== bw) return (aw || '9999') < (bw || '9999') ? -1 : 1
+  return VERB_COST[a.verb?.kind ?? 'external'] - VERB_COST[b.verb?.kind ?? 'external']
+}
+
+function compareByClock(a: SortableEntry, b: SortableEntry): number {
   const aa = a.at ?? ''
   const ba = b.at ?? ''
   if (aa === ba) return 0
   // `closed`: lo más reciente primero. `moving`/`blocked`: lo más viejo.
   return a.disposition === 'closed' ? (aa > ba ? -1 : 1) : aa < ba ? -1 : 1
+}
+
+export function compareWithinBucket(a: SortableEntry, b: SortableEntry): number {
+  if (a.disposition === 'waiting-on-you') return compareWaitingOnYou(a, b)
+  return compareByClock(a, b)
 }

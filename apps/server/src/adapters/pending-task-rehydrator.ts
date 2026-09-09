@@ -68,6 +68,120 @@ function closedByTool(row: ExecutionLog): boolean {
   return row.finalizedByTool === true
 }
 
+/**
+ * `list` viene ordenado por started_at DESC. Se busca PRIMERO la fila del run
+ * que está cerrando (el `?run=` de su conexión MCP): tomar la más nueva a
+ * ciegas hace que el cierre tardío de una sesión vieja aterrice sobre la
+ * ejecución de otro run — y al cerrarla, el cierre real de ESE run se
+ * descarta después como duplicado. Es el mismo agujero que este archivo viene
+ * a tapar, una vuelta más adentro.
+ *
+ * Sin `?run=`, el candidato sale de las ABIERTAS. Mirar `rows[0]` a secas
+ * elige la más nueva aunque ya esté cerrada, y entonces un cierre se
+ * aplicaría con la salida de éxito de un run terminado mientras el que de
+ * verdad está trabajando queda sin cerrar — y su cierre real, descartado
+ * después como duplicado.
+ */
+function selectCandidateRow(
+  rows: ExecutionLog[],
+  runId: string | undefined,
+): {
+  row?: ExecutionLog
+  matched?: ExecutionLog
+  open: ExecutionLog[]
+  candidates: ExecutionLog[]
+} {
+  const matched = runId ? rows.find((r) => r.runId === runId) : undefined
+  const open = rows.filter((r) => r.finishedAt == null)
+  const candidates = open.length > 0 ? open : rows
+  const row = matched ?? candidates[0]
+  return { row, matched, open, candidates }
+}
+
+/** Reconstruye el `PendingTask` desde el source. `undefined` cuando el source
+ *  no aplica transiciones o el issue ya no está — los dos casos en los que
+ *  no hay nada que rehidratar. */
+async function buildPendingEntry(
+  deps: RehydratorDeps,
+  taskId: string,
+  project: string,
+  row: ExecutionLog,
+): Promise<PendingTask | undefined> {
+  const source = deps.sourceFor(project)
+  if (!source.getTransitionManager) {
+    log.warn({ taskId, kind: source.kind }, 'El source no aplica transiciones — sin rehidratar')
+    return undefined
+  }
+  // Sin `refresh: true` a propósito: el daemon poletea el source de
+  // continuo, así que su cache está al día, y forzar un refetch acá
+  // pondría una llamada a la API por cada tool call de un agente con un
+  // task_id que no resuelve. El estado que sí tiene que ser fresco —el
+  // status contra el que se decide si transicionar— lo relee
+  // `complete_task` con `getCurrentStatus` sobre el manager.
+  const items = await source.getItems()
+  const raw = items.find((i) => i.id === taskId)
+  if (!raw) {
+    log.warn({ taskId, projectId: project }, 'El issue ya no está en el source — sin rehidratar')
+    return undefined
+  }
+  // Mismo mapeo que usa el daemon en su scan (SourceDispatcher): el
+  // `TaskSource` de cada source necesita el `meta` que su propio
+  // `toIssueItem` guarda, no el SourceItem pelado que devuelve `getItems`.
+  const item = source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
+
+  const manager = source.getTransitionManager(item, deps.broadcast)
+  const task = issueItemToTask(item)
+  return {
+    task,
+    manager,
+    // La fila guarda el mapa como JSON opaco (`Record<string, unknown>`);
+    // su forma real es la de `AgentOutcomesSchema.exits`, que es lo que
+    // escribió el orquestador al abrir el run.
+    exits: (row.exits as PendingTask['exits']) ?? undefined,
+    broadcast: deps.broadcast,
+    // Sin la columna (filas previas a la migración 048), el status de
+    // ahora es lo mejor que tenemos: equivale a "nadie lo movió", que es
+    // el comportamiento conservador — deja que la salida de éxito se aplique.
+    initialStatus: row.initialStatus ?? task.status,
+    reconciliationStatus: row.initialStatus ?? task.status,
+    runId: row.runId ?? undefined,
+    agentId: row.agentId,
+    agentName: row.agentId,
+    providerId: row.providerId,
+    projectId: project,
+    executionId: row.id,
+  }
+}
+
+/** Arma el `finalize`/`freeze` del `ResolvedPendingTask` — ver el comentario
+ *  sobre ambigüedad en `rehydrate`, de donde salen sus dos entradas. */
+function resolveOutcome(
+  deps: RehydratorDeps,
+  entry: PendingTask,
+  row: ExecutionLog,
+  ctx: { ambiguous: boolean; openNewer: ExecutionLog | undefined },
+): ResolvedPendingTask {
+  return {
+    entry,
+    alreadyClosed: closedByTool(row),
+    // El orquestador de este run se fue con el proceso anterior: si no
+    // cierra la fila el propio tool, no la cierra nadie.
+    finalize: ctx.ambiguous
+      ? undefined
+      : (outcome) =>
+          deps.executionLogRepo.update(row.id, {
+            finishedAt: new Date().toISOString(),
+            outcome,
+            finalizedByTool: true,
+          }),
+    freeze: ctx.ambiguous
+      ? 'no se pudo identificar a qué ejecución pertenece este cierre'
+      : ctx.openNewer
+        ? `hay otro run abierto sobre esta tarea (${ctx.openNewer.agentId}, ${ctx.openNewer.id})`
+        : undefined,
+  }
+}
+
 export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRehydrator {
   return async function rehydrate(
     taskId: string,
@@ -77,21 +191,7 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
       .list({ taskId, limit: LOOKBACK_FETCH })
       .filter((r) => (r.source ?? null) === (deps.ownSource ?? null))
       .slice(0, LOOKBACK)
-    // `list` viene ordenado por started_at DESC. Se busca PRIMERO la fila del
-    // run que está cerrando (el `?run=` de su conexión MCP): tomar la más
-    // nueva a ciegas hace que el cierre tardío de una sesión vieja aterrice
-    // sobre la ejecución de otro run — y al cerrarla, el cierre real de ESE
-    // run se descarta después como duplicado. Es el mismo agujero que este
-    // archivo viene a tapar, una vuelta más adentro.
-    const matched = runId ? rows.find((r) => r.runId === runId) : undefined
-    // Sin `?run=`, el candidato sale de las ABIERTAS. Mirar `rows[0]` a secas
-    // elige la más nueva aunque ya esté cerrada, y entonces un cierre se
-    // aplicaría con la salida de éxito de un run terminado mientras el que de
-    // verdad está trabajando queda sin cerrar — y su cierre real, descartado
-    // después como duplicado.
-    const open = rows.filter((r) => r.finishedAt == null)
-    const candidates = open.length > 0 ? open : rows
-    const row = matched ?? candidates[0]
+    const { row, matched, open, candidates } = selectCandidateRow(rows, runId)
     if (!row) return undefined
 
     // Guarda "gana el run más nuevo": si el que cierra es viejo y hay otro
@@ -109,53 +209,8 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
     }
 
     try {
-      const source = deps.sourceFor(project)
-      if (!source.getTransitionManager) {
-        log.warn({ taskId, kind: source.kind }, 'El source no aplica transiciones — sin rehidratar')
-        return undefined
-      }
-      // Sin `refresh: true` a propósito: el daemon poletea el source de
-      // continuo, así que su cache está al día, y forzar un refetch acá
-      // pondría una llamada a la API por cada tool call de un agente con un
-      // task_id que no resuelve. El estado que sí tiene que ser fresco —el
-      // status contra el que se decide si transicionar— lo relee
-      // `complete_task` con `getCurrentStatus` sobre el manager.
-      const items = await source.getItems()
-      const raw = items.find((i) => i.id === taskId)
-      if (!raw) {
-        log.warn(
-          { taskId, projectId: project },
-          'El issue ya no está en el source — sin rehidratar',
-        )
-        return undefined
-      }
-      // Mismo mapeo que usa el daemon en su scan (SourceDispatcher): el
-      // `TaskSource` de cada source necesita el `meta` que su propio
-      // `toIssueItem` guarda, no el SourceItem pelado que devuelve `getItems`.
-      const item = source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
-
-      const manager = source.getTransitionManager(item, deps.broadcast)
-      const task = issueItemToTask(item)
-      const entry: PendingTask = {
-        task,
-        manager,
-        // La fila guarda el mapa como JSON opaco (`Record<string, unknown>`);
-        // su forma real es la de `AgentOutcomesSchema.exits`, que es lo que
-        // escribió el orquestador al abrir el run.
-        exits: (row.exits as PendingTask['exits']) ?? undefined,
-        broadcast: deps.broadcast,
-        // Sin la columna (filas previas a la migración 048), el status de
-        // ahora es lo mejor que tenemos: equivale a "nadie lo movió", que es
-        // el comportamiento conservador — deja que la salida de éxito se aplique.
-        initialStatus: row.initialStatus ?? task.status,
-        reconciliationStatus: row.initialStatus ?? task.status,
-        runId: row.runId ?? undefined,
-        agentId: row.agentId,
-        agentName: row.agentId,
-        providerId: row.providerId,
-        projectId: project,
-        executionId: row.id,
-      }
+      const entry = await buildPendingEntry(deps, taskId, project, row)
+      if (!entry) return undefined
 
       // `debug`: rehidratar es el camino ESPERADO para cualquier cierre que
       // llega después de un reinicio, no un evento. El caso que sí importa
@@ -185,25 +240,7 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
       // arranque.
       const ambiguous = matched == null && (runId != null || candidates.length > 1)
 
-      return {
-        entry,
-        alreadyClosed: closedByTool(row),
-        // El orquestador de este run se fue con el proceso anterior: si no
-        // cierra la fila el propio tool, no la cierra nadie.
-        finalize: ambiguous
-          ? undefined
-          : (outcome) =>
-              deps.executionLogRepo.update(row.id, {
-                finishedAt: new Date().toISOString(),
-                outcome,
-                finalizedByTool: true,
-              }),
-        freeze: ambiguous
-          ? 'no se pudo identificar a qué ejecución pertenece este cierre'
-          : openNewer
-            ? `hay otro run abierto sobre esta tarea (${openNewer.agentId}, ${openNewer.id})`
-            : undefined,
-      }
+      return resolveOutcome(deps, entry, row, { ambiguous, openNewer })
     } catch (err) {
       log.warn({ taskId, err }, 'No se pudo rehidratar el run')
       return undefined
@@ -302,6 +339,30 @@ export async function reconcileOrphanedRuns(deps: {
     return true
   }
 
+  // Fila sin sesión (runs sync). Caso 1 vs caso 2 del docstring.
+  const reconcileWithoutSession = async (row: ExecutionLog): Promise<void> => {
+    if (await hasResumableCheckpoint(row)) {
+      kept.push(row)
+      return
+    }
+    close(row, deps.reason)
+  }
+
+  // Fila con sesión (tmux/iterm/remota). Casos 3 y 4 del docstring.
+  const reconcileWithSession = async (row: ExecutionLog): Promise<void> => {
+    const liveness = await probe(row).catch(() => 'unknown' as Liveness)
+    if (liveness === 'dead') {
+      close(row, `${deps.reason} (sesión confirmada muerta)`)
+      return
+    }
+    const ageMs = now - Date.parse(row.startedAt)
+    if (Number.isFinite(ageMs) && ageMs > maxAgeMs) {
+      close(row, `${deps.reason} (sesión sin confirmar tras ${Math.round(ageMs / 3_600_000)}h)`)
+      return
+    }
+    kept.push(row)
+  }
+
   for (const row of active) {
     // Ya lo corre este proceso (arranque en caliente): no es huérfano. Se
     // compara por EJECUCIÓN y no por tarea: una tarea puede tener una fila
@@ -310,24 +371,10 @@ export async function reconcileOrphanedRuns(deps: {
     // cierre sin `?run=` pasaría a ser ambiguo de forma permanente.
     if (getPendingTask(row.taskId)?.executionId === row.id) continue
     if (!row.sessionId) {
-      if (await hasResumableCheckpoint(row)) {
-        kept.push(row)
-        continue
-      }
-      close(row, deps.reason)
+      await reconcileWithoutSession(row)
       continue
     }
-    const liveness = await probe(row).catch(() => 'unknown' as Liveness)
-    if (liveness === 'dead') {
-      close(row, `${deps.reason} (sesión confirmada muerta)`)
-      continue
-    }
-    const ageMs = now - Date.parse(row.startedAt)
-    if (Number.isFinite(ageMs) && ageMs > maxAgeMs) {
-      close(row, `${deps.reason} (sesión sin confirmar tras ${Math.round(ageMs / 3_600_000)}h)`)
-      continue
-    }
-    kept.push(row)
+    await reconcileWithSession(row)
   }
   return { closed, kept }
 }

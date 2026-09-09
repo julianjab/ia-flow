@@ -15,7 +15,9 @@ import { createLogger } from '../../../logger.js'
 
 const log = createLogger('execution-log-repo')
 
-function rowToLog(r: Record<string, unknown>): ExecutionLog {
+function rowToLogIdentity(
+  r: Record<string, unknown>,
+): Pick<ExecutionLog, 'id' | 'projectId' | 'taskId' | 'taskTitle' | 'agentId' | 'providerId'> {
   return {
     id: r.id as string,
     projectId: r.project_id as string,
@@ -23,6 +25,25 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     taskTitle: r.task_title as string,
     agentId: r.agent_id as string,
     providerId: r.provider_id as string,
+  }
+}
+
+function rowToLogTiming(
+  r: Record<string, unknown>,
+): Pick<
+  ExecutionLog,
+  | 'startedAt'
+  | 'finishedAt'
+  | 'outcome'
+  | 'errorMsg'
+  | 'stopReason'
+  | 'sessionKind'
+  | 'sessionId'
+  | 'source'
+  | 'cancelRequestedAt'
+  | 'durationMs'
+> {
+  return {
     startedAt: r.started_at as string,
     finishedAt: (r.finished_at as string | null) ?? null,
     outcome: (r.outcome as ExecutionLog['outcome']) ?? null,
@@ -33,6 +54,23 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     source: (r.source as string | null) ?? null,
     cancelRequestedAt: (r.cancel_requested_at as string | null) ?? null,
     durationMs: (r.duration_ms as number | null) ?? null,
+  }
+}
+
+function rowToLogMetrics(
+  r: Record<string, unknown>,
+): Pick<
+  ExecutionLog,
+  | 'tokensIn'
+  | 'tokensOut'
+  | 'cacheReadTokens'
+  | 'cacheCreationTokens'
+  | 'iters'
+  | 'toolCalls'
+  | 'toolErrors'
+  | 'failureClass'
+> {
+  return {
     tokensIn: (r.tokens_in as number | null) ?? null,
     tokensOut: (r.tokens_out as number | null) ?? null,
     cacheReadTokens: (r.cache_read_tokens as number | null) ?? null,
@@ -41,6 +79,25 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     toolCalls: (r.tool_calls as number | null) ?? null,
     toolErrors: (r.tool_errors as number | null) ?? null,
     failureClass: (r.failure_class as ExecutionLog['failureClass']) ?? null,
+  }
+}
+
+function rowToLogVersioning(
+  r: Record<string, unknown>,
+): Pick<
+  ExecutionLog,
+  | 'runId'
+  | 'agentPromptHash'
+  | 'systemPromptHash'
+  | 'model'
+  | 'toolBreakdown'
+  | 'initialStatus'
+  | 'exits'
+  | 'assignees'
+  | 'finalizedByTool'
+  | 'kind'
+> {
+  return {
     runId: (r.run_id as string | null) ?? null,
     agentPromptHash: (r.agent_prompt_hash as string | null) ?? null,
     systemPromptHash: (r.system_prompt_hash as string | null) ?? null,
@@ -56,6 +113,23 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     // reenviada por RemoteExecutionLogRepository desde un daemon anterior a la
     // migración 065 no trae el campo, y para la UI es un run de agente.
     kind: (r.kind as string | null) ?? 'agent',
+  }
+}
+
+function rowToLogRuleAndEvent(
+  r: Record<string, unknown>,
+): Pick<
+  ExecutionLog,
+  | 'ruleId'
+  | 'eventId'
+  | 'eventType'
+  | 'position'
+  | 'parentId'
+  | 'resumedFromRunId'
+  | 'traceId'
+  | 'structuredOutput'
+> {
+  return {
     ruleId: (r.rule_id as string | null) ?? null,
     eventId: (r.event_id as string | null) ?? null,
     eventType: (r.event_type as string | null) ?? null,
@@ -69,10 +143,167 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     structuredOutput: r.structured_output
       ? (JSON.parse(r.structured_output as string) as ExecutionLog['structuredOutput'])
       : null,
+  }
+}
+
+function rowToLogPr(
+  r: Record<string, unknown>,
+): Pick<ExecutionLog, 'prNumber' | 'prMerged' | 'reviewRounds'> {
+  return {
     prNumber: (r.pr_number as number | null) ?? null,
     prMerged: r.pr_merged == null ? null : r.pr_merged === 1,
     reviewRounds: (r.review_rounds as number | null) ?? null,
   }
+}
+
+function rowToLog(r: Record<string, unknown>): ExecutionLog {
+  return {
+    ...rowToLogIdentity(r),
+    ...rowToLogTiming(r),
+    ...rowToLogMetrics(r),
+    ...rowToLogVersioning(r),
+    ...rowToLogRuleAndEvent(r),
+    ...rowToLogPr(r),
+  }
+}
+
+/** id .. cancel_requested_at, en el mismo orden que la lista de columnas. */
+function insertParamsIdentity(entry: ExecutionLog): unknown[] {
+  return [
+    entry.id,
+    entry.projectId,
+    entry.taskId,
+    entry.taskTitle,
+    entry.agentId,
+    entry.providerId,
+    entry.startedAt,
+    entry.finishedAt,
+    entry.outcome,
+    entry.errorMsg,
+    entry.stopReason,
+    entry.sessionKind ?? null,
+    entry.sessionId ?? null,
+    entry.source ?? null,
+    entry.cancelRequestedAt ?? null,
+  ]
+}
+
+/** duration_ms .. agent_prompt_hash. */
+function insertParamsMetrics(entry: ExecutionLog): unknown[] {
+  return [
+    entry.durationMs ?? null,
+    entry.tokensIn ?? null,
+    entry.tokensOut ?? null,
+    entry.cacheReadTokens ?? null,
+    entry.cacheCreationTokens ?? null,
+    entry.iters ?? null,
+    entry.toolCalls ?? null,
+    entry.toolErrors ?? null,
+    entry.failureClass ?? null,
+    entry.runId ?? null,
+    entry.agentPromptHash ?? null,
+  ]
+}
+
+/** initial_status .. parent_id. */
+function insertParamsStatus(entry: ExecutionLog): unknown[] {
+  return [
+    entry.initialStatus ?? null,
+    entry.exits ? JSON.stringify(entry.exits) : null,
+    entry.finalizedByTool == null ? null : entry.finalizedByTool ? 1 : 0,
+    entry.assignees ? JSON.stringify(entry.assignees) : null,
+    entry.kind ?? 'agent',
+    entry.ruleId ?? null,
+    entry.eventId ?? null,
+    entry.eventType ?? null,
+    entry.position ?? null,
+    entry.parentId ?? null,
+  ]
+}
+
+/** model .. review_rounds. */
+function insertParamsVersioningAndPr(entry: ExecutionLog): unknown[] {
+  return [
+    entry.model ?? null,
+    entry.systemPromptHash ?? null,
+    entry.toolBreakdown ? JSON.stringify(entry.toolBreakdown) : null,
+    entry.resumedFromRunId ?? null,
+    entry.traceId ?? null,
+    entry.structuredOutput ? JSON.stringify(entry.structuredOutput) : null,
+    entry.prNumber ?? null,
+    entry.prMerged == null ? null : entry.prMerged ? 1 : 0,
+    entry.reviewRounds ?? null,
+  ]
+}
+
+/** Los valores del `INSERT`, en el mismo orden que la lista de columnas. */
+function entryToInsertParams(entry: ExecutionLog): unknown[] {
+  return [
+    ...insertParamsIdentity(entry),
+    ...insertParamsMetrics(entry),
+    ...insertParamsStatus(entry),
+    ...insertParamsVersioningAndPr(entry),
+  ]
+}
+
+/** camelCase (`ExecutionLog`) → snake_case (columna). Usado por `update`. */
+const UPDATE_COL_MAP: Record<string, string> = {
+  projectId: 'project_id',
+  taskId: 'task_id',
+  taskTitle: 'task_title',
+  agentId: 'agent_id',
+  providerId: 'provider_id',
+  startedAt: 'started_at',
+  finishedAt: 'finished_at',
+  outcome: 'outcome',
+  errorMsg: 'error_msg',
+  stopReason: 'stop_reason',
+  sessionKind: 'session_kind',
+  sessionId: 'session_id',
+  source: 'source',
+  cancelRequestedAt: 'cancel_requested_at',
+  durationMs: 'duration_ms',
+  tokensIn: 'tokens_in',
+  tokensOut: 'tokens_out',
+  cacheReadTokens: 'cache_read_tokens',
+  cacheCreationTokens: 'cache_creation_tokens',
+  iters: 'iters',
+  toolCalls: 'tool_calls',
+  toolErrors: 'tool_errors',
+  failureClass: 'failure_class',
+  runId: 'run_id',
+  agentPromptHash: 'agent_prompt_hash',
+  initialStatus: 'initial_status',
+  exits: 'exits',
+  finalizedByTool: 'finalized_by_tool',
+  assignees: 'assignees',
+  kind: 'kind',
+  ruleId: 'rule_id',
+  eventId: 'event_id',
+  eventType: 'event_type',
+  position: 'position',
+  parentId: 'parent_id',
+  model: 'model',
+  systemPromptHash: 'system_prompt_hash',
+  toolBreakdown: 'tool_breakdown',
+  resumedFromRunId: 'resumed_from_run_id',
+  traceId: 'trace_id',
+  structuredOutput: 'structured_output',
+  prNumber: 'pr_number',
+  prMerged: 'pr_merged',
+  reviewRounds: 'review_rounds',
+}
+
+/** Un valor de patch → lo que se puede bindear en SQLite. */
+function serializePatchValue(value: unknown): unknown {
+  // SQLite no tiene booleanos: `finalized_by_tool` viaja como 0/1.
+  if (typeof value === 'boolean') return value ? 1 : 0
+  // Las columnas JSON (`exits`, `assignees`) tienen que serializarse acá
+  // igual que en el insert: bun:sqlite no sabe bindear un objeto y tira
+  // "can't bind". Valía para `exits` desde siempre — nadie lo patcheaba,
+  // así que el agujero nunca se disparó.
+  if (value !== null && typeof value === 'object') return JSON.stringify(value)
+  return value
 }
 
 export class SqliteExecutionLogRepository
@@ -155,121 +386,20 @@ export class SqliteExecutionLogRepository
          pr_number = excluded.pr_number,
          pr_merged = excluded.pr_merged,
          review_rounds = excluded.review_rounds`,
-      [
-        entry.id,
-        entry.projectId,
-        entry.taskId,
-        entry.taskTitle,
-        entry.agentId,
-        entry.providerId,
-        entry.startedAt,
-        entry.finishedAt,
-        entry.outcome,
-        entry.errorMsg,
-        entry.stopReason,
-        entry.sessionKind ?? null,
-        entry.sessionId ?? null,
-        entry.source ?? null,
-        entry.cancelRequestedAt ?? null,
-        entry.durationMs ?? null,
-        entry.tokensIn ?? null,
-        entry.tokensOut ?? null,
-        entry.cacheReadTokens ?? null,
-        entry.cacheCreationTokens ?? null,
-        entry.iters ?? null,
-        entry.toolCalls ?? null,
-        entry.toolErrors ?? null,
-        entry.failureClass ?? null,
-        entry.runId ?? null,
-        entry.agentPromptHash ?? null,
-        entry.initialStatus ?? null,
-        entry.exits ? JSON.stringify(entry.exits) : null,
-        entry.finalizedByTool == null ? null : entry.finalizedByTool ? 1 : 0,
-        entry.assignees ? JSON.stringify(entry.assignees) : null,
-        entry.kind ?? 'agent',
-        entry.ruleId ?? null,
-        entry.eventId ?? null,
-        entry.eventType ?? null,
-        entry.position ?? null,
-        entry.parentId ?? null,
-        entry.model ?? null,
-        entry.systemPromptHash ?? null,
-        entry.toolBreakdown ? JSON.stringify(entry.toolBreakdown) : null,
-        entry.resumedFromRunId ?? null,
-        entry.traceId ?? null,
-        entry.structuredOutput ? JSON.stringify(entry.structuredOutput) : null,
-        entry.prNumber ?? null,
-        entry.prMerged == null ? null : entry.prMerged ? 1 : 0,
-        entry.reviewRounds ?? null,
-      ],
+      entryToInsertParams(entry) as string[],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
   }
 
   update(id: string, patch: Partial<ExecutionLog>): void {
-    const colMap: Record<string, string> = {
-      projectId: 'project_id',
-      taskId: 'task_id',
-      taskTitle: 'task_title',
-      agentId: 'agent_id',
-      providerId: 'provider_id',
-      startedAt: 'started_at',
-      finishedAt: 'finished_at',
-      outcome: 'outcome',
-      errorMsg: 'error_msg',
-      stopReason: 'stop_reason',
-      sessionKind: 'session_kind',
-      sessionId: 'session_id',
-      source: 'source',
-      cancelRequestedAt: 'cancel_requested_at',
-      durationMs: 'duration_ms',
-      tokensIn: 'tokens_in',
-      tokensOut: 'tokens_out',
-      cacheReadTokens: 'cache_read_tokens',
-      cacheCreationTokens: 'cache_creation_tokens',
-      iters: 'iters',
-      toolCalls: 'tool_calls',
-      toolErrors: 'tool_errors',
-      failureClass: 'failure_class',
-      runId: 'run_id',
-      agentPromptHash: 'agent_prompt_hash',
-      initialStatus: 'initial_status',
-      exits: 'exits',
-      finalizedByTool: 'finalized_by_tool',
-      assignees: 'assignees',
-      kind: 'kind',
-      ruleId: 'rule_id',
-      eventId: 'event_id',
-      eventType: 'event_type',
-      position: 'position',
-      parentId: 'parent_id',
-      model: 'model',
-      systemPromptHash: 'system_prompt_hash',
-      toolBreakdown: 'tool_breakdown',
-      resumedFromRunId: 'resumed_from_run_id',
-      traceId: 'trace_id',
-      structuredOutput: 'structured_output',
-      prNumber: 'pr_number',
-      prMerged: 'pr_merged',
-      reviewRounds: 'review_rounds',
-    }
-
     const setClauses: string[] = []
     const params: unknown[] = []
 
-    for (const [key, col] of Object.entries(colMap)) {
-      if (key in patch && key !== 'id') {
-        const value = patch[key as keyof ExecutionLog] ?? null
-        setClauses.push(`${col} = ?`)
-        // SQLite no tiene booleanos: `finalized_by_tool` viaja como 0/1.
-        if (typeof value === 'boolean') params.push(value ? 1 : 0)
-        // Las columnas JSON (`exits`, `assignees`) tienen que serializarse acá
-        // igual que en el insert: bun:sqlite no sabe bindear un objeto y tira
-        // "can't bind". Valía para `exits` desde siempre — nadie lo patcheaba,
-        // así que el agujero nunca se disparó.
-        else if (value !== null && typeof value === 'object') params.push(JSON.stringify(value))
-        else params.push(value)
-      }
+    for (const [key, col] of Object.entries(UPDATE_COL_MAP)) {
+      if (!(key in patch) || key === 'id') continue
+      const value = patch[key as keyof ExecutionLog] ?? null
+      setClauses.push(`${col} = ?`)
+      params.push(serializePatchValue(value))
     }
 
     if (setClauses.length === 0) return
@@ -679,39 +809,59 @@ export class SqliteExecutionLogRepository
     const rate = (success: number, runs: number): number | null =>
       runs > 0 ? success / runs : null
 
-    const agents: AgentHealth[] = rows.map((r) => {
-      const runs = Number(r.runs ?? 0)
-      const success = Number(r.success ?? 0)
-      const tokensIn = Number(r.tokensIn ?? 0)
-      const cacheReadTokens = Number(r.cacheReadTokens ?? 0)
-      return {
-        agentId: r.agentId as string,
-        runs,
-        success,
-        error: Number(r.error ?? 0),
-        cancelled: Number(r.cancelled ?? 0),
-        truncated: Number(r.truncated ?? 0),
-        successRate: rate(success, runs),
-        failureClasses: byAgent.get(r.agentId as string) ?? {},
-        avgDurationMs: r.avgDurationMs === null ? null : Math.round(Number(r.avgDurationMs)),
-        p95DurationMs: p95ByAgent.get(r.agentId as string) ?? null,
-        tokensIn,
-        tokensOut: Number(r.tokensOut ?? 0),
-        cacheReadTokens,
-        cacheCreationTokens: Number(r.cacheCreationTokens ?? 0),
-        cacheHitRate: hitRate(cacheReadTokens, tokensIn),
-        iters: Number(r.iters ?? 0),
-        toolCalls: Number(r.toolCalls ?? 0),
-        toolErrors: Number(r.toolErrors ?? 0),
-        stopReasons: stopsByAgent.get(r.agentId as string) ?? {},
-        lastRunAt: (r.lastRunAt as string | null) ?? null,
-        promptVersions: Number(r.promptVersions ?? 0),
-        systemPromptVersions: Number(r.systemPromptVersions ?? 0),
-        costUsd: costByAgent.get(r.agentId as string)?.costUsd ?? null,
-        models: costByAgent.get(r.agentId as string)?.models ?? {},
-        toolBreakdown: toolsByAgent.get(r.agentId as string) ?? {},
-      }
+    // Los conteos crudos de la fila agregada — nada que dependa de los mapas
+    // por-grupo calculados arriba.
+    const agentHealthRunCounts = (r: Record<string, unknown>) => ({
+      runs: Number(r.runs ?? 0),
+      success: Number(r.success ?? 0),
+      error: Number(r.error ?? 0),
+      cancelled: Number(r.cancelled ?? 0),
+      truncated: Number(r.truncated ?? 0),
+      avgDurationMs: r.avgDurationMs === null ? null : Math.round(Number(r.avgDurationMs)),
+      lastRunAt: (r.lastRunAt as string | null) ?? null,
     })
+
+    const agentHealthUsageCounts = (r: Record<string, unknown>) => ({
+      tokensIn: Number(r.tokensIn ?? 0),
+      tokensOut: Number(r.tokensOut ?? 0),
+      cacheReadTokens: Number(r.cacheReadTokens ?? 0),
+      cacheCreationTokens: Number(r.cacheCreationTokens ?? 0),
+      iters: Number(r.iters ?? 0),
+      toolCalls: Number(r.toolCalls ?? 0),
+      toolErrors: Number(r.toolErrors ?? 0),
+      promptVersions: Number(r.promptVersions ?? 0),
+      systemPromptVersions: Number(r.systemPromptVersions ?? 0),
+    })
+
+    const agentHealthCounts = (r: Record<string, unknown>) => ({
+      ...agentHealthRunCounts(r),
+      ...agentHealthUsageCounts(r),
+    })
+
+    // Lo que sale de los mapas por-grupo (failureClasses, p95, stopReasons,
+    // costo, tools) en vez de la fila agregada.
+    const agentHealthLookups = (agentId: string) => ({
+      failureClasses: byAgent.get(agentId) ?? {},
+      p95DurationMs: p95ByAgent.get(agentId) ?? null,
+      stopReasons: stopsByAgent.get(agentId) ?? {},
+      costUsd: costByAgent.get(agentId)?.costUsd ?? null,
+      models: costByAgent.get(agentId)?.models ?? {},
+      toolBreakdown: toolsByAgent.get(agentId) ?? {},
+    })
+
+    const buildAgentHealth = (r: Record<string, unknown>): AgentHealth => {
+      const agentId = r.agentId as string
+      const counts = agentHealthCounts(r)
+      return {
+        agentId,
+        ...counts,
+        successRate: rate(counts.success, counts.runs),
+        cacheHitRate: hitRate(counts.cacheReadTokens, counts.tokensIn),
+        ...agentHealthLookups(agentId),
+      }
+    }
+
+    const agents: AgentHealth[] = rows.map(buildAgentHealth)
 
     const sum = (pick: (a: AgentHealth) => number): number =>
       agents.reduce((acc, a) => acc + pick(a), 0)

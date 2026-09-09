@@ -1,4 +1,4 @@
-import type { Blocker } from '@ia-flow/issue-sources'
+import type { Blocker, ProjectSource, SourceItem } from '@ia-flow/issue-sources'
 import { defaultToIssueItem } from '@ia-flow/issue-sources'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
@@ -22,6 +22,75 @@ function withProject(c: Context) {
   const id = c.req.param('id') ?? ''
   const project = id ? projectRepo.get(id) : null
   return { id, project }
+}
+
+/**
+ * Los `SourceItem` de `ids`, resueltos contra el snapshot y, para los que
+ * falten, por lookup directo — igual que hace la ruta por item, así el
+ * batch no contradice al detalle sobre la misma tarea.
+ */
+async function resolveWantedItems(source: ProjectSource, ids: string[]): Promise<SourceItem[]> {
+  const items = await source.getItems()
+  const byId = new Map(items.map((i) => [i.id, i]))
+  // Lo que quede sin resolver de verdad NO entra al mapa: su ausencia
+  // significa "no sé", que es lo que es.
+  const missing = ids.filter((id) => !byId.has(id))
+  if (missing.length && source.getItemById) {
+    const found = await Promise.all(missing.map((id) => source.getItemById?.(id).catch(() => null)))
+    for (const item of found) if (item) byId.set(item.id, item)
+  }
+  return ids.map((id) => byId.get(id)).filter((i): i is SourceItem => i !== undefined)
+}
+
+/** Los blockers de cada item, con un pool de 5 — el `getBlockers` de GitHub
+ *  es una request por issue. Un fallo por item NO tira la respuesta entera:
+ *  la clave simplemente no aparece, y "no sé" se distingue de "no hay". */
+async function fetchBlockersBatch(
+  source: ProjectSource & { getBlockers: NonNullable<ProjectSource['getBlockers']> },
+  wanted: SourceItem[],
+): Promise<Record<string, Blocker[]>> {
+  const blockers: Record<string, Blocker[]> = {}
+  const queue = [...wanted]
+  const worker = async () => {
+    for (let item = queue.shift(); item; item = queue.shift()) {
+      const issueItem = source.toIssueItem ? source.toIssueItem(item) : defaultToIssueItem(item)
+      try {
+        // Llamado como método (`source.getBlockers(...)`), no desatado: las
+        // implementaciones reales usan `this` adentro.
+        blockers[item.id] = await source.getBlockers(issueItem)
+      } catch (err) {
+        log.warn(
+          { err: (err as Error).message, itemId: item.id },
+          'getBlockers falló para un item del batch — se omite del mapa',
+        )
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(5, wanted.length) }, worker))
+  return blockers
+}
+
+async function findSourceItem(source: ProjectSource, itemId: string): Promise<SourceItem | null> {
+  const direct = source.getItemById ? await source.getItemById(itemId) : null
+  if (direct) return direct
+  const items = await source.getItems()
+  return items.find((i) => i.id === itemId) ?? null
+}
+
+// Convert SourceItem → IssueItem (matches PollingIssueManager.toIssueItem
+// enough for the blocker lookup; description is what the local source
+// needs, meta.issueNumber+repoName is what github needs).
+function toIssueItemFor(source: ProjectSource, sourceItem: SourceItem) {
+  if (source.toIssueItem) return source.toIssueItem(sourceItem)
+  return {
+    id: sourceItem.id,
+    title: sourceItem.title,
+    description: (sourceItem.meta?.description as string) ?? '',
+    type: (sourceItem.meta?.type as string) ?? '',
+    repos: sourceItem.repos ? sourceItem.repos.split(',').map((r) => r.trim()) : [],
+    status: sourceItem.status,
+    meta: sourceItem.meta,
+  }
 }
 
 export function createProjectSourceRouter() {
@@ -124,42 +193,11 @@ export function createProjectSourceRouter() {
       // puede afirmar "bloqueada", que es distinto de afirmar "no bloqueada".
       if (!source.getBlockers) return c.json({ kind: source.kind, blockers: {} })
 
-      const items = await source.getItems()
-      const byId = new Map(items.map((i) => [i.id, i]))
-      // Un id que el snapshot no trae (filtrado por la fuente, cerrado, fuera
-      // de su página) se reintenta por lookup directo, igual que hace la ruta
-      // por item — si no, el batch contradice al detalle sobre la misma tarea.
-      // Lo que quede sin resolver de verdad NO entra al mapa: su ausencia
-      // significa "no sé", que es lo que es.
-      const missing = ids.filter((id) => !byId.has(id))
-      if (missing.length && source.getItemById) {
-        const found = await Promise.all(
-          missing.map((id) => source.getItemById!(id).catch(() => null)),
-        )
-        for (const item of found) if (item) byId.set(item.id, item)
-      }
-      const wanted = ids.map((id) => byId.get(id)).filter((i) => i !== undefined)
-
-      const blockers: Record<string, Blocker[]> = {}
-      // Pool de a 5: el `getBlockers` de GitHub es una request por issue.
-      const queue = [...wanted]
-      const worker = async () => {
-        for (let item = queue.shift(); item; item = queue.shift()) {
-          const issueItem = source.toIssueItem ? source.toIssueItem(item) : defaultToIssueItem(item)
-          // Un fallo por item NO tira la respuesta entera: la clave
-          // simplemente no aparece, y "no sé" se distingue de "no hay" —
-          // que es la regla del vocabulario de estado.
-          try {
-            blockers[item.id] = await source.getBlockers!(issueItem)
-          } catch (err) {
-            log.warn(
-              { err: (err as Error).message, itemId: item.id },
-              'getBlockers falló para un item del batch — se omite del mapa',
-            )
-          }
-        }
-      }
-      await Promise.all(Array.from({ length: Math.min(5, wanted.length) }, worker))
+      const wanted = await resolveWantedItems(source, ids)
+      const blockers = await fetchBlockersBatch(
+        source as ProjectSource & { getBlockers: NonNullable<ProjectSource['getBlockers']> },
+        wanted,
+      )
 
       return c.json({ kind: source.kind, blockers })
     } catch (err) {
@@ -174,26 +212,9 @@ export function createProjectSourceRouter() {
     try {
       const source = sourceFactory.get(project)
       if (!source.getBlockers) return c.json({ kind: source.kind, blockers: [] })
-      let sourceItem = source.getItemById ? await source.getItemById(itemId) : null
-      if (!sourceItem) {
-        const items = await source.getItems()
-        sourceItem = items.find((i) => i.id === itemId) ?? null
-      }
+      const sourceItem = await findSourceItem(source, itemId)
       if (!sourceItem) return c.json({ error: 'Item not found', blockers: [] }, 404)
-      // Convert SourceItem → IssueItem (matches PollingIssueManager.toIssueItem
-      // enough for the blocker lookup; description is what the local source
-      // needs, meta.issueNumber+repoName is what github needs).
-      const issueItem = source.toIssueItem
-        ? source.toIssueItem(sourceItem)
-        : {
-            id: sourceItem.id,
-            title: sourceItem.title,
-            description: (sourceItem.meta?.description as string) ?? '',
-            type: (sourceItem.meta?.type as string) ?? '',
-            repos: sourceItem.repos ? sourceItem.repos.split(',').map((r) => r.trim()) : [],
-            status: sourceItem.status,
-            meta: sourceItem.meta,
-          }
+      const issueItem = toIssueItemFor(source, sourceItem)
       const blockers = await source.getBlockers(issueItem)
       return c.json({ kind: source.kind, blockers })
     } catch (err) {

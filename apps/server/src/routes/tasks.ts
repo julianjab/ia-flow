@@ -80,6 +80,45 @@ export function parseGithubUrl(input: string): { owner: string; repo: string } |
   return { owner, repo }
 }
 
+interface UpdateTaskBody {
+  projectId?: string
+  title?: string
+  description?: string
+  type?: 'functional' | 'technical'
+  repos?: string[]
+  status?: string
+}
+
+/** El source de un proyecto, con `updateItem` — o el error/status a devolver. */
+function resolveUpdatableSource(projectId: string):
+  | {
+      source: ReturnType<typeof getSourceForProjectId> & {
+        updateItem: NonNullable<ReturnType<typeof getSourceForProjectId>['updateItem']>
+      }
+    }
+  | { error: string; status: 500 | 501 } {
+  let source: ReturnType<typeof getSourceForProjectId>
+  try {
+    source = getSourceForProjectId(projectId)
+  } catch (err) {
+    return { error: (err as Error).message, status: 500 }
+  }
+  if (!source.updateItem) {
+    return { error: `Provider '${source.kind}' does not support updating tasks`, status: 501 }
+  }
+  return { source: source as never }
+}
+
+function buildUpdatePatch(body: UpdateTaskBody): UpdateItemInput {
+  return {
+    ...(body.title !== undefined && { title: body.title }),
+    ...(body.description !== undefined && { description: body.description }),
+    ...(body.type !== undefined && { type: body.type }),
+    ...(body.repos !== undefined && { repos: body.repos }),
+    ...(body.status !== undefined && { status: body.status }),
+  }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export function createTasksRouter(broadcast: BroadcastFn) {
@@ -232,14 +271,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
   // PUT /api/tasks/:id — patch a task via its project's provider
   router.put('/:id', async (c) => {
     const id = c.req.param('id')
-    let body: {
-      projectId?: string
-      title?: string
-      description?: string
-      type?: 'functional' | 'technical'
-      repos?: string[]
-      status?: string
-    }
+    let body: UpdateTaskBody
     try {
       body = await c.req.json()
     } catch {
@@ -251,23 +283,12 @@ export function createTasksRouter(broadcast: BroadcastFn) {
       return c.json({ error: `Project '${body.projectId}' not found` }, 404)
     }
 
-    let source: ReturnType<typeof getSourceForProjectId>
-    try {
-      source = getSourceForProjectId(body.projectId)
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 500)
-    }
-    if (!source.updateItem) {
-      return c.json({ error: `Provider '${source.kind}' does not support updating tasks` }, 501)
-    }
+    const sourceOrError = resolveUpdatableSource(body.projectId)
+    if ('error' in sourceOrError)
+      return c.json({ error: sourceOrError.error }, sourceOrError.status)
+    const { source } = sourceOrError
 
-    const patch: UpdateItemInput = {
-      ...(body.title !== undefined && { title: body.title }),
-      ...(body.description !== undefined && { description: body.description }),
-      ...(body.type !== undefined && { type: body.type }),
-      ...(body.repos !== undefined && { repos: body.repos }),
-      ...(body.status !== undefined && { status: body.status }),
-    }
+    const patch = buildUpdatePatch(body)
 
     try {
       const item = await source.updateItem(id, patch)

@@ -335,11 +335,42 @@ export interface RunnerEnvReport {
   overriddenByEnv: string[]
 }
 
+type Put = (name: string, value: string) => void
+
+function applySettingsEnv(settings: RunnerConfig['settings'], put: Put): void {
+  for (const [key, value] of Object.entries(settings ?? {})) {
+    const name = SETTINGS_ENV[key]
+    if (!name || value === undefined) continue
+    // Los flags booleanos del engine leen '0'/'false'/'no'/'off' como apagado
+    // (envFlag en dispatch/catch-up.ts); cualquier otra cosa es encendido.
+    put(name, typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value))
+  }
+}
+
+function applyGithubEnv(github: RunnerConfig['github'], put: Put): void {
+  for (const [key, value] of Object.entries(github ?? {})) {
+    const name = GITHUB_ENV[key]
+    if (name && value !== undefined) put(name, String(value))
+  }
+}
+
+/** Una sola URL base en el YAML: las dos rutas se derivan. Declararlas por
+ *  separado —como hacían las env vars que esto reemplaza— repite el mismo
+ *  host y permite que apunten a daemons distintos, que nunca es la
+ *  intención. */
+function applyUpstreamEnv(upstream: RunnerConfig['upstream'], put: Put): void {
+  if (!upstream) return
+  const base = upstream.url.replace(/\/+$/, '')
+  put('IA_FLOW_REMOTE_LOG_URL', `${base}/api/remote-logs`)
+  put('IA_FLOW_REMOTE_EXECUTIONS_URL', `${base}/api/remote-executions`)
+  if (upstream.token) put('IA_FLOW_REMOTE_LOG_TOKEN', upstream.token)
+}
+
 export function applyRunnerEnv(cfg: RunnerConfig): RunnerEnvReport {
   const applied: string[] = []
   const skipped: string[] = []
 
-  const put = (name: string, value: string) => {
+  const put: Put = (name, value) => {
     if (process.env[name] !== undefined && process.env[name] !== '') {
       skipped.push(name)
       return
@@ -348,29 +379,9 @@ export function applyRunnerEnv(cfg: RunnerConfig): RunnerEnvReport {
     applied.push(name)
   }
 
-  for (const [key, value] of Object.entries(cfg.settings ?? {})) {
-    const name = SETTINGS_ENV[key]
-    if (!name || value === undefined) continue
-    // Los flags booleanos del engine leen '0'/'false'/'no'/'off' como apagado
-    // (envFlag en dispatch/catch-up.ts); cualquier otra cosa es encendido.
-    put(name, typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value))
-  }
-
-  for (const [key, value] of Object.entries(cfg.github ?? {})) {
-    const name = GITHUB_ENV[key]
-    if (name && value !== undefined) put(name, String(value))
-  }
-
-  if (cfg.upstream) {
-    // Una sola URL base en el YAML: las dos rutas se derivan. Declararlas por
-    // separado —como hacían las env vars que esto reemplaza— repite el mismo
-    // host y permite que apunten a daemons distintos, que nunca es la
-    // intención.
-    const base = cfg.upstream.url.replace(/\/+$/, '')
-    put('IA_FLOW_REMOTE_LOG_URL', `${base}/api/remote-logs`)
-    put('IA_FLOW_REMOTE_EXECUTIONS_URL', `${base}/api/remote-executions`)
-    if (cfg.upstream.token) put('IA_FLOW_REMOTE_LOG_TOKEN', cfg.upstream.token)
-  }
+  applySettingsEnv(cfg.settings, put)
+  applyGithubEnv(cfg.github, put)
+  applyUpstreamEnv(cfg.upstream, put)
 
   return { applied, overriddenByEnv: skipped }
 }
