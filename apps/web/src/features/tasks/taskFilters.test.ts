@@ -158,6 +158,26 @@ describe('filterTasks — blocked', () => {
   })
 })
 
+describe('filterTasks — disposicion', () => {
+  it('filtra por el bucket inyectado en la tarea', () => {
+    const mine = task({ disposition: 'waiting-on-you' })
+    const blocked = task({ disposition: 'blocked' })
+    expect(filterTasks([mine, blocked], withFilters({ disposicion: ['waiting-on-you'] }))).toEqual([
+      mine,
+    ])
+  })
+
+  it('vacío no filtra nada', () => {
+    const all = [task({ disposition: 'moving' }), task()]
+    expect(filterTasks(all, withFilters({ disposicion: [] }))).toHaveLength(2)
+  })
+
+  it('una tarea sin disposición conocida se excluye — afirmar un bucket que no se sabe sería mentir', () => {
+    const unknown = task()
+    expect(filterTasks([unknown], withFilters({ disposicion: ['moving'] }))).toEqual([])
+  })
+})
+
 describe('filterTasks — text', () => {
   it('contains, case-insensitive y sin acentos', () => {
     const target = task({ title: 'Arreglar el filtro de acentúación' })
