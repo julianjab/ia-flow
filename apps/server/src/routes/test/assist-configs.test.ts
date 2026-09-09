@@ -24,7 +24,11 @@ function fakeRepo(seed: AssistCallerConfig[] = []): IAssistCallerConfigRepositor
 function fakeSystemPromptRepo(prompts: SystemPromptDef[] = []): ISystemPromptRepository {
   return {
     getById: (id: string) => prompts.find((p) => p.id === id) ?? null,
-    inScope: () => prompts,
+    // Respeta el scope de verdad — es lo que prueba que el PUT valida SÓLO
+    // contra el catálogo global, no contra "todos los proyectos" (ver el
+    // comentario del router).
+    inScope: (projectId?: string | null) =>
+      projectId === null ? prompts.filter((p) => p.projectId == null) : prompts,
     visibleTo: () => prompts,
     upsert: () => {},
     deleteById: () => {},
@@ -93,6 +97,25 @@ describe('CRUD /api/assist-configs', () => {
     })
     expect(res.status).toBe(200)
     expect(repo.getById('task-chat')).toEqual({ agentId: 'task-chat', systemPrompts: ['sp1'] })
+  })
+
+  it('PUT /:agentId 400 con un id que existe pero SÓLO en un proyecto (no es global)', async () => {
+    // assist_caller_configs no tiene su propio projectId — un caller ad-hoc
+    // corre bajo el projectId de CADA request. Aceptar acá un id scopeado a
+    // un proyecto lo validaría contra un catálogo más amplio que el que
+    // existe en runtime para cualquier OTRO proyecto.
+    const repo = fakeRepo()
+    const app = createAssistConfigsRouter(
+      repo,
+      fakeSystemPromptRepo([{ id: 'sp-de-proyecto', name: 'x', text: 'y', projectId: 'p1' }]),
+    )
+    const res = await app.request('/task-chat', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ systemPrompts: ['sp-de-proyecto'] }),
+    })
+    expect(res.status).toBe(400)
+    expect(repo.getById('task-chat')).toBeNull()
   })
 
   it('PUT /:agentId 400 con systemPrompts inválido (shape)', async () => {
