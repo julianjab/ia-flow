@@ -1,8 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { type ServerLogEntry, ServerLogFiltersSchema, ServerLogLevelSchema } from '@ia-flow/shared'
+import type { Context } from 'hono'
 import { Hono } from 'hono'
+import type { z } from 'zod'
 import { createLogger } from '../logger.js'
+
+type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
 
 const log = createLogger('server-logs')
 
@@ -344,6 +348,207 @@ function matchesExtraQuery(
   return Object.values(extras).some((value) => globSearch(extraAsText(value), q.pattern))
 }
 
+/**
+ * Los filtros de `GET /` desde la query — incluye el parseo multi-valor
+ * (`?module=a&module=b`) que `ServerLogFiltersSchema` espera para todos los
+ * multi-select.
+ */
+function parseServerLogQuery(
+  c: Context,
+):
+  | { ok: true; filters: ServerLogFilters }
+  | { ok: false; body: { error: string; issues?: unknown } } {
+  const q = c.req.query()
+  const rawLimit = q.limit !== undefined ? Number(q.limit) : undefined
+  const rawOffset = q.offset !== undefined ? Number(q.offset) : undefined
+  // Hono returns undefined when the key is absent; queries() returns []
+  // when the key appears zero times. Prefer the array form so callers can
+  // pass ?module=a&module=b for multi-select filtering.
+  // Un solo valor llega como string y varios como array — la forma que
+  // `ServerLogFiltersSchema` acepta para todos los multi-select.
+  const multi = (key: string): string | string[] | undefined => {
+    const values = c.req.queries(key) ?? []
+    return values.length > 1 ? values : (values[0] ?? q[key])
+  }
+  const parsed = ServerLogFiltersSchema.safeParse({
+    level: q.level,
+    module: multi('module'),
+    source: multi('source'),
+    search: q.search,
+    from: q.from,
+    to: q.to,
+    limit: rawLimit !== undefined && Number.isNaN(rawLimit) ? undefined : rawLimit,
+    offset: rawOffset !== undefined && Number.isNaN(rawOffset) ? undefined : rawOffset,
+    sort: q.sort,
+    sortBy: q.sortBy,
+    runId: multi('runId'),
+    traceId: multi('traceId'),
+    projectId: multi('projectId'),
+    agentId: multi('agentId'),
+    taskId: multi('taskId'),
+    ruleId: multi('ruleId'),
+    task: multi('task'),
+    extra: multi('extra'),
+  })
+  if (!parsed.success) {
+    return { ok: false, body: { error: 'Invalid query params', issues: parsed.error.issues } }
+  }
+  return { ok: true, filters: parsed.data }
+}
+
+/**
+ * `extra` no es un Set de valores conocidos como los demás — cada entrada
+ * es "clave:regexp", así que se compila acá y un patrón inválido corta
+ * con 400 en vez de fallar en silencio adentro del loop (una regexp mal
+ * escrita no puede simplemente "no filtrar nada": eso confundiría un
+ * typo con "no hay resultados").
+ *
+ * Un elemento vacío ("") se descarta ANTES de parsear, no se rechaza —
+ * mismo criterio que `toSet` para los demás multi-select: un chip vacío
+ * (`?extra=err:x&extra=`, fácil de mandar sin querer desde la UI) no
+ * puede tirar 400 por algo que no es un patrón, es la ausencia de uno.
+ */
+function compileExtraQueries(
+  filters: ServerLogFilters,
+):
+  | { ok: true; queries: Array<{ key: string | null; pattern: string }> }
+  | { ok: false; error: string } {
+  const rawExtraQueries = (
+    filters.extra ? (Array.isArray(filters.extra) ? filters.extra : [filters.extra]) : []
+  ).filter((raw) => raw.trim().length > 0)
+  const queries: Array<{ key: string | null; pattern: string }> = []
+  for (const raw of rawExtraQueries) {
+    const parsed = parseExtraQuery(raw)
+    if (!parsed) {
+      return {
+        ok: false,
+        error: `Invalid extra query: "${raw}" — expected "<glob pattern>" or "<key>:<glob pattern>" (${MAX_EXTRA_PATTERN_LEN} chars max; * and ? are wildcards)`,
+      }
+    }
+    queries.push(parsed)
+  }
+  return { ok: true, queries }
+}
+
+/** Estos filtros sobre `extras` son el MISMO predicado con otra clave, así
+ *  que se arman como una lista: agregar uno nuevo es una línea acá y una en
+ *  el schema, no otra rama en el loop de `filterLogLines`. */
+function buildExtraSets(filters: ServerLogFilters): Array<[string, Set<string>]> {
+  const extraSets: Array<[string, Set<string>]> = []
+  for (const [key, raw] of [
+    ['source', filters.source],
+    ['runId', filters.runId],
+    ['traceId', filters.traceId],
+    ['projectId', filters.projectId],
+    ['agentId', filters.agentId],
+    ['taskId', filters.taskId],
+    ['ruleId', filters.ruleId],
+    ['task', filters.task],
+  ] as const) {
+    const set = toSet(raw)
+    if (set) extraSets.push([key, set])
+  }
+  return extraSets
+}
+
+/** Level breakdown across everything that matches the NON-level filters.
+ *  Sending this back lets the UI's summary chips show the full universe
+ *  regardless of the current level filter or pagination. */
+function emptyLevelCounts(): Record<string, number> {
+  return { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0 }
+}
+
+/** Si esta entrada matchea todos los filtros salvo `level` (que se cuenta
+ *  aparte, para el desglose de arriba). */
+function matchesLogFilters(
+  entry: ServerLogEntry,
+  ctx: {
+    moduleSet: Set<string> | null
+    extraSets: Array<[string, Set<string>]>
+    extraQueries: Array<{ key: string | null; pattern: string }>
+    filters: ServerLogFilters
+  },
+): boolean {
+  if (ctx.moduleSet && (!entry.module || !ctx.moduleSet.has(entry.module))) return false
+  // Una línea sin el campo NO entra: la infraestructura no pertenece a
+  // ningún agente ni a ninguna tarea, y preguntar por una es pedir
+  // explícitamente lo que sí tiene dueño.
+  if (ctx.extraSets.some(([key, set]) => !matchesExtra(entry, key, set))) return false
+  if (ctx.extraQueries.some((q) => !matchesExtraQuery(entry, q))) return false
+  // `search` es el mismo glob case-insensitive que `extra` (contains
+  // liso si no hay `*`/`?`, comodines si los hay) — no una regexp
+  // arbitraria, por el mismo motivo de ReDoS (ver globMatchFull). El
+  // PATRÓN se recorta a MAX_EXTRA_PATTERN_LEN (acota el costo, que es
+  // O(msg·patrón)) pero el `msg` NO — un stack trace o un payload
+  // logueados ahí superan fácil los 2000 chars de MAX_EXTRA_VALUE_LEN, y
+  // recortarlo perdería coincidencias reales al final del mensaje.
+  // `globMatchFull` es lineal/cuadrático en el peor caso, no exponencial
+  // — buscar en un `msg` largo es más lento, no catastrófico.
+  if (
+    ctx.filters.search &&
+    !globSearch(entry.msg, ctx.filters.search.slice(0, MAX_EXTRA_PATTERN_LEN))
+  ) {
+    return false
+  }
+  if (ctx.filters.from && entry.time < ctx.filters.from) return false
+  if (ctx.filters.to && entry.time > ctx.filters.to) return false
+  return true
+}
+
+function filterLogLines(
+  text: string,
+  ctx: {
+    moduleSet: Set<string> | null
+    extraSets: Array<[string, Set<string>]>
+    extraQueries: Array<{ key: string | null; pattern: string }>
+    filters: ServerLogFilters
+  },
+): { entries: ServerLogEntry[]; levelCounts: Record<string, number> } {
+  const entries: ServerLogEntry[] = []
+  const levelCounts = emptyLevelCounts()
+  for (const line of text.split('\n')) {
+    const entry = parseLine(line)
+    if (!entry) continue
+    if (!matchesLogFilters(entry, ctx)) continue
+    levelCounts[entry.level]++
+    if (ctx.filters.level && entry.level !== ctx.filters.level) continue
+    entries.push(entry)
+  }
+  return { entries, levelCounts }
+}
+
+const LEVEL_RANK: Record<string, number> = {
+  trace: 0,
+  debug: 1,
+  info: 2,
+  warn: 3,
+  error: 4,
+  fatal: 5,
+}
+
+/** Compara dos entradas por `sortBy`, con `time` como desempate estable —
+ *  filas con la misma clave quedan en orden determinístico entre páginas. */
+function compareLogEntries(a: ServerLogEntry, b: ServerLogEntry, sortBy: string): number {
+  let cmp = 0
+  if (sortBy === 'level') cmp = (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0)
+  else if (sortBy === 'module') cmp = (a.module ?? '').localeCompare(b.module ?? '')
+  else if (sortBy === 'msg') cmp = a.msg.localeCompare(b.msg)
+  if (cmp === 0) cmp = a.time.localeCompare(b.time)
+  return cmp
+}
+
+/** Sort the FULL filtered set before paginating so page 2 keeps the same
+ *  ordering as page 1 (`entries` arrives time-ascending — the natural read
+ *  order of the NDJSON file). Muta `entries` en lugar. */
+function sortLogEntries(entries: ServerLogEntry[], sort: string, sortBy: string): void {
+  if (sortBy === 'time') {
+    if (sort === 'desc') entries.reverse()
+    return
+  }
+  const dir = sort === 'asc' ? 1 : -1
+  entries.sort((a, b) => compareLogEntries(a, b, sortBy) * dir)
+}
+
 export function createServerLogsRouter() {
   const app = new Hono()
 
@@ -358,69 +563,14 @@ export function createServerLogsRouter() {
   })
 
   app.get('/', async (c) => {
-    const q = c.req.query()
-    const rawLimit = q.limit !== undefined ? Number(q.limit) : undefined
-    const rawOffset = q.offset !== undefined ? Number(q.offset) : undefined
-    // Hono returns undefined when the key is absent; queries() returns []
-    // when the key appears zero times. Prefer the array form so callers can
-    // pass ?module=a&module=b for multi-select filtering.
-    // Un solo valor llega como string y varios como array — la forma que
-    // `ServerLogFiltersSchema` acepta para todos los multi-select.
-    const multi = (key: string): string | string[] | undefined => {
-      const values = c.req.queries(key) ?? []
-      return values.length > 1 ? values : (values[0] ?? q[key])
-    }
-    const parsed = ServerLogFiltersSchema.safeParse({
-      level: q.level,
-      module: multi('module'),
-      source: multi('source'),
-      search: q.search,
-      from: q.from,
-      to: q.to,
-      limit: rawLimit !== undefined && Number.isNaN(rawLimit) ? undefined : rawLimit,
-      offset: rawOffset !== undefined && Number.isNaN(rawOffset) ? undefined : rawOffset,
-      sort: q.sort,
-      sortBy: q.sortBy,
-      runId: multi('runId'),
-      traceId: multi('traceId'),
-      projectId: multi('projectId'),
-      agentId: multi('agentId'),
-      taskId: multi('taskId'),
-      ruleId: multi('ruleId'),
-      task: multi('task'),
-      extra: multi('extra'),
-    })
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
-    }
+    const parsedQuery = parseServerLogQuery(c)
+    if (!parsedQuery.ok) return c.json(parsedQuery.body, 400)
+    const filters = parsedQuery.filters
 
-    const filters = parsed.data
+    const extraQueriesResult = compileExtraQueries(filters)
+    if (!extraQueriesResult.ok) return c.json({ error: extraQueriesResult.error }, 400)
+    const extraQueries = extraQueriesResult.queries
 
-    // `extra` no es un Set de valores conocidos como los demás — cada entrada
-    // es "clave:regexp", así que se compila acá y un patrón inválido corta
-    // con 400 en vez de fallar en silencio adentro del loop (una regexp mal
-    // escrita no puede simplemente "no filtrar nada": eso confundiría un
-    // typo con "no hay resultados").
-    // Un elemento vacío ("") se descarta ANTES de parsear, no se rechaza —
-    // mismo criterio que `toSet` para los demás multi-select: un chip vacío
-    // (`?extra=err:x&extra=`, fácil de mandar sin querer desde la UI) no
-    // puede tirar 400 por algo que no es un patrón, es la ausencia de uno.
-    const rawExtraQueries = (
-      filters.extra ? (Array.isArray(filters.extra) ? filters.extra : [filters.extra]) : []
-    ).filter((raw) => raw.trim().length > 0)
-    const extraQueries: Array<{ key: string | null; pattern: string }> = []
-    for (const raw of rawExtraQueries) {
-      const q = parseExtraQuery(raw)
-      if (!q) {
-        return c.json(
-          {
-            error: `Invalid extra query: "${raw}" — expected "<glob pattern>" or "<key>:<glob pattern>" (${MAX_EXTRA_PATTERN_LEN} chars max; * and ? are wildcards)`,
-          },
-          400,
-        )
-      }
-      extraQueries.push(q)
-    }
     const limit = Math.min(Math.max(filters.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT)
     const offset = Math.max(filters.offset ?? 0, 0)
     const sort = filters.sort ?? 'desc'
@@ -429,23 +579,7 @@ export function createServerLogsRouter() {
     // strings from ?module= (no value) are dropped so they don't filter
     // everything out.
     const moduleSet = toSet(filters.module)
-    // Estos filtros sobre `extras` son el MISMO predicado con otra clave, así
-    // que se arman como una lista: agregar uno nuevo es una línea acá y una en
-    // el schema, no otra rama en el loop de abajo.
-    const extraSets: Array<[string, Set<string>]> = []
-    for (const [key, raw] of [
-      ['source', filters.source],
-      ['runId', filters.runId],
-      ['traceId', filters.traceId],
-      ['projectId', filters.projectId],
-      ['agentId', filters.agentId],
-      ['taskId', filters.taskId],
-      ['ruleId', filters.ruleId],
-      ['task', filters.task],
-    ] as const) {
-      const set = toSet(raw)
-      if (set) extraSets.push([key, set])
-    }
+    const extraSets = buildExtraSets(filters)
 
     // Sin archivos, `readLogText` devuelve '' y todo lo de abajo produce
     // exactamente la respuesta vacía que antes se armaba a mano acá.
@@ -461,76 +595,14 @@ export function createServerLogsRouter() {
       })
     }
 
-    const lines = text.split('\n')
-    const entries: ServerLogEntry[] = []
-    // Level breakdown across everything that matches the NON-level filters.
-    // Sending this back lets the UI's summary chips show the full universe
-    // regardless of the current level filter or pagination.
-    const levelCounts: Record<string, number> = {
-      trace: 0,
-      debug: 0,
-      info: 0,
-      warn: 0,
-      error: 0,
-      fatal: 0,
-    }
-    for (const line of lines) {
-      const entry = parseLine(line)
-      if (!entry) continue
-      if (moduleSet && (!entry.module || !moduleSet.has(entry.module))) continue
-      // Una línea sin el campo NO entra: la infraestructura no pertenece a
-      // ningún agente ni a ninguna tarea, y preguntar por una es pedir
-      // explícitamente lo que sí tiene dueño.
-      if (extraSets.some(([key, set]) => !matchesExtra(entry, key, set))) continue
-      if (extraQueries.some((q) => !matchesExtraQuery(entry, q))) continue
-      // `search` es el mismo glob case-insensitive que `extra` (contains
-      // liso si no hay `*`/`?`, comodines si los hay) — no una regexp
-      // arbitraria, por el mismo motivo de ReDoS (ver globMatchFull). El
-      // PATRÓN se recorta a MAX_EXTRA_PATTERN_LEN (acota el costo, que es
-      // O(msg·patrón)) pero el `msg` NO — un stack trace o un payload
-      // logueados ahí superan fácil los 2000 chars de MAX_EXTRA_VALUE_LEN, y
-      // recortarlo perdería coincidencias reales al final del mensaje.
-      // `globMatchFull` es lineal/cuadrático en el peor caso, no exponencial
-      // — buscar en un `msg` largo es más lento, no catastrófico.
-      if (
-        filters.search &&
-        !globSearch(entry.msg, filters.search.slice(0, MAX_EXTRA_PATTERN_LEN))
-      ) {
-        continue
-      }
-      if (filters.from && entry.time < filters.from) continue
-      if (filters.to && entry.time > filters.to) continue
-      levelCounts[entry.level]++
-      if (filters.level && entry.level !== filters.level) continue
-      entries.push(entry)
-    }
+    const { entries, levelCounts } = filterLogLines(text, {
+      moduleSet,
+      extraSets,
+      extraQueries,
+      filters,
+    })
 
-    // Sort the FULL filtered set before paginating so page 2 keeps the
-    // same ordering as page 1 (`entries` is already time-ascending — the
-    // natural read order of the NDJSON file).
-    const LEVEL_RANK: Record<string, number> = {
-      trace: 0,
-      debug: 1,
-      info: 2,
-      warn: 3,
-      error: 4,
-      fatal: 5,
-    }
-    const dir = sort === 'asc' ? 1 : -1
-    if (sortBy === 'time') {
-      if (sort === 'desc') entries.reverse()
-    } else {
-      entries.sort((a, b) => {
-        let cmp = 0
-        if (sortBy === 'level') cmp = (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0)
-        else if (sortBy === 'module') cmp = (a.module ?? '').localeCompare(b.module ?? '')
-        else if (sortBy === 'msg') cmp = a.msg.localeCompare(b.msg)
-        // Stable tie-breaker: fall back to time so equal-key rows still
-        // land in a deterministic order across pages.
-        if (cmp === 0) cmp = a.time.localeCompare(b.time)
-        return cmp * dir
-      })
-    }
+    sortLogEntries(entries, sort, sortBy)
 
     const total = entries.length
     const page = entries.slice(offset, offset + limit)
