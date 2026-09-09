@@ -31,16 +31,19 @@ async function gql<T = unknown>(
   return json.data
 }
 
-async function main() {
-  // 1. Get org node id
+// 1. Get org node id
+async function resolveOrgId(): Promise<string> {
   console.log(`\n🔍 Resolving org: ${ORG}`)
   const orgData = await gql<any>(`query($org: String!) { organization(login: $org) { id } }`, {
     org: ORG,
   })
   const orgId = orgData.organization.id
   console.log(`   org id: ${orgId}`)
+  return orgId
+}
 
-  // 2. Create project
+// 2. Create project
+async function createProject(orgId: string) {
   console.log(`\n📋 Creating project: "${PROJECT_TITLE}"`)
   const createData = await gql<any>(
     `mutation($ownerId: ID!, $title: String!) {
@@ -57,8 +60,11 @@ async function main() {
   } = createData.createProjectV2.projectV2
   console.log(`   ✅ Project #${projectNumber}: ${projectUrl}`)
   console.log(`   id: ${projectId}`)
+  return { projectId, projectUrl, projectNumber }
+}
 
-  // 3. Get the auto-created Status field id
+// 3. Get the auto-created Status field id (and the rest of the existing fields)
+async function loadFields(projectId: string) {
   console.log(`\n📊 Loading fields...`)
   const fieldsData = await gql<any>(
     `query($id: ID!) {
@@ -78,36 +84,78 @@ async function main() {
   const existingFields: any[] = fieldsData.node.fields.nodes
   const statusField = existingFields.find((f) => f.name === 'Status')
   console.log(`   existing fields: ${existingFields.map((f) => f.name).join(', ')}`)
+  return { existingFields, statusField }
+}
 
-  // 4. Update Status field options (add our pipeline stages)
+// 4. Update Status field options (add our pipeline stages)
+async function configureStatusStages(statusField: any) {
   const STAGES = ['Backlog', 'Queue', 'Refining', 'Refined', 'Approved', 'In Review', 'Done']
-  if (statusField) {
-    console.log(`\n🔄 Configuring Status field stages...`)
-    const existing = statusField.options?.map((o: any) => o.name) ?? []
+  if (!statusField) return
 
-    for (const stage of STAGES) {
-      if (existing.includes(stage)) {
-        console.log(`   ⏭️  "${stage}" already exists`)
-        continue
-      }
-      try {
-        await gql(
-          `mutation($projectId: ID!, $fieldId: ID!, $name: String!, $color: ProjectV2SingleSelectFieldOptionColor!, $description: String!) {
-            createProjectV2Field(input: {}) { clientMutationId }
-          }`,
-          {},
-        )
-        // Note: Adding options to existing single-select fields requires updateProjectV2Field
-        // which is currently limited in the API. Stages must be added manually in the UI
-        // after creation, or via the REST API workaround below.
-        console.log(`   ⚠️  "${stage}" — add manually in GitHub UI (API limitation)`)
-      } catch {
-        console.log(`   ⚠️  "${stage}" — add manually in GitHub UI`)
-      }
+  console.log(`\n🔄 Configuring Status field stages...`)
+  const existing = statusField.options?.map((o: any) => o.name) ?? []
+
+  for (const stage of STAGES) {
+    if (existing.includes(stage)) {
+      console.log(`   ⏭️  "${stage}" already exists`)
+      continue
+    }
+    try {
+      await gql(
+        `mutation($projectId: ID!, $fieldId: ID!, $name: String!, $color: ProjectV2SingleSelectFieldOptionColor!, $description: String!) {
+          createProjectV2Field(input: {}) { clientMutationId }
+        }`,
+        {},
+      )
+      // Note: Adding options to existing single-select fields requires updateProjectV2Field
+      // which is currently limited in the API. Stages must be added manually in the UI
+      // after creation, or via the REST API workaround below.
+      console.log(`   ⚠️  "${stage}" — add manually in GitHub UI (API limitation)`)
+    } catch {
+      console.log(`   ⚠️  "${stage}" — add manually in GitHub UI`)
     }
   }
+}
 
-  // 5. Create custom fields
+async function createTextField(projectId: string, name: string) {
+  await gql(
+    `mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
+      createProjectV2Field(input: { projectId: $projectId, name: $name, dataType: $dataType }) {
+        projectV2Field { ... on ProjectV2Field { id name } }
+      }
+    }`,
+    { projectId, name, dataType: 'TEXT' },
+  )
+}
+
+async function createSingleSelectField(projectId: string, name: string, options: string[]) {
+  const singleSelectInputOptions = options.map((o) => ({
+    name: o,
+    color: 'GRAY',
+    description: '',
+  }))
+  await gql(
+    `mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!, $singleSelectOptions: [ProjectV2SingleSelectFieldOptionInput!]!) {
+      createProjectV2Field(input: {
+        projectId: $projectId
+        name: $name
+        dataType: $dataType
+        singleSelectOptions: $singleSelectOptions
+      }) {
+        projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name } } }
+      }
+    }`,
+    {
+      projectId,
+      name,
+      dataType: 'SINGLE_SELECT',
+      singleSelectOptions: singleSelectInputOptions,
+    },
+  )
+}
+
+// 5. Create custom fields
+async function createCustomFields(projectId: string, existingFields: any[]) {
   const CUSTOM_FIELDS = [
     {
       name: 'Type',
@@ -129,47 +177,19 @@ async function main() {
     }
     try {
       if (field.dataType === 'TEXT') {
-        await gql(
-          `mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
-            createProjectV2Field(input: { projectId: $projectId, name: $name, dataType: $dataType }) {
-              projectV2Field { ... on ProjectV2Field { id name } }
-            }
-          }`,
-          { projectId, name: field.name, dataType: 'TEXT' },
-        )
+        await createTextField(projectId, field.name)
       } else {
-        // SINGLE_SELECT
-        const singleSelectInputOptions = (field.options ?? []).map((o) => ({
-          name: o,
-          color: 'GRAY',
-          description: '',
-        }))
-        await gql(
-          `mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!, $singleSelectOptions: [ProjectV2SingleSelectFieldOptionInput!]!) {
-            createProjectV2Field(input: {
-              projectId: $projectId
-              name: $name
-              dataType: $dataType
-              singleSelectOptions: $singleSelectOptions
-            }) {
-              projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name } } }
-            }
-          }`,
-          {
-            projectId,
-            name: field.name,
-            dataType: 'SINGLE_SELECT',
-            singleSelectOptions: singleSelectInputOptions,
-          },
-        )
+        await createSingleSelectField(projectId, field.name, field.options ?? [])
       }
       console.log(`   ✅ Created field: ${field.name}`)
     } catch (err) {
       console.log(`   ⚠️  ${field.name}: ${(err as Error).message}`)
     }
   }
+}
 
-  // 6. Done — print next steps
+// 6. Done — print next steps
+function printNextSteps(projectUrl: string) {
   console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ Project created!
@@ -189,6 +209,15 @@ Manual steps in GitHub UI (${projectUrl}):
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `)
+}
+
+async function main() {
+  const orgId = await resolveOrgId()
+  const { projectId, projectUrl } = await createProject(orgId)
+  const { existingFields, statusField } = await loadFields(projectId)
+  await configureStatusStages(statusField)
+  await createCustomFields(projectId, existingFields)
+  printNextSteps(projectUrl)
 }
 
 main().catch((err) => {
