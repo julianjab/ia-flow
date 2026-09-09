@@ -689,9 +689,7 @@ watch(
   flex-direction: column;
   gap: 1.25rem;
   padding: 1.25rem 1.5rem 2.5rem;
-  max-width: 1560px;
   width: 100%;
-  margin: 0 auto;
   box-sizing: border-box;
 }
 
