@@ -45,13 +45,14 @@ export interface TaskFilters {
    * El bucket de disposición (`me toca`/`bloqueadas`/`avanzando`, ver
    * `QUICK_DISPOSITION_FILTERS`). Vive acá como CUALQUIER otro eje —token en
    * `FilterQueryInput`, contado por `countActiveTaskFilters`, dicho en
-   * `taskFilterSummary`— aunque `filterTasks` no lo aplique: la disposición no
-   * es un campo de `FilterableTask`, la resuelve el server aparte
-   * (`dispositions`), así que quien cruza este eje contra las filas es
-   * `TareasSection` (`orderedInput`), no este módulo. Guardarlo como un
-   * segundo estado aparte —el `quickFilter` de antes— dejaba el chip
-   * desconectado del resto de los filtros: prendía un recorte invisible para
-   * `filtros N` y el resumen.
+   * `taskFilterSummary`, aplicado por `filterTasks`—, aunque la disposición no
+   * es un campo nativo de la tarea: la resuelve el server aparte
+   * (`dispositions`) y `TareasSection` la inyecta en `FilterableTask.disposition`
+   * antes de filtrar, mismo patrón que `blocked`. Guardarlo como un segundo
+   * estado aparte —el `quickFilter` de antes— dejaba el chip desconectado del
+   * resto de los filtros: prendía un recorte invisible para `filtros N` y el
+   * resumen, y que además sólo pegaba en el modo `disposicion` (en `repo`/
+   * `fuente`/board seguía "activo" sin filtrar nada).
    */
   disposicion: TaskDisposition[]
 }
@@ -68,6 +69,11 @@ export interface FilterableTask {
   pullRequestsKnown: boolean
   /** Se resuelve fuera de este módulo (fetch por item, async) — ver `TareasSection`. */
   blocked?: boolean
+  /** El bucket de disposición, inyectado por quien arma la fila (el agregado
+   *  de `dispositions` tarda en cargar, o puede no conocer una tarea nueva).
+   *  `undefined` ⇒ no se sabe — y con el filtro puesto eso EXCLUYE, no pasa:
+   *  afirmar un bucket que no se conoce sería mentir sobre dónde está. */
+  disposition?: TaskDisposition
 }
 
 export const EMPTY_TASK_FILTERS: TaskFilters = {
@@ -207,6 +213,12 @@ function matchesBlocked(task: FilterableTask, values: BlockedValue[]): boolean {
   return values.length === 0 || values.some((v) => (v === 'si' ? !!task.blocked : !task.blocked))
 }
 
+function matchesDisposition(task: FilterableTask, values: TaskDisposition[]): boolean {
+  return (
+    values.length === 0 || (task.disposition !== undefined && values.includes(task.disposition))
+  )
+}
+
 function matchesText(task: FilterableTask, needles: string[]): boolean {
   if (needles.length === 0) return true
   const haystack = normalizeSearchText(task.title ?? '')
@@ -227,7 +239,8 @@ export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters
       matchesPrStatus(task, f.prStatus) &&
       matchesBranch(task, f.branch) &&
       matchesBlocked(task, f.blocked) &&
-      matchesText(task, wantedText),
+      matchesText(task, wantedText) &&
+      matchesDisposition(task, f.disposicion),
   )
 }
 

@@ -225,11 +225,17 @@ const filters = ref<TaskFilters>(
 );
 // `blocked` no vive en `TaskRow` porque los blockers se resuelven aparte, por
 // item y en paralelo (`loadBlockersFor`) — se inyecta acá, al momento de
-// filtrar, en vez de bakearlo en `toRow` en frío.
+// filtrar, en vez de bakearlo en `toRow` en frío. `disposition` sigue el
+// mismo patrón: el agregado (`dispositionById`, más abajo) tarda en cargar y
+// puede no conocer una tarea recién creada, así que se inyecta acá y no en
+// `toRow` — es lo que le permite a `filterTasks` aplicar el eje `disposicion`
+// como cualquier otro, en vez de que quede como un cruce aparte en
+// `orderedInput`.
 const rowsWithBlocked = computed(() =>
   projectItems.value.map((item) => ({
     ...item,
     blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
+    disposition: dispositionById.value.get(item.id)?.disposition,
   })),
 );
 const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.value));
@@ -372,24 +378,24 @@ interface OrderedTask { id: string; disposition: TaskDisposition; item: TaskRow 
 const orderedInput = computed<OrderedTask[]>(() => {
   const byId = dispositionById.value;
   // El orden de las filas lo trae el server ya resuelto; acá sólo se
-  // intersecta con lo que el filtro dejó pasar.
+  // intersecta con lo que el filtro dejó pasar. El chip de disposición YA
+  // se aplicó ahí (`filterTasks` vía `FilterableTask.disposition`, inyectado
+  // en `rowsWithBlocked`) — filtrar DE NUEVO acá sería el mismo eje aplicado
+  // dos veces por dos caminos distintos.
   const visible = new Set(filteredItems.value.map((i) => i.id));
   const itemsById = new Map(filteredItems.value.map((i) => [i.id, i]));
   const out: OrderedTask[] = [];
   for (const d of dispositions.value) {
     if (!visible.has(d.taskId)) continue;
-    // El chip acota a un bucket; sin chip, pasan los cuatro.
-    if (quickFilter.value && d.disposition !== quickFilter.value) continue;
     const item = itemsById.get(d.taskId);
     if (item) out.push({ id: d.taskId, disposition: d.disposition, item });
   }
   // Una tarea que el agregado no conoce (recién creada) no desaparece del
-  // listado: va al final, sin bucket que afirmar.
+  // listado: va al final, sin bucket que afirmar. Si el chip está puesto,
+  // `filterTasks` ya la excluyó de `filteredItems` (un bucket desconocido no
+  // se afirma), así que este loop no tiene nada que filtrar de más.
   for (const item of filteredItems.value) {
     if (byId.has(item.id)) continue;
-    // Una tarea que el agregado no conoce no se afirma en ningún bucket, así
-    // que un chip activo la esconde en vez de mentir sobre dónde está.
-    if (quickFilter.value) continue;
     out.push({ id: item.id, disposition: 'waiting-on-you', item });
   }
   return out;
