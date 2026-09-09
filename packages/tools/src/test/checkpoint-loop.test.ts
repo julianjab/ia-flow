@@ -8,19 +8,25 @@ function done(text = 'listo') {
   return { stop_reason: 'end_turn', content: [{ type: 'text', text }] }
 }
 
-describe('executeLoop — checkpoint por vuelta', () => {
-  it('guarda antes de cada request, con la conversación que se va a mandar', async () => {
-    const saved: unknown[][] = []
+describe('executeLoop — checkpoint espaciado', () => {
+  it('cuando toca guardar, guarda exactamente la conversación que se mandó en ESA vuelta', async () => {
+    // #142: el checkpoint ya no se guarda en TODAS las vueltas — se espacia
+    // (ver CHECKPOINT_EVERY_ITERS/CHECKPOINT_MIN_GROWTH_BYTES en engine.ts).
+    // Igual debe seguir siendo cierto que, cuando SÍ guarda, lo que persiste
+    // coincide con el request real de alguna vuelta — nunca una foto inventada.
+    const requestLengths: number[] = []
+    const savedLengths: number[] = []
     let turn = 0
+    const TOTAL_TOOL_TURNS = 20
 
     await executeLoop(
-      async () => {
+      async (messages) => {
         turn++
-        // Primera vuelta: pide una tool para que haya una segunda.
-        if (turn === 1) {
+        requestLengths.push(messages.length)
+        if (turn < TOTAL_TOOL_TURNS) {
           return {
             stop_reason: 'tool_use',
-            content: [{ type: 'tool_use', id: 'tu1', name: 'no_existe', input: {} }],
+            content: [{ type: 'tool_use', id: `tu${turn}`, name: 'no_existe', input: {} }],
           }
         }
         return done()
@@ -29,33 +35,34 @@ describe('executeLoop — checkpoint por vuelta', () => {
       CTX,
       {
         saveCheckpoint: async (state) => {
-          saved.push(state.messages)
+          savedLengths.push(state.messages.length)
         },
       },
     )
 
-    // Dos requests ⇒ dos checkpoints, uno por vuelta.
-    expect(saved).toHaveLength(2)
-    // El primero es el prompt pelado; el segundo ya trae el ida y vuelta de la
-    // tool. O sea: lo guardado es el último request ENVIADO, no una foto vieja.
-    expect(saved[0]).toHaveLength(1)
-    expect(saved[1]!.length).toBeGreaterThan(1)
+    expect(savedLengths.length).toBeGreaterThan(0)
+    // Menos escrituras que vueltas — es el punto de espaciar.
+    expect(savedLengths.length).toBeLessThan(requestLengths.length)
+    for (const len of savedLengths) {
+      expect(requestLengths).toContain(len)
+    }
   })
 
   it('guarda una copia, no la referencia que el loop sigue mutando', async () => {
-    // Sin la copia, el array guardado en la vuelta 1 crecería solo hasta
-    // terminar igual al de la vuelta 2 — y el checkpoint dejaría de
-    // representar el request que efectivamente se mandó.
+    // Sin la copia, todos los checkpoints guardados terminarían apuntando al
+    // mismo array final (el loop lo sigue creciendo después de cada guardado)
+    // y sus largos observados al final serían todos iguales entre sí.
     const saved: unknown[][] = []
     let turn = 0
+    const TOTAL_TOOL_TURNS = 20
 
     await executeLoop(
       async () => {
         turn++
-        if (turn === 1) {
+        if (turn < TOTAL_TOOL_TURNS) {
           return {
             stop_reason: 'tool_use',
-            content: [{ type: 'tool_use', id: 'tu1', name: 'no_existe', input: {} }],
+            content: [{ type: 'tool_use', id: `tu${turn}`, name: 'no_existe', input: {} }],
           }
         }
         return done()
@@ -65,7 +72,10 @@ describe('executeLoop — checkpoint por vuelta', () => {
       { saveCheckpoint: async (state) => void saved.push(state.messages) },
     )
 
-    expect(saved[0]).toHaveLength(1)
+    expect(saved.length).toBeGreaterThan(1)
+    for (let i = 1; i < saved.length; i++) {
+      expect(saved[i]!.length).toBeGreaterThan(saved[i - 1]!.length)
+    }
   })
 
   it('un fallo al guardar NO voltea el run', async () => {

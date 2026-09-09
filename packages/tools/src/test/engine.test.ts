@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import type { ToolContext } from '../contract.js'
 import {
   executeLoop,
@@ -720,5 +720,96 @@ describe('executeLoop — run metrics', () => {
     expect(result.truncated).toBe(true)
     expect(result.usage.inputTokens).toBe(9)
     expect(result.toolCalls).toBe(0)
+  })
+})
+
+// ─── executeLoop — checkpoint spacing ─────────────────────────────────────────
+// Regression coverage for #142: el checkpoint se guardaba en CADA vuelta,
+// serializando la historia entera dos veces por vuelta (una para el chequeo
+// de compactación, otra al persistir). Con historias de cientos de KB y
+// runs de decenas de vueltas eso es una escritura cuadrática a SQLite.
+
+describe('executeLoop — checkpoint spacing', () => {
+  it('hace significativamente menos escrituras de checkpoint que vueltas', async () => {
+    registerTool({
+      name: '__test_checkpoint_noop__',
+      description: 'noop',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => 'ok',
+    })
+
+    const TOTAL_ITERS = 8
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      if (call < TOTAL_ITERS) return toolUseResponse('__test_checkpoint_noop__', {}, `tu_${call}`)
+      return endTurnResponse('done')
+    }
+
+    const checkpointCalls: Array<{ messages: unknown[] }> = []
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      saveCheckpoint: async (state) => {
+        checkpointCalls.push(state)
+      },
+    })
+
+    expect(result.iters).toBe(TOTAL_ITERS)
+    expect(checkpointCalls.length).toBeGreaterThan(0)
+    expect(checkpointCalls.length).toBeLessThan(TOTAL_ITERS)
+  })
+
+  it('serializa la historia una sola vez por vuelta (compactación + checkpoint comparten el JSON)', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      if (call < 4) return toolUseResponse('__test_checkpoint_noop__', {}, `iter_${call}`)
+      return endTurnResponse('done')
+    }
+
+    const stringifySpy = spyOn(JSON, 'stringify')
+    const before = stringifySpy.mock.calls.length
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      saveCheckpoint: async () => {},
+    })
+    const historyStringifyCalls = stringifySpy.mock.calls.length - before
+    stringifySpy.mockRestore()
+
+    // Sin compactación de por medio (la historia acá es minúscula), el único
+    // `JSON.stringify` del array de mensajes por vuelta es el que hace
+    // `compactIfOverBudget` — su resultado es lo que reusa la decisión de
+    // checkpoint, así que el conteo debe ser exactamente una vez por vuelta.
+    expect(historyStringifyCalls).toBe(result.iters)
+  })
+
+  it('un checkpoint espaciado sigue siendo un punto de reanudación válido — sin tool_use colgado', async () => {
+    registerTool({
+      name: '__test_checkpoint_noop__',
+      description: 'noop',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => 'ok',
+    })
+
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      if (call < 6) return toolUseResponse('__test_checkpoint_noop__', {}, `tu_${call}`)
+      return endTurnResponse('done')
+    }
+
+    const checkpointStates: Array<{ messages: any[] }> = []
+    await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      saveCheckpoint: async (state) => {
+        checkpointStates.push(structuredClone(state) as { messages: any[] })
+      },
+    })
+
+    expect(checkpointStates.length).toBeGreaterThan(0)
+    for (const { messages } of checkpointStates) {
+      const last = messages[messages.length - 1]
+      if (last.role === 'assistant' && Array.isArray(last.content)) {
+        const pendingToolUse = last.content.some((b: any) => b.type === 'tool_use')
+        expect(pendingToolUse).toBe(false)
+      }
+    }
   })
 })
