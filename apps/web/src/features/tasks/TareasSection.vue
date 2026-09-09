@@ -1586,7 +1586,11 @@ watch(activeProjectId, (pid) => {
    El ancho del panel sale de `--split-cols` (mismo patrón que `--tr-cols` /
    `--rr-cols`): `useResizableColumns` lo escribe, el handle lo arrastra. */
 .tk-split { display: flex; flex-direction: column; min-width: 0; position: relative; }
-.tk-list { min-width: 0; }
+/* `tasks-list`: lo que `TaskRow.vue` (`.tr--table`) y el `.task-thead` de acá
+   preguntan para decidir si hay ancho para columnas. Es el ancho de ESTA
+   caja, no el de la ventana — con el detalle abierto al lado (o agrandado
+   arrastrando el split), la ventana puede medir 1440 y la lista 470. */
+.tk-list { min-width: 0; container: tasks-list / inline-size; }
 
 @media (min-width: 1100px) {
   .tk-split--open {
@@ -1615,11 +1619,13 @@ watch(activeProjectId, (pid) => {
     position: absolute;
     top: 10%;
     left: 50%;
-    width: 1px;
+    width: 2px;
+    margin-left: -1px;
     height: 80%;
     background: var(--border-hi);
+    opacity: 0.7;
   }
-  .split-resize-handle:hover::after { background: var(--accent); }
+  .split-resize-handle:hover::after { background: var(--accent); opacity: 1; }
 }
 
 /* Los chips del board: una columna por vez, no un carrusel horizontal. En un
@@ -1843,7 +1849,11 @@ watch(activeProjectId, (pid) => {
 .task-row-agent,
 .task-row-dur { display: none; }
 
-@media (min-width: 768px) {
+/* `@container`, no `@media`: mismo motivo y mismo contenedor que
+   `TaskRow.vue` (`tasks-list`, declarado en `.tk-list` más abajo) — el
+   encabezado tiene que colapsar EXACTAMENTE cuando las filas colapsan, o
+   quedarían columnas huérfanas sobre filas ya apiladas. */
+@container tasks-list (min-width: 47rem) {
   .task-thead,
   .task-row {
     display: grid;
@@ -1904,16 +1914,21 @@ watch(activeProjectId, (pid) => {
        columna — mismo motivo que `useDragReorder` en su handle. */
     touch-action: none;
   }
+  /* Visible EN REPOSO, no sólo al pasar el mouse — un hairline de 1px que
+     sólo aparece en hover es indistinguible de "no hay nada acá". Tres
+     reportes seguidos de "no hay resize" eran este handle, que sí estaba. */
   .col-resize-handle::after {
     content: '';
     position: absolute;
-    top: 15%;
+    top: 10%;
     left: 50%;
-    width: 1px;
-    height: 70%;
+    width: 2px;
+    margin-left: -1px;
+    height: 80%;
     background: var(--border-hi);
+    opacity: 0.7;
   }
-  .col-resize-handle:hover::after { background: var(--accent); }
+  .col-resize-handle:hover::after { background: var(--accent); opacity: 1; }
 
   .task-row {
     height: calc(var(--row-h) * 1.2);

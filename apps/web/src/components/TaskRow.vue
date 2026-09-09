@@ -289,7 +289,14 @@ function onKeydown(e: KeyboardEvent) {
 .tr__dur { display: none; }
 
 /* ── `table`: columnas cuando hay ancho ───────────────────────────────────── */
-@media (min-width: 768px) {
+/* `@container`, no `@media`: el ancho que importa es el de la LISTA, no el de
+ * la ventana — con el detalle abierto al lado (--bp-split) o con la columna
+ * de detalle agrandada arrastrando, la ventana puede medir 1440 y la lista
+ * 470. El contenedor lo declara el padre (`.tk-list` en TareasSection.vue,
+ * `container: tasks-list / inline-size`) — mismo patrón que `exec-list` en
+ * RunRow/ExecutionsSection. Sin esto, angostar el panel de detalle dejaba
+ * seis columnas apretadas en vez de la fila apilada de mobile. */
+@container tasks-list (min-width: 47rem) {
   .tr--table {
     /* El padre (`.task-table` en TareasSection.vue) puede pisar `--tr-cols`
      * con los anchos que el operador arrastró — mismo patrón que `--rr-cols`
