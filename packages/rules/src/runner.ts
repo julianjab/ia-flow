@@ -84,6 +84,201 @@ export interface RunRuleDeps {
 
 const FAILED: ActionResult = { ok: false }
 
+/** Lo que dejó ejecutar (o intentar ejecutar) un paso del `do[]`: si hay que
+ *  cortar la secuencia, y qué agregar al acumulado de `runRule` (`steps`,
+ *  `deferred`, `ranSomething`). `null` en `stepEntry` es "no corrió nada que
+ *  reportar" (el `when` del paso no matcheó, la ref/acción no resolvió). */
+interface StepRunOutcome {
+  result: ActionResult | null
+  breakSequence: boolean
+}
+
+/** Resuelve una `ref` a su cuerpo ejecutable, arrastrando `continueOnError`,
+ *  `id` y `when` de la entrada de la regla por sobre los de la acción
+ *  reusable — ver los comentarios largos que esto reemplaza en el `for` de
+ *  abajo (git blame de esta función los tiene). `null` significa que la ref
+ *  no resolvió: el caller decide si eso corta la secuencia. */
+async function resolveRefEntry(
+  raw: RuleActionEntry,
+  event: EngineEvent,
+  deps: RunRuleDeps,
+): Promise<{ entry: RuleActionEntry; name?: string } | null> {
+  const { actionId } = raw as { actionId: string }
+  const resolved = await deps.resolveAction?.(actionId, event)
+  if (!resolved) return null
+
+  const name = resolved.name ?? actionId
+  const entry = {
+    ...resolved.entry,
+    ...(raw.continueOnError !== undefined ? { continueOnError: raw.continueOnError } : {}),
+    ...((raw as { id?: string }).id !== undefined ? { id: (raw as { id?: string }).id } : {}),
+    ...((raw as { when?: unknown }).when !== undefined
+      ? { when: (raw as { when?: unknown }).when }
+      : {}),
+  } as RuleActionEntry
+  return { entry, name }
+}
+
+/** Si el `when` de la acción (evaluado contra los campos del evento + los
+ *  `steps` corridos hasta acá) la deja correr. Ver el comentario largo en
+ *  `runStep` sobre por qué `steps` puede pisar una clave del payload. */
+function stepWhenMatches(entry: RuleActionEntry, event: EngineEvent, steps: Steps): boolean {
+  const stepWhen = (entry as { when?: unknown }).when
+  if (!stepWhen) return true
+  return evalWhen({ ...event.payload, steps }, stepWhen)
+}
+
+/** Resuelve `{{steps.*}}` en la config de la acción y filtra qué agentes
+ *  alimentaron algo, ANTES del schema — ver el comentario original de
+ *  `runRule` sobre por qué en ese orden. `null` en `error` es éxito. */
+function resolveStepReferences(
+  entry: RuleActionEntry,
+  steps: Steps,
+): { config: unknown; fromAgents: string[]; error?: string } {
+  if (!referencesSteps(entry)) return { config: entry, fromAgents: [] }
+
+  const resolved = resolveSteps(entry, steps)
+  if (resolved.errors.length) {
+    return { config: entry, fromAgents: [], error: resolved.errors.join('; ') }
+  }
+  // Quién escribió lo que esta acción va a usar. Sólo los agentes: un
+  // script o un http los escribió el operador.
+  const fromAgents = resolved.used.filter((u) => u.from === 'agent').map((u) => u.id)
+  return { config: resolved.value, fromAgents }
+}
+
+/** Ejecuta un paso del `do[]` — resolviendo su `ref` si la tiene, chequeando
+ *  su `when`, resolviendo `{{steps.*}}`, parseando el schema y corriendo el
+ *  handler — y actualiza `steps` con lo que dejó, si corrió. Es la unidad
+ *  que el `for` de `runRule` repite en orden; separarla no cambia el orden ni
+ *  la precedencia de nada, sólo le da nombre a cada sub-paso. */
+async function runStep(
+  raw: RuleActionEntry,
+  position: number,
+  rule: Rule,
+  event: EngineEvent,
+  deps: RunRuleDeps,
+  ctx: ActionContext,
+  steps: Steps,
+): Promise<StepRunOutcome> {
+  // Una `ref` se resuelve ANTES de buscar handler: a partir de acá una acción
+  // con nombre y una inline son el mismo objeto, y el resto de esta función
+  // —schema, recorder, continueOnError— no sabe cuál era cuál.
+  let entry = raw
+  let name: string | undefined
+  if ((raw as RuleAction).action === 'ref') {
+    const { actionId } = raw as { actionId: string }
+    const resolved = await resolveRefEntry(raw, event, deps)
+    if (!resolved) {
+      // Puede pasar aunque el CRUD valide: alguien borró la acción después
+      // de guardar la regla. Falla la acción, no la regla — el resto del
+      // `do[]` sigue su curso normal según `continueOnError`.
+      deps.onError?.(new Error(`la acción '${actionId}' no existe en este ámbito`), {
+        rule,
+        position,
+        kind: 'ref',
+      })
+      return { result: null, breakSequence: !continueAfterFailure(raw) }
+    }
+    entry = resolved.entry
+    name = resolved.name
+  }
+
+  const kind = (entry as RuleAction).action
+  const handler = getActionHandler(kind)
+
+  if (!handler) {
+    // La validación del CRUD debería haber frenado esto; llegar acá
+    // significa que la fila se escribió por otro camino. Se trata como
+    // fallo de la acción, no como crash de la regla.
+    deps.onError?.(new Error(`acción desconocida: ${kind}`), { rule, position, kind })
+    return { result: null, breakSequence: !continueAfterFailure(entry) }
+  }
+
+  // El `when` de la acción se evalúa ANTES de resolver `{{steps.*}}` y de
+  // parsear el schema: si no matchea, el resto de este paso no importa. El
+  // sujeto es el mismo que usa el `when` de la regla (los campos del
+  // evento) más `steps`, lo que deja al `do[]` referenciar lo que dejó un
+  // paso anterior sin pasar por un `emit`. `steps` pisa una clave
+  // homónima de `event.payload` si existiera — ningún productor de
+  // eventos del catálogo usa ese nombre hoy (es el mismo motivo por el
+  // que `{{steps.*}}` en `resolveSteps`/`steps.ts` no se namespacea contra
+  // el payload), así que es aditivo en la práctica.
+  if (!stepWhenMatches(entry, event, steps)) {
+    const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
+    const result: ActionResult = {
+      ok: false,
+      skipped: true,
+      detail: 'when de la acción no matcheó',
+    }
+    await deps.recorder?.onActionEnd?.({ runId, rule, event, position, kind, result })
+    return { result: null, breakSequence: false }
+  }
+
+  // Los `{{steps.*}}` se resuelven ANTES del schema: así el schema sigue
+  // siendo estricto (`method` es un enum, no `string | plantilla`) y lo que
+  // se valida es el valor ya resuelto.
+  const { config, fromAgents, error } = resolveStepReferences(entry, steps)
+  if (error) {
+    // Una referencia que no resuelve NO se deja pasar: el paso correría con
+    // un valor vacío y nadie se enteraría.
+    deps.onError?.(new Error(error), { rule, position, kind })
+    return { result: null, breakSequence: !continueAfterFailure(entry) }
+  }
+
+  const parsed = handler.configSchema.safeParse(config)
+  if (!parsed.success) {
+    deps.onError?.(parsed.error, { rule, position, kind })
+    return { result: null, breakSequence: !continueAfterFailure(entry) }
+  }
+
+  ctx.position = position
+  ctx.fromAgents = fromAgents
+  const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
+  let result: ActionResult = FAILED
+  let thrown: unknown
+
+  try {
+    result = await handler.execute(ctx, parsed.data as never)
+  } catch (err) {
+    thrown = err
+    deps.onError?.(err, { rule, position, kind })
+  }
+
+  await deps.recorder?.onActionEnd?.({
+    runId,
+    rule,
+    event,
+    position,
+    kind,
+    result,
+    error: thrown,
+  })
+
+  // Se publica sólo lo de un paso NOMBRADO, y sólo si corrió: un paso que
+  // falló o se salteó no dejó un valor, y ofrecerlo como vacío sería el
+  // mismo hueco silencioso que la resolución de arriba evita.
+  const stepId = (entry as { id?: string }).id
+  if (stepId && result.ok && result.output !== undefined) {
+    steps[stepId] = { output: result.output, from: kind }
+  }
+
+  // `skipped` no corta la secuencia: significa "no aplicaba", no "se rompió".
+  // Sin esta distinción una acción que legítimamente no tenía nada que hacer
+  // se llevaba puestas las que venían después — ver ActionResult.skipped.
+  const breakSequence = !result.ok && !result.skipped && !continueAfterFailure(entry)
+  return { result, breakSequence }
+}
+
+/** El outcome agregado de la regla, a partir de lo que dejó cada paso.
+ *
+ *  `deferred` gana sobre todo, igual que en el bus: significa "hay trabajo,
+ *  reintentá", y perderlo detrás de un ok dejaría el item sin reintento. */
+function resolveRuleOutcome(deferred: boolean, ranSomething: boolean): EventOutcome {
+  if (deferred) return 'deferred'
+  return ranSomething ? 'dispatched' : 'skipped'
+}
+
 /** Ejecuta una regla y devuelve su outcome agregado.
  *
  *  `deferred` gana sobre todo, igual que en el bus: significa "hay trabajo,
@@ -115,153 +310,13 @@ export async function runRule(
   const steps: Steps = {}
 
   for (const [position, raw] of rule.do.entries()) {
-    // Una `ref` se resuelve ANTES de buscar handler: a partir de acá una acción
-    // con nombre y una inline son el mismo objeto, y el resto del loop —schema,
-    // recorder, continueOnError— no sabe cuál era cuál.
-    let entry = raw
-    let name: string | undefined
-    if ((raw as RuleAction).action === 'ref') {
-      const { actionId } = raw as { actionId: string }
-      const resolved = await deps.resolveAction?.(actionId, event)
-      if (!resolved) {
-        // Puede pasar aunque el CRUD valide: alguien borró la acción después
-        // de guardar la regla. Falla la acción, no la regla — el resto del
-        // `do[]` sigue su curso normal según `continueOnError`.
-        deps.onError?.(new Error(`la acción '${actionId}' no existe en este ámbito`), {
-          rule,
-          position,
-          kind: 'ref',
-        })
-        if (!continueAfterFailure(raw)) break
-        continue
-      }
-      // El `continueOnError` de la REF gana sobre el de la acción referenciada:
-      // es una decisión de esta regla sobre esta secuencia, no una propiedad de
-      // la acción, que puede ser opcional en una regla y crítica en otra.
-      //
-      // El `id` viaja por lo mismo, y además porque no puede vivir del otro
-      // lado: nombra el PASO dentro de esta secuencia, no la acción reusable.
-      // Sin arrastrarlo, un `{action: 'ref', id: 't'}` publicaba su output bajo
-      // el `id` del body de la acción con nombre (o bajo ninguno), y el paso
-      // siguiente fallaba con "'t' no corrió antes en esta regla".
-      //
-      // El `when` es exactamente el mismo caso que `id`: condiciona ESTE
-      // paso de ESTA secuencia, no la acción reusable — un `{action: 'ref',
-      // when: [...]}` sin arrastrarlo corría siempre (el spread de abajo lo
-      // pisaría con el `when` que trajera el body de la acción con nombre,
-      // si tuviera uno, o lo perdería del todo).
-      name = resolved.name ?? actionId
-      entry = {
-        ...resolved.entry,
-        ...(raw.continueOnError !== undefined ? { continueOnError: raw.continueOnError } : {}),
-        ...((raw as { id?: string }).id !== undefined ? { id: (raw as { id?: string }).id } : {}),
-        ...((raw as { when?: unknown }).when !== undefined
-          ? { when: (raw as { when?: unknown }).when }
-          : {}),
-      } as RuleActionEntry
-    }
-
-    const kind = (entry as RuleAction).action
-    const handler = getActionHandler(kind)
-
-    if (!handler) {
-      // La validación del CRUD debería haber frenado esto; llegar acá
-      // significa que la fila se escribió por otro camino. Se trata como
-      // fallo de la acción, no como crash de la regla.
-      deps.onError?.(new Error(`acción desconocida: ${kind}`), { rule, position, kind })
-      if (!continueAfterFailure(entry)) break
-      continue
-    }
-
-    // El `when` de la acción se evalúa ANTES de resolver `{{steps.*}}` y de
-    // parsear el schema: si no matchea, el resto de este paso no importa. El
-    // sujeto es el mismo que usa el `when` de la regla (los campos del
-    // evento) más `steps`, lo que deja al `do[]` referenciar lo que dejó un
-    // paso anterior sin pasar por un `emit`. `steps` pisa una clave
-    // homónima de `event.payload` si existiera — ningún productor de
-    // eventos del catálogo usa ese nombre hoy (es el mismo motivo por el
-    // que `{{steps.*}}` en `resolveSteps`/`steps.ts` no se namespacea contra
-    // el payload), así que es aditivo en la práctica.
-    const stepWhen = (entry as { when?: unknown }).when
-    if (stepWhen && !evalWhen({ ...event.payload, steps }, stepWhen)) {
-      const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
-      const result: ActionResult = {
-        ok: false,
-        skipped: true,
-        detail: 'when de la acción no matcheó',
-      }
-      await deps.recorder?.onActionEnd?.({ runId, rule, event, position, kind, result })
-      continue
-    }
-
-    // Los `{{steps.*}}` se resuelven ANTES del schema: así el schema sigue
-    // siendo estricto (`method` es un enum, no `string | plantilla`) y lo que
-    // se valida es el valor ya resuelto.
-    let config: unknown = entry
-    let fromAgents: string[] = []
-    if (referencesSteps(entry)) {
-      const resolved = resolveSteps(entry, steps)
-      if (resolved.errors.length) {
-        // Una referencia que no resuelve NO se deja pasar: el paso correría con
-        // un valor vacío y nadie se enteraría.
-        deps.onError?.(new Error(resolved.errors.join('; ')), { rule, position, kind })
-        if (!continueAfterFailure(entry)) break
-        continue
-      }
-      config = resolved.value
-      // Quién escribió lo que esta acción va a usar. Sólo los agentes: un
-      // script o un http los escribió el operador.
-      fromAgents = resolved.used.filter((u) => u.from === 'agent').map((u) => u.id)
-    }
-
-    const parsed = handler.configSchema.safeParse(config)
-    if (!parsed.success) {
-      deps.onError?.(parsed.error, { rule, position, kind })
-      if (!continueAfterFailure(entry)) break
-      continue
-    }
-
-    ctx.position = position
-    ctx.fromAgents = fromAgents
-    const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
-    let result: ActionResult = FAILED
-    let thrown: unknown
-
-    try {
-      result = await handler.execute(ctx, parsed.data as never)
-    } catch (err) {
-      thrown = err
-      deps.onError?.(err, { rule, position, kind })
-    }
-
-    await deps.recorder?.onActionEnd?.({
-      runId,
-      rule,
-      event,
-      position,
-      kind,
-      result,
-      error: thrown,
-    })
-
-    // Se publica sólo lo de un paso NOMBRADO, y sólo si corrió: un paso que
-    // falló o se salteó no dejó un valor, y ofrecerlo como vacío sería el
-    // mismo hueco silencioso que la resolución de arriba evita.
-    const stepId = (entry as { id?: string }).id
-    if (stepId && result.ok && result.output !== undefined) {
-      steps[stepId] = { output: result.output, from: kind }
-    }
-
-    if (result.deferred) deferred = true
-    if (result.ok) ranSomething = true
-    // `skipped` no corta la secuencia: significa "no aplicaba", no "se rompió".
-    // Sin esta distinción una acción que legítimamente no tenía nada que hacer
-    // se llevaba puestas las que venían después — ver ActionResult.skipped.
-    if (!result.ok && !result.skipped && !continueAfterFailure(entry)) break
+    const outcome = await runStep(raw, position, rule, event, deps, ctx, steps)
+    if (outcome.result?.deferred) deferred = true
+    if (outcome.result?.ok) ranSomething = true
+    if (outcome.breakSequence) break
   }
 
-  if (deferred) return 'deferred'
-  return ranSomething ? 'dispatched' : 'skipped'
+  return resolveRuleOutcome(deferred, ranSomething)
 }
 
 function continueAfterFailure(entry: RuleActionEntry): boolean {
