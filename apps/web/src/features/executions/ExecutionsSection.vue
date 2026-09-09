@@ -453,14 +453,19 @@ function execSortArrow(column: ExecSortColumn): string {
   return execSort.value.direction === 'asc' ? ' ▲' : ' ▼';
 }
 
-/** Anchos de columna de la vista de 5d — anchor (fijo) y main (flexible,
- *  absorbe el resto) quedan afuera. Mismo orden que el DOM de
+/** Anchos de columna de la vista de 5d — anchor queda afuera (fijo). `main`
+ *  ("tarea · razón") es la que el operador arrastra más — es la arrastrable,
+ *  con handle en su propio borde derecho — y `agent` pasa a ser la flexible
+ *  que absorbe el resto, sin handle propio: con handle ahí (como antes),
+ *  agrandar "agente" arrastrando cerca suyo no tocaba nada, porque la
+ *  frontera con `main` no tenía ningún handle encima — mismo bug que ya se
+ *  arregló en Tareas con `title`/`issue`. Mismo orden que el DOM de
  *  `.exec-list-header` y de `RunRow` en su modo columnas: ver `--rr-cols`. */
 const execColumns = useResizableColumns('executions', [
   { key: 'anchor', track: '16px' },
   { key: 'issue', defaultWidth: 64, minWidth: 48 },
-  { key: 'main', track: 'minmax(0, 1fr)' },
-  { key: 'agent', defaultWidth: 96, minWidth: 60 },
+  { key: 'main', defaultWidth: 480, minWidth: 240, maxWidth: 800 },
+  { key: 'agent', track: 'minmax(60px, 1fr)' },
   { key: 'dur', defaultWidth: 64, minWidth: 48 },
   { key: 'verb', defaultWidth: 176, minWidth: 96 },
 ]);
@@ -1956,21 +1961,21 @@ watch(pendingFilter, () => {
           class="exec-h-main exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'taskTitle' }"
           @click="selectExecColumn('taskTitle')"
-        >tarea · razón{{ execSortArrow('taskTitle') }}</button>
+        >
+          <span class="exec-h-label">tarea · razón{{ execSortArrow('taskTitle') }}</span>
+          <span
+            class="col-resize-handle"
+            title="Arrastrar para cambiar el ancho"
+            @click.stop
+            @pointerdown="execColumns.startResize('main', $event)"
+          ></span>
+        </button>
         <button
           type="button"
           class="exec-h-agent exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
           @click="selectExecColumn('agentId')"
-        >
-          <span class="exec-h-label">agente{{ execSortArrow('agentId') }}</span>
-          <span
-            class="col-resize-handle"
-            title="Arrastrar para cambiar el ancho"
-            @click.stop
-            @pointerdown="execColumns.startResize('agent', $event)"
-          ></span>
-        </button>
+        ><span class="exec-h-label">agente{{ execSortArrow('agentId') }}</span></button>
         <button
           type="button"
           class="exec-h-dur exec-header-btn"
@@ -2656,7 +2661,7 @@ watch(pendingFilter, () => {
    las heredan la fila y su encabezado: escritas por separado, la primera vez
    que una cambie el encabezado deja de nombrar la columna que tiene debajo,
    que es lo único que hace. Son las de 5d, dibujado a 1280. */
-.exec-list-wrapper { --rr-cols: 16px 8ch minmax(0, 1fr) 12ch 8ch 22ch; }
+.exec-list-wrapper { --rr-cols: 16px 8ch 30ch minmax(60px, 1fr) 8ch 22ch; }
 
 /* No existe donde la fila se apila: un encabezado de columnas no encabeza
    nada. Mismo umbral que `RunRow` — 47rem de LISTA, ver el porqué ahí. */
@@ -2699,17 +2704,20 @@ watch(pendingFilter, () => {
 }
 .exec-header-btn:hover { color: var(--fg); }
 
-/* `run`/`agente`/`dur.`/`acción` son las columnas arrastrables — necesitan
-   `relative` para anclar su handle y `min-width: 0` para poder angostarse
-   por debajo de su propio contenido (si no, un grid item mide como mínimo su
-   min-content y el arrastre no hace nada). */
+/* `run`/`tarea · razón`/`dur.`/`acción` son las columnas arrastrables —
+   necesitan `relative` para anclar su handle y `min-width: 0` para poder
+   angostarse por debajo de su propio contenido (si no, un grid item mide
+   como mínimo su min-content y el arrastre no hace nada). `agente` no tiene
+   handle propio (es la flexible que absorbe el resto) pero necesita el mismo
+   `min-width: 0` para poder angostarse cuando el resto crece. */
 .exec-h-issue,
-.exec-h-agent,
+.exec-h-main,
 .exec-h-dur,
 .exec-h-verb {
   position: relative;
   min-width: 0;
 }
+.exec-h-agent { min-width: 0; }
 /* La etiqueta trunca ANTES de desbordar sobre la columna vecina. */
 .exec-h-label {
   display: block;
