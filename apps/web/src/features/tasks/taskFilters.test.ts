@@ -26,7 +26,7 @@ function pr(state: PullRequestRef['state'], over: Partial<PullRequestRef> = {}):
 }
 
 function task(over: Partial<FilterableTask> = {}): FilterableTask {
-  return { status: 'refine', pullRequests: [], pullRequestsKnown: true, ...over }
+  return { title: '', status: 'refine', pullRequests: [], pullRequestsKnown: true, ...over }
 }
 
 function withFilters(over: Partial<TaskFilters>): TaskFilters {
@@ -158,6 +158,26 @@ describe('filterTasks — blocked', () => {
   })
 })
 
+describe('filterTasks — text', () => {
+  it('contains, case-insensitive y sin acentos', () => {
+    const target = task({ title: 'Arreglar el filtro de acentúación' })
+    const other = task({ title: 'Otra tarea' })
+    expect(filterTasks([target, other], withFilters({ text: ['ACENTUACION'] }))).toEqual([target])
+  })
+
+  it('vacío no filtra nada', () => {
+    const all = [task({ title: 'a' }), task({ title: 'b' })]
+    expect(filterTasks(all, withFilters({ text: [] }))).toHaveLength(2)
+  })
+
+  it('varios términos son OR', () => {
+    const a = task({ title: 'incluye foo' })
+    const b = task({ title: 'incluye bar' })
+    const c = task({ title: 'ninguno' })
+    expect(filterTasks([a, b, c], withFilters({ text: ['foo', 'bar'] }))).toEqual([a, b])
+  })
+})
+
 describe('filterTasks — providers que no hablan de PRs', () => {
   const unknown = task({ pullRequestsKnown: false })
 
@@ -186,6 +206,7 @@ describe('serialización', () => {
       branch: ['con-branch'],
       prStatus: ['abierto'],
       blocked: ['si'],
+      text: ['acentuacion'],
     })
     expect(taskFiltersFromSearch(taskFiltersToSearch(filters))).toEqual(filters)
   })
