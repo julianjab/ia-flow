@@ -388,10 +388,12 @@ describe('ExecutionsSection — ?runId auto-expand', () => {
 })
 
 // ───────────────────────────────────────────────────────────────────────────
-// "Detener" button — cancel flow for in-flight executions. Covers the PRD
-// criteria: button only on rows with finishedAt === null, confirm-before-call
-// via ui/ConfirmDialog.vue, row updates from the response without a refetch,
-// and the 409 (forwarded) / alreadyFinished response branches.
+// "Abortar" button — cancel flow for in-flight executions. Vive sólo en el
+// detalle (`executions-detail-stop`): la fila es donde se ESCANEA la lista, y
+// un botón destructivo ahí se toca por error al barrer con el dedo — así que
+// cada test abre la fila antes de tocarlo. Covers the PRD criteria:
+// confirm-before-call via ui/ConfirmDialog.vue, row updates from the response
+// without a refetch, and the 409 (forwarded) / alreadyFinished branches.
 // ───────────────────────────────────────────────────────────────────────────
 describe('ExecutionsSection — cancel execution', () => {
   beforeEach(() => {
@@ -407,22 +409,31 @@ describe('ExecutionsSection — cancel execution', () => {
     vi.clearAllMocks()
   })
 
-  it('shows the "Detener" button only on rows still running (finishedAt === null)', async () => {
+  /** Abre el detalle de la fila — el botón de abortar sólo vive ahí. */
+  async function openRow(wrapper: VueWrapper, id: string) {
+    await wrapper.get(`[data-run-id="${id}"] .exec-row`).trigger('click')
+  }
+
+  it('el detalle sólo ofrece "Abortar" en runs todavía corriendo (finishedAt === null)', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
       makeExec({ id: 'e-done', outcome: 'success' }),
     ])
 
-    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="executions-stop-e-done"]').exists()).toBe(false)
+    await openRow(wrapper, 'e-running')
+    expect(wrapper.find('[data-testid="executions-detail-stop"]').exists()).toBe(true)
+
+    await openRow(wrapper, 'e-done')
+    expect(wrapper.find('[data-testid="executions-detail-stop"]').exists()).toBe(false)
   })
 
   it('asks for confirmation before calling cancelExecution, and does not call it on cancel', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
     ])
+    await openRow(wrapper, 'e-running')
 
-    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('[data-testid="executions-detail-stop"]').trigger('click')
     // ConfirmDialog is rendered (not mocked) — its cancel button aborts.
     const cancelBtn = wrapper.get('.btn-cancel')
     await cancelBtn.trigger('click')
@@ -435,6 +446,7 @@ describe('ExecutionsSection — cancel execution', () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-running', taskTitle: 'Running task', outcome: null, finishedAt: null }),
     ])
+    await openRow(wrapper, 'e-running')
 
     cancelExecutionMock.mockResolvedValueOnce({
       ok: true,
@@ -446,7 +458,7 @@ describe('ExecutionsSection — cancel execution', () => {
       }),
     })
 
-    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('[data-testid="executions-detail-stop"]').trigger('click')
     await wrapper.get('.btn-confirm').trigger('click')
     await flushPromises()
 
@@ -454,7 +466,7 @@ describe('ExecutionsSection — cancel execution', () => {
     // No server refetch — the row updates from the response in local state.
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
     // The stop button disappears now that finishedAt is set.
-    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="executions-detail-stop"]').exists()).toBe(false)
     // El outcome ya no es un badge propio de esta pantalla: la fila lo dice con
     // el vocabulario de `ExecutionStatusLine`, igual que Tareas y Qué sigue.
     expect(wrapper.get('.rr__state').text()).toContain('cancelado')
@@ -467,6 +479,7 @@ describe('ExecutionsSection — cancel execution', () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-running', outcome: null, finishedAt: null, source: 'other-daemon' }),
     ])
+    await openRow(wrapper, 'e-running')
 
     cancelExecutionMock.mockResolvedValueOnce({
       ok: true,
@@ -480,7 +493,7 @@ describe('ExecutionsSection — cancel execution', () => {
       }),
     })
 
-    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('[data-testid="executions-detail-stop"]').trigger('click')
     await wrapper.get('.btn-confirm').trigger('click')
     await flushPromises()
 
@@ -489,7 +502,7 @@ describe('ExecutionsSection — cancel execution', () => {
     expect(successToast?.message).toContain('other-daemon')
     // Still running (not actually stopped) — the stop button stays, and the
     // row now shows an advisory "cancelación solicitada" badge.
-    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="executions-detail-stop"]').exists()).toBe(true)
     expect(wrapper.find('.rr__cancel-requested').exists()).toBe(true)
     expect(wrapper.findAll('.exec-card')).toHaveLength(1)
   })
@@ -498,6 +511,7 @@ describe('ExecutionsSection — cancel execution', () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
     ])
+    await openRow(wrapper, 'e-running')
 
     cancelExecutionMock.mockResolvedValueOnce({
       ok: true,
@@ -505,14 +519,14 @@ describe('ExecutionsSection — cancel execution', () => {
       execution: makeExec({ id: 'e-running', outcome: 'success' }),
     })
 
-    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('[data-testid="executions-detail-stop"]').trigger('click')
     await wrapper.get('.btn-confirm').trigger('click')
     await flushPromises()
 
     const toastStore = useToastStore()
     expect(toastStore.toasts.some((t) => t.variant === 'error')).toBe(false)
     // Row reflects the race outcome — button gone since it's now finished.
-    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="executions-detail-stop"]').exists()).toBe(false)
   })
 })
 
@@ -765,7 +779,7 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     expect(summary.find('.rr__state').text()).toContain('terminó')
   })
 
-  it('un disparo con algo vivo está pending, y ahí va el botón de detener', async () => {
+  it('un disparo con algo vivo está pending, y el detalle de esa acción ofrece "Abortar"', async () => {
     const wrapper = await mountWithExecs([
       agent({ finishedAt: null, outcome: null }),
       script({ outcome: 'error' }),
@@ -773,7 +787,13 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
 
     const summary = wrapper.find('.exec-card--firing')
     expect(summary.find('.rr__state').text()).toContain('corriendo')
-    expect(summary.find('[data-testid="executions-stop-e-agent"]').exists()).toBe(true)
+    // El resumen no ofrece "Abortar" — eso vive en el detalle de la acción
+    // viva, no en la fila que las agrupa.
+    expect(summary.find('.exec-stop-btn').exists()).toBe(false)
+
+    await wrapper.find('.exec-card--firing .exec-row').trigger('click')
+    await wrapper.get('[data-run-id="e-agent"] .exec-row').trigger('click')
+    expect(wrapper.find('[data-testid="executions-detail-stop"]').exists()).toBe(true)
   })
 
   // Migración 065 → aab336a6: el resumen mostraba el PEOR resultado entre
