@@ -45,6 +45,7 @@ import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
 import { installSlack } from '@ia-flow/slack'
 import {
+  CHAT_ASSISTANT_READ_TOOLS,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
@@ -989,7 +990,7 @@ export const divergenceReconciler = new DivergenceReconciler({
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
-export const taskChatUseCase = new TaskChatUseCase(assistWithAiUseCase)
+export const taskChatUseCase = new TaskChatUseCase(assistWithAiUseCase, CHAT_ASSISTANT_READ_TOOLS)
 // `enqueueRunMessageUseCase` está declarado más arriba, junto a `dispatcher`
 // (lo necesita como dependencia) — ver el comentario ahí.
 

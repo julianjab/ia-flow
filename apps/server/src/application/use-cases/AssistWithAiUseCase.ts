@@ -1,11 +1,26 @@
 import { ANTHROPIC_API_URL, buildAnthropicAuthHeader } from '@ia-flow/ai-providers'
 import type { SystemPromptDef } from '@ia-flow/shared'
+import type { ReadOnlyTool } from '@ia-flow/tools'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
 import { loadProviderConfig } from '../provider-config.js'
 
 const log = createLogger('use-case:assist-with-ai')
+
+// Tope de vueltas del loop de `runFormFill` cuando corre con `readTools`: el
+// modelo puede encadenar list_tasks → get_task_detail → search_tasks antes
+// de llamar a `fill_form`, pero sin un techo un modelo que nunca converge
+// deja el request colgado hasta que el cliente cancela. 6 alcanza para
+// cualquier secuencia razonable de lectura + la llamada final.
+const MAX_FORM_FILL_TURNS = 6
+
+type AnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: string }
+
+type AnthropicMessage = { role: 'user' | 'assistant'; content: string | AnthropicContentBlock[] }
 
 export interface AssistInput {
   mode: 'generate' | 'refine'
@@ -27,6 +42,15 @@ export interface AssistInput {
   // schema) instead of `prompt`. The schema is owned by the calling form
   // (web) — the server passes it through opaquely.
   responseSchema?: unknown
+  /** Sólo tiene efecto junto a `responseSchema`: tools de sólo lectura que el
+   *  modelo puede llamar ANTES de `fill_form` (p. ej. las de
+   *  `@ia-flow/tools/task/task-read.js` que usa `TaskChatUseCase`). Cuando
+   *  vienen, `runFormFill` deja de forzar `fill_form` en el primer turno —
+   *  fuerza `tool_choice: any` (alguna tool, cualquiera) y repite hasta que
+   *  el modelo elige `fill_form`, hasta `MAX_FORM_FILL_TURNS`. Sin esto, el
+   *  comportamiento es idéntico al de antes: un único turno forzado a
+   *  `fill_form`. */
+  readTools?: ReadOnlyTool[]
   /** Cuando el caller quiere poder cortar el upstream (p. ej. el asistente
    *  de tareas propaga el `AbortSignal` de la request HTTP entrante — ver
    *  `TaskChatUseCase`). Opcional y sin efecto en los caminos que no lo
@@ -347,11 +371,94 @@ export class AssistWithAiUseCase {
         systemBlocks: ctx.extraBlocks,
         userMessage: ctx.userMessage,
         responseSchema: input.responseSchema,
+        readTools: input.readTools,
         signal: input.signal,
       })
     }
 
     return this.runPlainCompletion(input, ctx, { requestId, t0, model, anthropicVersion })
+  }
+
+  /** Un turno del loop de `runFormFill`: POSTea a Anthropic y devuelve el
+   *  body parseado, o tira `AssistUpstreamError` si la respuesta no es 2xx. */
+  private async postFormFillTurn(body: {
+    model: string
+    systemBlocks: Array<{ type: 'text'; text: string }>
+    fillToolPrompt: { type: 'text'; text: string }
+    messages: AnthropicMessage[]
+    tools: Array<{ name: string; description: string; input_schema: unknown }>
+    toolChoice: { type: 'any' } | { type: 'tool'; name: string }
+    anthropicVersion: string
+    signal?: AbortSignal
+    logCtx: { requestId: string; mode: 'generate' | 'refine'; agentId?: string; turn: number }
+  }): Promise<{
+    content: AnthropicContentBlock[]
+    usage?: Record<string, number>
+    stop_reason?: string
+  }> {
+    const {
+      model,
+      systemBlocks,
+      fillToolPrompt,
+      messages,
+      tools,
+      toolChoice,
+      anthropicVersion,
+      signal,
+      logCtx,
+    } = body
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': anthropicVersion,
+        'anthropic-beta': ['claude-code-20250219', 'oauth-2025-04-20'].join(','),
+        ...buildAnthropicAuthHeader(),
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 16000,
+        system: [...systemBlocks, fillToolPrompt],
+        messages,
+        tools,
+        tool_choice: toolChoice,
+      }),
+      signal,
+    })
+    if (!res.ok) {
+      const errText = await res.text()
+      log.error(
+        { ...logCtx, status: res.status, body: errText },
+        'assist: anthropic API error (form-fill)',
+      )
+      throw new AssistUpstreamError(`Anthropic API error ${res.status}: ${errText}`, res.status)
+    }
+    return res.json()
+  }
+
+  /** Ejecuta cada `tool_use` del turno (contra `readTools`) y arma los
+   *  `tool_result` correspondientes. Un error de una tool individual no
+   *  aborta el loop: vuelve como texto de `tool_result` para que el modelo
+   *  decida cómo seguir (reintentar, cambiar de enfoque, o contestar con lo
+   *  que ya tiene). */
+  private async runToolUses(
+    toolUses: Extract<AnthropicContentBlock, { type: 'tool_use' }>[],
+    readTools: ReadOnlyTool[],
+  ): Promise<AnthropicContentBlock[]> {
+    const results: AnthropicContentBlock[] = []
+    for (const use of toolUses) {
+      const tool = readTools.find((t) => t.name === use.name)
+      let content: string
+      try {
+        content = tool
+          ? await tool.execute(use.input)
+          : `Tool '${use.name}' no está disponible en este contexto.`
+      } catch (err) {
+        content = `Error: ${err instanceof Error ? err.message : String(err)}`
+      }
+      results.push({ type: 'tool_result', tool_use_id: use.id, content })
+    }
+    return results
   }
 
   private async runFormFill(args: {
@@ -364,6 +471,7 @@ export class AssistWithAiUseCase {
     systemBlocks: Array<{ type: 'text'; text: string }>
     userMessage: string
     responseSchema: unknown
+    readTools?: ReadOnlyTool[]
     signal?: AbortSignal
   }): Promise<AssistResult> {
     const {
@@ -378,96 +486,109 @@ export class AssistWithAiUseCase {
       responseSchema,
       signal,
     } = args
+    const readTools = args.readTools ?? []
 
     const fillToolPrompt = {
       type: 'text' as const,
       text: FORM_FILL_INSTRUCTIONS,
     }
-    const requestBody = {
-      model,
-      max_tokens: 16000,
-      system: [...systemBlocks, fillToolPrompt],
-      messages: [{ role: 'user', content: userMessage }],
-      tools: [
-        {
-          name: 'fill_form',
-          description:
-            'Pre-fill the form fields. Only include fields you can confidently infer from the user input; omit anything you would have to invent.',
-          input_schema: responseSchema,
-        },
-      ],
-      tool_choice: { type: 'tool', name: 'fill_form' },
+    const fillFormTool = {
+      name: 'fill_form',
+      description:
+        'Pre-fill the form fields. Only include fields you can confidently infer from the user input; omit anything you would have to invent.',
+      input_schema: responseSchema,
     }
+    const tools = [
+      ...readTools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.input_schema,
+      })),
+      fillFormTool,
+    ]
+    // Sin `readTools` el único tool disponible ES `fill_form` — forzarlo
+    // directamente preserva exactamente el comportamiento de antes (un
+    // único turno). Con `readTools`, forzar `fill_form` de entrada le
+    // impediría al modelo leer nada primero: `any` obliga a llamar ALGÚN
+    // tool en cada turno (nunca responde en texto plano) sin decidir cuál,
+    // así que el loop converge en `fill_form` cuando el modelo ya tiene lo
+    // que necesita.
+    const toolChoice = readTools.length
+      ? ({ type: 'any' } as const)
+      : ({ type: 'tool', name: 'fill_form' } as const)
 
-    const tApi = Date.now()
-    const res = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': anthropicVersion,
-        'anthropic-beta': ['claude-code-20250219', 'oauth-2025-04-20'].join(','),
-        ...buildAnthropicAuthHeader(),
-      },
-      body: JSON.stringify(requestBody),
-      signal,
-    })
-    const apiMs = Date.now() - tApi
+    const messages: AnthropicMessage[] = [{ role: 'user', content: userMessage }]
+    let toolCallCount = 0
 
-    if (!res.ok) {
-      const errText = await res.text()
-      log.error(
-        { requestId, mode, agentId, status: res.status, apiMs, body: errText },
-        'assist: anthropic API error (form-fill)',
-      )
-      throw new AssistUpstreamError(`Anthropic API error ${res.status}: ${errText}`, res.status)
-    }
-
-    const data = (await res.json()) as {
-      content: Array<
-        | { type: 'text'; text: string }
-        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
-      >
-      usage?: Record<string, number>
-      stop_reason?: string
-    }
-
-    const toolUse = data.content.find(
-      (b): b is { type: 'tool_use'; name: string; input: Record<string, unknown> } =>
-        b.type === 'tool_use' && b.name === 'fill_form',
-    )
-    if (!toolUse) {
-      log.warn(
-        {
-          requestId,
-          mode,
-          agentId,
-          stopReason: data.stop_reason ?? null,
-          hasText: data.content.some((b) => b.type === 'text'),
-        },
-        'assist: form-fill did not return a fill_form tool_use block',
-      )
-      throw new AssistUpstreamError(
-        'Model did not return structured fields (missing fill_form tool_use).',
-        502,
-      )
-    }
-
-    log.info(
-      {
-        requestId,
-        mode,
-        agentId: agentId ?? null,
+    for (let turn = 0; turn < MAX_FORM_FILL_TURNS; turn++) {
+      const data = await this.postFormFillTurn({
         model,
-        apiMs,
-        totalMs: Date.now() - t0,
-        stopReason: data.stop_reason ?? null,
-        usage: data.usage ?? null,
-        fieldKeys: Object.keys(toolUse.input),
-      },
-      `assist: ${mode} done (form-fill)`,
-    )
+        systemBlocks,
+        fillToolPrompt,
+        messages,
+        tools,
+        toolChoice,
+        anthropicVersion,
+        signal,
+        logCtx: { requestId, mode, agentId, turn },
+      })
 
-    return { fields: toolUse.input }
+      const toolUses = data.content.filter(
+        (b): b is Extract<AnthropicContentBlock, { type: 'tool_use' }> => b.type === 'tool_use',
+      )
+      const fillUse = toolUses.find((b) => b.name === 'fill_form')
+      if (fillUse) {
+        log.info(
+          {
+            requestId,
+            mode,
+            agentId: agentId ?? null,
+            model,
+            turn,
+            toolCalls: toolCallCount,
+            totalMs: Date.now() - t0,
+            stopReason: data.stop_reason ?? null,
+            usage: data.usage ?? null,
+            fieldKeys: Object.keys(fillUse.input),
+          },
+          `assist: ${mode} done (form-fill)`,
+        )
+        return { fields: fillUse.input }
+      }
+
+      if (!toolUses.length) {
+        log.warn(
+          {
+            requestId,
+            mode,
+            agentId,
+            turn,
+            stopReason: data.stop_reason ?? null,
+            hasText: data.content.some((b) => b.type === 'text'),
+          },
+          'assist: form-fill did not return any tool_use block',
+        )
+        throw new AssistUpstreamError(
+          'Model did not return structured fields (missing fill_form tool_use).',
+          502,
+        )
+      }
+
+      // El modelo pidió leer antes de contestar — ejecuta las tools y le
+      // devuelve el resultado en el próximo turno.
+      messages.push({ role: 'assistant', content: data.content })
+      toolCallCount += toolUses.length
+      messages.push({ role: 'user', content: await this.runToolUses(toolUses, readTools) })
+    }
+
+    log.error(
+      { requestId, mode, agentId, turns: MAX_FORM_FILL_TURNS, toolCalls: toolCallCount },
+      'assist: form-fill excedió MAX_FORM_FILL_TURNS sin devolver fill_form',
+    )
+    throw new AssistUpstreamError(
+      'El asistente agotó los intentos de lectura sin completar la respuesta.',
+      502,
+    )
   }
 }
 

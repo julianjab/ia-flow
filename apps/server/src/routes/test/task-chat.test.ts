@@ -42,7 +42,7 @@ function routerWith(
 ) {
   const assist = fakeAssist(execute)
   const events: object[] = []
-  const app = createTaskChatRouter(new TaskChatUseCase(assist), annotationRepo, (msg) =>
+  const app = createTaskChatRouter(new TaskChatUseCase(assist, []), annotationRepo, (msg) =>
     events.push(msg),
   )
   return { app, events }
