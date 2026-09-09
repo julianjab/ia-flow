@@ -948,6 +948,117 @@ describe('AnthropicApiProvider.run — request shaping', () => {
   })
 })
 
+// ─── Orphaned mcp_tool_use sanitization ─────────────────────────────────────
+// Regression coverage for runId 2511adc2 (issue
+// la-haus/lh-seller-v2-frontend#4001, 2026-09-09): an `mcp_tool_use` block
+// that comes back from a previous turn without its `mcp_tool_result` 400s
+// EVERY retry of that conversation, since the API rejects the orphan on
+// every resend. `stripOrphanedMcpToolUse` (private) is exercised here
+// through `provider.run`, feeding a broken history via `resumeMessages`.
+
+describe('AnthropicApiProvider.run — orphaned mcp_tool_use sanitization', () => {
+  function runWith(resumeMessages: unknown[]) {
+    let sentBody: Record<string, unknown> = {}
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      sentBody = JSON.parse(init.body as string)
+      return sseResponse(endTurnEvents)
+    }) as unknown as typeof fetch
+    const { provider } = makeProvider(configWith())
+    return provider.run(baseInput({ resumeMessages })).then(() => sentBody)
+  }
+
+  it('drops an mcp_tool_use block with no paired mcp_tool_result before resending', async () => {
+    const body = await runWith([
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'ok' },
+          {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_orphan',
+            name: 'search_code',
+            server_name: 'github-mcp',
+            input: {},
+          },
+          {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_resolved',
+            name: 'search_code',
+            server_name: 'github-mcp',
+            input: {},
+          },
+          {
+            type: 'mcp_tool_result',
+            tool_use_id: 'mcptoolu_resolved',
+            content: [{ type: 'text', text: 'found it' }],
+          },
+        ],
+      },
+    ])
+    const assistantMsg = (body.messages as Array<{ role: string; content: unknown }>).find(
+      (m) => m.role === 'assistant',
+    )
+    const content = assistantMsg?.content as Array<Record<string, unknown>>
+    expect(content.some((b) => b.id === 'mcptoolu_orphan')).toBe(false)
+    expect(content.some((b) => b.id === 'mcptoolu_resolved')).toBe(true)
+    expect(content.some((b) => b.type === 'text')).toBe(true)
+  })
+
+  it('leaves the history untouched when every mcp_tool_use is paired', async () => {
+    const resumeMessages = [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_resolved',
+            name: 'search_code',
+            server_name: 'github-mcp',
+            input: {},
+          },
+          {
+            type: 'mcp_tool_result',
+            tool_use_id: 'mcptoolu_resolved',
+            content: [{ type: 'text', text: 'found it' }],
+          },
+        ],
+      },
+    ]
+    const body = await runWith(resumeMessages)
+    expect(body.messages).toEqual(resumeMessages)
+  })
+
+  it('replaces an all-orphan turn with a text placeholder instead of leaving content empty', async () => {
+    // The API rejects an empty `content` array too ("at least one block is
+    // required") — dropping the orphan without backfilling would just swap
+    // one 400 for another and leave the run equally stuck.
+    const body = await runWith([
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_orphan',
+            name: 'search_code',
+            server_name: 'github-mcp',
+            input: {},
+          },
+        ],
+      },
+    ])
+    const assistantMsg = (body.messages as Array<{ role: string; content: unknown }>).find(
+      (m) => m.role === 'assistant',
+    )
+    const content = assistantMsg?.content as Array<Record<string, unknown>>
+    expect(content.length).toBeGreaterThan(0)
+    expect(content.every((b) => b.type !== 'mcp_tool_use')).toBe(true)
+    expect(content.some((b) => b.type === 'text')).toBe(true)
+  })
+})
+
 // ─── Auth header selection ──────────────────────────────────────────────────
 
 describe('AnthropicApiProvider.run — auth', () => {
