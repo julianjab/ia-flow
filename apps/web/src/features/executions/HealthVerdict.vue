@@ -194,8 +194,8 @@ const totalsTitle =
 .hv {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin-bottom: 0.6rem;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
 }
 
 .hv__counts { display: flex; gap: 0.4rem; }
@@ -234,8 +234,10 @@ const totalsTitle =
   align-items: center;
   gap: 0.6rem;
   width: 100%;
-  min-height: var(--tap-h);
-  padding: 0.35rem 0.7rem;
+  /* Sin `min-height: var(--tap-h)`: es un botón, pero sus dos renglones de
+     texto ya lo dejan más alto que 44px — forzar el mínimo sólo agregaba
+     aire vacío arriba y abajo del texto. */
+  padding: 0.25rem 0.7rem;
   border: none;
   border-left: 3px solid var(--warn);
   border-radius: var(--radius-sm);
@@ -276,12 +278,14 @@ const totalsTitle =
   display: flex;
   align-items: baseline;
   gap: 0.4ch;
-  /* Una línea de 30px, y si no entra se recorta: envolver convertía el costo
-     del período en 92px de la parte superior, que es justo lo que el turno 8
-     vino a recuperar. El texto completo está en el `title`. */
+  /* Una línea, y si no entra se recorta: envolver convertía el costo del
+     período en 92px de la parte superior, que es justo lo que el turno 8
+     vino a recuperar. El texto completo está en el `title`. Sin
+     `min-height: var(--tap-h-sm)`: la línea en sí no se toca — sólo los
+     `.hv__window` de adentro, que ya miden su propio blanco táctil —, así
+     que forzar 40px acá era aire que ningún control necesitaba. */
   flex-wrap: nowrap;
-  min-height: var(--tap-h-sm);
-  padding: 0 0.7rem;
+  padding: 0.2rem 0.7rem;
   margin: 0;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
