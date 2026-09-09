@@ -228,12 +228,17 @@ export class AssistWithAiUseCase {
     if (!refs.length) return { blocks: [], missing: [] }
 
     const resolved = resolveCallerConfigBlocks(refs, availablePrompts, includedIds)
-    if (resolved.blocks.length > 0) return resolved
+    // `blocks` vacío con `missing` TAMBIÉN vacío no es una fila rota: es
+    // refs válidas que `includedIds` ya cubría (deduplicadas contra
+    // `systemPromptIds`) — devolverlas tal cual, sin caer al fallback,
+    // evita duplicar instrucciones que ya van a ir por el otro camino.
+    if (resolved.blocks.length > 0 || !resolved.missing.length) return resolved
 
-    // La fila TENÍA refs pero ninguna resolvió (prompt borrado del catálogo,
-    // catálogo de otro scope de proyecto, id mal escrito) — eso es distinto
-    // de "vacío a propósito", y dejar el asistente sin rol/defensa por un
-    // dato roto es peor que ignorar la fila rota y usar el fallback.
+    // Acá sí: la fila TENÍA refs y AL MENOS UNA no resolvió (prompt borrado
+    // del catálogo, catálogo de otro scope de proyecto, id mal escrito) —
+    // distinto de "vacío a propósito" o "todo deduplicado". Dejar el
+    // asistente sin rol/defensa por un dato roto es peor que ignorar la
+    // fila rota y usar el fallback.
     if (!callerConfig || !input.fallbackSystemPrompts?.length) return resolved
     return resolveCallerConfigBlocks(input.fallbackSystemPrompts, availablePrompts, includedIds)
   }

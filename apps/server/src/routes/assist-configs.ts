@@ -5,9 +5,17 @@ import type { IAssistCallerConfigRepository } from '../domain/ports/IAssistCalle
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 
 // Body de PUT: sólo `systemPrompts` — el `agentId` viene de la URL, no del
-// body (evita el caso "el body dice otro agentId que la URL").
+// body (evita el caso "el body dice otro agentId que la URL"). REQUERIDO
+// (no `.optional()`, a diferencia del campo homónimo de
+// `AssistCallerConfigSchema`, que es opcional para un `AgentDefinition`):
+// `AssistWithAiUseCase.resolveCallerConfigBlocks` trata `systemPrompts: []`
+// como "vacío A PROPÓSITO" y por eso NO cae al fallback — un `{}` sin el
+// campo persistiría exactamente eso (`JSON.stringify(undefined ?? [])`) y
+// apagaría el fallback en silencio. Forzar el array acá hace que un body
+// vacío sea un 400, no una fila que desactiva la única red de seguridad que
+// tiene el caller.
 const PutBodySchema = z.object({
-  systemPrompts: z.array(SystemPromptRefSchema).optional(),
+  systemPrompts: z.array(SystemPromptRefSchema),
 })
 
 /**
