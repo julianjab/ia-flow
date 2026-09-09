@@ -338,6 +338,67 @@ function logMcpToolActivity(
 }
 
 /**
+ * Anthropic resuelve un `mcp_tool_use` server-side y devuelve su
+ * `mcp_tool_result` DENTRO del mismo `content` (mismo criterio que
+ * `logMcpToolActivity` arriba). Rara vez ese par llega roto — visto en
+ * runId 2511adc2 (issue la-haus/lh-seller-v2-frontend#4001, 2026-09-09),
+ * donde el modelo pidió un `mcp_tool_use` (github-mcp) junto con un
+ * `tool_use` normal en el mismo turno y el primero volvió sin resultado.
+ * Reenviar esa conversación tal cual la deja 400 PARA SIEMPRE: la API
+ * rechaza cualquier `mcp_tool_use` sin su `mcp_tool_result` con
+ * "messages.N: `mcp_tool_use` with id `X` was found without a
+ * corresponding `mcp_tool_result` block", así que sin este saneo el run
+ * queda irrecuperable aunque se reintente. Sacar el bloque huérfano antes
+ * de cada request es lo mínimo para que el run pueda seguir — el modelo
+ * pierde esa tool call puntual, no toda la conversación.
+ *
+ * Si el turno era SÓLO el/los bloques huérfanos (el stream cortó antes de
+ * cualquier `text`), filtrar deja `content: []` — que la API rechaza igual
+ * ("at least one block is required"), cambiando el 400 por otro pero sin
+ * volver el run recuperable. Se rellena con un `text` placeholder en vez de
+ * dejar el mensaje vacío.
+ */
+function stripOrphanedMcpToolUse(
+  messages: unknown[],
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+): unknown[] {
+  let sanitized: unknown[] | undefined
+  messages.forEach((raw, index) => {
+    const msg = raw as { role?: string; content?: unknown }
+    if (msg?.role !== 'assistant' || !Array.isArray(msg.content)) return
+    const content = msg.content as Array<Record<string, unknown>>
+    const resultIds = new Set(
+      content.filter((b) => b.type === 'mcp_tool_result').map((b) => b.tool_use_id as string),
+    )
+    const orphaned = content.filter(
+      (b) => b.type === 'mcp_tool_use' && !resultIds.has(b.id as string),
+    )
+    if (orphaned.length === 0) return
+
+    log.warn(
+      {
+        event: 'agent.mcp_orphan_stripped',
+        ...logCtx,
+        messageIndex: index,
+        toolUseIds: orphaned.map((b) => b.id),
+      },
+      'Dropping mcp_tool_use block(s) without a paired mcp_tool_result before resending',
+    )
+
+    const remaining = content.filter((b) => !orphaned.includes(b))
+    const nextContent =
+      remaining.length > 0
+        ? remaining
+        : [{ type: 'text', text: '[mcp tool call dropped: no result was ever returned]' }]
+
+    sanitized ??= [...messages]
+    sanitized[index] = { ...msg, content: nextContent }
+  })
+  return sanitized ?? messages
+}
+
+/**
  * Resuelve el bloque `thinking` del request: fixed-budget (`enabled`) cuando
  * el agente fuerza un `thinkingBudgetTokens`, o el default del provider
  * (`cfgThinking`, típicamente `adaptive`) en cualquier otro caso. Devuelve
@@ -937,11 +998,12 @@ export class AnthropicApiProvider implements IAgentProvider {
       const effectiveMaxTokens = overrides?.bumpMaxTokens
         ? Math.max(resolvedMaxTokens, Math.min(resolvedMaxTokens * 2, 128000))
         : resolvedMaxTokens
+      const sanitizedMessages = stripOrphanedMcpToolUse(messages, log, logCtx)
       const body = buildAnthropicRequestBody({
         resolvedModel,
         effectiveMaxTokens,
         systemBlocks,
-        messages,
+        messages: sanitizedMessages,
         useStream,
         apiMcpServers,
         deferMcpTools,
