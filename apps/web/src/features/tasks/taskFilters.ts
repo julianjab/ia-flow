@@ -1,4 +1,4 @@
-import type { PullRequestRef } from '@ia-flow/shared'
+import type { PullRequestRef, TaskDisposition } from '@ia-flow/shared'
 
 // Filtros del listado de tareas. Todo lo que decide qué fila sobrevive vive
 // acá y es puro: la barra sólo emite el estado y `TareasSection` lo aplica,
@@ -41,6 +41,19 @@ export interface TaskFilters {
    *  case-insensitive y sin acentos (ver `normalizeSearchText`) — OR entre
    *  varios términos, igual que el resto de los ejes multi-valor. */
   text: string[]
+  /**
+   * El bucket de disposición (`me toca`/`bloqueadas`/`avanzando`, ver
+   * `QUICK_DISPOSITION_FILTERS`). Vive acá como CUALQUIER otro eje —token en
+   * `FilterQueryInput`, contado por `countActiveTaskFilters`, dicho en
+   * `taskFilterSummary`— aunque `filterTasks` no lo aplique: la disposición no
+   * es un campo de `FilterableTask`, la resuelve el server aparte
+   * (`dispositions`), así que quien cruza este eje contra las filas es
+   * `TareasSection` (`orderedInput`), no este módulo. Guardarlo como un
+   * segundo estado aparte —el `quickFilter` de antes— dejaba el chip
+   * desconectado del resto de los filtros: prendía un recorte invisible para
+   * `filtros N` y el resumen.
+   */
+  disposicion: TaskDisposition[]
 }
 
 /** Los campos del `TaskRow` que alimentan los predicados — nada más. */
@@ -65,6 +78,26 @@ export const EMPTY_TASK_FILTERS: TaskFilters = {
   branch: [],
   blocked: [],
   text: [],
+  disposicion: [],
+}
+
+/** Los tres atajos de disposición, y su label — lo mismo que dibuja el chip
+ *  rápido y lo que nombra el token cuando `disposicion` viaja por el filtro.
+ *  Un cuarto valor de `TaskDisposition` (`closed`) no tiene atajo: cerrado ya
+ *  está en su propio bucket plegado (O4), no hace falta un filtro para verlo
+ *  aparte. */
+export const QUICK_DISPOSITION_FILTERS: Array<{
+  key: TaskDisposition
+  label: string
+  glyph?: string
+}> = [
+  { key: 'waiting-on-you', label: 'me toca' },
+  { key: 'blocked', label: 'bloqueadas', glyph: '⛔' },
+  { key: 'moving', label: 'avanzando', glyph: '◐' },
+]
+
+function dispositionLabel(v: TaskDisposition): string {
+  return QUICK_DISPOSITION_FILTERS.find((f) => f.key === v)?.label ?? v
 }
 
 export function hasActiveTaskFilters(f: TaskFilters): boolean {
@@ -75,7 +108,8 @@ export function hasActiveTaskFilters(f: TaskFilters): boolean {
     f.prStatus.length > 0 ||
     f.branch.length > 0 ||
     f.blocked.length > 0 ||
-    f.text.length > 0
+    f.text.length > 0 ||
+    f.disposicion.length > 0
   )
 }
 
@@ -90,7 +124,8 @@ export function countActiveTaskFilters(f: TaskFilters): number {
     f.prStatus.length +
     f.branch.length +
     f.blocked.length +
-    f.text.length
+    f.text.length +
+    f.disposicion.length
   )
 }
 
@@ -117,6 +152,7 @@ export function normalizeSearchText(value: string): string {
  */
 export function taskFilterSummary(f: TaskFilters): string | null {
   const values = [
+    ...f.disposicion.map(dispositionLabel),
     ...f.statuses,
     ...f.repos,
     ...f.assignees,
@@ -226,6 +262,9 @@ export function taskFiltersFromQuery(query: QueryRecord): TaskFilters {
       BLOCKED_VALUES.includes(v as BlockedValue),
     ),
     text: queryStrArr(query, 'texto'),
+    disposicion: queryStrArr(query, 'disposicion').filter((v): v is TaskDisposition =>
+      QUICK_DISPOSITION_FILTERS.some((f) => f.key === v),
+    ),
   }
 }
 
@@ -239,6 +278,7 @@ export function taskFiltersToQuery(f: TaskFilters): Record<string, string | stri
   if (f.branch.length > 0) query.rama = [...f.branch]
   if (f.blocked.length > 0) query.bloqueada = [...f.blocked]
   if (f.text.length > 0) query.texto = [...f.text]
+  if (f.disposicion.length > 0) query.disposicion = [...f.disposicion]
   return query
 }
 

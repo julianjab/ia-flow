@@ -2,10 +2,12 @@
 import { computed } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
 import type { FilterFieldDef, FilterToken } from '@/ui/filter-query';
+import type { TaskDisposition } from '@ia-flow/shared';
 import {
   BLOCKED_VALUES,
   BRANCH_VALUES,
   PR_STATUS_VALUES,
+  QUICK_DISPOSITION_FILTERS,
   type BlockedValue,
   type BranchValue,
   type PrStatusValue,
@@ -29,6 +31,11 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'update:modelValue', value: TaskFilters): void }>();
 
 const filterFields = computed<FilterFieldDef[]>(() => [
+  {
+    key: 'disposicion',
+    hint: 'quién mueve la próxima pieza',
+    values: QUICK_DISPOSITION_FILTERS.map((f) => ({ value: f.key, label: f.label })),
+  },
   { key: 'status', hint: 'etapa del pipeline', values: props.statuses },
   { key: 'repo', hint: 'repo asociado', values: props.repos, free: true },
   { key: 'asignado', hint: 'quién la tiene asignada', values: props.assignees, free: true },
@@ -40,6 +47,7 @@ const filterFields = computed<FilterFieldDef[]>(() => [
 
 const filterTokens = computed<FilterToken[]>({
   get: () => [
+    ...props.modelValue.disposicion.map((value) => ({ field: 'disposicion', value })),
     ...props.modelValue.statuses.map((value) => ({ field: 'status', value })),
     ...props.modelValue.repos.map((value) => ({ field: 'repo', value })),
     ...props.modelValue.assignees.map((value) => ({ field: 'asignado', value })),
@@ -51,6 +59,7 @@ const filterTokens = computed<FilterToken[]>({
   set: (tokens) => {
     const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
     emit('update:modelValue', {
+      disposicion: of('disposicion') as TaskDisposition[],
       statuses: of('status'),
       repos: of('repo'),
       assignees: of('asignado'),

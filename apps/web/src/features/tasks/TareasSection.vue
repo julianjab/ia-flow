@@ -56,6 +56,7 @@ import {
   countActiveTaskFilters,
   EMPTY_TASK_FILTERS,
   filterTasks,
+  QUICK_DISPOSITION_FILTERS,
   taskFilterSummary,
   queryHasTaskFilters,
   taskFiltersFromQuery,
@@ -425,22 +426,25 @@ function toggleGroup(label: string): void {
 /**
  * Los chips de filtro rápido: un toque para quedarte con un bucket.
  *
- * No son un segundo sistema de filtros — son un ATAJO sobre el que ya existe.
- * La pregunta "¿qué me toca?" se hace veinte veces por día y hoy costaba abrir
- * el panel y escribir un token; con el orden por disposición ya calculado, el
- * corte es gratis.
+ * No son un segundo sistema de filtros — son un ATAJO sobre el que ya existe:
+ * `quickFilter` ES `filters.disposicion`, leído/escrito como el único valor
+ * que puede tener (el chip es de a uno, no una lista). Antes era un `ref`
+ * aparte, y el filtro real no se enteraba — no contaba en `filtros N`, no
+ * aparecía en el resumen, y no se podía sacar tocando el token del input
+ * como cualquier otro filtro. La pregunta "¿qué me toca?" se hace veinte
+ * veces por día y hoy costaba abrir el panel y escribir un token; con el
+ * orden por disposición ya calculado, el corte es gratis.
  *
  * **Un chip en cero no se dibuja** (R10): "0 bloqueadas" ocupa el mismo ancho
  * que un problema y no es uno. Y el activo es un toggle — volver a tocarlo
  * apaga, que es como se sale de un filtro sin buscar dónde.
  */
-const QUICK_FILTERS: Array<{ key: TaskDisposition; label: string; glyph: string }> = [
-  { key: 'waiting-on-you', label: 'me toca', glyph: '' },
-  { key: 'blocked', label: 'bloqueadas', glyph: '⛔' },
-  { key: 'moving', label: 'avanzando', glyph: '◐' },
-];
-
-const quickFilter = ref<TaskDisposition | null>(null);
+const quickFilter = computed<TaskDisposition | null>({
+  get: () => filters.value.disposicion[0] ?? null,
+  set: (value) => {
+    filters.value = { ...filters.value, disposicion: value ? [value] : [] };
+  },
+});
 
 /**
  * Lista o board — dos VISTAS de las mismas tareas, no dos pantallas.
@@ -594,10 +598,10 @@ const quickCounts = computed<Record<string, number>>(() => {
  */
 const quickChips = computed<QuickFilter[]>(() => {
   if (view.value === 'board' || orderMode.value !== 'disposicion') return [];
-  return QUICK_FILTERS.map((f) => ({
+  return QUICK_DISPOSITION_FILTERS.map((f) => ({
     key: f.key,
     label: f.label,
-    glyph: f.glyph || undefined,
+    glyph: f.glyph,
     count: quickCounts.value[f.key] ?? 0,
     tone: f.key === 'waiting-on-you' ? ('danger' as const) : undefined,
   })).filter((f) => f.count > 0);
@@ -681,23 +685,10 @@ async function moveTaskTo(status: string): Promise<void> {
   }
 }
 
-/**
- * El chip rápido ES un filtro, aunque viva fuera de `TaskFilters` — recorta
- * la lista tanto como cualquier token del panel. Sin sumarlo acá, prenderlo
- * dejaba `filtros` en 0 y el resumen mudo: la pregunta "¿por qué no veo la
- * tarea que busco?" quedaba sin responder cuando la respuesta era el chip.
- */
-const quickFilterLabel = computed<string | null>(
-  () => QUICK_FILTERS.find((f) => f.key === quickFilter.value)?.label ?? null,
-);
-const activeFilterCount = computed(
-  () => countActiveTaskFilters(filters.value) + (quickFilter.value ? 1 : 0),
-);
-const filterSummary = computed(() => {
-  const rest = taskFilterSummary(filters.value);
-  if (!quickFilterLabel.value) return rest;
-  return rest ? `${quickFilterLabel.value} · ${rest}` : quickFilterLabel.value;
-});
+// El chip rápido ES `filters.disposicion` (ver `quickFilter` más arriba), así
+// que estos dos ya lo cuentan/nombran sin ningún caso especial.
+const activeFilterCount = computed(() => countActiveTaskFilters(filters.value));
+const filterSummary = computed(() => taskFilterSummary(filters.value));
 
 // Un status seleccionado que el provider ya no lista sigue dibujándose: sin
 // esto el chip desaparece y el operador no tiene cómo apagar el filtro que
@@ -1172,7 +1163,7 @@ watch(activeProjectId, (pid) => {
       title="Filtrar tareas"
       :quick-filters="quickChips"
       :active-quick-filter="quickFilter"
-      @clear="filters = { ...EMPTY_TASK_FILTERS }; quickFilter = null"
+      @clear="filters = { ...EMPTY_TASK_FILTERS }"
       @quick-filter="toggleQuickFilter"
     >
       <template #view>
