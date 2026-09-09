@@ -4,7 +4,7 @@ import {
   TaskChatReplySchema,
   type TaskChatRequest,
 } from '@ia-flow/shared'
-import { CHAT_ASSISTANT_READ_TOOLS, type ReadOnlyTool } from '@ia-flow/tools'
+import type { ReadOnlyTool } from '@ia-flow/tools'
 import { AssistUpstreamError, type AssistWithAiUseCase } from './AssistWithAiUseCase.js'
 
 /** Un evento por cada tool de lectura que el modelo decide llamar antes de
@@ -200,7 +200,7 @@ function buildTaskChatPrompt(body: {
 export class TaskChatUseCase {
   constructor(
     private assistWithAi: AssistWithAiUseCase,
-    private readTools: ReadOnlyTool[] = CHAT_ASSISTANT_READ_TOOLS,
+    private readTools: ReadOnlyTool[],
   ) {}
 
   /** Envuelve cada `ReadOnlyTool` para reportar progreso, para juntar de sus
