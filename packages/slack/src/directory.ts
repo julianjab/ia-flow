@@ -68,22 +68,8 @@ export class SlackDirectory {
     const warnings: string[] = []
 
     for (const type of ['public_channel', 'private_channel']) {
-      let cursor: string | undefined
       try {
-        for (let page = 0; page < MAX_PAGES; page++) {
-          const res = await conversationsList({
-            types: type,
-            exclude_archived: true,
-            limit: PAGE,
-            cursor,
-          })
-          for (const ch of res.channels ?? []) {
-            if (ch.is_archived) continue
-            out.push({ id: ch.id, name: ch.name, ...(ch.is_private ? { isPrivate: true } : {}) })
-          }
-          cursor = res.response_metadata?.next_cursor || undefined
-          if (!cursor) break
-        }
+        out.push(...(await this.loadChannelsOfType(type)))
       } catch (err) {
         // Lo que ya se juntó vale: media lista es mejor que ninguna, y el
         // motivo llega a la UI para que "faltan canales" sea diagnosticable.
@@ -93,6 +79,27 @@ export class SlackDirectory {
       }
     }
     return { channels: out.sort((a, b) => a.name.localeCompare(b.name)), warnings }
+  }
+
+  /** Pagina un único `types` (`public_channel` o `private_channel`) hasta agotarlo. */
+  private async loadChannelsOfType(type: string): Promise<SlackChannelRef[]> {
+    const out: SlackChannelRef[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await conversationsList({
+        types: type,
+        exclude_archived: true,
+        limit: PAGE,
+        cursor,
+      })
+      for (const ch of res.channels ?? []) {
+        if (ch.is_archived) continue
+        out.push({ id: ch.id, name: ch.name, ...(ch.is_private ? { isPrivate: true } : {}) })
+      }
+      cursor = res.response_metadata?.next_cursor || undefined
+      if (!cursor) break
+    }
+    return out
   }
 
   /**
