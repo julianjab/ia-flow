@@ -3,7 +3,7 @@ import type { ExecutionLog } from '@ia-flow/shared';
 import { computed, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { fetchTaskExecutions } from '@/features/tasks/api';
-import TaskPipelineSteps from '@/features/tasks/TaskPipelineSteps.vue';
+import TaskPipelineSteps from '@/components/TaskPipelineSteps.vue';
 
 const props = defineProps<{
   projectId: string | null;

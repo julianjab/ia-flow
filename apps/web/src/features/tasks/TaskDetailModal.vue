@@ -3,7 +3,7 @@ import type { ExecutionLog, PullRequestRef, RunTaskNowResult } from '@ia-flow/sh
 import { computed } from 'vue';
 import TaskTags from '@/components/TaskTags.vue';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
-import TaskExecutions from '@/features/tasks/TaskExecutions.vue';
+import TaskExecutions from '@/components/TaskExecutions.vue';
 import RunPreviewCard from '@/features/tasks/RunPreviewCard.vue';
 
 const props = defineProps<{

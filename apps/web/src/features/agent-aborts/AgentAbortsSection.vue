@@ -19,6 +19,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 import { useToastStore } from '@/stores/toast';
+import TaskExecutions from '@/components/TaskExecutions.vue';
 import {
   type AgentAbortRecord,
   listRecoverableRuns,
@@ -115,6 +116,14 @@ const empty = computed(
   () => !loading.value && aborts.value.length === 0 && checkpoints.value.length === 0,
 );
 
+/** A la tarea, en Tareas — mismo `:detailId` que abre el modal de detalle
+ *  desde cualquier otra pantalla. `null` sin projectId (el checkpoint de un
+ *  origen que no lo reporta): un link a un proyecto inventado sería peor que
+ *  no linkear. */
+function taskHref(projectId: string | null, taskId: string): string | null {
+  return projectId ? `/projects/${encodeURIComponent(projectId)}/tareas/${encodeURIComponent(taskId)}` : null;
+}
+
 // El barrido automático puede resolver o agregar filas sin que el operador
 // haga nada — un polling liviano mantiene la lista al día sin necesitar un
 // canal de WS dedicado para algo tan poco frecuente.
@@ -161,7 +170,12 @@ onUnmounted(() => {
           >
             <div class="entry-main">
               <div class="entry-head">
-                <span class="entry-id">{{ abort.taskId }}</span>
+                <RouterLink
+                  v-if="taskHref(abort.projectId, abort.taskId)"
+                  class="entry-id"
+                  :to="taskHref(abort.projectId, abort.taskId)!"
+                >{{ abort.taskId }}</RouterLink>
+                <span v-else class="entry-id">{{ abort.taskId }}</span>
                 <span class="entry-agent">{{ abort.agentId }}</span>
                 <span class="entry-status" :class="`status-${abort.status}`">
                   {{ statusLabel(abort.status) }}
@@ -176,6 +190,13 @@ onUnmounted(() => {
                   · próximo reintento {{ formatDate(abort.nextRetryAt) }}
                 </template>
               </span>
+              <!-- Qué pasó con esta tarea ANTES de este abort — mismo widget
+                   que Tareas, para no reinventar la lista ni su colapsado. -->
+              <TaskExecutions
+                class="entry-execs"
+                :project-id="abort.projectId"
+                :task-id="abort.taskId"
+              />
             </div>
             <div class="entry-actions">
               <button
@@ -202,7 +223,12 @@ onUnmounted(() => {
           >
             <div class="entry-main">
               <div class="entry-head">
-                <span class="entry-id">{{ cp.taskTitle ?? cp.taskId }}</span>
+                <RouterLink
+                  v-if="taskHref(cp.projectId, cp.taskId)"
+                  class="entry-id"
+                  :to="taskHref(cp.projectId, cp.taskId)!"
+                >{{ cp.taskTitle ?? cp.taskId }}</RouterLink>
+                <span v-else class="entry-id">{{ cp.taskTitle ?? cp.taskId }}</span>
                 <span v-if="cp.agentId" class="entry-agent">{{ cp.agentId }}</span>
                 <span class="entry-status" :class="cp.resumable ? 'status-pending' : 'status-exhausted'">
                   {{ cp.resumable ? 'resumible' : 'no resumible' }}
@@ -217,6 +243,14 @@ onUnmounted(() => {
                 cero en vez de continuar.
               </p>
               <span class="entry-meta">actualizado {{ formatAge(cp.updatedAt) }}</span>
+              <!-- Ídem aborts: qué pasó con esta tarea antes de que este
+                   checkpoint quedara colgado. -->
+              <TaskExecutions
+                v-if="cp.projectId"
+                class="entry-execs"
+                :project-id="cp.projectId"
+                :task-id="cp.taskId"
+              />
             </div>
             <div class="entry-actions">
               <button
@@ -260,7 +294,9 @@ onUnmounted(() => {
 .entry--highlight { border-color: var(--info); }
 .entry-main { flex: 1; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .entry-head { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
-.entry-id { font-family: var(--font-mono); font-weight: 600; color: var(--info); }
+.entry-id { font-family: var(--font-mono); font-weight: 600; color: var(--info); text-decoration: none; }
+a.entry-id:hover { background: transparent; text-decoration: underline; }
+.entry-execs { margin-top: 0.4rem; }
 .entry-agent { font-family: var(--font-mono); font-size: var(--fs-body-sm); color: var(--fg); }
 .entry-status {
   font-size: var(--fs-micro);
