@@ -39,6 +39,35 @@ async function danglingRefs(
   return [...new Set(refs.filter((id) => !visible.has(id)))]
 }
 
+/**
+ * Las tres validaciones que comparten POST / y PUT /:id: acciones válidas,
+ * sin refs colgantes, y cron parseable. Devuelve la Response de error a
+ * propagar, o `null` cuando todo está bien.
+ */
+async function validateRuleWrite(
+  c: Context,
+  data: z.infer<typeof RuleInputSchema>,
+  target: string | null,
+): Promise<Response | null> {
+  const errors = validateActions(data.do)
+  if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
+
+  const dangling = await danglingRefs(data.do as { action: string; actionId?: string }[], target)
+  if (dangling.length) {
+    return c.json(
+      { error: `Estas acciones no existen en este ámbito: ${dangling.join(', ')}`, dangling },
+      400,
+    )
+  }
+
+  // El cron se valida acá y no al primer tick: una expresión rota que sólo
+  // falla en runtime es una regla que nunca dispara y nadie sabe por qué.
+  if (data.schedule && !parseCron(data.schedule)) {
+    return c.json({ error: `Expresión cron inválida: '${data.schedule}'` }, 400)
+  }
+  return null
+}
+
 /** Los ids que el proyecto dio de baja, ya normalizados: `settings` es un bag
  *  `unknown`, así que se valida en vez de castear. */
 function disabledRuleIdsOf(projectId: string): string[] {
@@ -188,25 +217,8 @@ export function createRulesRouter() {
     // Validar el `do[]` acá y no al ejecutar: una regla que referencia una
     // acción inexistente tiene que fallar al guardarse, con un mensaje que
     // diga qué acción y en qué posición.
-    const errors = validateActions(parsed.data.do)
-    if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
-
-    const dangling = await danglingRefs(
-      parsed.data.do as { action: string; actionId?: string }[],
-      s.target,
-    )
-    if (dangling.length) {
-      return c.json(
-        { error: `Estas acciones no existen en este ámbito: ${dangling.join(', ')}`, dangling },
-        400,
-      )
-    }
-
-    // El cron se valida acá y no al primer tick: una expresión rota que sólo
-    // falla en runtime es una regla que nunca dispara y nadie sabe por qué.
-    if (parsed.data.schedule && !parseCron(parsed.data.schedule)) {
-      return c.json({ error: `Expresión cron inválida: '${parsed.data.schedule}'` }, 400)
-    }
+    const invalid = await validateRuleWrite(c, parsed.data, s.target)
+    if (invalid) return invalid
 
     const saved = await ruleRepo.upsert({ ...parsed.data, id, projectId: s.target })
     return c.json({ rule: saved }, 201)
@@ -250,22 +262,8 @@ export function createRulesRouter() {
     if (!parsed.success)
       return c.json({ error: 'Payload inválido', issues: parsed.error.issues }, 400)
 
-    const errors = validateActions(parsed.data.do)
-    if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
-
-    const dangling = await danglingRefs(
-      parsed.data.do as { action: string; actionId?: string }[],
-      s.target,
-    )
-    if (dangling.length) {
-      return c.json(
-        { error: `Estas acciones no existen en este ámbito: ${dangling.join(', ')}`, dangling },
-        400,
-      )
-    }
-    if (parsed.data.schedule && !parseCron(parsed.data.schedule)) {
-      return c.json({ error: `Expresión cron inválida: '${parsed.data.schedule}'` }, 400)
-    }
+    const invalid = await validateRuleWrite(c, parsed.data, s.target)
+    if (invalid) return invalid
 
     // La posición NO viaja en el update: editar una regla no debería
     // reordenar la lista bajo los pies del operador. Para eso está /reorder.
