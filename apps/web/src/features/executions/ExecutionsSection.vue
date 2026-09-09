@@ -301,20 +301,38 @@ const issueUrlByTaskId = ref<Record<string, string>>({});
 // mismo criterio (`item.meta.state === 'closed'`) que usa
 // `GetTaskDispositionsUseCase` para Tareas/Board (O6: un solo orden en toda la app).
 const closedTaskIds = ref<Set<string>>(new Set());
+function mergeProjectItems(items: Array<{ id: string; meta?: Record<string, unknown> }>) {
+  const next: Record<string, string> = {};
+  const closed = new Set<string>();
+  for (const item of items) {
+    const url = item.meta?.issueUrl;
+    if (typeof url === 'string' && url) next[item.id] = url;
+    if ((item.meta as { state?: string } | undefined)?.state === 'closed') closed.add(item.id);
+  }
+  return { next, closed };
+}
+
 async function loadIssueUrlMap() {
-  // Cross-project issueUrl lookup would need N fetches; skip in global tab.
-  if (isGlobal.value) { issueUrlByTaskId.value = {}; closedTaskIds.value = new Set(); return; }
+  if (isGlobal.value) {
+    // N fetches, one per project — pero sin esto ningún run cortado/cancelado
+    // de un issue ya cerrado sale nunca de "TE ESPERA" en la pestaña global.
+    try {
+      const results = await Promise.all(
+        allProjects.value.map((p) => fetchProjectItems(p.id).catch(() => ({ items: [] }))),
+      );
+      const { next, closed } = mergeProjectItems(results.flatMap((r) => r.items ?? []));
+      issueUrlByTaskId.value = next;
+      closedTaskIds.value = closed;
+    } catch {
+      // Non-fatal — the title just stays plain text.
+    }
+    return;
+  }
   const pid = activeProjectId.value;
   if (!pid) { issueUrlByTaskId.value = {}; closedTaskIds.value = new Set(); return; }
   try {
     const res = await fetchProjectItems(pid);
-    const next: Record<string, string> = {};
-    const closed = new Set<string>();
-    for (const item of res.items ?? []) {
-      const url = item.meta?.issueUrl;
-      if (typeof url === 'string' && url) next[item.id] = url;
-      if ((item.meta as { state?: string } | undefined)?.state === 'closed') closed.add(item.id);
-    }
+    const { next, closed } = mergeProjectItems(res.items ?? []);
     issueUrlByTaskId.value = next;
     closedTaskIds.value = closed;
   } catch {
