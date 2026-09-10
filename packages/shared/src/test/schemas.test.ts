@@ -1411,6 +1411,10 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     expect(TaskChatActionSchema.parse(group)).toEqual(group)
   })
 
+  it('`group` sin el campo `groups` defaultea a [] — el tool schema forzado sólo exige `type`', () => {
+    expect(TaskChatActionSchema.parse({ type: 'group' })).toEqual({ type: 'group', groups: [] })
+  })
+
   it('rechaza un type que no sea uno de los 5 conocidos', () => {
     expect(
       TaskChatActionSchema.safeParse({

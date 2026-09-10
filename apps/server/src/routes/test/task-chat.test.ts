@@ -25,7 +25,9 @@ function routerWith(execute: (input: AssistInput) => Promise<AssistResult>) {
 const VALID_BODY = {
   projectId: 'p1',
   message: '¿Qué está bloqueado?',
-  tasks: [{ id: 't1', title: 'Arreglar el bug', status: 'In Progress' }],
+  tasks: [
+    { id: 't1', title: 'Arreglar el bug', status: 'In Progress', disposition: 'waiting-on-you' },
+  ],
 }
 
 describe('POST /api/tasks/assistant/chat', () => {
@@ -125,6 +127,48 @@ describe('POST /api/tasks/assistant/chat', () => {
       actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
     }
     expect(body.actions).toEqual([{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] }])
+  })
+
+  it('group descarta ids de tareas que no están en el bucket "waiting-on-you" — ahí no se ve ningún grupo', async () => {
+    const body = {
+      ...VALID_BODY,
+      tasks: [
+        ...VALID_BODY.tasks,
+        { id: 't2', title: 'Ya en review', status: 'Review', disposition: 'moving' },
+      ],
+    }
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1', 't2'] }] }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const responseBody = (await res.json()) as {
+      actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
+    }
+    expect(responseBody.actions).toEqual([
+      { type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] },
+    ])
+  })
+
+  it('group sin el campo `groups` defaultea a [] en vez de rechazar la respuesta con 502', async () => {
+    const { app } = routerWith(async () => ({
+      fields: { reply: 'ok', scope: { type: 'project' }, actions: [{ type: 'group' }] },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { actions: { type: string; groups: unknown[] }[] }
+    expect(body.actions).toEqual([{ type: 'group', groups: [] }])
   })
 
   it('group con `groups: []` (desagrupar) pasa sin filtrar', async () => {
