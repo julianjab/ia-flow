@@ -10,7 +10,7 @@ import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admiss
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
 import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
-import { type AgentHostState, sanitizeWorkspace } from './state.js'
+import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './state.js'
 
 export interface CreateAppDeps {
   provider: IAgentProvider
@@ -174,6 +174,7 @@ export function createApp({
       gitAuthorEmail: null,
       gitSigningKeyPath: null,
     },
+    systemPrompt: [],
   }
 
   async function persist(): Promise<void> {
@@ -440,6 +441,24 @@ export function createApp({
     return c.json(state.workspace)
   })
 
+  // GET/PUT /v1/system-prompt — el system prompt propio de ESTA máquina.
+  //
+  // No reconstruye el provider: a diferencia de `workspace` (que el
+  // WorkspaceManager toma al construirse), esto se lee en cada run dentro de
+  // `runAcceptedProvider` — no hay nada que rehacer acá, sólo persistir.
+  app.get('/v1/system-prompt', (c) => c.json({ blocks: state.systemPrompt }))
+
+  app.put('/v1/system-prompt', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body !== 'object') return c.json({ error: 'body inválido' }, 400)
+
+    state.systemPrompt = sanitizeSystemPrompt(body, state.systemPrompt)
+    await persist()
+
+    log.info({ blocks: state.systemPrompt.length }, 'system prompt cambiado desde la consola')
+    return c.json({ blocks: state.systemPrompt })
+  })
+
   // GET /v1/logs — el final del archivo, para la card de logs de la consola.
   //
   // El filtro corre ACÁ, sobre el archivo, y no en el navegador sobre lo ya
@@ -614,6 +633,21 @@ export function createApp({
     }
   }
 
+  /**
+   * Antepone el system prompt propio de ESTA máquina a los bloques que ya
+   * trae el run (los que armó el agente del lado del daemon). Se resuelve
+   * ACÁ, contra `state.systemPrompt` — nunca del lado del daemon — porque es
+   * precisamente lo que el daemon que despacha no tiene por qué saber: cómo
+   * correr en este gateway puntual.
+   */
+  function withGatewaySystemPrompt(input: ProviderInput): ProviderInput {
+    if (!state.systemPrompt.length) return input
+    return {
+      ...input,
+      systemPromptBlocks: [...(input.systemPromptBlocks ?? []), ...state.systemPrompt],
+    }
+  }
+
   /** Lee y valida el body de POST /v1/run. No lanza — un JSON inválido o que
    *  no tiene forma de `ProviderInput` es un 400, no una excepción. */
   async function readRunBody(
@@ -645,7 +679,7 @@ export function createApp({
     if (redriveRunId && redriveUrl) setRunLogTarget(redriveRunId, redriveUrl)
     try {
       const output = await provider.run({
-        ...(await resolveWorkspace(body)),
+        ...withGatewaySystemPrompt(await resolveWorkspace(body)),
         daemonUrl: daemonUrlFor(body),
       })
 

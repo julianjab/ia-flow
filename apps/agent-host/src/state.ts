@@ -14,8 +14,15 @@
 
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { SystemPromptBlock } from '@ia-flow/shared'
 import { type AdmissionRule, isAdmissionRule } from './admission.js'
 import type { AgentHostConfig } from './config.js'
+
+function isSystemPromptBlock(value: unknown): value is SystemPromptBlock {
+  if (!value || typeof value !== 'object') return false
+  const b = value as Record<string, unknown>
+  return b.type === 'text' && typeof b.text === 'string'
+}
 
 /**
  * Dónde aterriza el trabajo en ESTA máquina, y con qué identidad commitea.
@@ -53,6 +60,20 @@ export interface AgentHostState {
   maxConcurrentRuns: number | null
   admissionRules: AdmissionRule[]
   workspace: WorkspaceSettings
+  /**
+   * El system prompt propio de ESTA máquina: bloques que `app.ts` antepone a
+   * `ProviderInput.systemPromptBlocks` antes de `provider.run()`, así que
+   * aplican a CUALQUIER run que aterrice acá, sin que el daemon que despachó
+   * tenga que saber que existen. Describe cómo correr en este gateway
+   * puntual (una VM efímera sin red de salida, un toolchain particular),
+   * nunca cómo resolver la task — eso lo sigue decidiendo el agente.
+   *
+   * Mismo `SystemPromptBlock` (`@ia-flow/shared`) que ya usa
+   * `AnthropicApiSettingsSchema.systemPrompt` del lado del provider LOCAL —
+   * un bloque de system prompt es un bloque de system prompt en cualquiera
+   * de los dos lados, sin traducción entre formatos.
+   */
+  systemPrompt: SystemPromptBlock[]
 }
 
 const HOME = Bun.env.HOME ?? ''
@@ -104,6 +125,16 @@ export function sanitizeWorkspace(raw: unknown, fallback: WorkspaceSettings): Wo
   }
 }
 
+export function sanitizeSystemPrompt(
+  raw: unknown,
+  fallback: SystemPromptBlock[],
+): SystemPromptBlock[] {
+  if (!raw || typeof raw !== 'object') return fallback
+  const r = raw as Record<string, unknown>
+  if (!Array.isArray(r.blocks)) return fallback
+  return r.blocks.filter(isSystemPromptBlock)
+}
+
 function envMaxConcurrentRuns(): number | null {
   const parsed = Number.parseInt(Bun.env.AGENT_HOST_MAX_CONCURRENT_RUNS ?? '', 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
@@ -126,6 +157,7 @@ export function defaultState(config?: AgentHostConfig | null): AgentHostState {
     maxConcurrentRuns: envMaxConcurrentRuns(),
     admissionRules: config?.admission?.rules?.filter(isAdmissionRule) ?? [],
     workspace: envWorkspace(),
+    systemPrompt: config?.systemPrompt?.blocks?.filter(isSystemPromptBlock) ?? [],
   }
 }
 
@@ -160,6 +192,15 @@ export function sanitizeState(raw: unknown, fallback: AgentHostState): AgentHost
     // guardado manda él, incluso si un campo quedó vacío a propósito.
     workspace:
       'workspace' in r ? sanitizeWorkspace(r.workspace, fallback.workspace) : fallback.workspace,
+    // Mismo criterio que `admissionRules`: sin la clave manda el arranque en
+    // frío (el YAML), no `[]` — si no, cualquier guardado desde la pantalla
+    // que no toque el system prompt lo borraría en el próximo restart.
+    systemPrompt:
+      'systemPrompt' in r
+        ? Array.isArray(r.systemPrompt)
+          ? r.systemPrompt.filter(isSystemPromptBlock)
+          : []
+        : fallback.systemPrompt,
   }
 }
 

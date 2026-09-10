@@ -399,11 +399,20 @@ export const AgentMemoryEntrySchema = z.object({
 })
 export type AgentMemoryEntry = z.infer<typeof AgentMemoryEntrySchema>
 
+// Un bloque de system prompt tal como lo consume la API de Anthropic
+// (`resolveAnthropicRunSettings`, packages/ai-providers). Extraído como schema
+// propio para que apps/agent-host pueda declarar su propio system prompt —el
+// que agrega AL CORRER, independiente del que arma cada agente— con el MISMO
+// shape que ya usa `AnthropicApiSettingsSchema.systemPrompt`, en vez de
+// inventar una forma paralela.
+export const SystemPromptBlockSchema = z.object({ type: z.literal('text'), text: z.string() })
+export type SystemPromptBlock = z.infer<typeof SystemPromptBlockSchema>
+
 export const AnthropicApiSettingsSchema = z.object({
   model: z.string(),
   anthropicVersion: z.string(),
   anthropicBeta: z.array(z.string()),
-  systemPrompt: z.array(z.object({ type: z.literal('text'), text: z.string() })),
+  systemPrompt: z.array(SystemPromptBlockSchema),
   thinking: z
     .object({
       type: z.enum(['enabled', 'adaptive']),
