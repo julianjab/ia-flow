@@ -30,12 +30,18 @@ const SUGGESTIONS = [
   '¿Qué tarea debería priorizar hoy?',
   '¿Qué está bloqueado?',
   '¿Qué tareas están sin asignar?',
+  'Agrupá las tareas por tema',
 ]
+
+/** Colapsado por default — es una lista, no chips sueltos, así que no compite
+ *  visualmente con el input hasta que el operador la pide. */
+const showSuggestions = ref(false)
 
 function ask(text: string): void {
   const trimmed = text.trim()
   if (!trimmed || store.busy || !props.projectId) return
   message.value = '';
+  showSuggestions.value = false;
   void store.ask({ projectId: props.projectId, message: trimmed, tasks: props.tasks })
 }
 
@@ -95,16 +101,24 @@ function onApply(): void {
 
     <p v-if="store.busy" class="command-status" data-testid="chat-busy">Pensando…</p>
 
-    <div v-if="!store.history.length && !store.busy" class="command-suggestions">
+    <div v-if="!store.history.length && !store.busy" class="command-suggestions-disclosure">
       <button
-        v-for="s in SUGGESTIONS"
-        :key="s"
         type="button"
-        class="command-suggestion"
-        @click="ask(s)"
+        class="command-suggestions-toggle"
+        :aria-expanded="showSuggestions"
+        data-testid="chat-suggestions-toggle"
+        @click="showSuggestions = !showSuggestions"
       >
-        {{ s }}
+        <span>Preguntas rápidas</span>
+        <span class="command-suggestions-caret" aria-hidden="true">{{ showSuggestions ? '▲' : '▼' }}</span>
       </button>
+      <ul v-if="showSuggestions" class="command-suggestions-list">
+        <li v-for="s in SUGGESTIONS" :key="s">
+          <button type="button" class="command-suggestion" data-testid="chat-suggestion" @click="ask(s)">
+            {{ s }}
+          </button>
+        </li>
+      </ul>
     </div>
 
     <div v-if="store.error" class="command-error">
@@ -169,8 +183,12 @@ function onApply(): void {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
 }
-.command-suggestions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.command-suggestion {
+.command-suggestions-disclosure { display: flex; flex-direction: column; }
+.command-suggestions-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
   border: 1px solid var(--border);
   background: none;
   color: var(--fg-dim);
@@ -180,6 +198,32 @@ function onApply(): void {
   padding: 0 0.6rem;
   cursor: pointer;
 }
+.command-suggestions-caret { color: var(--accent); flex: none; }
+.command-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-top: none;
+}
+.command-suggestion {
+  display: block;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  height: var(--tap-h);
+  padding: 0 0.6rem;
+  text-align: left;
+  cursor: pointer;
+}
+.command-suggestions-list li:first-child .command-suggestion { border-top: none; }
+.command-suggestion:hover { color: var(--fg); background: var(--panel); }
 .command-error { display: flex; flex-direction: column; gap: 0.2rem; }
 .command-error-line,
 .command-error-retry {
