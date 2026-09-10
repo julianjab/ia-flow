@@ -5,6 +5,7 @@ import MobileTabBar from '@/components/MobileTabBar.vue';
 import { GENERAL_SECTIONS, type GeneralSectionId } from '@/router/sections';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import ProjectSwitcherSheet from '@/features/projects/ProjectSwitcherSheet.vue';
+import { useHasActionBar } from '@/composables/useActionBar';
 import { useIsMobile } from '@/composables/useIsMobile';
 import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
 import ChromeMoreSheet from '@/components/ChromeMoreSheet.vue';
@@ -215,8 +216,14 @@ const anythingRunning = computed(
  * monta este shell. El detalle de tarea tampoco muestra la barra, pero eso lo
  * resuelve él: es pantalla completa con su propia barra de acciones, y dos
  * barras se comerían 108px de alto en chrome.
+ *
+ * `hasActionBar` es la forma general de eso mismo (R4): mientras haya un
+ * `StickyActionBar` montado —el pie de cualquier formulario de configuración—
+ * la tab bar no se dibuja. El pulgar no puede quedar entre "guardar" y
+ * "cambiar de pantalla".
  */
-const showTabBar = computed(() => mobile.value && !isAgentHost);
+const { hasActionBar } = useHasActionBar();
+const showTabBar = computed(() => mobile.value && !isAgentHost && !hasActionBar.value);
 
 /** El proyecto activo, como lo muestra el header mobile. */
 const activeProjectLabel = computed(() => {

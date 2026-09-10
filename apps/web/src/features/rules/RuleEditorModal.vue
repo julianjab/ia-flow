@@ -8,6 +8,10 @@ import { recurringRuleWarning } from '@/features/rules/rule-templates'
 import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
 import RuleSentence from '@/features/rules/RuleSentence.vue'
 import { rowsToWhen, whenToRows } from '@/features/rules/when-serialization'
+import CollapsibleSection from '@/ui/CollapsibleSection.vue'
+import FormFooter from '@/ui/FormFooter.vue'
+import ToggleSwitch from '@/ui/ToggleSwitch.vue'
+import { useIsSplit } from '@/composables/useIsMobile'
 
 // Editor de una regla. Mismo formato que el editor de agentes —página completa
 // con rail de secciones a la izquierda y resumen a la derecha— y no un diálogo
@@ -83,14 +87,26 @@ const actions = ref<RuleActionEntry[]>([])
 // después indexaba los conectores con el índice YA filtrado — una fila a medio
 // escribir en el medio guardaba los AND/OR corridos una posición.
 
-// ─── Rail de secciones — cada entrada resuelve su propio "¿hay algo que
-// atender acá?" para el punto de estado. `danger` es lo que impide guardar,
-// que es exactamente lo que los tres errores del formulario ya dicen. ──────
+// ─── Las franjas del formulario (R19) ─────────────────────────────────────
+//
+// El mismo orden que el resto de las pantallas de configuración: qué es → qué
+// hace → cuándo aplica → crudo. Para una regla, «qué hace» es el evento MÁS
+// las acciones —eso es la regla— y el ámbito es lo que la acota. Antes las
+// acciones iban después del ámbito, así que el formulario contaba primero las
+// excepciones y al final la regla.
+//
+// Las MISMAS cuatro entradas en los dos regímenes: sobre --bp-split el índice
+// es el rail al costado; abajo, el encabezado de cada `CollapsibleSection`
+// (R24). `defaultOpen` deja abierto lo obligatorio —el id, el evento y las
+// acciones— y cierra lo que tiene default (R20). Cada entrada resuelve su
+// propio "¿hay algo que atender acá?" para el punto de estado, y `danger` es
+// lo que impide guardar.
 
-type SectionKey = 'definicion' | 'ambito' | 'acciones' | 'avanzado'
+type SectionKey = 'definicion' | 'acciones' | 'ambito' | 'avanzado'
 type SectionDot = 'good' | 'neutral' | 'danger'
 
 const activeSection = ref<SectionKey>('definicion')
+const { isSplit } = useIsSplit()
 
 function hydrate(rule: Rule | null) {
   // Una plantilla sólo aplica al alta: en edición, los valores de la regla
@@ -174,40 +190,76 @@ const actionsSummary = computed(() =>
     : 'ninguna — la regla no hace nada',
 )
 
-const sections = computed<{ key: SectionKey; title: string; summary: string; dot: SectionDot }[]>(
-  () => [
-    {
-      key: 'definicion',
-      title: 'Definición',
-      summary: parsedOnTypes.value.length
-        ? `${id.value.trim() || 'sin id'} · ${parsedOnTypes.value.join(', ')}`
-        : id.value.trim() || 'sin id',
-      dot: idError.value || onError.value ? 'danger' : 'good',
-    },
-    {
-      key: 'ambito',
-      title: 'Sobre qué',
-      summary: scopeSummary.value,
-      dot:
-        filledConds.value.length || repoName.value.trim() || whenText.value.trim()
-          ? 'good'
-          : 'neutral',
-    },
-    {
-      key: 'acciones',
-      title: 'Qué hace',
-      summary: actionsSummary.value,
-      dot: actionsError.value ? 'danger' : 'good',
-    },
-    {
-      key: 'avanzado',
-      title: 'Avanzado',
-      summary: [enabled.value ? 'habilitada' : 'deshabilitada', exclusive.value ? 'exclusiva' : null]
-        .filter(Boolean)
-        .join(' · '),
-      dot: enabled.value ? 'neutral' : 'danger',
-    },
-  ],
+const sections = computed<
+  { key: SectionKey; title: string; summary: string; dot: SectionDot; defaultOpen: boolean }[]
+>(() => [
+  // Franja 1 · qué es
+  {
+    key: 'definicion',
+    title: 'Definición',
+    summary: [id.value.trim() || 'sin id', enabled.value ? null : 'deshabilitada']
+      .filter(Boolean)
+      .join(' · '),
+    dot: idError.value ? 'danger' : enabled.value ? 'good' : 'neutral',
+    defaultOpen: true,
+  },
+  // Franja 2 · qué hace — el evento y las acciones son la regla.
+  {
+    key: 'acciones',
+    title: 'Qué hace',
+    summary: parsedOnTypes.value.length
+      ? `${parsedOnTypes.value.join(', ')} → ${actionsSummary.value}`
+      : actionsSummary.value,
+    dot: onError.value || actionsError.value ? 'danger' : 'good',
+    defaultOpen: true,
+  },
+  // Franja 3 · cuándo aplica — abierta: una regla existe por su disparo.
+  {
+    key: 'ambito',
+    title: 'Sobre qué',
+    summary: scopeSummary.value,
+    dot:
+      filledConds.value.length || repoName.value.trim() || whenText.value.trim()
+        ? 'good'
+        : 'neutral',
+    defaultOpen: false,
+  },
+  // Franja 5 · crudo
+  {
+    key: 'avanzado',
+    title: 'Avanzado',
+    summary: [
+      exclusive.value ? 'exclusiva' : 'todas las que matchean',
+      description.value.trim() ? 'con descripción' : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+    dot: 'neutral',
+    defaultOpen: false,
+  },
+])
+
+const sectionByKey = computed(() => new Map(sections.value.map((s) => [s.key, s])))
+
+// Sobre --bp-split una franja es una `<section>` pelada: el índice ya está al
+// costado y sólo se dibuja la activa, así que un encabezado propio sería la
+// identidad dos veces (R9). Abajo, el encabezado del `CollapsibleSection` ES
+// el índice de ese régimen.
+const bandTag = computed(() => (isSplit.value ? 'section' : CollapsibleSection))
+function bandAttrs(key: SectionKey): Record<string, unknown> {
+  if (isSplit.value) return { class: 'section' }
+  const s = sectionByKey.value.get(key)
+  return { title: s?.title, summary: s?.summary, defaultOpen: s?.defaultOpen }
+}
+function bandShown(key: SectionKey) {
+  return isSplit.value ? activeSection.value === key : true
+}
+
+// Lo que falta para guardar, en el pie: bajo --bp-split no hay tercera columna
+// donde vive la checklist, y un `Guardar` apagado no dice por qué. Se nombra
+// UNA cosa — la primera (R15).
+const footerNote = computed(
+  () => idError.value ?? onError.value ?? actionsError.value ?? undefined,
 )
 
 function serializeWhen(): WhenCondition[] | undefined {
@@ -253,29 +305,16 @@ function save() {
   <div class="overlay">
     <div class="page">
 
+      <!-- La cabecera identifica; los botones viven en el pie (R3). El estado
+           es un badge acá, como en la fila del listado: se lee sin abrir nada
+           y no compite con los campos. Se cambia en Definición, que es el
+           único lugar donde se cambia (R17). -->
       <div class="page-head">
         <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ isNew ? 'Nueva regla' : `Regla ${rule?.id}` }}</h3>
-        <div class="page-head-spacer"></div>
-        <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no
-             se deshace, y desde el detalle se ve exactamente QUÉ regla se
-             está por borrar en vez de un ✕ pegado al gesto de reordenar. -->
-        <button
-          v-if="!isNew && rule && !readonly"
-          type="button"
-          class="btn btn--danger"
-          @click="emit('delete', rule)"
-        >Eliminar</button>
-        <button type="button" class="btn" @click="emit('close')">
-          {{ readonly ? 'Cerrar' : 'Cancelar' }}
-        </button>
-        <button
-          v-if="!readonly"
-          type="button"
-          class="btn btn--primary"
-          :disabled="!canSave"
-          @click="save"
-        >Guardar regla</button>
+        <span class="state-badge" :class="{ 'state-badge--off': !enabled }">
+          {{ enabled ? 'activa' : 'deshabilitada' }}
+        </span>
       </div>
 
       <p v-if="readonly && readonlyReason === 'yaml'" class="readonly-banner">
@@ -288,8 +327,10 @@ function save() {
 
       <div class="page-shell">
 
-        <!-- ── Rail de secciones — responde "¿qué hay acá?" sin entrar. ── -->
-        <nav class="rail">
+        <!-- ── El índice, sobre --bp-split. Abajo de ese ancho no se monta:
+             ahí el índice son las franjas en orden y el encabezado de la que
+             se pliega (R24). ── -->
+        <nav v-if="isSplit" class="rail">
           <button
             v-for="s in sections"
             :key="s.key"
@@ -306,44 +347,76 @@ function save() {
           </button>
         </nav>
 
-        <!-- ── Panel principal — una sección a la vez. ── -->
-        <fieldset class="page-main" :disabled="readonly">
+        <!-- ── El formulario. Sobre --bp-split, una franja a la vez; abajo,
+             todas en orden. `.ff-col` le pone el tope de 46rem (R25). ── -->
+        <fieldset class="page-main ff-col" :disabled="readonly">
 
-          <section v-show="activeSection === 'definicion'" class="section">
-            <label class="field">
-              <span class="label">Id</span>
+          <!-- Franja 1 · qué es. Nombre antes que Id: el nombre es lo que se
+               lee en la lista y el id se deriva de él; el id iba primero sólo
+               porque es el campo obligatorio del schema. -->
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('definicion')"
+            v-show="bandShown('definicion')"
+          >
+            <div class="ff-row">
+              <span class="uc-label">Nombre</span>
+              <input v-model="name" class="ff-field" placeholder="Avisar y revisar al abrir un PR" />
+            </div>
+            <div class="ff-row">
+              <span class="uc-label">Id</span>
               <input
                 v-model="id"
-                class="input mono"
+                class="ff-field ff-mono"
+                :class="{ 'ff-field--error': idError }"
                 :disabled="!isNew"
                 placeholder="pr-abierto-avisa-y-revisa"
               />
-              <span v-if="idError" class="field-err">{{ idError }}</span>
-              <span v-else class="field-hint">No se puede cambiar después de crear la regla.</span>
-            </label>
-            <label class="field">
-              <span class="label">Nombre</span>
-              <input v-model="name" class="input" placeholder="Avisar y revisar al abrir un PR" />
-            </label>
-            <label class="field">
-              <span class="label">Descripción</span>
-              <input v-model="description" class="input" placeholder="Opcional" />
-            </label>
+              <p v-if="idError" class="ff-error">{{ idError }}</p>
+              <p v-else class="ff-hint">No se puede cambiar después de crear la regla.</p>
+            </div>
+            <ToggleSwitch v-model="enabled" label="Habilitada" />
+          </component>
 
+          <!-- Franja 2 · qué hace. El evento y las acciones juntos: eso ES la
+               regla, y es lo que se vino a escribir. -->
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('acciones')"
+            v-show="bandShown('acciones')"
+          >
             <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
                  descendiente a su PRIMER control, y en un campo de chips ése es
                  la ✕ del primer chip. Elegir del desplegable agregaba el tipo y
                  acto seguido borraba el que ya estaba. -->
-            <div class="field">
-              <span class="label">Tipos de evento</span>
+            <div class="ff-row">
+              <span class="uc-label">Tipos de evento</span>
               <EventTypePicker v-model="onTypes" />
-              <span v-if="onError" class="field-err">{{ onError }}</span>
-              <span v-else class="field-hint">Separados por coma.</span>
-              <span v-if="recurringWarning" class="field-warn">⚠ {{ recurringWarning }}</span>
+              <p v-if="onError" class="ff-error">{{ onError }}</p>
+              <p v-else class="ff-hint">Separados por coma.</p>
+              <p v-if="recurringWarning" class="field-warn">⚠ {{ recurringWarning }}</p>
             </div>
-          </section>
 
-          <section v-show="activeSection === 'ambito'" class="section">
+            <div class="ff-row">
+              <span class="uc-label">Acciones</span>
+              <ActionsEditor
+                v-model="actions"
+                :available-kinds="availableKinds"
+                :agent-ids="agentIds"
+                :action-ids="actionIds"
+              />
+              <p v-if="actionsError" class="ff-error">{{ actionsError }}</p>
+              <p v-else class="ff-hint">Corren en este orden. Arrastrá para cambiarlo.</p>
+            </div>
+          </component>
+
+          <!-- Franja 3 · cuándo aplica. Abierta y no plegada: una regla existe
+               por su disparo, así que acotarlo no es un detalle opcional. -->
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('ambito')"
+            v-show="bandShown('ambito')"
+          >
             <RuleScopeEditor
               v-model:repo-name="repoName"
               v-model:when-rows="whenRows"
@@ -353,41 +426,37 @@ function save() {
               :repo-names="repoNames"
               :project-id="projectId"
             />
-          </section>
+          </component>
 
-          <section v-show="activeSection === 'acciones'" class="section">
-            <ActionsEditor
-              v-model="actions"
-              :available-kinds="availableKinds"
-              :agent-ids="agentIds"
-              :action-ids="actionIds"
-            />
-            <span v-if="actionsError" class="field-err">{{ actionsError }}</span>
-          </section>
-
-          <section v-show="activeSection === 'avanzado'" class="section">
-            <div class="field">
-              <span class="label">Estado</span>
-              <label class="check">
-                <input v-model="enabled" type="checkbox" />
-                <span>Habilitada</span>
-              </label>
-              <label class="check">
+          <!-- Franja 5 · crudo. Todo con default, así que se pliega. -->
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('avanzado')"
+            v-show="bandShown('avanzado')"
+          >
+            <div class="ff-row">
+              <span class="uc-label">Descripción</span>
+              <input v-model="description" class="ff-field" placeholder="— sin descripción —" />
+              <p class="ff-hint">Se lee en el listado, debajo del nombre.</p>
+            </div>
+            <div class="ff-row">
+              <span class="uc-label">Prioridad</span>
+              <label class="ff-check">
                 <input v-model="exclusive" type="checkbox" />
                 <span>Exclusiva</span>
               </label>
-              <span class="field-hint">
+              <p class="ff-hint">
                 Por default disparan <b>todas</b> las reglas que matchean. Exclusiva corta a las de
                 menor prioridad — recupera el comportamiento de "la primera y basta".
-              </span>
+              </p>
             </div>
-          </section>
+          </component>
 
         </fieldset>
 
         <!-- ── Resumen en lenguaje llano — verificar de un vistazo que la
              regla dice lo que uno cree, sin reconstruirla campo por campo. ── -->
-        <aside class="summary-rail">
+        <aside v-if="isSplit" class="summary-rail">
           <div class="summary-card">
             <h4>Cómo se lee</h4>
             <RuleSentence :rule="draft" class="summary-sentence" />
@@ -416,9 +485,24 @@ function save() {
 
       </div>
 
+      <FormFooter
+        class="page-foot"
+        :note="footerNote"
+        note-is-error
+        :save-disabled="!canSave"
+        save-label="Guardar regla"
+        :delete-label="!isNew && rule ? 'Eliminar…' : undefined"
+        :readonly="readonly"
+        @save="save"
+        @cancel="emit('close')"
+        @delete="rule && emit('delete', rule)"
+      />
+
     </div>
   </div>
 </template>
+
+<style scoped src="@/ui/form-fields.css"></style>
 
 <style scoped>
 /* No es un overlay fixed — el editor reemplaza la lista dentro del <main> de
@@ -455,7 +539,21 @@ function save() {
   color: var(--fg);
   font-family: var(--font-display);
 }
-.page-head-spacer { flex: 1; }
+/* El estado se lee acá, como en la fila del listado — no es un campo más
+   perdido entre los ocho de «Avanzado». Se CAMBIA en Definición, y en un solo
+   lugar (R17). */
+.state-badge {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 0 0.75ch;
+  line-height: var(--row-h);
+  border-radius: var(--radius-sm);
+  background: var(--green-bg);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+.state-badge--off { background: var(--panel-hi); color: var(--fg-dim); }
 
 .back-btn {
   background: none;
@@ -534,47 +632,25 @@ function save() {
   border: 0;
   margin: 0;
   min-inline-size: 0;
-  min-width: 0;
   overflow-y: auto;
   padding: 1.25rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
 }
+/* `.ff-col` trae el flex en columna, el gap y el tope de 46rem; acá sólo se
+   centra en el espacio que quede a la derecha del rail. */
+.page-main.ff-col { margin-inline: auto; }
 .page-main:disabled { opacity: 0.85; }
-.section { display: flex; flex-direction: column; gap: 1.1rem; }
+.section { display: flex; flex-direction: column; gap: 0.9rem; }
 
-/* ── Fields ─────────────────────────────────────────────────────────── */
-.field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
-.label { font-size: 0.82rem; font-weight: 600; color: var(--fg-mute); }
-.field-hint { font-size: 0.73rem; color: var(--fg-dim); line-height: 1.4; }
-.field-hint code,
+/* La caja, el label, el hint y el error son del kit (R18). Lo único propio es
+   el aviso: NO es un error —la regla es válida y se puede guardar—, así que no
+   puede usar la voz del error ni ocupar su ranura. */
+.field-warn {
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--warn);
+  line-height: 1.5;
+}
 .field-warn code { font-family: var(--font-mono); color: var(--fg-mute); }
-.field-warn { font-size: 0.73rem; color: var(--warn); line-height: 1.4; }
-.field-err { font-size: 0.73rem; color: var(--danger); line-height: 1.4; }
-
-.input {
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  font-size: 0.875rem;
-  color: var(--fg);
-  background: var(--panel);
-  width: 100%;
-  box-sizing: border-box;
-  outline: none;
-}
-.input:focus { border-color: var(--accent); }
-.input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
-.mono { font-family: var(--font-mono); }
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 0.45ch;
-  font-size: 0.85rem;
-  color: var(--fg-mute);
-  cursor: pointer;
-}
 
 /* ── Resumen ────────────────────────────────────────────────────────── */
 .summary-rail {
@@ -636,43 +712,36 @@ function save() {
 /* 1100 y no 900 (el valor original): a 900 con el sidebar abierto quedan
    ~670px de contenido, y tres columnas de 240 + 1fr + 300 no entran ahí
    tampoco. Es uno de los tres breakpoints del sistema — ver DESIGN_SYSTEM.md. */
+/* ── Pie ────────────────────────────────────────────────────────────────
+   Fuera de `.page-shell`, así queda al pie del editor entero y no adentro de
+   una de las tres columnas. */
+.page-foot {
+  flex-shrink: 0;
+  padding: 0.5rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
 @media (max-width: 1100px) {
-  /* Tres columnas con dos fijas (240 + 1fr + 300) suman 540px de mínimo: en
-     390px el panel del medio —el único donde se edita— quedaba en cero y el
-     `overflow: hidden` recortaba el resto. Se apila en una sola columna, y
-     cada panel suelta su scroll propio para que sólo scrollee la página. */
+  /* El rail y el resumen no se montan bajo este ancho (`v-if="isSplit"`), así
+     que la grilla de tres columnas queda en una. Antes el rail se volvía una
+     tira horizontal de pestañas que se deslizaba: scroll lateral (R2) y un
+     índice haciendo de tab (R14). */
   .page-shell {
     grid-template-columns: 1fr;
     overflow: visible;
   }
   .page { min-height: 0; }
-  .rail,
-  .page-main,
-  .summary-rail { overflow: visible; }
-  .rail {
-    flex-direction: row;
-    gap: 0.35rem;
-    padding: 0.5rem;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    overflow-x: auto;
-  }
-  .rail-item { flex: 0 0 auto; }
-  .rail-sub { display: none; }
-  .page-main { padding: 1rem 0.85rem; }
-  .summary-rail { border-left: none; border-top: 1px solid var(--border); }
+  /* El panel traía su propio `overflow-y: auto`: en una sola columna eso es un
+     scroll anidado dentro del de la página, y en touch no hay forma de saber
+     cuál se está moviendo. */
+  .page-main { overflow: visible; padding: 1rem 0.85rem; }
 }
 
 @media (max-width: 640px) {
-  /* Back + título + Cancelar + Guardar no entran en una línea de 390px, y el
-     head es un flex sin `wrap`: los botones se comían el título. El spacer
-     —que ya existía para empujarlos a la derecha— pasa a ser el salto de
-     línea. */
-  .page-head {
-    flex-wrap: wrap;
-    gap: 0.5rem 0.6rem;
-    padding: 0.6rem 0.75rem;
-  }
+  /* Los botones ya no están en la cabecera —se fueron al pie—, así que el
+     título tiene la fila y sólo necesita no desbordarla. */
+  .page-head { padding: 0.6rem 0.75rem; }
   .page-head h3 {
     flex: 1 1 0;
     min-width: 0;
@@ -681,7 +750,6 @@ function save() {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .page-head-spacer { flex: 0 0 100%; height: 0; }
-  .page-head .btn { flex: 1 1 0; }
+  .page-foot { padding: 0.5rem 0.75rem; }
 }
 </style>

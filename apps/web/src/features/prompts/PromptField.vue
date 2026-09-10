@@ -133,7 +133,7 @@ function removeVariable(i: number) {
   <div class="prompt-field" :class="{ 'prompt-field--fill': fill }">
     <!-- Label row -->
     <div class="label-row">
-      <span class="label">
+      <span class="uc-label">
         {{ label ?? 'Prompt' }}
         <span v-if="required" class="req">*</span>
       </span>
@@ -142,7 +142,7 @@ function removeVariable(i: number) {
       </button>
     </div>
 
-    <p v-if="hint" class="hint">{{ hint }}</p>
+    <p v-if="hint" class="ff-hint">{{ hint }}</p>
 
     <!-- AI assist panel: stays open while a proposal is active so you can iterate -->
     <AiAssistPanel
@@ -227,6 +227,8 @@ function removeVariable(i: number) {
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
 .prompt-field {
   display: flex;
@@ -244,26 +246,7 @@ function removeVariable(i: number) {
   justify-content: space-between;
 }
 
-.label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--fg-mute);
-}
 .req { color: var(--danger); }
-
-.hint {
-  margin: 0;
-  font-size: 0.73rem;
-  color: var(--fg-dim);
-  line-height: 1.4;
-}
-.hint code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  background: var(--panel-hi);
-  padding: 0.05rem 0.25rem;
-  border-radius: 3px;
-}
 
 /* ── AI toggle button ──────────────────────────────────────────────── */
 .btn-ai {
@@ -272,7 +255,7 @@ function removeVariable(i: number) {
   gap: 0.3rem;
   padding: 0.2rem 0.65rem;
   border: 1px solid var(--border-hi);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   font-size: 0.78rem;
   color: var(--fg-dim);
@@ -285,9 +268,9 @@ function removeVariable(i: number) {
 /* ── Diff view ─────────────────────────────────────────────────────── */
 .diff-panel {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
 }
 .diff-header {
@@ -304,7 +287,7 @@ function removeVariable(i: number) {
 .btn-discard {
   padding: 0.25rem 0.75rem;
   border: 1px solid var(--border-hi);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   font-size: 0.75rem;
   color: var(--fg-dim);
@@ -315,7 +298,7 @@ function removeVariable(i: number) {
 .btn-edit {
   padding: 0.25rem 0.75rem;
   border: 1px solid var(--border-hi);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   font-size: 0.75rem;
   color: var(--fg-dim);
@@ -330,7 +313,7 @@ function removeVariable(i: number) {
   padding: 0.65rem 0.85rem;
   border: none;
   border-radius: 0;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--fg);
   background: var(--panel);
@@ -344,7 +327,7 @@ function removeVariable(i: number) {
 .btn-apply {
   padding: 0.25rem 0.75rem;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--panel);
   font-size: 0.75rem;
@@ -386,11 +369,11 @@ function removeVariable(i: number) {
   color: var(--fg-dim);
 }
 .vars-hint code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   background: var(--panel-hi);
   padding: 0.05rem 0.25rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .kv-list { display: flex; flex-direction: column; gap: 0.35rem; }
@@ -399,7 +382,7 @@ function removeVariable(i: number) {
 .kv-input {
   padding: 0.4rem 0.55rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 0.875rem;
   color: var(--fg);
   background: var(--panel);
@@ -427,7 +410,7 @@ function removeVariable(i: number) {
   align-self: flex-start;
   background: none;
   border: 1px dashed var(--border-hi);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--fg-dim);
   font-size: 0.78rem;
   padding: 0.25rem 0.65rem;

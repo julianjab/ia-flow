@@ -50,7 +50,8 @@ describe('RuleEditorModal', () => {
       },
     })
 
-    await w.findAll('.rail-item')[1].trigger('click')
+    // Sin ancho para el rail las cuatro franjas se dibujan en orden, así que
+    // el editor de condiciones ya está en pantalla.
     const campos = w.findAll('.cre-cell--field input')
     expect(campos).toHaveLength(3)
     await campos[1].setValue('')
@@ -82,37 +83,53 @@ describe('RuleEditorModal', () => {
   })
 
   /**
-   * El editor pasó de ser un diálogo con todo apilado a la página de secciones
-   * del editor de agentes: el rail es la única forma de llegar a "Qué hace" y
-   * a "Avanzado", así que si deja de marcar la sección elegida esas dos
-   * quedan inalcanzables.
+   * Bajo --bp-split no hay rail, y el índice pasa a ser el encabezado de cada
+   * franja: las MISMAS cuatro entradas, en el mismo orden y con el mismo
+   * título que el rail (R24). Antes de esto el rail se volvía una tira
+   * horizontal de pestañas con scroll lateral (R2, R14).
+   *
+   * Hijas DIRECTAS del formulario: el otro `CollapsibleSection` de la pantalla
+   * es el de cada acción, más adentro.
    */
-  it('el rail cambia la sección activa', async () => {
+  it('sin ancho para el rail, cada franja es su propio encabezado', () => {
     const w = mountModal()
-    const items = w.findAll('.rail-item')
-    expect(items).toHaveLength(4)
-    expect(items[0].classes()).toContain('rail-item--active')
 
-    await items[2].trigger('click')
-    expect(w.findAll('.rail-item')[2].classes()).toContain('rail-item--active')
-    expect(w.findAll('.rail-item')[0].classes()).not.toContain('rail-item--active')
+    expect(w.find('.rail-item').exists()).toBe(false)
+    expect(w.findAll('.page-main > .cs > .cs-header .cs-title').map((t) => t.text())).toEqual([
+      'Definición',
+      'Qué hace',
+      'Sobre qué',
+      'Avanzado',
+    ])
   })
 
   /**
-   * El resumen se arma con el formulario, no con la regla guardada: es lo que
-   * permite verificar lo que uno acaba de escribir sin guardar y volver a
-   * abrir.
+   * R20: lo obligatorio nunca detrás de un chevron. Para una regla eso es el
+   * id, el evento y las acciones; el ámbito y lo avanzado tienen default y
+   * arrancan cerrados.
    */
-  it('el resumen refleja lo editado, no lo guardado', async () => {
-    const w = mountModal()
-    // La frase sale de la regla, igual que en el listado.
-    expect(w.get('.summary-card').text()).toContain('refiner')
-    expect(w.get('.summary-card').text()).toContain('Habilitada')
+  it('abre las franjas con campos obligatorios y cierra las demás', () => {
+    const abiertas = mountModal()
+      .findAll('.page-main > .cs')
+      .filter((cs) => (cs.get('.cs-panel').element as HTMLElement).style.display !== 'none')
+      .map((cs) => cs.get('.cs-title').text())
 
-    // Y se actualiza con el formulario, sin pasar por guardar.
-    await w.findAll('.rail-item')[3].trigger('click')
-    await w.findAll('.check input[type="checkbox"]')[0].setValue(false)
-    expect(w.get('.summary-card').text()).toContain('no va a correr')
+    expect(abiertas).toEqual(['Definición', 'Qué hace'])
+  })
+
+  /**
+   * El estado dejó de ser un campo perdido entre los de «Avanzado»: se lee en
+   * el badge de la cabecera —igual que en la fila del listado— y se cambia en
+   * la franja de identidad, en un solo lugar (R17).
+   */
+  it('el estado se lee en la cabecera y se cambia en Definición', async () => {
+    const w = mountModal()
+    expect(w.get('.state-badge').text()).toBe('activa')
+
+    await w.get('.tsw').trigger('click')
+
+    expect(w.get('.state-badge').text()).toBe('deshabilitada')
+    expect(w.get('.state-badge').classes()).toContain('state-badge--off')
   })
 
   it('rehidrata los tipos de evento de la regla', () => {

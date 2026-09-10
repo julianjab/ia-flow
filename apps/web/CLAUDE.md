@@ -47,7 +47,8 @@ src/
 
 ## Reglas
 
-- **Antes de crear o modificar UI, lee [DESIGN_SYSTEM.md](@apps/web/DESIGN_SYSTEM.md) y `src/styles/theme.css`.** La app es una consola dark v3: paleta ANSI-16, JetBrains Mono, radio 0, filas de 22px. Cualquier `background: #fff`, radio > 0, sombra decorativa o color hex hardcoded rompe el sistema. Reutiliza `.panel`, `.panel__header`, `.uc-label`, `.kbd`, `.live-dot` antes de escribir CSS nuevo.
+- **Antes de crear o modificar UI, lee [DESIGN_SYSTEM.md](@apps/web/DESIGN_SYSTEM.md) y `src/styles/theme.css`.** Ese archivo es la definición vigente y trae su propio checklist — el de acá abajo no lo reemplaza. La app es una consola oscura **v4**: teal-sage sobre neutros cálidos, tres roles de IBM Plex (Condensed / Sans / Mono), radio por token (`--radius` / `--radius-sm`), filas de `--row-h` y **blanco táctil de `--tap-h` en todo lo que se toca**. Cualquier hex hardcodeado, radio a mano o sombra decorativa rompe el sistema. Reutiliza `.panel`, `.uc-label`, `.btn`, `.kbd`, `ui/form-fields.css` antes de escribir CSS nuevo.
+- **Un formulario de configuración tiene una anatomía definida** — las cinco franjas, las tres formas y el test para plegar un bloque, en «Anatomía de un formulario de configuración» de `DESIGN_SYSTEM.md`. Un formulario nuevo no inventa su propio kit de campo ni su propio pie (R18, R19).
 - **Composition API + `<script setup lang="ts">`** — no Options API en código nuevo.
 - **Stores Pinia:** `defineStore('name', () => { ... })` (composition style), en `features/<dominio>/store.ts`.
 - **API calls:** siempre a través de `features/<dominio>/api.ts`, no axios inline en componentes.
@@ -60,11 +61,13 @@ src/
 
 ## Checklist obligatorio antes de terminar cambios de UI
 
+Es el resumen; el completo, con las reglas R1–R26, está al final de `DESIGN_SYSTEM.md`.
+
 1. [ ] Leí `DESIGN_SYSTEM.md` y `theme.css`.
-2. [ ] Cero hex hardcoded (`grep -n '#[0-9a-fA-F]\{3,6\}' <file>` sale vacío).
-3. [ ] Cero `border-radius > 0` (el reset global mete `!important`, pero no lo pelees).
-4. [ ] Reutilicé primitivas antes de inventar clases (`.panel`, `.kbd`, `.select-row`, `.live-dot`, `.uc-label`).
-5. [ ] Filas de tabla/lista miden 22px o múltiplo (`var(--row-h)`).
+2. [ ] Cero hex hardcoded (`grep -n '#[0-9a-fA-F]\{3,6\}' <file>` sale vacío) y cero familia de fuente escrita a mano.
+3. [ ] Radios por token (`--radius` / `--radius-sm`); ningún `5px`/`6px`/`8px` a mano.
+4. [ ] Reutilicé primitivas antes de inventar clases (`.panel`, `.btn`, `.kbd`, `.uc-label`, `ui/form-fields.css`, `ui/FormFooter.vue`).
+5. [ ] Las filas miden `--row-h` o un múltiplo, y **todo lo presionable mide `--tap-h`** (R1).
 6. [ ] Contraste texto/fondo ≥ 4.5:1 en la paleta oscura.
 7. [ ] Cero imports cruzados entre features
    (`grep -rn "from '@/features/" src/features | grep -v "/$(dirname)"` — cada hit debe ser a su propia feature).

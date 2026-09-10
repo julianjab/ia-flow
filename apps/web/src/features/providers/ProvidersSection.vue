@@ -1,10 +1,18 @@
 <script setup lang="ts">
+// Los defaults globales de los tres providers.
+//
+// Estaban los TRES apilados en una página con un único `Guardar providers` al
+// final del documento: la acción principal scrolleaba (R3) y prometía guardar
+// más de lo que uno venía a cambiar. Ahora se elige uno con los chips de
+// arriba y el pie guarda esa pantalla — que igual manda los tres, porque el
+// endpoint es uno y el estado de los otros dos no se tocó.
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, ref, watch } from 'vue';
 import { type TerminalProviderSettings, validateAnthropicApiSettings } from '@ia-flow/shared';
 import AnthropicApiSettingsForm from '@/features/providers/AnthropicApiSettingsForm.vue';
 import ProviderRegistrationsSection from '@/features/providers/ProviderRegistrationsSection.vue';
 import TerminalProviderSettingsForm from '@/features/providers/TerminalProviderSettingsForm.vue';
+import FormFooter from '@/ui/FormFooter.vue';
 import {
   useProvidersStore,
   type AnthropicApiSettings,
@@ -43,6 +51,46 @@ const anthropicApiError = computed(() =>
   }),
 );
 
+// Un provider por vez. Los tres apilados hacían que el pie prometiera más de
+// lo que uno vino a cambiar; el chip dice cuál se está editando.
+const PROVIDER_TABS = [
+  {
+    id: 'anthropic-api' as const,
+    desc: 'Se aplican a todo agente que lo use; el providerConfig del agente les gana.',
+  },
+  {
+    id: 'tmux-claude' as const,
+    desc: 'Los flags se inyectan en cada sesión de Claude CLI lanzada vía tmux.',
+  },
+  {
+    id: 'iterm-claude' as const,
+    desc: 'Los flags y el entorno se aplican en cada tab de iTerm2 antes de ejecutar Claude.',
+  },
+];
+type ProviderTab = (typeof PROVIDER_TABS)[number]['id'];
+const activeTab = ref<ProviderTab>('anthropic-api');
+const activeDesc = computed(
+  () => PROVIDER_TABS.find((t) => t.id === activeTab.value)?.desc ?? '',
+);
+
+// Qué hay sin guardar. Sin esto el pie sólo puede ofrecer un `Guardar` que no
+// dice si hay algo que guardar — y el usuario no tiene forma de saber si su
+// último cambio ya se fue o no.
+const savedSnapshot = ref('');
+const currentSnapshot = computed(() =>
+  JSON.stringify({
+    steps: steps.value,
+    anthropicApi: anthropicApi.value,
+    tmuxClaude: tmuxClaude.value,
+    itermClaude: itermClaude.value,
+  }),
+);
+const dirty = computed(() => currentSnapshot.value !== savedSnapshot.value);
+
+// El pie sólo se dibuja cuando hay algo que decir, así que el `note` nunca
+// tiene que contar el caso "sin cambios".
+const footerNote = computed(() => anthropicApiError.value ?? 'cambios sin guardar');
+
 function hydrateFromStore() {
   const cfg = providersStore.config;
   if (!cfg) return;
@@ -65,16 +113,16 @@ function hydrateFromStore() {
   };
   tmuxClaude.value = { ...(cfg.tmuxClaude ?? {}) };
   itermClaude.value = { ...(cfg.itermClaude ?? {}) };
+  savedSnapshot.value = currentSnapshot.value;
 }
 
 hydrateFromStore();
 watch(() => providersStore.config, hydrateFromStore);
 
 async function onSaveProviders() {
-  if (anthropicApiError.value) {
-    toastStore.error(anthropicApiError.value);
-    return;
-  }
+  // El error ya se ve en el campo que lo causa y el pie lo repite; el toast
+  // sólo agregaría una tercera copia del mismo texto.
+  if (anthropicApiError.value) return;
   providersSaving.value = true;
   try {
     // Send the form state as-is instead of spreading the current config on top
@@ -102,6 +150,7 @@ async function onSaveProviders() {
       tmuxClaude: withClearableCap(tmuxClaude.value),
       itermClaude: withClearableCap(itermClaude.value),
     });
+    savedSnapshot.value = currentSnapshot.value;
     toastStore.success('Providers guardados');
   } catch (e) {
     toastStore.error(`Save failed: ${extractErrorMessage(e)}`);
@@ -113,68 +162,64 @@ async function onSaveProviders() {
 
 <template>
   <section class="settings-section">
-    <h2>anthropic-api</h2>
-    <p class="section-desc">
-      Defaults globales para el provider <strong>anthropic-api</strong>. Se aplican a todos los
-      agentes que lo usen y pueden ser sobreescritos por <code>providerConfig</code> en cada agente.
-    </p>
-    <AnthropicApiSettingsForm v-model="anthropicApi" />
-    <p v-if="anthropicApiError" class="anthropic-error">⚠ {{ anthropicApiError }}</p>
-  </section>
+    <h2>Providers</h2>
+    <!-- Una descripción de sección por pantalla, y es de la pantalla — no de
+         cada bloque del formulario (R22). Cambia con el provider elegido
+         porque es lo único que la fila de chips no alcanza a decir. -->
+    <p class="section-desc">{{ activeDesc }}</p>
 
-  <section class="settings-section">
-    <h2>tmux-claude</h2>
-    <p class="section-desc">
-      Defaults globales para el provider <strong>tmux-claude</strong>. Los flags se inyectan
-      automáticamente en cada sesión de Claude CLI lanzada via tmux.
-    </p>
-    <TerminalProviderSettingsForm v-model="tmuxClaude" show-surface-in-terminal />
-  </section>
+    <div class="ff-chips provider-tabs">
+      <button
+        v-for="tab in PROVIDER_TABS"
+        :key="tab.id"
+        type="button"
+        class="ff-chip ff-chip-mono"
+        :class="{ 'ff-chip--on': activeTab === tab.id }"
+        :aria-pressed="activeTab === tab.id"
+        @click="activeTab = tab.id"
+      >{{ tab.id }}</button>
+    </div>
 
-  <section class="settings-section">
-    <h2>iterm-claude</h2>
-    <p class="section-desc">
-      Defaults globales para el provider <strong>iterm-claude</strong>. Los flags y variables de
-      entorno se aplican en cada tab de iTerm2 antes de ejecutar Claude.
-    </p>
-    <TerminalProviderSettingsForm v-model="itermClaude" />
-  </section>
+    <div class="ff-col">
+      <AnthropicApiSettingsForm v-if="activeTab === 'anthropic-api'" v-model="anthropicApi" />
+      <TerminalProviderSettingsForm
+        v-else-if="activeTab === 'tmux-claude'"
+        v-model="tmuxClaude"
+        show-surface-in-terminal
+      />
+      <TerminalProviderSettingsForm v-else v-model="itermClaude" />
+    </div>
 
-  <footer class="settings-actions">
-    <button
-      type="button"
-      class="save-button"
-      :disabled="providersSaving || !!anthropicApiError"
-      @click="onSaveProviders"
-    >
-      {{ providersSaving ? 'Guardando…' : 'Guardar providers' }}
-    </button>
-  </footer>
+    <!-- Sólo mientras HAY algo que guardar: la barra reemplaza a la tab bar
+         (R4), y a esta pantalla se entra desde el tab `Más` — dejarla montada
+         siempre la convertiría en un callejón sin salida en un teléfono.
+         `Cancelar` vuelve a lo guardado, que es también lo que devuelve la
+         navegación.
+         El gate es `dirty` y NO `dirty || error`: `anthropicApiError` mira los
+         valores hidratados del store, así que una config inválida ya guardada
+         —por API, o por una versión anterior del validador— montaba el pie sin
+         que nadie tocara nada, y ahí ninguna de las dos salidas destraba
+         (Guardar deshabilitado por el error, Cancelar restaurando los mismos
+         valores inválidos). El error igual se ve: está en el campo que lo
+         causa. -->
+    <FormFooter
+      v-if="dirty"
+      :note="footerNote"
+      :note-is-error="!!anthropicApiError"
+      :save-disabled="providersSaving || !!anthropicApiError"
+      :save-label="providersSaving ? 'Guardando…' : 'Guardar'"
+      @save="onSaveProviders"
+      @cancel="hydrateFromStore"
+    />
+  </section>
 
   <ProviderRegistrationsSection />
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
-.anthropic-error {
-  margin: 0.6rem 0 0;
-  padding: 0.5rem 0.75rem;
-  background: var(--red-bg);
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  border-radius: 6px;
-  font-size: 0.8rem;
-}
-.settings-actions { display: flex; justify-content: flex-end; }
-.save-button {
-  padding: 0.5rem 1.4rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  border-radius: 6px;
-  font-weight: 500;
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-.save-button:hover { background: var(--accent); }
-.save-button:disabled { opacity: 0.6; cursor: not-allowed; }
+/* Los chips eligen qué provider se edita, así que van pegados a la descripción
+   que cambia con ellos y separados del formulario que gobiernan. */
+.provider-tabs { margin-bottom: 0.9rem; }
 </style>

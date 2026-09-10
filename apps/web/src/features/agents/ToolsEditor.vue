@@ -132,53 +132,59 @@ function commitBashPatterns() {
 
 <template>
   <div class="tools-editor">
-    <div v-for="group in groupedCatalog" :key="group.label" class="field">
-      <span class="label">{{ group.label }}</span>
-      <div class="chip-grid">
+    <div v-for="group in groupedCatalog" :key="group.label" class="ff-row">
+      <span class="uc-label">{{ group.label }}</span>
+      <div class="ff-chips">
         <label
           v-for="tool in group.items"
           :key="tool.name"
-          class="chip"
-          :class="{ active: stringTools.has(tool.name) }"
+          class="ff-chip"
+          :class="{ 'ff-chip--on': stringTools.has(tool.name) }"
           :title="tool.description"
           @click="toggleTool(tool.name)"
         >
-          <span class="chip-check">{{ stringTools.has(tool.name) ? '✓' : '' }}</span>
-          <span class="chip-mono">{{ tool.name }}</span>
+          <span class="ff-chip-check">{{ stringTools.has(tool.name) ? '✓' : '' }}</span>
+          <span class="ff-chip-mono">{{ tool.name }}</span>
         </label>
       </div>
     </div>
 
-    <div class="field">
-      <span class="label">Bash</span>
-      <label class="chip bash-toggle" :class="{ active: bashEnabled }" @click="toggleBash">
-        <span class="chip-check">{{ bashEnabled ? '✓' : '' }}</span>
-        <span class="chip-mono">bash_run</span>
-      </label>
-      <span class="field-hint" v-if="bashRunDef">{{ bashRunDef.description }}</span>
+    <div class="ff-row">
+      <span class="uc-label">Bash</span>
+      <div class="ff-chips">
+        <label
+          class="ff-chip"
+          :class="{ 'ff-chip--on': bashEnabled }"
+          @click="toggleBash"
+        >
+          <span class="ff-chip-check">{{ bashEnabled ? '✓' : '' }}</span>
+          <span class="ff-chip-mono">bash_run</span>
+        </label>
+      </div>
+      <p class="ff-hint" v-if="bashRunDef">{{ bashRunDef.description }}</p>
 
       <div v-if="bashEnabled" class="bash-panel">
-        <span class="field-hint">
+        <p class="ff-hint">
           Comandos permitidos — un patrón por línea. Prefijo + tokens, "*"
           como comodín (mismo estilo que Claude Code): "git push origin
           task/*", "npm run *". Sin match en <b>allow</b> = rechazado.
-        </span>
+        </p>
         <textarea
           v-model="allowDraft"
-          class="pattern-input"
+          class="ff-field ff-textarea ff-mono"
           rows="4"
           spellcheck="false"
           placeholder="git status&#10;git push origin task/*&#10;npm run *"
           @blur="commitBashPatterns"
         ></textarea>
 
-        <span class="field-hint">
+        <p class="ff-hint">
           Comandos rechazados — gana sobre <b>allow</b> aunque un patrón más
           amplio lo cubra.
-        </span>
+        </p>
         <textarea
           v-model="denyDraft"
-          class="pattern-input"
+          class="ff-field ff-textarea ff-mono"
           rows="2"
           spellcheck="false"
           placeholder="git push origin main*"
@@ -189,64 +195,17 @@ function commitBashPatterns() {
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
 .tools-editor {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.75rem;
 }
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--fg-mute);
-}
-.field-hint {
-  font-size: 0.73rem;
-  color: var(--fg-dim);
-  line-height: 1.4;
-}
-.chip-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.chip {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  font-size: 0.78rem;
-  color: var(--fg-mute);
-  cursor: pointer;
-  user-select: none;
-  background: var(--panel);
-  transition: border-color 0.1s, background 0.1s;
-  width: fit-content;
-}
-.chip:hover {
-  border-color: var(--info);
-  color: var(--info);
-}
-.chip.active {
-  border-color: var(--info);
-  background: var(--panel-hi);
-  color: var(--info);
-  font-weight: 500;
-}
-.chip-check {
-  width: 0.8rem;
-  font-size: 0.72rem;
-  color: var(--info);
-}
-.chip-mono {
-  font-family: var(--font-mono);
-}
+/* El allow/deny cuelga del chip que lo habilita: la barra a la izquierda es
+   lo que dice que estos dos textarea pertenecen a `bash_run` y no al grupo de
+   tools de arriba. */
 .bash-panel {
   display: flex;
   flex-direction: column;
@@ -254,14 +213,5 @@ function commitBashPatterns() {
   border-left: 1px solid var(--border);
   padding-left: 0.6rem;
   margin-top: 0.3rem;
-}
-.pattern-input {
-  background: var(--panel);
-  color: var(--fg);
-  border: 1px solid var(--border-hi);
-  padding: 0.4rem 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  resize: vertical;
 }
 </style>

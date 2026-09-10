@@ -4,7 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { buildEnvPatch } from '@/features/env-vars/patch';
 import { useEnvVarsStore } from '@/features/env-vars/store';
 import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
-import StickyActionBar from '@/ui/StickyActionBar.vue';
+import FormFooter from '@/ui/FormFooter.vue';
 import { useToastStore } from '@/stores/toast';
 
 const envVarsStore = useEnvVarsStore();
@@ -157,6 +157,29 @@ function startEditing(group: string) {
   editingGroups.value = new Set([...editingGroups.value, group]);
 }
 
+/** Cuántas variables de ESTE grupo están sin guardar. */
+function groupDirtyCount(group: { keys: string[] }): number {
+  const patch = buildEnvPatch(envVarsStore.vars, envDrafts.value, envPristine.value);
+  return group.keys.filter((k) => k in patch).length;
+}
+
+/**
+ * El par de `editar N variables`: devuelve el grupo a lectura.
+ *
+ * Sin esto, entrar en modo edición era de ida — la única salida era guardar o
+ * recargar la página, así que abrir un grupo "para mirar" obligaba a decidir.
+ *
+ * Con cambios sin guardar, salir los DESCARTA y el botón lo dice: dejarlos
+ * vivos detrás de un modo lectura que muestra el valor persistido sería
+ * mostrar un valor y mandar otro.
+ */
+function stopEditing(group: { group: string; keys: string[] }) {
+  for (const key of group.keys) envDrafts.value[key] = envPristine.value[key] ?? '';
+  const next = new Set(editingGroups.value);
+  next.delete(group.group);
+  editingGroups.value = next;
+}
+
 /**
  * Lo que se lee de una variable sin montar su campo.
  *
@@ -280,19 +303,40 @@ onMounted(async () => {
               :placeholder="envVarsStore.vars[key].label"
             />
           </label>
+
+          <!-- El par de `editar N variables`, y la última fila del grupo por el
+               mismo motivo (R11): el gesto de cerrar queda donde termina lo que
+               se estaba editando. Sólo en los grupos que TIENEN modo lectura;
+               en los cortos no hay a dónde volver. -->
+          <button
+            v-if="group.keys.length > READ_MODE_FROM"
+            type="button"
+            class="ff-add"
+            :data-testid="`env-done-${group.group}`"
+            @click="stopEditing(group)"
+          >
+            {{ groupDirtyCount(group)
+              ? `descartar ${groupDirtyCount(group)} y cerrar`
+              : 'listo' }}
+          </button>
         </template>
       </div>
 
       <!-- La acción principal no scrollea (R3): en un formulario de veinte
-           variables el pie del documento está a varias pantallas. La barra
-           reemplaza a la tab bar bajo --bp-shell (R4). -->
-      <StickyActionBar
-        :note="dirtyCount ? `${dirtyCount} sin guardar` : 'sin cambios'"
-      >
-        <button type="submit" class="btn btn--primary" :disabled="envVarsStore.saving || !dirtyCount">
-          {{ envVarsStore.saving ? 'Guardando…' : 'Guardar variables' }}
-        </button>
-      </StickyActionBar>
+           variables el pie del documento está a varias pantallas.
+           Sólo mientras HAY algo que guardar: la barra reemplaza a la tab bar
+           (R4), y ésta es una pantalla de configuración a la que se entra
+           desde el tab `Más` — dejarla montada siempre la convertiría en un
+           callejón sin salida. `Cancelar` devuelve todo a lo guardado, que es
+           también lo que devuelve la navegación. -->
+      <FormFooter
+        v-if="dirtyCount"
+        :note="`${dirtyCount} sin guardar`"
+        :save-disabled="envVarsStore.saving"
+        :save-label="envVarsStore.saving ? 'Guardando…' : 'Guardar variables'"
+        @save="onSaveEntorno"
+        @cancel="initEnvDrafts"
+      />
     </form>
   </section>
 </template>

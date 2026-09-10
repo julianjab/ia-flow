@@ -4,9 +4,12 @@ import { ref, computed, watch } from 'vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import SystemPromptsSection from '@/features/agents/SystemPromptsSection.vue';
 import AgentPromptSection from '@/features/agents/AgentPromptSection.vue';
+import AgentRunSection from '@/features/agents/AgentRunSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
 import OutputContractEditor from '@/features/agents/OutputContractEditor.vue';
-import ToolsEditor from '@/features/agents/ToolsEditor.vue';
+import CollapsibleSection from '@/ui/CollapsibleSection.vue';
+import FormFooter from '@/ui/FormFooter.vue';
+import { useIsSplit } from '@/composables/useIsMobile';
 import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
@@ -156,13 +159,10 @@ const availableSysprompts = computed<SystemPromptDef[]>(() =>
 // adentro?" sin abrirla — si no hay nada configurado, decirlo explícitamente
 // en vez de dejar el resumen vacío.
 
-// "Definición" ya no incluye el prompt (sección propia) — el resumen es
-// puramente id + provider.
-const definitionSummary = computed(() => {
-  const choices = providerChoices.value;
-  const first = providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—';
-  return choices.length > 1 ? `${first} +${choices.length - 1} más` : first;
-});
+// "Definición" es la franja de identidad y nada más: ni el prompt (sección
+// propia) ni el provider (se fue a "Cómo corre"). Su resumen es el id, que es
+// lo único que identifica al agente.
+const definitionSummary = computed(() => agentId.value.trim() || 'sin id');
 
 const systemPromptsSummary = computed(() => {
   const parts: string[] = [];
@@ -173,12 +173,21 @@ const systemPromptsSummary = computed(() => {
 
 const promptSummary = computed(() => (prompt.value.trim() ? 'con contenido' : 'sin prompt'));
 
-const toolsSummary = computed(() => {
+// El resumen de "Cómo corre" es lo que hace innecesario abrirla (R22): el
+// valor efectivo —`anthropic-api · opus · 6 tools`— y no «configuración del
+// provider».
+const runSummary = computed(() => {
+  const choices = providerChoices.value;
+  const first =
+    providers.value.find((x) => x.id === choices[0]?.providerId)?.name ??
+    choices[0]?.providerId ??
+    'sin provider';
+  const parts: string[] = [choices.length > 1 ? `${first} +${choices.length - 1}` : first];
+  const model = providerConfigDraft.value.model;
+  if (typeof model === 'string' && model) parts.push(model);
   const t = (tools.value ?? []).length;
-  const m = selectedMcpCatalogIds.value.length;
-  if (!t && !m) return 'sin configurar';
-  const parts: string[] = [];
   if (t) parts.push(`${t} tool${t === 1 ? '' : 's'}`);
+  const m = selectedMcpCatalogIds.value.length;
   if (m) parts.push(`${m} MCP`);
   return parts.join(' · ');
 });
@@ -201,7 +210,7 @@ const outcomesSummary = computed(() => {
 
 // Misma regla que el engine deriva server-side cuando `requiresBranch` es
 // null (ver AgentOrchestrator) — mostrarla acá evita que "Auto" sea una caja
-// negra que obliga a leer el field-hint para saber qué hace en este agente.
+// negra que obliga a leer el hint para saber qué hace en este agente.
 const WRITE_TOOL_NAMES = new Set(['fs_write', 'fs_edit', 'bash_run']);
 const derivedRequiresBranch = computed(() =>
   (tools.value ?? []).some((t) => typeof t === 'string' && WRITE_TOOL_NAMES.has(t)),
@@ -228,48 +237,108 @@ const advancedSummary = computed(() => {
   return [branch, verify].filter(Boolean).join(' · ');
 });
 
-// ─── Rail de secciones — reemplaza el stack de acordeones. Cada entrada
-// resuelve su propio "¿hay algo que atender acá?" para el punto de estado;
-// `danger` para Definición sin prompt es el único caso bloqueante hoy. ────
+// ─── Las franjas del formulario (R19) ─────────────────────────────────────
+//
+// El MISMO orden y las MISMAS seis entradas en los dos regímenes de ancho; lo
+// único que cambia es dónde vive el índice (R24). Sobre --bp-split es el rail
+// al costado y se ve una franja por vez; abajo, cada franja es un
+// `CollapsibleSection` con el mismo título y el mismo resumen que el rail — el
+// chevron y el rail son dos presentaciones del mismo índice, así que la lista
+// que ofrecen tiene que ser la misma. Antes, abajo de ese ancho, el rail se
+// volvía una tira horizontal de pestañas con scroll lateral: un índice
+// haciendo de tab (R2, R14).
+//
+// `defaultOpen` es lo que un formulario recién abierto muestra: lo obligatorio
+// —el id y el prompt— nunca detrás de un chevron (R20). El provider también es
+// obligatorio pero nace con un valor, así que se puede guardar sin abrir «Cómo
+// corre»; si igual quedara inválido, `validate` la abre sola.
+//
+// «Cuándo aplica» no existe para un agente: la activación se fue a `rules`
+// (migración 059). Una franja vacía no se dibuja.
+//
+// Cada entrada resuelve su propio "¿hay algo que atender acá?" para el punto
+// de estado, y su `summary` es el VALOR efectivo, no una descripción (R22).
 
-type SectionKey = 'definicion' | 'systemprompts' | 'prompt' | 'herramientas' | 'outcomes' | 'avanzado';
+type SectionKey = 'definicion' | 'systemprompts' | 'prompt' | 'outcomes' | 'comocorre' | 'avanzado';
 type SectionDot = 'good' | 'neutral' | 'danger';
 
 const activeSection = ref<SectionKey>('definicion');
 
-const sections = computed<{ key: SectionKey; title: string; summary: string; dot: SectionDot }[]>(() => [
+const sections = computed<
+  { key: SectionKey; title: string; summary: string; dot: SectionDot; defaultOpen: boolean }[]
+>(() => [
+  // Franja 1 · qué es
   {
     key: 'definicion',
     title: 'Definición',
     summary: definitionSummary.value,
-    dot: agentId.value.trim() && providerChoices.value.length ? 'good' : 'danger',
+    dot: agentId.value.trim() ? 'good' : 'danger',
+    defaultOpen: true,
   },
+  // Franja 2 · qué hace
   {
     key: 'systemprompts',
     title: 'System Prompts',
     summary: systemPromptsSummary.value,
     dot: (selectedSysprompts.value.length || preservedSystemPromptRefs.value.length) ? 'good' : 'neutral',
+    defaultOpen: false,
   },
   {
     key: 'prompt',
     title: 'Prompt',
     summary: promptSummary.value,
     dot: prompt.value.trim() ? 'good' : 'danger',
-  },
-  {
-    key: 'herramientas',
-    title: 'Herramientas y MCP',
-    summary: toolsSummary.value,
-    dot: (tools.value?.length || selectedMcpCatalogIds.value.length) ? 'good' : 'neutral',
+    defaultOpen: true,
   },
   {
     key: 'outcomes',
     title: 'Outcomes',
     summary: outcomesSummary.value,
     dot: (outcomes.value.onProcess || Object.keys(outcomes.value.exits ?? {}).length) ? 'good' : 'neutral',
+    defaultOpen: false,
   },
-  { key: 'avanzado', title: 'Avanzado', summary: advancedSummary.value, dot: 'neutral' },
+  // Franja 4 · cómo corre
+  {
+    key: 'comocorre',
+    title: 'Cómo corre',
+    summary: runSummary.value,
+    dot: providerChoices.value.length ? 'good' : 'danger',
+    defaultOpen: false,
+  },
+  // Franja 5 · crudo
+  {
+    key: 'avanzado',
+    title: 'Avanzado',
+    summary: advancedSummary.value,
+    dot: 'neutral',
+    defaultOpen: false,
+  },
 ]);
+
+const sectionByKey = computed(() => new Map(sections.value.map((s) => [s.key, s])));
+
+const { isSplit } = useIsSplit();
+
+// Sobre --bp-split una franja es una `<section>` pelada: el índice ya está al
+// costado y sólo se dibuja la activa, así que un encabezado propio sería la
+// identidad dos veces (R9). Abajo, el encabezado del `CollapsibleSection` ES
+// el índice de ese régimen.
+const bandTag = computed(() => (isSplit.value ? 'section' : CollapsibleSection));
+function bandAttrs(key: SectionKey): Record<string, unknown> {
+  if (isSplit.value) return { class: 'section' };
+  const s = sectionByKey.value.get(key);
+  return { title: s?.title, summary: s?.summary, defaultOpen: s?.defaultOpen };
+}
+function bandShown(key: SectionKey) {
+  return isSplit.value ? activeSection.value === key : true;
+}
+
+// Para abrir la franja plegada donde cayó el primer error de validación —
+// `CollapsibleSection` expone `forceOpen` justo para esto.
+const bandRefs: Partial<Record<SectionKey, { forceOpen?: () => void } | null>> = {};
+function setBandRef(key: SectionKey, el: unknown) {
+  bandRefs[key] = el as { forceOpen?: () => void } | null;
+}
 
 // ─── "Cómo se comporta" — traduce el form a una oración, para verificar de
 // un vistazo que el agente hace lo que uno cree sin reconstruirlo campo por
@@ -293,6 +362,13 @@ const checklist = computed(() => [
   },
   { label: prompt.value.trim() ? 'Prompt con contenido' : 'Falta el prompt', ok: !!prompt.value.trim() },
 ]);
+
+// Bajo --bp-split no hay tercera columna donde poner la checklist, y un
+// `Guardar` deshabilitado no dice por qué: lo que falta baja al pie, que es
+// exactamente lo que ese panel dice. Se nombra UNA cosa — la primera — porque
+// una alerta que crece con la cantidad de problemas tapa el que hay que
+// arreglar (R15).
+const footerNote = computed(() => checklist.value.find((c) => !c.ok)?.label);
 
 // Seed the first sysprompt for a new agent once the list arrives async.
 watch(availableSysprompts, (list) => {
@@ -391,12 +467,6 @@ function applyToolNames(names: string[]) {
   tools.value = next.length ? next : undefined;
 }
 
-function toggleMcpCatalog(id: string) {
-  const idx = selectedMcpCatalogIds.value.indexOf(id);
-  if (idx === -1) selectedMcpCatalogIds.value.push(id);
-  else selectedMcpCatalogIds.value.splice(idx, 1);
-}
-
 // ─── Validation & save ────────────────────────────────────────────────────────
 
 function kvToRecord(list: KV[]): Record<string, string> {
@@ -416,7 +486,7 @@ function validate(): boolean {
   }
   if (!providerChoices.value.length || providerChoices.value.some((c) => !c.providerId.trim())) {
     errors.value.push('El provider es requerido — tildá al menos uno.');
-    firstErrorSection ??= 'definicion';
+    firstErrorSection ??= 'comocorre';
   }
   if (!prompt.value.trim()) {
     errors.value.push('El prompt es requerido.');
@@ -431,12 +501,18 @@ function validate(): boolean {
     });
     if (anthropicError) {
       errors.value.push(anthropicError);
-      firstErrorSection ??= 'definicion';
+      firstErrorSection ??= 'comocorre';
     }
   }
-  // Salta a la sección del rail donde vive el primer error — si no, el
-  // usuario ve la lista de errores sin saber en qué pestaña resolverlos.
-  if (firstErrorSection) activeSection.value = firstErrorSection;
+  // Salta a la franja donde vive el primer error — si no, el usuario ve la
+  // lista de errores sin saber dónde resolverlos. Sobre --bp-split eso es
+  // seleccionar en el rail; abajo, abrir la franja si estaba plegada (lo
+  // obligatorio nunca se esconde, R20, pero el provider ya elegido puede
+  // quedar inválido por un `model` que no existe).
+  if (firstErrorSection) {
+    activeSection.value = firstErrorSection;
+    bandRefs[firstErrorSection]?.forceOpen?.();
+  }
   return errors.value.length === 0;
 }
 
@@ -497,25 +573,12 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   <div v-if="open" class="overlay">
     <div class="page">
 
+      <!-- La cabecera identifica y nada más: los botones se fueron al pie
+           (`FormFooter`), que es donde termina el formulario y donde el pulgar
+           los busca sin tener que volver arriba (R3). -->
       <div class="page-head">
         <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ title }}</h3>
-        <div class="page-head-spacer"></div>
-        <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
-             deshace, y desde el detalle se ve exactamente QUÉ agente se está
-             por borrar. -->
-        <button
-          v-if="!readonly && !isNew && agent"
-          class="btn btn--danger"
-          @click="emit('delete', agent)"
-        >Eliminar</button>
-        <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
-        <button
-          v-if="!readonly"
-          class="btn btn--primary"
-          :disabled="saving"
-          @click="onSave"
-        >Guardar agente</button>
       </div>
 
       <p v-if="readonly" class="readonly-banner">
@@ -524,8 +587,10 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 
       <div class="page-shell">
 
-        <!-- ── Rail de secciones — responde "¿qué hay acá?" sin entrar. ── -->
-        <nav class="rail">
+        <!-- ── El índice, sobre --bp-split: responde "¿qué hay acá?" sin
+             entrar. Abajo de ese ancho no se monta — ahí el índice son los
+             encabezados de las franjas plegadas (R24). ── -->
+        <nav v-if="isSplit" class="rail">
           <button
             v-for="s in sections"
             :key="s.key"
@@ -542,15 +607,20 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           </button>
         </nav>
 
-        <!-- ── Panel principal — una sección a la vez. ── -->
-        <div class="page-main">
+        <!-- ── El formulario. Sobre --bp-split, una franja a la vez; abajo,
+             todas en orden. `.ff-col` le pone el tope de 46rem (R25). ── -->
+        <div class="page-main ff-col">
 
-          <section v-show="activeSection === 'definicion'" class="section">
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('definicion')"
+            v-show="bandShown('definicion')"
+            :ref="(el: unknown) => setBandRef('definicion', el)"
+          >
             <AgentDefinitionSection
               :agent-id="agentId"
               :is-new="isNew"
               :provider-choices="providerChoices"
-              :providers="providers"
               :provider-config="providerConfigDraft"
               :prompt="prompt"
               :variables="variables"
@@ -559,7 +629,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :available-sysprompts="availableSysprompts"
               :available-tools="availableTools"
               @update:agent-id="agentId = $event"
-              @update:provider-choices="providerChoices = $event"
               @update:provider-config="providerConfigDraft = $event"
               @update:prompt="prompt = $event"
               @propose-prompt="pendingPromptProposal = $event"
@@ -567,9 +636,14 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               @update:selected-sysprompts="selectedSysprompts = $event"
               @apply-tools="applyToolNames"
             />
-          </section>
+          </component>
 
-          <section v-show="activeSection === 'systemprompts'" class="section">
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('systemprompts')"
+            v-show="bandShown('systemprompts')"
+            :ref="(el: unknown) => setBandRef('systemprompts', el)"
+          >
             <SystemPromptsSection
               :selected-sysprompts="selectedSysprompts"
               :available-sysprompts="availableSysprompts"
@@ -577,9 +651,14 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               @update:selected-sysprompts="selectedSysprompts = $event"
               @update:inline-prompts="preservedSystemPromptRefs = $event.map((text) => ({ text }))"
             />
-          </section>
+          </component>
 
-          <section v-show="activeSection === 'prompt'" class="section">
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('prompt')"
+            v-show="bandShown('prompt')"
+            :ref="(el: unknown) => setBandRef('prompt', el)"
+          >
             <AgentPromptSection
               :prompt="prompt"
               :variables="variables"
@@ -591,67 +670,59 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               @update:variables="variables = $event"
               @clear-pending-proposal="pendingPromptProposal = null"
             />
-          </section>
+          </component>
 
-          <section v-show="activeSection === 'herramientas'" class="section">
-            <ToolsEditor
-              :tools="tools"
-              @update:tools="tools = $event"
-            />
-
-            <div class="field">
-              <span class="label">MCP Servers (catálogo)</span>
-              <span class="field-hint">
-                Entradas del catálogo MCP a inyectar en runtime. Los overrides inline del
-                <code>providerConfig.mcpServers</code> tienen precedencia.
-                <span v-if="!availableMcpCatalog.length">Sin entradas — creá una en General → MCP Catalog.</span>
-              </span>
-              <div v-if="availableMcpCatalog.length" class="chip-grid">
-                <label
-                  v-for="entry in availableMcpCatalog"
-                  :key="entry.id"
-                  class="chip"
-                  :class="{ active: selectedMcpCatalogIds.includes(entry.id) }"
-                  :title="entry.description ?? entry.name"
-                  @click="toggleMcpCatalog(entry.id)"
-                >
-                  <span class="chip-check">{{ selectedMcpCatalogIds.includes(entry.id) ? '✓' : '' }}</span>
-                  <span class="chip-mono">{{ entry.id }}</span>
-                  <span class="chip-mcp-name">{{ entry.name }}</span>
-                </label>
-              </div>
-            </div>
-          </section>
-
-          <section v-show="activeSection === 'outcomes'" class="section">
-            <span class="field-hint">
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('outcomes')"
+            v-show="bandShown('outcomes')"
+            :ref="(el: unknown) => setBandRef('outcomes', el)"
+          >
+            <p class="ff-hint">
               Asignaciones de campos (<code>$set:</code>) y operaciones de labels
               (<code>$labels:</code>) que este agente aplica al issue al arrancar,
               terminar OK o fallar.
-            </span>
+            </p>
             <OutcomesEditor
               v-model="outcomes"
               :project-fields="outcomesProjectFields"
               :status-options="outcomesStatusOptions"
             />
 
-            <div class="field">
-              <span class="label">Salida estructurada</span>
+            <div class="ff-row">
+              <span class="uc-label">Salida estructurada</span>
               <OutputContractEditor v-model="outputContract" />
             </div>
-          </section>
+          </component>
 
-          <section v-show="activeSection === 'avanzado'" class="section">
-            <div class="field">
-              <span class="label">Necesita branch git</span>
-              <span class="field-hint">
-                Controla si el engine auto-crea (y linkea al issue) una branch
-                cuando esta agente arranca sin <code>task.branch</code>. Por default,
-                se deriva del set de tools (agentes con
-                <code>fs_write</code>/<code>fs_edit</code>/<code>bash_run</code>
-                la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
-                sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
-              </span>
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('comocorre')"
+            v-show="bandShown('comocorre')"
+            :ref="(el: unknown) => setBandRef('comocorre', el)"
+          >
+            <AgentRunSection
+              :provider-choices="providerChoices"
+              :providers="providers"
+              :provider-config="providerConfigDraft"
+              :tools="tools"
+              :mcp-catalog="availableMcpCatalog"
+              :selected-mcp-catalog-ids="selectedMcpCatalogIds"
+              @update:provider-choices="providerChoices = $event"
+              @update:provider-config="providerConfigDraft = $event"
+              @update:tools="tools = $event"
+              @update:selected-mcp-catalog-ids="selectedMcpCatalogIds = $event"
+            />
+          </component>
+
+          <component
+            :is="bandTag"
+            v-bind="bandAttrs('avanzado')"
+            v-show="bandShown('avanzado')"
+            :ref="(el: unknown) => setBandRef('avanzado', el)"
+          >
+            <div class="ff-row">
+              <span class="uc-label">Necesita branch git</span>
               <div class="tri-toggle">
                 <label>
                   <input type="radio" :checked="requiresBranch === null" @change="requiresBranch = null" />
@@ -669,26 +740,29 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
                   No, nunca
                 </label>
               </div>
+              <p class="ff-hint">
+                Decide si el engine auto-crea (y linkea al issue) una branch cuando el agente
+                arranca sin <code>task.branch</code>. <b>Sí</b> para un agente que commitea vía
+                GitHub MCP sin write tools locales; <b>No</b> para desactivarlo aunque las tenga.
+              </p>
             </div>
 
-            <div class="field">
-              <span class="label">Verificación post-run</span>
-              <span class="field-hint">
-                Comandos que el ENGINE corre en el worktree — uno por línea — después de que el
-                agente termina y antes de aplicar la salida de éxito (sólo en runs sync). Si
-                alguno sale con código distinto de 0, el run se trata como error
-                (<code>failureClass: verify_failed</code>) en vez de avanzar el issue.
-                Vacío = sin verificación, comportamiento actual.
-              </span>
+            <div class="ff-row">
+              <span class="uc-label">Verificación post-run</span>
               <textarea
                 v-model="verifyDraft"
-                class="pattern-input"
+                class="ff-field ff-textarea ff-mono"
                 rows="3"
                 spellcheck="false"
                 placeholder="bun run typecheck&#10;bun test"
               ></textarea>
+              <p class="ff-hint">
+                Un comando por línea, que el ENGINE corre en el worktree al terminar el agente
+                (sólo en runs sync). Si alguno sale distinto de 0, el run cuenta como error
+                (<code>failureClass: verify_failed</code>) y el issue no avanza.
+              </p>
             </div>
-          </section>
+          </component>
 
           <div v-if="errors.length" class="error-list">
             <p v-for="e in errors" :key="e">{{ e }}</p>
@@ -697,8 +771,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
         </div>
 
         <!-- ── Resumen en lenguaje llano — verificar de un vistazo que el
-             agente hace lo que uno cree, sin reconstruirlo campo por campo. ── -->
-        <aside class="summary-rail">
+             agente hace lo que uno cree, sin reconstruirlo campo por campo.
+             Es la tercera columna y sólo existe con ancho para tenerla: abajo
+             de --bp-split, lo que la checklist decía va al pie. Nada de acá
+             lleva un control que no exista en el formulario (R17). ── -->
+        <aside v-if="isSplit" class="summary-rail">
           <div class="summary-card">
             <h4>Cómo se comporta</h4>
             <p class="summary-sentence">
@@ -721,9 +798,24 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 
       </div>
 
+      <FormFooter
+        class="page-foot"
+        :note="footerNote"
+        note-is-error
+        :save-disabled="saving"
+        save-label="Guardar agente"
+        :delete-label="!isNew && agent ? 'Eliminar…' : undefined"
+        :readonly="readonly"
+        @save="onSave"
+        @cancel="emit('close')"
+        @delete="agent && emit('delete', agent)"
+      />
+
     </div>
   </div>
 </template>
+
+<style scoped src="@/ui/form-fields.css"></style>
 
 <style scoped>
 /* Ya no es un overlay fixed — el editor reemplaza la lista dentro del
@@ -753,7 +845,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   flex-shrink: 0;
 }
 .page-head h3 { margin: 0; font-size: 1rem; font-weight: 700; color: var(--fg); font-family: var(--font-display); }
-.page-head-spacer { flex: 1; }
 
 .back-btn {
   background: none;
@@ -817,11 +908,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   min-width: 0;
   overflow-y: auto;
   padding: 1.25rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
 }
-.section { display: flex; flex-direction: column; gap: 1.1rem; }
+/* `.ff-col` ya trae el `display: flex` en columna, el `gap` y el tope de
+   46rem; acá sólo se centra en el espacio que quede a la derecha del rail. */
+.page-main.ff-col { margin-inline: auto; }
+.section { display: flex; flex-direction: column; gap: 0.9rem; }
 
 /* ── Resumen ────────────────────────────────────────────────────────── */
 .summary-rail {
@@ -863,57 +954,10 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 .check-item--ok .check-ico { background: var(--green-bg); color: var(--accent); }
 .check-item--warn .check-ico { background: var(--yellow-bg); color: var(--warn); }
 
-/* ── Fields ─────────────────────────────────────────────────────────── */
-.field { display: flex; flex-direction: column; gap: 0.3rem; }
-.label { font-size: 0.82rem; font-weight: 600; color: var(--fg-mute); }
-.field-hint { font-size: 0.73rem; color: var(--fg-dim); line-height: 1.4; }
-
-.input {
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  font-size: 0.875rem;
-  color: var(--fg);
-  background: var(--panel);
-  width: 100%;
-  box-sizing: border-box;
-  outline: none;
-}
-.input:focus { border-color: var(--accent); }
-.input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
-.select { cursor: pointer; }
-
-/* ── Chips ──────────────────────────────────────────────────────────── */
-.chip-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.chip {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  font-size: 0.78rem;
-  color: var(--fg-mute);
-  cursor: pointer;
-  user-select: none;
-  background: var(--panel);
-  transition: border-color 0.1s, background 0.1s;
-}
-.chip:hover { border-color: var(--info); color: var(--info); }
-.chip.active { border-color: var(--info); background: var(--panel-hi); color: var(--info); font-weight: 500; }
-.chip-check { width: 0.8rem; font-size: 0.72rem; color: var(--info); }
-.chip-mono { font-family: var(--font-mono); }
-.chip-mcp-name { color: var(--fg-dim); font-size: 0.72rem; }
-.field-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; font-size: 0.7rem; }
-.pattern-input {
-  background: var(--panel);
-  color: var(--fg);
-  border: 1px solid var(--border-hi);
-  padding: 0.4rem 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  resize: vertical;
-  width: 100%;
-}
-.tri-toggle { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
+/* ── Fields ─────────────────────────────────────────────────────────────
+   La caja, el label y el hint son del kit compartido (`ui/form-fields.css` +
+   `.uc-label`, R18). Acá sólo queda lo que este editor tiene y nadie más. */
+.tri-toggle { display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--fs-body-sm); }
 .tri-toggle label { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; cursor: pointer; }
 .tri-toggle input[type='radio'] { accent-color: var(--info); }
 .derived-badge {
@@ -929,32 +973,34 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   color: var(--fg-dim);
 }
 
-/* ── Form-level AI bar ──────────────────────────────────────────────── */
-
-/* ── Provider config (per-agent) ────────────────────────────────────── */
-.pc-field :deep(.model-select) {
-  padding: 0.45rem 0.65rem;
-  font-size: 0.875rem;
-  width: 100%;
-  flex: none;
-}
-
 /* ── Errors ─────────────────────────────────────────────────────────── */
 .error-list {
   background: var(--red-bg);
   border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
   padding: 0.5rem 0.75rem;
 }
-.error-list p { margin: 0.15rem 0; font-size: 0.8rem; color: var(--danger); }
+.error-list p { margin: 0.15rem 0; font-size: var(--fs-body-sm); color: var(--danger); }
 
 .readonly-banner {
   margin: 0;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--warn);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--yellow-bg);
   color: var(--warn);
-  font-size: 0.8rem;
+  font-size: var(--fs-body-sm);
+}
+
+/* ── Pie ────────────────────────────────────────────────────────────────
+   Fuera de `.page-shell`, así queda al pie del editor entero y no adentro de
+   una de las tres columnas. `StickyActionBar` decide solo si se pega (bajo
+   --bp-shell) o si es un pie de diálogo (arriba). */
+.page-foot {
+  flex-shrink: 0;
+  padding: 0.5rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
 }
 
 /* ── Bajo --bp-split: se pierde la segunda columna ──────────────────── */
@@ -962,58 +1008,29 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
    ~670px de contenido, y tres columnas de 240 + 1fr + 300 no entran ahí
    tampoco. Es uno de los tres breakpoints del sistema — ver DESIGN_SYSTEM.md. */
 @media (max-width: 1100px) {
-  /* El editor era una grilla de tres columnas con dos de ellas fijas
-     (240 + 1fr + 300): sus mínimos suman 540px, así que en 390px el panel
-     del medio —el único donde se edita algo— quedaba en cero y el
-     `overflow: hidden` recortaba el resto. Se apila en una sola columna. */
+  /* El rail y el resumen no se montan bajo este ancho (`v-if="isSplit"`), así
+     que la grilla de tres columnas queda en una y el formulario ocupa todo.
+     Antes el rail se volvía una tira horizontal de pestañas que se deslizaba:
+     scroll lateral (R2) y un índice haciendo de tab (R14). Ahora el índice de
+     este régimen son los encabezados de las franjas plegadas. */
   .page-shell {
     grid-template-columns: 1fr;
     overflow: visible;
   }
   /* `min-height: 70vh` sólo servía para que las tres columnas tuvieran alto
-     contra el cual scrollear; apilado deja un hueco vacío bajo el resumen. */
+     contra el cual scrollear; en una columna deja un hueco vacío al pie. */
   .page { min-height: 0; }
 
-  /* Cada panel traía su propio `overflow-y: auto`. Apilados eso son tres
-     scrolls anidados dentro del de la página: en touch no hay forma de saber
+  /* El panel traía su propio `overflow-y: auto`: en una sola columna eso es un
+     scroll anidado dentro del de la página, y en touch no hay forma de saber
      cuál se está moviendo. Scrollea la página y nada más. */
-  .rail,
-  .page-main,
-  .summary-rail { overflow: visible; }
-
-  /* El rail deja de ser columna y pasa a ser una tira de pestañas que se
-     desliza. El subtítulo se cae: es lo que hace que cada ítem mida 240px,
-     y el título ya nombra la sección. */
-  .rail {
-    flex-direction: row;
-    gap: 0.35rem;
-    padding: 0.5rem;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    overflow-x: auto;
-  }
-  .rail-item { flex: 0 0 auto; }
-  .rail-sub { display: none; }
-
-  .page-main { padding: 1rem 0.85rem; }
-
-  .summary-rail {
-    border-left: none;
-    border-top: 1px solid var(--border);
-  }
+  .page-main { overflow: visible; padding: 1rem 0.85rem; }
 }
 
 @media (max-width: 640px) {
-  /* Back + título + Cancelar + Guardar no entran en una línea de 390px, y
-     el head es un flex sin `wrap`: los dos botones se comían el título. El
-     spacer —que ya existía para empujarlos a la derecha— pasa a ser el
-     salto de línea, y abajo los botones se reparten el ancho (que además es
-     el tamaño de toque que corresponde a la acción principal). */
-  .page-head {
-    flex-wrap: wrap;
-    gap: 0.5rem 0.6rem;
-    padding: 0.6rem 0.75rem;
-  }
+  /* Los botones ya no están en la cabecera —se fueron al pie—, así que el
+     título tiene la fila entera y sólo necesita no desbordarla. */
+  .page-head { padding: 0.6rem 0.75rem; }
   .page-head h3 {
     flex: 1 1 0;
     min-width: 0;
@@ -1022,7 +1039,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .page-head-spacer { flex: 0 0 100%; height: 0; }
-  .page-head .btn { flex: 1 1 0; }
+  .page-foot { padding: 0.5rem 0.75rem; }
 }
 </style>
