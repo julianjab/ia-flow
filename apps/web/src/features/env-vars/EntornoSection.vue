@@ -4,7 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { buildEnvPatch } from '@/features/env-vars/patch';
 import { useEnvVarsStore } from '@/features/env-vars/store';
 import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
-import StickyActionBar from '@/ui/StickyActionBar.vue';
+import FormFooter from '@/ui/FormFooter.vue';
 import { useToastStore } from '@/stores/toast';
 
 const envVarsStore = useEnvVarsStore();
@@ -323,15 +323,20 @@ onMounted(async () => {
       </div>
 
       <!-- La acción principal no scrollea (R3): en un formulario de veinte
-           variables el pie del documento está a varias pantallas. La barra
-           reemplaza a la tab bar bajo --bp-shell (R4). -->
-      <StickyActionBar
-        :note="dirtyCount ? `${dirtyCount} sin guardar` : 'sin cambios'"
-      >
-        <button type="submit" class="btn btn--primary" :disabled="envVarsStore.saving || !dirtyCount">
-          {{ envVarsStore.saving ? 'Guardando…' : 'Guardar variables' }}
-        </button>
-      </StickyActionBar>
+           variables el pie del documento está a varias pantallas.
+           Sólo mientras HAY algo que guardar: la barra reemplaza a la tab bar
+           (R4), y ésta es una pantalla de configuración a la que se entra
+           desde el tab `Más` — dejarla montada siempre la convertiría en un
+           callejón sin salida. `Cancelar` devuelve todo a lo guardado, que es
+           también lo que devuelve la navegación. -->
+      <FormFooter
+        v-if="dirtyCount"
+        :note="`${dirtyCount} sin guardar`"
+        :save-disabled="envVarsStore.saving"
+        :save-label="envVarsStore.saving ? 'Guardando…' : 'Guardar variables'"
+        @save="onSaveEntorno"
+        @cancel="initEnvDrafts"
+      />
     </form>
   </section>
 </template>

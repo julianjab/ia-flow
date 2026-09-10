@@ -87,10 +87,9 @@ const currentSnapshot = computed(() =>
 );
 const dirty = computed(() => currentSnapshot.value !== savedSnapshot.value);
 
-const footerNote = computed(() => {
-  if (anthropicApiError.value) return anthropicApiError.value;
-  return dirty.value ? 'cambios sin guardar' : 'sin cambios';
-});
+// El pie sólo se dibuja cuando hay algo que decir, así que el `note` nunca
+// tiene que contar el caso "sin cambios".
+const footerNote = computed(() => anthropicApiError.value ?? 'cambios sin guardar');
 
 function hydrateFromStore() {
   const cfg = providersStore.config;
@@ -191,10 +190,16 @@ async function onSaveProviders() {
       <TerminalProviderSettingsForm v-else v-model="itermClaude" />
     </div>
 
+    <!-- Sólo mientras HAY algo que guardar o algo que arreglar: la barra
+         reemplaza a la tab bar (R4), y a esta pantalla se entra desde el tab
+         `Más` — dejarla montada siempre la convertiría en un callejón sin
+         salida en un teléfono. `Cancelar` vuelve a lo guardado, que es también
+         lo que devuelve la navegación. -->
     <FormFooter
+      v-if="dirty || anthropicApiError"
       :note="footerNote"
       :note-is-error="!!anthropicApiError"
-      :save-disabled="providersSaving || !!anthropicApiError || !dirty"
+      :save-disabled="providersSaving || !!anthropicApiError"
       :save-label="providersSaving ? 'Guardando…' : 'Guardar'"
       @save="onSaveProviders"
       @cancel="hydrateFromStore"
