@@ -48,6 +48,34 @@ function collectTaskIds(resultText: string, into: Set<string>): void {
   }
 }
 
+/**
+ * Saca del `actions` crudo cualquier `{type:'group'}` que NO traiga la
+ * clave `groups` puesta — antes de que Zod la rellene con `.default([])`.
+ *
+ * `groups: []` (la clave SÍ está, vacía) es una propuesta explícita de
+ * "desagrupar" — `verifyGroup` la deja pasar tal cual. Si en cambio la clave
+ * falta del todo (el modelo se olvidó o truncó), el default de Zod la
+ * volvería `[]` igual, y las dos intenciones —"desagrupar a propósito" y
+ * "no dije nada de esto"— quedarían indistinguibles del otro lado: un
+ * `setTaskGroupPref` borraría el agrupamiento que el operador ya tenía
+ * aplicado sin que nadie lo haya pedido. Filtrar ACÁ, sobre el JSON crudo
+ * (antes del `safeParse`), es lo único que puede ver esa diferencia — una
+ * vez que pasa por Zod, "ausente" y "`[]`" ya son el mismo valor.
+ */
+function dropOmittedGroupsAction(fields: Record<string, unknown> | undefined): unknown {
+  if (!fields || !Array.isArray(fields.actions)) return fields
+  const actions = fields.actions.filter(
+    (a) =>
+      !(
+        a &&
+        typeof a === 'object' &&
+        (a as { type?: unknown }).type === 'group' &&
+        !('groups' in a)
+      ),
+  )
+  return { ...fields, actions }
+}
+
 // El JSON Schema que se le fuerza al modelo en modo `fill_form` — espejo
 // manual de `TaskChatReplySchema` (packages/shared). No se deriva con
 // zod-to-json-schema: el resto del repo (`AiAssistPanel.vue`) ya arma estos
@@ -392,7 +420,7 @@ export class TaskChatUseCase {
       signal: opts.signal,
     })
 
-    const parsed = TaskChatReplySchema.safeParse(result.fields)
+    const parsed = TaskChatReplySchema.safeParse(dropOmittedGroupsAction(result.fields))
     if (!parsed.success) {
       throw new AssistUpstreamError(
         'El asistente no devolvió una respuesta con el formato esperado.',

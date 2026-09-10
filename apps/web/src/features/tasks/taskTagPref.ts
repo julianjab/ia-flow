@@ -38,6 +38,12 @@ export function getTaskTagPref(projectId: string, taskId: string): string[] {
   return readAll(projectId)[taskId] ?? []
 }
 
+/** El mapa entero de un proyecto — para un `ref` espejo (`localStorage` no es
+ *  reactivo), mismo patrón que `taskOrderPref`/`taskGroupPref`. */
+export function getAllTaskTagPref(projectId: string): Record<string, string[]> {
+  return readAll(projectId)
+}
+
 /** Suma tags nuevos a los que ya tenía la tarea — mismo comportamiento aditivo que el `+tag` de GitHub Labels. */
 export function addTaskTagPref(projectId: string, taskId: string, tags: string[]): string[] {
   const byTask = readAll(projectId)

@@ -11,7 +11,7 @@ import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue';
 import TaskChatRowOverlay from '@/features/tasks/TaskChatRowOverlay.vue';
 import { useTaskChatStore } from '@/features/tasks/taskChatStore';
 import { applyTaskOrderPref, clearTaskOrderPref, getTaskOrderPref, setTaskOrderPref } from '@/features/tasks/taskOrderPref';
-import { addTaskTagPref, getTaskTagPref } from '@/features/tasks/taskTagPref';
+import { addTaskTagPref, getAllTaskTagPref } from '@/features/tasks/taskTagPref';
 import { addTaskNotePref } from '@/features/tasks/taskNotePref';
 import { getTaskGroupPref, setTaskGroupPref } from '@/features/tasks/taskGroupPref';
 import { sectionRows, type GroupedSection, type TaskGroupSet } from '@/features/tasks/task-grouping';
@@ -327,8 +327,10 @@ const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
     // todavía (deuda fuera de alcance — ver el comentario de
     // `TaskChatTaskContextSchema` en `packages/shared`); lo único que el
     // asistente ve es lo que él mismo propuso y se aplicó antes, vía
-    // `taskTagPref.ts` (localStorage, nunca al server).
-    tags: activeProjectId.value ? getTaskTagPref(activeProjectId.value, item.id) : [],
+    // `taskTagPref.ts` (localStorage, nunca al server). Lee del `ref`
+    // espejo, no de `localStorage` directo — ver el comentario de
+    // `taskTagPrefMap` más abajo.
+    tags: taskTagPrefMap.value[item.id] ?? [],
     disposition: dispositionById.value.get(item.id)?.disposition,
     blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
     assignees: item.assignees,
@@ -358,7 +360,10 @@ function onChatApplyActions(actions: TaskChatAction[]): void {
   for (const action of actions) {
     try {
       if (action.type === 'tag') {
-        addTaskTagPref(pid, action.taskId, action.tags);
+        const merged = addTaskTagPref(pid, action.taskId, action.tags);
+        // `localStorage` no es reactivo — sin esto `chatTasksContext` le
+        // seguiría mostrando al asistente los tags viejos de esta tarea.
+        taskTagPrefMap.value = { ...taskTagPrefMap.value, [action.taskId]: merged };
       } else if (action.type === 'note') {
         addTaskNotePref(pid, action.taskId, action.text);
       } else if (action.type === 'reorder') {
@@ -397,6 +402,14 @@ function onChatApplyActions(actions: TaskChatAction[]): void {
  */
 const taskOrderPref = ref<string[] | null>(getTaskOrderPref(activeProjectId.value ?? ''));
 watch(activeProjectId, (pid) => { taskOrderPref.value = getTaskOrderPref(pid ?? ''); });
+
+/** Mismo motivo que `taskOrderPref`: `chatTasksContext` necesita enterarse
+ *  cuando `onChatApplyActions` aplica un `tag`, y un `computed` que llamara a
+ *  `getTaskTagPref` directo quedaría cacheado hasta que OTRA dependencia
+ *  reactiva cambiara — el asistente seguiría viendo la lista de tags vieja
+ *  hasta cambiar de proyecto o recargar. */
+const taskTagPrefMap = ref<Record<string, string[]>>(getAllTaskTagPref(activeProjectId.value ?? ''));
+watch(activeProjectId, (pid) => { taskTagPrefMap.value = getAllTaskTagPref(pid ?? ''); });
 
 /** El link "volver al calculado" que pide el diseño (10f) — reorder es
  *  reversible sin dejar rastro server-side. */
