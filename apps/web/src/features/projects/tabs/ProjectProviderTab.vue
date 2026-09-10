@@ -11,6 +11,8 @@ import DaemonModeField from '@/features/projects/DaemonModeField.vue';
 import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
 import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue';
 import type { ConditionRow } from '@/ui/condition-rows';
+import SlackReviewSettings from '@/features/projects/tabs/SlackReviewSettings.vue';
+import type { SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
 
 // Conversión propia y no importada de `features/rules`: una feature no puede
 // importar de otra (ver CLAUDE.md de apps/web) aunque el DSL sea el mismo —
@@ -64,6 +66,7 @@ const maxConcurrent = ref<number | null>(null);
 // distinto: qué corre acá y bajo qué condición.
 const baseWhenRows = ref<ConditionRow[]>([]);
 const saving = ref(false);
+const slackSettingsSaving = ref(false);
 
 // Declarado antes del `watch` de abajo a propósito: ese watch es `immediate`,
 // así que corre durante el setup y leer acá un `const` declarado más abajo
@@ -165,6 +168,23 @@ async function save() {
     saving.value = false;
   }
 }
+
+async function saveSlackSettings(settings: {
+  slackReviewChannel: string | null;
+  slackReviewers: SlackMemberRef[] | null;
+  slackReviewMessage: SlackReviewMessage | null;
+}) {
+  if (!props.project) return;
+  slackSettingsSaving.value = true;
+  try {
+    await projectsStore.update(props.project.id, { settings });
+    toastStore.success('Config de review actualizada');
+  } catch (e) {
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
+  } finally {
+    slackSettingsSaving.value = false;
+  }
+}
 </script>
 
 <template>
@@ -213,6 +233,12 @@ async function save() {
         {{ saving ? 'Guardando…' : 'Guardar' }}
       </button>
     </div>
+
+    <SlackReviewSettings
+      :project="project"
+      :saving="slackSettingsSaving"
+      @save="saveSlackSettings"
+    />
   </section>
 </template>
 

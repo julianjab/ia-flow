@@ -6,10 +6,9 @@ import { computed, ref, watch } from 'vue';
 
 // Default del proyecto para "Solicitar review": a qué canal va y a quién taguea.
 //
-// Vive arriba del listado de tareas —y no en la tab del provider— porque es la
-// config del botón que está en cada tarjeta de acá abajo: el operador que ve el
-// botón apagado por falta de reviewers tiene el arreglo a la vista, sin cambiar
-// de pantalla.
+// Vive en la tab Provider junto con el resto de la config operativa del
+// proyecto (fuente, modo, concurrencia, condiciones base) — es una decisión
+// de configuración, no algo que cambie por tarea.
 //
 // Es una cáscara fina sobre `SlackReviewFields` (que ya trae el colapsable y su
 // resumen): acá sólo viven el borrador, el dirty y el guardado. Envolverlo en un

@@ -39,8 +39,6 @@ import type {
   TaskDisposition,
   TaskRunSummary,
   RunTaskNowResult,
-  SlackMemberRef,
-  SlackReviewMessage,
 } from '@ia-flow/shared';
 import { TASK_CHAT_MAX_TASKS } from '@ia-flow/shared';
 import {
@@ -50,7 +48,6 @@ import {
 } from '@ia-flow/shared';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useIntegrations } from '@/composables/useIntegrations';
-import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
 import {
   fetchProjectItems,
   fetchProjectStatuses,
@@ -140,7 +137,6 @@ const runResult = ref<RunTaskNowResult | null>(null);
 const cancelBusyId = ref<string | null>(null);
 const cancelConfirm = ref<TaskRow | null>(null);
 const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
-const slackSettingsSaving = ref(false);
 
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 
@@ -430,6 +426,32 @@ function resetTaskOrder(): void {
  */
 const taskGroupPref = ref<TaskGroupSet | null>(getTaskGroupPref(activeProjectId.value ?? ''));
 watch(activeProjectId, (pid) => { taskGroupPref.value = getTaskGroupPref(pid ?? ''); });
+
+/**
+ * La propuesta de `group`/`reorder` TODAVÍA sin aplicar — mientras el
+ * asistente la tiene pendiente (barra Aplicar/Descartar visible), la lista
+ * la previsualiza en vivo en vez de esperar al click en "Aplicar": el
+ * operador tiene que ver el resultado ANTES de decidir si lo confirma, no
+ * sólo leer un resumen de texto. `discard()`/`onChatApplyActions` vacían
+ * `pending`, y ahí la vista cae de nuevo a lo persistido — sin salto visual
+ * en el caso de "Aplicar", porque ese mismo handler ya escribió el pref
+ * persistido con el mismo valor antes de descartar.
+ */
+const pendingGroupAction = computed(() =>
+  taskChatStore.pending?.actions.find((a): a is TaskChatAction & { type: 'group' } => a.type === 'group'),
+);
+const pendingReorderAction = computed(() =>
+  taskChatStore.pending?.actions.find((a): a is TaskChatAction & { type: 'reorder' } => a.type === 'reorder'),
+);
+const previewGroupPref = computed<TaskGroupSet | null>(() => {
+  const preview = pendingGroupAction.value;
+  if (!preview) return taskGroupPref.value;
+  return preview.groups.length ? { groups: preview.groups } : null;
+});
+const previewOrderIds = computed<string[] | null>(
+  () => pendingReorderAction.value?.taskIds ?? taskOrderPref.value,
+);
+
 type BucketRowSection = GroupedSection<OrderedTask>;
 /** Las filas de un bucket, cortadas en secciones. Sólo `waiting-on-you` se
  *  agrupa por tema; los demás buckets vuelven como una única sección suelta,
@@ -438,7 +460,7 @@ function bucketSections(bucket: { disposition: TaskDisposition; rows: OrderedTas
   if (bucket.disposition !== 'waiting-on-you') {
     return bucket.rows.length ? [{ kind: 'loose', rows: bucket.rows }] : [];
   }
-  return sectionRows(bucket.rows, taskGroupPref.value);
+  return sectionRows(bucket.rows, previewGroupPref.value);
 }
 
 /** Los títulos que la card necesita para sus picks. Salen de las filas que ya
@@ -515,8 +537,10 @@ const flatListItems = computed<TaskRow[]>(() => {
     );
   }
   // "fuente" es el único modo donde `reorder` del asistente aplica — ver el
-  // comentario de `taskOrderPref.value` más arriba.
-  if (orderMode.value === 'fuente') return applyTaskOrderPref(filteredItems.value, taskOrderPref.value);
+  // comentario de `taskOrderPref.value` más arriba. `previewOrderIds` cae a
+  // `taskOrderPref.value` cuando no hay propuesta pendiente, así que esto no
+  // cambia nada fuera de una propuesta en vuelo.
+  if (orderMode.value === 'fuente') return applyTaskOrderPref(filteredItems.value, previewOrderIds.value);
   return filteredItems.value;
 });
 
@@ -1179,23 +1203,6 @@ async function onRunClick() {
   }
 }
 
-async function saveSlackSettings(settings: {
-  slackReviewChannel: string | null;
-  slackReviewers: SlackMemberRef[] | null;
-  slackReviewMessage: SlackReviewMessage | null;
-}) {
-  if (!activeProjectId.value) return;
-  slackSettingsSaving.value = true;
-  try {
-    await projectsStore.update(activeProjectId.value, { settings });
-    toastStore.success('Config de review actualizada');
-  } catch (e) {
-    toastStore.error(`Error: ${extractErrorMessage(e)}`);
-  } finally {
-    slackSettingsSaving.value = false;
-  }
-}
-
 function confirmSlackReview() {
   const pending = slackConfirm.value;
   slackConfirm.value = null;
@@ -1412,12 +1419,6 @@ watch(activeProjectId, (pid) => {
          `quickFilters` de `ListControlsBar` (arriba de todo, pegados al
          filtro) — no acá abajo. -->
 
-    <SlackReviewSettings
-      :project="projectsStore.activeProject"
-      :saving="slackSettingsSaving"
-      @save="saveSlackSettings"
-    />
-
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
          la accion que lo resuelve. -->
     <div v-if="itemsError" class="items-error">
@@ -1466,6 +1467,16 @@ watch(activeProjectId, (pid) => {
       <span class="tk-moved-sep">·</span>
       <span class="tk-moved-cta">volver al calculado</span>
     </button>
+
+    <!-- Preview en vivo de una propuesta TODAVÍA sin aplicar — la lista ya
+         muestra el resultado; confirmarlo o descartarlo pasa por la barra
+         Aplicar/Descartar del asistente, no por acá. -->
+    <p v-if="pendingReorderAction && orderMode === 'fuente'" class="tk-degraded" data-testid="tareas-order-preview">
+      Vista previa del orden propuesto por el asistente — «Aplicar» arriba lo confirma.
+    </p>
+    <p v-if="pendingGroupAction && orderMode === 'disposicion'" class="tk-degraded" data-testid="tareas-group-preview">
+      Vista previa de la agrupación propuesta por el asistente — «Aplicar» arriba la confirma.
+    </p>
 
     <template v-if="filteredItems.length">
     <!-- El foco va entre el chrome y el primer bucket, y NUNCA expandido a la

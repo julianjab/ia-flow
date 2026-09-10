@@ -750,9 +750,9 @@ separado** a los homónimos de `project.settings` — `resolveSlackReviewTarget`
 Una lista vacía en el repo **hereda**: para no pedir review acá simplemente no se configura nada
 y el botón queda apagado con el motivo.
 
-El default del proyecto se edita **arriba del listado de tareas** (`SlackReviewSettings.vue`), no
-en la tab del provider: es la config del botón que está en cada tarjeta de abajo, así que el
-operador que ve "sin reviewers" tiene el arreglo a la vista sin cambiar de pantalla.
+El default del proyecto se edita en la **tab Provider** del proyecto
+(`features/projects/tabs/SlackReviewSettings.vue`, montado desde `ProjectProviderTab.vue`), junto
+al resto de la config operativa (fuente, modo, concurrencia, condiciones base).
 
 **El picker de canales muestra lo que el BOT ve, no el workspace.** `conversations.list` sólo
 devuelve los canales donde la app está instalada (y los privados sólo si es miembro), así que la
