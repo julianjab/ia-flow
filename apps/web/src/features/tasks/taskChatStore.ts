@@ -25,7 +25,7 @@ import { sendTaskChatMessage } from '@/features/tasks/chatApi'
  * estado — y sólo de sesión, nunca en `localStorage` (ver la tabla de
  * persistencia por acción en #215). `reorder`/`tag`/`note`/`group` viven en
  * `localStorage` puro (`taskOrderPref.ts`/`taskTagPref.ts`/`taskNotePref.ts`/
- * `setGroupByTopic`), aplicados por `TareasSection.vue`.
+ * `taskGroupPref.ts`), aplicados por `TareasSection.vue`.
  */
 export const useTaskChatStore = defineStore('task-chat', () => {
   const history = ref<TaskChatMessage[]>([])

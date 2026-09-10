@@ -10,7 +10,6 @@ import {
   getSourceForProjectId,
   getTaskDispositionsUseCase,
   getTaskFocusUseCase,
-  getTaskGroupsUseCase,
   projectRepo,
   repoRepo,
   runMessageRepo,
@@ -191,31 +190,6 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     } catch (err) {
       log.warn({ err: (err as Error).message, projectId }, 'no se pudo calcular el foco')
       return c.json({ error: (err as Error).message, focus: null }, 502)
-    }
-  })
-
-  /**
-   * GET /api/tasks/groups?projectId=…&refresh=1
-   *
-   * El bucket `waiting-on-you` agrupado por tema, para barrer la lista sin que
-   * cuarenta filas se lean como cuarenta cosas distintas. Ver
-   * `GetTaskGroupsUseCase` — hermano de `/focus`, mismas tres respuestas.
-   *
-   * Va ANTES de las rutas con `:id`, por el mismo motivo que `dispositions` y
-   * `focus`.
-   */
-  router.get('/groups', async (c) => {
-    const projectId = c.req.query('projectId')
-    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
-    try {
-      const source = getSourceForProjectId(projectId)
-      const groups = await getTaskGroupsUseCase.execute(projectId, source, {
-        refresh: c.req.query('refresh') === '1',
-      })
-      return c.json({ groups })
-    } catch (err) {
-      log.warn({ err: (err as Error).message, projectId }, 'no se pudieron calcular los grupos')
-      return c.json({ error: (err as Error).message, groups: null }, 502)
     }
   })
 

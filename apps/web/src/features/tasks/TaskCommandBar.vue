@@ -121,7 +121,9 @@ function onApply(): void {
     </p>
 
     <p v-if="groupAction" class="command-reorder" data-testid="chat-group-summary">
-      {{ groupAction.enabled ? 'Agrupar por tema' : 'Desagrupar' }} (sólo tu vista)
+      {{ groupAction.groups.length
+        ? `Agrupar ${groupAction.groups.length} temas (sólo tu vista)`
+        : 'Desagrupar (sólo tu vista)' }}
     </p>
 
     <TaskActionBlock

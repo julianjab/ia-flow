@@ -81,7 +81,6 @@ import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMes
 import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
 import { GetTaskDispositionsUseCase } from '../application/use-cases/GetTaskDispositionsUseCase.js'
 import { GetTaskFocusUseCase } from '../application/use-cases/GetTaskFocusUseCase.js'
-import { GetTaskGroupsUseCase } from '../application/use-cases/GetTaskGroupsUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
@@ -1073,15 +1072,6 @@ export const getTaskFocusUseCase = new GetTaskFocusUseCase({
   // Por llamada y no capturado: `envRepo.loadIntoProcess()` vuelca lo que el
   // operador guardó en SQLite DESPUÉS de que este módulo se evaluó.
   enabled: () => Bun.env.IA_FLOW_TASK_FOCUS !== '0',
-})
-
-// Los grupos por tema (GET /api/tasks/groups). Hermano de arriba: mismo
-// completion, mismas disposiciones, interruptor propio porque es una llamada
-// de Haiku distinta y más cara (todo el bucket, no un top-3).
-export const getTaskGroupsUseCase = new GetTaskGroupsUseCase({
-  completion: structuredCompletion,
-  loadDispositions: (projectId, source) => getTaskDispositionsUseCase.execute(projectId, source),
-  enabled: () => Bun.env.IA_FLOW_TASK_GROUPS !== '0',
 })
 
 export const runTaskNowUseCase = new RunTaskNowUseCase(

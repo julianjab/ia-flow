@@ -107,10 +107,18 @@ const TASK_CHAT_RESPONSE_SCHEMA = {
             type: 'string',
             description: 'Sólo para type="highlight" — por qué se resalta.',
           },
-          enabled: {
-            type: 'boolean',
+          groups: {
+            type: 'array',
             description:
-              'Sólo para type="group" — true para agrupar por tema, false para volver a la lista suelta. No lleva taskId: es de proyecto, no de una tarea puntual.',
+              'Sólo para type="group" — los grupos por tema que VOS armaste a partir de "Tareas visibles" (títulos/status), cada uno con su `label` y los `taskIds` EXACTOS que le corresponden. Vacío ([]) para proponer "desagrupar". No lleva taskId propio: es de proyecto, no de una tarea puntual.',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', description: 'Nombre corto del tema (2-4 palabras).' },
+                taskIds: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['label', 'taskIds'],
+            },
           },
         },
         required: ['type'],
@@ -158,8 +166,10 @@ const TASK_CHAT_FALLBACK_SYSTEM_PROMPT = [
   '- tag: añade tags a una tarea (`taskId`, `tags`) sin reemplazar las que ya tiene.',
   '- note: deja una anotación sobre una tarea (`taskId`, `text`).',
   '- highlight: resalta una tarea con un motivo, sólo para esta sesión (`taskId`, `reason`).',
-  '- group: agrupa o desagrupa por tema la vista del proyecto entero (`enabled`), no una tarea',
-  '  puntual — no lleva `taskId`.',
+  '- group: cuando te pidan agrupar las tareas por tema (ej. "agrupame los issues por tópico"),',
+  '  armá VOS los grupos a partir de "Tareas visibles" (`groups`: una lista de {label, taskIds}).',
+  '  Es de proyecto entero, no una tarea puntual — no lleva `taskId`. `groups: []` propone',
+  '  desagrupar.',
   'Usá siempre el `id` EXACTO que viene en "Tareas visibles" o en el resultado de una tool. Si no',
   'hay ningún cambio que proponer, `actions` va vacío.',
 ].join('\n')
@@ -223,7 +233,7 @@ function buildTaskChatPrompt(body: {
  * server: las 5 quedan del lado del cliente (`localStorage`/estado de
  * sesión) recién cuando el operador presiona "Aplicar" — `tag` vía
  * `taskTagPref.ts`, `note` vía `taskNotePref.ts`, `reorder` vía
- * `taskOrderPref.ts`, `group` vía `setGroupByTopic` y `highlight` en el
+ * `taskOrderPref.ts`, `group` vía `taskGroupPref.ts` y `highlight` en el
  * store — así que ninguna pasa por este use-case.
  */
 export class TaskChatUseCase {
@@ -289,11 +299,23 @@ export class TaskChatUseCase {
         case 'highlight':
           if (knownIds.has(action.taskId)) out.push(action)
           return out
-        case 'group':
-          // Scope de proyecto, sin `taskId` — nada que verificar contra
-          // `knownIds` (mismo motivo que `reorder` no filtra el propio tipo).
-          out.push(action)
+        case 'group': {
+          // `groups: []` es una propuesta explícita de "desagrupar" — pasa
+          // tal cual, no hay nada que filtrar. Si trae grupos, cada uno se
+          // filtra contra `knownIds` (el modelo los arma él mismo, así que
+          // puede alucinar un id) y se descarta si queda vacío; si eso deja
+          // la lista entera vacía, se descarta la ACCIÓN completa en vez de
+          // aplicarla como si fuera un "desagrupar" que nadie pidió.
+          if (!action.groups.length) {
+            out.push(action)
+            return out
+          }
+          const groups = action.groups
+            .map((g) => ({ ...g, taskIds: g.taskIds.filter((id) => knownIds.has(id)) }))
+            .filter((g) => g.taskIds.length > 0)
+          if (groups.length) out.push({ ...action, groups })
           return out
+        }
         default:
           return out
       }
