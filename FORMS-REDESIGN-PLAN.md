@@ -18,10 +18,10 @@ Modo de trabajo acordado con el usuario: **un único PR, en este worktree
 | 0 | Contrato en `DESIGN_SYSTEM.md` | ✅ `e234f24ce` |
 | 1 | `FormFooter` + `.ff-band` / `.ff-col` + slot `lead` en `StickyActionBar` | ✅ `b126e0295` + `26367c0b7` (test) |
 | 2 | **Agente** | ✅ código + test |
-| 3 | **Provider** | ⏳ **acá quedó** |
-| 4 | System prompt | pendiente |
-| 5 | Pipeline / regla | pendiente |
-| 6 | Acción | pendiente |
+| 3 | Provider | ✅ código + test |
+| 4 | System prompt | ✅ código + test |
+| 5 | Pipeline / regla | ✅ código + test |
+| 6 | **Acción** | ⏳ **acá quedó** |
 | 7 | Tool | pendiente |
 | 8 | Entorno | pendiente |
 | 9 | Cierre: `apps/web/CLAUDE.md` + borrar este archivo | pendiente |

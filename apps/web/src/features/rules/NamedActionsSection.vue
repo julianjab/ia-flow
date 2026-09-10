@@ -15,6 +15,7 @@ import ActionFields from '@/features/rules/ActionFields.vue'
 import { actionLabelFor, blankActionFor } from '@/features/rules/actionForms/registry'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
+import FormFooter from '@/ui/FormFooter.vue'
 import EditableCard from '@/ui/EditableCard.vue'
 import ScopeGroup from '@/ui/ScopeGroup.vue'
 import { useToastStore } from '@/stores/toast'
@@ -306,29 +307,35 @@ function changeKind(kind: string) {
         <b>General → Acciones</b>, que es donde se ve a qué otras reglas afecta el cambio.
       </p>
       <fieldset class="na-fields" :disabled="isInherited">
-      <label class="na-row">
+      <!-- Nombre primero, y sin "Opcional" de placeholder: es lo que la fila
+           de la lista muestra cuando existe, así que dejarlo vacío empeora la
+           lista. El placeholder lleva la forma esperada (R21). -->
+      <label class="ff-row">
+        <span class="uc-label">Nombre</span>
+        <input v-model="draft.name" class="ff-field" placeholder="Avisar deploy" />
+        <p class="ff-hint">Es lo que se lee en el listado; sin nombre, se lee el id.</p>
+      </label>
+
+      <label class="ff-row">
         <span class="uc-label">Id</span>
         <input
           v-model="draft.id"
-          class="na-field na-mono"
+          class="ff-field ff-mono"
           :disabled="!isNew"
           placeholder="avisar-deploy"
         />
-        <span v-if="!isNew" class="na-hint">
-          El id no se edita: cambiarlo rompería toda regla que la referencia.
-        </span>
-      </label>
-
-      <label class="na-row">
-        <span class="uc-label">Nombre</span>
-        <input v-model="draft.name" class="na-field" placeholder="Opcional" />
+        <p class="ff-hint">
+          {{ isNew
+            ? 'Las reglas y las tools la invocan por este id.'
+            : 'No se edita: cambiarlo rompería toda regla que la referencia.' }}
+        </p>
       </label>
 
       <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
            descendiente a su primer control. Y `ComboBox` y no `<select>`: el
            desplegable nativo lo pinta el sistema —fondo blanco sobre una
            consola oscura— y no hay CSS que lo tematice. -->
-      <div class="na-row">
+      <div class="ff-row">
         <span class="uc-label">Tipo</span>
         <ComboBox
           :model-value="draft.body.action"
@@ -342,27 +349,18 @@ function changeKind(kind: string) {
       <ActionFields :entry="draft.body" :agent-ids="agentIds" @patch="patchBody" />
       </fieldset>
 
-      <div class="na-form-ops">
-        <button
-          v-if="!isNew && !isInherited"
-          type="button"
-          class="btn btn--danger"
-          @click="removeDraft"
-        >Eliminar</button>
-        <span class="na-sp" />
-        <button type="button" class="btn" @click="draft = null">
-          {{ isInherited ? 'Cerrar' : 'Cancelar' }}
-        </button>
-        <button
-          v-if="!isInherited"
-          type="button"
-          class="btn btn--primary"
-          :disabled="!draft.id.trim()"
-          @click="save"
-        >
-          Guardar
-        </button>
-      </div>
+      <FormFooter
+        :sticky="false"
+        :note="draft.id.trim() ? undefined : 'falta el id'"
+        note-is-error
+        :save-disabled="!draft.id.trim()"
+        :save-label="isNew ? 'Crear' : 'Guardar'"
+        :delete-label="!isNew ? 'Eliminar…' : undefined"
+        :readonly="isInherited"
+        @save="save"
+        @cancel="draft = null"
+        @delete="removeDraft"
+      />
     </div>
 
     <ConfirmDialog
@@ -377,15 +375,16 @@ function changeKind(kind: string) {
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
 /* El encabezado sale de `theme.css` (`.section-header`): esta pantalla tenía su
    propio título en mono/micro, así que "Acciones" se leía como el label de un
    grupo y no como el nombre de la sección, al lado de Pipeline. */
 .na { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 1.2rem; }
 .na-count { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
-.na-sp { flex: 1; }
 
-.na-empty, .na-hint {
+.na-empty {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   margin: 0;
@@ -419,7 +418,7 @@ function changeKind(kind: string) {
   min-inline-size: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.75rem;
 }
 
 .na-ro-note {
@@ -432,27 +431,11 @@ function changeKind(kind: string) {
 .na-form {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.75rem;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   padding: 0.6rem;
   margin-top: 0.3rem;
 }
-.na-row { display: flex; flex-direction: column; gap: 0.15rem; }
-.na-field {
-  height: var(--row-h);
-  padding: 0 0.5ch;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel-alt);
-  color: var(--fg);
-  font-family: var(--font-body);
-  font-size: var(--fs-body-sm);
-  width: 100%;
-  box-sizing: border-box;
-}
-.na-field:disabled { color: var(--fg-dim); }
-.na-mono { font-family: var(--font-mono); }
-.na-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; margin-top: 0.2rem; }
 
 </style>

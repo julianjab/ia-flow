@@ -9,6 +9,7 @@ import {
   blankActionFor,
   describeAction,
 } from '@/features/rules/actionForms/registry'
+import CollapsibleSection from '@/ui/CollapsibleSection.vue'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 import HintIcon from '@/ui/HintIcon.vue'
 
@@ -82,6 +83,18 @@ function toggleOpen(i: number) {
 function summaryFor(entry: Entry): string {
   const { text } = describeAction(entry as unknown as RuleActionEntry)
   return text
+}
+
+/** Lo que hay dentro del bloque plegado, como VALOR y no como descripción
+ *  (R22): con qué nombre se la referencia, si tiene condición propia y si
+ *  frena la cadena al fallar. Es lo que evita abrirlo para chequear. */
+function stepSummaryFor(entry: Entry): string {
+  const parts: string[] = []
+  if (typeof entry.id === 'string' && entry.id.trim()) parts.push(entry.id.trim())
+  const conds = (entry.when as WhenCondition[] | undefined)?.length ?? 0
+  parts.push(conds ? `${conds} condición${conds === 1 ? '' : 'es'}` : 'siempre')
+  if (entry.continueOnError === true) parts.push('sigue si falla')
+  return parts.join(' · ')
 }
 
 // `ComboBox` y no un `<select>`: el desplegable de un select lo dibuja el
@@ -217,8 +230,8 @@ function onHandleKey(i: number, event: KeyboardEvent) {
       </div>
 
       <div v-show="isOpen(i)" class="ae-body">
-        <div class="ae-row">
-          <span class="ae-label">Tipo</span>
+        <div class="ff-row">
+          <span class="uc-label ae-label">Tipo</span>
           <ComboBox
             class="ae-kind"
             :model-value="entry.action"
@@ -236,51 +249,60 @@ function onHandleKey(i: number, event: KeyboardEvent) {
           @patch="(changes) => patch(i, changes)"
         />
 
-        <label class="ae-row">
-          <span class="ae-label">
-            Nombre del paso
-            <HintIcon
-              :text="`Sólo hace falta si una acción posterior lee lo que ésta produjo, con ${STEP_REF_EXAMPLE}. Un nombre y no la posición: un índice se rompe en silencio cuando alguien inserta una acción más arriba.`"
+        <!-- Lo que NO define la acción: cuándo corre, cómo se la nombra desde
+             otro paso y qué pasa si falla. Los tres tienen default y se pueden
+             ignorar, así que se pliegan (R20) — mezclados entre los campos del
+             tipo hacían que los seis formularios tuvieran siluetas distintas.
+             El resumen del encabezado es el valor efectivo (R22). -->
+        <CollapsibleSection title="Cuándo y encadenado" :summary="stepSummaryFor(entry)">
+          <label class="ff-row">
+            <span class="uc-label ae-label">
+              Nombre del paso
+              <HintIcon
+                :text="`Sólo hace falta si una acción posterior lee lo que ésta produjo, con ${STEP_REF_EXAMPLE}. Un nombre y no la posición: un índice se rompe en silencio cuando alguien inserta una acción más arriba.`"
+              />
+            </span>
+            <input
+              class="ff-field ff-mono"
+              :value="typeof entry.id === 'string' ? entry.id : ''"
+              placeholder="triage"
+              @input="patch(i, { id: ($event.target as HTMLInputElement).value || undefined })"
             />
-          </span>
-          <input
-            class="ae-field ae-mono"
-            :value="typeof entry.id === 'string' ? entry.id : ''"
-            placeholder="triage"
-            @input="patch(i, { id: ($event.target as HTMLInputElement).value || undefined })"
-          />
-        </label>
+          </label>
 
-        <div class="ae-row">
-          <span class="ae-label">
-            Condición
-            <HintIcon
-              text="Sólo corre esta acción si además matchea esto — mismo DSL que el `when` de la regla, evaluado también contra lo que dejaron los pasos anteriores (`steps.<paso>.output.<campo>`). Vacío = corre siempre."
+          <div class="ff-row">
+            <span class="uc-label ae-label">
+              Condición
+              <HintIcon
+                text="Sólo corre esta acción si además matchea esto — mismo DSL que el `when` de la regla, evaluado también contra lo que dejaron los pasos anteriores (`steps.<paso>.output.<campo>`). Vacío = corre siempre."
+              />
+            </span>
+            <ActionWhenEditor
+              :model-value="entry.when"
+              @update:model-value="(w) => patch(i, { when: w })"
             />
-          </span>
-          <ActionWhenEditor
-            :model-value="entry.when"
-            @update:model-value="(w) => patch(i, { when: w })"
-          />
-        </div>
+          </div>
 
-        <label class="ae-check">
-          <input
-            type="checkbox"
-            :checked="entry.continueOnError === true"
-            @change="patch(i, { continueOnError: ($event.target as HTMLInputElement).checked })"
-          />
-          <span>Seguir con las siguientes aunque ésta falle</span>
-        </label>
+          <label class="ff-check">
+            <input
+              type="checkbox"
+              :checked="entry.continueOnError === true"
+              @change="patch(i, { continueOnError: ($event.target as HTMLInputElement).checked })"
+            />
+            <span>Seguir con las siguientes aunque ésta falle</span>
+          </label>
+        </CollapsibleSection>
       </div>
     </div>
 
-    <button type="button" class="ae-add" @click="addAction">+ acción</button>
+    <button type="button" class="ff-add ae-add" @click="addAction">+ acción</button>
     <p v-if="!entries.length" class="ae-empty">
       Una regla sin acciones no hace nada. Agregá al menos una.
     </p>
   </div>
 </template>
+
+<style scoped src="@/ui/form-fields.css"></style>
 
 <style scoped>
 .ae {
@@ -381,33 +403,6 @@ function onHandleKey(i: number, event: KeyboardEvent) {
 
 
 
-.ae-field {
-  height: var(--row-h);
-  padding: 0 0.5ch;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
-  font-family: var(--font-body);
-  font-size: var(--fs-body-sm);
-  width: 100%;
-  box-sizing: border-box;
-  border-radius: var(--radius-sm);
-}
-.ae-field:focus-visible {
-  outline: none;
-  border-color: var(--border-hi);
-}
-
-
-.ae-check {
-  display: flex;
-  align-items: center;
-  gap: 0.45ch;
-  font-size: var(--fs-body-sm);
-  color: var(--fg-mute);
-  cursor: pointer;
-}
-
 .ae-remove {
   background: none;
   border: none;
@@ -420,19 +415,10 @@ function onHandleKey(i: number, event: KeyboardEvent) {
 }
 .ae-remove:hover { color: var(--fg); background: var(--danger); }
 
-.ae-add {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed var(--border);
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
-  font-family: var(--font-body);
-  height: var(--row-h);
-  padding: 0 1ch;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.ae-add:hover { border-color: var(--accent); color: var(--accent); }
+/* `.ff-add` del kit ya trae la caja punteada de --tap-h a lo ancho (R11).
+   Acá la lista es de tarjetas y no de filas de campo, así que el botón no se
+   estira al ancho de una tarjeta: se queda del tamaño de su texto. */
+.ae-add { align-self: flex-start; width: auto; }
 
 .ae-empty {
   margin: 0;
@@ -440,21 +426,11 @@ function onHandleKey(i: number, event: KeyboardEvent) {
   color: var(--fg-dimmer);
 }
 
-/* Fila del nombre del paso — mismas primitivas que el resto del editor. */
-.ae-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+/* `.uc-label` no es inline-flex, y el `ⓘ` que va pegado al texto necesita
+   alinearse con él. Es lo único que este editor le agrega al label del kit. */
 .ae-label {
   display: inline-flex;
   align-items: center;
   gap: 0.3ch;
-  font-size: var(--fs-micro);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-.ae-mono {
-  font-family: var(--font-mono);
 }
 </style>
