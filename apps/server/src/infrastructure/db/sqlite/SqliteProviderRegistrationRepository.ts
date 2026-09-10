@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import type { SystemPromptRef } from '@ia-flow/shared'
 import type {
   IProviderRegistrationRepository,
   ProviderRegistration,
@@ -15,9 +14,6 @@ function rowToRegistration(r: Record<string, unknown>): ProviderRegistration {
     remoteName: r.remote_name as string,
     remoteDescription: r.remote_description as string,
     createdAt: r.created_at as string,
-    systemPrompt: r.system_prompt
-      ? (JSON.parse(r.system_prompt as string) as SystemPromptRef)
-      : null,
   }
 }
 
@@ -42,9 +38,9 @@ export class SqliteProviderRegistrationRepository implements IProviderRegistrati
     this.db.run(
       `INSERT INTO provider_registrations (
          id, name, base_url, token,
-         remote_kind, remote_name, remote_description, created_at, system_prompt
+         remote_kind, remote_name, remote_description, created_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         registration.id,
         registration.name,
@@ -54,19 +50,11 @@ export class SqliteProviderRegistrationRepository implements IProviderRegistrati
         registration.remoteName,
         registration.remoteDescription,
         registration.createdAt,
-        registration.systemPrompt ? JSON.stringify(registration.systemPrompt) : null,
       ],
     )
   }
 
   deleteById(id: string): void {
     this.db.run('DELETE FROM provider_registrations WHERE id = ?', [id])
-  }
-
-  updateSystemPrompt(id: string, systemPrompt: SystemPromptRef | null): void {
-    this.db.run('UPDATE provider_registrations SET system_prompt = ? WHERE id = ?', [
-      systemPrompt ? JSON.stringify(systemPrompt) : null,
-      id,
-    ])
   }
 }
