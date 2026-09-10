@@ -17,6 +17,7 @@ function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRe
     remoteName: 'Claude Print',
     remoteDescription: 'invoca claude -p',
     createdAt: '2026-01-01T00:00:00Z',
+    systemPrompt: null,
     ...overrides,
   }
 }
@@ -28,8 +29,11 @@ function fakeRepo(rows: ProviderRegistration[]): IProviderRegistrationRepository
     get: (id) => rows.find((r) => r.id === id) ?? null,
     insert: () => {},
     deleteById: () => {},
+    updateSystemPrompt: () => {},
   }
 }
+
+const fakeSystemPromptRepo = { getById: () => null }
 
 function fakeRegistry() {
   const ids = new Set<string>()
@@ -51,6 +55,7 @@ function makeMonitor(rows: ProviderRegistration[], probe: () => Promise<ProbeRes
     fakeRepo(rows),
     registry,
     { send: (msg) => sent.push(msg) },
+    fakeSystemPromptRepo,
     { probe, now: () => '2026-01-01T00:00:05Z' },
   )
   return { monitor, registry, sent }
@@ -131,6 +136,7 @@ describe('RemoteProviderHealthMonitor', () => {
       fakeRepo(rows),
       registry,
       { send: () => {} },
+      fakeSystemPromptRepo,
       { probe: async () => ({ ok: true, latencyMs: 1 }), now: () => '2026-01-01T00:00:05Z' },
     )
 
@@ -153,6 +159,7 @@ describe('RemoteProviderHealthMonitor', () => {
       fakeRepo(rows),
       registry,
       { send: () => {} },
+      fakeSystemPromptRepo,
       {
         probe: async () => {
           rows.length = 0

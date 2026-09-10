@@ -14,7 +14,8 @@ function setup(): SqliteProviderRegistrationRepository {
       remote_kind          TEXT NOT NULL,
       remote_name          TEXT NOT NULL,
       remote_description   TEXT NOT NULL,
-      created_at           TEXT NOT NULL
+      created_at           TEXT NOT NULL,
+      system_prompt        TEXT
     )
   `)
   return new SqliteProviderRegistrationRepository(db)
@@ -30,6 +31,7 @@ function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRe
     remoteName: 'Claude Print',
     remoteDescription: 'invoca claude -p',
     createdAt: '2026-01-01T00:00:00Z',
+    systemPrompt: null,
     ...overrides,
   }
 }
@@ -71,5 +73,24 @@ describe('SqliteProviderRegistrationRepository', () => {
     repo.insert(registration())
     repo.deleteById('nope')
     expect(repo.list().length).toBe(1)
+  })
+
+  it('insert + get round-trips un systemPrompt id de catálogo', () => {
+    repo.insert(registration({ systemPrompt: 'sp-1' }))
+    expect(repo.get('reg-1')?.systemPrompt).toBe('sp-1')
+  })
+
+  it('insert + get round-trips un systemPrompt inline', () => {
+    repo.insert(registration({ systemPrompt: { text: 'Corré con cuidado en esta VM' } }))
+    expect(repo.get('reg-1')?.systemPrompt).toEqual({ text: 'Corré con cuidado en esta VM' })
+  })
+
+  it('updateSystemPrompt lo persiste y updateSystemPrompt(null) lo limpia', () => {
+    repo.insert(registration())
+    repo.updateSystemPrompt('reg-1', 'sp-1')
+    expect(repo.get('reg-1')?.systemPrompt).toBe('sp-1')
+
+    repo.updateSystemPrompt('reg-1', null)
+    expect(repo.get('reg-1')?.systemPrompt).toBeNull()
   })
 })
