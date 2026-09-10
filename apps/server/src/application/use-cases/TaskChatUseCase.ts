@@ -169,7 +169,8 @@ const TASK_CHAT_FALLBACK_SYSTEM_PROMPT = [
   '- group: cuando te pidan agrupar las tareas por tema (ej. "agrupame los issues por tópico"),',
   '  armá VOS los grupos a partir de "Tareas visibles" (`groups`: una lista de {label, taskIds}).',
   '  Es de proyecto entero, no una tarea puntual — no lleva `taskId`. `groups: []` propone',
-  '  desagrupar.',
+  '  desagrupar. SÓLO incluí ids de tareas con `disposition: "waiting-on-you"` — agrupar una',
+  '  tarea con otra disposición no tiene ningún efecto visible en la lista.',
   'Usá siempre el `id` EXACTO que viene en "Tareas visibles" o en el resultado de una tool. Si no',
   'hay ningún cambio que proponer, `actions` va vacío.',
 ].join('\n')
@@ -280,8 +281,19 @@ export class TaskChatUseCase {
   }
 
   /** Descarta `scope`/acciones que referencien un `taskId` fuera del
-   *  conjunto que el propio request mandó — ver el comentario de la clase. */
-  private verify(reply: TaskChatReply, knownIds: Set<string>): TaskChatReply {
+   *  conjunto que el propio request mandó — ver el comentario de la clase.
+   *
+   *  `waitingOnYouIds` es aparte de `knownIds`: sólo se usa para `group`,
+   *  porque `bucketSections` (`TareasSection.vue`) sólo dibuja grupos dentro
+   *  del bucket `waiting-on-you` — un id conocido pero de otro bucket es un
+   *  id válido para `tag`/`note`/`highlight`/`reorder`, pero agruparlo no
+   *  tendría ningún efecto visible (localStorage se actualiza, la lista
+   *  queda igual, y el toast diría "aplicado" sobre nada). */
+  private verify(
+    reply: TaskChatReply,
+    knownIds: Set<string>,
+    waitingOnYouIds: Set<string>,
+  ): TaskChatReply {
     const scope =
       reply.scope.type === 'task' && !knownIds.has(reply.scope.taskId)
         ? ({ type: 'project' } as const)
@@ -311,7 +323,10 @@ export class TaskChatUseCase {
             return out
           }
           const groups = action.groups
-            .map((g) => ({ ...g, taskIds: g.taskIds.filter((id) => knownIds.has(id)) }))
+            .map((g) => ({
+              ...g,
+              taskIds: g.taskIds.filter((id) => knownIds.has(id) && waitingOnYouIds.has(id)),
+            }))
             .filter((g) => g.label.trim().length > 0 && g.taskIds.length > 0)
           if (groups.length) out.push({ ...action, groups })
           return out
@@ -330,6 +345,11 @@ export class TaskChatUseCase {
   ): Promise<TaskChatReply> {
     const { projectId, message, history, tasks } = input
     const knownIds = new Set(tasks.map((t) => t.id))
+    // Sólo de `tasks` (el recorte visible) — un id que un tool descubrió a
+    // mitad de turno no trae `disposition` confiable, así que no cuenta acá.
+    const waitingOnYouIds = new Set(
+      tasks.filter((t) => t.disposition === 'waiting-on-you').map((t) => t.id),
+    )
     const discoveredIds = new Set<string>()
 
     const result = await this.assistWithAi.execute({
@@ -352,6 +372,6 @@ export class TaskChatUseCase {
     }
 
     for (const id of discoveredIds) knownIds.add(id)
-    return this.verify(parsed.data, knownIds)
+    return this.verify(parsed.data, knownIds, waitingOnYouIds)
   }
 }

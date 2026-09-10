@@ -2361,7 +2361,12 @@ export const TaskChatActionSchema = z.discriminatedUnion('type', [
     // descartarlo — exigirlo acá haría que el `safeParse` completo (que
     // corre ANTES de `verify()`) rechace la respuesta entera con un 502,
     // perdiendo también el `reply` de texto que sí estaba bien.
-    groups: z.array(z.object({ label: z.string(), taskIds: z.array(z.string()) })),
+    //
+    // `.default([])`: el JSON Schema forzado al modelo (`TASK_CHAT_RESPONSE_
+    // SCHEMA`) sólo exige `required: ['type']` — un `{type:'group'}` sin
+    // `groups` es salida válida para esa API, y sin el default acá Zod la
+    // rechazaría igual (mismo 502 que el comentario de arriba evita).
+    groups: z.array(z.object({ label: z.string(), taskIds: z.array(z.string()) })).default([]),
   }),
 ])
 export type TaskChatAction = z.infer<typeof TaskChatActionSchema>
