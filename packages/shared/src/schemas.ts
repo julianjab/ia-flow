@@ -2338,16 +2338,41 @@ export type TaskChatScope = z.infer<typeof TaskChatScopeSchema>
  * - `highlight`: dura la sesión, estado de cliente únicamente.
  * - `group`: `taskGroupPref.ts` — el modelo arma los grupos por tema, scope
  *   de PROYECTO, no de una tarea — como `reorder`, no lleva `taskId`.
+ *
+ * **Ningún campo lleva `.min(1)`/requerido de verdad**, aunque semánticamente
+ * lo sea (un `tag` sin `taskId` no tiene a quién aplicarse). El tool schema
+ * forzado al modelo (`TASK_CHAT_RESPONSE_SCHEMA` en `TaskChatUseCase.ts`)
+ * sólo exige `required: ['type']` — es deliberadamente laxo para no
+ * sobre-restringir al modelo — así que un `{type:'tag'}` sin `taskId` es
+ * salida VÁLIDA para esa API. Si acá se exigiera `taskId`, ese único item
+ * mal formado tiraría el `safeParse` de la respuesta ENTERA con un 502
+ * (`TaskChatUseCase.execute`, ANTES de `verify()`), perdiendo también el
+ * `reply` de texto que sí estaba bien. Cada campo tiene un default inerte
+ * (`''`/`[]`) que nunca matchea nada real, y es `verify()` quien descarta el
+ * item entero cuando el campo que le da sentido quedó vacío — mismo patrón
+ * que ya usa `group` con los temas sin miembros.
  */
 export const TaskChatActionSchema = z.discriminatedUnion('type', [
   /** Reordena la vista — no la lista real. `taskIds` en el orden propuesto. */
-  z.object({ type: z.literal('reorder'), taskIds: z.array(z.string()).min(1) }),
+  z.object({ type: z.literal('reorder'), taskIds: z.array(z.string()).default([]) }),
   /** Tags a añadir a `taskId` (no reemplaza las que ya tiene). */
-  z.object({ type: z.literal('tag'), taskId: z.string(), tags: z.array(z.string()).min(1) }),
+  z.object({
+    type: z.literal('tag'),
+    taskId: z.string().default(''),
+    tags: z.array(z.string()).default([]),
+  }),
   /** Anotación nueva sobre `taskId` — vista local, ver `taskNotePref.ts`. */
-  z.object({ type: z.literal('note'), taskId: z.string(), text: z.string().min(1) }),
+  z.object({
+    type: z.literal('note'),
+    taskId: z.string().default(''),
+    text: z.string().default(''),
+  }),
   /** Resalta `taskId` con un motivo — sólo estado de cliente, de sesión. */
-  z.object({ type: z.literal('highlight'), taskId: z.string(), reason: z.string().min(1) }),
+  z.object({
+    type: z.literal('highlight'),
+    taskId: z.string().default(''),
+    reason: z.string().default(''),
+  }),
   /**
    * Agrupa por tema la vista — scope de proyecto, no una tarea puntual. El
    * MODELO arma los grupos (con el mismo contexto de tareas que ya tiene

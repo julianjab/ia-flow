@@ -12,7 +12,11 @@ import type { Migration } from './runner.js'
 // Texto congelado tal como estaba en `TASK_CHAT_FALLBACK_SYSTEM_PROMPT`
 // (`TaskChatUseCase.ts`) al momento de esta migración — a propósito no se
 // importa desde `application/`: una migración es una foto fija, no debe
-// cambiar si el código de la app cambia después.
+// cambiar si el código de la app cambia después. Válido recién a partir de
+// que esta migración se mergea/despliega: mientras siga sin mergear (como
+// ahora, agregando la acción `group`) sincronizarla con el fallback es
+// esperable — "no debe cambiar después" es sobre DB ya migradas, no sobre
+// un archivo que todavía no corrió en ninguna.
 //
 // Idempotente por PK (`INSERT OR IGNORE`): si el operador ya editó esta fila
 // vía `PUT /api/assist-configs/task-chat`, un re-run de esta migración (no
@@ -50,6 +54,11 @@ const TASK_CHAT_SYSTEM_PROMPT = [
   '- tag: añade tags a una tarea (`taskId`, `tags`) sin reemplazar las que ya tiene.',
   '- note: deja una anotación sobre una tarea (`taskId`, `text`).',
   '- highlight: resalta una tarea con un motivo, sólo para esta sesión (`taskId`, `reason`).',
+  '- group: cuando te pidan agrupar las tareas por tema (ej. "agrupame los issues por tópico"),',
+  '  armá VOS los grupos a partir de "Tareas visibles" (`groups`: una lista de {label, taskIds}).',
+  '  Es de proyecto entero, no una tarea puntual — no lleva `taskId`. `groups: []` propone',
+  '  desagrupar. SÓLO incluí ids de tareas con `disposition: "waiting-on-you"` — agrupar una',
+  '  tarea con otra disposición no tiene ningún efecto visible en la lista.',
   'Usá siempre el `id` EXACTO que viene en "Tareas visibles" o en el resultado de una tool. Si no',
   'hay ningún cambio que proponer, `actions` va vacío.',
 ].join('\n')

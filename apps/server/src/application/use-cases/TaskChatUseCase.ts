@@ -280,6 +280,51 @@ export class TaskChatUseCase {
     }))
   }
 
+  /** `reorder` — orden de vista propuesto, filtrado a ids conocidos. `null`
+   *  si no queda ninguno (el `.filter` de arriba dejó la lista vacía). */
+  private verifyReorder(
+    action: TaskChatAction & { type: 'reorder' },
+    knownIds: Set<string>,
+  ): TaskChatAction | null {
+    const taskIds = action.taskIds.filter((id) => knownIds.has(id))
+    return taskIds.length ? { ...action, taskIds } : null
+  }
+
+  /** `tag`/`note`/`highlight` comparten la misma forma de veredicto: un
+   *  `taskId` conocido (`''`, el default cuando el modelo omite el campo,
+   *  nunca matchea `knownIds`, así que ya queda cubierto sin chequeo aparte)
+   *  MÁS el campo que le da sentido a la acción, no vacío — mismo motivo
+   *  que `group` descarta un tema sin miembros. */
+  private verifyTaskField<T extends { taskId: string }>(
+    action: T,
+    knownIds: Set<string>,
+    hasContent: (a: T) => boolean,
+  ): T | null {
+    return knownIds.has(action.taskId) && hasContent(action) ? action : null
+  }
+
+  /** `group` — `groups: []` es una propuesta explícita de "desagrupar" y pasa
+   *  tal cual, no hay nada que filtrar. Si trae grupos, cada uno se filtra
+   *  contra `knownIds` Y `waitingOnYouIds` (el modelo los arma él mismo, así
+   *  que puede alucinar un id, o agrupar una tarea de un bucket donde
+   *  `bucketSections` no dibuja ningún grupo) y se descarta si queda vacío;
+   *  si eso deja la lista entera vacía, se descarta la ACCIÓN completa en
+   *  vez de aplicarla como si fuera un "desagrupar" que nadie pidió. */
+  private verifyGroup(
+    action: TaskChatAction & { type: 'group' },
+    knownIds: Set<string>,
+    waitingOnYouIds: Set<string>,
+  ): TaskChatAction | null {
+    if (!action.groups.length) return action
+    const groups = action.groups
+      .map((g) => ({
+        ...g,
+        taskIds: g.taskIds.filter((id) => knownIds.has(id) && waitingOnYouIds.has(id)),
+      }))
+      .filter((g) => g.label.trim().length > 0 && g.taskIds.length > 0)
+    return groups.length ? { ...action, groups } : null
+  }
+
   /** Descarta `scope`/acciones que referencien un `taskId` fuera del
    *  conjunto que el propio request mandó — ver el comentario de la clase.
    *
@@ -300,40 +345,24 @@ export class TaskChatUseCase {
         : reply.scope
 
     const actions = reply.actions.reduce<TaskChatAction[]>((out, action) => {
-      switch (action.type) {
-        case 'reorder': {
-          const taskIds = action.taskIds.filter((id) => knownIds.has(id))
-          if (taskIds.length) out.push({ ...action, taskIds })
-          return out
+      const verified: TaskChatAction | null = (() => {
+        switch (action.type) {
+          case 'reorder':
+            return this.verifyReorder(action, knownIds)
+          case 'tag':
+            return this.verifyTaskField(action, knownIds, (a) => a.tags.length > 0)
+          case 'note':
+            return this.verifyTaskField(action, knownIds, (a) => a.text.trim().length > 0)
+          case 'highlight':
+            return this.verifyTaskField(action, knownIds, (a) => a.reason.trim().length > 0)
+          case 'group':
+            return this.verifyGroup(action, knownIds, waitingOnYouIds)
+          default:
+            return null
         }
-        case 'tag':
-        case 'note':
-        case 'highlight':
-          if (knownIds.has(action.taskId)) out.push(action)
-          return out
-        case 'group': {
-          // `groups: []` es una propuesta explícita de "desagrupar" — pasa
-          // tal cual, no hay nada que filtrar. Si trae grupos, cada uno se
-          // filtra contra `knownIds` (el modelo los arma él mismo, así que
-          // puede alucinar un id) y se descarta si queda vacío; si eso deja
-          // la lista entera vacía, se descarta la ACCIÓN completa en vez de
-          // aplicarla como si fuera un "desagrupar" que nadie pidió.
-          if (!action.groups.length) {
-            out.push(action)
-            return out
-          }
-          const groups = action.groups
-            .map((g) => ({
-              ...g,
-              taskIds: g.taskIds.filter((id) => knownIds.has(id) && waitingOnYouIds.has(id)),
-            }))
-            .filter((g) => g.label.trim().length > 0 && g.taskIds.length > 0)
-          if (groups.length) out.push({ ...action, groups })
-          return out
-        }
-        default:
-          return out
-      }
+      })()
+      if (verified) out.push(verified)
+      return out
     }, [])
 
     return { reply: reply.reply, scope, actions }
