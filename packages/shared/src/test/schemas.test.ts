@@ -1426,8 +1426,36 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     ).toBe(false)
   })
 
-  it('reorder rechaza taskIds vacío', () => {
-    expect(TaskChatActionSchema.safeParse({ type: 'reorder', taskIds: [] }).success).toBe(false)
+  it('reorder acepta taskIds vacío — el saneo es cosa de `verify()`, mismo motivo que `group`', () => {
+    // Sin `.min(1)`: `{type:'reorder'}` sin `taskIds` es salida válida para
+    // el tool schema forzado al modelo (`required: ['type']` nomás), y si
+    // acá se rechazara el `safeParse` de la respuesta ENTERA tiraría 502.
+    expect(TaskChatActionSchema.parse({ type: 'reorder', taskIds: [] })).toEqual({
+      type: 'reorder',
+      taskIds: [],
+    })
+    expect(TaskChatActionSchema.parse({ type: 'reorder' })).toEqual({
+      type: 'reorder',
+      taskIds: [],
+    })
+  })
+
+  it('tag/note/highlight sin sus campos propios defaultean a vacío en vez de rechazar', () => {
+    expect(TaskChatActionSchema.parse({ type: 'tag' })).toEqual({
+      type: 'tag',
+      taskId: '',
+      tags: [],
+    })
+    expect(TaskChatActionSchema.parse({ type: 'note' })).toEqual({
+      type: 'note',
+      taskId: '',
+      text: '',
+    })
+    expect(TaskChatActionSchema.parse({ type: 'highlight' })).toEqual({
+      type: 'highlight',
+      taskId: '',
+      reason: '',
+    })
   })
 
   it('actions cae a [] cuando la respuesta no propone ningún cambio', () => {

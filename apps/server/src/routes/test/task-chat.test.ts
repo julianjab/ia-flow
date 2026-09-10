@@ -157,6 +157,32 @@ describe('POST /api/tasks/assistant/chat', () => {
     ])
   })
 
+  it('tag/note/highlight/reorder incompletos se descartan uno por uno, sin tirar la respuesta con 502', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'Encontré esto.',
+        scope: { type: 'project' },
+        actions: [
+          { type: 'tag' },
+          { type: 'tag', taskId: 't1' },
+          { type: 'note', taskId: 't1' },
+          { type: 'highlight', taskId: 't1' },
+          { type: 'reorder' },
+          { type: 'tag', taskId: 't1', tags: ['urgente'] },
+        ],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { reply: string; actions: unknown[] }
+    expect(body.reply).toBe('Encontré esto.')
+    expect(body.actions).toEqual([{ type: 'tag', taskId: 't1', tags: ['urgente'] }])
+  })
+
   it('group sin el campo `groups` defaultea a [] en vez de rechazar la respuesta con 502', async () => {
     const { app } = routerWith(async () => ({
       fields: { reply: 'ok', scope: { type: 'project' }, actions: [{ type: 'group' }] },
