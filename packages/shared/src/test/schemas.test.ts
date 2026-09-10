@@ -34,7 +34,6 @@ import {
   StepTypeSchema,
   SystemPromptDefSchema,
   TASK_CHAT_MAX_MESSAGES,
-  TaskAnnotationSchema,
   TaskChatActionSchema,
   TaskChatReplySchema,
   TaskChatRequestSchema,
@@ -1387,17 +1386,36 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     expect(TaskChatScopeSchema.parse(scope)).toEqual(scope)
   })
 
-  it('round-trips las 4 acciones concretas', () => {
+  it('round-trips las 5 acciones concretas', () => {
     const reorder = { type: 'reorder' as const, taskIds: ['t1', 't2'] }
     const tag = { type: 'tag' as const, taskId: 't1', tags: ['urgente'] }
     const note = { type: 'note' as const, taskId: 't1', text: 'Depende de #99' }
     const highlight = { type: 'highlight' as const, taskId: 't1', reason: 'Bloquea al equipo' }
-    for (const action of [reorder, tag, note, highlight]) {
+    const group = { type: 'group' as const, groups: [{ label: 'auth', taskIds: ['t1'] }] }
+    for (const action of [reorder, tag, note, highlight, group]) {
       expect(TaskChatActionSchema.parse(action)).toEqual(action)
     }
   })
 
-  it('rechaza un type que no sea uno de los 4 conocidos', () => {
+  it('`group` con `groups: []` (proponer desagrupar) round-trips', () => {
+    const group = { type: 'group' as const, groups: [] }
+    expect(TaskChatActionSchema.parse(group)).toEqual(group)
+  })
+
+  it('`group` acepta un tema con `label`/`taskIds` vacíos — el saneo es cosa de `verify()`, no del schema', () => {
+    // Si esto rechazara, `TaskChatReplySchema.safeParse` (que corre ANTES de
+    // `verify()`) tiraría la respuesta ENTERA con un 502 ante una salida
+    // plausible del modelo — perdiendo también el `reply` de texto que sí
+    // estaba bien. Ver TaskChatUseCase.verify(), que es quien descarta esto.
+    const group = { type: 'group' as const, groups: [{ label: '', taskIds: [] }] }
+    expect(TaskChatActionSchema.parse(group)).toEqual(group)
+  })
+
+  it('`group` sin el campo `groups` defaultea a [] — el tool schema forzado sólo exige `type`', () => {
+    expect(TaskChatActionSchema.parse({ type: 'group' })).toEqual({ type: 'group', groups: [] })
+  })
+
+  it('rechaza un type que no sea uno de los 5 conocidos', () => {
     expect(
       TaskChatActionSchema.safeParse({
         type: 'set-field',
@@ -1408,8 +1426,36 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     ).toBe(false)
   })
 
-  it('reorder rechaza taskIds vacío', () => {
-    expect(TaskChatActionSchema.safeParse({ type: 'reorder', taskIds: [] }).success).toBe(false)
+  it('reorder acepta taskIds vacío — el saneo es cosa de `verify()`, mismo motivo que `group`', () => {
+    // Sin `.min(1)`: `{type:'reorder'}` sin `taskIds` es salida válida para
+    // el tool schema forzado al modelo (`required: ['type']` nomás), y si
+    // acá se rechazara el `safeParse` de la respuesta ENTERA tiraría 502.
+    expect(TaskChatActionSchema.parse({ type: 'reorder', taskIds: [] })).toEqual({
+      type: 'reorder',
+      taskIds: [],
+    })
+    expect(TaskChatActionSchema.parse({ type: 'reorder' })).toEqual({
+      type: 'reorder',
+      taskIds: [],
+    })
+  })
+
+  it('tag/note/highlight sin sus campos propios defaultean a vacío en vez de rechazar', () => {
+    expect(TaskChatActionSchema.parse({ type: 'tag' })).toEqual({
+      type: 'tag',
+      taskId: '',
+      tags: [],
+    })
+    expect(TaskChatActionSchema.parse({ type: 'note' })).toEqual({
+      type: 'note',
+      taskId: '',
+      text: '',
+    })
+    expect(TaskChatActionSchema.parse({ type: 'highlight' })).toEqual({
+      type: 'highlight',
+      taskId: '',
+      reason: '',
+    })
   })
 
   it('actions cae a [] cuando la respuesta no propone ningún cambio', () => {
@@ -1453,33 +1499,6 @@ describe('TaskChatRequestSchema', () => {
       content: 'hola',
     }))
     expect(TaskChatRequestSchema.safeParse({ ...base, history }).success).toBe(false)
-  })
-})
-
-describe('TaskAnnotationSchema', () => {
-  it('round-trips una anotación del asistente', () => {
-    const note = {
-      id: 'a1',
-      projectId: 'p1',
-      taskId: 't1',
-      text: 'Depende de que se resuelva #99 primero.',
-      origin: 'assistant' as const,
-      createdAt: '2026-09-09T12:00:00.000Z',
-    }
-    expect(TaskAnnotationSchema.parse(note)).toEqual(note)
-  })
-
-  it('rechaza text vacío', () => {
-    expect(
-      TaskAnnotationSchema.safeParse({
-        id: 'a1',
-        projectId: 'p1',
-        taskId: 't1',
-        text: '',
-        origin: 'assistant',
-        createdAt: '2026-09-09T12:00:00.000Z',
-      }).success,
-    ).toBe(false)
   })
 })
 

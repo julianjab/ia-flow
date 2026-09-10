@@ -1,4 +1,4 @@
-import { TaskAnnotationSchema, TaskChatRequestSchema } from '@ia-flow/shared'
+import { TaskChatRequestSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import {
@@ -6,7 +6,6 @@ import {
   AssistValidationError,
 } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { TaskChatUseCase } from '../application/use-cases/TaskChatUseCase.js'
-import type { ITaskAnnotationRepository } from '../domain/ports/ITaskAnnotationRepository.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('task-chat')
@@ -51,8 +50,8 @@ function isPropagatableUpstreamStatus(status: number): status is ContentfulStatu
 }
 
 /**
- * `POST /api/tasks/assistant/chat` + CRUD mínimo de anotaciones — el borde
- * HTTP de la barra de comandos de `TareasSection.vue` (ver #215/#216).
+ * `POST /api/tasks/assistant/chat` — el borde HTTP de la barra de comandos
+ * de `TareasSection.vue` (ver #215/#216).
  *
  * **Progreso en vivo.** Por el MISMO canal WS que ya usa el resto de la app
  * (`broadcastFn`) se emiten eventos `task-chat:progress`:
@@ -69,11 +68,7 @@ function isPropagatableUpstreamStatus(status: number): status is ContentfulStatu
  * de lectura), así que "detener" corta la llamada upstream de verdad, sin
  * inventar un endpoint de cancelación aparte.
  */
-export function createTaskChatRouter(
-  taskChat: TaskChatUseCase,
-  taskAnnotationRepo: ITaskAnnotationRepository,
-  broadcast: BroadcastFn,
-) {
+export function createTaskChatRouter(taskChat: TaskChatUseCase, broadcast: BroadcastFn) {
   const app = new Hono()
 
   app.post('/chat', async (c) => {
@@ -136,49 +131,6 @@ export function createTaskChatRouter(
       const { body, status } = assistErrorResponse(err)
       return c.json(body, status)
     }
-  })
-
-  // ─── Anotaciones (acción `note`) ─────────────────────────────────────────
-  //
-  // Sin use-case propio: es un passthrough de CRUD sin decisión de negocio
-  // (ver la regla "routes → repo" del CLAUDE.md de la raíz) — la única
-  // verificación que importa (el `taskId` es una tarea real) ya la hizo
-  // `TaskChatUseCase` antes de que el chip llegara al operador.
-
-  app.get('/notes', async (c) => {
-    const projectId = c.req.query('projectId')
-    const taskId = c.req.query('taskId')
-    if (!projectId || !taskId) {
-      return c.json({ error: 'projectId and taskId query params are required' }, 400)
-    }
-    const notes = await taskAnnotationRepo.listByTask(projectId, taskId)
-    return c.json({ notes })
-  })
-
-  app.post('/notes', async (c) => {
-    let json: unknown
-    try {
-      json = await c.req.json()
-    } catch {
-      return c.json({ error: 'Invalid JSON in request body' }, 400)
-    }
-    const parsed = TaskAnnotationSchema.omit({ id: true, createdAt: true }).safeParse(json)
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.issues.map((i) => i.message).join('; ') }, 400)
-    }
-    const note = await taskAnnotationRepo.create({
-      ...parsed.data,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    })
-    return c.json({ note }, 201)
-  })
-
-  app.delete('/notes/:id', async (c) => {
-    const id = c.req.param('id')
-    const ok = await taskAnnotationRepo.delete(id)
-    if (!ok) return c.json({ error: `Annotation '${id}' not found` }, 404)
-    return c.json({ ok: true })
   })
 
   return app

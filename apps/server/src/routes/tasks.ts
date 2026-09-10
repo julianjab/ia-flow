@@ -10,7 +10,6 @@ import {
   getSourceForProjectId,
   getTaskDispositionsUseCase,
   getTaskFocusUseCase,
-  getTaskGroupsUseCase,
   projectRepo,
   repoRepo,
   runMessageRepo,
@@ -191,31 +190,6 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     } catch (err) {
       log.warn({ err: (err as Error).message, projectId }, 'no se pudo calcular el foco')
       return c.json({ error: (err as Error).message, focus: null }, 502)
-    }
-  })
-
-  /**
-   * GET /api/tasks/groups?projectId=…&refresh=1
-   *
-   * El bucket `waiting-on-you` agrupado por tema, para barrer la lista sin que
-   * cuarenta filas se lean como cuarenta cosas distintas. Ver
-   * `GetTaskGroupsUseCase` — hermano de `/focus`, mismas tres respuestas.
-   *
-   * Va ANTES de las rutas con `:id`, por el mismo motivo que `dispositions` y
-   * `focus`.
-   */
-  router.get('/groups', async (c) => {
-    const projectId = c.req.query('projectId')
-    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
-    try {
-      const source = getSourceForProjectId(projectId)
-      const groups = await getTaskGroupsUseCase.execute(projectId, source, {
-        refresh: c.req.query('refresh') === '1',
-      })
-      return c.json({ groups })
-    } catch (err) {
-      log.warn({ err: (err as Error).message, projectId }, 'no se pudieron calcular los grupos')
-      return c.json({ error: (err as Error).message, groups: null }, 502)
     }
   })
 
@@ -528,6 +502,9 @@ export function createReposRouter() {
   // single-tenant callers keep working.
   router.get('/mappings', (c) => {
     const projectId = c.req.query('projectId') ?? projectRepo.getDefaultId()
+    // Sin projectId explícito y sin proyecto default (deploy sin proyectos
+    // todavía) no hay nada que listar — lista vacía, no 500.
+    if (!projectId) return c.json({ mappings: [] })
     const mappings = repoRepo.listByProject(projectId)
     return c.json({ mappings })
   })
@@ -545,6 +522,9 @@ export function createReposRouter() {
       const messages = SlackReviewMessageSchema.optional().safeParse(body.slackReviewMessage)
       if (!messages.success) return c.json({ error: 'slackReviewMessage inválido' }, 400)
       const projectId = body.projectId ?? projectRepo.getDefaultId()
+      // Sin projectId explícito y sin proyecto default no hay dónde
+      // guardar el mapping — es un dato que le faltó al caller, no un 500.
+      if (!projectId) return c.json({ error: 'projectId is required (no default project)' }, 400)
       repoRepo.upsert({
         name: body.name.trim(),
         projectId,
@@ -567,6 +547,9 @@ export function createReposRouter() {
   router.delete('/mappings/:name', (c) => {
     const name = c.req.param('name')
     const projectId = c.req.query('projectId') ?? projectRepo.getDefaultId()
+    // Sin projectId explícito y sin proyecto default no hay ningún mapping
+    // que pudiera existir para borrar — no-op exitoso, no un 500.
+    if (!projectId) return c.json({ ok: true })
     repoRepo.deleteByProject(name, projectId)
     return c.json({ ok: true })
   })

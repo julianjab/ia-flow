@@ -51,15 +51,14 @@ export class YamlProjectRepository implements IProjectRepository {
     this.projects = typeof source === 'string' ? readProjects(source) : [...source]
   }
 
-  getDefaultId(): string {
+  getDefaultId(): string | null {
     // SqliteProjectRepository picks the oldest non-archived project by
     // created_at; a static file has no timestamp column to sort by, so the
-    // declared array order stands in for "oldest first".
+    // declared array order stands in for "oldest first". No projects declared
+    // is a valid (if unusual) deploy config — return null like the SQLite
+    // repo does, instead of throwing.
     const first = this.projects.find((p) => p.archivedAt == null)
-    if (!first) {
-      throw new Error('YamlProjectRepository: no hay ningún proyecto no archivado en el YAML')
-    }
-    return first.id
+    return first?.id ?? null
   }
 
   list(includeArchived = false): Project[] {

@@ -81,7 +81,6 @@ import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMes
 import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
 import { GetTaskDispositionsUseCase } from '../application/use-cases/GetTaskDispositionsUseCase.js'
 import { GetTaskFocusUseCase } from '../application/use-cases/GetTaskFocusUseCase.js'
-import { GetTaskGroupsUseCase } from '../application/use-cases/GetTaskGroupsUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
@@ -105,7 +104,6 @@ import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepositor
 import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
-import type { ITaskAnnotationRepository } from '../domain/ports/ITaskAnnotationRepository.js'
 import type { IToolRepository } from '../domain/ports/IToolRepository.js'
 import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
 import {
@@ -138,7 +136,6 @@ import {
   SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
-  SqliteTaskAnnotationRepository,
   SqliteToolRepository,
   SqliteWaitRepository,
   YamlAgentMemoryRepository,
@@ -395,7 +392,6 @@ export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
 // headless las crea y las consume igual — lo que no tiene es un archivo donde
 // declararlas, porque no tendría sentido.
 export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
-export const taskAnnotationRepo: ITaskAnnotationRepository = new SqliteTaskAnnotationRepository(db)
 
 // Sin variante YAML, mismo motivo que arriba: qué system prompts usa un
 // caller ad-hoc (`task-chat`, `repo-description`) es config del operador que
@@ -1076,15 +1072,6 @@ export const getTaskFocusUseCase = new GetTaskFocusUseCase({
   // Por llamada y no capturado: `envRepo.loadIntoProcess()` vuelca lo que el
   // operador guardó en SQLite DESPUÉS de que este módulo se evaluó.
   enabled: () => Bun.env.IA_FLOW_TASK_FOCUS !== '0',
-})
-
-// Los grupos por tema (GET /api/tasks/groups). Hermano de arriba: mismo
-// completion, mismas disposiciones, interruptor propio porque es una llamada
-// de Haiku distinta y más cara (todo el bucket, no un top-3).
-export const getTaskGroupsUseCase = new GetTaskGroupsUseCase({
-  completion: structuredCompletion,
-  loadDispositions: (projectId, source) => getTaskDispositionsUseCase.execute(projectId, source),
-  enabled: () => Bun.env.IA_FLOW_TASK_GROUPS !== '0',
 })
 
 export const runTaskNowUseCase = new RunTaskNowUseCase(

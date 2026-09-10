@@ -124,7 +124,10 @@ function buildAgentContextBlock(input: {
 // ─── Use Case ──────────────────────────────────────────────────────────────
 
 interface AssistContext {
-  resolvedProjectId: string
+  // null cuando el caller no mandó projectId Y no hay proyecto default
+  // (deploy sin proyectos todavía) — availablePrompts cae a los prompts
+  // globales en vez de crashear.
+  resolvedProjectId: string | null
   availablePrompts: SystemPromptDef[]
   normalizedVars: Array<{ key: string; value: string }>
   resolvedAgentSysprompts: SystemPromptDef[]
@@ -246,7 +249,13 @@ export class AssistWithAiUseCase {
   private buildContext(input: AssistInput, requestId: string): AssistContext {
     const { agentVariables, agentSystemPromptIds, systemPromptIds, projectId } = input
     const resolvedProjectId = projectId ?? this.projectRepo.getDefaultId()
-    const availablePrompts = this.systemPromptRepo.visibleTo(resolvedProjectId)
+    // Sin proyecto (ni explícito ni default), `visibleTo` no tiene contra qué
+    // scopear — cae a los prompts globales (`project_id IS NULL`), igual que
+    // SqliteProjectConfigRepo.getConfig trata scope=null.
+    const availablePrompts =
+      resolvedProjectId === null
+        ? this.systemPromptRepo.inScope(null)
+        : this.systemPromptRepo.visibleTo(resolvedProjectId)
     const normalizedVars = normalizeAgentVariables(agentVariables)
     const resolvedAgentSysprompts = (agentSystemPromptIds ?? [])
       .map((id) => availablePrompts.find((sp) => sp.id === id))

@@ -25,15 +25,23 @@ const migration: Migration = {
     const cols = db.query('PRAGMA table_info(repos)').all() as { name: string }[]
     if (cols.some((c) => c.name === 'project_id')) return
 
+    // Sólo hace falta un proyecto real si HAY repos que reparentar — 005 ya
+    // no siembra un proyecto default (ver esa migración), así que una DB
+    // nueva llega acá con `projects` vacía Y `repos` vacía: el INSERT de
+    // abajo copia cero filas y el valor de `backfillId` nunca se usa.
+    const repoCount = (db.query('SELECT COUNT(*) AS c FROM repos').get() as { c: number }).c
     const target = db.query('SELECT id FROM projects ORDER BY created_at ASC LIMIT 1').get() as {
       id: string
     } | null
-    if (!target) {
+    if (repoCount > 0 && !target) {
       throw new Error(
-        'Cannot run 011-repos-per-project: no rows in `projects`. Migration 005 seeds a default; ensure it ran.',
+        'Cannot run 011-repos-per-project: hay repos para reparentar pero `projects` está ' +
+          'vacía. Insertá un proyecto a mano antes de reintentar, ej.: ' +
+          `INSERT INTO projects (id, name, settings, created_at, updated_at) VALUES ` +
+          `('mi-proyecto', 'Mi proyecto', '{}', datetime('now'), datetime('now'));`,
       )
     }
-    const backfillId = target.id
+    const backfillId = target?.id ?? ''
 
     db.run(`
       CREATE TABLE repos_new (

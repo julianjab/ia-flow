@@ -15,7 +15,6 @@ import {
   assistCallerConfigRepo,
   assistWithAiUseCase,
   systemPromptRepo,
-  taskAnnotationRepo,
   taskChatUseCase,
 } from '../composition/container.js'
 import { createActionsRouter } from './actions.js'
@@ -66,10 +65,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/tools', createToolsRouter())
   app.route('/api/mcp', createMcpRouter())
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
-  app.route(
-    '/api/tasks/assistant',
-    createTaskChatRouter(taskChatUseCase, taskAnnotationRepo, broadcastFn),
-  )
+  app.route('/api/tasks/assistant', createTaskChatRouter(taskChatUseCase, broadcastFn))
   app.route('/api/agents-crud', createAgentsCrudRouter())
   app.route(
     '/api/assist-configs',

@@ -48,6 +48,34 @@ function collectTaskIds(resultText: string, into: Set<string>): void {
   }
 }
 
+/**
+ * Saca del `actions` crudo cualquier `{type:'group'}` que NO traiga la
+ * clave `groups` puesta — antes de que Zod la rellene con `.default([])`.
+ *
+ * `groups: []` (la clave SÍ está, vacía) es una propuesta explícita de
+ * "desagrupar" — `verifyGroup` la deja pasar tal cual. Si en cambio la clave
+ * falta del todo (el modelo se olvidó o truncó), el default de Zod la
+ * volvería `[]` igual, y las dos intenciones —"desagrupar a propósito" y
+ * "no dije nada de esto"— quedarían indistinguibles del otro lado: un
+ * `setTaskGroupPref` borraría el agrupamiento que el operador ya tenía
+ * aplicado sin que nadie lo haya pedido. Filtrar ACÁ, sobre el JSON crudo
+ * (antes del `safeParse`), es lo único que puede ver esa diferencia — una
+ * vez que pasa por Zod, "ausente" y "`[]`" ya son el mismo valor.
+ */
+function dropOmittedGroupsAction(fields: Record<string, unknown> | undefined): unknown {
+  if (!fields || !Array.isArray(fields.actions)) return fields
+  const actions = fields.actions.filter(
+    (a) =>
+      !(
+        a &&
+        typeof a === 'object' &&
+        (a as { type?: unknown }).type === 'group' &&
+        !('groups' in a)
+      ),
+  )
+  return { ...fields, actions }
+}
+
 // El JSON Schema que se le fuerza al modelo en modo `fill_form` — espejo
 // manual de `TaskChatReplySchema` (packages/shared). No se deriva con
 // zod-to-json-schema: el resto del repo (`AiAssistPanel.vue`) ya arma estos
@@ -81,7 +109,7 @@ const TASK_CHAT_RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          type: { type: 'string', enum: ['reorder', 'tag', 'note', 'highlight'] },
+          type: { type: 'string', enum: ['reorder', 'tag', 'note', 'highlight', 'group'] },
           taskIds: {
             type: 'array',
             items: { type: 'string' },
@@ -106,6 +134,19 @@ const TASK_CHAT_RESPONSE_SCHEMA = {
           reason: {
             type: 'string',
             description: 'Sólo para type="highlight" — por qué se resalta.',
+          },
+          groups: {
+            type: 'array',
+            description:
+              'Sólo para type="group" — los grupos por tema que VOS armaste a partir de "Tareas visibles" (títulos/status), cada uno con su `label` y los `taskIds` EXACTOS que le corresponden. Vacío ([]) para proponer "desagrupar". No lleva taskId propio: es de proyecto, no de una tarea puntual.',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', description: 'Nombre corto del tema (2-4 palabras).' },
+                taskIds: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['label', 'taskIds'],
+            },
           },
         },
         required: ['type'],
@@ -153,6 +194,11 @@ const TASK_CHAT_FALLBACK_SYSTEM_PROMPT = [
   '- tag: añade tags a una tarea (`taskId`, `tags`) sin reemplazar las que ya tiene.',
   '- note: deja una anotación sobre una tarea (`taskId`, `text`).',
   '- highlight: resalta una tarea con un motivo, sólo para esta sesión (`taskId`, `reason`).',
+  '- group: cuando te pidan agrupar las tareas por tema (ej. "agrupame los issues por tópico"),',
+  '  armá VOS los grupos a partir de "Tareas visibles" (`groups`: una lista de {label, taskIds}).',
+  '  Es de proyecto entero, no una tarea puntual — no lleva `taskId`. `groups: []` propone',
+  '  desagrupar. SÓLO incluí ids de tareas con `disposition: "waiting-on-you"` — agrupar una',
+  '  tarea con otra disposición no tiene ningún efecto visible en la lista.',
   'Usá siempre el `id` EXACTO que viene en "Tareas visibles" o en el resultado de una tool. Si no',
   'hay ningún cambio que proponer, `actions` va vacío.',
 ].join('\n')
@@ -212,12 +258,12 @@ function buildTaskChatPrompt(body: {
  * ver `AssistWithAiUseCase.runFormFill`, que es quien de verdad ejecuta el
  * loop de tool calls.
  *
- * Las 4 acciones son STAGED — ninguna se aplica acá. `reorder`/`highlight`
- * quedan del lado del cliente (`localStorage`/estado de sesión), y `tag`/
- * `note` recién mutan cuando el operador presiona "Aplicar": `tag` vía
- * `setProjectItemField` y `note` vía `POST /api/tasks/assistant/notes`
- * (`ITaskAnnotationRepository`, ver `routes/task-chat.ts`) — ninguna de las
- * dos pasa por este use-case.
+ * Las 5 acciones son STAGED — ninguna se aplica acá, y ninguna toca el
+ * server: las 5 quedan del lado del cliente (`localStorage`/estado de
+ * sesión) recién cuando el operador presiona "Aplicar" — `tag` vía
+ * `taskTagPref.ts`, `note` vía `taskNotePref.ts`, `reorder` vía
+ * `taskOrderPref.ts`, `group` vía `taskGroupPref.ts` y `highlight` en el
+ * store — así que ninguna pasa por este use-case.
  */
 export class TaskChatUseCase {
   constructor(
@@ -262,29 +308,89 @@ export class TaskChatUseCase {
     }))
   }
 
+  /** `reorder` — orden de vista propuesto, filtrado a ids conocidos. `null`
+   *  si no queda ninguno (el `.filter` de arriba dejó la lista vacía). */
+  private verifyReorder(
+    action: TaskChatAction & { type: 'reorder' },
+    knownIds: Set<string>,
+  ): TaskChatAction | null {
+    const taskIds = action.taskIds.filter((id) => knownIds.has(id))
+    return taskIds.length ? { ...action, taskIds } : null
+  }
+
+  /** `tag`/`note`/`highlight` comparten la misma forma de veredicto: un
+   *  `taskId` conocido (`''`, el default cuando el modelo omite el campo,
+   *  nunca matchea `knownIds`, así que ya queda cubierto sin chequeo aparte)
+   *  MÁS el campo que le da sentido a la acción, no vacío — mismo motivo
+   *  que `group` descarta un tema sin miembros. */
+  private verifyTaskField<T extends { taskId: string }>(
+    action: T,
+    knownIds: Set<string>,
+    hasContent: (a: T) => boolean,
+  ): T | null {
+    return knownIds.has(action.taskId) && hasContent(action) ? action : null
+  }
+
+  /** `group` — `groups: []` es una propuesta explícita de "desagrupar" y pasa
+   *  tal cual, no hay nada que filtrar. Si trae grupos, cada uno se filtra
+   *  contra `knownIds` Y `waitingOnYouIds` (el modelo los arma él mismo, así
+   *  que puede alucinar un id, o agrupar una tarea de un bucket donde
+   *  `bucketSections` no dibuja ningún grupo) y se descarta si queda vacío;
+   *  si eso deja la lista entera vacía, se descarta la ACCIÓN completa en
+   *  vez de aplicarla como si fuera un "desagrupar" que nadie pidió. */
+  private verifyGroup(
+    action: TaskChatAction & { type: 'group' },
+    knownIds: Set<string>,
+    waitingOnYouIds: Set<string>,
+  ): TaskChatAction | null {
+    if (!action.groups.length) return action
+    const groups = action.groups
+      .map((g) => ({
+        ...g,
+        taskIds: g.taskIds.filter((id) => knownIds.has(id) && waitingOnYouIds.has(id)),
+      }))
+      .filter((g) => g.label.trim().length > 0 && g.taskIds.length > 0)
+    return groups.length ? { ...action, groups } : null
+  }
+
   /** Descarta `scope`/acciones que referencien un `taskId` fuera del
-   *  conjunto que el propio request mandó — ver el comentario de la clase. */
-  private verify(reply: TaskChatReply, knownIds: Set<string>): TaskChatReply {
+   *  conjunto que el propio request mandó — ver el comentario de la clase.
+   *
+   *  `waitingOnYouIds` es aparte de `knownIds`: sólo se usa para `group`,
+   *  porque `bucketSections` (`TareasSection.vue`) sólo dibuja grupos dentro
+   *  del bucket `waiting-on-you` — un id conocido pero de otro bucket es un
+   *  id válido para `tag`/`note`/`highlight`/`reorder`, pero agruparlo no
+   *  tendría ningún efecto visible (localStorage se actualiza, la lista
+   *  queda igual, y el toast diría "aplicado" sobre nada). */
+  private verify(
+    reply: TaskChatReply,
+    knownIds: Set<string>,
+    waitingOnYouIds: Set<string>,
+  ): TaskChatReply {
     const scope =
       reply.scope.type === 'task' && !knownIds.has(reply.scope.taskId)
         ? ({ type: 'project' } as const)
         : reply.scope
 
     const actions = reply.actions.reduce<TaskChatAction[]>((out, action) => {
-      switch (action.type) {
-        case 'reorder': {
-          const taskIds = action.taskIds.filter((id) => knownIds.has(id))
-          if (taskIds.length) out.push({ ...action, taskIds })
-          return out
+      const verified: TaskChatAction | null = (() => {
+        switch (action.type) {
+          case 'reorder':
+            return this.verifyReorder(action, knownIds)
+          case 'tag':
+            return this.verifyTaskField(action, knownIds, (a) => a.tags.length > 0)
+          case 'note':
+            return this.verifyTaskField(action, knownIds, (a) => a.text.trim().length > 0)
+          case 'highlight':
+            return this.verifyTaskField(action, knownIds, (a) => a.reason.trim().length > 0)
+          case 'group':
+            return this.verifyGroup(action, knownIds, waitingOnYouIds)
+          default:
+            return null
         }
-        case 'tag':
-        case 'note':
-        case 'highlight':
-          if (knownIds.has(action.taskId)) out.push(action)
-          return out
-        default:
-          return out
-      }
+      })()
+      if (verified) out.push(verified)
+      return out
     }, [])
 
     return { reply: reply.reply, scope, actions }
@@ -296,6 +402,11 @@ export class TaskChatUseCase {
   ): Promise<TaskChatReply> {
     const { projectId, message, history, tasks } = input
     const knownIds = new Set(tasks.map((t) => t.id))
+    // Sólo de `tasks` (el recorte visible) — un id que un tool descubrió a
+    // mitad de turno no trae `disposition` confiable, así que no cuenta acá.
+    const waitingOnYouIds = new Set(
+      tasks.filter((t) => t.disposition === 'waiting-on-you').map((t) => t.id),
+    )
     const discoveredIds = new Set<string>()
 
     const result = await this.assistWithAi.execute({
@@ -309,7 +420,7 @@ export class TaskChatUseCase {
       signal: opts.signal,
     })
 
-    const parsed = TaskChatReplySchema.safeParse(result.fields)
+    const parsed = TaskChatReplySchema.safeParse(dropOmittedGroupsAction(result.fields))
     if (!parsed.success) {
       throw new AssistUpstreamError(
         'El asistente no devolvió una respuesta con el formato esperado.',
@@ -318,6 +429,6 @@ export class TaskChatUseCase {
     }
 
     for (const id of discoveredIds) knownIds.add(id)
-    return this.verify(parsed.data, knownIds)
+    return this.verify(parsed.data, knownIds, waitingOnYouIds)
   }
 }

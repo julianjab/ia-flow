@@ -12,8 +12,6 @@ import {
   TaskDispositionEntryArraySchema,
   type TaskFocus,
   TaskFocusSchema,
-  type TaskGroups,
-  TaskGroupsSchema,
   type TaskRunPreview,
   TaskRunPreviewSchema,
   type TaskRunSummary,
@@ -149,20 +147,6 @@ export async function fetchTaskFocus(
     params: { projectId, ...(opts.refresh ? { refresh: '1' } : {}) },
   })
   return data.focus ? TaskFocusSchema.parse(data.focus) : null
-}
-
-/**
- * Los grupos por tema del bucket `waiting-on-you` — hermano de
- * `fetchTaskFocus`, misma semántica de `null`/error.
- */
-export async function fetchTaskGroups(
-  projectId: string,
-  opts: { refresh?: boolean } = {},
-): Promise<TaskGroups | null> {
-  const { data } = await axios.get<{ groups: unknown }>('/api/tasks/groups', {
-    params: { projectId, ...(opts.refresh ? { refresh: '1' } : {}) },
-  })
-  return data.groups ? TaskGroupsSchema.parse(data.groups) : null
 }
 
 /** El tope que declara la ruta (`MAX_BLOCKER_IDS` en project-source.ts). */

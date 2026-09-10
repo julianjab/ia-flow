@@ -22,7 +22,10 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
   // Legacy: provider config used to own repoMappings globally. We now scope
   // repos per-project, but keep `repoMappings` in the returned config for
   // back-compat with the providers UI. It reflects the default project only.
-  const repoMappings = repoRepo.toMapping(projectRepo.getDefaultId())
+  // A fresh deploy with zero projects has no default to reflect — {} is the
+  // correct answer, not a crash.
+  const defaultProjectId = projectRepo.getDefaultId()
+  const repoMappings = defaultProjectId ? repoRepo.toMapping(defaultProjectId) : {}
   const saved = promptRepo.getProviderConfigBlob() ?? {}
   return {
     steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? {}) },
@@ -44,10 +47,13 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
 
 export async function saveProviderConfig(config: ProviderConfig): Promise<void> {
   const { projectRepo, promptRepo, repoRepo } = await import('../composition/container.js')
-  if (config.repoMappings) {
+  if (config.repoMappings && Object.keys(config.repoMappings).length > 0) {
     // Writes go to the default project; the projects UI is the source of
-    // truth for scoped edits.
-    repoRepo.bulkSet(config.repoMappings, projectRepo.getDefaultId())
+    // truth for scoped edits. No default project yet (zero-project deploy)
+    // means there's nowhere to write these — drop them rather than crash;
+    // the rest of the config (steps, anthropicApi, ...) still saves.
+    const defaultProjectId = projectRepo.getDefaultId()
+    if (defaultProjectId) repoRepo.bulkSet(config.repoMappings, defaultProjectId)
   }
   const { repoMappings: _ignored, ...rest } = config
   promptRepo.setProviderConfigBlob(rest as Record<string, unknown>)

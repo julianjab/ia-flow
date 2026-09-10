@@ -24,18 +24,24 @@ function mountBar() {
 }
 
 describe('TaskCommandBar', () => {
-  it('arranca con 3 sugerencias tappeables cuando no hay historial', () => {
+  it('arranca colapsada — el toggle de "Preguntas rápidas" no muestra la lista hasta tocarlo', async () => {
     const w = mountBar()
-    expect(w.findAll('.command-suggestion')).toHaveLength(3)
+    expect(w.find('[data-testid="chat-suggestions-toggle"]').exists()).toBe(true)
+    expect(w.findAll('.command-suggestion')).toHaveLength(0)
+
+    await w.find('[data-testid="chat-suggestions-toggle"]').trigger('click')
+    expect(w.findAll('.command-suggestion')).toHaveLength(4)
   })
 
-  it('tocar una sugerencia la envía como primer mensaje', async () => {
+  it('tocar una sugerencia la envía como primer mensaje y colapsa la lista', async () => {
     sendTaskChatMessage.mockResolvedValue({ reply: 'ok', scope: { type: 'project' }, actions: [] })
     const w = mountBar()
+    await w.find('[data-testid="chat-suggestions-toggle"]').trigger('click')
     await w.find('.command-suggestion').trigger('click')
     await flushPromises()
     expect(sendTaskChatMessage).toHaveBeenCalledTimes(1)
     expect(sendTaskChatMessage.mock.calls[0]?.[0]?.projectId).toBe('p1')
+    expect(w.findAll('.command-suggestion')).toHaveLength(0)
   })
 
   it('enviar por el input y ver la respuesta de scope proyecto', async () => {

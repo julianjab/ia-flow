@@ -27,12 +27,11 @@ function rowToProject(row: Record<string, unknown>): Project {
 export class SqliteProjectRepository implements IProjectRepository {
   constructor(private db: Database) {}
 
-  getDefaultId(): string {
+  getDefaultId(): string | null {
     const row = this.db
       .query('SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at ASC LIMIT 1')
       .get() as { id: string } | null
-    if (!row) throw new Error('No project exists — migration 005 must run before DB access')
-    return row.id
+    return row?.id ?? null
   }
 
   list(includeArchived = false): Project[] {

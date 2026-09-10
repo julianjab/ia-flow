@@ -59,21 +59,12 @@ vi.mock('@/features/projects/sourceApi', () => ({
 }))
 // La barra de comandos vive detrás de su propio api — sin mockearlo, montar
 // TareasSection saldría a la red de verdad.
-const createTaskAnnotation = vi.fn(async () => ({
-  id: 'a1',
-  projectId: 'p1',
-  taskId: 'I_1',
-  text: 'nota',
-  origin: 'assistant' as const,
-  createdAt: '2026-09-09T00:00:00.000Z',
-}))
 vi.mock('@/features/tasks/chatApi', () => ({
   sendTaskChatMessage: vi.fn(async () => ({
     reply: 'ok',
     scope: { type: 'project' },
     actions: [],
   })),
-  createTaskAnnotation: (...args: unknown[]) => createTaskAnnotation(...(args as [])),
 }))
 
 // El componente lee los filtros de la query y los escribe con `replace`; el
@@ -764,7 +755,7 @@ describe('TareasSection — asistente de tareas', () => {
     expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
   })
 
-  it('aplicar `tag` llama a setProjectItemField con +labels y refresca la lista', async () => {
+  it('aplicar `tag` guarda la preferencia en localStorage, no en el server', async () => {
     const w = await mountWith([githubItem({})])
     await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
     setProjectItemField.mockClear()
@@ -775,14 +766,41 @@ describe('TareasSection — asistente de tareas', () => {
     ])
     await flushPromises()
 
-    expect(setProjectItemField).toHaveBeenCalledWith('p1', 'I_1', 'Labels', '+urgente,+backend')
-    expect(fetchProjectItemsMock.mock.calls.length).toBeGreaterThan(callsBefore)
+    expect(JSON.parse(localStorage.getItem('ia-flow:taskTagPref:p1') ?? '{}')).toEqual({
+      I_1: ['urgente', 'backend'],
+    })
+    expect(setProjectItemField).not.toHaveBeenCalled()
+    expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
   })
 
-  it('aplicar `note` llama a createTaskAnnotation y NO refresca la lista (no toca el source)', async () => {
+  it('aplicar `tag` se refleja al toque en lo que ve el asistente — sin cambiar de proyecto ni recargar', async () => {
     const w = await mountWith([githubItem({})])
     await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    createTaskAnnotation.mockClear()
+
+    const tasksBefore = w.findComponent(TaskCommandBar).props('tasks') as {
+      id: string
+      tags: string[]
+    }[]
+    expect(tasksBefore.find((t) => t.id === 'I_1')?.tags).toEqual([])
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'tag', taskId: 'I_1', tags: ['urgente'] },
+    ])
+    await flushPromises()
+
+    // Antes del fix, `chatTasksContext` leía `localStorage` directo dentro
+    // del computed y quedaba cacheado — el asistente seguía viendo `tags: []`
+    // hasta que OTRA dependencia reactiva lo invalidara.
+    const tasksAfter = w.findComponent(TaskCommandBar).props('tasks') as {
+      id: string
+      tags: string[]
+    }[]
+    expect(tasksAfter.find((t) => t.id === 'I_1')?.tags).toEqual(['urgente'])
+  })
+
+  it('aplicar `note` guarda la preferencia en localStorage, no en el server', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
     const callsBefore = fetchProjectItemsMock.mock.calls.length
 
     w.findComponent(TaskCommandBar).vm.$emit('apply', [
@@ -790,12 +808,8 @@ describe('TareasSection — asistente de tareas', () => {
     ])
     await flushPromises()
 
-    expect(createTaskAnnotation).toHaveBeenCalledWith({
-      projectId: 'p1',
-      taskId: 'I_1',
-      text: 'Depende de #99',
-      origin: 'assistant',
-    })
+    const stored = JSON.parse(localStorage.getItem('ia-flow:taskNotePref:p1') ?? '{}')
+    expect(stored.I_1?.map((n: { text: string }) => n.text)).toEqual(['Depende de #99'])
     expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
   })
 
@@ -849,14 +863,35 @@ describe('TareasSection — asistente de tareas', () => {
     expect(setProjectItemField).not.toHaveBeenCalled()
   })
 
-  it('una acción que falla no bloquea la refresca ni tira un error sin manejar', async () => {
+  it('aplicar `group` guarda los grupos en localStorage, no en el server', async () => {
     const w = await mountWith([githubItem({})])
     await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    setProjectItemField.mockRejectedValueOnce(new Error('boom'))
+    setProjectItemField.mockClear()
 
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'tag', taskId: 'I_1', tags: ['x'] }])
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'group', groups: [{ label: 'auth', taskIds: ['I_1'] }] },
+    ])
     await flushPromises()
 
-    expect(toastError).toHaveBeenCalled()
+    expect(JSON.parse(localStorage.getItem('ia-flow:taskGroupPref:p1') ?? '{}')).toEqual({
+      groups: [{ label: 'auth', taskIds: ['I_1'] }],
+    })
+    expect(setProjectItemField).not.toHaveBeenCalled()
+  })
+
+  it('aplicar `group` con `groups: []` borra la preferencia (desagrupar)', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'group', groups: [{ label: 'auth', taskIds: ['I_1'] }] },
+    ])
+    await flushPromises()
+    expect(localStorage.getItem('ia-flow:taskGroupPref:p1')).not.toBeNull()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'group', groups: [] }])
+    await flushPromises()
+
+    expect(localStorage.getItem('ia-flow:taskGroupPref:p1')).toBeNull()
   })
 })

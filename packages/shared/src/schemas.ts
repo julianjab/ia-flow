@@ -1775,25 +1775,6 @@ export const FOCUS_WHY_MAX = 90
  *  lista deja de ser algo que un humano vaya a mirar entera. */
 export const FOCUS_MAX_CANDIDATES = 15
 
-// ─── Grupos por tema (GET /api/tasks/groups) ──────────────────────────────
-//
-// Hermano de FOCO, no el mismo dato: FOCO es una tarjeta advisory de 2-3 picks
-// sobre un recorte chico del bucket. Esto cubre el bucket `waiting-on-you`
-// ENTERO, para que el barrido de la lista lea temas juntos en vez de 40 filas
-// sueltas. Tampoco reordena — ver `TareasSection.vue` y `task-grouping.ts`:
-// los grupos se ubican en la posición de su integrante mejor ubicado dentro
-// del orden que `compareWithinBucket` ya calculó.
-export const TaskGroupsSchema = z.object({
-  groups: z.array(TaskFocusClusterSchema),
-  computedAt: z.string(),
-})
-export type TaskGroups = z.infer<typeof TaskGroupsSchema>
-
-/** Tope de candidatos: más que esto y las tareas que sobran quedan sueltas
- *  (sin agrupar), no sin mostrarse. */
-export const TASK_GROUPS_MAX_CANDIDATES = 60
-export const TASK_GROUPS_MAX_GROUPS = 10
-
 // ─── Execution stats (GET /api/executions/stats) ──────────────────────────
 // Aggregate health per agent over a time window. Computed in SQL rather than
 // derived in the browser from a page of rows: the interesting windows (a
@@ -2344,28 +2325,74 @@ export const TaskChatScopeSchema = z.discriminatedUnion('type', [
 export type TaskChatScope = z.infer<typeof TaskChatScopeSchema>
 
 /**
- * Las 4 acciones concretas que el asistente puede proponer — ya no un
+ * Las 5 acciones concretas que el asistente puede proponer — ya no un
  * `set-field` genérico. `type` es discriminante: el chip y "Aplicar" ramifican
  * por él sin adivinar la forma del resto del objeto.
  *
- * Persistencia por tipo (decisión de diseño, no releer — ver #215):
- * - `reorder`: preferencia de VISTA, sólo `localStorage`, nunca toca el orden
- *   real que calcula `GetTaskDispositionsUseCase`.
- * - `tag`: escribe de verdad — reusa `setProjectItemField(..., 'Labels', ...)`,
- *   el mismo mecanismo que ya usa la tool `set_task_labels`.
- * - `note`: tabla nueva (`task_annotations`), editable/borrable por el
- *   usuario — NO es un comentario de GitHub.
+ * Ninguna toca el server — son propuestas de un modelo sin revisión humana,
+ * así que las 5 son preferencia de vista, sólo `localStorage`/estado de
+ * sesión (decisión de diseño, no releer — ver #215):
+ * - `reorder`: nunca toca el orden real que calcula `GetTaskDispositionsUseCase`.
+ * - `tag`: `taskTagPref.ts` — nunca pisa el campo `Labels` real del board.
+ * - `note`: `taskNotePref.ts` — NO es un comentario de GitHub.
  * - `highlight`: dura la sesión, estado de cliente únicamente.
+ * - `group`: `taskGroupPref.ts` — el modelo arma los grupos por tema, scope
+ *   de PROYECTO, no de una tarea — como `reorder`, no lleva `taskId`.
+ *
+ * **Ningún campo lleva `.min(1)`/requerido de verdad**, aunque semánticamente
+ * lo sea (un `tag` sin `taskId` no tiene a quién aplicarse). El tool schema
+ * forzado al modelo (`TASK_CHAT_RESPONSE_SCHEMA` en `TaskChatUseCase.ts`)
+ * sólo exige `required: ['type']` — es deliberadamente laxo para no
+ * sobre-restringir al modelo — así que un `{type:'tag'}` sin `taskId` es
+ * salida VÁLIDA para esa API. Si acá se exigiera `taskId`, ese único item
+ * mal formado tiraría el `safeParse` de la respuesta ENTERA con un 502
+ * (`TaskChatUseCase.execute`, ANTES de `verify()`), perdiendo también el
+ * `reply` de texto que sí estaba bien. Cada campo tiene un default inerte
+ * (`''`/`[]`) que nunca matchea nada real, y es `verify()` quien descarta el
+ * item entero cuando el campo que le da sentido quedó vacío — mismo patrón
+ * que ya usa `group` con los temas sin miembros.
  */
 export const TaskChatActionSchema = z.discriminatedUnion('type', [
   /** Reordena la vista — no la lista real. `taskIds` en el orden propuesto. */
-  z.object({ type: z.literal('reorder'), taskIds: z.array(z.string()).min(1) }),
+  z.object({ type: z.literal('reorder'), taskIds: z.array(z.string()).default([]) }),
   /** Tags a añadir a `taskId` (no reemplaza las que ya tiene). */
-  z.object({ type: z.literal('tag'), taskId: z.string(), tags: z.array(z.string()).min(1) }),
-  /** Anotación nueva sobre `taskId` — persiste en `task_annotations`. */
-  z.object({ type: z.literal('note'), taskId: z.string(), text: z.string().min(1) }),
+  z.object({
+    type: z.literal('tag'),
+    taskId: z.string().default(''),
+    tags: z.array(z.string()).default([]),
+  }),
+  /** Anotación nueva sobre `taskId` — vista local, ver `taskNotePref.ts`. */
+  z.object({
+    type: z.literal('note'),
+    taskId: z.string().default(''),
+    text: z.string().default(''),
+  }),
   /** Resalta `taskId` con un motivo — sólo estado de cliente, de sesión. */
-  z.object({ type: z.literal('highlight'), taskId: z.string(), reason: z.string().min(1) }),
+  z.object({
+    type: z.literal('highlight'),
+    taskId: z.string().default(''),
+    reason: z.string().default(''),
+  }),
+  /**
+   * Agrupa por tema la vista — scope de proyecto, no una tarea puntual. El
+   * MODELO arma los grupos (con el mismo contexto de tareas que ya tiene
+   * para contestar), no un cómputo de Haiku aparte del lado del server.
+   * `groups: []` es la forma de proponer "desagrupar".
+   */
+  z.object({
+    type: z.literal('group'),
+    // Sin `.min(1)` en `label`/`taskIds`: un tema vacío o sin miembros es una
+    // salida plausible del modelo, y `TaskChatUseCase.verify()` ya sabe
+    // descartarlo — exigirlo acá haría que el `safeParse` completo (que
+    // corre ANTES de `verify()`) rechace la respuesta entera con un 502,
+    // perdiendo también el `reply` de texto que sí estaba bien.
+    //
+    // `.default([])`: el JSON Schema forzado al modelo (`TASK_CHAT_RESPONSE_
+    // SCHEMA`) sólo exige `required: ['type']` — un `{type:'group'}` sin
+    // `groups` es salida válida para esa API, y sin el default acá Zod la
+    // rechazaría igual (mismo 502 que el comentario de arriba evita).
+    groups: z.array(z.object({ label: z.string(), taskIds: z.array(z.string()) })).default([]),
+  }),
 ])
 export type TaskChatAction = z.infer<typeof TaskChatActionSchema>
 
@@ -2422,21 +2449,3 @@ export const TaskChatRequestSchema = z.object({
   tasks: z.array(TaskChatTaskContextSchema).max(TASK_CHAT_MAX_TASKS),
 })
 export type TaskChatRequest = z.infer<typeof TaskChatRequestSchema>
-
-// ─── Anotaciones de tareas (acción `note` del asistente) ──────────────────
-//
-// NO es un comentario de GitHub — es un dato propio de ia-flow, editable y
-// borrable desde acá, con timestamp y marca de origen. Vive en la tabla
-// `task_annotations` (migración 074).
-
-export const TaskAnnotationSchema = z.object({
-  id: z.string(),
-  projectId: z.string(),
-  taskId: z.string(),
-  text: z.string().min(1),
-  /** Quién la escribió — hoy sólo el asistente la crea, pero el schema deja
-   *  lugar para que un humano anote directamente más adelante. */
-  origin: z.enum(['assistant', 'user']),
-  createdAt: z.string(),
-})
-export type TaskAnnotation = z.infer<typeof TaskAnnotationSchema>

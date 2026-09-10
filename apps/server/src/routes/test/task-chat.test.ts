@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import type { TaskAnnotation } from '@ia-flow/shared'
 import type {
   AssistInput,
   AssistResult,
   AssistWithAiUseCase,
 } from '../../application/use-cases/AssistWithAiUseCase.js'
 import { TaskChatUseCase } from '../../application/use-cases/TaskChatUseCase.js'
-import type { ITaskAnnotationRepository } from '../../domain/ports/ITaskAnnotationRepository.js'
 import { createTaskChatRouter } from '../task-chat.js'
 
 // El use-case real llama a la API de Anthropic — acá se testea el borde HTTP
@@ -17,41 +15,19 @@ function fakeAssist(execute: (input: AssistInput) => Promise<AssistResult>): Ass
   return { execute } as unknown as AssistWithAiUseCase
 }
 
-function fakeAnnotationRepo(seed: TaskAnnotation[] = []): ITaskAnnotationRepository {
-  const rows = [...seed]
-  return {
-    async create(note) {
-      rows.push(note)
-      return note
-    },
-    async listByTask(projectId, taskId) {
-      return rows.filter((r) => r.projectId === projectId && r.taskId === taskId)
-    },
-    async delete(id) {
-      const idx = rows.findIndex((r) => r.id === id)
-      if (idx === -1) return false
-      rows.splice(idx, 1)
-      return true
-    },
-  }
-}
-
-function routerWith(
-  execute: (input: AssistInput) => Promise<AssistResult>,
-  annotationRepo: ITaskAnnotationRepository = fakeAnnotationRepo(),
-) {
+function routerWith(execute: (input: AssistInput) => Promise<AssistResult>) {
   const assist = fakeAssist(execute)
   const events: object[] = []
-  const app = createTaskChatRouter(new TaskChatUseCase(assist, []), annotationRepo, (msg) =>
-    events.push(msg),
-  )
+  const app = createTaskChatRouter(new TaskChatUseCase(assist, []), (msg) => events.push(msg))
   return { app, events }
 }
 
 const VALID_BODY = {
   projectId: 'p1',
   message: '¿Qué está bloqueado?',
-  tasks: [{ id: 't1', title: 'Arreglar el bug', status: 'In Progress' }],
+  tasks: [
+    { id: 't1', title: 'Arreglar el bug', status: 'In Progress', disposition: 'waiting-on-you' },
+  ],
 }
 
 describe('POST /api/tasks/assistant/chat', () => {
@@ -134,6 +110,162 @@ describe('POST /api/tasks/assistant/chat', () => {
     expect(body.actions[0]?.taskIds).toEqual(['t1'])
   })
 
+  it('group filtra los taskIds desconocidos dentro de cada grupo', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1', 'no-existe'] }] }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    const body = (await res.json()) as {
+      actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
+    }
+    expect(body.actions).toEqual([{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] }])
+  })
+
+  it('group descarta ids de tareas que no están en el bucket "waiting-on-you" — ahí no se ve ningún grupo', async () => {
+    const body = {
+      ...VALID_BODY,
+      tasks: [
+        ...VALID_BODY.tasks,
+        { id: 't2', title: 'Ya en review', status: 'Review', disposition: 'moving' },
+      ],
+    }
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1', 't2'] }] }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const responseBody = (await res.json()) as {
+      actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
+    }
+    expect(responseBody.actions).toEqual([
+      { type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] },
+    ])
+  })
+
+  it('tag/note/highlight/reorder incompletos se descartan uno por uno, sin tirar la respuesta con 502', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'Encontré esto.',
+        scope: { type: 'project' },
+        actions: [
+          { type: 'tag' },
+          { type: 'tag', taskId: 't1' },
+          { type: 'note', taskId: 't1' },
+          { type: 'highlight', taskId: 't1' },
+          { type: 'reorder' },
+          { type: 'tag', taskId: 't1', tags: ['urgente'] },
+        ],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { reply: string; actions: unknown[] }
+    expect(body.reply).toBe('Encontré esto.')
+    expect(body.actions).toEqual([{ type: 'tag', taskId: 't1', tags: ['urgente'] }])
+  })
+
+  it('group sin el campo `groups` se descarta entero — no rechaza la respuesta ni se confunde con "desagrupar"', async () => {
+    // `{type:'group'}` sin la clave `groups` no es lo mismo que
+    // `{type:'group', groups:[]}` — lo primero es el modelo omitiendo o
+    // truncando el campo, lo segundo una propuesta explícita de desagrupar.
+    // Tratar ambas igual borraría el agrupamiento del usuario sin que nadie
+    // lo haya pedido (ver `dropOmittedGroupsAction`).
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group' }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { actions: unknown[] }
+    expect(body.actions).toEqual([])
+  })
+
+  it('group con `groups: []` (desagrupar) pasa sin filtrar', async () => {
+    const { app } = routerWith(async () => ({
+      fields: { reply: 'ok', scope: { type: 'project' }, actions: [{ type: 'group', groups: [] }] },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    const body = (await res.json()) as { actions: { type: string; groups: unknown[] }[] }
+    expect(body.actions).toEqual([{ type: 'group', groups: [] }])
+  })
+
+  it('group descarta la acción entera si TODOS sus grupos quedan vacíos tras filtrar', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group', groups: [{ label: 'bugs', taskIds: ['no-existe'] }] }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    const body = (await res.json()) as { actions: unknown[] }
+    expect(body.actions).toEqual([])
+  })
+
+  it('un tema con label o taskIds vacíos NO tira toda la respuesta con 502 — se descarta ese grupo nomás', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'Te agrupé lo que pude.',
+        scope: { type: 'project' },
+        actions: [
+          {
+            type: 'group',
+            groups: [
+              { label: '', taskIds: [] },
+              { label: 'bugs', taskIds: ['t1'] },
+            ],
+          },
+        ],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      reply: string
+      actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
+    }
+    expect(body.reply).toBe('Te agrupé lo que pude.')
+    expect(body.actions).toEqual([{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] }])
+  })
+
   it('502 cuando el modelo no devuelve el formato esperado', async () => {
     const { app } = routerWith(async () => ({ fields: { garbage: true } }))
     const res = await app.request('/chat', {
@@ -209,54 +341,5 @@ describe('POST /api/tasks/assistant/chat', () => {
       body: JSON.stringify(VALID_BODY),
     })
     expect(res.status).toBe(502)
-  })
-})
-
-describe('CRUD de anotaciones (/api/tasks/assistant/notes)', () => {
-  it('POST crea una anotación y GET la devuelve por (projectId, taskId)', async () => {
-    const { app } = routerWith(async () => ({ fields: {} }))
-    const created = await app.request('/notes', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        projectId: 'p1',
-        taskId: 't1',
-        text: 'Depende de #99',
-        origin: 'assistant',
-      }),
-    })
-    expect(created.status).toBe(201)
-
-    const listed = await app.request('/notes?projectId=p1&taskId=t1')
-    expect(listed.status).toBe(200)
-    const body = (await listed.json()) as { notes: { text: string }[] }
-    expect(body.notes.map((n) => n.text)).toEqual(['Depende de #99'])
-  })
-
-  it('POST 400 sin projectId/taskId/text', async () => {
-    const { app } = routerWith(async () => ({ fields: {} }))
-    const res = await app.request('/notes', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ projectId: 'p1' }),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('GET 400 sin projectId o taskId', async () => {
-    const { app } = routerWith(async () => ({ fields: {} }))
-    const res = await app.request('/notes?projectId=p1')
-    expect(res.status).toBe(400)
-  })
-
-  it('DELETE 200 cuando existe, 404 cuando no', async () => {
-    const repo = fakeAnnotationRepo([
-      { id: 'a1', projectId: 'p1', taskId: 't1', text: 'x', origin: 'assistant', createdAt: 'now' },
-    ])
-    const { app } = routerWith(async () => ({ fields: {} }), repo)
-    const ok = await app.request('/notes/a1', { method: 'DELETE' })
-    expect(ok.status).toBe(200)
-    const missing = await app.request('/notes/a1', { method: 'DELETE' })
-    expect(missing.status).toBe(404)
   })
 })

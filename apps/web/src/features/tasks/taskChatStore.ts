@@ -21,11 +21,11 @@ import { sendTaskChatMessage } from '@/features/tasks/chatApi'
  * `TareasSection.vue`) — mismo comportamiento que el drawer viejo, sin hilo
  * de conversación (ver #215).
  *
- * `highlights` es la ÚNICA de las 4 acciones que este store persiste como
- * estado — y sólo de sesión, nunca en `localStorage` ni el server (ver la
- * tabla de persistencia por acción en #215). `reorder` vive en
- * `taskOrderPref.ts` (localStorage puro); `tag`/`note` los aplica
- * `TareasSection.vue` contra el server.
+ * `highlights` es la ÚNICA de las 5 acciones que este store persiste como
+ * estado — y sólo de sesión, nunca en `localStorage` (ver la tabla de
+ * persistencia por acción en #215). `reorder`/`tag`/`note`/`group` viven en
+ * `localStorage` puro (`taskOrderPref.ts`/`taskTagPref.ts`/`taskNotePref.ts`/
+ * `taskGroupPref.ts`), aplicados por `TareasSection.vue`.
  */
 export const useTaskChatStore = defineStore('task-chat', () => {
   const history = ref<TaskChatMessage[]>([])
@@ -44,7 +44,10 @@ export const useTaskChatStore = defineStore('task-chat', () => {
   const pendingActionsByTask = computed<Record<string, TaskChatAction[]>>(() => {
     const out: Record<string, TaskChatAction[]> = {}
     for (const action of pending.value?.actions ?? []) {
-      const taskId = action.type === 'reorder' ? undefined : action.taskId
+      // `reorder`/`group` son scope de proyecto, sin `taskId` — no van en
+      // ningún bucket por tarea (se resumen aparte, en `TaskCommandBar.vue`).
+      const taskId =
+        action.type === 'reorder' || action.type === 'group' ? undefined : action.taskId
       if (!taskId) continue
       out[taskId] = [...(out[taskId] ?? []), action]
     }

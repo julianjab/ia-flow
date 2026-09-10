@@ -7,13 +7,14 @@ import { useProjectsStore } from '@/features/projects/store';
 import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 import FocusCard from '@/features/tasks/FocusCard.vue';
 import { useFocusStore } from '@/features/tasks/focusStore';
-import { useTaskGroupsStore } from '@/features/tasks/groupsStore';
 import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue';
 import TaskChatRowOverlay from '@/features/tasks/TaskChatRowOverlay.vue';
 import { useTaskChatStore } from '@/features/tasks/taskChatStore';
-import { createTaskAnnotation } from '@/features/tasks/chatApi';
 import { applyTaskOrderPref, clearTaskOrderPref, getTaskOrderPref, setTaskOrderPref } from '@/features/tasks/taskOrderPref';
-import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
+import { addTaskTagPref, getAllTaskTagPref } from '@/features/tasks/taskTagPref';
+import { addTaskNotePref } from '@/features/tasks/taskNotePref';
+import { getTaskGroupPref, setTaskGroupPref } from '@/features/tasks/taskGroupPref';
+import { sectionRows, type GroupedSection, type TaskGroupSet } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
 import ListControlsBar, { type QuickFilter } from '@/components/ListControlsBar.vue';
@@ -322,10 +323,14 @@ const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
     id: item.id,
     title: item.title,
     status: item.status,
-    // Ningún adapter de `issue-sources` publica labels en `meta` todavía
-    // (deuda fuera de alcance — ver el comentario de `TaskChatTaskContextSchema`
-    // en `packages/shared`): el asistente no ve tags reales por ahora.
-    tags: [],
+    // Ningún adapter de `issue-sources` publica labels reales en `meta`
+    // todavía (deuda fuera de alcance — ver el comentario de
+    // `TaskChatTaskContextSchema` en `packages/shared`); lo único que el
+    // asistente ve es lo que él mismo propuso y se aplicó antes, vía
+    // `taskTagPref.ts` (localStorage, nunca al server). Lee del `ref`
+    // espejo, no de `localStorage` directo — ver el comentario de
+    // `taskTagPrefMap` más abajo.
+    tags: taskTagPrefMap.value[item.id] ?? [],
     disposition: dispositionById.value.get(item.id)?.disposition,
     blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
     assignees: item.assignees,
@@ -333,42 +338,44 @@ const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
 );
 
 /**
- * "Aplicar" en la barra de comandos emite las 4 acciones acá — cada tipo
- * tiene su propia persistencia (ver la tabla del schema en
+ * "Aplicar" en la barra de comandos emite las 5 acciones acá. Ninguna toca
+ * el server: son propuestas de un modelo sin revisión humana, así que las
+ * 5 son preferencia de vista, client-side (ver la tabla del schema en
  * `packages/shared`, `TaskChatActionSchema`):
- * - `tag`: `setProjectItemField(..., 'Labels', ...)`, igual mecanismo que
- *   la tool `set_task_labels` del engine.
- * - `note`: `POST /api/tasks/assistant/notes` (`createTaskAnnotation`).
- * - `reorder`: `localStorage`, vía `taskOrderPref.ts` — nunca al server.
+ * - `tag`: `localStorage`, vía `taskTagPref.ts`.
+ * - `note`: `localStorage`, vía `taskNotePref.ts`.
+ * - `reorder`: `localStorage`, vía `taskOrderPref.ts`.
+ * - `group`: `localStorage`, vía `taskGroupPref.ts` — los grupos los arma el
+ *   propio modelo, no un cómputo del server.
  * - `highlight`: estado de sesión del store, nunca persistido.
  *
  * Una acción que falla no aborta las demás: son cambios independientes.
  */
-async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
+function onChatApplyActions(actions: TaskChatAction[]): void {
   const pid = activeProjectId.value;
   if (!pid || !actions.length) return;
   taskChatStore.recordHighlights(actions);
 
   let failed = 0;
-  let touchedServer = false;
   for (const action of actions) {
     try {
       if (action.type === 'tag') {
-        const titled = filteredItems.value.find((i) => i.id === action.taskId)?.title ?? action.taskId;
-        try {
-          await setProjectItemField(pid, action.taskId, 'Labels', action.tags.map((t) => `+${t}`).join(','));
-          touchedServer = true;
-        } catch (e) {
-          failed += 1;
-          toastStore.error(`No se pudieron añadir tags en «${titled}»: ${extractErrorMessage(e)}`);
-        }
+        const merged = addTaskTagPref(pid, action.taskId, action.tags);
+        // `localStorage` no es reactivo — sin esto `chatTasksContext` le
+        // seguiría mostrando al asistente los tags viejos de esta tarea.
+        taskTagPrefMap.value = { ...taskTagPrefMap.value, [action.taskId]: merged };
       } else if (action.type === 'note') {
-        await createTaskAnnotation({ projectId: pid, taskId: action.taskId, text: action.text, origin: 'assistant' });
+        addTaskNotePref(pid, action.taskId, action.text);
       } else if (action.type === 'reorder') {
         setTaskOrderPref(pid, action.taskIds);
         // `localStorage` no es reactivo — sin esto la lista no se
         // reordenaba hasta cambiar de proyecto o recargar la página.
         taskOrderPref.value = action.taskIds;
+      } else if (action.type === 'group') {
+        setTaskGroupPref(pid, action.groups);
+        // `localStorage` no es reactivo — sin esto la lista no se
+        // reagrupaba hasta cambiar de proyecto o recargar la página.
+        taskGroupPref.value = action.groups.length ? { groups: action.groups } : null;
       }
       // `highlight` ya se resolvió arriba, con `recordHighlights`.
     } catch (e) {
@@ -380,7 +387,6 @@ async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
 
   const applied = actions.length - failed;
   if (applied > 0) toastStore.success(applied === 1 ? 'Cambio aplicado' : `${applied} cambios aplicados`);
-  if (touchedServer) await Promise.all([loadProjectItems(true), loadDispositions()]);
 }
 
 /**
@@ -397,6 +403,14 @@ async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
 const taskOrderPref = ref<string[] | null>(getTaskOrderPref(activeProjectId.value ?? ''));
 watch(activeProjectId, (pid) => { taskOrderPref.value = getTaskOrderPref(pid ?? ''); });
 
+/** Mismo motivo que `taskOrderPref`: `chatTasksContext` necesita enterarse
+ *  cuando `onChatApplyActions` aplica un `tag`, y un `computed` que llamara a
+ *  `getTaskTagPref` directo quedaría cacheado hasta que OTRA dependencia
+ *  reactiva cambiara — el asistente seguiría viendo la lista de tags vieja
+ *  hasta cambiar de proyecto o recargar. */
+const taskTagPrefMap = ref<Record<string, string[]>>(getAllTaskTagPref(activeProjectId.value ?? ''));
+watch(activeProjectId, (pid) => { taskTagPrefMap.value = getAllTaskTagPref(pid ?? ''); });
+
 /** El link "volver al calculado" que pide el diseño (10f) — reorder es
  *  reversible sin dejar rastro server-side. */
 function resetTaskOrder(): void {
@@ -409,48 +423,22 @@ function resetTaskOrder(): void {
 /**
  * Los grupos por tema — sección opcional dentro del bucket `waiting-on-you`.
  *
- * Store aparte del de foco por el mismo motivo que el foco es aparte de las
- * disposiciones: es otra llamada a Haiku, con otro costo y otro interruptor
- * (`IA_FLOW_TASK_GROUPS`), y la lista se dibuja completa sin esperarla.
+ * Ya no es un cómputo de Haiku del lado del server: los arma el propio
+ * Asistente (acción `group`, ver `onChatApplyActions`) cuando el operador se
+ * lo pide, y quedan en `localStorage` (`taskGroupPref.ts`) — igual patrón que
+ * `taskOrderPref`. `ref`, no `computed`: `localStorage` no es reactivo.
  */
-const taskGroupsStore = useTaskGroupsStore();
-/** Persistido por proyecto, igual patrón que `FocusCard`'s `STORAGE_PREFIX`. */
-const GROUP_BY_TOPIC_PREFIX = 'tasks.groupByTopic.';
-const groupByTopic = ref(true);
-function readGroupByTopic(projectId: string | null): boolean {
-  if (!projectId) return true;
-  try {
-    const raw = localStorage.getItem(GROUP_BY_TOPIC_PREFIX + projectId);
-    return raw === null ? true : raw === '1';
-  } catch {
-    return true;
-  }
-}
-function setGroupByTopic(next: boolean): void {
-  groupByTopic.value = next;
-  const pid = activeProjectId.value;
-  if (!pid) return;
-  try {
-    localStorage.setItem(GROUP_BY_TOPIC_PREFIX + pid, next ? '1' : '0');
-  } catch {
-    /* el agrupamiento es una conveniencia, no estado que haya que garantizar */
-  }
-}
-watch(activeProjectId, (pid) => { groupByTopic.value = readGroupByTopic(pid); }, { immediate: true });
-/** Sin grupos no hay nada que alternar: el toggle no se dibuja para no ser
- *  chrome que no cambia nada. */
-const hasTaskGroups = computed(
-  () => (taskGroupsStore.groupsFor(activeProjectId.value)?.groups.length ?? 0) > 0,
-);
+const taskGroupPref = ref<TaskGroupSet | null>(getTaskGroupPref(activeProjectId.value ?? ''));
+watch(activeProjectId, (pid) => { taskGroupPref.value = getTaskGroupPref(pid ?? ''); });
 type BucketRowSection = GroupedSection<OrderedTask>;
 /** Las filas de un bucket, cortadas en secciones. Sólo `waiting-on-you` se
  *  agrupa por tema; los demás buckets vuelven como una única sección suelta,
  *  que es exactamente el `<ul>` de siempre. */
 function bucketSections(bucket: { disposition: TaskDisposition; rows: OrderedTask[] }): BucketRowSection[] {
-  if (bucket.disposition !== 'waiting-on-you' || !groupByTopic.value) {
+  if (bucket.disposition !== 'waiting-on-you') {
     return bucket.rows.length ? [{ kind: 'loose', rows: bucket.rows }] : [];
   }
-  return sectionRows(bucket.rows, taskGroupsStore.groupsFor(activeProjectId.value));
+  return sectionRows(bucket.rows, taskGroupPref.value);
 }
 
 /** Los títulos que la card necesita para sus picks. Salen de las filas que ya
@@ -749,8 +737,6 @@ async function loadDispositions() {
   // una inferencia de hace dos minutos sobre la misma lista sigue siendo
   // cierta (el server la cachea por huella del contenido, no por tiempo).
   void focusStore.fetch(pid);
-  // Mismo trato que el foco: no se espera, no lleva `force`.
-  void taskGroupsStore.fetch(pid);
   // `force`: entrar a Tareas es pedir el estado de ahora, no el de la última
   // vez que la tab bar lo consultó.
   await dispositionsStore.fetch(pid, { force: true });
@@ -1313,20 +1299,6 @@ watch(activeProjectId, (pid) => {
           data-testid="tareas-order-toggle"
           @click="cycleOrderMode"
         >{{ orderMode === 'disposicion' ? 'por disposición' : orderMode === 'repo' ? 'por repo' : 'de la fuente' }}</button>
-        <!-- Sólo tiene sentido agrupando por disposición: agrupar por tema
-             DENTRO de un orden por fecha mezclaría dos criterios a la vez. -->
-        <button
-          v-if="orderMode === 'disposicion' && hasTaskGroups"
-          type="button"
-          class="lcb-order"
-          :class="{ 'is-on': groupByTopic }"
-          :aria-pressed="groupByTopic"
-          :title="groupByTopic
-            ? 'Te espera agrupado por tema — tocá para ver la lista suelta'
-            : 'Lista suelta — tocá para agrupar por tema'"
-          data-testid="tareas-group-by-topic-toggle"
-          @click="setGroupByTopic(!groupByTopic)"
-        >{{ groupByTopic ? 'agrupado por tema' : 'sin agrupar' }}</button>
         <button
           type="button"
           class="lcb-order chat-trigger"
