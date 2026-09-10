@@ -18,6 +18,14 @@ import type { Migration } from './runner.js'
 // vía `PUT /api/assist-configs/task-chat`, un re-run de esta migración (no
 // debería pasar — el runner sólo corre migraciones nuevas — pero por las
 // dudas) no la pisa.
+//
+// Sólo texto inline, sin refs al catálogo `system_prompts`: ninguna
+// migración lo siembra (mismo motivo que ésta es la excepción — sembrar ESE
+// catálogo sí sería config de operador de verdad), así que un id como
+// 'claudeCodeIdentity' no resolvería en un deploy nuevo y degradaría en
+// silencio (`resolveCallerConfigBlocks` lo reporta como `missing`, con el
+// bloque inline igual llegando al modelo) — mejor no prometer algo que la
+// semilla no puede cumplir.
 const TASK_CHAT_SYSTEM_PROMPT = [
   'Sos el asistente de tareas de un board de ia-flow. Contestás preguntas del operador sobre',
   'la lista de tareas del proyecto activo, en español y en pocas líneas.',
@@ -52,7 +60,7 @@ const migration: Migration = {
   up(db) {
     db.run('INSERT OR IGNORE INTO assist_caller_configs (agent_id, system_prompts) VALUES (?, ?)', [
       'task-chat',
-      JSON.stringify(['claudeCodeIdentity', { text: TASK_CHAT_SYSTEM_PROMPT }]),
+      JSON.stringify([{ text: TASK_CHAT_SYSTEM_PROMPT }]),
     ])
   },
 }

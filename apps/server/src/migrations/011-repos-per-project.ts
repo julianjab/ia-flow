@@ -35,7 +35,10 @@ const migration: Migration = {
     } | null
     if (repoCount > 0 && !target) {
       throw new Error(
-        'Cannot run 011-repos-per-project: hay repos para reparentar pero `projects` está vacía.',
+        'Cannot run 011-repos-per-project: hay repos para reparentar pero `projects` está ' +
+          'vacía. Insertá un proyecto a mano antes de reintentar, ej.: ' +
+          `INSERT INTO projects (id, name, settings, created_at, updated_at) VALUES ` +
+          `('mi-proyecto', 'Mi proyecto', '{}', datetime('now'), datetime('now'));`,
       )
     }
     const backfillId = target?.id ?? ''
