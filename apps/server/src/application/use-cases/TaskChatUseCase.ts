@@ -312,7 +312,7 @@ export class TaskChatUseCase {
           }
           const groups = action.groups
             .map((g) => ({ ...g, taskIds: g.taskIds.filter((id) => knownIds.has(id)) }))
-            .filter((g) => g.taskIds.length > 0)
+            .filter((g) => g.label.trim().length > 0 && g.taskIds.length > 0)
           if (groups.length) out.push({ ...action, groups })
           return out
         }

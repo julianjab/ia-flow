@@ -2356,7 +2356,12 @@ export const TaskChatActionSchema = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('group'),
-    groups: z.array(z.object({ label: z.string().min(1), taskIds: z.array(z.string()).min(1) })),
+    // Sin `.min(1)` en `label`/`taskIds`: un tema vacío o sin miembros es una
+    // salida plausible del modelo, y `TaskChatUseCase.verify()` ya sabe
+    // descartarlo — exigirlo acá haría que el `safeParse` completo (que
+    // corre ANTES de `verify()`) rechace la respuesta entera con un 502,
+    // perdiendo también el `reply` de texto que sí estaba bien.
+    groups: z.array(z.object({ label: z.string(), taskIds: z.array(z.string()) })),
   }),
 ])
 export type TaskChatAction = z.infer<typeof TaskChatActionSchema>
