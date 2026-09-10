@@ -93,7 +93,9 @@ describe('RuleEditorModal', () => {
     expect(w.find('.rail-item').exists()).toBe(false)
     // Las tres visibles llevan su título; la cuarta es el encabezado plegado.
     expect(w.findAll('.band-title').map((t) => t.text())).toEqual(['Qué hace', 'Sobre qué'])
-    expect(w.get('.cs-title').text()).toBe('Avanzado')
+    // La franja plegada es hija directa del formulario; el otro
+    // `CollapsibleSection` de la pantalla es el de cada acción, más adentro.
+    expect(w.get('.page-main > .cs .cs-title').text()).toBe('Avanzado')
   })
 
   /**
