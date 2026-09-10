@@ -8,12 +8,19 @@ import {
   loadProviderConfig,
   saveProviderConfig,
 } from '../application/provider-config.js'
-import { promptRepo } from '../composition/container.js'
+import { projectRepo, promptRepo } from '../composition/container.js'
 import { getDb } from '../infrastructure/db/database.js'
 import { parseGithubRemote, resolveGithubRepo, resolveGithubRepoName } from '../repos.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 let originalRepos: Record<string, unknown>[] = []
+// `saveProviderConfig`/`loadProviderConfig` escriben/leen repoMappings contra
+// el proyecto default (ver provider-config.ts) — sin ninguno, los descartan
+// en silencio en vez de romper. Este archivo no debe depender de que OTRO
+// test file haya dejado un proyecto ambiente (o de un seed que ya no existe,
+// ver 005-projects-multi-tenant): si no hay ninguno al arrancar, creamos uno
+// propio y lo borramos al terminar.
+let createdOwnProject = false
 
 function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
   return {
@@ -30,6 +37,15 @@ function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
 beforeAll(() => {
   originalDbConfig = promptRepo.getProviderConfigBlob()
   originalRepos = getDb().query('SELECT * FROM repos').all() as Record<string, unknown>[]
+  if (!projectRepo.getDefaultId()) {
+    const now = new Date().toISOString()
+    getDb().run(
+      `INSERT INTO projects (id, name, github_project_url, settings, created_at, updated_at)
+       VALUES (?, ?, NULL, '{}', ?, ?)`,
+      ['test-repos-default', 'repos.test.ts default', now, now],
+    )
+    createdOwnProject = true
+  }
 })
 
 afterAll(() => {
@@ -37,6 +53,7 @@ afterAll(() => {
   else promptRepo.deleteProviderConfigBlob()
   const db = getDb()
   db.run('DELETE FROM repos')
+  if (createdOwnProject) db.run('DELETE FROM projects WHERE id = ?', ['test-repos-default'])
   for (const r of originalRepos) {
     db.run(
       `INSERT INTO repos (name, path, github_owner, github_repo, workflow, description, project_id)
