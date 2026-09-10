@@ -9,12 +9,17 @@
  * **Reemplaza a la tab bar, no se suma a ella** (R4). Dos barras fijas son
  * 108px en una pantalla de 800 — el 13% del alto gastado en chrome — y además
  * compiten: el pulgar queda entre "guardar" y "cambiar de pantalla". Por eso
- * el componente empuja el `padding-bottom` del `<main>` con la clase
- * `has-action-bar`, que el shell ya usa para la tab bar.
+ * se anuncia mientras está montada (`useActionBarPresence`) y el shell no
+ * dibuja la tab bar. No hace falta empujar el `padding-bottom` del `<main>`:
+ * la barra es `sticky`, no `fixed`, así que ya ocupa su lugar en el flujo.
  *
  * Sobre el breakpoint no se fija: en un escritorio el formulario entra, y una
  * barra flotante encima del contenido tapa la última fila sin necesidad.
  */
+import { useActionBarPresence } from '@/composables/useActionBar';
+
+useActionBarPresence();
+
 withDefaults(
   defineProps<{
     /** Se dibuja a la izquierda de los botones: qué está sin guardar, o el
