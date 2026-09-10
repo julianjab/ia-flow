@@ -1386,17 +1386,18 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     expect(TaskChatScopeSchema.parse(scope)).toEqual(scope)
   })
 
-  it('round-trips las 4 acciones concretas', () => {
+  it('round-trips las 5 acciones concretas', () => {
     const reorder = { type: 'reorder' as const, taskIds: ['t1', 't2'] }
     const tag = { type: 'tag' as const, taskId: 't1', tags: ['urgente'] }
     const note = { type: 'note' as const, taskId: 't1', text: 'Depende de #99' }
     const highlight = { type: 'highlight' as const, taskId: 't1', reason: 'Bloquea al equipo' }
-    for (const action of [reorder, tag, note, highlight]) {
+    const group = { type: 'group' as const, enabled: true }
+    for (const action of [reorder, tag, note, highlight, group]) {
       expect(TaskChatActionSchema.parse(action)).toEqual(action)
     }
   })
 
-  it('rechaza un type que no sea uno de los 4 conocidos', () => {
+  it('rechaza un type que no sea uno de los 5 conocidos', () => {
     expect(
       TaskChatActionSchema.safeParse({
         type: 'set-field',

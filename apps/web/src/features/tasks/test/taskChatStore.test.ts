@@ -85,7 +85,7 @@ describe('taskChatStore', () => {
     expect(sendTaskChatMessage.mock.calls[1]?.[0]?.message).toBe('primer intento')
   })
 
-  it('pendingActionsByTask agrupa las acciones (menos reorder) por taskId', async () => {
+  it('pendingActionsByTask agrupa las acciones (menos reorder ni group) por taskId', async () => {
     sendTaskChatMessage.mockResolvedValue({
       reply: 'ok',
       scope: { type: 'project' },
@@ -93,6 +93,7 @@ describe('taskChatStore', () => {
         { type: 'tag', taskId: 't1', tags: ['x'] },
         { type: 'note', taskId: 't1', text: 'nota' },
         { type: 'reorder', taskIds: ['t1'] },
+        { type: 'group', enabled: true },
       ],
     })
     const s = useTaskChatStore()

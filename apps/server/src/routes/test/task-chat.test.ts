@@ -108,6 +108,23 @@ describe('POST /api/tasks/assistant/chat', () => {
     expect(body.actions[0]?.taskIds).toEqual(['t1'])
   })
 
+  it('group pasa sin filtrar — scope de proyecto, no lleva taskId', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group', enabled: true }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    const body = (await res.json()) as { actions: { type: string; enabled: boolean }[] }
+    expect(body.actions).toEqual([{ type: 'group', enabled: true }])
+  })
+
   it('502 cuando el modelo no devuelve el formato esperado', async () => {
     const { app } = routerWith(async () => ({ fields: { garbage: true } }))
     const res = await app.request('/chat', {

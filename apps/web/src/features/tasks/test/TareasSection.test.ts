@@ -837,4 +837,16 @@ describe('TareasSection — asistente de tareas', () => {
     expect(store.highlights.I_1).toBe('Bloquea al equipo')
     expect(setProjectItemField).not.toHaveBeenCalled()
   })
+
+  it('aplicar `group` guarda la preferencia en localStorage, no en el server', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+    setProjectItemField.mockClear()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'group', enabled: false }])
+    await flushPromises()
+
+    expect(localStorage.getItem('tasks.groupByTopic.p1')).toBe('0')
+    expect(setProjectItemField).not.toHaveBeenCalled()
+  })
 })
