@@ -14,6 +14,7 @@ import { applyTaskOrderPref, clearTaskOrderPref, getTaskOrderPref, setTaskOrderP
 import { addTaskTagPref, getAllTaskTagPref } from '@/features/tasks/taskTagPref';
 import { addTaskNotePref } from '@/features/tasks/taskNotePref';
 import { getTaskGroupPref, setTaskGroupPref } from '@/features/tasks/taskGroupPref';
+import { findTaskUiOperation } from '@/features/tasks/uiContract';
 import { sectionRows, type GroupedSection, type TaskGroupSet } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
@@ -387,6 +388,36 @@ function onChatApplyActions(actions: TaskChatAction[]): void {
 
   const applied = actions.length - failed;
   if (applied > 0) toastStore.success(applied === 1 ? 'Cambio aplicado' : `${applied} cambios aplicados`);
+}
+
+/**
+ * Ejecuta la operación que un bloque de vista pidió sobre una fila.
+ *
+ * El `switch` por operación NO vive acá: la implementación es del contrato
+ * (`uiContract.ts`, `exec`), que es lo que hace que sumar una operación no
+ * toque este archivo. Acá vive lo que es de ESTA pantalla y ninguna operación
+ * debería re-resolver: el proyecto activo, el spinner por fila y el toast.
+ *
+ * Un `op` desconocido se ignora en silencio: ya lo filtraron el contrato, el
+ * server y el renderer, así que llegar acá significa que el bundle cambió a
+ * mitad de sesión — no es algo que el operador pueda accionar.
+ */
+async function onChatRunOp(taskId: string, op: string): Promise<void> {
+  const pid = activeProjectId.value;
+  const operation = findTaskUiOperation(op);
+  if (!pid || !operation) return;
+  runBusyId.value = taskId;
+  try {
+    const res = await operation.exec({ projectId: pid, taskId });
+    if (res.ok) toastStore.success(res.message);
+    else toastStore.error(res.message);
+  } catch (e) {
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
+  } finally {
+    // El spinner es de ESTA fila: si ya hay otro pedido en vuelo sobre otra,
+    // apagarlo sería apagar el de ella.
+    if (runBusyId.value === taskId) runBusyId.value = null;
+  }
 }
 
 /**
@@ -1570,7 +1601,12 @@ watch(activeProjectId, (pid) => {
                   :done-in-source="isDoneInSource(row.item)"
                   @open="openReposModal(row.item)"
                 />
-                <TaskChatRowOverlay v-if="chatOpen" :task-id="row.id" />
+                <TaskChatRowOverlay
+                  v-if="chatOpen"
+                  :task-id="row.id"
+                  :busy="runBusyId === row.id"
+                  @run-op="onChatRunOp"
+                />
               </template>
             </ul>
           </template>
@@ -1600,7 +1636,12 @@ watch(activeProjectId, (pid) => {
             :done-in-source="isDoneInSource(item)"
             @open="openReposModal(item)"
           />
-          <TaskChatRowOverlay v-if="chatOpen" :task-id="item.id" />
+          <TaskChatRowOverlay
+            v-if="chatOpen"
+            :task-id="item.id"
+            :busy="runBusyId === item.id"
+            @run-op="onChatRunOp"
+          />
         </template>
       </ul>
 

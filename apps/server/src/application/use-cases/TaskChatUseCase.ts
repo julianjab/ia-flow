@@ -3,6 +3,8 @@ import {
   type TaskChatReply,
   TaskChatReplySchema,
   type TaskChatRequest,
+  type TaskViewSpec,
+  type UiContract,
 } from '@ia-flow/shared'
 import type { ReadOnlyTool } from '@ia-flow/tools'
 import { AssistUpstreamError, type AssistWithAiUseCase } from './AssistWithAiUseCase.js'
@@ -156,6 +158,100 @@ const TASK_CHAT_RESPONSE_SCHEMA = {
   required: ['reply', 'scope', 'actions'],
 } as const
 
+/**
+ * El schema forzado al modelo = el literal de arriba MÁS el canal `view`
+ * DERIVADO del contrato que publicó el cliente.
+ *
+ * `blocks.items` es un `anyOf` con una rama por primitiva: `use` fijado a su
+ * id por un `const`, y `props` con el JSON Schema que la primitiva declaró,
+ * inyectado tal cual. Así la API de Anthropic es la que garantiza que un
+ * bloque `use:"row-action"` traiga exactamente los props de esa primitiva —
+ * el server no tiene que saber qué es una row-action ni validar sus campos.
+ *
+ * Sin primitivas no se agrega la propiedad: un cliente que no publica
+ * contrato no debería ni ver el vocabulario en el schema (le costaría tokens
+ * y lo tentaría a llenar un canal que nadie va a dibujar).
+ */
+function buildResponseSchema(contract: UiContract): Record<string, unknown> {
+  if (!contract.primitives.length) return { ...TASK_CHAT_RESPONSE_SCHEMA }
+  return {
+    ...TASK_CHAT_RESPONSE_SCHEMA,
+    properties: {
+      ...TASK_CHAT_RESPONSE_SCHEMA.properties,
+      view: {
+        type: 'object',
+        description:
+          'Cómo se DIBUJA la lista. Omitilo (o `blocks: []`) si la respuesta no cambia la vista.',
+        properties: {
+          blocks: {
+            type: 'array',
+            description: 'Los bloques a dibujar, cada uno usando una primitiva disponible.',
+            items: {
+              anyOf: contract.primitives.map((p) => ({
+                type: 'object',
+                description: p.description,
+                properties: {
+                  use: { type: 'string', const: p.id },
+                  props: p.props,
+                },
+                required: ['use', 'props'],
+              })),
+            },
+          },
+        },
+        required: ['blocks'],
+      },
+    },
+  }
+}
+
+/**
+ * Filtra contra `knownIds` las claves de `props` que el contrato declaró como
+ * portadoras de ids de tarea, y devuelve `null` cuando el bloque entero deja
+ * de tener sentido (un array que queda vacío, un id suelto que no existe).
+ *
+ * Una clave ausente NO invalida el bloque: `taskIdProps` describe dónde PUEDE
+ * haber ids, y quién es obligatorio lo decide el JSON Schema de la primitiva.
+ * Las claves que no están ahí pasan intactas — el server no valida props.
+ */
+function filterTaskIdProps(
+  props: Record<string, unknown>,
+  taskIdProps: string[],
+  knownIds: Set<string>,
+): Record<string, unknown> | null {
+  const out = { ...props }
+  for (const key of taskIdProps) {
+    const value = out[key]
+    if (Array.isArray(value)) {
+      const kept = value.filter((id): id is string => typeof id === 'string' && knownIds.has(id))
+      if (!kept.length) return null
+      out[key] = kept
+    } else if (typeof value === 'string' && !knownIds.has(value)) {
+      return null
+    }
+  }
+  return out
+}
+
+/**
+ * El vocabulario visual, en prosa, para el prompt. También derivado: la
+ * `description` de cada primitiva es lo único que el modelo lee sobre ella,
+ * y la escribe quien la implementa, en el mismo archivo donde vive el
+ * renderer.
+ */
+function buildViewPromptBlock(contract: UiContract): string[] {
+  if (!contract.primitives.length) return []
+  return [
+    '',
+    'Además del texto y las `actions`, podés cambiar CÓMO SE VE la lista devolviendo `view.blocks`.',
+    'Cada bloque usa una de estas primitivas (y sólo una de estas — el schema no te deja otras):',
+    ...contract.primitives.map((p) => `- ${p.id}: ${p.description}`),
+    'Un bloque describe pantalla, no un cambio de datos: no pasa por "Aplicar", el operador lo ve',
+    'y lo usa o lo ignora. `view.blocks` reemplaza la vista ENTERA de cada turno — para sacar algo',
+    'que pusiste antes, devolvé los bloques sin él; para dejar la vista como está, omití `view`.',
+  ]
+}
+
 // El rol del asistente, la defensa anti prompt-injection y las reglas de
 // scope/acciones ahora son EDITABLES sin redeploy vía `assist_caller_configs`
 // (`agentId: 'task-chat'`, `PUT /api/assist-configs/task-chat`) — ver issue
@@ -212,6 +308,7 @@ function buildTaskChatPrompt(body: {
   history: { role: string; content: string }[]
   tasks: unknown[]
   projectId: string
+  uiContract: UiContract
 }): string {
   const tasksBlock = JSON.stringify(body.tasks, null, 2)
   const historyBlock = body.history
@@ -222,6 +319,11 @@ function buildTaskChatPrompt(body: {
     '- get_task_detail(task_id): descripción completa + comentarios de una tarea.',
     '- list_tasks(): todo el board del proyecto (puede venir truncado — ver `truncated`/`total`).',
     '- search_tasks(query): busca por texto en título/descripción cuando no sabés el id.',
+    // El vocabulario visual va en el bloque DINÁMICO, no en el system prompt
+    // editable: lo publica el cliente en ESTE request, así que un front
+    // recién desplegado ofrece sus primitivas nuevas sin que nadie edite una
+    // fila de `assist_caller_configs` ni redeploye el server.
+    ...buildViewPromptBlock(body.uiContract),
     '',
     '## Tareas visibles',
     tasksBlock,
@@ -353,6 +455,45 @@ export class TaskChatUseCase {
     return groups.length ? { ...action, groups } : null
   }
 
+  /**
+   * `view.blocks` — la verificación es GENÉRICA: este método no sabe qué es
+   * un botón, un orden ni un badge, y ese es exactamente el punto. Chequea
+   * las dos únicas cosas que se pueden chequear sin conocer el vocabulario:
+   *
+   * 1. **`use` está en el contrato de ESTE request.** Un `anyOf` con `const`
+   *    ya se lo impone al modelo, pero la salida del modelo nunca es la
+   *    fuente de verdad de nada (ver el comentario de la clase): un bloque
+   *    con una primitiva inventada se descarta acá y nunca llega al cliente,
+   *    que además no sabría dibujarlo.
+   * 2. **Los ids de tarea existen.** Es lo único que el cliente NO puede
+   *    delegar hacia arriba y el server NO puede delegar hacia abajo: que un
+   *    `taskId` exista es una verdad sobre el board. `taskIdProps` es lo que
+   *    permite filtrarlos sin saber qué significa la primitiva — el contrato
+   *    dice en qué claves viven, no qué quieren decir.
+   *
+   * Un array de ids que queda vacío después de filtrar **tira el bloque
+   * entero**, mismo criterio que un `group` sin miembros: un botón sobre cero
+   * filas o un orden sobre cero tareas no es un resultado parcial, es un
+   * bloque que no tiene nada que hacer en pantalla.
+   */
+  private verifyView(
+    view: TaskViewSpec,
+    knownIds: Set<string>,
+    contract: UiContract,
+  ): TaskViewSpec {
+    const byId = new Map(contract.primitives.map((p) => [p.id, p]))
+
+    const blocks = view.blocks.reduce<TaskViewSpec['blocks']>((out, block) => {
+      const primitive = byId.get(block.use)
+      if (!primitive) return out
+      const props = filterTaskIdProps(block.props, primitive.taskIdProps, knownIds)
+      if (props) out.push({ use: block.use, props })
+      return out
+    }, [])
+
+    return { blocks }
+  }
+
   /** Descarta `scope`/acciones que referencien un `taskId` fuera del
    *  conjunto que el propio request mandó — ver el comentario de la clase.
    *
@@ -366,6 +507,7 @@ export class TaskChatUseCase {
     reply: TaskChatReply,
     knownIds: Set<string>,
     waitingOnYouIds: Set<string>,
+    contract: UiContract,
   ): TaskChatReply {
     const scope =
       reply.scope.type === 'task' && !knownIds.has(reply.scope.taskId)
@@ -393,14 +535,19 @@ export class TaskChatUseCase {
       return out
     }, [])
 
-    return { reply: reply.reply, scope, actions }
+    return {
+      reply: reply.reply,
+      scope,
+      actions,
+      view: this.verifyView(reply.view, knownIds, contract),
+    }
   }
 
   async execute(
     input: TaskChatRequest,
     opts: { signal?: AbortSignal; onProgress?: (e: TaskChatProgressEvent) => void } = {},
   ): Promise<TaskChatReply> {
-    const { projectId, message, history, tasks } = input
+    const { projectId, message, history, tasks, uiContract } = input
     const knownIds = new Set(tasks.map((t) => t.id))
     // Sólo de `tasks` (el recorte visible) — un id que un tool descubrió a
     // mitad de turno no trae `disposition` confiable, así que no cuenta acá.
@@ -413,8 +560,8 @@ export class TaskChatUseCase {
       mode: 'generate',
       agentId: 'task-chat',
       projectId,
-      description: buildTaskChatPrompt({ message, history, tasks, projectId }),
-      responseSchema: TASK_CHAT_RESPONSE_SCHEMA,
+      description: buildTaskChatPrompt({ message, history, tasks, projectId, uiContract }),
+      responseSchema: buildResponseSchema(uiContract),
       readTools: this.instrumentReadTools(projectId, discoveredIds, opts.onProgress),
       fallbackSystemPrompts: [{ text: TASK_CHAT_FALLBACK_SYSTEM_PROMPT }],
       signal: opts.signal,
@@ -429,6 +576,6 @@ export class TaskChatUseCase {
     }
 
     for (const id of discoveredIds) knownIds.add(id)
-    return this.verify(parsed.data, knownIds, waitingOnYouIds)
+    return this.verify(parsed.data, knownIds, waitingOnYouIds, uiContract)
   }
 }

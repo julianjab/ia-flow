@@ -4,10 +4,13 @@ import {
   type TaskChatMessage,
   type TaskChatReply,
   type TaskChatTaskContext,
+  type TaskViewSpec,
+  type ViewBlock,
 } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { sendTaskChatMessage } from '@/features/tasks/chatApi'
+import { TASK_UI_PRIMITIVES } from '@/features/tasks/uiContract'
 
 /**
  * El estado de la barra de comandos del asistente — reemplaza al viejo
@@ -27,9 +30,26 @@ import { sendTaskChatMessage } from '@/features/tasks/chatApi'
  * `localStorage` puro (`taskOrderPref.ts`/`taskTagPref.ts`/`taskNotePref.ts`/
  * `taskGroupPref.ts`), aplicados por `TareasSection.vue`.
  */
+/** Los ids de tarea que un bloque nombra, leyendo sólo las claves que el
+ *  contrato declaró como portadoras de ids (`taskIdProps`). Acepta un array o
+ *  un id suelto: cuál de las dos formas usa cada primitiva lo dice su JSON
+ *  Schema, no este helper. */
+function taskIdsOf(block: ViewBlock, taskIdProps: string[]): string[] {
+  return taskIdProps
+    .flatMap((key) => {
+      const value = block.props[key]
+      return Array.isArray(value) ? value : [value]
+    })
+    .filter((id): id is string => typeof id === 'string')
+}
+
 export const useTaskChatStore = defineStore('task-chat', () => {
   const history = ref<TaskChatMessage[]>([])
   const pending = ref<TaskChatReply | null>(null)
+  /** La vista propuesta, SEPARADA de `pending` justo porque no comparte su
+   *  ciclo de vida: `discard()` tira la propuesta de cambios y esto sobrevive
+   *  (ver `rowBlocksByTask`). */
+  const view = ref<TaskViewSpec | null>(null)
   const busy = ref(false)
   const error = ref<string | null>(null)
   const highlights = ref<Record<string, string>>({})
@@ -50,6 +70,32 @@ export const useTaskChatStore = defineStore('task-chat', () => {
         action.type === 'reorder' || action.type === 'group' ? undefined : action.taskId
       if (!taskId) continue
       out[taskId] = [...(out[taskId] ?? []), action]
+    }
+    return out
+  })
+
+  /**
+   * Los bloques de slot `row` que le tocan a cada fila.
+   *
+   * Genérico a propósito: no sabe qué es un `row-action`, sólo que el
+   * contrato declaró qué primitivas se dibujan en una fila y en qué prop
+   * llevan los ids. Una primitiva de fila nueva aparece acá sin tocar el
+   * store — su única línea de código propia es su renderer.
+   *
+   * NO se limpia con `discard()` ni depende de "Aplicar": un bloque de vista
+   * no es un cambio que haya que confirmar. Vive mientras dure la
+   * conversación —igual que `history`— y lo reemplaza entero el turno
+   * siguiente, que es lo que hace que "sacá ese botón" funcione sin un verbo
+   * aparte para deshacer.
+   */
+  const rowBlocksByTask = computed<Record<string, ViewBlock[]>>(() => {
+    const out: Record<string, ViewBlock[]> = {}
+    for (const block of view.value?.blocks ?? []) {
+      const def = TASK_UI_PRIMITIVES.find((d) => d.primitive.id === block.use)
+      if (def?.slot !== 'row') continue
+      for (const taskId of taskIdsOf(block, def.primitive.taskIdProps)) {
+        out[taskId] = [...(out[taskId] ?? []), block]
+      }
     }
     return out
   })
@@ -92,6 +138,9 @@ export const useTaskChatStore = defineStore('task-chat', () => {
         { role: 'assistant' as const, content: reply.reply },
       ].slice(-TASK_CHAT_MAX_MESSAGES)
       pending.value = reply
+      // Reemplazo, no merge: el turno nuevo describe la vista COMPLETA, así
+      // que "sacá ese botón" es simplemente un turno que no lo incluye.
+      view.value = reply.view
     } catch (e) {
       if (controller?.signal.aborted) {
         error.value = null // cancelado a propósito — no es un fallo que reportar
@@ -133,6 +182,7 @@ export const useTaskChatStore = defineStore('task-chat', () => {
   function reset(): void {
     history.value = []
     pending.value = null
+    view.value = null
     error.value = null
     highlights.value = {}
     lastAttemptedMessage.value = null
@@ -149,6 +199,8 @@ export const useTaskChatStore = defineStore('task-chat', () => {
     lastAttemptedMessage,
     pendingActionsByTask,
     pendingReplyForTask,
+    view,
+    rowBlocksByTask,
     ask,
     stop,
     discard,
