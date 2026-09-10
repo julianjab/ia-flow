@@ -1,5 +1,6 @@
 import { TaskAnnotationSchema, TaskChatRequestSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import {
   AssistUpstreamError,
   AssistValidationError,
@@ -12,14 +13,41 @@ const log = createLogger('task-chat')
 
 type BroadcastFn = (msg: object) => void
 
-/** Comparten la misma taxonomía de errores que `/assist`. */
-function assistErrorResponse(err: unknown): { body: { error: string }; status: 400 | 500 | 502 } {
+/**
+ * Comparten la misma taxonomía de errores que `/assist`.
+ *
+ * `AssistUpstreamError.status` viaja con el status HTTP REAL que devolvió
+ * Anthropic (`res.status` en `AssistWithAiUseCase`). Antes se aplanaba todo
+ * a 500 salvo 502, así que un 429 (rate limit) llegaba indistinguible de un
+ * fallo genérico y el front no podía mostrar "esperá y reintentá".
+ *
+ * Pero NO todo status ajeno es seguro de propagar verbatim: 401/403/404 ya
+ * tienen su propio significado EN ESTA APP (401 = "tu x-ia-flow-token está
+ * mal", ver apps/web/src/features/servers/api.ts) — si Anthropic devuelve
+ * 401 por una API key revocada del daemon, reenviarlo tal cual le hace
+ * creer al operador que el problema es SU token de ia-flow, no la
+ * credencial del servidor. Sólo se propagan los códigos donde el cliente
+ * tiene una acción real y sin ambigüedad con la semántica propia de la
+ * app: 408/409 (reintentable), 429 (rate limit), 529 (overloaded, propio
+ * de Anthropic) y 5xx genérico. Todo lo demás es "el upstream falló" → 502.
+ */
+function assistErrorResponse(err: unknown): {
+  body: { error: string }
+  status: ContentfulStatusCode
+} {
   if (err instanceof AssistValidationError) return { body: { error: err.message }, status: 400 }
   if (err instanceof AssistUpstreamError) {
-    const status = err.status === 502 ? 502 : 500
+    const status = isPropagatableUpstreamStatus(err.status) ? err.status : 502
     return { body: { error: err.message }, status }
   }
   return { body: { error: String(err) }, status: 500 }
+}
+
+const PROPAGATABLE_UPSTREAM_STATUSES = new Set([408, 409, 429, 529])
+
+function isPropagatableUpstreamStatus(status: number): status is ContentfulStatusCode {
+  if (PROPAGATABLE_UPSTREAM_STATUSES.has(status)) return true
+  return Number.isInteger(status) && status >= 500 && status <= 599
 }
 
 /**
