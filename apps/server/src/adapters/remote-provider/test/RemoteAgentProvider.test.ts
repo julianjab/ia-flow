@@ -21,7 +21,6 @@ function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRe
     remoteName: 'Claude Print',
     remoteDescription: 'invoca claude -p',
     createdAt: '2026-01-01T00:00:00Z',
-    systemPrompt: null,
     ...overrides,
   }
 }
@@ -102,61 +101,6 @@ describe('RemoteAgentProvider', () => {
 
     const provider = new RemoteAgentProvider(registration())
     await expect(provider.run(baseInput())).rejects.toThrow(/remote:reg-1.*502.*agent-host caído/s)
-  })
-})
-
-describe('RemoteAgentProvider — system prompt del gateway', () => {
-  async function captureBody(provider: RemoteAgentProvider, input = baseInput()) {
-    let capturedBody: { systemPromptBlocks?: Array<{ type: string; text: string }> } | undefined
-    globalThis.fetch = (async (_url: string, init: RequestInit) => {
-      capturedBody = JSON.parse(init.body as string)
-      return new Response(JSON.stringify({ content: 'listo', mode: 'api' }), { status: 200 })
-    }) as unknown as typeof fetch
-    await provider.run(input)
-    return capturedBody
-  }
-
-  it('sin systemPrompt configurado, no toca systemPromptBlocks', async () => {
-    const provider = new RemoteAgentProvider(registration({ systemPrompt: null }), {
-      getById: () => null,
-    })
-    const body = await captureBody(
-      provider,
-      baseInput({ systemPromptBlocks: [{ type: 'text', text: 'del agente' }] }),
-    )
-    expect(body?.systemPromptBlocks).toEqual([{ type: 'text', text: 'del agente' }])
-  })
-
-  it('un bloque inline se antepone después de los del agente', async () => {
-    const provider = new RemoteAgentProvider(
-      registration({ systemPrompt: { text: 'Estás en la VM efímera de CI' } }),
-      { getById: () => null },
-    )
-    const body = await captureBody(
-      provider,
-      baseInput({ systemPromptBlocks: [{ type: 'text', text: 'del agente' }] }),
-    )
-    expect(body?.systemPromptBlocks).toEqual([
-      { type: 'text', text: 'del agente' },
-      { type: 'text', text: 'Estás en la VM efímera de CI' },
-    ])
-  })
-
-  it('un id de catálogo se resuelve contra el systemPromptRepo inyectado', async () => {
-    const provider = new RemoteAgentProvider(registration({ systemPrompt: 'sp-1' }), {
-      getById: (id) =>
-        id === 'sp-1' ? { id: 'sp-1', name: 'Gateway CI', text: 'Texto del catálogo' } : null,
-    })
-    const body = await captureBody(provider)
-    expect(body?.systemPromptBlocks).toEqual([{ type: 'text', text: 'Texto del catálogo' }])
-  })
-
-  it('un id que ya no existe en el catálogo se omite sin romper el run', async () => {
-    const provider = new RemoteAgentProvider(registration({ systemPrompt: 'borrado' }), {
-      getById: () => null,
-    })
-    const body = await captureBody(provider)
-    expect(body?.systemPromptBlocks ?? []).toEqual([])
   })
 })
 

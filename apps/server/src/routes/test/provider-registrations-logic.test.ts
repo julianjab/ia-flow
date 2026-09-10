@@ -5,7 +5,6 @@ import {
   fetchAgentHostProvider,
   RegistrationInputSchema,
   toPublicRegistration,
-  UpdateSystemPromptSchema,
 } from '../provider-registrations-logic.js'
 
 const originalFetch = globalThis.fetch
@@ -49,28 +48,6 @@ describe('RegistrationInputSchema', () => {
       token: 'x',
     })
     expect(result.success).toBe(false)
-  })
-
-  it('acepta systemPrompt como id de catálogo, como bloque inline, o ausente', () => {
-    const base = { name: 'x', baseUrl: 'https://x.com', token: 'x' }
-    expect(RegistrationInputSchema.safeParse(base).success).toBe(true)
-    expect(RegistrationInputSchema.safeParse({ ...base, systemPrompt: 'sp-1' }).success).toBe(true)
-    expect(
-      RegistrationInputSchema.safeParse({ ...base, systemPrompt: { text: 'x' } }).success,
-    ).toBe(true)
-    expect(RegistrationInputSchema.safeParse({ ...base, systemPrompt: null }).success).toBe(true)
-  })
-})
-
-describe('UpdateSystemPromptSchema', () => {
-  it('acepta un id, un bloque inline, o null (para limpiarlo)', () => {
-    expect(UpdateSystemPromptSchema.safeParse({ systemPrompt: 'sp-1' }).success).toBe(true)
-    expect(UpdateSystemPromptSchema.safeParse({ systemPrompt: { text: 'x' } }).success).toBe(true)
-    expect(UpdateSystemPromptSchema.safeParse({ systemPrompt: null }).success).toBe(true)
-  })
-
-  it('rechaza cuando falta el campo — a diferencia de RegistrationInputSchema, acá es obligatorio', () => {
-    expect(UpdateSystemPromptSchema.safeParse({}).success).toBe(false)
   })
 })
 
@@ -157,7 +134,6 @@ describe('toPublicRegistration', () => {
       remoteName: 'Claude Print',
       remoteDescription: 'x',
       createdAt: '2026-01-01T00:00:00Z',
-      systemPrompt: null,
       ...overrides,
     }
   }
