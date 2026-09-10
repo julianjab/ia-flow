@@ -190,13 +190,20 @@ async function onSaveProviders() {
       <TerminalProviderSettingsForm v-else v-model="itermClaude" />
     </div>
 
-    <!-- Sólo mientras HAY algo que guardar o algo que arreglar: la barra
-         reemplaza a la tab bar (R4), y a esta pantalla se entra desde el tab
-         `Más` — dejarla montada siempre la convertiría en un callejón sin
-         salida en un teléfono. `Cancelar` vuelve a lo guardado, que es también
-         lo que devuelve la navegación. -->
+    <!-- Sólo mientras HAY algo que guardar: la barra reemplaza a la tab bar
+         (R4), y a esta pantalla se entra desde el tab `Más` — dejarla montada
+         siempre la convertiría en un callejón sin salida en un teléfono.
+         `Cancelar` vuelve a lo guardado, que es también lo que devuelve la
+         navegación.
+         El gate es `dirty` y NO `dirty || error`: `anthropicApiError` mira los
+         valores hidratados del store, así que una config inválida ya guardada
+         —por API, o por una versión anterior del validador— montaba el pie sin
+         que nadie tocara nada, y ahí ninguna de las dos salidas destraba
+         (Guardar deshabilitado por el error, Cancelar restaurando los mismos
+         valores inválidos). El error igual se ve: está en el campo que lo
+         causa. -->
     <FormFooter
-      v-if="dirty || anthropicApiError"
+      v-if="dirty"
       :note="footerNote"
       :note-is-error="!!anthropicApiError"
       :save-disabled="providersSaving || !!anthropicApiError"
