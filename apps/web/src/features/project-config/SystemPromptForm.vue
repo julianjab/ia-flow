@@ -2,6 +2,7 @@
 import { fetchVariables } from '@/features/project-config/api';
 import { onMounted, ref } from 'vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
+import FormFooter from '@/ui/FormFooter.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup } from '@/features/prompts/PromptField.vue';
 import type { VariableDefinition } from '@ia-flow/shared';
@@ -134,20 +135,25 @@ function updateText(v: string) {
       :description-fallback="modelValue.name ? `Nombre actual: ${modelValue.name}` : undefined"
       @result-fields="applyAiFields"
     />
-    <div class="field">
-      <span class="field-label">Nombre</span>
+    <!-- Franja 1 · qué es. El id NO es un campo: se deriva del nombre y no se
+         edita, así que va como hint del campo del que sale. -->
+    <div class="ff-row">
+      <span class="uc-label">Nombre</span>
       <input
         :value="modelValue.name"
-        class="input"
+        class="ff-field"
         placeholder="Claude Code Identity"
         @input="updateName(($event.target as HTMLInputElement).value)"
       />
-      <span v-if="idHint" class="field-hint">id: <code>{{ idHint }}</code></span>
+      <p v-if="idHint" class="ff-hint">id: <code>{{ idHint }}</code></p>
     </div>
-    <div class="field" style="margin-top: 0.5rem">
+    <!-- Franja 2 · qué hace, y acá es TODO el dominio: un system prompt es su
+         texto. Diez filas y no cuatro — es el único campo que importa en esta
+         pantalla y arrancaba ocupando menos que su propio encabezado. -->
+    <div class="ff-row sp-text">
       <PromptField
         :model-value="modelValue.text"
-        :rows="4"
+        :rows="10"
         :variable-groups="variableGroups"
         template-context="system-prompt"
         label="Texto"
@@ -158,18 +164,20 @@ function updateText(v: string) {
       />
     </div>
     </fieldset>
-    <div class="sp-form-actions">
-      <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
-           deshace, y desde el formulario se ve QUÉ prompt se está por borrar. -->
-      <button v-if="variant === 'edit' && !readonly" class="btn-delete-sm" @click="emit('delete')">Eliminar</button>
-      <span class="sp-form-actions-spacer" />
-      <button class="btn-cancel-sm" @click="emit('cancel')">
-        {{ readonly ? 'Cerrar' : 'Cancelar' }}
-      </button>
-      <button v-if="!readonly" class="btn-save-sm" @click="emit('save')">Guardar</button>
-    </div>
+    <!-- El pie no se pega: esta card se abre inline dentro de la lista, y una
+         barra fija acá competiría con la tab bar del shell (R4). -->
+    <FormFooter
+      :sticky="false"
+      :delete-label="variant === 'edit' ? 'Eliminar…' : undefined"
+      :readonly="readonly"
+      @save="emit('save')"
+      @cancel="emit('cancel')"
+      @delete="emit('delete')"
+    />
   </div>
 </template>
+
+<style scoped src="@/ui/form-fields.css"></style>
 
 <style scoped>
 /* `fieldset` y no `div`: `disabled` desactiva todo control anidado sin
@@ -180,6 +188,9 @@ function updateText(v: string) {
   margin: 0;
   padding: 0;
   min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }
 
 .sp-ro-note {
@@ -192,82 +203,33 @@ function updateText(v: string) {
 .sp-form {
   background: var(--panel-alt);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
+  border-radius: var(--radius);
+  padding: 0.75rem;
   margin-bottom: 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.75rem;
 }
-.sp-form--edit { border-color: var(--accent); background: var(--panel-alt); }
-.sp-form-header { display: flex; justify-content: flex-end; margin-bottom: 0.25rem; }
+.sp-form--edit { border-color: var(--accent); }
+
+/* El texto se lleva el alto que sobre: es el dominio entero de esta pantalla. */
+.sp-text { flex: 1 1 auto; }
+
+.sp-form-header { display: flex; justify-content: flex-end; }
+/* `--ai` y el glifo son de salida de modelo, y de nada más (R16). */
 .btn-ai-form {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
+  gap: 0.4ch;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.9ch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: var(--panel);
-  font-size: 0.78rem;
+  font-size: var(--fs-body-sm);
   color: var(--fg-dim);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.btn-ai-form:hover { border-color: var(--magenta); color: var(--magenta); }
-.btn-ai-form.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
-.sp-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
-.sp-form-actions-spacer { flex: 1; }
-.btn-delete-sm {
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--danger);
-  font-size: var(--fs-body-sm);
-  cursor: pointer;
-}
-.btn-delete-sm:hover { background: var(--red-bg); }
-.field { display: flex; flex-direction: column; gap: 0.25rem; }
-.field-label { font-size: 0.8rem; font-weight: 500; color: var(--fg-mute); }
-.field-hint { font-size: 0.72rem; color: var(--fg-dim); }
-.field-hint code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  background: var(--panel-hi);
-  padding: 0.05rem 0.25rem;
-  border-radius: 3px;
-}
-.input {
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.84rem;
-  color: var(--fg);
-  background: var(--panel);
-  width: 100%;
-  box-sizing: border-box;
-  outline: none;
-}
-.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-.btn-cancel-sm {
-  padding: 0.3rem 0.85rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
-  background: var(--panel);
-  font-size: 0.8rem;
-  cursor: pointer;
-  color: var(--fg-mute);
-}
-.btn-save-sm {
-  padding: 0.3rem 0.85rem;
-  border: none;
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--panel);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-.btn-save-sm:hover { background: var(--accent); }
+.btn-ai-form:hover { border-color: var(--ai); color: var(--ai); }
+.btn-ai-form.active { border-color: var(--ai); background: var(--panel-hi); color: var(--ai); }
 </style>

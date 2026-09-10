@@ -13,6 +13,8 @@
 //     aunque SÍ se aplicaran en runtime — se preservaban al guardar pero
 //     nunca se mostraban.
 
+import { computed } from 'vue'
+import CollapsibleSection from '@/ui/CollapsibleSection.vue'
 import type { SystemPromptDef } from '@ia-flow/shared'
 
 const props = defineProps<{
@@ -46,6 +48,20 @@ function removeInline(index: number) {
 function addInline() {
   emit('update:inlinePrompts', [...props.inlinePrompts, ''])
 }
+
+// Lo que el agente va a recibir, en el orden en que se concatena. Hasta acá el
+// texto de un prompt del catálogo existía SÓLO como `title=` del chip: en
+// táctil no hay hover, así que era información inalcanzable (R7). Y elegir sin
+// poder leer es elegir por el nombre.
+const selectedTexts = computed(() =>
+  props.selectedSysprompts
+    .map((id) => props.availableSysprompts.find((sp) => sp.id === id))
+    .filter((sp): sp is SystemPromptDef => !!sp),
+)
+const previewSummary = computed(() => {
+  const n = selectedTexts.value.length
+  return n ? `${n} bloque${n === 1 ? '' : 's'}, en este orden` : ''
+})
 </script>
 
 <template>
@@ -58,7 +74,6 @@ function addInline() {
           :key="sp.id"
           class="ff-chip"
           :class="{ 'ff-chip--on': selectedSysprompts.includes(sp.id) }"
-          :title="sp.text"
           @click="toggleSysprompt(sp.id)"
         >
           <span class="ff-chip-check">{{ selectedSysprompts.includes(sp.id) ? '✓' : '' }}</span>
@@ -69,6 +84,17 @@ function addInline() {
            ya se ve en los chips; lo que no se adivina es el orden en que se
            concatenan y contra qué. -->
       <p class="ff-hint">Se concatenan en este orden, antes del prompt del agente.</p>
+
+      <CollapsibleSection
+        v-if="selectedTexts.length"
+        title="Ver el texto"
+        :summary="previewSummary"
+      >
+        <div v-for="sp in selectedTexts" :key="sp.id" class="sp-preview">
+          <span class="uc-label">{{ sp.name }}</span>
+          <pre class="sp-preview-text">{{ sp.text }}</pre>
+        </div>
+      </CollapsibleSection>
     </div>
     <p v-else class="ff-hint">
       Sin catálogo — vacío en cualquier deploy headless (no viaja `systemPrompts` en el
@@ -110,4 +136,24 @@ function addInline() {
    filas y otro de veinte dejarían el control de borrar a alturas distintas. */
 .inline-block { display: flex; gap: 0.4rem; align-items: flex-start; }
 .inline-block > .ff-drop { margin-top: 0.55rem; }
+
+/* Lectura, no edición: es el texto que el agente va a recibir. `pre` para que
+   los saltos y la sangría del prompt se vean como se mandan, con scroll propio
+   —el único permitido a lo ancho (R2)— en vez de estirar la página. */
+.sp-preview { display: flex; flex-direction: column; gap: 0.2rem; }
+.sp-preview + .sp-preview {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-mute);
+}
+.sp-preview-text {
+  margin: 0;
+  max-height: 14rem;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+  color: var(--fg-mute);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 </style>
