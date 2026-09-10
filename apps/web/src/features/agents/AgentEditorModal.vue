@@ -210,7 +210,7 @@ const outcomesSummary = computed(() => {
 
 // Misma regla que el engine deriva server-side cuando `requiresBranch` es
 // null (ver AgentOrchestrator) — mostrarla acá evita que "Auto" sea una caja
-// negra que obliga a leer el field-hint para saber qué hace en este agente.
+// negra que obliga a leer el hint para saber qué hace en este agente.
 const WRITE_TOOL_NAMES = new Set(['fs_write', 'fs_edit', 'bash_run']);
 const derivedRequiresBranch = computed(() =>
   (tools.value ?? []).some((t) => typeof t === 'string' && WRITE_TOOL_NAMES.has(t)),
