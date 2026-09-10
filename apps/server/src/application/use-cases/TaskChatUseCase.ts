@@ -212,12 +212,12 @@ function buildTaskChatPrompt(body: {
  * ver `AssistWithAiUseCase.runFormFill`, que es quien de verdad ejecuta el
  * loop de tool calls.
  *
- * Las 4 acciones son STAGED — ninguna se aplica acá. `reorder`/`highlight`
- * quedan del lado del cliente (`localStorage`/estado de sesión), y `tag`/
- * `note` recién mutan cuando el operador presiona "Aplicar": `tag` vía
- * `setProjectItemField` y `note` vía `POST /api/tasks/assistant/notes`
- * (`ITaskAnnotationRepository`, ver `routes/task-chat.ts`) — ninguna de las
- * dos pasa por este use-case.
+ * Las 4 acciones son STAGED — ninguna se aplica acá, y ninguna toca el
+ * server: las 4 quedan del lado del cliente (`localStorage`/estado de
+ * sesión) recién cuando el operador presiona "Aplicar" — `tag` vía
+ * `taskTagPref.ts`, `note` vía `taskNotePref.ts`, `reorder` vía
+ * `taskOrderPref.ts` y `highlight` en el store — así que ninguna pasa por
+ * este use-case.
  */
 export class TaskChatUseCase {
   constructor(

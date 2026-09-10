@@ -1,6 +1,4 @@
 import {
-  type TaskAnnotation,
-  TaskAnnotationSchema,
   type TaskChatMessage,
   type TaskChatReply,
   TaskChatReplySchema,
@@ -30,26 +28,4 @@ export async function sendTaskChatMessage(
 ): Promise<TaskChatReply> {
   const { data } = await axios.post('/api/tasks/assistant/chat', payload, { signal: opts.signal })
   return TaskChatReplySchema.parse(data)
-}
-
-export async function fetchTaskAnnotations(
-  projectId: string,
-  taskId: string,
-): Promise<TaskAnnotation[]> {
-  const { data } = await axios.get('/api/tasks/assistant/notes', { params: { projectId, taskId } })
-  return (data.notes ?? []).map((n: unknown) => TaskAnnotationSchema.parse(n))
-}
-
-export async function createTaskAnnotation(input: {
-  projectId: string
-  taskId: string
-  text: string
-  origin: 'assistant' | 'user'
-}): Promise<TaskAnnotation> {
-  const { data } = await axios.post('/api/tasks/assistant/notes', input)
-  return TaskAnnotationSchema.parse(data.note)
-}
-
-export async function deleteTaskAnnotation(id: string): Promise<void> {
-  await axios.delete(`/api/tasks/assistant/notes/${encodeURIComponent(id)}`)
 }

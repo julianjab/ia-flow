@@ -12,9 +12,8 @@ import { useTaskChatStore } from '@/features/tasks/taskChatStore';
  *
  * **Deuda a propósito, fuera de alcance de este cambio**: sólo dibuja
  * propuestas STAGED (`pending`), no el historial de notas ya aplicadas —
- * eso necesita una fuente de datos por fila (`GET /notes?taskId=`) que hoy
- * no se pide en el listado (sería 1 request por fila visible). El backend
- * ya soporta leer/borrar esas notas (`chatApi.ts`); falta la vista.
+ * esas viven en `localStorage` (`taskNotePref.ts`) y hoy nadie las vuelve a
+ * leer para mostrarlas fila por fila.
  */
 const props = defineProps<{
   taskId: string

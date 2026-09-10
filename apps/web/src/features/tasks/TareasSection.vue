@@ -11,8 +11,9 @@ import { useTaskGroupsStore } from '@/features/tasks/groupsStore';
 import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue';
 import TaskChatRowOverlay from '@/features/tasks/TaskChatRowOverlay.vue';
 import { useTaskChatStore } from '@/features/tasks/taskChatStore';
-import { createTaskAnnotation } from '@/features/tasks/chatApi';
 import { applyTaskOrderPref, clearTaskOrderPref, getTaskOrderPref, setTaskOrderPref } from '@/features/tasks/taskOrderPref';
+import { addTaskTagPref, getTaskTagPref } from '@/features/tasks/taskTagPref';
+import { addTaskNotePref } from '@/features/tasks/taskNotePref';
 import { sectionRows, type GroupedSection } from '@/features/tasks/task-grouping';
 import ExecutionStatusLine from '@/components/ExecutionStatusLine.vue';
 import ListBoardToggle from '@/components/ListBoardToggle.vue';
@@ -322,10 +323,12 @@ const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
     id: item.id,
     title: item.title,
     status: item.status,
-    // Ningún adapter de `issue-sources` publica labels en `meta` todavía
-    // (deuda fuera de alcance — ver el comentario de `TaskChatTaskContextSchema`
-    // en `packages/shared`): el asistente no ve tags reales por ahora.
-    tags: [],
+    // Ningún adapter de `issue-sources` publica labels reales en `meta`
+    // todavía (deuda fuera de alcance — ver el comentario de
+    // `TaskChatTaskContextSchema` en `packages/shared`); lo único que el
+    // asistente ve es lo que él mismo propuso y se aplicó antes, vía
+    // `taskTagPref.ts` (localStorage, nunca al server).
+    tags: activeProjectId.value ? getTaskTagPref(activeProjectId.value, item.id) : [],
     disposition: dispositionById.value.get(item.id)?.disposition,
     blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
     assignees: item.assignees,
@@ -333,37 +336,29 @@ const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
 );
 
 /**
- * "Aplicar" en la barra de comandos emite las 4 acciones acá — cada tipo
- * tiene su propia persistencia (ver la tabla del schema en
+ * "Aplicar" en la barra de comandos emite las 4 acciones acá. Ninguna toca
+ * el server: son propuestas de un modelo sin revisión humana, así que las
+ * 4 son preferencia de vista, client-side (ver la tabla del schema en
  * `packages/shared`, `TaskChatActionSchema`):
- * - `tag`: `setProjectItemField(..., 'Labels', ...)`, igual mecanismo que
- *   la tool `set_task_labels` del engine.
- * - `note`: `POST /api/tasks/assistant/notes` (`createTaskAnnotation`).
- * - `reorder`: `localStorage`, vía `taskOrderPref.ts` — nunca al server.
+ * - `tag`: `localStorage`, vía `taskTagPref.ts`.
+ * - `note`: `localStorage`, vía `taskNotePref.ts`.
+ * - `reorder`: `localStorage`, vía `taskOrderPref.ts`.
  * - `highlight`: estado de sesión del store, nunca persistido.
  *
  * Una acción que falla no aborta las demás: son cambios independientes.
  */
-async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
+function onChatApplyActions(actions: TaskChatAction[]): void {
   const pid = activeProjectId.value;
   if (!pid || !actions.length) return;
   taskChatStore.recordHighlights(actions);
 
   let failed = 0;
-  let touchedServer = false;
   for (const action of actions) {
     try {
       if (action.type === 'tag') {
-        const titled = filteredItems.value.find((i) => i.id === action.taskId)?.title ?? action.taskId;
-        try {
-          await setProjectItemField(pid, action.taskId, 'Labels', action.tags.map((t) => `+${t}`).join(','));
-          touchedServer = true;
-        } catch (e) {
-          failed += 1;
-          toastStore.error(`No se pudieron añadir tags en «${titled}»: ${extractErrorMessage(e)}`);
-        }
+        addTaskTagPref(pid, action.taskId, action.tags);
       } else if (action.type === 'note') {
-        await createTaskAnnotation({ projectId: pid, taskId: action.taskId, text: action.text, origin: 'assistant' });
+        addTaskNotePref(pid, action.taskId, action.text);
       } else if (action.type === 'reorder') {
         setTaskOrderPref(pid, action.taskIds);
         // `localStorage` no es reactivo — sin esto la lista no se
@@ -380,7 +375,6 @@ async function onChatApplyActions(actions: TaskChatAction[]): Promise<void> {
 
   const applied = actions.length - failed;
   if (applied > 0) toastStore.success(applied === 1 ? 'Cambio aplicado' : `${applied} cambios aplicados`);
-  if (touchedServer) await Promise.all([loadProjectItems(true), loadDispositions()]);
 }
 
 /**

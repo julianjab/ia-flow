@@ -2422,21 +2422,3 @@ export const TaskChatRequestSchema = z.object({
   tasks: z.array(TaskChatTaskContextSchema).max(TASK_CHAT_MAX_TASKS),
 })
 export type TaskChatRequest = z.infer<typeof TaskChatRequestSchema>
-
-// ─── Anotaciones de tareas (acción `note` del asistente) ──────────────────
-//
-// NO es un comentario de GitHub — es un dato propio de ia-flow, editable y
-// borrable desde acá, con timestamp y marca de origen. Vive en la tabla
-// `task_annotations` (migración 074).
-
-export const TaskAnnotationSchema = z.object({
-  id: z.string(),
-  projectId: z.string(),
-  taskId: z.string(),
-  text: z.string().min(1),
-  /** Quién la escribió — hoy sólo el asistente la crea, pero el schema deja
-   *  lugar para que un humano anote directamente más adelante. */
-  origin: z.enum(['assistant', 'user']),
-  createdAt: z.string(),
-})
-export type TaskAnnotation = z.infer<typeof TaskAnnotationSchema>
