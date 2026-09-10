@@ -66,6 +66,22 @@ export async function runTaskNow(projectId: string, taskId: string): Promise<Run
 }
 
 /**
+ * Mueve la tarea a otro status del board.
+ *
+ * `PUT /api/tasks/:id` acepta un patch parcial, así que mandar sólo `status`
+ * no toca el título ni la descripción — importa porque el body del issue es
+ * el PRD y lo reescribe el refiner (ver la nota de `preserveSlackSection` en
+ * el CLAUDE.md raíz).
+ */
+export async function updateTaskStatus(
+  projectId: string,
+  taskId: string,
+  status: string,
+): Promise<void> {
+  await axios.put(`/api/tasks/${encodeURIComponent(taskId)}`, { projectId, status })
+}
+
+/**
  * Los runs de UNA tarea, más recientes primero.
  *
  * La llamada vive acá y no se importa de `features/executions` a propósito:

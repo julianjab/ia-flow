@@ -10,7 +10,20 @@ import {
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { sendTaskChatMessage } from '@/features/tasks/chatApi'
-import { TASK_UI_PRIMITIVES } from '@/features/tasks/uiContract'
+import { buildTaskUiContract, TASK_UI_PRIMITIVES } from '@/features/tasks/uiContract'
+
+/** Los ids de tarea que un bloque nombra, leyendo sólo las claves que el
+ *  contrato declaró como portadoras de ids (`taskIdProps`). Acepta un array o
+ *  un id suelto: cuál de las dos formas usa cada primitiva lo dice su JSON
+ *  Schema, no este helper. */
+function taskIdsOf(block: ViewBlock, taskIdProps: string[]): string[] {
+  return taskIdProps
+    .flatMap((key) => {
+      const value = block.props[key]
+      return Array.isArray(value) ? value : [value]
+    })
+    .filter((id): id is string => typeof id === 'string')
+}
 
 /**
  * El estado de la barra de comandos del asistente — reemplaza al viejo
@@ -30,19 +43,6 @@ import { TASK_UI_PRIMITIVES } from '@/features/tasks/uiContract'
  * `localStorage` puro (`taskOrderPref.ts`/`taskTagPref.ts`/`taskNotePref.ts`/
  * `taskGroupPref.ts`), aplicados por `TareasSection.vue`.
  */
-/** Los ids de tarea que un bloque nombra, leyendo sólo las claves que el
- *  contrato declaró como portadoras de ids (`taskIdProps`). Acepta un array o
- *  un id suelto: cuál de las dos formas usa cada primitiva lo dice su JSON
- *  Schema, no este helper. */
-function taskIdsOf(block: ViewBlock, taskIdProps: string[]): string[] {
-  return taskIdProps
-    .flatMap((key) => {
-      const value = block.props[key]
-      return Array.isArray(value) ? value : [value]
-    })
-    .filter((id): id is string => typeof id === 'string')
-}
-
 export const useTaskChatStore = defineStore('task-chat', () => {
   const history = ref<TaskChatMessage[]>([])
   const pending = ref<TaskChatReply | null>(null)
@@ -91,9 +91,9 @@ export const useTaskChatStore = defineStore('task-chat', () => {
   const rowBlocksByTask = computed<Record<string, ViewBlock[]>>(() => {
     const out: Record<string, ViewBlock[]> = {}
     for (const block of view.value?.blocks ?? []) {
-      const def = TASK_UI_PRIMITIVES.find((d) => d.primitive.id === block.use)
+      const def = TASK_UI_PRIMITIVES.find((d) => d.id === block.use)
       if (def?.slot !== 'row') continue
-      for (const taskId of taskIdsOf(block, def.primitive.taskIdProps)) {
+      for (const taskId of taskIdsOf(block, def.taskIdProps)) {
         out[taskId] = [...(out[taskId] ?? []), block]
       }
     }
@@ -113,6 +113,14 @@ export const useTaskChatStore = defineStore('task-chat', () => {
     projectId: string
     message: string
     tasks: TaskChatTaskContext[]
+    /** Los statuses reales del board — entran al contrato para que el modelo
+     *  elija de la lista que existe y no de una inventada.
+     *
+     *  Opcional: si el board no los expuso (o el fetch falló), las
+     *  operaciones que dependan de ellos se retiran del contrato y el resto
+     *  del asistente sigue funcionando. Degradar es correcto; romper la
+     *  conversación entera por un botón que no se puede ofrecer, no. */
+    statuses?: string[]
   }): Promise<void> {
     busy.value = true
     error.value = null
@@ -129,6 +137,7 @@ export const useTaskChatStore = defineStore('task-chat', () => {
           // adelante falla la validación de Zod con un 400 permanente.
           history: history.value.slice(-TASK_CHAT_MAX_MESSAGES),
           tasks: input.tasks,
+          uiContract: buildTaskUiContract({ statuses: input.statuses ?? [] }),
         },
         { signal: controller.signal },
       )

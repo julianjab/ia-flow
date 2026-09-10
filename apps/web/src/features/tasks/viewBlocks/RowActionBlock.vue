@@ -22,12 +22,16 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  run: [op: string]
+  run: [op: string, params: Record<string, unknown>]
 }>()
 
 const PropsSchema = z.object({
   op: z.string().min(1),
   label: z.string().min(1),
+  // Los `params` los declara cada operación y su forma la garantiza la rama
+  // del `anyOf` que la API le forzó al modelo. Acá sólo se comprueba que sea
+  // un objeto: interpretarlos es trabajo de `exec`, que es quien los definió.
+  params: z.record(z.string(), z.unknown()).default({}),
 })
 
 const parsed = computed(() => {
@@ -37,7 +41,7 @@ const parsed = computed(() => {
   // ofreció, así que no debería pasar, pero un botón que no hace nada al
   // apretarlo es peor que un botón ausente.
   const op = findTaskUiOperation(result.data.op)
-  return op ? { op, label: result.data.label } : null
+  return op ? { op, label: result.data.label, params: result.data.params } : null
 })
 </script>
 
@@ -47,9 +51,9 @@ const parsed = computed(() => {
     type="button"
     class="btn btn--ghost row-action"
     :disabled="busy"
-    :title="parsed.op.description"
+    :title="parsed.label"
     :data-testid="`row-action-${parsed.op.id}-${taskId}`"
-    @click="emit('run', parsed.op.id)"
+    @click="emit('run', parsed.op.id, parsed.params)"
   >
     <span class="row-action-glyph" aria-hidden="true">▶</span>
     <span>{{ busy ? '…' : parsed.label }}</span>

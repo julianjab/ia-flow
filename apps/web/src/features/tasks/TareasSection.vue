@@ -402,13 +402,17 @@ function onChatApplyActions(actions: TaskChatAction[]): void {
  * server y el renderer, así que llegar acá significa que el bundle cambió a
  * mitad de sesión — no es algo que el operador pueda accionar.
  */
-async function onChatRunOp(taskId: string, op: string): Promise<void> {
+async function onChatRunOp(
+  taskId: string,
+  op: string,
+  params: Record<string, unknown>,
+): Promise<void> {
   const pid = activeProjectId.value;
   const operation = findTaskUiOperation(op);
   if (!pid || !operation) return;
   runBusyId.value = taskId;
   try {
-    const res = await operation.exec({ projectId: pid, taskId });
+    const res = await operation.exec({ projectId: pid, taskId, params });
     if (res.ok) toastStore.success(res.message);
     else toastStore.error(res.message);
   } catch (e) {
@@ -1365,6 +1369,7 @@ watch(activeProjectId, (pid) => {
       v-if="chatOpen && activeProjectId"
       :project-id="activeProjectId"
       :tasks="chatTasksContext"
+      :statuses="statusOptions"
       @apply="onChatApplyActions"
     />
 

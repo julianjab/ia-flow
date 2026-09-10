@@ -27,7 +27,7 @@ const emit = defineEmits<{
   /** Una primitiva de vista pidió ejecutar una operación sobre esta fila. El
    *  overlay no la corre: necesita el proyecto activo y los toasts, que son de
    *  `TareasSection`. */
-  runOp: [taskId: string, op: string]
+  runOp: [taskId: string, op: string, params: Record<string, unknown>]
 }>()
 
 const store = useTaskChatStore()
@@ -70,7 +70,7 @@ const hasSomething = computed(
         :block="entry.block"
         :task-id="taskId"
         :busy="!!busy"
-        @run="(op: string) => emit('runOp', taskId, op)"
+        @run="(op: string, params: Record<string, unknown>) => emit('runOp', taskId, op, params)"
       />
     </div>
 
