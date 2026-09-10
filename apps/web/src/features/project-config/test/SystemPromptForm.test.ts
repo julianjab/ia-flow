@@ -41,8 +41,11 @@ describe('SystemPromptForm', () => {
     const wrapper = mount(SystemPromptForm, {
       props: { modelValue: { name: 'Foo', text: 'hello' } },
     })
-    await wrapper.get('.btn-cancel-sm').trigger('click')
-    await wrapper.get('.btn-save-sm').trigger('click')
+    // El pie es `ui/FormFooter.vue`, la misma pieza en las siete pantallas de
+    // configuración: el neutro es el único `.btn` sin variante.
+    const cancel = wrapper.findAll('button').find((b) => b.text() === 'Cancelar')
+    await cancel?.trigger('click')
+    await wrapper.get('.btn--primary').trigger('click')
     expect(wrapper.emitted('cancel')).toBeTruthy()
     expect(wrapper.emitted('save')).toBeTruthy()
   })
