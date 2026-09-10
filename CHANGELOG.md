@@ -1,5 +1,94 @@
 # Changelog
 
+## [1.7.0](https://github.com/julianjab/ia-flow/compare/v1.6.0...v1.7.0) (2026-09-10)
+
+
+### Features
+
+* agrega pr_merged/review_rounds a execution_logs ([#200](https://github.com/julianjab/ia-flow/issues/200)) ([3fd80e4](https://github.com/julianjab/ia-flow/commit/3fd80e4eed1447d46dd5945a18d375a57862a154))
+* agregar tools de lectura de issues para el asistente de chat ([#219](https://github.com/julianjab/ia-flow/issues/219)) ([ae31ca6](https://github.com/julianjab/ia-flow/commit/ae31ca6beefe5d0beb49e63dee44b10a7cafb0b9))
+* cablear TaskChatUseCase a las tools de lectura de issues ([#224](https://github.com/julianjab/ia-flow/issues/224)) ([05014b9](https://github.com/julianjab/ia-flow/commit/05014b9cc5e26472e479ed78553ac1fca0e76708))
+* complete_task acepta los campos de output inline ([#199](https://github.com/julianjab/ia-flow/issues/199)) ([452be82](https://github.com/julianjab/ia-flow/commit/452be82a7eab638ce03057da8129034fd1119ccf))
+* **recoverable-runs:** mostrar checkpoints resumibles junto a los aborts ([4d66a6f](https://github.com/julianjab/ia-flow/commit/4d66a6ffda152196e521d4ebc2a19e586140a2d7))
+* **server:** config editable de system prompts por caller ad-hoc de AssistWithAiUseCase ([#226](https://github.com/julianjab/ia-flow/issues/226)) ([2e5f6ae](https://github.com/julianjab/ia-flow/commit/2e5f6ae95ffb74d9b479a1c383de9853b799e86f))
+* **server:** filtrar checkpoints recuperables por task cerrada + delete endpoint ([fe84c8c](https://github.com/julianjab/ia-flow/commit/fe84c8ceee72b95fc14b98ed747bd4c6363198dc))
+* **tasks:** abrir la tarea seleccionada vía path param, no query ([f24f20b](https://github.com/julianjab/ia-flow/commit/f24f20b1546486f2208666287d3b11d60d50341d))
+* **tasks:** agrupar TE ESPERA por tema con Haiku (GetTaskGroupsUseCase) ([79c8f11](https://github.com/julianjab/ia-flow/commit/79c8f117b939b69c7519aa0a9d8798d309b92ce3))
+* **tasks:** unificar orden de lista en disposición/repo/fuente ([5ae33bf](https://github.com/julianjab/ia-flow/commit/5ae33bffda42a933aa193978625be564e11de2c0))
+* **web:** agregar link desde detalle de ejecución a la tarea en Tareas ([1ef5d8f](https://github.com/julianjab/ia-flow/commit/1ef5d8f761be4b4643460f549e6ad76cbe4307e9))
+* **web:** asistente de tareas — panel de chat en Tareas ([#220](https://github.com/julianjab/ia-flow/issues/220)) ([cdb993a](https://github.com/julianjab/ia-flow/commit/cdb993ab305217f17877321248549f3e3f230faf))
+* **web:** barra de pasos del pipeline en el detalle de tarea ([f64b57c](https://github.com/julianjab/ia-flow/commit/f64b57c16a3a00a97cea539a7754dbdab928c80b))
+* **web:** botón para eliminar un checkpoint recuperable ([656c011](https://github.com/julianjab/ia-flow/commit/656c011fb275d7bab9f885490950d368ad67d3c3))
+* **web:** columna de detalle redimensionable en Tareas (--bp-split) ([3548b46](https://github.com/julianjab/ia-flow/commit/3548b46c3c2cfcca0d68650f4e95900d3b5a2434))
+* **web:** columnas redimensionables arrastrando en Ejecuciones ([7818438](https://github.com/julianjab/ia-flow/commit/78184381692b47e7dfa5195220ce8ad632b97fcd))
+* **web:** columnas redimensionables arrastrando en la lista de Tareas ([5dc4e6f](https://github.com/julianjab/ia-flow/commit/5dc4e6fdf11d2fef4dda6754d765472217becfa0))
+* **web:** composable de columnas de tabla redimensionables ([c24396b](https://github.com/julianjab/ia-flow/commit/c24396b8e832d4e7b7471a1cd8db61694d29edb4))
+* **web:** distinguir tareas ya cerradas en el board del resto sin ejecutar ([12ecebd](https://github.com/julianjab/ia-flow/commit/12ecebdb9d397feef23acac3c75a6d892c38ac57))
+* **web:** eje texto: en taskFilters, contains sin acentos ([2f9b1bb](https://github.com/julianjab/ia-flow/commit/2f9b1bba523c2697335c4ac064d60f2c332c5edd))
+* **web:** el chip de disposición en Tareas es un filtro real, no uno paralelo ([08f686c](https://github.com/julianjab/ia-flow/commit/08f686cf54280578f3672226db32cc073335d1d1))
+* **web:** filtrar tareas por texto del título (contains, sin acentos) ([a463237](https://github.com/julianjab/ia-flow/commit/a4632371c44b0f0abece0308ffa8592973b1f937))
+* **web:** grupos de tareas por tema colapsables ([7f130fd](https://github.com/julianjab/ia-flow/commit/7f130fd860877f3fb567b57eea1bf07e4283cd91))
+* **web:** linkear cada run del detalle de tarea a su ejecución ([24d00d7](https://github.com/julianjab/ia-flow/commit/24d00d7315b1203e6bcd25194e1fbced03b2f4f9))
+* **web:** permitir colapsar el panel EN VUELO ([1c4683f](https://github.com/julianjab/ia-flow/commit/1c4683f3d247a2fcd67769b02cab44429f068c05))
+* **web:** quick filters como chips genéricos de ListControlsBar ([e07f6e5](https://github.com/julianjab/ia-flow/commit/e07f6e57c9d931fb51ed7cd1e1f169f751d60aee))
+* **web:** reusar TaskExecutions en Runs recuperables (tarea + historial) ([0ec3891](https://github.com/julianjab/ia-flow/commit/0ec38919a77a58d8acf21a7275091e615b46f679))
+* **web:** scroll horizontal en Ejecuciones cuando las columnas exceden el ancho ([c2abba3](https://github.com/julianjab/ia-flow/commit/c2abba314a3e52245935175515d277283c6790c2))
+* **web:** scroll horizontal en Tareas cuando las columnas exceden el ancho ([cdc2ee4](https://github.com/julianjab/ia-flow/commit/cdc2ee4a241a84af2180807c5113aca497f5871c))
+* **web:** split lista|detalle redimensionable en Ejecuciones ([6d41b01](https://github.com/julianjab/ia-flow/commit/6d41b011ebf1a412674716c5814a3939607681d8))
+* **web:** toggle "agrupar por tema" en el bucket TE ESPERA ([6c2dae2](https://github.com/julianjab/ia-flow/commit/6c2dae22f44f740e5ffa4bf4cc9a5df09561191b))
+* **web:** useResizableColumns soporta maxWidth e invert ([54f8baa](https://github.com/julianjab/ia-flow/commit/54f8baa8acfcb376ddb072f9a826ae44a06e8bfb))
+
+
+### Bug Fixes
+
+* **ai-providers:** sanear mcp_tool_use huérfano antes de reenviar el historial ([0d0bc89](https://github.com/julianjab/ia-flow/commit/0d0bc89ec27dd923660a499ef048b4caf3b430be))
+* run.finished emite el outcome real del agente, no el del dispatch ([#202](https://github.com/julianjab/ia-flow/issues/202)) ([708b2ab](https://github.com/julianjab/ia-flow/commit/708b2ab9b700b8df8031bbc7f66312b7d8c8c016))
+* **server:** borrar las waits de una task al eliminarla ([d3de595](https://github.com/julianjab/ia-flow/commit/d3de5952436df021beb04643073ea65483664549))
+* **server:** excluir de checkpoints recuperables los runs en curso ([9e6fb09](https://github.com/julianjab/ia-flow/commit/9e6fb09a3b02952232f3feef5ea67e239e613fc5))
+* **server:** propagar status HTTP real del upstream en /api/tasks/assistant/chat ([#227](https://github.com/julianjab/ia-flow/issues/227)) ([7b4b000](https://github.com/julianjab/ia-flow/commit/7b4b0005277d2d6c408c4b5a28fdcfb21d59fead))
+* **server:** sacar seed de proyecto default y tolerar cero proyectos ([#228](https://github.com/julianjab/ia-flow/issues/228)) ([15d62b8](https://github.com/julianjab/ia-flow/commit/15d62b83fcaad454fbf80c63d693e073a1575663))
+* **tasks:** cerrar el detalle si :detailId apunta a una tarea no cargada ([fa04329](https://github.com/julianjab/ia-flow/commit/fa0432952e203bcc5064c5cecaf7eb2650509a6a))
+* **web:** "Abortar"/"Detener" sólo en el detalle de la ejecución, no en la fila ([88b5221](https://github.com/julianjab/ia-flow/commit/88b522199ef66eb33f0ac745bb8d5a2d2b48827d))
+* **web:** "Resolver" en Ejecuciones sólo si el run cancelado sigue recuperable ([0fec044](https://github.com/julianjab/ia-flow/commit/0fec044219667dfc91eaa3cd27f7e3f5c74fd7f1))
+* **web:** agrega :key explícito para evitar crash de Vue 3 al patchear componentes de tipo distinto ([#203](https://github.com/julianjab/ia-flow/issues/203)) ([1a2475d](https://github.com/julianjab/ia-flow/commit/1a2475daa979232f55c8b0344b57e347e6e89b82))
+* **web:** apagar el a:hover global en links que se pintaban de teal entero ([6f4995c](https://github.com/julianjab/ia-flow/commit/6f4995c708d4e65c58fa5bf529eda910e7aef176))
+* **web:** aplicar disposicion en filterTasks — no sólo en el modo disposición ([5f11fcf](https://github.com/julianjab/ia-flow/commit/5f11fcfcbc5676f3d6553b20abd9a12df7321f56))
+* **web:** clip en .exec-list-wrapper — evita que la tabla se desborde ([4d9bdaa](https://github.com/julianjab/ia-flow/commit/4d9bdaadcfd37c8853a5282bb7676752da6aa3f1))
+* **web:** colapsar reintentos de la misma tarea en TE ESPERA ([c275d89](https://github.com/julianjab/ia-flow/commit/c275d8939ba777411ce7cd5929d6d111c077fc1c))
+* **web:** comprimir el header de Ejecuciones (HealthVerdict) ([5e7cb70](https://github.com/julianjab/ia-flow/commit/5e7cb70ebf5aa6bc5a3ae437e9708ad361db2614))
+* **web:** considerar el repo del PR vinculado en el filtro `repo:` de tareas ([95eb684](https://github.com/julianjab/ia-flow/commit/95eb68445ff1e277d4f504445c716b4b31a3e39b))
+* **web:** Ejecuciones — un solo scroll para la lista y uno para el detalle ([0788e0c](https://github.com/julianjab/ia-flow/commit/0788e0ce7815cd9d8ff44f0a01fef75d7b5ab400))
+* **web:** el chip de ejecuciones activas abre el run, no solo la lista ([c0f061a](https://github.com/julianjab/ia-flow/commit/c0f061afb3d2c805b6e8b995078489c14b178e2c))
+* **web:** el detalle de Tareas tapaba toda la pantalla ([d115335](https://github.com/julianjab/ia-flow/commit/d115335e6ac0ba0e1808fde50302210bfa820c6f))
+* **web:** el handle de "tarea · razón" agranda esa columna, no agente ([1a0cb5d](https://github.com/julianjab/ia-flow/commit/1a0cb5de440c17b48ef98bd1f5b20c115ff14eb9))
+* **web:** el handle de "tarea" agranda tarea, no issue ([12230c0](https://github.com/julianjab/ia-flow/commit/12230c0405c6f83a7e6dcb33106827ccc9c634df))
+* **web:** el overlay de detalle de tarea usa 60% de ancho, no 400px fijo ([51e7eb4](https://github.com/julianjab/ia-flow/commit/51e7eb4dea7af4752703cda2abf5dcb3d366d113))
+* **web:** el stepper no marca "hecho" un status que nunca corrió ([2cce7d8](https://github.com/julianjab/ia-flow/commit/2cce7d821a4d26769b22e11e84304028ac4b097f))
+* **web:** Enter en texto plano aplica el filtro texto: en Tareas ([03fd541](https://github.com/julianjab/ia-flow/commit/03fd541d4078cd3e011067f72724448e88f4f6e4))
+* **web:** fijar el alto del panel de tarea en split para que el pie no se pierda ([6f41f90](https://github.com/julianjab/ia-flow/commit/6f41f902f1e2143b26b216b38ef5342803b939c9))
+* **web:** la lista de ejecuciones arranca colapsada siempre ([340c19a](https://github.com/julianjab/ia-flow/commit/340c19a6e005b14e799f2475b5442c800398ee9f))
+* **web:** min-width en .runs-list y contraste del motivo en TaskExecutions ([81c0008](https://github.com/julianjab/ia-flow/commit/81c00080a1e384536ca09fcb70e96b18e4f67b17))
+* **web:** no inferir el status terminal desde tareas sin posición conocida ([c506fb1](https://github.com/julianjab/ia-flow/commit/c506fb1c44fbf3ab7539a831791088afc8501f98))
+* **web:** ocultar el texto de estado en la columna del glifo de TaskRow ([da56dc1](https://github.com/julianjab/ia-flow/commit/da56dc133410cdcf81f31411e68c318db9a4cb9f))
+* **web:** resolver closedTaskIds tambien en la pestaña global de Ejecuciones ([ea282b0](https://github.com/julianjab/ia-flow/commit/ea282b0bf1ea6c5c6684d3fda238496a361cbdf1))
+* **web:** sacar RunningRunsPanel de Ejecuciones — duplicaba "avanza solo" ([ed14648](https://github.com/julianjab/ia-flow/commit/ed14648961a0b8a59e0e558026e76e42bcbe4218))
+* **web:** sincronizar activeProjectId antes de montar los hijos del proyecto ([3d1e5df](https://github.com/julianjab/ia-flow/commit/3d1e5df78382bfd1f7bb2e0c640b79294801ee05))
+* **web:** status terminal robusto ante cache desactualizado y comparación case-insensitive ([a14a703](https://github.com/julianjab/ia-flow/commit/a14a703296de3951ae7a7736ba2ee8223762ccd7))
+* **web:** Tareas colapsa a mobile por ancho de LISTA, no de ventana ([0378f99](https://github.com/julianjab/ia-flow/commit/0378f9997f7d6490efb9e2349c264e41013f8a7f))
+* **web:** toda columna con etiqueta es arrastrable, sin absorbedora oculta ([65dfdd2](https://github.com/julianjab/ia-flow/commit/65dfdd2e5a1badaf72c11aea6e2a11b76496e418))
+* **web:** toda fila de Ejecuciones linkea a su tarea aunque falle la URL del issue ([9828d80](https://github.com/julianjab/ia-flow/commit/9828d8069f368815c5080423f5a9cc334b745227))
+* **web:** usar todo el ancho disponible en app-shell__main ([c6874f4](https://github.com/julianjab/ia-flow/commit/c6874f42a903a5b8dc41f05bdcac163f16958d08))
+
+
+### Performance Improvements
+
+* **tools:** espaciar el guardado de checkpoint del loop agéntico ([#212](https://github.com/julianjab/ia-flow/issues/212)) ([2849f85](https://github.com/julianjab/ia-flow/commit/2849f8501516ba7087aa26e798c7989ad51a33b6))
+
+
+### Reverts
+
+* **web:** sacar overflow:auto de .task-table / .exec-list-wrapper ([e4bdac7](https://github.com/julianjab/ia-flow/commit/e4bdac7f810b6257255d4467c6014ca83f09aca4))
+
 ## [1.6.0](https://github.com/julianjab/ia-flow/compare/v1.5.0...v1.6.0) (2026-09-08)
 
 
