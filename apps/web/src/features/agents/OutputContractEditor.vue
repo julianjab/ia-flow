@@ -81,36 +81,36 @@ function remove(i: number) {
 
 <template>
   <div class="oce">
-    <span class="field-hint">
+    <p class="ff-hint">
       Los campos que este agente entrega con <code>submit_output</code> para que otro paso
       de la regla los lea. Declararlo lo vuelve <strong>obligatorio</strong>: si el agente
       cierra sin entregarlos, el run falla — un contrato que se puede incumplir en silencio
       deja al paso siguiente trabajando con un encargo mutilado.
-    </span>
+    </p>
 
     <div v-for="(row, i) in rows" :key="i" class="oce__row">
       <input
         v-model="row.name"
-        class="oce__name"
+        class="ff-field oce__name"
         placeholder="brief"
         aria-label="Nombre del campo"
         @input="sync()"
       />
-      <select v-model="row.type" class="oce__type" aria-label="Tipo" @change="sync()">
+      <select v-model="row.type" class="ff-field oce__type" aria-label="Tipo" @change="sync()">
         <option value="string">string</option>
         <option value="number">number</option>
         <option value="boolean">boolean</option>
       </select>
       <input
         v-model="row.description"
-        class="oce__desc"
+        class="ff-field oce__desc"
         placeholder="qué tiene que poner el agente ahí"
         aria-label="Descripción"
         @input="sync()"
       />
       <input
         v-model="row.enum"
-        class="oce__enum"
+        class="ff-field oce__enum"
         placeholder="valores, separados, por coma"
         aria-label="Valores permitidos"
         @input="sync()"
@@ -119,62 +119,45 @@ function remove(i: number) {
         <input v-model="row.optional" type="checkbox" @change="sync()" />
         <span>opc.</span>
       </label>
-      <button type="button" class="oce__btn" title="Quitar" @click="remove(i)">✕</button>
+      <button type="button" class="ff-drop" title="Quitar" @click="remove(i)">✕</button>
     </div>
 
-    <button type="button" class="oce__btn oce__add" @click="add()">+ campo</button>
+    <button type="button" class="ff-add" @click="add()">+ campo</button>
 
-    <span v-if="!rows.length" class="field-hint">
+    <p v-if="!rows.length" class="ff-hint">
       Sin campos declarados el agente cierra con prosa, como siempre, y sigue siendo
       encadenable por texto (<code>{{ '\{\{steps.X.output\}\}' }}</code>).
-    </span>
+    </p>
   </div>
 </template>
+
+<style scoped src="@/ui/form-fields.css"></style>
 
 <style scoped>
 .oce {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.25rem;
 }
+/* Cuatro campos y dos controles en una fila: por debajo de --bp-stack no
+   entran, así que la fila envuelve en vez de exprimir cada campo a 40px. */
 .oce__row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5ch;
+  gap: 0.35rem;
 }
-.oce__name {
-  flex: 0 0 14ch;
-}
-.oce__type {
-  flex: 0 0 10ch;
-}
-.oce__desc {
-  flex: 1 1 auto;
-  min-width: 12ch;
-}
-.oce__enum {
-  flex: 0 0 22ch;
-}
+.oce__name { flex: 0 0 14ch; }
+.oce__type { flex: 0 0 12ch; }
+.oce__desc { flex: 1 1 16ch; min-width: 12ch; }
+.oce__enum { flex: 1 1 22ch; }
 .oce__opt {
   display: flex;
   align-items: center;
   gap: 0.25ch;
   color: var(--fg-dim);
+  font-size: var(--fs-body-sm);
   flex: 0 0 auto;
-}
-.oce__btn {
-  background: none;
-  border: none;
-  color: var(--fg-dim);
   cursor: pointer;
-  font: inherit;
-  height: var(--row-h);
-  padding: 0 0.5ch;
-}
-.oce__btn:hover {
-  color: var(--fg);
-}
-.oce__add {
-  align-self: flex-start;
 }
 </style>

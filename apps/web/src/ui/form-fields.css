@@ -143,6 +143,57 @@
   cursor: pointer;
 }
 
+/* El chip tildable: un multi-select donde las opciones son pocas y se leen
+   mejor todas a la vez que dentro de una lista (tools, entradas del catálogo
+   MCP, system prompts). Vivía copiado con la MISMA declaración en tres
+   componentes del editor de agentes.
+   `--tap-h-sm` y no `--tap-h`: es el caso que el token nombra —van muchos en
+   fila—, y acá el blanco además es ancho porque el chip lleva el nombre
+   adentro. Un chip de estos SE TOCA, así que no baja a `--row-h`. */
+.ff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.ff-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4ch;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.9ch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg-mute);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+  user-select: none;
+}
+.ff-chip:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.ff-chip--on {
+  border-color: var(--accent);
+  background: var(--panel-hi);
+  color: var(--fg);
+}
+/* La ranura del ✓ se reserva SIEMPRE, tildado o no: si apareciera sólo al
+   tildar, cada chip cambiaría de ancho al tocarlo y la grilla entera se
+   reacomodaría bajo el dedo. */
+.ff-chip-check {
+  width: 1ch;
+  color: var(--accent);
+}
+.ff-chip-mono {
+  font-family: var(--font-mono);
+}
+/* El dato secundario del chip (el nombre legible al lado del id). */
+.ff-chip-note {
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+}
+
 /* Listas de pares (headers, env) y de valores sueltos (args). */
 .ff-list {
   display: flex;

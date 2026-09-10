@@ -1,30 +1,31 @@
 <script setup lang="ts">
-// "Definición" section of the agent editor — id, provider (+ its per-agent
-// config form), and the form-level AI assist bar that pre-fills this section
-// PLUS the fields owned by the sibling sections (System Prompts, Prompt,
-// Herramientas) — forwarded up via their own `update:*`/`apply-tools`/
-// `propose-prompt` events since each field is rendered in its own section
-// now. Extracted out of AgentEditorModal to keep that file under the
-// 300-line ceiling (see apps/web/CLAUDE.md).
+// La franja "Qué es" del editor de agentes (R19): lo que IDENTIFICA al agente,
+// y nada más. Hoy eso es un solo campo — el id.
+//
+// El provider vivía acá y se fue a `AgentRunSection`: elegir el modelo es
+// "cómo corre", no "qué es". Que estuviera en Definición es lo que hacía que
+// la primera pantalla del editor mezclara el nombre del agente con su
+// presupuesto de tokens.
+//
+// La barra de AI-assist se queda: no pertenece a una franja sino al
+// FORMULARIO — prellena campos de tres secciones distintas (System Prompts,
+// Prompt, Herramientas) y los reenvía hacia arriba con sus propios
+// `update:*` / `apply-tools` / `propose-prompt`. Va al tope del formulario,
+// que es esta franja.
 
 import { computed, ref } from 'vue'
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue'
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue'
-import { providerFormFor } from '@/features/agents/providerForms/registry'
-import ProviderChoicesEditor from '@/features/agents/ProviderChoicesEditor.vue'
 import type { AgentProviderChoice, SystemPromptDef } from '@ia-flow/shared'
 
 interface ToolDef { name: string; description: string }
-interface ProviderOption { id: string; name?: string }
 
 const props = defineProps<{
   agentId: string
   isNew: boolean
-  /** Siempre un array — 1 candidato es el caso común, 2+ agrega orden de
-   *  fallback (ver AgentProviderSchema). AgentEditorModal decide si lo que
-   *  se guarda es un string plano o el array completo. */
+  /** Sólo para nombrarle al modelo con qué provider se está editando. Elegirlo
+   *  es de `AgentRunSection`; acá no se toca. */
   providerChoices: AgentProviderChoice[]
-  providers: ProviderOption[]
   providerConfig: Record<string, unknown>
   prompt: string
   variables: KV[]
@@ -36,7 +37,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:agentId': [value: string]
-  'update:providerChoices': [value: AgentProviderChoice[]]
   'update:providerConfig': [value: Record<string, unknown>]
   'update:prompt': [value: string]
   // El prompt vive en su propia sección ahora — cuando el AI-assist propone
@@ -50,7 +50,6 @@ const emit = defineEmits<{
 }>()
 
 const primaryProviderId = computed(() => props.providerChoices[0]?.providerId ?? '')
-const currentProviderForm = computed(() => providerFormFor(primaryProviderId.value))
 
 // ─── Form-level AI assist (form-fill mode) ────────────────────────────────
 const aiOpen = ref(false)
@@ -171,85 +170,49 @@ function applyAiFields(fields: Record<string, unknown>) {
       @result-fields="applyAiFields"
     />
 
-    <!-- ID -->
-    <div class="field">
-      <span class="label">ID <span class="req">*</span></span>
-      <span class="field-hint">Sin espacios. Referenciado desde statuses.</span>
+    <!-- ID. El placeholder lleva la FORMA esperada y el hint la consecuencia
+         que no se adivina — que otras cosas lo referencian, así que cambiarlo
+         después las rompe (R21). -->
+    <div class="ff-row">
+      <span class="uc-label">Id <span class="req">*</span></span>
       <input
         :value="agentId"
-        class="input"
+        class="ff-field ff-mono"
         placeholder="functional-refiner"
         :disabled="!isNew"
         @input="emit('update:agentId', ($event.target as HTMLInputElement).value)"
       />
-    </div>
-
-    <!-- Provider — tildá uno o varios; con 2+ el orden (arrastrando o con
-         ↑/↓) es el orden de fallback que el engine evalúa. -->
-    <div class="field">
-      <span class="label">Provider <span class="req">*</span></span>
-      <span class="field-hint">
-        Tildá al menos uno. Con más de uno, el engine ejecuta el primer candidato elegible en el
-        orden de la lista (ver whenText por candidato).
-      </span>
-      <ProviderChoicesEditor
-        :model-value="providerChoices"
-        :providers="providers"
-        @update:model-value="emit('update:providerChoices', $event)"
-      />
-    </div>
-
-    <!-- Per-agent provider config — form component chosen by the registry
-         from `provider`. Registry falls back to JsonProviderForm for
-         providers without a dedicated web form. -->
-    <div class="field">
-      <span class="label">Configuración del provider (por agente)</span>
-      <span class="field-hint">Sobrescribe los defaults globales del provider. Vacío = usa el default global.</span>
-      <component
-        :is="currentProviderForm"
-        :key="primaryProviderId"
-        :model-value="providerConfig"
-        @update:model-value="emit('update:providerConfig', $event)"
-      />
+      <p class="ff-hint">
+        {{ isNew
+          ? 'Sin espacios. Las reglas del pipeline lo nombran por acá.'
+          : 'No se cambia después de crear: las reglas del pipeline lo nombran por acá.' }}
+      </p>
     </div>
 
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
-.ads { display: flex; flex-direction: column; gap: 1.1rem; }
-
-.field { display: flex; flex-direction: column; gap: 0.3rem; }
-.label { font-size: 0.82rem; font-weight: 600; color: var(--fg-mute); }
+.ads { display: flex; flex-direction: column; gap: 0.9rem; }
 .req { color: var(--danger); }
-.field-hint { font-size: 0.73rem; color: var(--fg-dim); line-height: 1.4; }
-
-.input {
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  font-size: 0.875rem;
-  color: var(--fg);
-  background: var(--panel);
-  width: 100%;
-  box-sizing: border-box;
-  outline: none;
-}
-.input:focus { border-color: var(--accent); }
-.input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
 
 .ai-form-bar { display: flex; justify-content: flex-end; }
+/* `--ai` y el glifo son de salida de modelo, y de nada más (R16). */
 .btn-ai-form {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.7rem;
-  border: 1px solid var(--border-hi);
-  background: var(--panel);
-  font-size: 0.78rem;
+  gap: 0.4ch;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.9ch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  font-size: var(--fs-body-sm);
   color: var(--fg-dim);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.btn-ai-form:hover { border-color: var(--magenta); color: var(--magenta); }
-.btn-ai-form.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
+.btn-ai-form:hover { border-color: var(--ai); color: var(--ai); }
+.btn-ai-form.active { border-color: var(--ai); background: var(--panel-hi); color: var(--ai); }
 </style>
