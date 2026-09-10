@@ -2,6 +2,7 @@
 // testearla sin arrastrar composition/container.js (que abre una conexión
 // SQLite real como efecto lateral de importarse) — mismo patrón que
 // routes/agents-crud-validation.ts.
+import { SystemPromptRefSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import type { ProviderRegistration } from '../domain/ports/IProviderRegistrationRepository.js'
 
@@ -17,6 +18,15 @@ export const RegistrationInputSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]*$/, 'name debe ser un slug: minúsculas, números y guiones'),
   baseUrl: z.string().url(),
   token: z.string().min(1),
+  // Bloque ADICIONAL a los que ya arma cada agente — ver el comentario de
+  // `ProviderRegistration.systemPrompt`. Opcional en el alta.
+  systemPrompt: SystemPromptRefSchema.nullable().optional(),
+})
+
+// Body de PUT /:id/system-prompt — es el único campo editable después del
+// alta hoy (name/baseUrl/token no tienen UI de edición, sólo alta/baja).
+export const UpdateSystemPromptSchema = z.object({
+  systemPrompt: SystemPromptRefSchema.nullable(),
 })
 
 /** `id` de una registración = su `name` (ver routes/provider-registrations.ts,

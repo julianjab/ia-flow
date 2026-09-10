@@ -23,6 +23,7 @@ import type {
   IProviderRegistrationRepository,
   ProviderRegistration,
 } from '../../domain/ports/IProviderRegistrationRepository.js'
+import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
 import { applyProbe, isAvailable, type ProbeResult, UNKNOWN_HEALTH } from './health.js'
 import { RemoteAgentProvider, remoteProviderId } from './RemoteAgentProvider.js'
@@ -72,6 +73,7 @@ export class RemoteProviderHealthMonitor {
     private readonly repo: IProviderRegistrationRepository,
     private readonly registry: ProviderSlots,
     private readonly broadcast: IBroadcast,
+    private readonly systemPromptRepo: Pick<ISystemPromptRepository, 'getById'>,
     private readonly options: RemoteProviderHealthMonitorOptions = {},
   ) {
     this.probe = options.probe ?? ((r) => this.httpProbe(r))
@@ -192,7 +194,7 @@ export class RemoteProviderHealthMonitor {
     if (isAvailable(health)) {
       // Re-registra con la registración fresca del repo (baseUrl o token
       // pudieron cambiar entre rondas), no con la instancia vieja.
-      this.registry.register(new RemoteAgentProvider(registration))
+      this.registry.register(new RemoteAgentProvider(registration, this.systemPromptRepo))
     } else {
       this.registry.unregister(id)
     }

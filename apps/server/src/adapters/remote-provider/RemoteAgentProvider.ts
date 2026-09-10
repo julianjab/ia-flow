@@ -23,6 +23,7 @@ import { ADMIT, decline, ProviderAtCapacityError, withinDeclaredCap } from '@ia-
 import type { WorkspacePlan } from '@ia-flow/shared'
 import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
+import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
 import { daemonPublicUrl } from '../../server-port.js'
 
@@ -101,7 +102,14 @@ export class RemoteAgentProvider implements IAgentProvider {
   readonly name: string
   readonly description: string
 
-  constructor(private registration: ProviderRegistration) {
+  constructor(
+    private registration: ProviderRegistration,
+    // Angosto a propósito (regla "interfaces angostas"): sólo necesita
+    // resolver un id de catálogo, nunca CRUD. Default no-op para no forzar
+    // el segundo argumento en cada fixture de test que no ejercita
+    // `systemPrompt` — todos los call sites de producción lo pasan.
+    private systemPromptRepo: Pick<ISystemPromptRepository, 'getById'> = { getById: () => null },
+  ) {
     this.id = remoteProviderId(registration.id)
     this.kind = registration.remoteKind
     this.name = `${registration.remoteName} (${registration.name})`
@@ -189,7 +197,7 @@ export class RemoteAgentProvider implements IAgentProvider {
     // ...iterable[Symbol.iterator] to be a function"). Rebuild the body as
     // a plain array here so the agent-host (packages/ai-providers/src/
     // anthropic-api/provider.ts) gets the real tool names back.
-    const withDaemon = this.withDaemonFields(input)
+    const withDaemon = this.withGatewaySystemPrompt(this.withDaemonFields(input))
     const body = withDaemon.policy
       ? {
           ...withDaemon,
@@ -297,6 +305,34 @@ export class RemoteAgentProvider implements IAgentProvider {
         ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
         : {}),
     }
+  }
+
+  /** Antepone el system prompt propio de ESTE gateway (si tiene uno
+   *  configurado) a los que el agente ya trae — ver el comentario de
+   *  `ProviderRegistration.systemPrompt`. Se resuelve acá, no en el
+   *  agent-host: el catálogo de system prompts vive en este daemon, mismo
+   *  patrón que los secretos de MCP (`setSecretResolver`). */
+  private withGatewaySystemPrompt(input: ProviderInput): ProviderInput {
+    const block = this.resolveGatewaySystemPromptBlock()
+    if (!block) return input
+    return { ...input, systemPromptBlocks: [...(input.systemPromptBlocks ?? []), block] }
+  }
+
+  private resolveGatewaySystemPromptBlock(): { type: 'text'; text: string } | null {
+    const ref = this.registration.systemPrompt
+    if (!ref) return null
+    if (typeof ref === 'string') {
+      const sp = this.systemPromptRepo.getById(ref)
+      if (!sp) {
+        log.warn(
+          { providerId: this.id, systemPromptId: ref },
+          'remote: system prompt del gateway ya no existe en el catálogo — se omite',
+        )
+        return null
+      }
+      return { type: 'text', text: sp.text }
+    }
+    return { type: 'text', text: ref.text }
   }
 
   /** Interpreta un `/v1/run` que no respondió 2xx y tira. Nunca retorna. */

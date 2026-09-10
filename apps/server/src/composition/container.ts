@@ -554,6 +554,7 @@ export const remoteProviderHealth = new RemoteProviderHealthMonitor(
   providerRegistrationRepo,
   providerRegistry,
   broadcast,
+  systemPromptRepo,
 )
 export const sourceFactory = createDefaultSourceFactory({ taskRepo })
 
