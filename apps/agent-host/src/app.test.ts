@@ -157,6 +157,7 @@ describe('createApp — PUT /v1/provider', () => {
           gitAuthorEmail: null,
           gitSigningKeyPath: null,
         },
+        systemPrompt: [],
       },
       onStateChange: (st) => {
         saved.push({ providerId: st.providerId })
@@ -499,6 +500,7 @@ describe('/v1/workspace — la config editable desde la consola', () => {
         maxConcurrentRuns: null,
         admissionRules: [],
         workspace: { ...EMPTY, reposBase: '/viejo' },
+        systemPrompt: [],
       },
       createProviderById: (id, workspace) => {
         built.push({ id, workspace })
@@ -547,6 +549,135 @@ describe('/v1/workspace — la config editable desde la consola', () => {
   it('exige token, como todo /v1/*', async () => {
     const { app } = appWithWorkspace()
     expect((await app.request('/v1/workspace')).status).toBe(401)
+  })
+})
+
+describe('/v1/system-prompt — el system prompt propio de esta máquina', () => {
+  const auth = { authorization: 'Bearer secret' }
+  const json = { ...auth, 'content-type': 'application/json' }
+
+  function appWithSystemPrompt() {
+    const saved: unknown[] = []
+    const app = createApp({
+      provider: fakeProvider(async () => ({})),
+      token: 'secret',
+      log: silentLog(),
+      state: {
+        registerServerUrls: [],
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+          gitSigningKeyPath: null,
+        },
+        systemPrompt: [{ type: 'text', text: 'Estás en una VM efímera de CI.' }],
+      },
+      onStateChange: (s) => {
+        saved.push(structuredClone(s))
+      },
+    })
+    return { app, saved }
+  }
+
+  it('GET devuelve lo guardado', async () => {
+    const { app } = appWithSystemPrompt()
+    const res = await app.request('/v1/system-prompt', { headers: auth })
+    expect(await res.json()).toEqual({
+      blocks: [{ type: 'text', text: 'Estás en una VM efímera de CI.' }],
+    })
+  })
+
+  it('PUT reemplaza los bloques y persiste', async () => {
+    const { app, saved } = appWithSystemPrompt()
+    const res = await app.request('/v1/system-prompt', {
+      method: 'PUT',
+      headers: json,
+      body: JSON.stringify({ blocks: [{ type: 'text', text: 'nuevo' }] }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ blocks: [{ type: 'text', text: 'nuevo' }] })
+    expect(saved).toHaveLength(1)
+  })
+
+  it('descarta bloques inválidos en vez de guardarlos', async () => {
+    const { app } = appWithSystemPrompt()
+    const res = await app.request('/v1/system-prompt', {
+      method: 'PUT',
+      headers: json,
+      body: JSON.stringify({ blocks: [{ type: 'text', text: 'ok' }, { type: 'image' }] }),
+    })
+    expect(await res.json()).toEqual({ blocks: [{ type: 'text', text: 'ok' }] })
+  })
+
+  it('exige token, como todo /v1/*', async () => {
+    const { app } = appWithSystemPrompt()
+    expect((await app.request('/v1/system-prompt')).status).toBe(401)
+  })
+
+  it('POST /v1/run antepone el system prompt del gateway a los bloques que ya trae el run', async () => {
+    let seen: ProviderInput | undefined
+    const app = createApp({
+      provider: fakeProvider(async (input) => {
+        seen = input as ProviderInput
+        return { content: '', mode: 'api' }
+      }),
+      token: 'secret',
+      log: silentLog(),
+      state: {
+        registerServerUrls: [],
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+          gitSigningKeyPath: null,
+        },
+        systemPrompt: [{ type: 'text', text: 'del gateway' }],
+      },
+    })
+
+    await app.request('/v1/run', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(
+        baseInput({ systemPromptBlocks: [{ type: 'text', text: 'del agente' }] }),
+      ),
+    })
+
+    expect(seen?.systemPromptBlocks).toEqual([
+      { type: 'text', text: 'del agente' },
+      { type: 'text', text: 'del gateway' },
+    ])
+  })
+
+  it('sin system prompt configurado, no toca systemPromptBlocks', async () => {
+    let seen: ProviderInput | undefined
+    const app = createApp({
+      provider: fakeProvider(async (input) => {
+        seen = input as ProviderInput
+        return { content: '', mode: 'api' }
+      }),
+      token: 'secret',
+      log: silentLog(),
+    })
+
+    await app.request('/v1/run', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(
+        baseInput({ systemPromptBlocks: [{ type: 'text', text: 'del agente' }] }),
+      ),
+    })
+
+    expect(seen?.systemPromptBlocks).toEqual([{ type: 'text', text: 'del agente' }])
   })
 })
 
@@ -627,6 +758,7 @@ describe('admisión editable', () => {
           gitAuthorEmail: null,
           gitSigningKeyPath: null,
         },
+        systemPrompt: [],
       },
       onStateChange: (s) => {
         saved.push(structuredClone(s))
@@ -706,6 +838,7 @@ describe('registro editable', () => {
           gitAuthorEmail: null,
           gitSigningKeyPath: null,
         },
+        systemPrompt: [],
       },
       registerTo: async (urls) => {
         registered.push(urls)
@@ -768,6 +901,7 @@ describe('registrar contra algo que no es un server', () => {
           gitAuthorEmail: null,
           gitSigningKeyPath: null,
         },
+        systemPrompt: [],
       },
       onStateChange: (s) => {
         saved.push(structuredClone(s))
@@ -922,6 +1056,7 @@ describe('cómo vuelve el agente al daemon', () => {
           gitAuthorEmail: null,
           gitSigningKeyPath: null,
         },
+        systemPrompt: [],
       },
     })
     return { app, seen: () => seen }
