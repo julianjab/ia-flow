@@ -21,6 +21,7 @@ import ToolParamsEditor from '@/features/tools/ToolParamsEditor.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
 import InlineEdit from '@/ui/InlineEdit.vue'
+import FormFooter from '@/ui/FormFooter.vue'
 import ScopeGroup from '@/ui/ScopeGroup.vue'
 import { useToastStore } from '@/stores/toast'
 
@@ -387,36 +388,54 @@ async function revert(name: string) {
       </EditableCard>
 
       <div v-if="draft" class="ts-form">
-        <label class="ts-row">
+        <!-- Franja 1 · qué es -->
+        <label class="ff-row">
           <span class="uc-label">Nombre</span>
-          <input v-model="draft.name" class="ts-field ts-mono" placeholder="deploy_staging" />
-          <span class="ts-hint">
-            Minúsculas y guión bajo — es el identificador que el modelo escribe. Es único en todo
-            el daemon: no puede repetir el de otra tool (de este ámbito o de otro) ni el de una
-            built-in.
-          </span>
+          <input v-model="draft.name" class="ff-field ff-mono" placeholder="deploy_staging" />
+          <p class="ff-hint">
+            Minúsculas y guión bajo — es el identificador que el modelo escribe. Único en todo el
+            daemon: no puede repetir el de otra tool ni el de una built-in.
+          </p>
         </label>
-        <label class="ts-row">
+
+        <!-- Franja 2 · qué hace. La descripción es lo ÚNICO que el modelo lee
+             para decidir cuándo usar la tool, así que es un párrafo y se
+             escribe en un textarea — no en un renglón. -->
+        <label class="ff-row">
           <span class="uc-label">Descripción</span>
-          <input v-model="draft.description" class="ts-field" placeholder="Qué hace, para que el modelo sepa cuándo usarla" />
+          <textarea
+            v-model="draft.description"
+            class="ff-field ff-textarea"
+            rows="3"
+            placeholder="Despliega la rama actual a staging y devuelve la URL."
+          />
+          <p class="ff-hint">Es lo único que el modelo lee para decidir cuándo usarla.</p>
         </label>
-        <label class="ts-row">
+        <label class="ff-row">
           <span class="uc-label">Acción</span>
-          <select v-if="actionIds.length" v-model="draft.actionId" class="ts-field">
+          <select v-if="actionIds.length" v-model="draft.actionId" class="ff-field">
             <option v-for="id in actionIds" :key="id" :value="id">{{ id }}</option>
           </select>
-          <input v-else v-model="draft.actionId" class="ts-field ts-mono" placeholder="id de la acción" />
-          <span v-if="!actionIds.length" class="ts-hint">
+          <input v-else v-model="draft.actionId" class="ff-field ff-mono" placeholder="id de la acción" />
+          <p v-if="!actionIds.length" class="ff-hint">
             No hay acciones todavía — creá una en Acciones primero.
-          </span>
+          </p>
         </label>
-        <div class="ts-row">
+        <!-- Los parámetros son franja 2 y no una sección: sin ellos la tool
+             igual sirve, pero son lo que se viene a definir. -->
+        <div class="ff-row">
           <ToolParamsEditor v-model="draft.params" :action-body="bodyOf(draft.actionId)" />
         </div>
-        <div class="ts-form-ops">
-          <button type="button" class="btn" @click="draft = null">Cancelar</button>
-          <button type="button" class="btn btn--primary" @click="createDefined">Crear</button>
-        </div>
+
+        <FormFooter
+          :sticky="false"
+          :note="draft.name.trim() ? undefined : 'falta el nombre'"
+          note-is-error
+          :save-disabled="!draft.name.trim()"
+          save-label="Crear"
+          @save="createDefined"
+          @cancel="draft = null"
+        />
       </div>
     </ScopeGroup>
 
@@ -509,6 +528,8 @@ async function revert(name: string) {
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
+
 <style scoped>
 .ts { display: flex; flex-direction: column; gap: 0.25rem; }
 /* El encabezado de la sección lo pone `theme.css` y el de cada grupo
@@ -539,7 +560,7 @@ async function revert(name: string) {
   line-height: 1.5;
 }
 .ts-error { color: var(--danger); font-size: var(--fs-body-sm); margin: 0; }
-.ts-note, .ts-empty, .ts-hint {
+.ts-note, .ts-empty {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   margin: 0;
@@ -594,30 +615,19 @@ async function revert(name: string) {
 .ts-form {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.75rem;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   padding: 0.6rem;
   margin-top: 0.3rem;
 }
-.ts-row { display: flex; flex-direction: column; gap: 0.15rem; }
-.ts-field {
-  height: var(--row-h);
-  padding: 0 0.5ch;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel-alt);
-  color: var(--fg);
-  font-family: var(--font-body);
-  font-size: var(--fs-body-sm);
-  width: 100%;
-  box-sizing: border-box;
-  flex: 1;
-}
-.ts-mono { font-family: var(--font-mono); }
 /* El toggle de parámetros es una fila más de la tarjeta, no un botón de acción:
    alineado a la izquierda y sin ocupar el ancho entero. */
 .ts-toggle { align-self: flex-start; }
+
+/* La fila de acciones del editor de parámetros, DENTRO de una tarjeta de la
+   lista. El pie del alta ya no es esto: es `FormFooter`, la misma pieza que en
+   el resto de las pantallas de configuración. */
 .ts-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; }
 
 @media (max-width: 640px) {
@@ -628,8 +638,5 @@ async function revert(name: string) {
      `.ts-item` ya envuelve, asi que un `flex-basis: 100%` manda al editor a su
      propia linea y deja el nombre arriba como titulo. */
   .ts-item .ie--open { flex: 1 1 100%; }
-  .ts-item .ts-field { flex: 1 1 100%; }
-  /* El alta comparte el mismo criterio. */
-  .ts-form .ts-field { flex: 1 1 100%; }
 }
 </style>

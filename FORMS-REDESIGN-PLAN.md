@@ -21,8 +21,8 @@ Modo de trabajo acordado con el usuario: **un único PR, en este worktree
 | 3 | Provider | ✅ código + test |
 | 4 | System prompt | ✅ código + test |
 | 5 | Pipeline / regla | ✅ código + test |
-| 6 | **Acción** | ⏳ **acá quedó** |
-| 7 | Tool | pendiente |
+| 6 | Acción | ✅ código + test |
+| 7 | **Tool** | ⏳ **acá quedó** |
 | 8 | Entorno | pendiente |
 | 9 | Cierre: `apps/web/CLAUDE.md` + borrar este archivo | pendiente |
 
