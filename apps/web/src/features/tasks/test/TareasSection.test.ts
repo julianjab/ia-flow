@@ -838,15 +838,35 @@ describe('TareasSection — asistente de tareas', () => {
     expect(setProjectItemField).not.toHaveBeenCalled()
   })
 
-  it('aplicar `group` guarda la preferencia en localStorage, no en el server', async () => {
+  it('aplicar `group` guarda los grupos en localStorage, no en el server', async () => {
     const w = await mountWith([githubItem({})])
     await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
     setProjectItemField.mockClear()
 
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'group', enabled: false }])
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'group', groups: [{ label: 'auth', taskIds: ['I_1'] }] },
+    ])
     await flushPromises()
 
-    expect(localStorage.getItem('tasks.groupByTopic.p1')).toBe('0')
+    expect(JSON.parse(localStorage.getItem('ia-flow:taskGroupPref:p1') ?? '{}')).toEqual({
+      groups: [{ label: 'auth', taskIds: ['I_1'] }],
+    })
     expect(setProjectItemField).not.toHaveBeenCalled()
+  })
+
+  it('aplicar `group` con `groups: []` borra la preferencia (desagrupar)', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'group', groups: [{ label: 'auth', taskIds: ['I_1'] }] },
+    ])
+    await flushPromises()
+    expect(localStorage.getItem('ia-flow:taskGroupPref:p1')).not.toBeNull()
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'group', groups: [] }])
+    await flushPromises()
+
+    expect(localStorage.getItem('ia-flow:taskGroupPref:p1')).toBeNull()
   })
 })

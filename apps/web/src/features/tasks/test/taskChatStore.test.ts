@@ -93,7 +93,7 @@ describe('taskChatStore', () => {
         { type: 'tag', taskId: 't1', tags: ['x'] },
         { type: 'note', taskId: 't1', text: 'nota' },
         { type: 'reorder', taskIds: ['t1'] },
-        { type: 'group', enabled: true },
+        { type: 'group', groups: [{ label: 'auth', taskIds: ['t1'] }] },
       ],
     })
     const s = useTaskChatStore()

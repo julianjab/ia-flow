@@ -1391,10 +1391,15 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     const tag = { type: 'tag' as const, taskId: 't1', tags: ['urgente'] }
     const note = { type: 'note' as const, taskId: 't1', text: 'Depende de #99' }
     const highlight = { type: 'highlight' as const, taskId: 't1', reason: 'Bloquea al equipo' }
-    const group = { type: 'group' as const, enabled: true }
+    const group = { type: 'group' as const, groups: [{ label: 'auth', taskIds: ['t1'] }] }
     for (const action of [reorder, tag, note, highlight, group]) {
       expect(TaskChatActionSchema.parse(action)).toEqual(action)
     }
+  })
+
+  it('`group` con `groups: []` (proponer desagrupar) round-trips', () => {
+    const group = { type: 'group' as const, groups: [] }
+    expect(TaskChatActionSchema.parse(group)).toEqual(group)
   })
 
   it('rechaza un type que no sea uno de los 5 conocidos', () => {

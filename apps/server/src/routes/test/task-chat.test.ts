@@ -108,12 +108,12 @@ describe('POST /api/tasks/assistant/chat', () => {
     expect(body.actions[0]?.taskIds).toEqual(['t1'])
   })
 
-  it('group pasa sin filtrar — scope de proyecto, no lleva taskId', async () => {
+  it('group filtra los taskIds desconocidos dentro de cada grupo', async () => {
     const { app } = routerWith(async () => ({
       fields: {
         reply: 'ok',
         scope: { type: 'project' },
-        actions: [{ type: 'group', enabled: true }],
+        actions: [{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1', 'no-existe'] }] }],
       },
     }))
     const res = await app.request('/chat', {
@@ -121,8 +121,40 @@ describe('POST /api/tasks/assistant/chat', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(VALID_BODY),
     })
-    const body = (await res.json()) as { actions: { type: string; enabled: boolean }[] }
-    expect(body.actions).toEqual([{ type: 'group', enabled: true }])
+    const body = (await res.json()) as {
+      actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
+    }
+    expect(body.actions).toEqual([{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] }])
+  })
+
+  it('group con `groups: []` (desagrupar) pasa sin filtrar', async () => {
+    const { app } = routerWith(async () => ({
+      fields: { reply: 'ok', scope: { type: 'project' }, actions: [{ type: 'group', groups: [] }] },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    const body = (await res.json()) as { actions: { type: string; groups: unknown[] }[] }
+    expect(body.actions).toEqual([{ type: 'group', groups: [] }])
+  })
+
+  it('group descarta la acción entera si TODOS sus grupos quedan vacíos tras filtrar', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group', groups: [{ label: 'bugs', taskIds: ['no-existe'] }] }],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    const body = (await res.json()) as { actions: unknown[] }
+    expect(body.actions).toEqual([])
   })
 
   it('502 cuando el modelo no devuelve el formato esperado', async () => {
