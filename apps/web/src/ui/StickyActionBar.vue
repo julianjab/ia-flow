@@ -30,7 +30,12 @@ withDefaults(
 
 <template>
   <div class="sab">
+    <!-- `lead`: lo que va a la izquierda del todo, separado del primario por el
+         ancho entero de la barra. Lo usa `FormFooter` para `Eliminar…`: el
+         gesto de borrar no puede quedar a un pixel del de guardar. -->
+    <div v-if="$slots.lead" class="sab__lead"><slot name="lead" /></div>
     <p v-if="note" class="sab__note" :class="{ 'sab__note--error': noteIsError }">{{ note }}</p>
+    <span v-else class="sab__spacer" />
     <div class="sab__actions">
       <slot />
     </div>
@@ -64,6 +69,15 @@ withDefaults(
   color: var(--fg-dim);
 }
 .sab__note--error { color: var(--danger); }
+.sab__lead {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+.sab__lead > :deep(.btn) { min-height: var(--tap-h-lg); }
+/* Sin `note` la barra necesita igual algo que empuje: si no, `lead` y las
+   acciones quedan pegados contra el borde izquierdo. */
+.sab__spacer { flex: 1 1 auto; }
 .sab__actions {
   flex: 0 0 auto;
   display: flex;
@@ -76,6 +90,11 @@ withDefaults(
    con el pulgar y no hay nada más compitiendo por ese espacio. */
 @media (max-width: 640px) {
   .sab { flex-wrap: wrap; }
+  /* En 390px `Eliminar` + `Cancelar` + `Guardar` en una fila deja ~110px por
+     botón. El destructivo baja a su propia línea, que además es la que menos
+     conviene apurar. */
+  .sab__lead { order: 3; width: 100%; }
+  .sab__lead > :deep(.btn) { flex: 1; }
   .sab__actions { width: 100%; }
   .sab__actions > :deep(.btn) { flex: 1; }
 }

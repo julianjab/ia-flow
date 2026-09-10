@@ -22,6 +22,33 @@
  * `theme.css` y se borraron las copias.
  */
 
+/* La columna del formulario (R25). El ancho que sobra va al índice y al
+   resumen, no a estirar campos: un input de 1500px deja el label a media
+   pantalla de su valor, y apuntarle cuesta más que leerlo. */
+.ff-col {
+  width: 100%;
+  max-width: 46rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Una franja del esqueleto (R19): qué es · qué hace · cuándo aplica · cómo
+   corre · crudo. Es sólo el ritmo entre bloques y la línea que los separa —
+   una franja NO es una caja con título: la 1 y la 2 no llevan encabezado
+   ninguno, y de la 3 en adelante el encabezado lo pone `CollapsibleSection`. */
+.ff-band {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.ff-band + .ff-band {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
 .ff-row {
   display: flex;
   flex-direction: column;
