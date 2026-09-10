@@ -435,11 +435,6 @@ function setGroupByTopic(next: boolean): void {
   }
 }
 watch(activeProjectId, (pid) => { groupByTopic.value = readGroupByTopic(pid); }, { immediate: true });
-/** Sin grupos no hay nada que alternar: el toggle no se dibuja para no ser
- *  chrome que no cambia nada. */
-const hasTaskGroups = computed(
-  () => (taskGroupsStore.groupsFor(activeProjectId.value)?.groups.length ?? 0) > 0,
-);
 type BucketRowSection = GroupedSection<OrderedTask>;
 /** Las filas de un bucket, cortadas en secciones. Sólo `waiting-on-you` se
  *  agrupa por tema; los demás buckets vuelven como una única sección suelta,
@@ -1311,20 +1306,6 @@ watch(activeProjectId, (pid) => {
           data-testid="tareas-order-toggle"
           @click="cycleOrderMode"
         >{{ orderMode === 'disposicion' ? 'por disposición' : orderMode === 'repo' ? 'por repo' : 'de la fuente' }}</button>
-        <!-- Sólo tiene sentido agrupando por disposición: agrupar por tema
-             DENTRO de un orden por fecha mezclaría dos criterios a la vez. -->
-        <button
-          v-if="orderMode === 'disposicion' && hasTaskGroups"
-          type="button"
-          class="lcb-order"
-          :class="{ 'is-on': groupByTopic }"
-          :aria-pressed="groupByTopic"
-          :title="groupByTopic
-            ? 'Te espera agrupado por tema — tocá para ver la lista suelta'
-            : 'Lista suelta — tocá para agrupar por tema'"
-          data-testid="tareas-group-by-topic-toggle"
-          @click="setGroupByTopic(!groupByTopic)"
-        >{{ groupByTopic ? 'agrupado por tema' : 'sin agrupar' }}</button>
         <button
           type="button"
           class="lcb-order chat-trigger"
