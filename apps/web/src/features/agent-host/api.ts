@@ -2,6 +2,7 @@
 // `baseURL` del server de ia-flow (features/servers/selection.ts), y acá
 // hablamos con otro proceso, en otro origen y con otra credencial.
 
+import type { SystemPromptBlock } from '@ia-flow/shared'
 import axios, { type AxiosInstance } from 'axios'
 
 export interface AgentHostProvider {
@@ -107,6 +108,17 @@ export async function saveWorkspace(
   body: AgentHostWorkspace,
 ): Promise<AgentHostWorkspace> {
   return (await c.put<AgentHostWorkspace>('/v1/workspace', body)).data
+}
+
+export async function fetchSystemPrompt(c: AxiosInstance): Promise<SystemPromptBlock[]> {
+  return (await c.get<{ blocks: SystemPromptBlock[] }>('/v1/system-prompt')).data.blocks
+}
+
+export async function saveSystemPrompt(
+  c: AxiosInstance,
+  blocks: SystemPromptBlock[],
+): Promise<SystemPromptBlock[]> {
+  return (await c.put<{ blocks: SystemPromptBlock[] }>('/v1/system-prompt', { blocks })).data.blocks
 }
 
 export async function fetchLogs(c: AxiosInstance, query = ''): Promise<AgentHostLogTail> {
