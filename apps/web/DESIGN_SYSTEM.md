@@ -335,25 +335,28 @@ la activa, así que repetirlo sería la identidad dos veces (R9).
 
 ## Campos — deuda conocida
 
-Los labels y la fila de condiciones ya están unificados (ver las primitivas de arriba). Lo que
-falta, en orden de lo que más se ve:
+Los labels, la caja del campo, la fila de condiciones y el pie ya están unificados (ver las
+primitivas de arriba). **Esta tabla se mide, no se recuerda**: cada fila trae el `grep` que la
+cuenta, así que la siguiente persona sabe si sigue siendo cierta sin releer diez archivos.
 
-| Familia | Estado |
-| --- | --- |
-| Forms de **source** (`projects/sources/`) | cinco hermanos del mismo modal, cinco prefijos (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`) — y `GitHubIssuesSourceForm` perdió el `border-radius` que sí tienen los otros cuatro |
-| Forms de **provider por agente** (`agents/providerForms/`) | `.pc-grid`/`.pc-field` copiados verbatim entre dos, y `.jpf-*` en el tercero. Los de settings del provider (`providers/*SettingsForm.vue`) ya están migrados |
-| Textarea de **JSON** | tres copias (`.jsf-textarea`, `.jpf-textarea`, `ff-textarea`); las dos primeras con `ui-monospace, SFMono-Regular` escrito a mano en vez de `--font-mono` |
-| Input de texto plano | diez archivos con `padding: 0.5rem 0.65rem; border: 1px solid var(--border-hi); border-radius: 6px` copiado — `6px` no es token y `--border-hi` es el borde de **foco**, no el de reposo |
-| Listas `+ agregar` / `✕` | seis vocabularios (`.ff-*`, `.oe-*`, `.tp-*`, `.btn-add-mcp`, `.srs-*`, `.loe-x`); el de `ToolParamsEditor` (`.btn` densificado) es el correcto |
-| **Kit local de campo** (`class="label"` / `.input` / `.field-hint`) | seis archivos, y son justo los formularios más largos: `AgentEditorModal`, `AgentDefinitionSection`, `SystemPromptsSection`, `ToolsEditor`, `RuleEditorModal`, `PromptField`. Campo de alto libre, radio `6px` que no es token, borde `--border-hi` (que es el de foco) y anillo de foco azul fuera de paleta. `grep -rl 'class="label"' apps/web/src` es la medida del trabajo |
-| `ToolsSection.vue` | `.ts-field` mide `--row-h`: campos de 25px donde se escribe, con su propio `.ts-hint`. Es la última copia de la caja del campo que queda en una pantalla de configuración |
-| `AnthropicApiSettingsForm.vue` | siete `ff-row` conviviendo con dos `.field`/`.field-block` — clases que **nadie declara**: MCP servers y Stream quedan sin caja al lado de siete campos que sí la tienen |
-| El pie de un formulario | cuatro formas de guardar en siete pantallas: `StickyActionBar` (Entorno), `.save-button` propio al final del documento (Providers, R3), pie de card (System prompt) y pie de formulario inline (Tools, Acciones). `ui/FormFooter.vue` es la única |
+| Familia | Estado | Cómo se mide |
+| --- | --- | --- |
+| Input de texto plano | tres archivos con `padding: 0.5rem 0.65rem; border: 1px solid var(--border-hi)` copiado — `--border-hi` es el borde de **foco**, no el de reposo: `DaemonModeField`, `ProjectOverviewTab`, `PromptEditor` | `grep -rl 'padding: 0.5rem 0.65rem' apps/web/src` |
+| Listas `+ agregar` / `✕` | cinco vocabularios (`.ff-*`, `.oe-*`, `.tp-*`, `.btn-add-mcp`, `.srs-*`); el de `ToolParamsEditor` (`.btn` densificado) es el correcto | `grep -rl 'oe-\|tp-\|btn-add-mcp\|srs-' apps/web/src` |
+| Grilla de **provider por agente** | la caja del campo ya está migrada en los tres; queda `.pc-grid` —el layout de dos columnas— copiado entre dos | `grep -rn 'pc-grid' apps/web/src` |
+| Familia mono escrita a mano | cuatro archivos con `ui-monospace, SFMono-Regular` en vez de `--font-mono` | `grep -rl 'SFMono-Regular' apps/web/src` |
 
 Cuando toques uno de esos archivos, migralo al kit — no le agregues un campo más con el prefijo
 viejo.
 
-`EntornoSection.vue` salió de esta tabla: está migrado al kit, con modo lectura/edición por grupo,
+**Lo que salió de esta tabla, y por qué no vuelve.** El rediseño de los siete formularios de
+configuración cerró seis familias enteras: el kit local de campo (`class="label"` / `.input` /
+`.field-hint`, que vivía en los seis formularios más largos), `.ts-field` de Tools (la última caja
+de `--row-h` donde se escribía), las clases sin declarar de `AnthropicApiSettingsForm`, las cuatro
+formas de guardar (hoy `ui/FormFooter.vue`), las dos copias de la textarea de JSON y los cinco
+prefijos de los forms de source. Los `grep` de arriba son la forma de saber si alguna volvió.
+
+`EntornoSection.vue` también salió: está migrado al kit, con modo lectura/edición por grupo,
 títulos pegajosos y barra fija. **Es el arquetipo «lista» funcionando** —leer densa, editar a
 `--tap-h`, agregar en la última fila— y los otros seis dominios copian de ahí, no al revés.
 
