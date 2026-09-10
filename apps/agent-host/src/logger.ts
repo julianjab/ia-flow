@@ -94,7 +94,8 @@ function fileStream(): pino.DestinationStream | null {
  */
 function consoleStream(): pino.DestinationStream {
   if (Bun.env.LOG_PLAIN === 'true') return pino.destination({ dest: 1, sync: false })
-  return pretty({ colorize: true, translateTime: 'HH:MM:ss' })
+  // `SYS:` = hora local. Sin el prefijo, pino-pretty imprime UTC.
+  return pretty({ colorize: true, translateTime: 'SYS:HH:MM:ss' })
 }
 
 /** Los niveles numéricos de pino, traducidos al severity de OTel. */
