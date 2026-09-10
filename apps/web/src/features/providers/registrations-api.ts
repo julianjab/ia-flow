@@ -1,4 +1,5 @@
-import type { RemoteProviderHealth } from '@ia-flow/shared'
+import type { RemoteProviderHealth, SystemPromptDef, SystemPromptRef } from '@ia-flow/shared'
+import { SystemPromptDefSchema } from '@ia-flow/shared'
 import axios from 'axios'
 
 // Mirrors toPublicRegistration() in apps/server/src/routes/provider-registrations-logic.ts
@@ -16,6 +17,10 @@ export interface ProviderRegistration {
    *  server y es elegible por un agente — ver
    *  apps/server/src/adapters/remote-provider/RemoteProviderHealthMonitor.ts. */
   health: RemoteProviderHealth
+  /** Bloque ADICIONAL a los que ya arma cada agente — describe cómo correr
+   *  específicamente en ESTE gateway. Ver
+   *  domain/ports/IProviderRegistrationRepository.ts. */
+  systemPrompt: SystemPromptRef | null
 }
 
 /**
@@ -31,6 +36,7 @@ export interface CreateProviderRegistrationInput {
   name: string
   baseUrl: string
   token: string
+  systemPrompt?: SystemPromptRef | null
 }
 
 export async function listProviderRegistrations(): Promise<ProviderRegistration[]> {
@@ -52,6 +58,27 @@ export async function createProviderRegistration(
 
 export async function deleteProviderRegistration(id: string): Promise<void> {
   await axios.delete(`/api/provider-registrations/${encodeURIComponent(id)}`)
+}
+
+/** Catálogo GLOBAL de system prompts (General → System Prompts) — un provider
+ *  registrado no está scoped a un proyecto, así que no tiene sentido ofrecer
+ *  los de un proyecto puntual acá. Esta feature hace su propia llamada en vez
+ *  de importar la de `project-config`: una feature no importa a otra (ver el
+ *  CLAUDE.md de apps/web). */
+export async function listGlobalSystemPrompts(): Promise<SystemPromptDef[]> {
+  const { data } = await axios.get<{ systemPrompts: unknown[] }>('/api/system-prompts?scope=global')
+  return data.systemPrompts.map((sp) => SystemPromptDefSchema.parse(sp))
+}
+
+export async function updateProviderRegistrationSystemPrompt(
+  id: string,
+  systemPrompt: SystemPromptRef | null,
+): Promise<ProviderRegistration> {
+  const { data } = await axios.put<{ registration: ProviderRegistration }>(
+    `/api/provider-registrations/${encodeURIComponent(id)}/system-prompt`,
+    { systemPrompt },
+  )
+  return { ...data.registration, health: data.registration.health ?? UNKNOWN_HEALTH }
 }
 
 /** Fuerza una sonda ya, sin esperar el ciclo del monitor. Devuelve el health
