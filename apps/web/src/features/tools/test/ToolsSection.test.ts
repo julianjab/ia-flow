@@ -123,10 +123,11 @@ describe('ToolsSection', () => {
     await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
-    const inputs = w.findAll('.ts-form input')
-    await inputs[0].setValue('deploy_staging')
-    await inputs[1].setValue('Deploya a staging')
-    await w.find('.ts-form-ops .btn--primary').trigger('click')
+    await w.find('.ts-form input').setValue('deploy_staging')
+    // La descripción es un textarea: es lo único que el modelo lee para
+    // decidir cuándo usar la tool, así que se escribe como el párrafo que es.
+    await w.find('.ts-form textarea').setValue('Deploya a staging')
+    await w.find('.ts-form .ffoot .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved[0]).toEqual({
@@ -178,12 +179,13 @@ describe('ToolsSection', () => {
     await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
-    const inputs = w.findAll('.ts-form input')
-    await inputs[0].setValue('deploy_staging')
-    await inputs[1].setValue('Deploya a staging')
+    await w.find('.ts-form input').setValue('deploy_staging')
+    // La descripción es un textarea: es lo único que el modelo lee para
+    // decidir cuándo usar la tool, así que se escribe como el párrafo que es.
+    await w.find('.ts-form textarea').setValue('Deploya a staging')
     // El campo que la acción lee, ofrecido de un click.
     await w.find('.ts-form .tp-add').trigger('click')
-    await w.find('.ts-form-ops .btn--primary').trigger('click')
+    await w.find('.ts-form .ffoot .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved[0]).toEqual({
@@ -247,12 +249,11 @@ describe('ToolsSection', () => {
     await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
-    const inputs = w.findAll('.ts-form input')
-    await inputs[0].setValue('deploy_staging')
-    await inputs[1].setValue('Deploya')
+    await w.find('.ts-form input').setValue('deploy_staging')
+    await w.find('.ts-form textarea').setValue('Deploya')
     // Un parámetro agregado a mano y dejado sin nombre.
     await w.find('.ts-form .tp .btn').trigger('click')
-    await w.find('.ts-form-ops .btn--primary').trigger('click')
+    await w.find('.ts-form .ffoot .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved).toHaveLength(0)
