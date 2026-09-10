@@ -10,8 +10,6 @@ import {
   type SlackMemberRef,
   type TaskDispositionEntry,
   TaskDispositionEntryArraySchema,
-  type TaskFocus,
-  TaskFocusSchema,
   type TaskRunPreview,
   TaskRunPreviewSchema,
   type TaskRunSummary,
@@ -146,23 +144,6 @@ export async function fetchTaskDispositions(projectId: string): Promise<TaskDisp
     params: { projectId },
   })
   return TaskDispositionEntryArraySchema.parse(data.dispositions)
-}
-
-/**
- * El foco del proyecto — qué mirar primero de lo que ya está ordenado.
- *
- * `null` es una respuesta legítima y frecuente: no hay nada que decir, o la
- * feature está apagada. Un error se propaga, y ES la diferencia que la
- * pantalla dibuja: "no se pudo pensar" no es "no hay nada que hacer".
- */
-export async function fetchTaskFocus(
-  projectId: string,
-  opts: { refresh?: boolean } = {},
-): Promise<TaskFocus | null> {
-  const { data } = await axios.get<{ focus: unknown }>('/api/tasks/focus', {
-    params: { projectId, ...(opts.refresh ? { refresh: '1' } : {}) },
-  })
-  return data.focus ? TaskFocusSchema.parse(data.focus) : null
 }
 
 /** El tope que declara la ruta (`MAX_BLOCKER_IDS` en project-source.ts). */
