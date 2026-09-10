@@ -16,3 +16,7 @@ apps/server/config/system-prompt.md
 # npm lockfiles are forbidden — bun is the only package manager
 apps/**/package-lock.json
 packages/**/package-lock.json
+
+# El agent-host.yaml real describe UNA máquina (nombre, URL, paths) — lo que
+# se commitea es `agent-host.example.yaml`.
+apps/agent-host/agent-host.yaml
