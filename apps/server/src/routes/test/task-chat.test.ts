@@ -183,9 +183,18 @@ describe('POST /api/tasks/assistant/chat', () => {
     expect(body.actions).toEqual([{ type: 'tag', taskId: 't1', tags: ['urgente'] }])
   })
 
-  it('group sin el campo `groups` defaultea a [] en vez de rechazar la respuesta con 502', async () => {
+  it('group sin el campo `groups` se descarta entero — no rechaza la respuesta ni se confunde con "desagrupar"', async () => {
+    // `{type:'group'}` sin la clave `groups` no es lo mismo que
+    // `{type:'group', groups:[]}` — lo primero es el modelo omitiendo o
+    // truncando el campo, lo segundo una propuesta explícita de desagrupar.
+    // Tratar ambas igual borraría el agrupamiento del usuario sin que nadie
+    // lo haya pedido (ver `dropOmittedGroupsAction`).
     const { app } = routerWith(async () => ({
-      fields: { reply: 'ok', scope: { type: 'project' }, actions: [{ type: 'group' }] },
+      fields: {
+        reply: 'ok',
+        scope: { type: 'project' },
+        actions: [{ type: 'group' }],
+      },
     }))
     const res = await app.request('/chat', {
       method: 'POST',
@@ -193,8 +202,8 @@ describe('POST /api/tasks/assistant/chat', () => {
       body: JSON.stringify(VALID_BODY),
     })
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { actions: { type: string; groups: unknown[] }[] }
-    expect(body.actions).toEqual([{ type: 'group', groups: [] }])
+    const body = (await res.json()) as { actions: unknown[] }
+    expect(body.actions).toEqual([])
   })
 
   it('group con `groups: []` (desagrupar) pasa sin filtrar', async () => {

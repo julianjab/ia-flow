@@ -773,6 +773,31 @@ describe('TareasSection — asistente de tareas', () => {
     expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
   })
 
+  it('aplicar `tag` se refleja al toque en lo que ve el asistente — sin cambiar de proyecto ni recargar', async () => {
+    const w = await mountWith([githubItem({})])
+    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
+
+    const tasksBefore = w.findComponent(TaskCommandBar).props('tasks') as {
+      id: string
+      tags: string[]
+    }[]
+    expect(tasksBefore.find((t) => t.id === 'I_1')?.tags).toEqual([])
+
+    w.findComponent(TaskCommandBar).vm.$emit('apply', [
+      { type: 'tag', taskId: 'I_1', tags: ['urgente'] },
+    ])
+    await flushPromises()
+
+    // Antes del fix, `chatTasksContext` leía `localStorage` directo dentro
+    // del computed y quedaba cacheado — el asistente seguía viendo `tags: []`
+    // hasta que OTRA dependencia reactiva lo invalidara.
+    const tasksAfter = w.findComponent(TaskCommandBar).props('tasks') as {
+      id: string
+      tags: string[]
+    }[]
+    expect(tasksAfter.find((t) => t.id === 'I_1')?.tags).toEqual(['urgente'])
+  })
+
   it('aplicar `note` guarda la preferencia en localStorage, no en el server', async () => {
     const w = await mountWith([githubItem({})])
     await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
