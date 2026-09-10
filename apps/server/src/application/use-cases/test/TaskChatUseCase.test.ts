@@ -46,6 +46,9 @@ const VALID_INPUT = {
   message: '¿Qué pasa con t2?',
   history: [],
   tasks: [{ id: 't1', title: 'Arreglar el bug', status: 'In Progress', tags: [] }],
+  // Sin primitivas: el canal `view` queda apagado (ni schema ni prompt), que
+  // es lo que estos casos —sobre tools y verify de `actions`— quieren aislar.
+  uiContract: { primitives: [] },
 }
 
 describe('TaskChatUseCase — read tools', () => {
