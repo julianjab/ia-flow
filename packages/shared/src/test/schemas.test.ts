@@ -1402,6 +1402,15 @@ describe('TaskChatScopeSchema / TaskChatActionSchema / TaskChatReplySchema', () 
     expect(TaskChatActionSchema.parse(group)).toEqual(group)
   })
 
+  it('`group` acepta un tema con `label`/`taskIds` vacíos — el saneo es cosa de `verify()`, no del schema', () => {
+    // Si esto rechazara, `TaskChatReplySchema.safeParse` (que corre ANTES de
+    // `verify()`) tiraría la respuesta ENTERA con un 502 ante una salida
+    // plausible del modelo — perdiendo también el `reply` de texto que sí
+    // estaba bien. Ver TaskChatUseCase.verify(), que es quien descarta esto.
+    const group = { type: 'group' as const, groups: [{ label: '', taskIds: [] }] }
+    expect(TaskChatActionSchema.parse(group)).toEqual(group)
+  })
+
   it('rechaza un type que no sea uno de los 5 conocidos', () => {
     expect(
       TaskChatActionSchema.safeParse({

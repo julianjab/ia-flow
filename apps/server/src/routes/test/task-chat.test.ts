@@ -157,6 +157,36 @@ describe('POST /api/tasks/assistant/chat', () => {
     expect(body.actions).toEqual([])
   })
 
+  it('un tema con label o taskIds vacíos NO tira toda la respuesta con 502 — se descarta ese grupo nomás', async () => {
+    const { app } = routerWith(async () => ({
+      fields: {
+        reply: 'Te agrupé lo que pude.',
+        scope: { type: 'project' },
+        actions: [
+          {
+            type: 'group',
+            groups: [
+              { label: '', taskIds: [] },
+              { label: 'bugs', taskIds: ['t1'] },
+            ],
+          },
+        ],
+      },
+    }))
+    const res = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      reply: string
+      actions: { type: string; groups: { label: string; taskIds: string[] }[] }[]
+    }
+    expect(body.reply).toBe('Te agrupé lo que pude.')
+    expect(body.actions).toEqual([{ type: 'group', groups: [{ label: 'bugs', taskIds: ['t1'] }] }])
+  })
+
   it('502 cuando el modelo no devuelve el formato esperado', async () => {
     const { app } = routerWith(async () => ({ fields: { garbage: true } }))
     const res = await app.request('/chat', {
