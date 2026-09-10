@@ -2344,28 +2344,31 @@ export const TaskChatScopeSchema = z.discriminatedUnion('type', [
 export type TaskChatScope = z.infer<typeof TaskChatScopeSchema>
 
 /**
- * Las 4 acciones concretas que el asistente puede proponer — ya no un
+ * Las 5 acciones concretas que el asistente puede proponer — ya no un
  * `set-field` genérico. `type` es discriminante: el chip y "Aplicar" ramifican
  * por él sin adivinar la forma del resto del objeto.
  *
- * Persistencia por tipo (decisión de diseño, no releer — ver #215):
- * - `reorder`: preferencia de VISTA, sólo `localStorage`, nunca toca el orden
- *   real que calcula `GetTaskDispositionsUseCase`.
- * - `tag`: escribe de verdad — reusa `setProjectItemField(..., 'Labels', ...)`,
- *   el mismo mecanismo que ya usa la tool `set_task_labels`.
- * - `note`: tabla nueva (`task_annotations`), editable/borrable por el
- *   usuario — NO es un comentario de GitHub.
+ * Ninguna toca el server — son propuestas de un modelo sin revisión humana,
+ * así que las 5 son preferencia de vista, sólo `localStorage`/estado de
+ * sesión (decisión de diseño, no releer — ver #215):
+ * - `reorder`: nunca toca el orden real que calcula `GetTaskDispositionsUseCase`.
+ * - `tag`: `taskTagPref.ts` — nunca pisa el campo `Labels` real del board.
+ * - `note`: `taskNotePref.ts` — NO es un comentario de GitHub.
  * - `highlight`: dura la sesión, estado de cliente únicamente.
+ * - `group`: alterna el agrupado por tema de la vista (`setGroupByTopic`),
+ *   scope de PROYECTO, no de una tarea — como `reorder`, no lleva `taskId`.
  */
 export const TaskChatActionSchema = z.discriminatedUnion('type', [
   /** Reordena la vista — no la lista real. `taskIds` en el orden propuesto. */
   z.object({ type: z.literal('reorder'), taskIds: z.array(z.string()).min(1) }),
   /** Tags a añadir a `taskId` (no reemplaza las que ya tiene). */
   z.object({ type: z.literal('tag'), taskId: z.string(), tags: z.array(z.string()).min(1) }),
-  /** Anotación nueva sobre `taskId` — persiste en `task_annotations`. */
+  /** Anotación nueva sobre `taskId` — vista local, ver `taskNotePref.ts`. */
   z.object({ type: z.literal('note'), taskId: z.string(), text: z.string().min(1) }),
   /** Resalta `taskId` con un motivo — sólo estado de cliente, de sesión. */
   z.object({ type: z.literal('highlight'), taskId: z.string(), reason: z.string().min(1) }),
+  /** Prende/apaga el agrupado por tema de la vista — scope de proyecto. */
+  z.object({ type: z.literal('group'), enabled: z.boolean() }),
 ])
 export type TaskChatAction = z.infer<typeof TaskChatActionSchema>
 

@@ -336,13 +336,15 @@ const chatTasksContext = computed<TaskChatTaskContext[]>(() =>
 );
 
 /**
- * "Aplicar" en la barra de comandos emite las 4 acciones acá. Ninguna toca
+ * "Aplicar" en la barra de comandos emite las 5 acciones acá. Ninguna toca
  * el server: son propuestas de un modelo sin revisión humana, así que las
- * 4 son preferencia de vista, client-side (ver la tabla del schema en
+ * 5 son preferencia de vista, client-side (ver la tabla del schema en
  * `packages/shared`, `TaskChatActionSchema`):
  * - `tag`: `localStorage`, vía `taskTagPref.ts`.
  * - `note`: `localStorage`, vía `taskNotePref.ts`.
  * - `reorder`: `localStorage`, vía `taskOrderPref.ts`.
+ * - `group`: `localStorage`, vía `setGroupByTopic` (el mismo toggle de la
+ *   barra de "agrupado por tema").
  * - `highlight`: estado de sesión del store, nunca persistido.
  *
  * Una acción que falla no aborta las demás: son cambios independientes.
@@ -364,6 +366,8 @@ function onChatApplyActions(actions: TaskChatAction[]): void {
         // `localStorage` no es reactivo — sin esto la lista no se
         // reordenaba hasta cambiar de proyecto o recargar la página.
         taskOrderPref.value = action.taskIds;
+      } else if (action.type === 'group') {
+        setGroupByTopic(action.enabled);
       }
       // `highlight` ya se resolvió arriba, con `recordHighlights`.
     } catch (e) {

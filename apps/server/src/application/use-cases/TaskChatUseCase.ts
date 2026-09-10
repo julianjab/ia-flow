@@ -81,7 +81,7 @@ const TASK_CHAT_RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          type: { type: 'string', enum: ['reorder', 'tag', 'note', 'highlight'] },
+          type: { type: 'string', enum: ['reorder', 'tag', 'note', 'highlight', 'group'] },
           taskIds: {
             type: 'array',
             items: { type: 'string' },
@@ -106,6 +106,11 @@ const TASK_CHAT_RESPONSE_SCHEMA = {
           reason: {
             type: 'string',
             description: 'Sólo para type="highlight" — por qué se resalta.',
+          },
+          enabled: {
+            type: 'boolean',
+            description:
+              'Sólo para type="group" — true para agrupar por tema, false para volver a la lista suelta. No lleva taskId: es de proyecto, no de una tarea puntual.',
           },
         },
         required: ['type'],
@@ -153,6 +158,8 @@ const TASK_CHAT_FALLBACK_SYSTEM_PROMPT = [
   '- tag: añade tags a una tarea (`taskId`, `tags`) sin reemplazar las que ya tiene.',
   '- note: deja una anotación sobre una tarea (`taskId`, `text`).',
   '- highlight: resalta una tarea con un motivo, sólo para esta sesión (`taskId`, `reason`).',
+  '- group: agrupa o desagrupa por tema la vista del proyecto entero (`enabled`), no una tarea',
+  '  puntual — no lleva `taskId`.',
   'Usá siempre el `id` EXACTO que viene en "Tareas visibles" o en el resultado de una tool. Si no',
   'hay ningún cambio que proponer, `actions` va vacío.',
 ].join('\n')
@@ -212,12 +219,12 @@ function buildTaskChatPrompt(body: {
  * ver `AssistWithAiUseCase.runFormFill`, que es quien de verdad ejecuta el
  * loop de tool calls.
  *
- * Las 4 acciones son STAGED — ninguna se aplica acá, y ninguna toca el
- * server: las 4 quedan del lado del cliente (`localStorage`/estado de
+ * Las 5 acciones son STAGED — ninguna se aplica acá, y ninguna toca el
+ * server: las 5 quedan del lado del cliente (`localStorage`/estado de
  * sesión) recién cuando el operador presiona "Aplicar" — `tag` vía
  * `taskTagPref.ts`, `note` vía `taskNotePref.ts`, `reorder` vía
- * `taskOrderPref.ts` y `highlight` en el store — así que ninguna pasa por
- * este use-case.
+ * `taskOrderPref.ts`, `group` vía `setGroupByTopic` y `highlight` en el
+ * store — así que ninguna pasa por este use-case.
  */
 export class TaskChatUseCase {
   constructor(
@@ -281,6 +288,11 @@ export class TaskChatUseCase {
         case 'note':
         case 'highlight':
           if (knownIds.has(action.taskId)) out.push(action)
+          return out
+        case 'group':
+          // Scope de proyecto, sin `taskId` — nada que verificar contra
+          // `knownIds` (mismo motivo que `reorder` no filtra el propio tipo).
+          out.push(action)
           return out
         default:
           return out

@@ -9,8 +9,8 @@ import { useTaskChatStore } from '@/features/tasks/taskChatStore';
  * (reemplaza al drawer/sheet viejo, ver #215/#216, regla R18).
  *
  * Sólo dibuja lo que es del PROYECTO en general: la respuesta cuando
- * `scope: { type: 'project' }`, el resumen de `reorder` (una preferencia de
- * vista, no de una fila puntual) y la barra Aplicar/Descartar única — las
+ * `scope: { type: 'project' }`, el resumen de `reorder`/`group` (preferencias
+ * de vista, no de una fila puntual) y la barra Aplicar/Descartar única — las
  * respuestas y acciones sobre UNA tarea puntual las dibuja
  * `TaskChatRowOverlay.vue`, sobre la fila real.
  */
@@ -45,6 +45,10 @@ const projectReply = computed(() =>
 
 const reorderAction = computed(() =>
   store.pending?.actions.find((a): a is TaskChatAction & { type: 'reorder' } => a.type === 'reorder'),
+);
+
+const groupAction = computed(() =>
+  store.pending?.actions.find((a): a is TaskChatAction & { type: 'group' } => a.type === 'group'),
 );
 
 const pendingActionsCount = computed(() => store.pending?.actions.length ?? 0);
@@ -114,6 +118,10 @@ function onApply(): void {
 
     <p v-if="reorderAction" class="command-reorder" data-testid="chat-reorder-summary">
       Reordenar {{ reorderAction.taskIds.length }} tareas (sólo tu vista — no cambia el orden real)
+    </p>
+
+    <p v-if="groupAction" class="command-reorder" data-testid="chat-group-summary">
+      {{ groupAction.enabled ? 'Agrupar por tema' : 'Desagrupar' }} (sólo tu vista)
     </p>
 
     <TaskActionBlock
