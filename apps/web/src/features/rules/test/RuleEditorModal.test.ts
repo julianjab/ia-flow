@@ -83,19 +83,38 @@ describe('RuleEditorModal', () => {
   })
 
   /**
-   * Bajo --bp-split no hay rail: las cuatro franjas se dibujan en orden y la
-   * última, la que se puede ignorar, va plegada. Antes de esto el rail se
-   * volvía una tira horizontal de pestañas con scroll lateral (R2, R14).
+   * Bajo --bp-split no hay rail, y el índice pasa a ser el encabezado de cada
+   * franja: las MISMAS cuatro entradas, en el mismo orden y con el mismo
+   * título que el rail (R24). Antes de esto el rail se volvía una tira
+   * horizontal de pestañas con scroll lateral (R2, R14).
+   *
+   * Hijas DIRECTAS del formulario: el otro `CollapsibleSection` de la pantalla
+   * es el de cada acción, más adentro.
    */
-  it('sin ancho para el rail dibuja las franjas en orden', () => {
+  it('sin ancho para el rail, cada franja es su propio encabezado', () => {
     const w = mountModal()
 
     expect(w.find('.rail-item').exists()).toBe(false)
-    // Las tres visibles llevan su título; la cuarta es el encabezado plegado.
-    expect(w.findAll('.band-title').map((t) => t.text())).toEqual(['Qué hace', 'Sobre qué'])
-    // La franja plegada es hija directa del formulario; el otro
-    // `CollapsibleSection` de la pantalla es el de cada acción, más adentro.
-    expect(w.get('.page-main > .cs .cs-title').text()).toBe('Avanzado')
+    expect(w.findAll('.page-main > .cs > .cs-header .cs-title').map((t) => t.text())).toEqual([
+      'Definición',
+      'Qué hace',
+      'Sobre qué',
+      'Avanzado',
+    ])
+  })
+
+  /**
+   * R20: lo obligatorio nunca detrás de un chevron. Para una regla eso es el
+   * id, el evento y las acciones; el ámbito y lo avanzado tienen default y
+   * arrancan cerrados.
+   */
+  it('abre las franjas con campos obligatorios y cierra las demás', () => {
+    const abiertas = mountModal()
+      .findAll('.page-main > .cs')
+      .filter((cs) => (cs.get('.cs-panel').element as HTMLElement).style.display !== 'none')
+      .map((cs) => cs.get('.cs-title').text())
+
+    expect(abiertas).toEqual(['Definición', 'Qué hace'])
   })
 
   /**
