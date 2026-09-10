@@ -157,6 +157,29 @@ function startEditing(group: string) {
   editingGroups.value = new Set([...editingGroups.value, group]);
 }
 
+/** Cuántas variables de ESTE grupo están sin guardar. */
+function groupDirtyCount(group: { keys: string[] }): number {
+  const patch = buildEnvPatch(envVarsStore.vars, envDrafts.value, envPristine.value);
+  return group.keys.filter((k) => k in patch).length;
+}
+
+/**
+ * El par de `editar N variables`: devuelve el grupo a lectura.
+ *
+ * Sin esto, entrar en modo edición era de ida — la única salida era guardar o
+ * recargar la página, así que abrir un grupo "para mirar" obligaba a decidir.
+ *
+ * Con cambios sin guardar, salir los DESCARTA y el botón lo dice: dejarlos
+ * vivos detrás de un modo lectura que muestra el valor persistido sería
+ * mostrar un valor y mandar otro.
+ */
+function stopEditing(group: { group: string; keys: string[] }) {
+  for (const key of group.keys) envDrafts.value[key] = envPristine.value[key] ?? '';
+  const next = new Set(editingGroups.value);
+  next.delete(group.group);
+  editingGroups.value = next;
+}
+
 /**
  * Lo que se lee de una variable sin montar su campo.
  *
@@ -280,6 +303,22 @@ onMounted(async () => {
               :placeholder="envVarsStore.vars[key].label"
             />
           </label>
+
+          <!-- El par de `editar N variables`, y la última fila del grupo por el
+               mismo motivo (R11): el gesto de cerrar queda donde termina lo que
+               se estaba editando. Sólo en los grupos que TIENEN modo lectura;
+               en los cortos no hay a dónde volver. -->
+          <button
+            v-if="group.keys.length > READ_MODE_FROM"
+            type="button"
+            class="ff-add"
+            :data-testid="`env-done-${group.group}`"
+            @click="stopEditing(group)"
+          >
+            {{ groupDirtyCount(group)
+              ? `descartar ${groupDirtyCount(group)} y cerrar`
+              : 'listo' }}
+          </button>
         </template>
       </div>
 

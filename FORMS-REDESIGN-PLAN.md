@@ -22,8 +22,8 @@ Modo de trabajo acordado con el usuario: **un único PR, en este worktree
 | 4 | System prompt | ✅ código + test |
 | 5 | Pipeline / regla | ✅ código + test |
 | 6 | Acción | ✅ código + test |
-| 7 | **Tool** | ⏳ **acá quedó** |
-| 8 | Entorno | pendiente |
+| 7 | Tool | ✅ código + test |
+| 8 | **Entorno** | ⏳ **acá quedó** |
 | 9 | Cierre: `apps/web/CLAUDE.md` + borrar este archivo | pendiente |
 
 `bun install` ya corrió en el worktree. `bun run typecheck` y el test de `FormFooter` pasan.
