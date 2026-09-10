@@ -5,7 +5,7 @@
 // AgentDefinition — ver apps/server/src/adapters/remote-provider/RemoteAgentProvider.ts.
 import { onMounted, reactive, ref } from 'vue';
 import axios from 'axios';
-import type { RemoteProviderHealth, SystemPromptDef, SystemPromptRef } from '@ia-flow/shared';
+import type { RemoteProviderHealth } from '@ia-flow/shared';
 import { useServerEvents } from '@/composables/useServerEvents';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useToastStore } from '@/stores/toast';
@@ -14,9 +14,7 @@ import {
   checkProviderRegistrationHealth,
   createProviderRegistration,
   deleteProviderRegistration,
-  listGlobalSystemPrompts,
   listProviderRegistrations,
-  updateProviderRegistrationSystemPrompt,
 } from './registrations-api';
 
 const toastStore = useToastStore();
@@ -25,81 +23,9 @@ const registrations = ref<ProviderRegistration[]>([]);
 const loading = ref(false);
 const creating = ref(false);
 const saving = ref(false);
-const availableSysprompts = ref<SystemPromptDef[]>([]);
-
-// 'none' | 'catalog' | 'inline' — mismos tres modos que el picker del editor
-// de agentes (SystemPromptsSection.vue), simplificados a una sola selección:
-// acá es EL system prompt de este gateway, no una lista concatenable.
-type SystemPromptMode = 'none' | 'catalog' | 'inline';
-interface SystemPromptDraft {
-  mode: SystemPromptMode;
-  catalogId: string;
-  inlineText: string;
-}
-
-function draftFromRef(ref: SystemPromptRef | null): SystemPromptDraft {
-  if (!ref) return { mode: 'none', catalogId: '', inlineText: '' };
-  if (typeof ref === 'string') return { mode: 'catalog', catalogId: ref, inlineText: '' };
-  return { mode: 'inline', catalogId: '', inlineText: ref.text };
-}
-
-function refFromDraft(d: SystemPromptDraft): SystemPromptRef | null {
-  if (d.mode === 'catalog') return d.catalogId || null;
-  if (d.mode === 'inline') return d.inlineText.trim() ? { text: d.inlineText.trim() } : null;
-  return null;
-}
-
-function systemPromptSummary(ref: SystemPromptRef | null): string {
-  if (!ref) return 'Sin system prompt propio';
-  if (typeof ref === 'string') {
-    const sp = availableSysprompts.value.find((s) => s.id === ref);
-    return sp ? `Catálogo: ${sp.name}` : `Catálogo: ${ref} (ya no existe)`;
-  }
-  return `Inline: ${ref.text.length > 60 ? `${ref.text.slice(0, 60)}…` : ref.text}`;
-}
 
 const draft = reactive({ name: '', baseUrl: '', token: '' });
-const draftSystemPrompt = reactive<SystemPromptDraft>({
-  mode: 'none',
-  catalogId: '',
-  inlineText: '',
-});
 const checking = ref<string | null>(null);
-
-const editingSystemPromptFor = ref<string | null>(null);
-const editSystemPrompt = reactive<SystemPromptDraft>({
-  mode: 'none',
-  catalogId: '',
-  inlineText: '',
-});
-const savingSystemPrompt = ref(false);
-
-function startEditSystemPrompt(reg: ProviderRegistration) {
-  editingSystemPromptFor.value = reg.id;
-  Object.assign(editSystemPrompt, draftFromRef(reg.systemPrompt));
-}
-
-function cancelEditSystemPrompt() {
-  editingSystemPromptFor.value = null;
-}
-
-async function saveSystemPrompt(id: string) {
-  savingSystemPrompt.value = true;
-  try {
-    const updated = await updateProviderRegistrationSystemPrompt(
-      id,
-      refFromDraft(editSystemPrompt),
-    );
-    const reg = registrations.value.find((r) => r.id === id);
-    if (reg) reg.systemPrompt = updated.systemPrompt;
-    toastStore.success('System prompt del gateway actualizado');
-    editingSystemPromptFor.value = null;
-  } catch (err) {
-    toastStore.error(`No se pudo guardar: ${extractError(err)}`);
-  } finally {
-    savingSystemPrompt.value = false;
-  }
-}
 
 // El server desregistra un remoto apenas su agent-host deja de contestar y avisa
 // por WS — sin esto la lista mostraría "OK" hasta el próximo refresh manual,
@@ -152,26 +78,13 @@ async function load() {
   }
 }
 
-async function loadSystemPrompts() {
-  try {
-    availableSysprompts.value = await listGlobalSystemPrompts();
-  } catch (err) {
-    // No bloquea la sección: sin catálogo, el picker sólo ofrece el modo inline.
-    toastStore.error(`No se pudo cargar el catálogo de system prompts: ${extractError(err)}`);
-  }
-}
-
-onMounted(() => {
-  void load();
-  void loadSystemPrompts();
-});
+onMounted(load);
 
 function startNew() {
   creating.value = true;
   draft.name = '';
   draft.baseUrl = '';
   draft.token = '';
-  Object.assign(draftSystemPrompt, { mode: 'none', catalogId: '', inlineText: '' });
 }
 
 function cancel() {
@@ -189,7 +102,6 @@ async function save() {
       name: draft.name.trim(),
       baseUrl: draft.baseUrl.trim(),
       token: draft.token.trim(),
-      systemPrompt: refFromDraft(draftSystemPrompt),
     });
     toastStore.success('Provider remoto registrado');
     creating.value = false;
@@ -268,80 +180,32 @@ async function runConfirm() {
 
     <ul v-if="!loading && registrations.length" class="entry-list">
       <li v-for="reg in registrations" :key="reg.id" class="entry">
-        <div class="entry-row">
-          <div class="entry-main">
-            <div class="entry-head">
-              <span class="entry-id">remote:{{ reg.id }}</span>
-              <span class="entry-name">{{ reg.remoteName }}</span>
-              <span class="entry-kind">{{ reg.remoteKind }}</span>
-              <span class="entry-health" :class="`health-${reg.health.status}`">
-                {{ healthLabel(reg.health) }}
-              </span>
-            </div>
-            <p class="entry-desc">{{ reg.remoteDescription }}</p>
-            <code class="entry-url">{{ reg.baseUrl }}</code>
-            <span class="entry-meta">
-              token {{ reg.hasToken ? 'configurado' : 'FALTA' }} · creado {{ new Date(reg.createdAt).toLocaleString('es') }}
-              <template v-if="reg.health.checkedAt">
-                · sondeado {{ new Date(reg.health.checkedAt).toLocaleTimeString('es') }}
-              </template>
-            </span>
-            <span class="entry-meta entry-sp">{{ systemPromptSummary(reg.systemPrompt) }}</span>
-            <span v-if="reg.health.status === 'down'" class="entry-error">
-              {{ reg.health.error }} ({{ reg.health.consecutiveFailures }} fallo(s) seguidos)
+        <div class="entry-main">
+          <div class="entry-head">
+            <span class="entry-id">remote:{{ reg.id }}</span>
+            <span class="entry-name">{{ reg.remoteName }}</span>
+            <span class="entry-kind">{{ reg.remoteKind }}</span>
+            <span class="entry-health" :class="`health-${reg.health.status}`">
+              {{ healthLabel(reg.health) }}
             </span>
           </div>
-          <div class="entry-actions">
-            <button type="button" class="btn-secondary" :disabled="checking === reg.id" @click="recheck(reg.id)">
-              {{ checking === reg.id ? 'Sondeando…' : 'Probar' }}
-            </button>
-            <button type="button" class="btn-secondary" @click="startEditSystemPrompt(reg)">
-              System prompt
-            </button>
-            <button type="button" class="btn-danger" @click="remove(reg.id)">Eliminar</button>
-          </div>
+          <p class="entry-desc">{{ reg.remoteDescription }}</p>
+          <code class="entry-url">{{ reg.baseUrl }}</code>
+          <span class="entry-meta">
+            token {{ reg.hasToken ? 'configurado' : 'FALTA' }} · creado {{ new Date(reg.createdAt).toLocaleString('es') }}
+            <template v-if="reg.health.checkedAt">
+              · sondeado {{ new Date(reg.health.checkedAt).toLocaleTimeString('es') }}
+            </template>
+          </span>
+          <span v-if="reg.health.status === 'down'" class="entry-error">
+            {{ reg.health.error }} ({{ reg.health.consecutiveFailures }} fallo(s) seguidos)
+          </span>
         </div>
-
-        <div v-if="editingSystemPromptFor === reg.id" class="sp-editor">
-          <p class="section-desc">
-            Bloque adicional a los que ya arma cada agente — describe cómo correr
-            específicamente en <strong>este</strong> gateway. Se antepone al despachar, para
-            cualquier agente que use <code>remote:{{ reg.id }}</code>.
-          </p>
-          <label class="field">
-            <span>Modo</span>
-            <select v-model="editSystemPrompt.mode">
-              <option value="none">Sin system prompt propio</option>
-              <option value="catalog" :disabled="!availableSysprompts.length">Del catálogo</option>
-              <option value="inline">Texto inline</option>
-            </select>
-          </label>
-          <label v-if="editSystemPrompt.mode === 'catalog'" class="field">
-            <span>System prompt del catálogo</span>
-            <select v-model="editSystemPrompt.catalogId">
-              <option value="" disabled>Elegí uno…</option>
-              <option v-for="sp in availableSysprompts" :key="sp.id" :value="sp.id">{{ sp.name }}</option>
-            </select>
-          </label>
-          <label v-if="editSystemPrompt.mode === 'inline'" class="field">
-            <span>Texto</span>
-            <textarea
-              v-model="editSystemPrompt.inlineText"
-              rows="4"
-              placeholder="Estás corriendo en una VM efímera de CI, sin red de salida…"
-            />
-          </label>
-          <div class="editor-actions">
-            <button type="button" class="btn-secondary" @click="cancelEditSystemPrompt">Cancelar</button>
-            <button
-              type="button"
-              class="btn-primary"
-              :disabled="savingSystemPrompt"
-              @click="saveSystemPrompt(reg.id)"
-            >
-              {{ savingSystemPrompt ? 'Guardando…' : 'Guardar' }}
-            </button>
-          </div>
+        <div class="entry-actions">
+          <button type="button" class="btn-secondary" :disabled="checking === reg.id" @click="recheck(reg.id)">
+            {{ checking === reg.id ? 'Sondeando…' : 'Probar' }}
+          </button>
+          <button type="button" class="btn-danger" @click="remove(reg.id)">Eliminar</button>
         </div>
       </li>
     </ul>
@@ -360,29 +224,6 @@ async function runConfirm() {
       <label class="field">
         <span>Token (API_AI_PROVIDER_TOKEN del agent-host)</span>
         <input v-model="draft.token" type="password" placeholder="•••" />
-      </label>
-      <label class="field">
-        <span>System prompt del gateway (opcional)</span>
-        <select v-model="draftSystemPrompt.mode">
-          <option value="none">Sin system prompt propio</option>
-          <option value="catalog" :disabled="!availableSysprompts.length">Del catálogo</option>
-          <option value="inline">Texto inline</option>
-        </select>
-      </label>
-      <label v-if="draftSystemPrompt.mode === 'catalog'" class="field">
-        <span>System prompt del catálogo</span>
-        <select v-model="draftSystemPrompt.catalogId">
-          <option value="" disabled>Elegí uno…</option>
-          <option v-for="sp in availableSysprompts" :key="sp.id" :value="sp.id">{{ sp.name }}</option>
-        </select>
-      </label>
-      <label v-if="draftSystemPrompt.mode === 'inline'" class="field">
-        <span>Texto</span>
-        <textarea
-          v-model="draftSystemPrompt.inlineText"
-          rows="4"
-          placeholder="Estás corriendo en una VM efímera de CI, sin red de salida…"
-        />
       </label>
       <div class="editor-actions">
         <button type="button" class="btn-secondary" @click="cancel">Cancelar</button>
@@ -411,14 +252,12 @@ async function runConfirm() {
 .entry-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .entry {
   display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel-alt);
 }
-.entry-row { display: flex; gap: 0.75rem; }
 .entry-main { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .entry-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 .entry-id { font-family: monospace; font-weight: 600; color: var(--info); }
@@ -439,15 +278,7 @@ async function runConfirm() {
   width: fit-content;
 }
 .entry-meta { font-size: 0.72rem; color: var(--fg-dim); }
-.entry-sp { font-style: italic; }
 .entry-actions { display: flex; flex-direction: column; gap: 0.35rem; }
-.sp-editor {
-  border-top: 1px solid var(--border);
-  padding-top: 0.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
 .editor {
   border: 1px solid var(--border-hi);
   border-radius: 8px;
@@ -459,18 +290,12 @@ async function runConfirm() {
 }
 .editor h3 { margin: 0; font-size: 1rem; }
 .field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: var(--fg-mute); }
-.field input,
-.field select,
-.field textarea {
+.field input {
   padding: 0.4rem 0.55rem;
   border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--panel);
-  color: var(--fg);
 }
-.field textarea { resize: vertical; }
 .editor-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 .btn-primary {
   padding: 0.4rem 0.9rem;
@@ -510,10 +335,5 @@ async function runConfirm() {
      tabla cuyas columnas haya que alinear entre filas. */
   .section-head { flex-wrap: wrap; row-gap: 0.35rem; }
   .section-head > * { min-width: 0; }
-  /* Tres botones en la columna de acciones ya no entran al lado del texto
-     en un teléfono — se apilan abajo, mismo criterio que .section-head. */
-  .entry-row { flex-wrap: wrap; row-gap: 0.5rem; }
-  .entry-main { min-width: 0; flex-basis: 100%; }
-  .entry-actions { flex-direction: row; flex-wrap: wrap; }
 }
 </style>
