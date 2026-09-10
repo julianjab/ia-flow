@@ -1,9 +1,12 @@
 import type { Migration } from './runner.js'
 
-// Estructura únicamente — sin sembrar contenido (regla del repo). La fila
-// para el caller 'task-chat' la carga un seed one-off fuera de esta
-// migración (ver PR #225): sembrar prompts desde una migración pisaría lo
-// que el operador edite después vía la ruta CRUD.
+// Estructura únicamente — sin sembrar contenido acá (regla del repo). La
+// fila para el caller 'task-chat' se siembra en 076-seed-task-chat-assist-
+// config.ts, la migración siguiente — excepción deliberada y documentada
+// ahí, no en ésta: sin esa fila la feature arranca sin ningún system
+// prompt, a diferencia de config real de operador que sí competiría con un
+// seed (ver el comentario de 076). `INSERT OR IGNORE` en esa migración hace
+// que una fila que el operador ya editó vía la ruta CRUD nunca se pise.
 //
 // `agent_id` es la PK: cada caller ad-hoc (un `agentId` fijo en código, no un
 // AgentDefinition real) tiene a lo sumo una config. `system_prompts` es un

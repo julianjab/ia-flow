@@ -73,7 +73,10 @@ const migration: Migration = {
       const statusCount = (db.query('SELECT COUNT(*) AS c FROM statuses').get() as { c: number }).c
       if (statusCount > 0 && !backfillId) {
         throw new Error(
-          'Cannot run 005-projects-multi-tenant: hay statuses para reparentar pero `projects` está vacía.',
+          'Cannot run 005-projects-multi-tenant: hay statuses para reparentar pero `projects` ' +
+            'está vacía. Insertá un proyecto a mano antes de reintentar, ej.: ' +
+            `INSERT INTO projects (id, name, settings, created_at, updated_at) VALUES ` +
+            `('mi-proyecto', 'Mi proyecto', '{}', datetime('now'), datetime('now'));`,
         )
       }
       db.run(`
