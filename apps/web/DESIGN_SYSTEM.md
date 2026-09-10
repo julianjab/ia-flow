@@ -163,6 +163,12 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   (R3). **Reemplaza a la tab bar, no se suma a ella** (R4): dos barras fijas son 108px de una
   pantalla de 800 y compiten por el mismo pulgar. Lleva al lado qué hay sin guardar, porque un
   `Guardar` deshabilitado no dice por qué.
+- `ui/FormFooter.vue` — **el pie de un formulario, y el único.** Eliminar a la izquierda separado,
+  qué hay sin guardar en el medio, Cancelar y Guardar a la derecha. Bajo `--bp-shell` delega en
+  `StickyActionBar` (R3, R4); arriba es un pie de diálogo que no scrollea (R26). Existe porque
+  había cuatro formas de guardar en siete pantallas de configuración, y unificarlo se ve más que
+  cualquier cambio de campo. En un ámbito heredado no se dibuja: ahí hay `Cerrar` (ver
+  `ScopeGroup`).
 - `components/ListControlsBar.vue` — **la segunda fila del chrome de una lista** (R12): vista ·
   filtro activo · `filtros ⌄`. Bajo `--bp-shell` los filtros van al sheet y en la fila queda el
   filtro activo; arriba, el panel va inline y no hay botón — el input de filtros ES el flujo de
@@ -243,6 +249,85 @@ Reglas que no se ven en la tabla:
 
 **Deuda conocida:** hay ~30 clases de botón por componente (`ts-btn`, `na-btn`, `rem-btn`, `pspt-btn`, `btn-save-sm`…) que reinventan esta caja con otros paddings y radios. No agregues una más; cuando toques un componente que tenga la suya, migrala.
 
+## Anatomía de un formulario de configuración
+
+Siete dominios se configuran en esta app —agente, regla, acción, system prompt, tool, provider,
+entorno— y hasta acá cada uno decidía por su cuenta con qué kit de campo se escribía, cómo
+agrupaba sus bloques y en qué orden los ponía. El mismo dominio cambiaba de forma según desde qué
+pantalla se abriera. Esta sección es la definición que faltaba: **no pide una pieza nueva del
+design system** — el kit de campo, `CollapsibleSection`, `FormFooter`, `StickyActionBar`,
+`FullScreen`, `ScopeGroup` y `JsonConfigField` ya existen.
+
+### Las cinco franjas, en este orden
+
+Todo editor de configuración tiene las mismas franjas, con o sin contenido. El orden no es
+estético: va de lo que **identifica** al ítem a lo que **ajusta cómo corre**, que es también el
+orden en que se llena por primera vez y el inverso de la frecuencia con que se vuelve a tocar.
+Una franja vacía no se dibuja; **una franja no cambia de lugar entre dominios** (R19).
+
+| # | Franja | Qué lleva | Cómo se dibuja |
+| --- | --- | --- | --- |
+| 1 | **Qué es** · identidad | Nombre, id, tipo, activo. Uno a cuatro campos, todos obligatorios, ninguno con default. | campos sueltos, siempre visible |
+| 2 | **Qué hace** · definición | El cuerpo del dominio: el texto del prompt, el comando, los params, los pasos, el contrato de salida. Es la razón por la que se abrió el formulario. | campos sueltos o una lista, **nunca detrás de un chevron** — aunque sea largo |
+| 3 | **Cuándo aplica** · ámbito y disparo | Proyecto, repo, condiciones, evento, cron, orden de evaluación. | sección abierta cuando el ítem existe por su disparo (una regla, un agente); cerrada cuando es un filtro opcional sobre algo que ya funciona |
+| 4 | **Cómo corre** · ejecución | Provider, modelo, tools, límites, timeouts, reintentos. Todo con un default que ya funciona. | secciones cerradas, máx. 4 |
+| 5 | **Crudo** · escape hatch | El JSON que todavía no tiene formulario (`JsonConfigField`), overrides, campos que el server acepta y la UI no modela. | siempre última, siempre cerrada, un `ff-more` o una sección |
+| — | **Pie** | Eliminar a la izquierda separado, qué hay sin guardar, Cancelar y Guardar a la derecha. | `ui/FormFooter.vue`. En un detalle heredado no hay pie: hay `Cerrar`. |
+
+### Tres formas, no dos
+
+Primero se decide la **forma** del dominio. Recién si es un formulario largo aparece la pregunta
+de las secciones.
+
+| Forma | Cuándo | Qué es | Dominios |
+| --- | --- | --- | --- |
+| **Form libre** | Hasta 6 campos, todos necesarios | Franjas 1 y 2 y nada más. Sin encabezados internos: un chevron sobre tres campos es un clic para llegar a lo único que hay. | system prompt · tool · registro de provider · repo |
+| **Lista** | El contenido son N pares clave/valor o N filas iguales | No hay formulario: hay `ff-list`, se lee densa y se edita a `--tap-h`, y `+ agregar` es su última fila (R11). | entorno · headers · args · params · condiciones |
+| **Formulario con secciones** | 7 campos o más, con bloques ignorables | Franjas 1 y 2 sueltas arriba; de la 3 en adelante, `CollapsibleSection` (o el rail, ver «El ancho no reordena»). | agente · regla · acción |
+
+### El test de las tres condiciones
+
+Un bloque se pliega **sólo si cumple las tres**. Si falla una, sus campos van sueltos en el flujo,
+en la franja que les toca.
+
+1. Tiene **tres campos o más**. Dos campos detrás de un chevron es esconder para no ordenar.
+2. Se puede **guardar sin abrirlo**: todo campo adentro es opcional o tiene default. Lo
+   obligatorio nunca está detrás de un chevron.
+3. Su estado cerrado se **resume en una línea** de valores. Si no se puede resumir, es porque
+   adentro hay dos cosas distintas: son dos secciones.
+
+Y dos topes: **máximo cinco secciones** por formulario —la sexta quiere decir que el ítem son dos
+ítems— y **nunca una sección dentro de otra**: el segundo nivel de chevron esconde campos que ya
+nadie encuentra.
+
+### Las cinco ranuras de texto de un campo
+
+Cada una contesta una pregunta distinta. La confusión que esto corrige es que la misma frase
+aparecía a veces como label largo, a veces como hint y a veces como descripción de sección — y
+cuando aparecían dos a la vez, se repetían.
+
+| Ranura | Clase | Qué dice |
+| --- | --- | --- |
+| **label** | `.uc-label` | Nombra el valor en una a tres palabras, sin verbo y sin artículo. **No repite el dominio**: dentro del editor de un agente es `Nombre`, no «Nombre del agente». Siempre arriba del control (R5). |
+| **placeholder** | — | El **default efectivo** o la forma esperada, entre guiones cuando es una ausencia: `— sin límite —`, `todos`, `fix/sms-add-sid`. Un default se dice acá, **nunca** en el hint. |
+| **hint** | `.ff-hint` | Sólo si el valor tiene una **consecuencia que no se adivina**, y arranca por esa consecuencia. Una línea, dos a 390px. Si lo único que diría es lo que ya dice el label, no hay hint. |
+| **error** | `.ff-error` | **Reemplaza al hint** en el mismo lugar — nunca se apilan, o el campo cambia de alto al validar. Mensaje literal y qué hacer, en una línea. |
+| **`ⓘ`** | `ui/HintIcon.vue` | El **porqué**, no el cómo: el párrafo que explica el mecanismo. Va pegado al label. Nunca guarda la única información necesaria para llenar el campo — eso sería hover como único camino (R7). |
+
+### El ancho no reordena: revela
+
+Las franjas son las mismas y en el mismo orden en los tres regímenes. Lo único que el ancho
+decide es **dónde vive el índice**.
+
+| Ancho | El índice | El formulario | El pie |
+| --- | --- | --- | --- |
+| `< 768` | plegado en el flujo: el encabezado de cada `CollapsibleSection`, con su resumen | una columna, campos apilados, texto de input a `--fs-input` | `StickyActionBar` — reemplaza a la tab bar (R3, R4) |
+| `768 – 1100` | igual que arriba: no hay ancho para una columna de índice sin comerse el formulario | una columna de `46rem` como máximo (`.ff-col`); los pares vuelven a compartir fila (`ff-row-split`) | pie del diálogo, alineado a la derecha, sin scrollear |
+| `1100 +` | **rail al costado**: las franjas como ítems de `--tap-h`, con punto de estado y resumen. Una visible a la vez | la misma columna de `46rem`, centrada en el espacio que queda | pie del diálogo + tercera columna con lo que falta y el efecto |
+
+Un chevron y un rail son **dos presentaciones del mismo orden**, no dos diseños. El rail de
+`AgentEditorModal` es la implementación de referencia del régimen de 1100+.
+
 ## Campos — deuda conocida
 
 Los labels y la fila de condiciones ya están unificados (ver las primitivas de arriba). Lo que
@@ -255,10 +340,17 @@ falta, en orden de lo que más se ve:
 | Textarea de **JSON** | tres copias (`.jsf-textarea`, `.jpf-textarea`, `ff-textarea`); las dos primeras con `ui-monospace, SFMono-Regular` escrito a mano en vez de `--font-mono` |
 | Input de texto plano | diez archivos con `padding: 0.5rem 0.65rem; border: 1px solid var(--border-hi); border-radius: 6px` copiado — `6px` no es token y `--border-hi` es el borde de **foco**, no el de reposo |
 | Listas `+ agregar` / `✕` | seis vocabularios (`.ff-*`, `.oe-*`, `.tp-*`, `.btn-add-mcp`, `.srs-*`, `.loe-x`); el de `ToolParamsEditor` (`.btn` densificado) es el correcto |
-| `EntornoSection.vue` | v3 entero: `box-shadow` azul fuera de la paleta, `'SF Mono'` literal, `.save-button` propio |
+| **Kit local de campo** (`class="label"` / `.input` / `.field-hint`) | seis archivos, y son justo los formularios más largos: `AgentEditorModal`, `AgentDefinitionSection`, `SystemPromptsSection`, `ToolsEditor`, `RuleEditorModal`, `PromptField`. Campo de alto libre, radio `6px` que no es token, borde `--border-hi` (que es el de foco) y anillo de foco azul fuera de paleta. `grep -rl 'class="label"' apps/web/src` es la medida del trabajo |
+| `ToolsSection.vue` | `.ts-field` mide `--row-h`: campos de 25px donde se escribe, con su propio `.ts-hint`. Es la última copia de la caja del campo que queda en una pantalla de configuración |
+| `AnthropicApiSettingsForm.vue` | siete `ff-row` conviviendo con dos `.field`/`.field-block` — clases que **nadie declara**: MCP servers y Stream quedan sin caja al lado de siete campos que sí la tienen |
+| El pie de un formulario | cuatro formas de guardar en siete pantallas: `StickyActionBar` (Entorno), `.save-button` propio al final del documento (Providers, R3), pie de card (System prompt) y pie de formulario inline (Tools, Acciones). `ui/FormFooter.vue` es la única |
 
 Cuando toques uno de esos archivos, migralo al kit — no le agregues un campo más con el prefijo
 viejo.
+
+`EntornoSection.vue` salió de esta tabla: está migrado al kit, con modo lectura/edición por grupo,
+títulos pegajosos y barra fija. **Es el arquetipo «lista» funcionando** —leer densa, editar a
+`--tap-h`, agregar en la última fila— y los otros seis dominios copian de ahí, no al revés.
 
 ## Ámbito: lo propio y lo heredado
 
@@ -354,7 +446,7 @@ en» con dos o más entradas es del sistema, no de la pantalla que lo pidió.
 
 Cuando uno de estos llegue diseñado, se agrega arriba con su primitiva y se borra de esta tabla.
 
-## Reglas transversales — R1 a R17
+## Reglas transversales — R1 a R26
 
 Aplican a **cualquier** pantalla, incluidas las que ningún rediseño nombra. Son el criterio con el
 que se revisa un cambio de UI: si una no se cumple, o se arregla o se dice por qué en el PR.
@@ -419,6 +511,39 @@ la forma en que una regla se pierde.
   lugar. Un resumen que también ejecuta obliga a mantener dos caminos para cada acción y le da al
   modelo un botón.
 
+Las nueve siguientes salieron de leer los siete formularios de configuración contra `main` (turno
+10). Su desarrollo está arriba, en «Anatomía de un formulario de configuración»; acá está la
+forma corta con la que se revisa un PR.
+
+- **R18 · Un kit de campo por app.** Label arriba (`.uc-label`), caja `.ff-field` de `--tap-h`, y
+  debajo una sola línea: hint **o** error, nunca los dos. Un formulario nuevo no declara su propio
+  `.input`; uno viejo se migra al tocarlo.
+- **R19 · El orden de las franjas es fijo.** Qué es → qué hace → cuándo aplica → cómo corre →
+  crudo. Una franja vacía no se dibuja, pero ninguna cambia de lugar entre dominios: es lo que
+  hace que siete formularios se lean como el mismo.
+- **R20 · Se pliega lo que se puede ignorar.** Tres campos o más, todos con default, y un resumen
+  de una línea. Lo obligatorio nunca está detrás de un chevron. Máximo cinco secciones, y ninguna
+  dentro de otra.
+- **R21 · Un texto de ayuda dice la consecuencia, no el nombre.** Si lo único que diría el hint es
+  lo que ya dice el label, no hay hint. El default va en el placeholder; el mecanismo, en `ⓘ` — y
+  nunca sólo ahí (R7).
+- **R22 · Una sección cerrada muestra su valor, no su descripción.** El `summary` del encabezado
+  existe para no tener que abrirla: `anthropic-api · opus`, no «configuración del provider». Y una
+  descripción de sección (`.section-desc`) es de la pantalla de lista, no del formulario: una por
+  pantalla.
+- **R23 · Un dominio, un formulario, en todos sus ámbitos.** Global, de proyecto o por agente es
+  el mismo componente; lo que cambia es el `fieldset disabled` y el pie. Un system prompt con tres
+  anatomías según de dónde se abra es un dominio que el usuario tiene que aprender tres veces.
+- **R24 · El ancho no reordena: revela.** Las mismas franjas, en el mismo orden, en los tres
+  regímenes. Lo único que el ancho decide es si el índice está plegado en el flujo (bajo 1100px) o
+  al costado (sobre 1100px). Ningún campo cambia de franja al cambiar de pantalla.
+- **R25 · La columna de formulario tiene tope: `46rem`** (`.ff-col`). El ancho que sobra va al
+  índice y al resumen, no a estirar campos. Un input de 1500px separa el label de su valor por
+  media pantalla.
+- **R26 · Desktop suma, no sustituye.** Pares en una fila, resumen visible, tooltips, atajos, drag
+  con mouse. Nada existe *sólo* con ancho o con hover (R7), y sobre 768px la acción principal
+  vuelve al pie del diálogo —que no scrollea— en vez de una barra fija.
+
 ## Checklist antes de tocar UI
 
 - [ ] Leí `theme.css` y este archivo.
@@ -441,7 +566,15 @@ la forma en que una regla se pierde.
       componente, y degradé a una primitiva existente mientras tanto.
 - [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
 - [ ] Los campos usan `ui/form-fields.css` y los labels son `.uc-label` — no declaré mi propio
-      `.xx-lbl` ni mi propio `.xx-field`.
+      `.xx-lbl` ni mi propio `.xx-field` (R18).
+- [ ] Las franjas van en orden y ninguna cambió de lugar respecto de los otros dominios (R19), y
+      la columna del formulario es `.ff-col` (R25).
+- [ ] Todo lo que plegué pasa el test de las tres condiciones, y su encabezado muestra el **valor**
+      efectivo, no una descripción (R20, R22).
+- [ ] Cada campo tiene una sola línea debajo —hint o error— y el default está en el placeholder,
+      no en el hint (R21).
+- [ ] El pie es `ui/FormFooter.vue`, no un `.save-button` propio ni un botón al final del
+      documento.
 - [ ] Si la pantalla se configura en dos ámbitos: lo propio y lo heredado están en dos `ScopeGroup`, lo heredado abre el mismo detalle, y ese detalle no ofrece guardar.
 - [ ] Mono sólo en lo copiable; prosa en Sans.
 - [ ] Si hay `<a>` que no es link de texto, su `:hover` redefine `background`.
