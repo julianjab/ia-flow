@@ -40,8 +40,8 @@ beforeAll(() => {
   if (!projectRepo.getDefaultId()) {
     const now = new Date().toISOString()
     getDb().run(
-      `INSERT INTO projects (id, name, github_project_url, settings, created_at, updated_at)
-       VALUES (?, ?, NULL, '{}', ?, ?)`,
+      `INSERT INTO projects (id, name, settings, created_at, updated_at)
+       VALUES (?, ?, '{}', ?, ?)`,
       ['test-repos-default', 'repos.test.ts default', now, now],
     )
     createdOwnProject = true
