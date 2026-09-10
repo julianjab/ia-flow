@@ -94,6 +94,31 @@ describe('YamlAgentRepository', () => {
     ])
   })
 
+  // AgentOutputSchema ya vive en AgentDefinitionSchema, así que Zod lo
+  // preserva sin cambios en este repo — a diferencia de SqliteAgentRepository,
+  // que sí necesitaba serializarlo a mano.
+  it('preserva `output` (contrato de salida estructurada) declarado en el YAML', () => {
+    const filePath = writeAgentsFile(`
+- id: scorer
+  provider: anthropic
+  prompt: score it
+  output:
+    score:
+      type: number
+      description: calidad 0-10
+    notes:
+      type: string
+      optional: true
+`)
+    const repo = new YamlAgentRepository(filePath)
+    const [agent] = repo.inScope(undefined)
+
+    expect(agent.output).toEqual({
+      score: { type: 'number', description: 'calidad 0-10' },
+      notes: { type: 'string', optional: true },
+    })
+  })
+
   it('tira error legible si el archivo no existe', () => {
     expect(() => new YamlAgentRepository(join(dir, 'missing.yaml'))).toThrow(/no se pudo leer/)
   })
