@@ -95,9 +95,12 @@ const actions = ref<RuleActionEntry[]>([])
 // acciones iban después del ámbito, así que el formulario contaba primero las
 // excepciones y al final la regla.
 //
-// Sobre --bp-split el índice es el rail; abajo son las franjas en orden, con
-// la última plegada (R24). Cada entrada resuelve su propio "¿hay algo que
-// atender acá?" para el punto de estado, y `danger` es lo que impide guardar.
+// Las MISMAS cuatro entradas en los dos regímenes: sobre --bp-split el índice
+// es el rail al costado; abajo, el encabezado de cada `CollapsibleSection`
+// (R24). `defaultOpen` deja abierto lo obligatorio —el id, el evento y las
+// acciones— y cierra lo que tiene default (R20). Cada entrada resuelve su
+// propio "¿hay algo que atender acá?" para el punto de estado, y `danger` es
+// lo que impide guardar.
 
 type SectionKey = 'definicion' | 'acciones' | 'ambito' | 'avanzado'
 type SectionDot = 'good' | 'neutral' | 'danger'
@@ -188,7 +191,7 @@ const actionsSummary = computed(() =>
 )
 
 const sections = computed<
-  { key: SectionKey; title: string; summary: string; dot: SectionDot; collapsible: boolean }[]
+  { key: SectionKey; title: string; summary: string; dot: SectionDot; defaultOpen: boolean }[]
 >(() => [
   // Franja 1 · qué es
   {
@@ -198,7 +201,7 @@ const sections = computed<
       .filter(Boolean)
       .join(' · '),
     dot: idError.value ? 'danger' : enabled.value ? 'good' : 'neutral',
-    collapsible: false,
+    defaultOpen: true,
   },
   // Franja 2 · qué hace — el evento y las acciones son la regla.
   {
@@ -208,7 +211,7 @@ const sections = computed<
       ? `${parsedOnTypes.value.join(', ')} → ${actionsSummary.value}`
       : actionsSummary.value,
     dot: onError.value || actionsError.value ? 'danger' : 'good',
-    collapsible: false,
+    defaultOpen: true,
   },
   // Franja 3 · cuándo aplica — abierta: una regla existe por su disparo.
   {
@@ -219,7 +222,7 @@ const sections = computed<
       filledConds.value.length || repoName.value.trim() || whenText.value.trim()
         ? 'good'
         : 'neutral',
-    collapsible: false,
+    defaultOpen: false,
   },
   // Franja 5 · crudo
   {
@@ -232,19 +235,21 @@ const sections = computed<
       .filter(Boolean)
       .join(' · '),
     dot: 'neutral',
-    collapsible: true,
+    defaultOpen: false,
   },
 ])
 
 const sectionByKey = computed(() => new Map(sections.value.map((s) => [s.key, s])))
 
-function bandTag(key: SectionKey) {
-  return !isSplit.value && sectionByKey.value.get(key)?.collapsible ? CollapsibleSection : 'section'
-}
+// Sobre --bp-split una franja es una `<section>` pelada: el índice ya está al
+// costado y sólo se dibuja la activa, así que un encabezado propio sería la
+// identidad dos veces (R9). Abajo, el encabezado del `CollapsibleSection` ES
+// el índice de ese régimen.
+const bandTag = computed(() => (isSplit.value ? 'section' : CollapsibleSection))
 function bandAttrs(key: SectionKey): Record<string, unknown> {
-  if (bandTag(key) === 'section') return { class: 'section' }
+  if (isSplit.value) return { class: 'section' }
   const s = sectionByKey.value.get(key)
-  return { title: s?.title, summary: s?.summary }
+  return { title: s?.title, summary: s?.summary, defaultOpen: s?.defaultOpen }
 }
 function bandShown(key: SectionKey) {
   return isSplit.value ? activeSection.value === key : true
@@ -350,7 +355,7 @@ function save() {
                lee en la lista y el id se deriva de él; el id iba primero sólo
                porque es el campo obligatorio del schema. -->
           <component
-            :is="bandTag('definicion')"
+            :is="bandTag"
             v-bind="bandAttrs('definicion')"
             v-show="bandShown('definicion')"
           >
@@ -376,11 +381,10 @@ function save() {
           <!-- Franja 2 · qué hace. El evento y las acciones juntos: eso ES la
                regla, y es lo que se vino a escribir. -->
           <component
-            :is="bandTag('acciones')"
+            :is="bandTag"
             v-bind="bandAttrs('acciones')"
             v-show="bandShown('acciones')"
           >
-            <h4 v-if="!isSplit" class="band-title">Qué hace</h4>
             <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
                  descendiente a su PRIMER control, y en un campo de chips ése es
                  la ✕ del primer chip. Elegir del desplegable agregaba el tipo y
@@ -409,11 +413,10 @@ function save() {
           <!-- Franja 3 · cuándo aplica. Abierta y no plegada: una regla existe
                por su disparo, así que acotarlo no es un detalle opcional. -->
           <component
-            :is="bandTag('ambito')"
+            :is="bandTag"
             v-bind="bandAttrs('ambito')"
             v-show="bandShown('ambito')"
           >
-            <h4 v-if="!isSplit" class="band-title">Sobre qué</h4>
             <RuleScopeEditor
               v-model:repo-name="repoName"
               v-model:when-rows="whenRows"
@@ -427,7 +430,7 @@ function save() {
 
           <!-- Franja 5 · crudo. Todo con default, así que se pliega. -->
           <component
-            :is="bandTag('avanzado')"
+            :is="bandTag"
             v-bind="bandAttrs('avanzado')"
             v-show="bandShown('avanzado')"
           >
@@ -637,18 +640,6 @@ function save() {
 .page-main.ff-col { margin-inline: auto; }
 .page-main:disabled { opacity: 0.85; }
 .section { display: flex; flex-direction: column; gap: 0.9rem; }
-
-/* El título de una franja no plegable, que sólo existe bajo --bp-split: sin el
-   rail al costado, tres bloques de campos seguidos no dicen dónde termina uno
-   y empieza el otro. Arriba no se dibuja — el rail ya lo dice (R9). */
-.band-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--fs-body-sm);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-hd);
-  color: var(--fg-dim);
-}
 
 /* La caja, el label, el hint y el error son del kit (R18). Lo único propio es
    el aviso: NO es un error —la regla es válida y se puede guardar—, así que no

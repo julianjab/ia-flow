@@ -283,7 +283,7 @@ de las secciones.
 | --- | --- | --- | --- |
 | **Form libre** | Hasta 6 campos, todos necesarios | Franjas 1 y 2 y nada más. Sin encabezados internos: un chevron sobre tres campos es un clic para llegar a lo único que hay. | system prompt · tool · registro de provider · repo |
 | **Lista** | El contenido son N pares clave/valor o N filas iguales | No hay formulario: hay `ff-list`, se lee densa y se edita a `--tap-h`, y `+ agregar` es su última fila (R11). | entorno · headers · args · params · condiciones |
-| **Formulario con secciones** | 7 campos o más, con bloques ignorables | Franjas 1 y 2 sueltas arriba; de la 3 en adelante, `CollapsibleSection` (o el rail, ver «El ancho no reordena»). | agente · regla · acción |
+| **Formulario con secciones** | 7 campos o más, con bloques ignorables | Bajo `--bp-split`, **cada franja es un `CollapsibleSection`** con el título y el resumen que el rail muestra arriba de ese ancho — el chevron y el rail son dos presentaciones del mismo índice, así que ofrecen la misma lista (R24). Arrancan abiertas las que tienen campos obligatorios y cerradas las que no (R20). | agente · regla · acción |
 
 ### El test de las tres condiciones
 
@@ -321,12 +321,17 @@ decide es **dónde vive el índice**.
 
 | Ancho | El índice | El formulario | El pie |
 | --- | --- | --- | --- |
-| `< 768` | plegado en el flujo: el encabezado de cada `CollapsibleSection`, con su resumen | una columna, campos apilados, texto de input a `--fs-input` | `StickyActionBar` — reemplaza a la tab bar (R3, R4) |
+| `< 768` | plegado en el flujo: **una entrada por franja**, el encabezado de su `CollapsibleSection`, con el mismo resumen que el rail | una columna, campos apilados, texto de input a `--fs-input` | `StickyActionBar` — reemplaza a la tab bar (R3, R4) |
 | `768 – 1100` | igual que arriba: no hay ancho para una columna de índice sin comerse el formulario | una columna de `46rem` como máximo (`.ff-col`); los pares vuelven a compartir fila (`ff-row-split`) | pie del diálogo, alineado a la derecha, sin scrollear |
 | `1100 +` | **rail al costado**: las franjas como ítems de `--tap-h`, con punto de estado y resumen. Una visible a la vez | la misma columna de `46rem`, centrada en el espacio que queda | pie del diálogo + tercera columna con lo que falta y el efecto |
 
-Un chevron y un rail son **dos presentaciones del mismo orden**, no dos diseños. El rail de
+Un chevron y un rail son **dos presentaciones del mismo índice**, no dos diseños — y por eso
+listan lo mismo: las mismas franjas, con el mismo título y el mismo resumen. Lo único que el
+ancho decide es si ese índice está plegado en el flujo o al costado. El rail de
 `AgentEditorModal` es la implementación de referencia del régimen de 1100+.
+
+Sobre `--bp-split` una franja NO lleva encabezado propio: el rail ya la nombra y sólo se dibuja
+la activa, así que repetirlo sería la identidad dos veces (R9).
 
 ## Campos — deuda conocida
 
@@ -522,8 +527,8 @@ forma corta con la que se revisa un PR.
   crudo. Una franja vacía no se dibuja, pero ninguna cambia de lugar entre dominios: es lo que
   hace que siete formularios se lean como el mismo.
 - **R20 · Se pliega lo que se puede ignorar.** Tres campos o más, todos con default, y un resumen
-  de una línea. Lo obligatorio nunca está detrás de un chevron. Máximo cinco secciones, y ninguna
-  dentro de otra.
+  de una línea. Lo obligatorio nunca **arranca** detrás de un chevron: una franja con campos
+  requeridos se dibuja abierta. Máximo cinco secciones, y ninguna dentro de otra.
 - **R21 · Un texto de ayuda dice la consecuencia, no el nombre.** Si lo único que diría el hint es
   lo que ya dice el label, no hay hint. El default va en el placeholder; el mecanismo, en `ⓘ` — y
   nunca sólo ahí (R7).

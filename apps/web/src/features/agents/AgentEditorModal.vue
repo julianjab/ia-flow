@@ -239,13 +239,19 @@ const advancedSummary = computed(() => {
 
 // ─── Las franjas del formulario (R19) ─────────────────────────────────────
 //
-// El MISMO orden en los dos regímenes de ancho; lo único que cambia es dónde
-// vive el índice (R24). Sobre --bp-split es el rail al costado y se ve una
-// franja por vez; abajo, las franjas van una debajo de la otra y las dos
-// últimas —las que se pueden ignorar porque todo adentro tiene default— se
-// pliegan (R20). Antes, abajo de ese ancho, el rail se volvía una tira
-// horizontal de pestañas con scroll lateral: un índice haciendo de tab
-// (R2, R14).
+// El MISMO orden y las MISMAS seis entradas en los dos regímenes de ancho; lo
+// único que cambia es dónde vive el índice (R24). Sobre --bp-split es el rail
+// al costado y se ve una franja por vez; abajo, cada franja es un
+// `CollapsibleSection` con el mismo título y el mismo resumen que el rail — el
+// chevron y el rail son dos presentaciones del mismo índice, así que la lista
+// que ofrecen tiene que ser la misma. Antes, abajo de ese ancho, el rail se
+// volvía una tira horizontal de pestañas con scroll lateral: un índice
+// haciendo de tab (R2, R14).
+//
+// `defaultOpen` es lo que un formulario recién abierto muestra: lo obligatorio
+// —el id y el prompt— nunca detrás de un chevron (R20). El provider también es
+// obligatorio pero nace con un valor, así que se puede guardar sin abrir «Cómo
+// corre»; si igual quedara inválido, `validate` la abre sola.
 //
 // «Cuándo aplica» no existe para un agente: la activación se fue a `rules`
 // (migración 059). Una franja vacía no se dibuja.
@@ -259,7 +265,7 @@ type SectionDot = 'good' | 'neutral' | 'danger';
 const activeSection = ref<SectionKey>('definicion');
 
 const sections = computed<
-  { key: SectionKey; title: string; summary: string; dot: SectionDot; collapsible: boolean }[]
+  { key: SectionKey; title: string; summary: string; dot: SectionDot; defaultOpen: boolean }[]
 >(() => [
   // Franja 1 · qué es
   {
@@ -267,38 +273,37 @@ const sections = computed<
     title: 'Definición',
     summary: definitionSummary.value,
     dot: agentId.value.trim() ? 'good' : 'danger',
-    collapsible: false,
+    defaultOpen: true,
   },
-  // Franja 2 · qué hace — nunca detrás de un chevron, aunque sea larga: es la
-  // razón por la que se abrió el formulario.
+  // Franja 2 · qué hace
   {
     key: 'systemprompts',
     title: 'System Prompts',
     summary: systemPromptsSummary.value,
     dot: (selectedSysprompts.value.length || preservedSystemPromptRefs.value.length) ? 'good' : 'neutral',
-    collapsible: false,
+    defaultOpen: false,
   },
   {
     key: 'prompt',
     title: 'Prompt',
     summary: promptSummary.value,
     dot: prompt.value.trim() ? 'good' : 'danger',
-    collapsible: false,
+    defaultOpen: true,
   },
   {
     key: 'outcomes',
     title: 'Outcomes',
     summary: outcomesSummary.value,
     dot: (outcomes.value.onProcess || Object.keys(outcomes.value.exits ?? {}).length) ? 'good' : 'neutral',
-    collapsible: false,
+    defaultOpen: false,
   },
-  // Franja 4 · cómo corre — todo con default, así que se pliega.
+  // Franja 4 · cómo corre
   {
     key: 'comocorre',
     title: 'Cómo corre',
     summary: runSummary.value,
     dot: providerChoices.value.length ? 'good' : 'danger',
-    collapsible: true,
+    defaultOpen: false,
   },
   // Franja 5 · crudo
   {
@@ -306,7 +311,7 @@ const sections = computed<
     title: 'Avanzado',
     summary: advancedSummary.value,
     dot: 'neutral',
-    collapsible: true,
+    defaultOpen: false,
   },
 ]);
 
@@ -314,16 +319,15 @@ const sectionByKey = computed(() => new Map(sections.value.map((s) => [s.key, s]
 
 const { isSplit } = useIsSplit();
 
-// Sobre --bp-split una franja plegable es una `<section>` más, porque el índice
-// ya está al costado y sólo se dibuja la activa. Abajo se vuelve el
-// `CollapsibleSection`, que ES el índice de ese régimen.
-function bandTag(key: SectionKey) {
-  return !isSplit.value && sectionByKey.value.get(key)?.collapsible ? CollapsibleSection : 'section';
-}
+// Sobre --bp-split una franja es una `<section>` pelada: el índice ya está al
+// costado y sólo se dibuja la activa, así que un encabezado propio sería la
+// identidad dos veces (R9). Abajo, el encabezado del `CollapsibleSection` ES
+// el índice de ese régimen.
+const bandTag = computed(() => (isSplit.value ? 'section' : CollapsibleSection));
 function bandAttrs(key: SectionKey): Record<string, unknown> {
-  if (bandTag(key) === 'section') return { class: 'section' };
+  if (isSplit.value) return { class: 'section' };
   const s = sectionByKey.value.get(key);
-  return { title: s?.title, summary: s?.summary };
+  return { title: s?.title, summary: s?.summary, defaultOpen: s?.defaultOpen };
 }
 function bandShown(key: SectionKey) {
   return isSplit.value ? activeSection.value === key : true;
@@ -608,7 +612,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
         <div class="page-main ff-col">
 
           <component
-            :is="bandTag('definicion')"
+            :is="bandTag"
             v-bind="bandAttrs('definicion')"
             v-show="bandShown('definicion')"
             :ref="(el: unknown) => setBandRef('definicion', el)"
@@ -635,12 +639,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           </component>
 
           <component
-            :is="bandTag('systemprompts')"
+            :is="bandTag"
             v-bind="bandAttrs('systemprompts')"
             v-show="bandShown('systemprompts')"
             :ref="(el: unknown) => setBandRef('systemprompts', el)"
           >
-            <h4 v-if="!isSplit" class="band-title">System Prompts</h4>
             <SystemPromptsSection
               :selected-sysprompts="selectedSysprompts"
               :available-sysprompts="availableSysprompts"
@@ -651,12 +654,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           </component>
 
           <component
-            :is="bandTag('prompt')"
+            :is="bandTag"
             v-bind="bandAttrs('prompt')"
             v-show="bandShown('prompt')"
             :ref="(el: unknown) => setBandRef('prompt', el)"
           >
-            <h4 v-if="!isSplit" class="band-title">Prompt</h4>
             <AgentPromptSection
               :prompt="prompt"
               :variables="variables"
@@ -671,12 +673,11 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           </component>
 
           <component
-            :is="bandTag('outcomes')"
+            :is="bandTag"
             v-bind="bandAttrs('outcomes')"
             v-show="bandShown('outcomes')"
             :ref="(el: unknown) => setBandRef('outcomes', el)"
           >
-            <h4 v-if="!isSplit" class="band-title">Outcomes</h4>
             <p class="ff-hint">
               Asignaciones de campos (<code>$set:</code>) y operaciones de labels
               (<code>$labels:</code>) que este agente aplica al issue al arrancar,
@@ -695,7 +696,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           </component>
 
           <component
-            :is="bandTag('comocorre')"
+            :is="bandTag"
             v-bind="bandAttrs('comocorre')"
             v-show="bandShown('comocorre')"
             :ref="(el: unknown) => setBandRef('comocorre', el)"
@@ -715,7 +716,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           </component>
 
           <component
-            :is="bandTag('avanzado')"
+            :is="bandTag"
             v-bind="bandAttrs('avanzado')"
             v-show="bandShown('avanzado')"
             :ref="(el: unknown) => setBandRef('avanzado', el)"
@@ -912,19 +913,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
    46rem; acá sólo se centra en el espacio que quede a la derecha del rail. */
 .page-main.ff-col { margin-inline: auto; }
 .section { display: flex; flex-direction: column; gap: 0.9rem; }
-
-/* El título de una franja NO plegable, que sólo existe bajo --bp-split: sin
-   el rail al costado, tres bloques de campos seguidos no dicen dónde termina
-   uno y empieza el otro. Sobre el breakpoint no se dibuja — el rail ya lo
-   dice, y repetirlo sería la identidad dos veces (R9). */
-.band-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--fs-body-sm);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-hd);
-  color: var(--fg-dim);
-}
 
 /* ── Resumen ────────────────────────────────────────────────────────── */
 .summary-rail {
