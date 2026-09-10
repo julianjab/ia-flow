@@ -7,11 +7,16 @@ const listMock = vi.fn<[], Promise<ProviderRegistration[]>>()
 const createMock = vi.fn()
 const deleteMock = vi.fn()
 const checkMock = vi.fn()
+const listSystemPromptsMock = vi.fn()
+const updateSystemPromptMock = vi.fn()
 vi.mock('../registrations-api', () => ({
   listProviderRegistrations: () => listMock(),
   createProviderRegistration: (input: unknown) => createMock(input),
   deleteProviderRegistration: (id: string) => deleteMock(id),
   checkProviderRegistrationHealth: (id: string) => checkMock(id),
+  listGlobalSystemPrompts: () => listSystemPromptsMock(),
+  updateProviderRegistrationSystemPrompt: (id: string, systemPrompt: unknown) =>
+    updateSystemPromptMock(id, systemPrompt),
 }))
 
 // El componente se suscribe al WS para reflejar el health en vivo. Se captura
@@ -37,6 +42,7 @@ function makeReg(overrides: Partial<ProviderRegistration> = {}): ProviderRegistr
     createdAt: '2026-01-01T00:00:00Z',
     hasToken: true,
     health: { status: 'ok', checkedAt: '2026-01-01T00:00:05Z', consecutiveFailures: 0 },
+    systemPrompt: null,
     ...overrides,
   }
 }
@@ -47,6 +53,9 @@ beforeEach(() => {
   createMock.mockReset()
   deleteMock.mockReset()
   checkMock.mockReset()
+  listSystemPromptsMock.mockReset()
+  listSystemPromptsMock.mockResolvedValue([])
+  updateSystemPromptMock.mockReset()
   serverEventHandler = null
 })
 
@@ -169,6 +178,7 @@ describe('ProviderRegistrationsSection', () => {
       name: 'julianbuitrago-mac',
       baseUrl: 'http://host.containers.internal:3002',
       token: 'secret-token',
+      systemPrompt: null,
     })
     expect(listMock).toHaveBeenCalledTimes(2)
     expect(wrapper.find('.editor').exists()).toBe(false)
@@ -242,5 +252,59 @@ describe('ProviderRegistrationsSection', () => {
     await flushPromises()
 
     expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('sin systemPrompt configurado, muestra el resumen "sin propio"', async () => {
+    listMock.mockResolvedValueOnce([makeReg()])
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Sin system prompt propio')
+  })
+
+  it('resume un systemPrompt inline y uno de catálogo (resuelto contra el nombre)', async () => {
+    listSystemPromptsMock.mockResolvedValue([{ id: 'sp-1', name: 'Gateway CI', text: 'x' }])
+    listMock.mockResolvedValueOnce([
+      makeReg({ id: 'a', name: 'a', systemPrompt: { text: 'Estás en una VM efímera' } }),
+    ])
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Inline: Estás en una VM efímera')
+  })
+
+  it('edita el system prompt del gateway: elige del catálogo y guarda', async () => {
+    listSystemPromptsMock.mockResolvedValue([{ id: 'sp-1', name: 'Gateway CI', text: 'x' }])
+    listMock.mockResolvedValueOnce([makeReg()])
+    updateSystemPromptMock.mockResolvedValueOnce(makeReg({ systemPrompt: 'sp-1' }))
+
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+
+    await wrapper.find('.entry-actions .btn-secondary:nth-of-type(2)').trigger('click')
+    expect(wrapper.find('.sp-editor').exists()).toBe(true)
+
+    await wrapper.find('.sp-editor select').setValue('catalog')
+    const catalogSelect = wrapper.findAll('.sp-editor select')[1]!
+    await catalogSelect.setValue('sp-1')
+
+    await wrapper.find('.sp-editor .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(updateSystemPromptMock).toHaveBeenCalledWith('julianbuitrago-mac', 'sp-1')
+    expect(wrapper.find('.sp-editor').exists()).toBe(false)
+  })
+
+  it('cancelar la edición del system prompt no llama al API', async () => {
+    listMock.mockResolvedValueOnce([makeReg()])
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+
+    await wrapper.find('.entry-actions .btn-secondary:nth-of-type(2)').trigger('click')
+    expect(wrapper.find('.sp-editor').exists()).toBe(true)
+
+    await wrapper.find('.sp-editor .btn-secondary').trigger('click')
+    expect(wrapper.find('.sp-editor').exists()).toBe(false)
+    expect(updateSystemPromptMock).not.toHaveBeenCalled()
   })
 })

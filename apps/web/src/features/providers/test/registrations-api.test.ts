@@ -1,6 +1,10 @@
 import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { listProviderRegistrations } from '../registrations-api'
+import {
+  listGlobalSystemPrompts,
+  listProviderRegistrations,
+  updateProviderRegistrationSystemPrompt,
+} from '../registrations-api'
 
 describe('listProviderRegistrations', () => {
   beforeEach(() => vi.restoreAllMocks())
@@ -38,5 +42,37 @@ describe('listProviderRegistrations', () => {
 
     expect(reg?.health.status).toBe('ok')
     expect(reg?.health.latencyMs).toBe(12)
+  })
+})
+
+describe('listGlobalSystemPrompts', () => {
+  beforeEach(() => vi.restoreAllMocks())
+
+  it('pega a scope=global — un provider no está scoped a un proyecto', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValue({
+      data: { systemPrompts: [{ id: 'sp-1', name: 'Gateway CI', text: 'x' }] },
+    })
+
+    const prompts = await listGlobalSystemPrompts()
+
+    expect(getSpy).toHaveBeenCalledWith('/api/system-prompts?scope=global')
+    expect(prompts).toEqual([{ id: 'sp-1', name: 'Gateway CI', text: 'x' }])
+  })
+})
+
+describe('updateProviderRegistrationSystemPrompt', () => {
+  beforeEach(() => vi.restoreAllMocks())
+
+  it('hace PUT al endpoint del gateway con el nuevo systemPrompt', async () => {
+    const putSpy = vi.spyOn(axios, 'put').mockResolvedValue({
+      data: { registration: { id: 'a', name: 'a', baseUrl: 'http://x', hasToken: true } },
+    })
+
+    const reg = await updateProviderRegistrationSystemPrompt('a', 'sp-1')
+
+    expect(putSpy).toHaveBeenCalledWith('/api/provider-registrations/a/system-prompt', {
+      systemPrompt: 'sp-1',
+    })
+    expect(reg.health).toEqual({ status: 'unknown', consecutiveFailures: 0 })
   })
 })
