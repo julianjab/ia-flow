@@ -60,7 +60,10 @@ export interface AgentHostLogTail {
 export interface AgentHostRegistration {
   serverUrl: string
   ok: boolean
-  error?: string
+  /** Por qué falló el alta — el nombre es el del wire (`RegistrationOutcome`). */
+  reason?: string
+  /** El `baseUrl` con el que quedó anunciado: por dónde ese server lo alcanza. */
+  publicUrl?: string
   at?: string
 }
 
@@ -122,7 +125,10 @@ export async function addRegistration(c: AxiosInstance, serverUrl: string): Prom
 }
 
 export async function removeRegistration(c: AxiosInstance, serverUrl: string): Promise<void> {
-  await c.delete('/v1/registrations', { data: { serverUrl } })
+  // El agent-host lee `?serverUrl=`, no el body: un DELETE con cuerpo lo
+  // ignoraba y contestaba 400 «falta ?serverUrl=», así que la × no daba de
+  // baja nada.
+  await c.delete('/v1/registrations', { params: { serverUrl } })
 }
 
 /** Mensaje legible de un fallo del agentHost — el 401 y el "no llegué" son los
