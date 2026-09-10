@@ -29,6 +29,12 @@
   width: 100%;
   max-width: 46rem;
   min-width: 0;
+  /* No hay reset global de `box-sizing` en esta app (ver theme.css), así que
+     un `width: 100%` sobre un elemento CON padding propio se desborda por
+     exactamente el ancho de ese padding. Pasaba en el editor de agentes: la
+     columna es el mismo elemento que lleva el padding del panel, y las
+     franjas asomaban 27px fuera del borde derecho de la página. */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
