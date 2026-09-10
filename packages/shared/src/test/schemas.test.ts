@@ -34,7 +34,6 @@ import {
   StepTypeSchema,
   SystemPromptDefSchema,
   TASK_CHAT_MAX_MESSAGES,
-  TaskAnnotationSchema,
   TaskChatActionSchema,
   TaskChatReplySchema,
   TaskChatRequestSchema,
@@ -1453,33 +1452,6 @@ describe('TaskChatRequestSchema', () => {
       content: 'hola',
     }))
     expect(TaskChatRequestSchema.safeParse({ ...base, history }).success).toBe(false)
-  })
-})
-
-describe('TaskAnnotationSchema', () => {
-  it('round-trips una anotación del asistente', () => {
-    const note = {
-      id: 'a1',
-      projectId: 'p1',
-      taskId: 't1',
-      text: 'Depende de que se resuelva #99 primero.',
-      origin: 'assistant' as const,
-      createdAt: '2026-09-09T12:00:00.000Z',
-    }
-    expect(TaskAnnotationSchema.parse(note)).toEqual(note)
-  })
-
-  it('rechaza text vacío', () => {
-    expect(
-      TaskAnnotationSchema.safeParse({
-        id: 'a1',
-        projectId: 'p1',
-        taskId: 't1',
-        text: '',
-        origin: 'assistant',
-        createdAt: '2026-09-09T12:00:00.000Z',
-      }).success,
-    ).toBe(false)
   })
 })
 

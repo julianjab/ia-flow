@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import type { TaskAnnotation } from '@ia-flow/shared'
 import type {
   AssistInput,
   AssistResult,
   AssistWithAiUseCase,
 } from '../../application/use-cases/AssistWithAiUseCase.js'
 import { TaskChatUseCase } from '../../application/use-cases/TaskChatUseCase.js'
-import type { ITaskAnnotationRepository } from '../../domain/ports/ITaskAnnotationRepository.js'
 import { createTaskChatRouter } from '../task-chat.js'
 
 // El use-case real llama a la API de Anthropic — acá se testea el borde HTTP
@@ -17,34 +15,10 @@ function fakeAssist(execute: (input: AssistInput) => Promise<AssistResult>): Ass
   return { execute } as unknown as AssistWithAiUseCase
 }
 
-function fakeAnnotationRepo(seed: TaskAnnotation[] = []): ITaskAnnotationRepository {
-  const rows = [...seed]
-  return {
-    async create(note) {
-      rows.push(note)
-      return note
-    },
-    async listByTask(projectId, taskId) {
-      return rows.filter((r) => r.projectId === projectId && r.taskId === taskId)
-    },
-    async delete(id) {
-      const idx = rows.findIndex((r) => r.id === id)
-      if (idx === -1) return false
-      rows.splice(idx, 1)
-      return true
-    },
-  }
-}
-
-function routerWith(
-  execute: (input: AssistInput) => Promise<AssistResult>,
-  annotationRepo: ITaskAnnotationRepository = fakeAnnotationRepo(),
-) {
+function routerWith(execute: (input: AssistInput) => Promise<AssistResult>) {
   const assist = fakeAssist(execute)
   const events: object[] = []
-  const app = createTaskChatRouter(new TaskChatUseCase(assist, []), annotationRepo, (msg) =>
-    events.push(msg),
-  )
+  const app = createTaskChatRouter(new TaskChatUseCase(assist, []), (msg) => events.push(msg))
   return { app, events }
 }
 
@@ -159,54 +133,5 @@ describe('POST /api/tasks/assistant/chat', () => {
     expect(res.status).toBe(500)
     const body = (await res.json()) as { error: string }
     expect(body.error).toContain('boom')
-  })
-})
-
-describe('CRUD de anotaciones (/api/tasks/assistant/notes)', () => {
-  it('POST crea una anotación y GET la devuelve por (projectId, taskId)', async () => {
-    const { app } = routerWith(async () => ({ fields: {} }))
-    const created = await app.request('/notes', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        projectId: 'p1',
-        taskId: 't1',
-        text: 'Depende de #99',
-        origin: 'assistant',
-      }),
-    })
-    expect(created.status).toBe(201)
-
-    const listed = await app.request('/notes?projectId=p1&taskId=t1')
-    expect(listed.status).toBe(200)
-    const body = (await listed.json()) as { notes: { text: string }[] }
-    expect(body.notes.map((n) => n.text)).toEqual(['Depende de #99'])
-  })
-
-  it('POST 400 sin projectId/taskId/text', async () => {
-    const { app } = routerWith(async () => ({ fields: {} }))
-    const res = await app.request('/notes', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ projectId: 'p1' }),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('GET 400 sin projectId o taskId', async () => {
-    const { app } = routerWith(async () => ({ fields: {} }))
-    const res = await app.request('/notes?projectId=p1')
-    expect(res.status).toBe(400)
-  })
-
-  it('DELETE 200 cuando existe, 404 cuando no', async () => {
-    const repo = fakeAnnotationRepo([
-      { id: 'a1', projectId: 'p1', taskId: 't1', text: 'x', origin: 'assistant', createdAt: 'now' },
-    ])
-    const { app } = routerWith(async () => ({ fields: {} }), repo)
-    const ok = await app.request('/notes/a1', { method: 'DELETE' })
-    expect(ok.status).toBe(200)
-    const missing = await app.request('/notes/a1', { method: 'DELETE' })
-    expect(missing.status).toBe(404)
   })
 })
