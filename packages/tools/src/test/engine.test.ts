@@ -516,6 +516,17 @@ describe('executeLoop — max_tokens truncated tool_use retry', () => {
 // the API 400s the very next request with "mcp_tool_use ... found without a
 // corresponding mcp_tool_result block".
 
+/** El invariante de subscriptions#1411: ningún request puede llevar un
+ *  `mcp_tool_use` sin su `mcp_tool_result` en el mismo turno. */
+function expectNoDanglingMcpToolUse(messages: any[]): void {
+  const blocks = messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+  const resolved = new Set(
+    blocks.filter((b: any) => b?.type === 'mcp_tool_result').map((b: any) => b.tool_use_id),
+  )
+  const dangling = blocks.filter((b: any) => b?.type === 'mcp_tool_use' && !resolved.has(b.id))
+  expect(dangling).toEqual([])
+}
+
 describe('executeLoop — dangling mcp_tool_use', () => {
   it('never resends a history carrying the dangling mcp_tool_use, and truncates once the pause budget runs out', async () => {
     const calls: Array<{ messages: any[] }> = []
@@ -539,12 +550,9 @@ describe('executeLoop — dangling mcp_tool_use', () => {
     })
     // La pausa del conector MCP ya no mata el run en la primera vuelta: se
     // reintenta hasta agotar el presupuesto. Lo que sigue prohibido es mandar
-    // el bloque colgado — el 400 de bb6b36ad8.
+    // un `mcp_tool_use` SIN su result — el 400 de bb6b36ad8.
     expect(calls.length).toBe(4)
-    for (const { messages } of calls) {
-      const blocks = messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
-      expect(blocks.some((b: any) => b?.type === 'mcp_tool_use')).toBe(false)
-    }
+    for (const { messages } of calls) expectNoDanglingMcpToolUse(messages)
     expect(result.truncated).toBe(true)
     expect(result.stopReason).toBe('pause_turn')
     expect(result.checkpoint).toBeUndefined()
@@ -557,8 +565,10 @@ describe('executeLoop — dangling mcp_tool_use', () => {
       input_schema: { type: 'object', properties: { msg: { type: 'string' } } },
       execute: async (input: any) => String(input.msg),
     })
+    const calls: any[][] = []
     let call = 0
-    const fetchApi = async () => {
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
       call++
       if (call === 1) {
         return {
@@ -587,6 +597,10 @@ describe('executeLoop — dangling mcp_tool_use', () => {
     })
     expect(result.truncated).toBe(false)
     expect(result.toolCalls).toBe(1)
+    // Y la historia que se reenvía no puede llevar un `mcp_tool_use` sin result.
+    expectNoDanglingMcpToolUse(calls[1])
+    const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    expect(resentBlocks.some((b: any) => b?.type === 'tool_result')).toBe(true)
   })
 
   it('ends the run truncated on the first dangling mcp_tool_use when the pause budget is 0', async () => {
