@@ -517,9 +517,9 @@ describe('executeLoop — max_tokens truncated tool_use retry', () => {
 // corresponding mcp_tool_result block".
 
 describe('executeLoop — dangling mcp_tool_use', () => {
-  it('ends the run truncated on pause_turn instead of resending the corrupted turn unchanged', async () => {
-    const calls: Array<{ messages: unknown[] }> = []
-    const fetchApi = async (messages: unknown[]) => {
+  it('never resends a history carrying the dangling mcp_tool_use, and truncates once the pause budget runs out', async () => {
+    const calls: Array<{ messages: any[] }> = []
+    const fetchApi = async (messages: any[]) => {
       calls.push({ messages: structuredClone(messages) })
       return {
         stop_reason: 'pause_turn',
@@ -535,14 +535,83 @@ describe('executeLoop — dangling mcp_tool_use', () => {
       }
     }
     const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
-      // Even with retries allowed, a dangling mcp_tool_use must not take the
-      // "resend unchanged" path.
       maxPauseTurnRetries: 3,
     })
+    // La pausa del conector MCP ya no mata el run en la primera vuelta: se
+    // reintenta hasta agotar el presupuesto. Lo que sigue prohibido es mandar
+    // el bloque colgado — el 400 de bb6b36ad8.
+    expect(calls.length).toBe(4)
+    for (const { messages } of calls) {
+      const blocks = messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      expect(blocks.some((b: any) => b?.type === 'mcp_tool_use')).toBe(false)
+    }
     expect(result.truncated).toBe(true)
     expect(result.stopReason).toBe('pause_turn')
     expect(result.checkpoint).toBeUndefined()
-    expect(calls.length).toBe(1)
+  })
+
+  it('ejecuta el tool_use de cliente en vez de descartar el turno, cuando la pausa trae los dos', async () => {
+    registerTool({
+      name: '__test_pause_dangling_mcp__',
+      description: 'Echo',
+      input_schema: { type: 'object', properties: { msg: { type: 'string' } } },
+      execute: async (input: any) => String(input.msg),
+    })
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            {
+              type: 'mcp_tool_use',
+              id: 'mcptoolu_01',
+              name: 'search',
+              server_name: 'github',
+              input: {},
+            },
+            {
+              type: 'tool_use',
+              id: 'tu_1',
+              name: '__test_pause_dangling_mcp__',
+              input: { msg: 'hi' },
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.toolCalls).toBe(1)
+  })
+
+  it('ends the run truncated on the first dangling mcp_tool_use when the pause budget is 0', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return {
+        stop_reason: 'pause_turn',
+        content: [
+          {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_01',
+            name: 'search',
+            server_name: 'github',
+            input: {},
+          },
+        ],
+      }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 0,
+    })
+    expect(call).toBe(1)
+    expect(result.truncated).toBe(true)
+    expect(result.checkpoint).toBeUndefined()
   })
 
   it('does not treat a resolved mcp_tool_use (paired with its mcp_tool_result) as dangling', async () => {
