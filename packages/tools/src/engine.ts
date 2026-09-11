@@ -456,6 +456,32 @@ function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): Loo
     )
     return { action: 'continue', nextFetchOverrides }
   }
+  // Un `pause_turn` del conector MCP deja colgada SU PROPIA llamada: es la
+  // forma normal de la pausa, no una anomalía. Terminaba el run acá antes de
+  // que `handlePauseTurn` lo viera, así que `maxPauseTurnRetries` era config
+  // muerta para todo agente con MCP remoto (run 08f148b7: el refiner tenía 3
+  // y murió en iters=2, con el warn de abajo como única señal).
+  //
+  // Reenviarlo TAL CUAL sigue prohibido — es el 400 "mcp_tool_use ... found
+  // without a corresponding mcp_tool_result block" de bb6b36ad8. Lo que se
+  // hace es lo mismo que ya hace el camino de `max_tokens` un par de líneas
+  // más arriba: tirar el turno corrupto y reintentar. Se pierde el texto de
+  // esa vuelta (queda en `pausedText`) y el modelo rehace la llamada MCP, que
+  // es baratísimo comparado con dar el run por muerto.
+  if (ctx.stopReason === 'pause_turn' && state.pauseTurnRetries < ctx.maxPauseTurnRetries) {
+    state.pauseTurnRetries++
+    state.pausedText += ctx.textOf()
+    ctx.messages.pop()
+    ctx.runLog.info(
+      {
+        stopReason: ctx.stopReason,
+        pauseTurnRetries: state.pauseTurnRetries,
+        maxPauseTurnRetries: ctx.maxPauseTurnRetries,
+      },
+      'pause_turn con un mcp_tool_use colgado — reintentando sin el turno corrupto',
+    )
+    return { action: 'continue' }
+  }
   ctx.runLog.warn(
     { stopReason: ctx.stopReason },
     'assistant turn carries an unresolved mcp_tool_use with no client tool_use to defer it — ending run instead of resending or checkpointing it',
@@ -740,16 +766,16 @@ function computeMcpToolUseFlags(
   contentBlocks: any[],
   stopReason: string,
   hasPendingToolUse: boolean,
-): { hasUnresolvedMcpToolUse: boolean; mcpToolUseDeferredByClientTool: boolean } {
+): { hasUnresolvedMcpToolUse: boolean; mcpToolUseWillResume: boolean } {
   const resolvedMcpToolUseIds = new Set(
     contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
   )
   const hasUnresolvedMcpToolUse = contentBlocks.some(
     (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
   )
-  const mcpToolUseDeferredByClientTool =
+  const mcpToolUseWillResume =
     hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
-  return { hasUnresolvedMcpToolUse, mcpToolUseDeferredByClientTool }
+  return { hasUnresolvedMcpToolUse, mcpToolUseWillResume }
 }
 
 type StopReasonAction =
@@ -765,11 +791,11 @@ function resolveStopReasonAction(
   state: LoopState,
   hasPendingToolUse: boolean,
   hasUnresolvedMcpToolUse: boolean,
-  mcpToolUseDeferredByClientTool: boolean,
+  mcpToolUseWillResume: boolean,
 ): StopReasonAction {
   const { stopReason } = stepCtx
 
-  if (hasUnresolvedMcpToolUse && !mcpToolUseDeferredByClientTool) {
+  if (hasUnresolvedMcpToolUse && !mcpToolUseWillResume) {
     return handleUnresolvedMcpToolUse(stepCtx, state)
   }
   if (stopReason === 'end_turn') {
@@ -940,7 +966,7 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
-    const { hasUnresolvedMcpToolUse, mcpToolUseDeferredByClientTool } = computeMcpToolUseFlags(
+    const { hasUnresolvedMcpToolUse, mcpToolUseWillResume } = computeMcpToolUseFlags(
       contentBlocks,
       stopReason,
       hasPendingToolUse,
@@ -963,7 +989,7 @@ export async function executeLoop(
       state,
       hasPendingToolUse,
       hasUnresolvedMcpToolUse,
-      mcpToolUseDeferredByClientTool,
+      mcpToolUseWillResume,
     )
     if (action.action === 'return') return action.result
     if (action.action === 'continue') {
