@@ -20,6 +20,15 @@ import { readLogTail } from './log-tail.js'
 import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
 import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './state.js'
 
+/**
+ * Cuánto se guarda el resultado de un run terminado, esperando que el daemon
+ * lo cobre.
+ *
+ * Generoso a propósito: el costo de retenerlo de más son unos KB por run; el
+ * de soltarlo temprano es reportar como fallido un run que salió bien.
+ */
+const TERMINAL_RUN_TTL_MS = 10 * 60_000
+
 /** Un run que corre desacoplado del request que lo pidió. */
 interface DetachedRun {
   status: 'running' | 'done' | 'failed'
@@ -281,6 +290,40 @@ export function createApp({
    * recuperación que no existe.
    */
   const detachedRuns = new Map<string, DetachedRun>()
+
+  /**
+   * Limpia los runs terminados que ya nadie va a cobrar.
+   *
+   * Hace falta porque hay varias formas de que el daemon no vuelva: se le
+   * venció el presupuesto del run, perdió la red más de lo tolerable, o
+   * reinició a mitad. Cada entrada retiene el `ProviderOutput` completo —el
+   * contenido del run— en un proceso que vive días.
+   *
+   * Perezoso, sin `setInterval`: un timer habría que apagarlo en el shutdown
+   * y mantendría vivo el proceso en los tests. Correrlo en cada acceso a
+   * `/v1/runs` y en cada run nuevo alcanza — no hay forma de acumular basura
+   * sin pasar por alguno de los dos.
+   */
+  /**
+   * Guarda el desenlace de un run, salvo que su entrada ya no esté.
+   *
+   * Sin el chequeo, un run cancelado la resucitaba: el DELETE borra y aborta,
+   * el `provider.run()` rechaza un tick después, y el `catch` la volvía a
+   * escribir como `failed` — una entrada que nadie va a cobrar, esperando su
+   * TTL. Ausente significa "alguien ya cerró este run".
+   */
+  function settleDetachedRun(runId: string, entry: DetachedRun): void {
+    if (detachedRuns.has(runId)) detachedRuns.set(runId, entry)
+  }
+
+  function sweepDetachedRuns(): void {
+    const cutoff = Date.now() - TERMINAL_RUN_TTL_MS
+    for (const [id, entry] of detachedRuns) {
+      // Un run en vuelo no vence: su `at` es de cuándo arrancó, y puede durar
+      // horas legítimamente.
+      if (entry.status !== 'running' && entry.at < cutoff) detachedRuns.delete(id)
+    }
+  }
 
   /** ¿Queda una sesión async apoyada en este run? Mientras la haya, su
    *  workspace tiene que seguir resolviendo en `/v1/mcp`. */
@@ -947,6 +990,7 @@ export function createApp({
    * preguntar en vez de haberse perdido el único aviso.
    */
   function runDetached(c: Context, body: ProviderInput): Response {
+    sweepDetachedRuns()
     const runId = body.runId ?? `run-${crypto.randomUUID()}`
     const abort = new AbortController()
     detachedRuns.set(runId, { status: 'running', abort, at: Date.now() })
@@ -954,13 +998,11 @@ export function createApp({
     // Sin `await` a propósito: el handler contesta ya. El `catch` es
     // obligatorio — una promesa rechazada sin manejar es FATAL en Bun.
     void runProvider({ ...body, runId }, abort.signal)
-      .then((output) => {
-        detachedRuns.set(runId, { status: 'done', output, at: Date.now() })
-      })
+      .then((output) => settleDetachedRun(runId, { status: 'done', output, at: Date.now() }))
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err)
         log.error({ err: message, taskId: body.taskId, runId }, 'provider run failed')
-        detachedRuns.set(runId, { status: 'failed', error: message, at: Date.now() })
+        settleDetachedRun(runId, { status: 'failed', error: message, at: Date.now() })
       })
 
     log.info({ runId, taskId: body.taskId }, 'run aceptado — el resultado se busca en /v1/runs')
@@ -970,29 +1012,39 @@ export function createApp({
   /**
    * El resultado de un run desacoplado.
    *
-   * Se borra al entregarlo: es basura en cuanto el daemon lo leyó, y dejarlo
-   * haría crecer el mapa con cada run. La contracara es que un segundo GET
-   * sobre un run ya cobrado devuelve `unknown` — que es lo correcto, porque
-   * también es lo que pasa si este proceso reinició, y el daemon tiene que
-   * tratarlos igual.
+   * **No se borra al entregarlo**, y la razón es la misma por la que existe
+   * todo este camino: si el socket se corta entre el delete y el parseo del
+   * body, el siguiente sondeo vería `unknown` y el daemon reportaría como
+   * FALLIDO un run que terminó bien. Sería el mismo modo de falla del request
+   * colgado, reducido a una ventana más chica.
+   *
+   * Queda disponible durante `TERMINAL_RUN_TTL_MS` y lo limpia el barrido.
+   * Un run ya cobrado se puede volver a cobrar; uno vencido se ve igual que
+   * uno de un proceso que reinició, que es como el daemon lo trata.
    */
   app.get('/v1/runs/:id', (c) => {
-    const id = c.req.param('id')
-    const entry = detachedRuns.get(id)
+    sweepDetachedRuns()
+    const entry = detachedRuns.get(c.req.param('id'))
     if (!entry) return c.json({ status: 'unknown' })
     if (entry.status === 'running') return c.json({ status: 'running' })
-    detachedRuns.delete(id)
     return entry.status === 'done'
       ? c.json({ status: 'done', output: entry.output })
       : c.json({ status: 'failed', error: entry.error })
   })
 
-  /** Cancela un run desacoplado. Es por dónde le llega el cancel del
-   *  operador, que en el camino inline viajaba como abort del request. */
+  /**
+   * Cancela un run desacoplado. Es por dónde le llega el cancel del operador,
+   * que en el camino inline viajaba como abort del request.
+   *
+   * Se borra la entrada acá mismo: quien cancela ya no va a venir a buscar el
+   * resultado, así que esperar el TTL sólo la retendría de más. Es el único
+   * borrado explícito — el resto lo hace el barrido.
+   */
   app.delete('/v1/runs/:id', (c) => {
     const id = c.req.param('id')
     const entry = detachedRuns.get(id)
     entry?.abort?.abort()
+    detachedRuns.delete(id)
     log.info({ runId: id, known: Boolean(entry) }, 'cancel de un run desacoplado')
     return c.json({ cancelled: true, known: Boolean(entry) })
   })

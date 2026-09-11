@@ -69,7 +69,12 @@ function pollIntervalMs(): number {
  */
 function maxSilenceMs(): number {
   const parsed = Number(Bun.env.IA_FLOW_REMOTE_MAX_SILENCE_MS?.trim())
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 120_000
+  // `0` = sin límite, la convención del repo (ver los caps del engine). Con
+  // `>= 0` a secas, un operador que lo ponía en 0 creyendo que desactivaba el
+  // corte obtenía el comportamiento MÁS agresivo: la primera sonda fallida
+  // mataba el run.
+  if (parsed === 0) return Number.POSITIVE_INFINITY
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000
 }
 
 /** Lo que devuelve `GET /v1/runs/:id`. */
@@ -398,19 +403,30 @@ export class RemoteAgentProvider implements IAgentProvider {
       }
 
       silentSince = undefined
-      const { status } = probe
-      if (status.status === 'running') continue
-      if (status.status === 'done' && status.output) return status.output
-      if (status.status === 'failed') {
-        throw new Error(`RemoteAgentProvider(${this.id}): ${status.error ?? 'el run falló'}`)
-      }
-      // `unknown`: el agent-host no conoce este run. O reinició —y el run
-      // murió con él— o alguien ya cobró el resultado. En los dos casos no
-      // hay nada más que esperar, y decirlo es mejor que sondear para siempre.
+      if (probe.status.status === 'running') continue
+      return this.outputOf(probe.status, runId)
+    }
+  }
+
+  /** Traduce un estado terminal a su output, o al error que lo explica. Cada
+   *  caso con su mensaje: los diagnósticos son distintos y mandarlos al mismo
+   *  texto apunta al lugar equivocado. */
+  private outputOf(status: DetachedRunStatus, runId: string): ProviderOutput {
+    if (status.status === 'done') {
+      if (status.output) return status.output
       throw new Error(
-        `RemoteAgentProvider(${this.id}): el agent-host perdió el run ${runId} (¿reinició?)`,
+        `RemoteAgentProvider(${this.id}): el run ${runId} terminó sin output — el agent-host lo reportó vacío`,
       )
     }
+    if (status.status === 'failed') {
+      throw new Error(`RemoteAgentProvider(${this.id}): ${status.error ?? 'el run falló'}`)
+    }
+    // `unknown`: el agent-host no conoce este run. Reinició y el run murió
+    // con él, o venció su ventana de gracia. En los dos casos no hay nada más
+    // que esperar, y decirlo es mejor que sondear para siempre.
+    throw new Error(
+      `RemoteAgentProvider(${this.id}): el agent-host perdió el run ${runId} (¿reinició?)`,
+    )
   }
 
   /** Los dos motivos para dejar de esperar que no vienen del agent-host: el
