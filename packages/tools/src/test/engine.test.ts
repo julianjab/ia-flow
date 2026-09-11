@@ -509,21 +509,32 @@ describe('executeLoop — max_tokens truncated tool_use retry', () => {
   })
 })
 
-// ─── executeLoop — dangling mcp_tool_use ──────────────────────────────────────
-// Regression coverage for subscriptions#1411: a remote MCP tool call
-// (`mcp_tool_use`) cut off mid-stream — with no matching `mcp_tool_result` in
-// the same response — must never be resent unchanged or checkpointed, since
-// the API 400s the very next request with "mcp_tool_use ... found without a
-// corresponding mcp_tool_result block".
+// ─── executeLoop — dangling server-tool_use ───────────────────────────────────
+// Regression coverage for subscriptions#1411 (`mcp_tool_use`) and
+// subscriptions#1466 (`tool_search_tool_regex`): a server-tool call cut off
+// mid-stream — with no matching result block in the same response — must
+// never be resent unchanged or checkpointed, since the API 400s the very
+// next request with "<type> ... found without a corresponding <type>_result
+// block". Same failure mode, different server-tool block type — the fix
+// (`SERVER_TOOL_RESULT_TYPE` in engine.ts) covers both with one mechanism.
 
-/** El invariante de subscriptions#1411: ningún request puede llevar un
- *  `mcp_tool_use` sin su `mcp_tool_result` en el mismo turno. */
-function expectNoDanglingMcpToolUse(messages: any[]): void {
+const SERVER_TOOL_RESULT_TYPES: Record<string, string> = {
+  mcp_tool_use: 'mcp_tool_result',
+  tool_search_tool_regex: 'tool_search_tool_regex_tool_result',
+}
+
+/** El invariante de subscriptions#1411/#1466: ningún request puede llevar un
+ *  server-tool call sin su result en el mismo turno. */
+function expectNoDanglingServerToolUse(messages: any[]): void {
   const blocks = messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+  const resultTypes = new Set(Object.values(SERVER_TOOL_RESULT_TYPES))
   const resolved = new Set(
-    blocks.filter((b: any) => b?.type === 'mcp_tool_result').map((b: any) => b.tool_use_id),
+    blocks.filter((b: any) => resultTypes.has(b?.type)).map((b: any) => b.tool_use_id),
   )
-  const dangling = blocks.filter((b: any) => b?.type === 'mcp_tool_use' && !resolved.has(b.id))
+  const dangling = blocks.filter(
+    (b: any) =>
+      typeof b?.type === 'string' && b.type in SERVER_TOOL_RESULT_TYPES && !resolved.has(b.id),
+  )
   expect(dangling).toEqual([])
 }
 
@@ -552,7 +563,7 @@ describe('executeLoop — dangling mcp_tool_use', () => {
     // reintenta hasta agotar el presupuesto. Lo que sigue prohibido es mandar
     // un `mcp_tool_use` SIN su result — el 400 de bb6b36ad8.
     expect(calls.length).toBe(4)
-    for (const { messages } of calls) expectNoDanglingMcpToolUse(messages)
+    for (const { messages } of calls) expectNoDanglingServerToolUse(messages)
     expect(result.truncated).toBe(true)
     expect(result.stopReason).toBe('pause_turn')
     expect(result.checkpoint).toBeUndefined()
@@ -598,7 +609,7 @@ describe('executeLoop — dangling mcp_tool_use', () => {
     expect(result.truncated).toBe(false)
     expect(result.toolCalls).toBe(1)
     // Y la historia que se reenvía no puede llevar un `mcp_tool_use` sin result.
-    expectNoDanglingMcpToolUse(calls[1])
+    expectNoDanglingServerToolUse(calls[1])
     const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
     expect(resentBlocks.some((b: any) => b?.type === 'tool_result')).toBe(true)
   })
@@ -687,6 +698,184 @@ describe('executeLoop — dangling mcp_tool_use', () => {
     expect(calls.length).toBe(2)
     expect(calls[1].overrides).toEqual({ bumpMaxTokens: true })
     expect(calls[1].messages).toEqual([{ role: 'user', content: 'x' }])
+  })
+})
+
+// ─── executeLoop — dangling tool_search_tool_regex ────────────────────────────
+// Regression coverage for subscriptions#1466: same failure mode as the
+// `mcp_tool_use` suite above, but for the tool-search server tool that
+// `deferMcpTools` adds to the request (see
+// packages/ai-providers/src/anthropic-api/provider.ts). Confirms the fix
+// generalizes past MCP instead of special-casing it.
+
+describe('executeLoop — dangling tool_search_tool_regex', () => {
+  it('never resends a history carrying the dangling tool_search_tool_regex, and truncates once the pause budget runs out', async () => {
+    const calls: Array<{ messages: any[] }> = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push({ messages: structuredClone(messages) })
+      return {
+        stop_reason: 'pause_turn',
+        content: [
+          {
+            type: 'tool_search_tool_regex',
+            id: 'srvtoolu_01',
+            name: 'tool_search_tool_regex',
+            input: { pattern: 'add_issue_comment' },
+          },
+        ],
+      }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(calls.length).toBe(4)
+    for (const { messages } of calls) expectNoDanglingServerToolUse(messages)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('pause_turn')
+    expect(result.checkpoint).toBeUndefined()
+  })
+
+  it('pairs the dangling tool_search_tool_regex with its own result type, not mcp_tool_result', async () => {
+    let call = 0
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            {
+              type: 'tool_search_tool_regex',
+              id: 'srvtoolu_01',
+              name: 'tool_search_tool_regex',
+              input: { pattern: 'add_issue_comment' },
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(false)
+    const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    const pairedResult = resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_01')
+    expect(pairedResult?.type).toBe('tool_search_tool_regex_tool_result')
+    // ToolSearchToolResultBlockParam no lleva `is_error`, y `content` es un
+    // objeto único (ToolSearchToolResultErrorParam) — no un array de bloques
+    // de texto como mcp_tool_result. Sintetizar con el shape de MCP acá
+    // 400earía por forma inválida, el mismo síntoma que el fix evita.
+    expect(pairedResult?.is_error).toBeUndefined()
+    expect(pairedResult?.content).toEqual({
+      type: 'tool_search_tool_result_error',
+      error_code: 'unavailable',
+      error_message: expect.any(String),
+    })
+  })
+
+  // Per @anthropic-ai/sdk's ServerToolUseBlock, non-MCP server tools may
+  // instead wrap the call as `{type: 'server_tool_use', name: '<tool>'}`
+  // rather than a dedicated `type`. Both shapes must be recognized until
+  // it's confirmed in production which one Anthropic actually sends here.
+  it('pairs a tool_search_tool_regex call wrapped as a generic server_tool_use block with the generic result type, not the suffixed one', async () => {
+    let call = 0
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            {
+              type: 'server_tool_use',
+              id: 'srvtoolu_02',
+              name: 'tool_search_tool_regex',
+              input: { pattern: 'add_issue_comment' },
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(false)
+    const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    const pairedResult = resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_02')
+    // Genérico (tool_search_tool_result), como declara @anthropic-ai/sdk para
+    // esta forma envuelta — NO el sufijado de la forma con `type` directo,
+    // que sería inválido acá y produciría el mismo 400 que este fix evita.
+    expect(pairedResult?.type).toBe('tool_search_tool_result')
+  })
+
+  it('does not treat an already-resolved tool_search_tool_regex call (generic result type, same turn) as dangling', async () => {
+    // Regresión: si `tool_search_tool_result` (el genérico) no se reconoce
+    // como "ya resuelto", un turno sano que YA completó su búsqueda —y
+    // terminó en end_turn, ninguna pausa de por medio— se trataría como
+    // colgado y el run se cortaría solo, apagando un run que nunca falló.
+    const fetchApi = async () => ({
+      stop_reason: 'end_turn',
+      content: [
+        {
+          type: 'tool_search_tool_regex',
+          id: 'srvtoolu_03',
+          name: 'tool_search_tool_regex',
+          input: { pattern: 'x' },
+        },
+        { type: 'tool_search_tool_result', tool_use_id: 'srvtoolu_03', content: [] },
+        { type: 'text', text: 'done' },
+      ],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {})
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(result.text).toBe('done')
+  })
+
+  it('pairs a dangling mcp_tool_use and a dangling tool_search_tool_regex from the same paused turn independently', async () => {
+    let call = 0
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            {
+              type: 'mcp_tool_use',
+              id: 'mcptoolu_01',
+              name: 'search',
+              server_name: 'github',
+              input: {},
+            },
+            {
+              type: 'tool_search_tool_regex',
+              id: 'srvtoolu_01',
+              name: 'tool_search_tool_regex',
+              input: { pattern: 'x' },
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(false)
+    expectNoDanglingServerToolUse(calls[1])
+    const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    expect(resentBlocks.find((b: any) => b?.tool_use_id === 'mcptoolu_01')?.type).toBe(
+      'mcp_tool_result',
+    )
+    expect(resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_01')?.type).toBe(
+      'tool_search_tool_regex_tool_result',
+    )
   })
 })
 

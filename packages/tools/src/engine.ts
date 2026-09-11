@@ -445,20 +445,20 @@ function prepareMaxTokensRetry(
   return { bumpMaxTokens: true }
 }
 
-function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
+function handleUnresolvedServerToolUse(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
   if (ctx.retryTruncatedToolUse && !state.toolUseRetried && ctx.stopReason === 'max_tokens') {
     state.toolUseRetried = true
     const nextFetchOverrides = prepareMaxTokensRetry(
       ctx.messages,
       ctx.runLog,
       { stopReason: ctx.stopReason },
-      'max_tokens cut off an mcp_tool_use block — retrying once with more tokens',
+      'max_tokens cut off a server-tool_use block — retrying once with more tokens',
     )
     return { action: 'continue', nextFetchOverrides }
   }
   ctx.runLog.warn(
     { stopReason: ctx.stopReason },
-    'assistant turn carries an unresolved mcp_tool_use with no client tool_use to defer it — ending run instead of resending or checkpointing it',
+    'assistant turn carries an unresolved server-tool call with no client tool_use to defer it — ending run instead of resending or checkpointing it',
   )
   return { action: 'return', result: truncatedResult(ctx, state) }
 }
@@ -715,35 +715,40 @@ async function saveLoopCheckpoint(
   }
 }
 
-// Remote MCP tool calls (`mcp_tool_use`) are resolved server-side by
-// Anthropic within the same response, normally arriving paired with their
-// `mcp_tool_result` — with one DOCUMENTED exception: per Anthropic's docs
+// Server-tool calls (`mcp_tool_use`, `tool_search_tool_regex`, ...) are
+// resolved server-side by Anthropic within the same response, normally
+// arriving paired with their own result block — with one DOCUMENTED
+// exception: per Anthropic's docs
 // (server-tools#mixing-server-tools-and-client-tools-in-one-turn), when
-// Claude calls an MCP tool in the SAME parallel batch as a client
+// Claude calls one of these in the SAME parallel batch as a client
 // `tool_use`, the API returns immediately with `stop_reason: "tool_use"`
-// and leaves the `mcp_tool_use` unpaired — it runs the deferred MCP call on
+// and leaves the server-tool call unpaired — it runs the deferred call on
 // the NEXT request, once we send back the client tool_result blocks. That's
 // the normal tool_use path (filtered to `type === 'tool_use'`, so the
-// dangling `mcp_tool_use` is left alone and Anthropic resolves it against
+// dangling server-tool call is left alone and Anthropic resolves it against
 // the still-open turn). Ending the run on every occurrence — as this code
 // used to — turned a routine, self-resolving response shape into a
 // permanent stall on any task whose agent checks GitHub state via MCP while
 // also reading/running something locally.
 //
-// Genuinely unrecoverable cases stay unrecoverable: `max_tokens` cutting the
-// `mcp_tool_use` input off mid-stream (retried same as a client tool_use),
-// and a dangling `mcp_tool_use` with NO accompanying client tool_use — that
-// shape isn't documented as self-resolving and blindly persisting/resending
-// it 400s the next request with "mcp_tool_use ... found without a
-// corresponding mcp_tool_result block" (see subscriptions#1411).
-// Cierra la llamada que el conector MCP dejó a medias cuando pausó el turno.
+// Genuinely unrecoverable cases stay unrecoverable: `max_tokens` cutting a
+// server-tool call's input off mid-stream (retried same as a client
+// tool_use), and a dangling server-tool call with NO accompanying client
+// `tool_use` — that shape isn't documented as self-resolving and blindly
+// persisting/resending it 400s the next request with "<type> ... found
+// without a corresponding <type>_result block" (see subscriptions#1411 for
+// `mcp_tool_use`, subscriptions#1466 for `tool_search_tool_regex` — same
+// failure mode, different server-tool type).
+// Cierra la llamada de server-tool que quedó a medias cuando pausó el turno.
 //
-// Una pausa del conector deja SU PROPIA llamada sin `mcp_tool_result`: es la
-// forma normal de un `pause_turn` con MCP remoto, no una anomalía. Los tres
+// Una pausa de CUALQUIERA de estos server-tools deja SU PROPIA llamada sin
+// result: es la forma normal de un `pause_turn`, no una anomalía. Los tres
 // caminos obvios estaban todos mal:
 //
-//   - reenviar el turno tal cual → 400 "mcp_tool_use ... found without a
-//     corresponding mcp_tool_result block" (bb6b36ad8 / subscriptions#1411);
+//   - reenviar el turno tal cual → 400 "<type> ... found without a
+//     corresponding <type>_result block" (bb6b36ad8 / subscriptions#1411,
+//     y de nuevo con `tool_search_tool_regex` en subscriptions#1466 — el
+//     tipo de bloque cambia, el 400 es el mismo);
 //   - descartar el turno y repetir el request → el request es byte-idéntico,
 //     así que el conector RE-EJECUTA las llamadas del turno que ya habían
 //     corrido: con un MCP no idempotente (`add_issue_comment`, `create_issue`)
@@ -753,46 +758,148 @@ async function saveLoopCheckpoint(
 //     remoto (run 08f148b7: el refiner tenía 5 reintentos y murió en iters=2).
 //
 // Parear el bloque con un result sintético de error es el único que no miente:
-// la historia queda válida (el `mcp_tool_result` en un turno assistant es la
-// forma que la API ya emite y que este loop reenvía en cada vuelta normal), no
-// se re-ejecuta nada, y el modelo ve que ESA llamada quedó sin respuesta y
+// la historia queda válida (el result de server-tool en un turno assistant es
+// la forma que la API ya emite y que este loop reenvía en cada vuelta normal),
+// no se re-ejecuta nada, y el modelo ve que ESA llamada quedó sin respuesta y
 // decide si la repite. El texto que alcanzó a escribir se conserva.
-function pairDanglingMcpToolUses(
+//
+// El mapa cubre sólo los tipos de server-tool que este engine puede llegar a
+// declarar (ver `packages/ai-providers/src/anthropic-api/provider.ts`): el
+// conector MCP y las dos variantes de tool search (regex y bm25 — hoy sólo se
+// usa regex, bm25 se agrega preventivamente porque comparte el mismo riesgo
+// si algún agente la habilita). Una key que no aparece en NINGUNO de los dos
+// mapas de abajo NO se aparea — cae al camino viejo
+// (`handleUnresolvedServerToolUse`, que corta el run en vez de adivinar un
+// `type` de result que podría no existir y producir un 400 distinto).
+//
+// Hay DOS mapas, no uno, porque hay dos hipótesis sobre cómo llega el bloque
+// de la llamada — y cada una implica un result distinto, no intercambiable:
+//
+//   - `DIRECT_TYPE_RESULT`: el bloque trae su propio `type` dedicado
+//     (`mcp_tool_use` siempre lo hace; `tool_search_tool_regex` según el
+//     texto LITERAL del 400 real de subscriptions#1466 — "`tool_search_tool_regex`
+//     tool use ... found without a corresponding `tool_search_tool_regex_tool_result`
+//     block"). El result que se sintetiza en esta forma sale de esa misma
+//     fuente: el sufijo por variante.
+//   - `WRAPPED_NAME_RESULT`: el bloque viene envuelto como
+//     `{type: 'server_tool_use', name: '<tool>'}` — la forma que declara
+//     `ServerToolUseBlock` en el `@anthropic-ai/sdk` instalado (transitivo,
+//     NO lo usa este provider: el body sale de un `fetch` a mano en
+//     provider.ts). Esa misma fuente declara el result como el genérico
+//     `tool_search_tool_result`, SIN sufijo por variante — parear esta forma
+//     con el sufijo de arriba contradeciría la premisa que la hace existir y
+//     produciría el mismo 400 que este fix busca evitar.
+//
+// Las dos fuentes (el 400 real vs. el tipo del SDK) no coinciden en cuál de
+// las dos formas usa Anthropic para tool search, así que se detectan LAS DOS
+// en la llamada — pero cada una se aparea con SU PROPIO result, nunca el de
+// la otra. Si al probar contra `subscriptions` una de las dos formas resulta
+// no ocurrir nunca, ese mapa se puede achicar sin tocar el otro.
+// `kind` decide el SHAPE del result sintético, no sólo su `type` — los dos
+// no comparten schema. `mcp_tool_result` lleva `is_error` + `content` como
+// array de bloques de texto (la forma que Anthropic ya documenta para MCP).
+// `ToolSearchToolResultBlockParam` (`@anthropic-ai/sdk`) es distinto: SIN
+// `is_error`, y `content` es un objeto ÚNICO — para un fallo,
+// `{type: 'tool_search_tool_result_error', error_code, error_message}`
+// (`ToolSearchToolResultErrorParam`). Sintetizar con el shape de MCP para un
+// result de tool search 400earía por forma inválida — el mismo síntoma que
+// este fix busca evitar, sólo que por un motivo distinto.
+type ServerToolResultKind = 'mcp' | 'tool_search'
+type ServerToolResult = { type: string; kind: ServerToolResultKind }
+
+const DIRECT_TYPE_RESULT: Record<string, ServerToolResult> = {
+  mcp_tool_use: { type: 'mcp_tool_result', kind: 'mcp' },
+  tool_search_tool_regex: { type: 'tool_search_tool_regex_tool_result', kind: 'tool_search' },
+  tool_search_tool_bm25: { type: 'tool_search_tool_bm25_tool_result', kind: 'tool_search' },
+}
+const WRAPPED_NAME_RESULT: Record<string, ServerToolResult> = {
+  tool_search_tool_regex: { type: 'tool_search_tool_result', kind: 'tool_search' },
+  tool_search_tool_bm25: { type: 'tool_search_tool_result', kind: 'tool_search' },
+}
+// Todo `type` de result que cualquiera de las dos formas puede producir —
+// usado sólo para reconocer una llamada YA resuelta (nunca para sintetizar).
+// Tiene que cubrir las dos formas: una llamada de tool search resuelta
+// normalmente puede llegar con el sufijo del 400 o con el genérico del SDK,
+// y confundir un result real con uno "sin parear" apagaría un run sano — el
+// mismo turno terminado en `end_turn` con una búsqueda ya resuelta adentro
+// pasaría por `handleUnresolvedServerToolUse` y cortaría un run que en
+// realidad ya había terminado bien.
+const KNOWN_SERVER_TOOL_RESULT_TYPES = new Set([
+  ...Object.values(DIRECT_TYPE_RESULT).map((r) => r.type),
+  ...Object.values(WRAPPED_NAME_RESULT).map((r) => r.type),
+])
+
+/** Result a sintetizar para este bloque de llamada (`type` + `kind` que
+ *  decide su shape), según CUÁL de las dos formas trae — o `undefined` si no
+ *  es ninguno de los server-tools que este engine puede declarar. */
+function danglingServerToolResult(b: any): ServerToolResult | undefined {
+  if (typeof b?.type !== 'string') return undefined
+  if (Object.hasOwn(DIRECT_TYPE_RESULT, b.type)) return DIRECT_TYPE_RESULT[b.type]
+  if (
+    b.type === 'server_tool_use' &&
+    typeof b.name === 'string' &&
+    Object.hasOwn(WRAPPED_NAME_RESULT, b.name)
+  ) {
+    return WRAPPED_NAME_RESULT[b.name]
+  }
+  return undefined
+}
+
+const PAUSED_CALL_MESSAGE =
+  'The server-tool loop paused before this call returned. Its result is unknown — call it again if you still need it.'
+
+function buildSyntheticServerToolResult(toolUseId: string, result: ServerToolResult): unknown {
+  if (result.kind === 'mcp') {
+    return {
+      type: result.type,
+      tool_use_id: toolUseId,
+      is_error: true,
+      content: [{ type: 'text', text: PAUSED_CALL_MESSAGE }],
+    }
+  }
+  return {
+    type: result.type,
+    tool_use_id: toolUseId,
+    content: {
+      type: 'tool_search_tool_result_error',
+      error_code: 'unavailable',
+      error_message: PAUSED_CALL_MESSAGE,
+    },
+  }
+}
+
+function pairDanglingServerToolUses(
   contentBlocks: any[],
-  isUnresolvedMcpToolUse: (block: any) => boolean,
+  isUnresolvedServerToolUse: (block: any) => boolean,
 ): any[] {
-  const synthetic = contentBlocks.filter(isUnresolvedMcpToolUse).map((b) => ({
-    type: 'mcp_tool_result',
-    tool_use_id: b.id,
-    is_error: true,
-    content: [
-      {
-        type: 'text',
-        text: 'The server-tool loop paused before this call returned. Its result is unknown — call it again if you still need it.',
-      },
-    ],
-  }))
+  const synthetic = contentBlocks
+    .filter(isUnresolvedServerToolUse)
+    .map((b) =>
+      buildSyntheticServerToolResult(b.id, danglingServerToolResult(b) as ServerToolResult),
+    )
   return [...contentBlocks, ...synthetic]
 }
 
-function computeMcpToolUseFlags(
+function computeDanglingServerToolFlags(
   contentBlocks: any[],
   stopReason: string,
   hasPendingToolUse: boolean,
 ): {
-  hasUnresolvedMcpToolUse: boolean
-  mcpToolUseWillResume: boolean
-  isUnresolvedMcpToolUse: (block: any) => boolean
+  hasUnresolvedServerToolUse: boolean
+  serverToolUseWillResume: boolean
+  isUnresolvedServerToolUse: (block: any) => boolean
 } {
-  const resolvedMcpToolUseIds = new Set(
-    contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
+  const resolvedIds = new Set(
+    contentBlocks
+      .filter((b) => KNOWN_SERVER_TOOL_RESULT_TYPES.has(b?.type))
+      .map((b) => b.tool_use_id),
   )
-  const isUnresolvedMcpToolUse = (b: any) =>
-    b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id)
-  const hasUnresolvedMcpToolUse = contentBlocks.some(isUnresolvedMcpToolUse)
-  const mcpToolUseWillResume =
-    hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
-  return { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse }
+  const isUnresolvedServerToolUse = (b: any) =>
+    danglingServerToolResult(b) !== undefined && !resolvedIds.has(b.id)
+  const hasUnresolvedServerToolUse = contentBlocks.some(isUnresolvedServerToolUse)
+  const serverToolUseWillResume =
+    hasUnresolvedServerToolUse && stopReason === 'tool_use' && hasPendingToolUse
+  return { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse }
 }
 
 type StopReasonAction =
@@ -807,13 +914,13 @@ function resolveStopReasonAction(
   stepCtx: LoopStepContext,
   state: LoopState,
   hasPendingToolUse: boolean,
-  hasUnresolvedMcpToolUse: boolean,
-  mcpToolUseWillResume: boolean,
+  hasUnresolvedServerToolUse: boolean,
+  serverToolUseWillResume: boolean,
 ): StopReasonAction {
   const { stopReason } = stepCtx
 
-  if (hasUnresolvedMcpToolUse && !mcpToolUseWillResume) {
-    return handleUnresolvedMcpToolUse(stepCtx, state)
+  if (hasUnresolvedServerToolUse && !serverToolUseWillResume) {
+    return handleUnresolvedServerToolUse(stepCtx, state)
   }
   if (stopReason === 'end_turn') {
     return {
@@ -983,13 +1090,13 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
-    const { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse } =
-      computeMcpToolUseFlags(contentBlocks, stopReason, hasPendingToolUse)
-    const pausedWithDanglingMcp = stopReason === 'pause_turn' && hasUnresolvedMcpToolUse
-    if (pausedWithDanglingMcp) {
+    const { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse } =
+      computeDanglingServerToolFlags(contentBlocks, stopReason, hasPendingToolUse)
+    const pausedWithDanglingServerTool = stopReason === 'pause_turn' && hasUnresolvedServerToolUse
+    if (pausedWithDanglingServerTool) {
       messages[messages.length - 1] = {
         role: 'assistant',
-        content: pairDanglingMcpToolUses(contentBlocks, isUnresolvedMcpToolUse),
+        content: pairDanglingServerToolUses(contentBlocks, isUnresolvedServerToolUse),
       }
     }
     const stepCtx: LoopStepContext = {
@@ -1009,8 +1116,8 @@ export async function executeLoop(
       stepCtx,
       state,
       hasPendingToolUse,
-      hasUnresolvedMcpToolUse && !pausedWithDanglingMcp,
-      mcpToolUseWillResume,
+      hasUnresolvedServerToolUse && !pausedWithDanglingServerTool,
+      serverToolUseWillResume,
     )
     if (action.action === 'return') return action.result
     if (action.action === 'continue') {
