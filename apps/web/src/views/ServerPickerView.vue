@@ -128,24 +128,25 @@ onMounted(() => {
       <form class="add" @submit.prevent="add">
         <input
           v-model="newUrl"
-          class="add__input"
+          class="ff-field add__input"
           placeholder="URL — ej. localhost:3001 o un agent-host en :3012"
           aria-label="URL del server"
         />
         <input
           v-model="newToken"
           type="password"
-          class="add__input add__input--token"
+          class="ff-field add__input add__input--token"
           placeholder="token (si lo pide)"
           aria-label="token de la API"
           autocomplete="off"
         />
-        <button class="btn" type="submit" :disabled="!newUrl.trim()">agregar</button>
+        <button class="btn btn--primary" type="submit" :disabled="!newUrl.trim()">agregar</button>
       </form>
     </footer>
   </main>
 </template>
 
+<style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .picker {
   max-width: 62rem;
@@ -154,8 +155,8 @@ onMounted(() => {
 }
 
 .picker__hd { margin-bottom: 2rem; }
-.picker__title { margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: 0.02em; }
-.picker__sub { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: 0.9rem; }
+.picker__title { margin: 0; }
+.picker__sub { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 
 .grid {
   display: grid;
@@ -176,25 +177,9 @@ onMounted(() => {
 .add { display: flex; gap: 0.4rem; }
 .add__input {
   min-width: 15rem;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
 }
 
 .add__input--token { min-width: 10rem; }
 
-.btn {
-  padding: 0.3rem 0.7rem;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.btn:disabled { opacity: 0.5; cursor: default; }
-
-.empty { color: var(--fg-dim); }
+.empty { color: var(--fg-dim); font-size: var(--fs-body-sm); }
 </style>

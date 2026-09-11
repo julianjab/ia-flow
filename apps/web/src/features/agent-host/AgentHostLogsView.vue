@@ -90,6 +90,6 @@ onUnmounted(() => clearInterval(timer))
 .wrap {
   padding: 1.5rem;
 }
-.hint { color: var(--fg-dim); }
-.err { color: var(--danger); font-size: 0.85rem; }
+.hint { color: var(--fg-dim); font-size: var(--fs-body-sm); }
+.err { color: var(--danger); font-size: var(--fs-body-sm); }
 </style>

@@ -35,7 +35,7 @@ function add(): void {
           </span>
           <span v-if="!r.ok" class="list__err" :title="r.reason">{{ r.reason ?? 'sin alta' }}</span>
           <button
-            class="btn btn--ghost list__rm"
+            class="btn btn--ghost"
             :disabled="saving"
             title="quitar"
             @click="emit('remove', r.serverUrl)"
@@ -49,7 +49,7 @@ function add(): void {
       <div class="new">
         <input
           v-model="draft"
-          class="new__input"
+          class="ff-field ff-mono new__input"
           placeholder="http://localhost:3001"
           spellcheck="false"
           @keyup.enter="add"
@@ -60,28 +60,35 @@ function add(): void {
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
   padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 .hint {
-  margin: 0 0 0.75rem;
+  margin: 0;
   color: var(--fg-dim);
   font-size: var(--fs-body-sm);
 }
 .list {
   list-style: none;
-  margin: 0 0 0.75rem;
+  margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 .list__item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  height: calc(var(--row-h) + 0.5rem);
+  min-height: var(--tap-h);
   padding: 0 0.5rem;
   border: 1px solid var(--border);
-  margin-bottom: 0.25rem;
+  border-radius: var(--radius-sm);
   font-size: var(--fs-body-sm);
 }
 .list__url {
@@ -101,17 +108,14 @@ function add(): void {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.list__rm {
-  height: var(--row-h);
-  padding: 0 0.4rem;
-}
 .dot {
   width: 6px;
   height: 6px;
+  border-radius: 50%;
   flex: none;
 }
 .dot--ok {
-  background: var(--green);
+  background: var(--accent);
 }
 .dot--err {
   background: var(--danger);
@@ -122,12 +126,5 @@ function add(): void {
 }
 .new__input {
   flex: 1;
-  height: calc(var(--row-h) + 0.5rem);
-  padding: 0 0.5rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
 }
 </style>

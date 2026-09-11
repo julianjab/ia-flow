@@ -167,20 +167,21 @@ function saveToken() {
         <input
           v-model="draft"
           type="password"
-          class="card__tokeninput"
+          class="ff-field card__tokeninput"
           placeholder="token de la API"
           :aria-label="`token de ${server.baseUrl}`"
           autocomplete="off"
         />
-        <button class="card__tokenbtn" type="submit">guardar</button>
+        <button class="btn card__tokenbtn" type="submit">guardar</button>
       </form>
-      <button v-else class="card__tokenlink" type="button" @click="editing = true">
+      <button v-else class="btn btn--ghost card__tokenlink" type="button" @click="editing = true">
         {{ token ? '· token configurado — cambiar' : '· sin token — configurar' }}
       </button>
     </div>
   </article>
 </template>
 
+<style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .card {
   position: relative;
@@ -189,7 +190,8 @@ function saveToken() {
   gap: 0.5rem;
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--border);
-  background: var(--bg-elev, transparent);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 .card:has(.card__enter:not(:disabled)):hover { border-color: var(--accent); }
 .card:has(.card__enter:focus-visible) { outline: 1px solid var(--accent); outline-offset: 2px; }
@@ -214,49 +216,43 @@ function saveToken() {
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dot--up { background: var(--accent); }
 .dot--down { background: var(--danger); }
-.dot--auth { background: var(--warn, #d90); }
+.dot--auth { background: var(--warn); }
 
-.card__auth { margin: 0; color: var(--warn, #d90); font-size: 0.8rem; }
-
-.tag--host {
-  border: 1px solid var(--border);
-  padding: 0 0.3rem;
-  color: var(--fg-dim);
-  font-size: 0.7rem;
-}
+.card__auth { margin: 0; color: var(--warn); font-size: var(--fs-body-sm); }
 
 .card__token { margin-top: 0.1rem; position: relative; z-index: 1; }
 .card__tokenform { display: flex; gap: 0.3rem; }
 .card__tokeninput {
   flex: 1;
   min-width: 0;
-  padding: 0.2rem 0.4rem;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.8rem;
+  height: var(--tap-h-sm);
 }
-.card__tokenbtn, .card__tokenlink {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--fg-dim);
-  font: inherit;
-  font-size: 0.75rem;
-  padding: 0.2rem 0.45rem;
-  cursor: pointer;
+.card__tokenbtn {
+  height: var(--tap-h-sm);
+  padding: 0 0.6rem;
 }
-.card__tokenlink { border: 0; padding: 0; text-align: left; }
-.card__tokenbtn:hover, .card__tokenlink:hover { color: var(--accent); }
+.card__tokenlink {
+  height: auto;
+  padding: 0;
+  text-align: left;
+  font-size: var(--fs-body-sm);
+}
 
+/* Chip / tag: una sola caja — line-height de grilla, mono, radio chico, borde
+   hairline (DESIGN_SYSTEM.md «Chip / tag»). Lo que cambia entre tipos es el
+   color del glifo, no la caja. */
 .tag {
   margin-left: auto;
-  padding: 0 0.35rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  line-height: var(--row-h);
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
 }
-.tag--current { color: var(--accent); border: 1px solid var(--accent); }
+.tag--host { border-color: var(--border); }
+.tag--current { color: var(--accent); border-color: var(--accent); }
 
 .card__enter::after {
   /* Estira el área clickeable sobre la tarjeta entera. */
@@ -272,7 +268,7 @@ function saveToken() {
   padding: 0;
   font: inherit;
   color: var(--fg-dim);
-  font-size: 0.8rem;
+  font-size: var(--fs-body-sm);
   text-align: left;
   word-break: break-all;
   cursor: pointer;

@@ -172,7 +172,7 @@ onUnmounted(() => clearInterval(timer))
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-body-sm);
 }
 .hd__url { font-weight: 600; }
 .hd__status { color: var(--fg-dim); }

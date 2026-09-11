@@ -51,98 +51,77 @@ function set(key: keyof AgentHostWorkspace, raw: string): void {
         Dónde clona y dónde trabaja esta máquina. Vacío = el default del proceso.
       </p>
 
-      <label class="field">
-        <span class="uc-label">base de clones</span>
-        <input
-          class="field__input"
-          :value="form.reposBase ?? ''"
-          placeholder="/Users/vos/ia-flow-repos"
-          spellcheck="false"
-          @input="set('reposBase', ($event.target as HTMLInputElement).value)"
-        />
-        <span class="hint hint--tight">
-          Sin esto, un repo que esta máquina nunca vio no se puede clonar y el run falla.
-        </span>
-      </label>
-
-      <label class="field">
-        <span class="uc-label">base de worktrees</span>
-        <input
-          class="field__input"
-          :value="form.worktreeBase ?? ''"
-          placeholder="/tmp/ia-flow"
-          spellcheck="false"
-          @input="set('worktreeBase', ($event.target as HTMLInputElement).value)"
-        />
-      </label>
-
-      <div class="row">
-        <label class="field field--half">
-          <span class="uc-label">autor de los commits</span>
+      <div class="ff-col">
+        <label class="ff-row">
+          <span class="uc-label">base de clones</span>
           <input
-            class="field__input"
-            :value="form.gitAuthorName ?? ''"
-            placeholder="ia-flow-bot"
+            class="ff-field ff-mono"
+            :value="form.reposBase ?? ''"
+            placeholder="/Users/vos/ia-flow-repos"
             spellcheck="false"
-            @input="set('gitAuthorName', ($event.target as HTMLInputElement).value)"
+            @input="set('reposBase', ($event.target as HTMLInputElement).value)"
+          />
+          <span class="ff-hint">
+            Sin esto, un repo que esta máquina nunca vio no se puede clonar y el run falla.
+          </span>
+        </label>
+
+        <label class="ff-row">
+          <span class="uc-label">base de worktrees</span>
+          <input
+            class="ff-field ff-mono"
+            :value="form.worktreeBase ?? ''"
+            placeholder="/tmp/ia-flow"
+            spellcheck="false"
+            @input="set('worktreeBase', ($event.target as HTMLInputElement).value)"
           />
         </label>
-        <label class="field field--half">
-          <span class="uc-label">email</span>
-          <input
-            class="field__input"
-            :value="form.gitAuthorEmail ?? ''"
-            placeholder="bot@ia-flow.local"
-            spellcheck="false"
-            @input="set('gitAuthorEmail', ($event.target as HTMLInputElement).value)"
-          />
-        </label>
+
+        <div class="ff-row-split">
+          <label class="ff-sub">
+            <span class="uc-label">autor de los commits</span>
+            <input
+              class="ff-field ff-mono"
+              :value="form.gitAuthorName ?? ''"
+              placeholder="ia-flow-bot"
+              spellcheck="false"
+              @input="set('gitAuthorName', ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <label class="ff-sub">
+            <span class="uc-label">email</span>
+            <input
+              class="ff-field ff-mono"
+              :value="form.gitAuthorEmail ?? ''"
+              placeholder="bot@ia-flow.local"
+              spellcheck="false"
+              @input="set('gitAuthorEmail', ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+        </div>
       </div>
 
-      <button class="btn btn--primary" :disabled="saving" @click="emit('save', { ...form })">
+      <button class="btn btn--primary save" :disabled="saving" @click="emit('save', { ...form })">
         {{ saving ? 'guardando…' : 'guardar' }}
       </button>
     </div>
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
   padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 .hint {
-  margin: 0 0 0.75rem;
+  margin: 0;
   color: var(--fg-dim);
   font-size: var(--fs-body-sm);
 }
-.hint--tight {
-  display: block;
-  margin: 0.25rem 0 0;
-}
-.field {
-  display: block;
-  margin-bottom: 0.75rem;
-}
-.field--half {
-  flex: 1;
-}
-.row {
-  display: flex;
-  gap: 0.5rem;
-}
-.field__input {
-  width: 100%;
-  margin-top: 0.25rem;
-  height: calc(var(--row-h) + 0.5rem);
-  padding: 0 0.5rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-}
-.field__input:focus {
-  outline: none;
-  border-color: var(--border-hi);
+.save {
+  align-self: flex-start;
 }
 </style>

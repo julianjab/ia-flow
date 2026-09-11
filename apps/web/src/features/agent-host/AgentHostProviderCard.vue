@@ -21,17 +21,17 @@ defineEmits<{ select: [id: string] }>()
       <p class="hint">Qué ejecuta esta máquina. El server no lo elige: lo elige el agent-host.</p>
 
       <template v-if="provider">
-        <label class="field">
+        <div class="ff-row">
           <span class="uc-label">provider</span>
           <select
-            class="field__input"
+            class="ff-field"
             :value="provider.id"
             :disabled="saving"
             @change="$emit('select', ($event.target as HTMLSelectElement).value)"
           >
             <option v-for="id in provider.available" :key="id" :value="id">{{ id }}</option>
           </select>
-        </label>
+        </div>
         <p class="meta">
           <span class="uc-label">tipo</span> {{ provider.kind }} · {{ provider.name }}
         </p>
@@ -48,35 +48,25 @@ defineEmits<{ select: [id: string] }>()
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
   padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 .hint {
-  margin: 0 0 0.75rem;
+  margin: 0;
   color: var(--fg-dim);
   font-size: var(--fs-body-sm);
 }
-.field {
-  display: block;
-  margin-bottom: 0.5rem;
-}
-.field__input {
-  width: 100%;
-  margin-top: 0.25rem;
-  height: calc(var(--row-h) + 0.5rem);
-  padding: 0 0.5rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-size: var(--fs-body-sm);
-}
 .meta {
-  margin: 0.25rem 0 0;
+  margin: 0;
   color: var(--fg-mute);
   font-size: var(--fs-body-sm);
 }
 .meta__no {
-  color: var(--yellow);
+  color: var(--warn);
 }
 </style>
