@@ -456,38 +456,6 @@ function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): Loo
     )
     return { action: 'continue', nextFetchOverrides }
   }
-  // Un `pause_turn` del conector MCP deja colgada SU PROPIA llamada: es la
-  // forma normal de la pausa, no una anomalía. Terminaba el run acá antes de
-  // que `handlePauseTurn` lo viera, así que `maxPauseTurnRetries` era config
-  // muerta para todo agente con MCP remoto (run 08f148b7: el refiner tenía 3
-  // y murió en iters=2, con el warn de abajo como única señal).
-  //
-  // Reenviarlo TAL CUAL sigue prohibido — es el 400 "mcp_tool_use ... found
-  // without a corresponding mcp_tool_result block" de bb6b36ad8. Lo que se
-  // hace es lo mismo que ya hace el camino de `max_tokens` un par de líneas
-  // más arriba: tirar el turno corrupto y reintentar. Se pierde el texto de
-  // esa vuelta (queda en `pausedText`) y el modelo rehace la llamada MCP, que
-  // es baratísimo comparado con dar el run por muerto.
-  if (ctx.stopReason === 'pause_turn' && state.pauseTurnRetries < ctx.maxPauseTurnRetries) {
-    state.pauseTurnRetries++
-    state.pausedText += ctx.textOf()
-    ctx.messages.pop()
-    // `warn` y no `info`: a diferencia de `handlePauseTurn` —que reenvía CON el
-    // turno pausado, o sea con progreso— acá el `pop()` deja la historia igual
-    // que antes del request, así que el reintento es idéntico. Si la pausa es
-    // reproducible (un turno que necesita más round-trips MCP que el cap del
-    // server) se pagan las N vueltas del input completo y el run termina
-    // truncado igual. Que ese gasto se vea en el log es la mitad del tradeoff.
-    ctx.runLog.warn(
-      {
-        stopReason: ctx.stopReason,
-        pauseTurnRetries: state.pauseTurnRetries,
-        maxPauseTurnRetries: ctx.maxPauseTurnRetries,
-      },
-      'pause_turn con un mcp_tool_use colgado — reintentando el request sin el turno corrupto',
-    )
-    return { action: 'continue' }
-  }
   ctx.runLog.warn(
     { stopReason: ctx.stopReason },
     'assistant turn carries an unresolved mcp_tool_use with no client tool_use to defer it — ending run instead of resending or checkpointing it',
@@ -768,6 +736,45 @@ async function saveLoopCheckpoint(
 // shape isn't documented as self-resolving and blindly persisting/resending
 // it 400s the next request with "mcp_tool_use ... found without a
 // corresponding mcp_tool_result block" (see subscriptions#1411).
+// Cierra la llamada que el conector MCP dejó a medias cuando pausó el turno.
+//
+// Una pausa del conector deja SU PROPIA llamada sin `mcp_tool_result`: es la
+// forma normal de un `pause_turn` con MCP remoto, no una anomalía. Los tres
+// caminos obvios estaban todos mal:
+//
+//   - reenviar el turno tal cual → 400 "mcp_tool_use ... found without a
+//     corresponding mcp_tool_result block" (bb6b36ad8 / subscriptions#1411);
+//   - descartar el turno y repetir el request → el request es byte-idéntico,
+//     así que el conector RE-EJECUTA las llamadas del turno que ya habían
+//     corrido: con un MCP no idempotente (`add_issue_comment`, `create_issue`)
+//     son comentarios e issues duplicados, uno por reintento;
+//   - terminar el run → es lo que hacía, y es lo que dejaba
+//     `maxPauseTurnRetries` como config muerta para todo agente con MCP
+//     remoto (run 08f148b7: el refiner tenía 5 reintentos y murió en iters=2).
+//
+// Parear el bloque con un result sintético de error es el único que no miente:
+// la historia queda válida (el `mcp_tool_result` en un turno assistant es la
+// forma que la API ya emite y que este loop reenvía en cada vuelta normal), no
+// se re-ejecuta nada, y el modelo ve que ESA llamada quedó sin respuesta y
+// decide si la repite. El texto que alcanzó a escribir se conserva.
+function pairDanglingMcpToolUses(
+  contentBlocks: any[],
+  isUnresolvedMcpToolUse: (block: any) => boolean,
+): any[] {
+  const synthetic = contentBlocks.filter(isUnresolvedMcpToolUse).map((b) => ({
+    type: 'mcp_tool_result',
+    tool_use_id: b.id,
+    is_error: true,
+    content: [
+      {
+        type: 'text',
+        text: 'The server-tool loop paused before this call returned. Its result is unknown — call it again if you still need it.',
+      },
+    ],
+  }))
+  return [...contentBlocks, ...synthetic]
+}
+
 function computeMcpToolUseFlags(
   contentBlocks: any[],
   stopReason: string,
@@ -783,15 +790,8 @@ function computeMcpToolUseFlags(
   const isUnresolvedMcpToolUse = (b: any) =>
     b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id)
   const hasUnresolvedMcpToolUse = contentBlocks.some(isUnresolvedMcpToolUse)
-  // `pause_turn` entra acá por la misma puerta que `tool_use`: si el turno
-  // pausado trae ADEMÁS un `tool_use` de cliente pendiente, mandan las tools
-  // —ejecutarlas es lo que destraba el turno— y no la rama de más abajo, que
-  // descartaría el turno entero sin correrlas. Es el seguro que `executeLoop`
-  // documenta al calcular `hasPendingToolUse`.
   const mcpToolUseWillResume =
-    hasUnresolvedMcpToolUse &&
-    (stopReason === 'tool_use' || stopReason === 'pause_turn') &&
-    hasPendingToolUse
+    hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
   return { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse }
 }
 
@@ -985,17 +985,11 @@ export async function executeLoop(
 
     const { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse } =
       computeMcpToolUseFlags(contentBlocks, stopReason, hasPendingToolUse)
-    // Pausa CON tool de cliente pendiente: se ejecutan las tools (es lo que
-    // destraba el turno), pero el turno que queda en la historia no puede
-    // llevarse el `mcp_tool_use` colgado — el próximo request con esa historia
-    // es el 400 de bb6b36ad8. Se saca el bloque y se deja el resto: a
-    // diferencia del `stop_reason: tool_use` documentado —donde Anthropic
-    // resuelve la llamada diferida contra el turno todavía abierto y sacarla
-    // rompería esa promesa— en una pausa el turno ya se cerró.
-    if (stopReason === 'pause_turn' && hasUnresolvedMcpToolUse && hasPendingToolUse) {
+    const pausedWithDanglingMcp = stopReason === 'pause_turn' && hasUnresolvedMcpToolUse
+    if (pausedWithDanglingMcp) {
       messages[messages.length - 1] = {
         role: 'assistant',
-        content: contentBlocks.filter((b) => !isUnresolvedMcpToolUse(b)),
+        content: pairDanglingMcpToolUses(contentBlocks, isUnresolvedMcpToolUse),
       }
     }
     const stepCtx: LoopStepContext = {
@@ -1015,7 +1009,7 @@ export async function executeLoop(
       stepCtx,
       state,
       hasPendingToolUse,
-      hasUnresolvedMcpToolUse,
+      hasUnresolvedMcpToolUse && !pausedWithDanglingMcp,
       mcpToolUseWillResume,
     )
     if (action.action === 'return') return action.result
