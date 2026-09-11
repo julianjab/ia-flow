@@ -64,6 +64,7 @@ type SectionId =
   | 'agent-host-provider'
   | 'agent-host-workspace'
   | 'agent-host-admission'
+  | 'agent-host-system-prompt'
   | 'agent-host-servers'
   | 'agent-host-logs'
   | 'proyectos'
@@ -268,6 +269,7 @@ const SECTION_PATH: Record<SectionId, string> = {
     | 'agent-host-provider'
     | 'agent-host-workspace'
     | 'agent-host-admission'
+    | 'agent-host-system-prompt'
     | 'agent-host-servers',
     string
   >),

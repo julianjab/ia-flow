@@ -12,6 +12,7 @@ import { AGENT_HOST_SECTIONS, type AgentHostTabId } from '@/router/sections'
 import AgentHostAdmissionCard from './AgentHostAdmissionCard.vue'
 import AgentHostProviderCard from './AgentHostProviderCard.vue'
 import AgentHostServersCard from './AgentHostServersCard.vue'
+import AgentHostSystemPromptCard from './AgentHostSystemPromptCard.vue'
 import AgentHostWorkspaceCard from './AgentHostWorkspaceCard.vue'
 import { isAgentHostSelected, selectedAgentHostUrl } from './connection'
 import { useAgentHostStore } from './store'
@@ -71,6 +72,12 @@ onUnmounted(() => {
         :model-value="store.admission"
         :saving="store.saving === 'admission'"
         @save="store.saveAdmission"
+      />
+      <AgentHostSystemPromptCard
+        v-else-if="activeTab === 'system-prompt'"
+        :model-value="store.systemPrompt"
+        :saving="store.saving === 'systemPrompt'"
+        @save="store.saveSystemPrompt"
       />
       <AgentHostServersCard
         v-else-if="activeTab === 'servers'"

@@ -7,6 +7,7 @@
 // pantalla necesita el mismo estado de conexión y el mismo poll de 5s — de
 // ahí que suba a store en vez de quedar en un `ref` de un solo componente.
 
+import type { SystemPromptBlock } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
@@ -21,9 +22,11 @@ import {
   fetchCapacity,
   fetchProvider,
   fetchRegistrations,
+  fetchSystemPrompt,
   fetchWorkspace,
   removeRegistration,
   saveAdmission,
+  saveSystemPrompt,
   saveWorkspace,
   setProvider,
 } from './api'
@@ -39,6 +42,7 @@ export const useAgentHostStore = defineStore('agentHost', () => {
   const admission = ref<AgentHostAdmission | null>(null)
   const workspace = ref<AgentHostWorkspace | null>(null)
   const registrations = ref<AgentHostRegistration[]>([])
+  const systemPrompt = ref<SystemPromptBlock[] | null>(null)
 
   const url = computed(() => selectedAgentHostUrl())
 
@@ -46,20 +50,22 @@ export const useAgentHostStore = defineStore('agentHost', () => {
     status.value = 'loading'
     try {
       const c = selectedAgentHostClient()
-      // En paralelo: son cinco lecturas independientes del mismo proceso, y en
-      // serie la pantalla tardaría cinco round-trips en pintar.
-      const [p, cap, adm, ws, regs] = await Promise.all([
+      // En paralelo: son seis lecturas independientes del mismo proceso, y en
+      // serie la pantalla tardaría seis round-trips en pintar.
+      const [p, cap, adm, ws, regs, sp] = await Promise.all([
         fetchProvider(c),
         fetchCapacity(c),
         fetchAdmission(c),
         fetchWorkspace(c),
         fetchRegistrations(c),
+        fetchSystemPrompt(c),
       ])
       provider.value = p
       capacity.value = cap
       admission.value = adm
       workspace.value = ws
       registrations.value = regs.registrations
+      systemPrompt.value = sp
       status.value = 'ok'
       statusText.value = `${p.name} · ${cap.running} en curso`
     } catch (err) {
@@ -126,6 +132,7 @@ export const useAgentHostStore = defineStore('agentHost', () => {
     admission,
     workspace,
     registrations,
+    systemPrompt,
     url,
     start,
     stop,
@@ -133,6 +140,8 @@ export const useAgentHostStore = defineStore('agentHost', () => {
       withSave('provider', () => setProvider(selectedAgentHostClient(), id)),
     saveWorkspace: (ws: AgentHostWorkspace) =>
       withSave('workspace', () => saveWorkspace(selectedAgentHostClient(), ws)),
+    saveSystemPrompt: (blocks: SystemPromptBlock[]) =>
+      withSave('systemPrompt', () => saveSystemPrompt(selectedAgentHostClient(), blocks)),
     saveAdmission: (a: AgentHostAdmission) =>
       withSave('admission', () => saveAdmission(selectedAgentHostClient(), a)),
     addRegistration: (u: string) =>

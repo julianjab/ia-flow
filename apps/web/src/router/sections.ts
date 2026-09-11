@@ -56,11 +56,12 @@ export const GENERAL_SECTIONS: AppSection[] = [
  * `logs` no está acá: es su propia ruta top-level (`/agent-host/logs`), igual
  * que el `logs` del server — merece pantalla completa y no compite por tab.
  */
-export type AgentHostTabId = 'provider' | 'workspace' | 'admission' | 'servers'
+export type AgentHostTabId = 'provider' | 'workspace' | 'admission' | 'system-prompt' | 'servers'
 
 export const AGENT_HOST_SECTIONS: { id: AgentHostTabId; label: string; path: string }[] = [
   { id: 'provider', label: 'provider', path: '/agent-host/provider' },
   { id: 'workspace', label: 'workspace', path: '/agent-host/workspace' },
   { id: 'admission', label: 'admisión', path: '/agent-host/admission' },
+  { id: 'system-prompt', label: 'system prompt', path: '/agent-host/system-prompt' },
   { id: 'servers', label: 'servers', path: '/agent-host/servers' },
 ]

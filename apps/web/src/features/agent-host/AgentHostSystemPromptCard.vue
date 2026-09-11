@@ -5,12 +5,12 @@
 // tenga que saber que existe.
 //
 // Sin catálogo acá a propósito: el agent-host no tiene DB (ver
-// apps/agent-host/CLAUDE.md si existiera / el comentario de AgentHostState.
-// systemPrompt) — sólo texto inline, mismo `SystemPromptBlock` que ya usa
-// AnthropicApiSettingsSchema.systemPrompt del lado del provider LOCAL.
+// AgentHostState.systemPrompt) — sólo texto inline, mismo `SystemPromptBlock`
+// que ya usa AnthropicApiSettingsSchema.systemPrompt del lado del provider
+// LOCAL.
 
-import { ref, watch } from 'vue'
 import type { SystemPromptBlock } from '@ia-flow/shared'
+import { ref, watch } from 'vue'
 
 const props = defineProps<{ modelValue: SystemPromptBlock[] | null; saving: boolean }>()
 const emit = defineEmits<{ save: [value: SystemPromptBlock[]] }>()
@@ -58,95 +58,52 @@ function save(): void {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">system prompt</header>
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>system prompt</h2>
+        <p class="section-desc">
+          Se antepone al que ya arma cada agente — describe cómo correr en ESTA máquina (una VM
+          efímera sin red de salida, un toolchain particular), no qué hacer con la tarea.
+        </p>
+      </div>
+    </div>
     <div class="body">
-      <p class="hint">
-        Se antepone al que ya arma cada agente — describe cómo correr en ESTA máquina (una VM
-        efímera sin red de salida, un toolchain particular), no qué hacer con la tarea.
-      </p>
-
-      <div class="blocks">
-        <div v-for="(text, i) in form" :key="i" class="block">
+      <div class="ff-list">
+        <div v-for="(text, i) in form" :key="i" class="ff-list-row block">
           <textarea
-            class="field__textarea"
+            class="ff-field ff-textarea ff-mono"
             rows="3"
             :value="text"
             placeholder="Estás corriendo en una VM efímera de CI, sin red de salida…"
             spellcheck="false"
             @input="setText(i, ($event.target as HTMLTextAreaElement).value)"
           />
-          <button
-            type="button"
-            class="btn btn--drop"
-            title="Quitar bloque"
-            @click="removeBlock(i)"
-          >
+          <button type="button" class="ff-drop" title="Quitar bloque" @click="removeBlock(i)">
             ✕
           </button>
         </div>
-        <button type="button" class="btn btn--add" @click="addBlock">+ bloque</button>
+        <button type="button" class="ff-add" @click="addBlock">+ bloque</button>
       </div>
 
-      <button class="btn btn--primary" :disabled="saving" @click="save">
+      <button class="btn btn--primary save" :disabled="saving" @click="save">
         {{ saving ? 'guardando…' : 'guardar' }}
       </button>
     </div>
   </section>
 </template>
 
+<style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
-  padding: 0.75rem;
-}
-.hint {
-  margin: 0 0 0.75rem;
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
-}
-.blocks {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  gap: 0.75rem;
 }
 .block {
-  display: flex;
-  gap: 0.4rem;
   align-items: flex-start;
 }
-.field__textarea {
-  flex: 1;
-  min-width: 0;
-  padding: 0.5rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  resize: vertical;
-}
-.field__textarea:focus {
-  outline: none;
-  border-color: var(--border-hi);
-}
-.btn--drop {
-  flex: none;
-  height: var(--tap-h);
-  width: var(--tap-h);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--fg-dim);
-  cursor: pointer;
-}
-.btn--add {
+.save {
   align-self: flex-start;
-  height: var(--tap-h);
-  padding: 0 0.75rem;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: var(--fs-body-sm);
 }
 </style>
