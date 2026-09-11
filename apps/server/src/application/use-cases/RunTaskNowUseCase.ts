@@ -78,6 +78,12 @@ export class RunTaskNowUseCase {
   async execute(
     input: { taskId: string; projectId: string },
     source: RunTaskNowSource,
+    // `'manual'` es lo que ve el botón de la UI. El redespacho automático de
+    // checkpoints sync resumibles (`checkpoint-sweep-producer.ts`) reusa este
+    // mismo `execute` — mismas reglas, misma exclusividad, mismos gates de
+    // capacidad— pero pasa su propio `eventSource` para que el evento (y
+    // cualquier log/UI que lo muestre) diga la verdad sobre quién lo disparó.
+    eventSource: string = 'manual',
   ): Promise<RunTaskNowResult> {
     const { taskId, projectId } = input
 
@@ -96,7 +102,7 @@ export class RunTaskNowUseCase {
     }
 
     return {
-      outcome: await this.bus.publish(this.buildEvent(item, projectId)),
+      outcome: await this.bus.publish(this.buildEvent(item, projectId, eventSource)),
       status: item.status,
     }
   }
@@ -141,7 +147,7 @@ export class RunTaskNowUseCase {
       }
     }
 
-    const event = this.buildEvent(item, projectId)
+    const event = this.buildEvent(item, projectId, 'manual')
     const [rules, baseWhen] = await Promise.all([
       this.rules.loadRules(event),
       this.rules.loadBaseWhen(event),
@@ -194,10 +200,10 @@ export class RunTaskNowUseCase {
     }
   }
 
-  private buildEvent(item: IssueItem, projectId: string): EngineEvent {
+  private buildEvent(item: IssueItem, projectId: string, eventSource: string): EngineEvent {
     return createEvent({
       type: ISSUE_STATUS_CHANGED,
-      source: 'manual',
+      source: eventSource,
       scope: { projectId, ...(item.repos ? { repos: item.repos } : {}), issueId: item.id },
       // Mismo payload que arma `diffStatus`: el item aplanado (para las
       // condiciones `when` que resuelven al nivel de arriba) MÁS el item

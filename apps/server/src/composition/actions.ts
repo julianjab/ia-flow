@@ -1,6 +1,7 @@
 import {
   type AgentRunState,
   type DispatchOptions,
+  getPendingTask,
   listPendingTasks,
   MAX_RESUME_AGE_MS,
   MAX_RESUME_ATTEMPTS,
@@ -15,6 +16,7 @@ import type { IIssueManager, IssueItem, SourceItem } from '@ia-flow/issue-source
 import { registerAction } from '@ia-flow/rules'
 import type { RecoverableCheckpoint } from '@ia-flow/shared'
 import { AgentAction } from '../adapters/actions/agent-action.js'
+import { createCheckpointSweep } from '../adapters/actions/checkpoint-sweep.js'
 import { EmitAction } from '../adapters/actions/emit-action.js'
 import { HttpAction } from '../adapters/actions/http-action.js'
 import { createRedispatchAborted } from '../adapters/actions/redispatch-aborted.js'
@@ -32,6 +34,7 @@ import {
   interpolateSecrets,
   repoRepo,
   runCheckpointRepo,
+  runTaskNowUseCase,
 } from './container.js'
 
 const log = createLogger('composition:actions')
@@ -216,9 +219,43 @@ export async function listRecoverableCheckpoints(
         attempts: cp.attempts,
         resumable,
         stillOpen: row ? row.finishedAt == null : false,
+        row,
       }
     })
+    .filter((cp) => {
+      // Sólo sync: `run_checkpoints` hoy sólo lo escribe `anthropic-api` (ver
+      // CLAUDE.md, "El checkpoint: dónde va el run, en disco" — un provider de
+      // terminal nunca llama a `saveCheckpoint`), así que en la práctica esto
+      // nunca filtra nada. Se re-chequea igual, explícito y no por omisión:
+      // esta lista alimenta tanto el botón manual como el redespacho
+      // automático (`checkpoint-sweep` en `daemon.ts`), y ESE consumidor tiene
+      // que poder confiar en el discriminador sync/async sin volver a leer
+      // `execution_logs` por su cuenta — una fila con `sessionId` es una
+      // sesión tmux/iterm/remota, y redespacharla la duplicaría.
+      if (cp.row?.sessionId) {
+        log.warn(
+          { taskId: cp.taskId, runId: cp.runId },
+          'Checkpoint con sessionId — no debería existir (ver saveCheckpoint), se excluye por seguridad',
+        )
+        return false
+      }
+      return true
+    })
+    .map(({ row: _row, ...cp }) => cp)
 }
+
+/**
+ * Redespacha en soledad los checkpoints sync huérfanos (ver docstring de
+ * `createCheckpointSweep`) — el barrido periódico de `daemon.ts` y, si algún
+ * día hace falta, un botón manual lo comparten, igual que `retryAbortRecord`
+ * arriba con el barrido de aborts.
+ */
+export const redispatchRecoverableCheckpoints = createCheckpointSweep({
+  listRecoverableCheckpoints,
+  isRunning: (taskId) => Boolean(getPendingTask(taskId)),
+  sourceFor: getSourceForProjectId,
+  runTaskNow: (input, source, eventSource) => runTaskNowUseCase.execute(input, source, eventSource),
+})
 
 let registered = false
 

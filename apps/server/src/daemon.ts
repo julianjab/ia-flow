@@ -20,6 +20,7 @@ import { PrOutcomeHandler } from './adapters/github/pr-outcome-handler.js'
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
 import {
+  redispatchRecoverableCheckpoints,
   registerActions,
   resolveRuleConversation,
   retryAbortRecord,
@@ -432,6 +433,41 @@ function startAbortRetrySweep(): void {
   }, abortRetrySweepIntervalMs())
 }
 
+/** Barrido de checkpoints sync huérfanos (IA_FLOW_CHECKPOINT_SWEEP, default
+ *  on). Mismo patrón que `IA_FLOW_STARTUP_SCAN`/`IA_FLOW_CRASH_RECOVERY`:
+ *  lectura lazy, nunca una constante de módulo. */
+function checkpointSweepEnabled(): boolean {
+  return Bun.env.IA_FLOW_CHECKPOINT_SWEEP !== '0'
+}
+
+/** Cada cuánto se buscan checkpoints sync resumibles sin nadie corriéndolos.
+ *  5 minutos por default: no es tan urgente como una espera vencida (nadie
+ *  quedó bloqueado esperando esto en particular, sólo huérfano) y barrer más
+ *  seguido no adelanta nada — `listRecoverableCheckpoints` ya excluye los que
+ *  siguen realmente en vuelo. */
+function checkpointSweepIntervalMs(): number {
+  const raw = Number(Bun.env.IA_FLOW_CHECKPOINT_SWEEP_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 5 * 60_000
+}
+
+/**
+ * Arranca el barrido periódico de checkpoints sync huérfanos —
+ * `redispatchRecoverableCheckpoints` (composition/actions.ts) es la lógica
+ * real, ya cableada contra el container; acá sólo se decide SI y CADA CUÁNTO
+ * correrla, igual que `startAbortRetrySweep` con `retryAbortRecord` arriba.
+ */
+function startCheckpointSweep(): void {
+  if (!checkpointSweepEnabled()) {
+    log.warn(
+      'IA_FLOW_CHECKPOINT_SWEEP=0 — los checkpoints sync huérfanos no se redespachan solos, sólo con el botón manual',
+    )
+    return
+  }
+  setInterval(() => {
+    void redispatchRecoverableCheckpoints()
+  }, checkpointSweepIntervalMs())
+}
+
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
   // Both passes are off-switchable, and each silence has a cost worth saying
@@ -464,6 +500,7 @@ export async function startDaemon(): Promise<void> {
   divergenceReconciler.start()
   startProducers()
   startAbortRetrySweep()
+  startCheckpointSweep()
   log.info({ count: running.length }, 'Daemon started')
 }
 
