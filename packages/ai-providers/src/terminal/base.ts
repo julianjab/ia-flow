@@ -6,6 +6,12 @@ import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema, type TerminalProviderSettings } from '@ia-flow/shared'
 import { z } from 'zod'
 import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
+import {
+  type LocalToolsMcp,
+  resolveDaemonToken,
+  resolveDaemonUrl,
+  resolveMcpServers,
+} from '../claude-cli/tools-mcp.js'
 import type { LoadProviderConfig, ProviderInput } from '../contract.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
@@ -255,16 +261,6 @@ async function writeRunSettings(opts: {
   return path
 }
 
-/** El MCP de tools de disco del proceso que hospeda al CLI (hoy, el
- *  `/v1/mcp` del agent-host). */
-export interface LocalToolsMcp {
-  /** baseUrl por donde el CLI lo alcanza — localhost: corre al lado. */
-  url: string
-  token?: string
-  /** ¿Esta tool opera sobre el disco de este proceso? */
-  owns(toolName: string): boolean
-}
-
 export interface TerminalBaseDeps {
   loadProviderConfig: LoadProviderConfig
   /**
@@ -325,97 +321,6 @@ function buildModelAndPermissionFlags(model: string | undefined, dsp: boolean | 
   if (model) flags += ` --model ${model}`
   if (dsp) flags += ' --dangerously-skip-permissions'
   return flags
-}
-
-/** `input.daemonUrl` cuando el run viene de otra máquina (un agent-host); el
- *  localhost de siempre cuando el daemon corre acá al lado. */
-function resolveDaemonUrl(input: ProviderInput): string {
-  return (
-    input.daemonUrl ?? `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
-  )
-}
-
-/** El env sólo vale cuando el daemon es el local: si el run vino de otra
- *  máquina (`input.daemonUrl`), el `IA_FLOW_API_TOKEN` de este proceso es el
- *  del agent-host y no abre nada del daemon de origen — ese lo manda el
- *  daemon en `input.daemonToken`. */
-function resolveDaemonToken(input: ProviderInput): string | undefined {
-  return (
-    input.daemonToken?.trim() || (input.daemonUrl ? undefined : Bun.env.IA_FLOW_API_TOKEN?.trim())
-  )
-}
-
-/** Un MCP sintético del registry de ia-flow. Las tools que sirve,
- *  `run`/`agent`/`project`/`task` viajan en la URL porque MCP no tiene dónde
- *  colgar contexto por llamada. */
-function buildIaFlowToolsMcpServer(
-  input: ProviderInput,
-  baseUrl: string,
-  path: string,
-  toolNames: string[],
-  token: string | undefined,
-): McpServers[string] {
-  const params = new URLSearchParams({ tools: toolNames.join(',') })
-  if (input.runId) params.set('run', input.runId)
-  if (input.agentId) params.set('agent', input.agentId)
-  if (input.projectId) params.set('project', input.projectId)
-  if (input.taskId) params.set('task', input.taskId)
-  return {
-    type: 'http',
-    url: `${baseUrl}${path}?${params.toString()}`,
-    // `writeMcpConfigFile` lo traduce a `Authorization: Bearer <token>`, que
-    // es una de las dos formas que acepta el guard.
-    ...(token ? { authorizationToken: token } : {}),
-  }
-}
-
-/**
- * Merge de los MCP servers configurados con los sintéticos de ia-flow.
- *
- * **Son dos cuando hay dos discos.** Corriendo dentro de un agent-host, el
- * workspace del run está en ESTA máquina y el estado del pipeline (la fuente
- * de issues, GitHub, Slack, la memoria, los tools de cierre) está en el
- * daemon. Mandar todo a un solo lado obliga a equivocarse en la mitad: hasta
- * ahora iba todo al daemon, y los `fs_*` del agente escribían en el disco
- * equivocado mientras su Read/Write nativo operaba en este.
- *
- * Sin `localTools` —un run local, donde el daemon YA es esta máquina— sale
- * un solo server, exactamente como antes.
- */
-export function resolveMcpServers(
-  input: ProviderInput,
-  resolvedMcpServers: McpServers | undefined,
-  daemonUrl: string,
-  daemonToken: string | undefined,
-  localTools: LocalToolsMcp | undefined,
-): McpServers {
-  const mcpServers: McpServers = { ...(resolvedMcpServers ?? {}) }
-  if (!input.tools?.length) return mcpServers
-
-  const agentDisk = localTools ? input.tools.filter((t) => localTools.owns(t)) : []
-  const daemon = localTools ? input.tools.filter((t) => !localTools.owns(t)) : input.tools
-
-  // Un server sin una sola tool no se declara: el CLI abriría la conexión,
-  // pagaría el handshake y recibiría una lista vacía.
-  if (daemon.length) {
-    mcpServers['ia-flow-tools'] = buildIaFlowToolsMcpServer(
-      input,
-      daemonUrl,
-      '/api/mcp',
-      daemon,
-      daemonToken,
-    )
-  }
-  if (localTools && agentDisk.length) {
-    mcpServers['ia-flow-local'] = buildIaFlowToolsMcpServer(
-      input,
-      localTools.url,
-      '/v1/mcp',
-      agentDisk,
-      localTools.token,
-    )
-  }
-  return mcpServers
 }
 
 /** Los `systemPromptBlocks` del agente + la nota de sesión desatendida
@@ -521,13 +426,16 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     // Agent-declared tools reach the CLI as one more MCP server pointing at
     // the daemon's own /api/mcp endpoint — same wire format as any catalog
     // entry (github-mcp, etc), instead of the old curl-recipe appendix.
-    const mcpServers = resolveMcpServers(
+    const mcpServers = resolveMcpServers({
       input,
-      resolvedMcpServers,
+      configured: resolvedMcpServers,
       daemonUrl,
       daemonToken,
-      deps.localTools?.(),
-    )
+      localTools: deps.localTools?.(),
+      // Terminal cierra con `complete_task`: el proceso del CLI sobrevive a
+      // la respuesta y el engine espera su callback.
+      kind: 'async',
+    })
 
     let mcpConfigFile: string | undefined
     if (Object.keys(mcpServers).length > 0) {
