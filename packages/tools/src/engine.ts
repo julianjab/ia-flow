@@ -795,14 +795,26 @@ async function saveLoopCheckpoint(
 // en la llamada — pero cada una se aparea con SU PROPIO result, nunca el de
 // la otra. Si al probar contra `subscriptions` una de las dos formas resulta
 // no ocurrir nunca, ese mapa se puede achicar sin tocar el otro.
-const DIRECT_TYPE_RESULT: Record<string, string> = {
-  mcp_tool_use: 'mcp_tool_result',
-  tool_search_tool_regex: 'tool_search_tool_regex_tool_result',
-  tool_search_tool_bm25: 'tool_search_tool_bm25_tool_result',
+// `kind` decide el SHAPE del result sintético, no sólo su `type` — los dos
+// no comparten schema. `mcp_tool_result` lleva `is_error` + `content` como
+// array de bloques de texto (la forma que Anthropic ya documenta para MCP).
+// `ToolSearchToolResultBlockParam` (`@anthropic-ai/sdk`) es distinto: SIN
+// `is_error`, y `content` es un objeto ÚNICO — para un fallo,
+// `{type: 'tool_search_tool_result_error', error_code, error_message}`
+// (`ToolSearchToolResultErrorParam`). Sintetizar con el shape de MCP para un
+// result de tool search 400earía por forma inválida — el mismo síntoma que
+// este fix busca evitar, sólo que por un motivo distinto.
+type ServerToolResultKind = 'mcp' | 'tool_search'
+type ServerToolResult = { type: string; kind: ServerToolResultKind }
+
+const DIRECT_TYPE_RESULT: Record<string, ServerToolResult> = {
+  mcp_tool_use: { type: 'mcp_tool_result', kind: 'mcp' },
+  tool_search_tool_regex: { type: 'tool_search_tool_regex_tool_result', kind: 'tool_search' },
+  tool_search_tool_bm25: { type: 'tool_search_tool_bm25_tool_result', kind: 'tool_search' },
 }
-const WRAPPED_NAME_RESULT: Record<string, string> = {
-  tool_search_tool_regex: 'tool_search_tool_result',
-  tool_search_tool_bm25: 'tool_search_tool_result',
+const WRAPPED_NAME_RESULT: Record<string, ServerToolResult> = {
+  tool_search_tool_regex: { type: 'tool_search_tool_result', kind: 'tool_search' },
+  tool_search_tool_bm25: { type: 'tool_search_tool_result', kind: 'tool_search' },
 }
 // Todo `type` de result que cualquiera de las dos formas puede producir —
 // usado sólo para reconocer una llamada YA resuelta (nunca para sintetizar).
@@ -813,14 +825,14 @@ const WRAPPED_NAME_RESULT: Record<string, string> = {
 // pasaría por `handleUnresolvedServerToolUse` y cortaría un run que en
 // realidad ya había terminado bien.
 const KNOWN_SERVER_TOOL_RESULT_TYPES = new Set([
-  ...Object.values(DIRECT_TYPE_RESULT),
-  ...Object.values(WRAPPED_NAME_RESULT),
+  ...Object.values(DIRECT_TYPE_RESULT).map((r) => r.type),
+  ...Object.values(WRAPPED_NAME_RESULT).map((r) => r.type),
 ])
 
-/** Result `type` a sintetizar para este bloque de llamada, según CUÁL de las
- *  dos formas trae — o `undefined` si no es ninguno de los server-tools que
- *  este engine puede declarar. */
-function danglingServerToolResultType(b: any): string | undefined {
+/** Result a sintetizar para este bloque de llamada (`type` + `kind` que
+ *  decide su shape), según CUÁL de las dos formas trae — o `undefined` si no
+ *  es ninguno de los server-tools que este engine puede declarar. */
+function danglingServerToolResult(b: any): ServerToolResult | undefined {
   if (typeof b?.type !== 'string') return undefined
   if (Object.hasOwn(DIRECT_TYPE_RESULT, b.type)) return DIRECT_TYPE_RESULT[b.type]
   if (
@@ -833,21 +845,38 @@ function danglingServerToolResultType(b: any): string | undefined {
   return undefined
 }
 
+const PAUSED_CALL_MESSAGE =
+  'The server-tool loop paused before this call returned. Its result is unknown — call it again if you still need it.'
+
+function buildSyntheticServerToolResult(toolUseId: string, result: ServerToolResult): unknown {
+  if (result.kind === 'mcp') {
+    return {
+      type: result.type,
+      tool_use_id: toolUseId,
+      is_error: true,
+      content: [{ type: 'text', text: PAUSED_CALL_MESSAGE }],
+    }
+  }
+  return {
+    type: result.type,
+    tool_use_id: toolUseId,
+    content: {
+      type: 'tool_search_tool_result_error',
+      error_code: 'unavailable',
+      error_message: PAUSED_CALL_MESSAGE,
+    },
+  }
+}
+
 function pairDanglingServerToolUses(
   contentBlocks: any[],
   isUnresolvedServerToolUse: (block: any) => boolean,
 ): any[] {
-  const synthetic = contentBlocks.filter(isUnresolvedServerToolUse).map((b) => ({
-    type: danglingServerToolResultType(b),
-    tool_use_id: b.id,
-    is_error: true,
-    content: [
-      {
-        type: 'text',
-        text: 'The server-tool loop paused before this call returned. Its result is unknown — call it again if you still need it.',
-      },
-    ],
-  }))
+  const synthetic = contentBlocks
+    .filter(isUnresolvedServerToolUse)
+    .map((b) =>
+      buildSyntheticServerToolResult(b.id, danglingServerToolResult(b) as ServerToolResult),
+    )
   return [...contentBlocks, ...synthetic]
 }
 
@@ -866,7 +895,7 @@ function computeDanglingServerToolFlags(
       .map((b) => b.tool_use_id),
   )
   const isUnresolvedServerToolUse = (b: any) =>
-    danglingServerToolResultType(b) !== undefined && !resolvedIds.has(b.id)
+    danglingServerToolResult(b) !== undefined && !resolvedIds.has(b.id)
   const hasUnresolvedServerToolUse = contentBlocks.some(isUnresolvedServerToolUse)
   const serverToolUseWillResume =
     hasUnresolvedServerToolUse && stopReason === 'tool_use' && hasPendingToolUse
