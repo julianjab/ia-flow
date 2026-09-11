@@ -5,7 +5,7 @@ import { timingSafeEqual } from 'node:crypto'
 import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { intersectWritePaths, WorkspaceRequestSchema } from '@ia-flow/shared'
-import type { JsonRpcRequest, McpResponse, McpServerDeps } from '@ia-flow/tools'
+import type { CompiledPolicy, JsonRpcRequest, McpResponse, McpServerDeps } from '@ia-flow/tools'
 import { handleMcpRequest, mcpNoStream, mcpParseError } from '@ia-flow/tools'
 import { type Context, Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
@@ -20,6 +20,27 @@ interface RunWorkspace {
   repoPaths: Record<string, string>
   writePaths?: string[]
   taskId?: string
+  /**
+   * La policy compilada que llegó en el `ProviderInput`. Sin ella `bash_run`
+   * no tiene sus patrones allow/deny y rechaza TODO comando con "no
+   * habilitado" — la tool quedaría ofrecida y muerta.
+   */
+  policy?: CompiledPolicy
+}
+
+/**
+ * Rehidrata la policy que llegó por el cable.
+ *
+ * `JSON.stringify` no tiene Set: `RemoteAgentProvider` manda `toolNames` como
+ * array (y un Set sin convertir colapsa a `{}`). Mismo criterio que
+ * `resolveAnthropicPolicy` — ante cualquier otra forma, allow-list vacía en
+ * vez de romper.
+ */
+function rehydratePolicy(policy: ProviderInput['policy']): RunWorkspace['policy'] {
+  if (!policy) return undefined
+  const raw = policy.toolNames as unknown
+  const iterable = Array.isArray(raw) || raw instanceof Set ? raw : []
+  return { ...policy, toolNames: new Set(iterable as Iterable<string>) }
 }
 
 export interface CreateAppDeps {
@@ -566,6 +587,9 @@ export function createApp({
         repoPaths: ws.repoPaths,
         writePaths: ws.writePaths,
         taskId: ws.taskId,
+        // `handleMcpRequest` le pisa `toolNames` con los de la conexión y
+        // conserva el resto — que es de donde `bash_run` saca su allow/deny.
+        policy: ws.policy,
       }
     },
   }
@@ -806,6 +830,7 @@ export function createApp({
       repoPaths: resolved.repoPaths ?? {},
       writePaths: resolved.writePaths,
       taskId: resolved.taskId,
+      policy: rehydratePolicy(resolved.policy),
     })
   }
 

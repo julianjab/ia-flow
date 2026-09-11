@@ -130,10 +130,16 @@ async function toolDefinitions(conn: McpConnection, deps: McpServerDeps) {
  * tool que nunca se le ofreció, sólo nombrándola.
  */
 async function callContext(conn: McpConnection, deps: McpServerDeps): Promise<ToolContext> {
+  const base = await deps.buildContext(conn)
   return {
-    ...(await deps.buildContext(conn)),
+    ...base,
     providerKind: kindOf(deps),
-    policy: conn.toolNames ? { toolNames: new Set(conn.toolNames) } : undefined,
+    // La allow-list la manda la CONEXIÓN —es lo que `tools/list` ofreció—,
+    // pero el resto de la policy la aporta el host: `bash_run` lee de ahí sus
+    // patrones allow/deny y sin ellos rechaza TODO comando. Mergear y no
+    // pisar: antes esto dejaba la tool ofrecida y muerta en la primera
+    // llamada.
+    policy: conn.toolNames ? { ...base.policy, toolNames: new Set(conn.toolNames) } : base.policy,
     runId: conn.runId,
     agentId: conn.agentId,
     projectId: conn.projectId,

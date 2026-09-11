@@ -40,6 +40,7 @@ import {
   getToolDefinitions,
   setGitTokenPort,
   setLoggerFactory as setToolsLoggerFactory,
+  setWorkspaceManagerPort,
 } from '@ia-flow/tools'
 import {
   BunShellRunner,
@@ -103,8 +104,21 @@ const githubCredentials = lazyGitHubCredentials(() => githubAuthConfigFromEnv(Bu
 // el mismo agente corre en un contenedor. Ver `gitAuthArgs` en @ia-flow/tools.
 setGitTokenPort(() => githubCredentials.getToken())
 
+/**
+ * El WorkspaceManager de este proceso, también como port de las tools.
+ *
+ * `workspace_reset` opera contra el singleton que setea
+ * `setWorkspaceManagerPort`; sin cablearlo devuelve "unavailable" en cada
+ * llamada. El daemon lo hace en su composition root, y acá faltaba: ahora que
+ * el loop de tools de un run remoto corre en este proceso, el port tiene que
+ * apuntar al manager que preparó ESTE workspace.
+ *
+ * Se re-setea en cada construcción a propósito: la pantalla puede cambiar la
+ * config del workspace sin reiniciar, y el port tiene que seguir al manager
+ * vigente.
+ */
 function createWorkspaceManager(settings: WorkspaceSettings) {
-  return new WorkspaceManager(new BunShellRunner(), {
+  const manager = new WorkspaceManager(new BunShellRunner(), {
     reposBase: settings.reposBase ?? undefined,
     worktreeBase: settings.worktreeBase ?? undefined,
     githubToken: () => githubCredentials.getToken(),
@@ -115,6 +129,8 @@ function createWorkspaceManager(settings: WorkspaceSettings) {
     // desde acá, sólo el que orquesta la limpieza sabe si terminó el trabajo.
     deleteEmptyBranches: false,
   })
+  setWorkspaceManagerPort(manager)
+  return manager
 }
 
 function createWorkspaceProvisioner(settings: WorkspaceSettings) {
