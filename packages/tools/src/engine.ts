@@ -472,13 +472,19 @@ function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): Loo
     state.pauseTurnRetries++
     state.pausedText += ctx.textOf()
     ctx.messages.pop()
-    ctx.runLog.info(
+    // `warn` y no `info`: a diferencia de `handlePauseTurn` —que reenvía CON el
+    // turno pausado, o sea con progreso— acá el `pop()` deja la historia igual
+    // que antes del request, así que el reintento es idéntico. Si la pausa es
+    // reproducible (un turno que necesita más round-trips MCP que el cap del
+    // server) se pagan las N vueltas del input completo y el run termina
+    // truncado igual. Que ese gasto se vea en el log es la mitad del tradeoff.
+    ctx.runLog.warn(
       {
         stopReason: ctx.stopReason,
         pauseTurnRetries: state.pauseTurnRetries,
         maxPauseTurnRetries: ctx.maxPauseTurnRetries,
       },
-      'pause_turn con un mcp_tool_use colgado — reintentando sin el turno corrupto',
+      'pause_turn con un mcp_tool_use colgado — reintentando el request sin el turno corrupto',
     )
     return { action: 'continue' }
   }
@@ -773,8 +779,15 @@ function computeMcpToolUseFlags(
   const hasUnresolvedMcpToolUse = contentBlocks.some(
     (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
   )
+  // `pause_turn` entra acá por la misma puerta que `tool_use`: si el turno
+  // pausado trae ADEMÁS un `tool_use` de cliente pendiente, mandan las tools
+  // —ejecutarlas es lo que destraba el turno— y no la rama de más abajo, que
+  // descartaría el turno entero sin correrlas. Es el seguro que `executeLoop`
+  // documenta al calcular `hasPendingToolUse`.
   const mcpToolUseWillResume =
-    hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
+    hasUnresolvedMcpToolUse &&
+    (stopReason === 'tool_use' || stopReason === 'pause_turn') &&
+    hasPendingToolUse
   return { hasUnresolvedMcpToolUse, mcpToolUseWillResume }
 }
 
