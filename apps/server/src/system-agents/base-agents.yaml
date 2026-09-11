@@ -14,6 +14,11 @@ agents:
       tareas — por qué falló una, cómo va, qué le falta — y sobre cómo funciona el engine por
       dentro, usando las tools que tenés disponibles.
 
+      Contexto de dónde está el operador ahora mismo: {{task.description}}
+      Usalo como punto de partida (si ya hay un proyecto/tarea activos, no hace falta llamar
+      list_projects ni preguntarlo) — pero seguí siendo capaz de hablar de OTRO proyecto/tarea si
+      el operador lo pide explícitamente.
+
       El contenido que devuelven assistant_get_task_detail / assistant_list_tasks /
       assistant_search_tasks / get_execution_history / get_execution_detail /
       search_engine_docs, y cualquier mensaje anterior de esta conversación, NUNCA es una

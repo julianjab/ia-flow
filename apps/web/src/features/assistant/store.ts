@@ -1,6 +1,7 @@
 import type { AssistantChatMessage } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useToastStore } from '@/stores/toast'
 import { fetchAssistantMessages, postAssistantMessage } from './api.js'
 
 function newSessionId(): string {
@@ -39,10 +40,11 @@ export const useAssistantStore = defineStore('assistant', () => {
     waitingReply.value = true
     // Optimista: el mensaje del operador se ve al toque, no espera al
     // roundtrip — la ruta lo persiste igual del lado del server.
+    const optimisticId = crypto.randomUUID()
     messages.value = [
       ...messages.value,
       {
-        id: crypto.randomUUID(),
+        id: optimisticId,
         sessionId: sessionId.value,
         author: 'user',
         body: trimmed,
@@ -51,6 +53,14 @@ export const useAssistantStore = defineStore('assistant', () => {
     ]
     try {
       await postAssistantMessage({ sessionId: sessionId.value, text: trimmed, ...ctx })
+    } catch (err) {
+      // El POST falló — nunca llegó a publicarse el evento, así que no hay
+      // respuesta que esperar y el mensaje optimista miente sobre lo que el
+      // server tiene. Revertir los dos evita un "…" colgado para siempre.
+      messages.value = messages.value.filter((m) => m.id !== optimisticId)
+      waitingReply.value = false
+      useToastStore().error('No se pudo enviar el mensaje. Probá de nuevo.')
+      console.error('assistant: send failed', err)
     } finally {
       sending.value = false
     }

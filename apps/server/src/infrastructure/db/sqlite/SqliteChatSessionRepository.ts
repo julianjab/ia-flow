@@ -38,7 +38,20 @@ export class SqliteChatSessionRepository implements IChatSessionRepository {
 
   ensure(id: string, opts?: { projectId?: string; taskId?: string }): ChatSession {
     const existing = this.getById(id)
-    if (existing) return existing
+    if (existing) {
+      // El contexto se actualiza en cada mensaje, no sólo al crear la sesión
+      // — el operador puede escribir desde una tarea, después desde otra (o
+      // desde una vista global). "Último mensaje gana" es lo que hace que
+      // {{task.description}} refleje dónde está el operador AHORA, no dónde
+      // estaba cuando arrancó la sesión.
+      const updated: ChatSession = { ...existing, projectId: opts?.projectId, taskId: opts?.taskId }
+      this.db.run('UPDATE chat_sessions SET project_id = ?, task_id = ? WHERE id = ?', [
+        updated.projectId ?? null,
+        updated.taskId ?? null,
+        id,
+      ])
+      return updated
+    }
     const session: ChatSession = {
       id,
       projectId: opts?.projectId,

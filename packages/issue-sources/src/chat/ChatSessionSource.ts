@@ -10,10 +10,32 @@ import type {
   WatchOptions,
 } from '../contract.js'
 import { ChatSessionTaskSource } from './ChatSessionTaskSource.js'
-import { CHAT_SESSION_STATUS, type ChatSessionStore } from './contract.js'
+import { CHAT_SESSION_STATUS, type ChatSessionRecord, type ChatSessionStore } from './contract.js'
 
-function toSourceItem(id: string, title: string): SourceItem {
-  return { id, title, status: CHAT_SESSION_STATUS }
+/**
+ * `meta.description` es lo único que hace que el contexto de dónde estaba
+ * parado el operador (`projectId`/`taskId`, capturados por
+ * `routes/assistant-chat.ts` en cada mensaje) le llegue al agente:
+ * `defaultToIssueItem` lo copia a `IssueItem.description`, que es lo que
+ * `{{task.description}}` renderiza en el prompt — sin esto, el "contexto
+ * automático" del bubble button no tiene forma de llegar al modelo.
+ */
+function describeContext(session: ChatSessionRecord): string {
+  if (!session.projectId && !session.taskId) {
+    return 'El operador está en una vista global (sin proyecto/tarea activos).'
+  }
+  const parts = [`Proyecto activo: ${session.projectId ?? '(ninguno)'}`]
+  if (session.taskId) parts.push(`Tarea activa: ${session.taskId}`)
+  return parts.join('. ')
+}
+
+function toSourceItem(session: ChatSessionRecord, title: string): SourceItem {
+  return {
+    id: session.id,
+    title,
+    status: CHAT_SESSION_STATUS,
+    meta: { description: describeContext(session) },
+  }
 }
 
 /**
@@ -53,7 +75,7 @@ export class ChatSessionSource implements ProjectSource {
     if (!session) return null
     const messages = await this.store.listMessages(id)
     const title = messages[0]?.body?.slice(0, 80) || `Chat ${id}`
-    return toSourceItem(id, title)
+    return toSourceItem(session, title)
   }
 
   getTransitionManager(_item: IssueItem, broadcast: BroadcastFn): TaskSource {
@@ -62,7 +84,11 @@ export class ChatSessionSource implements ProjectSource {
 
   async loadComments(item: IssueItem): Promise<TaskComment[]> {
     const messages = await this.store.listMessages(item.id)
-    return messages.map((m) => ({ body: m.body, created_at: m.createdAt }))
+    // `author` es lo único que distingue "user" de "assistant" en el prompt
+    // renderizado (`formatComments`, apps/server/src/variables/task.ts) — sin
+    // esto, a partir del 2º turno el modelo ve una lista plana donde sus
+    // propias respuestas y los mensajes del operador son indistinguibles.
+    return messages.map((m) => ({ body: m.body, created_at: m.createdAt, author: m.author }))
   }
 
   // Sin polling propio: el disparo es 100% por evento (`chat.message`),

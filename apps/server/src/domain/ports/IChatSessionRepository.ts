@@ -25,7 +25,10 @@ export interface ChatMessage {
  */
 export interface IChatSessionRepository {
   getById(id: string): ChatSession | null
-  /** Crea la sesión si no existe todavía — idempotente por `id`. */
+  /** Crea la sesión si no existe todavía. Si ya existe, actualiza
+   *  `projectId`/`taskId` con lo que traiga `opts` — "último mensaje gana":
+   *  es lo que hace que el contexto refleje dónde está el operador AHORA,
+   *  no dónde estaba cuando arrancó la sesión. */
   ensure(id: string, opts?: { projectId?: string; taskId?: string }): ChatSession
   setWorking(id: string, working: boolean): void
   listMessages(sessionId: string): ChatMessage[]
