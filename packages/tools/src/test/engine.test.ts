@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test'
+import { DEFAULT_MAX_PAUSE_TURN_RETRIES } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import {
   executeLoop,
@@ -283,12 +284,28 @@ describe('executeLoop — tool use', () => {
 // ─── executeLoop — task budget / truncation ─────────────────────────────────
 
 describe('executeLoop — truncation signals', () => {
-  it('returns truncated=true on first pause_turn when maxPauseTurnRetries is unset (default 0)', async () => {
-    const fetchApi = async () => ({
-      stop_reason: 'pause_turn',
-      content: [{ type: 'text', text: 'partial progress' }],
-    })
+  it('resends DEFAULT_MAX_PAUSE_TURN_RETRIES times before truncating when maxPauseTurnRetries is unset', async () => {
+    let calls = 0
+    const fetchApi = async () => {
+      calls++
+      return { stop_reason: 'pause_turn', content: [{ type: 'text', text: 'partial progress' }] }
+    }
     const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(calls).toBe(DEFAULT_MAX_PAUSE_TURN_RETRIES + 1)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('pause_turn')
+  })
+
+  it('treats the first pause_turn as terminal when maxPauseTurnRetries is explicitly 0', async () => {
+    let calls = 0
+    const fetchApi = async () => {
+      calls++
+      return { stop_reason: 'pause_turn', content: [{ type: 'text', text: 'partial progress' }] }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 0,
+    })
+    expect(calls).toBe(1)
     expect(result.text).toBe('partial progress')
     expect(result.truncated).toBe(true)
     expect(result.stopReason).toBe('pause_turn')
