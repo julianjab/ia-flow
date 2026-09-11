@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'bun:test'
+import { type LocalToolsMcp, resolveMcpServers } from '../claude-cli/tools-mcp.js'
 import type { ProviderInput } from '../contract.js'
-import { type LocalToolsMcp, resolveMcpServers } from './base.js'
 
 const DISK = new Set(['fs_read', 'fs_write', 'bash_run'])
 
 const localTools: LocalToolsMcp = {
   url: 'http://localhost:3002',
   token: 'host-token',
-  owns: (name) => DISK.has(name),
+  owns: (name: string) => DISK.has(name),
 }
 
 function input(overrides: Partial<ProviderInput> = {}): ProviderInput {
@@ -37,7 +37,13 @@ function urlOf(servers: Record<string, unknown>, name: string): URL {
 describe('resolveMcpServers — sin agent-host (run local)', () => {
   it('sale UN solo server, con todas las tools', () => {
     // El daemon YA es esta máquina: partir la entrega no tendría sentido.
-    const servers = resolveMcpServers(input(), undefined, 'http://localhost:3001', 'tok', undefined)
+    const servers = resolveMcpServers({
+      input: input(),
+      configured: undefined,
+      daemonUrl: 'http://localhost:3001',
+      daemonToken: 'tok',
+      localTools: undefined,
+    })
 
     expect(Object.keys(servers)).toEqual(['ia-flow-tools'])
     expect(urlOf(servers, 'ia-flow-tools').searchParams.get('tools')).toBe(
@@ -48,7 +54,13 @@ describe('resolveMcpServers — sin agent-host (run local)', () => {
 
 describe('resolveMcpServers — detrás de un agent-host', () => {
   const servers = () =>
-    resolveMcpServers(input(), undefined, 'http://daemon:3001', 'daemon-tok', localTools)
+    resolveMcpServers({
+      input: input(),
+      configured: undefined,
+      daemonUrl: 'http://daemon:3001',
+      daemonToken: 'daemon-tok',
+      localTools,
+    })
 
   it('las tools de disco van al agent-host y el resto al daemon', () => {
     // El punto entero del cambio: antes iba todo al daemon y un `fs_write`
@@ -91,20 +103,20 @@ describe('resolveMcpServers — detrás de un agent-host', () => {
 
   it('no declara un server que no tendría ni una tool', () => {
     // El CLI pagaría el handshake para recibir una lista vacía.
-    const soloDisco = resolveMcpServers(
-      input({ tools: ['fs_read'] }),
-      undefined,
-      'http://daemon:3001',
-      'daemon-tok',
+    const soloDisco = resolveMcpServers({
+      input: input({ tools: ['fs_read'] }),
+      configured: undefined,
+      daemonUrl: 'http://daemon:3001',
+      daemonToken: 'daemon-tok',
       localTools,
-    )
-    const soloDaemon = resolveMcpServers(
-      input({ tools: ['memory_store'] }),
-      undefined,
-      'http://daemon:3001',
-      'daemon-tok',
+    })
+    const soloDaemon = resolveMcpServers({
+      input: input({ tools: ['memory_store'] }),
+      configured: undefined,
+      daemonUrl: 'http://daemon:3001',
+      daemonToken: 'daemon-tok',
       localTools,
-    )
+    })
 
     expect(Object.keys(soloDisco)).toEqual(['ia-flow-local'])
     expect(Object.keys(soloDaemon)).toEqual(['ia-flow-tools'])
@@ -113,13 +125,25 @@ describe('resolveMcpServers — detrás de un agent-host', () => {
   it('conserva los MCP configurados del agente', () => {
     const configured = { github: { type: 'http' as const, url: 'https://api.github.com/mcp' } }
 
-    const s = resolveMcpServers(input(), configured, 'http://daemon:3001', 'tok', localTools)
+    const s = resolveMcpServers({
+      input: input(),
+      configured,
+      daemonUrl: 'http://daemon:3001',
+      daemonToken: 'tok',
+      localTools,
+    })
 
     expect(Object.keys(s).sort()).toEqual(['github', 'ia-flow-local', 'ia-flow-tools'])
   })
 
   it('un agente sin tools no recibe ningún server sintético', () => {
-    const s = resolveMcpServers(input({ tools: [] }), undefined, 'http://d:3001', 'tok', localTools)
+    const s = resolveMcpServers({
+      input: input({ tools: [] }),
+      configured: undefined,
+      daemonUrl: 'http://d:3001',
+      daemonToken: 'tok',
+      localTools,
+    })
 
     expect(Object.keys(s)).toEqual([])
   })
