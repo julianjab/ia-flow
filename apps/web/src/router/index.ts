@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import AgentHostConsole from '@/features/agent-host/AgentHostConsole.vue'
 import AgentHostLogsView from '@/features/agent-host/AgentHostLogsView.vue'
+import AgentHostView from '@/features/agent-host/AgentHostView.vue'
 import { getSelectedKind, getSelectedServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import DashboardView from '@/views/DashboardView.vue'
@@ -44,11 +44,21 @@ const routes: RouteRecordRaw[] = [
       // porque habla con OTRO proceso y con otra credencial — pero eso no
       // obliga a que sea otra APP: para el operador es una pantalla más.
       //
-      // Estas dos rutas son TODA la app cuando lo elegido es un agent-host: el
-      // shell dibuja sólo estas dos entradas y ninguna de las de un server (ver
-      // `isAgentHost` en AppShell.vue).
-      { path: 'agent-host', name: 'agent-host', component: AgentHostConsole },
+      // Estas rutas son TODA la app cuando lo elegido es un agent-host: el
+      // shell dibuja sólo estas entradas y ninguna de las de un server (ver
+      // `isAgentHost` en AppShell.vue). `/agent-host/:tab` reemplaza a la
+      // grilla única que tenían las cuatro pantallas de config (provider,
+      // workspace, admisión, servers) — mismo patrón que `/general/:tab` para
+      // el server. `logs` queda aparte, estático, y por eso el router la
+      // matchea antes que el `:tab` dinámico.
+      { path: 'agent-host', redirect: '/agent-host/provider' },
       { path: 'agent-host/logs', name: 'agent-host.logs', component: AgentHostLogsView },
+      {
+        path: 'agent-host/:tab',
+        name: 'agent-host',
+        component: AgentHostView,
+        props: (route) => ({ tab: route.params.tab }),
+      },
 
       { path: 'general', redirect: '/general/agentes' },
       {

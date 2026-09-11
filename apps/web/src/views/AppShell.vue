@@ -21,6 +21,7 @@ import { useServerEvents } from '@/composables/useServerEvents';
 import { getSelectedKind, getSelectedServer } from '@/features/servers/selection';
 import { useToastStore } from '@/stores/toast';
 import { fetchProjectStatuses } from '@/features/projects/sourceApi';
+import { AGENT_HOST_SECTIONS } from '@/router/sections';
 
 const providersStore = useProvidersStore();
 const projectsStore = useProjectsStore();
@@ -60,7 +61,10 @@ type SectionId =
   | 'ejecuciones'
   | 'aborted-runs'
   | 'logs'
-  | 'agent-host'
+  | 'agent-host-provider'
+  | 'agent-host-workspace'
+  | 'agent-host-admission'
+  | 'agent-host-servers'
   | 'agent-host-logs'
   | 'proyectos'
   | 'agentes'
@@ -255,7 +259,18 @@ const SECTION_PATH: Record<SectionId, string> = {
   ejecuciones:      '/general/ejecuciones',
   'aborted-runs':   '/general/aborted-runs',
   logs:             '/general/logs',
-  'agent-host':     '/agent-host',
+  // Los cuatro `/agent-host/*` salen de la misma lista compartida que
+  // `AgentHostView` usa para resolver el tab activo — escribirlos de nuevo
+  // acá sería la segunda copia que se puede desincronizar de esa lista.
+  ...(Object.fromEntries(
+    AGENT_HOST_SECTIONS.map((s) => [`agent-host-${s.id}`, s.path]),
+  ) as Record<
+    | 'agent-host-provider'
+    | 'agent-host-workspace'
+    | 'agent-host-admission'
+    | 'agent-host-servers',
+    string
+  >),
   'agent-host-logs': '/agent-host/logs',
   proyectos:        '/projects',
   // Los nueve `/general/*` salen de la lista compartida: escritos otra vez acá
@@ -274,14 +289,16 @@ const activeSection = computed<SectionId>(() => {
   if (path === '/servers') return 'servers';
   // El más específico primero: `/agent-host/logs` empieza con `/agent-host`.
   if (path === '/agent-host/logs') return 'agent-host-logs';
-  if (path === '/agent-host') return 'agent-host';
+  for (const s of AGENT_HOST_SECTIONS) {
+    if (path === s.path || path.startsWith(`${s.path}/`)) return `agent-host-${s.id}` as SectionId;
+  }
   if (path.startsWith('/projects')) return 'proyectos';
   const matches: SectionId[] = ['dashboard', 'ejecuciones', 'aborted-runs', 'logs', 'agentes',
     'system-prompts', 'providers', 'mcp-catalog', 'entorno', 'escaneo'];
   for (const id of matches) {
     if (path === SECTION_PATH[id] || path.startsWith(`${SECTION_PATH[id]}/`)) return id;
   }
-  return isAgentHost ? 'agent-host' : 'dashboard';
+  return isAgentHost ? 'agent-host-provider' : 'dashboard';
 });
 
 function goToSection(id: SectionId) {
@@ -333,13 +350,24 @@ const TABS = computed<
     }[];
   }>
 >(() => {
-  // Un agent-host tiene DOS pantallas y nada más: lo que ese proceso sabe de
-  // sí mismo (provider, workspace, admisión, contra qué servers está
+  // Un agent-host tiene cinco pantallas y nada más: lo que ese proceso sabe
+  // de sí mismo (provider, workspace, admisión, contra qué servers está
   // registrado) y su log. El resto del menú describe un server.
+  //
+  // Antes eran DOS entradas porque las cuatro primeras vivían apeñuscadas en
+  // una sola grilla de tarjetas (`AgentHostConsole`, hoy borrado). Separarlas
+  // en tabs de sidebar —mismo trato que `/general/*` para el server— es lo
+  // que las saca de esa grilla: cada una es su propia pantalla y no compite
+  // por ancho con las otras tres.
   if (isAgentHost) {
     return [
-      { id: 'agent-host',      label: 'agent-host', icon: '', group: 'overview' },
-      { id: 'agent-host-logs', label: 'logs',       icon: '', group: 'overview' },
+      ...AGENT_HOST_SECTIONS.map((s) => ({
+        id: `agent-host-${s.id}` as SectionId,
+        label: s.label,
+        icon: '',
+        group: 'overview',
+      })),
+      { id: 'agent-host-logs', label: 'logs', icon: '', group: 'overview' },
     ];
   }
 

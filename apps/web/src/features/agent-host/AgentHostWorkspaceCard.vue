@@ -44,13 +44,16 @@ function set(key: keyof AgentHostWorkspace, raw: string): void {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">workspace</header>
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>workspace</h2>
+        <p class="section-desc">
+          Dónde clona y dónde trabaja esta máquina. Vacío = el default del proceso.
+        </p>
+      </div>
+    </div>
     <div class="body">
-      <p class="hint">
-        Dónde clona y dónde trabaja esta máquina. Vacío = el default del proceso.
-      </p>
-
       <div class="ff-col">
         <label class="ff-row">
           <span class="uc-label">base de clones</span>
@@ -111,15 +114,9 @@ function set(key: keyof AgentHostWorkspace, raw: string): void {
 <style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
-  padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-.hint {
-  margin: 0;
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
 }
 .save {
   align-self: flex-start;

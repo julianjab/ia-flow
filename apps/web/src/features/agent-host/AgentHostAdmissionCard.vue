@@ -58,14 +58,17 @@ function save(): void {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">admisión</header>
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>admisión</h2>
+        <p class="section-desc">
+          Con qué criterio esta máquina toma trabajo. Todas las reglas tienen que cumplirse. Una
+          regla sobre un dato que la tarea no trae no rechaza.
+        </p>
+      </div>
+    </div>
     <div class="body">
-      <p class="hint">
-        Con qué criterio esta máquina toma trabajo. Todas las reglas tienen que cumplirse. Una
-        regla sobre un dato que la tarea no trae no rechaza.
-      </p>
-
       <ConcurrencyCapField v-model="cap" label="Runs simultáneos" inherit-label="Sin límite" />
 
       <ConditionRowsEditor
@@ -86,14 +89,11 @@ function save(): void {
 
 <style scoped>
 .body {
-  padding: 0.75rem;
-}
-.hint {
-  margin: 0 0 0.75rem;
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 .save {
-  margin-top: 0.75rem;
+  align-self: flex-start;
 }
 </style>

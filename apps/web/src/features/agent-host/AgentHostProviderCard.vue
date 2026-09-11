@@ -15,11 +15,14 @@ defineEmits<{ select: [id: string] }>()
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">provider</header>
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>provider</h2>
+        <p class="section-desc">Qué ejecuta esta máquina. El server no lo elige: lo elige el agent-host.</p>
+      </div>
+    </div>
     <div class="body">
-      <p class="hint">Qué ejecuta esta máquina. El server no lo elige: lo elige el agent-host.</p>
-
       <template v-if="provider">
         <div class="ff-row">
           <span class="uc-label">provider</span>
@@ -51,15 +54,9 @@ defineEmits<{ select: [id: string] }>()
 <style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
-  padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-.hint {
-  margin: 0;
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
 }
 .meta {
   margin: 0;

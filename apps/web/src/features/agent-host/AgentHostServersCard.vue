@@ -21,11 +21,14 @@ function add(): void {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">servers</header>
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>servers</h2>
+        <p class="section-desc">Dónde se anuncia este agent-host al arrancar.</p>
+      </div>
+    </div>
     <div class="body">
-      <p class="hint">Dónde se anuncia este agent-host al arrancar.</p>
-
       <ul v-if="registrations.length" class="list">
         <li v-for="r in registrations" :key="r.serverUrl" class="list__item">
           <span class="dot" :class="r.ok ? 'dot--ok' : 'dot--err'" />
@@ -63,7 +66,6 @@ function add(): void {
 <style scoped src="@/ui/form-fields.css" />
 <style scoped>
 .body {
-  padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

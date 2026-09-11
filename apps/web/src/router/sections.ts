@@ -43,3 +43,24 @@ export const GENERAL_SECTIONS: AppSection[] = [
   { id: 'entorno', label: 'entorno', path: '/general/entorno' },
   { id: 'escaneo', label: 'escaneo', path: '/general/escaneo' },
 ]
+
+/**
+ * Las cuatro pantallas de configuración de UN agent-host (`/agent-host/:tab`).
+ *
+ * Vivían las cuatro apeñuscadas en una sola grilla (`AgentHostConsole`, hoy
+ * borrado): provider, workspace, admisión y servers compitiendo por ancho en
+ * la misma pantalla. Separadas en tabs, cada una es la anatomía "form libre"
+ * de DESIGN_SYSTEM.md — hasta 6 campos, sin secciones internas — en vez de
+ * una tarjeta más de una grilla de tarjetas.
+ *
+ * `logs` no está acá: es su propia ruta top-level (`/agent-host/logs`), igual
+ * que el `logs` del server — merece pantalla completa y no compite por tab.
+ */
+export type AgentHostTabId = 'provider' | 'workspace' | 'admission' | 'servers'
+
+export const AGENT_HOST_SECTIONS: { id: AgentHostTabId; label: string; path: string }[] = [
+  { id: 'provider', label: 'provider', path: '/agent-host/provider' },
+  { id: 'workspace', label: 'workspace', path: '/agent-host/workspace' },
+  { id: 'admission', label: 'admisión', path: '/agent-host/admission' },
+  { id: 'servers', label: 'servers', path: '/agent-host/servers' },
+]
