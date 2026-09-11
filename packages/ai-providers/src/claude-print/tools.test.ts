@@ -132,6 +132,20 @@ describe('claude-print — el timeout', () => {
     expect(killed).toBe(false)
   })
 
+  it('una señal YA abortada mata el proceso igual', async () => {
+    // Entre armar el `--mcp-config` y el spawn hay una escritura a disco: un
+    // cancel que llega en esa ventana ya disparó su evento, así que el
+    // listener no alcanza y el proceso quedaba huérfano reteniendo el slot.
+    let killed = false
+    _claudePrintInternals.spawn = () => ({ ...mockProc(), kill: () => (killed = true) })
+    const ctrl = new AbortController()
+    ctrl.abort()
+
+    await new ClaudePrintProvider({ log: silentLog }).run(input({ tools: [], signal: ctrl.signal }))
+
+    expect(killed).toBe(true)
+  })
+
   it('con un `timeoutMs` explícito sí mata el proceso', async () => {
     let killed = false
     _claudePrintInternals.spawn = () => {
