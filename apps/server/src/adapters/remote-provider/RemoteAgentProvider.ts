@@ -287,13 +287,24 @@ export class RemoteAgentProvider implements IAgentProvider {
       // el del agent-host, no el nuestro, así que sin esto un run async remoto
       // vuelve a arrancar sin tools apenas este daemon tiene el guard puesto.
       //
-      // Sólo para remotos ASYNC, que son los únicos que lo consumen: un run
-      // sync (`AGENT_HOST_PROVIDER=anthropic-api`) ejecuta sus tools allá y
-      // nunca le habla a `/api/mcp`. Este token abre `PUT /api/env-vars` y
-      // `POST /api/tasks` de ESTE daemon, y del otro lado aterriza en el
-      // settings.json per-run y en el env del CLI —cuyo Bash nativo no pasa
-      // por el deny-list de `bash_run`—, así que no viaja donde no hace falta.
-      ...(this.kind === 'async'
+      // Va cuando el otro lado va a ABRIR una conexión contra `/api/mcp`, que
+      // es exactamente cuando el agente declara tools y el provider de allá
+      // las entrega por MCP. Sin el token, con el guard del daemon puesto,
+      // cada tool del agente contesta 401 y el run arranca sin ninguna.
+      //
+      // No alcanza con mirar el kind. Era `kind === 'async'` con el argumento
+      // de que un remoto sync ejecuta sus tools allá y nunca le habla a
+      // `/api/mcp` — cierto para `anthropic-api`, falso para `claude-print`,
+      // que es sync y las entrega por MCP igual que un CLI de terminal (no
+      // acepta definiciones inyectadas).
+      //
+      // El precio de mandarlo de más es real y acotado: este token abre
+      // `PUT /api/env-vars` y `POST /api/tasks` de ESTE daemon, y del otro
+      // lado aterriza en el settings.json per-run y en el env del CLI, cuyo
+      // Bash nativo no pasa por el deny-list de `bash_run`. Por eso se
+      // condiciona a `tools[]` y no se manda siempre: un agente sin tools no
+      // tiene por qué recibirlo.
+      ...(input.tools?.length
         ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
         : {}),
     }

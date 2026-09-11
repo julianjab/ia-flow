@@ -196,6 +196,11 @@ export class ClaudePrintProvider implements IAgentProvider {
       if (timeoutMs && timeoutMs > 0) timeout = setTimeout(() => proc.kill(), timeoutMs)
       onAbort = () => proc.kill()
       input.signal?.addEventListener('abort', onAbort)
+      // La señal puede haber abortado ANTES de este listener: entre el
+      // `resolveMcpServers` y el spawn hay una escritura a disco. Sin este
+      // chequeo el evento ya pasó, el listener no dispara nunca y el proceso
+      // queda huérfano — justo el caso que un cancel temprano produce.
+      if (input.signal?.aborted) proc.kill()
 
       const [stdout, stderr, exitCode] = await Promise.all([
         readStream(proc.stdout),

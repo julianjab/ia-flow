@@ -868,6 +868,13 @@ export function createApp({
       const output = await provider.run({
         ...withGatewaySystemPrompt(resolved),
         daemonUrl: daemonUrlFor(body),
+        // El abort del request es el corte real de un run remoto: por ahí
+        // llegan el cancel del operador y el timeout del daemon
+        // (`IA_FLOW_REMOTE_RUN_TIMEOUT_MS`, 30' por default). Sin esto el
+        // daemon soltaba el fetch y el proceso de acá seguía vivo, reteniendo
+        // su slot para siempre — y era lo único que el timeout hardcodeado de
+        // `claude-print` tapaba a medias.
+        signal: c.req.raw.signal,
       })
       adoptSession(output.session, resolved.runId)
       return c.json(output)
