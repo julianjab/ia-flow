@@ -763,6 +763,16 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
     const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
     const pairedResult = resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_01')
     expect(pairedResult?.type).toBe('tool_search_tool_regex_tool_result')
+    // ToolSearchToolResultBlockParam no lleva `is_error`, y `content` es un
+    // objeto único (ToolSearchToolResultErrorParam) — no un array de bloques
+    // de texto como mcp_tool_result. Sintetizar con el shape de MCP acá
+    // 400earía por forma inválida, el mismo síntoma que el fix evita.
+    expect(pairedResult?.is_error).toBeUndefined()
+    expect(pairedResult?.content).toEqual({
+      type: 'tool_search_tool_result_error',
+      error_code: 'unavailable',
+      error_message: expect.any(String),
+    })
   })
 
   // Per @anthropic-ai/sdk's ServerToolUseBlock, non-MCP server tools may
