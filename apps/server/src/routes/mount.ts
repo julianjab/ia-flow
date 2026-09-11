@@ -21,6 +21,7 @@ import { createActionsRouter } from './actions.js'
 import { createAgentAbortsRouter } from './agent-aborts.js'
 import { createAgentsRouter } from './agents.js'
 import { createAgentsCrudRouter } from './agents-crud.js'
+import { createAssistantChatRouter } from './assistant-chat.js'
 import { createAssistConfigsRouter } from './assist-configs.js'
 import { createEnvVarsRouter } from './env-vars.js'
 import { createExecutionsRouter } from './executions.js'
@@ -66,6 +67,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/mcp', createMcpRouter())
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
   app.route('/api/tasks/assistant', createTaskChatRouter(taskChatUseCase, broadcastFn))
+  app.route('/api/assistant', createAssistantChatRouter())
   app.route('/api/agents-crud', createAgentsCrudRouter())
   app.route(
     '/api/assist-configs',
