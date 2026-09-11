@@ -56,8 +56,8 @@ export class ChatSessionSource implements ProjectSource {
     return toSourceItem(id, title)
   }
 
-  getTransitionManager(_item: IssueItem, _broadcast: BroadcastFn): TaskSource {
-    return new ChatSessionTaskSource(this.store)
+  getTransitionManager(_item: IssueItem, broadcast: BroadcastFn): TaskSource {
+    return new ChatSessionTaskSource(this.store, broadcast)
   }
 
   async loadComments(item: IssueItem): Promise<TaskComment[]> {
