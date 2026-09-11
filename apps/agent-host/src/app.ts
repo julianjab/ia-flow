@@ -5,12 +5,22 @@ import { timingSafeEqual } from 'node:crypto'
 import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { intersectWritePaths, WorkspaceRequestSchema } from '@ia-flow/shared'
+import type { JsonRpcRequest, McpResponse, McpServerDeps } from '@ia-flow/tools'
+import { handleMcpRequest, mcpNoStream, mcpParseError } from '@ia-flow/tools'
 import { type Context, Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
 import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
 import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './state.js'
+
+/** El disco de un run: lo que `/v1/mcp` le da al `ToolContext` para que una
+ *  tool de filesystem opere sobre el workspace de ESTE run y no sobre otro. */
+interface RunWorkspace {
+  repoPaths: Record<string, string>
+  writePaths?: string[]
+  taskId?: string
+}
 
 export interface CreateAppDeps {
   provider: IAgentProvider
@@ -198,6 +208,48 @@ export function createApp({
    * daemon lo leía como muerta, abandonando runs que seguían trabajando.
    */
   const sessions = new Map<string, SessionHandle>()
+
+  /**
+   * El disco de cada run en vuelo — lo que `/v1/mcp` necesita para ejecutar
+   * una tool de filesystem contra el workspace CORRECTO.
+   *
+   * MCP es una conexión, no una llamada: el cliente abre una sola contra
+   * `/v1/mcp?run=<id>` y por ahí pasan todas las tools del run. El `?run=` es
+   * lo único que identifica de qué workspace se trata, así que lo que
+   * `resolveWorkspace` acaba de resolver se guarda acá bajo esa clave.
+   *
+   * Indexado por `runId` y no por `taskId` a propósito: un sub-agente corre
+   * sobre la misma task que su padre y pisaría su entrada.
+   */
+  const runWorkspaces = new Map<string, RunWorkspace>()
+
+  /**
+   * `sessionId → runId` de los runs async en vuelo.
+   *
+   * Es lo que distingue "el run terminó" de "el run recién empezó": en un
+   * provider async `provider.run()` vuelve apenas lanzó la sesión, y las
+   * tools del CLI llegan a `/v1/mcp` DESPUÉS. Sin esto, el `finally` del
+   * handler borraba el workspace y la primera tool del agente no encontraba
+   * su repo.
+   */
+  const sessionRuns = new Map<string, string>()
+
+  /** ¿Queda una sesión async apoyada en este run? Mientras la haya, su
+   *  workspace tiene que seguir resolviendo en `/v1/mcp`. */
+  function hasLiveSession(runId: string): boolean {
+    for (const mapped of sessionRuns.values()) if (mapped === runId) return true
+    return false
+  }
+
+  /** Suelta el workspace de la sesión que se está cerrando. Es la contracara
+   *  del `finally` de un run sync: el mismo recurso, liberado cuando de
+   *  verdad ya no hay quien lo use. */
+  function releaseSessionRun(sessionId: string): void {
+    const runId = sessionRuns.get(sessionId)
+    if (!runId) return
+    sessionRuns.delete(sessionId)
+    if (!hasLiveSession(runId)) runWorkspaces.delete(runId)
+  }
 
   /**
    * El handle de una sesión: del cache si está, reconstruido desde el SO si
@@ -477,6 +529,75 @@ export function createApp({
     )
   })
 
+  // ── MCP: las tools que operan sobre ESTE disco ───────────────────────────
+  //
+  // Un run de terminal detrás de un agent-host tiene dos discos: el CLI y el
+  // workspace están acá, pero la fuente de issues, GitHub, Slack, la memoria
+  // y el registry de pending tasks están en el daemon. Hasta ahora TODAS sus
+  // tools salían por un solo MCP apuntado al daemon, así que un `fs_write`
+  // escribía en la máquina equivocada sin que nada fallara.
+  //
+  // Este endpoint sirve la otra mitad: sólo las tools `runsOn: 'agent-disk'`,
+  // contra el workspace que `resolveWorkspace` ya preparó para ese run. El
+  // CLI corre en esta misma máquina, así que lo alcanza por localhost — no
+  // hace falta exponer nada nuevo ni un túnel.
+  //
+  // El protocolo es el mismo `handleMcpRequest` que sirve `/api/mcp` en el
+  // daemon; lo único de acá es el recorte y el `ToolContext`.
+  const mcpDeps: McpServerDeps = {
+    serverName: 'ia-flow-local',
+    serves: (t) => t.runsOn === 'agent-disk',
+    // El disco sale del `?run=`, no de la llamada. Un run que no está en el
+    // mapa (terminó, o el proceso reinició) queda sin repoPaths: las tools
+    // rechazan por path desconocido, que es lo correcto — mejor que operar
+    // sobre el workspace de otro.
+    buildContext: (conn) => {
+      const ws = conn.runId ? runWorkspaces.get(conn.runId) : undefined
+      if (!ws) {
+        log.warn({ runId: conn.runId }, 'mcp: run sin workspace conocido — sin repoPaths')
+        return { repoPaths: {} }
+      }
+      return {
+        repoPaths: ws.repoPaths,
+        writePaths: ws.writePaths,
+        taskId: ws.taskId,
+      }
+    },
+  }
+
+  function sendMcp(c: Context, res: McpResponse) {
+    if (res.body === null) return c.body(null, res.status as 202 | 204)
+    return c.json(res.body, res.status as 200 | 400 | 405)
+  }
+
+  app.post('/v1/mcp', async (c) => {
+    let body: JsonRpcRequest
+    try {
+      body = await c.req.json()
+    } catch {
+      return sendMcp(c, mcpParseError())
+    }
+    const toolsParam = c.req.query('tools')
+    return sendMcp(
+      c,
+      await handleMcpRequest(
+        body,
+        {
+          toolNames: toolsParam ? toolsParam.split(',').filter(Boolean) : undefined,
+          runId: c.req.query('run'),
+          agentId: c.req.query('agent'),
+          projectId: c.req.query('project'),
+          taskId: c.req.query('task'),
+        },
+        mcpDeps,
+      ),
+    )
+  })
+  // Los otros dos métodos del transporte Streamable HTTP. Sin ellos el CLI
+  // da la conexión por muerta antes de llegar a `tools/list`.
+  app.get('/v1/mcp', (c) => sendMcp(c, mcpNoStream()))
+  app.delete('/v1/mcp', (c) => c.body(null, 204))
+
   // ── Sesiones async ───────────────────────────────────────────────────────
   // El daemon pregunta por ellas mientras espera el callback del agente.
 
@@ -514,6 +635,10 @@ export function createApp({
       })
       sessions.delete(id)
     }
+    // Se suelta aunque el handle no estuviera cacheado: la sesión se está
+    // cerrando igual, y dejar el workspace colgado lo haría crecer para
+    // siempre. Fuera del `if` a propósito.
+    releaseSessionRun(id)
     return c.json({ closed: true })
   })
 
@@ -665,6 +790,35 @@ export function createApp({
     return { ok: true, body: raw }
   }
 
+  /**
+   * Publica el disco de este run para `/v1/mcp`, ANTES de arrancar: un
+   * provider de terminal lanza la sesión y el CLI puede pedir una tool en el
+   * primer segundo.
+   */
+  function publishRunWorkspace(resolved: ProviderInput): void {
+    if (!resolved.runId) return
+    runWorkspaces.set(resolved.runId, {
+      repoPaths: resolved.repoPaths ?? {},
+      writePaths: resolved.writePaths,
+      taskId: resolved.taskId,
+    })
+  }
+
+  /**
+   * Se queda con la sesión que devolvió un provider async — `provider.run()`
+   * vuelve apenas la lanzó y el resultado real llega después, por el callback
+   * del agente al daemon; lo único que viaja en la respuesta son sus
+   * coordenadas.
+   *
+   * Atarla al run es lo que mantiene vivo su workspace: las tools de disco
+   * del CLI llegan a `/v1/mcp` DESPUÉS de que el handler devolvió.
+   */
+  function adoptSession(session: SessionHandle | undefined, runId: string | undefined): void {
+    if (!session) return
+    sessions.set(session.id, session)
+    if (runId) sessionRuns.set(session.id, runId)
+  }
+
   /** Corre el provider para un run ya admitido: cuenta el slot, redirige los
    *  logs al daemon que despachó, y libera todo en el `finally` pase lo que
    *  pase. */
@@ -678,16 +832,13 @@ export function createApp({
     const redriveUrl = daemonUrlFor(body)
     if (redriveRunId && redriveUrl) setRunLogTarget(redriveRunId, redriveUrl)
     try {
+      const resolved = await resolveWorkspace(body)
+      publishRunWorkspace(resolved)
       const output = await provider.run({
-        ...withGatewaySystemPrompt(await resolveWorkspace(body)),
+        ...withGatewaySystemPrompt(resolved),
         daemonUrl: daemonUrlFor(body),
       })
-
-      // Un provider async devuelve apenas lanzó la sesión: el resultado real
-      // llega después, por el callback del agente al daemon. Lo único que
-      // viaja en la respuesta son las coordenadas de esa sesión.
-      if (output.session) sessions.set(output.session.id, output.session)
-
+      adoptSession(output.session, resolved.runId)
       return c.json(output)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -698,6 +849,11 @@ export function createApp({
       // Sin esto el mapa crece con cada run y, peor, un `runId` reciclado
       // mandaría líneas al daemon equivocado.
       if (redriveRunId) clearRunLogTarget(redriveRunId)
+      // El workspace de un run SYNC ya no le sirve a nadie: su loop de tools
+      // corrió adentro de `provider.run()` y terminó. El de uno async sigue
+      // vivo —la sesión recién arranca y sus tools llegan después— y lo
+      // libera `releaseSessionRun` cuando esa sesión se cierra.
+      if (redriveRunId && !hasLiveSession(redriveRunId)) runWorkspaces.delete(redriveRunId)
     }
   }
 
