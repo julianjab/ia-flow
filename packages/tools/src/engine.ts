@@ -772,13 +772,17 @@ function computeMcpToolUseFlags(
   contentBlocks: any[],
   stopReason: string,
   hasPendingToolUse: boolean,
-): { hasUnresolvedMcpToolUse: boolean; mcpToolUseWillResume: boolean } {
+): {
+  hasUnresolvedMcpToolUse: boolean
+  mcpToolUseWillResume: boolean
+  isUnresolvedMcpToolUse: (block: any) => boolean
+} {
   const resolvedMcpToolUseIds = new Set(
     contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
   )
-  const hasUnresolvedMcpToolUse = contentBlocks.some(
-    (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
-  )
+  const isUnresolvedMcpToolUse = (b: any) =>
+    b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id)
+  const hasUnresolvedMcpToolUse = contentBlocks.some(isUnresolvedMcpToolUse)
   // `pause_turn` entra acá por la misma puerta que `tool_use`: si el turno
   // pausado trae ADEMÁS un `tool_use` de cliente pendiente, mandan las tools
   // —ejecutarlas es lo que destraba el turno— y no la rama de más abajo, que
@@ -788,7 +792,7 @@ function computeMcpToolUseFlags(
     hasUnresolvedMcpToolUse &&
     (stopReason === 'tool_use' || stopReason === 'pause_turn') &&
     hasPendingToolUse
-  return { hasUnresolvedMcpToolUse, mcpToolUseWillResume }
+  return { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse }
 }
 
 type StopReasonAction =
@@ -979,11 +983,21 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
-    const { hasUnresolvedMcpToolUse, mcpToolUseWillResume } = computeMcpToolUseFlags(
-      contentBlocks,
-      stopReason,
-      hasPendingToolUse,
-    )
+    const { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse } =
+      computeMcpToolUseFlags(contentBlocks, stopReason, hasPendingToolUse)
+    // Pausa CON tool de cliente pendiente: se ejecutan las tools (es lo que
+    // destraba el turno), pero el turno que queda en la historia no puede
+    // llevarse el `mcp_tool_use` colgado — el próximo request con esa historia
+    // es el 400 de bb6b36ad8. Se saca el bloque y se deja el resto: a
+    // diferencia del `stop_reason: tool_use` documentado —donde Anthropic
+    // resuelve la llamada diferida contra el turno todavía abierto y sacarla
+    // rompería esa promesa— en una pausa el turno ya se cerró.
+    if (stopReason === 'pause_turn' && hasUnresolvedMcpToolUse && hasPendingToolUse) {
+      messages[messages.length - 1] = {
+        role: 'assistant',
+        content: contentBlocks.filter((b) => !isUnresolvedMcpToolUse(b)),
+      }
+    }
     const stepCtx: LoopStepContext = {
       response,
       contentBlocks,
