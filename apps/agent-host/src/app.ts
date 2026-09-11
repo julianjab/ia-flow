@@ -617,6 +617,7 @@ export function createApp({
           agentId: c.req.query('agent'),
           projectId: c.req.query('project'),
           taskId: c.req.query('task'),
+          closesWith: c.req.query('kind') === 'sync' ? 'sync' : undefined,
         },
         mcpDeps,
       ),

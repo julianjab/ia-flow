@@ -36,6 +36,9 @@ function connectionOf(c: Context): McpConnection {
     agentId: c.req.query('agent'),
     projectId: c.req.query('project'),
     taskId: c.req.query('task'),
+    // Sólo quita tools (las async-only, si el cliente cierra por stopReason).
+    // Ver `McpConnection.closesWith`.
+    closesWith: c.req.query('kind') === 'sync' ? 'sync' : undefined,
   }
 }
 

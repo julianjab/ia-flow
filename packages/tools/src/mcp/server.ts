@@ -59,6 +59,17 @@ export interface McpConnection {
   projectId?: string
   /** `?task=` — fallback cuando el modelo no transcribe `task_id`. */
   taskId?: string
+  /**
+   * `?kind=` — cómo CIERRA el run quien abrió esta conexión.
+   *
+   * Sólo puede QUITAR tools, nunca agregar: un cliente que declara `sync`
+   * pierde las que son exclusivas de async (`complete_task`, `fail_task`) y
+   * no gana ninguna. Es lo que evita que un `claude -p` —que cierra por
+   * `stopReason`— reciba un segundo cierre que le sacaría la task del
+   * registry a mitad del run, sin abrirle la puerta a las sync-only que este
+   * host no puede sostener.
+   */
+  closesWith?: ProviderKind
 }
 
 export interface McpServerDeps {
@@ -109,6 +120,12 @@ function kindOf(deps: McpServerDeps): ProviderKind {
   return deps.providerKind ?? 'async'
 }
 
+/** El recorte que pide la conexión — sólo quita. Ver `McpConnection.closesWith`. */
+function servesConnection(tool: Tool, conn: McpConnection): boolean {
+  if (!conn.closesWith || !tool.providerKinds) return true
+  return tool.providerKinds.includes(conn.closesWith)
+}
+
 function rpcResult(id: JsonRpcId, result: unknown): McpResponse {
   return { status: 200, body: { jsonrpc: '2.0' as const, id: id ?? null, result } }
 }
@@ -121,6 +138,7 @@ async function toolDefinitions(conn: McpConnection, deps: McpServerDeps) {
   const perAgent = (await deps.agentOptions?.(conn)) ?? {}
   return resolveTools({ providerKind: kindOf(deps), toolNames: conn.toolNames, ...perAgent })
     .filter((t) => deps.serves?.(t) ?? true)
+    .filter((t) => servesConnection(t, conn))
     .map((t) => ({ name: t.name, description: t.description, inputSchema: t.input_schema }))
 }
 
@@ -159,10 +177,11 @@ async function handleToolsCall(
 
   const ctx = await callContext(conn, deps)
   const tool = resolveExecutableTool(name, ctx)
+  const offered = tool ? servesConnection(tool, conn) : false
   // El recorte del host se re-aplica en la ejecución: sin esto, nombrar una
   // tool que este server no ofrece la correría igual — y en el agent-host eso
   // sería un `add_issue_comment` sin conexión a la fuente.
-  if (!tool || !(deps.serves?.(tool) ?? true)) {
+  if (!tool || !offered || !(deps.serves?.(tool) ?? true)) {
     return rpcResult(id, {
       content: [{ type: 'text', text: `Tool '${name}' not found` }],
       isError: true,
