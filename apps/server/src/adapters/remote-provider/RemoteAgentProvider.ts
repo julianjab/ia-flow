@@ -42,6 +42,43 @@ const log = createLogger('remote-provider')
 // `Number()` y no `parseInt`: `parseInt('30s') === 30` aceptaría un typo en
 // silencio, `Number('30s')` es NaN y cae al default. Sólo `0` explícito
 // desactiva el límite.
+/** Cuánto se espera que el agent-host ACEPTE el run (no que lo termine). */
+const ACCEPT_TIMEOUT_MS = 30_000
+
+/** Timeout de UNA sonda. Corto a propósito: la que falla se reintenta. */
+const POLL_TIMEOUT_MS = 10_000
+
+/**
+ * Cada cuánto se le pregunta por el resultado. Un run dura minutos u horas:
+ * bajarlo sólo suma requests, subirlo sólo suma latencia al cierre.
+ *
+ * Lazy, como el resto de los env del repo: los valores guardados en la DB
+ * llegan a `process.env` por `envRepo.loadIntoProcess()`, que corre DESPUÉS
+ * de los imports. Una constante de módulo los ignoraría en silencio.
+ */
+function pollIntervalMs(): number {
+  const parsed = Number(Bun.env.IA_FLOW_REMOTE_POLL_INTERVAL_MS?.trim())
+  return Number.isFinite(parsed) && parsed >= 50 ? parsed : 2_000
+}
+
+/**
+ * Cuánto silencio seguido del agent-host se tolera antes de dar el run por
+ * perdido. Se mide en TIEMPO y no en cantidad de sondas: así no depende del
+ * interval, que es lo que en realidad importa — dos minutos alcanzan para un
+ * restart del agent-host o un blip de red, y no tanto como para colgar un slot.
+ */
+function maxSilenceMs(): number {
+  const parsed = Number(Bun.env.IA_FLOW_REMOTE_MAX_SILENCE_MS?.trim())
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 120_000
+}
+
+/** Lo que devuelve `GET /v1/runs/:id`. */
+interface DetachedRunStatus {
+  status: 'running' | 'done' | 'failed' | 'unknown'
+  output?: ProviderOutput
+  error?: string
+}
+
 const RUN_TIMEOUT_MS = (() => {
   const raw = Bun.env.IA_FLOW_REMOTE_RUN_TIMEOUT_MS?.trim()
   const parsed = raw ? Number(raw) : Number.NaN
@@ -214,21 +251,19 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     let res: Response
     try {
-      res = await fetch(`${baseUrl}/v1/run`, {
+      res = await fetch(`${baseUrl}/v1/run?wait=poll`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: payload,
-        // El límite REAL es el AbortSignal: la opción `timeout` de fetch en
-        // Bun es booleana (un número no configura milisegundos — verificado
-        // empíricamente), así que acá sólo sirve para desarmar el default de
-        // 300s del runtime; el corte propio lo impone AbortSignal.timeout,
-        // combinado con la cancelación del engine cuando viene.
-        signal:
-          RUN_TIMEOUT_MS > 0
-            ? input.signal
-              ? AbortSignal.any([input.signal, AbortSignal.timeout(RUN_TIMEOUT_MS)])
-              : AbortSignal.timeout(RUN_TIMEOUT_MS)
-            : input.signal,
+        // Este request ya NO dura lo que dura el run: el agent-host acepta y
+        // contesta 202 (ver `?wait=poll`), así que alcanza con el timeout de
+        // aceptación. El presupuesto del run entero lo lleva el sondeo.
+        //
+        // `timeout: false` desarma el default de 300s del runtime — la opción
+        // de fetch en Bun es booleana, un número no configura milisegundos.
+        signal: input.signal
+          ? AbortSignal.any([input.signal, AbortSignal.timeout(ACCEPT_TIMEOUT_MS)])
+          : AbortSignal.timeout(ACCEPT_TIMEOUT_MS),
         timeout: false,
       } as RequestInit)
     } catch (err) {
@@ -256,7 +291,13 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     if (!res.ok) await this.throwForFailedRun(res, baseUrl)
 
-    const output = (await res.json()) as ProviderOutput
+    const body202 = res.status === 202 ? ((await res.json()) as { runId?: string }) : undefined
+    // Un agent-host anterior a `?wait=poll` ignora el flag y contesta 200 con
+    // el output colgado del request. Se acepta tal cual: un daemon nuevo
+    // tiene que seguir hablándole a un agent-host viejo.
+    const output = body202?.runId
+      ? await this.awaitDetachedRun(baseUrl, token, body202.runId, input)
+      : ((await res.json()) as ProviderOutput)
     log.debug(
       {
         providerId: this.id,
@@ -308,6 +349,131 @@ export class RemoteAgentProvider implements IAgentProvider {
         ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
         : {}),
     }
+  }
+
+  /**
+   * Espera un run que el agent-host aceptó y corre desacoplado, preguntándole
+   * por el resultado.
+   *
+   * **Por qué sondear y no recibir un callback.** El resultado vive del lado
+   * del agent-host hasta que lo vengan a buscar: así este daemon no necesita
+   * exponerle una ruta nueva ni el agent-host aprender a autenticarse contra
+   * su API, y un daemon que se reinició a mitad del run puede volver a
+   * preguntar en vez de haberse perdido el único aviso.
+   *
+   * El costo es un request cada `POLL_INTERVAL_MS` — despreciable contra un
+   * run que dura minutos u horas, y cada uno con su propio timeout corto, así
+   * que un blip de red ya no es un run fallido: se reintenta en el siguiente.
+   * Eso es lo que el request colgado no podía hacer.
+   */
+  private async awaitDetachedRun(
+    baseUrl: string,
+    token: string,
+    runId: string,
+    input: ProviderInput,
+  ): Promise<ProviderOutput> {
+    const auth = { authorization: `Bearer ${token}` }
+    const deadline = RUN_TIMEOUT_MS > 0 ? Date.now() + RUN_TIMEOUT_MS : Number.POSITIVE_INFINITY
+    // Desde cuándo no contesta. Se limpia con cada respuesta buena: lo que
+    // importa es el silencio SEGUIDO, no el total de un run de una hora.
+    let silentSince: number | undefined
+
+    while (true) {
+      await this.assertStillWaiting(baseUrl, auth, runId, input, deadline)
+      await Bun.sleep(pollIntervalMs())
+
+      const probe = await this.probeDetachedRun(baseUrl, auth, runId)
+      if (!probe.ok) {
+        silentSince ??= Date.now()
+        // Se insiste mientras el agent-host pueda volver: un corte de red no
+        // es un run fallido. Recién cuando no contesta de forma sostenida se
+        // da por perdido — y ahí el run SÍ falló, porque el proceso que lo
+        // corría no está.
+        if (Date.now() - silentSince >= maxSilenceMs()) {
+          throw new Error(
+            `RemoteAgentProvider(${this.id}): el agent-host dejó de responder durante el run ${runId} — ${probe.error}`,
+          )
+        }
+        continue
+      }
+
+      silentSince = undefined
+      const { status } = probe
+      if (status.status === 'running') continue
+      if (status.status === 'done' && status.output) return status.output
+      if (status.status === 'failed') {
+        throw new Error(`RemoteAgentProvider(${this.id}): ${status.error ?? 'el run falló'}`)
+      }
+      // `unknown`: el agent-host no conoce este run. O reinició —y el run
+      // murió con él— o alguien ya cobró el resultado. En los dos casos no
+      // hay nada más que esperar, y decirlo es mejor que sondear para siempre.
+      throw new Error(
+        `RemoteAgentProvider(${this.id}): el agent-host perdió el run ${runId} (¿reinició?)`,
+      )
+    }
+  }
+
+  /** Los dos motivos para dejar de esperar que no vienen del agent-host: el
+   *  cancel del operador y el presupuesto del run. Los dos avisan del otro
+   *  lado antes de tirar — si no, el CLI sigue trabajando sobre una task que
+   *  este daemon ya dio por cerrada. */
+  private async assertStillWaiting(
+    baseUrl: string,
+    auth: Record<string, string>,
+    runId: string,
+    input: ProviderInput,
+    deadline: number,
+  ): Promise<void> {
+    if (input.signal?.aborted) {
+      await this.cancelDetachedRun(baseUrl, auth, runId)
+      throw new Error(`RemoteAgentProvider(${this.id}): run cancelado`)
+    }
+    if (Date.now() > deadline) {
+      await this.cancelDetachedRun(baseUrl, auth, runId)
+      throw new Error(
+        `RemoteAgentProvider(${this.id}): el run ${runId} superó IA_FLOW_REMOTE_RUN_TIMEOUT_MS (${RUN_TIMEOUT_MS}ms)`,
+      )
+    }
+  }
+
+  /** Una sonda. No tira: un fallo de red es un dato para el llamador, que es
+   *  quien decide si ya es suficiente silencio. */
+  private async probeDetachedRun(
+    baseUrl: string,
+    auth: Record<string, string>,
+    runId: string,
+  ): Promise<{ ok: true; status: DetachedRunStatus } | { ok: false; error: string }> {
+    try {
+      const res = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
+        headers: auth,
+        signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+      })
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      return { ok: true, status: (await res.json()) as DetachedRunStatus }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      log.debug({ providerId: this.id, runId, err: error }, 'remote: el sondeo del run falló')
+      return { ok: false, error }
+    }
+  }
+
+  /** Le avisa al agent-host que deje de trabajar. Best-effort: si no llega,
+   *  lo que sigue es que el run se dé por terminado de este lado igual. */
+  private async cancelDetachedRun(
+    baseUrl: string,
+    auth: Record<string, string>,
+    runId: string,
+  ): Promise<void> {
+    await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
+      method: 'DELETE',
+      headers: auth,
+      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+    }).catch((err) => {
+      log.warn(
+        { providerId: this.id, runId, err: String(err) },
+        'remote: no se pudo avisar el cancel — el agent-host puede seguir trabajando',
+      )
+    })
   }
 
   /** Interpreta un `/v1/run` que no respondió 2xx y tira. Nunca retorna. */
