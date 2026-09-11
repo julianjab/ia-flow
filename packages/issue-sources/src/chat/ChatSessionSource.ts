@@ -13,16 +13,7 @@ import { ChatSessionTaskSource } from './ChatSessionTaskSource.js'
 import { CHAT_SESSION_STATUS, type ChatSessionStore } from './contract.js'
 
 function toSourceItem(id: string, title: string): SourceItem {
-  return {
-    id,
-    title,
-    status: CHAT_SESSION_STATUS,
-    // Nunca `true` — el campo que la `activation` del agente de chat
-    // referencia en su `when` para no matchear nunca un scan automático
-    // (ver CHAT_SESSION_STATUS y el plan de esta feature: sólo la regla fija
-    // `on: chat.message` dispara este agente, con el agentId ya resuelto).
-    meta: { chatEligible: false },
-  }
+  return { id, title, status: CHAT_SESSION_STATUS }
 }
 
 /**
@@ -30,9 +21,16 @@ function toSourceItem(id: string, title: string): SourceItem {
  * que cualquier board real (GitHub, local-fs): sus "issues" son sesiones de
  * conversación y sus "comentarios" los mensajes de usuario/agente, lo que
  * hace que `{{task.comments}}` y el resto del prompt-builder funcionen sin
- * cambios. Nunca se lista para el daemon (ver `getItems`/`watch`): el único
- * disparador es el evento `chat.message`, con el `IssueItem` ya resuelto en
- * el payload — `getItemById` existe como respaldo, no como camino caliente.
+ * cambios.
+ *
+ * `getItems`/`watch` devuelven vacío/no-op a propósito: desde la migración
+ * 059 el "cuándo corre un agente" vive enteramente en `rules` (un
+ * `AgentDefinition` ya no declara activación), así que el daemon no tiene
+ * ningún scan automático que decida por su cuenta correr el asistente sobre
+ * una sesión — el único disparador posible es la regla fija `on:
+ * chat.message` (ver `apps/server/src/system-agents/`), con el `IssueItem`
+ * ya resuelto en el payload del evento. `getItemById` existe como respaldo
+ * para ese camino, no como uno que el daemon recorra solo.
  */
 export class ChatSessionSource implements ProjectSource {
   readonly kind = 'chat-session'

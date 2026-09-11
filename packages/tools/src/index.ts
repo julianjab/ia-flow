@@ -87,3 +87,17 @@ export type { HaikuRequest, HaikuResponse, HaikuTool } from './haiku.js'
 // segundo camino a la misma API sería un segundo lugar donde acordarse de
 // leer `Bun.env` por llamada.
 export { askHaiku, HAIKU_MODEL, haikuAuthHeader } from './haiku.js'
+
+// Tools del asistente conversacional — a diferencia de `task-read.ts`, estas
+// SÍ pasan por `registerTool()`: el asistente es un `AgentDefinition` real
+// (ver `apps/server/src/system-agents/`), no un caller ad-hoc, así que sus
+// tools salen del registry compartido como las de cualquier otro agente.
+export { setAssistantProjectPorts } from './task/task-query.js'
+export { setProjectWritePort } from './task/task-create.js'
+export { setExecutionReadPort } from './execution/execution-read.js'
+export { setDocsRoot } from './docs/engine-docs-read.js'
+
+import './task/task-query.js'
+import './task/task-create.js'
+import './execution/execution-read.js'
+import './docs/engine-docs-read.js'
