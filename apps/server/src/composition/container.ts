@@ -165,8 +165,8 @@ import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { daemonUrl } from '../server-port.js'
 import {
+  baseAgents,
   CHAT_PROJECT_ID,
-  loadBaseAgents,
   SystemAgentProjectConfigRepository,
   SystemRuleRepository,
 } from '../system-agents/index.js'
@@ -405,11 +405,8 @@ const scopedRuleRepo: IRuleRepository = new ProjectScopedRuleRepository(
 
 // Agentes y reglas intrínsecos del engine (el asistente conversacional del
 // bubble button) — versionados con el código, no en la DB ni en la tabla
-// `rules`. Ver apps/server/src/system-agents/.
-const baseAgents = loadBaseAgents(
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'system-agents', 'base-agents.yaml'),
-)
-
+// `rules`. `baseAgents` ya viene parseado desde el texto embebido en el
+// bundle (ver apps/server/src/system-agents/index.ts).
 export const ruleRepo: IRuleRepository = new SystemRuleRepository(
   scopedRuleRepo,
   CHAT_PROJECT_ID,
@@ -465,7 +462,13 @@ export const agentRepo: IAgentRepository = pickRepo<IAgentRepository>({
     new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml')),
   envVar: 'IA_FLOW_AGENT_REPO',
 })
-const baseConfigRepo = new SqliteProjectConfigRepo(
+// Exportado (no sólo interno) porque `invalidateMemoized` necesita apuntar a
+// la instancia que de verdad tiene el cache — @memoize guarda por instancia
+// (WeakMap keyed por `this`), y `configRepo` (el decorador de abajo) es OTRA
+// instancia sin entrada memoizada. Invalidar sobre `configRepo` sería un
+// no-op silencioso: la config quedaría sirviendo datos viejos hasta que
+// venza el TTL después de crear/editar un agente, status o system prompt.
+export const baseConfigRepo = new SqliteProjectConfigRepo(
   systemPromptRepo,
   projectRepo,
   statusRepo,
@@ -483,11 +486,25 @@ export const configRepo = new SystemAgentProjectConfigRepository(
 // agente viven en `base-agents.yaml`, no acá). Se asegura de forma idempotente
 // en cada boot: no es un seed de config del operador, es infraestructura del
 // engine — la fila sólo aporta `id` y `source.kind`.
-projectRepo.upsert({
-  id: CHAT_PROJECT_ID,
-  name: 'Asistente (chat)',
-  source: { kind: 'chat-session', config: {} },
-})
+//
+// `projectRepo` puede ser de sólo lectura (flavor `runner` con
+// `IA_FLOW_PROJECT_REPO=yaml`/`preloaded.projects`) — ahí `upsert` tira
+// siempre. Sin este try/catch, ESE throw pasaría a nivel de módulo y
+// tumbaría el boot entero del proceso, headless o no. Degradar con un warn
+// es correcto: en un deploy así el chat simplemente no tiene proyecto
+// propio salvo que el operador lo declare a mano en su YAML.
+try {
+  projectRepo.upsert({
+    id: CHAT_PROJECT_ID,
+    name: 'Asistente (chat)',
+    source: { kind: 'chat-session', config: {} },
+  })
+} catch (err) {
+  log.warn(
+    { err: (err as Error).message },
+    'No se pudo asegurar el proyecto reservado del chat (repo de proyectos read-only) — el asistente conversacional queda sin proyecto propio salvo que se declare a mano',
+  )
+}
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo: IPromptRepository = pickRepo<IPromptRepository>({
   sqlite: () => new SqlitePromptRepository(db),

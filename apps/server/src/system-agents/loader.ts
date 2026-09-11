@@ -22,6 +22,22 @@ export interface BaseAgentsConfig {
   rules: Rule[]
 }
 
+/** Puro — sin I/O. Es lo que `composition/container.ts` llama, contra el
+ *  texto que Bun embebió en el bundle en build time (ver `yaml-text.d.ts`):
+ *  un `readFileSync` relativo a `import.meta.url` no encontraría el YAML en
+ *  el bundle de un solo archivo del flavor `runner` (sin `node_modules` ni
+ *  el resto del repo al lado — ver Dockerfile.runner). */
+export function loadBaseAgentsFromText(raw: string): BaseAgentsConfig {
+  const result = BaseAgentsFileSchema.safeParse(parseYaml(raw))
+  if (!result.success) {
+    throw new Error(`base-agents.yaml no cumple el schema de agentes base: ${result.error.message}`)
+  }
+  return result.data
+}
+
+/** Wrapper con I/O — sólo para tests, que sí pueden leer el archivo del
+ *  disco del repo directamente. El código de producción usa
+ *  `loadBaseAgentsFromText` con el texto embebido, no esto. */
 export function loadBaseAgents(filePath: string): BaseAgentsConfig {
   let raw: string
   try {
@@ -29,9 +45,5 @@ export function loadBaseAgents(filePath: string): BaseAgentsConfig {
   } catch (err) {
     throw new Error(`No se pudo leer '${filePath}': ${(err as Error).message}`)
   }
-  const result = BaseAgentsFileSchema.safeParse(parseYaml(raw))
-  if (!result.success) {
-    throw new Error(`'${filePath}' no cumple el schema de agentes base: ${result.error.message}`)
-  }
-  return result.data
+  return loadBaseAgentsFromText(raw)
 }
