@@ -27,10 +27,13 @@ import {
   setLoggerFactory as setGithubAuthLoggerFactory,
 } from '@ia-flow/github-auth'
 import {
+  type ChatSessionStore,
+  ChatSessionSource,
   createDefaultSourceFactory,
   DivergenceReconciler,
   defaultToIssueItem,
   fetchPullRequestDiff,
+  type IssueItem,
   LocalProjectSource,
   type PendingTaskRegistryPort,
   type ProjectSource,
@@ -50,9 +53,13 @@ import {
   executeLoop,
   getToolDefinitions,
   setAgentMemoryPort,
+  setAssistantProjectPorts,
+  setDocsRoot,
+  setExecutionReadPort,
   setGitTokenPort,
   setPausePort,
   setProjectReadPort,
+  setProjectWritePort,
   setRepoResolverPort,
   setRunAgentPort,
   setLoggerFactory as setToolsLoggerFactory,
@@ -67,7 +74,8 @@ import {
   WorkspaceManager,
   WorktreeWorkspaceProvisioner,
 } from '@ia-flow/workspace'
-import { join } from 'path'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.js'
 import { readTranscriptUsage } from '../adapters/claude-code/transcript-usage.js'
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
@@ -120,6 +128,7 @@ import {
   SqliteAgentMemoryRepository,
   SqliteAgentRepository,
   SqliteAssistCallerConfigRepository,
+  SqliteChatSessionRepository,
   SqliteEnvVarRepository,
   SqliteExecutionLogRepository,
   SqliteGlobalSettingsRepository,
@@ -155,6 +164,12 @@ import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.j
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { daemonUrl } from '../server-port.js'
+import {
+  CHAT_PROJECT_ID,
+  loadBaseAgents,
+  SystemAgentProjectConfigRepository,
+  SystemRuleRepository,
+} from '../system-agents/index.js'
 import { resolveVariable } from '../variables/index.js'
 import { getPreloadedConfig } from './preloaded.js'
 
@@ -383,9 +398,22 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
 // El decorador va por FUERA de las dos variantes: la baja por proyecto
 // (`settings.disabledRuleIds`) no depende del storage, así que envolver acá la
 // escribe una vez en vez de dos — ver ProjectScopedRuleRepository.
-export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
+const scopedRuleRepo: IRuleRepository = new ProjectScopedRuleRepository(
   preloaded.rules ? new YamlRuleRepository(preloaded.rules) : new SqliteRuleRepository(db),
   projectRepo,
+)
+
+// Agentes y reglas intrínsecos del engine (el asistente conversacional del
+// bubble button) — versionados con el código, no en la DB ni en la tabla
+// `rules`. Ver apps/server/src/system-agents/.
+const baseAgents = loadBaseAgents(
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'system-agents', 'base-agents.yaml'),
+)
+
+export const ruleRepo: IRuleRepository = new SystemRuleRepository(
+  scopedRuleRepo,
+  CHAT_PROJECT_ID,
+  baseAgents.rules,
 )
 
 // Sin variante YAML: una espera es estado de runtime, no config. Un deploy
@@ -437,13 +465,29 @@ export const agentRepo: IAgentRepository = pickRepo<IAgentRepository>({
     new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml')),
   envVar: 'IA_FLOW_AGENT_REPO',
 })
-export const configRepo = new SqliteProjectConfigRepo(
+const baseConfigRepo = new SqliteProjectConfigRepo(
   systemPromptRepo,
   projectRepo,
   statusRepo,
   settingsRepo,
   agentRepo,
 )
+export const configRepo = new SystemAgentProjectConfigRepository(
+  baseConfigRepo,
+  CHAT_PROJECT_ID,
+  baseAgents.agents,
+)
+
+// Proyecto reservado que hospeda las sesiones de chat — sólo plumbing (le da
+// un id a `configRepo.getConfig`/`ruleRepo.visibleTo`; el prompt/tools del
+// agente viven en `base-agents.yaml`, no acá). Se asegura de forma idempotente
+// en cada boot: no es un seed de config del operador, es infraestructura del
+// engine — la fila sólo aporta `id` y `source.kind`.
+projectRepo.upsert({
+  id: CHAT_PROJECT_ID,
+  name: 'Asistente (chat)',
+  source: { kind: 'chat-session', config: {} },
+})
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo: IPromptRepository = pickRepo<IPromptRepository>({
   sqlite: () => new SqlitePromptRepository(db),
@@ -556,6 +600,31 @@ export const remoteProviderHealth = new RemoteProviderHealthMonitor(
   broadcast,
 )
 export const sourceFactory = createDefaultSourceFactory({ taskRepo })
+
+// El asistente conversacional (bubble button de apps/web) — ver
+// apps/server/src/system-agents/. `SqliteChatSessionRepository` es sync
+// (bun:sqlite); el adaptador lo envuelve en la forma async que
+// `ChatSessionSource`/`ChatSessionTaskSource` esperan, mismo patrón que el
+// port de memoria de agentes un poco más abajo.
+export const chatSessionRepo = new SqliteChatSessionRepository(db)
+const chatSessionStore: ChatSessionStore = {
+  async getById(id) {
+    return chatSessionRepo.getById(id)
+  },
+  async ensure(id, opts) {
+    return chatSessionRepo.ensure(id, opts)
+  },
+  async setWorking(id, working) {
+    chatSessionRepo.setWorking(id, working)
+  },
+  async listMessages(sessionId) {
+    return chatSessionRepo.listMessages(sessionId)
+  },
+  async appendMessage(sessionId, author, body) {
+    return chatSessionRepo.appendMessage(sessionId, author, body)
+  },
+}
+sourceFactory.add('chat-session', () => new ChatSessionSource(chatSessionStore))
 
 export function getSourceForProjectId(projectId: string): ProjectSource {
   const project = projectRepo.get(projectId)
@@ -692,13 +761,13 @@ setRepoResolverPort({ resolveGithubRepo })
 // list_tasks, search_tasks — ver packages/tools/src/task/task-read.ts). Usa
 // el mismo `getSourceForProjectId` que el resto del server, así que un item
 // del asistente y uno del daemon vienen del mismo ProjectSource cacheado.
-setProjectReadPort({
-  async listItems(projectId) {
+const projectReadPortImpl = {
+  async listItems(projectId: string) {
     const source = getSourceForProjectId(projectId)
     const items = await source.getItems()
     return items.map((item) => source.toIssueItem?.(item) ?? defaultToIssueItem(item))
   },
-  async getItem(projectId, itemId) {
+  async getItem(projectId: string, itemId: string) {
     const source = getSourceForProjectId(projectId)
     // `getItemById` es opcional — su ausencia significa "el caller cae a
     // getItems()" (ver el doc del método en contract.ts), no "el item no
@@ -710,11 +779,72 @@ setProjectReadPort({
     if (!raw) return null
     return source.toIssueItem?.(raw) ?? defaultToIssueItem(raw)
   },
-  async loadComments(projectId, item) {
+  async loadComments(projectId: string, item: IssueItem) {
     const source = getSourceForProjectId(projectId)
     return (await source.loadComments?.(item)) ?? []
   },
+}
+setProjectReadPort(projectReadPortImpl)
+
+// El asistente conversacional (bubble button) reusa el MISMO
+// `ProjectReadPort` — un item que ve el daemon es el mismo que ve el chat.
+// `list` es lo que le permite orientarse sin proyecto activo (`list_projects`,
+// ver task/task-query.ts). `createItem` es el único mutador que sus tools
+// pueden usar (`create_task`, task/task-create.ts): crear un item en OTRO
+// proyecto, nunca escribir sobre el de la task activa.
+setAssistantProjectPorts({
+  read: projectReadPortImpl,
+  list: {
+    async list() {
+      return projectRepo.list().map((p) => ({ id: p.id, name: p.name }))
+    },
+  },
 })
+setProjectWritePort({
+  async createItem(projectId, input) {
+    const source = getSourceForProjectId(projectId)
+    if (!source.createItem) {
+      throw new Error(`El proyecto '${projectId}' no admite crear tareas.`)
+    }
+    const created = await source.createItem(input)
+    return { id: created.id, title: created.title, url: created.url }
+  },
+})
+// Lectura de execution_logs para "¿por qué falló esta tarea?"/"¿cómo va?"
+// (get_execution_history/get_execution_detail, execution/execution-read.ts).
+setExecutionReadPort({
+  list: (filters) =>
+    executionLogRepo.list(filters).map((row) => ({
+      id: row.id,
+      agentId: row.agentId,
+      outcome: row.outcome ?? undefined,
+      failureClass: row.failureClass ?? undefined,
+      errorMsg: row.errorMsg ?? undefined,
+      startedAt: row.startedAt,
+      finishedAt: row.finishedAt ?? undefined,
+    })),
+  getById: (id) => {
+    const row = executionLogRepo.getById(id)
+    if (!row) return null
+    return {
+      id: row.id,
+      agentId: row.agentId,
+      taskId: row.taskId,
+      outcome: row.outcome ?? undefined,
+      failureClass: row.failureClass ?? undefined,
+      errorMsg: row.errorMsg ?? undefined,
+      startedAt: row.startedAt,
+      finishedAt: row.finishedAt ?? undefined,
+    }
+  },
+})
+// La raíz del repo, para que `search_engine_docs` escanee sus CLAUDE.md — sólo
+// tiene sentido en el flavor `full`, que corre desde el working tree; un
+// deploy headless sin el repo fuente deja esto sin setear y la tool degrada
+// con un aviso (ver docs/engine-docs-read.ts).
+setDocsRoot(
+  preloaded.projects ? null : join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..'),
+)
 // El port de memoria es async y el repo es sync (bun:sqlite): el adaptador
 // existe para que mover el store a algo remoto no obligue a tocar las tools.
 setAgentMemoryPort({
