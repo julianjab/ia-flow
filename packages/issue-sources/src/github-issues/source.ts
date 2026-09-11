@@ -140,6 +140,9 @@ export class GitHubIssueSource implements ProjectSource {
       meta: {
         issueId: issue.id,
         issueNumber: issue.number,
+        // Estado real del issue en GitHub — mismo criterio que github-project,
+        // para que GetTaskDispositionsUseCase.isClosed funcione también acá.
+        state: issue.state,
         repoName: repo,
         owner,
         issueUrl: issue.url,

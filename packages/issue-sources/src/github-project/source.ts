@@ -125,6 +125,10 @@ export class GitHubProjectSource implements ProjectSource {
       meta: {
         issueId: it.issueId,
         issueNumber: it.issueNumber,
+        // Estado real del issue en GitHub — lo que GetTaskDispositionsUseCase
+        // usa para saber que una task ya está cerrada, más allá de en qué
+        // columna del board quedó.
+        state: it.state,
         repoName: it.repoName,
         // Owner del repo del ISSUE — NO confundir con `meta.owner` (más
         // abajo), que es el owner del BOARD. Un board puede trackear

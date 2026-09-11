@@ -30,6 +30,10 @@ export interface ProjectItem {
   issueNumber: number
   issueTitle: string
   issueBody: string
+  // 'closed' cuando el issue subyacente está cerrado en GitHub — la única
+  // señal que GetTaskDispositionsUseCase.isClosed usa para sacar una task
+  // del bucket "waiting-on-you" una vez cerrada.
+  state: 'open' | 'closed'
   repoName: string
   // Owner del repo del ISSUE (org o user login) — distinto de ProjectMeta.owner,
   // que es el owner del BOARD. Un board puede trackear issues de otro owner;
@@ -143,6 +147,7 @@ function projectItemNodeFields(): string {
       number
       title
       body
+      state
       repository { name owner { login } }
       labels(first: 20) { nodes { name } }
       assignees(first: 10) { nodes { login } }
@@ -215,6 +220,7 @@ export function mapProjectItemNode(
     issueNumber: raw.content.number,
     issueTitle: raw.content.title,
     issueBody: raw.content.body ?? '',
+    state: raw.content.state === 'CLOSED' ? 'closed' : 'open',
     repoName: raw.content.repository?.name ?? '',
     repoOwner: raw.content.repository?.owner?.login ?? '',
     status: fieldMap['Status'] ?? '',
