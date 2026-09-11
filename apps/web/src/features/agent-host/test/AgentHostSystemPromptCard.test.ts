@@ -12,7 +12,7 @@ describe('AgentHostSystemPromptCard', () => {
     const wrapper = mountCard()
     expect(wrapper.findAll('textarea')).toHaveLength(0)
 
-    await wrapper.find('.btn--add').trigger('click')
+    await wrapper.find('.ff-add').trigger('click')
     expect(wrapper.findAll('textarea')).toHaveLength(1)
   })
 
@@ -49,7 +49,7 @@ describe('AgentHostSystemPromptCard', () => {
       { type: 'text', text: 'dos' },
     ])
 
-    await wrapper.findAll('.btn--drop')[0]!.trigger('click')
+    await wrapper.findAll('.ff-drop')[0]!.trigger('click')
 
     expect(wrapper.findAll('textarea')).toHaveLength(1)
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('dos')
@@ -57,7 +57,7 @@ describe('AgentHostSystemPromptCard', () => {
 
   it('al guardar, descarta bloques vacíos y recorta espacios', async () => {
     const wrapper = mountCard([{ type: 'text', text: '  con espacios  ' }])
-    await wrapper.find('.btn--add').trigger('click')
+    await wrapper.find('.ff-add').trigger('click')
     // El segundo queda vacío — no se manda.
 
     await wrapper.find('.btn--primary').trigger('click')
