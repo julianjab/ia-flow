@@ -110,20 +110,21 @@ describe('GET /v1/runs/:id', () => {
     expect(done).toMatchObject({ status: 'done', output: { content: 'terminado' } })
   })
 
-  it('el resultado se entrega UNA vez — después es `unknown`', async () => {
-    // Es basura en cuanto el daemon lo leyó, y retenerlo haría crecer el mapa
-    // con cada run. Un segundo GET se ve igual que tras un reinicio de este
-    // proceso, que es justo como el daemon tiene que tratarlo.
+  it('el resultado se puede volver a cobrar — no se borra al entregarlo', async () => {
+    // Si se borrara al leerlo, un corte entre el delete y el parseo del body
+    // haría que el siguiente sondeo viera `unknown` y el daemon reportara
+    // como FALLIDO un run que terminó bien: el mismo modo de falla del
+    // request colgado, en una ventana más chica.
     const { provider, finish } = controllableProvider()
     const app = createApp({ provider, token: 'secret', log: silentLog() })
     await post(app, '/v1/run?wait=poll', body())
-    finish()
+    finish('terminado')
     await Bun.sleep(5)
 
     await app.request('/v1/runs/run-1', { headers: AUTH })
     const segundo = await (await app.request('/v1/runs/run-1', { headers: AUTH })).json()
 
-    expect(segundo).toEqual({ status: 'unknown' })
+    expect(segundo).toMatchObject({ status: 'done', output: { content: 'terminado' } })
   })
 
   it('un run que nunca existió es `unknown`, no un 404', async () => {
@@ -167,6 +168,19 @@ describe('DELETE /v1/runs/:id', () => {
 
     expect(await res.json()).toMatchObject({ cancelled: true, known: true })
     expect(sawAbort()).toBe(true)
+  })
+
+  it('borra la entrada: quien cancela no vuelve a buscar el resultado', async () => {
+    // El resto se limpia por TTL, pero acá se sabe que nadie va a venir.
+    const { provider } = controllableProvider()
+    const app = createApp({ provider, token: 'secret', log: silentLog() })
+    await post(app, '/v1/run?wait=poll', body())
+
+    await app.request('/v1/runs/run-1', { method: 'DELETE', headers: AUTH })
+    await Bun.sleep(5)
+    const res = await (await app.request('/v1/runs/run-1', { headers: AUTH })).json()
+
+    expect(res).toEqual({ status: 'unknown' })
   })
 
   it('cancelar un run desconocido no es un error', async () => {

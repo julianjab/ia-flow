@@ -68,7 +68,9 @@ describe('RemoteAgentProvider', () => {
     const provider = new RemoteAgentProvider(registration())
     const output = await provider.run(baseInput({ prompt: 'hacé esto' }))
 
-    expect(capturedUrl).toBe('https://agent-host.example.com/v1/run')
+    // `?wait=poll` pide el camino desacoplado: el agent-host acepta y
+    // contesta, en vez de sostener el request lo que dure el run.
+    expect(capturedUrl).toBe('https://agent-host.example.com/v1/run?wait=poll')
     expect(capturedHeaders?.authorization).toBe('Bearer secret-token')
     expect((capturedBody as { prompt: string }).prompt).toBe('hacé esto')
     expect(output).toEqual({ content: 'listo', mode: 'api' })
@@ -325,7 +327,7 @@ describe('RemoteAgentProvider — runs async', () => {
     const calls: string[] = []
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}`)
-      if (String(url).endsWith('/v1/run')) {
+      if (String(url).includes('/v1/run')) {
         return new Response(
           JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
           { status: 200 },
@@ -342,7 +344,7 @@ describe('RemoteAgentProvider — runs async', () => {
     // El `?kind=` viaja en las dos: es lo que le permite al agent-host
     // reconstruir la sesión desde el SO si reinició y la perdió del mapa.
     expect(calls).toEqual([
-      'POST https://agent-host.example.com/v1/run',
+      'POST https://agent-host.example.com/v1/run?wait=poll',
       'GET https://agent-host.example.com/v1/sessions/s1?kind=tmux',
       'DELETE https://agent-host.example.com/v1/sessions/s1?kind=tmux',
     ])
@@ -350,7 +352,7 @@ describe('RemoteAgentProvider — runs async', () => {
 
   it('si no podemos preguntar, es unknown — no muerta', async () => {
     globalThis.fetch = (async (url: string) => {
-      if (String(url).endsWith('/v1/run')) {
+      if (String(url).includes('/v1/run')) {
         return new Response(
           JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
           { status: 200 },
@@ -369,7 +371,7 @@ describe('RemoteAgentProvider — runs async', () => {
   // un run que seguía trabajando.
   it('"no conozco esa sesión" es unknown, no muerta', async () => {
     globalThis.fetch = (async (url: string) => {
-      if (String(url).endsWith('/v1/run')) {
+      if (String(url).includes('/v1/run')) {
         return new Response(
           JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
           { status: 200 },
@@ -385,7 +387,7 @@ describe('RemoteAgentProvider — runs async', () => {
 
   it('muerta sólo cuando el agent-host dice que la conoce y no está', async () => {
     globalThis.fetch = (async (url: string) => {
-      if (String(url).endsWith('/v1/run')) {
+      if (String(url).includes('/v1/run')) {
         return new Response(
           JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
           { status: 200 },
@@ -438,7 +440,7 @@ describe('RemoteAgentProvider.run — timeout del fetch', () => {
 describe('RemoteAgentProvider — liveness sobre HTTP', () => {
   it('cerrar una sesión contra un agent-host caído no explota', async () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      if (String(url).endsWith('/v1/run')) {
+      if (String(url).includes('/v1/run')) {
         return new Response(
           JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
           { status: 200 },
@@ -463,7 +465,7 @@ describe('RemoteAgentProvider — liveness sobre HTTP', () => {
 
   it('un agent-host que responde no-2xx es unknown', async () => {
     globalThis.fetch = (async (url: string) => {
-      if (String(url).endsWith('/v1/run')) {
+      if (String(url).includes('/v1/run')) {
         return new Response(
           JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
           { status: 200 },
