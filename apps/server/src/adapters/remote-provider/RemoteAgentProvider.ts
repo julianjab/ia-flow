@@ -303,10 +303,7 @@ export class RemoteAgentProvider implements IAgentProvider {
     // Un agent-host anterior a `?wait=poll` ignora el flag y contesta 200 con
     // el output colgado del request. Se acepta tal cual: un daemon nuevo
     // tiene que seguir hablándole a un agent-host viejo.
-    const output =
-      res.status === 202 && parsed.runId
-        ? await this.awaitDetachedRun(baseUrl, token, parsed.runId, input)
-        : (parsed as ProviderOutput)
+    const output = await this.collectOutput(parsed, res.status, baseUrl, token, input)
     log.debug(
       {
         providerId: this.id,
@@ -358,6 +355,33 @@ export class RemoteAgentProvider implements IAgentProvider {
         ? { daemonToken: input.daemonToken || Bun.env.IA_FLOW_API_TOKEN?.trim() || undefined }
         : {}),
     }
+  }
+
+  /**
+   * De la respuesta de `/v1/run` al `ProviderOutput`, por los dos caminos.
+   *
+   * Un agent-host anterior a `?wait=poll` ignora el flag y contesta 200 con
+   * el output colgado del request: se acepta tal cual, un daemon nuevo tiene
+   * que seguir hablándole a uno viejo. El 202 con `runId` enciende el sondeo.
+   */
+  private async collectOutput(
+    parsed: { runId?: string } & ProviderOutput,
+    status: number,
+    baseUrl: string,
+    token: string,
+    input: ProviderInput,
+  ): Promise<ProviderOutput> {
+    if (parsed.runId) return this.awaitDetachedRun(baseUrl, token, parsed.runId, input)
+    if (status === 202) {
+      // Un 202 es "lo acepté, vení a buscarlo", y sin `runId` no hay dónde.
+      // Devolver este body casteado a ProviderOutput haría que el engine lo
+      // cerrara como terminado —sin stopReason ni contenido— aplicando
+      // `onFinish` sobre un run que recién arrancaba.
+      throw new Error(
+        `RemoteAgentProvider(${this.id}): ${baseUrl} aceptó el run con 202 pero no mandó runId`,
+      )
+    }
+    return parsed as ProviderOutput
   }
 
   /**

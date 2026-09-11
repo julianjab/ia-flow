@@ -533,6 +533,10 @@ export function createApp({
   // nada (ver IAgentProvider.canAccept). La decisión firme es el 503 de
   // /v1/run.
   app.get('/v1/capacity', (c) => {
+    // Igual que en `/v1/run`: la ocupación que se reporta no puede incluir
+    // runs que ya nadie espera. Es también la sonda que el daemon hace antes
+    // de despachar, así que es donde un wedge se ve primero.
+    sweepDetachedRuns()
     // Pistas opcionales por query: el daemon manda lo que sabe de la tarea
     // (repo, agente) para que las reglas se puedan evaluar ANTES del
     // dispatch. Un daemon viejo no las manda y todo sigue igual.
@@ -1085,6 +1089,11 @@ export function createApp({
   })
 
   app.post('/v1/run', async (c) => {
+    // ANTES del chequeo de capacidad, no después: un run abandonado cuenta
+    // como ocupado, y con el cap en 1 un daemon muerto dejaba a este proceso
+    // contestando 503 para siempre — a él y a cualquier otro. El barrido
+    // dentro de `runDetached` llegaba tarde: nunca se ejecutaba.
+    sweepDetachedRuns()
     const parsed = await readRunBody(c)
     if (!parsed.ok) return c.json({ error: parsed.error }, 400)
     const { body } = parsed
