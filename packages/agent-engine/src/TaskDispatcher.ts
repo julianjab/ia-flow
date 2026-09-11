@@ -191,6 +191,30 @@ export class TaskDispatcher {
     return atCapacity
   }
 
+  /**
+   * ¿Hay una fila de `execution_logs` abierta con sesión async (tmux/iterm/
+   * remote) para esta task? Cierra el gap que el registry en memoria no
+   * puede ver: una sesión rehidratada tras un reinicio del daemon
+   * DELIBERADAMENTE no vuelve a `pending` (ver pending-task-rehydrator.ts —
+   * "DELIBERADAMENTE fuera de `pending`"), así que
+   * `pendingTasks.getPendingTask` no la detecta. Sin este chequeo, un evento
+   * fresco sobre la misma task (redelivery de webhook, un `run-now` manual, o
+   * el redispatch automático de checkpoints sync) podía abrir un SEGUNDO
+   * agente mientras la sesión vieja seguía trabajando — el incidente de
+   * tmux duplicados que motivó este gate.
+   *
+   * Sólo mira la fila MÁS RECIENTE (mismo criterio que el cooldown de
+   * cancelación de arriba): bajo el lock por task sólo puede haber una
+   * abierta de verdad en el caso sano, y es exactamente la que este chequeo
+   * necesita ver. Runs sync (`sessionId` null) nunca matchean acá — el
+   * redispatch de un checkpoint sync no se autobloquea.
+   */
+  private hasOpenAsyncSession(item: IssueItem): boolean {
+    if (!this.executionLogRepo) return false
+    const [lastRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
+    return Boolean(lastRun && lastRun.finishedAt == null && lastRun.sessionId != null)
+  }
+
   /** Cooldown post-cancelación — ver comment original en `dispatch`. */
   private isInCancelCooldown(item: IssueItem, agent: AgentDefinition, projectId: string): boolean {
     if (!this.executionLogRepo) return false
@@ -351,6 +375,17 @@ export class TaskDispatcher {
         `No project config — skipping ${issueRef(item)}`,
       )
       return 'skipped'
+    }
+
+    // Anti-duplicado contra una sesión async rehidratada — antes de resolver
+    // el agente: no importa cuál sea, ninguno debería correr en paralelo con
+    // una sesión que ya está trabajando esta task.
+    if (this.hasOpenAsyncSession(item)) {
+      log.info(
+        { id: item.id, issue: issueRef(item), projectId },
+        `${issueRef(item)} ya tiene una sesión async abierta (tmux/iterm/remota) — dispatch diferido`,
+      )
+      return 'deferred'
     }
 
     // Gate on the same criteria that will actually pick the agent — no more
