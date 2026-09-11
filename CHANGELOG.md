@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0](https://github.com/julianjab/ia-flow/compare/v1.7.0...v1.8.0) (2026-09-11)
+
+
+### Features
+
+* redespachar checkpoints sync huérfanos sin duplicar runs async ([#233](https://github.com/julianjab/ia-flow/issues/233)) ([0016cd6](https://github.com/julianjab/ia-flow/commit/0016cd6b7abca87e0f6060b6266fe377e33bb8d0))
+* **remote:** run desacoplado, tools por disco, y la pausa del conector MCP que mataba el run ([#234](https://github.com/julianjab/ia-flow/issues/234)) ([7e5985a](https://github.com/julianjab/ia-flow/commit/7e5985a271b95e1018e2d76443692eb8223ef10a))
+
+
+### Bug Fixes
+
+* **issue-sources:** propagar el estado open/closed del issue a meta.state ([ffea3bc](https://github.com/julianjab/ia-flow/commit/ffea3bcaa5301405f5957dbe26b92a9f18fcb82b))
+
 ## [1.7.0](https://github.com/julianjab/ia-flow/compare/v1.6.0...v1.7.0) (2026-09-10)
 
 
