@@ -255,8 +255,10 @@ export interface LoopOptions {
    * server-side `task_budget` and for long agentic turns with server-side
    * MCP tool round-trips that just need the client to let the turn resume —
    * in both cases the correct continuation is resending the unchanged
-   * history. Defaults to 0 (today's behavior: first `pause_turn` is
-   * terminal) so existing agents are unaffected until they opt in.
+   * history. Defaults to `DEFAULT_MAX_PAUSE_TURN_RETRIES` (@ia-flow/shared) —
+   * bounded, not unlimited, so a model that keeps re-triggering the
+   * server-tool cap can't loop forever. Set 0 to opt out and make the first
+   * pause terminal.
    */
   maxPauseTurnRetries?: number
   /**

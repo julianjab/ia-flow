@@ -1,6 +1,7 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
 import type { ProviderKind } from '@ia-flow/ai-providers'
+import { DEFAULT_MAX_PAUSE_TURN_RETRIES } from '@ia-flow/shared'
 import { HISTORY_COMPACTION_PROMPT } from './compaction-prompt.js'
 import type {
   LoopOptions,
@@ -470,8 +471,13 @@ function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): Loo
 // correct continuation is resending the message list UNCHANGED: the caller
 // already pushed the paused assistant turn, so simply looping back and
 // re-calling `fetchApi(messages)` does exactly that. Bounded by
-// `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that keeps
-// re-triggering the server-tool cap can't loop forever.
+// `maxPauseTurnRetries` (DEFAULT_MAX_PAUSE_TURN_RETRIES unless the agent or
+// the provider settings override it) so a model that keeps re-triggering the
+// server-tool cap can't loop forever. The bound is what makes a non-zero
+// default safe: with 0, a SINGLE pause — which any agent doing a handful of
+// remote MCP round-trips in one turn hits routinely — killed the whole run as
+// `truncated`, which is strictly worse than paying a resend whose history the
+// API already has cached.
 function handlePauseTurn(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
   if (state.pauseTurnRetries < ctx.maxPauseTurnRetries) {
     state.pauseTurnRetries++
@@ -814,7 +820,7 @@ export async function executeLoop(
     onToolResult,
     signal,
     logContext,
-    maxPauseTurnRetries = 0,
+    maxPauseTurnRetries = DEFAULT_MAX_PAUSE_TURN_RETRIES,
     retryTruncatedToolUse = false,
     drainMessages,
     onMessagesDelivered,

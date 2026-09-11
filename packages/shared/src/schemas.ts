@@ -408,6 +408,13 @@ export type AgentMemoryEntry = z.infer<typeof AgentMemoryEntrySchema>
 export const SystemPromptBlockSchema = z.object({ type: z.literal('text'), text: z.string() })
 export type SystemPromptBlock = z.infer<typeof SystemPromptBlockSchema>
 
+/** Reintentos por default ante `stop_reason: pause_turn` — el loop reenvía el
+ *  historial sin cambios. Vive acá y no en `@ia-flow/tools` porque el form de
+ *  providers de `apps/web` lo muestra como placeholder y la web sólo puede
+ *  importar de `shared`. Bounded: sin tope, un modelo que re-dispara el cap de
+ *  server tools no cortaría nunca; con 0, una sola pausa mataba el run. */
+export const DEFAULT_MAX_PAUSE_TURN_RETRIES = 3
+
 export const AnthropicApiSettingsSchema = z.object({
   model: z.string(),
   anthropicVersion: z.string(),
@@ -425,7 +432,8 @@ export const AnthropicApiSettingsSchema = z.object({
   taskBudgetTokens: z.number().int().min(20000).optional(),
   /** Max resends of an unchanged message list when the API pauses a long
    *  server-tool turn (`stop_reason: pause_turn`). See LoopOptions in
-   *  packages/tools/src/contract.ts. Default 0 (no retry). */
+   *  packages/tools/src/contract.ts. Sin valor cae a
+   *  `DEFAULT_MAX_PAUSE_TURN_RETRIES`; 0 desactiva el reintento. */
   maxPauseTurnRetries: z.number().int().min(0).max(20).optional(),
   /** Retry once with more max_tokens when `max_tokens` cuts off a `tool_use`
    *  block mid-JSON. See LoopOptions.retryTruncatedToolUse. Default false. */
