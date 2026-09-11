@@ -767,14 +767,48 @@ async function saveLoopCheckpoint(
 // declarar (ver `packages/ai-providers/src/anthropic-api/provider.ts`): el
 // conector MCP y las dos variantes de tool search (regex y bm25 — hoy sólo se
 // usa regex, bm25 se agrega preventivamente porque comparte el mismo riesgo
-// si algún agente la habilita). Un tipo de bloque que no está en este mapa
-// NO se aparea — cae al camino viejo (`handleUnresolvedServerToolUse`, que
-// corta el run en vez de adivinar un `type` de result que podría no existir
-// y producir un 400 distinto).
+// si algún agente la habilita). Una key que no aparece acá NO se aparea —
+// cae al camino viejo (`handleUnresolvedServerToolUse`, que corta el run en
+// vez de adivinar un `type` de result que podría no existir y producir un
+// 400 distinto).
+//
+// El valor de esta key (`tool_search_tool_regex_tool_result`) sale del 400
+// real de subscriptions#1466, NO del `@anthropic-ai/sdk` instalado en este
+// repo (transitivo, no lo usa este provider — el body sale de un `fetch` a
+// mano en provider.ts): ese `.d.ts` declara un `ToolSearchToolResultBlock`
+// genérico con `type: 'tool_search_tool_result'`, sin sufijo por variante,
+// lo que contradice el mensaje de error observado en vivo. El texto del 400
+// es la fuente más fresca y más pegada a este código — se prioriza sobre un
+// tipo bundleado que ni siquiera es dependencia de este paquete. Si al
+// probar contra `subscriptions` el 400 nombra un tipo distinto, ese texto
+// gana y este valor se corrige.
 const SERVER_TOOL_RESULT_TYPE: Record<string, string> = {
   mcp_tool_use: 'mcp_tool_result',
   tool_search_tool_regex: 'tool_search_tool_regex_tool_result',
   tool_search_tool_bm25: 'tool_search_tool_bm25_tool_result',
+}
+
+// `mcp_tool_use` trae su propio `type` dedicado, pero el resto de los
+// server-tools no-MCP (web_search, code_execution, y — según el `.d.ts` del
+// SDK, aunque no según el 400 real — tool search) viajan envueltos en un
+// `type: 'server_tool_use'` genérico con el nombre de la tool en `name`
+// (`ServerToolUseBlock` del SDK). Como las dos fuentes disponibles
+// (el 400 real vs. el tipo del SDK) no coinciden en cuál de las dos formas
+// usa Anthropic para tool search, se detectan LAS DOS: por `type` directo
+// (si el 400 tiene razón) y por `type: 'server_tool_use'` + `name` (si el
+// SDK tiene razón). Devuelve la key que indexa a `SERVER_TOOL_RESULT_TYPE`,
+// o `undefined` si el bloque no es ninguno de los server-tools conocidos.
+function danglingServerToolKey(b: any): string | undefined {
+  if (typeof b?.type !== 'string') return undefined
+  if (Object.hasOwn(SERVER_TOOL_RESULT_TYPE, b.type)) return b.type
+  if (
+    b.type === 'server_tool_use' &&
+    typeof b.name === 'string' &&
+    Object.hasOwn(SERVER_TOOL_RESULT_TYPE, b.name)
+  ) {
+    return b.name
+  }
+  return undefined
 }
 
 function pairDanglingServerToolUses(
@@ -782,7 +816,7 @@ function pairDanglingServerToolUses(
   isUnresolvedServerToolUse: (block: any) => boolean,
 ): any[] {
   const synthetic = contentBlocks.filter(isUnresolvedServerToolUse).map((b) => ({
-    type: SERVER_TOOL_RESULT_TYPE[b.type],
+    type: SERVER_TOOL_RESULT_TYPE[danglingServerToolKey(b) as string],
     tool_use_id: b.id,
     is_error: true,
     content: [
@@ -809,7 +843,7 @@ function computeDanglingServerToolFlags(
     contentBlocks.filter((b) => resultTypes.has(b?.type)).map((b) => b.tool_use_id),
   )
   const isUnresolvedServerToolUse = (b: any) =>
-    typeof b?.type === 'string' && b.type in SERVER_TOOL_RESULT_TYPE && !resolvedIds.has(b.id)
+    danglingServerToolKey(b) !== undefined && !resolvedIds.has(b.id)
   const hasUnresolvedServerToolUse = contentBlocks.some(isUnresolvedServerToolUse)
   const serverToolUseWillResume =
     hasUnresolvedServerToolUse && stopReason === 'tool_use' && hasPendingToolUse
