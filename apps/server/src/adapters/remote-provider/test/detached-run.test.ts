@@ -133,6 +133,19 @@ describe('run desacoplado — diagnósticos que no se confunden', () => {
     await expect(run).rejects.toThrow('terminó sin output')
   })
 
+  it('un 202 sin runId falla con su motivo, no como un run vacío exitoso', async () => {
+    // Un 202 es "vení a buscarlo", y sin `runId` no hay dónde. Caer al
+    // camino inline devolvería ese body casteado a ProviderOutput y el
+    // engine aplicaría `onFinish` sobre un run que recién arrancaba.
+    // (Antes moría con "Body already used": se leía el body dos veces.)
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ accepted: true }), { status: 202 })) as unknown as typeof fetch
+
+    const run = new RemoteAgentProvider(registration()).run(baseInput())
+
+    await expect(run).rejects.toThrow('no mandó runId')
+  })
+
   it('`IA_FLOW_REMOTE_MAX_SILENCE_MS=0` es sin límite, no "cortá al primer fallo"', async () => {
     // La convención del repo: 0 = sin tope. Con `>= 0` a secas, un operador
     // que lo ponía en 0 para desactivar el corte obtenía el comportamiento
@@ -148,6 +161,20 @@ describe('run desacoplado — diagnósticos que no se confunden', () => {
 })
 
 describe('run desacoplado — el cancel', () => {
+  it('avisa también cuando lo da por perdido por silencio', async () => {
+    // Es lo único que libera el slot del otro lado si el agent-host vuelve
+    // en sí: su run sigue vivo, y el abort del request ya no corta nada.
+    Bun.env.IA_FLOW_REMOTE_MAX_SILENCE_MS = '1'
+    let deleted = false
+    fakeHost([new Error('ECONNRESET')], { onDelete: () => (deleted = true) })
+
+    const run = new RemoteAgentProvider(registration()).run(baseInput())
+
+    await expect(run).rejects.toThrow('dejó de responder')
+    expect(deleted).toBe(true)
+    delete Bun.env.IA_FLOW_REMOTE_MAX_SILENCE_MS
+  })
+
   it('le avisa al agent-host: si no, el CLI sigue trabajando', async () => {
     let deleted = false
     fakeHost([{ status: 'running' }], { onDelete: () => (deleted = true) })

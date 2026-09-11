@@ -157,6 +157,66 @@ describe('GET /v1/runs/:id', () => {
   })
 })
 
+describe('un run que nadie viene a buscar', () => {
+  it('se abandona y libera el slot — nadie va a mandar el DELETE', async () => {
+    // El daemon sondea cada pocos segundos: dejar de preguntar sólo pasa si
+    // murió, perdió la red, o ya dio el run por perdido. Sin esto ese run se
+    // queda corriendo con su slot tomado para siempre, porque el único corte
+    // era un DELETE que justamente nadie va a mandar.
+    Bun.env.AGENT_HOST_ABANDONED_RUN_MS = '1'
+    const { provider, sawAbort } = controllableProvider()
+    const app = createApp({ provider, token: 'secret', log: silentLog() })
+    await post(app, '/v1/run?wait=poll', body())
+
+    await Bun.sleep(10)
+    // Cualquier acceso corre el barrido — no hay timer que apagar.
+    const res = await (await app.request('/v1/runs/run-1', { headers: AUTH })).json()
+    await Bun.sleep(5)
+
+    expect(res).toEqual({ status: 'unknown' })
+    expect(sawAbort()).toBe(true)
+    delete Bun.env.AGENT_HOST_ABANDONED_RUN_MS
+  })
+
+  it('libera la capacidad aunque nadie vuelva a pegarle a /v1/runs', async () => {
+    // El wedge: con el cap en 1 y el daemon muerto, el único que sondeaba ese
+    // run era él. Si el barrido sólo corriera en `/v1/runs/:id`, `running`
+    // quedaba en 1 para siempre y TODO `POST /v1/run` —de ese daemon o de
+    // otro— contestaba 503 indefinidamente.
+    Bun.env.AGENT_HOST_ABANDONED_RUN_MS = '1'
+    const { provider } = controllableProvider()
+    const app = createApp({ provider, token: 'secret', log: silentLog(), maxConcurrentRuns: 1 })
+    await post(app, '/v1/run?wait=poll', body())
+    await Bun.sleep(10)
+
+    // La primera sonda dispara el barrido; el slot se libera un tick después
+    // (`running--` vive en el `finally` del run, que es su única fuente de
+    // verdad). El daemon sondea en loop, así que la siguiente ya lo ve.
+    await app.request('/v1/capacity', { headers: AUTH })
+    await Bun.sleep(5)
+    const cap = await (await app.request('/v1/capacity', { headers: AUTH })).json()
+    const res = await post(app, '/v1/run?wait=poll', body({ runId: 'run-2' }))
+
+    expect(cap).toMatchObject({ accepting: true, running: 0 })
+    expect(res.status).toBe(202)
+    delete Bun.env.AGENT_HOST_ABANDONED_RUN_MS
+  })
+
+  it('sondearlo lo mantiene vivo: el GET es el latido', async () => {
+    Bun.env.AGENT_HOST_ABANDONED_RUN_MS = '60000'
+    const { provider, sawAbort } = controllableProvider()
+    const app = createApp({ provider, token: 'secret', log: silentLog() })
+    await post(app, '/v1/run?wait=poll', body())
+
+    await Bun.sleep(10)
+    const res = await (await app.request('/v1/runs/run-1', { headers: AUTH })).json()
+
+    expect(res).toEqual({ status: 'running' })
+    expect(sawAbort()).toBe(false)
+    delete Bun.env.AGENT_HOST_ABANDONED_RUN_MS
+  })
+})
+
 describe('DELETE /v1/runs/:id', () => {
   it('aborta el run en vuelo — sin esto el CLI sigue trabajando', async () => {
     const { provider, sawAbort } = controllableProvider()
