@@ -2,7 +2,13 @@
 // Bun.serve) para que los tests puedan llamar `app.request(...)` sin bindear
 // un puerto real.
 import { timingSafeEqual } from 'node:crypto'
-import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
+import type {
+  IAgentProvider,
+  Liveness,
+  ProviderInput,
+  ProviderOutput,
+  SessionHandle,
+} from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { intersectWritePaths, WorkspaceRequestSchema } from '@ia-flow/shared'
 import type { CompiledPolicy, JsonRpcRequest, McpResponse, McpServerDeps } from '@ia-flow/tools'
@@ -13,6 +19,16 @@ import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
 import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
 import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './state.js'
+
+/** Un run que corre desacoplado del request que lo pidió. */
+interface DetachedRun {
+  status: 'running' | 'done' | 'failed'
+  output?: ProviderOutput
+  error?: string
+  /** Por dónde le llega el cancel. */
+  abort?: AbortController
+  at: number
+}
 
 /** El disco de un run: lo que `/v1/mcp` le da al `ToolContext` para que una
  *  tool de filesystem opere sobre el workspace de ESTE run y no sobre otro. */
@@ -254,6 +270,17 @@ export function createApp({
    * su repo.
    */
   const sessionRuns = new Map<string, string>()
+
+  /**
+   * Los runs desacoplados: los que el daemon arrancó con `?wait=poll` y viene
+   * a buscar a `GET /v1/runs/:id`.
+   *
+   * Vive en memoria y no en disco porque es estado de un run EN VUELO: si
+   * este proceso reinicia, el run murió con él y el daemon lo va a ver como
+   * `unknown`, que es exactamente lo que pasó. Persistirlo prometería una
+   * recuperación que no existe.
+   */
+  const detachedRuns = new Map<string, DetachedRun>()
 
   /** ¿Queda una sesión async apoyada en este run? Mientras la haya, su
    *  workspace tiene que seguir resolviendo en `/v1/mcp`. */
@@ -850,15 +877,19 @@ export function createApp({
     if (runId) sessionRuns.set(session.id, runId)
   }
 
-  /** Corre el provider para un run ya admitido: cuenta el slot, redirige los
-   *  logs al daemon que despachó, y libera todo en el `finally` pase lo que
-   *  pase. */
-  async function runAcceptedProvider(c: Context, body: ProviderInput): Promise<Response> {
+  /**
+   * Corre el provider para un run ya admitido: cuenta el slot, redirige los
+   * logs al daemon que despachó, y libera todo al final pase lo que pase.
+   *
+   * Devuelve el `ProviderOutput` — CÓMO llega ese output al daemon (colgado
+   * del request, o guardado para que lo venga a buscar) lo decide el caller.
+   */
+  async function runProvider(body: ProviderInput, signal: AbortSignal): Promise<ProviderOutput> {
     running++
     // El destino del redrive de logs es propiedad del RUN: este agent-host puede
     // estar registrado contra varios daemons y las líneas tienen que volver al
     // que despachó ESTE run. Se registra antes de arrancar —el provider empieza
-    // a loguear apenas entra— y se limpia en el `finally`, pase lo que pase.
+    // a loguear apenas entra— y se limpia al final, pase lo que pase.
     const redriveRunId = body.runId
     const redriveUrl = daemonUrlFor(body)
     if (redriveRunId && redriveUrl) setRunLogTarget(redriveRunId, redriveUrl)
@@ -868,20 +899,13 @@ export function createApp({
       const output = await provider.run({
         ...withGatewaySystemPrompt(resolved),
         daemonUrl: daemonUrlFor(body),
-        // El abort del request es el corte real de un run remoto: por ahí
-        // llegan el cancel del operador y el timeout del daemon
-        // (`IA_FLOW_REMOTE_RUN_TIMEOUT_MS`, 30' por default). Sin esto el
-        // daemon soltaba el fetch y el proceso de acá seguía vivo, reteniendo
-        // su slot para siempre — y era lo único que el timeout hardcodeado de
-        // `claude-print` tapaba a medias.
-        signal: c.req.raw.signal,
+        // El corte real de un run remoto: por ahí llegan el cancel del
+        // operador y el timeout del daemon. Sin esto el daemon soltaba el
+        // fetch y el proceso de acá seguía vivo, reteniendo su slot.
+        signal,
       })
       adoptSession(output.session, resolved.runId)
-      return c.json(output)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error({ err: message, taskId: body.taskId }, 'provider run failed')
-      return c.json({ error: message }, 500)
+      return output
     } finally {
       running--
       // Sin esto el mapa crece con cada run y, peor, un `runId` reciclado
@@ -894,6 +918,84 @@ export function createApp({
       if (redriveRunId && !hasLiveSession(redriveRunId)) runWorkspaces.delete(redriveRunId)
     }
   }
+
+  /** El camino de siempre: el resultado vuelve colgado del mismo request.
+   *  Lo usa un daemon anterior a `?wait=poll`. */
+  async function runInline(c: Context, body: ProviderInput): Promise<Response> {
+    try {
+      return c.json(await runProvider(body, c.req.raw.signal))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error({ err: message, taskId: body.taskId }, 'provider run failed')
+      return c.json({ error: message }, 500)
+    }
+  }
+
+  /**
+   * El camino desacoplado: se acepta el run, se contesta, y el daemon viene a
+   * buscar el resultado a `GET /v1/runs/:id`.
+   *
+   * Un run de desarrollo dura entre minutos y horas, y sostener un request
+   * HTTP todo ese tiempo era frágil por los dos lados: cualquier corte de red
+   * —o el timeout del propio `fetch`— se leía como un run FALLIDO, con su
+   * `onError` moviendo el issue y comentando un fallo sobre trabajo que
+   * seguía avanzando del otro lado del cable.
+   *
+   * El resultado se guarda en vez de empujarse al daemon: no hace falta que
+   * este proceso sepa autenticarse contra su API ni que el daemon exponga una
+   * ruta nueva, y un daemon que se reinicia a mitad del run puede volver a
+   * preguntar en vez de haberse perdido el único aviso.
+   */
+  function runDetached(c: Context, body: ProviderInput): Response {
+    const runId = body.runId ?? `run-${crypto.randomUUID()}`
+    const abort = new AbortController()
+    detachedRuns.set(runId, { status: 'running', abort, at: Date.now() })
+
+    // Sin `await` a propósito: el handler contesta ya. El `catch` es
+    // obligatorio — una promesa rechazada sin manejar es FATAL en Bun.
+    void runProvider({ ...body, runId }, abort.signal)
+      .then((output) => {
+        detachedRuns.set(runId, { status: 'done', output, at: Date.now() })
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error({ err: message, taskId: body.taskId, runId }, 'provider run failed')
+        detachedRuns.set(runId, { status: 'failed', error: message, at: Date.now() })
+      })
+
+    log.info({ runId, taskId: body.taskId }, 'run aceptado — el resultado se busca en /v1/runs')
+    return c.json({ accepted: true, runId }, 202)
+  }
+
+  /**
+   * El resultado de un run desacoplado.
+   *
+   * Se borra al entregarlo: es basura en cuanto el daemon lo leyó, y dejarlo
+   * haría crecer el mapa con cada run. La contracara es que un segundo GET
+   * sobre un run ya cobrado devuelve `unknown` — que es lo correcto, porque
+   * también es lo que pasa si este proceso reinició, y el daemon tiene que
+   * tratarlos igual.
+   */
+  app.get('/v1/runs/:id', (c) => {
+    const id = c.req.param('id')
+    const entry = detachedRuns.get(id)
+    if (!entry) return c.json({ status: 'unknown' })
+    if (entry.status === 'running') return c.json({ status: 'running' })
+    detachedRuns.delete(id)
+    return entry.status === 'done'
+      ? c.json({ status: 'done', output: entry.output })
+      : c.json({ status: 'failed', error: entry.error })
+  })
+
+  /** Cancela un run desacoplado. Es por dónde le llega el cancel del
+   *  operador, que en el camino inline viajaba como abort del request. */
+  app.delete('/v1/runs/:id', (c) => {
+    const id = c.req.param('id')
+    const entry = detachedRuns.get(id)
+    entry?.abort?.abort()
+    log.info({ runId: id, known: Boolean(entry) }, 'cancel de un run desacoplado')
+    return c.json({ cancelled: true, known: Boolean(entry) })
+  })
 
   app.post('/v1/run', async (c) => {
     const parsed = await readRunBody(c)
@@ -921,7 +1023,10 @@ export function createApp({
       )
     }
 
-    return runAcceptedProvider(c, body)
+    // El daemon pide el camino desacoplado explícitamente. Sin el flag se
+    // contesta como siempre: un agent-host nuevo tiene que seguir sirviendo a
+    // un daemon viejo, que espera el output colgado de este request.
+    return c.req.query('wait') === 'poll' ? runDetached(c, body) : runInline(c, body)
   })
 
   return app
