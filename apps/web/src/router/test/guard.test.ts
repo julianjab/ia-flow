@@ -16,7 +16,7 @@ vi.mock('@/views/GeneralView.vue', () => ({ default: { template: '<div/>' } }))
 vi.mock('@/views/ProjectDetailView.vue', () => ({ default: { template: '<div/>' } }))
 vi.mock('@/views/ProjectsListView.vue', () => ({ default: { template: '<div/>' } }))
 vi.mock('@/views/ServerPickerView.vue', () => ({ default: { template: '<div/>' } }))
-vi.mock('@/features/agent-host/AgentHostConsole.vue', () => ({
+vi.mock('@/features/agent-host/AgentHostView.vue', () => ({
   default: { template: '<div/>' },
 }))
 vi.mock('@/features/agent-host/AgentHostLogsView.vue', () => ({
@@ -41,13 +41,13 @@ describe('guard por tipo de proceso', () => {
     // acá — y DashboardView dispara /api/* contra un proceso que no las tiene.
     getSelectedKind.mockReturnValue('agent-host')
 
-    expect(await go('/dashboard')).toBe('/agent-host')
+    expect(await go('/dashboard')).toBe('/agent-host/provider')
   })
 
   it('tampoco monta el detalle de un proyecto', async () => {
     getSelectedKind.mockReturnValue('agent-host')
 
-    expect(await go('/projects/abc/overview')).toBe('/agent-host')
+    expect(await go('/projects/abc/overview')).toBe('/agent-host/provider')
   })
 
   it('/servers queda afuera del corte — es de donde se sale', async () => {
