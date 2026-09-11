@@ -18,7 +18,11 @@ function fakeStore(): ChatSessionStore & {
     },
     async ensure(id, opts) {
       const existing = sessions.get(id)
-      if (existing) return existing
+      if (existing) {
+        const updated = { ...existing, projectId: opts?.projectId, taskId: opts?.taskId }
+        sessions.set(id, updated)
+        return updated
+      }
       const session: ChatSessionRecord = {
         id,
         projectId: opts?.projectId,
@@ -80,14 +84,42 @@ describe('ChatSessionSource', () => {
     expect(await source.getItemById('nope')).toBeNull()
   })
 
-  test('loadComments refleja los mensajes de la sesión en orden', async () => {
+  test('loadComments refleja los mensajes de la sesión en orden, con autor', async () => {
     const store = fakeStore()
     await store.ensure('s1')
     await store.appendMessage('s1', 'user', 'primero')
     await store.appendMessage('s1', 'assistant', 'segundo')
     const source = new ChatSessionSource(store)
     const comments = await source.loadComments({ id: 's1' } as never)
-    expect(comments.map((c) => c.body)).toEqual(['primero', 'segundo'])
+    expect(comments.map((c) => ({ body: c.body, author: c.author }))).toEqual([
+      { body: 'primero', author: 'user' },
+      { body: 'segundo', author: 'assistant' },
+    ])
+  })
+
+  test('getItemById expone projectId/taskId como contexto en la descripción', async () => {
+    const store = fakeStore()
+    await store.ensure('s1', { projectId: 'proj-1', taskId: 'task-1' })
+    const source = new ChatSessionSource(store)
+    const item = await source.getItemById('s1')
+    expect(item?.meta?.description).toContain('proj-1')
+    expect(item?.meta?.description).toContain('task-1')
+  })
+
+  test('getItemById sin proyecto/tarea activos avisa que es una vista global', async () => {
+    const store = fakeStore()
+    await store.ensure('s1')
+    const source = new ChatSessionSource(store)
+    const item = await source.getItemById('s1')
+    expect(item?.meta?.description).toContain('vista global')
+  })
+
+  test('ensure actualiza el contexto en cada mensaje ("último gana")', async () => {
+    const store = fakeStore()
+    await store.ensure('s1', { projectId: 'proj-1' })
+    await store.ensure('s1', { projectId: 'proj-2', taskId: 'task-2' })
+    const session = await store.getById('s1')
+    expect(session).toEqual(expect.objectContaining({ projectId: 'proj-2', taskId: 'task-2' }))
   })
 
   test('postComment persiste el mensaje y dispara el broadcast', async () => {
