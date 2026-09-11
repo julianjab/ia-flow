@@ -34,7 +34,7 @@ registerTool({
 })
 
 registerTool({
-  name: 'get_task_detail',
+  name: 'assistant_get_task_detail',
   description:
     'Devuelve el detalle completo de un issue: título, descripción, status, repos, labels y comentarios. Sólo lectura.',
   input_schema: {
@@ -58,8 +58,8 @@ registerTool({
 })
 
 registerTool({
-  name: 'list_tasks',
-  description: `Lista los items de un proyecto (título, status, repos, labels), sin filtrar. Sólo lectura. Corta a los primeros ${MAX_RESULTS} — usá search_tasks para acotar por texto.`,
+  name: 'assistant_list_tasks',
+  description: `Lista los items de un proyecto (título, status, repos, labels), sin filtrar. Sólo lectura. Corta a los primeros ${MAX_RESULTS} — usá assistant_search_tasks para acotar por texto.`,
   input_schema: {
     type: 'object',
     properties: {
@@ -84,7 +84,7 @@ registerTool({
 })
 
 registerTool({
-  name: 'search_tasks',
+  name: 'assistant_search_tasks',
   description:
     'Busca items de un proyecto cuyo título o descripción contenga el query (case-insensitive, obligatorio). Sólo lectura.',
   input_schema: {
@@ -100,7 +100,9 @@ registerTool({
     const { project_id, query } = input as { project_id: string; query: string }
     const q = query.trim().toLowerCase()
     if (!q) {
-      throw new Error("'query' no puede estar vacío — para listar todo el board usá list_tasks.")
+      throw new Error(
+        "'query' no puede estar vacío — para listar todo el board usá assistant_list_tasks.",
+      )
     }
     const items = await projectRead.listItems(project_id)
     const matches = items.filter(

@@ -27,8 +27,8 @@ import {
   setLoggerFactory as setGithubAuthLoggerFactory,
 } from '@ia-flow/github-auth'
 import {
-  type ChatSessionStore,
   ChatSessionSource,
+  type ChatSessionStore,
   createDefaultSourceFactory,
   DivergenceReconciler,
   defaultToIssueItem,

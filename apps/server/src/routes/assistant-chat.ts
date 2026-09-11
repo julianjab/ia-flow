@@ -1,4 +1,4 @@
-import { createEvent } from '@ia-flow/shared'
+import { CHAT_MESSAGE, createEvent } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { chatSessionRepo, eventBus } from '../composition/container.js'
@@ -47,7 +47,7 @@ export function createAssistantChatRouter() {
     chatSessionRepo.appendMessage(sessionId, 'user', text)
 
     const event = createEvent({
-      type: 'chat.message',
+      type: CHAT_MESSAGE,
       source: 'assistant-chat',
       // `issueId` es lo que `resolveEventItem` (composition/actions.ts) usa
       // para resolver el `IssueItem` vía `ChatSessionSource.getItemById` —

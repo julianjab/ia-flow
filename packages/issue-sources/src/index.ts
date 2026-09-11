@@ -1,4 +1,3 @@
-export * from './contract.js'
 export { ChatSessionSource } from './chat/ChatSessionSource.js'
 export { ChatSessionTaskSource } from './chat/ChatSessionTaskSource.js'
 export {
@@ -7,6 +6,7 @@ export {
   type ChatSessionRecord,
   type ChatSessionStore,
 } from './chat/contract.js'
+export * from './contract.js'
 export {
   type CatchUpOptions,
   crashRecoveryEnabled,

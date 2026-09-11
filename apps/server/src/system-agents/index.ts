@@ -5,6 +5,6 @@ export const CHAT_PROJECT_ID = '__chat__'
 
 export const CHAT_ASSISTANT_AGENT_ID = 'chat-assistant'
 
-export { loadBaseAgents, type BaseAgentsConfig } from './loader.js'
+export { type BaseAgentsConfig, loadBaseAgents } from './loader.js'
 export { SystemAgentProjectConfigRepository } from './SystemAgentProjectConfigRepository.js'
 export { SystemRuleRepository } from './SystemRuleRepository.js'

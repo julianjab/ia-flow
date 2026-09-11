@@ -87,6 +87,11 @@ export const MAX_EVENT_DEPTH = 10
  *  de un agente sin que el engine cablee la cadena. */
 export const RUN_FINISHED = 'run.finished'
 
+/** Mensaje nuevo del bubble button del asistente conversacional (apps/web).
+ *  Lo publica `routes/assistant-chat.ts`, ya scopeado al proyecto reservado
+ *  del chat — dispara al agente vía la regla fija de `base-agents.yaml`. */
+export const CHAT_MESSAGE = 'chat.message'
+
 export type EngineEventInput = Omit<EngineEvent, 'id' | 'occurredAt' | 'depth'> & {
   id?: string
   occurredAt?: string
