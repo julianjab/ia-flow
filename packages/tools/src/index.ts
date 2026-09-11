@@ -43,6 +43,15 @@ import './wait/pause-until.js'
 import './wait/wait.js'
 
 export { setToolDescription } from './engine.js'
+// El servidor MCP sin transporte: lo montan el daemon (`/api/mcp`) y el
+// agent-host (`/v1/mcp`) sobre el mismo registry, con distinto recorte.
+export type {
+  JsonRpcRequest,
+  McpConnection,
+  McpResponse,
+  McpServerDeps,
+} from './mcp/server.js'
+export { handleMcpRequest, mcpNoStream, mcpParseError } from './mcp/server.js'
 export { type PausePort, setPausePort, TASK_MESSAGE_EVENT } from './wait/pause-until.js'
 export { resolveExpiry, setWaitPort, type WaitPort } from './wait/wait.js'
 
