@@ -3,12 +3,16 @@
 // no define su propio `providerConfig` (ver AgentEditorModal → sección per-agent).
 // Precedencia efectiva: agent.providerConfig > estos defaults.
 //
-// Ocho campos planos, todos con el mismo peso, se vuelven tres visibles y tres
+// Nueve campos planos, todos con el mismo peso, se vuelven tres visibles y tres
 // bloques plegados: lo que se toca es el modelo, el effort y el stream; los
-// cinco numéricos tienen default y pasan el test de las tres condiciones para
+// seis numéricos tienen default y pasan el test de las tres condiciones para
 // plegarse (R20), con su valor efectivo en el encabezado (R22).
 import { computed } from 'vue';
-import { type McpServers, validateAnthropicApiSettings } from '@ia-flow/shared';
+import {
+  DEFAULT_MAX_PAUSE_TURN_RETRIES,
+  type McpServers,
+  validateAnthropicApiSettings,
+} from '@ia-flow/shared';
 import type { AnthropicApiSettings } from '@/features/providers/store';
 import CollapsibleSection from '@/ui/CollapsibleSection.vue';
 import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
@@ -54,7 +58,7 @@ function updateMcp(value: McpServers) {
 //
 // `validateAnthropicApiSettings` objeta una COMBINACIÓN (effort beta o task
 // budget contra un modelo que no es Opus), y el cartel único bajo la sección
-// dejaba al usuario buscando cuál de los ocho campos la había roto. El mensaje
+// dejaba al usuario buscando cuál de los nueve campos la había roto. El mensaje
 // va donde está el control que lo despeja — y en el lugar del hint, nunca
 // apilado con él (R18).
 const effortError = computed(() =>
@@ -78,6 +82,12 @@ const limitsSummary = computed(() => {
   parts.push(cap ? `${cap} en paralelo` : 'sin tope de runs');
   if (props.modelValue.taskBudgetTokens) {
     parts.push(`${Math.round(props.modelValue.taskBudgetTokens / 1000)}k por tarea`);
+  }
+  // Sólo cuando se apartó del default: el resumen es para ver de un vistazo lo
+  // que alguien cambió, y un valor que nadie tocó es ruido en el encabezado.
+  const pauses = props.modelValue.maxPauseTurnRetries;
+  if (pauses !== undefined && pauses !== DEFAULT_MAX_PAUSE_TURN_RETRIES) {
+    parts.push(pauses ? `${pauses} reintentos de pausa` : 'sin reintento de pausa');
   }
   return parts.join(' · ');
 });
@@ -164,6 +174,24 @@ const mcpSummary = computed(() => {
         />
         <p v-if="taskBudgetError" class="ff-error">{{ taskBudgetError }}</p>
         <p v-else class="ff-hint">Presupuesto de toda la corrida, no de una respuesta.</p>
+      </div>
+
+      <div class="ff-row">
+        <label class="uc-label" for="anthropic-pause-retries">Reintentos de pausa (pause_turn)</label>
+        <input
+          id="anthropic-pause-retries"
+          type="number"
+          class="ff-field"
+          min="0"
+          max="20"
+          :placeholder="String(DEFAULT_MAX_PAUSE_TURN_RETRIES)"
+          :value="modelValue.maxPauseTurnRetries ?? ''"
+          @input="update('maxPauseTurnRetries', ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value))"
+        />
+        <p class="ff-hint">
+          Cuando la API pausa un turno largo de server tools / MCP remoto, reenvía el historial sin
+          cambios en vez de dar el run por truncado. 0 = la primera pausa corta el run.
+        </p>
       </div>
     </CollapsibleSection>
 

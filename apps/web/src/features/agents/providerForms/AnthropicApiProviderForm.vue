@@ -168,11 +168,11 @@ const advancedOpen = ref(advancedCount.value > 0);
         min="0"
         max="20"
         class="ff-field"
-        placeholder="0"
+        placeholder="3"
         :value="state.maxPauseTurnRetries ?? ''"
         @input="(e) => set('maxPauseTurnRetries', numberInput(e))"
       />
-      <p class="ff-hint">Reintentos cuando la API pausa un turno largo de server tools/MCP (stop_reason pause_turn) — reenvía el historial sin cambios. 0 = sin reintento (default), hasta 20.</p>
+      <p class="ff-hint">Reintentos cuando la API pausa un turno largo de server tools/MCP (stop_reason pause_turn) — reenvía el historial sin cambios. Sin valor, hereda del global (default 3); 0 = la primera pausa trunca el run.</p>
     </div>
     <div class="ff-row">
       <label class="uc-label">Max reintentos (429/5xx/529)</label>
