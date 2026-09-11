@@ -185,6 +185,15 @@ export const ENV_VAR_DEFINITIONS = {
     secret: false,
     options: ['1', '0'],
   },
+  IA_FLOW_CHECKPOINT_SWEEP: {
+    label: 'Redespachar checkpoints sync huérfanos',
+    description:
+      'Cada 5 minutos, redespacha solo los runs sync (anthropic-api) que quedaron con un checkpoint resumible tras un crash del server y ningún scan volviendo a tocarlos (un crash no mueve el status en GitHub, así que no genera diff). Nunca toca sesiones tmux/iterm/remotas. Poné 0 para desactivarlo y depender sólo del botón manual de la pantalla de Ejecuciones. Toma efecto al reiniciar el proceso.',
+    kind: 'select',
+    group: 'daemon',
+    secret: false,
+    options: ['1', '0'],
+  },
 
   // ── Providers remotos ──────────────────────────────────────────────────────
   IA_FLOW_REMOTE_HEALTH_INTERVAL_MS: {

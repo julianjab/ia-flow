@@ -356,6 +356,93 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   })
 })
 
+describe('TaskDispatcher — sesión async abierta (anti-duplicado tras reinicio)', () => {
+  // Issue #232: una sesión tmux/iterm/remota rehidratada tras un reinicio del
+  // daemon no vuelve al registry en memoria (deliberado, ver
+  // pending-task-rehydrator.ts), así que `pendingTasks.getPendingTask` no la
+  // ve. Sin este gate, un evento fresco sobre la misma task (redelivery,
+  // run-now manual, o el redispatch automático de checkpoints sync) podía
+  // abrir un segundo agente mientras la sesión vieja seguía trabajando — el
+  // incidente real de duplicados de tmux que motivó el issue.
+  function fakeLogRepo(lastRun: ExecutionLog | undefined): IExecutionLogRepository {
+    return {
+      list: () => (lastRun ? [lastRun] : []),
+    } as unknown as IExecutionLogRepository
+  }
+
+  function openRun(over: Partial<ExecutionLog> = {}): ExecutionLog {
+    return {
+      id: 'exec-open',
+      projectId: 'p1',
+      taskId: 'task-1',
+      taskTitle: 'T',
+      agentId: 'ia-flow-refiner',
+      providerId: 'tmux-claude',
+      startedAt: '2024-01-01T00:00:00.000Z',
+      finishedAt: null,
+      outcome: null,
+      errorMsg: null,
+      stopReason: null,
+      sessionKind: 'tmux',
+      sessionId: 'session-abc',
+      ...over,
+    } as ExecutionLog
+  }
+
+  it('difiere cuando hay una fila abierta con sessionId (sesión async rehidratada), sin correr el agente', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(openRun()),
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(outcome).toBe('deferred')
+    expect(runAgent).not.toHaveBeenCalled()
+  })
+
+  it('no difiere un checkpoint sync (sessionId null) — el redespacho de un checkpoint no se autobloquea', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(openRun({ providerId: 'anthropic-api', sessionKind: null, sessionId: null })),
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(outcome).not.toBe('deferred')
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('no difiere si la fila con sessionId ya está cerrada (finishedAt set) — la sesión terminó', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(openRun({ finishedAt: '2024-01-01T00:10:00.000Z' })),
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin executionLogRepo inyectado no se puede verificar — no difiere (comportamiento previo)', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('TaskDispatcher — TaskLockedError fallback', () => {
   function makeLockedDeps(config: ProjectConfig | null) {
     const runAgent = mock(async () => {
