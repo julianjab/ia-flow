@@ -133,6 +133,17 @@ export const TaskCommentSchema = z.object({
 })
 export type TaskComment = z.infer<typeof TaskCommentSchema>
 
+// ─── Asistente conversacional (bubble button) ───────────────────────────────
+
+export const AssistantChatMessageSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  author: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+})
+export type AssistantChatMessage = z.infer<typeof AssistantChatMessageSchema>
+
 // ─── Pull Request ────────────────────────────────────────────────────────────
 
 // Un archivo tocado por un PR — lo que rinde `{{task.pr.files}}` sin pedir el

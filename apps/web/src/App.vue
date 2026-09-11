@@ -2,6 +2,7 @@
 import { onMounted } from 'vue';
 import { RouterView } from 'vue-router';
 import RateLimitBanner from './components/RateLimitBanner.vue';
+import AssistantBubble from './features/assistant/AssistantBubble.vue';
 import { installKeyboardNav } from '@/composables/useKeyboardNav';
 
 onMounted(() => {
@@ -12,6 +13,7 @@ onMounted(() => {
 <template>
   <RateLimitBanner />
   <RouterView />
+  <AssistantBubble />
   <div id="toast-container" class="toast-container"></div>
 </template>
 
