@@ -4,6 +4,7 @@ export {
   getAllTools,
   getTool,
   getToolDefinitions,
+  partitionToolsByDisk,
   registerTool,
   resolveAliases,
   resolveExecutableTool,

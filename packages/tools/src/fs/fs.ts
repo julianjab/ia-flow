@@ -368,6 +368,8 @@ function readPaginatedRange(
 
 registerTool({
   name: 'fs_read',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['read_file'],
   description:
     'Read a file in one of the task repos. Use "<repo-name>/path/to/file" format. ' +
@@ -495,6 +497,8 @@ async function listTree(
 
 registerTool({
   name: 'fs_list',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['list_dir'],
   description:
     'List files and directories at a path in one of the task repos. Dotfiles and ' +
@@ -1087,6 +1091,8 @@ function formatGrepPage(results: string[], cursor: unknown, grepInput: GrepInput
 
 registerTool({
   name: 'fs_grep',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['grep_files'],
   description:
     `Search for a pattern (regex or literal string) in files within a repo path. Returns up ` +
@@ -1332,6 +1338,8 @@ export { globWithJs, globWithRg }
 
 registerTool({
   name: 'fs_glob',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   description:
     'Find files by name pattern within a repo path, e.g. "**/*.test.ts". Supports `*` (any ' +
     'chars within a path segment), `**` (any number of directories) and `?` (one char). ' +

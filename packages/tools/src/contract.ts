@@ -202,6 +202,25 @@ export interface Tool<TInput = unknown> {
    * providerKinds filter.
    */
   apiOnly?: boolean
+  /**
+   * Sobre QUÉ disco opera la tool. Es una pregunta distinta de
+   * `providerKinds` (que dice a quién se le OFRECE) y de `internal` (que dice
+   * si se regala): dice dónde tiene que EJECUTARSE para hacer lo correcto.
+   *
+   * - `'agent-disk'` — el filesystem donde el provider preparó el workspace.
+   *   Corriendo detrás de un agent-host, ese disco es el del agent-host, no
+   *   el del daemon: un `fs_write` resuelto en el daemon escribe en la
+   *   máquina equivocada sin que nada falle.
+   * - ausente (default) — estado del daemon: la fuente de issues, GitHub,
+   *   Slack, la memoria y los tools de cierre. Moverlas al agent-host le
+   *   pediría la conexión al source, las credenciales y el registry de
+   *   pending tasks, que sólo el daemon tiene.
+   *
+   * Lo consume `partitionToolsByDisk`, que es lo que permite entregarle a un
+   * run de terminal remoto DOS servers MCP —uno por disco— en vez de mandar
+   * todo a un solo lado.
+   */
+  runsOn?: 'agent-disk'
 }
 
 export interface ToolDefinitionsOptions {

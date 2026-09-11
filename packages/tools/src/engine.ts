@@ -109,6 +109,36 @@ export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
 }
 
 /**
+ * Reparte nombres de tools según el disco sobre el que tienen que correr.
+ *
+ * Existe para el run de terminal detrás de un agent-host, que es el único
+ * caso con DOS discos en juego: el CLI y el workspace viven en el agent-host,
+ * y la fuente de issues, GitHub, Slack, la memoria y el registry de pending
+ * tasks viven en el daemon. Hasta ahora todas las tools inyectadas salían por
+ * un solo MCP apuntado al daemon, así que un `fs_write` de ese agente escribía
+ * en la máquina equivocada — sin fallar, que es lo que lo hacía difícil de ver.
+ *
+ * Trabaja sobre NOMBRES y no sobre `Tool`s porque los dos consumidores
+ * (`terminal/base.ts` al armar el `--mcp-config`) sólo tienen la lista de
+ * nombres del agente. Un nombre que el registry no conoce se manda al daemon:
+ * es el default seguro —ahí está el catálogo completo— y un alias viejo sigue
+ * resolviendo como siempre.
+ */
+export function partitionToolsByDisk(toolNames: readonly string[]): {
+  agentDisk: string[]
+  daemon: string[]
+} {
+  const agentDisk: string[] = []
+  const daemon: string[] = []
+  for (const name of toolNames) {
+    const canonical = registry.has(name) ? name : (aliasIndex.get(name) ?? name)
+    if (registry.get(canonical)?.runsOn === 'agent-disk') agentDisk.push(name)
+    else daemon.push(name)
+  }
+  return { agentDisk, daemon }
+}
+
+/**
  * Reemplaza la descripción de una tool ya registrada.
  *
  * Es lo ÚNICO que un override de configuración puede tocar de una built-in, y

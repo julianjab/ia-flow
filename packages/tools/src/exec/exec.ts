@@ -557,6 +557,8 @@ interface RunCommandInput {
 
 registerTool({
   name: 'bash_run',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['run_command'],
   // Sync-only: the WorkspaceManager sandbox (worktree + writePaths + the
   // command whitelist scope) is only built for the anthropic-api provider.
