@@ -175,6 +175,20 @@ function localTools(): LocalToolsMcp | undefined {
   }
 }
 
+/**
+ * Corte duro de un run de `claude-print`, en ms. Vacío = sin límite, igual
+ * que los caps del engine.
+ *
+ * `Number()` y no `parseInt`: `parseInt('10m') === 10` aceptaría un typo en
+ * silencio y cortaría los runs a 10 milisegundos.
+ */
+function envRunTimeoutMs(): number | undefined {
+  const raw = Bun.env.AGENT_HOST_RUN_TIMEOUT_MS?.trim()
+  if (!raw) return undefined
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
 async function loadProviderConfig() {
   return DEFAULT_PROVIDER_CONFIG
 }
@@ -210,7 +224,14 @@ export function createProvider(
   workspaceSettings: WorkspaceSettings = envWorkspaceSettings(),
 ): IAgentProvider {
   if (id === 'claude-print') {
-    return new ClaudePrintProvider({ log: createLogger('claude-print') })
+    return new ClaudePrintProvider({
+      log: createLogger('claude-print'),
+      // Sus tools de disco se resuelven en ESTE proceso, no en el daemon.
+      localTools,
+      // Sin tope salvo que el operador ponga uno: el corte lo decide el
+      // engine que despachó, no este runtime. `0` = sin límite.
+      timeoutMs: envRunTimeoutMs(),
+    })
   }
 
   // Los de terminal spawnean su sesión en ESTA máquina y el agente vuelve al

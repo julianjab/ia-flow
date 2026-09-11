@@ -27,6 +27,12 @@
 import { unlink } from 'node:fs/promises'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
+import {
+  type LocalToolsMcp,
+  resolveDaemonToken,
+  resolveDaemonUrl,
+  resolveMcpServers,
+} from '../claude-cli/tools-mcp.js'
 import type { IAgentProvider, ProviderInput, ProviderOutput } from '../contract.js'
 
 export interface ClaudePrintLog {
@@ -36,8 +42,30 @@ export interface ClaudePrintLog {
 
 export interface ClaudePrintProviderDeps {
   log: ClaudePrintLog
-  /** Default 10 minutos — un `-p` sin loop de tools no debería tardar más. */
+  /**
+   * Corte duro del proceso. **Sin valor, sin límite** — el mismo criterio que
+   * los caps del engine.
+   *
+   * Antes eran 10 minutos clavados acá, con el argumento de que "un `-p` sin
+   * loop de tools no debería tardar más". Ahora sí tiene tools (ver
+   * `localTools`), y de todas formas el argumento estaba mal ubicado: quien
+   * decide cuánto esperar es el engine, no el runtime del provider — es la
+   * misma razón por la que `RemoteAgentProvider` desactivó el timeout de 300s
+   * que `fetch` le ponía por default a un run remoto. Vencido, el proceso se
+   * mata y lo que vuelve es `stopReason: 'error'` con el stdout parcial: un
+   * fallo inventado sobre trabajo que estaba avanzando.
+   *
+   * El cancel sigue funcionando igual por `input.signal`, que no depende de
+   * esto.
+   */
   timeoutMs?: number
+  /**
+   * El MCP de tools de disco del proceso que hospeda a este CLI — lo inyecta
+   * el agent-host. Ver `resolveMcpServers`: sin esto las tools del agente
+   * salen todas hacia el daemon, que para un run remoto es el disco
+   * equivocado.
+   */
+  localTools?: () => LocalToolsMcp | undefined
 }
 
 interface ClaudePrintAgentConfig {
@@ -128,9 +156,26 @@ export class ClaudePrintProvider implements IAgentProvider {
     // puede releer el archivo en cualquier momento), acá el proceso es
     // corto: lo borramos apenas termina en vez de dejar un secreto en claro
     // acumulándose en /tmp por cada run.
+    //
+    // Las tools del agente llegan como MCP sintéticos, igual que a los
+    // providers de terminal: un CLI no acepta definiciones inyectadas, su
+    // única puerta es `--mcp-config`. Antes acá sólo se escribían los MCP que
+    // el agente declaraba a mano, así que su `tools[]` se ignoraba entero.
+    //
+    // `kind: 'sync'`: este run lo cierra el engine leyendo el `stopReason`,
+    // así que el MCP no debe ofrecerle `complete_task` — sería un segundo
+    // cierre sacando la task del registry a mitad del run.
+    const mcpServers = resolveMcpServers({
+      input,
+      configured: cfg.mcpServers,
+      daemonUrl: resolveDaemonUrl(input),
+      daemonToken: resolveDaemonToken(input),
+      localTools: this.deps.localTools?.(),
+      kind: 'sync',
+    })
     let mcpConfigFile: string | undefined
-    if (cfg.mcpServers) {
-      mcpConfigFile = await writeMcpConfigFile(cfg.mcpServers)
+    if (Object.keys(mcpServers).length > 0) {
+      mcpConfigFile = await writeMcpConfigFile(mcpServers)
       argv.push('--mcp-config', mcpConfigFile)
     }
 
@@ -146,8 +191,9 @@ export class ClaudePrintProvider implements IAgentProvider {
     try {
       const proc = _claudePrintInternals.spawn(argv, input.cwd, cfg.env)
 
-      const timeoutMs = this.deps.timeoutMs ?? 10 * 60_000
-      timeout = setTimeout(() => proc.kill(), timeoutMs)
+      // Sin valor (o `0`), sin límite — ver `timeoutMs` en los deps.
+      const timeoutMs = this.deps.timeoutMs
+      if (timeoutMs && timeoutMs > 0) timeout = setTimeout(() => proc.kill(), timeoutMs)
       onAbort = () => proc.kill()
       input.signal?.addEventListener('abort', onAbort)
 
