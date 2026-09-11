@@ -296,13 +296,17 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     if (!res.ok) await this.throwForFailedRun(res, baseUrl)
 
-    const body202 = res.status === 202 ? ((await res.json()) as { runId?: string }) : undefined
+    // Una sola lectura: el body de un Response se consume, y ramificar con
+    // dos `res.json()` hacía que un 202 sin `runId` (un proxy, un agent-host
+    // futuro) muriera con "Body already used" en vez de decir qué pasó.
+    const parsed = (await res.json()) as { runId?: string } & ProviderOutput
     // Un agent-host anterior a `?wait=poll` ignora el flag y contesta 200 con
     // el output colgado del request. Se acepta tal cual: un daemon nuevo
     // tiene que seguir hablándole a un agent-host viejo.
-    const output = body202?.runId
-      ? await this.awaitDetachedRun(baseUrl, token, body202.runId, input)
-      : ((await res.json()) as ProviderOutput)
+    const output =
+      res.status === 202 && parsed.runId
+        ? await this.awaitDetachedRun(baseUrl, token, parsed.runId, input)
+        : (parsed as ProviderOutput)
     log.debug(
       {
         providerId: this.id,
@@ -395,6 +399,10 @@ export class RemoteAgentProvider implements IAgentProvider {
         // da por perdido — y ahí el run SÍ falló, porque el proceso que lo
         // corría no está.
         if (Date.now() - silentSince >= maxSilenceMs()) {
+          // Se avisa igual que en los otros dos cortes, aunque sea probable
+          // que tampoco llegue: si el agent-host vuelve en sí, el DELETE es
+          // lo único que libera el slot que este run dejó tomado.
+          await this.cancelDetachedRun(baseUrl, auth, runId)
           throw new Error(
             `RemoteAgentProvider(${this.id}): el agent-host dejó de responder durante el run ${runId} — ${probe.error}`,
           )

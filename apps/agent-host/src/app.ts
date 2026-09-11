@@ -29,6 +29,25 @@ import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './
  */
 const TERMINAL_RUN_TTL_MS = 10 * 60_000
 
+/**
+ * Cuánto silencio del daemon convierte a un run EN VUELO en abandonado.
+ *
+ * El daemon sondea cada pocos segundos mientras espera, así que dejar de
+ * preguntar sólo pasa si murió, perdió la red o ya dio el run por perdido.
+ * Sin esto, ese run se queda corriendo con su slot tomado para siempre: el
+ * único corte era el `DELETE`, y justamente nadie va a mandarlo.
+ *
+ * Es la contracara del abort del request que tenía el camino inline, y por
+ * eso no puede depender de que el otro lado avise — un proceso que vive días
+ * no puede confiar su capacidad a que un tercero se acuerde de llamar.
+ */
+function abandonedRunMs(): number {
+  const parsed = Number(Bun.env.AGENT_HOST_ABANDONED_RUN_MS?.trim())
+  // `0` = nunca abandonar, la convención del repo para los topes.
+  if (parsed === 0) return Number.POSITIVE_INFINITY
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 60_000
+}
+
 /** Un run que corre desacoplado del request que lo pidió. */
 interface DetachedRun {
   status: 'running' | 'done' | 'failed'
@@ -37,6 +56,9 @@ interface DetachedRun {
   /** Por dónde le llega el cancel. */
   abort?: AbortController
   at: number
+  /** Última vez que el daemon preguntó por él. Es el latido que distingue
+   *  "sigue esperándolo" de "nadie va a venir". */
+  polledAt?: number
 }
 
 /** El disco de un run: lo que `/v1/mcp` le da al `ToolContext` para que una
@@ -317,11 +339,20 @@ export function createApp({
   }
 
   function sweepDetachedRuns(): void {
-    const cutoff = Date.now() - TERMINAL_RUN_TTL_MS
+    const now = Date.now()
     for (const [id, entry] of detachedRuns) {
-      // Un run en vuelo no vence: su `at` es de cuándo arrancó, y puede durar
-      // horas legítimamente.
-      if (entry.status !== 'running' && entry.at < cutoff) detachedRuns.delete(id)
+      if (entry.status !== 'running') {
+        if (entry.at < now - TERMINAL_RUN_TTL_MS) detachedRuns.delete(id)
+        continue
+      }
+      // Un run en vuelo no vence por durar: puede durar horas legítimamente.
+      // Vence por SILENCIO — que nadie pregunte por él. Se cuenta desde el
+      // último sondeo, o desde que arrancó si nunca hubo ninguno.
+      if ((entry.polledAt ?? entry.at) < now - abandonedRunMs()) {
+        log.warn({ runId: id }, 'nadie sondea este run hace rato — lo abandono y libero el slot')
+        entry.abort?.abort()
+        detachedRuns.delete(id)
+      }
     }
   }
 
@@ -1026,7 +1057,11 @@ export function createApp({
     sweepDetachedRuns()
     const entry = detachedRuns.get(c.req.param('id'))
     if (!entry) return c.json({ status: 'unknown' })
-    if (entry.status === 'running') return c.json({ status: 'running' })
+    if (entry.status === 'running') {
+      // El latido: mientras alguien pregunte, el run no está abandonado.
+      entry.polledAt = Date.now()
+      return c.json({ status: 'running' })
+    }
     return entry.status === 'done'
       ? c.json({ status: 'done', output: entry.output })
       : c.json({ status: 'failed', error: entry.error })
