@@ -547,6 +547,11 @@ export function createApp({
   const mcpDeps: McpServerDeps = {
     serverName: 'ia-flow-local',
     serves: (t) => t.runsOn === 'agent-disk',
+    // `sync` porque el sandbox que `bash_run` y `workspace_reset` piden SÍ
+    // existe acá: `prepareWorkspace` materializó el worktree y resolvió los
+    // `writePaths` antes de arrancar. Esas dos declaran `providerKinds:
+    // ['sync']` por el daemon, que sirviendo a un CLI no construye ninguno.
+    providerKind: 'sync',
     // El disco sale del `?run=`, no de la llamada. Un run que no está en el
     // mapa (terminó, o el proceso reinició) queda sin repoPaths: las tools
     // rechazan por path desconocido, que es lo correcto — mejor que operar

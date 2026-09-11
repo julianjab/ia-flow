@@ -18,6 +18,7 @@
 // parámetros de la conexión, sale un `{ status, body }`. Es lo que permite
 // testear el protocolo sin levantar un server, y lo que mantiene a
 // `@ia-flow/tools` sin Hono.
+import type { ProviderKind } from '@ia-flow/ai-providers'
 import type { Tool, ToolContext, ToolDefinitionsOptions } from '../contract.js'
 import { resolveExecutableTool, resolveTools } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -65,6 +66,22 @@ export interface McpServerDeps {
    *  dos conectados al mismo run deja de ser una constante. */
   serverName: string
   /**
+   * Con qué `providerKind` resuelve este host — o sea, si ofrece el sandbox
+   * que las tools de escritura y ejecución necesitan.
+   *
+   * Default `'async'`, que es el daemon: sirviendo a un CLI de terminal no
+   * construye worktree ni `writePaths`, y por eso `bash_run` y
+   * `workspace_reset` declaran `providerKinds: ['sync']` — ahí serían un
+   * footgun.
+   *
+   * El agent-host declara `'sync'` porque el sandbox SÍ existe: su
+   * `prepareWorkspace` materializó el worktree y resolvió los `writePaths`
+   * antes de arrancar el run. Es lo que hace que esas dos tools vuelvan a
+   * estar disponibles, y encima con el allow/deny de la policy aplicado —
+   * algo que el Bash nativo del CLI no tiene.
+   */
+  providerKind?: ProviderKind
+  /**
    * Recorte propio de este host sobre lo que el registry ofrece. El agent-host
    * sirve sólo las tools de disco; el daemon, todo lo demás.
    *
@@ -87,6 +104,11 @@ export interface McpServerDeps {
   buildContext(conn: McpConnection): ToolContext | Promise<ToolContext>
 }
 
+/** El daemon, salvo que el host diga otra cosa. */
+function kindOf(deps: McpServerDeps): ProviderKind {
+  return deps.providerKind ?? 'async'
+}
+
 function rpcResult(id: JsonRpcId, result: unknown): McpResponse {
   return { status: 200, body: { jsonrpc: '2.0' as const, id: id ?? null, result } }
 }
@@ -97,7 +119,7 @@ function rpcError(id: JsonRpcId, code: number, message: string, status = 200): M
 
 async function toolDefinitions(conn: McpConnection, deps: McpServerDeps) {
   const perAgent = (await deps.agentOptions?.(conn)) ?? {}
-  return resolveTools({ providerKind: 'async', toolNames: conn.toolNames, ...perAgent })
+  return resolveTools({ providerKind: kindOf(deps), toolNames: conn.toolNames, ...perAgent })
     .filter((t) => deps.serves?.(t) ?? true)
     .map((t) => ({ name: t.name, description: t.description, inputSchema: t.input_schema }))
 }
@@ -110,7 +132,7 @@ async function toolDefinitions(conn: McpConnection, deps: McpServerDeps) {
 async function callContext(conn: McpConnection, deps: McpServerDeps): Promise<ToolContext> {
   return {
     ...(await deps.buildContext(conn)),
-    providerKind: 'async' as const,
+    providerKind: kindOf(deps),
     policy: conn.toolNames ? { toolNames: new Set(conn.toolNames) } : undefined,
     runId: conn.runId,
     agentId: conn.agentId,
