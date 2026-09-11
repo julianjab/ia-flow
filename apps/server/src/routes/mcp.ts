@@ -1,145 +1,50 @@
 import { selectableExits } from '@ia-flow/agent-engine'
-import type { ToolDefinitionsOptions } from '@ia-flow/tools'
-import { resolveExecutableTool, resolveTools } from '@ia-flow/tools'
+import type {
+  JsonRpcRequest,
+  McpConnection,
+  McpResponse,
+  ToolDefinitionsOptions,
+} from '@ia-flow/tools'
+import { handleMcpRequest, mcpNoStream, mcpParseError } from '@ia-flow/tools'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { configRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { buildToolContext } from './tools.js'
 
-// MCP endpoint wrapping the same tool registry POST /api/tools/:name uses —
-// gives both anthropic-api (native tools:) and the terminal providers
-// (--mcp-config) a validated tool_use call instead of the terminal path's
-// old free-text curl appendix. Minimal hand-rolled JSON-RPC 2.0 over a
-// single POST/response (Streamable HTTP, stateless — no SSE, no session
-// id): the tool surface here is 4 methods, not worth pulling in the full
-// @modelcontextprotocol/sdk (which expects Node's http.IncomingMessage/
-// ServerResponse, not Hono's Fetch-based Request/Response).
+// El endpoint MCP del daemon — el mismo registry que usa POST /api/tools/:name.
+// Le da a los providers de terminal (`--mcp-config`) un tool_use validado en
+// vez del viejo apéndice de curl en texto libre.
 //
-// Scoping: the caller (terminal/base.ts) bakes the agent's allowed tool
-// names into the URL as `?tools=a,b,c` — MCP's `tools/list` has no per-call
-// argument to carry that, so it has to travel on the connection itself.
-// Every agent with `tools[]` gets its own URL, same as it gets its own
-// curl-appendix content today.
+// La mecánica del protocolo NO vive acá: es `handleMcpRequest`
+// (`@ia-flow/tools`), compartida con el `/v1/mcp` del agent-host. Lo de este
+// archivo es lo que sólo el daemon puede aportar — el `ToolContext` con sus
+// repos y la especialización por agente contra el roster.
+//
+// Scoping: el cliente (terminal/base.ts) hornea los nombres permitidos del
+// agente en la URL como `?tools=a,b,c` — `tools/list` no tiene un argumento
+// por llamada donde llevarlos, así que viajan en la conexión.
 
 const log = createLogger('mcp-route')
 
-interface JsonRpcRequest {
-  jsonrpc: '2.0'
-  id?: string | number | null
-  method: string
-  params?: Record<string, unknown>
-}
-
-function rpcResult(id: string | number | null | undefined, result: unknown) {
-  return { jsonrpc: '2.0' as const, id: id ?? null, result }
-}
-
-function rpcError(id: string | number | null | undefined, code: number, message: string) {
-  return { jsonrpc: '2.0' as const, id: id ?? null, error: { code, message } }
-}
-
-type JsonRpcId = JsonRpcRequest['id']
-
-function handleInitialize(c: Context, id: JsonRpcId) {
-  return c.json(
-    rpcResult(id, {
-      protocolVersion: '2025-06-18',
-      capabilities: { tools: {} },
-      serverInfo: { name: 'ia-flow-tools', version: '1.0.0' },
-    }),
-  )
-}
-
-async function handleToolsList(c: Context, id: JsonRpcId, toolNames: string[] | undefined) {
-  // Las tools que se ESPECIALIZAN por agente (`select_exit`,
-  // `submit_output`) necesitan la config del agente, no sólo su lista de
-  // nombres. En sync la trae el `ProviderInput`; acá hay que ir a
-  // buscarla con el `?agent=`/`?project=` que ya viaja en la conexión.
-  //
-  // Sin esto, `specialize` recibía `undefined` y `hideWhen` escondía la
-  // tool: `select_exit` sencillamente NO EXISTÍA para un agente de
-  // terminal, aunque su definición declarara salidas elegibles.
-  const perAgent = await agentToolOptions(c.req.query('agent'), c.req.query('project'))
-  const tools = resolveTools({ providerKind: 'async', toolNames, ...perAgent }).map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.input_schema,
-  }))
-  return c.json(rpcResult(id, { tools }))
-}
-
-/** El `ToolContext` de una llamada MCP — mismas reglas que `tools/list` usó
- *  para decidir qué se OFRECE, re-aplicadas acá para que un cliente no
- *  pueda invocar una tool que nunca se le ofreció sólo nombrándola. */
-function buildMcpToolContext(c: Context, toolNames: string[] | undefined) {
+/** Lo que viaja en la query de la conexión. */
+function connectionOf(c: Context): McpConnection {
+  const toolNamesParam = c.req.query('tools')
   return {
-    ...buildToolContext(c.req.query('project')),
-    providerKind: 'async' as const,
-    policy: toolNames ? { toolNames: new Set(toolNames) } : undefined,
-    // Qué EJECUCIÓN está hablando. Igual que `tools`, viaja en la
-    // conexión porque MCP no tiene un argumento por llamada donde
-    // colgarlo. Los tools de cierre lo usan para no pisar un run más
-    // nuevo de la misma tarea con el cierre tardío de uno viejo.
+    toolNames: toolNamesParam ? toolNamesParam.split(',').filter(Boolean) : undefined,
     runId: c.req.query('run'),
-    // Namespace de las tools `memory_*`. Viaja en la conexión, igual
-    // que `tools` y `run`, y NO como argumento de la llamada: es lo que
-    // impide que un agente lea o escriba la memoria de otro nombrándola.
     agentId: c.req.query('agent'),
     projectId: c.req.query('project'),
-    // Mismo canal que `run`/`agent`/`project`: las tools de cierre de
-    // `task.ts` lo usan como fallback cuando el modelo no transcribe
-    // `task_id` (ver `ToolContext.taskId`, ya poblado del lado sync).
     taskId: c.req.query('task'),
+    // Sólo quita tools (las async-only, si el cliente cierra por stopReason).
+    // Ver `McpConnection.closesWith`.
+    closesWith: c.req.query('kind') === 'sync' ? 'sync' : undefined,
   }
 }
 
-async function handleToolsCall(
-  c: Context,
-  id: JsonRpcId,
-  params: Record<string, unknown> | undefined,
-  toolNames: string[] | undefined,
-) {
-  const name = params?.name as string | undefined
-  const args = (params?.arguments as unknown) ?? {}
-  if (!name) return c.json(rpcError(id, -32602, 'Missing tool name'))
-
-  const ctx = buildMcpToolContext(c, toolNames)
-  const tool = resolveExecutableTool(name, ctx)
-  if (!tool) {
-    return c.json(
-      rpcResult(id, {
-        content: [{ type: 'text', text: `Tool '${name}' not found` }],
-        isError: true,
-      }),
-    )
-  }
-
-  log.debug({ tool: name, args }, 'mcp tool call')
-  try {
-    const result = await tool.execute(args, ctx)
-    return c.json(rpcResult(id, { content: [{ type: 'text', text: result }] }))
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    log.warn({ tool: name, err: msg }, 'mcp tool call failed')
-    return c.json(rpcResult(id, { content: [{ type: 'text', text: msg }], isError: true }))
-  }
-}
-
-function handleUnknownMethod(c: Context, id: JsonRpcId, method: string) {
-  // Notificaciones (`notifications/*`, y cualquier request sin `id`): el
-  // cliente no espera cuerpo de respuesta y JSON-RPC prohíbe contestarle
-  // un error. Un 404 acá era el "HTTP 404 dialing …/api/mcp" con el que
-  // el CLI daba por muerta la conexión entera apenas mandaba una
-  // notificación que no fuera `notifications/initialized`.
-  if (method.startsWith('notifications/') || id === undefined || id === null) {
-    return c.body(null, 202)
-  }
-  // Método desconocido = error de JSON-RPC, no de HTTP: el transporte
-  // funcionó. Un 404 hace que el cliente descarte el body y reporte un
-  // fallo de conexión en vez del `-32601`.
-  log.debug({ method }, 'mcp: método no soportado')
-  return c.json(rpcError(id, -32601, `Method not found: ${method}`))
+function send(c: Context, res: McpResponse) {
+  if (res.body === null) return c.body(null, res.status as 202 | 204)
+  return c.json(res.body, res.status as 200 | 400 | 405)
 }
 
 export function createMcpRouter() {
@@ -150,36 +55,24 @@ export function createMcpRouter() {
     try {
       body = await c.req.json()
     } catch {
-      return c.json(rpcError(null, -32700, 'Parse error'), 400)
+      return send(c, mcpParseError())
     }
-
-    const { id, method, params } = body
-    if (typeof method !== 'string' || !method) {
-      return c.json(rpcError(id, -32600, 'Invalid Request: falta `method`'), 400)
-    }
-    const toolNamesParam = c.req.query('tools')
-    const toolNames = toolNamesParam ? toolNamesParam.split(',').filter(Boolean) : undefined
-
-    if (method === 'initialize') return handleInitialize(c, id)
-    // Keep-alive del transporte. Responde `{}` — no tiene contenido, pero
-    // un cliente que lo manda espera un result, no un error.
-    if (method === 'ping') return c.json(rpcResult(id, {}))
-    if (method === 'tools/list') return handleToolsList(c, id, toolNames)
-    if (method === 'tools/call') return handleToolsCall(c, id, params, toolNames)
-    return handleUnknownMethod(c, id, method)
+    return send(
+      c,
+      await handleMcpRequest(body, connectionOf(c), {
+        serverName: 'ia-flow-tools',
+        agentOptions: (conn) => agentToolOptions(conn.agentId, conn.projectId),
+        buildContext: (conn) => buildToolContext(conn.projectId),
+      }),
+    )
   })
 
-  // El POST no es el único método del transporte. Un cliente Streamable HTTP
-  // (`"type": "http"`, que es como viaja `ia-flow-tools`) abre primero un GET
-  // para el stream SSE del server, y cierra con un DELETE. Sin rutas para
-  // esos dos métodos caían en el 404 default de Hono, y el CLI daba la
-  // conexión entera por muerta —"HTTP 404 dialing …/api/mcp"— antes de llegar
-  // a `tools/list`: el agente arrancaba sin NINGUNA tool.
-  //
-  // 405 y no 404 en el GET porque es lo que la spec define como "no ofrezco
-  // stream": el cliente sigue con POSTs, que es todo lo que necesita. Un 404
-  // dice "este endpoint no existe", que es otra cosa.
-  app.get('/', (c) => c.json(rpcError(null, -32601, 'SSE stream no soportado'), 405))
+  // El POST no es el único método del transporte: un cliente Streamable HTTP
+  // abre primero un GET para el stream SSE y cierra con un DELETE. Sin rutas
+  // para esos dos caían en el 404 default de Hono y el CLI daba la conexión
+  // entera por muerta —"HTTP 404 dialing …/api/mcp"— antes de llegar a
+  // `tools/list`: el agente arrancaba sin NINGUNA tool.
+  app.get('/', (c) => send(c, mcpNoStream()))
   // El DELETE cierra una sesión, y acá no hay ninguna que cerrar (el
   // transporte es stateless: no emitimos `Mcp-Session-Id`). Se acepta sin
   // cuerpo en vez de rechazar — el cliente está terminando, no pidiendo algo.

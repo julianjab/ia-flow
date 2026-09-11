@@ -35,6 +35,8 @@ interface ResetWorktreeInput {
 
 registerTool({
   name: 'workspace_reset',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['reset_worktree'],
   // Sync-only: the WorkspaceManager sandbox (worktree + writePaths) is only
   // built for the anthropic-api provider. Terminal providers (tmux/iterm)

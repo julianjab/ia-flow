@@ -10,8 +10,6 @@ import {
   type SlackMemberRef,
   type TaskDispositionEntry,
   TaskDispositionEntryArraySchema,
-  type TaskFocus,
-  TaskFocusSchema,
   type TaskRunPreview,
   TaskRunPreviewSchema,
   type TaskRunSummary,
@@ -63,6 +61,22 @@ export async function runTaskNow(projectId: string, taskId: string): Promise<Run
   // acá con el valor a la vista en vez de caer al `else` de la UI y anunciar
   // "ninguna regla matcheó" sobre un run que sí arrancó.
   return RunTaskNowResultSchema.parse(data)
+}
+
+/**
+ * Mueve la tarea a otro status del board.
+ *
+ * `PUT /api/tasks/:id` acepta un patch parcial, así que mandar sólo `status`
+ * no toca el título ni la descripción — importa porque el body del issue es
+ * el PRD y lo reescribe el refiner (ver la nota de `preserveSlackSection` en
+ * el CLAUDE.md raíz).
+ */
+export async function updateTaskStatus(
+  projectId: string,
+  taskId: string,
+  status: string,
+): Promise<void> {
+  await axios.put(`/api/tasks/${encodeURIComponent(taskId)}`, { projectId, status })
 }
 
 /**
@@ -130,23 +144,6 @@ export async function fetchTaskDispositions(projectId: string): Promise<TaskDisp
     params: { projectId },
   })
   return TaskDispositionEntryArraySchema.parse(data.dispositions)
-}
-
-/**
- * El foco del proyecto — qué mirar primero de lo que ya está ordenado.
- *
- * `null` es una respuesta legítima y frecuente: no hay nada que decir, o la
- * feature está apagada. Un error se propaga, y ES la diferencia que la
- * pantalla dibuja: "no se pudo pensar" no es "no hay nada que hacer".
- */
-export async function fetchTaskFocus(
-  projectId: string,
-  opts: { refresh?: boolean } = {},
-): Promise<TaskFocus | null> {
-  const { data } = await axios.get<{ focus: unknown }>('/api/tasks/focus', {
-    params: { projectId, ...(opts.refresh ? { refresh: '1' } : {}) },
-  })
-  return data.focus ? TaskFocusSchema.parse(data.focus) : null
 }
 
 /** El tope que declara la ruta (`MAX_BLOCKER_IDS` en project-source.ts). */

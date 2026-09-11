@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useTaskChatStore } from '@/features/tasks/taskChatStore';
+import { rendererFor } from '@/features/tasks/viewBlocks/registry';
 
 /**
  * Lo que el asistente propone SOBRE una fila real — no un chip suelto en un
@@ -17,6 +18,16 @@ import { useTaskChatStore } from '@/features/tasks/taskChatStore';
  */
 const props = defineProps<{
   taskId: string
+  /** Hay una operación en vuelo sobre ESTA fila — deshabilita sus botones sin
+   *  congelar las demás. */
+  busy?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** Una primitiva de vista pidió ejecutar una operación sobre esta fila. El
+   *  overlay no la corre: necesita el proyecto activo y los toasts, que son de
+   *  `TareasSection`. */
+  runOp: [taskId: string, op: string, params: Record<string, unknown>]
 }>()
 
 const store = useTaskChatStore()
@@ -25,8 +36,19 @@ const actions = computed(() => store.pendingActionsByTask[props.taskId] ?? [])
 const reply = computed(() => store.pendingReplyForTask(props.taskId))
 const highlightReason = computed(() => store.highlights[props.taskId])
 
+/** Los bloques que el contrato declaró de slot `row` para esta tarea, ya
+ *  emparejados con el componente que los dibuja. Uno sin renderer se descarta
+ *  acá (ver `registry.ts`) y no llega al template. */
+const blocks = computed(() =>
+  (store.rowBlocksByTask[props.taskId] ?? []).flatMap((block) => {
+    const component = rendererFor(block.use)
+    return component ? [{ block, component }] : []
+  }),
+)
+
 const hasSomething = computed(
-  () => !!reply.value || actions.value.length > 0 || !!highlightReason.value,
+  () =>
+    !!reply.value || actions.value.length > 0 || !!highlightReason.value || blocks.value.length > 0,
 )
 </script>
 
@@ -39,6 +61,18 @@ const hasSomething = computed(
     </div>
 
     <p v-if="reply" class="overlay-reply">{{ reply }}</p>
+
+    <div v-if="blocks.length" class="overlay-blocks">
+      <component
+        :is="entry.component"
+        v-for="(entry, i) in blocks"
+        :key="`${entry.block.use}-${i}`"
+        :block="entry.block"
+        :task-id="taskId"
+        :busy="!!busy"
+        @run="(op: string, params: Record<string, unknown>) => emit('runOp', taskId, op, params)"
+      />
+    </div>
 
     <ul v-if="actions.length" class="overlay-actions">
       <li v-for="(action, i) in actions" :key="i" class="overlay-action">
@@ -81,6 +115,7 @@ const hasSomething = computed(
   width: var(--tap-h-sm);
 }
 .overlay-reply { margin: 0; color: var(--fg); }
+.overlay-blocks { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .overlay-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
 .overlay-action { display: flex; align-items: baseline; gap: 0.3rem; flex-wrap: wrap; }
 .overlay-action-label { color: var(--fg-dim); }

@@ -24,7 +24,7 @@
 // agent-host sin saber (ni necesitar saber) cuál de los dos implementa. Se
 // resuelve acá vía `AGENT_HOST_PROVIDER` (default: anthropic-api).
 
-import type { IAgentProvider } from '@ia-flow/ai-providers'
+import type { IAgentProvider, LocalToolsMcp } from '@ia-flow/ai-providers'
 import {
   AnthropicApiProvider,
   ClaudePrintProvider,
@@ -36,9 +36,11 @@ import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-
 import { installSlackTools } from '@ia-flow/slack'
 import {
   executeLoop,
+  getTool,
   getToolDefinitions,
   setGitTokenPort,
   setLoggerFactory as setToolsLoggerFactory,
+  setWorkspaceManagerPort,
 } from '@ia-flow/tools'
 import {
   BunShellRunner,
@@ -102,8 +104,21 @@ const githubCredentials = lazyGitHubCredentials(() => githubAuthConfigFromEnv(Bu
 // el mismo agente corre en un contenedor. Ver `gitAuthArgs` en @ia-flow/tools.
 setGitTokenPort(() => githubCredentials.getToken())
 
+/**
+ * El WorkspaceManager de este proceso, también como port de las tools.
+ *
+ * `workspace_reset` opera contra el singleton que setea
+ * `setWorkspaceManagerPort`; sin cablearlo devuelve "unavailable" en cada
+ * llamada. El daemon lo hace en su composition root, y acá faltaba: ahora que
+ * el loop de tools de un run remoto corre en este proceso, el port tiene que
+ * apuntar al manager que preparó ESTE workspace.
+ *
+ * Se re-setea en cada construcción a propósito: la pantalla puede cambiar la
+ * config del workspace sin reiniciar, y el port tiene que seguir al manager
+ * vigente.
+ */
 function createWorkspaceManager(settings: WorkspaceSettings) {
-  return new WorkspaceManager(new BunShellRunner(), {
+  const manager = new WorkspaceManager(new BunShellRunner(), {
     reposBase: settings.reposBase ?? undefined,
     worktreeBase: settings.worktreeBase ?? undefined,
     githubToken: () => githubCredentials.getToken(),
@@ -114,6 +129,8 @@ function createWorkspaceManager(settings: WorkspaceSettings) {
     // desde acá, sólo el que orquesta la limpieza sabe si terminó el trabajo.
     deleteEmptyBranches: false,
   })
+  setWorkspaceManagerPort(manager)
+  return manager
 }
 
 function createWorkspaceProvisioner(settings: WorkspaceSettings) {
@@ -126,6 +143,51 @@ function createTerminalWorkspaceProvisioner(settings: WorkspaceSettings) {
 }
 
 const toolExecution = { getToolDefinitions, executeLoop }
+
+/**
+ * El MCP de tools de disco de ESTE proceso, para el CLI que spawnea un
+ * provider de terminal.
+ *
+ * Es lo que parte la entrega de tools en dos: las de disco se resuelven en
+ * `/v1/mcp` —donde está el workspace que este agent-host preparó— y el resto
+ * sigue yendo al `/api/mcp` del daemon, que es el único con la fuente de
+ * issues, las credenciales y el registry de pending tasks.
+ *
+ * Por `localhost`: el CLI corre en esta misma máquina. No hace falta el
+ * `publicUrl` ni exponer nada nuevo — a diferencia de `anthropic-api`, donde
+ * un MCP lo abre Anthropic y sí tendría que ser alcanzable desde internet.
+ *
+ * `undefined` sin token: el guard rechaza todo sin él, así que declarar el
+ * server sólo le daría al CLI un 401 por cada tool. Mejor que las de disco
+ * caigan al daemon —donde al menos fallan con un motivo— que una conexión
+ * que nunca va a servir.
+ *
+ * Perezoso porque el puerto y el token se leen del env, que se termina de
+ * cargar después de que este módulo se evalúa.
+ */
+function localTools(): LocalToolsMcp | undefined {
+  const token = Bun.env.API_AI_PROVIDER_TOKEN?.trim()
+  if (!token) return undefined
+  return {
+    url: `http://localhost:${Bun.env.PORT ?? '3002'}`,
+    token,
+    owns: (name) => getTool(name)?.runsOn === 'agent-disk',
+  }
+}
+
+/**
+ * Corte duro de un run de `claude-print`, en ms. Vacío = sin límite, igual
+ * que los caps del engine.
+ *
+ * `Number()` y no `parseInt`: `parseInt('10m') === 10` aceptaría un typo en
+ * silencio y cortaría los runs a 10 milisegundos.
+ */
+function envRunTimeoutMs(): number | undefined {
+  const raw = Bun.env.AGENT_HOST_RUN_TIMEOUT_MS?.trim()
+  if (!raw) return undefined
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
 
 async function loadProviderConfig() {
   return DEFAULT_PROVIDER_CONFIG
@@ -162,7 +224,14 @@ export function createProvider(
   workspaceSettings: WorkspaceSettings = envWorkspaceSettings(),
 ): IAgentProvider {
   if (id === 'claude-print') {
-    return new ClaudePrintProvider({ log: createLogger('claude-print') })
+    return new ClaudePrintProvider({
+      log: createLogger('claude-print'),
+      // Sus tools de disco se resuelven en ESTE proceso, no en el daemon.
+      localTools,
+      // Sin tope salvo que el operador ponga uno: el corte lo decide el
+      // engine que despachó, no este runtime. `0` = sin límite.
+      timeoutMs: envRunTimeoutMs(),
+    })
   }
 
   // Los de terminal spawnean su sesión en ESTA máquina y el agente vuelve al
@@ -171,7 +240,7 @@ export function createProvider(
   // `workflow` del repo y limpia el worktree al terminar.
   if (id === 'tmux-claude' || id === 'iterm-claude') {
     const deps = {
-      terminalBase: { loadProviderConfig },
+      terminalBase: { loadProviderConfig, localTools },
       workspace: createTerminalWorkspaceProvisioner(workspaceSettings),
       log: createLogger(id),
     }

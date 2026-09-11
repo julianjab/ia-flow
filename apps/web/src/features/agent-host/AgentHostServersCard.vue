@@ -30,7 +30,10 @@ function add(): void {
         <li v-for="r in registrations" :key="r.serverUrl" class="list__item">
           <span class="dot" :class="r.ok ? 'dot--ok' : 'dot--err'" />
           <code class="list__url">{{ r.serverUrl }}</code>
-          <span v-if="!r.ok" class="list__err" :title="r.error">{{ r.error ?? 'sin alta' }}</span>
+          <span v-if="r.ok && r.publicUrl" class="list__via" :title="`me alcanza en ${r.publicUrl}`">
+            me alcanza en {{ r.publicUrl }}
+          </span>
+          <span v-if="!r.ok" class="list__err" :title="r.reason">{{ r.reason ?? 'sin alta' }}</span>
           <button
             class="btn btn--ghost list__rm"
             :disabled="saving"
@@ -90,6 +93,13 @@ function add(): void {
 .list__err {
   color: var(--danger);
   font-size: var(--fs-micro);
+}
+.list__via {
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .list__rm {
   height: var(--row-h);

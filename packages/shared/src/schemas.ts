@@ -399,11 +399,27 @@ export const AgentMemoryEntrySchema = z.object({
 })
 export type AgentMemoryEntry = z.infer<typeof AgentMemoryEntrySchema>
 
+// Un bloque de system prompt tal como lo consume la API de Anthropic
+// (`resolveAnthropicRunSettings`, packages/ai-providers). Extraído como schema
+// propio para que apps/agent-host pueda declarar su propio system prompt —el
+// que agrega AL CORRER, independiente del que arma cada agente— con el MISMO
+// shape que ya usa `AnthropicApiSettingsSchema.systemPrompt`, en vez de
+// inventar una forma paralela.
+export const SystemPromptBlockSchema = z.object({ type: z.literal('text'), text: z.string() })
+export type SystemPromptBlock = z.infer<typeof SystemPromptBlockSchema>
+
+/** Reintentos por default ante `stop_reason: pause_turn` — el loop reenvía el
+ *  historial sin cambios. Vive acá y no en `@ia-flow/tools` porque el form de
+ *  providers de `apps/web` lo muestra como placeholder y la web sólo puede
+ *  importar de `shared`. Bounded: sin tope, un modelo que re-dispara el cap de
+ *  server tools no cortaría nunca; con 0, una sola pausa mataba el run. */
+export const DEFAULT_MAX_PAUSE_TURN_RETRIES = 3
+
 export const AnthropicApiSettingsSchema = z.object({
   model: z.string(),
   anthropicVersion: z.string(),
   anthropicBeta: z.array(z.string()),
-  systemPrompt: z.array(z.object({ type: z.literal('text'), text: z.string() })),
+  systemPrompt: z.array(SystemPromptBlockSchema),
   thinking: z
     .object({
       type: z.enum(['enabled', 'adaptive']),
@@ -416,7 +432,8 @@ export const AnthropicApiSettingsSchema = z.object({
   taskBudgetTokens: z.number().int().min(20000).optional(),
   /** Max resends of an unchanged message list when the API pauses a long
    *  server-tool turn (`stop_reason: pause_turn`). See LoopOptions in
-   *  packages/tools/src/contract.ts. Default 0 (no retry). */
+   *  packages/tools/src/contract.ts. Sin valor cae a
+   *  `DEFAULT_MAX_PAUSE_TURN_RETRIES`; 0 desactiva el reintento. */
   maxPauseTurnRetries: z.number().int().min(0).max(20).optional(),
   /** Retry once with more max_tokens when `max_tokens` cuts off a `tool_use`
    *  block mid-JSON. See LoopOptions.retryTruncatedToolUse. Default false. */
@@ -2405,12 +2422,93 @@ export const TaskChatMessageSchema = z.object({
 })
 export type TaskChatMessage = z.infer<typeof TaskChatMessageSchema>
 
+/**
+ * Una primitiva de render que `apps/web` declara saber dibujar.
+ *
+ * **Es el corazón del diseño: el vocabulario visual es DATO, no código.** Ni
+ * este archivo ni el server saben que existe un botón "correr" o un orden por
+ * dificultad — saben que hay primitivas, que cada una trae su propio JSON
+ * Schema, y que el modelo elige entre las que el front declaró. Sumar una
+ * capacidad nueva (un badge, un filtro, un bloque de HTML) es agregar una
+ * entrada al contrato de `apps/web`: **el prompt y el schema forzado al
+ * modelo se derivan de acá**, así que no hay prompt que editar ni tipo que
+ * ampliar en `shared` ni rama nueva en `TaskChatUseCase`.
+ *
+ * - `id` — el nombre con el que el modelo la invoca (`ViewBlock.use`).
+ * - `description` — la única documentación que el modelo va a leer. Es lo que
+ *   se interpola en el prompt, así que se escribe para él: qué dibuja, cuándo
+ *   conviene y cuándo no.
+ * - `props` — el JSON Schema del payload. Se inyecta tal cual en el schema
+ *   que se le fuerza al modelo, así que la API de Anthropic ya garantiza la
+ *   forma: el server no la revalida (no tiene un validador de JSON Schema, y
+ *   duplicarlo daría dos fuentes de verdad). Quien la revalida es el
+ *   renderer, que es donde los tipos importan de verdad.
+ * - `taskIdProps` — qué claves de `props` llevan ids de tarea. Es lo único
+ *   que el server NO puede delegar: que un id exista es una verdad sobre el
+ *   board, no sobre la UI. Declararlo es lo que le permite filtrar
+ *   alucinaciones sin saber qué significa la primitiva.
+ */
+export const UiPrimitiveSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  props: z.record(z.string(), z.unknown()).default({}),
+  taskIdProps: z.array(z.string()).default([]),
+})
+export type UiPrimitive = z.infer<typeof UiPrimitiveSchema>
+
+/**
+ * El contrato visual que el cliente publica en cada turno de chat.
+ *
+ * Lo manda el cliente y no lo guarda el server a propósito: **quien renderiza
+ * es quien declara**. Un front desplegado con una primitiva nueva la ofrece
+ * en el turno siguiente, y uno viejo nunca recibe un bloque que no sabría
+ * dibujar — sin versionado, sin migración y sin un catálogo en la base que se
+ * desincronice del bundle que efectivamente está corriendo.
+ *
+ * La contracara honesta: el whitelist es del cliente, así que `verify()` no
+ * comprueba una política del server — comprueba **conformidad con lo que este
+ * cliente dijo saber hacer**. Es coherente porque el cliente es el que
+ * ejecuta: no puede habilitarse nada que él mismo no implemente ya. Lo único
+ * que el server sigue owneando es la existencia de los `taskId`.
+ */
+export const UI_CONTRACT_MAX_PRIMITIVES = 24
+export const UiContractSchema = z.object({
+  primitives: z.array(UiPrimitiveSchema).max(UI_CONTRACT_MAX_PRIMITIVES).default([]),
+})
+export type UiContract = z.infer<typeof UiContractSchema>
+
+/**
+ * Un bloque de vista que el modelo emitió: qué primitiva usar y con qué
+ * payload. `props` es `unknown` a propósito — su forma la define el contrato
+ * del turno, no este tipo.
+ */
+export const ViewBlockSchema = z.object({
+  use: z.string().default(''),
+  props: z.record(z.string(), z.unknown()).default({}),
+})
+export type ViewBlock = z.infer<typeof ViewBlockSchema>
+
+/**
+ * Cómo se DIBUJA la lista — el tercer canal de la respuesta, al lado de
+ * `reply` (texto) y `actions` (mutaciones staged).
+ *
+ * La diferencia con `actions` es de naturaleza, no de grado: una `action`
+ * propone cambiar un DATO (tags, notas, orden real de la preferencia) y por
+ * eso pasa por "Aplicar/Descartar"; un `view` describe la PANTALLA — no hay
+ * nada que confirmar en que aparezca un botón, así que no pasa por ahí.
+ */
+export const TaskViewSpecSchema = z.object({
+  blocks: z.array(ViewBlockSchema).default([]),
+})
+export type TaskViewSpec = z.infer<typeof TaskViewSpecSchema>
+
 /** La forma que el modelo tiene que devolver — forzada vía `fill_form`/tool
  *  choice (ver `TaskChatUseCase`). */
 export const TaskChatReplySchema = z.object({
   reply: z.string(),
   scope: TaskChatScopeSchema,
   actions: z.array(TaskChatActionSchema).default([]),
+  view: TaskViewSpecSchema.default({ blocks: [] }),
 })
 export type TaskChatReply = z.infer<typeof TaskChatReplySchema>
 
@@ -2447,5 +2545,9 @@ export const TaskChatRequestSchema = z.object({
   message: z.string().min(1),
   history: z.array(TaskChatMessageSchema).max(TASK_CHAT_MAX_MESSAGES).default([]),
   tasks: z.array(TaskChatTaskContextSchema).max(TASK_CHAT_MAX_TASKS),
+  /** Lo que ESTE cliente sabe dibujar. Default vacío: un cliente que no lo
+   *  manda (o uno viejo) simplemente no habilita `view` — el asistente sigue
+   *  contestando texto y proponiendo `actions` como siempre. */
+  uiContract: UiContractSchema.default({ primitives: [] }),
 })
 export type TaskChatRequest = z.infer<typeof TaskChatRequestSchema>

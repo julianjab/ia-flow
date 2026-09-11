@@ -35,6 +35,7 @@
 // loguearlo, y lo loguea `index.ts` cuando el logger ya nació con el nivel
 // correcto.
 import { readFileSync } from 'node:fs'
+import { SystemPromptBlockSchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { ADMISSION_FIELDS, ADMISSION_OPS } from './admission.js'
@@ -125,12 +126,28 @@ export const AgentHostAdmissionSchema = z
   })
   .strict()
 
+/**
+ * El system prompt propio de ESTA máquina — se antepone al que ya arma cada
+ * agente (ver `AgentHostState.systemPrompt`). Mismo `SystemPromptBlockSchema`
+ * que `AnthropicApiSettingsSchema.systemPrompt` en `@ia-flow/shared`: un
+ * bloque de system prompt es un bloque de system prompt, corra donde corra.
+ *
+ * Sin equivalente en env, mismo motivo que `admission.rules`: es una lista de
+ * objetos.
+ */
+export const AgentHostSystemPromptSchema = z
+  .object({
+    blocks: z.array(SystemPromptBlockSchema).optional(),
+  })
+  .strict()
+
 export const AgentHostConfigSchema = z
   .object({
     settings: AgentHostSettingsSchema.optional(),
     register: AgentHostRegisterSchema.optional(),
     workspace: AgentHostWorkspaceSchema.optional(),
     admission: AgentHostAdmissionSchema.optional(),
+    systemPrompt: AgentHostSystemPromptSchema.optional(),
   })
   .strict()
 
@@ -233,7 +250,8 @@ export interface AgentHostEnvReport {
  * `index.ts` lo loguee — un override silencioso deja sin respuesta la
  * pregunta "¿por qué no aplica lo que dice el YAML?".
  *
- * `admission.rules` NO pasa por acá: no tiene env, y va directo al estado.
+ * `admission.rules` y `systemPrompt.blocks` NO pasan por acá: no tienen env,
+ * y van directo al estado.
  */
 export function applyAgentHostEnv(cfg: AgentHostConfig): AgentHostEnvReport {
   const applied: string[] = []

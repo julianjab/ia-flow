@@ -8,6 +8,10 @@ export { createAgentClassifier } from './agent-classifier.js'
 export * from './anthropic-api/auth.js'
 export type { AnthropicApiProviderDeps } from './anthropic-api/provider.js'
 export { AnthropicApiProvider, UpstreamAbortError } from './anthropic-api/provider.js'
+// La entrega de tools a un CLI `claude` — la comparten los providers de
+// terminal y `claude-print`.
+export type { LocalToolsMcp, ResolveMcpServersInput } from './claude-cli/tools-mcp.js'
+export { resolveDaemonToken, resolveDaemonUrl, resolveMcpServers } from './claude-cli/tools-mcp.js'
 export type { ClaudePrintLog, ClaudePrintProviderDeps } from './claude-print/provider.js'
 export { ClaudePrintProvider } from './claude-print/provider.js'
 export * from './contract.js'

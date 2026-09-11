@@ -2,15 +2,93 @@
 // Bun.serve) para que los tests puedan llamar `app.request(...)` sin bindear
 // un puerto real.
 import { timingSafeEqual } from 'node:crypto'
-import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
+import type {
+  IAgentProvider,
+  Liveness,
+  ProviderInput,
+  ProviderOutput,
+  SessionHandle,
+} from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { intersectWritePaths, WorkspaceRequestSchema } from '@ia-flow/shared'
+import type { CompiledPolicy, JsonRpcRequest, McpResponse, McpServerDeps } from '@ia-flow/tools'
+import { handleMcpRequest, mcpNoStream, mcpParseError } from '@ia-flow/tools'
 import { type Context, Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
 import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
-import { type AgentHostState, sanitizeWorkspace } from './state.js'
+import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './state.js'
+
+/**
+ * Cuánto se guarda el resultado de un run terminado, esperando que el daemon
+ * lo cobre.
+ *
+ * Generoso a propósito: el costo de retenerlo de más son unos KB por run; el
+ * de soltarlo temprano es reportar como fallido un run que salió bien.
+ */
+const TERMINAL_RUN_TTL_MS = 10 * 60_000
+
+/**
+ * Cuánto silencio del daemon convierte a un run EN VUELO en abandonado.
+ *
+ * El daemon sondea cada pocos segundos mientras espera, así que dejar de
+ * preguntar sólo pasa si murió, perdió la red o ya dio el run por perdido.
+ * Sin esto, ese run se queda corriendo con su slot tomado para siempre: el
+ * único corte era el `DELETE`, y justamente nadie va a mandarlo.
+ *
+ * Es la contracara del abort del request que tenía el camino inline, y por
+ * eso no puede depender de que el otro lado avise — un proceso que vive días
+ * no puede confiar su capacidad a que un tercero se acuerde de llamar.
+ */
+function abandonedRunMs(): number {
+  const parsed = Number(Bun.env.AGENT_HOST_ABANDONED_RUN_MS?.trim())
+  // `0` = nunca abandonar, la convención del repo para los topes.
+  if (parsed === 0) return Number.POSITIVE_INFINITY
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 60_000
+}
+
+/** Un run que corre desacoplado del request que lo pidió. */
+interface DetachedRun {
+  status: 'running' | 'done' | 'failed'
+  output?: ProviderOutput
+  error?: string
+  /** Por dónde le llega el cancel. */
+  abort?: AbortController
+  at: number
+  /** Última vez que el daemon preguntó por él. Es el latido que distingue
+   *  "sigue esperándolo" de "nadie va a venir". */
+  polledAt?: number
+}
+
+/** El disco de un run: lo que `/v1/mcp` le da al `ToolContext` para que una
+ *  tool de filesystem opere sobre el workspace de ESTE run y no sobre otro. */
+interface RunWorkspace {
+  repoPaths: Record<string, string>
+  writePaths?: string[]
+  taskId?: string
+  /**
+   * La policy compilada que llegó en el `ProviderInput`. Sin ella `bash_run`
+   * no tiene sus patrones allow/deny y rechaza TODO comando con "no
+   * habilitado" — la tool quedaría ofrecida y muerta.
+   */
+  policy?: CompiledPolicy
+}
+
+/**
+ * Rehidrata la policy que llegó por el cable.
+ *
+ * `JSON.stringify` no tiene Set: `RemoteAgentProvider` manda `toolNames` como
+ * array (y un Set sin convertir colapsa a `{}`). Mismo criterio que
+ * `resolveAnthropicPolicy` — ante cualquier otra forma, allow-list vacía en
+ * vez de romper.
+ */
+function rehydratePolicy(policy: ProviderInput['policy']): RunWorkspace['policy'] {
+  if (!policy) return undefined
+  const raw = policy.toolNames as unknown
+  const iterable = Array.isArray(raw) || raw instanceof Set ? raw : []
+  return { ...policy, toolNames: new Set(iterable as Iterable<string>) }
+}
 
 export interface CreateAppDeps {
   provider: IAgentProvider
@@ -174,6 +252,7 @@ export function createApp({
       gitAuthorEmail: null,
       gitSigningKeyPath: null,
     },
+    systemPrompt: [],
   }
 
   async function persist(): Promise<void> {
@@ -197,6 +276,102 @@ export function createApp({
    * daemon lo leía como muerta, abandonando runs que seguían trabajando.
    */
   const sessions = new Map<string, SessionHandle>()
+
+  /**
+   * El disco de cada run en vuelo — lo que `/v1/mcp` necesita para ejecutar
+   * una tool de filesystem contra el workspace CORRECTO.
+   *
+   * MCP es una conexión, no una llamada: el cliente abre una sola contra
+   * `/v1/mcp?run=<id>` y por ahí pasan todas las tools del run. El `?run=` es
+   * lo único que identifica de qué workspace se trata, así que lo que
+   * `resolveWorkspace` acaba de resolver se guarda acá bajo esa clave.
+   *
+   * Indexado por `runId` y no por `taskId` a propósito: un sub-agente corre
+   * sobre la misma task que su padre y pisaría su entrada.
+   */
+  const runWorkspaces = new Map<string, RunWorkspace>()
+
+  /**
+   * `sessionId → runId` de los runs async en vuelo.
+   *
+   * Es lo que distingue "el run terminó" de "el run recién empezó": en un
+   * provider async `provider.run()` vuelve apenas lanzó la sesión, y las
+   * tools del CLI llegan a `/v1/mcp` DESPUÉS. Sin esto, el `finally` del
+   * handler borraba el workspace y la primera tool del agente no encontraba
+   * su repo.
+   */
+  const sessionRuns = new Map<string, string>()
+
+  /**
+   * Los runs desacoplados: los que el daemon arrancó con `?wait=poll` y viene
+   * a buscar a `GET /v1/runs/:id`.
+   *
+   * Vive en memoria y no en disco porque es estado de un run EN VUELO: si
+   * este proceso reinicia, el run murió con él y el daemon lo va a ver como
+   * `unknown`, que es exactamente lo que pasó. Persistirlo prometería una
+   * recuperación que no existe.
+   */
+  const detachedRuns = new Map<string, DetachedRun>()
+
+  /**
+   * Limpia los runs terminados que ya nadie va a cobrar.
+   *
+   * Hace falta porque hay varias formas de que el daemon no vuelva: se le
+   * venció el presupuesto del run, perdió la red más de lo tolerable, o
+   * reinició a mitad. Cada entrada retiene el `ProviderOutput` completo —el
+   * contenido del run— en un proceso que vive días.
+   *
+   * Perezoso, sin `setInterval`: un timer habría que apagarlo en el shutdown
+   * y mantendría vivo el proceso en los tests. Correrlo en cada acceso a
+   * `/v1/runs` y en cada run nuevo alcanza — no hay forma de acumular basura
+   * sin pasar por alguno de los dos.
+   */
+  /**
+   * Guarda el desenlace de un run, salvo que su entrada ya no esté.
+   *
+   * Sin el chequeo, un run cancelado la resucitaba: el DELETE borra y aborta,
+   * el `provider.run()` rechaza un tick después, y el `catch` la volvía a
+   * escribir como `failed` — una entrada que nadie va a cobrar, esperando su
+   * TTL. Ausente significa "alguien ya cerró este run".
+   */
+  function settleDetachedRun(runId: string, entry: DetachedRun): void {
+    if (detachedRuns.has(runId)) detachedRuns.set(runId, entry)
+  }
+
+  function sweepDetachedRuns(): void {
+    const now = Date.now()
+    for (const [id, entry] of detachedRuns) {
+      if (entry.status !== 'running') {
+        if (entry.at < now - TERMINAL_RUN_TTL_MS) detachedRuns.delete(id)
+        continue
+      }
+      // Un run en vuelo no vence por durar: puede durar horas legítimamente.
+      // Vence por SILENCIO — que nadie pregunte por él. Se cuenta desde el
+      // último sondeo, o desde que arrancó si nunca hubo ninguno.
+      if ((entry.polledAt ?? entry.at) < now - abandonedRunMs()) {
+        log.warn({ runId: id }, 'nadie sondea este run hace rato — lo abandono y libero el slot')
+        entry.abort?.abort()
+        detachedRuns.delete(id)
+      }
+    }
+  }
+
+  /** ¿Queda una sesión async apoyada en este run? Mientras la haya, su
+   *  workspace tiene que seguir resolviendo en `/v1/mcp`. */
+  function hasLiveSession(runId: string): boolean {
+    for (const mapped of sessionRuns.values()) if (mapped === runId) return true
+    return false
+  }
+
+  /** Suelta el workspace de la sesión que se está cerrando. Es la contracara
+   *  del `finally` de un run sync: el mismo recurso, liberado cuando de
+   *  verdad ya no hay quien lo use. */
+  function releaseSessionRun(sessionId: string): void {
+    const runId = sessionRuns.get(sessionId)
+    if (!runId) return
+    sessionRuns.delete(sessionId)
+    if (!hasLiveSession(runId)) runWorkspaces.delete(runId)
+  }
 
   /**
    * El handle de una sesión: del cache si está, reconstruido desde el SO si
@@ -358,6 +533,10 @@ export function createApp({
   // nada (ver IAgentProvider.canAccept). La decisión firme es el 503 de
   // /v1/run.
   app.get('/v1/capacity', (c) => {
+    // Igual que en `/v1/run`: la ocupación que se reporta no puede incluir
+    // runs que ya nadie espera. Es también la sonda que el daemon hace antes
+    // de despachar, así que es donde un wedge se ve primero.
+    sweepDetachedRuns()
     // Pistas opcionales por query: el daemon manda lo que sabe de la tarea
     // (repo, agente) para que las reglas se puedan evaluar ANTES del
     // dispatch. Un daemon viejo no las manda y todo sigue igual.
@@ -440,6 +619,24 @@ export function createApp({
     return c.json(state.workspace)
   })
 
+  // GET/PUT /v1/system-prompt — el system prompt propio de ESTA máquina.
+  //
+  // No reconstruye el provider: a diferencia de `workspace` (que el
+  // WorkspaceManager toma al construirse), esto se lee en cada run dentro de
+  // `runAcceptedProvider` — no hay nada que rehacer acá, sólo persistir.
+  app.get('/v1/system-prompt', (c) => c.json({ blocks: state.systemPrompt }))
+
+  app.put('/v1/system-prompt', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body !== 'object') return c.json({ error: 'body inválido' }, 400)
+
+    state.systemPrompt = sanitizeSystemPrompt(body, state.systemPrompt)
+    await persist()
+
+    log.info({ blocks: state.systemPrompt.length }, 'system prompt cambiado desde la consola')
+    return c.json({ blocks: state.systemPrompt })
+  })
+
   // GET /v1/logs — el final del archivo, para la card de logs de la consola.
   //
   // El filtro corre ACÁ, sobre el archivo, y no en el navegador sobre lo ya
@@ -457,6 +654,84 @@ export function createApp({
       }),
     )
   })
+
+  // ── MCP: las tools que operan sobre ESTE disco ───────────────────────────
+  //
+  // Un run de terminal detrás de un agent-host tiene dos discos: el CLI y el
+  // workspace están acá, pero la fuente de issues, GitHub, Slack, la memoria
+  // y el registry de pending tasks están en el daemon. Hasta ahora TODAS sus
+  // tools salían por un solo MCP apuntado al daemon, así que un `fs_write`
+  // escribía en la máquina equivocada sin que nada fallara.
+  //
+  // Este endpoint sirve la otra mitad: sólo las tools `runsOn: 'agent-disk'`,
+  // contra el workspace que `resolveWorkspace` ya preparó para ese run. El
+  // CLI corre en esta misma máquina, así que lo alcanza por localhost — no
+  // hace falta exponer nada nuevo ni un túnel.
+  //
+  // El protocolo es el mismo `handleMcpRequest` que sirve `/api/mcp` en el
+  // daemon; lo único de acá es el recorte y el `ToolContext`.
+  const mcpDeps: McpServerDeps = {
+    serverName: 'ia-flow-local',
+    serves: (t) => t.runsOn === 'agent-disk',
+    // `sync` porque el sandbox que `bash_run` y `workspace_reset` piden SÍ
+    // existe acá: `prepareWorkspace` materializó el worktree y resolvió los
+    // `writePaths` antes de arrancar. Esas dos declaran `providerKinds:
+    // ['sync']` por el daemon, que sirviendo a un CLI no construye ninguno.
+    providerKind: 'sync',
+    // El disco sale del `?run=`, no de la llamada. Un run que no está en el
+    // mapa (terminó, o el proceso reinició) queda sin repoPaths: las tools
+    // rechazan por path desconocido, que es lo correcto — mejor que operar
+    // sobre el workspace de otro.
+    buildContext: (conn) => {
+      const ws = conn.runId ? runWorkspaces.get(conn.runId) : undefined
+      if (!ws) {
+        log.warn({ runId: conn.runId }, 'mcp: run sin workspace conocido — sin repoPaths')
+        return { repoPaths: {} }
+      }
+      return {
+        repoPaths: ws.repoPaths,
+        writePaths: ws.writePaths,
+        taskId: ws.taskId,
+        // `handleMcpRequest` le pisa `toolNames` con los de la conexión y
+        // conserva el resto — que es de donde `bash_run` saca su allow/deny.
+        policy: ws.policy,
+      }
+    },
+  }
+
+  function sendMcp(c: Context, res: McpResponse) {
+    if (res.body === null) return c.body(null, res.status as 202 | 204)
+    return c.json(res.body, res.status as 200 | 400 | 405)
+  }
+
+  app.post('/v1/mcp', async (c) => {
+    let body: JsonRpcRequest
+    try {
+      body = await c.req.json()
+    } catch {
+      return sendMcp(c, mcpParseError())
+    }
+    const toolsParam = c.req.query('tools')
+    return sendMcp(
+      c,
+      await handleMcpRequest(
+        body,
+        {
+          toolNames: toolsParam ? toolsParam.split(',').filter(Boolean) : undefined,
+          runId: c.req.query('run'),
+          agentId: c.req.query('agent'),
+          projectId: c.req.query('project'),
+          taskId: c.req.query('task'),
+          closesWith: c.req.query('kind') === 'sync' ? 'sync' : undefined,
+        },
+        mcpDeps,
+      ),
+    )
+  })
+  // Los otros dos métodos del transporte Streamable HTTP. Sin ellos el CLI
+  // da la conexión por muerta antes de llegar a `tools/list`.
+  app.get('/v1/mcp', (c) => sendMcp(c, mcpNoStream()))
+  app.delete('/v1/mcp', (c) => c.body(null, 204))
 
   // ── Sesiones async ───────────────────────────────────────────────────────
   // El daemon pregunta por ellas mientras espera el callback del agente.
@@ -495,6 +770,10 @@ export function createApp({
       })
       sessions.delete(id)
     }
+    // Se suelta aunque el handle no estuviera cacheado: la sesión se está
+    // cerrando igual, y dejar el workspace colgado lo haría crecer para
+    // siempre. Fuera del `if` a propósito.
+    releaseSessionRun(id)
     return c.json({ closed: true })
   })
 
@@ -614,6 +893,21 @@ export function createApp({
     }
   }
 
+  /**
+   * Antepone el system prompt propio de ESTA máquina a los bloques que ya
+   * trae el run (los que armó el agente del lado del daemon). Se resuelve
+   * ACÁ, contra `state.systemPrompt` — nunca del lado del daemon — porque es
+   * precisamente lo que el daemon que despacha no tiene por qué saber: cómo
+   * correr en este gateway puntual.
+   */
+  function withGatewaySystemPrompt(input: ProviderInput): ProviderInput {
+    if (!state.systemPrompt.length) return input
+    return {
+      ...input,
+      systemPromptBlocks: [...(input.systemPromptBlocks ?? []), ...state.systemPrompt],
+    }
+  }
+
   /** Lee y valida el body de POST /v1/run. No lanza — un JSON inválido o que
    *  no tiene forma de `ProviderInput` es un 400, no una excepción. */
   async function readRunBody(
@@ -631,43 +925,175 @@ export function createApp({
     return { ok: true, body: raw }
   }
 
-  /** Corre el provider para un run ya admitido: cuenta el slot, redirige los
-   *  logs al daemon que despachó, y libera todo en el `finally` pase lo que
-   *  pase. */
-  async function runAcceptedProvider(c: Context, body: ProviderInput): Promise<Response> {
+  /**
+   * Publica el disco de este run para `/v1/mcp`, ANTES de arrancar: un
+   * provider de terminal lanza la sesión y el CLI puede pedir una tool en el
+   * primer segundo.
+   */
+  function publishRunWorkspace(resolved: ProviderInput): void {
+    if (!resolved.runId) return
+    runWorkspaces.set(resolved.runId, {
+      repoPaths: resolved.repoPaths ?? {},
+      writePaths: resolved.writePaths,
+      taskId: resolved.taskId,
+      policy: rehydratePolicy(resolved.policy),
+    })
+  }
+
+  /**
+   * Se queda con la sesión que devolvió un provider async — `provider.run()`
+   * vuelve apenas la lanzó y el resultado real llega después, por el callback
+   * del agente al daemon; lo único que viaja en la respuesta son sus
+   * coordenadas.
+   *
+   * Atarla al run es lo que mantiene vivo su workspace: las tools de disco
+   * del CLI llegan a `/v1/mcp` DESPUÉS de que el handler devolvió.
+   */
+  function adoptSession(session: SessionHandle | undefined, runId: string | undefined): void {
+    if (!session) return
+    sessions.set(session.id, session)
+    if (runId) sessionRuns.set(session.id, runId)
+  }
+
+  /**
+   * Corre el provider para un run ya admitido: cuenta el slot, redirige los
+   * logs al daemon que despachó, y libera todo al final pase lo que pase.
+   *
+   * Devuelve el `ProviderOutput` — CÓMO llega ese output al daemon (colgado
+   * del request, o guardado para que lo venga a buscar) lo decide el caller.
+   */
+  async function runProvider(body: ProviderInput, signal: AbortSignal): Promise<ProviderOutput> {
     running++
     // El destino del redrive de logs es propiedad del RUN: este agent-host puede
     // estar registrado contra varios daemons y las líneas tienen que volver al
     // que despachó ESTE run. Se registra antes de arrancar —el provider empieza
-    // a loguear apenas entra— y se limpia en el `finally`, pase lo que pase.
+    // a loguear apenas entra— y se limpia al final, pase lo que pase.
     const redriveRunId = body.runId
     const redriveUrl = daemonUrlFor(body)
     if (redriveRunId && redriveUrl) setRunLogTarget(redriveRunId, redriveUrl)
     try {
+      const resolved = await resolveWorkspace(body)
+      publishRunWorkspace(resolved)
       const output = await provider.run({
-        ...(await resolveWorkspace(body)),
+        ...withGatewaySystemPrompt(resolved),
         daemonUrl: daemonUrlFor(body),
+        // El corte real de un run remoto: por ahí llegan el cancel del
+        // operador y el timeout del daemon. Sin esto el daemon soltaba el
+        // fetch y el proceso de acá seguía vivo, reteniendo su slot.
+        signal,
       })
-
-      // Un provider async devuelve apenas lanzó la sesión: el resultado real
-      // llega después, por el callback del agente al daemon. Lo único que
-      // viaja en la respuesta son las coordenadas de esa sesión.
-      if (output.session) sessions.set(output.session.id, output.session)
-
-      return c.json(output)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error({ err: message, taskId: body.taskId }, 'provider run failed')
-      return c.json({ error: message }, 500)
+      adoptSession(output.session, resolved.runId)
+      return output
     } finally {
       running--
       // Sin esto el mapa crece con cada run y, peor, un `runId` reciclado
       // mandaría líneas al daemon equivocado.
       if (redriveRunId) clearRunLogTarget(redriveRunId)
+      // El workspace de un run SYNC ya no le sirve a nadie: su loop de tools
+      // corrió adentro de `provider.run()` y terminó. El de uno async sigue
+      // vivo —la sesión recién arranca y sus tools llegan después— y lo
+      // libera `releaseSessionRun` cuando esa sesión se cierra.
+      if (redriveRunId && !hasLiveSession(redriveRunId)) runWorkspaces.delete(redriveRunId)
     }
   }
 
+  /** El camino de siempre: el resultado vuelve colgado del mismo request.
+   *  Lo usa un daemon anterior a `?wait=poll`. */
+  async function runInline(c: Context, body: ProviderInput): Promise<Response> {
+    try {
+      return c.json(await runProvider(body, c.req.raw.signal))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error({ err: message, taskId: body.taskId }, 'provider run failed')
+      return c.json({ error: message }, 500)
+    }
+  }
+
+  /**
+   * El camino desacoplado: se acepta el run, se contesta, y el daemon viene a
+   * buscar el resultado a `GET /v1/runs/:id`.
+   *
+   * Un run de desarrollo dura entre minutos y horas, y sostener un request
+   * HTTP todo ese tiempo era frágil por los dos lados: cualquier corte de red
+   * —o el timeout del propio `fetch`— se leía como un run FALLIDO, con su
+   * `onError` moviendo el issue y comentando un fallo sobre trabajo que
+   * seguía avanzando del otro lado del cable.
+   *
+   * El resultado se guarda en vez de empujarse al daemon: no hace falta que
+   * este proceso sepa autenticarse contra su API ni que el daemon exponga una
+   * ruta nueva, y un daemon que se reinicia a mitad del run puede volver a
+   * preguntar en vez de haberse perdido el único aviso.
+   */
+  function runDetached(c: Context, body: ProviderInput): Response {
+    sweepDetachedRuns()
+    const runId = body.runId ?? `run-${crypto.randomUUID()}`
+    const abort = new AbortController()
+    detachedRuns.set(runId, { status: 'running', abort, at: Date.now() })
+
+    // Sin `await` a propósito: el handler contesta ya. El `catch` es
+    // obligatorio — una promesa rechazada sin manejar es FATAL en Bun.
+    void runProvider({ ...body, runId }, abort.signal)
+      .then((output) => settleDetachedRun(runId, { status: 'done', output, at: Date.now() }))
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error({ err: message, taskId: body.taskId, runId }, 'provider run failed')
+        settleDetachedRun(runId, { status: 'failed', error: message, at: Date.now() })
+      })
+
+    log.info({ runId, taskId: body.taskId }, 'run aceptado — el resultado se busca en /v1/runs')
+    return c.json({ accepted: true, runId }, 202)
+  }
+
+  /**
+   * El resultado de un run desacoplado.
+   *
+   * **No se borra al entregarlo**, y la razón es la misma por la que existe
+   * todo este camino: si el socket se corta entre el delete y el parseo del
+   * body, el siguiente sondeo vería `unknown` y el daemon reportaría como
+   * FALLIDO un run que terminó bien. Sería el mismo modo de falla del request
+   * colgado, reducido a una ventana más chica.
+   *
+   * Queda disponible durante `TERMINAL_RUN_TTL_MS` y lo limpia el barrido.
+   * Un run ya cobrado se puede volver a cobrar; uno vencido se ve igual que
+   * uno de un proceso que reinició, que es como el daemon lo trata.
+   */
+  app.get('/v1/runs/:id', (c) => {
+    sweepDetachedRuns()
+    const entry = detachedRuns.get(c.req.param('id'))
+    if (!entry) return c.json({ status: 'unknown' })
+    if (entry.status === 'running') {
+      // El latido: mientras alguien pregunte, el run no está abandonado.
+      entry.polledAt = Date.now()
+      return c.json({ status: 'running' })
+    }
+    return entry.status === 'done'
+      ? c.json({ status: 'done', output: entry.output })
+      : c.json({ status: 'failed', error: entry.error })
+  })
+
+  /**
+   * Cancela un run desacoplado. Es por dónde le llega el cancel del operador,
+   * que en el camino inline viajaba como abort del request.
+   *
+   * Se borra la entrada acá mismo: quien cancela ya no va a venir a buscar el
+   * resultado, así que esperar el TTL sólo la retendría de más. Es el único
+   * borrado explícito — el resto lo hace el barrido.
+   */
+  app.delete('/v1/runs/:id', (c) => {
+    const id = c.req.param('id')
+    const entry = detachedRuns.get(id)
+    entry?.abort?.abort()
+    detachedRuns.delete(id)
+    log.info({ runId: id, known: Boolean(entry) }, 'cancel de un run desacoplado')
+    return c.json({ cancelled: true, known: Boolean(entry) })
+  })
+
   app.post('/v1/run', async (c) => {
+    // ANTES del chequeo de capacidad, no después: un run abandonado cuenta
+    // como ocupado, y con el cap en 1 un daemon muerto dejaba a este proceso
+    // contestando 503 para siempre — a él y a cualquier otro. El barrido
+    // dentro de `runDetached` llegaba tarde: nunca se ejecutaba.
+    sweepDetachedRuns()
     const parsed = await readRunBody(c)
     if (!parsed.ok) return c.json({ error: parsed.error }, 400)
     const { body } = parsed
@@ -693,7 +1119,10 @@ export function createApp({
       )
     }
 
-    return runAcceptedProvider(c, body)
+    // El daemon pide el camino desacoplado explícitamente. Sin el flag se
+    // contesta como siempre: un agent-host nuevo tiene que seguir sirviendo a
+    // un daemon viejo, que espera el output colgado de este request.
+    return c.req.query('wait') === 'poll' ? runDetached(c, body) : runInline(c, body)
   })
 
   return app

@@ -10,9 +10,11 @@
 // discrepar sobre cuál estabas mirando.
 
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import type { SystemPromptBlock } from '@ia-flow/shared'
 import AgentHostAdmissionCard from './AgentHostAdmissionCard.vue'
 import AgentHostProviderCard from './AgentHostProviderCard.vue'
 import AgentHostServersCard from './AgentHostServersCard.vue'
+import AgentHostSystemPromptCard from './AgentHostSystemPromptCard.vue'
 import AgentHostWorkspaceCard from './AgentHostWorkspaceCard.vue'
 import {
   type AgentHostAdmission,
@@ -26,9 +28,11 @@ import {
   fetchCapacity,
   fetchProvider,
   fetchRegistrations,
+  fetchSystemPrompt,
   fetchWorkspace,
   removeRegistration,
   saveAdmission,
+  saveSystemPrompt,
   saveWorkspace,
   setProvider,
 } from './api'
@@ -46,6 +50,7 @@ const capacity = ref<AgentHostCapacity | null>(null)
 const admission = ref<AgentHostAdmission | null>(null)
 const workspace = ref<AgentHostWorkspace | null>(null)
 const registrations = ref<AgentHostRegistration[]>([])
+const systemPrompt = ref<SystemPromptBlock[] | null>(null)
 
 const client = computed(() => selectedAgentHostClient())
 
@@ -53,20 +58,22 @@ async function refresh(): Promise<void> {
   status.value = 'loading'
   try {
     const c = client.value
-    // En paralelo: son cinco lecturas independientes del mismo proceso, y en
-    // serie la pantalla tardaría cinco round-trips en pintar.
-    const [p, cap, adm, ws, regs] = await Promise.all([
+    // En paralelo: son seis lecturas independientes del mismo proceso, y en
+    // serie la pantalla tardaría seis round-trips en pintar.
+    const [p, cap, adm, ws, regs, sp] = await Promise.all([
       fetchProvider(c),
       fetchCapacity(c),
       fetchAdmission(c),
       fetchWorkspace(c),
       fetchRegistrations(c),
+      fetchSystemPrompt(c),
     ])
     provider.value = p
     capacity.value = cap
     admission.value = adm
     workspace.value = ws
     registrations.value = regs.registrations
+    systemPrompt.value = sp
     status.value = 'ok'
     statusText.value = `${p.name} · ${cap.running} en curso`
   } catch (err) {
@@ -137,6 +144,11 @@ onUnmounted(() => clearInterval(timer))
           :model-value="admission"
           :saving="saving === 'admission'"
           @save="(a) => withSave('admission', () => saveAdmission(client, a))"
+        />
+        <AgentHostSystemPromptCard
+          :model-value="systemPrompt"
+          :saving="saving === 'systemPrompt'"
+          @save="(sp) => withSave('systemPrompt', () => saveSystemPrompt(client, sp))"
         />
         <AgentHostServersCard
           :registrations="registrations"

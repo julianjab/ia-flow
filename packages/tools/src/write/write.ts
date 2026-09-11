@@ -231,6 +231,8 @@ function countOccurrences(haystack: string, needle: string): number {
 
 registerTool({
   name: 'fs_write',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['write_file'],
   description:
     'Create or overwrite a file inside the allowed writePaths. Parent directories are created ' +
@@ -290,6 +292,8 @@ registerTool({
 
 registerTool({
   name: 'fs_edit',
+  // Opera sobre el workspace que preparó el provider, no sobre el del daemon.
+  runsOn: 'agent-disk',
   aliases: ['edit_file'],
   description:
     'Replace an exact substring in an existing file inside writePaths. Fails if old_string is ' +

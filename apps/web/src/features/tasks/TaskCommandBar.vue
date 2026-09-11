@@ -17,6 +17,9 @@ import { useTaskChatStore } from '@/features/tasks/taskChatStore';
 const props = defineProps<{
   tasks: TaskChatTaskContext[]
   projectId: string
+  /** Los statuses del board — viajan al contrato visual para que un botón
+   *  "mover a …" ofrezca destinos que existen. */
+  statuses?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -42,7 +45,12 @@ function ask(text: string): void {
   if (!trimmed || store.busy || !props.projectId) return
   message.value = '';
   showSuggestions.value = false;
-  void store.ask({ projectId: props.projectId, message: trimmed, tasks: props.tasks })
+  void store.ask({
+    projectId: props.projectId,
+    message: trimmed,
+    tasks: props.tasks,
+    statuses: props.statuses,
+  })
 }
 
 const projectReply = computed(() =>

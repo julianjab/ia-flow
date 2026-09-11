@@ -178,7 +178,9 @@ export function rollingFileStream(
 export function prettyConsoleStream(singleLine: boolean): NodeJS.WritableStream {
   return pretty({
     colorize: true,
-    translateTime: 'HH:MM:ss',
+    // `SYS:` = la zona horaria de esta máquina. Sin ese prefijo pino-pretty
+    // imprime UTC, así que el reloj del log no coincidía con el del operador.
+    translateTime: 'SYS:HH:MM:ss',
     ignore: 'pid,hostname',
     messageFormat: '[{module}] {msg}',
     singleLine,

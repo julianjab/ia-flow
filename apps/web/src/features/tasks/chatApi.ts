@@ -3,6 +3,7 @@ import {
   type TaskChatReply,
   TaskChatReplySchema,
   type TaskChatTaskContext,
+  type UiContract,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -16,6 +17,10 @@ import axios from 'axios'
  * `signal` deja que el operador corte la respuesta con "detener": el server
  * propaga el abort hasta el fetch a Anthropic (`routes/task-chat.ts`), así
  * que cancelar corta la llamada upstream de verdad.
+ *
+ * El `uiContract` viaja como un dato más del payload: parte de él depende del
+ * proyecto activo (los statuses reales del board), así que no puede ser una
+ * constante de este módulo — lo arma el store con `buildTaskUiContract`.
  */
 export async function sendTaskChatMessage(
   payload: {
@@ -23,6 +28,7 @@ export async function sendTaskChatMessage(
     message: string
     history: TaskChatMessage[]
     tasks: TaskChatTaskContext[]
+    uiContract: UiContract
   },
   opts: { signal?: AbortSignal } = {},
 ): Promise<TaskChatReply> {

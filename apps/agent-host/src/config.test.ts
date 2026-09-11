@@ -97,6 +97,23 @@ admission:
     const path = write('admission:\n  rules:\n    - { field: repo, op: contains, value: x }\n')
     expect(() => loadAgentHostConfig(path)).toThrow(/AgentHostConfigSchema/)
   })
+
+  it('parsea system prompt (blocks) — mismo shape que AnthropicApiSettingsSchema.systemPrompt', () => {
+    const path = write(`
+systemPrompt:
+  blocks:
+    - { type: text, text: "Estás corriendo en una VM efímera de CI." }
+`)
+    const cfg = loadAgentHostConfig(path)
+    expect(cfg?.systemPrompt?.blocks).toEqual([
+      { type: 'text', text: 'Estás corriendo en una VM efímera de CI.' },
+    ])
+  })
+
+  it('un bloque de system prompt sin `type: text` TIRA (schema strict)', () => {
+    const path = write('systemPrompt:\n  blocks:\n    - { type: image, text: x }\n')
+    expect(() => loadAgentHostConfig(path)).toThrow(/AgentHostConfigSchema/)
+  })
 })
 
 describe('resolveAgentHostConfigPath', () => {
@@ -150,6 +167,12 @@ describe('applyAgentHostEnv', () => {
 
   it('admission.rules no toca el entorno', () => {
     applyAgentHostEnv({ admission: { rules: [{ field: 'repo', op: 'equals', value: 'x' }] } })
+
+    for (const k of ENV_KEYS) expect(Bun.env[k]).toBeUndefined()
+  })
+
+  it('systemPrompt.blocks tampoco toca el entorno', () => {
+    applyAgentHostEnv({ systemPrompt: { blocks: [{ type: 'text', text: 'x' }] } })
 
     for (const k of ENV_KEYS) expect(Bun.env[k]).toBeUndefined()
   })

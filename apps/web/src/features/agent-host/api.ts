@@ -2,6 +2,7 @@
 // `baseURL` del server de ia-flow (features/servers/selection.ts), y acá
 // hablamos con otro proceso, en otro origen y con otra credencial.
 
+import type { SystemPromptBlock } from '@ia-flow/shared'
 import axios, { type AxiosInstance } from 'axios'
 
 export interface AgentHostProvider {
@@ -60,7 +61,10 @@ export interface AgentHostLogTail {
 export interface AgentHostRegistration {
   serverUrl: string
   ok: boolean
-  error?: string
+  /** Por qué falló el alta — el nombre es el del wire (`RegistrationOutcome`). */
+  reason?: string
+  /** El `baseUrl` con el que quedó anunciado: por dónde ese server lo alcanza. */
+  publicUrl?: string
   at?: string
 }
 
@@ -106,6 +110,17 @@ export async function saveWorkspace(
   return (await c.put<AgentHostWorkspace>('/v1/workspace', body)).data
 }
 
+export async function fetchSystemPrompt(c: AxiosInstance): Promise<SystemPromptBlock[]> {
+  return (await c.get<{ blocks: SystemPromptBlock[] }>('/v1/system-prompt')).data.blocks
+}
+
+export async function saveSystemPrompt(
+  c: AxiosInstance,
+  blocks: SystemPromptBlock[],
+): Promise<SystemPromptBlock[]> {
+  return (await c.put<{ blocks: SystemPromptBlock[] }>('/v1/system-prompt', { blocks })).data.blocks
+}
+
 export async function fetchLogs(c: AxiosInstance, query = ''): Promise<AgentHostLogTail> {
   return (await c.get<AgentHostLogTail>('/v1/logs', { params: { q: query, limit: 200 } })).data
 }
@@ -122,7 +137,10 @@ export async function addRegistration(c: AxiosInstance, serverUrl: string): Prom
 }
 
 export async function removeRegistration(c: AxiosInstance, serverUrl: string): Promise<void> {
-  await c.delete('/v1/registrations', { data: { serverUrl } })
+  // El agent-host lee `?serverUrl=`, no el body: un DELETE con cuerpo lo
+  // ignoraba y contestaba 400 «falta ?serverUrl=», así que la × no daba de
+  // baja nada.
+  await c.delete('/v1/registrations', { params: { serverUrl } })
 }
 
 /** Mensaje legible de un fallo del agentHost — el 401 y el "no llegué" son los

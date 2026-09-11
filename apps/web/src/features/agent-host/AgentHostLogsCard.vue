@@ -29,11 +29,28 @@ function levelName(line: AgentHostLogLine): string {
   return line.level ? (LEVELS[line.level] ?? '') : ''
 }
 
-/** Sólo la hora: la fecha es hoy en el 99% de los casos y ocupa media fila. */
+const monthAbbr = new Intl.DateTimeFormat('es', { month: 'short' })
+
+/**
+ * La hora local, y la fecha SÓLO cuando la línea no es de hoy.
+ *
+ * Mostrar siempre la hora sola ocupa media fila menos, pero un archivo que
+ * sobrevive al reinicio arranca con las líneas de ayer: leídas como `10:37`
+ * se confunden con las de hoy, que es peor que la fila más ancha. Mismo
+ * criterio que la columna `time` de los logs del server.
+ */
 function clock(time?: string): string {
   if (!time) return ''
   const d = new Date(time)
-  return Number.isNaN(d.getTime()) ? '' : d.toTimeString().slice(0, 8)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  return sameDay ? hms : `${pad(d.getDate())} ${monthAbbr.format(d)} ${hms}`
 }
 </script>
 

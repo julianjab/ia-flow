@@ -1,6 +1,7 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
 import type { ProviderKind } from '@ia-flow/ai-providers'
+import { DEFAULT_MAX_PAUSE_TURN_RETRIES } from '@ia-flow/shared'
 import { HISTORY_COMPACTION_PROMPT } from './compaction-prompt.js'
 import type {
   LoopOptions,
@@ -106,6 +107,36 @@ export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
     if (!allowed) return true
     return allowed.has(t.name)
   })
+}
+
+/**
+ * Reparte nombres de tools según el disco sobre el que tienen que correr.
+ *
+ * Existe para el run de terminal detrás de un agent-host, que es el único
+ * caso con DOS discos en juego: el CLI y el workspace viven en el agent-host,
+ * y la fuente de issues, GitHub, Slack, la memoria y el registry de pending
+ * tasks viven en el daemon. Hasta ahora todas las tools inyectadas salían por
+ * un solo MCP apuntado al daemon, así que un `fs_write` de ese agente escribía
+ * en la máquina equivocada — sin fallar, que es lo que lo hacía difícil de ver.
+ *
+ * Trabaja sobre NOMBRES y no sobre `Tool`s porque los dos consumidores
+ * (`terminal/base.ts` al armar el `--mcp-config`) sólo tienen la lista de
+ * nombres del agente. Un nombre que el registry no conoce se manda al daemon:
+ * es el default seguro —ahí está el catálogo completo— y un alias viejo sigue
+ * resolviendo como siempre.
+ */
+export function partitionToolsByDisk(toolNames: readonly string[]): {
+  agentDisk: string[]
+  daemon: string[]
+} {
+  const agentDisk: string[] = []
+  const daemon: string[] = []
+  for (const name of toolNames) {
+    const canonical = registry.has(name) ? name : (aliasIndex.get(name) ?? name)
+    if (registry.get(canonical)?.runsOn === 'agent-disk') agentDisk.push(name)
+    else daemon.push(name)
+  }
+  return { agentDisk, daemon }
 }
 
 /**
@@ -440,8 +471,13 @@ function handleUnresolvedMcpToolUse(ctx: LoopStepContext, state: LoopState): Loo
 // correct continuation is resending the message list UNCHANGED: the caller
 // already pushed the paused assistant turn, so simply looping back and
 // re-calling `fetchApi(messages)` does exactly that. Bounded by
-// `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that keeps
-// re-triggering the server-tool cap can't loop forever.
+// `maxPauseTurnRetries` (DEFAULT_MAX_PAUSE_TURN_RETRIES unless the agent or
+// the provider settings override it) so a model that keeps re-triggering the
+// server-tool cap can't loop forever. The bound is what makes a non-zero
+// default safe: with 0, a SINGLE pause — which any agent doing a handful of
+// remote MCP round-trips in one turn hits routinely — killed the whole run as
+// `truncated`, which is strictly worse than paying a resend whose history the
+// API already has cached.
 function handlePauseTurn(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
   if (state.pauseTurnRetries < ctx.maxPauseTurnRetries) {
     state.pauseTurnRetries++
@@ -700,20 +736,63 @@ async function saveLoopCheckpoint(
 // shape isn't documented as self-resolving and blindly persisting/resending
 // it 400s the next request with "mcp_tool_use ... found without a
 // corresponding mcp_tool_result block" (see subscriptions#1411).
+// Cierra la llamada que el conector MCP dejó a medias cuando pausó el turno.
+//
+// Una pausa del conector deja SU PROPIA llamada sin `mcp_tool_result`: es la
+// forma normal de un `pause_turn` con MCP remoto, no una anomalía. Los tres
+// caminos obvios estaban todos mal:
+//
+//   - reenviar el turno tal cual → 400 "mcp_tool_use ... found without a
+//     corresponding mcp_tool_result block" (bb6b36ad8 / subscriptions#1411);
+//   - descartar el turno y repetir el request → el request es byte-idéntico,
+//     así que el conector RE-EJECUTA las llamadas del turno que ya habían
+//     corrido: con un MCP no idempotente (`add_issue_comment`, `create_issue`)
+//     son comentarios e issues duplicados, uno por reintento;
+//   - terminar el run → es lo que hacía, y es lo que dejaba
+//     `maxPauseTurnRetries` como config muerta para todo agente con MCP
+//     remoto (run 08f148b7: el refiner tenía 5 reintentos y murió en iters=2).
+//
+// Parear el bloque con un result sintético de error es el único que no miente:
+// la historia queda válida (el `mcp_tool_result` en un turno assistant es la
+// forma que la API ya emite y que este loop reenvía en cada vuelta normal), no
+// se re-ejecuta nada, y el modelo ve que ESA llamada quedó sin respuesta y
+// decide si la repite. El texto que alcanzó a escribir se conserva.
+function pairDanglingMcpToolUses(
+  contentBlocks: any[],
+  isUnresolvedMcpToolUse: (block: any) => boolean,
+): any[] {
+  const synthetic = contentBlocks.filter(isUnresolvedMcpToolUse).map((b) => ({
+    type: 'mcp_tool_result',
+    tool_use_id: b.id,
+    is_error: true,
+    content: [
+      {
+        type: 'text',
+        text: 'The server-tool loop paused before this call returned. Its result is unknown — call it again if you still need it.',
+      },
+    ],
+  }))
+  return [...contentBlocks, ...synthetic]
+}
+
 function computeMcpToolUseFlags(
   contentBlocks: any[],
   stopReason: string,
   hasPendingToolUse: boolean,
-): { hasUnresolvedMcpToolUse: boolean; mcpToolUseDeferredByClientTool: boolean } {
+): {
+  hasUnresolvedMcpToolUse: boolean
+  mcpToolUseWillResume: boolean
+  isUnresolvedMcpToolUse: (block: any) => boolean
+} {
   const resolvedMcpToolUseIds = new Set(
     contentBlocks.filter((b) => b?.type === 'mcp_tool_result').map((b) => b.tool_use_id),
   )
-  const hasUnresolvedMcpToolUse = contentBlocks.some(
-    (b) => b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id),
-  )
-  const mcpToolUseDeferredByClientTool =
+  const isUnresolvedMcpToolUse = (b: any) =>
+    b?.type === 'mcp_tool_use' && !resolvedMcpToolUseIds.has(b.id)
+  const hasUnresolvedMcpToolUse = contentBlocks.some(isUnresolvedMcpToolUse)
+  const mcpToolUseWillResume =
     hasUnresolvedMcpToolUse && stopReason === 'tool_use' && hasPendingToolUse
-  return { hasUnresolvedMcpToolUse, mcpToolUseDeferredByClientTool }
+  return { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse }
 }
 
 type StopReasonAction =
@@ -729,11 +808,11 @@ function resolveStopReasonAction(
   state: LoopState,
   hasPendingToolUse: boolean,
   hasUnresolvedMcpToolUse: boolean,
-  mcpToolUseDeferredByClientTool: boolean,
+  mcpToolUseWillResume: boolean,
 ): StopReasonAction {
   const { stopReason } = stepCtx
 
-  if (hasUnresolvedMcpToolUse && !mcpToolUseDeferredByClientTool) {
+  if (hasUnresolvedMcpToolUse && !mcpToolUseWillResume) {
     return handleUnresolvedMcpToolUse(stepCtx, state)
   }
   if (stopReason === 'end_turn') {
@@ -784,7 +863,7 @@ export async function executeLoop(
     onToolResult,
     signal,
     logContext,
-    maxPauseTurnRetries = 0,
+    maxPauseTurnRetries = DEFAULT_MAX_PAUSE_TURN_RETRIES,
     retryTruncatedToolUse = false,
     drainMessages,
     onMessagesDelivered,
@@ -904,11 +983,15 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
-    const { hasUnresolvedMcpToolUse, mcpToolUseDeferredByClientTool } = computeMcpToolUseFlags(
-      contentBlocks,
-      stopReason,
-      hasPendingToolUse,
-    )
+    const { hasUnresolvedMcpToolUse, mcpToolUseWillResume, isUnresolvedMcpToolUse } =
+      computeMcpToolUseFlags(contentBlocks, stopReason, hasPendingToolUse)
+    const pausedWithDanglingMcp = stopReason === 'pause_turn' && hasUnresolvedMcpToolUse
+    if (pausedWithDanglingMcp) {
+      messages[messages.length - 1] = {
+        role: 'assistant',
+        content: pairDanglingMcpToolUses(contentBlocks, isUnresolvedMcpToolUse),
+      }
+    }
     const stepCtx: LoopStepContext = {
       response,
       contentBlocks,
@@ -926,8 +1009,8 @@ export async function executeLoop(
       stepCtx,
       state,
       hasPendingToolUse,
-      hasUnresolvedMcpToolUse,
-      mcpToolUseDeferredByClientTool,
+      hasUnresolvedMcpToolUse && !pausedWithDanglingMcp,
+      mcpToolUseWillResume,
     )
     if (action.action === 'return') return action.result
     if (action.action === 'continue') {
