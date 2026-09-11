@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import type { ChatMessageRecord, ChatSessionRecord, ChatSessionStore } from '../contract.js'
-import { CHAT_SESSION_STATUS } from '../contract.js'
 import { ChatSessionSource } from '../ChatSessionSource.js'
 import { ChatSessionTaskSource } from '../ChatSessionTaskSource.js'
+import type { ChatMessageRecord, ChatSessionRecord, ChatSessionStore } from '../contract.js'
+import { CHAT_SESSION_STATUS } from '../contract.js'
 
 function fakeStore(): ChatSessionStore & {
   sessions: Map<string, ChatSessionRecord>
@@ -56,9 +56,12 @@ describe('ChatSessionSource', () => {
     await store.ensure('s1')
     const source = new ChatSessionSource(store)
     expect(await source.getItems()).toEqual([])
-    const disposable = source.watch(() => {
-      throw new Error('watch no debería emitir nada')
-    }, {})
+    const disposable = source.watch(
+      () => {
+        throw new Error('watch no debería emitir nada')
+      },
+      { projectId: 'p1', mode: 'webhook' },
+    )
     disposable.dispose()
   })
 

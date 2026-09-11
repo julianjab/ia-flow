@@ -1,6 +1,6 @@
+import { describe, expect, test } from 'bun:test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, test } from 'bun:test'
 import { loadBaseAgents } from '../loader.js'
 
 const BASE_AGENTS_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'base-agents.yaml')

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ISSUE_CREATED, ISSUE_STATUS_CHANGED, SCHEDULE_TICK } from '@ia-flow/rules'
 import {
+  CHAT_MESSAGE,
   describeEventType,
   EVENT_CATALOG,
   RUN_FINISHED,
@@ -48,6 +49,7 @@ const DECLARED: Record<string, string> = {
   PR_MERGED,
   PR_CLOSED,
   PR_REVIEW_SUBMITTED,
+  CHAT_MESSAGE,
   CI_FINISHED,
   SLACK_MESSAGE,
   TASK_MESSAGE_EVENT,
