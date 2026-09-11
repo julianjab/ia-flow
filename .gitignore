@@ -18,5 +18,7 @@ apps/**/package-lock.json
 packages/**/package-lock.json
 
 # El agent-host.yaml real describe UNA máquina (nombre, URL, paths) — lo que
-# se commitea es `agent-host.example.yaml`.
+# se commitea es `agent-host.example.yaml`. `agent-host.backend.yaml` es un
+# segundo proceso (otro toolchain, otra máquina lógica) con la misma regla.
 apps/agent-host/agent-host.yaml
+apps/agent-host/agent-host.backend.yaml
