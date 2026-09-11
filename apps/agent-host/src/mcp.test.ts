@@ -40,6 +40,15 @@ function provisioningProvider(
   } as IAgentProvider
 }
 
+/** La policy compilada tal como llega por el cable: `toolNames` es un array,
+ *  porque JSON no tiene Set (ver `RemoteAgentProvider`). */
+function wirePolicy(allow: string[]) {
+  return {
+    toolNames: ['bash_run'] as unknown as Set<string>,
+    bashRun: { name: 'bash_run' as const, allow, deny: [] },
+  }
+}
+
 function runBody(overrides: Partial<ProviderInput> = {}): ProviderInput {
   return {
     step: 'implement',
@@ -131,6 +140,25 @@ describe('/v1/mcp — qué tools sirve', () => {
     expect(names).not.toContain('add_issue_comment')
   })
 
+  it('ofrece bash_run y workspace_reset — acá el sandbox SÍ existe', async () => {
+    // Declaran `providerKinds: ['sync']` porque el daemon, sirviendo a un CLI,
+    // no construye worktree ni writePaths. Este proceso sí: `prepareWorkspace`
+    // los armó antes de arrancar el run. Y encima llegan con el allow/deny de
+    // la policy, que el Bash nativo del CLI no tiene.
+    const app = createApp({ provider: provisioningProvider({}), token: 'secret', log: silentLog() })
+
+    const { body } = await rpc(
+      app,
+      'tools/list',
+      undefined,
+      '?run=run-1&tools=bash_run,workspace_reset',
+    )
+    const names = (body.result.tools as Array<{ name: string }>).map((t) => t.name)
+
+    expect(names).toContain('bash_run')
+    expect(names).toContain('workspace_reset')
+  })
+
   it('rechaza ejecutar una tool que no sirve, aunque la nombren', async () => {
     const app = createApp({ provider: provisioningProvider({}), token: 'secret', log: silentLog() })
 
@@ -219,6 +247,75 @@ describe('/v1/mcp — contra el disco del agent-host', () => {
     )
 
     expect(body.result.isError).toBe(true)
+  })
+})
+
+describe('/v1/mcp — bash_run de verdad', () => {
+  it('ejecuta un comando permitido contra el disco del agent-host', async () => {
+    // Ofrecerla en `tools/list` no alcanza: `bash_run` saca su allow/deny de
+    // `ctx.policy.bashRun`, que llega en el `ProviderInput` del run. Sin
+    // propagarlo, la tool quedaba ofrecida y moría en la primera llamada con
+    // "bash_run no habilitado".
+    const { paths } = repoWithFile('x\n')
+    const app = asyncApp(paths)
+
+    await app.request('/v1/run', {
+      method: 'POST',
+      headers: AUTH,
+      body: JSON.stringify(
+        runBody({
+          policy: wirePolicy(['echo']) as never,
+          // `bash_run` exige una zona escribible; el engine la concede desde
+          // las tools del agente (`needsWrite`).
+          workspace: {
+            taskId: 't1',
+            step: 'implement',
+            repos: [{ name: 'demo' }],
+            needsWrite: true,
+          },
+        } as Partial<ProviderInput>),
+      ),
+    })
+    const { body } = await rpc(
+      app,
+      'tools/call',
+      { name: 'bash_run', arguments: { command: 'echo hola', repo: 'demo' } },
+      '?run=run-1&tools=bash_run',
+    )
+
+    expect(body.result.content[0].text).toContain('hola')
+  })
+
+  it('un comando fuera del allow sigue rechazado', async () => {
+    // La policy no se pierde NI se afloja al cruzar el MCP.
+    const { paths } = repoWithFile('x\n')
+    const app = asyncApp(paths)
+
+    await app.request('/v1/run', {
+      method: 'POST',
+      headers: AUTH,
+      body: JSON.stringify(
+        runBody({
+          policy: wirePolicy(['echo']) as never,
+          // `bash_run` exige una zona escribible; el engine la concede desde
+          // las tools del agente (`needsWrite`).
+          workspace: {
+            taskId: 't1',
+            step: 'implement',
+            repos: [{ name: 'demo' }],
+            needsWrite: true,
+          },
+        } as Partial<ProviderInput>),
+      ),
+    })
+    const { body } = await rpc(
+      app,
+      'tools/call',
+      { name: 'bash_run', arguments: { command: 'rm -rf /', repo: 'demo' } },
+      '?run=run-1&tools=bash_run',
+    )
+
+    expect(body.result.content[0].text).toContain('no permitido')
   })
 })
 
