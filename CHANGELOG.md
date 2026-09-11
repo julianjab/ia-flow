@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/julianjab/ia-flow/compare/v1.8.0...v1.9.0) (2026-09-11)
+
+
+### Features
+
+* **web:** tab de system prompt en la consola del agent-host ([737a0e7](https://github.com/julianjab/ia-flow/commit/737a0e704b72b7a659ccedb0724da2fd69111b53))
+
 ## [1.8.0](https://github.com/julianjab/ia-flow/compare/v1.7.0...v1.8.0) (2026-09-11)
 
 
