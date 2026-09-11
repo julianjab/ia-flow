@@ -24,7 +24,7 @@
 // agent-host sin saber (ni necesitar saber) cuál de los dos implementa. Se
 // resuelve acá vía `AGENT_HOST_PROVIDER` (default: anthropic-api).
 
-import type { IAgentProvider } from '@ia-flow/ai-providers'
+import type { IAgentProvider, LocalToolsMcp } from '@ia-flow/ai-providers'
 import {
   AnthropicApiProvider,
   ClaudePrintProvider,
@@ -36,6 +36,7 @@ import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-
 import { installSlackTools } from '@ia-flow/slack'
 import {
   executeLoop,
+  getTool,
   getToolDefinitions,
   setGitTokenPort,
   setLoggerFactory as setToolsLoggerFactory,
@@ -127,6 +128,37 @@ function createTerminalWorkspaceProvisioner(settings: WorkspaceSettings) {
 
 const toolExecution = { getToolDefinitions, executeLoop }
 
+/**
+ * El MCP de tools de disco de ESTE proceso, para el CLI que spawnea un
+ * provider de terminal.
+ *
+ * Es lo que parte la entrega de tools en dos: las de disco se resuelven en
+ * `/v1/mcp` —donde está el workspace que este agent-host preparó— y el resto
+ * sigue yendo al `/api/mcp` del daemon, que es el único con la fuente de
+ * issues, las credenciales y el registry de pending tasks.
+ *
+ * Por `localhost`: el CLI corre en esta misma máquina. No hace falta el
+ * `publicUrl` ni exponer nada nuevo — a diferencia de `anthropic-api`, donde
+ * un MCP lo abre Anthropic y sí tendría que ser alcanzable desde internet.
+ *
+ * `undefined` sin token: el guard rechaza todo sin él, así que declarar el
+ * server sólo le daría al CLI un 401 por cada tool. Mejor que las de disco
+ * caigan al daemon —donde al menos fallan con un motivo— que una conexión
+ * que nunca va a servir.
+ *
+ * Perezoso porque el puerto y el token se leen del env, que se termina de
+ * cargar después de que este módulo se evalúa.
+ */
+function localTools(): LocalToolsMcp | undefined {
+  const token = Bun.env.API_AI_PROVIDER_TOKEN?.trim()
+  if (!token) return undefined
+  return {
+    url: `http://localhost:${Bun.env.PORT ?? '3002'}`,
+    token,
+    owns: (name) => getTool(name)?.runsOn === 'agent-disk',
+  }
+}
+
 async function loadProviderConfig() {
   return DEFAULT_PROVIDER_CONFIG
 }
@@ -171,7 +203,7 @@ export function createProvider(
   // `workflow` del repo y limpia el worktree al terminar.
   if (id === 'tmux-claude' || id === 'iterm-claude') {
     const deps = {
-      terminalBase: { loadProviderConfig },
+      terminalBase: { loadProviderConfig, localTools },
       workspace: createTerminalWorkspaceProvisioner(workspaceSettings),
       log: createLogger(id),
     }

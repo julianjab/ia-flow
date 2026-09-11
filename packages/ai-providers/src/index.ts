@@ -13,8 +13,14 @@ export { ClaudePrintProvider } from './claude-print/provider.js'
 export * from './contract.js'
 export type { ProviderClassifierInput, ProviderClassifierLog } from './provider-classifier.js'
 export { createProviderClassifier } from './provider-classifier.js'
-export type { TerminalBaseDeps } from './terminal/base.js'
-export { createTerminalBase, pexec, resolveBaseBranch, slugify } from './terminal/base.js'
+export type { LocalToolsMcp, TerminalBaseDeps } from './terminal/base.js'
+export {
+  createTerminalBase,
+  pexec,
+  resolveBaseBranch,
+  resolveMcpServers,
+  slugify,
+} from './terminal/base.js'
 export type { ItermClaudeProviderDeps } from './terminal/iterm/provider.js'
 export {
   closeItermSession,
