@@ -765,6 +765,40 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
     expect(pairedResult?.type).toBe('tool_search_tool_regex_tool_result')
   })
 
+  // Per @anthropic-ai/sdk's ServerToolUseBlock, non-MCP server tools may
+  // instead wrap the call as `{type: 'server_tool_use', name: '<tool>'}`
+  // rather than a dedicated `type`. Both shapes must be recognized until
+  // it's confirmed in production which one Anthropic actually sends here.
+  it('also pairs a tool_search_tool_regex call wrapped as a generic server_tool_use block', async () => {
+    let call = 0
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            {
+              type: 'server_tool_use',
+              id: 'srvtoolu_02',
+              name: 'tool_search_tool_regex',
+              input: { pattern: 'add_issue_comment' },
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 3,
+    })
+    expect(result.truncated).toBe(false)
+    const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    const pairedResult = resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_02')
+    expect(pairedResult?.type).toBe('tool_search_tool_regex_tool_result')
+  })
+
   it('pairs a dangling mcp_tool_use and a dangling tool_search_tool_regex from the same paused turn independently', async () => {
     let call = 0
     const calls: any[][] = []
