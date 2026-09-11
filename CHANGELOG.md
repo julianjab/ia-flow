@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/julianjab/ia-flow/compare/v1.9.0...v1.10.0) (2026-09-11)
+
+
+### Features
+
+* **skills:** agregar diagnose-agent-pause para tasks del engine pausadas en loop ([a9a9517](https://github.com/julianjab/ia-flow/commit/a9a9517964bfb10c4c1620781d859aee3e001e94))
+
 ## [1.9.0](https://github.com/julianjab/ia-flow/compare/v1.8.0...v1.9.0) (2026-09-11)
 
 
