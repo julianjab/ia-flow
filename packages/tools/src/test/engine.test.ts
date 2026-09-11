@@ -769,7 +769,7 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
   // instead wrap the call as `{type: 'server_tool_use', name: '<tool>'}`
   // rather than a dedicated `type`. Both shapes must be recognized until
   // it's confirmed in production which one Anthropic actually sends here.
-  it('also pairs a tool_search_tool_regex call wrapped as a generic server_tool_use block', async () => {
+  it('pairs a tool_search_tool_regex call wrapped as a generic server_tool_use block with the generic result type, not the suffixed one', async () => {
     let call = 0
     const calls: any[][] = []
     const fetchApi = async (messages: any[]) => {
@@ -796,7 +796,34 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
     expect(result.truncated).toBe(false)
     const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
     const pairedResult = resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_02')
-    expect(pairedResult?.type).toBe('tool_search_tool_regex_tool_result')
+    // Genérico (tool_search_tool_result), como declara @anthropic-ai/sdk para
+    // esta forma envuelta — NO el sufijado de la forma con `type` directo,
+    // que sería inválido acá y produciría el mismo 400 que este fix evita.
+    expect(pairedResult?.type).toBe('tool_search_tool_result')
+  })
+
+  it('does not treat an already-resolved tool_search_tool_regex call (generic result type, same turn) as dangling', async () => {
+    // Regresión: si `tool_search_tool_result` (el genérico) no se reconoce
+    // como "ya resuelto", un turno sano que YA completó su búsqueda —y
+    // terminó en end_turn, ninguna pausa de por medio— se trataría como
+    // colgado y el run se cortaría solo, apagando un run que nunca falló.
+    const fetchApi = async () => ({
+      stop_reason: 'end_turn',
+      content: [
+        {
+          type: 'tool_search_tool_regex',
+          id: 'srvtoolu_03',
+          name: 'tool_search_tool_regex',
+          input: { pattern: 'x' },
+        },
+        { type: 'tool_search_tool_result', tool_use_id: 'srvtoolu_03', content: [] },
+        { type: 'text', text: 'done' },
+      ],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {})
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(result.text).toBe('done')
   })
 
   it('pairs a dangling mcp_tool_use and a dangling tool_search_tool_regex from the same paused turn independently', async () => {
