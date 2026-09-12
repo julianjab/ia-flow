@@ -20,7 +20,7 @@ export interface LogLine {
   raw: string
   time?: string
   level?: number
-  scope?: string
+  module?: string
   msg?: string
   /** Todo lo demás que traía la línea, para el detalle expandido. */
   extras?: Record<string, unknown>
@@ -35,7 +35,7 @@ export interface LogTail {
   truncated: boolean
 }
 
-const IGNORED_KEYS = new Set(['time', 'level', 'msg', 'scope', 'pid', 'hostname'])
+const IGNORED_KEYS = new Set(['time', 'level', 'msg', 'module', 'pid', 'hostname'])
 
 /** Case- e acento-insensible: el filtro se tipea a mano mirando la pantalla,
  *  y no matchear una palabra que está a la vista se lee como "no está". */
@@ -98,7 +98,7 @@ function parseLine(raw: string): LogLine {
       raw,
       time: typeof obj.time === 'string' ? obj.time : undefined,
       level: typeof obj.level === 'number' ? obj.level : undefined,
-      scope: typeof obj.scope === 'string' ? obj.scope : undefined,
+      module: typeof obj.module === 'string' ? obj.module : undefined,
       msg: typeof obj.msg === 'string' ? obj.msg : undefined,
       extras: Object.keys(extras).length ? extras : undefined,
     }
@@ -130,39 +130,77 @@ export function tailFrom(text: string, limit: number, query = ''): LogLine[] {
 }
 
 export interface ReadLogTailDeps {
-  /** Inyectado para poder testear sin disco y para que este módulo no decida
-   *  dónde está el archivo — eso es de logger.ts. */
+  /** Identidad del sink de archivo — `null` sólo cuando está apagado por
+   *  config. Inyectado para no decidir acá dónde está el archivo, eso es de
+   *  logger.ts (`logFilePath`). */
   file: string | null
+  /**
+   * Los archivos que de verdad existen en disco, del más nuevo al más viejo
+   * (`logger.ts#resolveLogFiles`). Puede estar vacío aunque `file` no sea
+   * `null`: recién booteando, antes del primer flush de pino-roll.
+   */
+  files: string[]
   limit: number
   query?: string
   log?: Log
 }
 
-export async function readLogTail({ file, limit, query, log }: ReadLogTailDeps): Promise<LogTail> {
+/**
+ * El final de UN archivo: entero si entra en `budget`, si no sus últimos
+ * `budget` bytes — descartando la primera línea, que casi seguro quedó
+ * cortada al medio. Devuelve los bytes consumidos y no `text.length`: con
+ * UTF-8 multibyte (acentos, box-drawing) mezclarían unidades y bytes.
+ */
+async function readFileTail(
+  file: string,
+  budget: number,
+): Promise<{ text: string; bytes: number; cut: boolean }> {
+  const handle = Bun.file(file)
+  if (!(await handle.exists())) return { text: '', bytes: 0, cut: false }
+  const size = handle.size
+  if (size <= budget) return { text: await handle.text(), bytes: size, cut: false }
+  const text = await handle.slice(size - budget, size).text()
+  const nl = text.indexOf('\n')
+  return { text: nl === -1 ? '' : text.slice(nl + 1), bytes: budget, cut: true }
+}
+
+export async function readLogTail({
+  file,
+  files,
+  limit,
+  query,
+  log,
+}: ReadLogTailDeps): Promise<LogTail> {
   if (!file) return { file: null, lines: [], truncated: false }
 
   const capped = Math.min(Math.max(1, limit), MAX_LIMIT)
-  const handle = Bun.file(file)
 
-  // Un archivo que todavía no existe no es un error: el agent-host acaba de
-  // arrancar y el logger escribe en su primer flush.
-  if (!(await handle.exists())) return { file, lines: [], truncated: false }
-
-  const size = handle.size
-  const from = Math.max(0, size - SCAN_BYTES)
-  let text: string
-  try {
-    text = await handle.slice(from).text()
-  } catch (err) {
-    // El archivo puede estar rotando, o el proceso puede haber perdido el
-    // permiso: la pantalla sigue viva mostrando el resto de las cards.
-    log?.warn({ file, reason: String(err) }, 'no pude leer el archivo de log')
-    return { file, lines: [], truncated: false }
+  // Recorre de más nuevo a más viejo gastando el presupuesto, cruzando la
+  // frontera de rotación: el archivo activo recién rotado puede tener 200
+  // bytes y toda la historia útil vivir en el anterior. `truncated` se prende
+  // apenas algo se queda afuera — un archivo recortado a la mitad, o archivos
+  // que ni siquiera se llegaron a mirar.
+  let budget = SCAN_BYTES
+  let truncated = false
+  const chunks: string[] = []
+  for (const f of files) {
+    if (budget <= 0) {
+      truncated = true
+      break
+    }
+    try {
+      const { text, bytes, cut } = await readFileTail(f, budget)
+      if (cut) truncated = true
+      budget -= bytes
+      if (text) chunks.push(text)
+    } catch (err) {
+      // El archivo puede estar rotando, o el proceso puede haber perdido el
+      // permiso: la pantalla sigue viva mostrando el resto de las cards.
+      log?.warn({ file: f, reason: String(err) }, 'no pude leer el archivo de log')
+      truncated = true
+    }
   }
 
-  // Arrancando a mitad del archivo, el primer renglón está cortado: mostrarlo
-  // sería una línea inventada.
-  if (from > 0) text = text.slice(text.indexOf('\n') + 1)
-
-  return { file, lines: tailFrom(text, capped, query), truncated: from > 0 }
+  const text = chunks.reverse().join('')
+  return { file, lines: tailFrom(text, capped, query), truncated }
 }

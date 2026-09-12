@@ -45,7 +45,7 @@ export interface AgentHostLogLine {
   raw: string
   time?: string
   level?: number
-  scope?: string
+  module?: string
   msg?: string
   extras?: Record<string, unknown>
 }

@@ -85,7 +85,7 @@ function clock(time?: string): string {
           >
             <span class="line__time">{{ clock(line.time) }}</span>
             <span class="line__lvl">{{ levelName(line) }}</span>
-            <span class="line__scope">{{ line.scope }}</span>
+            <span class="line__scope">{{ line.module }}</span>
             <span class="line__msg">{{ line.msg ?? line.raw }}</span>
           </li>
           <li v-if="!tail.lines.length" class="hint">· sin líneas</li>

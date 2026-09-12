@@ -17,7 +17,12 @@ import { type Context, Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
-import { clearRunLogTarget, type Log, setRunLogTarget } from './logger.js'
+import {
+  clearRunLogTarget,
+  type Log,
+  resolveLogFiles as resolveLogFilesFromDisk,
+  setRunLogTarget,
+} from './logger.js'
 import { type AgentHostState, sanitizeSystemPrompt, sanitizeWorkspace } from './state.js'
 
 /**
@@ -155,6 +160,14 @@ export interface CreateAppDeps {
    * apuntar a un archivo suyo sin tocar el HOME de nadie.
    */
   logFile?: string | null
+  /**
+   * Los rotados de `logFile`, del más nuevo al más viejo — inyectado por la
+   * misma razón que `logFile`: `logger.js#resolveLogFiles()` lee el
+   * `IA_FLOW_LOG_DIR` real del proceso, y un test que apunta a su propio
+   * tmpdir necesita la MISMA lista apuntando ahí, no al HOME de quien corre
+   * los tests.
+   */
+  resolveLogFiles?: () => string[]
 }
 
 function isProviderInput(body: unknown): body is ProviderInput {
@@ -228,6 +241,7 @@ export function createApp({
   createProviderById,
   availableProviderIds = [],
   logFile = null,
+  resolveLogFiles: resolveLogFilesDep = resolveLogFilesFromDisk,
   extraCorsOrigins = envCorsOrigins(Bun.env.AGENT_HOST_CORS_ORIGINS),
 }: CreateAppDeps): Hono {
   const app = new Hono()
@@ -648,6 +662,10 @@ export function createApp({
     return c.json(
       await readLogTail({
         file: logFile,
+        // Se resuelve por request, no una vez al bootear: es una lectura del
+        // directorio y tiene que ver la rotación que haya pasado desde el
+        // último request.
+        files: resolveLogFilesDep(),
         limit: Number.isFinite(limit) ? limit : 200,
         query: c.req.query('q') ?? '',
         log,

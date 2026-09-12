@@ -1,21 +1,27 @@
-// Logger del agent-host — pretty a stdout + JSON a archivo + OTLP opcional.
+// Logger del agent-host — pretty a stdout + JSON a archivo (rotado) + OTLP
+// opcional. Mismo formato y mismas piezas que apps/server/src/logger.ts —
+// paridad deliberada: es lo que permite mirar el log de un agent-host con la
+// misma vista mental que el de un daemon, campo por campo.
 //
 // El archivo existe por cómo se lo levanta de verdad: `IA Flow AgentHost.app`
 // (apps/desktop) lo spawnea y sólo repite su stdout al stdout de Electron,
 // que abierto desde el Finder no va a ningún lado. Sin archivo, la única
 // forma de ver por qué falló un run era relanzar la app desde una terminal.
 //
-// Convive con apps/server/src/logger.ts: mismo $IA_FLOW_LOG_DIR, archivo
-// aparte (`agent-host.log` junto a `daemon.log`), así un solo env mueve los dos
-// procesos. Lo que NO copia es el forward a IA_FLOW_REMOTE_LOG_URL: el
-// agent-host no es un daemon de ia-flow, no tiene UI de logs a la que alimentar.
+// Convive con apps/server/src/logger.ts: mismo $IA_FLOW_LOG_DIR, mismas vars
+// de rotación (`IA_FLOW_LOG_MAX_SIZE`/`IA_FLOW_LOG_MAX_FILES`), archivo aparte
+// (`agent-host.<n>.log` junto a `daemon.<n>.log`) — un solo env mueve los dos
+// procesos. Lo que NO copia es el forward a IA_FLOW_REMOTE_LOG_URL ni el
+// broadcast WS: el agent-host no es un daemon de ia-flow, no tiene UI propia
+// de logs a la que alimentar — su UI (`apps/web/src/features/agent-host/`)
+// lee `GET /v1/logs` bajo demanda, no en vivo.
 //
 // El tercer sink es OTLP/HTTP hacia un collector OpenTelemetry, apagado
 // mientras no haya `OTEL_EXPORTER_OTLP_ENDPOINT`. Suma, no reemplaza: es la
 // única forma de mirar N agent-hosts en N máquinas sin abrir N `agent-host.log`.
 // El diseño y el porqué de cada decisión están en docs/prd/otel-logs.md.
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { Writable } from 'node:stream'
 import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { setGlobalErrorHandler } from '@opentelemetry/core'
@@ -28,10 +34,32 @@ import {
 } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'
 import pino from 'pino'
-import pretty from 'pino-pretty'
 import { version as SERVICE_VERSION } from '../package.json'
+import { prettyConsoleStream, rollingFileStream } from './logger-sinks.js'
 
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
+
+// Mismos defaults y misma validación que apps/server/src/logger.ts — ver ahí
+// el porqué de cada guarda (un `size`/`count` inválido no puede apagar la
+// rotación en silencio).
+const DEFAULT_LOG_MAX_SIZE = '50m'
+const DEFAULT_LOG_MAX_FILES = 4
+const SIZE_RE = /^\d+(\.\d+)?[kmg]$/i
+
+export function logMaxSize(raw: string | undefined): string {
+  const v = raw?.trim()
+  if (!v || !SIZE_RE.test(v)) return DEFAULT_LOG_MAX_SIZE
+  const n = Number.parseFloat(v)
+  return Number.isFinite(n) && n > 0 ? v : DEFAULT_LOG_MAX_SIZE
+}
+
+export function logMaxFiles(raw: string | undefined): number {
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_LOG_MAX_FILES
+}
+
+const LOG_MAX_SIZE = logMaxSize(Bun.env.IA_FLOW_LOG_MAX_SIZE)
+const LOG_MAX_FILES = logMaxFiles(Bun.env.IA_FLOW_LOG_MAX_FILES)
 
 export interface LogEnv {
   HOME?: string
@@ -52,40 +80,49 @@ export interface OtelEnv {
 }
 
 /**
- * Dónde escribir, según el entorno. Cadena de defaults igual a la del state
- * file (state.ts): override explícito → $IA_FLOW_LOG_DIR → $IA_FLOW_CONFIG_DIR
- * → ~/.config/ia-flow.
+ * Base del nombre del archivo activo, SIN extensión — `rollingFileStream` le
+ * agrega `.<n>.log`, igual que `daemon.<n>.log` del lado del server.
+ *
+ * Cadena de defaults igual a la del state file (state.ts): override explícito
+ * → $IA_FLOW_LOG_DIR → $IA_FLOW_CONFIG_DIR → ~/.config/ia-flow.
  *
  * Un `IA_FLOW_AGENT_HOST_LOG_FILE` vacío apaga el archivo: en un container los
  * logs los junta el runtime y escribir a un filesystem efímero es basura que
- * nadie lee. Puro y exportado para poder testear la cadena sin tocar disco.
+ * nadie lee. Un override CON extensión (`.log`) se la recorta: es lo que
+ * alguien escribe pensando en el nombre del archivo activo, no en la base que
+ * pino-roll necesita. Puro y exportado para poder testear la cadena sin tocar
+ * disco.
  */
-export function resolveLogFile(env: LogEnv): string | null {
+export function resolveLogFileBase(env: LogEnv): string | null {
   const override = env.IA_FLOW_AGENT_HOST_LOG_FILE
-  if (override !== undefined) return override.trim() === '' ? null : override
+  if (override !== undefined) {
+    const trimmed = override.trim()
+    if (trimmed === '') return null
+    return trimmed.endsWith('.log') ? trimmed.slice(0, -'.log'.length) : trimmed
+  }
   const configDir = env.IA_FLOW_CONFIG_DIR ?? join(env.HOME ?? '', '.config', 'ia-flow')
-  return join(env.IA_FLOW_LOG_DIR ?? join(configDir, 'logs'), 'agent-host.log')
+  return join(env.IA_FLOW_LOG_DIR ?? join(configDir, 'logs'), 'agent-host')
 }
 
-const LOG_FILE = resolveLogFile(Bun.env as LogEnv)
+const LOG_FILE_BASE = resolveLogFileBase(Bun.env as LogEnv)
 
 /**
- * El archivo es un extra, no un requisito: un directorio que no se puede
- * crear (filesystem read-only, un HOME que no existe) baja a stdout solo en
- * vez de tumbar el proceso en el import. Quedarse sin agent-host por no poder
- * loguear sería peor que quedarse sin el log.
+ * Un fallo del archivo (disco lleno, permisos, un path que no se puede crear)
+ * apaga ESE sink y nada más — nunca tumba el proceso. Mismo criterio que
+ * `onFileSinkError` de apps/server/src/logger.ts.
  */
-function fileStream(): pino.DestinationStream | null {
-  if (!LOG_FILE) return null
-  try {
-    mkdirSync(dirname(LOG_FILE), { recursive: true })
-    // `pino.destination`, no un target `pino/file`: es la MISMA SonicBoom, pero
-    // construida acá en vez de adentro de un worker. Ver el bloque de abajo.
-    return pino.destination({ dest: LOG_FILE, append: true, mkdir: true, sync: false })
-  } catch {
-    return null
-  }
+function onFileSinkError(err: unknown): void {
+  process.stderr.write(
+    `[logger] sink de archivo deshabilitado (${String(err)}) — el logging sigue sin él\n`,
+  )
 }
+
+const fileStream = LOG_FILE_BASE
+  ? rollingFileStream(
+      { file: LOG_FILE_BASE, size: LOG_MAX_SIZE, count: LOG_MAX_FILES },
+      onFileSinkError,
+    )
+  : null
 
 /**
  * La consola. `LOG_PLAIN=true` (lo pone la imagen) manda NDJSON crudo a
@@ -94,8 +131,7 @@ function fileStream(): pino.DestinationStream | null {
  */
 function consoleStream(): pino.DestinationStream {
   if (Bun.env.LOG_PLAIN === 'true') return pino.destination({ dest: 1, sync: false })
-  // `SYS:` = hora local. Sin el prefijo, pino-pretty imprime UTC.
-  return pretty({ colorize: true, translateTime: 'SYS:HH:MM:ss' })
+  return prettyConsoleStream(Bun.env.LOG_SINGLE_LINE === 'true') as pino.DestinationStream
 }
 
 /** Los niveles numéricos de pino, traducidos al severity de OTel. */
@@ -205,7 +241,7 @@ export function otelStream(env: OtelEnv = Bun.env as OtelEnv): Writable | null {
   }
 }
 
-const file = fileStream()
+const file = fileStream
 const console_ = consoleStream()
 const otel = otelStream()
 
@@ -225,7 +261,7 @@ const otel = otelStream()
 // docs/prd/otel-logs.md (Q1) muestra que un target colgado se lleva puesto al
 // `pino/file` del mismo worker. In-process cada sink cae solo.
 const base = pino(
-  { level: LOG_LEVEL, timestamp: pino.stdTimeFunctions.isoTime },
+  { level: LOG_LEVEL, timestamp: pino.stdTimeFunctions.isoTime, base: { pid: process.pid } },
   pino.multistream([
     { level: LOG_LEVEL, stream: console_ },
     ...(file ? [{ level: LOG_LEVEL, stream: file }] : []),
@@ -274,7 +310,7 @@ process.on('exit', flushSinks)
 // pretty del arranque una vez por cada ciclo del BatchLogRecordProcessor. Un
 // exporter que no llega es información de debug, no un problema del agent-host.
 if (otel) {
-  const diag = base.child({ scope: 'otel' })
+  const diag = base.child({ module: 'otel' })
   setGlobalErrorHandler((err) => {
     diag.debug({ err: String(err) }, 'otel exporter error')
   })
@@ -419,13 +455,13 @@ export interface Log {
  * líneas de progreso de un run salgan por el mismo filtro sin importar quién
  * las emitió.
  */
-function wrap(p: pino.Logger, scope: string, bindings: Record<string, unknown>): Log {
+function wrap(p: pino.Logger, module: string, bindings: Record<string, unknown>): Log {
   const emit =
     (level: 'info' | 'warn' | 'error' | 'debug') =>
     (obj: object, msg?: string): void => {
       p[level](obj, msg)
       try {
-        redrive(level, scope, msg ?? '', { ...bindings, ...(obj as Record<string, unknown>) })
+        redrive(level, module, msg ?? '', { ...bindings, ...(obj as Record<string, unknown>) })
       } catch {
         // Un fallo del reenvío nunca puede tocar al log local, que es el que
         // de verdad no se puede perder.
@@ -436,13 +472,67 @@ function wrap(p: pino.Logger, scope: string, bindings: Record<string, unknown>):
     warn: emit('warn'),
     error: emit('error'),
     debug: emit('debug'),
-    child: (b) => wrap(p.child(b), scope, { ...bindings, ...b }),
+    child: (b) => wrap(p.child(b), module, { ...bindings, ...b }),
   }
 }
 
-export function createLogger(scope: string): Log {
-  return wrap(base.child({ scope }), scope, {})
+export function createLogger(module: string): Log {
+  return wrap(base.child({ module }), module, {})
 }
 
-/** Dónde quedaron los logs — para que el arranque lo pueda decir. */
-export const logFilePath = file ? LOG_FILE : null
+/**
+ * `agent-host.<n>.log` → n. `null` para cualquier otro nombre del directorio.
+ * Mismo patrón que `rollNumber()` de `apps/server/src/routes/server-logs.ts`,
+ * generalizado sobre la base (`agent-host` acá, `daemon` allá).
+ */
+function rollNumber(base: string, name: string): number | null {
+  const m = name.match(
+    new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(\\d+)\\.log$`),
+  )
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Los archivos de log de ESTE proceso, del más nuevo al más viejo — o `[]` sin
+ * archivo configurado o con el directorio inexistente (primer arranque).
+ *
+ * El "más nuevo" es el de número más alto, no el de mtime más reciente —
+ * mismo razonamiento que del lado del server: un `touch`/rsync sobre un
+ * rotado viejo no debería redirigir la lectura. `log-tail.ts` los recorre
+ * hacia atrás hasta juntar su ventana, así que justo después de rotar (con el
+ * activo casi vacío) la vista sigue completa gracias al anterior.
+ *
+ * Cierra con `agent-host.log` si existe: el nombre que dejó cualquier
+ * instalación anterior a esta rotación.
+ */
+export function resolveLogFiles(): string[] {
+  if (!LOG_FILE_BASE) return []
+  const dir = dirname(LOG_FILE_BASE)
+  const base = basename(LOG_FILE_BASE)
+  const rolled: Array<{ n: number; name: string }> = []
+  let legacy = false
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name === `${base}.log`) {
+        legacy = true
+        continue
+      }
+      const n = rollNumber(base, name)
+      if (n != null) rolled.push({ n, name })
+    }
+  } catch {
+    return []
+  }
+  rolled.sort((a, b) => b.n - a.n)
+  const files = rolled.map((f) => join(dir, f.name))
+  if (legacy) files.push(join(dir, `${base}.log`))
+  return files
+}
+
+/**
+ * Identidad del sink de archivo, para el arranque y para `GET /v1/logs`:
+ * `null` sólo cuando el archivo está apagado por config — a diferencia de
+ * `resolveLogFiles()`, NO depende de que el archivo ya exista en disco (el
+ * primer flush de pino-roll es async, y "recién booteó" no es "sin archivo").
+ */
+export const logFilePath = LOG_FILE_BASE ? `${LOG_FILE_BASE}.1.log` : null
