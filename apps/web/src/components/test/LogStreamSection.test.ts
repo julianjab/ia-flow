@@ -24,7 +24,7 @@ vi.mock('@/composables/useServerEvents', () => ({
   useServerEvents: () => ({ connected: { value: false } }),
 }))
 
-vi.mock('../api', () => ({
+vi.mock('@/features/server-logs/api', () => ({
   // Inline literal: `vi.mock` is hoisted above the LEVELS const above.
   fetchServerLogs: vi.fn().mockResolvedValue({
     entries: [
@@ -61,7 +61,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
 }))
 
-import ServerLogsSection from '../ServerLogsSection.vue'
+import LogStreamSection from '../LogStreamSection.vue'
 
 // Aislamiento entre tests — más de un describe toca `ia-flow:server-logs:columns`.
 beforeEach(() => {
@@ -74,7 +74,7 @@ beforeEach(() => {
 // sin pasar por la UI de "+ columna".
 async function mountPills(): Promise<Record<string, CSSStyleDeclaration>> {
   localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'level', 'module', 'msg']))
-  const wrapper = mount(ServerLogsSection)
+  const wrapper = mount(LogStreamSection)
   await flushPromises()
   const pills: Record<string, CSSStyleDeclaration> = {}
   for (const pill of wrapper.findAll('.log-level')) {
@@ -83,7 +83,7 @@ async function mountPills(): Promise<Record<string, CSSStyleDeclaration>> {
   return pills
 }
 
-describe('ServerLogsSection — colores del pill de nivel', () => {
+describe('LogStreamSection — colores del pill de nivel', () => {
   it('pinta el pill de debug con foreground oscuro sobre el fondo cyan', async () => {
     const pills = await mountPills()
     expect(pills.debug.background).toBe('var(--info)')
@@ -113,9 +113,9 @@ describe('ServerLogsSection — colores del pill de nivel', () => {
   })
 })
 
-describe('ServerLogsSection — botón "Copiar curl (limpiar dedupe)"', () => {
+describe('LogStreamSection — botón "Copiar curl (limpiar dedupe)"', () => {
   it('sólo aparece en la fila expandida cuando extras.clearDedupe está presente', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
 
     const rows = wrapper.findAll('.log-row')
@@ -138,7 +138,7 @@ describe('ServerLogsSection — botón "Copiar curl (limpiar dedupe)"', () => {
     // la propiedad, `Object.assign` tira (ver ui/test/CopyButton.test.ts).
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
 
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     const rows = wrapper.findAll('.log-row')
     await rows[rows.length - 1]?.trigger('click')
@@ -150,7 +150,7 @@ describe('ServerLogsSection — botón "Copiar curl (limpiar dedupe)"', () => {
   })
 })
 
-describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
+describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   // La fila con extras (`clearDedupe`) es la última — mismo fixture que el
   // describe de arriba.
   async function expandExtrasRow(wrapper: ReturnType<typeof mount>) {
@@ -164,7 +164,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   }
 
   it('el "…" de un campo del detalle ofrece "Agregar columna", y agregarla la muestra en el header y en la fila', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
 
@@ -186,7 +186,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el "…" alterna a "Quitar columna" una vez agregada, y quitarla la saca del header', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
 
@@ -210,7 +210,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('la "×" del header también quita la columna', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
     await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
@@ -229,7 +229,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   // Sacar una columna base (Módulo) tiene que funcionar igual que una de
   // extras — es justo lo que antes no se podía hacer.
   it('también se puede quitar una columna base (Módulo)', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(true)
 
@@ -246,7 +246,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   // activeColumns en [], desincronizado de lo persistido hasta recargar.
   it('quitar la última columna desde el "…" del detalle no la deja en cero', async () => {
     localStorage.setItem(COLUMNS_KEY, JSON.stringify(['extras.clearDedupe']))
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
 
@@ -263,7 +263,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el "+" del header ofrece las columnas base ocultas y las claves de extras descubiertas', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
 
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
@@ -288,7 +288,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el input de texto libre agrega una columna anidada (extras.err.message)', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
     await flushPromises()
@@ -308,7 +308,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   // prototipos, así que un camino como `__proto__.toString` (posible desde
   // el input de texto libre) no puede devolver una función interna de JS.
   it('un camino que apunta a la cadena de prototipos no filtra nada — se ve como "—"', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
     await flushPromises()
@@ -324,7 +324,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('la columna agregada persiste en localStorage (junto a las base) y sobrevive un remount', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await expandExtrasRow(wrapper)
     await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
@@ -342,13 +342,13 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
       'extras.clearDedupe',
     ])
 
-    const remounted = mount(ServerLogsSection)
+    const remounted = mount(LogStreamSection)
     await flushPromises()
     expect(extraColHeader(remounted).exists()).toBe(true)
   })
 
   it('drag & drop en el header reordena las columnas', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     // Default: time, module, msg — arrastramos "module" sobre "time".
     const before = wrapper.findAll('.log-col-header').map((h) => h.attributes('data-testid'))
@@ -375,7 +375,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   // Sin esto, arrastrar una columna no daba ninguna pista de dónde iba a
   // quedar hasta soltar — el pedido concreto que motivó el fix.
   it('mientras se arrastra, el origen se atenúa y el destino se resalta', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     const moduleHeader = wrapper.find('[data-testid="server-logs-col-header-module"]')
     const timeHeader = wrapper.find('[data-testid="server-logs-col-header-time"]')
@@ -401,7 +401,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el buscador del picker filtra por nombre, en base y en extras', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
     await flushPromises()
@@ -423,7 +423,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   // columnas conviven y cada una muestra su propio valor.
   it('una clave de extras que colisiona de nombre con una columna base tiene su propio path y valor', async () => {
     localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'module', 'msg', 'extras.module']))
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(true)
@@ -436,7 +436,7 @@ describe('ServerLogsSection — columnas de extras (estilo Datadog)', () => {
   })
 })
 
-describe('ServerLogsSection — resize de columnas', () => {
+describe('LogStreamSection — resize de columnas', () => {
   afterEach(() => {
     // `startColumnResize` engancha mousemove/mouseup en `document` — un
     // resize que un test deja a medias (assert que tira antes del mouseup)
@@ -445,7 +445,7 @@ describe('ServerLogsSection — resize de columnas', () => {
   })
 
   it('arrastrar el handle cambia el ancho de la columna y lo persiste', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
 
@@ -462,14 +462,14 @@ describe('ServerLogsSection — resize de columnas', () => {
 
   it('el ancho resizeado sobrevive un remount (localStorage)', async () => {
     localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify({ time: 300 }))
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
 
     expect(wrapper.find('.log-list-header').attributes('style')).toContain('300px')
   })
 
   it('no deja resizear por debajo del piso mínimo', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
 
@@ -487,7 +487,7 @@ describe('ServerLogsSection — resize de columnas', () => {
   // sin el preventDefault del mousedown, arrastrar el handle dispararía
   // también el drag nativo de reordenamiento.
   it('el mousedown del handle no dispara el drag de reordenar columnas', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mount(LogStreamSection)
     await flushPromises()
     const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
     const timeHeader = wrapper.find('[data-testid="server-logs-col-header-time"]')

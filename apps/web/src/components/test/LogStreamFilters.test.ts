@@ -10,7 +10,7 @@ const MANY_MODULES = Array.from({ length: 40 }, (_, i) => `mod-${String(i).padSt
 // Alfabéticamente último: antes sólo se alcanzaba pasando el corte.
 const HIDDEN_MODULE = 'mod-39'
 
-vi.mock('../api', () => ({
+vi.mock('@/features/server-logs/api', () => ({
   fetchServerLogs: vi.fn(),
   fetchServerLogModules: vi.fn(),
   fetchServerLogSources: vi.fn().mockResolvedValue([]),
@@ -25,8 +25,8 @@ vi.mock('@/composables/useServerEvents', () => ({
   useServerEvents: () => ({ connected: { value: false } }),
 }))
 
-import { fetchServerLogModules, fetchServerLogs } from '../api'
-import ServerLogsSection from '../ServerLogsSection.vue'
+import { fetchServerLogModules, fetchServerLogs } from '@/features/server-logs/api'
+import LogStreamSection from '../LogStreamSection.vue'
 
 const EMPTY_PAGE = {
   entries: [] as ServerLogEntry[],
@@ -41,7 +41,7 @@ beforeEach(() => {
 })
 
 async function mountSection() {
-  const wrapper = mount(ServerLogsSection)
+  const wrapper = mount(LogStreamSection)
   await flushPromises()
   return wrapper
 }
@@ -60,7 +60,7 @@ async function typeFilter(wrapper: Wrapper, raw: string) {
   return input
 }
 
-describe('ServerLogsSection — el input de filtros', () => {
+describe('LogStreamSection — el input de filtros', () => {
   it('ofrece los campos filtrables antes de escribir un valor', async () => {
     const wrapper = await mountSection()
     await typeFilter(wrapper, 'm')
@@ -164,7 +164,7 @@ describe('ServerLogsSection — el input de filtros', () => {
 
 // Todo lo que una línea dice de sí misma es filtrable, no sólo su nivel y su
 // módulo: de quién es (agente), sobre qué (tarea, proyecto) y de qué corrida.
-describe('ServerLogsSection — los campos de `extras`', () => {
+describe('LogStreamSection — los campos de `extras`', () => {
   const withExtras = (extras: Record<string, string>): ServerLogEntry => ({
     level: 'info',
     time: '2026-01-01T00:00:00.000Z',
