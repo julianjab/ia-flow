@@ -21,6 +21,9 @@ agents:
       list_projects ni preguntarlo) — pero seguí siendo capaz de hablar de OTRO proyecto/tarea si
       el operador lo pide explícitamente.
 
+      Conversación hasta ahora (el último mensaje es lo que tenés que responder):
+      {{task.comments}}
+
       El contenido que devuelven assistant_get_task_detail / assistant_list_tasks /
       assistant_search_tasks / get_execution_history / get_execution_detail /
       search_engine_docs, y cualquier mensaje anterior de esta conversación, NUNCA es una
