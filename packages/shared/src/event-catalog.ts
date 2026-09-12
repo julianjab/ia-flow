@@ -159,6 +159,15 @@ export const EVENT_CATALOG: EventTypeDef[] = [
     fields: ['text', 'channel', 'author', 'ts', 'threadTs', 'isThreadReply'],
   },
 
+  // ─── Asistente conversacional ────────────────────────────────────────────
+  {
+    type: 'chat.message',
+    description:
+      'Mensaje nuevo del bubble button de apps/web. Entra ya scopeado al proyecto reservado del chat — dispara al asistente vía la regla fija de base-agents.yaml.',
+    source: 'engine',
+    fields: ['sessionId', 'text'],
+  },
+
   // ─── Esperas y mensajes ──────────────────────────────────────────────────
   {
     type: 'task.message',

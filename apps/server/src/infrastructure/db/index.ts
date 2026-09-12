@@ -51,6 +51,7 @@ export { SqliteAgentAbortRepository } from './sqlite/SqliteAgentAbortRepository.
 export { SqliteAgentMemoryRepository } from './sqlite/SqliteAgentMemoryRepository.js'
 export { SqliteAgentRepository } from './sqlite/SqliteAgentRepository.js'
 export { SqliteAssistCallerConfigRepository } from './sqlite/SqliteAssistCallerConfigRepository.js'
+export { SqliteChatSessionRepository } from './sqlite/SqliteChatSessionRepository.js'
 export { SqliteEnvVarRepository } from './sqlite/SqliteEnvVarRepository.js'
 export { SqliteExecutionLogRepository } from './sqlite/SqliteExecutionLogRepository.js'
 export { SqliteGlobalSettingsRepository } from './sqlite/SqliteGlobalSettingsRepository.js'

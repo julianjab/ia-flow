@@ -5,7 +5,7 @@ import { SlackReviewError } from '@ia-flow/slack'
 import { Hono } from 'hono'
 import { RunTaskNowError } from '../application/use-cases/RunTaskNowUseCase.js'
 import {
-  configRepo,
+  baseConfigRepo,
   enqueueRunMessageUseCase,
   getSourceForProjectId,
   getTaskDispositionsUseCase,
@@ -22,10 +22,10 @@ import {
 import { createLogger } from '../logger.js'
 import { clearRepoCache, listRepos } from '../repos.js'
 
-// See the matching comment in agents-crud.ts — configRepo.getConfig is
+// See the matching comment in agents-crud.ts — baseConfigRepo.getConfig is
 // memoized and shared with GET /api/project-config.
 function invalidateConfigCache(): void {
-  invalidateMemoized(configRepo, 'getConfig')
+  invalidateMemoized(baseConfigRepo, 'getConfig')
 }
 
 const log = createLogger('tasks')

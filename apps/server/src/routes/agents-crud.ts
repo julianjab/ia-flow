@@ -8,7 +8,7 @@ import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { loadProviderConfig } from '../application/provider-config.js'
-import { agentRepo, configRepo, projectRepo, repoRepo } from '../composition/container.js'
+import { agentRepo, baseConfigRepo, projectRepo, repoRepo } from '../composition/container.js'
 
 // El `providerConfig` de un agente es un blob opaco (`AgentProviderConfigSchema
 // = z.record(unknown)`) — sólo el shape de `anthropic-api` tiene reglas de
@@ -27,12 +27,12 @@ async function anthropicSettingsError(agent: AgentDefinition): Promise<string | 
   })
 }
 
-// configRepo.getConfig is @memoize'd (short TTL, see SqliteProjectConfigRepo)
+// baseConfigRepo.getConfig is @memoize'd (short TTL, see SqliteProjectConfigRepo)
 // to collapse TaskDispatcher's per-item calls within one scan cycle — but it
 // shares that cache with GET /api/project-config, so a write here has to
 // drop it explicitly or the UI can read a stale agent list for up to the TTL.
 function invalidateConfigCache(): void {
-  invalidateMemoized(configRepo, 'getConfig')
+  invalidateMemoized(baseConfigRepo, 'getConfig')
 }
 
 const ReorderRequestSchema = z.object({
