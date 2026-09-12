@@ -147,6 +147,12 @@ async function submit() {
   draft.value = ''
   await store.send(text, context.value)
 }
+
+/** Clickear una respuesta rápida (```iaflow:choice```) manda su `value`
+ *  directo, como si el operador lo hubiese tipeado — no llena el input. */
+async function sendChoice(value: string) {
+  await store.send(value, context.value)
+}
 </script>
 
 <template>
@@ -239,6 +245,15 @@ async function submit() {
                   <span v-if="block.type === 'task-card' && block.status" class="ref-card-status">{{
                     block.status
                   }}</span>
+                </button>
+                <button
+                  v-else-if="block.type === 'choice'"
+                  type="button"
+                  class="choice-chip"
+                  :disabled="store.sending"
+                  @click="sendChoice(block.value)"
+                >
+                  {{ block.label }}
                 </button>
                 <template v-else>{{ block.text }}</template>
               </template>
@@ -385,10 +400,23 @@ header {
   gap: 0.25rem;
 }
 
+/* El borde/fondo del hilo activo vive en la FILA (`.thread-row`), no en
+   `.thread-select` — así el botón de borrar queda visualmente adentro de
+   la misma tarjeta resaltada en vez de sentarse afuera, en el gap entre
+   ambos botones. */
 .thread-row {
   display: flex;
   align-items: center;
   gap: 0.15rem;
+  padding: 0 0.15rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.thread-row.active {
+  background: var(--panel-hi);
+  border-color: var(--border-hi);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .thread-select {
@@ -398,7 +426,7 @@ header {
   min-height: var(--tap-h);
   text-align: left;
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--radius-sm);
   padding: 0.5rem 0.6rem;
   cursor: pointer;
@@ -407,12 +435,6 @@ header {
 
 .thread-select:hover {
   background: var(--panel-hi);
-}
-
-.thread-row.active .thread-select {
-  background: var(--panel-hi);
-  border-color: var(--border-hi);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .thread-delete {
@@ -566,6 +588,34 @@ header {
   background: var(--panel-alt);
   color: var(--fg-mute);
   font-size: var(--fs-body-xs, 0.7rem);
+}
+
+/* Respuesta rápida — a diferencia de `.ref-card` (una fila entera, navega),
+   es un chip inline (varias conviven en la misma línea) y no navega: manda
+   su `value` como el próximo mensaje. */
+.choice-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-h-sm);
+  margin: 0.15rem 0.3rem 0.15rem 0;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--border-hi);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+
+.choice-chip:hover {
+  background: var(--panel-hi);
+  border-color: var(--accent);
+}
+
+.choice-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .composer {

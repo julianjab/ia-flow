@@ -12,12 +12,17 @@
 //     "structured output" real (el modelo arma el JSON, no prosa que hay que
 //     adivinar) en vez de una cuarta convención de texto libre. Se renderiza
 //     como una tarjeta clickeable en vez de una línea de texto más.
+//   - Una respuesta rápida — ```iaflow:choice``` con `{label, value}` — para
+//     cuando el agente pregunta algo con un set chico de respuestas (elegir
+//     un proyecto, sí/no): clickearla manda `value` como el próximo mensaje
+//     del operador, sin tipear. A diferencia de task/project-card, NO
+//     navega — es una respuesta, no un link.
 //
-// El `path` SIEMPRE es relativo — el asistente no conoce el origin del
-// browser que lo está usando — y siempre viene de un campo `path` que ya
-// trajo una tool (`packages/tools/src/task/task-query.ts`); el modelo nunca
-// lo inventa. Un fence con JSON inválido o sin los campos mínimos se muestra
-// como texto crudo en vez de romper el render.
+// El `path` de task/project-card SIEMPRE es relativo — el asistente no
+// conoce el origin del browser que lo está usando — y siempre viene de un
+// campo `path` que ya trajo una tool (`packages/tools/src/task/task-query.ts`);
+// el modelo nunca lo inventa. Un fence con JSON inválido o sin los campos
+// mínimos se muestra como texto crudo en vez de romper el render.
 export type MessageBlock =
   | { type: 'text'; text: string }
   | { type: 'bold'; text: string }
@@ -26,15 +31,18 @@ export type MessageBlock =
   | { type: 'divider' }
   | { type: 'task-card'; title: string; path: string; status?: string }
   | { type: 'project-card'; name: string; path: string }
+  | { type: 'choice'; label: string; value: string }
+
+type CardKind = 'task' | 'project' | 'choice'
 
 const INLINE_PATTERN = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((\/[^\s)]+)\)/g
-const CARD_PATTERN = /```iaflow:(task|project)\s*\n([\s\S]*?)```/g
+const CARD_PATTERN = /```iaflow:(task|project|choice)\s*\n([\s\S]*?)```/g
 /** Un turno que se corta justo después de abrir una tarjeta (el modelo
  *  terminó de generar sin llegar a cerrar el fence — visto en producción con
  *  `stopReason: end_turn`, no un límite de tokens) deja un fence SIN cerrar
  *  al final del mensaje. `CARD_PATTERN` no matchea eso — exige el cierre — y
  *  sin este fallback todo el JSON quedaba mostrado como texto crudo. */
-const UNCLOSED_CARD_PATTERN = /```iaflow:(task|project)\s*\n([\s\S]*)$/
+const UNCLOSED_CARD_PATTERN = /```iaflow:(task|project|choice)\s*\n([\s\S]*)$/
 const DIVIDER_LINE = /^\s*---\s*$/
 /** Todo comentario que postea un agente del engine arranca con este header
  *  (`Agent.ts`, `# ${agentDef.id}\n\n...`) — es lo que `selectCommentWindow`
@@ -51,7 +59,7 @@ export function parseMessageBlocks(rawBody: string): MessageBlock[] {
     const [full, kind, jsonText] = match
     const index = match.index ?? 0
     if (index > lastIndex) blocks.push(...parseTextChunk(body.slice(lastIndex, index)))
-    blocks.push(parseCard(kind as 'task' | 'project', jsonText) ?? { type: 'text', text: full })
+    blocks.push(parseCard(kind as CardKind, jsonText) ?? { type: 'text', text: full })
     lastIndex = index + full.length
   }
   if (lastIndex < body.length) blocks.push(...parseTrailing(body.slice(lastIndex)))
@@ -64,11 +72,11 @@ function parseTrailing(text: string): MessageBlock[] {
   const [full, kind, jsonText] = match
   const index = match.index ?? 0
   const blocks = index > 0 ? parseTextChunk(text.slice(0, index)) : []
-  blocks.push(parseCard(kind as 'task' | 'project', jsonText) ?? { type: 'text', text: full })
+  blocks.push(parseCard(kind as CardKind, jsonText) ?? { type: 'text', text: full })
   return blocks
 }
 
-function parseCard(kind: 'task' | 'project', jsonText: string): MessageBlock | null {
+function parseCard(kind: CardKind, jsonText: string): MessageBlock | null {
   let data: unknown
   try {
     data = JSON.parse(jsonText.trim())
@@ -76,6 +84,11 @@ function parseCard(kind: 'task' | 'project', jsonText: string): MessageBlock | n
     return null
   }
   if (typeof data !== 'object' || data === null) return null
+  if (kind === 'choice') {
+    const { label, value } = data as { label?: unknown; value?: unknown }
+    if (typeof label !== 'string' || typeof value !== 'string') return null
+    return { type: 'choice', label, value }
+  }
   const { path } = data as { path?: unknown }
   if (typeof path !== 'string' || !path.startsWith('/')) return null
   if (kind === 'task') {

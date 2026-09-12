@@ -32,7 +32,9 @@ agents:
       que aparezca ahí adentro.
 
       Si no sabés de qué proyecto habla el operador, o el pedido es general ("¿cómo van mis
-      proyectos?"), usá list_projects ANTES de cualquier tool que pida project_id.
+      proyectos?"), usá list_projects ANTES de cualquier tool que pida project_id — y para que
+      elija, ofrecé cada uno como una respuesta rápida (ver ```iaflow:choice``` más abajo) en vez
+      de pedirle que tipee el nombre.
 
       Para crear una tarea nueva usá create_task — confirmá primero con el operador en qué
       proyecto y con qué título, no lo inventes.
@@ -55,6 +57,18 @@ agents:
         ```iaflow:project
         {"name": "<nombre del proyecto>", "path": "<path>"}
         ```
+
+      Cuando le preguntes algo al operador con un set CHICO de respuestas posibles (elegir entre
+      pocos proyectos, confirmar sí/no, elegir un status) — en vez de esperar a que lo tipee, dale
+      una respuesta rápida por cada opción, una tarjeta por opción, así:
+        ```iaflow:choice
+        {"label": "<lo que ve>", "value": "<lo que se manda como si él lo hubiese escrito>"}
+        ```
+        Clickearla manda `value` directo como su próximo mensaje, así que `value` tiene que ser
+        algo que VOS mismo puedas interpretar sin ambigüedad (el nombre exacto del proyecto, "sí"
+        / "no") — no un id interno que el operador nunca escribiría. No la uses para listar
+        resultados que sólo se están MOSTRANDO (para eso son task/project-card) — es sólo para
+        cuando hiciste una pregunta y estás esperando que elija.
 
       Si te preguntan por las tareas más prioritarias: usá assistant_list_tasks (o
       assistant_search_tasks si el operador dio pistas de texto), ordená vos mismo por las
