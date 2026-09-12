@@ -1118,6 +1118,7 @@ describe('GET /v1/logs', () => {
       token: 'secret',
       log: silentLog(),
       logFile: file,
+      resolveLogFiles: () => [file],
     })
     const body = (await (await app.request('/v1/logs', { headers: auth })).json()) as {
       lines: Array<{ msg?: string }>
@@ -1137,6 +1138,7 @@ describe('GET /v1/logs', () => {
       token: 'secret',
       log: silentLog(),
       logFile: file,
+      resolveLogFiles: () => [file],
     })
     const body = (await (
       await app.request('/v1/logs?limit=5&q=error', { headers: auth })
@@ -1152,6 +1154,7 @@ describe('GET /v1/logs', () => {
       token: 'secret',
       log: silentLog(),
       logFile: file,
+      resolveLogFiles: () => [file],
     })
     const res = await app.request('/v1/logs?limit=abc', { headers: auth })
     expect(res.status).toBe(200)

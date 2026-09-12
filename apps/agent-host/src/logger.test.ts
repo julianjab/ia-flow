@@ -4,47 +4,92 @@ import {
   capExtras,
   clearRunLogTarget,
   createLogger,
+  logMaxFiles,
+  logMaxSize,
   otelResource,
   otelStream,
   redriveTarget,
-  resolveLogFile,
+  resolveLogFileBase,
   runLogTargetCount,
   setRunLogTarget,
 } from './logger.js'
 
-describe('resolveLogFile', () => {
+describe('resolveLogFileBase', () => {
   it('cae al mismo config dir que el state file', () => {
-    expect(resolveLogFile({ HOME: '/home/j' })).toBe('/home/j/.config/ia-flow/logs/agent-host.log')
+    expect(resolveLogFileBase({ HOME: '/home/j' })).toBe('/home/j/.config/ia-flow/logs/agent-host')
   })
 
   it('sigue IA_FLOW_CONFIG_DIR', () => {
-    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_CONFIG_DIR: '/cfg' })).toBe(
-      '/cfg/logs/agent-host.log',
+    expect(resolveLogFileBase({ HOME: '/home/j', IA_FLOW_CONFIG_DIR: '/cfg' })).toBe(
+      '/cfg/logs/agent-host',
     )
   })
 
   // Mismo env que apps/server: un solo valor manda los dos procesos al mismo
   // directorio, con un archivo cada uno.
   it('IA_FLOW_LOG_DIR gana sobre el config dir', () => {
-    expect(resolveLogFile({ IA_FLOW_CONFIG_DIR: '/cfg', IA_FLOW_LOG_DIR: '/var/log/ia' })).toBe(
-      '/var/log/ia/agent-host.log',
+    expect(resolveLogFileBase({ IA_FLOW_CONFIG_DIR: '/cfg', IA_FLOW_LOG_DIR: '/var/log/ia' })).toBe(
+      '/var/log/ia/agent-host',
     )
   })
 
-  it('un override explícito gana sobre todo', () => {
+  it('un override explícito gana sobre todo, y se le recorta la extensión', () => {
     expect(
-      resolveLogFile({
+      resolveLogFileBase({
         IA_FLOW_LOG_DIR: '/var/log/ia',
         IA_FLOW_AGENT_HOST_LOG_FILE: '/tmp/gw.log',
       }),
-    ).toBe('/tmp/gw.log')
+    ).toBe('/tmp/gw')
+  })
+
+  it('un override sin extensión se usa tal cual', () => {
+    expect(resolveLogFileBase({ IA_FLOW_AGENT_HOST_LOG_FILE: '/tmp/gw' })).toBe('/tmp/gw')
   })
 
   // El caso container: los logs los junta el runtime y el archivo sería
   // basura en un filesystem efímero.
   it('un override vacío apaga el archivo', () => {
-    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_AGENT_HOST_LOG_FILE: '' })).toBeNull()
-    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_AGENT_HOST_LOG_FILE: '  ' })).toBeNull()
+    expect(resolveLogFileBase({ HOME: '/home/j', IA_FLOW_AGENT_HOST_LOG_FILE: '' })).toBeNull()
+    expect(resolveLogFileBase({ HOME: '/home/j', IA_FLOW_AGENT_HOST_LOG_FILE: '  ' })).toBeNull()
+  })
+})
+
+// Misma validación que apps/server/src/logger.ts (ver ahí el porqué de cada
+// caso) — portada para que el agent-host no pueda apagar la rotación en
+// silencio con un valor mal escrito.
+describe('logMaxFiles', () => {
+  it('cae al default con basura, vacío, 0 o negativo', () => {
+    expect(logMaxFiles('banana')).toBe(4)
+    expect(logMaxFiles(undefined)).toBe(4)
+    expect(logMaxFiles('')).toBe(4)
+    expect(logMaxFiles('0')).toBe(4)
+    expect(logMaxFiles('-3')).toBe(4)
+  })
+
+  it('acepta un entero positivo, truncando decimales', () => {
+    expect(logMaxFiles('10')).toBe(10)
+    expect(logMaxFiles('2.7')).toBe(2)
+  })
+})
+
+describe('logMaxSize', () => {
+  it('cae al default con basura o formas inválidas', () => {
+    expect(logMaxSize('banana')).toBe('50m')
+    expect(logMaxSize(undefined)).toBe('50m')
+    expect(logMaxSize('')).toBe('50m')
+    expect(logMaxSize('1.2.3m')).toBe('50m')
+  })
+
+  it('un valor sin unidad o en 0 cae al default — no son bytes', () => {
+    expect(logMaxSize('0')).toBe('50m')
+    expect(logMaxSize('0m')).toBe('50m')
+    expect(logMaxSize('52428800')).toBe('50m')
+  })
+
+  it('acepta k/m/g', () => {
+    expect(logMaxSize('500k')).toBe('500k')
+    expect(logMaxSize('1g')).toBe('1g')
+    expect(logMaxSize('1.5g')).toBe('1.5g')
   })
 })
 

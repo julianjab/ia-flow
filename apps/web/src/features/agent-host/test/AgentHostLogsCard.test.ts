@@ -6,7 +6,7 @@ import type { AgentHostLogTail } from '../api'
 function tail(time: string): AgentHostLogTail {
   return {
     file: '/tmp/agent-host.log',
-    lines: [{ raw: '{}', time, level: 30, scope: 'agent-host', msg: 'ready' }],
+    lines: [{ raw: '{}', time, level: 30, module: 'agent-host', msg: 'ready' }],
     truncated: false,
   }
 }
