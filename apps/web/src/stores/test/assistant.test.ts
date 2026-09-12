@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAssistantStore } from '../store'
+import { useAssistantStore } from '../assistant'
 
 const originalPost = axios.post
 const originalGet = axios.get
@@ -296,5 +296,41 @@ describe('assistant store — contexto fijado por hilo', () => {
 
     const active = store.threads.find((t) => t.id === store.sessionId)
     expect(active?.context).toEqual({})
+  })
+})
+
+describe('assistant store — openInContext', () => {
+  it('abre el drawer con un hilo nuevo, el contexto ya fijado, y siembra el draft', () => {
+    const store = useAssistantStore()
+    const firstId = store.sessionId
+    store.isOpen = false
+
+    store.openInContext({ projectId: 'ia-flow', taskId: 't1' }, '¿Qué pasó con esta tarea?')
+
+    expect(store.isOpen).toBe(true)
+    expect(store.sessionId).not.toBe(firstId)
+    expect(store.messages).toHaveLength(0)
+    const active = store.threads.find((t) => t.id === store.sessionId)
+    expect(active?.context).toEqual({ projectId: 'ia-flow', taskId: 't1' })
+    expect(store.draftSeed).toBe('¿Qué pasó con esta tarea?')
+  })
+
+  it('sin draftText, siembra un string vacío — no deja el seed en null (que significaría "sin evento")', () => {
+    const store = useAssistantStore()
+
+    store.openInContext({ projectId: 'ia-flow' })
+
+    expect(store.draftSeed).toBe('')
+  })
+
+  it('el contexto fijado por openInContext gana sobre cualquier ctx que mande send() después', async () => {
+    axios.post = (async () => ({ data: { ok: true } })) as any
+    const store = useAssistantStore()
+
+    store.openInContext({ projectId: 'ia-flow', taskId: 't1' })
+    await store.send('hola', { projectId: 'otro-proyecto', taskId: 't9' })
+
+    const active = store.threads.find((t) => t.id === store.sessionId)
+    expect(active?.context).toEqual({ projectId: 'ia-flow', taskId: 't1' })
   })
 })
