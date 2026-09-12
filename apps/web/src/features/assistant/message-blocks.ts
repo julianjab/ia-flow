@@ -29,6 +29,12 @@ export type MessageBlock =
 
 const INLINE_PATTERN = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((\/[^\s)]+)\)/g
 const CARD_PATTERN = /```iaflow:(task|project)\s*\n([\s\S]*?)```/g
+/** Un turno que se corta justo después de abrir una tarjeta (el modelo
+ *  terminó de generar sin llegar a cerrar el fence — visto en producción con
+ *  `stopReason: end_turn`, no un límite de tokens) deja un fence SIN cerrar
+ *  al final del mensaje. `CARD_PATTERN` no matchea eso — exige el cierre — y
+ *  sin este fallback todo el JSON quedaba mostrado como texto crudo. */
+const UNCLOSED_CARD_PATTERN = /```iaflow:(task|project)\s*\n([\s\S]*)$/
 const DIVIDER_LINE = /^\s*---\s*$/
 /** Todo comentario que postea un agente del engine arranca con este header
  *  (`Agent.ts`, `# ${agentDef.id}\n\n...`) — es lo que `selectCommentWindow`
@@ -48,7 +54,17 @@ export function parseMessageBlocks(rawBody: string): MessageBlock[] {
     blocks.push(parseCard(kind as 'task' | 'project', jsonText) ?? { type: 'text', text: full })
     lastIndex = index + full.length
   }
-  if (lastIndex < body.length) blocks.push(...parseTextChunk(body.slice(lastIndex)))
+  if (lastIndex < body.length) blocks.push(...parseTrailing(body.slice(lastIndex)))
+  return blocks
+}
+
+function parseTrailing(text: string): MessageBlock[] {
+  const match = text.match(UNCLOSED_CARD_PATTERN)
+  if (!match) return parseTextChunk(text)
+  const [full, kind, jsonText] = match
+  const index = match.index ?? 0
+  const blocks = index > 0 ? parseTextChunk(text.slice(0, index)) : []
+  blocks.push(parseCard(kind as 'task' | 'project', jsonText) ?? { type: 'text', text: full })
   return blocks
 }
 
