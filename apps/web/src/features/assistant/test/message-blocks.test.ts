@@ -105,6 +105,31 @@ describe('parseMessageBlocks', () => {
     ])
   })
 
+  it('parsea un fence ```iaflow:choice``` en una respuesta rápida', () => {
+    const body = '```iaflow:choice\n{"label":"ia-flow","value":"ia-flow"}\n```'
+    expect(parseMessageBlocks(body)).toEqual([
+      { type: 'choice', label: 'ia-flow', value: 'ia-flow' },
+    ])
+  })
+
+  it('un choice sin `value` se muestra como texto crudo', () => {
+    const body = '```iaflow:choice\n{"label":"ia-flow"}\n```'
+    expect(parseMessageBlocks(body)).toEqual([{ type: 'text', text: body }])
+  })
+
+  it('combina varios choices seguidos (el caso típico: elegir un proyecto)', () => {
+    const body =
+      '¿De cuál proyecto?\n' +
+      '```iaflow:choice\n{"label":"ia-flow","value":"ia-flow"}\n```\n' +
+      '```iaflow:choice\n{"label":"lahaus-ia-flow","value":"lahaus-ia-flow"}\n```'
+    expect(parseMessageBlocks(body)).toEqual([
+      { type: 'text', text: '¿De cuál proyecto?\n' },
+      { type: 'choice', label: 'ia-flow', value: 'ia-flow' },
+      { type: 'text', text: '\n' },
+      { type: 'choice', label: 'lahaus-ia-flow', value: 'lahaus-ia-flow' },
+    ])
+  })
+
   it('combina varias task-cards y dividers en el mismo mensaje', () => {
     const body =
       '```iaflow:task\n{"title":"A","path":"/projects/x/tareas/1"}\n```\n' +
