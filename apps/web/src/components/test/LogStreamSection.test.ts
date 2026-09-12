@@ -61,7 +61,24 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
 }))
 
+import {
+  fetchServerLogModules,
+  fetchServerLogSources,
+  fetchServerLogs,
+} from '@/features/server-logs/api'
 import LogStreamSection from '../LogStreamSection.vue'
+
+// `fetchLogs` ya no tiene default (ver la nota en LogStreamSection.vue sobre
+// por qué un default ahí sería un import cruzado de feature) — cada mount
+// tiene que pasarlo. Un solo objeto reusado en los ~20 `mount()` de este
+// archivo.
+const DEFAULT_PROPS = {
+  fetchLogs: fetchServerLogs,
+  fetchModulesFn: fetchServerLogModules,
+  fetchSourcesFn: fetchServerLogSources,
+}
+
+const EMPTY_PAGE_LEVEL_COUNTS = { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0 }
 
 // Aislamiento entre tests — más de un describe toca `ia-flow:server-logs:columns`.
 beforeEach(() => {
@@ -74,7 +91,7 @@ beforeEach(() => {
 // sin pasar por la UI de "+ columna".
 async function mountPills(): Promise<Record<string, CSSStyleDeclaration>> {
   localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'level', 'module', 'msg']))
-  const wrapper = mount(LogStreamSection)
+  const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
   await flushPromises()
   const pills: Record<string, CSSStyleDeclaration> = {}
   for (const pill of wrapper.findAll('.log-level')) {
@@ -115,7 +132,7 @@ describe('LogStreamSection — colores del pill de nivel', () => {
 
 describe('LogStreamSection — botón "Copiar curl (limpiar dedupe)"', () => {
   it('sólo aparece en la fila expandida cuando extras.clearDedupe está presente', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
 
     const rows = wrapper.findAll('.log-row')
@@ -138,7 +155,7 @@ describe('LogStreamSection — botón "Copiar curl (limpiar dedupe)"', () => {
     // la propiedad, `Object.assign` tira (ver ui/test/CopyButton.test.ts).
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
 
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     const rows = wrapper.findAll('.log-row')
     await rows[rows.length - 1]?.trigger('click')
@@ -164,7 +181,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   }
 
   it('el "…" de un campo del detalle ofrece "Agregar columna", y agregarla la muestra en el header y en la fila', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await expandExtrasRow(wrapper)
 
@@ -186,7 +203,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el "…" alterna a "Quitar columna" una vez agregada, y quitarla la saca del header', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await expandExtrasRow(wrapper)
 
@@ -210,7 +227,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('la "×" del header también quita la columna', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await expandExtrasRow(wrapper)
     await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
@@ -229,7 +246,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   // Sacar una columna base (Módulo) tiene que funcionar igual que una de
   // extras — es justo lo que antes no se podía hacer.
   it('también se puede quitar una columna base (Módulo)', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(true)
 
@@ -246,7 +263,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   // activeColumns en [], desincronizado de lo persistido hasta recargar.
   it('quitar la última columna desde el "…" del detalle no la deja en cero', async () => {
     localStorage.setItem(COLUMNS_KEY, JSON.stringify(['extras.clearDedupe']))
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await expandExtrasRow(wrapper)
 
@@ -263,7 +280,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el "+" del header ofrece las columnas base ocultas y las claves de extras descubiertas', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
 
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
@@ -288,7 +305,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el input de texto libre agrega una columna anidada (extras.err.message)', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
     await flushPromises()
@@ -308,7 +325,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   // prototipos, así que un camino como `__proto__.toString` (posible desde
   // el input de texto libre) no puede devolver una función interna de JS.
   it('un camino que apunta a la cadena de prototipos no filtra nada — se ve como "—"', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
     await flushPromises()
@@ -324,7 +341,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('la columna agregada persiste en localStorage (junto a las base) y sobrevive un remount', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await expandExtrasRow(wrapper)
     await wrapper.find('[data-testid="json-tree-field-menu-extras.clearDedupe"]').trigger('click')
@@ -342,13 +359,13 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
       'extras.clearDedupe',
     ])
 
-    const remounted = mount(LogStreamSection)
+    const remounted = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     expect(extraColHeader(remounted).exists()).toBe(true)
   })
 
   it('drag & drop en el header reordena las columnas', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     // Default: time, module, msg — arrastramos "module" sobre "time".
     const before = wrapper.findAll('.log-col-header').map((h) => h.attributes('data-testid'))
@@ -375,7 +392,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   // Sin esto, arrastrar una columna no daba ninguna pista de dónde iba a
   // quedar hasta soltar — el pedido concreto que motivó el fix.
   it('mientras se arrastra, el origen se atenúa y el destino se resalta', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     const moduleHeader = wrapper.find('[data-testid="server-logs-col-header-module"]')
     const timeHeader = wrapper.find('[data-testid="server-logs-col-header-time"]')
@@ -401,7 +418,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   })
 
   it('el buscador del picker filtra por nombre, en base y en extras', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     await wrapper.find('[data-testid="server-logs-add-column"]').trigger('click')
     await flushPromises()
@@ -423,7 +440,7 @@ describe('LogStreamSection — columnas de extras (estilo Datadog)', () => {
   // columnas conviven y cada una muestra su propio valor.
   it('una clave de extras que colisiona de nombre con una columna base tiene su propio path y valor', async () => {
     localStorage.setItem(COLUMNS_KEY, JSON.stringify(['time', 'module', 'msg', 'extras.module']))
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
 
     expect(wrapper.find('[data-testid="server-logs-col-header-module"]').exists()).toBe(true)
@@ -445,7 +462,7 @@ describe('LogStreamSection — resize de columnas', () => {
   })
 
   it('arrastrar el handle cambia el ancho de la columna y lo persiste', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
 
@@ -462,14 +479,14 @@ describe('LogStreamSection — resize de columnas', () => {
 
   it('el ancho resizeado sobrevive un remount (localStorage)', async () => {
     localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify({ time: 300 }))
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
 
     expect(wrapper.find('.log-list-header').attributes('style')).toContain('300px')
   })
 
   it('no deja resizear por debajo del piso mínimo', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
 
@@ -487,7 +504,7 @@ describe('LogStreamSection — resize de columnas', () => {
   // sin el preventDefault del mousedown, arrastrar el handle dispararía
   // también el drag nativo de reordenamiento.
   it('el mousedown del handle no dispara el drag de reordenar columnas', async () => {
-    const wrapper = mount(LogStreamSection)
+    const wrapper = mount(LogStreamSection, { props: DEFAULT_PROPS })
     await flushPromises()
     const handle = wrapper.find('[data-testid="server-logs-col-resize-time"]')
     const timeHeader = wrapper.find('[data-testid="server-logs-col-header-time"]')
@@ -495,5 +512,92 @@ describe('LogStreamSection — resize de columnas', () => {
     await handle.trigger('mousedown', { clientX: 100 })
     expect(timeHeader.classes()).not.toContain('log-col-header--dragging')
     document.dispatchEvent(new MouseEvent('mouseup'))
+  })
+})
+
+// El fallback de un backend sin Live (el agent-host). Dos cosas que un poll
+// ciego rompería: pisar una respuesta más nueva con una vieja, y cerrar el
+// detalle que el operador tiene abierto cada vez que dispara.
+describe('LogStreamSection — pollMs (fallback sin Live)', () => {
+  it('un pollMs sondea sin que el operador tenga que tocar nada', async () => {
+    vi.mocked(fetchServerLogs).mockClear()
+    vi.useFakeTimers()
+    try {
+      mount(LogStreamSection, { props: { ...DEFAULT_PROPS, live: false, pollMs: 1000 } })
+      await flushPromises()
+      const callsAfterMount = vi.mocked(fetchServerLogs).mock.calls.length
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(vi.mocked(fetchServerLogs).mock.calls.length).toBeGreaterThan(callsAfterMount)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('un tick de poll no cierra el detalle que el operador tiene abierto', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(LogStreamSection, {
+        props: { ...DEFAULT_PROPS, live: false, pollMs: 1000 },
+      })
+      await flushPromises()
+      await wrapper.findAll('.log-row')[0]?.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.log-detail').exists()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      // Seguía abierto ANTES del tick: el poll tiene que saltearse ese ciclo
+      // entero, no sólo preservar el id — `resetAndLoad` también vacía y
+      // rearma la lista.
+      expect(wrapper.find('.log-detail').exists()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// La respuesta a una llamada vieja no puede pisar a una más nueva — el mismo
+// problema que ya resolvía AgentHostLogsView.vue a mano antes de compartir
+// esta vista, ahora general para cualquier backend lento.
+describe('LogStreamSection — una respuesta vieja no pisa a una más nueva', () => {
+  it('descarta el resultado de un fetch que llega después de otro más reciente', async () => {
+    const slow = Promise.withResolvers<{
+      entries: ServerLogEntry[]
+      total: number
+      levelCounts: typeof EMPTY_PAGE_LEVEL_COUNTS
+    }>()
+    const fetchLogs = vi
+      .fn()
+      .mockImplementationOnce(() => slow.promise)
+      .mockImplementationOnce(async () => ({
+        entries: [
+          { level: 'info', time: '2026-01-01T00:00:00.000Z', module: 'test', msg: 'nuevo' },
+        ] as ServerLogEntry[],
+        total: 1,
+        levelCounts: EMPTY_PAGE_LEVEL_COUNTS,
+      }))
+
+    const wrapper = mount(LogStreamSection, { props: { ...DEFAULT_PROPS, fetchLogs } })
+    await flushPromises()
+    // Dispara una segunda llamada mientras la primera sigue pendiente — el
+    // botón "Actualizar" está `disabled` mientras `loading` (la primera
+    // sigue en vuelo), así que el gatillo real es cambiar un filtro, igual
+    // que el operador que tipea mientras el tail lento no volvió.
+    const input = wrapper.get('[data-testid="server-logs-filter-input"]')
+    await input.setValue('msg:error')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    slow.resolve({
+      entries: [{ level: 'info', time: '2026-01-01T00:00:00.000Z', module: 'test', msg: 'viejo' }],
+      total: 1,
+      levelCounts: EMPTY_PAGE_LEVEL_COUNTS,
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('nuevo')
+    expect(wrapper.text()).not.toContain('viejo')
   })
 })

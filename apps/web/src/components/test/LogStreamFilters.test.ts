@@ -25,7 +25,11 @@ vi.mock('@/composables/useServerEvents', () => ({
   useServerEvents: () => ({ connected: { value: false } }),
 }))
 
-import { fetchServerLogModules, fetchServerLogs } from '@/features/server-logs/api'
+import {
+  fetchServerLogModules,
+  fetchServerLogSources,
+  fetchServerLogs,
+} from '@/features/server-logs/api'
 import LogStreamSection from '../LogStreamSection.vue'
 
 const EMPTY_PAGE = {
@@ -41,7 +45,13 @@ beforeEach(() => {
 })
 
 async function mountSection() {
-  const wrapper = mount(LogStreamSection)
+  const wrapper = mount(LogStreamSection, {
+    props: {
+      fetchLogs: fetchServerLogs,
+      fetchModulesFn: fetchServerLogModules,
+      fetchSourcesFn: fetchServerLogSources,
+    },
+  })
   await flushPromises()
   return wrapper
 }
