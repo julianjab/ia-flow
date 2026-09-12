@@ -2,7 +2,13 @@
 // `baseURL` del server de ia-flow (features/servers/selection.ts), y acá
 // hablamos con otro proceso, en otro origen y con otra credencial.
 
-import type { SystemPromptBlock } from '@ia-flow/shared'
+import type {
+  ServerLogEntry,
+  ServerLogFilters,
+  ServerLogLevel,
+  ServerLogLevelCounts,
+  SystemPromptBlock,
+} from '@ia-flow/shared'
 import axios, { type AxiosInstance } from 'axios'
 
 export interface AgentHostProvider {
@@ -39,23 +45,6 @@ export interface AgentHostWorkspace {
   worktreeBase: string | null
   gitAuthorName: string | null
   gitAuthorEmail: string | null
-}
-
-export interface AgentHostLogLine {
-  raw: string
-  time?: string
-  level?: number
-  module?: string
-  msg?: string
-  extras?: Record<string, unknown>
-}
-
-export interface AgentHostLogTail {
-  /** `null` = este agentHost corre sin archivo de log. */
-  file: string | null
-  lines: AgentHostLogLine[]
-  /** El filtro no alcanzó a mirar todo el archivo. */
-  truncated: boolean
 }
 
 export interface AgentHostRun {
@@ -132,8 +121,79 @@ export async function saveSystemPrompt(
   return (await c.put<{ blocks: SystemPromptBlock[] }>('/v1/system-prompt', { blocks })).data.blocks
 }
 
-export async function fetchLogs(c: AxiosInstance, query = ''): Promise<AgentHostLogTail> {
-  return (await c.get<AgentHostLogTail>('/v1/logs', { params: { q: query, limit: 200 } })).data
+interface AgentHostLogLineWire {
+  raw: string
+  time?: string
+  level?: number
+  module?: string
+  msg?: string
+  extras?: Record<string, unknown>
+}
+
+interface AgentHostLogTailWire {
+  /** `null` = este agent-host corre sin archivo de log configurado. */
+  file: string | null
+  lines: AgentHostLogLineWire[]
+  truncated: boolean
+}
+
+const LEVEL_NAMES: Record<number, ServerLogLevel> = {
+  10: 'trace',
+  20: 'debug',
+  30: 'info',
+  40: 'warn',
+  50: 'error',
+  60: 'fatal',
+}
+
+const EMPTY_LEVEL_COUNTS: ServerLogLevelCounts = {
+  trace: 0,
+  debug: 0,
+  info: 0,
+  warn: 0,
+  error: 0,
+  fatal: 0,
+}
+
+/**
+ * Adapta `GET /v1/logs` a la forma que `components/LogStreamSection.vue`
+ * espera de cualquier backend — el mismo contrato que ya cumple
+ * `fetchServerLogs` del lado del daemon (ver `features/server-logs/api.ts`).
+ *
+ * Sólo nivel y texto libre viajan: la vista monta esta pantalla con
+ * `field-filters="false"` porque el agent-host no tiene módulo/agente/regla/
+ * fecha como filtros de servidor — pero `matchLine` (log-tail.ts, del lado
+ * del agent-host) ya hace un AND de substrings contra la línea CRUDA, así que
+ * "nivel" + "texto libre" son exactamente los dos términos que necesita.
+ *
+ * Sin archivo configurado, tira: es lo único que este adapter no puede
+ * traducir a una lista vacía sin mentir ("no hay resultados" vs "no hay
+ * archivo") — `LogStreamSection` ya muestra cualquier excepción de
+ * `fetchLogs` en su banda de error.
+ */
+export async function fetchAgentHostLogs(
+  c: AxiosInstance,
+  filters: ServerLogFilters,
+): Promise<{ entries: ServerLogEntry[]; total: number; levelCounts: ServerLogLevelCounts }> {
+  const q = [filters.level, filters.search].filter((v): v is string => Boolean(v)).join(' ')
+  const { data } = await c.get<AgentHostLogTailWire>('/v1/logs', {
+    params: { q, limit: filters.limit ?? 200 },
+  })
+  if (!data.file) {
+    throw new Error('Este agent-host corre sin archivo de log (su stdout va a quien lo levantó)')
+  }
+  const entries: ServerLogEntry[] = data.lines
+    .filter((line): line is AgentHostLogLineWire & { time: string } => Boolean(line.time))
+    .map((line) => ({
+      level: LEVEL_NAMES[line.level ?? 30] ?? 'info',
+      time: line.time,
+      module: line.module,
+      msg: line.msg ?? line.raw,
+      extras: line.extras,
+    }))
+  const levelCounts = { ...EMPTY_LEVEL_COUNTS }
+  for (const entry of entries) levelCounts[entry.level] += 1
+  return { entries, total: entries.length, levelCounts }
 }
 
 export async function fetchRuns(

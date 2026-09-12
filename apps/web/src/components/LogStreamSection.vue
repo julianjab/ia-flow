@@ -1,4 +1,20 @@
 <script setup lang="ts">
+// Panel de stream de logs — GENÉRICO sobre quién sirve las líneas.
+//
+// Nació como `features/server-logs/ServerLogsSection.vue`, atado al daemon:
+// su propio `api.ts`, el WS del daemon para "Live", y un backend con
+// paginación/orden/conteos por nivel calculados en SQL. El agent-host quería
+// la MISMA vista (mismas columnas configurables, mismo árbol JSON, mismo
+// resumen por nivel) pero es OTRO proceso, con OTRO cliente HTTP y un backend
+// mucho más simple (una ventana de tail, sin paginar, sin WS).
+//
+// La solución no es una segunda copia: es sacarle al componente todo lo que
+// sabía de "soy el daemon" y recibirlo por props — mismo patrón que
+// `useServerEvents({ enabled })` ya usa para lo mismo. Quien lo monta decide
+// de dónde vienen las líneas (`fetchLogs`) y qué capacidades tiene ese backend
+// (`live`/`fieldFilters`/`sortable`/`pollMs`); el default de cada prop es
+// exactamente el comportamiento de siempre, así que `GeneralView.vue` no
+// cambia una línea.
 import FollowTail from '@/ui/FollowTail.vue';
 import LogLine from '@/ui/LogLine.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
@@ -6,17 +22,60 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
 import { type FilterFieldDef, type FilterToken, isDateValue } from '@/ui/filter-query';
 import { useRoute } from 'vue-router';
-import { ServerLogEntrySchema, type ServerLogLevel, type ServerLogSort, type ServerLogSortBy } from '@ia-flow/shared';
-import { useServerEvents } from '@/composables/useServerEvents';
 import {
-  fetchServerLogModules,
-  fetchServerLogs,
-  fetchServerLogSources,
+  ServerLogEntrySchema,
   type ServerLogEntry,
   type ServerLogFilters,
+  type ServerLogLevel,
   type ServerLogLevelCounts,
-} from './api';
+  type ServerLogSort,
+  type ServerLogSortBy,
+} from '@ia-flow/shared';
+import { useServerEvents } from '@/composables/useServerEvents';
+import { fetchServerLogModules, fetchServerLogs, fetchServerLogSources } from '@/features/server-logs/api';
 import JsonTreeNode from '@/ui/JsonTreeNode.vue';
+
+const props = withDefaults(
+  defineProps<{
+    /** Trae una página de líneas. Default: el daemon (`/api/server-logs`). */
+    fetchLogs?: (
+      filters: ServerLogFilters,
+    ) => Promise<{ entries: ServerLogEntry[]; total: number; levelCounts: ServerLogLevelCounts }>
+    /** Universo de módulos para el chip row. Sin endpoint propio (agent-host),
+     *  `[]` — el chip row igual funciona con lo DESCUBIERTO en las líneas
+     *  cargadas (`discoveredModules`), sólo pierde el universo completo. */
+    fetchModulesFn?: () => Promise<string[]>
+    fetchSourcesFn?: () => Promise<string[]>
+    /** Hay WS de dónde recibir `log:entry` en vivo. `false` en un backend que
+     *  no expone `/ws` (el agent-host). */
+    live?: boolean
+    /** El backend entiende módulo/agente/tarea/proyecto/regla/run/trace/extra/
+     *  fecha como filtros de servidor propios, no sólo nivel + texto libre.
+     *  `false` reduce el input a `nivel:`/texto plano — el agent-host sólo
+     *  soporta un `q` de texto libre, así que cualquier otro campo no
+     *  filtraría nada del lado del servidor. */
+    fieldFilters?: boolean
+    /** El backend puede ordenar por columna (`sortBy`/`sort`). `false` deja
+     *  los headers como etiquetas, no botones — sin esto, clickear "ordenar"
+     *  cambiaba la flecha sin que la lista se moviera un lugar. */
+    sortable?: boolean
+    /** Cada cuánto refrescar cuando no hay `live` — el agent-host no tiene
+     *  WS, así que sin esto sus líneas nunca se actualizarían solas.
+     *  `undefined` = no pollear (el daemon no lo necesita: tiene Live). */
+    pollMs?: number
+    title?: string
+  }>(),
+  {
+    fetchLogs: fetchServerLogs,
+    fetchModulesFn: fetchServerLogModules,
+    fetchSourcesFn: fetchServerLogSources,
+    live: true,
+    fieldFilters: true,
+    sortable: true,
+    pollMs: undefined,
+    title: 'Logs del servidor',
+  },
+);
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
 // filter). The summary chip row below is the only UI to toggle these.
@@ -104,7 +163,7 @@ const extraFilter = ref<Set<string>>(new Set(queryStrArr('extra')));
 const allModules = ref<string[]>([]);
 async function loadAllModules() {
   try {
-    allModules.value = await fetchServerLogModules();
+    allModules.value = await props.fetchModulesFn();
   } catch {
     allModules.value = [];
   }
@@ -117,7 +176,7 @@ const discoveredModules = ref<Set<string>>(new Set());
 const allSources = ref<string[]>([]);
 async function loadAllSources() {
   try {
-    allSources.value = await fetchServerLogSources();
+    allSources.value = await props.fetchSourcesFn();
   } catch {
     allSources.value = [];
   }
@@ -175,8 +234,11 @@ function isBaseColumn(key: string): boolean {
 const DEFAULT_ACTIVE_COLUMNS = ['time', 'module', 'msg'] as const;
 // Sólo estas cuatro tienen soporte de sort en el server (ServerLogSortBy) —
 // una columna de extras no es sorteable, no hay ORDER BY posible sobre un
-// campo que puede ni existir en la línea.
+// campo que puede ni existir en la línea. Sin `sortable` (el agent-host, cuyo
+// tail es siempre cronológico) NINGUNA lo es: clickear "ordenar" cambiaría la
+// flecha sin mover una sola fila, que es peor que no ofrecerlo.
 function isSortableColumn(key: string): key is ServerLogSortBy {
+  if (!props.sortable) return false;
   return key === 'time' || key === 'level' || key === 'module' || key === 'msg'
 }
 const BASE_COLUMN_LABELS: Record<string, string> = {
@@ -676,8 +738,14 @@ const FILTER_FIELDS: Array<{
   { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
 ];
 
+// Sin `fieldFilters` (el agent-host) el backend sólo entiende un `q` de texto
+// libre — cualquier otro campo (módulo, agente, regla, fecha…) no filtraría
+// nada del lado del servidor, así que ofrecerlo sería mentir. `nivel` sobrevive
+// porque viaja como uno de los términos de ese mismo `q` (ver la nota de
+// `props.fetchLogs` en cada adapter), no porque el agent-host lo entienda aparte.
+const BASIC_FIELD_KEYS = new Set(['nivel', 'msg']);
 const filterFields = computed<FilterFieldDef[]>(() =>
-  FILTER_FIELDS.map((f) => ({
+  FILTER_FIELDS.filter((f) => props.fieldFilters || BASIC_FIELD_KEYS.has(f.key)).map((f) => ({
     key: f.key,
     hint: f.hint,
     values: f.values?.(),
@@ -830,11 +898,20 @@ function accumulateDiscovered(newEntries: ServerLogEntry[]): void {
   }
 }
 
+// Ningún backend garantiza que las respuestas vuelvan en el orden en que se
+// pidieron — un `pollMs` del agent-host (timeout largo, refresco corto) las
+// cruza seguido, y sin esto un tail VIEJO en vuelo pisaba al filtro que el
+// operador acaba de tipear. `mine !== loadSeq` es "una llamada más nueva ya
+// arrancó" — la respuesta se descarta en silencio, no hay nada que mostrar
+// que ya no sea historia vieja.
+let loadSeq = 0;
 async function load() {
+  const mine = ++loadSeq;
   loading.value = true;
   error.value = '';
   try {
-    const data = await fetchServerLogs(buildFilters());
+    const data = await props.fetchLogs(buildFilters());
+    if (mine !== loadSeq) return;
     // Append (accumulate) so "Cargar más" grows the list. resetAndLoad()
     // clears entries + offset first when filters change.
     entries.value = entries.value.concat(data.entries);
@@ -843,9 +920,10 @@ async function load() {
     levelCounts.value = data.levelCounts;
     accumulateDiscovered(data.entries);
   } catch (e) {
+    if (mine !== loadSeq) return;
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
-    loading.value = false;
+    if (mine === loadSeq) loading.value = false;
   }
 }
 
@@ -1021,7 +1099,7 @@ watch(
 // colarse aunque no matchee esos — es el trade-off documentado, no un bug: el
 // próximo refresh (filtro que cambia, o "Actualizar") vuelve a traer la
 // verdad servida por SQLite.
-const liveMode = ref(true);
+const liveMode = ref(props.live);
 function isTailView(): boolean {
   return columnSort.value.column === 'time' && columnSort.value.direction === 'desc' && offset.value === 0;
 }
@@ -1036,28 +1114,51 @@ function matchesCheapFilters(entry: ServerLogEntry): boolean {
   if (toFilter.value && entry.time > new Date(toFilter.value).toISOString()) return false;
   return true;
 }
-const { connected: liveConnected } = useServerEvents((msg) => {
-  if (!liveMode.value || msg.type !== 'log:entry') return;
-  const parsed = ServerLogEntrySchema.safeParse((msg as { entry: unknown }).entry);
-  if (!parsed.success) return;
-  const entry = parsed.data;
-  // Server-computed levelCounts/total siguen respondiendo a TODOS los
-  // filtros (search/extra incluidos) — sumar acá de más los desalinearía del
-  // próximo `load()`. Se actualizan sólo cuando la línea también pasa el
-  // chequeo barato, que es una condición necesaria (no suficiente) para que
-  // el servidor la hubiera contado.
-  if (!matchesCheapFilters(entry)) return;
-  levelCounts.value = { ...levelCounts.value, [entry.level]: levelCounts.value[entry.level] + 1 };
-  total.value += 1;
-  accumulateDiscovered([entry]);
-  if (!isTailView()) return;
-  entries.value = [entry, ...entries.value];
-});
+// `{ enabled: props.live }`: sin esto, un `live=false` (agent-host) igual
+// abriría el socket — sin `/ws` del otro lado, quedaría reintentando con
+// backoff para siempre en silencio (ver la doc de `enabled` en
+// useServerEvents.ts, escrita justo para este caso).
+const { connected: liveConnected } = useServerEvents(
+  (msg) => {
+    if (!liveMode.value || msg.type !== 'log:entry') return;
+    const parsed = ServerLogEntrySchema.safeParse((msg as { entry: unknown }).entry);
+    if (!parsed.success) return;
+    const entry = parsed.data;
+    // Server-computed levelCounts/total siguen respondiendo a TODOS los
+    // filtros (search/extra incluidos) — sumar acá de más los desalinearía del
+    // próximo `load()`. Se actualizan sólo cuando la línea también pasa el
+    // chequeo barato, que es una condición necesaria (no suficiente) para que
+    // el servidor la hubiera contado.
+    if (!matchesCheapFilters(entry)) return;
+    levelCounts.value = { ...levelCounts.value, [entry.level]: levelCounts.value[entry.level] + 1 };
+    total.value += 1;
+    accumulateDiscovered([entry]);
+    if (!isTailView()) return;
+    entries.value = [entry, ...entries.value];
+  },
+  { enabled: props.live },
+);
 
+// El fallback de un backend sin Live: sondear cada `pollMs`. `resetAndLoad`
+// y no `load` a secas — el agent-host no pagina, así que un `load()` a
+// offset 0 duplicaría cada línea ya vista en vez de traer la ventana fresca.
+let pollTimer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   void load();
-  void loadAllModules();
-  void loadAllSources();
+  // Sin `fieldFilters` (agent-host) el picker de módulo/source no se ofrece
+  // — pedir su universo sería una llamada que nadie va a usar.
+  if (props.fieldFilters) {
+    void loadAllModules();
+    void loadAllSources();
+  }
+  if (props.pollMs) {
+    pollTimer = setInterval(() => {
+      if (!loading.value) resetAndLoad();
+    }, props.pollMs);
+  }
+});
+onUnmounted(() => {
+  clearInterval(pollTimer);
 });
 </script>
 
@@ -1065,15 +1166,18 @@ onMounted(() => {
   <section class="settings-section">
     <div class="section-header">
       <div>
-        <h2>Logs del servidor</h2>
-        <p class="section-desc">
-          Eventos del servidor de <code>daemon.log</code> (Pino NDJSON): orchestrator, watcher, migraciones, GitHub, WebSockets, etc.
-          Para debug de una ejecución específica (request/response, tool calls) usa la fila expandible en
-          <strong>Proyecto → Ejecuciones</strong>.
-        </p>
+        <h2>{{ props.title }}</h2>
+        <slot name="description">
+          <p class="section-desc">
+            Eventos del servidor de <code>daemon.log</code> (Pino NDJSON): orchestrator, watcher, migraciones, GitHub, WebSockets, etc.
+            Para debug de una ejecución específica (request/response, tool calls) usa la fila expandible en
+            <strong>Proyecto → Ejecuciones</strong>.
+          </p>
+        </slot>
       </div>
       <div class="section-head-actions">
         <button
+          v-if="props.live"
           type="button"
           class="live-toggle"
           :class="{

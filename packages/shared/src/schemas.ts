@@ -2116,6 +2116,7 @@ export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>
 export type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
 export type ServerLogSort = z.infer<typeof ServerLogSortSchema>
 export type ServerLogSortBy = z.infer<typeof ServerLogSortBySchema>
+export type ServerLogLevelCounts = z.infer<typeof ServerLogLevelCountsSchema>
 
 // ─── Hook Events (terminal hook → server) ─────────────────────────────────
 // Payload posted by `hook-tool-use.ts` (now a multi-event forwarder) to

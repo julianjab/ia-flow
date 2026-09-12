@@ -1635,7 +1635,7 @@ function outcomeLabel(outcome: ExecutionLog['outcome']): string {
   return outcome ?? 'pending';
 }
 
-// Same palette used by ServerLogsSection — kept in sync so a log's level
+// Same palette used by LogStreamSection — kept in sync so a log's level
 // looks identical whether it's rendered in the Logs tab or the exec detail.
 function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
   switch (level) {
@@ -2664,7 +2664,7 @@ watch(pendingFilter, () => {
 <style scoped>
 /* .section-head-actions ya es global (theme.css, la usan otras siete
    secciones). .live-toggle / .live-dot / @keyframes live-pulse también
-   viven ahí — ServerLogsSection.vue usa el mismo toggle "Live" y duplicarlas
+   viven ahí — LogStreamSection.vue usa el mismo toggle "Live" y duplicarlas
    acá las hubiera desincronizado en el primer retoque de una de las dos
    copias. */
 

@@ -12,7 +12,7 @@ import ProvidersSection from '@/features/providers/ProvidersSection.vue';
 import McpCatalogSection from '@/features/mcp-catalog/McpCatalogSection.vue';
 import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 import ScanRootsSection from '@/features/repos/ScanRootsSection.vue';
-import ServerLogsSection from '@/features/server-logs/ServerLogsSection.vue';
+import LogStreamSection from '@/components/LogStreamSection.vue';
 
 // Cada tab que antes vivía bajo /general ahora es una sección top-level en
 // el sidebar. Esta vista es solo el switch entre secciones y su título
@@ -69,7 +69,7 @@ const showHeader = computed(
     <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />
     <ExecutionsSection          v-else-if="activeTab === 'ejecuciones'" scope="global" />
     <AgentAbortsSection         v-else-if="activeTab === 'aborted-runs'" />
-    <ServerLogsSection          v-else-if="activeTab === 'logs'" />
+    <LogStreamSection           v-else-if="activeTab === 'logs'" />
   </div>
 </template>
 
