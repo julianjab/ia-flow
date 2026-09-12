@@ -22,14 +22,33 @@ export function setAssistantProjectPorts(ports: {
 // desbordar la ventana de contexto del asistente si se manda entero.
 const MAX_RESULTS = 50
 
+/**
+ * Path relativo (no absoluto — el asistente no conoce el origin del browser
+ * que lo está usando) a la vista de un proyecto/tarea en `apps/web`, mismo
+ * patrón de ruta que `router/index.ts` (`projects/:id/:tab/:detailId?`). El
+ * widget (`AssistantBubble.vue`) detecta este patrón en el texto de la
+ * respuesta y lo renderiza como link clickeable.
+ */
+function projectPath(projectId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}/tareas`
+}
+function taskPath(projectId: string, taskId: string): string {
+  return `${projectPath(projectId)}/${encodeURIComponent(taskId)}`
+}
+
 registerTool({
   name: 'list_projects',
   description:
-    'Lista los proyectos de ia-flow (id + nombre). Usala cuando no sepas de qué proyecto habla el operador, antes de llamar cualquier tool que pida project_id.',
+    'Lista los proyectos de ia-flow (id + nombre + path). Usala cuando no sepas de qué proyecto habla el operador, antes de llamar cualquier tool que pida project_id.',
   input_schema: { type: 'object', properties: {} },
   async execute(_input: unknown, _ctx?: ToolContext): Promise<string> {
     if (!projectList) return 'No hay proyectos disponibles en este runtime.'
-    return JSON.stringify(await projectList.list(), null, 2)
+    const projects = await projectList.list()
+    return JSON.stringify(
+      projects.map((p) => ({ ...p, path: projectPath(p.id) })),
+      null,
+      2,
+    )
   },
 })
 
@@ -53,7 +72,7 @@ registerTool({
       return `No se encontró ningún issue con id '${task_id}' en el proyecto '${project_id}'.`
     }
     const comments = await projectRead.loadComments(project_id, issue)
-    return JSON.stringify({ ...issue, comments }, null, 2)
+    return JSON.stringify({ ...issue, comments, path: taskPath(project_id, issue.id) }, null, 2)
   },
 })
 
@@ -73,7 +92,7 @@ registerTool({
     const items = await projectRead.listItems(project_id)
     return JSON.stringify(
       {
-        tasks: items.slice(0, MAX_RESULTS),
+        tasks: items.slice(0, MAX_RESULTS).map((i) => ({ ...i, path: taskPath(project_id, i.id) })),
         total: items.length,
         truncated: items.length > MAX_RESULTS,
       },
@@ -110,7 +129,9 @@ registerTool({
     )
     return JSON.stringify(
       {
-        tasks: matches.slice(0, MAX_RESULTS),
+        tasks: matches
+          .slice(0, MAX_RESULTS)
+          .map((i) => ({ ...i, path: taskPath(project_id, i.id) })),
         total: matches.length,
         truncated: matches.length > MAX_RESULTS,
       },

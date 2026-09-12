@@ -6,13 +6,20 @@
 import { useServerEvents } from '@/composables/useServerEvents'
 import type { AssistantChatMessage } from '@ia-flow/shared'
 import { computed, nextTick, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAssistantStore } from './store.js'
+import { parseMessageBlocks } from './message-blocks.js'
 
 const store = useAssistantStore()
 const route = useRoute()
+const router = useRouter()
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
+
+function goTo(path: string) {
+  store.toggle()
+  router.push(path)
+}
 
 const context = computed(() => {
   if (route.name !== 'projects.detail') return {}
@@ -76,7 +83,29 @@ async function submit() {
           class="message"
           :class="{ 'from-user': message.author === 'user' }"
         >
-          {{ message.body }}
+          <template v-for="(block, index) in parseMessageBlocks(message.body)" :key="index">
+            <hr v-if="block.type === 'divider'" class="msg-divider" />
+            <strong v-else-if="block.type === 'bold'">{{ block.text }}</strong>
+            <code v-else-if="block.type === 'code'" class="msg-code">{{ block.text }}</code>
+            <button
+              v-else-if="block.type === 'link'"
+              type="button"
+              class="message-link"
+              @click="goTo(block.path)"
+            >
+              {{ block.text }}
+            </button>
+            <button
+              v-else-if="block.type === 'task-card' || block.type === 'project-card'"
+              type="button"
+              class="ref-card"
+              @click="goTo(block.path)"
+            >
+              <span class="ref-card-title">{{ block.type === 'task-card' ? block.title : block.name }}</span>
+              <span v-if="block.type === 'task-card' && block.status" class="ref-card-status">{{ block.status }}</span>
+            </button>
+            <template v-else>{{ block.text }}</template>
+          </template>
         </div>
         <div v-if="store.waitingReply" class="message typing">…</div>
       </div>
@@ -181,6 +210,68 @@ header {
 
 .message.typing {
   color: var(--fg-dim);
+}
+
+.message-link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.msg-divider {
+  width: 100%;
+  margin: 0.5rem 0;
+  border: none;
+  border-top: 1px solid var(--border-mute);
+}
+
+.msg-code {
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+}
+
+.ref-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0.35rem 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ref-card:hover {
+  border-color: var(--border-hi);
+}
+
+.ref-card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref-card-status {
+  flex-shrink: 0;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg-mute);
+  font-size: var(--fs-body-xs, 0.7rem);
 }
 
 .composer {
