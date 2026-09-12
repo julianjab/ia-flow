@@ -14,8 +14,8 @@ import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import type { AssistantChatMessage } from '@ia-flow/shared'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAssistantStore } from '@/stores/assistant.js'
 import { parseMessageBlocks } from './message-blocks.js'
-import { useAssistantStore } from './store.js'
 
 const COLLAPSE_KEY = 'ia-flow:assistant:list-collapsed'
 
@@ -123,6 +123,20 @@ watch(
   () => store.messages.length,
   async () => {
     await scrollToBottom()
+  },
+)
+
+// `openInContext` (llamado desde otra feature — una tarea, una ejecución)
+// sólo puede sembrar el composer a través del store; `draft` sigue siendo
+// local del componente. Se resetea a `null` al consumirlo para que el
+// próximo `openInContext` (aunque mande el mismo texto) dispare de nuevo.
+watch(
+  () => store.draftSeed,
+  (seed) => {
+    if (seed === null) return
+    draft.value = seed
+    mobileView.value = 'chat'
+    store.draftSeed = null
   },
 )
 

@@ -9,6 +9,7 @@ import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectItems } from '@/features/projects/sourceApi';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
+import { useAssistantStore } from '@/stores/assistant';
 import { useToastStore } from '@/stores/toast';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
@@ -69,6 +70,7 @@ const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
+const assistantStore = useAssistantStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const allProjects = computed(() => projectsStore.projects);
 
@@ -1476,6 +1478,17 @@ function closeDetail() {
   expandedId.value = null;
 }
 
+/** "💬" del drawer de detalle — abre el asistente global con una
+ *  conversación nueva ya fijada a la tarea de ESTE run, y un draft que
+ *  nombra la ejecución puntual para que no haga falta explicarlo. */
+function onAskAiAboutExec(exec: ExecutionLog) {
+  const outcome = exec.outcome ?? 'en curso';
+  assistantStore.openInContext(
+    { projectId: exec.projectId, taskId: exec.taskId },
+    `¿Qué pasó en la ejecución de "${exec.agentId}" sobre "${exec.taskTitle}" (${outcome})?`,
+  );
+}
+
 // Salta al detalle de otro run (hoy sólo lo usa `resumedFromRunId`). Si ese
 // run no está en la página cargada, `selectedExec` da null y el drawer no
 // tiene qué mostrar — se avisa en vez de abrir un panel vacío.
@@ -2314,13 +2327,22 @@ watch(pendingFilter, () => {
               {{ projectNameFor(selectedExec.projectId) }}
             </span>
           </div>
-          <button
-            type="button"
-            class="exec-drawer__close"
-            aria-label="Cerrar detalle"
-            data-testid="executions-detail-close"
-            @click="closeDetail()"
-          >{{ isMobile ? '←' : '×' }}</button>
+          <div class="exec-drawer__header-actions">
+            <button
+              type="button"
+              class="exec-drawer__ask-ai"
+              title="Preguntarle al asistente sobre esta ejecución"
+              data-testid="executions-detail-ask-ai"
+              @click="onAskAiAboutExec(selectedExec)"
+            >💬</button>
+            <button
+              type="button"
+              class="exec-drawer__close"
+              aria-label="Cerrar detalle"
+              data-testid="executions-detail-close"
+              @click="closeDetail()"
+            >{{ isMobile ? '←' : '×' }}</button>
+          </div>
         </header>
 
         <div
@@ -3175,6 +3197,13 @@ watch(pendingFilter, () => {
   min-width: 0;
 }
 .exec-drawer__title h3 { margin: 0; font-size: 1rem; color: var(--fg); }
+.exec-drawer__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.exec-drawer__ask-ai,
 .exec-drawer__close {
   padding: 0.15rem 0.55rem;
   border: 1px solid var(--border-hi);
@@ -3185,6 +3214,7 @@ watch(pendingFilter, () => {
   line-height: 1;
   cursor: pointer;
 }
+.exec-drawer__ask-ai:hover,
 .exec-drawer__close:hover { background: var(--panel-hi); color: var(--fg); }
 .exec-drawer__body {
   flex: 1;

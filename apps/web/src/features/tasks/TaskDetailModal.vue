@@ -86,6 +86,10 @@ const emit = defineEmits<{
    *  ejecuta el padre: es quien tiene el api de la fuente y quien tiene que
    *  refrescar la lista después. */
   move: [status: string];
+  /** Abrir el drawer del asistente con una conversación nueva sobre ESTA
+   *  tarea. El padre arma el contexto (projectId/taskId) y el draft
+   *  inicial — este componente sólo pide, es dumb por diseño. */
+  'ask-ai': [];
 }>();
 
 /** En qué estado está la tarea. Es lo que decide la barra de acciones: no hay
@@ -294,6 +298,9 @@ const runMessage = computed(() => {
             </button>
           </template>
 
+          <button class="btn btn--ghost" title="Preguntarle al asistente sobre esta tarea" @click="emit('ask-ai')">
+            💬 Preguntar a la IA
+          </button>
           <button class="btn btn--ghost" @click="emit('close')">Cerrar</button>
         </footer>
       </div>

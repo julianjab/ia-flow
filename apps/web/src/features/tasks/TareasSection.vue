@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
+import { useAssistantStore } from '@/stores/assistant';
 import { useDispositionsStore } from '@/features/tasks/dispositionsStore';
 import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue';
 import TaskChatRowOverlay from '@/features/tasks/TaskChatRowOverlay.vue';
@@ -109,6 +110,7 @@ const { now } = useNow();
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
+const assistantStore = useAssistantStore();
 
 const projectItems = ref<TaskRow[]>([]);
 const itemsLoading = ref(false);
@@ -1024,6 +1026,18 @@ function closeReposModal(): void {
   if (detailIdParam.value !== null) pushDetailId(undefined);
 }
 
+/** "💬 Preguntar a la IA" del detalle — abre el drawer del asistente global
+ *  (`stores/assistant.ts`) con una conversación nueva ya fijada a ESTA
+ *  tarea, sin que el operador tenga que repetir de cuál está hablando. */
+function onAskAi(): void {
+  const item = reposModalItem.value;
+  if (!item) return;
+  assistantStore.openInContext(
+    { projectId: activeProjectId.value ?? undefined, taskId: item.id },
+    `¿Qué pasó con la tarea "${item.title}"?`,
+  );
+}
+
 /** Abre o cierra el modal para que coincida con `:detailId` — al montar, y en
  *  cada cambio posterior (atrás/adelante del navegador, o un link "Ver tarea"
  *  que cambia el param sin desmontar esta pantalla). */
@@ -1619,6 +1633,7 @@ watch(activeProjectId, (pid) => {
       @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
       @run="onRunClick"
       @move="moveTaskTo"
+      @ask-ai="onAskAi"
       @close="closeReposModal"
     />
     </div>
@@ -1655,6 +1670,7 @@ watch(activeProjectId, (pid) => {
     @slack-review="reposModalItem && onSlackReviewClick(reposModalItem)"
     @run="onRunClick"
     @move="moveTaskTo"
+    @ask-ai="onAskAi"
     @close="closeReposModal"
   />
 </template>

@@ -1,8 +1,14 @@
 import type { AssistantChatMessage } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { fetchAssistantMessages, postAssistantMessage } from '@/features/assistant/api.js'
 import { useToastStore } from '@/stores/toast'
-import { fetchAssistantMessages, postAssistantMessage } from './api.js'
+
+// Vive en `stores/`, no en `features/assistant/`, a propósito: `TareasSection`
+// y `ExecutionsSection` necesitan abrir el drawer con contexto fijado
+// (`openInContext`) desde SU feature, y features/a → features/b está
+// prohibido. `features/assistant/` sigue siendo dueña de la UI (widget,
+// parseo de bloques, api.ts) — esto es sólo el estado, como `stores/toast.ts`.
 
 /** El contexto automático (proyecto/tarea activos) que viaja con un mensaje
  *  — ver `AssistantBubble.vue`. */
@@ -84,6 +90,11 @@ export const useAssistantStore = defineStore('assistant', () => {
   // "terminó" explícito del lado del server (es fire-and-forget), así que se
   // apaga en cuanto llega CUALQUIER mensaje del asistente para esta sesión.
   const waitingReply = ref(false)
+  // Seteado por `openInContext` para precargar el input del composer desde
+  // OTRA feature (una tarea, una ejecución) — `AssistantBubble.vue` lo
+  // consume y lo vuelve a `null`. `draft` en sí sigue siendo estado local
+  // del componente: esto es sólo el canal de un solo uso para sembrarlo.
+  const draftSeed = ref<string | null>(null)
 
   const hasMessages = computed(() => messages.value.length > 0)
   // Más reciente primero — es el orden en que se listan los hilos.
@@ -208,6 +219,19 @@ export const useAssistantStore = defineStore('assistant', () => {
     }
   }
 
+  /** Abre el drawer con una conversación NUEVA, con el contexto ya fijado
+   *  de una — para "preguntame sobre esto" desde una tarea o una ejecución
+   *  puntual, sin que el operador tenga que repetir de qué está hablando.
+   *  A diferencia del contexto que se fija recién con el primer `send()`
+   *  (ver `AssistantThread.context`), acá se fija de entrada porque el
+   *  llamador YA sabe exactamente de qué tarea/proyecto se trata. */
+  function openInContext(context: AssistantContext, draftText?: string) {
+    newThread()
+    touchThread(sessionId.value, undefined, context)
+    isOpen.value = true
+    draftSeed.value = draftText ?? ''
+  }
+
   /** Llamado desde el listener de WS (ver AssistantBubble.vue) cuando llega
    *  `assistant:message` — de cualquier hilo conocido, no sólo el activo,
    *  para que su fila en la lista refleje la actividad aunque no lo estés
@@ -226,11 +250,13 @@ export const useAssistantStore = defineStore('assistant', () => {
     messages,
     sending,
     waitingReply,
+    draftSeed,
     hasMessages,
     toggle,
     hydrate,
     selectThread,
     newThread,
+    openInContext,
     deleteThread,
     send,
     receive,
