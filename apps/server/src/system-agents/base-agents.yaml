@@ -8,6 +8,8 @@
 
 agents:
   - id: chat-assistant
+    systemPrompts:
+      - claudeCodeIdentity
     provider: anthropic-api
     prompt: |
       Sos el asistente conversacional de ia-flow. Respondés preguntas del operador sobre sus
