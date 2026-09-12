@@ -175,14 +175,19 @@ export async function fetchAgentHostLogs(
   c: AxiosInstance,
   filters: ServerLogFilters,
 ): Promise<{ entries: ServerLogEntry[]; total: number; levelCounts: ServerLogLevelCounts }> {
-  const q = [filters.level, filters.search].filter((v): v is string => Boolean(v)).join(' ')
+  // Sólo `search` viaja al `q` del agent-host — el nivel NO, aunque
+  // `matchLine` (log-tail.ts) sepa reconocer una palabra de nivel: mandarlo
+  // ahí lo trata como un substring más contra la línea CRUDA, así que una
+  // línea `info` cuyo `msg` menciona "error" pasaría un filtro `nivel:error`.
+  // El nivel se aplica ACÁ, contra `entry.level` ya parseado — una igualdad,
+  // no un substring.
   const { data } = await c.get<AgentHostLogTailWire>('/v1/logs', {
-    params: { q, limit: filters.limit ?? 200 },
+    params: { q: filters.search ?? '', limit: filters.limit ?? 200 },
   })
   if (!data.file) {
     throw new Error('Este agent-host corre sin archivo de log (su stdout va a quien lo levantó)')
   }
-  const entries: ServerLogEntry[] = data.lines
+  const parsed: ServerLogEntry[] = data.lines
     .filter((line): line is AgentHostLogLineWire & { time: string } => Boolean(line.time))
     .map((line) => ({
       level: LEVEL_NAMES[line.level ?? 30] ?? 'info',
@@ -191,8 +196,19 @@ export async function fetchAgentHostLogs(
       msg: line.msg ?? line.raw,
       extras: line.extras,
     }))
+  // El agent-host siempre devuelve su tail en orden cronológico ascendente
+  // (log-tail.ts#tailFrom); el default del componente es "Fecha ▼" (más
+  // nuevo primero), y con `sortable=false` ese pedido nunca cambia — así que
+  // se resuelve acá, una vez, en vez de mentir un orden que no aplicó.
+  const sorted = [...parsed].sort((a, b) => a.time.localeCompare(b.time))
+  if (filters.sort !== 'asc') sorted.reverse()
+  // El resumen por nivel es del SET COMPLETO ignorando el filtro de nivel
+  // (mismo contrato que fetchServerLogs — ver server-logs/api.ts): si se
+  // calculara sobre `entries` ya filtradas, tildar "error" pondría el resto
+  // de los chips en 0 sin forma de saber cuántas hay para volver.
   const levelCounts = { ...EMPTY_LEVEL_COUNTS }
-  for (const entry of entries) levelCounts[entry.level] += 1
+  for (const entry of sorted) levelCounts[entry.level] += 1
+  const entries = filters.level ? sorted.filter((entry) => entry.level === filters.level) : sorted
   return { entries, total: entries.length, levelCounts }
 }
 

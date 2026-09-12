@@ -12,9 +12,14 @@
 // sabía de "soy el daemon" y recibirlo por props — mismo patrón que
 // `useServerEvents({ enabled })` ya usa para lo mismo. Quien lo monta decide
 // de dónde vienen las líneas (`fetchLogs`) y qué capacidades tiene ese backend
-// (`live`/`fieldFilters`/`sortable`/`pollMs`); el default de cada prop es
-// exactamente el comportamiento de siempre, así que `GeneralView.vue` no
-// cambia una línea.
+// (`live`/`fieldFilters`/`sortable`/`pollMs`).
+//
+// `fetchLogs` es OBLIGATORIA y sin default a propósito: un default que
+// apuntara a `@/features/server-logs/api` haría que CUALQUIER feature que
+// monte este componente (el agent-host incluido) arrastre la API del daemon
+// en su grafo de imports — exactamente lo que la regla "no importar entre
+// features" prohíbe. `GeneralView.vue` pasa `fetchServerLogs` explícito; el
+// agent-host pasa su propio adapter.
 import FollowTail from '@/ui/FollowTail.vue';
 import LogLine from '@/ui/LogLine.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
@@ -32,18 +37,17 @@ import {
   type ServerLogSortBy,
 } from '@ia-flow/shared';
 import { useServerEvents } from '@/composables/useServerEvents';
-import { fetchServerLogModules, fetchServerLogs, fetchServerLogSources } from '@/features/server-logs/api';
 import JsonTreeNode from '@/ui/JsonTreeNode.vue';
 
 const props = withDefaults(
   defineProps<{
-    /** Trae una página de líneas. Default: el daemon (`/api/server-logs`). */
-    fetchLogs?: (
+    /** Trae una página de líneas. Sin default — ver la nota de arriba. */
+    fetchLogs: (
       filters: ServerLogFilters,
     ) => Promise<{ entries: ServerLogEntry[]; total: number; levelCounts: ServerLogLevelCounts }>
-    /** Universo de módulos para el chip row. Sin endpoint propio (agent-host),
-     *  `[]` — el chip row igual funciona con lo DESCUBIERTO en las líneas
-     *  cargadas (`discoveredModules`), sólo pierde el universo completo. */
+    /** Universo de módulos para el chip row. Sin endpoint propio (agent-host,
+     *  con `fieldFilters=false`), el default `[]` no importa — el chip row
+     *  ni se ofrece. */
     fetchModulesFn?: () => Promise<string[]>
     fetchSourcesFn?: () => Promise<string[]>
     /** Hay WS de dónde recibir `log:entry` en vivo. `false` en un backend que
@@ -66,9 +70,8 @@ const props = withDefaults(
     title?: string
   }>(),
   {
-    fetchLogs: fetchServerLogs,
-    fetchModulesFn: fetchServerLogModules,
-    fetchSourcesFn: fetchServerLogSources,
+    fetchModulesFn: () => Promise.resolve([]),
+    fetchSourcesFn: () => Promise.resolve([]),
     live: true,
     fieldFilters: true,
     sortable: true,
@@ -1153,7 +1156,11 @@ onMounted(() => {
   }
   if (props.pollMs) {
     pollTimer = setInterval(() => {
-      if (!loading.value) resetAndLoad();
+      // `resetAndLoad` limpia `expandedId` — un operador leyendo el árbol
+      // JSON de una línea vería su detalle cerrarse solo cada `pollMs`. Se
+      // saltea el tick entero mientras haya algo abierto; el próximo tick
+      // sin nada expandido retoma el refresco normal.
+      if (!loading.value && expandedId.value === null) resetAndLoad();
     }, props.pollMs);
   }
 });
