@@ -5,7 +5,7 @@ import { fetchExecutions } from '@/features/executions/api';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchPollingStatus, type PollingStatus } from '@/features/projects/api';
-import { formatRelative } from '@/features/executions/relativeTime';
+import { formatRelative } from '@/composables/formatRelative';
 import type { ExecutionLog, Project } from '@ia-flow/shared';
 
 const RECENT_LIMIT = 12;

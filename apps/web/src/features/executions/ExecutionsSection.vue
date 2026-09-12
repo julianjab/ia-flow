@@ -29,7 +29,7 @@ import {
   fetchExecutionStats,
   fetchRecoverableRunIds,
 } from './api';
-import { formatRelative } from './relativeTime';
+import { formatRelative } from '@/composables/formatRelative';
 import BucketHeader from '@/components/BucketHeader.vue';
 import KbdBar from '@/components/KbdBar.vue';
 import { useActiveExecutionsStore } from './activeStore';

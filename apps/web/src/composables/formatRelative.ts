@@ -1,6 +1,8 @@
-// Short Spanish relative-time formatter for execution timestamps
-// ("hace 3 min", "hace 2 h", "hace 1 d"). Coarse-grained on purpose —
-// the exec list already shows the exact ISO on hover.
+// Short Spanish relative-time formatter ("hace 3 min", "hace 2 h", "hace
+// 1 d"). Coarse-grained on purpose — sus consumidores muestran el ISO
+// exacto en un tooltip. Vivía en features/executions/relativeTime.ts;
+// subió acá al sumar un segundo consumidor (features/assistant) — cruzar
+// features está prohibido, así que esto es lo compartido.
 
 export function formatRelative(iso: string, nowMs = Date.now()): string {
   const t = Date.parse(iso)

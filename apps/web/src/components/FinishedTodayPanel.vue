@@ -2,7 +2,7 @@
 import type { ExecutionLog } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import { fetchExecutions } from '@/features/executions/api';
-import { formatRelative } from '@/features/executions/relativeTime';
+import { formatRelative } from '@/composables/formatRelative';
 
 /**
  * Lo que terminó hoy — la mitad de abajo de la columna derecha de Qué sigue.

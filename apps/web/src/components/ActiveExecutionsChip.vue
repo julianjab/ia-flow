@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
-import { formatRelative } from '@/features/executions/relativeTime';
+import { formatRelative } from '@/composables/formatRelative';
 
 const store = useActiveExecutionsStore();
 const router = useRouter();
