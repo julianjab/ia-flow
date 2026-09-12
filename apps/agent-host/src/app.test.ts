@@ -368,6 +368,82 @@ describe('createApp — capacidad', () => {
   })
 })
 
+describe('GET /v1/runs — los runs en vuelo, para la consola', () => {
+  const auth = { headers: { authorization: 'Bearer secret' } }
+  const runReq = (body: ProviderInput) => ({
+    method: 'POST',
+    headers: { ...auth.headers, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('sin runs en vuelo, lista vacía', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/runs', auth)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ running: 0, runs: [] })
+  })
+
+  it('lista el run inline en vuelo con su taskId/agentId/projectId, y lo saca al terminar', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const app = createApp({
+      provider: fakeProvider(async () => {
+        await gate
+        return { content: '', mode: 'api' }
+      }),
+      token: 'secret',
+      log: silentLog(),
+    })
+
+    const inFlight = app.request(
+      '/v1/run',
+      runReq(baseInput({ agentId: 'reviewer', projectId: 'p1' })),
+    )
+    await new Promise((r) => setTimeout(r, 10))
+
+    const { runs } = await (await app.request('/v1/runs', auth)).json()
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({
+      taskId: 't1',
+      agentId: 'reviewer',
+      projectId: 'p1',
+      mode: 'inline',
+    })
+    expect(typeof runs[0].startedAt).toBe('string')
+
+    release()
+    await inFlight
+    expect((await (await app.request('/v1/runs', auth)).json()).runs).toEqual([])
+  })
+
+  it('un run desacoplado también aparece, marcado como tal', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const app = createApp({
+      provider: fakeProvider(async () => {
+        await gate
+        return { content: '', mode: 'api' }
+      }),
+      token: 'secret',
+      log: silentLog(),
+    })
+
+    await app.request('/v1/run?wait=poll', runReq(baseInput({ runId: 'r-1' })))
+    const { runs } = await (await app.request('/v1/runs', auth)).json()
+    expect(runs).toEqual([expect.objectContaining({ runId: 'r-1', mode: 'detached' })])
+    release()
+  })
+
+  it('exige auth como el resto de /v1', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    expect((await app.request('/v1/runs')).status).toBe(401)
+  })
+})
+
 describe('POST /v1/run — workspace remoto', () => {
   const workspace = {
     taskId: 't1',

@@ -2,6 +2,7 @@ import type axios from 'axios'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type AgentHostRegistration,
+  fetchRuns,
   fetchSystemPrompt,
   removeRegistration,
   saveSystemPrompt,
@@ -29,6 +30,28 @@ describe('AgentHostRegistration', () => {
     const reg: AgentHostRegistration = wire
 
     expect(reg.reason).toBe('no se pudo alcanzar')
+  })
+})
+
+describe('fetchRuns', () => {
+  it('pega a /v1/runs y devuelve running + runs tal cual', async () => {
+    const wire = {
+      running: 1,
+      runs: [
+        {
+          taskId: 't1',
+          agentId: 'reviewer',
+          mode: 'inline',
+          startedAt: '2026-09-11T00:00:00.000Z',
+        },
+      ],
+    }
+    const c = { get: vi.fn().mockResolvedValue({ data: wire }) }
+
+    const result = await fetchRuns(c as unknown as ReturnType<typeof axios.create>)
+
+    expect(c.get).toHaveBeenCalledWith('/v1/runs')
+    expect(result).toEqual(wire)
   })
 })
 
