@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.11.0](https://github.com/julianjab/ia-flow/compare/v1.10.0...v1.11.0) (2026-09-12)
+
+
+### Features
+
+* **agent-host:** exponer los runs en curso vía GET /v1/runs ([47e1b2a](https://github.com/julianjab/ia-flow/commit/47e1b2abaa1832c9f2100359c9c138e6e0200f22))
+* **server:** persistir AgentDefinition.output en SqliteAgentRepository ([#229](https://github.com/julianjab/ia-flow/issues/229)) ([7d5c38d](https://github.com/julianjab/ia-flow/commit/7d5c38d871f6a0003fe6b30362674a6bb793814a))
+
+
+### Bug Fixes
+
+* **agent-host:** rotar logs por tamaño y unificar formato con el server ([d74e840](https://github.com/julianjab/ia-flow/commit/d74e840bef9df4a410a362e5f7beed730d12e557))
+* **tools:** generalizar el pareo de server-tool colgado en pause_turn ([#237](https://github.com/julianjab/ia-flow/issues/237)) ([4f27b0a](https://github.com/julianjab/ia-flow/commit/4f27b0a04b4d98ae4038ea6be41c640211fc638e))
+* **web:** 3 problemas más del adapter fetchAgentHostLogs ([d2ca8f8](https://github.com/julianjab/ia-flow/commit/d2ca8f82ae0068e643dbbe0958840fcb161b6185))
+* **web:** corregir 4 problemas de la generalización de LogStreamSection ([3b2918f](https://github.com/julianjab/ia-flow/commit/3b2918fce8920192ca6b953484e4d4312dd3293b))
+
 ## [1.10.0](https://github.com/julianjab/ia-flow/compare/v1.9.0...v1.10.0) (2026-09-11)
 
 
