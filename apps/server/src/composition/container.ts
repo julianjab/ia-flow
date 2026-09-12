@@ -27,6 +27,7 @@ import {
   setLoggerFactory as setGithubAuthLoggerFactory,
 } from '@ia-flow/github-auth'
 import {
+  ChatIssueManager,
   ChatSessionSource,
   type ChatSessionStore,
   createDefaultSourceFactory,
@@ -481,30 +482,6 @@ export const configRepo = new SystemAgentProjectConfigRepository(
   baseAgents.agents,
 )
 
-// Proyecto reservado que hospeda las sesiones de chat — sólo plumbing (le da
-// un id a `configRepo.getConfig`/`ruleRepo.visibleTo`; el prompt/tools del
-// agente viven en `base-agents.yaml`, no acá). Se asegura de forma idempotente
-// en cada boot: no es un seed de config del operador, es infraestructura del
-// engine — la fila sólo aporta `id` y `source.kind`.
-//
-// `projectRepo` puede ser de sólo lectura (flavor `runner` con
-// `IA_FLOW_PROJECT_REPO=yaml`/`preloaded.projects`) — ahí `upsert` tira
-// siempre. Sin este try/catch, ESE throw pasaría a nivel de módulo y
-// tumbaría el boot entero del proceso, headless o no. Degradar con un warn
-// es correcto: en un deploy así el chat simplemente no tiene proyecto
-// propio salvo que el operador lo declare a mano en su YAML.
-try {
-  projectRepo.upsert({
-    id: CHAT_PROJECT_ID,
-    name: 'Asistente (chat)',
-    source: { kind: 'chat-session', config: {} },
-  })
-} catch (err) {
-  log.warn(
-    { err: (err as Error).message },
-    'No se pudo asegurar el proyecto reservado del chat (repo de proyectos read-only) — el asistente conversacional queda sin proyecto propio salvo que se declare a mano',
-  )
-}
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo: IPromptRepository = pickRepo<IPromptRepository>({
   sqlite: () => new SqlitePromptRepository(db),
@@ -623,6 +600,12 @@ export const sourceFactory = createDefaultSourceFactory({ taskRepo })
 // (bun:sqlite); el adaptador lo envuelve en la forma async que
 // `ChatSessionSource`/`ChatSessionTaskSource` esperan, mismo patrón que el
 // port de memoria de agentes un poco más abajo.
+//
+// Deliberadamente NO pasa por `sourceFactory`/`projectRepo`: el asistente no
+// es un proyecto (a pedido explícito) — `chatIssueManager` se construye acá
+// a mano y se resuelve directo en `managerFor(CHAT_PROJECT_ID)`
+// (`composition/actions.ts`), fuera del mapa de managers por proyecto que
+// arma el daemon a partir de `projectRepo.list()`.
 export const chatSessionRepo = new SqliteChatSessionRepository(db)
 const chatSessionStore: ChatSessionStore = {
   async getById(id) {
@@ -641,7 +624,10 @@ const chatSessionStore: ChatSessionStore = {
     return chatSessionRepo.appendMessage(sessionId, author, body)
   },
 }
-sourceFactory.add('chat-session', () => new ChatSessionSource(chatSessionStore))
+export const chatSessionSource = new ChatSessionSource(chatSessionStore)
+export const chatIssueManager = new ChatIssueManager(CHAT_PROJECT_ID, chatSessionSource, (msg) =>
+  broadcast.send(msg),
+)
 
 export function getSourceForProjectId(projectId: string): ProjectSource {
   const project = projectRepo.get(projectId)

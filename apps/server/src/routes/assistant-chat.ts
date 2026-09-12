@@ -1,7 +1,8 @@
+import { defaultToIssueItem } from '@ia-flow/issue-sources'
 import { CHAT_MESSAGE, createEvent } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { chatSessionRepo, eventBus } from '../composition/container.js'
+import { chatSessionRepo, chatSessionSource, eventBus } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { CHAT_PROJECT_ID } from '../system-agents/index.js'
 
@@ -46,14 +47,20 @@ export function createAssistantChatRouter() {
     chatSessionRepo.ensure(sessionId, { projectId, taskId })
     chatSessionRepo.appendMessage(sessionId, 'user', text)
 
+    // El asistente NO es un proyecto (ver system-agents/) — no hay
+    // `getSourceForProjectId(CHAT_PROJECT_ID)` que resolver, así que el
+    // `IssueItem` se arma acá mismo y viaja en `payload.item`. `AgentAction`
+    // lo usa directo (`ctx.event.payload.item`) sin pasar por
+    // `resolveEventItem`/`projectRepo`. `projectId` estampado a mano: nadie
+    // más lo hace por este camino (normalmente lo estampa el scan).
+    const raw = await chatSessionSource.getItemById(sessionId)
+    const item = raw ? { ...defaultToIssueItem(raw), projectId: CHAT_PROJECT_ID } : undefined
+
     const event = createEvent({
       type: CHAT_MESSAGE,
       source: 'assistant-chat',
-      // `issueId` es lo que `resolveEventItem` (composition/actions.ts) usa
-      // para resolver el `IssueItem` vía `ChatSessionSource.getItemById` —
-      // mismo camino genérico que cualquier evento de GitHub.
       scope: { projectId: CHAT_PROJECT_ID, issueId: sessionId },
-      payload: { sessionId, text },
+      payload: { sessionId, text, item },
     })
     // Fire-and-forget: el turno del agente puede tardar varios segundos, y
     // el front ya escucha la respuesta por WS — no tiene sentido bloquear

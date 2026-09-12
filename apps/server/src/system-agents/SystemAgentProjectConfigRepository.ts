@@ -3,9 +3,12 @@ import type { AgentDefinition } from '@ia-flow/shared'
 
 /**
  * Decora `IProjectConfigRepository.getConfig` para inyectar los agentes
- * intrínsecos del engine (`base-agents.yaml`) en el `config.agents` del
- * proyecto reservado del asistente — sin que salgan de la DB ni sean
- * editables desde el editor de agentes. Ver `apps/server/src/system-agents/`.
+ * intrínsecos del engine (`base-agents.yaml`) en el `config.agents` que ve
+ * `CHAT_PROJECT_ID` — sin que salgan de la DB ni sean editables desde el
+ * editor de agentes. `CHAT_PROJECT_ID` NO es un `Project` real (no hay fila
+ * en `projects`); es sólo la clave de scope que usa este decorador y
+ * `managerFor` (`composition/actions.ts`) para reconocer al asistente. Ver
+ * `apps/server/src/system-agents/`.
  *
  * Mismo patrón decorador que `BroadcastingExecutionLogRepository`/
  * `CompositeExecutionLogRepository`: envuelve el repo real en

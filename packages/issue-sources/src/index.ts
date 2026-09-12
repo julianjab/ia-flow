@@ -1,3 +1,4 @@
+export { ChatIssueManager } from './chat/ChatIssueManager.js'
 export { ChatSessionSource } from './chat/ChatSessionSource.js'
 export { ChatSessionTaskSource } from './chat/ChatSessionTaskSource.js'
 export {
