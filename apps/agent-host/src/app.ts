@@ -53,6 +53,26 @@ function abandonedRunMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 60_000
 }
 
+/**
+ * Un run en vuelo en ESTE proceso, cualquiera sea su camino (inline o
+ * desacoplado) — lo que `GET /v1/runs` lista.
+ *
+ * Separado de `DetachedRun`: aquélla es la cola de resultados que el daemon
+ * viene a cobrar (vive hasta el TTL post-mortem); ésta es sólo "qué está
+ * corriendo ahora", y desaparece apenas el run termina, tenga o no resultado
+ * pendiente de entregar.
+ */
+interface ActiveRun {
+  /** `undefined` en el camino inline cuando el daemon no mandó `runId` — no
+   *  hay con qué correlacionar ese run desde afuera, sólo se sabe que existe. */
+  runId?: string
+  taskId: string
+  agentId?: string
+  projectId?: string
+  mode: 'inline' | 'detached'
+  startedAt: number
+}
+
 /** Un run que corre desacoplado del request que lo pidió. */
 interface DetachedRun {
   status: 'running' | 'done' | 'failed'
@@ -328,6 +348,14 @@ export function createApp({
   const detachedRuns = new Map<string, DetachedRun>()
 
   /**
+   * Runs en vuelo en ESTE proceso, indexados por una clave interna propia —
+   * NO el `runId` del wire, que en el camino inline puede faltar. Es lo que
+   * responde `GET /v1/runs`; ver `ActiveRun` para por qué es un mapa aparte
+   * de `detachedRuns`.
+   */
+  const activeRuns = new Map<string, ActiveRun>()
+
+  /**
    * Limpia los runs terminados que ya nadie va a cobrar.
    *
    * Hace falta porque hay varias formas de que el daemon no vuelva: se le
@@ -571,6 +599,29 @@ export function createApp({
       maxConcurrentRuns: isUnlimited() ? null : capOf(),
       accepting,
       reason,
+    })
+  })
+
+  // GET /v1/runs — los runs en vuelo en ESTE proceso, para la consola.
+  //
+  // A diferencia de `/v1/runs/:id` (el buzón de un run desacoplado puntual,
+  // que un daemon usa para cobrar SU resultado), esto es un listado de
+  // lectura para un humano mirando la pantalla — no requiere saber ningún
+  // `runId` de antemano, y no se borra por consultarlo.
+  app.get('/v1/runs', (c) => {
+    sweepDetachedRuns()
+    return c.json({
+      running,
+      runs: Array.from(activeRuns.values())
+        .sort((a, b) => a.startedAt - b.startedAt)
+        .map((r) => ({
+          runId: r.runId,
+          taskId: r.taskId,
+          agentId: r.agentId,
+          projectId: r.projectId,
+          mode: r.mode,
+          startedAt: new Date(r.startedAt).toISOString(),
+        })),
     })
   })
 
@@ -980,8 +1031,24 @@ export function createApp({
    * Devuelve el `ProviderOutput` — CÓMO llega ese output al daemon (colgado
    * del request, o guardado para que lo venga a buscar) lo decide el caller.
    */
-  async function runProvider(body: ProviderInput, signal: AbortSignal): Promise<ProviderOutput> {
+  async function runProvider(
+    body: ProviderInput,
+    signal: AbortSignal,
+    mode: ActiveRun['mode'],
+  ): Promise<ProviderOutput> {
     running++
+    // Clave propia del registro de `GET /v1/runs`: en el camino inline el
+    // daemon puede no mandar `runId`, y sin una clave estable no hay dónde
+    // guardar la entrada. No viaja a ningún lado — es sólo la key del Map.
+    const activeKey = body.runId ?? `inline-${crypto.randomUUID()}`
+    activeRuns.set(activeKey, {
+      runId: body.runId,
+      taskId: body.taskId,
+      agentId: body.agentId,
+      projectId: body.projectId,
+      mode,
+      startedAt: Date.now(),
+    })
     // El destino del redrive de logs es propiedad del RUN: este agent-host puede
     // estar registrado contra varios daemons y las líneas tienen que volver al
     // que despachó ESTE run. Se registra antes de arrancar —el provider empieza
@@ -1004,6 +1071,7 @@ export function createApp({
       return output
     } finally {
       running--
+      activeRuns.delete(activeKey)
       // Sin esto el mapa crece con cada run y, peor, un `runId` reciclado
       // mandaría líneas al daemon equivocado.
       if (redriveRunId) clearRunLogTarget(redriveRunId)
@@ -1019,7 +1087,7 @@ export function createApp({
    *  Lo usa un daemon anterior a `?wait=poll`. */
   async function runInline(c: Context, body: ProviderInput): Promise<Response> {
     try {
-      return c.json(await runProvider(body, c.req.raw.signal))
+      return c.json(await runProvider(body, c.req.raw.signal, 'inline'))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log.error({ err: message, taskId: body.taskId }, 'provider run failed')
@@ -1050,7 +1118,7 @@ export function createApp({
 
     // Sin `await` a propósito: el handler contesta ya. El `catch` es
     // obligatorio — una promesa rechazada sin manejar es FATAL en Bun.
-    void runProvider({ ...body, runId }, abort.signal)
+    void runProvider({ ...body, runId }, abort.signal, 'detached')
       .then((output) => settleDetachedRun(runId, { status: 'done', output, at: Date.now() }))
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err)

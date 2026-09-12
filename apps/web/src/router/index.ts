@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AgentHostLogsView from '@/features/agent-host/AgentHostLogsView.vue'
+import AgentHostRunsView from '@/features/agent-host/AgentHostRunsView.vue'
 import AgentHostView from '@/features/agent-host/AgentHostView.vue'
 import { getSelectedKind, getSelectedServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
@@ -49,10 +50,11 @@ const routes: RouteRecordRaw[] = [
       // `isAgentHost` en AppShell.vue). `/agent-host/:tab` reemplaza a la
       // grilla única que tenían las cuatro pantallas de config (provider,
       // workspace, admisión, servers) — mismo patrón que `/general/:tab` para
-      // el server. `logs` queda aparte, estático, y por eso el router la
-      // matchea antes que el `:tab` dinámico.
+      // el server. `logs` y `runs` quedan aparte, estáticos, y por eso el
+      // router los matchea antes que el `:tab` dinámico.
       { path: 'agent-host', redirect: '/agent-host/provider' },
       { path: 'agent-host/logs', name: 'agent-host.logs', component: AgentHostLogsView },
+      { path: 'agent-host/runs', name: 'agent-host.runs', component: AgentHostRunsView },
       {
         path: 'agent-host/:tab',
         name: 'agent-host',

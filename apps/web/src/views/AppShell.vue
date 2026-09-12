@@ -67,6 +67,7 @@ type SectionId =
   | 'agent-host-system-prompt'
   | 'agent-host-servers'
   | 'agent-host-logs'
+  | 'agent-host-runs'
   | 'proyectos'
   | 'agentes'
   | 'pipeline'
@@ -274,6 +275,7 @@ const SECTION_PATH: Record<SectionId, string> = {
     string
   >),
   'agent-host-logs': '/agent-host/logs',
+  'agent-host-runs': '/agent-host/runs',
   proyectos:        '/projects',
   // Los nueve `/general/*` salen de la lista compartida: escritos otra vez acá
   // eran la segunda copia que se podía quedar vieja, que es lo mismo que
@@ -291,6 +293,7 @@ const activeSection = computed<SectionId>(() => {
   if (path === '/servers') return 'servers';
   // El más específico primero: `/agent-host/logs` empieza con `/agent-host`.
   if (path === '/agent-host/logs') return 'agent-host-logs';
+  if (path === '/agent-host/runs') return 'agent-host-runs';
   for (const s of AGENT_HOST_SECTIONS) {
     if (path === s.path || path.startsWith(`${s.path}/`)) return `agent-host-${s.id}` as SectionId;
   }
@@ -352,9 +355,10 @@ const TABS = computed<
     }[];
   }>
 >(() => {
-  // Un agent-host tiene cinco pantallas y nada más: lo que ese proceso sabe
+  // Un agent-host tiene seis pantallas y nada más: lo que ese proceso sabe
   // de sí mismo (provider, workspace, admisión, contra qué servers está
-  // registrado) y su log. El resto del menú describe un server.
+  // registrado), su log y sus runs en vuelo. El resto del menú describe un
+  // server.
   //
   // Antes eran DOS entradas porque las cuatro primeras vivían apeñuscadas en
   // una sola grilla de tarjetas (`AgentHostConsole`, hoy borrado). Separarlas
@@ -370,6 +374,7 @@ const TABS = computed<
         group: 'overview',
       })),
       { id: 'agent-host-logs', label: 'logs', icon: '', group: 'overview' },
+      { id: 'agent-host-runs', label: 'runs', icon: '', group: 'overview' },
     ];
   }
 

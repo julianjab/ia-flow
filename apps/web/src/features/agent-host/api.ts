@@ -58,6 +58,17 @@ export interface AgentHostLogTail {
   truncated: boolean
 }
 
+export interface AgentHostRun {
+  /** `undefined` en un run inline sin `runId` — no hay con qué correlacionarlo
+   *  desde afuera, sólo se sabe que existe. */
+  runId?: string
+  taskId: string
+  agentId?: string
+  projectId?: string
+  mode: 'inline' | 'detached'
+  startedAt: string
+}
+
 export interface AgentHostRegistration {
   serverUrl: string
   ok: boolean
@@ -123,6 +134,12 @@ export async function saveSystemPrompt(
 
 export async function fetchLogs(c: AxiosInstance, query = ''): Promise<AgentHostLogTail> {
   return (await c.get<AgentHostLogTail>('/v1/logs', { params: { q: query, limit: 200 } })).data
+}
+
+export async function fetchRuns(
+  c: AxiosInstance,
+): Promise<{ running: number; runs: AgentHostRun[] }> {
+  return (await c.get<{ running: number; runs: AgentHostRun[] }>('/v1/runs')).data
 }
 
 export async function fetchRegistrations(c: AxiosInstance): Promise<{
