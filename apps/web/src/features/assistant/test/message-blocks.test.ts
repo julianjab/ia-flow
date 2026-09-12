@@ -81,6 +81,30 @@ describe('parseMessageBlocks', () => {
     expect(parseMessageBlocks(body)).toEqual([{ type: 'text', text: body }])
   })
 
+  it('un fence sin cerrar al final del mensaje (turno cortado) igual se renderiza como card', () => {
+    const body =
+      'No hay ejecuciones registradas para esta tarea.\n\n' +
+      '```iaflow:task\n' +
+      '{"title":"Sub-issue 1","path":"/projects/ia-flow/tareas/221","status":"open"}'
+    expect(parseMessageBlocks(body)).toEqual([
+      { type: 'text', text: 'No hay ejecuciones registradas para esta tarea.\n\n' },
+      {
+        type: 'task-card',
+        title: 'Sub-issue 1',
+        path: '/projects/ia-flow/tareas/221',
+        status: 'open',
+      },
+    ])
+  })
+
+  it('un fence sin cerrar con JSON inválido se muestra como texto crudo, no rompe', () => {
+    const body = 'algo antes\n```iaflow:task\nesto no es json'
+    expect(parseMessageBlocks(body)).toEqual([
+      { type: 'text', text: 'algo antes\n' },
+      { type: 'text', text: '```iaflow:task\nesto no es json' },
+    ])
+  })
+
   it('combina varias task-cards y dividers en el mismo mensaje', () => {
     const body =
       '```iaflow:task\n{"title":"A","path":"/projects/x/tareas/1"}\n```\n' +
