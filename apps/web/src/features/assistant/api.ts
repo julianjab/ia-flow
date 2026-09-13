@@ -2,11 +2,10 @@ import { type AssistantChatMessage, AssistantChatMessageSchema } from '@ia-flow/
 import axios from 'axios'
 
 /**
- * Manda un mensaje del bubble button. A diferencia de `sendTaskChatMessage`,
- * esto NO devuelve la respuesta del asistente en el body — es async por
- * naturaleza (pasa por el bus de eventos + la regla fija del agente, ver
- * `routes/assistant-chat.ts`). La respuesta llega por WS
- * (`assistant:message`, ver `store.ts`).
+ * Manda un mensaje del bubble button. NO devuelve la respuesta del asistente
+ * en el body — es async por naturaleza (pasa por el bus de eventos + la
+ * regla fija del agente, ver `routes/assistant-chat.ts`). La respuesta llega
+ * por WS (`assistant:message`, ver `store.ts`).
  */
 export async function postAssistantMessage(payload: {
   sessionId: string

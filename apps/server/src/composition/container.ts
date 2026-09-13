@@ -49,7 +49,6 @@ import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
 import { installSlack } from '@ia-flow/slack'
 import {
-  CHAT_ASSISTANT_READ_TOOLS,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
@@ -59,7 +58,6 @@ import {
   setExecutionReadPort,
   setGitTokenPort,
   setPausePort,
-  setProjectReadPort,
   setProjectWritePort,
   setRepoResolverPort,
   setRunAgentPort,
@@ -93,7 +91,6 @@ import { GetTaskFocusUseCase } from '../application/use-cases/GetTaskFocusUseCas
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RunTaskNowUseCase } from '../application/use-cases/RunTaskNowUseCase.js'
-import { TaskChatUseCase } from '../application/use-cases/TaskChatUseCase.js'
 import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentAbortRepository } from '../domain/ports/IAgentAbortRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
@@ -760,10 +757,10 @@ export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(wor
 // concrete (DB-backed) implementations as injected ports here, same
 // composition-root pattern as the AI providers below.
 setRepoResolverPort({ resolveGithubRepo })
-// Sólo lectura, para las tools del futuro asistente de chat (get_task_detail,
-// list_tasks, search_tasks — ver packages/tools/src/task/task-read.ts). Usa
-// el mismo `getSourceForProjectId` que el resto del server, así que un item
-// del asistente y uno del daemon vienen del mismo ProjectSource cacheado.
+// Sólo lectura, consumida por el asistente conversacional (ver más abajo,
+// `setAssistantProjectPorts`). Usa el mismo `getSourceForProjectId` que el
+// resto del server, así que un item del asistente y uno del daemon vienen
+// del mismo ProjectSource cacheado.
 const projectReadPortImpl = {
   async listItems(projectId: string) {
     const source = getSourceForProjectId(projectId)
@@ -787,7 +784,6 @@ const projectReadPortImpl = {
     return (await source.loadComments?.(item)) ?? []
   },
 }
-setProjectReadPort(projectReadPortImpl)
 
 // El asistente conversacional (bubble button) reusa el MISMO
 // `ProjectReadPort` — un item que ve el daemon es el mismo que ve el chat.
@@ -1132,7 +1128,6 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(
   assistCallerConfigRepo,
   agentRepo,
 )
-export const taskChatUseCase = new TaskChatUseCase(assistWithAiUseCase, CHAT_ASSISTANT_READ_TOOLS)
 // `enqueueRunMessageUseCase` está declarado más arriba, junto a `dispatcher`
 // (lo necesita como dependencia) — ver el comentario ahí.
 

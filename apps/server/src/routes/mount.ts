@@ -15,7 +15,6 @@ import {
   assistCallerConfigRepo,
   assistWithAiUseCase,
   systemPromptRepo,
-  taskChatUseCase,
 } from '../composition/container.js'
 import { createActionsRouter } from './actions.js'
 import { createAgentAbortsRouter } from './agent-aborts.js'
@@ -42,7 +41,6 @@ import { createServerLogsRouter } from './server-logs.js'
 import { createSlackRouter } from './slack.js'
 import { createStatusesRouter } from './statuses.js'
 import { createSystemPromptsRouter } from './system-prompts.js'
-import { createTaskChatRouter } from './task-chat.js'
 import { createReposRouter, createTasksRouter } from './tasks.js'
 import { createToolsRouter } from './tools.js'
 import { createToolsCrudRouter } from './tools-crud.js'
@@ -66,7 +64,6 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/tools', createToolsRouter())
   app.route('/api/mcp', createMcpRouter())
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
-  app.route('/api/tasks/assistant', createTaskChatRouter(taskChatUseCase, broadcastFn))
   app.route('/api/assistant', createAssistantChatRouter())
   app.route('/api/agents-crud', createAgentsCrudRouter())
   app.route(

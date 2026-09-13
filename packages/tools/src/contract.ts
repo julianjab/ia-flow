@@ -402,8 +402,9 @@ export interface RepoResolverPort {
 
 /**
  * Vista de sólo lectura de `ProjectSource` (`@ia-flow/issue-sources`),
- * consumida por las tools de lectura del asistente de chat
- * (`task/task-read.ts`: get_task_detail, list_tasks, search_tasks).
+ * consumida por las tools de lectura del asistente conversacional
+ * (`task/task-query.ts`: assistant_get_task_detail, assistant_list_tasks,
+ * assistant_search_tasks).
  *
  * Deliberadamente angosta: sólo los tres reads que esas tools necesitan, sin
  * ningún miembro mutador de `ProjectSource` (setItemField, createItem,
@@ -429,6 +430,18 @@ export interface ProjectReadPort {
  */
 export interface ProjectListPort {
   list(): Promise<Array<{ id: string; name: string }>>
+}
+
+/** Forma mínima que necesita un consumidor de tools de sólo lectura fuera del
+ *  registry compartido (hoy: `AssistWithAiUseCase`). A propósito NO es el
+ *  `Tool` de arriba — ese tipo trae `specialize`/`hideWhen`/`providerKinds`,
+ *  mecánica pensada para el registry compartido que estos consumidores nunca
+ *  integran. */
+export interface ReadOnlyTool<TInput = unknown> {
+  name: string
+  description: string
+  input_schema: object
+  execute(input: TInput): Promise<string>
 }
 
 /**

@@ -17,10 +17,9 @@ function assistErrorResponse(err: unknown): { body: { error: string }; status: 4
   return { body: { error: String(err) }, status: 500 }
 }
 
-// El asistente de tareas (`POST /api/tasks/assistant/chat`) vive en
-// `routes/task-chat.ts` — no acá. `/assist` es genérico (lo usa cualquier
-// panel de la web que arme prompts para agentes/system prompts); el chat de
-// Tareas tiene su propio router porque su path es `/api/tasks/assistant/*`.
+// `/assist` es genérico (lo usa cualquier panel de la web que arme prompts
+// para agentes/system prompts) — el asistente conversacional (bubble button,
+// `POST /api/assistant/chat`) vive en `routes/assistant-chat.ts`, aparte.
 export function createAgentsRouter(assistWithAi: AssistWithAiUseCase) {
   const app = new Hono()
 
