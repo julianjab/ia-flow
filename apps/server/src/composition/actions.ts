@@ -26,8 +26,10 @@ import { ScriptAction } from '../adapters/actions/script-action.js'
 import type { AgentAbortRecord } from '../domain/ports/IAgentAbortRepository.js'
 import type { RunCheckpoint } from '../domain/ports/IRunCheckpointRepository.js'
 import { createLogger } from '../logger.js'
+import { CHAT_PROJECT_ID } from '../system-agents/index.js'
 import {
   agentAbortRepo,
+  chatIssueManager,
   dispatcher,
   executionLogRepo,
   getSourceForProjectId,
@@ -51,8 +53,14 @@ export function setActiveManagers(next: readonly IIssueManager[]): void {
 
 /** Lookup del manager vivo de un proyecto — la misma tabla que usa `AgentAction`
  *  para despachar, expuesta para que otro consumidor (el gate `whenText` de
- *  `daemon.ts`) no tenga que mantener su propio índice. */
+ *  `daemon.ts`) no tenga que mantener su propio índice.
+ *
+ * `CHAT_PROJECT_ID` es un caso especial a propósito: el asistente conversacional
+ * NO es un proyecto (ver `apps/server/src/system-agents/`) — su manager no sale
+ * de `buildManagers()`/`projectRepo.list()` como el resto, así que nunca está en
+ * el mapa `managers`. Se resuelve acá, a mano, antes de consultarlo. */
 export function managerFor(projectId: string): IIssueManager | undefined {
+  if (projectId === CHAT_PROJECT_ID) return chatIssueManager
   return managers.get(projectId)
 }
 
@@ -267,7 +275,7 @@ export function registerActions(): void {
 
   registerAction(
     new AgentAction({
-      managerFor: (projectId) => managers.get(projectId),
+      managerFor,
       // El agente lo elige la REGLA, no `selectAgent`: el dispatcher recibe el
       // id y saltea su propio gate de selección. Es lo que permite que un
       // `pr.opened` corra un agente sobre un issue cuyo status no matchearía

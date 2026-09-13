@@ -63,27 +63,27 @@ export { setRepoResolverPort } from './github/tools.js'
 
 import './github/tools.js'
 
-// task-read.ts NO se importa por side-effect: sus tools no llaman a
-// `registerTool()` a propósito (ver el header del archivo) — sólo se
-// exportan para que el asistente de chat las consuma directamente.
-export {
-  CHAT_ASSISTANT_READ_TOOLS,
-  getProjectReadPort,
-  getTaskDetail,
-  listTasks,
-  type ReadOnlyTool,
-  searchTasks,
-  setProjectReadPort,
-} from './task/task-read.js'
-
 // Slack NO está acá: vive en `@ia-flow/slack`, que depende de este paquete y
 // registra sus tools con `registerSlackTools()` en vez de con un efecto de
 // importar. La flecha va en ese sentido —y no al revés— para que sacar Slack de
 // un deploy no obligue a tocar el resto de las tools. Ver packages/slack/CLAUDE.md.
 
+export { setDocsRoot } from './docs/engine-docs-read.js'
+export { setExecutionReadPort } from './execution/execution-read.js'
 export type { HaikuRequest, HaikuResponse, HaikuTool } from './haiku.js'
 // La llamada a Haiku, para los ayudantes que no son del loop de tools. La
 // exporta el paquete porque la credencial y el logging ya viven acá: un
 // segundo camino a la misma API sería un segundo lugar donde acordarse de
 // leer `Bun.env` por llamada.
 export { askHaiku, HAIKU_MODEL, haikuAuthHeader } from './haiku.js'
+export { setProjectWritePort } from './task/task-create.js'
+// Tools del asistente conversacional — a diferencia de `task-read.ts`, estas
+// SÍ pasan por `registerTool()`: el asistente es un `AgentDefinition` real
+// (ver `apps/server/src/system-agents/`), no un caller ad-hoc, así que sus
+// tools salen del registry compartido como las de cualquier otro agente.
+export { setAssistantProjectPorts } from './task/task-query.js'
+
+import './task/task-query.js'
+import './task/task-create.js'
+import './execution/execution-read.js'
+import './docs/engine-docs-read.js'

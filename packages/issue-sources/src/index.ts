@@ -1,3 +1,12 @@
+export { ChatIssueManager } from './chat/ChatIssueManager.js'
+export { ChatSessionSource } from './chat/ChatSessionSource.js'
+export { ChatSessionTaskSource } from './chat/ChatSessionTaskSource.js'
+export {
+  CHAT_SESSION_STATUS,
+  type ChatMessageRecord,
+  type ChatSessionRecord,
+  type ChatSessionStore,
+} from './chat/contract.js'
 export * from './contract.js'
 export {
   type CatchUpOptions,

@@ -1,12 +1,12 @@
 import { invalidateMemoized, StatusConfigSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { configRepo, projectRepo, statusRepo } from '../composition/container.js'
+import { baseConfigRepo, projectRepo, statusRepo } from '../composition/container.js'
 
-// See the matching comment in agents-crud.ts — configRepo.getConfig is
+// See the matching comment in agents-crud.ts — baseConfigRepo.getConfig is
 // memoized and shared with GET /api/project-config.
 function invalidateConfigCache(): void {
-  invalidateMemoized(configRepo, 'getConfig')
+  invalidateMemoized(baseConfigRepo, 'getConfig')
 }
 
 // Granular CRUD for status configs. Statuses are always project-scoped, so

@@ -402,8 +402,9 @@ export interface RepoResolverPort {
 
 /**
  * Vista de sólo lectura de `ProjectSource` (`@ia-flow/issue-sources`),
- * consumida por las tools de lectura del asistente de chat
- * (`task/task-read.ts`: get_task_detail, list_tasks, search_tasks).
+ * consumida por las tools de lectura del asistente conversacional
+ * (`task/task-query.ts`: assistant_get_task_detail, assistant_list_tasks,
+ * assistant_search_tasks).
  *
  * Deliberadamente angosta: sólo los tres reads que esas tools necesitan, sin
  * ningún miembro mutador de `ProjectSource` (setItemField, createItem,
@@ -419,4 +420,69 @@ export interface ProjectReadPort {
   /** La conversación del item (comentarios + review threads sin resolver).
    *  Array vacío cuando el source no tiene noción de comentarios. */
   loadComments(projectId: string, item: IssueItem): Promise<TaskComment[]>
+}
+
+/**
+ * Lista de proyectos de ia-flow (id + nombre), consumida por el asistente
+ * conversacional para orientarse cuando no hay un proyecto activo — ver
+ * `task/task-query.ts`. Deliberadamente angosta: no expone `ProjectSource`
+ * ni nada de config.
+ */
+export interface ProjectListPort {
+  list(): Promise<Array<{ id: string; name: string }>>
+}
+
+/** Forma mínima que necesita un consumidor de tools de sólo lectura fuera del
+ *  registry compartido (hoy: `AssistWithAiUseCase`). A propósito NO es el
+ *  `Tool` de arriba — ese tipo trae `specialize`/`hideWhen`/`providerKinds`,
+ *  mecánica pensada para el registry compartido que estos consumidores nunca
+ *  integran. */
+export interface ReadOnlyTool<TInput = unknown> {
+  name: string
+  description: string
+  input_schema: object
+  execute(input: TInput): Promise<string>
+}
+
+/**
+ * El único mutador de `ProjectSource` que las tools del asistente pueden
+ * usar: crear un item en OTRO proyecto (no el de la task activa). Separado
+ * de `ProjectReadPort` a propósito — ese port es la garantía de que las
+ * tools de lectura no pueden escribir nada; este es el único punto donde sí
+ * pueden, y sólo esto.
+ */
+export interface ProjectWritePort {
+  createItem(
+    projectId: string,
+    input: { title: string; description?: string; repos?: string[] },
+  ): Promise<{ id: string; title: string; url?: string }>
+}
+
+/**
+ * Lectura de `execution_logs`, consumida por las tools del asistente
+ * conversacional (`execution/execution-read.ts`) para responder "¿por qué
+ * falló esta tarea?"/"¿cómo va?". Forma mínima que satisface
+ * estructuralmente `IExecutionLogRepository` de `apps/server` — el paquete
+ * no depende hacia afuera, mismo patrón que `ProjectReadPort`.
+ */
+export interface ExecutionReadPort {
+  list(filters: { taskId?: string; limit?: number }): Array<{
+    id: string
+    agentId: string
+    outcome?: string
+    failureClass?: string
+    errorMsg?: string
+    startedAt: string
+    finishedAt?: string
+  }>
+  getById(id: string): {
+    id: string
+    agentId: string
+    taskId: string
+    outcome?: string
+    failureClass?: string
+    errorMsg?: string
+    startedAt: string
+    finishedAt?: string
+  } | null
 }

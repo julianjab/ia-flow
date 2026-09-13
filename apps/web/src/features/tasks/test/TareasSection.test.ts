@@ -2,9 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SourceItem } from '@/features/projects/sourceApi'
-import TaskCommandBar from '@/features/tasks/TaskCommandBar.vue'
 import TaskDetailModal from '@/features/tasks/TaskDetailModal.vue'
-import { useTaskChatStore } from '@/features/tasks/taskChatStore'
 import TareasSection from '../TareasSection.vue'
 
 const items: SourceItem[] = []
@@ -57,16 +55,6 @@ vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
   setProjectItemField: (...args: unknown[]) => setProjectItemField(...(args as [])),
 }))
-// La barra de comandos vive detrás de su propio api — sin mockearlo, montar
-// TareasSection saldría a la red de verdad.
-vi.mock('@/features/tasks/chatApi', () => ({
-  sendTaskChatMessage: vi.fn(async () => ({
-    reply: 'ok',
-    scope: { type: 'project' },
-    actions: [],
-  })),
-}))
-
 // El componente lee los filtros de la query y los escribe con `replace`; el
 // test controla las dos puntas sin montar un router real.
 let routeQuery: Record<string, string | string[]> = {}
@@ -736,162 +724,5 @@ describe('TareasSection — mover desde la sugerencia', () => {
     await flushPromises()
 
     expect(w.findComponent(TaskDetailModal).props('open')).toBe(false)
-  })
-})
-
-// El botón abre/cierra la barra de comandos (no un drawer — ver #215/#216,
-// regla R18), y "Aplicar" lo ejecuta esta pantalla: la barra no persiste
-// nada por sí misma, sólo emite las acciones y quien las aplica refresca
-// después (mismo criterio que "mover desde la sugerencia").
-describe('TareasSection — asistente de tareas', () => {
-  it('el botón ✦ Asistente abre/cierra la barra de comandos', async () => {
-    const w = await mountWith([githubItem({})])
-    expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
-
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    expect(w.findComponent(TaskCommandBar).exists()).toBe(true)
-
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    expect(w.findComponent(TaskCommandBar).exists()).toBe(false)
-  })
-
-  it('aplicar `tag` guarda la preferencia en localStorage, no en el server', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    setProjectItemField.mockClear()
-    const callsBefore = fetchProjectItemsMock.mock.calls.length
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [
-      { type: 'tag', taskId: 'I_1', tags: ['urgente', 'backend'] },
-    ])
-    await flushPromises()
-
-    expect(JSON.parse(localStorage.getItem('ia-flow:taskTagPref:p1') ?? '{}')).toEqual({
-      I_1: ['urgente', 'backend'],
-    })
-    expect(setProjectItemField).not.toHaveBeenCalled()
-    expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
-  })
-
-  it('aplicar `tag` se refleja al toque en lo que ve el asistente — sin cambiar de proyecto ni recargar', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-
-    const tasksBefore = w.findComponent(TaskCommandBar).props('tasks') as {
-      id: string
-      tags: string[]
-    }[]
-    expect(tasksBefore.find((t) => t.id === 'I_1')?.tags).toEqual([])
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [
-      { type: 'tag', taskId: 'I_1', tags: ['urgente'] },
-    ])
-    await flushPromises()
-
-    // Antes del fix, `chatTasksContext` leía `localStorage` directo dentro
-    // del computed y quedaba cacheado — el asistente seguía viendo `tags: []`
-    // hasta que OTRA dependencia reactiva lo invalidara.
-    const tasksAfter = w.findComponent(TaskCommandBar).props('tasks') as {
-      id: string
-      tags: string[]
-    }[]
-    expect(tasksAfter.find((t) => t.id === 'I_1')?.tags).toEqual(['urgente'])
-  })
-
-  it('aplicar `note` guarda la preferencia en localStorage, no en el server', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    const callsBefore = fetchProjectItemsMock.mock.calls.length
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [
-      { type: 'note', taskId: 'I_1', text: 'Depende de #99' },
-    ])
-    await flushPromises()
-
-    const stored = JSON.parse(localStorage.getItem('ia-flow:taskNotePref:p1') ?? '{}')
-    expect(stored.I_1?.map((n: { text: string }) => n.text)).toEqual(['Depende de #99'])
-    expect(fetchProjectItemsMock.mock.calls.length).toBe(callsBefore)
-  })
-
-  it('aplicar `reorder` guarda la preferencia en localStorage, no en el server', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    setProjectItemField.mockClear()
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'reorder', taskIds: ['I_1'] }])
-    await flushPromises()
-
-    expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBe(JSON.stringify(['I_1']))
-    expect(setProjectItemField).not.toHaveBeenCalled()
-  })
-
-  it('aplicar `reorder` en modo "fuente" se ve al toque — sin recargar ni cambiar de proyecto', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    // Ciclar a "fuente" (disposición -> repo -> fuente), el único modo
-    // donde `reorder` aplica.
-    await w.get('[data-testid="tareas-order-toggle"]').trigger('click')
-    await w.get('[data-testid="tareas-order-toggle"]').trigger('click')
-    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(false)
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'reorder', taskIds: ['I_1'] }])
-    await flushPromises()
-
-    // El link "volver al calculado" aparece SIN necesitar remount — es la
-    // señal de que `flatListItems` se recalculó con la preferencia nueva
-    // (antes del fix, `taskOrderPref` era un `computed` sobre localStorage
-    // y quedaba cacheado para siempre).
-    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(true)
-
-    await w.get('[data-testid="tareas-order-pref-reset"]').trigger('click')
-    expect(localStorage.getItem('ia-flow:taskOrderPref:p1')).toBeNull()
-    expect(w.find('[data-testid="tareas-order-pref-reset"]').exists()).toBe(false)
-  })
-
-  it('aplicar `highlight` lo guarda en el store de sesión, sin llamar al server', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    const store = useTaskChatStore()
-    setProjectItemField.mockClear()
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [
-      { type: 'highlight', taskId: 'I_1', reason: 'Bloquea al equipo' },
-    ])
-    await flushPromises()
-
-    expect(store.highlights.I_1).toBe('Bloquea al equipo')
-    expect(setProjectItemField).not.toHaveBeenCalled()
-  })
-
-  it('aplicar `group` guarda los grupos en localStorage, no en el server', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-    setProjectItemField.mockClear()
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [
-      { type: 'group', groups: [{ label: 'auth', taskIds: ['I_1'] }] },
-    ])
-    await flushPromises()
-
-    expect(JSON.parse(localStorage.getItem('ia-flow:taskGroupPref:p1') ?? '{}')).toEqual({
-      groups: [{ label: 'auth', taskIds: ['I_1'] }],
-    })
-    expect(setProjectItemField).not.toHaveBeenCalled()
-  })
-
-  it('aplicar `group` con `groups: []` borra la preferencia (desagrupar)', async () => {
-    const w = await mountWith([githubItem({})])
-    await w.get('[data-testid="tareas-chat-toggle"]').trigger('click')
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [
-      { type: 'group', groups: [{ label: 'auth', taskIds: ['I_1'] }] },
-    ])
-    await flushPromises()
-    expect(localStorage.getItem('ia-flow:taskGroupPref:p1')).not.toBeNull()
-
-    w.findComponent(TaskCommandBar).vm.$emit('apply', [{ type: 'group', groups: [] }])
-    await flushPromises()
-
-    expect(localStorage.getItem('ia-flow:taskGroupPref:p1')).toBeNull()
   })
 })

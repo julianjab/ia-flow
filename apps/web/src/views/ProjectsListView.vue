@@ -7,7 +7,7 @@ import { useProjectsStore } from '@/features/projects/store';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { fetchExecutions } from '@/features/executions/api';
 import { fetchPollingStatus, type PollingStatus } from '@/features/projects/api';
-import { formatRelative } from '@/features/executions/relativeTime';
+import { formatRelative } from '@/composables/formatRelative';
 
 const projectsStore = useProjectsStore();
 const activeExecutionsStore = useActiveExecutionsStore();

@@ -5,8 +5,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import {
   agentRepo,
+  baseConfigRepo,
   broadcast,
-  configRepo,
   pollingPause,
   projectRepo,
   sourceFactory,
@@ -15,10 +15,10 @@ import { reloadManagers } from '../daemon.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
 
-// See the matching comment in agents-crud.ts — configRepo.getConfig is
+// See the matching comment in agents-crud.ts — baseConfigRepo.getConfig is
 // memoized and shared with GET /api/project-config.
 function invalidateConfigCache(): void {
-  invalidateMemoized(configRepo, 'getConfig')
+  invalidateMemoized(baseConfigRepo, 'getConfig')
 }
 
 // Input schema for POST/PATCH — clients don't set timestamps.
