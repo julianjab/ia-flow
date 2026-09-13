@@ -31,7 +31,8 @@ function setup(): SqliteAgentRepository {
       comment            TEXT,
       enabled            INTEGER NOT NULL DEFAULT 1,
       max_concurrent_dispatches INTEGER,
-      verify             TEXT
+      verify             TEXT,
+      output             TEXT
     )
   `)
   return new SqliteAgentRepository(db)
@@ -108,6 +109,46 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
   it('sin `verify` vuelve undefined — sin cambio de comportamiento', () => {
     repo.upsert({ id: 'plain', provider: 'anthropic', prompt: 'go' }, 0, 'p1')
     expect(repo.inScope('p1')[0]?.verify).toBeUndefined()
+  })
+
+  // El campo vivía en AgentDefinitionSchema pero el repo no lo serializaba: un
+  // agente con contrato de salida lo perdía en el primer guardado vía CRUD.
+  it('round-trips `output` (contrato de salida estructurada) through upsert + inScope', () => {
+    repo.upsert(
+      {
+        id: 'scorer',
+        provider: 'anthropic',
+        prompt: 'score it',
+        output: {
+          score: { type: 'number', description: 'calidad 0-10' },
+          notes: { type: 'string', optional: true },
+        },
+      },
+      0,
+      'p1',
+    )
+    const [row] = repo.inScope('p1')
+    expect(row.output).toEqual({
+      score: { type: 'number', description: 'calidad 0-10' },
+      notes: { type: 'string', optional: true },
+    })
+  })
+
+  it('sin `output` vuelve undefined — la mayoría de los agentes cierra con prosa', () => {
+    repo.upsert({ id: 'plain', provider: 'anthropic', prompt: 'go' }, 0, 'p1')
+    expect(repo.inScope('p1')[0]?.output).toBeUndefined()
+  })
+
+  it('un upsert de edición que quita `output` lo vuelve a undefined', () => {
+    repo.upsert(
+      { id: 'a', provider: 'p', prompt: 'x', output: { score: { type: 'number' } } },
+      0,
+      'p1',
+    )
+    expect(repo.inScope('p1')[0]?.output).toEqual({ score: { type: 'number' } })
+
+    repo.upsert({ id: 'a', provider: 'p', prompt: 'x' }, 0, 'p1')
+    expect(repo.inScope('p1')[0]?.output).toBeUndefined()
   })
 
   it('defaults enabled to true and omits unset activation/outcome fields', () => {

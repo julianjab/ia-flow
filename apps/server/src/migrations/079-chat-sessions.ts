@@ -15,7 +15,7 @@ import type { Migration } from './runner.js'
 // `task_annotations` — no hay FKs entre las entidades principales hoy.
 
 const migration: Migration = {
-  id: '078-chat-sessions',
+  id: '079-chat-sessions',
   description: 'Crea chat_sessions y chat_messages para el asistente conversacional',
   up(db) {
     db.run(`

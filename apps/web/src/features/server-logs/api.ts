@@ -2,14 +2,12 @@ import {
   type ServerLogEntry,
   ServerLogEntryArraySchema,
   type ServerLogFilters,
-  type ServerLogLevel,
+  type ServerLogLevelCounts,
   ServerLogLevelCountsSchema,
   ServerLogModulesSchema,
   ServerLogSourcesSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
-
-export type ServerLogLevelCounts = Record<ServerLogLevel, number>
 
 // Thin wrapper around GET /api/server-logs. Server accepts the same filters
 // shape as ServerLogFiltersSchema (level, module, search, from, to, limit,
@@ -59,6 +57,7 @@ export async function fetchServerLogSources(): Promise<string[]> {
   return ServerLogSourcesSchema.parse(data.sources)
 }
 
-// Re-export so ServerLogsSection.vue doesn't need to import from
-// @ia-flow/shared directly — feature-local types keep the import graph flat.
+// Re-export so `components/LogStreamSection.vue` (compartido con el
+// agent-host) no necesita un segundo import de @ia-flow/shared sólo para
+// estos dos tipos — quedan al lado de las funciones que los devuelven/reciben.
 export type { ServerLogEntry, ServerLogFilters }

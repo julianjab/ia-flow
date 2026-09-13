@@ -428,7 +428,7 @@ a:hover {
 }
 
 /* El toggle "Live" — mismo look en cualquier panel que se suscriba al WS
-   (ExecutionsSection, ServerLogsSection): punto apagado = live off, punto
+   (ExecutionsSection, LogStreamSection): punto apagado = live off, punto
    sólido pulsando (verde) = conectado, punto ámbar pulsando = reconectando. */
 .live-toggle {
   display: inline-flex;

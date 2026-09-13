@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { AgentDefinition, AgentProvider, AgentToolEntry } from '@ia-flow/shared'
+import type { AgentDefinition, AgentOutput, AgentProvider, AgentToolEntry } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 
 // `provider` sigue siendo el string plano de siempre para la inmensa mayoría
@@ -48,6 +48,7 @@ function agentToRow(
     agent.comment ?? null,
     agent.maxConcurrentDispatches ?? null,
     agent.verify?.length ? JSON.stringify(agent.verify) : null,
+    agent.output && Object.keys(agent.output).length > 0 ? JSON.stringify(agent.output) : null,
   ]
 }
 
@@ -85,6 +86,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : undefined,
     comment: (r.comment as AgentDefinition['comment'] | null) ?? undefined,
     verify: r.verify ? (JSON.parse(r.verify as string) as string[]) : undefined,
+    output: r.output ? (JSON.parse(r.output as string) as AgentOutput) : undefined,
   }
 }
 
@@ -136,9 +138,9 @@ export class SqliteAgentRepository implements IAgentRepository {
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
          requires_branch, allow_blocked, on_process, exits, comment, max_concurrent_dispatches,
-         verify
+         verify, output
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -156,7 +158,8 @@ export class SqliteAgentRepository implements IAgentRepository {
          exits               = excluded.exits,
          comment             = excluded.comment,
          max_concurrent_dispatches = excluded.max_concurrent_dispatches,
-         verify              = excluded.verify`,
+         verify              = excluded.verify,
+         output              = excluded.output`,
       agentToRow(agent, position, pid),
     )
   }

@@ -11,7 +11,7 @@ export interface JsonTreeField {
    *  `entry`, un campo base como `time` queda con path `time` (sin
    *  prefijo) y cualquier cosa dentro de `extras` arrastra el prefijo
    *  `extras.` — ya no hace falta un guard de colisión "esto se llama
-   *  igual que una columna base" (ver `ServerLogsSection.vue`): los paths
+   *  igual que una columna base" (ver `components/LogStreamSection.vue`): los paths
    *  son inequívocos por construcción. */
   path: string
 }
