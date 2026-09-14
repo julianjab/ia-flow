@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/julianjab/ia-flow/compare/v1.11.0...v1.11.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **desktop:** evitar colisión de nombre de volumen entre DMGs arm64/x64 ([f06f633](https://github.com/julianjab/ia-flow/commit/f06f633e65c8a3ce6a758f516ce33d2a591f63f6))
+
 ## [1.11.0](https://github.com/julianjab/ia-flow/compare/v1.10.0...v1.11.0) (2026-09-14)
 
 
