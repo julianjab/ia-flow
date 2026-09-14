@@ -32,6 +32,16 @@ describe('createProvider', () => {
     const provider = createProvider()
     expect(provider.id).toBe('anthropic-api')
   })
+
+  it('claude-print trae `prepareWorkspace` cableado — sin esto el cwd del run es el del daemon, no el de acá', () => {
+    // Regresión: sin `workspace: createWorkspaceProvisioner(...)` en el branch
+    // de claude-print, `prepareWorkspace` no existía y `resolveWorkspace`
+    // (app.ts) dejaba `input.cwd` tal cual llegó del dispatch — un path del
+    // disco que originó el run, inexistente en esta máquina. Cada run fallaba
+    // con ENOENT de `Bun.spawn`.
+    const provider = createProvider('claude-print')
+    expect(typeof provider.prepareWorkspace).toBe('function')
+  })
 })
 
 describe('el port del WorkspaceManager', () => {
@@ -41,6 +51,12 @@ describe('el port del WorkspaceManager', () => {
     // manager que preparó este workspace. El daemon lo hace en su composition
     // root; acá faltaba y la tool fallaba en toda invocación.
     createProvider('anthropic-api')
+
+    expect(getWorkspaceManagerPort()).not.toBeNull()
+  })
+
+  it('también queda cableado para claude-print', () => {
+    createProvider('claude-print')
 
     expect(getWorkspaceManagerPort()).not.toBeNull()
   })
