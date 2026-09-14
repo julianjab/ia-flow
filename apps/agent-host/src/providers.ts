@@ -231,6 +231,11 @@ export function createProvider(
       // Sin tope salvo que el operador ponga uno: el corte lo decide el
       // engine que despachó, no este runtime. `0` = sin límite.
       timeoutMs: envRunTimeoutMs(),
+      // Mismo provisioner que `anthropic-api` (línea de abajo): sin esto,
+      // `prepareWorkspace` no existía y el `cwd` del run quedaba con el path
+      // del disco que originó el dispatch, inexistente acá — cada run fallaba
+      // con un ENOENT de `Bun.spawn` (ver el comentario del provider).
+      workspace: createWorkspaceProvisioner(workspaceSettings),
     })
   }
 

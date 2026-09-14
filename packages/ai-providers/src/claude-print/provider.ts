@@ -21,11 +21,19 @@
 // el proceso nosotros mismos, así que no hace falta ese rodeo.
 //
 // Lo que sigue sin soportar, a propósito: entrega de tools del agente vía
-// daemon (`ia-flow-tools` MCP), hooks forwarding (Ejecuciones tab) y manejo
-// de worktree — los tres asumen un daemon de ia-flow local, que no existe en
-// el contexto donde corre este provider.
+// daemon (`ia-flow-tools` MCP) y hooks forwarding (Ejecuciones tab) — los dos
+// asumen un daemon de ia-flow local, que no existe en el contexto donde corre
+// este provider. El worktree SÍ se soporta (`prepareWorkspace`, igual que
+// `anthropic-api`): sin él, `input.cwd` quedaba con el path del disco que
+// originó el dispatch — inexistente en la máquina donde corre este `claude`.
 import { unlink } from 'node:fs/promises'
-import { type McpServers, McpServersSchema } from '@ia-flow/shared'
+import {
+  EMPTY_WORKSPACE_PLAN,
+  type McpServers,
+  McpServersSchema,
+  type WorkspacePlan,
+  type WorkspaceRequest,
+} from '@ia-flow/shared'
 import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
 import {
   type LocalToolsMcp,
@@ -33,7 +41,12 @@ import {
   resolveDaemonUrl,
   resolveMcpServers,
 } from '../claude-cli/tools-mcp.js'
-import type { IAgentProvider, ProviderInput, ProviderOutput } from '../contract.js'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderOutput,
+  WorkspaceProvisionerPort,
+} from '../contract.js'
 
 export interface ClaudePrintLog {
   info: (obj: object, msg?: string) => void
@@ -66,6 +79,14 @@ export interface ClaudePrintProviderDeps {
    * equivocado.
    */
   localTools?: () => LocalToolsMcp | undefined
+  /**
+   * Quien clona/materializa el worktree en ESTE disco, igual que en
+   * `AnthropicApiProvider`. Sin esto `prepareWorkspace` es un no-op
+   * (`EMPTY_WORKSPACE_PLAN`) y `run` termina spawneando `claude -p` con el
+   * `cwd` que mandó el daemon — un path de SU disco, no del que hospeda este
+   * provider.
+   */
+  workspace?: WorkspaceProvisionerPort
 }
 
 interface ClaudePrintAgentConfig {
@@ -144,6 +165,15 @@ export class ClaudePrintProvider implements IAgentProvider {
     'Invoca `claude -p` (modo no interactivo, sin sesión de terminal) y captura stdout. Sin loop de tools propio — completions de un solo turno.'
 
   constructor(private deps: ClaudePrintProviderDeps) {}
+
+  /** Delega en el provisioner inyectado, mismo patrón que
+   *  `AnthropicApiProvider.prepareWorkspace`. Sin provisioner, el `resolveWorkspace`
+   *  fail-open del agent-host se queda con el `input.cwd` tal cual llegó. */
+  async prepareWorkspace(req: WorkspaceRequest): Promise<WorkspacePlan> {
+    const provisioner = this.deps.workspace
+    if (!provisioner) return EMPTY_WORKSPACE_PLAN
+    return provisioner.prepare(req)
+  }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
     const cfg = parseAgentConfig(input.providerConfig)
