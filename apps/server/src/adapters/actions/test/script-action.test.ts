@@ -44,6 +44,7 @@ function action(over: Partial<Parameters<typeof ScriptAction.prototype.execute>>
     workspaceFor: async () => '/repo',
     spawn,
     env: ENABLED,
+    resolveSecrets: async (input) => input,
     ...(over as object),
   })
   return { a, calls }
@@ -122,6 +123,25 @@ describe('ScriptAction — las guardas', () => {
     expect(Object.keys(env).sort()).toEqual(['PATH', 'PR'])
   })
 
+  // 5b. `${SECRETO}` resuelve DESPUÉS de `{{event...}}`, en `env` Y en `args` —
+  //     mismo resolver que la acción http, para que un script pueda recibir un
+  //     token sin que viva literal en la fila de la regla.
+  test('${SECRETO} resuelve en env y en args, después de {{event}}', async () => {
+    const resolveSecrets = async (input: string) => input.replace('${IA_FLOW_API_TOKEN}', 'tok-123')
+    const { a, calls } = action({ resolveSecrets })
+    await a.execute(
+      ctx({ pr: { number: 42 } }),
+      config({
+        args: ['--pr', '{{event.payload.pr.number}}', '--token', '${IA_FLOW_API_TOKEN}'],
+        env: { TOKEN: '${IA_FLOW_API_TOKEN}' },
+      }),
+    )
+
+    expect(calls[0]?.argv).toEqual(['bash', '/repo/ok.sh', '--pr', '42', '--token', 'tok-123'])
+    const env = calls[0]?.opts.env as Record<string, string>
+    expect(env.TOKEN).toBe('tok-123')
+  })
+
   test('corre en el workspace y no en el cwd del daemon', async () => {
     const { a, calls } = action()
     await a.execute(ctx(), config())
@@ -132,6 +152,7 @@ describe('ScriptAction — las guardas', () => {
     const a = new ScriptAction({
       workspaceFor: async () => '/repo',
       env: ENABLED,
+      resolveSecrets: async (input) => input,
       spawn: (() => ({
         stdout: new Response('').body,
         stderr: new Response('explotó').body,
