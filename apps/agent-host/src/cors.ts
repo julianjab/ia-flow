@@ -35,7 +35,16 @@ export function isAllowedOrigin(origin: string, extra: readonly string[] = []): 
     return false
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
-  return LOCAL_HOSTS.has(url.hostname)
+  if (LOCAL_HOSTS.has(url.hostname)) return true
+
+  // Wildcard de subdominios, misma convención que `server.allowedHosts` de
+  // Vite: un extra que arranca con `.` matchea el dominio pelado Y cualquier
+  // subdominio — así un túnel (`app.`, `api.`, `agent-host-*.`) sobre el mismo
+  // dominio no necesita una entrada por hostname.
+  return extra.some(
+    (item) =>
+      item.startsWith('.') && (url.hostname === item.slice(1) || url.hostname.endsWith(item)),
+  )
 }
 
 /** Orígenes extra, separados por coma. Para una consola servida desde otra
