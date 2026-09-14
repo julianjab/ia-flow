@@ -24,7 +24,10 @@ const log = createLogger('action:script')
 //   4. Sin shell: `Bun.spawn([interprete, archivo, ...args])`. Sin `sh -c` no
 //      hay expansión ni inyección por interpolar valores del evento.
 //   5. Env de allow-list. El script recibe sólo lo que declara; heredar el env
-//      del daemon le entregaría el GITHUB_TOKEN y el ANTHROPIC_API_KEY.
+//      del daemon le entregaría el GITHUB_TOKEN y el ANTHROPIC_API_KEY. Los
+//      valores (de `env` y de `args`) admiten `${SECRETO}` además de
+//      `{{event...}}` — mismo resolver que la acción http — para que un token
+//      no tenga que vivir literal en la fila de la regla.
 //   6. Timeout y tope de salida, los mismos que `bash_run`.
 //
 // Y una que no es una guarda sino una decisión: corre SÓLO local, nunca viaja a
@@ -48,6 +51,17 @@ export interface ScriptActionDeps {
   /** El repo sobre el que corre la tarea del evento. `null` ⇒ no hay dónde
    *  correr y la acción se rechaza. */
   workspaceFor(event: ActionContext['event']): Promise<string | null>
+  /**
+   * Resuelve `${SECRETO}` en `args` y en los VALORES de `env`, después de
+   * interpolar `{{event...}}`. Mismo resolver que usa la acción `http`
+   * (`setSecretResolver`, compartido con los MCP) — así un script que necesita
+   * pegarle a la propia API de ia-flow recibe su token por esta vía y no
+   * escrito literal en la regla.
+   *
+   * Los NOMBRES de `env` siguen siendo la allow-list (sin esto no hay forma de
+   * limitar qué recibe el proceso); lo nuevo es de dónde puede salir el VALOR.
+   */
+  resolveSecrets(input: string): Promise<string>
   /** Inyectable para testear sin spawnear de verdad. */
   spawn?: typeof Bun.spawn
   /** Inyectable para testear los gates sin tocar el env del proceso. */
@@ -126,18 +140,17 @@ export class ScriptAction implements ActionHandler<ScriptConfig> {
     }
 
     const [bin, ...binArgs] = INTERPRETERS[config.runtime]
-    const argv = [
-      bin,
-      ...binArgs,
-      script,
-      ...(config.args ?? []).map((a) => interpolate(a, ctx.event)),
-    ]
+    const args = await Promise.all(
+      (config.args ?? []).map((a) => this.deps.resolveSecrets(interpolate(a, ctx.event))),
+    )
+    const argv = [bin, ...binArgs, script, ...args]
 
     // Env de allow-list: SÓLO lo declarado, más el PATH mínimo para encontrar
-    // el intérprete. Nada del env del daemon.
+    // el intérprete. Nada del env del daemon. El valor pasa por `{{event}}` y
+    // después por `${SECRETO}` — mismo orden que la acción http con url/body.
     const env: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin' }
     for (const [k, v] of Object.entries(config.env ?? {})) {
-      env[k] = interpolate(v, ctx.event)
+      env[k] = await this.deps.resolveSecrets(interpolate(v, ctx.event))
     }
 
     const timeoutMs = Math.min(config.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)

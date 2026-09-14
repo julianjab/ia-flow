@@ -336,6 +336,7 @@ export function registerActions(): void {
         if (!projectId || !repo) return null
         return repoRepo.getByProject(repo, projectId)?.path ?? null
       },
+      resolveSecrets: interpolateSecrets,
     }),
   )
 }
