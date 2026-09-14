@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/julianjab/ia-flow/compare/v1.11.1...v1.12.0) (2026-09-14)
+
+
+### Features
+
+* **desktop:** panel de procesos locales (server, web, agent-hosts) ([#244](https://github.com/julianjab/ia-flow/issues/244)) ([2e483b1](https://github.com/julianjab/ia-flow/commit/2e483b1a875a40ed9a3b51d5e7154618da3c38cf))
+
+
+### Bug Fixes
+
+* **agent-host:** cablear prepareWorkspace en el provider claude-print ([#242](https://github.com/julianjab/ia-flow/issues/242)) ([cc32fce](https://github.com/julianjab/ia-flow/commit/cc32fce5fd366ea1001bda3294fb357fd2100a7b))
+
 ## [1.11.1](https://github.com/julianjab/ia-flow/compare/v1.11.0...v1.11.1) (2026-09-14)
 
 
