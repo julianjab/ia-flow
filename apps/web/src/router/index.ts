@@ -5,6 +5,7 @@ import AgentHostView from '@/features/agent-host/AgentHostView.vue'
 import { getSelectedKind, getSelectedServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import DashboardView from '@/views/DashboardView.vue'
+import DevctlView from '@/views/DevctlView.vue'
 import GeneralView from '@/views/GeneralView.vue'
 import MoreView from '@/views/MoreView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
@@ -16,6 +17,13 @@ const routes: RouteRecordRaw[] = [
   // app, así que no lleva sidebar, ni topbar, ni stores de un server que
   // todavía no elegiste.
   { path: '/servers', name: 'servers', component: ServerPickerView },
+
+  // Igual de fuera de AppShell que /servers y por el mismo motivo: controlar
+  // los procesos de dev locales (server, web, los dos agent-host) pasa ANTES
+  // de tener un server elegido — de hecho suele ser el paso que lo hace
+  // posible. Sólo hace algo dentro de la app de escritorio (ver
+  // `features/devctl/api.ts`); en un browser normal se muestra apagado.
+  { path: '/devctl', name: 'devctl', component: DevctlView },
 
   {
     path: '/',
@@ -111,10 +119,12 @@ const router = createRouter({
  * 404s y toasts de error describiendo un problema que no existe.
  *
  * `/servers` queda afuera del corte por lo obvio: es de donde se sale.
+ * `/devctl` igual: no habla con NINGÚN server elegido, así que el tipo
+ * elegido no debería importarle.
  */
 router.beforeEach((to) => {
   if (getSelectedKind() !== 'agent-host') return true
-  if (to.path === '/servers' || to.path.startsWith('/agent-host')) return true
+  if (['/servers', '/devctl'].includes(to.path) || to.path.startsWith('/agent-host')) return true
   return '/agent-host'
 })
 
