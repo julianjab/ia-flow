@@ -48,13 +48,15 @@ function hasMemoryReadTools(tools: AgentToolEntry[] | undefined): boolean {
  * del agente.
  */
 const MEMORY_GUIDANCE =
-  'Tenés memoria persistente entre tus corridas sobre esta tarea. ANTES de ' +
-  'empezar a trabajar, llamá `memory_retrieve` (si sabés bajo qué key ' +
-  'guardaste algo relevante) o `memory_search`/`memory_list` (si no la ' +
-  'sabés) para ver qué dejaste anotado la última vez: decisiones tomadas, ' +
-  'convenciones del repo, gotchas. No asumas que no hay nada guardado — ' +
-  'consultarla es barato, e ignorarla te hace repetir trabajo o pisar una ' +
-  'decisión que ya habías tomado.'
+  'Tenés memoria persistente entre corridas, compartida en TODAS las tareas ' +
+  'de este proyecto (no sólo la de ahora). ANTES de empezar a trabajar, ' +
+  'llamá `memory_retrieve` (si sabés bajo qué key guardaste algo relevante) ' +
+  'o `memory_search`/`memory_list` (si no la sabés) para ver qué dejaste ' +
+  'anotado antes: decisiones tomadas, convenciones del repo, gotchas — y, ' +
+  'si elegiste una salida con `learnings` en una corrida anterior de ESTA ' +
+  'tarea, la vas a encontrar bajo la key `learnings:<id de la tarea>`. No ' +
+  'asumas que no hay nada guardado — consultarla es barato, e ignorarla te ' +
+  'hace repetir trabajo o pisar una decisión que ya habías tomado.'
 
 function pushRef(
   blocks: SystemPromptBlock[],

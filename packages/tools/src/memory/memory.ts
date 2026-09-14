@@ -86,9 +86,20 @@ function renderEntry(e: AgentMemoryEntry): string {
  * grande) se loguea y se descarta en vez de romper el cierre del run —
  * perder una nota es mucho más barato que perder el resultado del run.
  *
- * La key lleva timestamp + runId (no una key estable) porque acá no hay un
- * agente eligiendo bajo qué nombre guardar: cada corrida deja su propia
- * entrada en vez de pisar la anterior.
+ * La key es `learnings:<taskId>` — ESTABLE por tarea, a propósito: la
+ * memoria vive por `(agentId, projectId)`, no por tarea, así que una key con
+ * timestamp (como tenía la primera versión de esto) acumulaba una fila por
+ * cada cierre para siempre — `memory_list`/`memory_search` (lo que el propio
+ * recordatorio del system prompt le pide llamar al arrancar) se iban
+ * llenando de notas viejas de tareas ya cerradas. Con la key fija por tarea,
+ * un segundo `select_exit` con `learnings` sobre la MISMA tarea pisa la nota
+ * anterior en vez de sumar una nueva — mismo criterio que `memory_store`.
+ *
+ * Que la key lleve el `taskId` NO vuelve la memoria "de esa tarea": sigue
+ * siendo la del agente en todo el proyecto, y `memory_list`/`memory_search`
+ * devuelven las entradas de TODAS las tareas mezcladas. El `taskId` en la key
+ * es sólo para que la fila de una tarea no pise la de otra — ver el texto que
+ * `select_exit` y el recordatorio del system prompt le muestran al modelo.
  *
  * Devuelve si efectivamente guardó, para que `select_exit` sólo le confirme
  * al modelo "guardado" cuando de verdad pasó — no queremos que crea que dejó
@@ -96,7 +107,7 @@ function renderEntry(e: AgentMemoryEntry): string {
  */
 export async function storeExitLearnings(
   ctx: ToolContext | undefined,
-  runId: string | undefined,
+  taskId: string,
   value: string,
 ): Promise<boolean> {
   if (!port) return false
@@ -115,7 +126,7 @@ export async function storeExitLearnings(
     )
     return false
   }
-  const key = `learnings:${new Date().toISOString()}${runId ? `:${runId}` : ''}`
+  const key = `learnings:${taskId || 'unknown'}`
   try {
     await port.upsert({ ...ns, key, value: trimmed, updatedAt: new Date().toISOString() })
     log.debug({ agentId: ns.agentId, projectId: ns.projectId, key }, 'exit learnings stored')

@@ -936,6 +936,15 @@ registerTool({
   },
 })
 
+// Nota: la memoria del agente es por (agente, proyecto), NO por tarea —
+// `memory_list`/`memory_search` devuelven las notas de TODAS las tareas
+// mezcladas. Este texto no promete "memoria de esta tarea" por eso mismo;
+// sólo dice que la entrada queda IDENTIFICADA por esta tarea (se pisa si
+// volvés a elegir salida con learnings sobre la misma), ver
+// `storeExitLearnings` en memory.ts para el detalle de la key.
+const SELECT_EXIT_LEARNINGS_DESCRIPTION =
+  'Opcional. Nota para vos mismo si volvés a esta tarea: decisión tomada, convención descubierta, dónde quedó algo. Se guarda sola en tu memoria persistente bajo una entrada de esta tarea (se pisa si la volvés a mandar) — no hace falta llamar memory_store aparte. Tu memoria es compartida entre TODAS las tareas de este agente en el proyecto, así que memory_list/memory_search también te van a mostrar notas de otras tareas.'
+
 registerTool({
   name: 'select_exit',
   internal: true,
@@ -962,8 +971,7 @@ registerTool({
       },
       learnings: {
         type: 'string',
-        description:
-          'Opcional. Notas breves y reusables para la próxima vez que trabajes esta tarea: decisiones tomadas, convenciones descubiertas, gotchas. Se guardan solas en tu memoria persistente — no hace falta llamar memory_store aparte.',
+        description: SELECT_EXIT_LEARNINGS_DESCRIPTION,
       },
     },
     required: ['exit'],
@@ -994,8 +1002,7 @@ registerTool({
         },
         learnings: {
           type: 'string',
-          description:
-            'Opcional. Notas breves y reusables para la próxima vez que trabajes esta tarea: decisiones tomadas, convenciones descubiertas, gotchas. Se guardan solas en tu memoria persistente — no hace falta llamar memory_store aparte.',
+          description: SELECT_EXIT_LEARNINGS_DESCRIPTION,
         },
       },
       required: ['exit'],
@@ -1026,7 +1033,7 @@ registerTool({
     // próxima corrida, no un requisito de esta.
     const learningsSaved =
       typeof input.learnings === 'string' && input.learnings.trim()
-        ? await storeExitLearnings(ctx, ctx?.runId, input.learnings)
+        ? await storeExitLearnings(ctx, taskId, input.learnings)
         : false
     log.info(
       {
