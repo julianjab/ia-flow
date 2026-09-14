@@ -31,18 +31,21 @@ export const ScriptActionSchema = z.object({
     .string()
     .min(1)
     .refine((f) => !f.startsWith('/'), 'la ruta es relativa al repo, no absoluta'),
-  /** Argumentos posicionales. Interpolan `{{event.payload...}}` Y `${SECRETO}`
-   *  —mismo orden y mismo resolver que la acción http (url/headers/body)—, y
-   *  viajan como argv — nunca por una shell, así que un valor con espacios o
-   *  `;` es un argumento y no un comando. */
+  /** Argumentos posicionales. Resuelven `${SECRETO}` y DESPUÉS interpolan
+   *  `{{event.payload...}}` (ese orden, no el inverso: `resolveSecrets` sólo
+   *  puede ver la plantilla de la regla, nunca texto que aportó el evento —
+   *  ver la acción script). Viajan como argv — nunca por una shell, así que
+   *  un valor con espacios o `;` es un argumento y no un comando. */
   args: z.array(z.string()).optional(),
   /**
    * Variables de entorno a pasar, por NOMBRE.
    *
    * Allow-list y no un mapa de valores: el script recibe SÓLO éstas. El VALOR
-   * interpola `{{event...}}` y después `${SECRETO}` (el resolver de
-   * `setSecretResolver`, compartido con los MCP) — así un script puede recibir
-   * un token sin que viva literal en la fila de la regla. Heredar el env del
+   * resuelve `${SECRETO}` (el resolver de `setSecretResolver`, compartido con
+   * los MCP) y DESPUÉS interpola `{{event...}}` — así un script puede recibir
+   * un token sin que viva literal en la fila de la regla, y un evento de
+   * terceros (un PR, un comentario) no puede colar un `${...}` que el
+   * resolver confunda con uno que escribió el operador. Heredar el env del
    * daemon le entregaría a cualquier script el `GITHUB_TOKEN` y el
    * `ANTHROPIC_API_KEY`.
    */

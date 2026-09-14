@@ -25,9 +25,11 @@ const log = createLogger('action:script')
 //      hay expansión ni inyección por interpolar valores del evento.
 //   5. Env de allow-list. El script recibe sólo lo que declara; heredar el env
 //      del daemon le entregaría el GITHUB_TOKEN y el ANTHROPIC_API_KEY. Los
-//      valores (de `env` y de `args`) admiten `${SECRETO}` además de
-//      `{{event...}}` — mismo resolver que la acción http — para que un token
-//      no tenga que vivir literal en la fila de la regla.
+//      valores (de `env` y de `args`) admiten `${SECRETO}` para que un token
+//      no tenga que vivir literal en la regla — resuelto ANTES de interpolar
+//      `{{event...}}`, para que un `${...}` que traiga el EVENTO (el título
+//      de un PR, un comentario) nunca se confunda con uno que escribió el
+//      operador y se cambie por un secreto real.
 //   6. Timeout y tope de salida, los mismos que `bash_run`.
 //
 // Y una que no es una guarda sino una decisión: corre SÓLO local, nunca viaja a
@@ -52,11 +54,17 @@ export interface ScriptActionDeps {
    *  correr y la acción se rechaza. */
   workspaceFor(event: ActionContext['event']): Promise<string | null>
   /**
-   * Resuelve `${SECRETO}` en `args` y en los VALORES de `env`, después de
+   * Resuelve `${SECRETO}` en `args` y en los VALORES de `env`, ANTES de
    * interpolar `{{event...}}`. Mismo resolver que usa la acción `http`
    * (`setSecretResolver`, compartido con los MCP) — así un script que necesita
    * pegarle a la propia API de ia-flow recibe su token por esta vía y no
    * escrito literal en la regla.
+   *
+   * El orden no es arbitrario: `resolveSecrets` no sabe distinguir un
+   * `${...}` que escribió el operador de uno que trae el EVENTO (un PR/issue
+   * de terceros puede tener `${GITHUB_TOKEN}` literal en el título). Resolver
+   * antes de interpolar limita lo que `resolveSecrets` ve a la plantilla de la
+   * regla — nunca al contenido que aportó el evento.
    *
    * Los NOMBRES de `env` siguen siendo la allow-list (sin esto no hay forma de
    * limitar qué recibe el proceso); lo nuevo es de dónde puede salir el VALOR.
@@ -140,17 +148,28 @@ export class ScriptAction implements ActionHandler<ScriptConfig> {
     }
 
     const [bin, ...binArgs] = INTERPRETERS[config.runtime]
+    // `${SECRETO}` resuelve ANTES de `{{event...}}`, sobre la plantilla cruda
+    // de la regla — nunca al revés. La acción http resuelve en el orden
+    // contrario y hereda el mismo riesgo, pero ahí el destino es una URL
+    // externa; acá es argv/env de un proceso local, así que el orden importa
+    // más. Si resolviera después, un campo del evento que un PR/issue puede
+    // escribir (el título, un comentario) con el texto literal
+    // `${GITHUB_TOKEN}` haría que `resolveSecrets` —que no distingue de dónde
+    // vino el `${...}`— lo cambiara por el secreto real. Resolviendo antes,
+    // lo único que puede contener un `${...}` es lo que el OPERADOR escribió
+    // en la regla; el valor que deja el evento ya no vuelve a pasar por acá.
     const args = await Promise.all(
-      (config.args ?? []).map((a) => this.deps.resolveSecrets(interpolate(a, ctx.event))),
+      (config.args ?? []).map(async (a) =>
+        interpolate(await this.deps.resolveSecrets(a), ctx.event),
+      ),
     )
     const argv = [bin, ...binArgs, script, ...args]
 
     // Env de allow-list: SÓLO lo declarado, más el PATH mínimo para encontrar
-    // el intérprete. Nada del env del daemon. El valor pasa por `{{event}}` y
-    // después por `${SECRETO}` — mismo orden que la acción http con url/body.
+    // el intérprete. Nada del env del daemon.
     const env: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin' }
     for (const [k, v] of Object.entries(config.env ?? {})) {
-      env[k] = await this.deps.resolveSecrets(interpolate(v, ctx.event))
+      env[k] = interpolate(await this.deps.resolveSecrets(v), ctx.event)
     }
 
     const timeoutMs = Math.min(config.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
