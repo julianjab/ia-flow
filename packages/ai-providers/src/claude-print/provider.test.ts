@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { EMPTY_WORKSPACE_PLAN, type WorkspacePlan, type WorkspaceRequest } from '@ia-flow/shared'
 import type { ProviderInput } from '../contract.js'
 import { _claudePrintInternals, ClaudePrintProvider, type SpawnedProc } from './provider.js'
 
@@ -72,6 +73,40 @@ describe('ClaudePrintProvider', () => {
     const provider = new ClaudePrintProvider({ log: logSpy() })
     expect(provider.id).toBe('claude-print')
     expect(provider.kind).toBe('sync')
+  })
+
+  describe('prepareWorkspace', () => {
+    const req: WorkspaceRequest = {
+      taskId: 't1',
+      step: 'implement',
+      repos: [{ name: 'subscriptions' }],
+      needsWrite: true,
+    }
+
+    it('sin provisioner, devuelve el plan vacío (fail-open, igual que AnthropicApiProvider)', async () => {
+      const provider = new ClaudePrintProvider({ log: logSpy() })
+      await expect(provider.prepareWorkspace(req)).resolves.toEqual(EMPTY_WORKSPACE_PLAN)
+    })
+
+    it('con provisioner, delega y devuelve su plan', async () => {
+      const plan: WorkspacePlan = {
+        repoPaths: { subscriptions: '/wt/subscriptions' },
+        cwd: '/wt/subscriptions',
+      }
+      let received: WorkspaceRequest | undefined
+      const provider = new ClaudePrintProvider({
+        log: logSpy(),
+        workspace: {
+          prepare: async (r) => {
+            received = r
+            return plan
+          },
+        },
+      })
+
+      await expect(provider.prepareWorkspace(req)).resolves.toEqual(plan)
+      expect(received).toEqual(req)
+    })
   })
 
   it('corre `claude -p <prompt>` y devuelve stdout como content', async () => {
