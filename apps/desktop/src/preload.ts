@@ -32,9 +32,23 @@ import { contextBridge, ipcRenderer } from 'electron'
  * pudimos verificar —el caso de reusar un puerto ajeno en dev— la página
  * simplemente no ve el puente y la web cae a localStorage.
  */
+// ── Procesos de dev locales ──────────────────────────────────────────────
+//
+// El panel de "Procesos locales" (server, web, los dos agent-host) spawnea y
+// mata procesos en la máquina del operador — al menos tan sensible como los
+// tokens de arriba, así que va detrás del mismo flag `--ia-flow-trusted` y el
+// mismo `fromOurPage` del lado del main (ver devctl.ts / main.ts).
+
 if (process.argv.includes('--ia-flow-trusted')) {
   contextBridge.exposeInMainWorld('iaFlowDesktop', {
     loadServers: () => ipcRenderer.invoke('servers:load'),
     saveServers: (servers: unknown) => ipcRenderer.invoke('servers:save', servers),
+    devctl: {
+      status: () => ipcRenderer.invoke('devctl:status'),
+      logs: (id: string) => ipcRenderer.invoke('devctl:logs', id),
+      start: (id: string, mode: 'dev' | 'run', port: number) =>
+        ipcRenderer.invoke('devctl:start', { id, mode, port }),
+      stop: (id: string) => ipcRenderer.invoke('devctl:stop', { id }),
+    },
   })
 }

@@ -35,6 +35,7 @@ import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { start as devctlStart, stop as devctlStop, logsOf, statusAll, stopAll } from './devctl.js'
 import { normalizeList, type StoredList } from './servers-store.js'
 
 /** Lo que ve el renderer cuando no hay nada guardado, o cuando no es él quien pregunta. */
@@ -365,34 +366,38 @@ function migrateLegacyServers(): void {
  * Se registran antes de crear la ventana: el renderer puede pedir la lista en
  * su primer tick, y un `invoke` sin handler rechaza en vez de esperar.
  */
+/**
+ * Sólo contesta a una página del origen que servimos nosotros.
+ *
+ * Cinturón sobre el `will-navigate` de createWindow: si alguna vez se abre un
+ * camino de navegación que ese guard no cubra, los tokens (o el permiso de
+ * spawnear procesos, ver `registerDevctlIpc`) no se entregan igual. Dos
+ * chequeos independientes para el mismo secreto es barato.
+ *
+ * Módulo, no local a `registerServersIpc`: `registerDevctlIpc` necesita el
+ * mismo guard — es el mismo origen confiable, no uno nuevo por feature.
+ */
+function fromOurPage(e: { senderFrame: { url: string } | null }): boolean {
+  const url = e.senderFrame?.url
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    // Los TRES nombres del loopback, y no sólo `localhost`: el arranque
+    // empaquetado normal carga la ventana con lo que devuelve `serveWeb()`,
+    // que es `http://127.0.0.1:<port>`, mientras que la rama de reuso usa
+    // `localhost`. Exigiendo sólo uno, el camino principal quedaba sin
+    // bridge: `servers:load` devolvía [] y `servers:save` era un no-op
+    // SILENCIOSO — agregabas un server con su token, parecía guardarse, y al
+    // reabrir la lista estaba vacía.
+    const loopback = ['localhost', '127.0.0.1', '[::1]', '::1']
+    return parsed.port === String(PORT) && loopback.includes(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
 function registerServersIpc(): void {
   migrateLegacyServers()
-
-  /**
-   * Sólo contesta a una página del origen que servimos nosotros.
-   *
-   * Cinturón sobre el `will-navigate` de createWindow: si alguna vez se abre un
-   * camino de navegación que ese guard no cubra, los tokens no se entregan
-   * igual. Dos chequeos independientes para el mismo secreto es barato.
-   */
-  const fromOurPage = (e: { senderFrame: { url: string } | null }): boolean => {
-    const url = e.senderFrame?.url
-    if (!url) return false
-    try {
-      const parsed = new URL(url)
-      // Los TRES nombres del loopback, y no sólo `localhost`: el arranque
-      // empaquetado normal carga la ventana con lo que devuelve `serveWeb()`,
-      // que es `http://127.0.0.1:<port>`, mientras que la rama de reuso usa
-      // `localhost`. Exigiendo sólo uno, el camino principal quedaba sin
-      // bridge: `servers:load` devolvía [] y `servers:save` era un no-op
-      // SILENCIOSO — agregabas un server con su token, parecía guardarse, y al
-      // reabrir la lista estaba vacía.
-      const loopback = ['localhost', '127.0.0.1', '[::1]', '::1']
-      return parsed.port === String(PORT) && loopback.includes(parsed.hostname)
-    } catch {
-      return false
-    }
-  }
 
   ipcMain.handle('servers:load', (e) => {
     if (!fromOurPage(e as never)) return EMPTY_LIST
@@ -436,6 +441,49 @@ function registerServersIpc(): void {
       // cierre. Avisar es mejor que fallar en silencio.
       process.stderr.write(`[desktop] no pude guardar los servers: ${String(err)}\n`)
     }
+  })
+}
+
+/**
+ * Panel de "Procesos locales" — server, web, y los dos agent-host del repo.
+ *
+ * Mismo guard `fromOurPage` que `servers:*`: spawnear procesos arbitrarios en
+ * la máquina del operador es al menos tan sensible como leerle tokens, así
+ * que una página que no sirvió esta app no ve el bridge (ver preload.ts).
+ *
+ * Sólo tiene sentido en dev (`!PACKAGED`): el bundle empaquetado no trae el
+ * repo, así que no hay `apps/server`/`apps/web`/`apps/agent-host` que
+ * spawnear — los handlers igual se registran (un `invoke` sin handler
+ * rechaza feo) pero devuelven el error explícito.
+ */
+function registerDevctlIpc(): void {
+  ipcMain.handle('devctl:status', async (e) => {
+    if (!fromOurPage(e as never)) return []
+    return statusAll()
+  })
+
+  ipcMain.handle('devctl:logs', (e, id: unknown) => {
+    if (!fromOurPage(e as never)) return []
+    return typeof id === 'string' ? logsOf(id) : []
+  })
+
+  ipcMain.handle('devctl:start', async (e, payload: unknown) => {
+    if (!fromOurPage(e as never)) return { ok: false, error: 'no autorizado' }
+    if (PACKAGED) {
+      return { ok: false, error: 'esta app empaquetada no tiene el repo — sólo funciona en dev' }
+    }
+    const { id, mode, port } = (payload ?? {}) as Record<string, unknown>
+    if (typeof id !== 'string' || typeof mode !== 'string' || typeof port !== 'number') {
+      return { ok: false, error: 'payload inválido' }
+    }
+    return devctlStart(REPO_ROOT, id, mode as 'dev' | 'run', port)
+  })
+
+  ipcMain.handle('devctl:stop', (e, payload: unknown) => {
+    if (!fromOurPage(e as never)) return { ok: false, error: 'no autorizado' }
+    const { id } = (payload ?? {}) as Record<string, unknown>
+    if (typeof id !== 'string') return { ok: false, error: 'payload inválido' }
+    return devctlStop(id)
   })
 }
 
@@ -651,6 +699,7 @@ async function boot(): Promise<void> {
 
 app.whenReady().then(() => {
   registerServersIpc()
+  registerDevctlIpc()
   return boot()
 })
 
@@ -663,9 +712,16 @@ app.on('window-all-closed', () => app.quit())
 // `before-quit` no alcanza: un `kill` al proceso de Electron (o un pkill) no
 // dispara ese evento, y ahí es justamente cuando queda el huérfano. Por eso se
 // atienden también las señales y el exit del proceso.
+//
+// `stopAll()` (devctl) va al lado de `killChild()`: son dos registries
+// separados —éste es el único hijo fijo de la app (la web en dev), aquél son
+// los 4 procesos que el operador levantó a mano desde el panel— pero el mismo
+// motivo de existir: sin esto, cerrar la app con procesos del panel corriendo
+// los deja huérfanos ocupando sus puertos.
 function killChild(): void {
   child?.kill()
   child = null
+  stopAll()
 }
 
 app.on('before-quit', killChild)

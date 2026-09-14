@@ -5,6 +5,7 @@ import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { PROXIED_BASE_URL, currentBaseUrl, selectServer } from '@/features/servers/selection';
 import { useServersStore } from '@/features/servers/store';
 import { computed, onMounted, ref } from 'vue';
+import { RouterLink } from 'vue-router';
 
 const store = useServersStore();
 const newUrl = ref('');
@@ -124,6 +125,11 @@ onMounted(() => {
       <button class="btn" :disabled="store.scanning" @click="store.scan()">
         {{ store.scanning ? 'sondeando…' : 'refrescar' }}
       </button>
+      <!-- Antes de elegir a qué server entrar, a veces hay que levantarlo:
+           el panel de procesos locales sólo hace algo dentro de la app de
+           escritorio (ver features/devctl/api.ts), pero el link vive acá
+           para todos porque es el punto natural de entrada. -->
+      <RouterLink to="/devctl" class="btn btn--ghost">procesos locales</RouterLink>
 
       <form class="add" @submit.prevent="add">
         <input
