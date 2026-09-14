@@ -123,10 +123,31 @@ describe('ScriptAction — las guardas', () => {
     expect(Object.keys(env).sort()).toEqual(['PATH', 'PR'])
   })
 
-  // 5b. `${SECRETO}` resuelve DESPUÉS de `{{event...}}`, en `env` Y en `args` —
-  //     mismo resolver que la acción http, para que un script pueda recibir un
-  //     token sin que viva literal en la fila de la regla.
-  test('${SECRETO} resuelve en env y en args, después de {{event}}', async () => {
+  // 5b. `${SECRETO}` resuelve ANTES de `{{event...}}`, nunca al revés: un
+  //     evento de terceros (título de PR, comentario) con el texto literal
+  //     `${IA_FLOW_API_TOKEN}` no puede colarse como si lo hubiera escrito el
+  //     operador — `resolveSecrets` sólo ve la plantilla de la regla.
+  test('un `${SECRETO}` que trae el EVENTO no se resuelve', async () => {
+    const resolveSecrets = async (input: string) => input.replace('${IA_FLOW_API_TOKEN}', 'tok-123')
+    const { a, calls } = action({ resolveSecrets })
+    await a.execute(
+      ctx({ pr: { title: '${IA_FLOW_API_TOKEN}' } }),
+      config({
+        args: ['--title', '{{event.payload.pr.title}}'],
+        env: { TITLE: '{{event.payload.pr.title}}' },
+      }),
+    )
+
+    expect(calls[0]?.argv).toEqual(['bash', '/repo/ok.sh', '--title', '${IA_FLOW_API_TOKEN}'])
+    const env = calls[0]?.opts.env as Record<string, string>
+    expect(env.TITLE).toBe('${IA_FLOW_API_TOKEN}')
+    expect(calls[0]?.argv.join(' ')).not.toContain('tok-123')
+    expect(env.TITLE).not.toContain('tok-123')
+  })
+
+  // 5c. `${SECRETO}` sí resuelve cuando lo escribió el OPERADOR (la plantilla
+  //     de la regla), en `env` Y en `args`.
+  test('un `${SECRETO}` de la REGLA sí resuelve, en env y en args', async () => {
     const resolveSecrets = async (input: string) => input.replace('${IA_FLOW_API_TOKEN}', 'tok-123')
     const { a, calls } = action({ resolveSecrets })
     await a.execute(
