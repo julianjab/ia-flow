@@ -546,6 +546,7 @@ describe('agnostic task tools route via ITaskSource', () => {
       expect(memoryRows[0]).toMatchObject({
         agentId: 'builder',
         projectId: 'p1',
+        key: `learnings:${TASK_ID}`,
         value: 'La migración 070 rompe el seed viejo.',
       })
       expect(result).toContain('Learnings guardados')
