@@ -76,5 +76,10 @@ mac:
   # Firmar es meter un secreto en CI; mientras el consumidor sea uno, no paga.
   identity: null
 
+# El título es el nombre del volumen montado durante el empaquetado. Sin
+# ${arch}, los dos DMGs de `mac.target` (arm64 y x64) montan un volumen con
+# el MISMO nombre y compiten por él en la misma corrida — el segundo `hdiutil
+# detach` termina apuntando al volumen equivocado (o ya desmontado) y falla
+# tras varios reintentos, tirando el job entero.
 dmg:
-  title: IA Flow ${version}
+  title: IA Flow ${version} ${arch}
