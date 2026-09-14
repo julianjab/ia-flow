@@ -12,6 +12,7 @@ import {
 } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
+import { type AgentMemoryPort, setAgentMemoryPort } from '../../memory/memory.js'
 
 import '../submit-output.js'
 import '../task.js'
@@ -495,6 +496,85 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(calls.applyTransition).toEqual([
       { task: expect.objectContaining({ status: 'Blocked' }), status: 'Review' },
     ])
+  })
+
+  describe('select_exit con learnings', () => {
+    let memoryRows: Array<{ agentId: string; projectId: string; key: string; value: string }>
+    let memoryPort: AgentMemoryPort
+
+    beforeEach(() => {
+      memoryRows = []
+      memoryPort = {
+        async get() {
+          return null
+        },
+        async list() {
+          return []
+        },
+        async search() {
+          return []
+        },
+        async upsert(entry) {
+          memoryRows.push(entry)
+        },
+        async deleteByKey() {
+          return false
+        },
+      }
+      setAgentMemoryPort(memoryPort)
+    })
+
+    afterEach(() => {
+      setAgentMemoryPort(null)
+    })
+
+    it('guarda los learnings en la memoria del agente al elegir la salida', async () => {
+      registerPendingTask(TASK_ID, {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        exits: { success: 'Done', review: 'Review' },
+        agentId: 'builder',
+        projectId: 'p1',
+      })
+      const result = await getTool('select_exit')!.execute(
+        { task_id: TASK_ID, exit: 'review', learnings: 'La migración 070 rompe el seed viejo.' },
+        { repoPaths: {}, agentId: 'builder', projectId: 'p1' },
+      )
+      expect(memoryRows).toHaveLength(1)
+      expect(memoryRows[0]).toMatchObject({
+        agentId: 'builder',
+        projectId: 'p1',
+        value: 'La migración 070 rompe el seed viejo.',
+      })
+      expect(result).toContain('Learnings guardados')
+    })
+
+    it('no guarda nada cuando no viene `learnings`', async () => {
+      await getTool('select_exit')!.execute(
+        { task_id: TASK_ID, exit: 'success' },
+        { repoPaths: {}, agentId: 'builder', projectId: 'p1' },
+      )
+      expect(memoryRows).toHaveLength(0)
+    })
+
+    it('un learnings en blanco no cuenta como presente', async () => {
+      await getTool('select_exit')!.execute(
+        { task_id: TASK_ID, exit: 'success', learnings: '   ' },
+        { repoPaths: {}, agentId: 'builder', projectId: 'p1' },
+      )
+      expect(memoryRows).toHaveLength(0)
+    })
+
+    it('sin memoria cableada, la elección de salida no falla', async () => {
+      setAgentMemoryPort(null)
+      const result = await getTool('select_exit')!.execute(
+        { task_id: TASK_ID, exit: 'success', learnings: 'algo' },
+        { repoPaths: {}, agentId: 'builder', projectId: 'p1' },
+      )
+      expect(result).toContain("Se cerrará el run por la salida 'success'")
+    })
   })
 
   it('fail_task posts a structured error comment AND persists error state via postError', async () => {

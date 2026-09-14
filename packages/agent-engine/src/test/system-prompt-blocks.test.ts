@@ -97,4 +97,45 @@ describe('resolveSystemPromptBlocks', () => {
     )
     expect(blocks).toEqual([{ type: 'text', text: 'shared text' }])
   })
+
+  describe('recordatorio de memoria', () => {
+    test('no agrega nada cuando el agente no declara ninguna tool memory_*', () => {
+      const blocks = resolveSystemPromptBlocks({ tools: ['fs_read', 'bash_run'] }, {})
+      expect(blocks).toEqual([])
+    })
+
+    test('agrega el recordatorio cuando el agente declara memory_retrieve', () => {
+      const blocks = resolveSystemPromptBlocks({ tools: ['memory_retrieve'] }, {})
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].text).toContain('memory_retrieve')
+    })
+
+    test('también dispara con memory_search o memory_list, sin memory_retrieve', () => {
+      expect(resolveSystemPromptBlocks({ tools: ['memory_search'] }, {})).toHaveLength(1)
+      expect(resolveSystemPromptBlocks({ tools: ['memory_list'] }, {})).toHaveLength(1)
+    })
+
+    test('va al final, después de los bloques de systemPrompts del agente y del proyecto', () => {
+      const blocks = resolveSystemPromptBlocks(
+        { systemPrompts: [{ text: 'agent text' }], tools: ['memory_retrieve'] },
+        { project: { systemPrompts: [{ text: 'project text' }] } },
+      )
+      expect(blocks).toEqual([
+        { type: 'text', text: 'project text' },
+        { type: 'text', text: 'agent text' },
+        expect.objectContaining({ type: 'text' }),
+      ])
+      expect(blocks[2].text).toContain('memory_retrieve')
+    })
+
+    // `tools[]` también acepta la forma larga de bash_run ({name: 'bash_run', ...}) —
+    // no debe reventar al leer `.name` de una entrada no-string.
+    test('no falla con una entrada de tools en forma larga (bash_run)', () => {
+      const blocks = resolveSystemPromptBlocks(
+        { tools: [{ name: 'bash_run', allow: [], deny: [] }] },
+        {},
+      )
+      expect(blocks).toEqual([])
+    })
+  })
 })
