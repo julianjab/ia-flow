@@ -16,6 +16,7 @@
 // (2) no se duplica si el agente también lo referencia en (3).
 import type {
   AgentDefinition,
+  AgentToolEntry,
   ProjectConfig,
   SystemPromptDef,
   SystemPromptRef,
@@ -25,6 +26,35 @@ export interface SystemPromptBlock {
   type: 'text'
   text: string
 }
+
+// Cualquiera de las tres basta para que valga la pena avisarle al agente que
+// consulte su memoria — no exigimos las tres porque un agente puede declarar
+// sólo `memory_retrieve` (sabe la key) o sólo `memory_search`/`memory_list`
+// (no la sabe).
+const MEMORY_READ_TOOLS = new Set(['memory_retrieve', 'memory_search', 'memory_list'])
+
+function hasMemoryReadTools(tools: AgentToolEntry[] | undefined): boolean {
+  if (!tools?.length) return false
+  return tools.some((t) => MEMORY_READ_TOOLS.has(typeof t === 'string' ? t : t.name))
+}
+
+/**
+ * Recordatorio explícito de usar la memoria — sin esto, un agente con las
+ * tools `memory_*` habilitadas no las llama de forma consistente sólo porque
+ * están disponibles: un LLM no invoca una tool espontáneamente en cada
+ * corrida a menos que el prompt se lo pida. Va al FINAL de los bloques (no al
+ * principio) para que quede como lo último que el agente lee antes de
+ * arrancar a trabajar, después de todo el contexto específico del proyecto y
+ * del agente.
+ */
+const MEMORY_GUIDANCE =
+  'Tenés memoria persistente entre tus corridas sobre esta tarea. ANTES de ' +
+  'empezar a trabajar, llamá `memory_retrieve` (si sabés bajo qué key ' +
+  'guardaste algo relevante) o `memory_search`/`memory_list` (si no la ' +
+  'sabés) para ver qué dejaste anotado la última vez: decisiones tomadas, ' +
+  'convenciones del repo, gotchas. No asumas que no hay nada guardado — ' +
+  'consultarla es barato, e ignorarla te hace repetir trabajo o pisar una ' +
+  'decisión que ya habías tomado.'
 
 function pushRef(
   blocks: SystemPromptBlock[],
@@ -45,7 +75,7 @@ function pushRef(
 }
 
 export function resolveSystemPromptBlocks(
-  agentDef: Pick<AgentDefinition, 'systemPrompts'>,
+  agentDef: Pick<AgentDefinition, 'systemPrompts' | 'tools'>,
   config: Pick<ProjectConfig, 'project' | 'systemPrompts'>,
 ): SystemPromptBlock[] {
   const blocks: SystemPromptBlock[] = []
@@ -64,6 +94,10 @@ export function resolveSystemPromptBlocks(
 
   for (const ref of agentDef.systemPrompts ?? []) {
     pushRef(blocks, includedIds, ref, config.systemPrompts)
+  }
+
+  if (hasMemoryReadTools(agentDef.tools)) {
+    blocks.push({ type: 'text', text: MEMORY_GUIDANCE })
   }
 
   return blocks

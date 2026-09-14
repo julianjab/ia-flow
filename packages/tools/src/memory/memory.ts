@@ -75,6 +75,57 @@ function renderEntry(e: AgentMemoryEntry): string {
   return `- ${e.key} (actualizado ${e.updatedAt}): ${preview}`
 }
 
+/**
+ * Guarda los `learnings` que un agente deja al elegir su salida
+ * (`select_exit`), sin pasar por una llamada de tool aparte — el modelo ya
+ * decidió guardarlos como parte de la MISMA llamada que cierra el run.
+ *
+ * Best-effort y silencioso a propósito: a diferencia de `memory_store`, acá
+ * no hay vuelta atrás para que el modelo corrija (el run ya está cerrando),
+ * así que un fallo (memoria no cableada, sin `agentId`, value demasiado
+ * grande) se loguea y se descarta en vez de romper el cierre del run —
+ * perder una nota es mucho más barato que perder el resultado del run.
+ *
+ * La key lleva timestamp + runId (no una key estable) porque acá no hay un
+ * agente eligiendo bajo qué nombre guardar: cada corrida deja su propia
+ * entrada en vez de pisar la anterior.
+ *
+ * Devuelve si efectivamente guardó, para que `select_exit` sólo le confirme
+ * al modelo "guardado" cuando de verdad pasó — no queremos que crea que dejó
+ * una nota cuando la memoria no estaba cableada.
+ */
+export async function storeExitLearnings(
+  ctx: ToolContext | undefined,
+  runId: string | undefined,
+  value: string,
+): Promise<boolean> {
+  if (!port) return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  const ns = resolveNamespace(ctx, 'project')
+  if ('error' in ns) {
+    log.warn({ reason: ns.error }, 'No se pudieron guardar los learnings del exit')
+    return false
+  }
+  const bytes = Buffer.byteLength(trimmed, 'utf8')
+  if (bytes > AGENT_MEMORY_VALUE_MAX_BYTES) {
+    log.warn(
+      { agentId: ns.agentId, bytes, max: AGENT_MEMORY_VALUE_MAX_BYTES },
+      'Learnings del exit descartados: exceden el tope de memoria',
+    )
+    return false
+  }
+  const key = `learnings:${new Date().toISOString()}${runId ? `:${runId}` : ''}`
+  try {
+    await port.upsert({ ...ns, key, value: trimmed, updatedAt: new Date().toISOString() })
+    log.debug({ agentId: ns.agentId, projectId: ns.projectId, key }, 'exit learnings stored')
+    return true
+  } catch (err) {
+    log.warn({ err, agentId: ns.agentId }, 'No se pudieron guardar los learnings del exit')
+    return false
+  }
+}
+
 registerTool({
   name: 'memory_store',
   description:

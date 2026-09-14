@@ -12,6 +12,7 @@ import { ERROR_EXIT, exitSet, resolveCommentTarget, SUCCESS_EXIT } from '@ia-flo
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
+import { storeExitLearnings } from '../memory/memory.js'
 import { describeField, validateOutput } from './submit-output.js'
 
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
@@ -959,6 +960,11 @@ registerTool({
         type: 'string',
         description: 'Nombre de una de las salidas declaradas por este agente.',
       },
+      learnings: {
+        type: 'string',
+        description:
+          'Opcional. Notas breves y reusables para la próxima vez que trabajes esta tarea: decisiones tomadas, convenciones descubiertas, gotchas. Se guardan solas en tu memoria persistente — no hace falta llamar memory_store aparte.',
+      },
     },
     required: ['exit'],
   },
@@ -986,6 +992,11 @@ registerTool({
           enum: declared.map((e) => e.name),
           description: `Salida por la que cerrar el run.${detail}`,
         },
+        learnings: {
+          type: 'string',
+          description:
+            'Opcional. Notas breves y reusables para la próxima vez que trabajes esta tarea: decisiones tomadas, convenciones descubiertas, gotchas. Se guardan solas en tu memoria persistente — no hace falta llamar memory_store aparte.',
+        },
       },
       required: ['exit'],
     }
@@ -994,7 +1005,7 @@ registerTool({
     return (opts?.selectableExits ?? []).length === 0
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
-    const input = rawInput as { task_id?: string; exit: string }
+    const input = rawInput as { task_id?: string; exit: string; learnings?: string }
     const taskId = input.task_id ?? ctx?.taskId ?? ''
     const resolved = await resolvePendingTask(taskId, ctx?.runId)
     if (!resolved) {
@@ -1011,6 +1022,12 @@ registerTool({
       )
     }
     entry.chosenExit = input.exit
+    // No condiciona el cierre: guardar la nota es una comodidad para la
+    // próxima corrida, no un requisito de esta.
+    const learningsSaved =
+      typeof input.learnings === 'string' && input.learnings.trim()
+        ? await storeExitLearnings(ctx, ctx?.runId, input.learnings)
+        : false
     log.info(
       {
         event: 'agent.exit.selected',
@@ -1020,7 +1037,9 @@ registerTool({
       },
       'Salida elegida por el agente',
     )
-    return `Se cerrará el run por la salida '${input.exit}'.`
+    return `Se cerrará el run por la salida '${input.exit}'.${
+      learningsSaved ? ' Learnings guardados en tu memoria.' : ''
+    }`
   },
 })
 
