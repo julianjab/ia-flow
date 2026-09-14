@@ -24,6 +24,16 @@ describe('isAllowedOrigin', () => {
     expect(isAllowedOrigin('https://consola.interna', ['https://consola.interna'])).toBe(true)
     expect(isAllowedOrigin('https://otra.interna', ['https://consola.interna'])).toBe(false)
   })
+
+  it('un extra con `.` inicial matchea el dominio pelado y cualquier subdominio', () => {
+    expect(isAllowedOrigin('https://julianjab.link', ['.julianjab.link'])).toBe(true)
+    expect(isAllowedOrigin('https://app.julianjab.link', ['.julianjab.link'])).toBe(true)
+    expect(isAllowedOrigin('https://agent-host-be.julianjab.link', ['.julianjab.link'])).toBe(true)
+    // Sufijo textual, no de dominio: no matchea un hostname que sólo termina
+    // en las mismas letras sin el punto de separación.
+    expect(isAllowedOrigin('https://eviljulianjab.link', ['.julianjab.link'])).toBe(false)
+    expect(isAllowedOrigin('https://otra.com', ['.julianjab.link'])).toBe(false)
+  })
 })
 
 describe('envCorsOrigins', () => {
