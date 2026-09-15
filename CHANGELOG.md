@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/julianjab/ia-flow/compare/v1.12.0...v1.12.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **tools:** evitar 400 de assistant-message prefill al reintentar pause_turn ([#245](https://github.com/julianjab/ia-flow/issues/245)) ([89ac489](https://github.com/julianjab/ia-flow/commit/89ac4893f835f3670f76584be21c79c2d1d4ef9c))
+
 ## [1.12.0](https://github.com/julianjab/ia-flow/compare/v1.11.1...v1.12.0) (2026-09-14)
 
 
