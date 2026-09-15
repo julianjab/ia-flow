@@ -372,12 +372,15 @@ describe('executeLoop — pause_turn retry', () => {
     // be dropped — only the last response's blocks would otherwise survive.
     expect(result.text).toBe('paused 1paused 2resumed')
     expect(calls.length).toBe(3)
-    // Second call must be exactly [user, assistant(paused #1)] — no new
-    // user message injected, no history stripped, nothing appended beyond
-    // the paused assistant turn from the previous response.
+    // Second call must be [user, assistant(paused #1), user(nudge)] — no
+    // history stripped, and a trivial continuation nudge appended after the
+    // paused assistant turn so the array never ends in `assistant` (models
+    // running with extended thinking 400 on that implicit prefill —
+    // la-haus/subscriptions#1496).
     expect(calls[1]).toEqual([
       { role: 'user', content: 'x' },
       { role: 'assistant', content: [{ type: 'text', text: 'paused 1' }] },
+      { role: 'user', content: 'Continuá.' },
     ])
   })
 
