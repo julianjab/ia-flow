@@ -468,16 +468,27 @@ function handleUnresolvedServerToolUse(ctx: LoopStepContext, state: LoopState): 
 // Anthropic request, independent of `task_budget` — and paused the turn to
 // hand control back to us. Per Anthropic's docs
 // (platform.claude.com/docs/en/build-with-claude/handling-stop-reasons), the
-// correct continuation is resending the message list UNCHANGED: the caller
-// already pushed the paused assistant turn, so simply looping back and
-// re-calling `fetchApi(messages)` does exactly that. Bounded by
-// `maxPauseTurnRetries` (DEFAULT_MAX_PAUSE_TURN_RETRIES unless the agent or
-// the provider settings override it) so a model that keeps re-triggering the
-// server-tool cap can't loop forever. The bound is what makes a non-zero
-// default safe: with 0, a SINGLE pause — which any agent doing a handful of
-// remote MCP round-trips in one turn hits routinely — killed the whole run as
-// `truncated`, which is strictly worse than paying a resend whose history the
-// API already has cached.
+// correct continuation is resending the message list unchanged: the caller
+// already pushed the paused assistant turn (see `executeLoop`, the
+// `messages.push({role: 'assistant', ...})` before this runs), and this
+// branch only fires when that turn left no pending client `tool_use` — so at
+// this point the array always ends in that `assistant` turn. Looping back
+// with the array as-is is an implicit "prefill" continuation, which works
+// for a plain model but 400s outright — "This model does not support
+// assistant message prefill. The conversation must end with a user
+// message." — when the agent runs with extended thinking
+// (la-haus/subscriptions#1496). Appending a trivial nudge turns the resend
+// into an explicit continuation instead: harmless for a model that would've
+// accepted the implicit prefill, and the only way to unblock one that
+// won't. Bounded by `maxPauseTurnRetries` (DEFAULT_MAX_PAUSE_TURN_RETRIES
+// unless the agent or the provider settings override it) so a model that
+// keeps re-triggering the server-tool cap can't loop forever. The bound is
+// what makes a non-zero default safe: with 0, a SINGLE pause — which any
+// agent doing a handful of remote MCP round-trips in one turn hits
+// routinely — killed the whole run as `truncated`, which is strictly worse
+// than paying a resend whose history the API already has cached.
+const PAUSE_TURN_CONTINUE_MESSAGE = 'Continuá.'
+
 function handlePauseTurn(ctx: LoopStepContext, state: LoopState): LoopStepDecision {
   if (state.pauseTurnRetries < ctx.maxPauseTurnRetries) {
     state.pauseTurnRetries++
@@ -490,6 +501,7 @@ function handlePauseTurn(ctx: LoopStepContext, state: LoopState): LoopStepDecisi
       },
       'pause_turn — resuming turn unchanged',
     )
+    ctx.messages.push({ role: 'user', content: PAUSE_TURN_CONTINUE_MESSAGE })
     return { action: 'continue' }
   }
   return { action: 'return', result: truncatedResult(ctx, state) }
