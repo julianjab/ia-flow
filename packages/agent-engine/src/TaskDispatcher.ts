@@ -60,9 +60,18 @@ const DEFAULT_CANCEL_COOLDOWN_MS = 2 * 60_000
 // Deliberately short and keyed on (taskId, ruleId), not just taskId: a
 // DIFFERENT rule matching right after (e.g. `build` picking up a
 // `back-to-build` transition) is legitimate follow-up work, not a replay of
-// the same race — gating on ruleId lets that through unaffected. Deferred
-// dispatches aren't lost: `SourceDispatcher`'s backlog replays them once
-// capacity frees, by which point GitHub's read side has settled.
+// the same race — gating on ruleId lets that through unaffected.
+//
+// This gate returns `'skipped'`, NOT `'deferred'`: `SourceDispatcher`'s
+// backlog (`source-dispatcher.ts`) replays a deferred item VERBATIM — same
+// `IssueItem`, same pre-selected `agentId` — without re-fetching the source
+// or re-running `selectAgent` (`dispatch()` doesn't re-check `when`
+// conditions itself; that already happened before `dispatch` was called).
+// So `'deferred'` here would just delay the exact same duplicate by
+// `sameRuleCooldownMs` instead of preventing it — the replayed item's
+// `labels` snapshot never gets refreshed to see `reviewed`. Dropping it
+// is safe: if the race really was hiding legitimate new work, a fresh
+// webhook/scan re-runs `selectAgent` against current state on its own.
 const DEFAULT_SAME_RULE_COOLDOWN_MS = 10_000
 
 // El único provider que drena `RunMessagePort` EN VIVO —
@@ -298,7 +307,7 @@ export class TaskDispatcher {
           elapsedMs,
           cooldownMs: this.sameRuleCooldownMs,
         },
-        `${issueRef(item)} ya corrió la regla '${ruleId}' hace ${elapsedMs}ms — difiero para darle tiempo a GitHub de reflejar el resultado antes de re-evaluar el 'when'`,
+        `${issueRef(item)} ya corrió la regla '${ruleId}' hace ${elapsedMs}ms — descarto este dispatch (probable duplicado por lag de lectura de GitHub); si era trabajo real, un evento fresco lo va a re-disparar`,
       )
     }
     return inCooldown
@@ -504,8 +513,13 @@ export class TaskDispatcher {
     // arriba: evita que un evento duplicado/tardío para la MISMA transición
     // re-dispare la MISMA regla contra la MISMA task antes de que GitHub
     // refleje el resultado (label/status) que esa regla acaba de escribir.
+    // `skipped`, NO `deferred` — a diferencia del cooldown de arriba, acá no
+    // hay nada que ganar reintentando: el backlog de `SourceDispatcher`
+    // replayaría el mismo `IssueItem` stale con el mismo `agentId` ya
+    // elegido, sin volver a consultar GitHub ni re-evaluar la regla, así
+    // que `deferred` sólo pospondría el mismo duplicado.
     if (this.isInSameRuleCooldown(item, agent, ruleId, projectId)) {
-      return 'deferred'
+      return 'skipped'
     }
 
     // Blocker gate: unless the matched agent explicitly opts into
