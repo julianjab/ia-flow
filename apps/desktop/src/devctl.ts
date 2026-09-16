@@ -14,12 +14,9 @@
 // el operador. Ver el README actualizado.
 
 import type { ChildProcess } from 'node:child_process'
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
 
 export type DevMode = 'dev' | 'run'
 
@@ -192,93 +189,12 @@ function enrichedPath(): string {
   ].join(':')
 }
 
-const LHTB_TIMEOUT_MS = 5_000
-
-/** `lhtb` puede vivir en Homebrew o `~/.local/bin` — el PATH mínimo con el
- *  que arranca la app desde el Finder no alcanza para encontrarlo, mismo
- *  motivo que `enrichedPath()` existe para el `spawn` de abajo. */
-function lhtbExecOpts() {
-  return { env: { ...process.env, PATH: enrichedPath() }, timeout: LHTB_TIMEOUT_MS }
-}
-
-const LHTB_CACHE_TTL_MS = 5 * 60_000
-
-let lhtbEnvCache: { at: number; promise: Promise<Record<string, string>> } | null = null
-
-/**
- * Secretos administrados por `lhtb meta envs` (macOS Keychain) que faltan en
- * el env de esta app — abierta desde el Finder no hereda el shell del
- * operador, así que `GITHUB_TOKEN`/`SLACK_BOT_TOKEN`/etc. suelen faltar acá
- * aunque estén en el Keychain. `process.env` siempre gana en `start`; esto
- * sólo rellena huecos con lo que `lhtb meta envs list` diga que administra —
- * ninguna lista hardcodeada, para no desincronizarse si el toolbox agrega o
- * saca un secreto.
- *
- * Sin `lhtb` instalado, o sin ese secreto en el Keychain, esto NO bloquea el
- * start: el proceso arranca igual, sin esa var — mismo comportamiento que
- * antes de que esto existiera. `timeout` en cada llamada es la contraparte:
- * un lookup que se cuelga (Keychain bloqueado, pidiendo el password de
- * login) no puede trabar `start()` para siempre.
- *
- * El cache tiene TTL, no vive para siempre: un resultado vacío o parcial por
- * cualquier motivo transitorio (login keychain bloqueado, `security` negando
- * el acceso puntual) se reintenta solo a los 5' en vez de quedar pegado hasta
- * reiniciar la app.
- */
-async function lhtbEnv(): Promise<Record<string, string>> {
-  const stale = !lhtbEnvCache || Date.now() - lhtbEnvCache.at > LHTB_CACHE_TTL_MS
-  if (stale) {
-    const promise = resolveLhtbEnv().catch((err) => {
-      lhtbEnvCache = null
-      throw err
-    })
-    lhtbEnvCache = { at: Date.now(), promise }
-  }
-  return (lhtbEnvCache as NonNullable<typeof lhtbEnvCache>).promise.catch(() => ({}))
-}
-
-const VALID_ENV_NAME = /^[A-Z_][A-Z0-9_]*$/
-
-async function resolveLhtbEnv(): Promise<Record<string, string>> {
-  const { stdout } = await execFileAsync('lhtb', ['meta', 'envs', 'list'], lhtbExecOpts())
-  const names = stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => VALID_ENV_NAME.test(l))
-
-  const env: Record<string, string> = {}
-  // Serial, no `Promise.all`: cada lectura pasa por `/usr/bin/security`, y
-  // lanzarlas todas juntas puede disparar varios diálogos de Keychain a la
-  // vez si el ACL no autoriza la lectura silenciosa.
-  for (const name of names) {
-    if (process.env[name]?.trim()) continue
-    try {
-      const { stdout } = await execFileAsync('lhtb', ['meta', 'envs', 'get', name], lhtbExecOpts())
-      const value = stdout.trim()
-      if (value) env[name] = value
-    } catch (err) {
-      // Un `get` que sale con error de proceso (timeout, matado, sin
-      // spawnear) casi siempre significa Keychain bloqueado — TODOS los
-      // `get` restantes fallarían igual, así que cortamos y dejamos que
-      // `lhtbEnv()` no cachee nada, en vez de gastar `timeout * N` en
-      // reintentos que van a fallar. Un exit no-cero simple (`no encontrado`)
-      // es la ausencia esperada de un secreto puntual: se saltea y sigue.
-      const proc = err as { killed?: boolean; signal?: string | null; code?: unknown }
-      // Un exit-code numérico es "no encontrado" (falla esperada, puntual).
-      // `killed`/`signal` (timeout) o un `code` no-numérico (ENOENT: no se
-      // pudo ni spawnear `lhtb`) son infra rota — no vale la pena seguir.
-      if (proc.killed || proc.signal || typeof proc.code !== 'number') throw err
-    }
-  }
-  return env
-}
-
 /** Ids con un `start` en curso, entre el chequeo de `tracked` y el
- *  `tracked.set` de más abajo — esa ventana ahora cruza dos `await`
- *  (`isPortOpen`, `lhtbEnv`) que pueden tardar segundos con el Keychain
- *  bloqueado. Sin esto, dos `start` superpuestos del mismo id pasan los dos
- *  el chequeo y levantan dos procesos; el segundo pisa la entrada del
- *  primero en `tracked` y lo deja huérfano, sin forma de pararlo. */
+ *  `tracked.set` de más abajo — esa ventana cruza el `await isPortOpen`. Sin
+ *  esto, dos `start` superpuestos del mismo id (doble click en el panel)
+ *  pasan los dos el chequeo y levantan dos procesos; el segundo pisa la
+ *  entrada del primero en `tracked` y lo deja huérfano, sin forma de
+ *  pararlo. */
 const starting = new Set<string>()
 
 export async function start(
@@ -310,17 +226,7 @@ export async function start(
     // en main.ts para el caso más simple de un solo comando.
     const child = spawn('/bin/sh', ['-c', spec.commands[mode]], {
       cwd: join(repoRoot, spec.cwd),
-      // `process.env` primero, `lhtbEnv()` encima: `lhtbEnv()` sólo trae
-      // nombres que YA estaban vacíos/ausentes en `process.env` (mismo
-      // chequeo `?.trim()`), así que aplicarlo después nunca pisa un valor
-      // real — sólo tapa el hueco. Al revés, un `GITHUB_TOKEN=""` heredado
-      // (variable exportada vacía) volvía a ganarle al valor del Keychain.
-      env: {
-        ...process.env,
-        ...(await lhtbEnv()),
-        [spec.portEnvVar]: String(port),
-        PATH: enrichedPath(),
-      },
+      env: { ...process.env, [spec.portEnvVar]: String(port), PATH: enrichedPath() },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     })
