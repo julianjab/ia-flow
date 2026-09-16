@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/julianjab/ia-flow/compare/v1.12.1...v1.12.2) (2026-09-16)
+
+
+### Bug Fixes
+
+* **agent-engine:** defer/skip redispatch of the same rule within a short cooldown ([#247](https://github.com/julianjab/ia-flow/issues/247)) ([b1431a3](https://github.com/julianjab/ia-flow/commit/b1431a3ab5767a09b994ffed4f6d5c03d496c26d))
+
 ## [1.12.1](https://github.com/julianjab/ia-flow/compare/v1.12.0...v1.12.1) (2026-09-15)
 
 
