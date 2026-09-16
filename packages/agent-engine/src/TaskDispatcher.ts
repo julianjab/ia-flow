@@ -39,6 +39,41 @@ const log = createLogger('task-dispatcher')
 // sin motivo.
 const DEFAULT_CANCEL_COOLDOWN_MS = 2 * 60_000
 
+// How long after ANY finished run of a given (task, rule) pair to hold off
+// re-dispatching that SAME rule against that SAME task. A rule typically
+// excludes its own success/error marker from its `when` (e.g. `30-review.
+// yaml`'s `item.labels != 'reviewed'`) so it doesn't re-match once its own
+// outcome lands — but that exclusion is only as fresh as the next read of
+// GitHub, and GitHub's own read replicas lag behind a write by up to a
+// couple of seconds. Diagnosed on lh-seller-v2-frontend#4096
+// (2026-09-16): the `reviewer` agent finished, the engine PUT the `reviewed`
+// label, and ~1.7s later an `issue.status_changed` webhook for that same
+// transition was evaluated against a GraphQL read that still hadn't caught
+// up — `item.labels != 'reviewed'` still matched, `review` fired `reviewer`
+// a second time, and the PR got two near-identical reviews posted seconds
+// apart. The first near-simultaneous webhook WAS caught, but only because
+// the pending-task registry entry for the previous run hadn't been cleared
+// yet — that guard closes the instant the run's own bookkeeping (comment +
+// label writes) finishes, well before GitHub's read side has necessarily
+// caught up.
+//
+// Deliberately short and keyed on (taskId, ruleId), not just taskId: a
+// DIFFERENT rule matching right after (e.g. `build` picking up a
+// `back-to-build` transition) is legitimate follow-up work, not a replay of
+// the same race — gating on ruleId lets that through unaffected.
+//
+// This gate returns `'skipped'`, NOT `'deferred'`: `SourceDispatcher`'s
+// backlog (`source-dispatcher.ts`) replays a deferred item VERBATIM — same
+// `IssueItem`, same pre-selected `agentId` — without re-fetching the source
+// or re-running `selectAgent` (`dispatch()` doesn't re-check `when`
+// conditions itself; that already happened before `dispatch` was called).
+// So `'deferred'` here would just delay the exact same duplicate by
+// `sameRuleCooldownMs` instead of preventing it — the replayed item's
+// `labels` snapshot never gets refreshed to see `reviewed`. Dropping it
+// is safe: if the race really was hiding legitimate new work, a fresh
+// webhook/scan re-runs `selectAgent` against current state on its own.
+const DEFAULT_SAME_RULE_COOLDOWN_MS = 10_000
+
 // El único provider que drena `RunMessagePort` EN VIVO —
 // `packages/ai-providers/src/anthropic-api/provider.ts` es el único que
 // cablea `drainMessages: input.drainMessages` en su loop de tools. Un run
@@ -100,6 +135,7 @@ export class TaskDispatcher {
     // abajo para el porqué de encolar en vez de perder el `brief`.
     private runMessageEnqueuer?: RunMessageEnqueuePort,
     private cancelCooldownMs: number = DEFAULT_CANCEL_COOLDOWN_MS,
+    private sameRuleCooldownMs: number = DEFAULT_SAME_RULE_COOLDOWN_MS,
   ) {}
 
   /** Gate de validación del item — ver comment original en `dispatch`. */
@@ -236,6 +272,42 @@ export class TaskDispatcher {
           cooldownMs: this.cancelCooldownMs,
         },
         `Run anterior de ${issueRef(item)} cancelado hace poco (posible falso positivo del session-watchdog) — difiero en vez de abrir una segunda sesión en paralelo`,
+      )
+    }
+    return inCooldown
+  }
+
+  /**
+   * Cooldown post-mismo-rule — ver el comment de `DEFAULT_SAME_RULE_COOLDOWN_MS`
+   * arriba. Sin `ruleId` (dispatch manual, `run-now`) no hay nada que
+   * comparar — no aplica, a propósito: ahí el humano SÍ quiere que corra ya.
+   */
+  private isInSameRuleCooldown(
+    item: IssueItem,
+    agent: AgentDefinition,
+    ruleId: string | undefined,
+    projectId: string,
+  ): boolean {
+    if (!this.executionLogRepo || !ruleId) return false
+    const [lastRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
+    if (!(lastRun?.ruleId === ruleId && lastRun.agentId === agent.id && lastRun.finishedAt)) {
+      return false
+    }
+    const elapsedMs = Date.now() - new Date(lastRun.finishedAt).getTime()
+    const inCooldown = elapsedMs >= 0 && elapsedMs < this.sameRuleCooldownMs
+    if (inCooldown) {
+      log.warn(
+        {
+          id: item.id,
+          issue: issueRef(item),
+          projectId,
+          agent: agent.id,
+          ruleId,
+          lastRunId: lastRun.id,
+          elapsedMs,
+          cooldownMs: this.sameRuleCooldownMs,
+        },
+        `${issueRef(item)} ya corrió la regla '${ruleId}' hace ${elapsedMs}ms — descarto este dispatch (probable duplicado por lag de lectura de GitHub); si era trabajo real, un evento fresco lo va a re-disparar`,
       )
     }
     return inCooldown
@@ -435,6 +507,19 @@ export class TaskDispatcher {
     // varía por dispatch y no se puede saber desde la config del agente.
     if (this.isInCancelCooldown(item, agent, projectId)) {
       return 'deferred'
+    }
+
+    // Cooldown post-mismo-rule — ver el comment de `DEFAULT_SAME_RULE_COOLDOWN_MS`
+    // arriba: evita que un evento duplicado/tardío para la MISMA transición
+    // re-dispare la MISMA regla contra la MISMA task antes de que GitHub
+    // refleje el resultado (label/status) que esa regla acaba de escribir.
+    // `skipped`, NO `deferred` — a diferencia del cooldown de arriba, acá no
+    // hay nada que ganar reintentando: el backlog de `SourceDispatcher`
+    // replayaría el mismo `IssueItem` stale con el mismo `agentId` ya
+    // elegido, sin volver a consultar GitHub ni re-evaluar la regla, así
+    // que `deferred` sólo pospondría el mismo duplicado.
+    if (this.isInSameRuleCooldown(item, agent, ruleId, projectId)) {
+      return 'skipped'
     }
 
     // Blocker gate: unless the matched agent explicitly opts into

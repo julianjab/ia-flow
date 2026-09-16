@@ -356,6 +356,178 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
   })
 })
 
+describe('TaskDispatcher — cooldown post-mismo-rule', () => {
+  function fakeLogRepo(lastRun: ExecutionLog | undefined): IExecutionLogRepository {
+    return {
+      list: () => (lastRun ? [lastRun] : []),
+    } as unknown as IExecutionLogRepository
+  }
+
+  function finishedRun(over: Partial<ExecutionLog> = {}): ExecutionLog {
+    return {
+      id: 'exec-1',
+      projectId: 'p1',
+      taskId: 'task-1',
+      taskTitle: 'T',
+      agentId: 'ia-flow-refiner',
+      providerId: 'anthropic-api',
+      startedAt: '2024-01-01T00:00:00.000Z',
+      finishedAt: new Date().toISOString(),
+      outcome: 'success',
+      errorMsg: null,
+      stopReason: 'end_turn',
+      ruleId: 'review',
+      ...over,
+    } as ExecutionLog
+  }
+
+  it('difiere si la MISMA regla corrió sobre esta task hace poco, contra el MISMO agente', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentRun = finishedRun({ finishedAt: new Date(Date.now() - 2_000).toISOString() })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentRun),
+      undefined,
+      undefined,
+      30_000,
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', {
+      ruleId: 'review',
+    })
+
+    // `skipped`, no `deferred`: un `deferred` acá volvería a caer en el
+    // backlog de `SourceDispatcher`, que lo replaya con el MISMO item stale
+    // y el MISMO agentId sin volver a consultar GitHub — sólo pospondría el
+    // duplicado. Ver el siguiente test para la regresión concreta.
+    expect(outcome).toBe('skipped')
+    expect(runAgent).not.toHaveBeenCalled()
+  })
+
+  it('un replay tardío del backlog con el item stale no dispara un segundo run — el gate ya lo descartó, no lo pospuso', async () => {
+    // Reproduce la forma real del bug: `SourceDispatcher.retryDeferred`
+    // reencola exactamente el mismo `IssueItem`/agentId que originó el
+    // primer dispatch, sin re-consultar la fuente. Si este gate devolviera
+    // `deferred`, ese replay entraría de nuevo a `dispatch()` con el reloj
+    // corrido y, pasado el cooldown, correría el agente igual — el mismo
+    // duplicado, sólo que más tarde. Comprobamos que NO es lo que pasa: el
+    // primer dispatch se descarta (`skipped`) y un segundo intento contra el
+    // MISMO estado (recién descartado, sin `finishedAt` nuevo) tampoco corre.
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentRun = finishedRun({ finishedAt: new Date(Date.now() - 2_000).toISOString() })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentRun),
+      undefined,
+      undefined,
+      30_000,
+    )
+    const item = makeItem()
+    const opts = { ruleId: 'review' }
+
+    const first = await dispatcher.dispatch(item, makeManager(), 'ia-flow-refiner', opts)
+    // Un "replay" ingenuo del backlog reencolaría exactamente este mismo
+    // item/agentId/opts — lo simulamos llamando dispatch() de nuevo con los
+    // mismos argumentos, todavía dentro del cooldown.
+    const replay = await dispatcher.dispatch(item, makeManager(), 'ia-flow-refiner', opts)
+
+    expect(first).toBe('skipped')
+    expect(replay).toBe('skipped')
+    expect(runAgent).not.toHaveBeenCalled()
+  })
+
+  it('no difiere cuando la regla que corrió antes es DISTINTA de la que dispara ahora', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentOtherRule = finishedRun({
+      ruleId: 'build-reentry-frontend',
+      finishedAt: new Date(Date.now() - 2_000).toISOString(),
+    })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentOtherRule),
+      undefined,
+      undefined,
+      30_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', { ruleId: 'review' })
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('no difiere cuando el run anterior es de OTRO agente, aunque comparta ruleId', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentOtherAgent = finishedRun({
+      agentId: 'otro-agente',
+      finishedAt: new Date(Date.now() - 2_000).toISOString(),
+    })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentOtherAgent),
+      undefined,
+      undefined,
+      30_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', { ruleId: 'review' })
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('deja pasar una vez que el cooldown expiró', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const oldRun = finishedRun({ finishedAt: new Date(Date.now() - 60_000).toISOString() })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(oldRun),
+      undefined,
+      undefined,
+      30_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', { ruleId: 'review' })
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin `ruleId` en el dispatch (manual/run-now) no aplica, aunque el run anterior sea reciente', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentRun = finishedRun({ finishedAt: new Date(Date.now() - 2_000).toISOString() })
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentRun),
+      undefined,
+      undefined,
+      30_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin executionLogRepo inyectado no aplica cooldown (comportamiento previo)', async () => {
+    const { orchestrator, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(orchestrator, configRepo)
+
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner', { ruleId: 'review' })
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('TaskDispatcher — sesión async abierta (anti-duplicado tras reinicio)', () => {
   // Issue #232: una sesión tmux/iterm/remota rehidratada tras un reinicio del
   // daemon no vuelve al registry en memoria (deliberado, ver
