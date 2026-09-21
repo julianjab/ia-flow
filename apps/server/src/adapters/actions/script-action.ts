@@ -3,6 +3,7 @@ import type { ActionContext, ActionHandler, ActionResult } from '@ia-flow/rules'
 import { SCRIPT_ACTIONS_ENV, ScriptActionSchema } from '@ia-flow/shared'
 import type { z } from 'zod'
 import { createLogger } from '../../logger.js'
+import { runScript } from './run-script.js'
 
 const log = createLogger('action:script')
 
@@ -37,17 +38,6 @@ const log = createLogger('action:script')
 // distinta y más grande.
 
 type ScriptConfig = z.infer<typeof ScriptActionSchema>
-
-const DEFAULT_TIMEOUT_MS = 60_000
-const MAX_TIMEOUT_MS = 300_000
-const OUTPUT_MAX_BYTES = 20 * 1024
-
-const INTERPRETERS: Record<ScriptConfig['runtime'], string[]> = {
-  bash: ['bash'],
-  // `-u`: sin buffer, para que la salida llegue completa aunque el proceso se
-  // mate por timeout.
-  python: ['python3', '-u'],
-}
 
 export interface ScriptActionDeps {
   /** El repo sobre el que corre la tarea del evento. `null` ⇒ no hay dónde
@@ -105,12 +95,6 @@ export function resolveInsideWorkspace(workspace: string, file: string): string 
   return full
 }
 
-function truncate(out: string): string {
-  const bytes = Buffer.from(out)
-  if (bytes.length <= OUTPUT_MAX_BYTES) return out
-  return `${bytes.subarray(0, OUTPUT_MAX_BYTES).toString()}\n[truncated]`
-}
-
 export class ScriptAction implements ActionHandler<ScriptConfig> {
   readonly kind = 'script'
   readonly configSchema = ScriptActionSchema
@@ -147,7 +131,6 @@ export class ScriptAction implements ActionHandler<ScriptConfig> {
       return { ok: false, detail: `la ruta '${config.file}' se sale del workspace` }
     }
 
-    const [bin, ...binArgs] = INTERPRETERS[config.runtime]
     // `${SECRETO}` resuelve ANTES de `{{event...}}`, sobre la plantilla cruda
     // de la regla — nunca al revés. La acción http resuelve en el orden
     // contrario y hereda el mismo riesgo, pero ahí el destino es una URL
@@ -163,17 +146,12 @@ export class ScriptAction implements ActionHandler<ScriptConfig> {
         interpolate(await this.deps.resolveSecrets(a), ctx.event),
       ),
     )
-    const argv = [bin, ...binArgs, script, ...args]
 
-    // Env de allow-list: SÓLO lo declarado, más el PATH mínimo para encontrar
-    // el intérprete. Nada del env del daemon.
-    const env: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin' }
+    // Env de allow-list: SÓLO lo declarado. Nada del env del daemon.
+    const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(config.env ?? {})) {
       env[k] = interpolate(await this.deps.resolveSecrets(v), ctx.event)
     }
-
-    const timeoutMs = Math.min(config.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
-    const spawn = this.deps.spawn ?? Bun.spawn
 
     log.info(
       {
@@ -185,24 +163,27 @@ export class ScriptAction implements ActionHandler<ScriptConfig> {
       'Corriendo script',
     )
 
-    const proc = spawn(argv, { cwd: workspace, env, stdout: 'pipe', stderr: 'pipe' })
-    const timer = setTimeout(() => proc.kill(), timeoutMs)
-    try {
-      const [stdout, stderr, code] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ])
-      const out = truncate([stdout, stderr].filter(Boolean).join('\n').trim())
-      if (code !== 0) {
-        return { ok: false, detail: `exit ${code}${out ? `: ${out}` : ''}` }
+    const result = await runScript(
+      {
+        file: script,
+        runtime: config.runtime,
+        cwd: workspace,
+        args,
+        env,
+        timeoutMs: config.timeoutMs,
+      },
+      { spawn: this.deps.spawn },
+    )
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        detail: `exit ${result.exitCode}${result.combined ? `: ${result.combined}` : ''}`,
       }
-      // `detail` es el resumen para el log —stdout Y stderr, truncado—; `output`
-      // es SÓLO stdout y sin mezclar, porque es lo que puede leer el paso
-      // siguiente. Un warning en stderr no tiene por qué corromper el valor.
-      return { ok: true, detail: out || 'exit 0', output: stdout.trim() }
-    } finally {
-      clearTimeout(timer)
     }
+    // `detail` es el resumen para el log —stdout Y stderr, truncado—; `output`
+    // es SÓLO stdout y sin mezclar, porque es lo que puede leer el paso
+    // siguiente. Un warning en stderr no tiene por qué corromper el valor.
+    return { ok: true, detail: result.combined || 'exit 0', output: result.stdout.trim() }
   }
 }
