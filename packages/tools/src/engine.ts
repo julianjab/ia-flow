@@ -628,8 +628,10 @@ async function executeToolBlocks(
 // entre el drenaje y el turno tiene que poder volver a leerlos.
 //
 // `skip` es la única excepción a "acá nunca rompe nada": un turno anterior
-// dejó una llamada de server-tool diferida (ver `deferredServerToolPending`
-// en `executeLoop`), y la doc de Anthropic
+// dejó una llamada de server-tool diferida (ver `hasTrailingDeferredServerToolCall`,
+// que `executeLoop` recalcula del historial en cada vuelta — no un flag en
+// memoria, para sobrevivir un checkpoint que corte el run justo acá), y la
+// doc de Anthropic
 // (platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools#mixing-server-tools-and-client-tools-in-one-turn)
 // exige que el request que la resuelve lleve un mensaje de usuario con
 // ÚNICAMENTE bloques `tool_result` — intercalar el drenaje ahí produce
@@ -925,6 +927,35 @@ function computeDanglingServerToolFlags(
   return { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse }
 }
 
+// Deriva del HISTORIAL, no de un flag en memoria, si `messages` termina en un
+// turno con una llamada de server-tool todavía diferida para que la API la
+// resuelva en el próximo request (ver `serverToolUseWillResume` arriba, y el
+// comentario sobre `drainInjectedMessages` más abajo). Tiene que ser
+// derivable así, y NO un booleano que `executeLoop` setea y limpia en cada
+// vuelta, porque ese estado necesita sobrevivir un checkpoint: si el run
+// pausa (`pause_until` corriendo en el mismo lote paralelo que la llamada
+// diferida) o el proceso muere justo después de esa vuelta, el checkpoint
+// persiste `messages` — nunca una variable local — y el PRÓXIMO
+// `executeLoop` arranca sin memoria de qué pasó. Un flag se perdería ahí; el
+// historial reanudado sigue terminando en la misma forma sin resolver, así
+// que el chequeo tiene que mirar eso.
+function hasTrailingDeferredServerToolCall(messages: ApiMessage[]): boolean {
+  const last = messages[messages.length - 1] as { role?: string; content?: unknown } | undefined
+  const prev = messages[messages.length - 2] as { role?: string; content?: unknown } | undefined
+  if (last?.role !== 'user' || !Array.isArray(last.content)) return false
+  if (!(last.content as any[]).every((b) => b?.type === 'tool_result')) return false
+  if (prev?.role !== 'assistant' || !Array.isArray(prev.content)) return false
+  const prevContent = prev.content as any[]
+  const resolvedIds = new Set(
+    prevContent
+      .filter((b) => KNOWN_SERVER_TOOL_RESULT_TYPES.has(b?.type))
+      .map((b) => b.tool_use_id),
+  )
+  return prevContent.some(
+    (b) => danglingServerToolResult(b) !== undefined && !resolvedIds.has(b.id),
+  )
+}
+
 type StopReasonAction =
   | { action: 'return'; result: LoopResult }
   | { action: 'continue'; nextFetchOverrides?: FetchApiOverrides }
@@ -1037,21 +1068,6 @@ export async function executeLoop(
   // below, which needs one call with a higher max_tokens). Cleared every
   // iteration so it never leaks past the call it was meant for.
   let nextFetchOverrides: FetchApiOverrides | undefined
-  // Set when this turn left a server-tool call deferred for Anthropic to
-  // resolve on the NEXT request (`serverToolUseWillResume` below — the
-  // mixed server-tool + client-tool-use turn documented at
-  // platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools#mixing-server-tools-and-client-tools-in-one-turn).
-  // Per that doc, the follow-up user message "must contain nothing except
-  // `tool_result` blocks" — anything else "tells the API that the
-  // assistant turn is over" and 400s with the deferred call "found without
-  // a corresponding ..._tool_result block". `drainInjectedMessages` below
-  // normally runs at the top of every iteration and is safe there (a
-  // client `tool_use` is always paired with its `tool_result` within the
-  // same iteration, so there's never a dangling one to interleave with),
-  // but a deferred SERVER-tool call is exactly the case that invariant
-  // misses — checked and consumed one iteration later, right before the
-  // drain that would otherwise corrupt this turn.
-  let deferredServerToolPending = false
   // Canal de control del loop. Se construye acá —por run, no por dispatch—
   // porque es estado de ESTA vuelta: una tool lo usa para pedir que el turno
   // corte, y el loop lo lee al tope de la vuelta siguiente.
@@ -1078,17 +1094,15 @@ export async function executeLoop(
     }
     iters++
 
-    // Consumed here, not left set: it only guards the ONE iteration right
-    // after a deferred server-tool turn — by the response of THIS request
-    // the API will have resolved it (see the docs link above).
-    const skipDrainForDeferredServerTool = deferredServerToolPending
-    deferredServerToolPending = false
+    // Derivado del historial, no de un flag en memoria — sobrevive un
+    // checkpoint (pausa o crash) que corte el run justo acá. Ver
+    // `hasTrailingDeferredServerToolCall` arriba.
     await drainInjectedMessages(
       drainMessages,
       onMessagesDelivered,
       messages,
       runLog,
-      skipDrainForDeferredServerTool,
+      hasTrailingDeferredServerToolCall(messages),
     )
 
     // El corte se lee ACÁ y no donde se pidió: la vuelta anterior ya agregó
@@ -1141,7 +1155,6 @@ export async function executeLoop(
 
     const { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse } =
       computeDanglingServerToolFlags(contentBlocks, stopReason, hasPendingToolUse)
-    deferredServerToolPending = serverToolUseWillResume
     const pausedWithDanglingServerTool = stopReason === 'pause_turn' && hasUnresolvedServerToolUse
     if (pausedWithDanglingServerTool) {
       messages[messages.length - 1] = {
