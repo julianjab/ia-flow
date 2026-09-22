@@ -31,7 +31,14 @@ const log = createLogger('mcp-route')
 function connectionOf(c: Context): McpConnection {
   const toolNamesParam = c.req.query('tools')
   return {
-    toolNames: toolNamesParam ? toolNamesParam.split(',').filter(Boolean) : undefined,
+    // `undefined` (param ausente) = sin filtro, todo el registry. `''` (param
+    // presente pero vacío) = allow-list vacía, no "sin filtro" — lo manda
+    // `resolveMcpServers` cuando el agente no declaró ninguna tool de este
+    // lado pero igual necesita la conexión para sus internal (`complete_task`,
+    // `fail_task`). Tratar los dos casos igual (bug viejo: `'' ? ... :
+    // undefined` con `''` falsy) volvía la conexión "sin filtro" — cualquier
+    // tool del registry quedaba ejecutable, no sólo las internal.
+    toolNames: toolNamesParam === undefined ? undefined : toolNamesParam.split(',').filter(Boolean),
     runId: c.req.query('run'),
     agentId: c.req.query('agent'),
     projectId: c.req.query('project'),
