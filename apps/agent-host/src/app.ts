@@ -786,7 +786,11 @@ export function createApp({
       await handleMcpRequest(
         body,
         {
-          toolNames: toolsParam ? toolsParam.split(',').filter(Boolean) : undefined,
+          // Ver el comentario homónimo en `apps/server/src/routes/mcp.ts`:
+          // `''` (presente, vacío) NO es "sin filtro" — distinguirlo de
+          // `undefined` (ausente) es lo que mantiene una allow-list vacía
+          // como vacía en vez de abrir el registry entero.
+          toolNames: toolsParam === undefined ? undefined : toolsParam.split(',').filter(Boolean),
           runId: c.req.query('run'),
           agentId: c.req.query('agent'),
           projectId: c.req.query('project'),

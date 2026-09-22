@@ -109,9 +109,16 @@ export function resolveMcpServers({
   const agentDisk = localTools ? input.tools.filter((t) => localTools.owns(t)) : []
   const daemon = localTools ? input.tools.filter((t) => !localTools.owns(t)) : input.tools
 
-  // Un server sin una sola tool no se declara: el CLI abriría la conexión,
-  // pagaría el handshake y recibiría una lista vacía.
-  if (daemon.length) {
+  // Un server sin una sola tool se abre igual cuando hay `kind`: el daemon
+  // sirve `complete_task`/`fail_task`/`submit_output` como `internal` sin
+  // importar la allow-list, pero sólo a quien tenga la conexión abierta. Un
+  // agente cuyas tools declaradas son TODAS de disco (`daemon.length === 0`
+  // tras el partition de arriba) se quedaba sin `ia-flow-tools` y perdía sus
+  // tools de cierre en silencio — el CLI nunca podía llamar `complete_task`.
+  // `daemon` (posiblemente vacío) viaja igual en `?tools=`: es lo que le dice
+  // al server "allow-list vacía", no "sin filtro" (ver `connectionOf` en
+  // `routes/mcp.ts` — sólo el param AUSENTE es "sin filtro").
+  if (daemon.length || kind) {
     mcpServers['ia-flow-tools'] = buildIaFlowToolsMcpServer(
       input,
       daemonUrl,
