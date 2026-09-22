@@ -181,16 +181,41 @@ describe('planRowUpdate — casos puros', () => {
     })
   })
 
-  it('conserva tipos no-GitHub y no-curados intactos junto a los migrados', () => {
+  // El `when` evalúa contra `event.payload`, que no lleva el tipo del evento
+  // (`match.ts`) — así que una condición de `action` compartida no puede
+  // distinguir "esto vino de un pr.review_submitted" de "esto vino de un
+  // evento sin `action`". Mezclar un tipo curado con uno no curado se
+  // saltea, no se migra a medias.
+  it('un tipo curado mezclado con uno NO curado se saltea (el when no puede distinguir el origen)', () => {
     const plan = planRowUpdate({
       id: 'r9',
       on_types: JSON.stringify(['issue.status_changed', 'pr.review_submitted']),
       when_conditions: null,
     })
-    expect(plan && 'onTypes' in plan && plan.onTypes.sort()).toEqual([
-      'issue.status_changed',
-      'pull_request_review',
-    ])
+    expect(plan && 'skip' in plan && plan.skip).toBe(true)
+  })
+
+  // Mismo motivo: dos tipos curados que requieren `action` DISTINTA no
+  // pueden compartir un `when` — `issues.opened` sólo debería disparar con
+  // `action=opened` en un evento `issues`, no en cualquiera.
+  it('dos tipos curados con requisitos de action distintos se saltean', () => {
+    const plan = planRowUpdate({
+      id: 'r9b',
+      on_types: JSON.stringify(['issues.opened', 'pr.synchronize']),
+      when_conditions: null,
+    })
+    expect(plan && 'skip' in plan && plan.skip).toBe(true)
+  })
+
+  // ci.finished SÍ mapea a dos tipos crudos, pero a propósito: son el mismo
+  // hecho (terminó el CI), así que compartir `action=completed` es correcto.
+  it('ci.finished sola sigue migrando aunque mapee a dos tipos crudos', () => {
+    const plan = planRowUpdate({
+      id: 'r9c',
+      on_types: JSON.stringify(['ci.finished']),
+      when_conditions: null,
+    })
+    expect(plan && 'onTypes' in plan).toBe(true)
   })
 
   it('una fila sin ningún tipo curado no se toca (null)', () => {
