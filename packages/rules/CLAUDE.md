@@ -3,6 +3,50 @@
 Sin I/O, sin estado, sin dependencias más allá de `@ia-flow/shared`. Todo lo concreto
 (la DB, el HTTP, los agentes) entra por inyección desde `apps/server`.
 
+## Los nombres de evento no se inventan
+
+Para un traductor que envuelve un webhook real (GitHub, Slack), `EngineEvent.type` es
+EXACTAMENTE el nombre que manda la fuente — `pull_request`, `issue_comment`, `issues`, nunca
+`pr.opened` ni `issue_comment.<action>`. `action` (u otro campo distintivo) viaja en el
+`payload` y se filtra con el `when` de la regla, no con un tipo de evento por combinación.
+
+La razón: un nombre propio es una lista de casos mantenida a mano, y esa lista se
+desincroniza en silencio — `apps/server/src/adapters/github/webhook-events.ts` normalizaba
+`pull_request` a `pr.opened/synchronize/merged/closed/ready_for_review` y descartaba
+cualquier `action` que nadie hubiera agregado a esa lista (`edited` nunca producía nada).
+Con el nombre crudo, cualquier `action` futura de un evento ya soportado se publica sin
+tocar código.
+
+`issue.status_changed`/`issue.created` (el scan de la fuente, no un webhook) son la
+excepción: no traducen un evento externo, así que no hay "nombre del generador" que
+preservar.
+
+## "Populate" un item antes de decidir si un agente corre
+
+Un evento de GitHub granular (`pull_request`, `issues`, …) NO trae el item del board
+resuelto — sólo lo que el webhook mismo manda. Para condicionar el `when` de un paso
+`agent` sobre `status`/`repos`/`labels` del item, un paso `http` ANTERIOR en el `do[]`
+llama a `GET /api/tasks/resolve-for-event?projectId=...&prNumber=...` (envuelve
+`resolveEventItem`, la misma resolución que ya usa la acción `agent` para el dispatch) y
+deja el resultado en `{{steps.<id>.output.item...}}`:
+
+```yaml
+on: [pull_request]
+when: [{ field: action, op: '=', value: edited }]
+do:
+  - action: http
+    id: item
+    url: 'http://localhost:3001/api/tasks/resolve-for-event?projectId={{event.scope.projectId}}&prNumber={{event.scope.prNumber}}'
+    continueOnError: true
+  - action: agent
+    agentId: implementer
+    when: [{ field: 'steps.item.output.item.status', op: '=', value: 'Ready' }]
+```
+
+No hay una acción `resolve_item` dedicada — `http` ya es 100% configurable (url/method/
+headers, `{{event.*}}`) y agregar una acción nueva por cada capacidad de lectura sería
+volver a quemar en código lo que el operador puede componer con lo que ya existe.
+
 ## Cómo agregar un productor de eventos
 
 Los productores vienen en **dos formas**, y la diferencia es quién tiene la iniciativa.
