@@ -880,6 +880,76 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
       'tool_search_tool_regex_tool_result',
     )
   })
+
+  it('does not inject a drained message ahead of the tool_result that resolves a deferred server-tool call sharing a turn with a client tool_use', async () => {
+    // Regresión de producción: run 28dd9d93 (agente refiner, 2026-09-22).
+    // Cuando `tool_search_tool_regex` corre en el mismo batch paralelo que
+    // un `tool_use` de cliente, la API — según su propia doc
+    // (platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools#mixing-server-tools-and-client-tools-in-one-turn)
+    // — difiere esa llamada y la resuelve sola en el PRÓXIMO request,
+    // siempre que ese request lleve un mensaje de usuario con ÚNICAMENTE
+    // bloques `tool_result`. `drainInjectedMessages` corría sin este
+    // chequeo y le agregaba un mensaje de texto plano inmediatamente
+    // después del `tool_result`, lo que 400eaba con "`tool_search_tool_regex`
+    // tool use ... found without a corresponding `tool_search_tool_result`
+    // block" — el turno se daba por cerrado antes de que la API pudiera
+    // resolver la llamada diferida.
+    let call = 0
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'server_tool_use',
+              id: 'srvtoolu_prod',
+              name: 'tool_search_tool_regex',
+              input: { pattern: 'x' },
+            },
+            { type: 'tool_use', id: 'toolu_prod', name: '__test_prod_client_tool__', input: {} },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    registerTool({
+      name: '__test_prod_client_tool__',
+      description: 'Client tool',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => 'ok',
+    })
+    let drainCalls = 0
+    const drainMessages = async () => {
+      drainCalls++
+      // Sólo la PRIMERA llamada de drenaje tiene algo para inyectar — el
+      // engine drena en cada vuelta, así que sin el fix esto se cuela justo
+      // después del turno con la llamada de server-tool diferida.
+      if (drainCalls === 1) return [{ id: 'msg_1', author: 'human', body: 'mirá también X' }]
+      return []
+    }
+    const delivered: string[][] = []
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      drainMessages,
+      onMessagesDelivered: async (ids) => {
+        delivered.push(ids)
+      },
+    })
+    expect(result.truncated).toBe(false)
+    // El mensaje que resuelve el tool_use de cliente tiene que llegar
+    // INMEDIATO después del turno con la llamada diferida — nada de texto
+    // plano intercalado antes.
+    const request2 = calls[1]
+    const lastMsg = request2[request2.length - 1] as { role: string; content: unknown }
+    expect(lastMsg.role).toBe('user')
+    expect(Array.isArray(lastMsg.content)).toBe(true)
+    expect((lastMsg.content as any[]).every((b) => b?.type === 'tool_result')).toBe(true)
+    // El mensaje drenado no se pierde — se entrega en la vuelta siguiente,
+    // una vez que el turno diferido ya se resolvió.
+    expect(delivered.flat()).toContain('msg_1')
+  })
 })
 
 // ─── executeLoop — unexpected stop_reason ─────────────────────────────────────
