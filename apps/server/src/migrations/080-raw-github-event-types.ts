@@ -29,11 +29,17 @@ import type { Migration } from './runner.js'
 // `[action=closed]` sola (juntos cubren todo `closed`, sin necesidad del
 // flag).
 //
-// Lo único que sigue sin auto-migrarse: `when_conditions` en formato Record
-// legacy (`{additions: '$gt:500'}`) — convertirlo exige el parser de
-// `$op:valor` de `packages/rules/src/when.ts`, no expuesto, y es un caso que
-// hoy no se vio en ninguna regla real. Se saltea y se loguea para revisión
-// manual.
+// Lo que sigue sin auto-migrarse (se saltea, se loguea, queda para revisión
+// manual):
+//   - `when_conditions` en formato Record legacy (`{additions: '$gt:500'}`)
+//     — convertirlo exige el parser de `$op:valor` de
+//     `packages/rules/src/when.ts`, no expuesto, y es un caso que hoy no se
+//     vio en ninguna regla real.
+//   - Una fila cuyo `on` mezcla tipos curados que requieren `action`
+//     DISTINTA, o un tipo curado con uno NO curado — ver `canAutoMigrate`:
+//     el `when` evalúa contra `event.payload`, que no lleva el tipo del
+//     evento, así que una condición de `action` compartida no puede
+//     distinguir de qué tipo vino cada delivery.
 
 const log = createLogger('migration:080')
 
@@ -92,6 +98,37 @@ function mappingFor(type: string): Mapping | null {
     }
   }
   return null
+}
+
+function rawTypeSetOf(mapping: Mapping): string {
+  const types = mapping.kind === 'simple' ? mapping.rawTypes : ['pull_request']
+  return [...types].sort().join(',')
+}
+
+/**
+ * Si es seguro inyectar UN `when` compartido para toda la fila.
+ *
+ * El `when` de una regla evalúa contra `event.payload`, que no lleva el
+ * TIPO del evento (`match.ts`: el subject es `event.payload`, nunca
+ * `event.type`) — así que una condición de `action` no puede distinguir
+ * "esta acción, pero sólo si el evento era `pull_request`" de "esta acción,
+ * venga de donde venga". Mezclar tipos curados con requisitos de `action`
+ * DISTINTOS (`issues.opened` + `pr.synchronize`) o con un tipo NO curado
+ * (`pr.opened` + `issue.status_changed`, que no tiene campo `action`) deja
+ * una fila que dispara de más o de menos según el caso — ninguno de los dos
+ * silenciosamente, así que mejor no tocarla.
+ *
+ * Seguro sólo cuando TODOS los tipos de la fila son curados y TODOS
+ * apuntan al mismo conjunto de tipos crudos (p. ej. `pr.opened` +
+ * `pr.synchronize` + `pr.merged`, los tres → sólo `pull_request`; o
+ * `ci.finished` sola, que ya mapea a dos tipos crudos A PROPÓSITO porque
+ * son el mismo hecho).
+ */
+function canAutoMigrate(types: readonly string[]): boolean {
+  const mappings = types.map(mappingFor)
+  if (mappings.some((m) => m === null)) return false
+  const sets = new Set(mappings.map((m) => rawTypeSetOf(m as Mapping)))
+  return sets.size === 1
 }
 
 /** El o los grupos que `pr.merged`/`pr.closed` aportan, colapsando el caso de
@@ -222,6 +259,15 @@ export function planRowUpdate(row: Row): Plan | null {
   const { types } = parsedTypes
 
   if (!types.some((t) => mappingFor(t) !== null)) return null // taxonomía vieja ausente
+
+  if (!canAutoMigrate(types)) {
+    return {
+      skip: true,
+      reason:
+        'mezcla tipos curados con requisitos de action distintos, o un tipo no curado — ' +
+        'el when no puede distinguir de qué tipo vino el evento, necesita revisión MANUAL',
+    }
+  }
 
   const parsedWhen = parseExistingWhen(row.when_conditions)
   if ('skip' in parsedWhen) return parsedWhen
