@@ -183,6 +183,21 @@ describe('check_suite / workflow_run', () => {
     expect((run!.payload as { conclusion: string }).conclusion).toBe('failure')
   })
 
+  it('conserva de qué mecanismo vino, por si una regla escucha los dos a la vez', () => {
+    const suite = githubWebhookEvent(
+      'check_suite',
+      { action: 'completed', repository, check_suite: { conclusion: 'success' } },
+      resolve,
+    )
+    const run = githubWebhookEvent(
+      'workflow_run',
+      { action: 'completed', repository, workflow_run: { conclusion: 'success' } },
+      resolve,
+    )
+    expect((suite!.payload as { kind: string }).kind).toBe('check_suite')
+    expect((run!.payload as { kind: string }).kind).toBe('workflow_run')
+  })
+
   it('ata el resultado a un PR cuando GitHub lo conoce', () => {
     const e = githubWebhookEvent(
       'check_suite',

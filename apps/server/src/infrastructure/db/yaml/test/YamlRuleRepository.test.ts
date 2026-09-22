@@ -57,34 +57,33 @@ describe('YamlRuleRepository', () => {
     expect(repo.setPositions()).rejects.toThrow('sólo lectura')
   })
 
-  // Un runner.yaml de deploy headless no pasa por la migración 080 (sólo
-  // reescribe SQLite) — sin esto, una regla con `on: ['pr.merged']` quedaría
-  // callada para siempre, sin ningún error.
-  it('traduce en memoria una regla que usa la taxonomía vieja de GitHub', async () => {
-    const repo = new YamlRuleRepository([rule({ id: 'legacy', on: ['pr.merged'] })])
-    const [migrated] = await repo.list()
-    expect(migrated.on).toEqual(['pull_request'])
-    expect(migrated.when).toEqual([
-      { field: 'action', op: '=', value: 'closed' },
-      { field: 'pr.merged', op: '=', value: 'true' },
-    ])
+  // `translate` es un hook inyectado por `composition/container.ts` (hoy,
+  // `translateLegacyRuleEventNames`, que traduce la taxonomía vieja de
+  // GitHub — ver `adapters/github/legacy-event-rename.ts` y su propio test).
+  // Este repo es `infrastructure/` y no puede importar `adapters/**`, así
+  // que lo que testeamos ACÁ es que el hook se aplica a cada regla, con un
+  // doble simple — no la lógica real de traducción.
+  it('sin translate inyectado, no toca nada (identity por default)', async () => {
+    const repo = new YamlRuleRepository([rule({ id: 'r1', on: ['pr.merged'] })])
+    const [r] = await repo.list()
+    expect(r.on).toEqual(['pr.merged'])
   })
 
-  it('una regla en nombre crudo, o sin taxonomía vieja, no se toca', async () => {
-    const repo = new YamlRuleRepository([rule({ id: 'raw', on: ['issue_comment'] })])
-    const [r] = await repo.list()
-    expect(r.on).toEqual(['issue_comment'])
-    expect(r.when).toBeUndefined()
+  it('aplica el translate inyectado a cada regla parseada', async () => {
+    const repo = new YamlRuleRepository(
+      [rule({ id: 'a', on: ['x'] }), rule({ id: 'b', on: ['y'] })],
+      (r) => ({ ...r, on: [`${r.on[0]}-translated`] }),
+    )
+    const rules = await repo.list()
+    expect(rules.map((r) => r.on)).toEqual([['x-translated'], ['y-translated']])
   })
 
-  // Mezclar un tipo curado con uno no-curado no es auto-traducible (ver
-  // legacy-event-rename.ts) — la regla queda con el `on` viejo, que ya no
-  // matchea nada de GitHub, pero al menos no se rompe el boot.
-  it('una mezcla ambigua no se traduce — queda con el on viejo', async () => {
-    const repo = new YamlRuleRepository([
-      rule({ id: 'mixed', on: ['issue.status_changed', 'pr.review_submitted'] }),
-    ])
-    const [r] = await repo.list()
-    expect(r.on).toEqual(['issue.status_changed', 'pr.review_submitted'])
+  it('translate corre ANTES del sort, así que puede cambiar la posición efectiva', async () => {
+    const repo = new YamlRuleRepository(
+      [rule({ id: 'a', position: 1 }), rule({ id: 'b', position: 0 })],
+      (r) => (r.id === 'a' ? { ...r, position: -1 } : r),
+    )
+    const rules = await repo.list()
+    expect(rules.map((r) => r.id)).toEqual(['a', 'b'])
   })
 })
