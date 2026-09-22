@@ -56,4 +56,35 @@ describe('YamlRuleRepository', () => {
     expect(repo.deleteById()).rejects.toThrow('sólo lectura')
     expect(repo.setPositions()).rejects.toThrow('sólo lectura')
   })
+
+  // Un runner.yaml de deploy headless no pasa por la migración 080 (sólo
+  // reescribe SQLite) — sin esto, una regla con `on: ['pr.merged']` quedaría
+  // callada para siempre, sin ningún error.
+  it('traduce en memoria una regla que usa la taxonomía vieja de GitHub', async () => {
+    const repo = new YamlRuleRepository([rule({ id: 'legacy', on: ['pr.merged'] })])
+    const [migrated] = await repo.list()
+    expect(migrated.on).toEqual(['pull_request'])
+    expect(migrated.when).toEqual([
+      { field: 'action', op: '=', value: 'closed' },
+      { field: 'pr.merged', op: '=', value: 'true' },
+    ])
+  })
+
+  it('una regla en nombre crudo, o sin taxonomía vieja, no se toca', async () => {
+    const repo = new YamlRuleRepository([rule({ id: 'raw', on: ['issue_comment'] })])
+    const [r] = await repo.list()
+    expect(r.on).toEqual(['issue_comment'])
+    expect(r.when).toBeUndefined()
+  })
+
+  // Mezclar un tipo curado con uno no-curado no es auto-traducible (ver
+  // legacy-event-rename.ts) — la regla queda con el `on` viejo, que ya no
+  // matchea nada de GitHub, pero al menos no se rompe el boot.
+  it('una mezcla ambigua no se traduce — queda con el on viejo', async () => {
+    const repo = new YamlRuleRepository([
+      rule({ id: 'mixed', on: ['issue.status_changed', 'pr.review_submitted'] }),
+    ])
+    const [r] = await repo.list()
+    expect(r.on).toEqual(['issue.status_changed', 'pr.review_submitted'])
+  })
 })

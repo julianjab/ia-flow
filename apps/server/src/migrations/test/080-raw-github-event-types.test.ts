@@ -236,7 +236,7 @@ describe('planRowUpdate — casos puros', () => {
     })
     expect(plan).toEqual({
       skip: true,
-      reason: 'when_conditions en formato Record — necesita migración MANUAL',
+      reason: 'when en formato Record — necesita migración MANUAL',
     })
   })
 })
