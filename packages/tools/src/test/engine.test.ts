@@ -880,6 +880,57 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
       'tool_search_tool_regex_tool_result',
     )
   })
+
+  it('pairs a dangling tool_search_tool_regex even when stop_reason is tool_use with a pending client tool_use in the same turn', async () => {
+    // Regresión de producción: Anthropic's docs describe this shape (a
+    // server-tool call in the same parallel batch as a client `tool_use`)
+    // as self-resolving on the next request. Run `28dd9d93` (agent
+    // `refiner`, 2026-09-22) proved that assumption false — the following
+    // request 400ed with "found without a corresponding
+    // `tool_search_tool_result` block" even after the client tool_result
+    // was sent back. This must be paired up front like any other dangling
+    // server-tool call, not left for Anthropic to resolve.
+    registerTool({
+      name: '__test_prod_client_tool__',
+      description: 'Client tool',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => 'ok',
+    })
+    let call = 0
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'server_tool_use',
+              id: 'srvtoolu_prod',
+              name: 'tool_search_tool_regex',
+              input: { pattern: 'x' },
+            },
+            {
+              type: 'tool_use',
+              id: 'toolu_prod',
+              name: '__test_prod_client_tool__',
+              input: {},
+            },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(false)
+    // The very next request (call index 1) must already carry the synthetic
+    // result — not rely on it arriving unpaired and self-resolving.
+    const resentBlocks = calls[1].flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    expect(resentBlocks.find((b: any) => b?.tool_use_id === 'srvtoolu_prod')?.type).toBe(
+      'tool_search_tool_result',
+    )
+  })
 })
 
 // ─── executeLoop — unexpected stop_reason ─────────────────────────────────────
