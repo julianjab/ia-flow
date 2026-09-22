@@ -1,3 +1,4 @@
+import { groupWhenArray } from '@ia-flow/rules'
 import { createLogger } from '../logger.js'
 import type { Migration } from './runner.js'
 
@@ -5,32 +6,53 @@ import type { Migration } from './runner.js'
 // `ci.finished`, `issues.<action>`, …) — ver apps/server/src/adapters/github/
 // webhook-events.ts. `EngineEvent.type` para un webhook de GitHub es ahora
 // EXACTAMENTE el nombre crudo (`pull_request`, `check_suite`, `issues`, …), y
-// `action` se filtra con `when`. Esta migración transforma las reglas YA
-// GUARDADAS para que sigan disparando.
+// `action` se filtra con `when`. Esta migración transforma las reglas Y LAS
+// ESPERAS (`waits` — mismas columnas `on_types`/`when_conditions`, ver
+// migración 060) que YA ESTÁN GUARDADAS, para que sigan disparando.
 //
 // Es transformación de datos que YA existen, no seed de config nueva —
 // permitido por la regla de migraciones del CLAUDE.md raíz.
 //
-// **No es 100% mecánica a propósito.** Una regla cuyo `on` mezcla `pr.merged`
-// u `pr.closed` con otros tipos de `pull_request` (`pr.opened`, …) necesitaría
-// una condición OR-de-AND (`action=closed AND pr.merged=true` OR
-// `action=opened`) que este DSL no puede expresar como un único grupo plano —
-// esas reglas se SALTEAN (quedan con el `on` viejo, que ya no dispara) y se
-// loguean para migrar a mano. Preferible a migrar mal en silencio.
+// **Cross-product, no concatenar.** Agregar la condición de `action` pegándola
+// al final del `when` existente romper​ía cualquier fila con más de un grupo
+// OR (el nuevo grupo quedaría sin las condiciones previas) o cualquier tipo
+// curado con más de una `action` posible (`pr.opened` → opened/reopened: la
+// rama `reopened` quedaría sin las condiciones existentes). Ver
+// `groupWhenArray` (`@ia-flow/rules`) — mismo algoritmo de agrupación OR/AND
+// que usa el evaluador, para no poder divergir de cómo el motor va a leer el
+// resultado.
 //
-// Mismo criterio para `when_conditions` en formato Record legacy
-// (`{additions: '$gt:500'}`): sólo se auto-migra cuando ninguna de las reglas
-// del proyecto lo usa junto con un tipo curado — si aparece, se saltea y se
-// loguea.
+// **`pr.merged`/`pr.closed` sí son expresables** (a diferencia del intento
+// anterior de esta migración): `pr.merged` → `pull_request` con
+// `[action=closed, pr.merged=true]`; `pr.closed` → `[action=closed,
+// pr.merged=false]`; si una regla tiene LOS DOS, se colapsan en
+// `[action=closed]` sola (juntos cubren todo `closed`, sin necesidad del
+// flag).
+//
+// Lo único que sigue sin auto-migrarse: `when_conditions` en formato Record
+// legacy (`{additions: '$gt:500'}`) — convertirlo exige el parser de
+// `$op:valor` de `packages/rules/src/when.ts`, no expuesto, y es un caso que
+// hoy no se vio en ninguna regla real. Se saltea y se loguea para revisión
+// manual.
 
 const log = createLogger('migration:080')
+
+interface RawCond {
+  field: string
+  op: string
+  value?: string
+  logic?: 'and' | 'or'
+}
 
 interface SimpleMapping {
   kind: 'simple'
   rawTypes: string[]
   actions: string[]
 }
-type Mapping = SimpleMapping | { kind: 'special' }
+/** `pr.merged`/`pr.closed`: necesitan `pr.merged` además de `action`, y su
+ *  requirement se decide mirando el resto de `on` (ver `mergedClosedGroups`),
+ *  no de forma aislada por tipo. */
+type Mapping = SimpleMapping | { kind: 'merged_or_closed'; merged: boolean }
 
 const STATIC_MAPPING: Record<string, Mapping> = {
   'pr.opened': { kind: 'simple', rawTypes: ['pull_request'], actions: ['opened', 'reopened'] },
@@ -50,12 +72,8 @@ const STATIC_MAPPING: Record<string, Mapping> = {
     rawTypes: ['check_suite', 'workflow_run'],
     actions: ['completed'],
   },
-  // Necesitan `pr.merged`/`pr.merged=false` además de `action=closed` — no
-  // expresable como un simple OR de valores de `action`. Se tratan aparte
-  // (ver `hasSpecial` abajo) y SIEMPRE fuerzan revisión manual si conviven
-  // con otro tipo de `pull_request` en la misma regla.
-  'pr.merged': { kind: 'special' },
-  'pr.closed': { kind: 'special' },
+  'pr.merged': { kind: 'merged_or_closed', merged: true },
+  'pr.closed': { kind: 'merged_or_closed', merged: false },
 }
 
 /** `issue_comment.<action>` / `issues.<action>` / `projects_v2_item.<action>`
@@ -76,121 +94,180 @@ function mappingFor(type: string): Mapping | null {
   return null
 }
 
-interface WhenCondition {
-  field: string
-  op: string
-  value?: string
-  logic?: 'and' | 'or'
+/** El o los grupos que `pr.merged`/`pr.closed` aportan, colapsando el caso de
+ *  que una regla tenga LOS DOS: juntos cubren todo `action=closed`, así que
+ *  el flag `pr.merged` deja de hacer falta. */
+function mergedClosedGroups(types: readonly string[]): RawCond[][] {
+  const hasMerged = types.includes('pr.merged')
+  const hasClosed = types.includes('pr.closed')
+  if (hasMerged && hasClosed) return [[{ field: 'action', op: '=', value: 'closed' }]]
+  if (hasMerged) {
+    return [
+      [
+        { field: 'action', op: '=', value: 'closed' },
+        { field: 'pr.merged', op: '=', value: 'true' },
+      ],
+    ]
+  }
+  if (hasClosed) {
+    return [
+      [
+        { field: 'action', op: '=', value: 'closed' },
+        { field: 'pr.merged', op: '=', value: 'false' },
+      ],
+    ]
+  }
+  return []
 }
 
-/** El grupo de condiciones que reemplaza el filtro que hacía el traductor
- *  (`action` conocida) — un solo grupo OR sobre los valores de `action`
- *  recolectados de TODOS los tipos curados de la regla. Correcto porque
- *  `on[]` ya restringe el TIPO de evento; el valor de `action` no colisiona
- *  de forma ambigua entre tipos de GitHub distintos. */
-function actionGroup(actions: string[]): WhenCondition[] {
-  const unique = [...new Set(actions)]
-  return unique.map((value, i) => ({
-    field: 'action',
-    op: '=',
-    value,
-    ...(i > 0 ? { logic: 'or' as const } : {}),
-  }))
+/** Los grupos OR que reemplazan el filtro por `action` que hacía el
+ *  traductor — uno por valor posible, salvo `pr.merged`/`pr.closed` que
+ *  aportan su propio grupo compuesto (ver `mergedClosedGroups`). */
+function requirementGroups(types: readonly string[]): RawCond[][] {
+  const groups: RawCond[][] = []
+  for (const t of types) {
+    const mapping = mappingFor(t)
+    if (mapping?.kind !== 'simple') continue
+    for (const value of mapping.actions) groups.push([{ field: 'action', op: '=', value }])
+  }
+  groups.push(...mergedClosedGroups(types))
+  // Dedup: dos tipos curados distintos (p. ej. `issues.opened` y otro que
+  // también aportara `action=opened`) no deberían dejar dos ramas OR
+  // idénticas.
+  const seen = new Set<string>()
+  return groups.filter((g) => {
+    const key = JSON.stringify(g)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
-interface RuleRow {
+/** El array serializado que el motor va a re-agrupar de vuelta igual —
+ *  `logic: 'or'` SÓLO en el primer elemento de cada grupo después del
+ *  primero, sin arrastrar el `logic` que los elementos pudieran haber tenido
+ *  antes de agruparlos (la agrupación en sí ya captura esa información). */
+function serializeGroups(groups: readonly RawCond[][]): RawCond[] {
+  const out: RawCond[] = []
+  groups.forEach((group, gi) => {
+    group.forEach((cond, ci) => {
+      const { logic: _drop, ...rest } = cond
+      out.push(gi > 0 && ci === 0 ? { ...rest, logic: 'or' } : rest)
+    })
+  })
+  return out
+}
+
+interface Row {
   id: string
   on_types: string
   when_conditions: string | null
 }
 
-type RuleUpdate = { onTypes: string[]; when: WhenCondition[] } | { skip: true; reason: string }
+type Plan = { onTypes: string[]; when: RawCond[] } | { skip: true; reason: string }
+type ParsedTypes = { types: string[] } | { skip: true; reason: string }
+type ParsedWhen = { when: RawCond[] } | { skip: true; reason: string }
 
-/** Pura: decide qué hacer con UNA fila de `rules`. Separada de `up()` para que
- *  el guard de complejidad no fuerce a comprimir las ramas en una sola
- *  función, y para poder testear cada caso (migra / se saltea y por qué) sin
- *  tocar SQLite. */
-export function planRuleUpdate(row: RuleRow): RuleUpdate | null {
-  let onTypes: unknown[]
+/** `on_types` ya parseado y validado como array de strings — o el motivo por
+ *  el que no se puede seguir. */
+function parseOnTypes(raw: string): ParsedTypes {
+  let onTypes: unknown
   try {
-    onTypes = JSON.parse(row.on_types)
+    onTypes = JSON.parse(raw)
   } catch {
     return { skip: true, reason: 'on_types no parsea como JSON' }
   }
   if (!Array.isArray(onTypes) || !onTypes.every((t) => typeof t === 'string')) {
     return { skip: true, reason: 'on_types no es un array de strings' }
   }
-  const types = onTypes as string[]
+  return { types: onTypes as string[] }
+}
 
-  const curated = types.filter((t) => mappingFor(t) !== null)
-  if (curated.length === 0) return null // nada de esta regla usa la taxonomía vieja
-
-  if (curated.some((t) => mappingFor(t)?.kind === 'special')) {
-    return {
-      skip: true,
-      reason: 'usa pr.merged/pr.closed junto con otros tipos — OR-de-AND no expresable acá',
-    }
-  }
-
+/** `when_conditions` ya parseado a grupos OR/AND — o el motivo por el que no
+ *  se puede seguir (JSON roto, o formato Record legacy). */
+function parseExistingWhen(raw: string | null): ParsedWhen {
   let existingWhen: unknown = null
   try {
-    existingWhen = row.when_conditions ? JSON.parse(row.when_conditions) : null
+    existingWhen = raw ? JSON.parse(raw) : null
   } catch {
     return { skip: true, reason: 'when_conditions no parsea como JSON' }
   }
   if (existingWhen !== null && !Array.isArray(existingWhen)) {
-    // Record shorthand (`{field: value}`) — convertirlo sin reimplementar el
-    // parser de `$op:valor` es más riesgo del que vale para un caso que hoy
-    // no se vio en ninguna regla real.
-    return { skip: true, reason: 'when_conditions en formato Record' }
+    return { skip: true, reason: 'when_conditions en formato Record — necesita migración MANUAL' }
   }
+  return { when: (existingWhen as RawCond[] | null) ?? [] }
+}
 
+/** El nuevo `on_types`: cada tipo curado se traduce a su(s) nombre(s)
+ *  crudo(s); lo que no es curado se conserva tal cual. */
+function migratedOnTypes(types: readonly string[]): string[] {
   const newOn = new Set<string>()
-  const actions: string[] = []
   for (const t of types) {
     const mapping = mappingFor(t)
-    if (mapping?.kind !== 'simple') {
+    if (!mapping) {
       newOn.add(t) // no-GitHub o ya crudo: se conserva tal cual
       continue
     }
-    for (const raw of mapping.rawTypes) newOn.add(raw)
-    actions.push(...mapping.actions)
+    if (mapping.kind === 'simple') for (const raw of mapping.rawTypes) newOn.add(raw)
+    else newOn.add('pull_request')
+  }
+  return [...newOn]
+}
+
+/** Pura: decide qué hacer con UNA fila (de `rules` o de `waits`, mismas
+ *  columnas). `null` = esta fila no usa la taxonomía vieja, no se toca. */
+export function planRowUpdate(row: Row): Plan | null {
+  const parsedTypes = parseOnTypes(row.on_types)
+  if ('skip' in parsedTypes) return parsedTypes
+  const { types } = parsedTypes
+
+  if (!types.some((t) => mappingFor(t) !== null)) return null // taxonomía vieja ausente
+
+  const parsedWhen = parseExistingWhen(row.when_conditions)
+  if ('skip' in parsedWhen) return parsedWhen
+
+  const newOn = migratedOnTypes(types)
+  const existingGroups = groupWhenArray(parsedWhen.when)
+  const required = requirementGroups(types)
+  const finalGroups = existingGroups.length
+    ? existingGroups.flatMap((eg) => required.map((rg) => [...eg, ...rg]))
+    : required
+
+  return { onTypes: [...newOn], when: serializeGroups(finalGroups) }
+}
+
+function migrateTable(db: Parameters<Migration['up']>[0], table: 'rules' | 'waits') {
+  const rows = db.query(`SELECT id, on_types, when_conditions FROM ${table}`).all() as Row[]
+  const update = db.prepare(`UPDATE ${table} SET on_types = ?, when_conditions = ? WHERE id = ?`)
+  let migrated = 0
+  let skipped = 0
+
+  for (const row of rows) {
+    const plan = planRowUpdate(row)
+    if (plan === null) continue
+    if ('skip' in plan) {
+      log.warn(
+        { table, id: row.id, on: row.on_types, reason: plan.reason },
+        'se saltea — revisar a mano',
+      )
+      skipped++
+      continue
+    }
+    update.run(JSON.stringify(plan.onTypes), JSON.stringify(plan.when), row.id)
+    log.info({ table, id: row.id, after: plan.onTypes, when: plan.when }, 'fila migrada')
+    migrated++
   }
 
-  const when: WhenCondition[] = [
-    ...((existingWhen as WhenCondition[] | null) ?? []),
-    ...actionGroup(actions),
-  ]
-  return { onTypes: [...newOn], when }
+  log.info({ table, migrated, skipped }, 'migración de nombres de evento de GitHub terminada')
 }
 
 const migration: Migration = {
   id: '080-raw-github-event-types',
   description:
-    'Migra rules.on_types/when_conditions de la taxonomía curada de GitHub a nombres crudos',
+    'Migra rules.on_types/when_conditions y waits.on_types/when_conditions de la taxonomía curada de GitHub a nombres crudos',
   up(db) {
-    const rows = db.query(`SELECT id, on_types, when_conditions FROM rules`).all() as RuleRow[]
-    const update = db.prepare(`UPDATE rules SET on_types = ?, when_conditions = ? WHERE id = ?`)
-    let migrated = 0
-    let skipped = 0
-
-    for (const row of rows) {
-      const plan = planRuleUpdate(row)
-      if (plan === null) continue
-      if ('skip' in plan) {
-        log.warn(
-          { ruleId: row.id, on: row.on_types, reason: plan.reason },
-          'se saltea — revisar a mano',
-        )
-        skipped++
-        continue
-      }
-      update.run(JSON.stringify(plan.onTypes), JSON.stringify(plan.when), row.id)
-      log.info({ ruleId: row.id, after: plan.onTypes, when: plan.when }, 'regla migrada')
-      migrated++
-    }
-
-    log.info({ migrated, skipped }, 'migración de nombres de evento de GitHub terminada')
+    migrateTable(db, 'rules')
+    migrateTable(db, 'waits')
   },
 }
 
