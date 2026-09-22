@@ -729,32 +729,32 @@ async function saveLoopCheckpoint(
 
 // Server-tool calls (`mcp_tool_use`, `tool_search_tool_regex`, ...) are
 // resolved server-side by Anthropic within the same response, normally
-// arriving paired with their own result block. Anthropic's docs
-// (server-tools#mixing-server-tools-and-client-tools-in-one-turn) describe
-// an exception where, if Claude calls one of these in the SAME parallel
-// batch as a client `tool_use`, the API is supposed to self-resolve the
-// server-tool call once we send back the client tool_result on the next
-// request. That documented behavior does NOT hold in practice: run
-// `28dd9d93` (agent `refiner`, 2026-09-22) hit exactly that shape — a
-// `server_tool_use`/`tool_search_tool_regex` block alongside a pending
-// client `tool_use`, `stop_reason: "tool_use"` — and the FOLLOWING request
-// still 400ed with "`tool_search_tool_regex` tool use ... found without a
-// corresponding `tool_search_tool_result` block", the same failure this
-// pairing exists to avoid. So this case is treated exactly like every other
-// dangling server-tool call: paired with a synthetic error result before
-// the next request goes out, never left for Anthropic to resolve.
+// arriving paired with their own result block — with one DOCUMENTED
+// exception: per Anthropic's docs
+// (server-tools#mixing-server-tools-and-client-tools-in-one-turn), when
+// Claude calls one of these in the SAME parallel batch as a client
+// `tool_use`, the API returns immediately with `stop_reason: "tool_use"`
+// and leaves the server-tool call unpaired — it runs the deferred call on
+// the NEXT request, once we send back the client tool_result blocks. That's
+// the normal tool_use path (filtered to `type === 'tool_use'`, so the
+// dangling server-tool call is left alone and Anthropic resolves it against
+// the still-open turn). Ending the run on every occurrence — as this code
+// used to — turned a routine, self-resolving response shape into a
+// permanent stall on any task whose agent checks GitHub state via MCP while
+// also reading/running something locally.
 //
 // Genuinely unrecoverable cases stay unrecoverable: `max_tokens` cutting a
 // server-tool call's input off mid-stream (retried same as a client
-// tool_use). Every other dangling server-tool call this engine can
-// recognize gets paired — see subscriptions#1411 for `mcp_tool_use`,
-// subscriptions#1466 for `tool_search_tool_regex` (same failure mode,
-// different server-tool type).
-// Cierra la llamada de server-tool que quedó a medias, sea porque pausó el
-// turno o porque terminó en `tool_use` junto a una llamada de cliente.
+// tool_use), and a dangling server-tool call with NO accompanying client
+// `tool_use` — that shape isn't documented as self-resolving and blindly
+// persisting/resending it 400s the next request with "<type> ... found
+// without a corresponding <type>_result block" (see subscriptions#1411 for
+// `mcp_tool_use`, subscriptions#1466 for `tool_search_tool_regex` — same
+// failure mode, different server-tool type).
+// Cierra la llamada de server-tool que quedó a medias cuando pausó el turno.
 //
-// Una pausa (o un turno con `tool_use` mixto) deja llamadas de server-tool
-// sin result: es la forma normal de esa respuesta, no una anomalía. Los tres
+// Una pausa de CUALQUIERA de estos server-tools deja SU PROPIA llamada sin
+// result: es la forma normal de un `pause_turn`, no una anomalía. Los tres
 // caminos obvios estaban todos mal:
 //
 //   - reenviar el turno tal cual → 400 "<type> ... found without a
@@ -892,8 +892,13 @@ function pairDanglingServerToolUses(
   return [...contentBlocks, ...synthetic]
 }
 
-function computeDanglingServerToolFlags(contentBlocks: any[]): {
+function computeDanglingServerToolFlags(
+  contentBlocks: any[],
+  stopReason: string,
+  hasPendingToolUse: boolean,
+): {
   hasUnresolvedServerToolUse: boolean
+  serverToolUseWillResume: boolean
   isUnresolvedServerToolUse: (block: any) => boolean
 } {
   const resolvedIds = new Set(
@@ -904,7 +909,9 @@ function computeDanglingServerToolFlags(contentBlocks: any[]): {
   const isUnresolvedServerToolUse = (b: any) =>
     danglingServerToolResult(b) !== undefined && !resolvedIds.has(b.id)
   const hasUnresolvedServerToolUse = contentBlocks.some(isUnresolvedServerToolUse)
-  return { hasUnresolvedServerToolUse, isUnresolvedServerToolUse }
+  const serverToolUseWillResume =
+    hasUnresolvedServerToolUse && stopReason === 'tool_use' && hasPendingToolUse
+  return { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse }
 }
 
 type StopReasonAction =
@@ -920,10 +927,11 @@ function resolveStopReasonAction(
   state: LoopState,
   hasPendingToolUse: boolean,
   hasUnresolvedServerToolUse: boolean,
+  serverToolUseWillResume: boolean,
 ): StopReasonAction {
   const { stopReason } = stepCtx
 
-  if (hasUnresolvedServerToolUse) {
+  if (hasUnresolvedServerToolUse && !serverToolUseWillResume) {
     return handleUnresolvedServerToolUse(stepCtx, state)
   }
   if (stopReason === 'end_turn') {
@@ -1094,15 +1102,10 @@ export async function executeLoop(
         .map((b) => b.text as string)
         .join('')
 
-    const { hasUnresolvedServerToolUse, isUnresolvedServerToolUse } =
-      computeDanglingServerToolFlags(contentBlocks)
-    // Pair every dangling server-tool call before the next request goes out
-    // — regardless of stop_reason — EXCEPT `max_tokens`, where the block is
-    // a truncated call (not a genuine unresolved one) and
-    // `handleUnresolvedServerToolUse` below retries with more tokens
-    // instead of synthesizing a result over it.
-    const willPairDanglingServerTool = hasUnresolvedServerToolUse && stopReason !== 'max_tokens'
-    if (willPairDanglingServerTool) {
+    const { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse } =
+      computeDanglingServerToolFlags(contentBlocks, stopReason, hasPendingToolUse)
+    const pausedWithDanglingServerTool = stopReason === 'pause_turn' && hasUnresolvedServerToolUse
+    if (pausedWithDanglingServerTool) {
       messages[messages.length - 1] = {
         role: 'assistant',
         content: pairDanglingServerToolUses(contentBlocks, isUnresolvedServerToolUse),
@@ -1125,7 +1128,8 @@ export async function executeLoop(
       stepCtx,
       state,
       hasPendingToolUse,
-      hasUnresolvedServerToolUse && !willPairDanglingServerTool,
+      hasUnresolvedServerToolUse && !pausedWithDanglingServerTool,
+      serverToolUseWillResume,
     )
     if (action.action === 'return') return action.result
     if (action.action === 'continue') {
