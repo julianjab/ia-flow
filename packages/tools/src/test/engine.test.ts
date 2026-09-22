@@ -900,6 +900,9 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
       calls.push(structuredClone(messages))
       call++
       if (call === 1) {
+        // Turno con la llamada de server-tool diferida junto a un tool_use
+        // de cliente — deja `deferredServerToolPending` en true para la
+        // vuelta que sigue.
         return {
           stop_reason: 'tool_use',
           content: [
@@ -909,7 +912,19 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
               name: 'tool_search_tool_regex',
               input: { pattern: 'x' },
             },
-            { type: 'tool_use', id: 'toolu_prod', name: '__test_prod_client_tool__', input: {} },
+            { type: 'tool_use', id: 'toolu_prod_1', name: '__test_prod_client_tool__', input: {} },
+          ],
+        }
+      }
+      if (call === 2) {
+        // La respuesta que resuelve la llamada diferida. Trae OTRO tool_use
+        // de cliente (sin server-tool colgado esta vez) sólo para forzar una
+        // tercera vuelta y así poder observar que el mensaje drenado, que se
+        // saltó acá, se entrega ahí.
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id: 'toolu_prod_2', name: '__test_prod_client_tool__', input: {} },
           ],
         }
       }
@@ -924,10 +939,13 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
     let drainCalls = 0
     const drainMessages = async () => {
       drainCalls++
-      // Sólo la PRIMERA llamada de drenaje tiene algo para inyectar — el
-      // engine drena en cada vuelta, así que sin el fix esto se cuela justo
-      // después del turno con la llamada de server-tool diferida.
-      if (drainCalls === 1) return [{ id: 'msg_1', author: 'human', body: 'mirá también X' }]
+      // El engine drena AL TOPE de cada vuelta, antes del fetch — así que la
+      // primera invocación real ocurre ANTES del turno con la llamada
+      // diferida (nada para inyectar todavía). La segunda invocación real,
+      // sin el fix, ocurriría en la vuelta que sigue a esa (justo después del
+      // `tool_result` que la resuelve); con el fix, esa vuelta se saltea
+      // enteras y la segunda invocación real cae recién en la vuelta 3.
+      if (drainCalls === 2) return [{ id: 'msg_1', author: 'human', body: 'mirá también X' }]
       return []
     }
     const delivered: string[][] = []
@@ -938,16 +956,21 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
       },
     })
     expect(result.truncated).toBe(false)
-    // El mensaje que resuelve el tool_use de cliente tiene que llegar
-    // INMEDIATO después del turno con la llamada diferida — nada de texto
-    // plano intercalado antes.
+    // El request que resuelve el tool_use de cliente y la llamada diferida
+    // tiene que llegar INMEDIATO después del turno mixto — nada de texto
+    // plano intercalado antes: sin el fix, `drainCalls === 2` cae en ESTE
+    // request y este assert falla.
     const request2 = calls[1]
-    const lastMsg = request2[request2.length - 1] as { role: string; content: unknown }
-    expect(lastMsg.role).toBe('user')
-    expect(Array.isArray(lastMsg.content)).toBe(true)
-    expect((lastMsg.content as any[]).every((b) => b?.type === 'tool_result')).toBe(true)
+    const lastMsg2 = request2[request2.length - 1] as { role: string; content: unknown }
+    expect(lastMsg2.role).toBe('user')
+    expect(Array.isArray(lastMsg2.content)).toBe(true)
+    expect((lastMsg2.content as any[]).every((b) => b?.type === 'tool_result')).toBe(true)
     // El mensaje drenado no se pierde — se entrega en la vuelta siguiente,
     // una vez que el turno diferido ya se resolvió.
+    const request3 = calls[2]
+    const lastMsg3 = request3[request3.length - 1] as { role: string; content: unknown }
+    expect(lastMsg3.role).toBe('user')
+    expect(lastMsg3.content).toContain('mirá también X')
     expect(delivered.flat()).toContain('msg_1')
   })
 })
