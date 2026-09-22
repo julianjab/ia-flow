@@ -147,4 +147,36 @@ describe('resolveMcpServers — detrás de un agent-host', () => {
 
     expect(Object.keys(s)).toEqual([])
   })
+
+  it('con `kind`, abre igual el daemon aunque TODAS las tools declaradas sean de disco', () => {
+    // El bug real: un agente e2e con tools: [fs_read, fs_list, fs_grep,
+    // bash_run] —todas `agent-disk`— se quedaba sin `ia-flow-tools` y perdía
+    // complete_task/fail_task/submit_output (internal, servidas por el daemon
+    // sin importar la allow-list, pero sólo a quien tiene la conexión).
+    const s = resolveMcpServers({
+      input: input({ tools: ['fs_read'] }),
+      configured: undefined,
+      daemonUrl: 'http://daemon:3001',
+      daemonToken: 'daemon-tok',
+      localTools,
+      kind: 'async',
+    })
+
+    expect(Object.keys(s).sort()).toEqual(['ia-flow-local', 'ia-flow-tools'])
+    // Allow-list vacía y presente — no "sin filtro". `connectionOf` en
+    // `routes/mcp.ts` distingue `?tools=` (vacío) de ausente.
+    expect(urlOf(s, 'ia-flow-tools').searchParams.get('tools')).toBe('')
+  })
+
+  it('sin `kind`, no abre el daemon si el agente no le declaró ninguna tool de ese lado', () => {
+    const s = resolveMcpServers({
+      input: input({ tools: ['fs_read'] }),
+      configured: undefined,
+      daemonUrl: 'http://daemon:3001',
+      daemonToken: 'daemon-tok',
+      localTools,
+    })
+
+    expect(Object.keys(s)).toEqual(['ia-flow-local'])
+  })
 })

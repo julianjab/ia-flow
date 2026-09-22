@@ -94,6 +94,33 @@ describe('POST /api/mcp', () => {
     expect(names).not.toContain('mcp_test_sync_only')
   })
 
+  // Regresión: `?tools=` presente pero VACÍO no es "sin filtro" — es una
+  // allow-list vacía. `resolveMcpServers` abre la conexión así cuando un
+  // agente cuyas tools son todas de disco igual necesita el daemon para sus
+  // internal (`complete_task`/`fail_task`). Antes del fix, `'' ? ... :
+  // undefined` trataba `''` como ausente y dejaba TODO el registry ejecutable.
+  it('?tools= presente y vacío es una allow-list vacía, no "sin filtro"', async () => {
+    const list = (await (
+      await rpc({ jsonrpc: '2.0', id: 10, method: 'tools/list' }, '?tools=')
+    ).json()) as { result: { tools: Array<{ name: string }> } }
+    // Ninguna tool no-internal se ofrece con la allow-list vacía.
+    expect(list.result.tools.map((t) => t.name)).not.toContain('mcp_test_echo')
+
+    const called = (await (
+      await rpc(
+        {
+          jsonrpc: '2.0',
+          id: 11,
+          method: 'tools/call',
+          params: { name: 'mcp_test_echo', arguments: { value: 'hi' } },
+        },
+        '?tools=',
+      )
+    ).json()) as { result: { isError: boolean; content: Array<{ text: string }> } }
+    expect(called.result.isError).toBe(true)
+    expect(called.result.content[0].text).toContain('not found')
+  })
+
   it('tools/call executes the tool and wraps the result as text content', async () => {
     const res = await rpc({
       jsonrpc: '2.0',
