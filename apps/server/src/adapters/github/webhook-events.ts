@@ -223,6 +223,12 @@ export function ciEvent(
       sha: run.head_sha,
       url: run.html_url,
       prNumber,
+      // De qué mecanismo vino, por si una regla escucha `on: [check_suite,
+      // workflow_run]` a la vez y necesita distinguirlos en el `when` — el
+      // tipo del evento no está disponible ahí (`when` evalúa sólo contra
+      // `payload`, ver match.ts), así que sin esto una regla combinada no
+      // podría diferenciarlos.
+      kind: event,
     },
   })
 }

@@ -1,9 +1,5 @@
 import { type Rule, RuleSchema } from '@ia-flow/shared'
-import { planLegacyRename } from '../../../adapters/github/legacy-event-rename.js'
 import type { IRuleRepository } from '../../../domain/ports/IRuleRepository.js'
-import { createLogger } from '../../../logger.js'
-
-const log = createLogger('yaml-rules')
 
 /**
  * Reglas de un deploy headless: vienen del `runner.yaml` y son de SÓLO
@@ -17,12 +13,23 @@ const log = createLogger('yaml-rules')
 export class YamlRuleRepository implements IRuleRepository {
   private readonly rules: Rule[]
 
-  constructor(rules: unknown[]) {
+  /**
+   * `translate` es un hook opcional, inyectado por `composition/container.ts`
+   * — hoy lo usa para traducir en memoria una regla que todavía usa la
+   * taxonomía vieja de eventos de GitHub (`adapters/github/
+   * legacy-event-rename.ts`). Este archivo es `infrastructure/` y no puede
+   * importar `adapters/**` (tabla de capas, CLAUDE.md raíz), así que recibe
+   * la función ya resuelta en vez de conocer de dónde sale.
+   */
+  constructor(
+    rules: unknown[],
+    private readonly translate: (rule: Rule) => Rule = (rule) => rule,
+  ) {
     // Se valida acá y no en el loader: el repositorio es el borde que garantiza
     // que lo que sale cumple el contrato, venga de donde venga.
     this.rules = RuleSchema.array()
       .parse(rules)
-      .map((rule) => translateLegacyEventNames(rule))
+      .map((rule) => this.translate(rule))
       // Mismo orden que `ORDER BY position, id` de SQLite, para que el matcher
       // vea la misma prioridad en los dos backings.
       .slice()
@@ -65,33 +72,4 @@ export class YamlRuleRepository implements IRuleRepository {
   private readOnly(): never {
     throw new Error('Las reglas de este deploy vienen del runner.yaml — son de sólo lectura')
   }
-}
-
-/**
- * Traduce el `on`/`when` de una regla del `runner.yaml` que todavía usa la
- * taxonomía curada de GitHub (`pr.opened`, `ci.finished`, …) — ver
- * `adapters/github/legacy-event-rename.ts`.
- *
- * A diferencia de la migración 080 (que reescribe SQLite una vez), un
- * `runner.yaml` no tiene dónde persistir el resultado: esto traduce EN
- * MEMORIA, en cada boot, y loguea qué hizo — es lo único que puede hacer un
- * repo read-only, pero es mejor que la regla quedándose callada sin que
- * nadie se entere. El archivo fuente sigue con los nombres viejos hasta que
- * alguien lo edite a mano.
- */
-function translateLegacyEventNames(rule: Rule): Rule {
-  const plan = planLegacyRename(rule.on, rule.when ?? null)
-  if (plan === null) return rule
-  if ('skip' in plan) {
-    log.warn(
-      { ruleId: rule.id, on: rule.on, reason: plan.reason },
-      'regla del runner.yaml con nombres de evento viejos que no se puede traducir sola — revisar a mano',
-    )
-    return rule
-  }
-  log.warn(
-    { ruleId: rule.id, before: rule.on, after: plan.onTypes },
-    'regla del runner.yaml traducida en memoria a nombres crudos de evento — actualizá el YAML fuente para que esto deje de loguearse',
-  )
-  return { ...rule, on: plan.onTypes, when: plan.when }
 }

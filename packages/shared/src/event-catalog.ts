@@ -126,16 +126,16 @@ export const EVENT_CATALOG: EventTypeDef[] = [
   {
     type: 'check_suite',
     description:
-      'El check suite de un commit cambió de estado — `action` distingue requested/in_progress/completed. `conclusion` sólo tiene sentido cuando `action = completed`.',
+      'El check suite de un commit cambió de estado — `action` distingue requested/in_progress/completed. `conclusion` sólo tiene sentido cuando `action = completed`. `kind` siempre es `check_suite`, útil sólo si la regla escucha los dos tipos a la vez.',
     source: 'github',
-    fields: ['action', 'conclusion', 'status', 'name', 'branch', 'sha', 'url', 'prNumber'],
+    fields: ['action', 'conclusion', 'status', 'name', 'branch', 'sha', 'url', 'prNumber', 'kind'],
   },
   {
     type: 'workflow_run',
     description:
-      'Un workflow run de GitHub Actions cambió de estado — `action` distingue requested/in_progress/completed. Mismo hecho que `check_suite` para "terminó el CI"; una regla que no distingue el mecanismo escucha `on: [check_suite, workflow_run]`.',
+      'Un workflow run de GitHub Actions cambió de estado — `action` distingue requested/in_progress/completed. Mismo hecho que `check_suite` para "terminó el CI"; una regla que no distingue el mecanismo escucha `on: [check_suite, workflow_run]` y usa `kind` en el `when` si necesita separarlos.',
     source: 'github',
-    fields: ['action', 'conclusion', 'status', 'name', 'branch', 'sha', 'url', 'prNumber'],
+    fields: ['action', 'conclusion', 'status', 'name', 'branch', 'sha', 'url', 'prNumber', 'kind'],
   },
 
   // ─── Slack ───────────────────────────────────────────────────────────────
