@@ -57,35 +57,36 @@ export const EVENT_CATALOG: EventTypeDef[] = [
     fields: ['status', ...ISSUE_FIELDS, 'item'],
   },
 
-  // ─── GitHub — issues y el board ──────────────────────────────────────────
-  // El tipo es `<evento>.<action>` tal cual GitHub los manda — no una
-  // taxonomía curada aparte. Éstas son las acciones más comunes; cualquier
-  // otra (`issue_comment.deleted`, `issues.assigned`, …) se publica igual con
-  // el mismo prefijo, aunque no esté listada acá (el catálogo es sólo para
-  // autocomplete, no autoritativo).
+  // ─── GitHub — nombres crudos, sin taxonomía propia ──────────────────────
+  // `type` es EXACTAMENTE el nombre de evento que manda GitHub
+  // (`X-GitHub-Event`) — nunca `<evento>.<action>` ni una fusión de dos
+  // eventos. Cada uno se publica para CUALQUIER `action`; `action` viaja en
+  // el payload y es lo que un `when` usa para distinguir (`{field: 'action',
+  // op: '=', value: 'edited'}`). Ver apps/server/src/adapters/github/
+  // webhook-events.ts.
   {
-    type: 'issue_comment.created',
+    type: 'issue_comment',
     description:
-      'Comentario nuevo en un issue de GitHub. NO trae `item` — es el payload crudo del webhook de GitHub, sin status/labels resueltos. Para condicionar por eso, usá `issue.status_changed`/`issue.created` (los que sí resuelven `item`, vía el re-scan).',
+      'Comentario en un issue de GitHub — `action` distingue created/edited/deleted. NO trae `item` — es el payload crudo del webhook, sin status/labels resueltos. Para condicionar por eso, usá `issue.status_changed`/`issue.created` (los que sí resuelven `item`, vía el re-scan).',
     source: 'github',
     fields: ['action', 'body', 'author', 'commentUrl', 'commentId', 'issueNumber'],
   },
   {
-    type: 'issues.opened',
+    type: 'issues',
     description:
-      'Cambio en un issue de GitHub (abierto, cerrado, etc). `labelName`/`assignee` sólo vienen en labeled/unlabeled/assigned/unassigned. NO trae `item`: un `when` sobre `item.status`/`item.labels` acá nunca matchea — issuesEvent() (apps/server/src/adapters/github/webhook-events.ts) no lo resuelve. Para eso usá `issue.status_changed`/`issue.created`.',
+      'Cambio en un issue de GitHub — `action` distingue opened/closed/labeled/assigned/edited/… `labelName`/`assignee` sólo vienen en labeled/unlabeled/assigned/unassigned. NO trae `item`: un `when` sobre `item.status`/`item.labels` acá nunca matchea — issuesEvent() no lo resuelve. Para eso usá `issue.status_changed`/`issue.created`.',
     source: 'github',
-    fields: ['action', 'issueNumber', 'title', 'state', 'labelName', 'assignee'],
+    fields: ['action', 'issueNumber', 'title', 'state', 'labelName', 'assignee', 'labels'],
   },
   {
-    type: 'projects_v2_item.edited',
+    type: 'projects_v2_item',
     description:
-      'Un item del board de GitHub Projects cambió. GitHub avisa QUÉ campo, nunca a qué valor. NO trae `item` resuelto tampoco acá (projectItemEvent() sólo publica `itemId`/`fieldName`/`fieldType`) — para el valor actual hay que resolverlo aparte (`getItemById`) o esperar el `issue.status_changed`/`issue.created` que el re-scan dispara para el mismo delivery.',
+      'Un item del board de GitHub Projects cambió — `action` distingue edited/created/deleted/archived/… GitHub avisa QUÉ campo cambió, nunca a qué valor. NO trae `item` resuelto tampoco acá (sólo `itemId`/`fieldName`/`fieldType`) — para el valor actual hay que resolverlo aparte o esperar el `issue.status_changed`/`issue.created` que el re-scan dispara para el mismo delivery.',
     source: 'github',
     fields: ['action', 'itemId', 'fieldName', 'fieldType'],
   },
   {
-    type: 'projects_v2.edited',
+    type: 'projects_v2',
     description: 'Cambió la configuración del proyecto de GitHub Projects en sí (no un item).',
     source: 'github',
     fields: ['action'],
@@ -93,14 +94,16 @@ export const EVENT_CATALOG: EventTypeDef[] = [
 
   // ─── Pull requests ───────────────────────────────────────────────────────
   {
-    type: 'pr.opened',
-    description: 'Se abrió o se reabrió un pull request.',
+    type: 'pull_request',
+    description:
+      'Cualquier cambio de estado de un pull request — `action` distingue opened/reopened/synchronize/ready_for_review/edited/closed/… Un `closed` mergeado vs sin mergear se distingue por `pr.merged`, no por el tipo.',
     source: 'github',
     fields: [
       'action',
       'pr.number',
       'pr.title',
       'pr.state',
+      'pr.merged',
       'pr.isDraft',
       'pr.additions',
       'pr.deletions',
@@ -112,42 +115,27 @@ export const EVENT_CATALOG: EventTypeDef[] = [
     ],
   },
   {
-    type: 'pr.synchronize',
-    description: 'Llegaron commits nuevos a un pull request abierto.',
+    type: 'pull_request_review',
+    description:
+      'Alguien interactuó con una review de un pull request — `action` distingue submitted/edited/dismissed. `state`/`reviewer`/`body` sólo tienen sentido cuando `action = submitted`.',
     source: 'github',
-    fields: ['action', 'pr.number', 'pr.head.ref', 'pr.head.sha', 'pr.author'],
-  },
-  {
-    type: 'pr.ready_for_review',
-    description: 'Un pull request salió de draft.',
-    source: 'github',
-    fields: ['action', 'pr.number', 'pr.title', 'pr.author'],
-  },
-  {
-    type: 'pr.merged',
-    description: 'Se mergeó un pull request.',
-    source: 'github',
-    fields: ['action', 'pr.number', 'pr.title', 'pr.base.ref', 'pr.author'],
-  },
-  {
-    type: 'pr.closed',
-    description: 'Se cerró un pull request SIN mergear.',
-    source: 'github',
-    fields: ['action', 'pr.number', 'pr.title', 'pr.author'],
-  },
-  {
-    type: 'pr.review_submitted',
-    description: 'Alguien dejó una review en un pull request.',
-    source: 'github',
-    fields: ['state', 'reviewer', 'body', 'pr.number', 'pr.author'],
+    fields: ['action', 'state', 'reviewer', 'body', 'pr.number', 'pr.author'],
   },
 
   // ─── CI ──────────────────────────────────────────────────────────────────
   {
-    type: 'ci.finished',
-    description: 'Terminó el CI de un commit. Unifica check_suite y workflow_run.',
+    type: 'check_suite',
+    description:
+      'El check suite de un commit cambió de estado — `action` distingue requested/in_progress/completed. `conclusion` sólo tiene sentido cuando `action = completed`.',
     source: 'github',
-    fields: ['conclusion', 'status', 'name', 'branch', 'sha', 'url', 'kind', 'prNumber'],
+    fields: ['action', 'conclusion', 'status', 'name', 'branch', 'sha', 'url', 'prNumber'],
+  },
+  {
+    type: 'workflow_run',
+    description:
+      'Un workflow run de GitHub Actions cambió de estado — `action` distingue requested/in_progress/completed. Mismo hecho que `check_suite` para "terminó el CI"; una regla que no distingue el mecanismo escucha `on: [check_suite, workflow_run]`.',
+    source: 'github',
+    fields: ['action', 'conclusion', 'status', 'name', 'branch', 'sha', 'url', 'prNumber'],
   },
 
   // ─── Slack ───────────────────────────────────────────────────────────────

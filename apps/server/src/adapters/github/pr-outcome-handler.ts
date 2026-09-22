@@ -1,6 +1,13 @@
-// Traduce `pr.merged` / `pr.closed` / `pr.review_submitted` en la señal de
-// resultado que le faltaba a `execution_logs`: no cómo terminó el run, sino
-// si lo que produjo sirvió (issue #141).
+// Traduce un `pull_request` cerrado / un `pull_request_review` enviado en la
+// señal de resultado que le faltaba a `execution_logs`: no cómo terminó el
+// run, sino si lo que produjo sirvió (issue #141).
+//
+// El traductor de GitHub (`webhook-events.ts`) ya no filtra por `action` —
+// publica el evento crudo para CUALQUIER acción de `pull_request`/
+// `pull_request_review` — así que este handler es el que decide qué acciones
+// le importan (`closed` con `pr.merged` para saber merged/closed,
+// `submitted` para una ronda de review) y descarta el resto (`opened`,
+// `synchronize`, `edited`, `dismissed`, …) devolviendo `skipped`.
 //
 // La atribución run → PR es deliberadamente simple: el PR se identifica por
 // su branch (`payload.pr.head.ref`), y `task/<taskId>` es la convención de
@@ -22,14 +29,14 @@ import type { EventHandler, EventOutcome } from '@ia-flow/rules'
 import type { EngineEvent, ExecutionLog } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
 import { createLogger } from '../../logger.js'
-import { PR_CLOSED, PR_MERGED, PR_REVIEW_SUBMITTED } from './webhook-events.js'
 
 const log = createLogger('pr-outcome')
 
-const HANDLED_TYPES = new Set<string>([PR_MERGED, PR_CLOSED, PR_REVIEW_SUBMITTED])
+const HANDLED_TYPES = new Set<string>(['pull_request', 'pull_request_review'])
 
 interface PrEventPayload {
-  pr?: { number?: number; head?: { ref?: string } }
+  action?: string
+  pr?: { number?: number; merged?: boolean; head?: { ref?: string } }
 }
 
 const BRANCH_PREFIX = 'task/'
@@ -92,17 +99,22 @@ export class PrOutcomeHandler implements EventHandler {
       }
 
       const prNumber = payload.pr?.number ?? run.prNumber ?? null
-      if (event.type === PR_MERGED) {
-        this.logs.update(run.id, { prMerged: true, prNumber })
-      } else if (event.type === PR_CLOSED) {
-        this.logs.update(run.id, { prMerged: false, prNumber })
-      } else {
+
+      if (event.type === 'pull_request' && payload.action === 'closed') {
+        this.logs.update(run.id, { prMerged: payload.pr?.merged === true, prNumber })
+        return 'dispatched'
+      }
+      if (event.type === 'pull_request_review' && payload.action === 'submitted') {
         // Incremento atómico en el repo — dos reviews casi simultáneas no se
         // pueden pisar leyendo `run.reviewRounds` acá y escribiendo después.
         this.logs.incrementReviewRounds(run.id)
         if (run.prNumber !== prNumber) this.logs.update(run.id, { prNumber })
+        return 'dispatched'
       }
-      return 'dispatched'
+      // Cualquier otra acción de estos dos eventos (`opened`, `synchronize`,
+      // `edited`, `dismissed`, …) no le importa a este handler — el
+      // traductor ya no las filtra, así que las descarta acá.
+      return 'skipped'
     } catch (err) {
       // Best-effort (criterio de aceptación #4 del issue): un evento que no
       // se puede atribuir no puede voltear el pipeline de webhooks.

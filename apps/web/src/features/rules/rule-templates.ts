@@ -41,17 +41,24 @@ export const RULE_TEMPLATES: RuleTemplate[] = [
     label: 'Reaccionar a un pull request',
     hint: 'Elegí el agente que lo revisa',
     build: () => ({
-      on: ['pr.opened', 'pr.synchronize'],
+      on: ['pull_request'],
+      when: [
+        { field: 'action', op: '=', value: 'opened' },
+        { field: 'action', op: '=', value: 'synchronize', logic: 'or' },
+      ],
       do: [{ action: 'agent', agentId: '' }],
     }),
   },
   {
     key: 'ci',
     label: 'Reaccionar al resultado del CI',
-    hint: 'Ya filtra por CI verde — cambiá el valor para reaccionar a los rojos',
+    hint: 'Ya filtra por CI verde y terminado — cambiá el valor para reaccionar a los rojos',
     build: () => ({
-      on: ['ci.finished'],
-      when: [{ field: 'conclusion', op: '=', value: 'success' }],
+      on: ['check_suite', 'workflow_run'],
+      when: [
+        { field: 'action', op: '=', value: 'completed' },
+        { field: 'conclusion', op: '=', value: 'success' },
+      ],
       do: [{ action: 'agent', agentId: '' }],
     }),
   },

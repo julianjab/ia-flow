@@ -1,9 +1,10 @@
-import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
-import type { RepoMappingEntry } from '@ia-flow/shared'
+import type { CreateItemInput, IssueItem, UpdateItemInput } from '@ia-flow/issue-sources'
+import type { EventScope, RepoMappingEntry } from '@ia-flow/shared'
 import { invalidateMemoized, SlackMemberRefSchema, SlackReviewMessageSchema } from '@ia-flow/shared'
 import { SlackReviewError } from '@ia-flow/slack'
 import { Hono } from 'hono'
 import { RunTaskNowError } from '../application/use-cases/RunTaskNowUseCase.js'
+import { resolveEventItem } from '../composition/actions.js'
 import {
   baseConfigRepo,
   enqueueRunMessageUseCase,
@@ -54,6 +55,50 @@ export function buildCreateItemInput(body: CreateTaskBody & { title: string }): 
     ...(body.repos !== undefined && { repos: body.repos }),
     ...(body.status !== undefined && { status: body.status }),
     ...(body.draft !== undefined && { draft: body.draft }),
+  }
+}
+
+// Pure — parseo de la query de `GET /resolve-for-event`, separado del handler
+// por el mismo motivo que `buildCreateItemInput`: se testea sin importar
+// `composition/container.js` (abre SQLite de verdad al importarse).
+export function parseResolveForEventQuery(query: {
+  projectId?: string
+  issueId?: string
+  prNumber?: string
+  repos?: string
+}): { projectId: string; scope: EventScope } | { error: string } {
+  if (!query.projectId) return { error: 'projectId query param is required' }
+
+  const prNumber = query.prNumber ? Number(query.prNumber) : undefined
+  const repos = query.repos
+    ?.split(',')
+    .map((r) => r.trim())
+    .filter(Boolean)
+
+  return {
+    projectId: query.projectId,
+    scope: {
+      ...(query.issueId ? { issueId: query.issueId } : {}),
+      ...(prNumber != null && Number.isFinite(prNumber) ? { prNumber } : {}),
+      ...(repos?.length ? { repos } : {}),
+    },
+  }
+}
+
+/** El subconjunto de `IssueItem` que expone `resolve-for-event` — el mismo
+ *  vocabulario que `ISSUE_FIELDS` en `packages/shared/src/event-catalog.ts`,
+ *  para que el operador reconozca los nombres que ya usa en un `when`. */
+export function toResolvedItemPayload(item: IssueItem) {
+  return {
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    type: item.type,
+    repos: item.repos,
+    labels: item.labels ?? [],
+    assignees: item.assignees ?? [],
+    issueNumber: item.issueNumber,
+    issueUrl: item.issueUrl,
   }
 }
 
@@ -439,6 +484,36 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     } catch (err) {
       if (err instanceof RunTaskNowError) return c.json({ error: err.message }, 400)
       log.error({ err, taskId }, 'run-preview failed')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
+  // GET /api/tasks/resolve-for-event?projectId=X&issueId=...&prNumber=42&repos=a,b
+  //
+  // El "populate item" de una regla: envuelve `resolveEventItem` — la MISMA
+  // función que usa la acción `agent` (`resolve-event-item.ts`) para saber a
+  // qué issue del board corre un evento de GitHub — así una regla puede
+  // llamarla con la acción `http` ANTES de decidir si despacha un agente,
+  // condicionando su `when` sobre `status`/`repos`/`labels`/etc. Se registra
+  // ANTES de `/:id`: sin esto Hono la matchearía como `id = 'resolve-for-event'`.
+  //
+  // `{ item: null }` cuando no resuelve nada (un PR sin issue linkeado) no es
+  // un error de ruta — es el resultado correcto, y el `http` de la regla
+  // sigue con `continueOnError`/`when` para decidir qué hacer con eso.
+  router.get('/resolve-for-event', async (c) => {
+    const parsed = parseResolveForEventQuery({
+      projectId: c.req.query('projectId'),
+      issueId: c.req.query('issueId'),
+      prNumber: c.req.query('prNumber'),
+      repos: c.req.query('repos'),
+    })
+    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
+
+    try {
+      const item = await resolveEventItem(parsed.projectId, parsed.scope)
+      return c.json({ item: item ? toResolvedItemPayload(item) : null })
+    } catch (err) {
+      log.warn({ err, projectId: parsed.projectId }, 'resolve-for-event falló')
       return c.json({ error: (err as Error).message }, 500)
     }
   })

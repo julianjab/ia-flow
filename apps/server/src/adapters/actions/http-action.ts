@@ -101,7 +101,19 @@ export class HttpAction implements ActionHandler<HttpConfig> {
         log.warn({ url, status: res.status, ruleId: ctx.rule.id }, 'HTTP action failed')
         return { ok: false, detail: `${detail} ${text}`.trim() }
       }
-      return { ok: true, detail }
+      // `output` sólo si la respuesta es JSON — un `http` step nombrado es lo
+      // que le permite a un paso siguiente leer `{{steps.<id>.output...}}`
+      // (mismo mecanismo que ya usa `agent`/`script`). Texto plano no navega
+      // como objeto, así que se deja sin `output` en vez de forzar un string.
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('json')) return { ok: true, detail }
+      try {
+        return { ok: true, detail, output: await res.json() }
+      } catch {
+        // Content-type decía JSON pero el body no parseó — no es motivo para
+        // fallar la acción, sólo para no ofrecer un `output` inservible.
+        return { ok: true, detail }
+      }
     } finally {
       clearTimeout(timer)
     }

@@ -7,40 +7,25 @@
 // SÓLO a las reglas que lo pidieron y el resto no cuesta nada — que es lo que
 // convierte la medición que justificaba el filtro en el argumento para abrirlo.
 //
+// **`EngineEvent.type` es EXACTAMENTE el nombre de evento que manda GitHub
+// (`X-GitHub-Event`) — nunca un nombre inventado acá.** No hay taxonomía
+// curada (`pr.opened`, `ci.finished`, `issues.<action>`) ni fusión de dos
+// eventos reales en uno (`check_suite`+`workflow_run`). La razón: un nombre
+// propio es una lista de casos que hay que mantener sincronizada a mano con
+// lo que GitHub manda — y esa lista se desincroniza en silencio (`pull_request`
+// con `action: 'edited'` no producía nada porque nadie lo agregó). Con el
+// nombre crudo, CUALQUIER `action` de un evento soportado se publica sin que
+// haga falta enumerarlas, y distinguir por `action` (o por un campo como
+// `pr.merged`) es trabajo del `when` de la regla — el DSL ya lo resuelve
+// (`packages/rules/src/when.ts`), no hace falta un tipo de evento por
+// combinación.
+//
 // Este módulo es puro: recibe el payload y un resolvedor de scope, y devuelve
 // el evento. No conoce el bus ni la DB, así que se testea sin levantar nada.
 import type { IssueItem } from '@ia-flow/issue-sources'
 import type { EngineEvent, EventScope } from '@ia-flow/shared'
 import { createEvent } from '@ia-flow/shared'
 import type { IWebhookTranslator, WebhookDelivery } from '../../domain/ports/IWebhookTranslator.js'
-
-/** Tipos que el engine publica al bus. */
-export const PR_OPENED = 'pr.opened'
-export const PR_CLOSED = 'pr.closed'
-export const PR_MERGED = 'pr.merged'
-export const PR_SYNCHRONIZED = 'pr.synchronize'
-export const PR_READY = 'pr.ready_for_review'
-export const PR_REVIEW_SUBMITTED = 'pr.review_submitted'
-export const CI_FINISHED = 'ci.finished'
-/** `<evento>.<action>` — nombre nativo de GitHub + la acción tal cual la
- *  manda, no un tipo curado aparte (`issue_comment.deleted`,
- *  `issues.assigned`, etc. se publican igual, con el mismo prefijo). Estas
- *  cuatro son ejemplos de la acción más común de cada evento — para
- *  `describeEventType`/el catálogo, no para filtrar `handles()`, que sigue
- *  mirando el nombre crudo del delivery (`isBusEvent`). También siguen
- *  disparando el re-scan (`ISSUE_EVENTS` en `routes/webhooks.ts`). */
-export const ISSUE_COMMENT_CREATED = 'issue_comment.created'
-export const ISSUES_OPENED = 'issues.opened'
-export const PROJECTS_V2_ITEM_EDITED = 'projects_v2_item.edited'
-export const PROJECTS_V2_EDITED = 'projects_v2.edited'
-
-/** Resuelve a qué proyecto y repo de ia-flow pertenece un `owner/repo` de
- *  GitHub. Sin él, el evento queda sin scope y —fail-closed— sólo lo verían
- *  las reglas globales. */
-export type ScopeResolver = (
-  owner: string,
-  repo: string,
-) => { projectId?: string; repoName?: string } | null
 
 interface RawPayload {
   action?: string
@@ -105,6 +90,14 @@ function scopeForProjectIds(projectIds: string[] | undefined): EventScope {
   return projectIds?.[0] ? { projectId: projectIds[0] } : {}
 }
 
+/** Resuelve a qué proyecto y repo de ia-flow pertenece un `owner/repo` de
+ *  GitHub. Sin él, el evento queda sin scope y —fail-closed— sólo lo verían
+ *  las reglas globales. */
+export type ScopeResolver = (
+  owner: string,
+  repo: string,
+) => { projectId?: string; repoName?: string } | null
+
 /** Los campos del PR que una regla querría condicionar, aplanados con nombres
  *  camelCase — el DSL de `when` resuelve caminos anidados, pero un
  *  `pr.isDraft` es más legible que un `pr.draft` que sólo GitHub nombra así. */
@@ -126,21 +119,11 @@ function prPayload(pr: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * `pull_request` → uno de los `pr.*`, o `null` cuando la acción no interesa.
- *
- * `closed` se parte en dos tipos (`pr.merged` / `pr.closed`) en vez de dejar
- * que cada regla mire `payload.merged`: son dos hechos distintos con
- * consecuencias distintas, y obligar a condicionar sobre un flag es la clase
- * de detalle que se olvida y produce una regla que dispara de más.
+ * `pull_request` → `pull_request`, para CUALQUIER `action`. Distinguir
+ * `opened` de `edited`, o un `closed` mergeado de uno cerrado sin mergear
+ * (`payload.pr.merged`), es trabajo del `when` de la regla — no de este
+ * traductor.
  */
-function pullRequestEventType(action: string | undefined, merged: unknown): string | null {
-  if (action === 'opened' || action === 'reopened') return PR_OPENED
-  if (action === 'synchronize') return PR_SYNCHRONIZED
-  if (action === 'ready_for_review') return PR_READY
-  if (action === 'closed') return merged === true ? PR_MERGED : PR_CLOSED
-  return null
-}
-
 export function pullRequestEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
@@ -150,16 +133,13 @@ export function pullRequestEvent(
   const pr = payload.pull_request
   if (!pr) return null
 
-  const type = pullRequestEventType(payload.action, pr.merged)
-  if (!type) return null
-
   const number = typeof pr.number === 'number' ? pr.number : undefined
   return createEvent({
     // El delivery id de GitHub ES la identidad del hecho: GitHub reintenta un
     // delivery fallido con el mismo id, y sin esto un reintento dispararía las
     // reglas dos veces.
-    ...(deliveryId ? { id: `${deliveryId}:${type}` } : {}),
-    type,
+    ...(deliveryId ? { id: `${deliveryId}:pull_request:${payload.action}` } : {}),
+    type: 'pull_request',
     source: 'github',
     traceId,
     scope: scopeFor(payload, resolve, number ? { prNumber: number } : {}),
@@ -167,8 +147,8 @@ export function pullRequestEvent(
   })
 }
 
-/** `pull_request_review` → `pr.review_submitted`. Sólo `submitted`: `edited` y
- *  `dismissed` no son un veredicto nuevo. */
+/** `pull_request_review` → `pull_request_review`, para cualquier `action`
+ *  (`submitted`, `edited`, `dismissed`). */
 export function pullRequestReviewEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
@@ -177,17 +157,20 @@ export function pullRequestReviewEvent(
 ): EngineEvent | null {
   const pr = payload.pull_request
   const review = payload.review
-  if (!pr || !review || payload.action !== 'submitted') return null
+  if (!pr || !review) return null
 
   const number = typeof pr.number === 'number' ? pr.number : undefined
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:${PR_REVIEW_SUBMITTED}` } : {}),
-    type: PR_REVIEW_SUBMITTED,
+    ...(deliveryId ? { id: `${deliveryId}:pull_request_review:${payload.action}` } : {}),
+    type: 'pull_request_review',
     source: 'github',
     traceId,
     scope: scopeFor(payload, resolve, number ? { prNumber: number } : {}),
     payload: {
-      // `approved` | `changes_requested` | `commented`
+      action: payload.action,
+      // `approved` | `changes_requested` | `commented` — normalizado a
+      // minúsculas: una regla no debería tener que saber que GitHub lo manda
+      // en mayúsculas.
       state: typeof review.state === 'string' ? review.state.toLowerCase() : undefined,
       reviewer: (review.user as { login?: string } | undefined)?.login,
       body: review.body,
@@ -197,22 +180,22 @@ export function pullRequestReviewEvent(
 }
 
 /**
- * `check_suite` / `workflow_run` completados → `ci.finished`.
+ * `check_suite` / `workflow_run` → el mismo nombre crudo del evento, para
+ * cualquier `action` (`requested`, `in_progress`, `completed`, …).
  *
- * Los dos se normalizan al MISMO tipo porque para una regla son el mismo
- * hecho: el CI de este commit terminó y ésta es su conclusión. Publicar
- * `check_suite.completed` y `workflow_run.completed` por separado obligaría a
- * cada regla a listar los dos, y a acordarse de agregar el tercero el día que
- * aparezca.
+ * Los dos ya NO se fusionan en un tipo propio: son dos eventos reales
+ * distintos de GitHub. Una regla que quiere "terminó el CI, no importa el
+ * mecanismo" escribe `on: ['check_suite', 'workflow_run']` +
+ * `when: [{field: 'action', op: '=', value: 'completed'}]` — el array de
+ * `on` ya expresa "cualquiera de estos".
  */
-export function ciFinishedEvent(
-  event: string,
+export function ciEvent(
+  event: 'check_suite' | 'workflow_run',
   payload: RawPayload,
   resolve: ScopeResolver,
   deliveryId?: string,
   traceId?: string,
 ): EngineEvent | null {
-  if (payload.action !== 'completed') return null
   const run = event === 'check_suite' ? payload.check_suite : payload.workflow_run
   if (!run) return null
 
@@ -223,35 +206,30 @@ export function ciFinishedEvent(
   const prNumber = typeof prs?.[0]?.number === 'number' ? prs[0].number : undefined
 
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:${CI_FINISHED}` } : {}),
-    type: CI_FINISHED,
+    ...(deliveryId ? { id: `${deliveryId}:${event}:${payload.action}` } : {}),
+    type: event,
     source: 'github',
     traceId,
     scope: scopeFor(payload, resolve, prNumber ? { prNumber } : {}),
     payload: {
+      action: payload.action,
       // `success` | `failure` | `cancelled` | `timed_out` | `neutral` | …
+      // — sólo tiene valor una vez que `action === 'completed'`, `undefined`
+      // en cualquier otro estado.
       conclusion: run.conclusion,
       status: run.status,
       name: run.name,
       branch: run.head_branch,
       sha: run.head_sha,
       url: run.html_url,
-      // De qué mecanismo vino, por si una regla quiere distinguirlos aunque el
-      // tipo de evento sea el mismo.
-      kind: event,
       prNumber,
     },
   })
 }
 
 /**
- * `issue_comment` → `issue_comment.<action>` (`.created`, `.edited`,
- * `.deleted`) — el nombre nativo de GitHub más la acción, tal cual las manda,
- * no una taxonomía curada aparte. Con la acción en el tipo, una regla
- * escribe `on: ['issue_comment.created']` en vez de `on: ['issue_comment']` +
- * un `when` sólo para descartar edits/deletes — mismo criterio que ya usan
- * `pr.opened`/`pr.merged`. `action` sigue viajando en el payload también, por
- * si una regla quiere escuchar el evento entero y despachar por él.
+ * `issue_comment` → `issue_comment`, para cualquier `action` (`created`,
+ * `edited`, `deleted`). `action` viaja en el payload, no en el tipo.
  */
 export function issueCommentEvent(
   payload: RawPayload,
@@ -263,12 +241,11 @@ export function issueCommentEvent(
   const comment = payload.comment
   if (!issue || !comment) return null
 
-  const type = `issue_comment.${payload.action}`
   const issueNumber = typeof issue.number === 'number' ? issue.number : undefined
   const nodeId = typeof issue.node_id === 'string' ? issue.node_id : undefined
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:${type}:${comment.id}` } : {}),
-    type,
+    ...(deliveryId ? { id: `${deliveryId}:issue_comment:${payload.action}:${comment.id}` } : {}),
+    type: 'issue_comment',
     source: 'github',
     traceId,
     scope: scopeFor(payload, resolve, nodeId ? { issueId: nodeId } : {}),
@@ -286,8 +263,8 @@ export function issueCommentEvent(
   })
 }
 
-/** `issues` → `issues.<action>` (`.opened`, `.labeled`, `.closed`, …), mismo
- *  criterio que `issueCommentEvent`. */
+/** `issues` → `issues`, para cualquier `action` (`opened`, `labeled`,
+ *  `closed`, …). */
 export function issuesEvent(
   payload: RawPayload,
   resolve: ScopeResolver,
@@ -297,12 +274,11 @@ export function issuesEvent(
   const issue = payload.issue
   if (!issue) return null
 
-  const type = `issues.${payload.action}`
   const issueNumber = typeof issue.number === 'number' ? issue.number : undefined
   const nodeId = typeof issue.node_id === 'string' ? issue.node_id : undefined
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:${type}:${issueNumber}` } : {}),
-    type,
+    ...(deliveryId ? { id: `${deliveryId}:issues:${payload.action}:${issueNumber}` } : {}),
+    type: 'issues',
     source: 'github',
     traceId,
     scope: scopeFor(payload, resolve, nodeId ? { issueId: nodeId } : {}),
@@ -327,10 +303,11 @@ export function issuesEvent(
 }
 
 /**
- * `projects_v2_item` → el evento tal cual. El scope NO sale de `owner/repo`
- * (el payload no trae `repository`: un item de Projects puede venir de
- * cualquier repo del proyecto) — sale de `projectIds`, que la ruta ya resolvió
- * contra `webhook-registry` antes de llegar acá.
+ * `projects_v2_item` → `projects_v2_item`, para cualquier `action`. El scope
+ * NO sale de `owner/repo` (el payload no trae `repository`: un item de
+ * Projects puede venir de cualquier repo del proyecto) — sale de
+ * `projectIds`, que la ruta ya resolvió contra `webhook-registry` antes de
+ * llegar acá.
  */
 export function projectItemEvent(
   payload: RawPayload,
@@ -351,10 +328,9 @@ export function projectItemEvent(
   const fieldChange = payload.changes?.field_value as
     | { field_name?: unknown; field_type?: unknown }
     | undefined
-  const type = `projects_v2_item.${payload.action}`
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:${type}:${itemId}` } : {}),
-    type,
+    ...(deliveryId ? { id: `${deliveryId}:projects_v2_item:${payload.action}:${itemId}` } : {}),
+    type: 'projects_v2_item',
     source: 'github',
     traceId,
     scope: { ...scopeForProjectIds(projectIds), ...(itemId ? { issueId: itemId } : {}) },
@@ -367,8 +343,8 @@ export function projectItemEvent(
   })
 }
 
-/** `projects_v2` → `projects_v2.<action>` — cambió el proyecto en sí (un
- *  campo agregado, etc), no un item — no hay `issueId` que resolver acá. */
+/** `projects_v2` → `projects_v2` — cambió el proyecto en sí (un campo
+ *  agregado, etc), no un item — no hay `issueId` que resolver acá. */
 export function projectEvent(
   payload: RawPayload,
   projectIds: string[] | undefined,
@@ -378,10 +354,9 @@ export function projectEvent(
   const project = payload.projects_v2
   if (!project) return null
 
-  const type = `projects_v2.${payload.action}`
   return createEvent({
-    ...(deliveryId ? { id: `${deliveryId}:${type}` } : {}),
-    type,
+    ...(deliveryId ? { id: `${deliveryId}:projects_v2:${payload.action}` } : {}),
+    type: 'projects_v2',
     source: 'github',
     traceId,
     scope: scopeForProjectIds(projectIds),
@@ -390,7 +365,8 @@ export function projectEvent(
 }
 
 /** Despacha al normalizador que corresponda. `null` = este delivery no produce
- *  ningún evento (una acción que no interesa, o un payload incompleto). */
+ *  ningún evento (payload incompleto — nunca "acción que no interesa": eso ya
+ *  no es un criterio de este traductor). */
 export function githubWebhookEvent(
   event: string,
   payload: Record<string, unknown>,
@@ -404,7 +380,7 @@ export function githubWebhookEvent(
   if (event === 'pull_request_review')
     return pullRequestReviewEvent(raw, resolve, deliveryId, traceId)
   if (event === 'check_suite' || event === 'workflow_run')
-    return ciFinishedEvent(event, raw, resolve, deliveryId, traceId)
+    return ciEvent(event, raw, resolve, deliveryId, traceId)
   if (event === 'issue_comment') return issueCommentEvent(raw, resolve, deliveryId, traceId)
   if (event === 'issues') return issuesEvent(raw, resolve, deliveryId, traceId)
   if (event === 'projects_v2_item') return projectItemEvent(raw, projectIds, deliveryId, traceId)
