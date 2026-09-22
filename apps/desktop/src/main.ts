@@ -637,8 +637,27 @@ async function boot(): Promise<void> {
     // estaba ocupado no podemos saber por quién —Vite no publica ninguna
     // marca— así que la ventana se carga igual (es la comodidad de dev) pero
     // sin el puente a los tokens.
+    //
+    // Excepción: si la ocupante es una instancia EMPAQUETADA de esta misma
+    // app (`isOurs` sólo da `true` ahí — Vite no sirve la marca), no es un
+    // dev server ajeno del que no sabemos nada: es un ejecutable viejo de
+    // /Applications que quedó huérfano. Cargar la ventana igual la deja sin
+    // el puente en silencio, y "Procesos locales" parece roto sin explicar
+    // por qué. Mejor cortar acá con el motivo explícito.
     let trusted = false
-    if (!(await isPortTaken(PORT))) {
+    const taken = await isPortTaken(PORT)
+    if (taken && (await isOurs(PORT))) {
+      dialog.showErrorBox(
+        TITLE,
+        `El puerto ${PORT} ya está ocupado por otra instancia de IA Flow — probablemente la app ` +
+          'empaquetada instalada en /Applications, todavía abierta.\n\n' +
+          'Cerrala (o matá el proceso) y volvé a abrir esta de dev: si no, la ventana carga sin el ' +
+          'puente a los tokens y paneles como "Procesos locales" no van a funcionar.',
+      )
+      app.quit()
+      return
+    }
+    if (!taken) {
       child = startChild()
       trusted = true
     }
