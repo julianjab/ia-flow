@@ -20,8 +20,13 @@ describe('RULE_TEMPLATES', () => {
     expect(byKey('status').build().exclusive).toBe(true)
   })
 
-  it('la de PR escucha apertura y actualización', () => {
-    expect(byKey('pr').build().on).toEqual(['pr.opened', 'pr.synchronize'])
+  it('la de PR escucha el evento crudo y filtra apertura/actualización por when', () => {
+    const t = byKey('pr').build()
+    expect(t.on).toEqual(['pull_request'])
+    expect(t.when).toEqual([
+      { field: 'action', op: '=', value: 'opened' },
+      { field: 'action', op: '=', value: 'synchronize', logic: 'or' },
+    ])
   })
 
   it('la de cron trae schedule y el evento que lo consume', () => {
@@ -47,8 +52,8 @@ describe('recurringRuleWarning', () => {
   it('no avisa sobre ningún evento del catálogo hoy', () => {
     expect(recurringRuleWarning({ on: ['issue.created'] })).toBeNull()
     expect(recurringRuleWarning({ on: ['issue.status_changed'] })).toBeNull()
-    expect(recurringRuleWarning({ on: ['pr.opened'] })).toBeNull()
-    expect(recurringRuleWarning({ on: ['ci.finished'] })).toBeNull()
+    expect(recurringRuleWarning({ on: ['pull_request'] })).toBeNull()
+    expect(recurringRuleWarning({ on: ['check_suite'] })).toBeNull()
   })
 
   it('un evento que no está en el catálogo tampoco avisa', () => {

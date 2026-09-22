@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { buildCreateItemInput, parseGithubUrl } from '../tasks.js'
+import {
+  buildCreateItemInput,
+  parseGithubUrl,
+  parseResolveForEventQuery,
+  toResolvedItemPayload,
+} from '../tasks.js'
 
 describe('parseGithubUrl', () => {
   it('parses full https URL', () => {
@@ -80,6 +85,67 @@ describe('buildCreateItemInput', () => {
     expect(buildCreateItemInput({ title: 'T', repos: ['a', 'b'] })).toEqual({
       title: 'T',
       repos: ['a', 'b'],
+    })
+  })
+})
+
+describe('parseResolveForEventQuery', () => {
+  it('rechaza sin projectId', () => {
+    expect(parseResolveForEventQuery({})).toEqual({ error: 'projectId query param is required' })
+  })
+
+  it('projectId solo produce un scope vacío', () => {
+    expect(parseResolveForEventQuery({ projectId: 'p1' })).toEqual({
+      projectId: 'p1',
+      scope: {},
+    })
+  })
+
+  it('parsea issueId, prNumber y repos juntos', () => {
+    expect(
+      parseResolveForEventQuery({
+        projectId: 'p1',
+        issueId: 'I_1',
+        prNumber: '42',
+        repos: 'repo-a, repo-b',
+      }),
+    ).toEqual({
+      projectId: 'p1',
+      scope: { issueId: 'I_1', prNumber: 42, repos: ['repo-a', 'repo-b'] },
+    })
+  })
+
+  it('un prNumber no numérico se descarta en vez de mandar NaN', () => {
+    expect(parseResolveForEventQuery({ projectId: 'p1', prNumber: 'nope' })).toEqual({
+      projectId: 'p1',
+      scope: {},
+    })
+  })
+})
+
+describe('toResolvedItemPayload', () => {
+  it('expone el mismo vocabulario que ISSUE_FIELDS, con listas nunca undefined', () => {
+    expect(
+      toResolvedItemPayload({
+        id: 'T1',
+        title: 'Arreglar el login',
+        description: '',
+        status: 'Ready',
+        type: 'technical',
+        repos: ['core'],
+        issueNumber: 7,
+        issueUrl: 'https://github.com/x/y/issues/7',
+      } as never),
+    ).toEqual({
+      id: 'T1',
+      title: 'Arreglar el login',
+      status: 'Ready',
+      type: 'technical',
+      repos: ['core'],
+      labels: [],
+      assignees: [],
+      issueNumber: 7,
+      issueUrl: 'https://github.com/x/y/issues/7',
     })
   })
 })
