@@ -78,6 +78,16 @@ export class PrOutcomeHandler implements EventHandler {
 
   async handle(event: EngineEvent): Promise<EventOutcome> {
     const payload = event.payload as PrEventPayload
+    // El traductor ya no filtra por `action` — publica `pull_request`/
+    // `pull_request_review` para CUALQUIER acción. Sin este corte, cada
+    // `opened`/`synchronize`/`edited`/`dismissed`/… (la mayoría del tráfico
+    // real de un repo con actividad) pagaba un `this.logs.list()` completo
+    // sólo para descartarse al final — un query SQLite por webhook que a
+    // ninguna de las dos acciones que importan le hacía falta.
+    const isMerge = event.type === 'pull_request' && payload.action === 'closed'
+    const isReview = event.type === 'pull_request_review' && payload.action === 'submitted'
+    if (!isMerge && !isReview) return 'skipped'
+
     const taskId = taskIdFromBranch(payload.pr?.head?.ref)
     if (!taskId) {
       log.debug(
@@ -100,21 +110,15 @@ export class PrOutcomeHandler implements EventHandler {
 
       const prNumber = payload.pr?.number ?? run.prNumber ?? null
 
-      if (event.type === 'pull_request' && payload.action === 'closed') {
+      if (isMerge) {
         this.logs.update(run.id, { prMerged: payload.pr?.merged === true, prNumber })
         return 'dispatched'
       }
-      if (event.type === 'pull_request_review' && payload.action === 'submitted') {
-        // Incremento atómico en el repo — dos reviews casi simultáneas no se
-        // pueden pisar leyendo `run.reviewRounds` acá y escribiendo después.
-        this.logs.incrementReviewRounds(run.id)
-        if (run.prNumber !== prNumber) this.logs.update(run.id, { prNumber })
-        return 'dispatched'
-      }
-      // Cualquier otra acción de estos dos eventos (`opened`, `synchronize`,
-      // `edited`, `dismissed`, …) no le importa a este handler — el
-      // traductor ya no las filtra, así que las descarta acá.
-      return 'skipped'
+      // Incremento atómico en el repo — dos reviews casi simultáneas no se
+      // pueden pisar leyendo `run.reviewRounds` acá y escribiendo después.
+      this.logs.incrementReviewRounds(run.id)
+      if (run.prNumber !== prNumber) this.logs.update(run.id, { prNumber })
+      return 'dispatched'
     } catch (err) {
       // Best-effort (criterio de aceptación #4 del issue): un evento que no
       // se puede atribuir no puede voltear el pipeline de webhooks.
