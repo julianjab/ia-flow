@@ -626,13 +626,24 @@ async function executeToolBlocks(
 // pendiente, un mensaje de usuario intercalado invalida el siguiente
 // request. Se marcan entregados DESPUÉS de incorporarlos: un run que muere
 // entre el drenaje y el turno tiene que poder volver a leerlos.
+//
+// `skip` es la única excepción a "acá nunca rompe nada": un turno anterior
+// dejó una llamada de server-tool diferida (ver `deferredServerToolPending`
+// en `executeLoop`), y la doc de Anthropic
+// (platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools#mixing-server-tools-and-client-tools-in-one-turn)
+// exige que el request que la resuelve lleve un mensaje de usuario con
+// ÚNICAMENTE bloques `tool_result` — intercalar el drenaje ahí produce
+// exactamente el 400 que este chequeo evita. El mensaje drenado no se
+// pierde: sólo se pospone a la vuelta siguiente, una vez resuelta la
+// llamada.
 async function drainInjectedMessages(
   drainMessages: LoopOptions['drainMessages'],
   onMessagesDelivered: LoopOptions['onMessagesDelivered'],
   messages: ApiMessage[],
   runLog: typeof log,
+  skip: boolean,
 ): Promise<void> {
-  if (!drainMessages) return
+  if (!drainMessages || skip) return
   try {
     const injected = await drainMessages()
     if (!injected.length) return
@@ -1026,6 +1037,21 @@ export async function executeLoop(
   // below, which needs one call with a higher max_tokens). Cleared every
   // iteration so it never leaks past the call it was meant for.
   let nextFetchOverrides: FetchApiOverrides | undefined
+  // Set when this turn left a server-tool call deferred for Anthropic to
+  // resolve on the NEXT request (`serverToolUseWillResume` below — the
+  // mixed server-tool + client-tool-use turn documented at
+  // platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools#mixing-server-tools-and-client-tools-in-one-turn).
+  // Per that doc, the follow-up user message "must contain nothing except
+  // `tool_result` blocks" — anything else "tells the API that the
+  // assistant turn is over" and 400s with the deferred call "found without
+  // a corresponding ..._tool_result block". `drainInjectedMessages` below
+  // normally runs at the top of every iteration and is safe there (a
+  // client `tool_use` is always paired with its `tool_result` within the
+  // same iteration, so there's never a dangling one to interleave with),
+  // but a deferred SERVER-tool call is exactly the case that invariant
+  // misses — checked and consumed one iteration later, right before the
+  // drain that would otherwise corrupt this turn.
+  let deferredServerToolPending = false
   // Canal de control del loop. Se construye acá —por run, no por dispatch—
   // porque es estado de ESTA vuelta: una tool lo usa para pedir que el turno
   // corte, y el loop lo lee al tope de la vuelta siguiente.
@@ -1052,7 +1078,18 @@ export async function executeLoop(
     }
     iters++
 
-    await drainInjectedMessages(drainMessages, onMessagesDelivered, messages, runLog)
+    // Consumed here, not left set: it only guards the ONE iteration right
+    // after a deferred server-tool turn — by the response of THIS request
+    // the API will have resolved it (see the docs link above).
+    const skipDrainForDeferredServerTool = deferredServerToolPending
+    deferredServerToolPending = false
+    await drainInjectedMessages(
+      drainMessages,
+      onMessagesDelivered,
+      messages,
+      runLog,
+      skipDrainForDeferredServerTool,
+    )
 
     // El corte se lee ACÁ y no donde se pidió: la vuelta anterior ya agregó
     // el `tool_result` de la llamada que lo pidió, así que la historia queda
@@ -1104,6 +1141,7 @@ export async function executeLoop(
 
     const { hasUnresolvedServerToolUse, serverToolUseWillResume, isUnresolvedServerToolUse } =
       computeDanglingServerToolFlags(contentBlocks, stopReason, hasPendingToolUse)
+    deferredServerToolPending = serverToolUseWillResume
     const pausedWithDanglingServerTool = stopReason === 'pause_turn' && hasUnresolvedServerToolUse
     if (pausedWithDanglingServerTool) {
       messages[messages.length - 1] = {
