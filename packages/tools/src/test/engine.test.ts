@@ -973,6 +973,54 @@ describe('executeLoop — dangling tool_search_tool_regex', () => {
     expect(lastMsg3.content).toContain('mirá también X')
     expect(delivered.flat()).toContain('msg_1')
   })
+
+  it('does not inject a drained message when RESUMING from a checkpoint that ends in a deferred server-tool call', async () => {
+    // Regresión sobre la regresión: el chequeo tiene que sobrevivir un
+    // checkpoint. Si `pause_until` corre en el MISMO lote paralelo que la
+    // llamada diferida (o el proceso muere ahí), el run corta y el próximo
+    // `executeLoop` arranca de cero — sin memoria de ningún flag en RAM,
+    // sólo con el `messages` que el checkpoint guardó. Ese historial sigue
+    // terminando en la forma sin resolver, así que el chequeo tiene que
+    // derivarla de ahí, no de un booleano que un `executeLoop` nuevo nunca
+    // tuvo la chance de setear.
+    const resumedMessages = [
+      { role: 'user' as const, content: 'x' },
+      {
+        role: 'assistant' as const,
+        content: [
+          {
+            type: 'server_tool_use',
+            id: 'srvtoolu_resumed',
+            name: 'tool_search_tool_regex',
+            input: { pattern: 'x' },
+          },
+          { type: 'tool_use', id: 'toolu_resumed', name: '__test_prod_client_tool__', input: {} },
+        ],
+      },
+      {
+        role: 'user' as const,
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_resumed', content: 'ok' }],
+      },
+    ]
+    const calls: any[][] = []
+    const fetchApi = async (messages: any[]) => {
+      calls.push(structuredClone(messages))
+      return endTurnResponse('done')
+    }
+    let drainCalled = false
+    const drainMessages = async () => {
+      drainCalled = true
+      return [{ id: 'msg_resumed', author: 'human', body: 'no debería colarse acá' }]
+    }
+    const result = await executeLoop(fetchApi, resumedMessages, BASE_CTX, { drainMessages })
+    expect(result.truncated).toBe(false)
+    expect(drainCalled).toBe(false)
+    const request1 = calls[0]
+    expect(request1.length).toBe(resumedMessages.length)
+    const lastMsg = request1[request1.length - 1] as { role: string; content: unknown }
+    expect(Array.isArray(lastMsg.content)).toBe(true)
+    expect((lastMsg.content as any[]).every((b) => b?.type === 'tool_result')).toBe(true)
+  })
 })
 
 // ─── executeLoop — unexpected stop_reason ─────────────────────────────────────
