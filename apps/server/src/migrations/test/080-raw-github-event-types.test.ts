@@ -1,34 +1,41 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
-import migration from '../080-raw-github-event-types.js'
+import migration, { planRowUpdate } from '../080-raw-github-event-types.js'
 
 function setup(): Database {
   const db = new Database(':memory:')
-  db.run(`
-    CREATE TABLE rules (
-      id              TEXT PRIMARY KEY NOT NULL,
-      on_types        TEXT NOT NULL,
-      when_conditions TEXT
-    )
-  `)
+  for (const table of ['rules', 'waits']) {
+    db.run(`
+      CREATE TABLE ${table} (
+        id              TEXT PRIMARY KEY NOT NULL,
+        on_types        TEXT NOT NULL,
+        when_conditions TEXT
+      )
+    `)
+  }
   return db
 }
 
-function insertRule(
+function insertRow(
   db: Database,
+  table: 'rules' | 'waits',
   id: string,
   onTypes: string[],
   when: unknown[] | null = null,
 ): void {
-  db.run(`INSERT INTO rules (id, on_types, when_conditions) VALUES (?, ?, ?)`, [
+  db.run(`INSERT INTO ${table} (id, on_types, when_conditions) VALUES (?, ?, ?)`, [
     id,
     JSON.stringify(onTypes),
     when ? JSON.stringify(when) : null,
   ])
 }
 
-function readRule(db: Database, id: string): { on: string[]; when: unknown[] | null } {
-  const row = db.query('SELECT on_types, when_conditions FROM rules WHERE id = ?').get(id) as {
+function readRow(
+  db: Database,
+  table: 'rules' | 'waits',
+  id: string,
+): { on: string[]; when: unknown[] | null } {
+  const row = db.query(`SELECT on_types, when_conditions FROM ${table} WHERE id = ?`).get(id) as {
     on_types: string
     when_conditions: string | null
   }
@@ -38,121 +45,207 @@ function readRule(db: Database, id: string): { on: string[]; when: unknown[] | n
   }
 }
 
-describe('080-raw-github-event-types', () => {
-  it('pr.opened + pr.synchronize se migran a pull_request con un OR de actions', () => {
-    const db = setup()
-    insertRule(db, 'r1', ['pr.opened', 'pr.synchronize'])
-    migration.up(db)
-
-    const r = readRule(db, 'r1')
-    expect(r.on).toEqual(['pull_request'])
-    expect(r.when).toEqual([
-      { field: 'action', op: '=', value: 'opened' },
-      { field: 'action', op: '=', value: 'reopened', logic: 'or' },
-      { field: 'action', op: '=', value: 'synchronize', logic: 'or' },
-    ])
-  })
-
-  it('ci.finished se migra a check_suite + workflow_run con action=completed', () => {
-    const db = setup()
-    insertRule(db, 'r2', ['ci.finished'])
-    migration.up(db)
-
-    const r = readRule(db, 'r2')
-    expect(r.on.sort()).toEqual(['check_suite', 'workflow_run'])
-    expect(r.when).toEqual([{ field: 'action', op: '=', value: 'completed' }])
-  })
-
-  it('issue_comment.created / issues.opened se migran por prefijo dinámico', () => {
-    const db = setup()
-    insertRule(db, 'r3', ['issue_comment.created'])
-    insertRule(db, 'r4', ['issues.opened'])
-    migration.up(db)
-
-    expect(readRule(db, 'r3')).toEqual({
-      on: ['issue_comment'],
-      when: [{ field: 'action', op: '=', value: 'created' }],
+describe('planRowUpdate — casos puros', () => {
+  it('pr.opened + pr.synchronize: dos ramas OR, sin when previo', () => {
+    const plan = planRowUpdate({
+      id: 'r1',
+      on_types: JSON.stringify(['pr.opened', 'pr.synchronize']),
+      when_conditions: null,
     })
-    expect(readRule(db, 'r4')).toEqual({
-      on: ['issues'],
-      when: [{ field: 'action', op: '=', value: 'opened' }],
+    expect(plan).toEqual({
+      onTypes: ['pull_request'],
+      when: [
+        { field: 'action', op: '=', value: 'opened' },
+        { field: 'action', op: '=', value: 'reopened', logic: 'or' },
+        { field: 'action', op: '=', value: 'synchronize', logic: 'or' },
+      ],
     })
   })
 
-  it('conserva un when existente y le agrega el nuevo grupo, AND', () => {
-    const db = setup()
-    insertRule(db, 'r5', ['pr.synchronize'], [{ field: 'pr.author', op: '=', value: 'julianjab' }])
-    migration.up(db)
+  // El bug que encontró la revisión: pegar la condición de action al final
+  // del when existente en vez de cruzar-producto rompía CUALQUIER regla con
+  // más de una action posible — la rama `reopened` quedaba sin `isDraft`.
+  it('un when previo se cruza-producto con CADA rama, no se concatena', () => {
+    const plan = planRowUpdate({
+      id: 'r2',
+      on_types: JSON.stringify(['pr.opened']),
+      when_conditions: JSON.stringify([{ field: 'pr.isDraft', op: '=', value: 'false' }]),
+    })
+    expect(plan).toEqual({
+      onTypes: ['pull_request'],
+      when: [
+        { field: 'pr.isDraft', op: '=', value: 'false' },
+        { field: 'action', op: '=', value: 'opened' },
+        { field: 'pr.isDraft', op: '=', value: 'false', logic: 'or' },
+        { field: 'action', op: '=', value: 'reopened' },
+      ],
+    })
+  })
 
-    const r = readRule(db, 'r5')
-    expect(r.when).toEqual([
-      { field: 'pr.author', op: '=', value: 'julianjab' },
-      { field: 'action', op: '=', value: 'synchronize' },
+  // El segundo bug: un when previo con su propio OR perdía el filtro de
+  // action en alguna rama si se apendeaba en vez de cruzar-producto.
+  it('un when previo con su propio OR conserva el filtro de action en las dos ramas', () => {
+    const plan = planRowUpdate({
+      id: 'r3',
+      on_types: JSON.stringify(['issue_comment.created']),
+      when_conditions: JSON.stringify([
+        { field: 'author', op: '=', value: 'a' },
+        { field: 'author', op: '=', value: 'b', logic: 'or' },
+      ]),
+    })
+    expect(plan).toEqual({
+      onTypes: ['issue_comment'],
+      when: [
+        { field: 'author', op: '=', value: 'a' },
+        { field: 'action', op: '=', value: 'created' },
+        { field: 'author', op: '=', value: 'b', logic: 'or' },
+        { field: 'action', op: '=', value: 'created' },
+      ],
+    })
+  })
+
+  it('ci.finished: check_suite + workflow_run con action=completed', () => {
+    const plan = planRowUpdate({
+      id: 'r4',
+      on_types: JSON.stringify(['ci.finished']),
+      when_conditions: null,
+    })
+    expect(plan && 'onTypes' in plan && plan.onTypes.sort()).toEqual([
+      'check_suite',
+      'workflow_run',
     ])
+    expect(plan && 'when' in plan && plan.when).toEqual([
+      { field: 'action', op: '=', value: 'completed' },
+    ])
+  })
+
+  it('pr.merged sola: pull_request con action=closed AND pr.merged=true', () => {
+    const plan = planRowUpdate({
+      id: 'r5',
+      on_types: JSON.stringify(['pr.merged']),
+      when_conditions: null,
+    })
+    expect(plan).toEqual({
+      onTypes: ['pull_request'],
+      when: [
+        { field: 'action', op: '=', value: 'closed' },
+        { field: 'pr.merged', op: '=', value: 'true' },
+      ],
+    })
+  })
+
+  it('pr.closed sola: pull_request con action=closed AND pr.merged=false', () => {
+    const plan = planRowUpdate({
+      id: 'r6',
+      on_types: JSON.stringify(['pr.closed']),
+      when_conditions: null,
+    })
+    expect(plan).toEqual({
+      onTypes: ['pull_request'],
+      when: [
+        { field: 'action', op: '=', value: 'closed' },
+        { field: 'pr.merged', op: '=', value: 'false' },
+      ],
+    })
+  })
+
+  it('pr.merged + pr.closed juntas colapsan a un solo action=closed, sin el flag', () => {
+    const plan = planRowUpdate({
+      id: 'r7',
+      on_types: JSON.stringify(['pr.merged', 'pr.closed']),
+      when_conditions: null,
+    })
+    expect(plan).toEqual({
+      onTypes: ['pull_request'],
+      when: [{ field: 'action', op: '=', value: 'closed' }],
+    })
+  })
+
+  // El caso que la versión anterior de esta migración se negaba a migrar:
+  // pr.merged/pr.closed conviviendo con otro tipo de pull_request. Ahora sí
+  // es expresable como cross-product de grupos OR.
+  it('pr.opened + pr.merged: dos ramas OR, una simple y una con el flag', () => {
+    const plan = planRowUpdate({
+      id: 'r8',
+      on_types: JSON.stringify(['pr.opened', 'pr.merged']),
+      when_conditions: null,
+    })
+    expect(plan).toEqual({
+      onTypes: ['pull_request'],
+      when: [
+        { field: 'action', op: '=', value: 'opened' },
+        { field: 'action', op: '=', value: 'reopened', logic: 'or' },
+        { field: 'action', op: '=', value: 'closed', logic: 'or' },
+        { field: 'pr.merged', op: '=', value: 'true' },
+      ],
+    })
   })
 
   it('conserva tipos no-GitHub y no-curados intactos junto a los migrados', () => {
-    const db = setup()
-    insertRule(db, 'r6', ['issue.status_changed', 'pr.review_submitted'])
-    migration.up(db)
-
-    const r = readRule(db, 'r6')
-    expect(r.on.sort()).toEqual(['issue.status_changed', 'pull_request_review'])
-    expect(r.when).toEqual([{ field: 'action', op: '=', value: 'submitted' }])
-  })
-
-  it('una regla sin ningún tipo curado no se toca', () => {
-    const db = setup()
-    insertRule(db, 'r7', ['issue.status_changed'], [{ field: 'status', op: '=', value: 'Ready' }])
-    migration.up(db)
-
-    expect(readRule(db, 'r7')).toEqual({
-      on: ['issue.status_changed'],
-      when: [{ field: 'status', op: '=', value: 'Ready' }],
+    const plan = planRowUpdate({
+      id: 'r9',
+      on_types: JSON.stringify(['issue.status_changed', 'pr.review_submitted']),
+      when_conditions: null,
     })
+    expect(plan && 'onTypes' in plan && plan.onTypes.sort()).toEqual([
+      'issue.status_changed',
+      'pull_request_review',
+    ])
   })
 
-  it('pr.merged solo (sin otros tipos de pull_request) se saltea para revisión manual', () => {
-    const db = setup()
-    insertRule(db, 'r8', ['pr.merged'])
-    migration.up(db)
-
-    // Se deja intacta — el operador la migra a mano a
-    // on: ['pull_request'], when: [action=closed, pr.merged=true].
-    expect(readRule(db, 'r8')).toEqual({ on: ['pr.merged'], when: null })
-  })
-
-  it('pr.merged junto con pr.opened se saltea (OR-de-AND no expresable)', () => {
-    const db = setup()
-    insertRule(db, 'r9', ['pr.opened', 'pr.merged'])
-    migration.up(db)
-
-    expect(readRule(db, 'r9')).toEqual({ on: ['pr.opened', 'pr.merged'], when: null })
+  it('una fila sin ningún tipo curado no se toca (null)', () => {
+    expect(
+      planRowUpdate({
+        id: 'r10',
+        on_types: JSON.stringify(['issue.status_changed']),
+        when_conditions: null,
+      }),
+    ).toBeNull()
   })
 
   it('when_conditions en formato Record se saltea para revisión manual', () => {
+    const plan = planRowUpdate({
+      id: 'r11',
+      on_types: JSON.stringify(['pr.opened']),
+      when_conditions: JSON.stringify({ status: 'Ready' }),
+    })
+    expect(plan).toEqual({
+      skip: true,
+      reason: 'when_conditions en formato Record — necesita migración MANUAL',
+    })
+  })
+})
+
+describe('080-raw-github-event-types — up()', () => {
+  it('migra rules y waits por igual (mismas columnas)', () => {
     const db = setup()
-    db.run(`INSERT INTO rules (id, on_types, when_conditions) VALUES (?, ?, ?)`, [
-      'r10',
-      JSON.stringify(['pr.opened']),
-      JSON.stringify({ status: 'Ready' }),
-    ])
+    insertRow(db, 'rules', 'rule-1', ['pr.opened'])
+    insertRow(db, 'waits', 'wait-1', ['ci.finished'])
     migration.up(db)
 
-    const row = db.query('SELECT on_types, when_conditions FROM rules WHERE id = ?').get('r10') as {
-      on_types: string
-      when_conditions: string
-    }
-    expect(JSON.parse(row.on_types)).toEqual(['pr.opened'])
-    expect(JSON.parse(row.when_conditions)).toEqual({ status: 'Ready' })
+    expect(readRow(db, 'rules', 'rule-1').on).toEqual(['pull_request'])
+    expect(readRow(db, 'waits', 'wait-1').on.sort()).toEqual(['check_suite', 'workflow_run'])
   })
 
   it('es idempotente: correrla dos veces no vuelve a migrar lo ya migrado', () => {
     const db = setup()
-    insertRule(db, 'r11', ['pr.opened'])
+    insertRow(db, 'rules', 'r1', ['pr.opened'])
     migration.up(db)
-    const once = readRule(db, 'r11')
+    const once = readRow(db, 'rules', 'r1')
     migration.up(db)
-    expect(readRule(db, 'r11')).toEqual(once)
+    expect(readRow(db, 'rules', 'r1')).toEqual(once)
+  })
+
+  it('una fila con when Record queda intacta', () => {
+    const db = setup()
+    db.run(`INSERT INTO rules (id, on_types, when_conditions) VALUES (?, ?, ?)`, [
+      'r2',
+      JSON.stringify(['pr.opened']),
+      JSON.stringify({ status: 'Ready' }),
+    ])
+    migration.up(db)
+    const row = readRow(db, 'rules', 'r2')
+    expect(row.on).toEqual(['pr.opened'])
+    expect(row.when).toEqual({ status: 'Ready' } as never)
   })
 })
