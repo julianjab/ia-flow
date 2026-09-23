@@ -1,3 +1,5 @@
+import { getSecretResolver } from '../../infra/SecretResolver.js'
+import { Condition } from '../Condition.js'
 import {
   PipelineActionEntry,
   type PipelineActionEntryProps,
@@ -43,9 +45,58 @@ export class HttpAction extends PipelineActionEntry {
     this.timeoutMs = props.timeoutMs
   }
 
+  /**
+   * `{{path}}` primero (contra `event`/`steps`/`task`, mismo `getPath` que
+   * usan las Condition), `${SECRETO}` DESPUÉS — en ese orden y nunca al
+   * revés (ver el comentario de la clase).
+   */
+  private async interpolate(template: string, ctx: PipelineExecutionContext): Promise<string> {
+    const root = { event: { type: ctx.event.type, payload: ctx.event.payload }, steps: ctx.steps, task: ctx.task }
+    const withVars = template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => {
+      const value = Condition.getPath(root as Record<string, unknown>, path)
+      return value == null ? '' : String(value)
+    })
+
+    const secretNames = [...withVars.matchAll(/\$\{([A-Z0-9_]+)\}/g)].map((m) => m[1])
+    if (secretNames.length === 0) return withVars
+
+    const resolver = getSecretResolver()
+    if (resolver == null) {
+      throw new Error(
+        'HttpAction necesita un SecretResolver — ver infra/SecretResolver.js (setSecretResolver)',
+      )
+    }
+    let result = withVars
+    for (const name of secretNames) {
+      const value = await resolver.resolve(name)
+      if (value != null) result = result.replaceAll(`\${${name}}`, value)
+    }
+    return result
+  }
+
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    throw new Error(
-      'not implemented — resolver secretos, interpolar templates, fetch(this.url, {...})',
-    )
+    const url = await this.interpolate(this.url, ctx)
+    const headers: Record<string, string> = {}
+    for (const [key, value] of Object.entries(this.headers)) {
+      headers[key] = await this.interpolate(value, ctx)
+    }
+    const body =
+      this.body != null ? await this.interpolate(JSON.stringify(this.body), ctx) : undefined
+
+    const controller = this.timeoutMs != null ? new AbortController() : undefined
+    const timeout =
+      this.timeoutMs != null ? setTimeout(() => controller?.abort(), this.timeoutMs) : undefined
+    try {
+      const response = await fetch(url, {
+        method: this.method,
+        headers,
+        body,
+        signal: controller?.signal,
+      })
+      const responseBody = await response.text()
+      return { status: response.status, ok: response.ok, body: responseBody }
+    } finally {
+      if (timeout != null) clearTimeout(timeout)
+    }
   }
 }

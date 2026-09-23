@@ -1,3 +1,6 @@
+import { getSecretResolver } from '../../infra/SecretResolver.js'
+import { getShellRunner } from '../../infra/ShellRunner.js'
+import { Condition } from '../Condition.js'
 import {
   PipelineActionEntry,
   type PipelineActionEntryProps,
@@ -16,7 +19,8 @@ export interface ScriptActionProps extends PipelineActionEntryProps {
    * acá, nunca el env completo del daemon (que tiene GITHUB_TOKEN,
    * ANTHROPIC_API_KEY...). El VALOR de cada entrada es una plantilla —
    * típicamente `${SECRETO}` — que se resuelve igual que url/headers/body de
-   * HttpAction: secretos primero, interpolación de {{event...}} después. Si
+   * HttpAction: primero `{{event...}}`, el secreto DESPUÉS (nunca al
+   * revés — ver el comentario de HttpAction sobre por qué). Si
    * el valor viene de texto libre de la UI en vez de una referencia a
    * secreto, esto degrada al mismo riesgo que HttpAction.url (ver su
    * comentario) — no es una allow-list de VALORES, sólo de nombres.
@@ -44,9 +48,43 @@ export class ScriptAction extends PipelineActionEntry {
     this.timeoutMs = props.timeoutMs
   }
 
+  /** Mismo orden que HttpAction.interpolate: `{{path}}` primero, `${SECRETO}` después. */
+  private async resolveEnvValue(template: string, ctx: PipelineExecutionContext): Promise<string> {
+    const root = { event: { type: ctx.event.type, payload: ctx.event.payload }, steps: ctx.steps, task: ctx.task }
+    const withVars = template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => {
+      const value = Condition.getPath(root as Record<string, unknown>, path)
+      return value == null ? '' : String(value)
+    })
+    const match = withVars.match(/^\$\{([A-Z0-9_]+)\}$/)
+    if (match == null) return withVars
+    const resolver = getSecretResolver()
+    if (resolver == null) {
+      throw new Error(
+        'ScriptAction.env necesita un SecretResolver — ver infra/SecretResolver.js (setSecretResolver)',
+      )
+    }
+    return (await resolver.resolve(match[1])) ?? ''
+  }
+
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
+    if (this.file.includes('..') || this.file.startsWith('/')) {
+      throw new Error(`ScriptAction: path fuera del repo ("${this.file}")`)
+    }
+
+    const env: Record<string, string> = {}
+    for (const [key, template] of Object.entries(this.env)) {
+      env[key] = await this.resolveEnvValue(template, ctx)
+    }
+
+    const runner = getShellRunner()
+    if (runner == null) {
+      throw new Error('ScriptAction necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)')
+    }
+    // La resolución del cwd (dónde vive el worktree de esta task) todavía no
+    // está cableada en PipelineExecutionContext — ver README, "Lo que sigue
+    // sin decidir" (ports reales / hidratación de workspace).
     throw new Error(
-      'not implemented — validar path dentro del workspace, resolver env, spawnear this.runtime',
+      'not implemented — falta resolver el cwd del worktree antes de poder llamar runner.run(...)',
     )
   }
 }
