@@ -1,10 +1,8 @@
-import type { Task } from '../domain/Task.js'
 import type { AgentRunInput, AgentRunOutput } from './Agent.js'
 import type { ProviderKind } from './Tool.js'
 import type { WorkspacePlan, WorkspaceRequest } from './Workspace.js'
 
 export interface AdmissionRequest {
-  task: Task
   agentId?: string
   /** Runs de este provider despachados por ESTE daemon — lo calcula el engine. */
   running: number

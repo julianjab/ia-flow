@@ -4,7 +4,10 @@ export type ExecutionLogStatus = 'completed' | 'failed'
 
 export interface ExecutionLogProps {
   id: string
-  taskId: string
+  /** Ausente cuando el run no tuvo Task asociada (un triage/normalizador
+   *  que corrió directo sobre un evento) — se indexa bajo el bucket `''`,
+   *  mismo patrón que la memoria GLOBAL de AgentMemoryEntry. */
+  taskId?: string
   agentId: string
   pipelineId?: string
   doId?: string
@@ -31,7 +34,7 @@ export class ExecutionLog {
   private static readonly byTaskId = new Map<string, ExecutionLog[]>()
 
   readonly id: string
-  readonly taskId: string
+  readonly taskId?: string
   readonly agentId: string
   readonly pipelineId?: string
   readonly doId?: string
@@ -59,21 +62,22 @@ export class ExecutionLog {
   }
 
   static append(entry: ExecutionLog): void {
-    throw new Error(
-      'not implemented — const list = ExecutionLog.byTaskId.get(entry.taskId) ?? []; list.push(entry); ' +
-        'ExecutionLog.byTaskId.set(entry.taskId, list)',
-    )
+    const key = entry.taskId ?? ''
+    const list = ExecutionLog.byTaskId.get(key) ?? []
+    list.push(entry)
+    ExecutionLog.byTaskId.set(key, list)
   }
 
-  /** Orden cronológico — es lo que selectCommentWindow (v1) usa para cortar por recencia. */
-  static byTask(taskId: string): ExecutionLog[] {
-    throw new Error(
-      'not implemented — [...(ExecutionLog.byTaskId.get(taskId) ?? [])].sort by startedAt asc',
+  /** Orden cronológico — es lo que selectCommentWindow (v1) usa para cortar
+   *  por recencia. `taskId` ausente/`''` lista los runs SIN Task asociada. */
+  static byTask(taskId?: string): ExecutionLog[] {
+    return [...(ExecutionLog.byTaskId.get(taskId ?? '') ?? [])].sort(
+      (a, b) => a.startedAt.getTime() - b.startedAt.getTime(),
     )
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — ExecutionLog.byTaskId.clear()')
+    ExecutionLog.byTaskId.clear()
   }
 }
