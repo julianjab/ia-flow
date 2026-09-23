@@ -1,12 +1,12 @@
 import {
-  RuleActionEntry,
-  type RuleActionEntryProps,
-  type RuleExecutionContext,
-} from './RuleActionEntry.js'
+  PipelineActionEntry,
+  type PipelineActionEntryProps,
+  type PipelineExecutionContext,
+} from './PipelineActionEntry.js'
 
 export type ScriptRuntime = 'bash' | 'python'
 
-export interface ScriptActionProps extends RuleActionEntryProps {
+export interface ScriptActionProps extends PipelineActionEntryProps {
   runtime: ScriptRuntime
   /** Ruta RELATIVA al repo de la tarea — se valida en el adapter que no se escape. */
   file: string
@@ -27,7 +27,7 @@ export interface ScriptActionProps extends RuleActionEntryProps {
 
 /** Correr un script del repo. Apagado por default (IA_FLOW_ENABLE_SCRIPT_ACTIONS)
  *  porque es ejecución de código configurada desde una UI. */
-export class ScriptAction extends RuleActionEntry {
+export class ScriptAction extends PipelineActionEntry {
   readonly kind = 'script' as const
   readonly runtime: ScriptRuntime
   readonly file: string
@@ -44,7 +44,7 @@ export class ScriptAction extends RuleActionEntry {
     this.timeoutMs = props.timeoutMs
   }
 
-  async run(ctx: RuleExecutionContext): Promise<unknown> {
+  async run(ctx: PipelineExecutionContext): Promise<unknown> {
     throw new Error(
       'not implemented — validar path dentro del workspace, resolver env, spawnear this.runtime',
     )

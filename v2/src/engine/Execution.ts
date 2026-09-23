@@ -1,4 +1,4 @@
-import type { RuleActionKind } from '../rules/actions/RuleActionEntry.js'
+import type { PipelineActionKind } from '../pipeline/actions/PipelineActionEntry.js'
 
 export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
@@ -24,14 +24,14 @@ export interface ExecutionEntity {
 
 export interface ExecutionProps {
   id: string
-  /** Rule.id que la generó. */
+  /** Pipeline.id que la generó. */
   pipelineId: string
-  /** RuleActionEntry.id del `do` que la generó — obligatorio para matchear
+  /** PipelineActionEntry.id del `do` que la generó — obligatorio para matchear
    *  entre varios agentes corriendo sobre la misma task. */
   doId: string
   /** Task sobre la que corre, cuando el evento tiene scope a una. */
   taskId?: string
-  kind: RuleActionKind
+  kind: PipelineActionKind
   entity: ExecutionEntity
   startedAt?: Date
 }
@@ -47,7 +47,7 @@ export interface ExecutionProps {
  * `ExecutionRegistry` aparte: es sólo un `Map` + un `find`/`filter`, no
  * justifica una segunda clase de dominio para un objeto que ya sabe todo lo
  * necesario para indexarse a sí mismo (mismo criterio aplicado después a
- * `Project`, `RuleActionEntry` y `Agent`). El costo consciente: dos Engine
+ * `Project`, `PipelineActionEntry` y `Agent`). El costo consciente: dos Engine
  * en el mismo proceso (tests en paralelo) comparten este índice — se
  * resetea con `Execution.reset()`.
  */
@@ -58,7 +58,7 @@ export class Execution {
   readonly pipelineId: string
   readonly doId: string
   readonly taskId?: string
-  readonly kind: RuleActionKind
+  readonly kind: PipelineActionKind
   readonly entity: ExecutionEntity
   status: ExecutionStatus
   readonly startedAt: Date

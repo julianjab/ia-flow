@@ -9,7 +9,7 @@ export interface DomainEventScope {
  *  conocido vive en `EventCatalog` (./EventCatalog.ts), no acá: esta clase
  *  no conoce integraciones ni event types concretos a propósito.
  *
- *  `scope` es campo propio, no parte de `payload` — es lo que Rule.matches
+ *  `scope` es campo propio, no parte de `payload` — es lo que Pipeline.matches
  *  usa para filtrar por projectId/repoName (matchScope en v1) y lo que Engine
  *  usa para resolver la Task antes de ejecutar. EmitAction lo escribe desde
  *  su propio `scope` al derivar un evento nuevo. */
@@ -26,8 +26,8 @@ export class DomainEvent<TPayload extends Record<string, unknown> = Record<strin
   readonly causationId?: string
   /** Profundidad de la cadena de derivación (deriveEvent = padre.depth + 1).
    *  Engine.dispatch la corta contra MAX_EVENT_DEPTH (ver engine/Engine.ts)
-   *  — sin este freno, una regla que se re-emite a sí misma (directo, o vía
-   *  un ciclo de N reglas) no tiene fondo. */
+   *  — sin este freno, un pipeline que se re-emite a sí mismo (directo, o vía
+   *  un ciclo de N pipelines) no tiene fondo. */
   readonly depth: number
 
   constructor(

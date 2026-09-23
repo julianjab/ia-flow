@@ -1,5 +1,5 @@
 import type { Task } from '../domain/Task.js'
-import { Conditional, type ConditionalProps } from '../rules/Conditional.js'
+import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 
 export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none'
 
@@ -39,7 +39,7 @@ export interface AgentProviderChoiceProps extends ConditionalProps {
 
 /** Un candidato dentro de un `Agent.provider` array. Hereda `when`/`whenText`
  *  de `Conditional` — acá desempatan entre VARIOS providers candidatos, a
- *  diferencia del `whenText` de `Rule`/`AgentActivation`, que decide si el
+ *  diferencia del `whenText` de `Pipeline`/`AgentActivation`, que decide si el
  *  ÚNICO candidato corre o no. Mismo campo, semántica distinta por contexto. */
 export class AgentProviderChoice extends Conditional {
   readonly providerId: string
@@ -91,7 +91,7 @@ export interface AgentDefinitionProps {
   requiresBranch?: boolean
   maxConcurrentDispatches?: number
   /** Corre igual aunque el issue esté bloqueado por otro (tolerancia de trabajo,
-   *  no criterio de activación — por eso sobrevivió a la migración a Rule). */
+   *  no criterio de activación — por eso sobrevivió a la migración a Pipeline). */
   allowBlocked?: boolean
   /** Dueño de la fila para edición/visibilidad — NO es activación. */
   projectId?: string | null
@@ -115,7 +115,7 @@ export interface AgentRunInput {
   brief?: string
   /** Schema que el output ESTRUCTURADO de este run debería cumplir, cuando
    *  el próximo `do` de la cadena es un agente que lo necesita como input
-   *  tipado (viaja desde RuleExecutionContext.nextSchema). Ausente: el
+   *  tipado (viaja desde PipelineExecutionContext.nextSchema). Ausente: el
    *  agente corre con su propio `output` declarado, sin hand-off. */
   expectedOutput?: AgentOutput
   /** `this.tools` ya filtrado contra `provider.kind` — lo agrega
@@ -138,11 +138,11 @@ export interface AgentRunOutput {
 /**
  * Identidad + capacidad de un agente: qué tools tiene, con qué provider corre,
  * y cómo cierra (exits). NO sabe cuándo le toca correr — eso es 100% de
- * Rule.when/on (en v1 vivía en AgentActivationSchema; ver migración
- * 059-activation-into-rules). Un Agent se autoindexa por id y las Rule lo
+ * Pipeline.when/on (en v1 vivía en AgentActivationSchema; ver migración
+ * 059-activation-into-rules). Un Agent se autoindexa por id y las Pipeline lo
  * referencian por ese id — nunca se embebe en una cadena de `do`.
  *
- * Se autoindexa igual que Execution/Project/RuleActionEntry: antes vivía en
+ * Se autoindexa igual que Execution/Project/PipelineActionEntry: antes vivía en
  * una `AgentRegistry` aparte, pero register/resolve/list/visibleTo son la
  * misma forma (Map + query) sin motivo para ser una segunda clase.
  */
@@ -150,7 +150,7 @@ export class Agent {
   private static readonly byId = new Map<string, Agent>()
 
   /** Rechaza id duplicado y valida que `exits` sea consistente (ninguna
-   *  clave vacía, `output` declarado si alguna Rule espera
+   *  clave vacía, `output` declarado si alguna Pipeline espera
    *  `{{steps.<id>.output.<campo>}}`) — un exit mal formado tiene que fallar
    *  ACÁ, al registrar, no en cada matchExit() de cada run. */
   static register(agent: Agent): void {
