@@ -7,6 +7,10 @@ export interface ToolProps {
    *  es `['async']` (en sync el run lo cierra el engine leyendo el outcome,
    *  no el modelo). */
   providerKinds?: ProviderKind[]
+  /** true para tools que escriben (fs_write, bash_run, workspace_reset...) —
+   *  es lo que Agent.hasWriteTools() consulta para decidir si intersecta
+   *  writePaths contra el WorkspacePlan del Provider. */
+  isWrite?: boolean
 }
 
 /**
@@ -24,29 +28,29 @@ export class Tool {
 
   readonly name: string
   readonly providerKinds?: ProviderKind[]
+  readonly isWrite: boolean
 
   constructor(props: ToolProps) {
     this.name = props.name
     this.providerKinds = props.providerKinds
+    this.isWrite = props.isWrite ?? false
   }
 
   static register(tool: Tool): void {
-    throw new Error('not implemented — Tool.byName.set(tool.name, tool)')
+    Tool.byName.set(tool.name, tool)
   }
 
   static resolve(name: string): Tool | undefined {
-    throw new Error('not implemented — Tool.byName.get(name)')
+    return Tool.byName.get(name)
   }
 
   /** Ausente `providerKinds` ⇒ disponible en cualquiera. */
   supports(kind: ProviderKind): boolean {
-    throw new Error(
-      'not implemented — this.providerKinds == null || this.providerKinds.includes(kind)',
-    )
+    return this.providerKinds == null || this.providerKinds.includes(kind)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — Tool.byName.clear()')
+    Tool.byName.clear()
   }
 }
