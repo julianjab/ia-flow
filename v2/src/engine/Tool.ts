@@ -1,3 +1,5 @@
+import { Catalog } from '../shared/Catalog.js'
+
 export type ProviderKind = 'sync' | 'async'
 
 export interface ToolProps {
@@ -24,7 +26,7 @@ export interface ToolProps {
  * de qué modelo ni de qué MCP haya del otro lado).
  */
 export class Tool {
-  private static readonly byName = new Map<string, Tool>()
+  private static readonly catalog = new Catalog<Tool>((t) => t.name)
 
   readonly name: string
   readonly providerKinds?: ProviderKind[]
@@ -37,11 +39,11 @@ export class Tool {
   }
 
   static register(tool: Tool): void {
-    Tool.byName.set(tool.name, tool)
+    Tool.catalog.register(tool)
   }
 
   static resolve(name: string): Tool | undefined {
-    return Tool.byName.get(name)
+    return Tool.catalog.resolve(name)
   }
 
   /** Ausente `providerKinds` ⇒ disponible en cualquiera. */
@@ -51,6 +53,6 @@ export class Tool {
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    Tool.byName.clear()
+    Tool.catalog.reset()
   }
 }

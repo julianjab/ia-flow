@@ -1,3 +1,5 @@
+import { Catalog } from '../shared/Catalog.js'
+
 export type McpTransport = 'http' | 'stdio'
 
 export interface McpCatalogEntryProps {
@@ -13,7 +15,7 @@ export interface McpCatalogEntryProps {
 /** Catálogo de servidores MCP que un `Agent` referencia por id
  *  (`Agent.mcpCatalogIds`) — se autoindexa igual que el resto del dominio. */
 export class McpCatalogEntry {
-  private static readonly byId = new Map<string, McpCatalogEntry>()
+  private static readonly catalog = new Catalog<McpCatalogEntry>((e) => e.id)
 
   readonly id: string
   readonly name?: string
@@ -28,11 +30,11 @@ export class McpCatalogEntry {
   }
 
   static register(entry: McpCatalogEntry): void {
-    McpCatalogEntry.byId.set(entry.id, entry)
+    McpCatalogEntry.catalog.register(entry)
   }
 
   static resolve(id: string): McpCatalogEntry | undefined {
-    return McpCatalogEntry.byId.get(id)
+    return McpCatalogEntry.catalog.resolve(id)
   }
 
   static resolveAll(ids: string[]): McpCatalogEntry[] {
@@ -43,6 +45,6 @@ export class McpCatalogEntry {
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    McpCatalogEntry.byId.clear()
+    McpCatalogEntry.catalog.reset()
   }
 }

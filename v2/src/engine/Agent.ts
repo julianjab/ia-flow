@@ -1,4 +1,5 @@
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
+import { Catalog } from '../shared/Catalog.js'
 import { ExecutionLog } from './ExecutionLog.js'
 import { Tool } from './Tool.js'
 
@@ -174,29 +175,29 @@ export interface AgentRunOutput {
  * misma forma (Map + query) sin motivo para ser una segunda clase.
  */
 export class Agent {
-  private static readonly byId = new Map<string, Agent>()
+  private static readonly catalog = new Catalog<Agent>((a) => a.id)
 
   /** Rechaza id duplicado y valida que `exits` sea consistente (ninguna
    *  clave vacía, `output` declarado si alguna Pipeline espera
    *  `{{steps.<id>.output.<campo>}}`) — un exit mal formado tiene que fallar
    *  ACÁ, al registrar, no en cada matchExit() de cada run. */
   static register(agent: Agent): void {
-    if (Agent.byId.has(agent.id)) throw new Error(`Agent duplicado: ${agent.id}`)
+    if (Agent.resolve(agent.id) != null) throw new Error(`Agent duplicado: ${agent.id}`)
     for (const [name, exit] of Object.entries(agent.exits)) {
       if (name.trim() === '') throw new Error(`Agent ${agent.id}: exit con clave vacía`)
       if (typeof exit === 'object' && exit.set.trim() === '') {
         throw new Error(`Agent ${agent.id}: exit "${name}" con set vacío`)
       }
     }
-    Agent.byId.set(agent.id, agent)
+    Agent.catalog.register(agent)
   }
 
   static resolve(id: string): Agent | undefined {
-    return Agent.byId.get(id)
+    return Agent.catalog.resolve(id)
   }
 
   static list(): Agent[] {
-    return [...Agent.byId.values()].sort((a, b) => a.position - b.position)
+    return Agent.catalog.list().sort((a, b) => a.position - b.position)
   }
 
   /** Agentes visibles desde un proyecto: los globales (`projectId: null`) + los propios. */
@@ -206,7 +207,7 @@ export class Agent {
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    Agent.byId.clear()
+    Agent.catalog.reset()
   }
 
   readonly id: string

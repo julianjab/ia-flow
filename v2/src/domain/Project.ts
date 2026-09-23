@@ -1,4 +1,5 @@
 import type { Condition } from '../pipeline/Condition.js'
+import { Catalog } from '../shared/Catalog.js'
 import type { SlackMemberRef } from './Repo.js'
 
 export interface SourceRef {
@@ -47,19 +48,19 @@ export interface ProjectProps {
  * recibir un registry inyectado.
  */
 export class Project {
-  private static readonly byId = new Map<string, Project>()
+  private static readonly catalog = new Catalog<Project>((p) => p.id)
 
   static register(project: Project): void {
-    Project.byId.set(project.id, project)
+    Project.catalog.register(project)
   }
 
   static resolve(id: string): Project | undefined {
-    return Project.byId.get(id)
+    return Project.catalog.resolve(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    Project.byId.clear()
+    Project.catalog.reset()
   }
 
   readonly id: string
