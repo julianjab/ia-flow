@@ -9,7 +9,10 @@ export interface DispatchOutcome {
 }
 
 export interface PendingTaskProps {
-  taskId: string
+  /** Ausente para un run sin Task asociada (ver AgentSubject) — cuenta
+   *  igual para los caps de agente/provider; sólo `runningForProject` la
+   *  ignora (sin task no hay issue del proyecto que contar). */
+  taskId?: string
   projectId?: string
   agentId: string
   providerId?: string
@@ -29,7 +32,7 @@ export interface PendingTaskProps {
 export class PendingTask {
   private static readonly entries = new Map<string, PendingTask>()
 
-  readonly taskId: string
+  readonly taskId?: string
   readonly projectId?: string
   readonly agentId: string
   readonly providerId?: string
@@ -43,24 +46,30 @@ export class PendingTask {
     this.parentRunId = props.parentRunId
   }
 
-  private static key(taskId: string, runId?: string): string {
-    return runId ? `${taskId}#sub:${runId}` : taskId
+  /**
+   * Clave de indexación — pública porque el llamador (AgentAction) la
+   * necesita calcular IGUAL para `register` y para `remove`/`get` del mismo
+   * run. `id` es lo que identifica esta unidad de capacidad: normalmente
+   * `taskId`, o el id de la Execution cuando no hay Task (AgentSubject
+   * ausente) — a PendingTask no le importa cuál de las dos es, sólo que sea
+   * estable durante el run.
+   */
+  static key(id: string, runId?: string): string {
+    return runId ? `${id}#sub:${runId}` : id
   }
 
-  static register(task: PendingTask, runId?: string): void {
-    throw new Error(
-      'not implemented — PendingTask.entries.set(PendingTask.key(task.taskId, runId), task)',
-    )
+  static register(id: string, entry: PendingTask): void {
+    PendingTask.entries.set(id, entry)
   }
 
-  static remove(taskId: string, runId?: string): void {
-    throw new Error('not implemented — PendingTask.entries.delete(PendingTask.key(taskId, runId))')
+  static remove(id: string): void {
+    PendingTask.entries.delete(id)
   }
 
-  /** Un `getPendingTask(taskId)` sin `runId` (sin sufijo) siempre resuelve
-   *  al PADRE — es quien es dueño del ciclo de vida de la task. */
-  static get(taskId: string): PendingTask | undefined {
-    throw new Error('not implemented — PendingTask.entries.get(PendingTask.key(taskId))')
+  /** Un `get(id)` sin sufijo `#sub:` siempre resuelve al PADRE — es quien
+   *  es dueño del ciclo de vida de la task. */
+  static get(id: string): PendingTask | undefined {
+    return PendingTask.entries.get(id)
   }
 
   /**
@@ -71,33 +80,28 @@ export class PendingTask {
    * nuevo, es más trabajo sobre uno que ya está contado.
    */
   static runningForProject(projectId: string): number {
-    throw new Error(
-      'not implemented — [...PendingTask.entries.values()].filter(t => t.projectId === projectId && ' +
-        't.parentRunId == null).length',
-    )
+    return [...PendingTask.entries.values()].filter(
+      (t) => t.projectId === projectId && t.parentRunId == null,
+    ).length
   }
 
   /** Cruza proyectos a propósito — el cap de agente es del roster, no de un proyecto. */
   static runningForAgent(agentId: string): number {
-    throw new Error(
-      'not implemented — [...PendingTask.entries.values()].filter(t => t.agentId === agentId).length',
-    )
+    return [...PendingTask.entries.values()].filter((t) => t.agentId === agentId).length
   }
 
   static runningForProvider(providerId: string): number {
-    throw new Error(
-      'not implemented — [...PendingTask.entries.values()].filter(t => t.providerId === providerId).length',
-    )
+    return [...PendingTask.entries.values()].filter((t) => t.providerId === providerId).length
   }
 
   /** `0` o ausente = SIN LÍMITE — nunca "frenar todo": un cap que no puede
    *  despejarse dejaría el issue diferido para siempre. */
   static withinCap(running: number, cap: number | undefined): boolean {
-    throw new Error('not implemented — cap == null || cap === 0 || running < cap')
+    return cap == null || cap === 0 || running < cap
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — PendingTask.entries.clear()')
+    PendingTask.entries.clear()
   }
 }

@@ -54,16 +54,16 @@ export abstract class Provider {
   }
 
   static register(provider: Provider): void {
-    throw new Error('not implemented — Provider.byId.set(provider.id, provider)')
+    Provider.byId.set(provider.id, provider)
   }
 
   static resolve(id: string): Provider | undefined {
-    throw new Error('not implemented — Provider.byId.get(id)')
+    return Provider.byId.get(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — Provider.byId.clear()')
+    Provider.byId.clear()
   }
 
   /** Corre el loop de tools de este provider para un Agent ya resuelto. */
@@ -78,14 +78,15 @@ export abstract class Provider {
    * recién después sonda su agent-host).
    */
   async canAccept(req: AdmissionRequest): Promise<Admission> {
-    throw new Error(
-      'not implemented — const within = req.cap == null || req.cap === 0 || req.running < req.cap; ' +
-        'return within ? { accept: true } : { accept: false, reason: "cap alcanzado" }',
-    )
+    const cap = req.cap ?? this.maxConcurrentRuns
+    const within = cap == null || cap === 0 || req.running < cap
+    return within ? { accept: true } : { accept: false, reason: 'cap alcanzado' }
   }
 
-  /** Ausente: el run usa los paths que el engine ya conoce (clone local, sin worktree). */
+  /** Default: sin workspace propio — el caller usa los paths que ya conoce
+   *  (clone local, sin worktree). Un Provider concreto que sí sabe
+   *  provisionar (worktree, remoto) sobreescribe esto entero. */
   async prepareWorkspace(req: WorkspaceRequest): Promise<WorkspacePlan> {
-    throw new Error('not implemented — este Provider no soporta prepareWorkspace, usar paths locales')
+    return { repoPaths: {} }
   }
 }

@@ -25,9 +25,8 @@ export class EmitAction extends PipelineActionEntry {
   }
 
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    throw new Error(
-      'not implemented — ctx.bus.publish(ctx.event.derive(this.type, this.payload, this.scope)) ' +
-        '— derive() ya arma causationId/depth correctamente, Engine.dispatch corta contra MAX_EVENT_DEPTH',
-    )
+    const derived = ctx.event.derive(this.type, this.payload, this.scope)
+    ctx.bus.publish(derived)
+    return derived
   }
 }

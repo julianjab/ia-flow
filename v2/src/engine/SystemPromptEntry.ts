@@ -18,15 +18,15 @@ export class SystemPromptEntry {
   }
 
   static register(entry: SystemPromptEntry): void {
-    throw new Error('not implemented — SystemPromptEntry.byId.set(entry.id, entry)')
+    SystemPromptEntry.byId.set(entry.id, entry)
   }
 
   static resolve(id: string): SystemPromptEntry | undefined {
-    throw new Error('not implemented — SystemPromptEntry.byId.get(id)')
+    return SystemPromptEntry.byId.get(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — SystemPromptEntry.byId.clear()')
+    SystemPromptEntry.byId.clear()
   }
 }

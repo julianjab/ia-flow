@@ -40,10 +40,10 @@ export interface WorkspacePlan {
  */
 export class WorkspaceLayout {
   static worktreePath(base: string, repo: string, issueNumber: number | string): string {
-    throw new Error('not implemented — `${base}/${repo}/.worktrees/task-${issueNumber}`')
+    return `${base}/${repo}/.worktrees/task-${issueNumber}`
   }
 
   static branchName(task: { branch?: string; id: string }): string {
-    throw new Error('not implemented — task.branch ?? `task/${task.id}`')
+    return task.branch ?? `task/${task.id}`
   }
 }
