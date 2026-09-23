@@ -11,7 +11,16 @@ export interface ScriptActionProps extends RuleActionEntryProps {
   /** Ruta RELATIVA al repo de la tarea — se valida en el adapter que no se escape. */
   file: string
   args?: string[]
-  /** Allow-list de env vars por NOMBRE — el script recibe SÓLO éstas. */
+  /**
+   * Env vars a pasar, por NOMBRE — el script recibe SÓLO las claves listadas
+   * acá, nunca el env completo del daemon (que tiene GITHUB_TOKEN,
+   * ANTHROPIC_API_KEY...). El VALOR de cada entrada es una plantilla —
+   * típicamente `${SECRETO}` — que se resuelve igual que url/headers/body de
+   * HttpAction: secretos primero, interpolación de {{event...}} después. Si
+   * el valor viene de texto libre de la UI en vez de una referencia a
+   * secreto, esto degrada al mismo riesgo que HttpAction.url (ver su
+   * comentario) — no es una allow-list de VALORES, sólo de nombres.
+   */
   env?: Record<string, string>
   timeoutMs?: number
 }
