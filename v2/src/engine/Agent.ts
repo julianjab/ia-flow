@@ -118,6 +118,13 @@ export interface AgentRunInput {
    *  tipado (viaja desde RuleExecutionContext.nextSchema). Ausente: el
    *  agente corre con su propio `output` declarado, sin hand-off. */
   expectedOutput?: AgentOutput
+  /** `this.tools` ya filtrado contra `provider.kind` — lo agrega
+   *  `Agent.execute()` antes de llamar a `provider.run()`; quien llama a
+   *  `Agent.run()` desde afuera (AgentAction) no lo setea. El schema/
+   *  ejecución de cada tool es responsabilidad del Provider; el dominio
+   *  sólo garantiza que la combinación tool↔provider sea válida antes de
+   *  que el Provider la vea. */
+  tools?: AgentToolEntry[]
 }
 
 export interface AgentRunOutput {
@@ -253,9 +260,15 @@ export class Agent {
       'not implemented — const providerId = typeof this.provider === "string" ? this.provider : ' +
         'desempatar candidatos por when/whenText o clasificador; const provider = Provider.resolve(providerId); ' +
         'if (!(await provider.canAccept({task: input.task, agentId: this.id, running, cap: this.maxConcurrentDispatches})).accept) throw ...; ' +
+        'const tools = this.tools.filter(t => { ' +
+        'const name = typeof t === "string" ? t : t.name; ' +
+        'const def = Tool.resolve(name); return def == null || def.supports(provider.kind) }); ' +
+        '— una tool cuyo Tool.resolve() diga que no soporta provider.kind se DESCARTA acá, no revienta el ' +
+        'run: es la misma filosofía fail-open que canAccept, y evita el bug de v1 de un agente que declara ' +
+        'bash_run/fs_* y corre en el disco equivocado; ' +
         'const mcpServers = McpCatalogEntry.resolveAll(this.mcpCatalogIds); ' +
         'const systemPrompts = this.systemPrompts.map(ref => ref.text ?? SystemPromptEntry.resolve(ref.id).text); ' +
-        'return provider.run(input)',
+        'return provider.run({...input, tools} as AgentRunInput)',
     )
   }
 

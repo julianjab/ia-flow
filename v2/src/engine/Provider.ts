@@ -1,5 +1,6 @@
 import type { Task } from '../domain/Task.js'
 import type { AgentRunInput, AgentRunOutput } from './Agent.js'
+import type { ProviderKind } from './Tool.js'
 import type { WorkspacePlan, WorkspaceRequest } from './Workspace.js'
 
 export interface AdmissionRequest {
@@ -19,6 +20,14 @@ export interface Admission {
 
 export interface ProviderProps {
   id: string
+  /** `sync`: el proceso que corre el modelo es el mismo que ejecuta las
+   *  tools (anthropic-api local) — `bash_run`/`workspace_reset` sólo
+   *  aplican acá. `async`: el modelo corre en un CLI aparte (tmux/iterm,
+   *  remoto) que ya trae su propio Bash nativo — ahí las tools inyectadas
+   *  son las que el daemon expone vía MCP, y `complete_task` sólo aplica
+   *  acá. Determina qué `Tool.providerKinds` puede declarar un Agent que
+   *  resuelva este Provider (ver Agent.execute). */
+  kind: ProviderKind
   maxConcurrentRuns?: number
 }
 
@@ -37,10 +46,12 @@ export abstract class Provider {
   private static readonly byId = new Map<string, Provider>()
 
   readonly id: string
+  readonly kind: ProviderKind
   readonly maxConcurrentRuns?: number
 
   constructor(props: ProviderProps) {
     this.id = props.id
+    this.kind = props.kind
     this.maxConcurrentRuns = props.maxConcurrentRuns
   }
 
