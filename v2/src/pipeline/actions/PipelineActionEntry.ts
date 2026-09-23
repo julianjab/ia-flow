@@ -16,6 +16,9 @@ export interface PipelineExecutionContext {
   readonly task?: Task
   readonly steps: Record<string, unknown>
   readonly bus: EventBus
+  /** Pipeline.id dueño de este `do` — lo setea Pipeline.execute antes de
+   *  correr cada step; AgentAction lo necesita para crear su Execution. */
+  readonly pipelineId: string
   /**
    * Schema que el output de ESTE paso debería cumplir, cuando el siguiente
    * `do` de la cadena es un AgentAction que lo necesita como input tipado.
@@ -63,18 +66,17 @@ export abstract class PipelineActionEntry extends Conditional {
   /** Rechaza registrar un `RefAction` — nunca ref-a-ref, mata ciclos sin
    *  necesitar detección en runtime. */
   static register(id: string, action: PipelineActionEntry): void {
-    throw new Error(
-      'not implemented — if (action.kind === "ref") throw ...; PipelineActionEntry.byId.set(id, action)',
-    )
+    if (action.kind === 'ref') throw new Error(`no se puede registrar un RefAction ("${id}")`)
+    PipelineActionEntry.byId.set(id, action)
   }
 
   static resolve(id: string): PipelineActionEntry | undefined {
-    throw new Error('not implemented — PipelineActionEntry.byId.get(id)')
+    return PipelineActionEntry.byId.get(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — PipelineActionEntry.byId.clear()')
+    PipelineActionEntry.byId.clear()
   }
 
   /** Condiciona ESTE paso (no el pipeline entera) — puede leer `steps.*` de pasos previos. */

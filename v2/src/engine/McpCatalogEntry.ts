@@ -28,21 +28,21 @@ export class McpCatalogEntry {
   }
 
   static register(entry: McpCatalogEntry): void {
-    throw new Error('not implemented — McpCatalogEntry.byId.set(entry.id, entry)')
+    McpCatalogEntry.byId.set(entry.id, entry)
   }
 
   static resolve(id: string): McpCatalogEntry | undefined {
-    throw new Error('not implemented — McpCatalogEntry.byId.get(id)')
+    return McpCatalogEntry.byId.get(id)
   }
 
   static resolveAll(ids: string[]): McpCatalogEntry[] {
-    throw new Error(
-      'not implemented — ids.map(id => McpCatalogEntry.resolve(id)).filter((e): e is McpCatalogEntry => e != null)',
-    )
+    return ids
+      .map((id) => McpCatalogEntry.resolve(id))
+      .filter((e): e is McpCatalogEntry => e != null)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — McpCatalogEntry.byId.clear()')
+    McpCatalogEntry.byId.clear()
   }
 }

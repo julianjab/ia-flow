@@ -19,8 +19,8 @@ export class RefAction extends PipelineActionEntry {
   }
 
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    throw new Error(
-      'not implemented — const action = PipelineActionEntry.resolve(this.actionId); return action.run(ctx)',
-    )
+    const action = PipelineActionEntry.resolve(this.actionId)
+    if (action == null) throw new Error(`RefAction: acción desconocida "${this.actionId}"`)
+    return action.run(ctx)
   }
 }

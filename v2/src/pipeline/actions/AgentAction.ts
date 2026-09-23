@@ -1,4 +1,8 @@
-import type { AgentExit } from '../../engine/Agent.js'
+import { Agent, type AgentExit } from '../../engine/Agent.js'
+import { AgentRunEntity } from '../../engine/AgentRunEntity.js'
+import { Execution, type ExecutionMessage } from '../../engine/Execution.js'
+import { PendingTask } from '../../engine/PendingTask.js'
+import { Project } from '../../domain/Project.js'
 import {
   PipelineActionEntry,
   type PipelineActionEntryProps,
@@ -46,20 +50,77 @@ export class AgentAction extends PipelineActionEntry {
   }
 
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    throw new Error(
-      'not implemented — si this.liveInject && Execution.tryAppend(ctx.task?.id, toMessage(ctx.event)) ' +
-        'devolver ese resultado sin correr un run nuevo; si no: const agent = Agent.resolve(this.agentId); ' +
-        'const project = ctx.task?.projectId ? Project.resolve(ctx.task.projectId) : undefined; ' +
-        'if (project && !PendingTask.withinCap(PendingTask.runningForProject(project.id), ' +
-        'project.settings.maxConcurrentDispatches)) return { kind: "deferred", reason: "cap de proyecto" }; ' +
-        'if (!PendingTask.withinCap(PendingTask.runningForAgent(agent.id), agent.maxConcurrentDispatches)) ' +
-        'return { kind: "deferred", reason: "cap de agente" }; ' +
-        'PendingTask.register(new PendingTask({taskId: ctx.task.id, projectId: project?.id, agentId: agent.id})); ' +
-        'new Execution({pipelineId, doId: this.id, taskId: ctx.task?.id, kind: "agent", ' +
-        'entity: new AgentRunEntity()}) ANTES de arrancar (se autoindexa en su constructor); ' +
-        'try { agent.run({subject: ctx.task, brief: this.brief, expectedOutput: ctx.nextSchema}); ' +
-        'execution.complete() } catch { execution.fail() } finally { PendingTask.remove(ctx.task.id) }; ' +
-        'si emitOn=="exit" ctx.bus.publish(ctx.event.derive(this.emitType ?? "run.finished", {...}))',
+    const taskId = ctx.task?.id
+
+    if (this.liveInject) {
+      const message: ExecutionMessage = {
+        body: this.brief ?? JSON.stringify(ctx.event.payload),
+        origin: ctx.event.type,
+        occurredAt: ctx.event.occurredAt,
+        payload: ctx.event.payload,
+      }
+      if (Execution.tryAppend(taskId, message)) {
+        return { kind: 'live-injected' }
+      }
+    }
+
+    const agent = Agent.resolve(this.agentId)
+    if (agent == null) throw new Error(`AgentAction: agente desconocido "${this.agentId}"`)
+
+    const project = ctx.task?.projectId != null ? Project.resolve(ctx.task.projectId) : undefined
+    if (
+      project != null &&
+      !PendingTask.withinCap(
+        PendingTask.runningForProject(project.id),
+        project.settings.maxConcurrentDispatches,
+      )
+    ) {
+      return { kind: 'deferred', reason: 'cap de proyecto' }
+    }
+    if (
+      !PendingTask.withinCap(PendingTask.runningForAgent(agent.id), agent.maxConcurrentDispatches)
+    ) {
+      return { kind: 'deferred', reason: 'cap de agente' }
+    }
+
+    const capacityKey = PendingTask.key(taskId ?? crypto.randomUUID())
+    PendingTask.register(
+      capacityKey,
+      new PendingTask({ taskId, projectId: project?.id, agentId: agent.id }),
     )
+
+    const execution = new Execution({
+      id: crypto.randomUUID(),
+      pipelineId: ctx.pipelineId,
+      doId: this.id ?? crypto.randomUUID(),
+      taskId,
+      kind: 'agent',
+      entity: new AgentRunEntity(),
+    })
+
+    try {
+      const output = await agent.run({
+        subject: ctx.task,
+        brief: this.brief,
+        expectedOutput: ctx.nextSchema,
+      })
+      execution.complete()
+      if (this.emitOn === 'exit') {
+        ctx.bus.publish(
+          ctx.event.derive(this.emitType ?? 'run.finished', {
+            agentId: agent.id,
+            taskId,
+            outcome: output.outcome,
+            exit: output.exit != null ? JSON.stringify(output.exit) : undefined,
+          }),
+        )
+      }
+      return output
+    } catch (err) {
+      execution.fail()
+      throw err
+    } finally {
+      PendingTask.remove(capacityKey)
+    }
   }
 }
