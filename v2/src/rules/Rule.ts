@@ -1,67 +1,90 @@
-import type { Step, StepContext } from '../engine/Step.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
+import type { RuleActionEntry, RuleExecutionContext } from './actions/RuleActionEntry.js'
 import type { Condition } from './Condition.js'
 
 export interface RuleProps {
   id: string
-  /** Tipos de DomainEvent que esta regla escucha. */
+  name?: string
+  description?: string
+  /** Tipos de DomainEvent que esta regla escucha — al menos uno. */
   on: string[]
+  /** Ámbito: null/ausente = sin restricción, un valor estrecha (fail-closed). */
+  projectId?: string | null
+  repoName?: string | null
   when?: Condition[]
-  /** Gate impuro (Haiku), igual que whenText en v1 — se evalúa último. */
+  /** Gate impuro (Haiku) — descarta la regla aunque sea la única candidata. */
   whenText?: string
-  do: Step[]
-  /** Si true, ninguna otra Rule matcheada por el mismo evento corre después de esta. */
-  exclusive?: boolean
+  /** Cron que hace tickear esta regla (junto con on: ['schedule.tick']). */
+  schedule?: string
   enabled?: boolean
   position?: number
-  projectId?: string
-  repoName?: string
+  /** Si matchea, impide que corran las reglas de menor prioridad para este evento. */
+  exclusive?: boolean
+  do: RuleActionEntry[]
+  createdAt?: string
+  updatedAt?: string
 }
 
 /**
- * Filtra eventos (matches) y ejecuta su cadena de `do` (execute), pasando el
- * output de cada Step como input del siguiente. El primer Step recibe el
- * payload del evento.
+ * Filtra eventos (matches/matchesText) y ejecuta su cadena de `do`, acumulando
+ * el output de cada paso nombrado en ctx.steps para que los pasos siguientes
+ * lo lean vía `{{steps.<id>.output}}`.
  */
 export class Rule {
   readonly id: string
+  readonly name?: string
+  readonly description?: string
   readonly on: string[]
+  readonly projectId?: string | null
+  readonly repoName?: string | null
   readonly when: Condition[]
   readonly whenText?: string
-  readonly do: Step[]
-  readonly exclusive: boolean
+  readonly schedule?: string
   readonly enabled: boolean
   readonly position: number
-  readonly projectId?: string
-  readonly repoName?: string
+  readonly exclusive: boolean
+  readonly do: RuleActionEntry[]
+  readonly createdAt?: string
+  readonly updatedAt?: string
 
   constructor(props: RuleProps) {
     this.id = props.id
+    this.name = props.name
+    this.description = props.description
     this.on = props.on
-    this.when = props.when ?? []
-    this.whenText = props.whenText
-    this.do = props.do
-    this.exclusive = props.exclusive ?? false
-    this.enabled = props.enabled ?? true
-    this.position = props.position ?? 0
     this.projectId = props.projectId
     this.repoName = props.repoName
+    this.when = props.when ?? []
+    this.whenText = props.whenText
+    this.schedule = props.schedule
+    this.enabled = props.enabled ?? true
+    this.position = props.position ?? 0
+    this.exclusive = props.exclusive ?? false
+    this.do = props.do
+    this.createdAt = props.createdAt
+    this.updatedAt = props.updatedAt
   }
 
-  /** Sólo los filtros puros (on + when). whenText se evalúa aparte porque es async/impuro. */
+  /** Sólo los filtros puros: enabled, on, ámbito (projectId/repoName vs event.scope), when. */
   matches(event: DomainEvent): boolean {
     throw new Error(
-      'not implemented — this.enabled && this.on.includes(event.type) && this.when.every(...)',
+      'not implemented — this.enabled && this.on.includes(event.type) && matchScope(this, event) && ' +
+        'Condition.evaluateAll(this.when, event.payload)',
     )
   }
 
+  /** Gate async aparte porque es impuro (clasificador tipo Haiku), cacheado por (rule, evento). */
   async matchesText(event: DomainEvent): Promise<boolean> {
-    throw new Error('not implemented — clasificador tipo Haiku sobre this.whenText, cacheado')
+    if (this.whenText == null) return true
+    throw new Error('not implemented — clasificador contra this.whenText')
   }
 
-  async execute(event: DomainEvent): Promise<unknown> {
+  /** Corre this.do en orden; cada paso puede leer ctx.steps de los anteriores. */
+  async execute(ctx: RuleExecutionContext): Promise<Record<string, unknown>> {
     throw new Error(
-      'not implemented — encadena this.do: input = event.payload; for each step, input = await step.run(input, ctx)',
+      'not implemented — for each step in this.do: if !step.shouldRun(ctx) mark skipped y seguir; ' +
+        'try { out = await step.run(ctx); if (step.id) ctx.steps[step.id] = out } ' +
+        'catch (e) { if (!step.continueOnError) throw e }',
     )
   }
 }
