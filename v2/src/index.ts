@@ -40,7 +40,6 @@ export {
   resolveCommentTarget,
   SUCCESS_EXIT,
 } from './engine/Agent.js'
-export { AgentRegistry } from './engine/AgentRegistry.js'
 export { AgentRunEntity } from './engine/AgentRunEntity.js'
 export { Engine, MAX_EVENT_DEPTH } from './engine/Engine.js'
 export type {

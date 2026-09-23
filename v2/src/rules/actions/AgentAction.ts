@@ -48,7 +48,7 @@ export class AgentAction extends RuleActionEntry {
   async run(ctx: RuleExecutionContext): Promise<unknown> {
     throw new Error(
       'not implemented — si this.liveInject && Execution.tryAppend(ctx.task?.id, toMessage(ctx.event)) ' +
-        'devolver ese resultado sin correr un run nuevo; si no: ctx.agents.resolve(this.agentId), caps/lock/checkpoint ' +
+        'devolver ese resultado sin correr un run nuevo; si no: Agent.resolve(this.agentId), caps/lock/checkpoint ' +
         '(AgentOrchestrator), new Execution({pipelineId, doId: this.id, taskId: ctx.task?.id, kind: "agent", ' +
         'entity: new AgentRunEntity()}) ANTES de arrancar (se autoindexa en su constructor), ' +
         'agent.run({task: ctx.task, brief: this.brief, expectedOutput: ctx.nextSchema}), marcar ' +

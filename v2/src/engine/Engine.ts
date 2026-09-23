@@ -1,7 +1,6 @@
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { Rule } from '../rules/Rule.js'
-import type { AgentRegistry } from './AgentRegistry.js'
 
 /**
  * Tope de la cadena de derivación de eventos (EmitAction, AgentAction con
@@ -21,10 +20,7 @@ export const MAX_EVENT_DEPTH = 10
 export class Engine {
   private readonly rules: Rule[] = []
 
-  constructor(
-    private readonly bus: EventBus,
-    private readonly agents: AgentRegistry,
-  ) {}
+  constructor(private readonly bus: EventBus) {}
 
   register(rule: Rule): void {
     throw new Error('not implemented — push + sort por position')
@@ -54,8 +50,7 @@ export class Engine {
         'const exclusive = survived.filter(r => r.exclusive).sort(by position).at(0); ' +
         'const toRun = exclusive ? [exclusive] : survived.filter(r => !r.exclusive); ' +
         'resuelve task del event.scope; ' +
-        'await Promise.all(toRun.map(r => r.execute({event, task, steps: {}, agents: this.agents, ' +
-        'bus: this.bus})))',
+        'await Promise.all(toRun.map(r => r.execute({event, task, steps: {}, bus: this.bus})))',
     )
   }
 }

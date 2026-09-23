@@ -94,7 +94,7 @@ export class Rule extends Conditional {
     throw new Error(
       'not implemented — for (i, step) of this.do.entries(): if !step.shouldRun(ctx) mark skipped y seguir; ' +
         'const next = this.do[i + 1]; ' +
-        'ctx.nextSchema = next instanceof AgentAction ? ctx.agents.resolve(next.agentId)?.output : undefined; ' +
+        'ctx.nextSchema = next instanceof AgentAction ? Agent.resolve(next.agentId)?.output : undefined; ' +
         'try { out = await step.run(ctx); if (step.id) ctx.steps[step.id] = out } ' +
         'catch (e) { if (!step.continueOnError) throw e }',
     )
