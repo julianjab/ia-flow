@@ -1,4 +1,3 @@
-import type { ProjectRegistry } from '../domain/ProjectRegistry.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { ActionRegistry } from '../rules/ActionRegistry.js'
@@ -27,7 +26,6 @@ export class Engine {
     private readonly bus: EventBus,
     private readonly agents: AgentRegistry,
     private readonly actions: ActionRegistry,
-    private readonly projects: ProjectRegistry,
   ) {}
 
   register(rule: Rule): void {
@@ -52,7 +50,7 @@ export class Engine {
       'not implemented — if (event.depth >= MAX_EVENT_DEPTH) return (loguear y abandonar la cadena); ' +
         'const taskId = event.scope?.issueId; ' +
         'if (Execution.tryAppend(taskId, toMessage(event))) return; ' +
-        'const project = event.scope?.projectId ? this.projects.resolve(event.scope.projectId) : undefined; ' +
+        'const project = event.scope?.projectId ? Project.resolve(event.scope.projectId) : undefined; ' +
         'const matched = this.rules.filter(r => r.matches(event, project)); ' +
         'const survived = []; for (r of matched) if (await r.matchesText(event)) survived.push(r); ' +
         'const exclusive = survived.filter(r => r.exclusive).sort(by position).at(0); ' +

@@ -50,7 +50,6 @@ export type {
   ExecutionStatus,
 } from './engine/Execution.js'
 export { Execution } from './engine/Execution.js'
-export { ProjectRegistry } from './domain/ProjectRegistry.js'
 export { DomainEvent } from './events/DomainEvent.js'
 export type { DomainEventScope } from './events/DomainEvent.js'
 export type { EventHandler, Unsubscribe } from './events/EventBus.js'
