@@ -111,5 +111,11 @@ La primera versión del esqueleto dejó afuera bastante. Se corrigió contra
 - `Condition.evaluate`/`evaluateAll` y `Rule.matchesText` siguen sin
   implementación — son el puente directo a `evalCondition`/`evalWhen` y al
   clasificador Haiku de v1.
+- **`HttpAction.url` resuelve `${SECRETO}` sin allow-list de hosts destino** —
+  fiel a `apps/server/src/adapters/actions/http-action.ts` de v1 (mismo
+  riesgo, ya presente hoy, no introducido acá). Quien edita una Rule con
+  acceso a un secreto puede mandarlo a cualquier URL. `ScriptAction.env` tiene
+  la misma forma (allow-list de NOMBRES, no de valores). Si se decide acotar
+  esto, el cambio tiene que aplicar a los dos lados (v1 y v2), no sólo acá.
 - Caps, locks y `run_checkpoints` (estado transversal a la ejecución) todavía
   no tienen dueño claro en este esqueleto.
