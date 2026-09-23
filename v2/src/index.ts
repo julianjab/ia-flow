@@ -21,24 +21,37 @@ export type {
   AgentOutput,
   AgentOutputField,
   AgentProvider,
-  AgentProviderChoice,
+  AgentProviderChoiceProps,
   AgentRunInput,
   AgentRunOutput,
   AgentToolEntry,
   AgentVariableValue,
   BashRunConfig,
   CommentTarget,
+  NoTransitionOutcome,
 } from './engine/Agent.js'
 export {
   Agent,
+  AgentProviderChoice,
   ERROR_EXIT,
   exitComment,
   exitSet,
+  NO_TRANSITION_OUTCOMES,
   resolveCommentTarget,
   SUCCESS_EXIT,
 } from './engine/Agent.js'
 export { AgentRegistry } from './engine/AgentRegistry.js'
-export { Engine } from './engine/Engine.js'
+export { AgentRunEntity } from './engine/AgentRunEntity.js'
+export { Engine, MAX_EVENT_DEPTH } from './engine/Engine.js'
+export type {
+  ExecutionEntity,
+  ExecutionMessage,
+  ExecutionProps,
+  ExecutionStatus,
+} from './engine/Execution.js'
+export { Execution } from './engine/Execution.js'
+export { ExecutionRegistry } from './engine/ExecutionRegistry.js'
+export { ProjectRegistry } from './domain/ProjectRegistry.js'
 export { DomainEvent } from './events/DomainEvent.js'
 export type { DomainEventScope } from './events/DomainEvent.js'
 export type { EventHandler, Unsubscribe } from './events/EventBus.js'
@@ -63,5 +76,7 @@ export type { ScriptActionProps, ScriptRuntime } from './rules/actions/ScriptAct
 export { ScriptAction } from './rules/actions/ScriptAction.js'
 export type { ConditionOp } from './rules/Condition.js'
 export { Condition } from './rules/Condition.js'
+export type { ConditionalProps } from './rules/Conditional.js'
+export { Conditional } from './rules/Conditional.js'
 export type { RuleProps } from './rules/Rule.js'
 export { Rule } from './rules/Rule.js'
