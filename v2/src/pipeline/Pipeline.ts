@@ -1,24 +1,24 @@
 import type { Project } from '../domain/Project.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
-import type { RuleActionEntry, RuleExecutionContext } from './actions/RuleActionEntry.js'
+import type { PipelineActionEntry, PipelineExecutionContext } from './actions/PipelineActionEntry.js'
 import { Conditional, type ConditionalProps } from './Conditional.js'
 
-export interface RuleProps extends ConditionalProps {
+export interface PipelineProps extends ConditionalProps {
   id: string
   name?: string
   description?: string
-  /** Tipos de DomainEvent que esta regla escucha — al menos uno. */
+  /** Tipos de DomainEvent que este pipeline escucha — al menos uno. */
   on: string[]
   /** Ámbito: null/ausente = sin restricción, un valor estrecha (fail-closed). */
   projectId?: string | null
   repoName?: string | null
-  /** Cron que hace tickear esta regla (junto con on: ['schedule.tick']). */
+  /** Cron que hace tickear este pipeline (junto con on: ['schedule.tick']). */
   schedule?: string
   enabled?: boolean
   position?: number
-  /** Si matchea, impide que corran las reglas de menor prioridad para este evento. */
+  /** Si matchea, impide que corran los pipelines de menor prioridad para este evento. */
   exclusive?: boolean
-  do: RuleActionEntry[]
+  do: PipelineActionEntry[]
   createdAt?: string
   updatedAt?: string
 }
@@ -30,7 +30,7 @@ export interface RuleProps extends ConditionalProps {
  * `Conditional` — acá sólo se compone con lo que le agrega a ese patrón:
  * `on`/`enabled`/ámbito/`baseWhen` del proyecto.
  */
-export class Rule extends Conditional {
+export class Pipeline extends Conditional {
   readonly id: string
   readonly name?: string
   readonly description?: string
@@ -41,11 +41,11 @@ export class Rule extends Conditional {
   readonly enabled: boolean
   readonly position: number
   readonly exclusive: boolean
-  readonly do: RuleActionEntry[]
+  readonly do: PipelineActionEntry[]
   readonly createdAt?: string
   readonly updatedAt?: string
 
-  constructor(props: RuleProps) {
+  constructor(props: PipelineProps) {
     super(props)
     this.id = props.id
     this.name = props.name
@@ -66,7 +66,7 @@ export class Rule extends Conditional {
    * Sólo los filtros puros: enabled, on, ámbito (projectId/repoName vs
    * event.scope), this.matchesConditions (heredado de Conditional) contra
    * this.when + baseWhen del proyecto, y — cuando `project` viaja — el
-   * override `disabledRuleIds` (esta regla es global Y el proyecto la
+   * override `disabledPipelineIds` (este pipeline es global Y el proyecto la
    * apagó). `project` es opcional porque un evento puede no tener projectId
    * resoluble (Project.resolve sin esa fila, o el evento es cross-proyecto)
    * — ahí sólo corren los filtros que no lo necesitan.
@@ -74,7 +74,7 @@ export class Rule extends Conditional {
   matches(event: DomainEvent, project?: Project): boolean {
     throw new Error(
       'not implemented — this.enabled && this.on.includes(event.type) && matchScope(this, event) && ' +
-        '!(project?.disablesRule(this) ?? false) && ' +
+        '!(project?.disablesPipeline(this) ?? false) && ' +
         'this.matchesConditions(event.payload, project?.settings.baseWhen ?? [])',
     )
   }
@@ -90,7 +90,7 @@ export class Rule extends Conditional {
    * cumplir su output, sólo cuando el siguiente es un AgentAction) —
    * recalculado antes de CADA step, no acumulativo como ctx.steps.
    */
-  async execute(ctx: RuleExecutionContext): Promise<Record<string, unknown>> {
+  async execute(ctx: PipelineExecutionContext): Promise<Record<string, unknown>> {
     throw new Error(
       'not implemented — for (i, step) of this.do.entries(): if !step.shouldRun(ctx) mark skipped y seguir; ' +
         'const next = this.do[i + 1]; ' +

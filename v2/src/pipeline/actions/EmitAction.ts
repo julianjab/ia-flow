@@ -1,7 +1,7 @@
 import type { DomainEventScope } from '../../events/DomainEvent.js'
-import { RuleActionEntry, type RuleActionEntryProps, type RuleExecutionContext } from './RuleActionEntry.js'
+import { PipelineActionEntry, type PipelineActionEntryProps, type PipelineExecutionContext } from './PipelineActionEntry.js'
 
-export interface EmitActionProps extends RuleActionEntryProps {
+export interface EmitActionProps extends PipelineActionEntryProps {
   type: string
   scope?: DomainEventScope
   payload?: Record<string, unknown>
@@ -9,9 +9,9 @@ export interface EmitActionProps extends RuleActionEntryProps {
 
 /** Publica un DomainEvent derivado — permite encadenar sin un DSL de workflow
  *  (un triage normaliza un mensaje suelto en un evento ya ruteable). El
- *  evento nace con causationId + depth+1 del evento que disparó la regla
+ *  evento nace con causationId + depth+1 del evento que disparó el pipeline
  *  (deriveEvent en v1) — ver DomainEvent. */
-export class EmitAction extends RuleActionEntry {
+export class EmitAction extends PipelineActionEntry {
   readonly kind = 'emit' as const
   readonly type: string
   readonly scope?: DomainEventScope
@@ -24,7 +24,7 @@ export class EmitAction extends RuleActionEntry {
     this.payload = props.payload ?? {}
   }
 
-  async run(ctx: RuleExecutionContext): Promise<unknown> {
+  async run(ctx: PipelineExecutionContext): Promise<unknown> {
     throw new Error(
       'not implemented — ctx.bus.publish(ctx.event.derive(this.type, this.payload, this.scope)) ' +
         '— derive() ya arma causationId/depth correctamente, Engine.dispatch corta contra MAX_EVENT_DEPTH',

@@ -6,15 +6,15 @@ export interface ConditionalProps {
 }
 
 /**
- * Encapsula el patrón when/whenText que se repite en `Rule`, el `when`
- * por-paso de `RuleActionEntry` y `AgentProviderChoice`: condiciones puras
+ * Encapsula el patrón when/whenText que se repite en `Pipeline`, el `when`
+ * por-paso de `PipelineActionEntry` y `AgentProviderChoice`: condiciones puras
  * evaluadas sin I/O (`when`, vía `Condition.evaluateAll`) más un gate
  * semántico impuro evaluado APARTE (`whenText`, un clasificador tipo Haiku)
  * que descarta aunque sea el único candidato — nunca se funden en un mismo
  * chequeo porque uno es barato y sync y el otro no.
  *
  * Los métodos se llaman `matchesConditions`/`matchesConditionText` —no
- * `matches`/`matchesText`— a propósito: `Rule` (y cualquier otra subclase)
+ * `matches`/`matchesText`— a propósito: `Pipeline` (y cualquier otra subclase)
  * necesita SU PROPIO `matches(event, ...)` con una firma distinta (recibe un
  * DomainEvent, no un payload plano) para componer estos dos gates con sus
  * demás criterios; nombrarlos igual rompería el override (TS no acepta un
@@ -33,7 +33,7 @@ export abstract class Conditional {
    * Evalúa `this.when` contra el payload — puro, sin I/O. Ausente ⇒ true.
    * `extra` va ANTES de `this.when` (mismo orden que si fueran una sola
    * lista) — es lo que permite componer, ej. el `baseWhen` de un Project
-   * ANDeado con el `when` propio de una Rule, sin que Conditional necesite
+   * ANDeado con el `when` propio de una Pipeline, sin que Conditional necesite
    * saber qué es un Project.
    */
   matchesConditions(payload: Record<string, unknown>, extra: Condition[] = []): boolean {

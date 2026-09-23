@@ -1,10 +1,10 @@
 import {
-  RuleActionEntry,
-  type RuleActionEntryProps,
-  type RuleExecutionContext,
-} from './RuleActionEntry.js'
+  PipelineActionEntry,
+  type PipelineActionEntryProps,
+  type PipelineExecutionContext,
+} from './PipelineActionEntry.js'
 
-export interface HttpActionProps extends RuleActionEntryProps {
+export interface HttpActionProps extends PipelineActionEntryProps {
   url: string
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   headers?: Record<string, string>
@@ -20,13 +20,13 @@ export interface HttpActionProps extends RuleActionEntryProps {
  *
  * **`url` también resuelve secretos, igual que `headers`/`body` — fiel a
  * `apps/server/src/adapters/actions/http-action.ts` de v1.** No hay
- * allow-list de hosts destino: quien puede editar una Rule con acceso a un
+ * allow-list de hosts destino: quien puede editar una Pipeline con acceso a un
  * secreto puede mandarlo a cualquier URL. Es el mismo riesgo que ya existe en
  * v1 hoy, no algo que este esqueleto introduzca — pero sigue sin mitigación
  * en ninguno de los dos lados. Si se decide acotarlo (allow-list de hosts por
  * secreto, o no interpolar secretos en `url`), el cambio aplica a los dos.
  */
-export class HttpAction extends RuleActionEntry {
+export class HttpAction extends PipelineActionEntry {
   readonly kind = 'http' as const
   readonly url: string
   readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -43,7 +43,7 @@ export class HttpAction extends RuleActionEntry {
     this.timeoutMs = props.timeoutMs
   }
 
-  async run(ctx: RuleExecutionContext): Promise<unknown> {
+  async run(ctx: PipelineExecutionContext): Promise<unknown> {
     throw new Error(
       'not implemented — resolver secretos, interpolar templates, fetch(this.url, {...})',
     )

@@ -1,4 +1,4 @@
-import type { Condition } from '../rules/Condition.js'
+import type { Condition } from '../pipeline/Condition.js'
 import type { SlackMemberRef } from './Repo.js'
 
 export interface SourceRef {
@@ -18,9 +18,9 @@ export interface ProjectSettings {
   systemPrompts?: SystemPromptRef[]
   slackReviewChannel?: string | null
   slackReviewers?: SlackMemberRef[] | null
-  /** Reglas globales que este proyecto decidió no correr (IRuleRepository.visibleTo). */
-  disabledRuleIds?: string[] | null
-  /** ANDeado contra el `when` de CADA regla que corre en este proyecto, globales incluidas. */
+  /** Pipelines globales que este proyecto decidió no correr (IRuleRepository.visibleTo). */
+  disabledPipelineIds?: string[] | null
+  /** ANDeado contra el `when` de CADA pipeline que corre en este proyecto, globales incluidas. */
   baseWhen?: Condition[] | null
   daemonMode?: 'webhook' | 'polling'
 }
@@ -87,16 +87,16 @@ export class Project {
   }
 
   /**
-   * ¿Este proyecto apagó esta regla heredada? Dos condiciones, las dos
-   * importan: `rule.id` está en la lista Y la regla es GLOBAL
-   * (`rule.projectId == null`) — lo segundo evita que apagar una global se
-   * lleve puesta una regla propia que comparta id por casualidad (una propia
+   * ¿Este proyecto apagó este pipeline heredado? Dos condiciones, las dos
+   * importan: `pipeline.id` está en la lista Y el pipeline es GLOBAL
+   * (`pipeline.projectId == null`) — lo segundo evita que apagar uno global
+   * se lleve puesto uno propio que comparta id por casualidad (uno propio
    * ya tiene su propio `enabled`, que es donde se apaga). Toma un shape
-   * mínimo en vez de `Rule` completo para no crear el ciclo Project↔Rule
-   * (Rule.matches ya importa Project).
+   * mínimo en vez de `Pipeline` completo para no crear el ciclo Project↔Pipeline
+   * (Pipeline.matches ya importa Project).
    */
-  disablesRule(rule: { id: string; projectId?: string | null }): boolean {
-    if (rule.projectId != null) return false
-    return this.settings.disabledRuleIds?.includes(rule.id) ?? false
+  disablesPipeline(pipeline: { id: string; projectId?: string | null }): boolean {
+    if (pipeline.projectId != null) return false
+    return this.settings.disabledPipelineIds?.includes(pipeline.id) ?? false
   }
 }

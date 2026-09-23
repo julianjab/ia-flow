@@ -3,10 +3,10 @@ import { DomainEvent, type DomainEventScope } from './DomainEvent.js'
 /**
  * Payload por `type` de DomainEvent — el punto único donde se documenta
  * "esto es lo que trae este evento", para que quien escribe un `do` (una
- * RuleActionEntry registrada, un normalizador) no lea `event.payload` como
+ * PipelineActionEntry registrada, un normalizador) no lea `event.payload` como
  * `Record<string, unknown>` a ciegas. NO acopla `DomainEvent`, que sigue
  * siendo genérico a propósito: un evento externo puede traer un `type` que
- * este catálogo todavía no declaró, y el engine (Rule.matches, Engine.dispatch,
+ * este catálogo todavía no declaró, y el engine (Pipeline.matches, Engine.dispatch,
  * Execution) nunca importa este archivo — sólo lo importa quien escribe
  * lógica concreta para un `type` puntual.
  *
@@ -26,8 +26,8 @@ export interface EventCatalog {
     outcome: string
     exit?: string
   }
-  /** Dispara las Rule con `on: ['schedule.tick']` — su `schedule` (cron)
-   *  dice CUÁNDO, esto es lo que le llega cuando toca (ver Rule.schedule). */
+  /** Dispara las Pipeline con `on: ['schedule.tick']` — su `schedule` (cron)
+   *  dice CUÁNDO, esto es lo que le llega cuando toca (ver Pipeline.schedule). */
   'schedule.tick': {
     ruleId: string
   }

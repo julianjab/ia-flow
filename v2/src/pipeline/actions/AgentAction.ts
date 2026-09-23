@@ -1,11 +1,11 @@
 import type { AgentExit } from '../../engine/Agent.js'
 import {
-  RuleActionEntry,
-  type RuleActionEntryProps,
-  type RuleExecutionContext,
-} from './RuleActionEntry.js'
+  PipelineActionEntry,
+  type PipelineActionEntryProps,
+  type PipelineExecutionContext,
+} from './PipelineActionEntry.js'
 
-export interface AgentActionProps extends RuleActionEntryProps {
+export interface AgentActionProps extends PipelineActionEntryProps {
   agentId: string
   /** Publica el resultado del run como DomainEvent — convierte al agente en
    *  normalizador (ej. un triage sin issue asociado). */
@@ -24,7 +24,7 @@ export interface AgentActionProps extends RuleActionEntryProps {
 }
 
 /** Correr un agente — envuelve lo que hace AgentOrchestrator.runAgent en v1. */
-export class AgentAction extends RuleActionEntry {
+export class AgentAction extends PipelineActionEntry {
   readonly kind = 'agent' as const
   readonly agentId: string
   readonly emitOn?: 'exit'
@@ -45,7 +45,7 @@ export class AgentAction extends RuleActionEntry {
     this.liveInject = props.liveInject ?? false
   }
 
-  async run(ctx: RuleExecutionContext): Promise<unknown> {
+  async run(ctx: PipelineExecutionContext): Promise<unknown> {
     throw new Error(
       'not implemented — si this.liveInject && Execution.tryAppend(ctx.task?.id, toMessage(ctx.event)) ' +
         'devolver ese resultado sin correr un run nuevo; si no: const agent = Agent.resolve(this.agentId); ' +
