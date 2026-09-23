@@ -1,3 +1,4 @@
+export { Catalog } from './shared/Catalog.js'
 export type {
   ProjectProps,
   ProjectSettings,

@@ -1,3 +1,5 @@
+import { Catalog } from '../shared/Catalog.js'
+
 export interface SystemPromptEntryProps {
   id: string
   text: string
@@ -7,7 +9,7 @@ export interface SystemPromptEntryProps {
  *  referencia — cuando esa entrada ya trae `text` inline, no hace falta
  *  resolver acá. */
 export class SystemPromptEntry {
-  private static readonly byId = new Map<string, SystemPromptEntry>()
+  private static readonly catalog = new Catalog<SystemPromptEntry>((e) => e.id)
 
   readonly id: string
   readonly text: string
@@ -18,15 +20,15 @@ export class SystemPromptEntry {
   }
 
   static register(entry: SystemPromptEntry): void {
-    SystemPromptEntry.byId.set(entry.id, entry)
+    SystemPromptEntry.catalog.register(entry)
   }
 
   static resolve(id: string): SystemPromptEntry | undefined {
-    return SystemPromptEntry.byId.get(id)
+    return SystemPromptEntry.catalog.resolve(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    SystemPromptEntry.byId.clear()
+    SystemPromptEntry.catalog.reset()
   }
 }

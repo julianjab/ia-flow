@@ -1,3 +1,4 @@
+import { Catalog } from '../shared/Catalog.js'
 import type { AgentRunInput, AgentRunOutput } from './Agent.js'
 import type { ProviderKind } from './Tool.js'
 import type { WorkspacePlan, WorkspaceRequest } from './Workspace.js'
@@ -41,7 +42,7 @@ export interface ProviderProps {
  * aparte.
  */
 export abstract class Provider {
-  private static readonly byId = new Map<string, Provider>()
+  private static readonly catalog = new Catalog<Provider>((p) => p.id)
 
   readonly id: string
   readonly kind: ProviderKind
@@ -54,16 +55,16 @@ export abstract class Provider {
   }
 
   static register(provider: Provider): void {
-    Provider.byId.set(provider.id, provider)
+    Provider.catalog.register(provider)
   }
 
   static resolve(id: string): Provider | undefined {
-    return Provider.byId.get(id)
+    return Provider.catalog.resolve(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    Provider.byId.clear()
+    Provider.catalog.reset()
   }
 
   /** Corre el loop de tools de este provider para un Agent ya resuelto. */

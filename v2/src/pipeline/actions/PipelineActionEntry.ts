@@ -51,6 +51,10 @@ export interface PipelineActionEntryProps extends ConditionalProps {
  * acción registrada ES una `PipelineActionEntry`.
  */
 export abstract class PipelineActionEntry extends Conditional {
+  /** Map crudo y no `Catalog<T>` (como Agent/Project/Provider/Tool/...) a
+   *  propósito: acá el id lo elige QUIEN REGISTRA (`register(id, action)`),
+   *  no sale de un campo de la propia acción — una `PipelineActionEntry` no
+   *  tiene por qué tener `id` para poder correr dentro de un `do`. */
   private static readonly byId = new Map<string, PipelineActionEntry>()
 
   abstract readonly kind: PipelineActionKind
