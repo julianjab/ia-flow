@@ -3,6 +3,7 @@ import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 import { Catalog } from '../shared/Catalog.js'
 import { ExecutionLog } from './ExecutionLog.js'
 import { Tool } from './Tool.js'
+import type { WorkspacePlan } from './Workspace.js'
 
 export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none'
 
@@ -268,8 +269,8 @@ export class Agent {
     let outcome: string
     let error: unknown
     try {
-      outcome = await this.execute(input)
-      outcome = await this.verifyWorktree(input.subject, outcome)
+      const result = await this.execute(input)
+      outcome = await this.verifyWorktree(input.subject, result.outcome, result.workspace)
     } catch (err) {
       outcome = ERROR_EXIT
       error = err
@@ -291,9 +292,11 @@ export class Agent {
    * Resuelve el provider (this.provider — string directo, o desempate entre
    * AgentProviderChoice[]), pide admisión (Provider.canAccept), arma su
    * workspace (Provider.prepareWorkspace) y corre el loop de tools hasta
-   * terminar o fallar.
+   * terminar o fallar. El `workspace` que devuelve es lo que verifyWorktree
+   * necesita para saber DÓNDE correr `this.verify[]` — viaja como parte del
+   * resultado en vez de que verifyWorktree tenga que resolverlo de nuevo.
    */
-  protected async execute(input: AgentRunInput): Promise<string> {
+  protected async execute(input: AgentRunInput): Promise<{ outcome: string; workspace?: WorkspacePlan }> {
     throw new Error(
       'not implemented — const providerId = typeof this.provider === "string" ? this.provider : ' +
         'desempatar candidatos por when/whenText o clasificador; const provider = Provider.resolve(providerId); ' +
@@ -306,7 +309,9 @@ export class Agent {
         'bash_run/fs_* y corre en el disco equivocado; ' +
         'const mcpServers = McpCatalogEntry.resolveAll(this.mcpCatalogIds); ' +
         'const systemPrompts = this.systemPrompts.map(ref => ref.text ?? SystemPromptEntry.resolve(ref.id).text); ' +
-        'return provider.run({...input, tools} as AgentRunInput)',
+        'const workspace = this.requiresBranch ? await provider.prepareWorkspace({...}) : undefined; ' +
+        'const outcome = await provider.run({...input, tools} as AgentRunInput); ' +
+        'return { outcome: outcome.outcome, workspace }',
     )
   }
 
@@ -317,27 +322,33 @@ export class Agent {
    * `verify_failed`) en vez del outcome recibido; no corre si outcome ya es
    * error/truncated/cancelled.
    *
-   * Sin `subject` no hay worktree — nada que verificar, se devuelve
-   * `outcome` tal cual. Los tres guards (sin subject / sin `verify[]` /
-   * outcome ya cerrado) son lógica pura; sólo la ejecución real de los
-   * comandos necesita un port de shell que este esqueleto no tiene todavía
-   * (y ahí sí va a necesitar más que `AgentSubject` — repos del worktree —
-   * pero eso lo resuelve quien implemente esta rama, no esta firma).
+   * Sin `subject`, sin `workspace` (el provider no dio uno — nada corrió en
+   * disco) o sin `verify[]` declarado, no hay nada que verificar: se
+   * devuelve `outcome` tal cual. `worktreePath` gana sobre `cwd` cuando el
+   * Provider dio los dos (es el path más específico — ver WorkspacePlan).
    */
-  protected async verifyWorktree(subject: AgentSubject | undefined, outcome: string): Promise<string> {
+  protected async verifyWorktree(
+    subject: AgentSubject | undefined,
+    outcome: string,
+    workspace?: WorkspacePlan,
+  ): Promise<string> {
     if (subject == null) return outcome
     if (this.verify.length === 0) return outcome
     if (outcome === ERROR_EXIT || NO_TRANSITION_OUTCOMES.includes(outcome as NoTransitionOutcome)) {
       return outcome
     }
-    if (getShellRunner() == null) {
+    const cwd = workspace?.worktreePath ?? workspace?.cwd
+    if (cwd == null) return outcome
+
+    const runner = getShellRunner()
+    if (runner == null) {
       throw new Error('Agent.verify necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)')
     }
-    // Mismo gap que ScriptAction.run: falta resolver el cwd del worktree de
-    // `subject` (WorkspacePlan no está cableado en AgentSubject a propósito
-    // — ver AgentSubject, shape mínimo). Con eso resuelto, esto corre
-    // this.verify[] con el runner y devuelve ERROR_EXIT si algún exit != 0.
-    throw new Error('not implemented — falta resolver el cwd del worktree antes de poder verificar')
+    for (const command of this.verify) {
+      const result = await runner.run(command, [], { cwd })
+      if (result.exitCode !== 0) return ERROR_EXIT
+    }
+    return outcome
   }
 
   /**
