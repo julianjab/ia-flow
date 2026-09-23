@@ -1,28 +1,20 @@
-import {
-  RuleActionEntry,
-  type RuleActionEntryProps,
-  type RuleExecutionContext,
-} from './RuleActionEntry.js'
-
-export interface EmitActionScope {
-  projectId?: string
-  repos?: string[]
-  issueId?: string
-  prNumber?: number
-}
+import type { DomainEventScope } from '../../events/DomainEvent.js'
+import { RuleActionEntry, type RuleActionEntryProps, type RuleExecutionContext } from './RuleActionEntry.js'
 
 export interface EmitActionProps extends RuleActionEntryProps {
   type: string
-  scope?: EmitActionScope
+  scope?: DomainEventScope
   payload?: Record<string, unknown>
 }
 
 /** Publica un DomainEvent derivado — permite encadenar sin un DSL de workflow
- *  (un triage normaliza un mensaje suelto en un evento ya ruteable). */
+ *  (un triage normaliza un mensaje suelto en un evento ya ruteable). El
+ *  evento nace con causationId + depth+1 del evento que disparó la regla
+ *  (deriveEvent en v1) — ver DomainEvent. */
 export class EmitAction extends RuleActionEntry {
   readonly kind = 'emit' as const
   readonly type: string
-  readonly scope?: EmitActionScope
+  readonly scope?: DomainEventScope
   readonly payload: Record<string, unknown>
 
   constructor(props: EmitActionProps) {
@@ -34,7 +26,8 @@ export class EmitAction extends RuleActionEntry {
 
   async run(ctx: RuleExecutionContext): Promise<unknown> {
     throw new Error(
-      'not implemented — ctx.bus.publish(new DomainEvent(this.type, {...this.payload, scope: this.scope}))',
+      'not implemented — ctx.bus.publish(new DomainEvent(this.type, this.payload, ' +
+        '{ scope: this.scope, causationId: ctx.event.type + ":" + ctx.event.occurredAt.toISOString(), depth: ctx.event.depth + 1 }))',
     )
   }
 }
