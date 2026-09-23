@@ -101,8 +101,18 @@ export interface AgentDefinitionProps {
   projectId?: string | null
   /** Orden en el editor, dentro de su ámbito — presentación, no criterio de match. */
   position?: number
-  /** Contrato de `submit_output`, opt-in — vuelve obligatorio llamarlo antes de cerrar. */
+  /** Contrato de `submit_output`, opt-in — vuelve obligatorio llamarlo antes de cerrar.
+   *  Es lo que ESTE agente produce, no lo que espera recibir (ver `expectedInput`). */
   output?: AgentOutput
+  /** Lo que ESTE agente espera recibir cuando lo alimenta el output de un paso
+   *  anterior de la misma Pipeline — simétrico a `output`, pero mirando para
+   *  el otro lado. `Pipeline.execute` lo resuelve para el paso anterior como
+   *  `ctx.nextSchema` (mirando ESTE agente, no el propio): un agente A
+   *  encadenado con un agente B tiene que producir lo que B `expectedInput`
+   *  declara, no lo que B `output` declara — B.output es lo que B entrega al
+   *  CERRAR, no lo que necesita para arrancar. Confundir los dos fue
+   *  justamente el bug que esto corrige. */
+  expectedInput?: AgentOutput
   /** Comandos que corre el ENGINE (no el modelo) en el worktree tras el loop. */
   verify?: string[]
   /** Hook: corre siempre al arrancar el run, no es una salida elegible. */
@@ -227,6 +237,7 @@ export class Agent {
   readonly projectId: string | null
   readonly position: number
   readonly output?: AgentOutput
+  readonly expectedInput?: AgentOutput
   readonly verify: string[]
   readonly onProcess?: string
   readonly exits: Record<string, AgentExit>
@@ -248,6 +259,7 @@ export class Agent {
     this.projectId = props.projectId ?? null
     this.position = props.position ?? 0
     this.output = props.output
+    this.expectedInput = props.expectedInput
     this.verify = props.verify ?? []
     this.onProcess = props.onProcess
     this.exits = props.exits ?? {}

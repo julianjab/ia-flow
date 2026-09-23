@@ -97,10 +97,14 @@ export class Pipeline extends Conditional {
 
   /**
    * Corre this.do en orden; cada paso puede leer ctx.steps de los anteriores
-   * (input) y ctx.nextSchema del paso siguiente (para qué schema debe
-   * cumplir su output, sólo cuando el siguiente es un AgentAction) —
-   * recalculado antes de CADA step, no acumulativo como ctx.steps. Un paso
-   * saltado (`shouldRun` false) no deja rastro en `ctx.steps`.
+   * (input) y ctx.nextSchema del paso siguiente — recalculado antes de CADA
+   * step, no acumulativo como ctx.steps. Cuando el siguiente es un
+   * AgentAction, `nextSchema` es el `expectedInput` DE ESE AGENTE (lo que
+   * él necesita para arrancar), nunca su `output` (lo que él mismo produce
+   * al cerrar) — son dos contratos distintos del mismo Agent, y mezclarlos
+   * hacía que el paso actual se constriñera contra el cierre de otro
+   * agente en vez de contra lo que ese agente realmente espera recibir. Un
+   * paso saltado (`shouldRun` false) no deja rastro en `ctx.steps`.
    */
   async execute(ctx: PipelineExecutionContext): Promise<Record<string, unknown>> {
     const runCtx: PipelineExecutionContext = { ...ctx, pipelineId: this.id }
@@ -108,7 +112,8 @@ export class Pipeline extends Conditional {
       const step = this.do[i]
       if (!step.shouldRun(runCtx)) continue
       const next = this.do[i + 1]
-      runCtx.nextSchema = next instanceof AgentAction ? Agent.resolve(next.agentId)?.output : undefined
+      runCtx.nextSchema =
+        next instanceof AgentAction ? Agent.resolve(next.agentId)?.expectedInput : undefined
       try {
         const out = await step.run(runCtx)
         if (step.id) runCtx.steps[step.id] = out
