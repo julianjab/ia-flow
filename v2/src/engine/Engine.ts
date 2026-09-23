@@ -1,15 +1,8 @@
-import type { Task } from '../domain/Task.js'
 import { Project } from '../domain/Project.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { Pipeline } from '../pipeline/Pipeline.js'
 import { Execution, type ExecutionMessage } from './Execution.js'
-
-/** No hay TaskRepository todavía (ver README, "Lo que sigue sin decidir") —
- *  Engine no asume ninguna persistencia concreta, recibe cómo resolver un
- *  Task por id inyectado. Sin esto, `dispatch` sigue funcionando: los
- *  pipelines corren igual, sólo `ctx.task` queda `undefined`. */
-export type TaskResolver = (taskId: string) => Task | undefined
 
 /**
  * Tope de la cadena de derivación de eventos (EmitAction, AgentAction con
@@ -29,10 +22,7 @@ export const MAX_EVENT_DEPTH = 10
 export class Engine {
   private readonly pipelines: Pipeline[] = []
 
-  constructor(
-    private readonly bus: EventBus,
-    private readonly resolveTaskById?: TaskResolver,
-  ) {}
+  constructor(private readonly bus: EventBus) {}
 
   register(pipeline: Pipeline): void {
     this.pipelines.push(pipeline)
@@ -77,10 +67,8 @@ export class Engine {
     const toRun = exclusive ? [exclusive] : survived.filter((p) => !p.exclusive)
     if (toRun.length === 0) return
 
-    const task = taskId != null ? this.resolveTaskById?.(taskId) : undefined
-
     await Promise.all(
-      toRun.map((p) => p.execute({ event, task, steps: {}, bus: this.bus, pipelineId: p.id })),
+      toRun.map((p) => p.execute({ event, steps: {}, bus: this.bus, pipelineId: p.id })),
     )
   }
 }

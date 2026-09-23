@@ -108,8 +108,8 @@ export class Execution {
   }
 
   /** `taskId` ausente ⇒ bucket `''` (mismo patrón que ExecutionLog) — así
-   *  una Execution sin Task (AgentSubject ausente) sigue entrando en
-   *  `filter()`/`runningForAgent` en vez de perderse. */
+   *  una Execution sin task asociada (un agente que corrió sin `payload`)
+   *  sigue entrando en `filter()`/`runningForAgent` en vez de perderse. */
   private static index(execution: Execution): void {
     const key = execution.taskId ?? ''
     const list = Execution.byTaskId.get(key) ?? []

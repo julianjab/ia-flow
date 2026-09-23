@@ -53,7 +53,7 @@ export class ScriptAction extends PipelineActionEntry {
 
   /** Mismo orden que HttpAction.interpolate: `{{path}}` primero, `${SECRETO}` después. */
   private async resolveEnvValue(template: string, ctx: PipelineExecutionContext): Promise<string> {
-    const root = { event: { type: ctx.event.type, payload: ctx.event.payload }, steps: ctx.steps, task: ctx.task }
+    const root = { event: { type: ctx.event.type, payload: ctx.event.payload }, steps: ctx.steps }
     const withVars = template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => {
       const value = Condition.getPath(root as Record<string, unknown>, path)
       return value == null ? '' : String(value)
@@ -86,14 +86,16 @@ export class ScriptAction extends PipelineActionEntry {
 
     // Sin Provider (a diferencia de un AgentAction), la ÚNICA fuente de cwd
     // posible es el override manual de Repo.path — no hay a quién pedirle
-    // un WorkspacePlan. Si el repo no tiene `path` seteado, ScriptAction no
-    // tiene dónde correr y lo dice, en vez de adivinar `process.cwd()`.
-    const repoName = ctx.task?.primaryRepo
-    const projectId = ctx.task?.projectId
+    // un WorkspacePlan. `event.scope` ya trae projectId/repos (nunca hace
+    // falta resolver una Task para esto). Si el repo no tiene `path`
+    // seteado, ScriptAction no tiene dónde correr y lo dice, en vez de
+    // adivinar `process.cwd()`.
+    const projectId = ctx.event.scope?.projectId
+    const repoName = ctx.event.scope?.repos?.[0]
     const repo = repoName != null && projectId != null ? Repo.resolve(projectId, repoName) : undefined
     if (repo?.path == null) {
       throw new Error(
-        'ScriptAction necesita Repo.path seteado para la task/repo actual — sin Provider no hay otra forma de resolver el cwd',
+        'ScriptAction necesita Repo.path seteado para el repo del evento — sin Provider no hay otra forma de resolver el cwd',
       )
     }
 

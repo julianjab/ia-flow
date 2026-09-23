@@ -1,19 +1,23 @@
-import type { Task } from '../../domain/Task.js'
 import type { AgentOutput } from '../../engine/Agent.js'
 import type { DomainEvent } from '../../events/DomainEvent.js'
 import type { EventBus } from '../../events/EventBus.js'
 import { Conditional, type ConditionalProps } from '../Conditional.js'
 
 /**
- * Lo que cada PipelineActionEntry recibe al ejecutar. `steps` acumula el output
- * de cada paso anterior de la MISMA pipeline, indexado por su `id` — es lo que
- * permite `{{steps.<id>.output}}` en un paso siguiente. `task` es el issue
- * resuelto para este evento cuando aplica (una acción `http` puede no
- * necesitarlo).
+ * Lo que cada PipelineActionEntry recibe al ejecutar. `steps` acumula el
+ * output de cada paso anterior de la MISMA pipeline, indexado por su `id`
+ * — es lo que permite `{{steps.<id>.output}}` en un paso siguiente.
+ *
+ * A propósito NO carga una `task` ni ninguna entidad de dominio — sólo
+ * `event` (con su `scope`, que ya trae `projectId`/`repos`/`issueId` cuando
+ * aplican) y `steps`. Todo lo que viaja entre pasos es un `payload`
+ * genérico (`DomainEvent.payload`, o el output de un paso previo), nunca
+ * una instancia con comportamiento propio — ver `AgentRunInput.payload` en
+ * `engine/Agent.ts`, que es lo que `AgentAction` arma pasando
+ * `event.payload` directo, sin resolver nada.
  */
 export interface PipelineExecutionContext {
   readonly event: DomainEvent
-  readonly task?: Task
   readonly steps: Record<string, unknown>
   readonly bus: EventBus
   /** Pipeline.id dueño de este `do` — lo setea Pipeline.execute antes de

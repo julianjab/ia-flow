@@ -46,7 +46,14 @@ export interface TaskProps {
   sections?: Record<string, string>
 }
 
-/** Un issue normalizado, agnóstico de la fuente (GitHub/local/lo que sea). */
+/**
+ * Un issue normalizado, agnóstico de la fuente (GitHub/local/lo que sea).
+ * NO participa del camino Engine→Pipeline→Agent — ese camino sólo mueve
+ * `DomainEvent.payload` (genérico) entre pasos, nunca esta clase ni ninguna
+ * instancia con comportamiento propio (ver AgentRunInput.payload en
+ * Agent.ts). `Task` queda disponible para quien la necesite fuera de ese
+ * camino — persistencia, UI — pero el engine no la conoce.
+ */
 export class Task {
   readonly id: string
   title: string

@@ -46,12 +46,13 @@ export class HttpAction extends PipelineActionEntry {
   }
 
   /**
-   * `{{path}}` primero (contra `event`/`steps`/`task`, mismo `getPath` que
-   * usan las Condition), `${SECRETO}` DESPUÉS — en ese orden y nunca al
-   * revés (ver el comentario de la clase).
+   * `{{path}}` primero (contra `event`/`steps`, mismo `getPath` que usan
+   * las Condition), `${SECRETO}` DESPUÉS — en ese orden y nunca al revés
+   * (ver el comentario de la clase). Sin `task`: lo que un paso necesita de
+   * una task ya está en `event.payload` o en el output de un paso previo.
    */
   private async interpolate(template: string, ctx: PipelineExecutionContext): Promise<string> {
-    const root = { event: { type: ctx.event.type, payload: ctx.event.payload }, steps: ctx.steps, task: ctx.task }
+    const root = { event: { type: ctx.event.type, payload: ctx.event.payload }, steps: ctx.steps }
     const withVars = template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => {
       const value = Condition.getPath(root as Record<string, unknown>, path)
       return value == null ? '' : String(value)

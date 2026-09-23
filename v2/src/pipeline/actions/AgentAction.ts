@@ -49,7 +49,7 @@ export class AgentAction extends PipelineActionEntry {
   }
 
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    const taskId = ctx.task?.id
+    const taskId = ctx.event.scope?.issueId
 
     if (this.liveInject) {
       const message: ExecutionMessage = {
@@ -66,7 +66,8 @@ export class AgentAction extends PipelineActionEntry {
     const agent = Agent.resolve(this.agentId)
     if (agent == null) throw new Error(`AgentAction: agente desconocido "${this.agentId}"`)
 
-    const project = ctx.task?.projectId != null ? Project.resolve(ctx.task.projectId) : undefined
+    const project =
+      ctx.event.scope?.projectId != null ? Project.resolve(ctx.event.scope.projectId) : undefined
     if (
       project != null &&
       !Execution.withinCap(
@@ -93,7 +94,7 @@ export class AgentAction extends PipelineActionEntry {
 
     try {
       const output = await agent.run({
-        subject: ctx.task,
+        payload: ctx.event.payload,
         brief: this.brief,
         expectedOutput: ctx.nextSchema,
       })

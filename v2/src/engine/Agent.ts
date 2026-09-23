@@ -122,34 +122,19 @@ export interface AgentDefinitionProps {
   comment?: CommentTarget
 }
 
-/**
- * Lo mínimo que Agent necesita de "eso sobre lo que está trabajando" — NO
- * necesariamente una Task. `onStart`/`finalize` sólo tocan estos tres
- * miembros, así que Agent nunca importa `Task` ni sabe que existe: un PR,
- * un mensaje, o cualquier cosa futura sirve con sólo tener esta forma
- * (structural typing — nadie necesita `implements AgentSubject`
- * explícito). Mismo criterio que `Project.disablesPipeline(pipeline: {id,
- * projectId})`: shape mínimo en vez del tipo completo, para no crear un
- * acoplamiento que nadie pidió. Quien SÍ conoce Task (AgentAction, dueño
- * de `ctx.task`) se la pasa tal cual — Task ya cumple esta forma sin
- * ningún cambio.
- */
-export interface AgentSubject {
-  readonly id: string
-  agentWorking: boolean
-  transitionTo(status: string): void
-}
-
 export interface AgentRunInput {
-  /** Ausente cuando el agente corre directo sobre un evento sin nada
-   *  asociado todavía — un normalizador/triage que recién va a CREAR una
-   *  Task (ver `normalize:*` en el README), o un agente que sólo reacciona
-   *  a un evento y nunca necesita una. `onStart`/`finalize` no asumen que
-   *  existe: sin `subject` no hay `agentWorking` que marcar ni transición
-   *  que aplicar, sólo corre el loop y devuelve su outcome. Tipado como
-   *  `AgentSubject` (shape mínimo) y no como `Task` a propósito — Agent no
-   *  necesita saber qué es lo que tiene semejante forma. */
-  subject?: AgentSubject
+  /**
+   * Bolsa de datos genérica — no una `Task` ni ninguna clase con
+   * comportamiento. Agent nunca sabe qué representa: un normalizador/triage
+   * puede correr con esto ausente (todavía no hay nada, puede ser justo el
+   * que lo va a CREAR emitiendo un evento derivado); cuando está presente,
+   * `onStart`/`finalize` leen/escriben un par de claves por CONVENCIÓN
+   * (`agentWorking`, `status`) — mutación de datos planos, no una llamada a
+   * método sobre una instancia. `AgentAction` es quien la arma, típicamente
+   * pasando `event.payload` tal cual: el mismo objeto que ya viaja como
+   * transporte base de `DomainEvent`, no algo nuevo que Agent invente.
+   */
+  payload?: Record<string, unknown>
   /** Obligatorio cuando este Agent corre como sub-agente (run_agent en v1) —
    *  el hijo no hereda contexto del padre. */
   brief?: string
@@ -277,27 +262,27 @@ export class Agent {
    */
   async run(input: AgentRunInput): Promise<AgentRunOutput> {
     const startedAt = new Date()
-    await this.onStart(input.subject)
+    await this.onStart(input.payload)
     let outcome: string
     let error: unknown
     try {
       const result = await this.execute(input)
-      outcome = await this.verifyWorktree(input.subject, result.outcome, result.workspace)
+      outcome = await this.verifyWorktree(input.payload, result.outcome, result.workspace)
     } catch (err) {
       outcome = ERROR_EXIT
       error = err
     }
-    return this.finalize(outcome, input.subject, startedAt, error)
+    return this.finalize(outcome, input.payload, startedAt, error)
   }
 
-  /** Sin `subject` no hay nada que marcar — un agente de triage/normalización
-   *  que corre directo sobre un evento no tiene todavía un `subject` que
-   *  poner en working (puede ser justo el que lo va a CREAR). Con `subject`,
-   *  marca sólo el estado que este dominio posee (`subject.agentWorking`);
-   *  persistirlo en la fuente remota (setAgentWorking en v1) es un efecto
-   *  de borde de un port que este esqueleto todavía no tiene. */
-  protected async onStart(subject?: AgentSubject): Promise<void> {
-    if (subject != null) subject.agentWorking = true
+  /** Sin `payload` no hay nada que marcar — un agente de triage/normalización
+   *  que corre directo sobre un evento no tiene todavía nada que poner en
+   *  working (puede ser justo el que lo va a CREAR). Con `payload`, marca
+   *  la clave `agentWorking` por convención — dato plano, no una llamada a
+   *  método; persistirlo en la fuente remota (setAgentWorking en v1) es un
+   *  efecto de borde de un port que este esqueleto todavía no tiene. */
+  protected async onStart(payload?: Record<string, unknown>): Promise<void> {
+    if (payload != null) payload.agentWorking = true
   }
 
   /**
@@ -334,17 +319,17 @@ export class Agent {
    * `verify_failed`) en vez del outcome recibido; no corre si outcome ya es
    * error/truncated/cancelled.
    *
-   * Sin `subject`, sin `workspace` (el provider no dio uno — nada corrió en
+   * Sin `payload`, sin `workspace` (el provider no dio uno — nada corrió en
    * disco) o sin `verify[]` declarado, no hay nada que verificar: se
    * devuelve `outcome` tal cual. `worktreePath` gana sobre `cwd` cuando el
    * Provider dio los dos (es el path más específico — ver WorkspacePlan).
    */
   protected async verifyWorktree(
-    subject: AgentSubject | undefined,
+    payload: Record<string, unknown> | undefined,
     outcome: string,
     workspace?: WorkspacePlan,
   ): Promise<string> {
-    if (subject == null) return outcome
+    if (payload == null) return outcome
     if (this.verify.length === 0) return outcome
     if (outcome === ERROR_EXIT || NO_TRANSITION_OUTCOMES.includes(outcome as NoTransitionOutcome)) {
       return outcome
@@ -373,20 +358,21 @@ export class Agent {
    */
   protected async finalize(
     outcome: string,
-    subject: AgentSubject | undefined,
+    payload: Record<string, unknown> | undefined,
     startedAt: Date,
     error?: unknown,
   ): Promise<AgentRunOutput> {
     const exit = this.matchExit(outcome)
-    if (subject != null) {
-      subject.agentWorking = false
+    if (payload != null) {
+      payload.agentWorking = false
       const nextStatus = exitSet(exit)
-      if (nextStatus != null) subject.transitionTo(nextStatus)
+      if (nextStatus != null) payload.status = nextStatus
     }
+    const payloadId = typeof payload?.id === 'string' ? payload.id : undefined
     ExecutionLog.append(
       new ExecutionLog({
         id: crypto.randomUUID(),
-        taskId: subject?.id,
+        taskId: payloadId,
         agentId: this.id,
         outcome,
         exit,
