@@ -10,7 +10,8 @@
       "!**/logs",
       "!**/*.sqlite",
       "!**/apps/web/src/**/*.vue",
-      "!**/handoff"
+      "!**/handoff",
+      "!v2/**"
     ]
   },
   "formatter": {
