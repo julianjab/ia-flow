@@ -5,8 +5,9 @@ export interface DomainEventScope {
   prNumber?: number
 }
 
-/** Ej: 'issue.status_changed', 'run.finished', 'pr.merged', 'wait.resumed'.
- *  El catálogo completo vive en @ia-flow/shared/event-catalog en v1.
+/** `type` es un string libre — el shape de `payload` para cada `type`
+ *  conocido vive en `EventCatalog` (./EventCatalog.ts), no acá: esta clase
+ *  no conoce integraciones ni event types concretos a propósito.
  *
  *  `scope` es campo propio, no parte de `payload` — es lo que Rule.matches
  *  usa para filtrar por projectId/repoName (matchScope en v1) y lo que Engine

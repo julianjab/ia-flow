@@ -69,6 +69,8 @@ export type {
 export { WorkspaceLayout } from './engine/Workspace.js'
 export { DomainEvent } from './events/DomainEvent.js'
 export type { DomainEventScope } from './events/DomainEvent.js'
+export type { EventCatalog, EventType } from './events/EventCatalog.js'
+export { catalogedEvent } from './events/EventCatalog.js'
 export type { EventHandler, Unsubscribe } from './events/EventBus.js'
 export { EventBus } from './events/EventBus.js'
 
