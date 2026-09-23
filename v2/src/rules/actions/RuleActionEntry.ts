@@ -1,7 +1,7 @@
+import type { Task } from '../../domain/Task.js'
 import type { AgentRegistry } from '../../engine/AgentRegistry.js'
 import type { DomainEvent } from '../../events/DomainEvent.js'
 import type { EventBus } from '../../events/EventBus.js'
-import type { Task } from '../../domain/Task.js'
 import type { ActionRegistry } from '../ActionRegistry.js'
 import type { Condition } from '../Condition.js'
 
