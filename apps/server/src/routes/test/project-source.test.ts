@@ -35,15 +35,19 @@ const source = {
 }
 
 // Ver fakeContainer.ts sobre por qué esto lleva la superficie completa y no
-// sólo projectRepo/sourceFactory (lo único que ESTE router usa).
+// sólo projectRepo/sourceFactory (lo único que ESTE router usa). El spread es
+// por-objeto (no sólo top-level): pisar `projectRepo`/`sourceFactory`
+// enteros tiraría el resto de sus métodos si ESTE stub gana la carrera.
+const base = fakeContainerBase()
 mock.module('../../composition/container.js', () => ({
-  ...fakeContainerBase(),
+  ...base,
   projectRepo: {
+    ...base.projectRepo,
     get: (id: string) => (id === 'p1' ? { id: 'p1' } : null),
     getDefaultId: () => null,
     list: () => [],
   },
-  sourceFactory: { get: () => source },
+  sourceFactory: { ...base.sourceFactory, get: () => source },
 }))
 
 const { createProjectSourceRouter } = await import('../project-source.js')

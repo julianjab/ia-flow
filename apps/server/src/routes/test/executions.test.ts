@@ -53,11 +53,15 @@ const removePendingTaskMock = spyOn(agentEngine, 'removePendingTask').mockImplem
 
 // Ver fakeContainer.ts sobre por qué esto lleva la superficie completa y no
 // sólo executionLogRepo/executionStatsRepo/INSTANCE_ID (lo único que ESTE
-// router usa).
+// router usa). El spread es por-objeto (no sólo top-level): pisar
+// `executionStatsRepo` entero con `{}` tiraría stats/agentDetail si ESTE
+// stub gana la carrera — fakeRepo ya implementa IExecutionLogRepository
+// completo, así que ese no necesita mergear con el del base.
+const base = fakeContainerBase()
 mock.module('../../composition/container.js', () => ({
-  ...fakeContainerBase(),
+  ...base,
   executionLogRepo: fakeRepo,
-  executionStatsRepo: {},
+  executionStatsRepo: base.executionStatsRepo,
   INSTANCE_ID: 'this-runner',
 }))
 
