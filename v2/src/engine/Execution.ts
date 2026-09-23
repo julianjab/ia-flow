@@ -2,6 +2,16 @@ import type { PipelineActionKind } from '../pipeline/actions/PipelineActionEntry
 
 export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
+export type DispatchOutcomeKind = 'dispatched' | 'skipped' | 'deferred'
+
+/** `skipped` suelta el item (no matcheó nada, está bloqueado — reintentar no
+ *  cambia el resultado). `deferred` (ver Execution.withinCap) lo devuelve al
+ *  backlog para reintentar cuando se libere un slot. */
+export interface DispatchOutcome {
+  kind: DispatchOutcomeKind
+  reason?: string
+}
+
 export interface ExecutionMessage {
   body: string
   /** Tipo del DomainEvent que produjo este mensaje. */
@@ -34,6 +44,19 @@ export interface ExecutionProps {
   kind: PipelineActionKind
   entity: ExecutionEntity
   startedAt?: Date
+  /** Los cuatro campos de acá abajo son lo que antes vivía en una clase
+   *  `PendingTask` aparte, pensada para contar caps de concurrencia — se
+   *  plegó acá porque nacía y moría en el MISMO instante que la Execution
+   *  (se registraba justo antes de `new Execution(...)` y se borraba en el
+   *  mismo `finally` que `complete()/fail()`): dos clases contando el mismo
+   *  ciclo de vida. `runningForProject/Agent/Provider` reemplazan sus
+   *  homónimos, filtrando sobre el índice que Execution ya mantiene. */
+  agentId?: string
+  projectId?: string
+  providerId?: string
+  /** Presente cuando este run es un sub-agente — excluido de
+   *  `runningForProject` (ver ese método) para no producir deadlock. */
+  parentRunId?: string
 }
 
 /**
@@ -63,6 +86,10 @@ export class Execution {
   status: ExecutionStatus
   readonly startedAt: Date
   finishedAt?: Date
+  readonly agentId?: string
+  readonly projectId?: string
+  readonly providerId?: string
+  readonly parentRunId?: string
 
   constructor(props: ExecutionProps) {
     this.id = props.id
@@ -73,19 +100,26 @@ export class Execution {
     this.entity = props.entity
     this.status = 'running'
     this.startedAt = props.startedAt ?? new Date()
+    this.agentId = props.agentId
+    this.projectId = props.projectId
+    this.providerId = props.providerId
+    this.parentRunId = props.parentRunId
     Execution.index(this)
   }
 
+  /** `taskId` ausente ⇒ bucket `''` (mismo patrón que ExecutionLog) — así
+   *  una Execution sin Task (AgentSubject ausente) sigue entrando en
+   *  `filter()`/`runningForAgent` en vez de perderse. */
   private static index(execution: Execution): void {
-    if (!execution.taskId) return
-    const list = Execution.byTaskId.get(execution.taskId) ?? []
+    const key = execution.taskId ?? ''
+    const list = Execution.byTaskId.get(key) ?? []
     list.push(execution)
-    Execution.byTaskId.set(execution.taskId, list)
+    Execution.byTaskId.set(key, list)
   }
 
   private static unindex(execution: Execution): void {
-    if (!execution.taskId) return
-    const list = Execution.byTaskId.get(execution.taskId)
+    const key = execution.taskId ?? ''
+    const list = Execution.byTaskId.get(key)
     if (!list) return
     const idx = list.indexOf(execution)
     if (idx !== -1) list.splice(idx, 1)
@@ -117,6 +151,34 @@ export class Execution {
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
     Execution.byTaskId.clear()
+  }
+
+  /**
+   * Cuenta Executions running del proyecto EXCLUYENDO sub-agentes
+   * (`parentRunId != null`) — freno anti-deadlock: con el cap del proyecto
+   * en N, N padres bloqueados esperando a sus hijos no deben agotar los N
+   * slots y dejar que ningún hijo pueda arrancar nunca. Un sub-agente no es
+   * un issue nuevo, es más trabajo sobre uno que ya está contado.
+   */
+  static runningForProject(projectId: string): number {
+    return Execution.filter(
+      (e) => e.isRunning() && e.projectId === projectId && e.parentRunId == null,
+    ).length
+  }
+
+  /** Cruza proyectos a propósito — el cap de agente es del roster, no de un proyecto. */
+  static runningForAgent(agentId: string): number {
+    return Execution.filter((e) => e.isRunning() && e.agentId === agentId).length
+  }
+
+  static runningForProvider(providerId: string): number {
+    return Execution.filter((e) => e.isRunning() && e.providerId === providerId).length
+  }
+
+  /** `0` o ausente = SIN LÍMITE — nunca "frenar todo": un cap que no puede
+   *  despejarse dejaría el issue diferido para siempre. */
+  static withinCap(running: number, cap: number | undefined): boolean {
+    return cap == null || cap === 0 || running < cap
   }
 
   isRunning(): boolean {

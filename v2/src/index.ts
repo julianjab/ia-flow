@@ -44,6 +44,8 @@ export { AgentRunEntity } from './engine/AgentRunEntity.js'
 export { Engine, MAX_EVENT_DEPTH } from './engine/Engine.js'
 export type { TaskResolver } from './engine/Engine.js'
 export type {
+  DispatchOutcome,
+  DispatchOutcomeKind,
   ExecutionEntity,
   ExecutionMessage,
   ExecutionProps,
@@ -54,8 +56,6 @@ export type { ExecutionLogProps, ExecutionLogStatus } from './engine/ExecutionLo
 export { ExecutionLog } from './engine/ExecutionLog.js'
 export type { McpCatalogEntryProps, McpTransport } from './engine/McpCatalogEntry.js'
 export { McpCatalogEntry } from './engine/McpCatalogEntry.js'
-export type { DispatchOutcome, DispatchOutcomeKind, PendingTaskProps } from './engine/PendingTask.js'
-export { PendingTask } from './engine/PendingTask.js'
 export type { Admission, AdmissionRequest, ProviderProps } from './engine/Provider.js'
 export { Provider } from './engine/Provider.js'
 export type { SystemPromptEntryProps } from './engine/SystemPromptEntry.js'
