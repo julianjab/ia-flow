@@ -17,11 +17,51 @@ export class Condition {
 
   /** Lee `payload[this.field]` (soporta paths anidados tipo 'pr.head.ref') y aplica `op`. */
   evaluate(payload: Record<string, unknown>): boolean {
-    throw new Error('not implemented — replica evalCondition de v1')
+    const actual = Condition.getPath(payload, this.field)
+    switch (this.op) {
+      case '=':
+        return String(actual) === this.value
+      case '!=':
+        return String(actual) !== this.value
+      case '>':
+        return Number(actual) > Number(this.value)
+      case '<':
+        return Number(actual) < Number(this.value)
+      case 'contains':
+        if (Array.isArray(actual)) return actual.map(String).includes(this.value ?? '')
+        return typeof actual === 'string' && actual.includes(this.value ?? '')
+      case 'in':
+        return (this.value ?? '').split(',').includes(String(actual))
+      default:
+        return false
+    }
   }
 
-  /** Evalúa un array completo respetando los conectores `and`/`or` por condición. */
+  private static getPath(payload: Record<string, unknown>, path: string): unknown {
+    return path
+      .split('.')
+      .reduce<unknown>(
+        (acc, key) =>
+          acc != null && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined,
+        payload,
+      )
+  }
+
+  /**
+   * Evalúa un array completo respetando los conectores `and`/`or` por
+   * condición: `logic` en `conditions[i]` dice cómo conecta con
+   * `conditions[i+1]` (el `logic` del ÚLTIMO elemento no se usa — no hay
+   * nada después). Sin condiciones ⇒ true (vacuo, mismo criterio que
+   * `whenText` ausente en Conditional).
+   */
   static evaluateAll(conditions: Condition[], payload: Record<string, unknown>): boolean {
-    throw new Error('not implemented — replica evalWhen de v1')
+    if (conditions.length === 0) return true
+    let result = conditions[0].evaluate(payload)
+    for (let i = 1; i < conditions.length; i++) {
+      const connector = conditions[i - 1].logic ?? 'and'
+      const next = conditions[i].evaluate(payload)
+      result = connector === 'or' ? result || next : result && next
+    }
+    return result
   }
 }

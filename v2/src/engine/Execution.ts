@@ -77,50 +77,46 @@ export class Execution {
   }
 
   private static index(execution: Execution): void {
-    throw new Error(
-      'not implemented — if (!execution.taskId) return; ' +
-        'const list = Execution.byTaskId.get(execution.taskId) ?? []; list.push(execution); ' +
-        'Execution.byTaskId.set(execution.taskId, list)',
-    )
+    if (!execution.taskId) return
+    const list = Execution.byTaskId.get(execution.taskId) ?? []
+    list.push(execution)
+    Execution.byTaskId.set(execution.taskId, list)
   }
 
   private static unindex(execution: Execution): void {
-    throw new Error(
-      'not implemented — sacar `execution` del array de Execution.byTaskId.get(execution.taskId)',
-    )
+    if (!execution.taskId) return
+    const list = Execution.byTaskId.get(execution.taskId)
+    if (!list) return
+    const idx = list.indexOf(execution)
+    if (idx !== -1) list.splice(idx, 1)
   }
 
   /** Todas las Executions (cualquier status) de una task — base de findRunning/filter. */
   static byTask(taskId: string): Execution[] {
-    throw new Error('not implemented — return Execution.byTaskId.get(taskId) ?? []')
+    return Execution.byTaskId.get(taskId) ?? []
   }
 
   /** Primera Execution running de esa task. */
   static findRunning(taskId: string | undefined): Execution | undefined {
-    throw new Error(
-      'not implemented — taskId == null ? undefined : Execution.byTask(taskId).find(e => e.isRunning())',
-    )
+    return taskId == null ? undefined : Execution.byTask(taskId).find((e) => e.isRunning())
   }
 
   /** Filtro genérico sobre TODAS las Executions indexadas, cualquier task —
    *  para necesidades futuras (ej. "todas las running de un pipelineId"). */
   static filter(predicate: (execution: Execution) => boolean): Execution[] {
-    throw new Error(
-      'not implemented — [...Execution.byTaskId.values()].flat().filter(predicate)',
-    )
+    return [...Execution.byTaskId.values()].flat().filter(predicate)
   }
 
   /** true si encontró una Execution running de esa task y el append pegó —
-   *  Engine.dispatch corta ahí y NO reevalúa Rules para este evento. */
+   *  Engine.dispatch corta ahí y NO reevalúa Pipelines para este evento. */
   static tryAppend(taskId: string | undefined, message: ExecutionMessage): boolean {
-    throw new Error(
-      'not implemented — const exec = Execution.findRunning(taskId); return exec != null && exec.append(message)',
-    )
+    const exec = Execution.findRunning(taskId)
+    return exec != null && exec.append(message)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — Execution.byTaskId.clear()')
+    Execution.byTaskId.clear()
   }
 
   isRunning(): boolean {
@@ -131,30 +127,27 @@ export class Execution {
    *  (por repo, por agentId, por doId específico) se agrega recién cuando
    *  aparezca un caso real que lo necesite — no antes. */
   matchesTask(taskId: string | undefined): boolean {
-    throw new Error(
-      'not implemented — this.isRunning() && this.taskId != null && this.taskId === taskId',
-    )
+    return this.isRunning() && this.taskId != null && this.taskId === taskId
   }
 
   /** false si no está running o la entidad no soporta append. Quien llama
    *  (Execution.tryAppend) interpreta false como "no matcheó nada", lo que
-   *  deja seguir el flujo normal de Rules para ese evento. */
+   *  deja seguir el flujo normal de Pipelines para ese evento. */
   append(message: ExecutionMessage): boolean {
-    throw new Error(
-      'not implemented — if (!this.isRunning() || !this.entity.supportsAppend()) return false; ' +
-        'this.entity.appendMessage(message); return true',
-    )
+    if (!this.isRunning() || !this.entity.supportsAppend()) return false
+    this.entity.appendMessage(message)
+    return true
   }
 
   complete(): void {
-    throw new Error(
-      'not implemented — this.status = "completed"; this.finishedAt = new Date(); Execution.unindex(this)',
-    )
+    this.status = 'completed'
+    this.finishedAt = new Date()
+    Execution.unindex(this)
   }
 
   fail(): void {
-    throw new Error(
-      'not implemented — this.status = "failed"; this.finishedAt = new Date(); Execution.unindex(this)',
-    )
+    this.status = 'failed'
+    this.finishedAt = new Date()
+    Execution.unindex(this)
   }
 }

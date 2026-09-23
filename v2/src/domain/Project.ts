@@ -50,16 +50,16 @@ export class Project {
   private static readonly byId = new Map<string, Project>()
 
   static register(project: Project): void {
-    throw new Error('not implemented — Project.byId.set(project.id, project)')
+    Project.byId.set(project.id, project)
   }
 
   static resolve(id: string): Project | undefined {
-    throw new Error('not implemented — Project.byId.get(id)')
+    return Project.byId.get(id)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — Project.byId.clear()')
+    Project.byId.clear()
   }
 
   readonly id: string

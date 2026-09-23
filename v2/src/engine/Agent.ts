@@ -1,5 +1,7 @@
 import type { Task } from '../domain/Task.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
+import { ExecutionLog } from './ExecutionLog.js'
+import { Tool } from './Tool.js'
 
 export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none'
 
@@ -154,29 +156,32 @@ export class Agent {
    *  `{{steps.<id>.output.<campo>}}`) — un exit mal formado tiene que fallar
    *  ACÁ, al registrar, no en cada matchExit() de cada run. */
   static register(agent: Agent): void {
-    throw new Error(
-      'not implemented — if (Agent.byId.has(agent.id)) throw ...; validar agent.exits; Agent.byId.set(agent.id, agent)',
-    )
+    if (Agent.byId.has(agent.id)) throw new Error(`Agent duplicado: ${agent.id}`)
+    for (const [name, exit] of Object.entries(agent.exits)) {
+      if (name.trim() === '') throw new Error(`Agent ${agent.id}: exit con clave vacía`)
+      if (typeof exit === 'object' && exit.set.trim() === '') {
+        throw new Error(`Agent ${agent.id}: exit "${name}" con set vacío`)
+      }
+    }
+    Agent.byId.set(agent.id, agent)
   }
 
   static resolve(id: string): Agent | undefined {
-    throw new Error('not implemented — Agent.byId.get(id)')
+    return Agent.byId.get(id)
   }
 
   static list(): Agent[] {
-    throw new Error('not implemented — [...Agent.byId.values()].sort por position')
+    return [...Agent.byId.values()].sort((a, b) => a.position - b.position)
   }
 
   /** Agentes visibles desde un proyecto: los globales (`projectId: null`) + los propios. */
   static visibleTo(projectId: string | undefined): Agent[] {
-    throw new Error(
-      'not implemented — Agent.list().filter(a => a.projectId == null || a.projectId === projectId)',
-    )
+    return Agent.list().filter((a) => a.projectId == null || a.projectId === projectId)
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
-    throw new Error('not implemented — Agent.byId.clear()')
+    Agent.byId.clear()
   }
 
   readonly id: string
@@ -231,6 +236,7 @@ export class Agent {
    * de cierre puedan explicar POR QUÉ falló, no sólo que falló.
    */
   async run(input: AgentRunInput): Promise<AgentRunOutput> {
+    const startedAt = new Date()
     await this.onStart(input.task)
     let outcome: string
     let error: unknown
@@ -241,12 +247,15 @@ export class Agent {
       outcome = ERROR_EXIT
       error = err
     }
-    return this.finalize(outcome, input.task, error)
+    return this.finalize(outcome, input.task, startedAt, error)
   }
 
-  /** Marca el task como working en la fuente (setAgentWorking en v1). */
+  /** Marca el task como working — sólo el estado que este dominio posee
+   *  (`task.agentWorking`); persistirlo en la fuente remota (setAgentWorking
+   *  en v1) es un efecto de borde que le corresponde a un port que este
+   *  esqueleto todavía no tiene (no hay IssueSource — ver README). */
   protected async onStart(task: Task): Promise<void> {
-    throw new Error('not implemented')
+    task.agentWorking = true
   }
 
   /**
@@ -291,13 +300,30 @@ export class Agent {
    * execution-log.ts de v1): un fallo ACÁ no puede dejar agent_working=true
    * sin aplicar ningún exit, porque run() ya no tiene otro punto de recuperación.
    */
-  protected async finalize(outcome: string, task: Task, error?: unknown): Promise<AgentRunOutput> {
-    throw new Error(
-      'not implemented — const exit = this.matchExit(outcome); aplicar transición si exit; ' +
-        'ExecutionLog.append(new ExecutionLog({id, taskId: task.id, agentId: this.id, outcome, exit, ' +
-        'status: error ? "failed" : "completed", error: error ? String(error) : undefined, startedAt, ' +
-        'finishedAt: new Date()})); return {outcome, exit}',
+  protected async finalize(
+    outcome: string,
+    task: Task,
+    startedAt: Date,
+    error?: unknown,
+  ): Promise<AgentRunOutput> {
+    task.agentWorking = false
+    const exit = this.matchExit(outcome)
+    const nextStatus = exitSet(exit)
+    if (nextStatus != null) task.transitionTo(nextStatus)
+    ExecutionLog.append(
+      new ExecutionLog({
+        id: crypto.randomUUID(),
+        taskId: task.id,
+        agentId: this.id,
+        outcome,
+        exit,
+        status: error != null ? 'failed' : 'completed',
+        error: error != null ? String(error) : undefined,
+        startedAt,
+        finishedAt: new Date(),
+      }),
     )
+    return { outcome, exit }
   }
 
   /**
@@ -322,7 +348,14 @@ export class Agent {
     return this.exits[outcomeName] ?? this.exits[ERROR_EXIT]
   }
 
+  /** true si alguna tool declarada es de escritura, según el catálogo
+   *  (`Tool.isWrite`). Una tool sin entrada en el catálogo se asume de
+   *  sólo-lectura — sólo importa para decidir si intersectar writePaths
+   *  contra el WorkspacePlan (ver AgentAction.run). */
   hasWriteTools(): boolean {
-    throw new Error('not implemented — intersectWritePaths/hasWriteTools de v1')
+    return this.tools.some((t) => {
+      const name = typeof t === 'string' ? t : t.name
+      return Tool.resolve(name)?.isWrite ?? false
+    })
   }
 }

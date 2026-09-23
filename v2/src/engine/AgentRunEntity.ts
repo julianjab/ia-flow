@@ -32,18 +32,19 @@ export class AgentRunEntity implements ExecutionEntity {
   }
 
   appendMessage(message: ExecutionMessage): void {
-    throw new Error('not implemented — this.pending.push(message)')
+    this.pending.push(message)
   }
 
   /** El provider la llama antes de decidir el próximo turno del loop. */
   drain(): ExecutionMessage[] {
-    throw new Error('not implemented — return this.pending.splice(0)')
+    return this.pending.splice(0)
   }
 
   /** Se guarda DESPUÉS de compactar y ANTES del request — lo persistido es
    *  exactamente lo que se mandó, así un fallo del request no deja un
    *  checkpoint mintiendo sobre qué se envió. */
   save(state: unknown): void {
-    throw new Error('not implemented — this.state = state; this.updatedAt = new Date()')
+    this.state = state
+    this.updatedAt = new Date()
   }
 }
