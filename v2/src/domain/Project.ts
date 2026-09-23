@@ -36,10 +36,32 @@ export interface ProjectProps {
   archivedAt?: string | null
 }
 
-/** El contenedor de más arriba: fuente de issues + settings de operación.
- *  Los repos y los agentes NO viven embebidos acá — son entidades propias
- *  indexadas por projectId (ver Repo, y Agent vía AgentRegistry). */
+/**
+ * El contenedor de más arriba: fuente de issues + settings de operación.
+ * Los repos y los agentes NO viven embebidos acá — son entidades propias
+ * indexadas por projectId (ver Repo, y Agent vía AgentRegistry).
+ *
+ * Se autoindexa por id (estático) igual que Execution — mismo motivo: una
+ * clase `ProjectRegistry` aparte sólo para `Map + get` no paga su lugar.
+ * `Engine.dispatch` usa `Project.resolve(event.scope?.projectId)` en vez de
+ * recibir un registry inyectado.
+ */
 export class Project {
+  private static readonly byId = new Map<string, Project>()
+
+  static register(project: Project): void {
+    throw new Error('not implemented — Project.byId.set(project.id, project)')
+  }
+
+  static resolve(id: string): Project | undefined {
+    throw new Error('not implemented — Project.byId.get(id)')
+  }
+
+  /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
+  static reset(): void {
+    throw new Error('not implemented — Project.byId.clear()')
+  }
+
   readonly id: string
   name: string
   language?: string

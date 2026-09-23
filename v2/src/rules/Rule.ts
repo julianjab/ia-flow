@@ -68,7 +68,7 @@ export class Rule extends Conditional {
    * this.when + baseWhen del proyecto, y — cuando `project` viaja — el
    * override `disabledRuleIds` (esta regla es global Y el proyecto la
    * apagó). `project` es opcional porque un evento puede no tener projectId
-   * resoluble (ProjectRegistry sin esa fila, o el evento es cross-proyecto)
+   * resoluble (Project.resolve sin esa fila, o el evento es cross-proyecto)
    * — ahí sólo corren los filtros que no lo necesitan.
    */
   matches(event: DomainEvent, project?: Project): boolean {
