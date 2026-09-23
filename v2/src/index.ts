@@ -59,6 +59,8 @@ export type { Admission, AdmissionRequest, ProviderProps } from './engine/Provid
 export { Provider } from './engine/Provider.js'
 export type { SystemPromptEntryProps } from './engine/SystemPromptEntry.js'
 export { SystemPromptEntry } from './engine/SystemPromptEntry.js'
+export type { ProviderKind, ToolProps } from './engine/Tool.js'
+export { Tool } from './engine/Tool.js'
 export type {
   WorkspacePlan,
   WorkspaceRepoRequest,
