@@ -48,12 +48,18 @@ export class AgentAction extends RuleActionEntry {
   async run(ctx: RuleExecutionContext): Promise<unknown> {
     throw new Error(
       'not implemented — si this.liveInject && Execution.tryAppend(ctx.task?.id, toMessage(ctx.event)) ' +
-        'devolver ese resultado sin correr un run nuevo; si no: Agent.resolve(this.agentId), caps/lock/checkpoint ' +
-        '(AgentOrchestrator), new Execution({pipelineId, doId: this.id, taskId: ctx.task?.id, kind: "agent", ' +
-        'entity: new AgentRunEntity()}) ANTES de arrancar (se autoindexa en su constructor), ' +
-        'agent.run({task: ctx.task, brief: this.brief, expectedOutput: ctx.nextSchema}), marcar ' +
-        'execution.complete()/fail() en el finally (se autodesindexa), y si ' +
-        'emitOn=="exit" ctx.bus.publish(ctx.event.derive(this.emitType ?? "run.finished", {...}))',
+        'devolver ese resultado sin correr un run nuevo; si no: const agent = Agent.resolve(this.agentId); ' +
+        'const project = ctx.task?.projectId ? Project.resolve(ctx.task.projectId) : undefined; ' +
+        'if (project && !PendingTask.withinCap(PendingTask.runningForProject(project.id), ' +
+        'project.settings.maxConcurrentDispatches)) return { kind: "deferred", reason: "cap de proyecto" }; ' +
+        'if (!PendingTask.withinCap(PendingTask.runningForAgent(agent.id), agent.maxConcurrentDispatches)) ' +
+        'return { kind: "deferred", reason: "cap de agente" }; ' +
+        'PendingTask.register(new PendingTask({taskId: ctx.task.id, projectId: project?.id, agentId: agent.id})); ' +
+        'new Execution({pipelineId, doId: this.id, taskId: ctx.task?.id, kind: "agent", ' +
+        'entity: new AgentRunEntity()}) ANTES de arrancar (se autoindexa en su constructor); ' +
+        'try { agent.run({task: ctx.task, brief: this.brief, expectedOutput: ctx.nextSchema}); ' +
+        'execution.complete() } catch { execution.fail() } finally { PendingTask.remove(ctx.task.id) }; ' +
+        'si emitOn=="exit" ctx.bus.publish(ctx.event.derive(this.emitType ?? "run.finished", {...}))',
     )
   }
 }

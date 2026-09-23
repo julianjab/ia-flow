@@ -242,9 +242,21 @@ export class Agent {
     throw new Error('not implemented')
   }
 
-  /** Resuelve el provider (this.provider), corre el loop de tools hasta terminar o fallar. */
+  /**
+   * Resuelve el provider (this.provider — string directo, o desempate entre
+   * AgentProviderChoice[]), pide admisión (Provider.canAccept), arma su
+   * workspace (Provider.prepareWorkspace) y corre el loop de tools hasta
+   * terminar o fallar.
+   */
   protected async execute(input: AgentRunInput): Promise<string> {
-    throw new Error('not implemented')
+    throw new Error(
+      'not implemented — const providerId = typeof this.provider === "string" ? this.provider : ' +
+        'desempatar candidatos por when/whenText o clasificador; const provider = Provider.resolve(providerId); ' +
+        'if (!(await provider.canAccept({task: input.task, agentId: this.id, running, cap: this.maxConcurrentDispatches})).accept) throw ...; ' +
+        'const mcpServers = McpCatalogEntry.resolveAll(this.mcpCatalogIds); ' +
+        'const systemPrompts = this.systemPrompts.map(ref => ref.text ?? SystemPromptEntry.resolve(ref.id).text); ' +
+        'return provider.run(input)',
+    )
   }
 
   /**
@@ -267,7 +279,12 @@ export class Agent {
    * sin aplicar ningún exit, porque run() ya no tiene otro punto de recuperación.
    */
   protected async finalize(outcome: string, task: Task, error?: unknown): Promise<AgentRunOutput> {
-    throw new Error('not implemented')
+    throw new Error(
+      'not implemented — const exit = this.matchExit(outcome); aplicar transición si exit; ' +
+        'ExecutionLog.append(new ExecutionLog({id, taskId: task.id, agentId: this.id, outcome, exit, ' +
+        'status: error ? "failed" : "completed", error: error ? String(error) : undefined, startedAt, ' +
+        'finishedAt: new Date()})); return {outcome, exit}',
+    )
   }
 
   /**

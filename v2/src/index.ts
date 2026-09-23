@@ -49,6 +49,22 @@ export type {
   ExecutionStatus,
 } from './engine/Execution.js'
 export { Execution } from './engine/Execution.js'
+export type { ExecutionLogProps, ExecutionLogStatus } from './engine/ExecutionLog.js'
+export { ExecutionLog } from './engine/ExecutionLog.js'
+export type { McpCatalogEntryProps, McpTransport } from './engine/McpCatalogEntry.js'
+export { McpCatalogEntry } from './engine/McpCatalogEntry.js'
+export type { DispatchOutcome, DispatchOutcomeKind, PendingTaskProps } from './engine/PendingTask.js'
+export { PendingTask } from './engine/PendingTask.js'
+export type { Admission, AdmissionRequest, ProviderProps } from './engine/Provider.js'
+export { Provider } from './engine/Provider.js'
+export type { SystemPromptEntryProps } from './engine/SystemPromptEntry.js'
+export { SystemPromptEntry } from './engine/SystemPromptEntry.js'
+export type {
+  WorkspacePlan,
+  WorkspaceRepoRequest,
+  WorkspaceRequest,
+} from './engine/Workspace.js'
+export { WorkspaceLayout } from './engine/Workspace.js'
 export { DomainEvent } from './events/DomainEvent.js'
 export type { DomainEventScope } from './events/DomainEvent.js'
 export type { EventHandler, Unsubscribe } from './events/EventBus.js'
