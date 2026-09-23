@@ -10,7 +10,12 @@ export class AgentRegistry {
   private readonly agents = new Map<string, Agent>()
 
   register(agent: Agent): void {
-    throw new Error('not implemented — this.agents.set(agent.id, agent), rechazar id duplicado')
+    throw new Error(
+      'not implemented — this.agents.set(agent.id, agent), rechazar id duplicado. ' +
+        'También el punto para validar que agent.exits sea consistente (ninguna clave vacía, ' +
+        'output declarado si alguna Rule espera {{steps.<id>.output.<campo>}}) — un exit mal ' +
+        'formado tiene que fallar acá, al registrar, no en cada matchExit() de cada run.',
+    )
   }
 
   resolve(id: string): Agent | undefined {
