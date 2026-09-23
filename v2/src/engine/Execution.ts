@@ -46,10 +46,10 @@ export interface ExecutionProps {
  * El índice por taskId vive ACÁ ADENTRO (estático) en vez de en una clase
  * `ExecutionRegistry` aparte: es sólo un `Map` + un `find`/`filter`, no
  * justifica una segunda clase de dominio para un objeto que ya sabe todo lo
- * necesario para indexarse a sí mismo (a diferencia de AgentRegistry/
- * ProjectRegistry, que sí cargan lógica propia — visibleTo, disablesRule).
- * El costo consciente: dos Engine en el mismo proceso (tests en paralelo)
- * comparten este índice — se resetea con `Execution.reset()`.
+ * necesario para indexarse a sí mismo (mismo criterio aplicado después a
+ * `Project`, `RuleActionEntry` y `Agent`). El costo consciente: dos Engine
+ * en el mismo proceso (tests en paralelo) comparten este índice — se
+ * resetea con `Execution.reset()`.
  */
 export class Execution {
   private static readonly byTaskId = new Map<string, Execution[]>()

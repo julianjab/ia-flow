@@ -132,10 +132,46 @@ export interface AgentRunOutput {
  * Identidad + capacidad de un agente: qué tools tiene, con qué provider corre,
  * y cómo cierra (exits). NO sabe cuándo le toca correr — eso es 100% de
  * Rule.when/on (en v1 vivía en AgentActivationSchema; ver migración
- * 059-activation-into-rules). Un Agent vive en el AgentRegistry y las Rule lo
- * referencian por id — nunca se embebe en una cadena de `do`.
+ * 059-activation-into-rules). Un Agent se autoindexa por id y las Rule lo
+ * referencian por ese id — nunca se embebe en una cadena de `do`.
+ *
+ * Se autoindexa igual que Execution/Project/RuleActionEntry: antes vivía en
+ * una `AgentRegistry` aparte, pero register/resolve/list/visibleTo son la
+ * misma forma (Map + query) sin motivo para ser una segunda clase.
  */
 export class Agent {
+  private static readonly byId = new Map<string, Agent>()
+
+  /** Rechaza id duplicado y valida que `exits` sea consistente (ninguna
+   *  clave vacía, `output` declarado si alguna Rule espera
+   *  `{{steps.<id>.output.<campo>}}`) — un exit mal formado tiene que fallar
+   *  ACÁ, al registrar, no en cada matchExit() de cada run. */
+  static register(agent: Agent): void {
+    throw new Error(
+      'not implemented — if (Agent.byId.has(agent.id)) throw ...; validar agent.exits; Agent.byId.set(agent.id, agent)',
+    )
+  }
+
+  static resolve(id: string): Agent | undefined {
+    throw new Error('not implemented — Agent.byId.get(id)')
+  }
+
+  static list(): Agent[] {
+    throw new Error('not implemented — [...Agent.byId.values()].sort por position')
+  }
+
+  /** Agentes visibles desde un proyecto: los globales (`projectId: null`) + los propios. */
+  static visibleTo(projectId: string | undefined): Agent[] {
+    throw new Error(
+      'not implemented — Agent.list().filter(a => a.projectId == null || a.projectId === projectId)',
+    )
+  }
+
+  /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
+  static reset(): void {
+    throw new Error('not implemented — Agent.byId.clear()')
+  }
+
   readonly id: string
   readonly provider: AgentProvider
   readonly prompt: string
@@ -248,7 +284,7 @@ export class Agent {
    * Cualquier otro nombre que no está en `this.exits` cae a `ERROR_EXIT`: es
    * la red para un outcome desconocido, pero el nombre bien formado (que
    * venga de `select_exit`) tiene que validarse ANTES de esto —
-   * `AgentRegistry.register` es donde correspondería rechazar un agente cuyo
+   * `Agent.register` es donde correspondería rechazar un agente cuyo
    * `output`/exits declaran algo inconsistente, no acá en cada run.
    */
   matchExit(outcomeName: string): AgentExit | undefined {

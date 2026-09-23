@@ -39,7 +39,7 @@ export interface ProjectProps {
 /**
  * El contenedor de más arriba: fuente de issues + settings de operación.
  * Los repos y los agentes NO viven embebidos acá — son entidades propias
- * indexadas por projectId (ver Repo, y Agent vía AgentRegistry).
+ * indexadas por projectId (ver Repo, y Agent que se autoindexa por id).
  *
  * Se autoindexa por id (estático) igual que Execution — mismo motivo: una
  * clase `ProjectRegistry` aparte sólo para `Map + get` no paga su lugar.

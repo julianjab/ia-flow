@@ -1,6 +1,5 @@
 import type { Task } from '../../domain/Task.js'
 import type { AgentOutput } from '../../engine/Agent.js'
-import type { AgentRegistry } from '../../engine/AgentRegistry.js'
 import type { DomainEvent } from '../../events/DomainEvent.js'
 import type { EventBus } from '../../events/EventBus.js'
 import { Conditional, type ConditionalProps } from '../Conditional.js'
@@ -16,7 +15,6 @@ export interface RuleExecutionContext {
   readonly event: DomainEvent
   readonly task?: Task
   readonly steps: Record<string, unknown>
-  readonly agents: AgentRegistry
   readonly bus: EventBus
   /**
    * Schema que el output de ESTE paso debería cumplir, cuando el siguiente
