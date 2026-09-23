@@ -1,5 +1,5 @@
-import type { Condition } from '../rules/Condition.js'
 import type { Task } from '../domain/Task.js'
+import type { Condition } from '../rules/Condition.js'
 
 export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none'
 
@@ -156,12 +156,23 @@ export class Agent {
     this.comment = props.comment
   }
 
+  /**
+   * onStart marca el issue como working ANTES de que exista ninguna forma de
+   * revertir esa marca salvo terminar el run — así que todo lo que sigue va
+   * en un try/catch que embudea cualquier falla (de execute, de verify, o un
+   * throw inesperado) hacia finalize(ERROR_EXIT, ...) en vez de propagar y
+   * dejar el issue trabado hasta el próximo crashRecovery.
+   */
   async run(input: AgentRunInput): Promise<AgentRunOutput> {
     await this.onStart(input.task)
-    const outcome = await this.execute(input)
-    const output = await this.finalize(outcome, input.task)
-    await this.verifyWorktree(input.task)
-    return output
+    let outcome: string
+    try {
+      outcome = await this.execute(input)
+      outcome = await this.verifyWorktree(input.task, outcome)
+    } catch {
+      outcome = ERROR_EXIT
+    }
+    return this.finalize(outcome, input.task)
   }
 
   /** Marca el task como working en la fuente (setAgentWorking en v1). */
@@ -174,13 +185,19 @@ export class Agent {
     throw new Error('not implemented')
   }
 
-  /** Matchea el outcome contra this.exits, aplica la transición y graba el ExecutionLog. */
-  protected async finalize(outcome: string, task: Task): Promise<AgentRunOutput> {
+  /**
+   * Corre this.verify[] en el worktree DESPUÉS de execute y ANTES de finalize
+   * — es lo único que puede todavía cambiar el outcome antes de que se
+   * aplique una transición. Un exit != 0 devuelve ERROR_EXIT (failureClass
+   * `verify_failed`) en vez del outcome recibido; no corre si outcome ya es
+   * error/truncated/cancelled.
+   */
+  protected async verifyWorktree(task: Task, outcome: string): Promise<string> {
     throw new Error('not implemented')
   }
 
-  /** Corre this.verify[] en el worktree; un exit != 0 desvía el run a error (verify_failed). */
-  protected async verifyWorktree(task: Task): Promise<void> {
+  /** Matchea el outcome contra this.exits, aplica la transición y graba el ExecutionLog. */
+  protected async finalize(outcome: string, task: Task): Promise<AgentRunOutput> {
     throw new Error('not implemented')
   }
 
