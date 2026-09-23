@@ -64,7 +64,17 @@ export class Project {
     return this.archivedAt != null
   }
 
-  hasDisabledRule(ruleId: string): boolean {
-    return this.settings.disabledRuleIds?.includes(ruleId) ?? false
+  /**
+   * ¿Este proyecto apagó esta regla heredada? Dos condiciones, las dos
+   * importan: `rule.id` está en la lista Y la regla es GLOBAL
+   * (`rule.projectId == null`) — lo segundo evita que apagar una global se
+   * lleve puesta una regla propia que comparta id por casualidad (una propia
+   * ya tiene su propio `enabled`, que es donde se apaga). Toma un shape
+   * mínimo en vez de `Rule` completo para no crear el ciclo Project↔Rule
+   * (Rule.matches ya importa Project).
+   */
+  disablesRule(rule: { id: string; projectId?: string | null }): boolean {
+    if (rule.projectId != null) return false
+    return this.settings.disabledRuleIds?.includes(rule.id) ?? false
   }
 }
