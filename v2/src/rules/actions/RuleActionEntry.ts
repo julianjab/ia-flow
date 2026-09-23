@@ -3,7 +3,6 @@ import type { AgentOutput } from '../../engine/Agent.js'
 import type { AgentRegistry } from '../../engine/AgentRegistry.js'
 import type { DomainEvent } from '../../events/DomainEvent.js'
 import type { EventBus } from '../../events/EventBus.js'
-import type { ActionRegistry } from '../ActionRegistry.js'
 import { Conditional, type ConditionalProps } from '../Conditional.js'
 
 /**
@@ -18,7 +17,6 @@ export interface RuleExecutionContext {
   readonly task?: Task
   readonly steps: Record<string, unknown>
   readonly agents: AgentRegistry
-  readonly actions: ActionRegistry
   readonly bus: EventBus
   /**
    * Schema que el output de ESTE paso debería cumplir, cuando el siguiente
@@ -45,8 +43,15 @@ export interface RuleActionEntryProps extends ConditionalProps {
  * ScriptAction, RefAction. `when`/`whenText` los hereda de `Conditional`; un
  * paso de v1 sólo usa `when` (RuleActionEntrySchema no tiene `whenText`), pero
  * heredar los dos no cuesta nada — un `whenText` ausente ya resuelve `true`.
+ *
+ * También carga el índice de acciones NOMBRADAS que `RefAction` resuelve
+ * (antes `ActionRegistry` aparte) — mismo `Map + get` sin lógica propia que
+ * ya se plegó en `Execution`/`Project`, y acá vive naturalmente porque una
+ * acción registrada ES una `RuleActionEntry`.
  */
 export abstract class RuleActionEntry extends Conditional {
+  private static readonly byId = new Map<string, RuleActionEntry>()
+
   abstract readonly kind: RuleActionKind
   readonly id?: string
   readonly continueOnError: boolean
@@ -55,6 +60,23 @@ export abstract class RuleActionEntry extends Conditional {
     super(props)
     this.id = props.id
     this.continueOnError = props.continueOnError ?? false
+  }
+
+  /** Rechaza registrar un `RefAction` — nunca ref-a-ref, mata ciclos sin
+   *  necesitar detección en runtime. */
+  static register(id: string, action: RuleActionEntry): void {
+    throw new Error(
+      'not implemented — if (action.kind === "ref") throw ...; RuleActionEntry.byId.set(id, action)',
+    )
+  }
+
+  static resolve(id: string): RuleActionEntry | undefined {
+    throw new Error('not implemented — RuleActionEntry.byId.get(id)')
+  }
+
+  /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
+  static reset(): void {
+    throw new Error('not implemented — RuleActionEntry.byId.clear()')
   }
 
   /** Condiciona ESTE paso (no la regla entera) — puede leer `steps.*` de pasos previos. */

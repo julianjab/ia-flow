@@ -1,6 +1,5 @@
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
-import type { ActionRegistry } from '../rules/ActionRegistry.js'
 import type { Rule } from '../rules/Rule.js'
 import type { AgentRegistry } from './AgentRegistry.js'
 
@@ -25,7 +24,6 @@ export class Engine {
   constructor(
     private readonly bus: EventBus,
     private readonly agents: AgentRegistry,
-    private readonly actions: ActionRegistry,
   ) {}
 
   register(rule: Rule): void {
@@ -57,7 +55,7 @@ export class Engine {
         'const toRun = exclusive ? [exclusive] : survived.filter(r => !r.exclusive); ' +
         'resuelve task del event.scope; ' +
         'await Promise.all(toRun.map(r => r.execute({event, task, steps: {}, agents: this.agents, ' +
-        'actions: this.actions, bus: this.bus})))',
+        'bus: this.bus})))',
     )
   }
 }

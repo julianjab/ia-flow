@@ -55,7 +55,6 @@ export type { DomainEventScope } from './events/DomainEvent.js'
 export type { EventHandler, Unsubscribe } from './events/EventBus.js'
 export { EventBus } from './events/EventBus.js'
 
-export { ActionRegistry } from './rules/ActionRegistry.js'
 export type { AgentActionProps } from './rules/actions/AgentAction.js'
 export { AgentAction } from './rules/actions/AgentAction.js'
 export type { EmitActionProps } from './rules/actions/EmitAction.js'
