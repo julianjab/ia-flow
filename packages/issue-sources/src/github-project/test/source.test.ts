@@ -107,7 +107,9 @@ function stubNotFound(): void {
 function router(variables: Record<string, unknown>): unknown {
   if (variables.org || variables.user) return META_RESPONSE
   if (variables.itemId) return { node: itemNode() }
-  if (variables.projectId) return { node: { items: { nodes: [itemNode()] } } }
+  if (variables.projectId) {
+    return { node: { items: { nodes: [itemNode()], pageInfo: { hasNextPage: false } } } }
+  }
   throw new Error(`stubFetch: unrouted variables ${JSON.stringify(variables)}`)
 }
 
@@ -277,6 +279,45 @@ describe('GitHubProjectSource.getItemByIssueId', () => {
     }) as unknown as typeof fetch
     const source = new GitHubProjectSource(URL)
     expect(await source.getItemByIssueId('I_gone')).toBeNull()
+  })
+})
+
+describe('GitHubProjectSource.getItems — pagination', () => {
+  test('sigue el cursor hasta agotar hasNextPage y junta todas las páginas', async () => {
+    let itemsCalls = 0
+    const { calls } = stubFetch((variables) => {
+      if (variables.org || variables.user) return META_RESPONSE
+      if (variables.projectId) {
+        itemsCalls++
+        if (!variables.after) {
+          return {
+            node: {
+              items: {
+                nodes: [itemNode({ id: 'PVTI_1', number: 1 })],
+                pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
+              },
+            },
+          }
+        }
+        return {
+          node: {
+            items: {
+              nodes: [itemNode({ id: 'PVTI_2', number: 2 })],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        }
+      }
+      throw new Error(`unrouted ${JSON.stringify(variables)}`)
+    })
+    const source = new GitHubProjectSource(URL)
+
+    const items = await source.getItems()
+
+    expect(itemsCalls).toBe(2)
+    expect(items.map((i) => i.id)).toEqual(['PVTI_1', 'PVTI_2'])
+    const secondCall = calls.find((c) => c.variables.after)
+    expect(secondCall?.variables.after).toBe('cursor-1')
   })
 })
 

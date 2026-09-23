@@ -240,33 +240,74 @@ export function mapProjectItemNode(
   }
 }
 
+// GraphQL pagina de a 100 items por página. Igual que GitHubIssuesApi
+// (github-issues/api/issues-client.ts), un cope duro — no "loop hasta que
+// GitHub diga que pare" — acota el peor caso: 30 páginas = 3000 items ya es
+// muy por encima de cualquier board real. Un board que lo pega necesita
+// desarmarse en varios proyectos, no un cliente que pagina para siempre.
+// Pegarle se loguea, no queda en silencio — la alternativa es que items más
+// allá de la página 30 desaparezcan del engine sin ninguna señal.
+const ITEMS_PAGE_SIZE = 100
+const MAX_ITEM_PAGES = 30
+
+interface ListProjectItemsResponse {
+  node: {
+    items: {
+      nodes: any[]
+      pageInfo: { hasNextPage: boolean; endCursor: string | null }
+    }
+  }
+}
+
 export async function listProjectItems(
   projectId: string,
   _fields: Record<string, ProjectField>,
   statusFilter?: string,
   marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
 ): Promise<ProjectItem[]> {
-  // Fetch up to 100 items at a time (pagination omitted for now — add if needed)
-  // La query se arma DENTRO del closure: si el endpoint no soporta el campo de
-  // PRs, withDevLinksFallback reintenta y el segundo intento tiene que
-  // regenerar la selección ya sin ese campo.
-  const data = await withDevLinksFallback(() =>
-    gql<any>(
-      `query ListProjectItems($projectId: ID!) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            items(first: 100) {
-              nodes {
-                ${projectItemNodeFields()}
+  // La API de Projects v2 no soporta filtrar `items` por el valor de un campo
+  // (Status incluido) — el connection sólo pagina, no filtra. Así que
+  // `statusFilter` no puede reducir cuántas páginas se piden: se sigue
+  // aplicando después de traer todo, como ya hacía antes de esto. El costo
+  // real de traer el board completo lo absorbe el `@memoize` de
+  // GitHubProjectSource#fetchItems (ITEMS_TTL_MS) — llamadas con distinto
+  // status reusan el mismo fetch.
+  const rawItems: any[] = []
+  let after: string | null = null
+  let page = 0
+  for (; page < MAX_ITEM_PAGES; page++) {
+    // La query se arma DENTRO del closure: si el endpoint no soporta el campo
+    // de PRs, withDevLinksFallback reintenta y el segundo intento tiene que
+    // regenerar la selección ya sin ese campo.
+    const cursor: string | null = after
+    const data: ListProjectItemsResponse = await withDevLinksFallback(() =>
+      gql<ListProjectItemsResponse>(
+        `query ListProjectItems($projectId: ID!, $after: String) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: ${ITEMS_PAGE_SIZE}, after: $after) {
+                nodes {
+                  ${projectItemNodeFields()}
+                }
+                pageInfo { hasNextPage endCursor }
               }
             }
           }
-        }
-      }`,
-      { projectId },
-    ),
-  )
-  const rawItems: any[] = data.node.items.nodes
+        }`,
+        { projectId, after: cursor },
+      ),
+    )
+    const page_: ListProjectItemsResponse['node']['items'] = data.node.items
+    rawItems.push(...page_.nodes)
+    if (!page_.pageInfo?.hasNextPage) break
+    after = page_.pageInfo.endCursor
+  }
+  if (page >= MAX_ITEM_PAGES) {
+    log.warn(
+      { projectId, fetched: rawItems.length, maxPages: MAX_ITEM_PAGES },
+      'Project item pagination cap hit — results may be truncated',
+    )
+  }
 
   const items: ProjectItem[] = []
   for (const raw of rawItems) {
