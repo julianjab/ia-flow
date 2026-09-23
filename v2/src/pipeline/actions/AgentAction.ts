@@ -1,7 +1,6 @@
 import { Agent, type AgentExit } from '../../engine/Agent.js'
 import { AgentRunEntity } from '../../engine/AgentRunEntity.js'
 import { Execution, type ExecutionMessage } from '../../engine/Execution.js'
-import { PendingTask } from '../../engine/PendingTask.js'
 import { Project } from '../../domain/Project.js'
 import {
   PipelineActionEntry,
@@ -70,24 +69,16 @@ export class AgentAction extends PipelineActionEntry {
     const project = ctx.task?.projectId != null ? Project.resolve(ctx.task.projectId) : undefined
     if (
       project != null &&
-      !PendingTask.withinCap(
-        PendingTask.runningForProject(project.id),
+      !Execution.withinCap(
+        Execution.runningForProject(project.id),
         project.settings.maxConcurrentDispatches,
       )
     ) {
       return { kind: 'deferred', reason: 'cap de proyecto' }
     }
-    if (
-      !PendingTask.withinCap(PendingTask.runningForAgent(agent.id), agent.maxConcurrentDispatches)
-    ) {
+    if (!Execution.withinCap(Execution.runningForAgent(agent.id), agent.maxConcurrentDispatches)) {
       return { kind: 'deferred', reason: 'cap de agente' }
     }
-
-    const capacityKey = PendingTask.key(taskId ?? crypto.randomUUID())
-    PendingTask.register(
-      capacityKey,
-      new PendingTask({ taskId, projectId: project?.id, agentId: agent.id }),
-    )
 
     const execution = new Execution({
       id: crypto.randomUUID(),
@@ -96,6 +87,8 @@ export class AgentAction extends PipelineActionEntry {
       taskId,
       kind: 'agent',
       entity: new AgentRunEntity(),
+      agentId: agent.id,
+      projectId: project?.id,
     })
 
     try {
@@ -119,8 +112,6 @@ export class AgentAction extends PipelineActionEntry {
     } catch (err) {
       execution.fail()
       throw err
-    } finally {
-      PendingTask.remove(capacityKey)
     }
   }
 }
