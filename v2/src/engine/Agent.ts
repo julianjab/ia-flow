@@ -124,8 +124,8 @@ export interface AgentDefinitionProps {
 
 export interface AgentRunInput {
   /**
-   * Bolsa de datos genérica — no una `Task` ni ninguna clase con
-   * comportamiento. Agent nunca sabe qué representa: un normalizador/triage
+   * Bolsa de datos genérica — nunca una entidad con comportamiento propio.
+   * Agent nunca sabe qué representa: un normalizador/triage
    * puede correr con esto ausente (todavía no hay nada, puede ser justo el
    * que lo va a CREAR emitiendo un evento derivado); cuando está presente,
    * `onStart`/`finalize` leen/escriben un par de claves por CONVENCIÓN

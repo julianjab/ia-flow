@@ -1,8 +1,6 @@
 export interface WorkspaceRepoRequest {
   name: string
   path?: string
-  githubOwner?: string
-  githubRepo?: string
 }
 
 /**

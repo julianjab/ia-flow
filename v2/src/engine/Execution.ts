@@ -39,7 +39,7 @@ export interface ExecutionProps {
   /** PipelineActionEntry.id del `do` que la generó — obligatorio para matchear
    *  entre varios agentes corriendo sobre la misma task. */
   doId: string
-  /** Task sobre la que corre, cuando el evento tiene scope a una. */
+  /** Identificador de correlación (`event.scope.issueId`), cuando el evento tiene uno. */
   taskId?: string
   kind: PipelineActionKind
   entity: ExecutionEntity

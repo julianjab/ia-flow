@@ -2,17 +2,19 @@ export interface DomainEventScope {
   projectId?: string
   repos?: string[]
   issueId?: string
-  prNumber?: number
 }
 
 /** `type` es un string libre — el shape de `payload` para cada `type`
  *  conocido vive en `EventCatalog` (./EventCatalog.ts), no acá: esta clase
- *  no conoce integraciones ni event types concretos a propósito.
+ *  no conoce integraciones ni event types concretos a propósito. Es el
+ *  único dato que entra al engine — nunca una entidad de un generador
+ *  concreto (issue, mensaje, PR): eso vive en el `payload`, opaco para
+ *  todo lo que no sea el paso que lo interpreta.
  *
  *  `scope` es campo propio, no parte de `payload` — es lo que Pipeline.matches
- *  usa para filtrar por projectId/repoName (matchScope en v1) y lo que Engine
- *  usa para resolver la Task antes de ejecutar. EmitAction lo escribe desde
- *  su propio `scope` al derivar un evento nuevo. */
+ *  usa para filtrar por projectId/repo y lo que Execution usa para matchear
+ *  contra un run en vuelo (`tryAppend`). EmitAction lo escribe desde su
+ *  propio `scope` al derivar un evento nuevo. */
 export class DomainEvent<TPayload extends Record<string, unknown> = Record<string, unknown>> {
   /** Único por evento — es lo que un evento derivado usa como su `causationId`.
    *  Dos eventos del mismo `type` en el mismo milisegundo deben poder

@@ -4,9 +4,9 @@ export type ExecutionLogStatus = 'completed' | 'failed'
 
 export interface ExecutionLogProps {
   id: string
-  /** Ausente cuando el run no tuvo Task asociada (un triage/normalizador
-   *  que corrió directo sobre un evento) — se indexa bajo el bucket `''`,
-   *  mismo patrón que la memoria GLOBAL de AgentMemoryEntry. */
+  /** Ausente cuando el run no tuvo un `payload` con `id` (un triage/
+   *  normalizador que corrió directo sobre un evento) — se indexa bajo el
+   *  bucket `''`. */
   taskId?: string
   agentId: string
   pipelineId?: string
@@ -69,7 +69,7 @@ export class ExecutionLog {
   }
 
   /** Orden cronológico — es lo que selectCommentWindow (v1) usa para cortar
-   *  por recencia. `taskId` ausente/`''` lista los runs SIN Task asociada. */
+   *  por recencia. `taskId` ausente/`''` lista los runs sin ese identificador. */
   static byTask(taskId?: string): ExecutionLog[] {
     return [...(ExecutionLog.byTaskId.get(taskId ?? '') ?? [])].sort(
       (a, b) => a.startedAt.getTime() - b.startedAt.getTime(),

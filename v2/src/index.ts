@@ -1,21 +1,8 @@
 export { Catalog } from './shared/Catalog.js'
-export type {
-  ProjectProps,
-  ProjectSettings,
-  SourceRef,
-  SystemPromptRef as ProjectSystemPromptRef,
-} from './domain/Project.js'
+export type { ProjectProps, ProjectSettings } from './domain/Project.js'
 export { Project } from './domain/Project.js'
-export type { RepoProps, SlackMemberRef } from './domain/Repo.js'
+export type { RepoProps } from './domain/Repo.js'
 export { Repo } from './domain/Repo.js'
-export type {
-  PullRequestRef,
-  TaskComment,
-  TaskCommentOrigin,
-  TaskProps,
-  TaskType,
-} from './domain/Task.js'
-export { Task } from './domain/Task.js'
 export type {
   AgentDefinitionProps,
   AgentExit,

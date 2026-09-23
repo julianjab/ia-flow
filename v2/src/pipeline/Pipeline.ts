@@ -7,22 +7,16 @@ import { Conditional, type ConditionalProps } from './Conditional.js'
 
 export interface PipelineProps extends ConditionalProps {
   id: string
-  name?: string
-  description?: string
   /** Tipos de DomainEvent que este pipeline escucha — al menos uno. */
   on: string[]
   /** Ámbito: null/ausente = sin restricción, un valor estrecha (fail-closed). */
   projectId?: string | null
   repoName?: string | null
-  /** Cron que hace tickear este pipeline (junto con on: ['schedule.tick']). */
-  schedule?: string
   enabled?: boolean
   position?: number
   /** Si matchea, impide que corran los pipelines de menor prioridad para este evento. */
   exclusive?: boolean
   do: PipelineActionEntry[]
-  createdAt?: string
-  updatedAt?: string
 }
 
 /**
@@ -34,34 +28,24 @@ export interface PipelineProps extends ConditionalProps {
  */
 export class Pipeline extends Conditional {
   readonly id: string
-  readonly name?: string
-  readonly description?: string
   readonly on: string[]
   readonly projectId?: string | null
   readonly repoName?: string | null
-  readonly schedule?: string
   readonly enabled: boolean
   readonly position: number
   readonly exclusive: boolean
   readonly do: PipelineActionEntry[]
-  readonly createdAt?: string
-  readonly updatedAt?: string
 
   constructor(props: PipelineProps) {
     super(props)
     this.id = props.id
-    this.name = props.name
-    this.description = props.description
     this.on = props.on
     this.projectId = props.projectId
     this.repoName = props.repoName
-    this.schedule = props.schedule
     this.enabled = props.enabled ?? true
     this.position = props.position ?? 0
     this.exclusive = props.exclusive ?? false
     this.do = props.do
-    this.createdAt = props.createdAt
-    this.updatedAt = props.updatedAt
   }
 
   /**

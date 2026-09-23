@@ -26,8 +26,9 @@ export interface EventCatalog {
     outcome: string
     exit?: string
   }
-  /** Dispara las Pipeline con `on: ['schedule.tick']` — su `schedule` (cron)
-   *  dice CUÁNDO, esto es lo que le llega cuando toca (ver Pipeline.schedule). */
+  /** Dispara las Pipeline con `on: ['schedule.tick']` — CUÁNDO lo decide
+   *  enteramente el generador externo (un cron); el engine no sabe qué
+   *  expresión cron dispara esto, sólo que le llegó el evento. */
   'schedule.tick': {
     ruleId: string
   }
