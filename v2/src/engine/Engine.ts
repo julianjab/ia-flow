@@ -4,7 +4,6 @@ import type { EventBus } from '../events/EventBus.js'
 import type { ActionRegistry } from '../rules/ActionRegistry.js'
 import type { Rule } from '../rules/Rule.js'
 import type { AgentRegistry } from './AgentRegistry.js'
-import type { ExecutionRegistry } from './ExecutionRegistry.js'
 
 /**
  * Tope de la cadena de derivación de eventos (EmitAction, AgentAction con
@@ -29,7 +28,6 @@ export class Engine {
     private readonly agents: AgentRegistry,
     private readonly actions: ActionRegistry,
     private readonly projects: ProjectRegistry,
-    private readonly executions: ExecutionRegistry,
   ) {}
 
   register(rule: Rule): void {
@@ -41,9 +39,9 @@ export class Engine {
   }
 
   /**
-   * 1) ¿el evento le habla a un run en vuelo? `executions.tryAppend` corta
+   * 1) ¿el evento le habla a un run en vuelo? `Execution.tryAppend` corta
    *    acá si sí — el mensaje se lo queda esa Execution, ninguna Rule se
-   *    reevalúa para este evento (ver ExecutionRegistry/Execution).
+   *    reevalúa para este evento (ver engine/Execution.ts).
    * 2) si no, matchea Rules desde cero y las corre: TODAS las no-exclusive
    *    matcheadas EN PARALELO (Promise.all — son pipelines independientes);
    *    si alguna matcheada es `exclusive`, en cambio corre SÓLO la de mayor
@@ -53,7 +51,7 @@ export class Engine {
     throw new Error(
       'not implemented — if (event.depth >= MAX_EVENT_DEPTH) return (loguear y abandonar la cadena); ' +
         'const taskId = event.scope?.issueId; ' +
-        'if (this.executions.tryAppend(taskId, toMessage(event))) return; ' +
+        'if (Execution.tryAppend(taskId, toMessage(event))) return; ' +
         'const project = event.scope?.projectId ? this.projects.resolve(event.scope.projectId) : undefined; ' +
         'const matched = this.rules.filter(r => r.matches(event, project)); ' +
         'const survived = []; for (r of matched) if (await r.matchesText(event)) survived.push(r); ' +
@@ -61,7 +59,7 @@ export class Engine {
         'const toRun = exclusive ? [exclusive] : survived.filter(r => !r.exclusive); ' +
         'resuelve task del event.scope; ' +
         'await Promise.all(toRun.map(r => r.execute({event, task, steps: {}, agents: this.agents, ' +
-        'actions: this.actions, bus: this.bus, executions: this.executions})))',
+        'actions: this.actions, bus: this.bus})))',
     )
   }
 }
