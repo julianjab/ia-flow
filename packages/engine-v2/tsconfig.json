@@ -6,9 +6,8 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noEmit": true
+    "declaration": true,
+    "outDir": "./dist"
   },
   "include": ["src/**/*"]
 }
