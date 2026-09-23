@@ -1,3 +1,4 @@
+import { getShellRunner } from '../infra/ShellRunner.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 import { Catalog } from '../shared/Catalog.js'
 import { ExecutionLog } from './ExecutionLog.js'
@@ -329,9 +330,14 @@ export class Agent {
     if (outcome === ERROR_EXIT || NO_TRANSITION_OUTCOMES.includes(outcome as NoTransitionOutcome)) {
       return outcome
     }
-    throw new Error(
-      'not implemented — correr this.verify[] en el worktree del subject; cualquier exit != 0 => ERROR_EXIT',
-    )
+    if (getShellRunner() == null) {
+      throw new Error('Agent.verify necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)')
+    }
+    // Mismo gap que ScriptAction.run: falta resolver el cwd del worktree de
+    // `subject` (WorkspacePlan no está cableado en AgentSubject a propósito
+    // — ver AgentSubject, shape mínimo). Con eso resuelto, esto corre
+    // this.verify[] con el runner y devuelve ERROR_EXIT si algún exit != 0.
+    throw new Error('not implemented — falta resolver el cwd del worktree antes de poder verificar')
   }
 
   /**

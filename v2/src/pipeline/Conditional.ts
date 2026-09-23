@@ -1,4 +1,11 @@
+import { getTextClassifier } from '../infra/TextClassifier.js'
 import { Condition } from './Condition.js'
+
+/** Cacheado por (instancia, payload) — un clasificador es una llamada a un
+ *  modelo, y el mismo evento puede disparar el mismo chequeo más de una vez
+ *  (ej. Pipeline.matches + Engine.dispatch reevaluando). `WeakMap` para que
+ *  la cache muera con la instancia, sin necesidad de invalidarla a mano. */
+const textCache = new WeakMap<Conditional, Map<string, boolean>>()
 
 export interface ConditionalProps {
   when?: Condition[]
@@ -43,7 +50,23 @@ export abstract class Conditional {
   /** Evalúa `this.whenText` — impuro (clasificador), cacheado por (this, payload). Ausente ⇒ true. */
   async matchesConditionText(payload: Record<string, unknown>): Promise<boolean> {
     if (this.whenText == null) return true
-    throw new Error('not implemented — clasificador tipo Haiku contra this.whenText')
+
+    const key = JSON.stringify(payload)
+    const cached = textCache.get(this)?.get(key)
+    if (cached != null) return cached
+
+    const classifier = getTextClassifier()
+    if (classifier == null) {
+      throw new Error(
+        'whenText requiere un TextClassifier — ver infra/TextClassifier.js (setTextClassifier)',
+      )
+    }
+    const result = await classifier.classify(this.whenText, payload)
+
+    const entries = textCache.get(this) ?? new Map<string, boolean>()
+    entries.set(key, result)
+    textCache.set(this, entries)
+    return result
   }
 
   /** Atajo para el caso común: los dos gates, en el orden barato-primero. */

@@ -37,7 +37,9 @@ export class Condition {
     }
   }
 
-  private static getPath(payload: Record<string, unknown>, path: string): unknown {
+  /** Pública porque HttpAction la reusa para interpolar `{{path}}` en
+   *  url/headers/body — mismo recorrido de path anidado, un solo lugar. */
+  static getPath(payload: Record<string, unknown>, path: string): unknown {
     return path
       .split('.')
       .reduce<unknown>(
