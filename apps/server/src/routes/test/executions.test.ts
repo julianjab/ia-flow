@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import * as agentEngine from '@ia-flow/agent-engine'
 import type { ExecutionLog } from '@ia-flow/shared'
+import { fakeContainerBase } from './fakeContainer.js'
 
 // executions.ts imports executionLogRepo from composition/container.js
 // (service locator) and getPendingTask/removePendingTask from
@@ -50,7 +51,11 @@ const getPendingTaskMock = spyOn(agentEngine, 'getPendingTask').mockImplementati
 )
 const removePendingTaskMock = spyOn(agentEngine, 'removePendingTask').mockImplementation(() => {})
 
+// Ver fakeContainer.ts sobre por qué esto lleva la superficie completa y no
+// sólo executionLogRepo/executionStatsRepo/INSTANCE_ID (lo único que ESTE
+// router usa).
 mock.module('../../composition/container.js', () => ({
+  ...fakeContainerBase(),
   executionLogRepo: fakeRepo,
   executionStatsRepo: {},
   INSTANCE_ID: 'this-runner',

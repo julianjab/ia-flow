@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import type { Blocker, SourceItem } from '@ia-flow/issue-sources'
+import { fakeContainerBase } from './fakeContainer.js'
 
 // Mismo motivo que executions.test.ts: el router importa el container, que
 // abre una conexión SQLite real como efecto de import.
@@ -33,8 +34,15 @@ const source = {
   },
 }
 
+// Ver fakeContainer.ts sobre por qué esto lleva la superficie completa y no
+// sólo projectRepo/sourceFactory (lo único que ESTE router usa).
 mock.module('../../composition/container.js', () => ({
-  projectRepo: { get: (id: string) => (id === 'p1' ? { id: 'p1' } : null) },
+  ...fakeContainerBase(),
+  projectRepo: {
+    get: (id: string) => (id === 'p1' ? { id: 'p1' } : null),
+    getDefaultId: () => null,
+    list: () => [],
+  },
   sourceFactory: { get: () => source },
 }))
 
