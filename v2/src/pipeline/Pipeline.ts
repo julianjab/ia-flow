@@ -1,5 +1,7 @@
 import type { Project } from '../domain/Project.js'
+import { AgentAction } from './actions/AgentAction.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
+import { Agent } from '../engine/Agent.js'
 import type { PipelineActionEntry, PipelineExecutionContext } from './actions/PipelineActionEntry.js'
 import { Conditional, type ConditionalProps } from './Conditional.js'
 
@@ -72,11 +74,20 @@ export class Pipeline extends Conditional {
    * — ahí sólo corren los filtros que no lo necesitan.
    */
   matches(event: DomainEvent, project?: Project): boolean {
-    throw new Error(
-      'not implemented — this.enabled && this.on.includes(event.type) && matchScope(this, event) && ' +
-        '!(project?.disablesPipeline(this) ?? false) && ' +
-        'this.matchesConditions(event.payload, project?.settings.baseWhen ?? [])',
-    )
+    if (!this.enabled) return false
+    if (!this.on.includes(event.type)) return false
+    if (!this.matchesScope(event)) return false
+    if (project?.disablesPipeline(this) ?? false) return false
+    return this.matchesConditions(event.payload, project?.settings.baseWhen ?? [])
+  }
+
+  /** `projectId`/`repoName` null/ausente = sin restricción; un valor
+   *  estrecha (fail-closed) — el evento tiene que traer ESE valor exacto
+   *  en `scope`, no alcanza con que esté presente cualquiera. */
+  private matchesScope(event: DomainEvent): boolean {
+    if (this.projectId != null && event.scope?.projectId !== this.projectId) return false
+    if (this.repoName != null && !(event.scope?.repos ?? []).includes(this.repoName)) return false
+    return true
   }
 
   /** Gate async aparte porque es impuro — delega en el heredado de Conditional. */
@@ -88,15 +99,23 @@ export class Pipeline extends Conditional {
    * Corre this.do en orden; cada paso puede leer ctx.steps de los anteriores
    * (input) y ctx.nextSchema del paso siguiente (para qué schema debe
    * cumplir su output, sólo cuando el siguiente es un AgentAction) —
-   * recalculado antes de CADA step, no acumulativo como ctx.steps.
+   * recalculado antes de CADA step, no acumulativo como ctx.steps. Un paso
+   * saltado (`shouldRun` false) no deja rastro en `ctx.steps`.
    */
   async execute(ctx: PipelineExecutionContext): Promise<Record<string, unknown>> {
-    throw new Error(
-      'not implemented — for (i, step) of this.do.entries(): if !step.shouldRun(ctx) mark skipped y seguir; ' +
-        'const next = this.do[i + 1]; ' +
-        'ctx.nextSchema = next instanceof AgentAction ? Agent.resolve(next.agentId)?.output : undefined; ' +
-        'try { out = await step.run(ctx); if (step.id) ctx.steps[step.id] = out } ' +
-        'catch (e) { if (!step.continueOnError) throw e }',
-    )
+    const runCtx: PipelineExecutionContext = { ...ctx, pipelineId: this.id }
+    for (let i = 0; i < this.do.length; i++) {
+      const step = this.do[i]
+      if (!step.shouldRun(runCtx)) continue
+      const next = this.do[i + 1]
+      runCtx.nextSchema = next instanceof AgentAction ? Agent.resolve(next.agentId)?.output : undefined
+      try {
+        const out = await step.run(runCtx)
+        if (step.id) runCtx.steps[step.id] = out
+      } catch (err) {
+        if (!step.continueOnError) throw err
+      }
+    }
+    return runCtx.steps
   }
 }

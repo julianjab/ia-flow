@@ -42,6 +42,7 @@ export {
 } from './engine/Agent.js'
 export { AgentRunEntity } from './engine/AgentRunEntity.js'
 export { Engine, MAX_EVENT_DEPTH } from './engine/Engine.js'
+export type { TaskResolver } from './engine/Engine.js'
 export type {
   ExecutionEntity,
   ExecutionMessage,
