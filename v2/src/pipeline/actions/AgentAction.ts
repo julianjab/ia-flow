@@ -57,7 +57,7 @@ export class AgentAction extends PipelineActionEntry {
         'PendingTask.register(new PendingTask({taskId: ctx.task.id, projectId: project?.id, agentId: agent.id})); ' +
         'new Execution({pipelineId, doId: this.id, taskId: ctx.task?.id, kind: "agent", ' +
         'entity: new AgentRunEntity()}) ANTES de arrancar (se autoindexa en su constructor); ' +
-        'try { agent.run({task: ctx.task, brief: this.brief, expectedOutput: ctx.nextSchema}); ' +
+        'try { agent.run({subject: ctx.task, brief: this.brief, expectedOutput: ctx.nextSchema}); ' +
         'execution.complete() } catch { execution.fail() } finally { PendingTask.remove(ctx.task.id) }; ' +
         'si emitOn=="exit" ctx.bus.publish(ctx.event.derive(this.emitType ?? "run.finished", {...}))',
     )

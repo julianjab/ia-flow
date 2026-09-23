@@ -1,4 +1,3 @@
-import type { Task } from '../domain/Task.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 import { ExecutionLog } from './ExecutionLog.js'
 import { Tool } from './Tool.js'
@@ -110,8 +109,34 @@ export interface AgentDefinitionProps {
   comment?: CommentTarget
 }
 
+/**
+ * Lo mínimo que Agent necesita de "eso sobre lo que está trabajando" — NO
+ * necesariamente una Task. `onStart`/`finalize` sólo tocan estos tres
+ * miembros, así que Agent nunca importa `Task` ni sabe que existe: un PR,
+ * un mensaje, o cualquier cosa futura sirve con sólo tener esta forma
+ * (structural typing — nadie necesita `implements AgentSubject`
+ * explícito). Mismo criterio que `Project.disablesPipeline(pipeline: {id,
+ * projectId})`: shape mínimo en vez del tipo completo, para no crear un
+ * acoplamiento que nadie pidió. Quien SÍ conoce Task (AgentAction, dueño
+ * de `ctx.task`) se la pasa tal cual — Task ya cumple esta forma sin
+ * ningún cambio.
+ */
+export interface AgentSubject {
+  readonly id: string
+  agentWorking: boolean
+  transitionTo(status: string): void
+}
+
 export interface AgentRunInput {
-  task: Task
+  /** Ausente cuando el agente corre directo sobre un evento sin nada
+   *  asociado todavía — un normalizador/triage que recién va a CREAR una
+   *  Task (ver `normalize:*` en el README), o un agente que sólo reacciona
+   *  a un evento y nunca necesita una. `onStart`/`finalize` no asumen que
+   *  existe: sin `subject` no hay `agentWorking` que marcar ni transición
+   *  que aplicar, sólo corre el loop y devuelve su outcome. Tipado como
+   *  `AgentSubject` (shape mínimo) y no como `Task` a propósito — Agent no
+   *  necesita saber qué es lo que tiene semejante forma. */
+  subject?: AgentSubject
   /** Obligatorio cuando este Agent corre como sub-agente (run_agent en v1) —
    *  el hijo no hereda contexto del padre. */
   brief?: string
@@ -237,25 +262,27 @@ export class Agent {
    */
   async run(input: AgentRunInput): Promise<AgentRunOutput> {
     const startedAt = new Date()
-    await this.onStart(input.task)
+    await this.onStart(input.subject)
     let outcome: string
     let error: unknown
     try {
       outcome = await this.execute(input)
-      outcome = await this.verifyWorktree(input.task, outcome)
+      outcome = await this.verifyWorktree(input.subject, outcome)
     } catch (err) {
       outcome = ERROR_EXIT
       error = err
     }
-    return this.finalize(outcome, input.task, startedAt, error)
+    return this.finalize(outcome, input.subject, startedAt, error)
   }
 
-  /** Marca el task como working — sólo el estado que este dominio posee
-   *  (`task.agentWorking`); persistirlo en la fuente remota (setAgentWorking
-   *  en v1) es un efecto de borde que le corresponde a un port que este
-   *  esqueleto todavía no tiene (no hay IssueSource — ver README). */
-  protected async onStart(task: Task): Promise<void> {
-    task.agentWorking = true
+  /** Sin `subject` no hay nada que marcar — un agente de triage/normalización
+   *  que corre directo sobre un evento no tiene todavía un `subject` que
+   *  poner en working (puede ser justo el que lo va a CREAR). Con `subject`,
+   *  marca sólo el estado que este dominio posee (`subject.agentWorking`);
+   *  persistirlo en la fuente remota (setAgentWorking en v1) es un efecto
+   *  de borde de un port que este esqueleto todavía no tiene. */
+  protected async onStart(subject?: AgentSubject): Promise<void> {
+    if (subject != null) subject.agentWorking = true
   }
 
   /**
@@ -268,7 +295,7 @@ export class Agent {
     throw new Error(
       'not implemented — const providerId = typeof this.provider === "string" ? this.provider : ' +
         'desempatar candidatos por when/whenText o clasificador; const provider = Provider.resolve(providerId); ' +
-        'if (!(await provider.canAccept({task: input.task, agentId: this.id, running, cap: this.maxConcurrentDispatches})).accept) throw ...; ' +
+        'if (!(await provider.canAccept({agentId: this.id, running, cap: this.maxConcurrentDispatches})).accept) throw ...; ' +
         'const tools = this.tools.filter(t => { ' +
         'const name = typeof t === "string" ? t : t.name; ' +
         'const def = Tool.resolve(name); return def == null || def.supports(provider.kind) }); ' +
@@ -287,9 +314,23 @@ export class Agent {
    * aplique una transición. Un exit != 0 devuelve ERROR_EXIT (failureClass
    * `verify_failed`) en vez del outcome recibido; no corre si outcome ya es
    * error/truncated/cancelled.
+   *
+   * Sin `subject` no hay worktree — nada que verificar, se devuelve
+   * `outcome` tal cual. Los tres guards (sin subject / sin `verify[]` /
+   * outcome ya cerrado) son lógica pura; sólo la ejecución real de los
+   * comandos necesita un port de shell que este esqueleto no tiene todavía
+   * (y ahí sí va a necesitar más que `AgentSubject` — repos del worktree —
+   * pero eso lo resuelve quien implemente esta rama, no esta firma).
    */
-  protected async verifyWorktree(task: Task, outcome: string): Promise<string> {
-    throw new Error('not implemented')
+  protected async verifyWorktree(subject: AgentSubject | undefined, outcome: string): Promise<string> {
+    if (subject == null) return outcome
+    if (this.verify.length === 0) return outcome
+    if (outcome === ERROR_EXIT || NO_TRANSITION_OUTCOMES.includes(outcome as NoTransitionOutcome)) {
+      return outcome
+    }
+    throw new Error(
+      'not implemented — correr this.verify[] en el worktree del subject; cualquier exit != 0 => ERROR_EXIT',
+    )
   }
 
   /**
@@ -302,18 +343,20 @@ export class Agent {
    */
   protected async finalize(
     outcome: string,
-    task: Task,
+    subject: AgentSubject | undefined,
     startedAt: Date,
     error?: unknown,
   ): Promise<AgentRunOutput> {
-    task.agentWorking = false
     const exit = this.matchExit(outcome)
-    const nextStatus = exitSet(exit)
-    if (nextStatus != null) task.transitionTo(nextStatus)
+    if (subject != null) {
+      subject.agentWorking = false
+      const nextStatus = exitSet(exit)
+      if (nextStatus != null) subject.transitionTo(nextStatus)
+    }
     ExecutionLog.append(
       new ExecutionLog({
         id: crypto.randomUUID(),
-        taskId: task.id,
+        taskId: subject?.id,
         agentId: this.id,
         outcome,
         exit,
