@@ -1,3 +1,4 @@
+import { Repo } from '../../domain/Repo.js'
 import { getSecretResolver } from '../../infra/SecretResolver.js'
 import { getShellRunner } from '../../infra/ShellRunner.js'
 import { Condition } from '../Condition.js'
@@ -6,6 +7,8 @@ import {
   type PipelineActionEntryProps,
   type PipelineExecutionContext,
 } from './PipelineActionEntry.js'
+
+const INTERPRETER: Record<ScriptRuntime, string> = { bash: 'bash', python: 'python3' }
 
 export type ScriptRuntime = 'bash' | 'python'
 
@@ -80,11 +83,28 @@ export class ScriptAction extends PipelineActionEntry {
     if (runner == null) {
       throw new Error('ScriptAction necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)')
     }
-    // La resolución del cwd (dónde vive el worktree de esta task) todavía no
-    // está cableada en PipelineExecutionContext — ver README, "Lo que sigue
-    // sin decidir" (ports reales / hidratación de workspace).
-    throw new Error(
-      'not implemented — falta resolver el cwd del worktree antes de poder llamar runner.run(...)',
-    )
+
+    // Sin Provider (a diferencia de un AgentAction), la ÚNICA fuente de cwd
+    // posible es el override manual de Repo.path — no hay a quién pedirle
+    // un WorkspacePlan. Si el repo no tiene `path` seteado, ScriptAction no
+    // tiene dónde correr y lo dice, en vez de adivinar `process.cwd()`.
+    const repoName = ctx.task?.primaryRepo
+    const projectId = ctx.task?.projectId
+    const repo = repoName != null && projectId != null ? Repo.resolve(projectId, repoName) : undefined
+    if (repo?.path == null) {
+      throw new Error(
+        'ScriptAction necesita Repo.path seteado para la task/repo actual — sin Provider no hay otra forma de resolver el cwd',
+      )
+    }
+
+    const result = await runner.run(INTERPRETER[this.runtime], [this.file, ...this.args], {
+      cwd: repo.path,
+      env,
+      timeoutMs: this.timeoutMs,
+    })
+    if (result.exitCode !== 0) {
+      throw new Error(`ScriptAction "${this.file}" salió con código ${result.exitCode}: ${result.stderr}`)
+    }
+    return result
   }
 }
