@@ -26,8 +26,8 @@ export class EmitAction extends RuleActionEntry {
 
   async run(ctx: RuleExecutionContext): Promise<unknown> {
     throw new Error(
-      'not implemented — ctx.bus.publish(new DomainEvent(this.type, this.payload, ' +
-        '{ scope: this.scope, causationId: ctx.event.type + ":" + ctx.event.occurredAt.toISOString(), depth: ctx.event.depth + 1 }))',
+      'not implemented — ctx.bus.publish(ctx.event.derive(this.type, this.payload, this.scope)) ' +
+        '— derive() ya arma causationId/depth correctamente, Engine.dispatch corta contra MAX_EVENT_DEPTH',
     )
   }
 }
