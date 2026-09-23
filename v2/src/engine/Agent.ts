@@ -161,18 +161,22 @@ export class Agent {
    * revertir esa marca salvo terminar el run — así que todo lo que sigue va
    * en un try/catch que embudea cualquier falla (de execute, de verify, o un
    * throw inesperado) hacia finalize(ERROR_EXIT, ...) en vez de propagar y
-   * dejar el issue trabado hasta el próximo crashRecovery.
+   * dejar el issue trabado hasta el próximo crashRecovery. El error se le
+   * pasa a finalize (no se descarta) para que el ExecutionLog y el comentario
+   * de cierre puedan explicar POR QUÉ falló, no sólo que falló.
    */
   async run(input: AgentRunInput): Promise<AgentRunOutput> {
     await this.onStart(input.task)
     let outcome: string
+    let error: unknown
     try {
       outcome = await this.execute(input)
       outcome = await this.verifyWorktree(input.task, outcome)
-    } catch {
+    } catch (err) {
       outcome = ERROR_EXIT
+      error = err
     }
-    return this.finalize(outcome, input.task)
+    return this.finalize(outcome, input.task, error)
   }
 
   /** Marca el task como working en la fuente (setAgentWorking en v1). */
@@ -196,8 +200,15 @@ export class Agent {
     throw new Error('not implemented')
   }
 
-  /** Matchea el outcome contra this.exits, aplica la transición y graba el ExecutionLog. */
-  protected async finalize(outcome: string, task: Task): Promise<AgentRunOutput> {
+  /**
+   * Matchea el outcome contra this.exits, aplica la transición y graba el
+   * ExecutionLog. `error` viene seteado cuando run() capturó una falla de
+   * execute/verify — su mensaje va al ExecutionLog y al comentario de cierre.
+   * Tiene que ser resiliente (mismo motivo que safeUpdateLog/safeInsertLog en
+   * execution-log.ts de v1): un fallo ACÁ no puede dejar agent_working=true
+   * sin aplicar ningún exit, porque run() ya no tiene otro punto de recuperación.
+   */
+  protected async finalize(outcome: string, task: Task, error?: unknown): Promise<AgentRunOutput> {
     throw new Error('not implemented')
   }
 

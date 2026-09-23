@@ -11,7 +11,7 @@
       "!**/*.sqlite",
       "!**/apps/web/src/**/*.vue",
       "!**/handoff",
-      "!v2/**"
+      "!v2"
     ]
   },
   "formatter": {
