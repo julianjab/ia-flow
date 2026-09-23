@@ -1,5 +1,5 @@
 import type { Task } from '../domain/Task.js'
-import type { Condition } from '../rules/Condition.js'
+import { Conditional, type ConditionalProps } from '../rules/Conditional.js'
 
 export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none'
 
@@ -9,6 +9,12 @@ export type AgentExit = string | { set: string; when?: string; comment?: Comment
 
 export const SUCCESS_EXIT = 'success'
 export const ERROR_EXIT = 'error'
+
+/** Outcomes que NO aplican ninguna transición — el run se cortó desde afuera
+ *  (cancel manual, upstream abort truncando el stream), no es un resultado
+ *  del agente. Ver Agent.matchExit. */
+export const NO_TRANSITION_OUTCOMES = ['cancelled', 'truncated'] as const
+export type NoTransitionOutcome = (typeof NO_TRANSITION_OUTCOMES)[number]
 
 export function exitSet(exit: AgentExit | undefined): string | undefined {
   if (exit == null) return undefined
@@ -27,10 +33,21 @@ export function resolveCommentTarget(
   return exitComment(exit) ?? agentDefault ?? 'pr-else-issue'
 }
 
-export interface AgentProviderChoice {
+export interface AgentProviderChoiceProps extends ConditionalProps {
   providerId: string
-  when?: Condition[]
-  whenText?: string
+}
+
+/** Un candidato dentro de un `Agent.provider` array. Hereda `when`/`whenText`
+ *  de `Conditional` — acá desempatan entre VARIOS providers candidatos, a
+ *  diferencia del `whenText` de `Rule`/`AgentActivation`, que decide si el
+ *  ÚNICO candidato corre o no. Mismo campo, semántica distinta por contexto. */
+export class AgentProviderChoice extends Conditional {
+  readonly providerId: string
+
+  constructor(props: AgentProviderChoiceProps) {
+    super(props)
+    this.providerId = props.providerId
+  }
 }
 
 /** string = un solo provider, resuelto directo. Array = varios candidatos,
@@ -96,6 +113,11 @@ export interface AgentRunInput {
   /** Obligatorio cuando este Agent corre como sub-agente (run_agent en v1) —
    *  el hijo no hereda contexto del padre. */
   brief?: string
+  /** Schema que el output ESTRUCTURADO de este run debería cumplir, cuando
+   *  el próximo `do` de la cadena es un agente que lo necesita como input
+   *  tipado (viaja desde RuleExecutionContext.nextSchema). Ausente: el
+   *  agente corre con su propio `output` declarado, sin hand-off. */
+  expectedOutput?: AgentOutput
 }
 
 export interface AgentRunOutput {
@@ -212,10 +234,26 @@ export class Agent {
     throw new Error('not implemented')
   }
 
+  /**
+   * Matchea un outcome (el que puso `execute`/`verifyWorktree`, o el `exit`
+   * que el modelo eligió vía `select_exit`) contra `this.exits`.
+   *
+   * `cancelled`/`truncated` devuelven `undefined` A PROPÓSITO — no son un
+   * fallo del agente, son el run cortado desde afuera (cancel manual,
+   * upstream abort, límite de tool-use truncado). Aplicarles ERROR_EXIT
+   * comentaría un fallo que no ocurrió y movería el issue a donde v1 mueve
+   * un error real. `finalize` no aplica ninguna transición cuando esto
+   * devuelve `undefined` — mismo comportamiento que Agent.ts en v1.
+   *
+   * Cualquier otro nombre que no está en `this.exits` cae a `ERROR_EXIT`: es
+   * la red para un outcome desconocido, pero el nombre bien formado (que
+   * venga de `select_exit`) tiene que validarse ANTES de esto —
+   * `AgentRegistry.register` es donde correspondería rechazar un agente cuyo
+   * `output`/exits declaran algo inconsistente, no acá en cada run.
+   */
   matchExit(outcomeName: string): AgentExit | undefined {
-    return (
-      this.exits[outcomeName] ?? this.exits[outcomeName === 'success' ? SUCCESS_EXIT : ERROR_EXIT]
-    )
+    if (NO_TRANSITION_OUTCOMES.includes(outcomeName as NoTransitionOutcome)) return undefined
+    return this.exits[outcomeName] ?? this.exits[ERROR_EXIT]
   }
 
   hasWriteTools(): boolean {

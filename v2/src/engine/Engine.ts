@@ -1,8 +1,19 @@
+import type { ProjectRegistry } from '../domain/ProjectRegistry.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { ActionRegistry } from '../rules/ActionRegistry.js'
 import type { Rule } from '../rules/Rule.js'
 import type { AgentRegistry } from './AgentRegistry.js'
+import type { ExecutionRegistry } from './ExecutionRegistry.js'
+
+/**
+ * Tope de la cadena de derivación de eventos (EmitAction, AgentAction con
+ * emitOn: 'exit'). Sin esto, una regla que se re-emite a sí misma —directo,
+ * o a través de un ciclo de N reglas— no tiene fondo: cada evento derivado
+ * vuelve a matchear la misma regla y dispara otro. Equivalente a
+ * EngineEvent.depth en v1.
+ */
+export const MAX_EVENT_DEPTH = 10
 
 /**
  * Dueño del roster de Rule y de despacharlas contra cada evento del bus.
@@ -17,6 +28,8 @@ export class Engine {
     private readonly bus: EventBus,
     private readonly agents: AgentRegistry,
     private readonly actions: ActionRegistry,
+    private readonly projects: ProjectRegistry,
+    private readonly executions: ExecutionRegistry,
   ) {}
 
   register(rule: Rule): void {
@@ -27,11 +40,28 @@ export class Engine {
     throw new Error('not implemented — this.bus.subscribe("*", event => this.dispatch(event))')
   }
 
+  /**
+   * 1) ¿el evento le habla a un run en vuelo? `executions.tryAppend` corta
+   *    acá si sí — el mensaje se lo queda esa Execution, ninguna Rule se
+   *    reevalúa para este evento (ver ExecutionRegistry/Execution).
+   * 2) si no, matchea Rules desde cero y las corre: TODAS las no-exclusive
+   *    matcheadas EN PARALELO (Promise.all — son pipelines independientes);
+   *    si alguna matcheada es `exclusive`, en cambio corre SÓLO la de mayor
+   *    prioridad (menor `position`) entre las exclusive, y ninguna otra.
+   */
   async dispatch(event: DomainEvent): Promise<void> {
     throw new Error(
-      'not implemented — filtra this.rules por matches()+matchesText(), resuelve task del event.scope, ' +
-        'ejecuta rule.execute({event, task, steps: {}, agents: this.agents, actions: this.actions, bus: this.bus}) ' +
-        'en orden de position, corta en la primera exclusive',
+      'not implemented — if (event.depth >= MAX_EVENT_DEPTH) return (loguear y abandonar la cadena); ' +
+        'const taskId = event.scope?.issueId; ' +
+        'if (this.executions.tryAppend(taskId, toMessage(event))) return; ' +
+        'const project = event.scope?.projectId ? this.projects.resolve(event.scope.projectId) : undefined; ' +
+        'const matched = this.rules.filter(r => r.matches(event, project)); ' +
+        'const survived = []; for (r of matched) if (await r.matchesText(event)) survived.push(r); ' +
+        'const exclusive = survived.filter(r => r.exclusive).sort(by position).at(0); ' +
+        'const toRun = exclusive ? [exclusive] : survived.filter(r => !r.exclusive); ' +
+        'resuelve task del event.scope; ' +
+        'await Promise.all(toRun.map(r => r.execute({event, task, steps: {}, agents: this.agents, ' +
+        'actions: this.actions, bus: this.bus, executions: this.executions})))',
     )
   }
 }
