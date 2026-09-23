@@ -1,7 +1,6 @@
 import type { Task } from '../../domain/Task.js'
 import type { AgentOutput } from '../../engine/Agent.js'
 import type { AgentRegistry } from '../../engine/AgentRegistry.js'
-import type { ExecutionRegistry } from '../../engine/ExecutionRegistry.js'
 import type { DomainEvent } from '../../events/DomainEvent.js'
 import type { EventBus } from '../../events/EventBus.js'
 import type { ActionRegistry } from '../ActionRegistry.js'
@@ -21,9 +20,6 @@ export interface RuleExecutionContext {
   readonly agents: AgentRegistry
   readonly actions: ActionRegistry
   readonly bus: EventBus
-  /** Registry de Executions en vuelo — un AgentAction lo consulta para
-   *  liveInject y se registra ahí mientras corre (ver Execution/paso 5). */
-  readonly executions: ExecutionRegistry
   /**
    * Schema que el output de ESTE paso debería cumplir, cuando el siguiente
    * `do` de la cadena es un AgentAction que lo necesita como input tipado.
