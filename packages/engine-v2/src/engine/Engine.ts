@@ -22,6 +22,7 @@ export const MAX_EVENT_DEPTH = 10
  *  aplica en el próximo dispatch. */
 export interface PipelineSource {
   list(): Promise<Pipeline[]>
+  list(projectId: string): Promise<Pipeline[]>
 }
 
 /**
@@ -101,7 +102,13 @@ export class Engine {
 
     await Promise.all(
       toRun.map((p) =>
-        p.execute({ event, steps: {}, bus: this.bus, pipelineId: p.id, sources: this.sources }),
+        p.execute({
+          event,
+          steps: {},
+          bus: this.bus,
+          pipelineId: p.id,
+          sources: this.sources,
+        }),
       ),
     )
     return 'dispatched'

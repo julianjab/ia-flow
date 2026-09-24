@@ -44,7 +44,9 @@ export class Condition {
       .split('.')
       .reduce<unknown>(
         (acc, key) =>
-          acc != null && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined,
+          acc != null && typeof acc === 'object'
+            ? (acc as Record<string, unknown>)[key]
+            : undefined,
         payload,
       )
   }

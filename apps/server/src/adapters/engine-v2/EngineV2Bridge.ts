@@ -1,5 +1,5 @@
-import type { EventHandler, EventOutcome } from '@ia-flow/rules'
 import { DomainEvent, type Engine } from '@ia-flow/engine-v2'
+import type { EventHandler, EventOutcome } from '@ia-flow/rules'
 import type { EngineEvent } from '@ia-flow/shared'
 
 /**

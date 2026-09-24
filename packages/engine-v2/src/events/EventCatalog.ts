@@ -47,7 +47,13 @@ export type EventType = keyof EventCatalog
 export function catalogedEvent<T extends EventType>(
   type: T,
   payload: EventCatalog[T],
-  opts?: { id?: string; scope?: DomainEventScope; occurredAt?: Date; causationId?: string; depth?: number },
+  opts?: {
+    id?: string
+    scope?: DomainEventScope
+    occurredAt?: Date
+    causationId?: string
+    depth?: number
+  },
 ): DomainEvent<EventCatalog[T]> {
   return new DomainEvent(type, payload, opts)
 }

@@ -1,5 +1,9 @@
 import type { DomainEventScope } from '../../events/DomainEvent.js'
-import { PipelineActionEntry, type PipelineActionEntryProps, type PipelineExecutionContext } from './PipelineActionEntry.js'
+import {
+  PipelineActionEntry,
+  type PipelineActionEntryProps,
+  type PipelineExecutionContext,
+} from './PipelineActionEntry.js'
 
 export interface EmitActionProps extends PipelineActionEntryProps {
   type: string
