@@ -1,9 +1,13 @@
 import { getShellRunner } from '../infra/ShellRunner.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 import { Catalog } from '../shared/Catalog.js'
+import { Execution } from './Execution.js'
 import { ExecutionLog } from './ExecutionLog.js'
+import { McpCatalogEntry } from './McpCatalogEntry.js'
+import { Provider } from './Provider.js'
+import { SystemPromptEntry } from './SystemPromptEntry.js'
 import { Tool } from './Tool.js'
-import type { WorkspacePlan } from './Workspace.js'
+import type { WorkspacePlan, WorkspaceRequest } from './Workspace.js'
 
 export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none'
 
@@ -150,6 +154,34 @@ export interface AgentRunInput {
    *  sólo garantiza que la combinación tool↔provider sea válida antes de
    *  que el Provider la vea. */
   tools?: AgentToolEntry[]
+  /** Coordenadas de workspace (repos + branch + workflow), NO paths de una
+   *  máquina — lo arma quien llama a `Agent.run()` (AgentAction, leyendo
+   *  `event.scope`) porque `Agent` no conoce repos. `Agent.execute()` lo
+   *  reenvía a `Provider.prepareWorkspace()` sólo si `this.requiresBranch`.
+   *  Ausente ⇒ el agente corre sin worktree, con lo que el Provider ya
+   *  resuelva por default. */
+  workspace?: WorkspaceRequest
+}
+
+/**
+ * Lo que un Provider necesita para poder correr, agregado por
+ * `Agent.execute()` a partir de la propia definición del agente —
+ * `AgentRunInput` es lo que un CALLER (AgentAction) sabe armar, esto es lo
+ * que sólo `Agent` mismo puede resolver (su prompt, sus variables, sus MCP,
+ * sus system prompts ya resueltos del catálogo). Separado de `AgentRunInput`
+ * a propósito: ninguno de estos campos depende del evento que disparó el
+ * run, todos salen de `AgentDefinitionProps`.
+ */
+export interface AgentRunContext extends AgentRunInput {
+  agentId: string
+  prompt: string
+  variables: Record<string, AgentVariableValue>
+  providerConfig: Record<string, unknown>
+  /** System prompts ya resueltos a texto — una entrada con `id` sin `text`
+   *  y sin catálogo se descarta en vez de fallar el run (mismo criterio
+   *  fail-open que `Tool.supports`). */
+  systemPrompts: string[]
+  mcpServers: McpCatalogEntry[]
 }
 
 export interface AgentRunOutput {
@@ -294,22 +326,78 @@ export class Agent {
    * resultado en vez de que verifyWorktree tenga que resolverlo de nuevo.
    */
   protected async execute(input: AgentRunInput): Promise<{ outcome: string; workspace?: WorkspacePlan }> {
-    throw new Error(
-      'not implemented — const providerId = typeof this.provider === "string" ? this.provider : ' +
-        'desempatar candidatos por when/whenText o clasificador; const provider = Provider.resolve(providerId); ' +
-        'if (!(await provider.canAccept({agentId: this.id, running, cap: this.maxConcurrentDispatches})).accept) throw ...; ' +
-        'const tools = this.tools.filter(t => { ' +
-        'const name = typeof t === "string" ? t : t.name; ' +
-        'const def = Tool.resolve(name); return def == null || def.supports(provider.kind) }); ' +
-        '— una tool cuyo Tool.resolve() diga que no soporta provider.kind se DESCARTA acá, no revienta el ' +
-        'run: es la misma filosofía fail-open que canAccept, y evita el bug de v1 de un agente que declara ' +
-        'bash_run/fs_* y corre en el disco equivocado; ' +
-        'const mcpServers = McpCatalogEntry.resolveAll(this.mcpCatalogIds); ' +
-        'const systemPrompts = this.systemPrompts.map(ref => ref.text ?? SystemPromptEntry.resolve(ref.id).text); ' +
-        'const workspace = this.requiresBranch ? await provider.prepareWorkspace({...}) : undefined; ' +
-        'const outcome = await provider.run({...input, tools} as AgentRunInput); ' +
-        'return { outcome: outcome.outcome, workspace }',
-    )
+    const provider = await this.resolveProvider(input.payload ?? {})
+
+    const admission = await provider.canAccept({
+      agentId: this.id,
+      running: Execution.runningForProvider(provider.id),
+      cap: provider.maxConcurrentRuns,
+    })
+    if (!admission.accept) {
+      throw new Error(
+        `Agent ${this.id}: provider "${provider.id}" no admite el run` +
+          (admission.reason != null ? ` (${admission.reason})` : ''),
+      )
+    }
+
+    // Una tool que Tool.resolve() dice que no soporta provider.kind se
+    // DESCARTA acá, no revienta el run — misma filosofía fail-open que
+    // canAccept, y evita el bug de v1 de un agente que declara bash_run/fs_*
+    // y corre en el disco equivocado.
+    const tools = this.tools.filter((t) => {
+      const name = typeof t === 'string' ? t : t.name
+      const def = Tool.resolve(name)
+      return def == null || def.supports(provider.kind)
+    })
+
+    const workspace =
+      this.requiresBranch && input.workspace != null
+        ? await provider.prepareWorkspace(input.workspace)
+        : undefined
+
+    const output = await provider.run({
+      ...input,
+      tools,
+      agentId: this.id,
+      prompt: this.prompt,
+      variables: this.variables,
+      providerConfig: this.providerConfig,
+      systemPrompts: this.resolveSystemPrompts(),
+      mcpServers: McpCatalogEntry.resolveAll(this.mcpCatalogIds),
+    })
+    return { outcome: output.outcome, workspace }
+  }
+
+  /**
+   * `this.provider` string ⇒ directo. Array ⇒ el primer candidato cuyo
+   * when/whenText matchea, en el orden declarado (la prioridad ES el orden
+   * del array). El desempate por clasificador cuando >1 candidato resuelve a
+   * la vez (el `whenText` homónimo de `AgentProviderChoiceSchema` en v1) NO
+   * está portado — hoy gana el primero que matchea, ambigüedad incluida; se
+   * agrega el día que un caso real lo necesite, no antes.
+   */
+  private async resolveProvider(payload: Record<string, unknown>): Promise<Provider> {
+    const providerId =
+      typeof this.provider === 'string' ? this.provider : await this.pickProviderChoice(payload)
+    const provider = Provider.resolve(providerId)
+    if (provider == null) throw new Error(`Agent ${this.id}: provider desconocido "${providerId}"`)
+    return provider
+  }
+
+  private async pickProviderChoice(payload: Record<string, unknown>): Promise<string> {
+    const choices = this.provider as AgentProviderChoice[]
+    for (const choice of choices) {
+      if (await choice.matchesAllConditions(payload)) return choice.providerId
+    }
+    throw new Error(`Agent ${this.id}: ningún provider candidato matchea`)
+  }
+
+  /** Una entrada con `id` que no resuelve en el catálogo se descarta, no
+   *  revienta el run — mismo criterio fail-open que el filtro de tools. */
+  private resolveSystemPrompts(): string[] {
+    return this.systemPrompts
+      .map((ref) => ref.text ?? SystemPromptEntry.resolve(ref.id ?? '')?.text)
+      .filter((text): text is string => text != null)
   }
 
   /**

@@ -1,7 +1,9 @@
 import { Agent, type AgentExit } from '../../engine/Agent.js'
 import { AgentRunEntity } from '../../engine/AgentRunEntity.js'
 import { Execution, type ExecutionMessage } from '../../engine/Execution.js'
+import type { WorkspaceRequest } from '../../engine/Workspace.js'
 import { Project } from '../../domain/Project.js'
+import { Repo } from '../../domain/Repo.js'
 import {
   PipelineActionEntry,
   type PipelineActionEntryProps,
@@ -97,6 +99,7 @@ export class AgentAction extends PipelineActionEntry {
         payload: ctx.event.payload,
         brief: this.brief,
         expectedOutput: ctx.nextSchema,
+        workspace: this.buildWorkspaceRequest(ctx, execution.id, agent, project),
       })
       execution.complete()
       if (this.emitOn === 'exit') {
@@ -113,6 +116,32 @@ export class AgentAction extends PipelineActionEntry {
     } catch (err) {
       execution.fail()
       throw err
+    }
+  }
+
+  /**
+   * Ausente cuando el agente no declara `requiresBranch` — construirlo igual
+   * sería trabajo tirado, `Agent.execute()` lo ignora salvo que lo necesite.
+   * `taskId` cae a `execution.id` cuando el evento no trae `scope.issueId`
+   * (un normalizador sin issue asociado): `WorkspaceRequest.taskId` es
+   * obligatorio porque un Provider lo usa para nombrar el worktree, y
+   * cualquier string estable sirve para eso.
+   */
+  private buildWorkspaceRequest(
+    ctx: PipelineExecutionContext,
+    executionId: string,
+    agent: Agent,
+    project?: Project,
+  ): WorkspaceRequest | undefined {
+    if (!agent.requiresBranch) return undefined
+    const repoNames = ctx.event.scope?.repos ?? []
+    return {
+      taskId: ctx.event.scope?.issueId ?? executionId,
+      repos: repoNames.map((name) => ({
+        name,
+        path: project != null ? Repo.resolve(project.id, name)?.path : undefined,
+      })),
+      needsWrite: agent.hasWriteTools(),
     }
   }
 }
