@@ -1,12 +1,24 @@
 import { groupWhenArray } from '@ia-flow/rules'
 
 // El traductor de GitHub dejó de inventar nombres de evento (`pr.opened`,
-// `ci.finished`, `issues.<action>`, …) — ver `webhook-events.ts`.
-// `EngineEvent.type` para un webhook de GitHub es ahora EXACTAMENTE el
-// nombre crudo (`pull_request`, `check_suite`, `issues`, …), y `action` se
-// filtra con `when`. Este módulo es la traducción compartida de una regla
-// (o espera) que todavía usa la taxonomía vieja — la usan DOS callers que no
-// se conocen entre sí:
+// `ci.finished`, …) — ver `webhook-events.ts`. `EngineEvent.type` para un
+// webhook de GitHub es ahora EXACTAMENTE el nombre crudo (`pull_request`,
+// `check_suite`, `issues`, …).
+//
+// **`tipo.action` (`issue_comment.created`, `projects_v2_item.edited`, …) ya
+// NO es taxonomía vieja** — `onMatchesEvent` (`@ia-flow/rules`) lo entiende
+// nativamente: prueba el literal primero y, si no matchea, separa por el
+// primer punto en `tipo` + `action`. Por eso este módulo YA NO tiene una
+// lista de prefijos dinámicos (`issue_comment`, `issues`, `projects_v2_item`,
+// `projects_v2`) — esas cuatro formas se resuelven solas en el matcher, sin
+// reescribir nada. Lo que SIGUE siendo taxonomía vieja es `STATIC_MAPPING`:
+// alias curados que apuntaban a un tipo crudo DISTINTO del alias (`pr.opened`
+// → `pull_request`, `ci.finished` → `check_suite`+`workflow_run`) — esos no
+// los resuelve el matcher porque el prefijo del alias no es un tipo real.
+//
+// Este módulo es la traducción compartida de una regla (o espera) que
+// todavía usa uno de esos alias — la usan DOS callers que no se conocen
+// entre sí:
 //
 //   - la migración `080-raw-github-event-types.ts`, sobre las filas de
 //     `rules`/`waits` en SQLite (escribe el resultado, una vez).
@@ -79,22 +91,8 @@ const STATIC_MAPPING: Record<string, Mapping> = {
   'pr.closed': { kind: 'merged_or_closed', merged: false },
 }
 
-/** `issue_comment.<action>` / `issues.<action>` / `projects_v2_item.<action>`
- *  / `projects_v2.<action>` — el sufijo YA es la acción tal cual GitHub la
- *  manda, así que la traducción es directa: el prefijo es el tipo crudo. */
-const DYNAMIC_PREFIXES = ['issue_comment', 'issues', 'projects_v2_item', 'projects_v2']
-
 function mappingFor(type: string): Mapping | null {
-  const staticHit = STATIC_MAPPING[type]
-  if (staticHit) return staticHit
-
-  for (const prefix of DYNAMIC_PREFIXES) {
-    if (type.startsWith(`${prefix}.`)) {
-      const action = type.slice(prefix.length + 1)
-      if (action) return { kind: 'simple', rawTypes: [prefix], actions: [action] }
-    }
-  }
-  return null
+  return STATIC_MAPPING[type] ?? null
 }
 
 /** Si algún tipo de la lista usa la taxonomía vieja — el chequeo barato que
@@ -117,7 +115,8 @@ function rawTypeSetOf(mapping: Mapping): string {
  * `event.type`) — así que una condición de `action` no puede distinguir
  * "esta acción, pero sólo si el evento era `pull_request`" de "esta acción,
  * venga de donde venga". Mezclar tipos curados con requisitos de `action`
- * DISTINTOS (`issues.opened` + `pr.synchronize`) o con un tipo NO curado
+ * DISTINTOS (`pr.review_submitted` + `pr.synchronize`, uno pide
+ * `pull_request_review` y el otro `pull_request`) o con un tipo NO curado
  * (`pr.opened` + `issue.status_changed`, que no tiene campo `action`) deja
  * una fila que dispara de más o de menos según el caso — ninguno de los dos
  * silenciosamente, así que mejor no tocarla.
@@ -172,8 +171,9 @@ function requirementGroups(types: readonly string[]): RawCond[][] {
     for (const value of mapping.actions) groups.push([{ field: 'action', op: '=', value }])
   }
   groups.push(...mergedClosedGroups(types))
-  // Dedup: dos tipos curados distintos (p. ej. `issues.opened` y otro que
-  // también aportara `action=opened`) no deberían dejar dos ramas OR
+  // Dedup: dos tipos curados distintos que aportaran la misma `action` (p.
+  // ej. `pr.merged` y `pr.closed` sobre el mismo `action=closed`, ya
+  // colapsado arriba por `mergedClosedGroups`) no deberían dejar dos ramas OR
   // idénticas.
   const seen = new Set<string>()
   return groups.filter((g) => {
