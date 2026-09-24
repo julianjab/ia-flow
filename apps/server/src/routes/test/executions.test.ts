@@ -1,24 +1,26 @@
 import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import * as agentEngine from '@ia-flow/agent-engine'
 import type { ExecutionLog } from '@ia-flow/shared'
-import { fakeContainerBase } from './fakeContainer.js'
+import { executionLogRepo, INSTANCE_ID } from '../../composition/container.js'
 
-// executions.ts imports executionLogRepo from composition/container.js
-// (service locator) and getPendingTask/removePendingTask from
-// @ia-flow/agent-engine directly — mock.module container.js (it opens a real
-// SQLite connection as an import side effect; same rationale as
-// agents-crud.test.ts avoiding it) BEFORE importing the route.
+// executions.ts imports executionLogRepo/INSTANCE_ID from
+// composition/container.js (service locator) and getPendingTask/
+// removePendingTask from @ia-flow/agent-engine directly.
 //
-// getPendingTask/removePendingTask are stubbed with `spyOn` instead of
-// `mock.module`: a `mock.module('@ia-flow/agent-engine', ...)` replaces the
-// module record for the WHOLE process, and any file whose import of that
-// specifier resolves AFTER this one — `pending-task-rehydrator.test.ts`
-// does, via `pending-task-rehydrator.ts` — binds to the substitute record
-// forever, even past this file's cleanup. That left `reconcileOrphanedRuns`
-// reading `pendingTask` (this file's own closure var) instead of the real
-// registry and closing a run it should have skipped. `spyOn` mutates the
-// two exports in place on the ONE real module record everyone shares, so
-// `mockRestore()` in `afterAll` is visible to every importer again.
+// Everything below is stubbed with `spyOn` on the REAL modules, never
+// `mock.module`: that replaces the module record for the WHOLE test
+// process, and any file whose import of the same specifier resolves AFTER
+// this one binds to the substitute forever, even past this file's cleanup.
+// That bit twice here — `mock.module('@ia-flow/agent-engine', ...)` would
+// have broken `pending-task-rehydrator.test.ts` (via
+// pending-task-rehydrator.ts) the same way `mock.module('.../
+// composition/container.js', ...)` broke unrelated files that needed the
+// REAL projectRepo/repoRepo/promptRepo/providerRegistry/sourceFactory —
+// providerRegistry.list() coming back `[]` from a stub even lied to
+// `relevantConfigVars()` about which providers were registered. `spyOn`
+// mutates methods in place on the ONE real module record everyone shares,
+// so `mockRestore()` in `afterAll` is visible to every importer again, and
+// every export this file doesn't touch stays the genuine one.
 const rows = new Map<string, ExecutionLog>()
 
 function seed(execs: ExecutionLog[]) {
@@ -26,24 +28,34 @@ function seed(execs: ExecutionLog[]) {
   for (const e of execs) rows.set(e.id, e)
 }
 
-const fakeRepo = {
-  listDistinctSources: mock(() => ['subscriptions-pipeline']),
-  list: mock(() => Array.from(rows.values())),
-  listActive: mock(() => Array.from(rows.values()).filter((r) => !r.finishedAt)),
-  getById: mock((id: string) => rows.get(id) ?? null),
-  update: mock((id: string, patch: Partial<ExecutionLog>) => {
+// Spyeadas directamente sobre el executionLogRepo REAL — ningún test de este
+// archivo pega contra /stats ni /agents/:agentId, así que executionStatsRepo
+// no necesita ningún stub.
+const listDistinctSourcesMock = spyOn(executionLogRepo, 'listDistinctSources').mockImplementation(
+  () => ['subscriptions-pipeline'],
+)
+const listMock = spyOn(executionLogRepo, 'list').mockImplementation(() => Array.from(rows.values()))
+const listActiveMock = spyOn(executionLogRepo, 'listActive').mockImplementation(() =>
+  Array.from(rows.values()).filter((r) => !r.finishedAt),
+)
+const getByIdMock = spyOn(executionLogRepo, 'getById').mockImplementation(
+  (id: string) => rows.get(id) ?? null,
+)
+const updateMock = spyOn(executionLogRepo, 'update').mockImplementation(
+  (id: string, patch: Partial<ExecutionLog>) => {
     const existing = rows.get(id)
     if (!existing) return
     rows.set(id, { ...existing, ...patch })
-  }),
-  insert: mock(() => {}),
-  sweepOrphaned: mock(() => 0),
-  listLatestByTask: mock((projectId: string) =>
+  },
+)
+const insertMock = spyOn(executionLogRepo, 'insert').mockImplementation(() => {})
+const sweepOrphanedMock = spyOn(executionLogRepo, 'sweepOrphaned').mockImplementation(() => [])
+const listLatestByTaskMock = spyOn(executionLogRepo, 'listLatestByTask').mockImplementation(
+  (projectId: string) =>
     projectId === 'proj-1'
       ? [{ taskId: 'task-1', attempts: 2, last: Array.from(rows.values())[0] }]
       : [],
-  ),
-}
+)
 
 let pendingTask: { cancel?: () => Promise<void> } | undefined
 const getPendingTaskMock = spyOn(agentEngine, 'getPendingTask').mockImplementation(
@@ -51,21 +63,15 @@ const getPendingTaskMock = spyOn(agentEngine, 'getPendingTask').mockImplementati
 )
 const removePendingTaskMock = spyOn(agentEngine, 'removePendingTask').mockImplementation(() => {})
 
-// Ver fakeContainer.ts sobre por qué esto lleva la superficie completa y no
-// sólo executionLogRepo/executionStatsRepo/INSTANCE_ID (lo único que ESTE
-// router usa). El spread es por-objeto (no sólo top-level): pisar
-// `executionStatsRepo` entero con `{}` tiraría stats/agentDetail si ESTE
-// stub gana la carrera — fakeRepo ya implementa IExecutionLogRepository
-// completo, así que ese no necesita mergear con el del base.
-const base = fakeContainerBase()
-mock.module('../../composition/container.js', () => ({
-  ...base,
-  executionLogRepo: fakeRepo,
-  executionStatsRepo: base.executionStatsRepo,
-  INSTANCE_ID: 'this-runner',
-}))
-
 afterAll(() => {
+  listDistinctSourcesMock.mockRestore()
+  listMock.mockRestore()
+  listActiveMock.mockRestore()
+  getByIdMock.mockRestore()
+  updateMock.mockRestore()
+  insertMock.mockRestore()
+  sweepOrphanedMock.mockRestore()
+  listLatestByTaskMock.mockRestore()
   getPendingTaskMock.mockRestore()
   removePendingTaskMock.mockRestore()
 })
@@ -97,7 +103,7 @@ describe('executions router', () => {
     pendingTask = undefined
     getPendingTaskMock.mockClear()
     removePendingTaskMock.mockClear()
-    fakeRepo.update.mockClear()
+    updateMock.mockClear()
   })
 
   test('GET /sources returns distinct sources', async () => {
@@ -118,11 +124,11 @@ describe('executions router', () => {
   // los leía: eran filtros que existían y no se podían pedir.
   test('GET / pasa regla, tipo y evento al repositorio', async () => {
     seed([makeExec({ id: 'e1' })])
-    fakeRepo.list.mockClear()
+    listMock.mockClear()
 
     await app.request('/?ruleId=ia-flow-refine&ruleId=otra&kind=script&eventId=ev-1')
 
-    expect(fakeRepo.list).toHaveBeenCalledWith(
+    expect(listMock).toHaveBeenCalledWith(
       expect.objectContaining({
         ruleId: ['ia-flow-refine', 'otra'],
         kind: 'script',
@@ -203,7 +209,7 @@ describe('executions router', () => {
       expect(body.execution.cancelRequestedAt).toEqual(expect.any(String))
       // The row stays open — this never claims the remote run actually stopped.
       expect(body.execution.finishedAt).toBeNull()
-      expect(fakeRepo.update).toHaveBeenCalledWith(
+      expect(updateMock).toHaveBeenCalledWith(
         'e1',
         expect.objectContaining({ cancelRequestedAt: expect.any(String) }),
       )
@@ -217,7 +223,10 @@ describe('executions router', () => {
     // orphan from a previous life of THIS process. It must fall through to
     // the orphan-close branch instead of being stuck as advisory-only forever.
     test('closes a same-instance orphaned row instead of treating it as remote-owned', async () => {
-      seed([makeExec({ id: 'e1', source: 'this-runner' })])
+      // El INSTANCE_ID real (typ. undefined en test, sin IA_FLOW_INSTANCE_ID
+      // seteado) — no un literal inventado: `execution.source` sólo necesita
+      // IGUALAR lo que este proceso considera "propio", sea lo que sea.
+      seed([makeExec({ id: 'e1', source: INSTANCE_ID })])
       const res = await app.request('/e1/cancel', { method: 'POST' })
       expect(res.status).toBe(200)
       const body = (await res.json()) as {

@@ -1,9 +1,9 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, spyOn, test } from 'bun:test'
 import type { Blocker, SourceItem } from '@ia-flow/issue-sources'
-import { fakeContainerBase } from './fakeContainer.js'
+// Importa el container REAL (no mock.module) — ver el comentario de arriba
+// de spyOn más abajo sobre por qué.
+import { projectRepo, sourceFactory } from '../../composition/container.js'
 
-// Mismo motivo que executions.test.ts: el router importa el container, que
-// abre una conexión SQLite real como efecto de import.
 const item = (id: string): SourceItem => ({ id, title: `Issue ${id}`, status: 'build' })
 
 let getBlockersCalls: string[] = []
@@ -34,21 +34,26 @@ const source = {
   },
 }
 
-// Ver fakeContainer.ts sobre por qué esto lleva la superficie completa y no
-// sólo projectRepo/sourceFactory (lo único que ESTE router usa). El spread es
-// por-objeto (no sólo top-level): pisar `projectRepo`/`sourceFactory`
-// enteros tiraría el resto de sus métodos si ESTE stub gana la carrera.
-const base = fakeContainerBase()
-mock.module('../../composition/container.js', () => ({
-  ...base,
-  projectRepo: {
-    ...base.projectRepo,
-    get: (id: string) => (id === 'p1' ? { id: 'p1' } : null),
-    getDefaultId: () => null,
-    list: () => [],
-  },
-  sourceFactory: { ...base.sourceFactory, get: () => source },
-}))
+// `spyOn` en vez de `mock.module('../../composition/container.js', ...)`:
+// ese reemplaza el module record para TODO el proceso de test (no sólo este
+// archivo), y dos archivos con stubs parciales e independientes del MISMO
+// módulo (este y executions.test.ts) competían por ese registro — el que
+// ganaba la carrera dejaba sin ciertos exports a cualquier otro archivo que
+// importara el container real, incluidos consumidores que necesitan DATOS
+// reales y no sólo "una función que no tira" (providerRegistry.list() vacío
+// le mentía a relevantConfigVars sobre qué providers hay registrados).
+// `spyOn` muta los dos métodos en el ÚNICO objeto real que todos comparten,
+// así que el resto de `projectRepo`/`sourceFactory` — y el resto del
+// container — sigue siendo el de verdad para cualquier otro archivo.
+const projectGetSpy = spyOn(projectRepo, 'get').mockImplementation(
+  (id: string) => (id === 'p1' ? { id: 'p1' } : null) as never,
+)
+const sourceFactoryGetSpy = spyOn(sourceFactory, 'get').mockImplementation(() => source as never)
+
+afterAll(() => {
+  projectGetSpy.mockRestore()
+  sourceFactoryGetSpy.mockRestore()
+})
 
 const { createProjectSourceRouter } = await import('../project-source.js')
 
