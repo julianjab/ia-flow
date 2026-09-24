@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.2](https://github.com/julianjab/ia-flow/compare/v1.12.1...v1.12.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **agent-engine:** defer/skip redispatch of the same rule within a short cooldown ([#247](https://github.com/julianjab/ia-flow/issues/247)) ([b1431a3](https://github.com/julianjab/ia-flow/commit/b1431a3ab5767a09b994ffed4f6d5c03d496c26d))
+* **desktop:** avisar explícitamente si otra instancia empaquetada ocupa el puerto de dev ([74ede94](https://github.com/julianjab/ia-flow/commit/74ede94ebc49c5bedbccf56e2de90756057f7dcf))
+* **issue-sources:** paginate GitHub Projects v2 items fetch ([#251](https://github.com/julianjab/ia-flow/issues/251)) ([3e2d772](https://github.com/julianjab/ia-flow/commit/3e2d772db2920496e5f248a313563d87b5d70d4b))
+* **server:** stop mock.module(container.js) from leaking across test files ([#252](https://github.com/julianjab/ia-flow/issues/252)) ([45daa4a](https://github.com/julianjab/ia-flow/commit/45daa4a1fc0df906457a7d2b5b4d7b5d9634578d))
+* **tools:** always pair a dangling server-tool call, even with a parallel client tool_use ([78730ad](https://github.com/julianjab/ia-flow/commit/78730ad55d84ff979990f7af3876f74e3a513a0b))
+* **tools:** derive the deferred-server-tool drain guard from history, not a flag ([e962bbe](https://github.com/julianjab/ia-flow/commit/e962bbe001909daa01e6bd9daef9bb72d2a6a9fc))
+* **tools:** don't drain injected messages while a server-tool call is deferred to the next request ([b5d1c56](https://github.com/julianjab/ia-flow/commit/b5d1c56ef858bde75639db6ec01ca10e8dfcfb2b))
+* **tools:** make the deferred-server-tool drain test actually exercise the skip ([5c4a88f](https://github.com/julianjab/ia-flow/commit/5c4a88f746076ca0b413d13068d7d72e7d29f611))
+
 ## [1.12.1](https://github.com/julianjab/ia-flow/compare/v1.12.0...v1.12.1) (2026-09-15)
 
 
