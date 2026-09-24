@@ -60,6 +60,7 @@ import m076 from './076-seed-task-chat-assist-config.js'
 import m077 from './077-drop-task-annotations.js'
 import m078 from './078-agents-output.js'
 import m079 from './079-chat-sessions.js'
+import m080 from './080-engine-v2-executions.js'
 
 const log = createLogger('migrations')
 
@@ -141,6 +142,7 @@ function loadMigrations(): Migration[] {
     m077,
     m078,
     m079,
+    m080,
   ]
 }
 
