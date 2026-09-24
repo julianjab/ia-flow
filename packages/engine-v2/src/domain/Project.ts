@@ -40,6 +40,10 @@ export class Project {
     return Project.catalog.resolve(id)
   }
 
+  static list(): Project[] {
+    return Project.catalog.list()
+  }
+
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
     Project.catalog.reset()

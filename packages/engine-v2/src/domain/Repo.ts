@@ -28,6 +28,10 @@ export class Repo {
     return Repo.catalog.resolve(`${projectId}:${name}`)
   }
 
+  static list(): Repo[] {
+    return Repo.catalog.list()
+  }
+
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
     Repo.catalog.reset()
