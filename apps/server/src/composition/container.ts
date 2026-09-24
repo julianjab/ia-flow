@@ -46,7 +46,7 @@ import {
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
 import { InMemoryEventBus } from '@ia-flow/rules'
-import type { ProviderLimit } from '@ia-flow/shared'
+import type { ProviderLimit, Rule, Wait } from '@ia-flow/shared'
 import { installSlack } from '@ia-flow/slack'
 import {
   compilePolicy,
@@ -77,6 +77,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.js'
 import { readTranscriptUsage } from '../adapters/claude-code/transcript-usage.js'
+import { planLegacyRename } from '../adapters/github/legacy-event-rename.js'
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
@@ -396,8 +397,33 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
 // El decorador va por FUERA de las dos variantes: la baja por proyecto
 // (`settings.disabledRuleIds`) no depende del storage, así que envolver acá la
 // escribe una vez en vez de dos — ver ProjectScopedRuleRepository.
+// Traduce en memoria una regla del `runner.yaml` que todavía usa la
+// taxonomía vieja de eventos de GitHub (`pr.opened`, `ci.finished`, …) — un
+// YAML no tiene dónde persistir el resultado como sí hace la migración 080
+// sobre SQLite, así que esto corre en cada boot y loguea qué hizo. Vive acá
+// (no en `YamlRuleRepository`, que es `infrastructure/` y no puede importar
+// `adapters/**`) e inyecta el hook por constructor.
+function translateLegacyRuleEventNames(rule: Rule): Rule {
+  const plan = planLegacyRename(rule.on, rule.when ?? null)
+  if (plan === null) return rule
+  if ('skip' in plan) {
+    log.warn(
+      { ruleId: rule.id, on: rule.on, reason: plan.reason },
+      'regla del runner.yaml con nombres de evento viejos que no se puede traducir sola — revisar a mano',
+    )
+    return rule
+  }
+  log.warn(
+    { ruleId: rule.id, before: rule.on, after: plan.onTypes },
+    'regla del runner.yaml traducida en memoria a nombres crudos de evento — actualizá el YAML fuente para que esto deje de loguearse',
+  )
+  return { ...rule, on: plan.onTypes, when: plan.when }
+}
+
 const scopedRuleRepo: IRuleRepository = new ProjectScopedRuleRepository(
-  preloaded.rules ? new YamlRuleRepository(preloaded.rules) : new SqliteRuleRepository(db),
+  preloaded.rules
+    ? new YamlRuleRepository(preloaded.rules, translateLegacyRuleEventNames)
+    : new SqliteRuleRepository(db),
   projectRepo,
 )
 
@@ -855,11 +881,37 @@ setAgentMemoryPort({
     agentMemoryRepo.deleteByKey(agentId, projectId, key),
 })
 
+// Un agente puede pedir una espera con un nombre de evento de la taxonomía
+// vieja de GitHub (su prompt, o la guía que leyó, todavía dice `ci.finished`)
+// — el traductor ya no publica esos tipos, y sin esto la espera quedaría
+// muerta hasta `wait.expired`, sin que nadie se entere. Mismo algoritmo que
+// usan la migración 080 y `YamlRuleRepository` (`planLegacyRename`), acá
+// aplicado en el ÚNICO lugar por el que pasa toda escritura a `waits`
+// (`setWaitPort`, `setPausePort`, y el re-create de `attachCheckpoint`) — así
+// ninguno de los tres puede quedar sin este chequeo si el día de mañana se
+// agrega un cuarto.
+async function createWaitTranslated(wait: Wait): Promise<Wait> {
+  const plan = planLegacyRename(wait.on, wait.when ?? null)
+  if (plan === null) return waitRepo.create(wait)
+  if ('skip' in plan) {
+    log.warn(
+      { waitId: wait.id, on: wait.on, reason: plan.reason },
+      'espera con nombres de evento viejos que no se puede traducir sola — nunca va a despertar',
+    )
+    return waitRepo.create(wait)
+  }
+  log.warn(
+    { waitId: wait.id, before: wait.on, after: plan.onTypes },
+    'espera traducida a nombres crudos de evento — el agente que la pidió sigue usando nombres viejos, revisar su prompt',
+  )
+  return waitRepo.create({ ...wait, on: plan.onTypes, when: plan.when })
+}
+
 // El id lo genera el composition root y no la tool: la tool describe la
 // intención (qué evento, hasta cuándo) y el store decide cómo se identifica.
 setWaitPort({
   create: async (input) => {
-    const wait = await waitRepo.create({
+    const wait = await createWaitTranslated({
       id: crypto.randomUUID(),
       projectId: input.projectId,
       taskId: input.taskId,
@@ -881,7 +933,7 @@ setWaitPort({
 // pero mucho mejor que una task trabada sin nada que la despierte.
 setPausePort({
   pause: async (input) => {
-    const wait = await waitRepo.create({
+    const wait = await createWaitTranslated({
       id: crypto.randomUUID(),
       projectId: input.projectId,
       taskId: input.taskId,
@@ -1062,7 +1114,7 @@ export const orchestrator = new AgentOrchestrator(
         return
       }
       await waitRepo.consume(wait.id)
-      await waitRepo.create({ ...wait, checkpoint })
+      await createWaitTranslated({ ...wait, checkpoint })
     },
   },
   // Dónde va el run, guardado por vuelta. El orquestador además lo borra en su

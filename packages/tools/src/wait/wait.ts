@@ -63,7 +63,9 @@ registerTool({
         type: 'array',
         items: { type: 'string' },
         description:
-          "Tipos de evento que te despiertan. P. ej. ['ci.finished'], ['pr.review_submitted'].",
+          'Tipos de evento que te despiertan — el nombre crudo que manda la fuente, nunca uno ' +
+          "inventado. P. ej. ['check_suite', 'workflow_run'] (agregá when: action=completed), " +
+          "['pull_request_review'] (when: action=submitted).",
       },
       when: {
         type: 'array',

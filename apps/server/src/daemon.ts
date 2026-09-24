@@ -77,7 +77,7 @@ const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
 
 // El scan publica un evento y el motor de reglas decide quién reacciona. El
 // productor dejó de conocer a su consumidor, que es lo que permite que un
-// `pr.opened` o un `ci.finished` entren por el mismo lugar sin tocar esta
+// `pull_request` o un `check_suite` entren por el mismo lugar sin tocar esta
 // función.
 //
 // `publish` devuelve el outcome agregado porque `SourceDispatcher` lo necesita
@@ -265,8 +265,8 @@ function registerWaits(): void {
 }
 
 // Igual que `registerWaits`: se suscribe APARTE del motor de reglas — no es
-// una regla, es telemetría que se cruza con cada `pr.merged`/`pr.closed`/
-// `pr.review_submitted` publicado por el traductor de GitHub, aunque ninguna
+// una regla, es telemetría que se cruza con cada `pull_request`/
+// `pull_request_review` publicado por el traductor de GitHub, aunque ninguna
 // regla escuche esos eventos.
 function registerPrOutcomeTracking(): void {
   eventBus.subscribe(new PrOutcomeHandler(executionLogRepo))

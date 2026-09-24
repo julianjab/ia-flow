@@ -56,4 +56,34 @@ describe('YamlRuleRepository', () => {
     expect(repo.deleteById()).rejects.toThrow('sólo lectura')
     expect(repo.setPositions()).rejects.toThrow('sólo lectura')
   })
+
+  // `translate` es un hook inyectado por `composition/container.ts` (hoy,
+  // `translateLegacyRuleEventNames`, que traduce la taxonomía vieja de
+  // GitHub — ver `adapters/github/legacy-event-rename.ts` y su propio test).
+  // Este repo es `infrastructure/` y no puede importar `adapters/**`, así
+  // que lo que testeamos ACÁ es que el hook se aplica a cada regla, con un
+  // doble simple — no la lógica real de traducción.
+  it('sin translate inyectado, no toca nada (identity por default)', async () => {
+    const repo = new YamlRuleRepository([rule({ id: 'r1', on: ['pr.merged'] })])
+    const [r] = await repo.list()
+    expect(r.on).toEqual(['pr.merged'])
+  })
+
+  it('aplica el translate inyectado a cada regla parseada', async () => {
+    const repo = new YamlRuleRepository(
+      [rule({ id: 'a', on: ['x'] }), rule({ id: 'b', on: ['y'] })],
+      (r) => ({ ...r, on: [`${r.on[0]}-translated`] }),
+    )
+    const rules = await repo.list()
+    expect(rules.map((r) => r.on)).toEqual([['x-translated'], ['y-translated']])
+  })
+
+  it('translate corre ANTES del sort, así que puede cambiar la posición efectiva', async () => {
+    const repo = new YamlRuleRepository(
+      [rule({ id: 'a', position: 1 }), rule({ id: 'b', position: 0 })],
+      (r) => (r.id === 'a' ? { ...r, position: -1 } : r),
+    )
+    const rules = await repo.list()
+    expect(rules.map((r) => r.id)).toEqual(['a', 'b'])
+  })
 })

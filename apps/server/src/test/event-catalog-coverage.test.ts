@@ -10,19 +10,6 @@ import {
   WAIT_RESUMED,
 } from '@ia-flow/shared'
 import { SLACK_MESSAGE } from '@ia-flow/slack'
-import {
-  CI_FINISHED,
-  ISSUE_COMMENT_CREATED,
-  ISSUES_OPENED,
-  PR_CLOSED,
-  PR_MERGED,
-  PR_OPENED,
-  PR_READY,
-  PR_REVIEW_SUBMITTED,
-  PR_SYNCHRONIZED,
-  PROJECTS_V2_EDITED,
-  PROJECTS_V2_ITEM_EDITED,
-} from '../adapters/github/webhook-events.js'
 
 // El guard de deriva del catálogo.
 //
@@ -35,22 +22,24 @@ import {
 // el engine lo publica bien, las reglas lo matchean bien — y el autocomplete
 // nunca lo ofrece, así que nadie sabe que existe.
 
-/** Todas las constantes de tipo de evento que el proceso declara hoy. */
+/** Todas las constantes de tipo de evento que el proceso declara hoy.
+ *
+ *  Los de GitHub ya no son constantes exportadas por el traductor — su
+ *  `type` es literalmente el nombre de evento de GitHub (`X-GitHub-Event`),
+ *  así que se listan como strings acá, igual que cualquier otro tipo que el
+ *  catálogo documenta sin que nadie lo "declare" en código. */
 const DECLARED: Record<string, string> = {
   ISSUE_STATUS_CHANGED,
   ISSUE_CREATED,
-  ISSUE_COMMENT_CREATED,
-  ISSUES_OPENED,
-  PROJECTS_V2_ITEM_EDITED,
-  PROJECTS_V2_EDITED,
-  PR_OPENED,
-  PR_SYNCHRONIZED,
-  PR_READY,
-  PR_MERGED,
-  PR_CLOSED,
-  PR_REVIEW_SUBMITTED,
+  ISSUE_COMMENT: 'issue_comment',
+  ISSUES: 'issues',
+  PROJECTS_V2_ITEM: 'projects_v2_item',
+  PROJECTS_V2: 'projects_v2',
+  PULL_REQUEST: 'pull_request',
+  PULL_REQUEST_REVIEW: 'pull_request_review',
+  CHECK_SUITE: 'check_suite',
+  WORKFLOW_RUN: 'workflow_run',
   CHAT_MESSAGE,
-  CI_FINISHED,
   SLACK_MESSAGE,
   TASK_MESSAGE_EVENT,
   WAIT_EXPIRED,

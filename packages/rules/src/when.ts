@@ -206,6 +206,26 @@ interface EncodedCond {
   encodedOp: string
 }
 
+/**
+ * Parte un array de condiciones en grupos OR (separados por `logic: 'or'`),
+ * cada uno todo-AND — el mismo algoritmo que `toConditionGroups` usa para el
+ * formato array, extraído para que un consumidor que necesite RECONSTRUIR
+ * grupos (no sólo evaluarlos) —la migración 080, que cruza-producto un
+ * `when` existente con condiciones nuevas— no tenga que reimplementarlo.
+ *
+ * Vacío ⇒ `[]` y no `[[]]`: un `when` sin condiciones no tiene ningún grupo,
+ * ni siquiera uno vacío que matchee.
+ */
+export function groupWhenArray<C extends { logic?: string }>(conds: readonly C[]): C[][] {
+  if (!conds.length) return []
+  const groups: C[][] = [[]]
+  for (const cond of conds) {
+    if (cond.logic === 'or') groups.push([cond])
+    else groups[groups.length - 1].push(cond)
+  }
+  return groups
+}
+
 function toConditionGroups(when: unknown): EncodedCond[][] {
   if (!when) return []
 
@@ -218,15 +238,7 @@ function toConditionGroups(when: unknown): EncodedCond[][] {
 
   // new array format: build OR-groups separated by logic='or'
   const conds = when as RawCond[]
-  if (!conds.length) return []
-
-  const groups: RawCond[][] = [[]]
-  for (const cond of conds) {
-    if (cond.logic === 'or') groups.push([cond])
-    else groups[groups.length - 1].push(cond)
-  }
-
-  return groups.map((group) =>
+  return groupWhenArray(conds).map((group) =>
     group.map((c) => ({ field: c.field, op: c.op, value: c.value, encodedOp: condToOp(c) })),
   )
 }

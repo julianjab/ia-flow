@@ -278,8 +278,8 @@ export function registerActions(): void {
       managerFor,
       // El agente lo elige la REGLA, no `selectAgent`: el dispatcher recibe el
       // id y saltea su propio gate de selección. Es lo que permite que un
-      // `pr.opened` corra un agente sobre un issue cuyo status no matchearía
-      // ninguna activación.
+      // `pull_request` corra un agente sobre un issue cuyo status no
+      // matchearía ninguna activación.
       dispatch: async (
         item: IssueItem,
         manager: IIssueManager,
@@ -315,8 +315,9 @@ export function registerActions(): void {
           runOutcome: state.runOutcome,
         }
       },
-      // Los eventos de GitHub (`pr.*`, `ci.finished`) traen el PR, no el issue
-      // del board. Sin esto una regla sobre cualquiera de ellos no dispara.
+      // Los eventos de GitHub (`pull_request`, `check_suite`, `workflow_run`)
+      // traen el PR, no el issue del board. Sin esto una regla sobre
+      // cualquiera de ellos no dispara.
       resolveItem: resolveEventItem,
     }),
   )

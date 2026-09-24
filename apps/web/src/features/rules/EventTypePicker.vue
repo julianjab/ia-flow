@@ -12,8 +12,8 @@ import { computed } from 'vue'
 // las volvería imposibles de escribir.
 //
 // Lo que sí faltaba era saber QUÉ HAY. La descripción es la mitad del valor —
-// `pr.synchronize` no le dice nada a nadie hasta que se lee "llegaron commits
-// nuevos a un pull request abierto".
+// `pull_request` no le dice nada a nadie hasta que se lee qué `action`
+// distingue y qué campos trae el payload.
 //
 // El modelo sigue siendo el string separado por comas que la regla persiste:
 // convertirlo acá es una línea, y cambiar el schema movería el problema a la
@@ -47,7 +47,7 @@ function onUpdate(next: string | string[]) {
     allow-custom
     :model-value="types"
     :options="options"
-    placeholder="pr.opened, pr.synchronize"
+    placeholder="pull_request, issue_comment"
     empty-text="Ninguno conocido coincide — el valor que escribas se guarda igual."
     @update:model-value="onUpdate"
   />

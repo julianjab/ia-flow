@@ -13,11 +13,23 @@ import type { IRuleRepository } from '../../../domain/ports/IRuleRepository.js'
 export class YamlRuleRepository implements IRuleRepository {
   private readonly rules: Rule[]
 
-  constructor(rules: unknown[]) {
+  /**
+   * `translate` es un hook opcional, inyectado por `composition/container.ts`
+   * — hoy lo usa para traducir en memoria una regla que todavía usa la
+   * taxonomía vieja de eventos de GitHub (`adapters/github/
+   * legacy-event-rename.ts`). Este archivo es `infrastructure/` y no puede
+   * importar `adapters/**` (tabla de capas, CLAUDE.md raíz), así que recibe
+   * la función ya resuelta en vez de conocer de dónde sale.
+   */
+  constructor(
+    rules: unknown[],
+    private readonly translate: (rule: Rule) => Rule = (rule) => rule,
+  ) {
     // Se valida acá y no en el loader: el repositorio es el borde que garantiza
     // que lo que sale cumple el contrato, venga de donde venga.
     this.rules = RuleSchema.array()
       .parse(rules)
+      .map((rule) => this.translate(rule))
       // Mismo orden que `ORDER BY position, id` de SQLite, para que el matcher
       // vea la misma prioridad en los dos backings.
       .slice()
