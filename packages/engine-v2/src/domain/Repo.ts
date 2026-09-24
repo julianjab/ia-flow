@@ -47,7 +47,14 @@ export class Repo {
    *  `path` con los mismos nombres — el resto de sus campos
    *  (`githubOwner`/`githubRepo`/`workflow`/Slack) es lo que el purge de
    *  agnosticismo ya sacó de esta clase, así que se ignoran acá también. */
-  static fromRow(row: { name: string; projectId: string; path?: string }): Repo {
+  static fromRow(row: RepoRow): Repo {
     return new Repo({ name: row.name, projectId: row.projectId, path: row.path })
   }
+
+  /** Idéntico a `RepoProps` — no hay nada que traducir. */
+  toRow(): RepoRow {
+    return { name: this.name, projectId: this.projectId, path: this.path }
+  }
 }
+
+export type RepoRow = RepoProps

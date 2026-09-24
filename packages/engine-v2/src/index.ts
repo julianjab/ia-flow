@@ -1,11 +1,12 @@
 export { Catalog } from './shared/Catalog.js'
 export type { ProjectProps, ProjectRow, ProjectSettings } from './domain/Project.js'
 export { Project } from './domain/Project.js'
-export type { RepoProps } from './domain/Repo.js'
+export type { RepoProps, RepoRow } from './domain/Repo.js'
 export { Repo } from './domain/Repo.js'
 export type {
   AgentDefinitionProps,
   AgentExit,
+  AgentProviderChoiceRow,
   AgentRow,
   AgentOutput,
   AgentOutputField,
@@ -81,7 +82,7 @@ export type {
 export { PipelineActionEntry } from './pipeline/actions/PipelineActionEntry.js'
 export type { ScriptActionProps, ScriptRuntime } from './pipeline/actions/ScriptAction.js'
 export { ScriptAction } from './pipeline/actions/ScriptAction.js'
-export type { ConditionOp } from './pipeline/Condition.js'
+export type { ConditionOp, ConditionRow } from './pipeline/Condition.js'
 export { Condition } from './pipeline/Condition.js'
 export type { ConditionalProps } from './pipeline/Conditional.js'
 export { Conditional } from './pipeline/Conditional.js'

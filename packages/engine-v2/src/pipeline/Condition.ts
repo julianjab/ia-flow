@@ -68,8 +68,17 @@ export class Condition {
   }
 
   /** Fila de `WhenConditionSchema` (v1) — traducción pura, sin I/O. */
-  static fromRow(row: { field: string; op?: ConditionOp; value?: string; logic?: 'and' | 'or' }): Condition {
+  static fromRow(row: ConditionRow): Condition {
     return new Condition(row.field, row.op ?? '=', row.value, row.logic)
+  }
+
+  /** Simétrico a `fromRow` — siempre la forma larga (array), nunca el
+   *  shorthand legacy: serializar de vuelta al `Record<string,string>` sólo
+   *  tendría sentido si TODAS las condiciones fueran `=` sin `logic`, y
+   *  detectar ese caso especial no vale la pena — la forma larga es válida
+   *  en cualquier lector de v1 que entienda `WhenConditionSchema`. */
+  toRow(): ConditionRow {
+    return { field: this.field, op: this.op, value: this.value, logic: this.logic }
   }
 
   /**
@@ -78,14 +87,23 @@ export class Condition {
    * campo y valor, sin `logic` — todas ANDeadas). Normalizarlo ACÁ, no en
    * `Pipeline.fromRow`, mantiene a `Pipeline` sin conocer las dos formas.
    */
-  static fromRows(
-    rows:
-      | Array<{ field: string; op?: ConditionOp; value?: string; logic?: 'and' | 'or' }>
-      | Record<string, string>
-      | undefined,
-  ): Condition[] {
+  static fromRows(rows: ConditionRow[] | Record<string, string> | undefined): Condition[] {
     if (rows == null) return []
     if (Array.isArray(rows)) return rows.map(Condition.fromRow)
     return Object.entries(rows).map(([field, value]) => new Condition(field, '=', value))
   }
+
+  static toRows(conditions: Condition[]): ConditionRow[] {
+    return conditions.map((c) => c.toRow())
+  }
+}
+
+/** Forma larga de `WhenConditionSchema` (v1) — el shorthand
+ *  `Record<string,string>` sólo lo acepta `Condition.fromRows` en la
+ *  ENTRADA; toda serialización de vuelta usa siempre esta forma. */
+export interface ConditionRow {
+  field: string
+  op?: ConditionOp
+  value?: string
+  logic?: 'and' | 'or'
 }

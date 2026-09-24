@@ -165,6 +165,79 @@ export class Pipeline extends Conditional {
         throw new Error(`Pipeline.fromRow: acción desconocida "${(row as { action: string }).action}"`)
     }
   }
+
+  /** Simétrico a `fromRow`. */
+  toRow(): PipelineRow {
+    return {
+      id: this.id,
+      on: this.on,
+      projectId: this.projectId,
+      repoName: this.repoName,
+      when: Condition.toRows(this.when),
+      whenText: this.whenText,
+      enabled: this.enabled,
+      position: this.position,
+      exclusive: this.exclusive,
+      do: this.do.map(Pipeline.actionToRow),
+    }
+  }
+
+  /**
+   * `instanceof` en vez de un `toRow()` abstracto en `PipelineActionEntry`:
+   * mantiene la dispatch de serialización al lado de `actionFromRow` (su
+   * inversa), en vez de esparcir un método por cada una de las 5 subclases
+   * — mismo criterio de "una sola tabla de dispatch" que ya usa `fromRow`.
+   */
+  private static actionToRow(action: PipelineActionEntry): PipelineActionRow {
+    const base = {
+      id: action.id,
+      continueOnError: action.continueOnError,
+      when: Condition.toRows(action.when),
+      whenText: action.whenText,
+    }
+    if (action instanceof AgentAction) {
+      return {
+        action: 'agent',
+        agentId: action.agentId,
+        emitOn: action.emitOn,
+        emitType: action.emitType,
+        brief: action.brief,
+        exits: action.exitsOverride,
+        allowAgents: action.allowAgents,
+        liveInject: action.liveInject,
+        ...base,
+      }
+    }
+    if (action instanceof HttpAction) {
+      return {
+        action: 'http',
+        url: action.url,
+        method: action.method,
+        headers: action.headers,
+        body: action.body,
+        timeoutMs: action.timeoutMs,
+        ...base,
+      }
+    }
+    if (action instanceof EmitAction) {
+      return { action: 'emit', type: action.type, scope: action.scope, payload: action.payload, ...base }
+    }
+    if (action instanceof ScriptAction) {
+      return {
+        action: 'script',
+        runtime: action.runtime,
+        file: action.file,
+        args: action.args,
+        env: action.env,
+        timeoutMs: action.timeoutMs,
+        ...base,
+      }
+    }
+    if (action instanceof RefAction) {
+      return { action: 'ref', actionId: action.actionId, ...base }
+    }
+    throw new Error(`Pipeline.toRow: acción sin serializador conocido (kind="${action.kind}")`)
+  }
 }
 
 /** Fila cruda de `RuleSchema` (v1) — sólo los campos que `Pipeline.fromRow`
