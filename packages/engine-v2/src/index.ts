@@ -6,6 +6,7 @@ export { Repo } from './domain/Repo.js'
 export type {
   AgentDefinitionProps,
   AgentExit,
+  AgentRow,
   AgentOutput,
   AgentOutputField,
   AgentProvider,
@@ -83,7 +84,7 @@ export type { ConditionOp } from './pipeline/Condition.js'
 export { Condition } from './pipeline/Condition.js'
 export type { ConditionalProps } from './pipeline/Conditional.js'
 export { Conditional } from './pipeline/Conditional.js'
-export type { PipelineProps } from './pipeline/Pipeline.js'
+export type { PipelineActionRow, PipelineProps, PipelineRow } from './pipeline/Pipeline.js'
 export { Pipeline } from './pipeline/Pipeline.js'
 
 export type { PayloadWriter } from './infra/PayloadWriter.js'

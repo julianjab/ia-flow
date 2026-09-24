@@ -1,7 +1,12 @@
 import type { Project } from '../domain/Project.js'
-import { AgentAction } from './actions/AgentAction.js'
+import { AgentAction, type AgentActionProps } from './actions/AgentAction.js'
+import { EmitAction, type EmitActionProps } from './actions/EmitAction.js'
+import { HttpAction, type HttpActionProps } from './actions/HttpAction.js'
+import { RefAction, type RefActionProps } from './actions/RefAction.js'
+import { ScriptAction, type ScriptActionProps } from './actions/ScriptAction.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import { Agent } from '../engine/Agent.js'
+import { Condition } from './Condition.js'
 import type { PipelineActionEntry, PipelineExecutionContext } from './actions/PipelineActionEntry.js'
 import { Conditional, type ConditionalProps } from './Conditional.js'
 
@@ -107,4 +112,82 @@ export class Pipeline extends Conditional {
     }
     return runCtx.steps
   }
+
+  /**
+   * Traducción pura (sin I/O) de una fila de `RuleSchema` (v1,
+   * `packages/shared/src/rules.ts`) a una instancia de `Pipeline`. `name`/
+   * `description`/`schedule`/`createdAt`/`updatedAt` de la fila se
+   * descartan a propósito — son justo los campos que el purge de
+   * agnosticismo le sacó a `Pipeline` por no tener ningún lector real.
+   * Leer la fila de la base es responsabilidad de un repo/port aparte; esto
+   * sólo sabe traducir forma, no persistir ni cachear nada.
+   */
+  static fromRow(row: PipelineRow): Pipeline {
+    return new Pipeline({
+      id: row.id,
+      on: row.on,
+      projectId: row.projectId,
+      repoName: row.repoName,
+      when: Condition.fromRows(row.when),
+      whenText: row.whenText,
+      enabled: row.enabled,
+      position: row.position,
+      exclusive: row.exclusive,
+      do: row.do.map(Pipeline.actionFromRow),
+    })
+  }
+
+  /**
+   * Dispatcha por el discriminante `action` de `RuleActionSchema` (v1) —
+   * ojo que NO es `kind` (el campo de v2): `RuleActionEntrySchema` usa
+   * `action` como discriminante de su union, `PipelineActionEntry.kind` es
+   * el nombre que eligió v2 para lo mismo.
+   *
+   * `row.when` normalizado ACÁ (no en el cast de abajo): es JSON crudo
+   * (`WhenConditionSchema[]`/shorthand), no instancias de `Condition` — sin
+   * esto, `Conditional.matchesConditions` reventaría llamando `.evaluate()`
+   * sobre un objeto plano.
+   */
+  private static actionFromRow(row: PipelineActionRow): PipelineActionEntry {
+    const base = { ...row, when: Condition.fromRows(row.when as Parameters<typeof Condition.fromRows>[0]) }
+    switch (row.action) {
+      case 'agent':
+        return new AgentAction(base as unknown as AgentActionProps)
+      case 'http':
+        return new HttpAction(base as unknown as HttpActionProps)
+      case 'emit':
+        return new EmitAction(base as unknown as EmitActionProps)
+      case 'script':
+        return new ScriptAction(base as unknown as ScriptActionProps)
+      case 'ref':
+        return new RefAction(base as unknown as RefActionProps)
+      default:
+        throw new Error(`Pipeline.fromRow: acción desconocida "${(row as { action: string }).action}"`)
+    }
+  }
 }
+
+/** Fila cruda de `RuleSchema` (v1) — sólo los campos que `Pipeline.fromRow`
+ *  lee; el resto de la fila (name/description/schedule/timestamps) es
+ *  válido en v1 pero no tiene lector en v2, se ignora. */
+export interface PipelineRow {
+  id: string
+  on: string[]
+  projectId?: string | null
+  repoName?: string | null
+  when?: Parameters<typeof Condition.fromRows>[0]
+  whenText?: string
+  enabled?: boolean
+  position?: number
+  exclusive?: boolean
+  do: PipelineActionRow[]
+}
+
+/** `action` es el discriminante real de `RuleActionSchema` en v1 — el resto
+ *  de los campos varía por variante, `Pipeline.actionFromRow` los pasa tal
+ *  cual al constructor de la subclase correspondiente. */
+export type PipelineActionRow = { action: 'agent' | 'http' | 'emit' | 'script' | 'ref' } & Record<
+  string,
+  unknown
+>
+

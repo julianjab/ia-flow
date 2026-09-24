@@ -66,4 +66,26 @@ export class Condition {
     }
     return result
   }
+
+  /** Fila de `WhenConditionSchema` (v1) — traducción pura, sin I/O. */
+  static fromRow(row: { field: string; op?: ConditionOp; value?: string; logic?: 'and' | 'or' }): Condition {
+    return new Condition(row.field, row.op ?? '=', row.value, row.logic)
+  }
+
+  /**
+   * `RuleSchema.when` (v1) admite dos formas: un array de condiciones, o un
+   * shorthand legacy `Record<string, string>` (igualdad implícita entre
+   * campo y valor, sin `logic` — todas ANDeadas). Normalizarlo ACÁ, no en
+   * `Pipeline.fromRow`, mantiene a `Pipeline` sin conocer las dos formas.
+   */
+  static fromRows(
+    rows:
+      | Array<{ field: string; op?: ConditionOp; value?: string; logic?: 'and' | 'or' }>
+      | Record<string, string>
+      | undefined,
+  ): Condition[] {
+    if (rows == null) return []
+    if (Array.isArray(rows)) return rows.map(Condition.fromRow)
+    return Object.entries(rows).map(([field, value]) => new Condition(field, '=', value))
+  }
 }

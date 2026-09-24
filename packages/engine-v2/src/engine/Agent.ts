@@ -560,4 +560,47 @@ export class Agent {
       return Tool.resolve(name)?.isWrite ?? false
     })
   }
+
+  /**
+   * Traducción pura (sin I/O) de una fila de `AgentDefinitionSchema` (v1,
+   * `packages/shared/src/schemas.ts`) a una instancia de `Agent`. Dos
+   * desajustes reales entre los dos schemas:
+   * - `save_output` (v1, snake_case) → `saveOutput` (v2, camelCase) — único
+   *   nombre de campo que no coincide 1:1.
+   * - `expectedInput` no existe en v1 — es un campo que esta sesión le
+   *   agregó a v2 (ver el fix del bug de `Pipeline.execute`/`nextSchema`).
+   *   Una fila de v1 simplemente no lo trae; queda `undefined` salvo que la
+   *   fila ya lo incluya (compatibilidad hacia adelante, para cuando v1
+   *   también lo declare).
+   */
+  static fromRow(row: AgentRow): Agent {
+    return new Agent({
+      id: row.id,
+      provider: row.provider,
+      prompt: row.prompt,
+      systemPrompts: row.systemPrompts,
+      variables: row.variables,
+      tools: row.tools,
+      saveOutput: row.save_output,
+      providerConfig: row.providerConfig,
+      mcpCatalogIds: row.mcpCatalogIds,
+      requiresBranch: row.requiresBranch,
+      maxConcurrentDispatches: row.maxConcurrentDispatches,
+      allowBlocked: row.allowBlocked,
+      projectId: row.projectId,
+      position: row.position,
+      output: row.output,
+      expectedInput: row.expectedInput,
+      verify: row.verify,
+      onProcess: row.onProcess,
+      exits: row.exits,
+      comment: row.comment,
+    })
+  }
+}
+
+/** Fila cruda de `AgentDefinitionSchema` (v1) — mismos nombres de campo que
+ *  `AgentDefinitionProps`, salvo `save_output` (ver `Agent.fromRow`). */
+export interface AgentRow extends Omit<AgentDefinitionProps, 'saveOutput'> {
+  save_output?: boolean
 }
