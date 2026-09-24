@@ -1,5 +1,5 @@
 export { Catalog } from './shared/Catalog.js'
-export type { ProjectProps, ProjectSettings } from './domain/Project.js'
+export type { ProjectProps, ProjectRow, ProjectSettings } from './domain/Project.js'
 export { Project } from './domain/Project.js'
 export type { RepoProps } from './domain/Repo.js'
 export { Repo } from './domain/Repo.js'

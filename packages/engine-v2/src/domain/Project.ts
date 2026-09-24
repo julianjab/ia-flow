@@ -1,4 +1,4 @@
-import type { Condition } from '../pipeline/Condition.js'
+import { Condition } from '../pipeline/Condition.js'
 import { Catalog } from '../shared/Catalog.js'
 
 export interface ProjectSettings {
@@ -66,4 +66,34 @@ export class Project {
     if (pipeline.projectId != null) return false
     return this.settings.disabledPipelineIds?.includes(pipeline.id) ?? false
   }
+
+  /**
+   * Traducción pura de una fila de `Project` (v1, `packages/shared`) —
+   * `settings.disabledRuleIds` (v1) → `settings.disabledPipelineIds` (v2),
+   * único nombre que no coincide; `baseWhen` viaja crudo (`WhenConditionSchema[]`)
+   * y `Condition.fromRows` lo normaliza igual que hace `Pipeline.fromRow`.
+   */
+  static fromRow(row: ProjectRow): Project {
+    return new Project({
+      id: row.id,
+      settings: {
+        maxConcurrentDispatches: row.settings?.maxConcurrentDispatches ?? undefined,
+        disabledPipelineIds: row.settings?.disabledRuleIds,
+        baseWhen: Condition.fromRows(row.settings?.baseWhen ?? undefined),
+      },
+    })
+  }
+}
+
+/** Fila cruda de `Project` (v1, `packages/shared`) — sólo lo que
+ *  `Project.fromRow` lee; el resto (name/language/systemPrompts/Slack/
+ *  timestamps) es válido en v1 pero sin lector acá (ver el purge de
+ *  agnosticismo de esta misma clase). */
+export interface ProjectRow {
+  id: string
+  settings?: {
+    maxConcurrentDispatches?: number
+    disabledRuleIds?: string[] | null
+    baseWhen?: Parameters<typeof Condition.fromRows>[0]
+  } | null
 }

@@ -42,4 +42,12 @@ export class Repo {
     this.projectId = props.projectId
     this.path = props.path
   }
+
+  /** `DbRepoEntry` (v1, `@ia-flow/agent-engine`) trae `name`/`projectId`/
+   *  `path` con los mismos nombres — el resto de sus campos
+   *  (`githubOwner`/`githubRepo`/`workflow`/Slack) es lo que el purge de
+   *  agnosticismo ya sacó de esta clase, así que se ignoran acá también. */
+  static fromRow(row: { name: string; projectId: string; path?: string }): Repo {
+    return new Repo({ name: row.name, projectId: row.projectId, path: row.path })
+  }
 }

@@ -30,7 +30,9 @@ export class Engine {
   }
 
   start(): void {
-    this.bus.subscribe('*', (event) => this.dispatch(event))
+    this.bus.subscribe('*', (event) => {
+      void this.dispatch(event)
+    })
   }
 
   /**
@@ -42,8 +44,16 @@ export class Engine {
    *    si alguna matcheada es `exclusive`, en cambio corre SÓLO la de mayor
    *    prioridad (menor `position`) entre las exclusive, y ninguna otra.
    */
-  async dispatch(event: DomainEvent): Promise<void> {
-    if (event.depth >= MAX_EVENT_DEPTH) return
+  /**
+   * `'dispatched'`/`'skipped'` — no `'deferred'`: eso es una decisión de
+   * capacidad que hoy vive en `Execution.withinCap` DENTRO de `AgentAction`,
+   * no algo que el `Engine` pueda ver desde afuera. El valor de retorno
+   * existe para que un puente hacia OTRO bus (uno que sí distinga los tres,
+   * como `@ia-flow/rules`) pueda reportar algo mejor que "no sé" — el propio
+   * `EventBus` de v2 sigue siendo fire-and-forget y lo ignora.
+   */
+  async dispatch(event: DomainEvent): Promise<'dispatched' | 'skipped'> {
+    if (event.depth >= MAX_EVENT_DEPTH) return 'skipped'
 
     const taskId = event.scope?.issueId
     const message: ExecutionMessage = {
@@ -52,7 +62,7 @@ export class Engine {
       occurredAt: event.occurredAt,
       payload: event.payload,
     }
-    if (Execution.tryAppend(taskId, message)) return
+    if (Execution.tryAppend(taskId, message)) return 'dispatched'
 
     const project = event.scope?.projectId ? Project.resolve(event.scope.projectId) : undefined
     const matched = this.pipelines.filter((p) => p.matches(event, project))
@@ -65,10 +75,11 @@ export class Engine {
       .filter((p) => p.exclusive)
       .sort((a, b) => a.position - b.position)[0]
     const toRun = exclusive ? [exclusive] : survived.filter((p) => !p.exclusive)
-    if (toRun.length === 0) return
+    if (toRun.length === 0) return 'skipped'
 
     await Promise.all(
       toRun.map((p) => p.execute({ event, steps: {}, bus: this.bus, pipelineId: p.id })),
     )
+    return 'dispatched'
   }
 }
