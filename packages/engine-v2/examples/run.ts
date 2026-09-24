@@ -10,7 +10,7 @@
  * Correr: `bun run demo` (desde packages/engine-v2).
  */
 import { Agent, ERROR_EXIT, SUCCESS_EXIT } from '../src/engine/Agent.js'
-import type { AgentRunContext, AgentRunOutput } from '../src/engine/Agent.js'
+import type { AgentRunContext, ProviderRunOutput } from '../src/engine/Agent.js'
 import { Engine } from '../src/engine/Engine.js'
 import { ExecutionLog } from '../src/engine/ExecutionLog.js'
 import { Provider } from '../src/engine/Provider.js'
@@ -24,9 +24,11 @@ import { Pipeline } from '../src/pipeline/Pipeline.js'
 /** El provider más simple posible: cierra todo run como éxito, sin correr
  *  ningún modelo de verdad. Sirve para probar el loop completo del engine
  *  sin necesitar credenciales ni el ToolExecutionPort que un provider real
- *  (anthropic-api) necesitaría. */
+ *  (anthropic-api) necesitaría. Recibe el prompt YA renderizado — nunca ve
+ *  un `{{...}}` sin resolver, eso lo resuelve Agent.renderPrompt antes de
+ *  llamarlo (ver el prompt del agente más abajo). */
 class EchoProvider extends Provider {
-  async run(input: AgentRunContext): Promise<AgentRunOutput> {
+  async run(input: AgentRunContext): Promise<ProviderRunOutput> {
     console.log(`  [EchoProvider] corriendo agente "${input.agentId}" — prompt: "${input.prompt}"`)
     return { outcome: SUCCESS_EXIT, summary: 'echo ok' }
   }
@@ -40,7 +42,11 @@ Agent.register(
   new Agent({
     id: 'echo-agent',
     provider: 'echo-provider',
-    prompt: 'Decí que todo salió bien.',
+    // {{title}} viene del payload del evento, {{variables.tone}} de la
+    // config del propio agente — las dos fuentes que Agent.renderPrompt
+    // combina antes de que el Provider vea una sola letra del prompt.
+    prompt: 'Resolvé el issue "{{title}}" con tono {{variables.tone}}.',
+    variables: { tone: 'profesional' },
     exits: { [SUCCESS_EXIT]: 'closed', [ERROR_EXIT]: 'failed' },
   }),
 )

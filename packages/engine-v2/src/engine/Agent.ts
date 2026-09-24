@@ -1,5 +1,6 @@
 import { getPayloadWriter } from '../infra/PayloadWriter.js'
 import { getShellRunner } from '../infra/ShellRunner.js'
+import { Condition } from '../pipeline/Condition.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 import { Catalog } from '../shared/Catalog.js'
 import { Execution } from './Execution.js'
@@ -185,12 +186,26 @@ export interface AgentRunContext extends AgentRunInput {
   mcpServers: McpCatalogEntry[]
 }
 
-export interface AgentRunOutput {
+/**
+ * Lo que un `Provider` reporta al terminar — nunca un `AgentExit`: ese tipo
+ * es configuración del DOMINIO (`Agent.exits`, editada por un humano), un
+ * Provider no tiene por qué saber que existe. `outcome` es sólo el nombre
+ * que `Agent.matchExit()` va a buscar en `this.exits` — típicamente
+ * `'success'`/`'error'`, o el nombre exacto que el modelo eligió vía
+ * `select_exit` cuando el Provider expone esa tool.
+ */
+export interface ProviderRunOutput {
   outcome: string
-  exit?: AgentExit
   summary?: string
   /** Presente si `output` está declarado y el agente llamó a submit_output. */
   structuredOutput?: Record<string, unknown>
+}
+
+/** Lo que `Agent.run()` devuelve al CALLER (`AgentAction`) — superset de
+ *  `ProviderRunOutput` con el `exit` ya resuelto (`Agent.matchExit`). Un
+ *  Provider nunca construye uno de éstos directamente. */
+export interface AgentRunOutput extends ProviderRunOutput {
+  exit?: AgentExit
 }
 
 /**
@@ -365,11 +380,17 @@ export class Agent {
         ? await provider.prepareWorkspace(input.workspace)
         : undefined
 
+    // Construido a mano (no `{...input, ...}`) para que `brief` NO viaje
+    // suelto: ya quedó fundido dentro de `prompt` por `renderPrompt`, y
+    // dejarlo también como campo aparte invitaría a un Provider a aplicarlo
+    // dos veces.
     const output = await provider.run({
-      ...input,
+      payload: input.payload,
+      expectedOutput: input.expectedOutput,
+      workspace: input.workspace,
       tools,
       agentId: this.id,
-      prompt: this.prompt,
+      prompt: this.renderPrompt(input.payload ?? {}, input.brief),
       variables: this.variables,
       providerConfig: this.providerConfig,
       systemPrompts: this.resolveSystemPrompts(),
@@ -381,6 +402,43 @@ export class Agent {
       summary: output.summary,
       structuredOutput: output.structuredOutput,
     }
+  }
+
+  /**
+   * Renderiza `{{path}}` en `this.prompt` (y en `brief`, si vino) contra el
+   * `payload` del evento MÁS las `variables` declaradas del agente — es la
+   * única razón de ser de esta clase que un Provider no podría hacer por su
+   * cuenta: sólo `Agent` sabe qué variables declaró y qué valor les dio un
+   * humano en el editor. Un Provider nunca ve `{{...}}` sin resolver.
+   *
+   * `brief` (cuando lo hay) va ANTES del prompt — es "por qué corre esta
+   * vez", el contexto inmediato que el modelo tiene que leer primero.
+   */
+  private renderPrompt(payload: Record<string, unknown>, brief: string | undefined): string {
+    const root: Record<string, unknown> = { ...payload, variables: this.renderedVariables() }
+    const prompt = Agent.interpolate(this.prompt, root)
+    return brief != null ? `${Agent.interpolate(brief, root)}\n\n${prompt}` : prompt
+  }
+
+  /** `{value, full?}` → el texto que corresponde: `full` (la versión sin
+   *  truncar, cuando el editor la guardó aparte) gana sobre `value`. */
+  private renderedVariables(): Record<string, string> {
+    const rendered: Record<string, string> = {}
+    for (const [key, value] of Object.entries(this.variables)) {
+      rendered[key] = typeof value === 'string' ? value : (value.full ?? value.value)
+    }
+    return rendered
+  }
+
+  /** Mismo recorrido de path anidado que `Condition.getPath` (HttpAction/
+   *  ScriptAction ya lo reusan para lo mismo) — un placeholder que no
+   *  resuelve se deja tal cual, fail-open: mejor un `{{typo}}` visible en el
+   *  prompt que reventar el run por una variable mal escrita. */
+  private static interpolate(text: string, root: Record<string, unknown>): string {
+    return text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, path: string) => {
+      const value = Condition.getPath(root, path)
+      return value == null ? match : String(value)
+    })
   }
 
   /**

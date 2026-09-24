@@ -1,8 +1,8 @@
 import type { IAgentProvider, ProviderInput, ProviderOutput } from '@ia-flow/ai-providers'
 import {
   type AgentRunContext,
-  type AgentRunOutput,
   Provider,
+  type ProviderRunOutput,
   type WorkspacePlan,
   type WorkspaceRequest,
 } from '@ia-flow/engine-v2'
@@ -18,7 +18,10 @@ import type { WorkspaceRequest as V1WorkspaceRequest } from '@ia-flow/shared'
  * No reimplementa NADA de lo que hace un provider real — sólo traduce forma.
  * El provider v1 ya viene armado con sus propios ports inyectados
  * (`ToolExecutionPort`, `loadProviderConfig`, `WorkspaceProvisionerPort`) por
- * el composition root de v1; este adapter nunca los toca.
+ * el composition root de v1; este adapter nunca los toca. Tampoco resuelve
+ * `{{...}}` — `input.prompt` YA llega renderizado por `Agent.renderPrompt()`
+ * (brief + variables + payload incluidos): eso es trabajo del cerebro
+ * (`packages/engine-v2`), no de este adapter de infra.
  *
  * Limitaciones conocidas y deliberadas de esta primera versión — no son
  * bugs, son alcance no cubierto todavía:
@@ -34,10 +37,6 @@ import type { WorkspaceRequest as V1WorkspaceRequest } from '@ia-flow/shared'
  *   refine/build/review que `StepType` codifica. Se manda `'implement'`
  *   siempre; sólo importa para resolver config por-step, que acá ya no
  *   aplica porque el provider concreto YA está resuelto antes de llegar acá.
- * - Interpolación de variables (`{{project.repos}}`, `{{task.*}}`, etc.)
- *   NO está portada — `input.prompt`/`input.brief` viajan concatenados tal
- *   cual. Un agente v2 cuyo prompt dependa de esas plantillas no va a
- *   renderizar lo que espera hasta que se porte `variable-resolver.ts`.
  * - `drainMessages`/`onMessagesDelivered`/`resumeMessages`/`saveCheckpoint`
  *   (mensajes en vivo, pausas reanudables) no están cableados — un run que
  *   los necesite corre igual, pero sin esa capacidad.
@@ -55,9 +54,9 @@ export class V1ProviderAdapter extends Provider {
     return this.inner.prepareWorkspace(this.toV1WorkspaceRequest(req))
   }
 
-  async run(input: AgentRunContext): Promise<AgentRunOutput> {
+  async run(input: AgentRunContext): Promise<ProviderRunOutput> {
     const output = await this.inner.run(this.toProviderInput(input))
-    return this.toAgentRunOutput(output)
+    return this.toProviderRunOutput(output)
   }
 
   private toV1WorkspaceRequest(req: WorkspaceRequest): V1WorkspaceRequest {
@@ -79,7 +78,6 @@ export class V1ProviderAdapter extends Provider {
         .filter((r) => r.path != null)
         .map((r) => [r.name, r.path as string]),
     )
-    const prompt = input.brief != null ? `${input.brief}\n\n${input.prompt}` : input.prompt
 
     return {
       step: 'implement',
@@ -90,7 +88,9 @@ export class V1ProviderAdapter extends Provider {
       taskType: typeof payload.type === 'string' ? payload.type : '',
       repos,
       repoPaths,
-      prompt,
+      // Ya renderizado por Agent.renderPrompt() — brief, variables y payload
+      // resueltos antes de que este adapter lo vea.
+      prompt: input.prompt,
       systemPromptBlocks: input.systemPrompts.map((text) => ({ type: 'text' as const, text })),
       tools: (input.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
       outputFields: input.expectedOutput,
@@ -101,11 +101,12 @@ export class V1ProviderAdapter extends Provider {
     }
   }
 
-  private toAgentRunOutput(output: ProviderOutput): AgentRunOutput {
+  private toProviderRunOutput(output: ProviderOutput): ProviderRunOutput {
     // `outcome` es el string que Agent.matchExit() compara contra
     // `Agent.exits` — v1 no tiene un campo homónimo en ProviderOutput (su
     // Agent.ts lo deriva de stopReason/truncated/cancelación, ver el research
     // de esta sesión), así que se replica ACÁ la misma derivación mínima.
+    // Nunca un AgentExit: ese tipo es de `Agent`, no de un ProviderRunOutput.
     const outcome = output.truncated ? 'truncated' : 'success'
     return { outcome, summary: output.content }
   }

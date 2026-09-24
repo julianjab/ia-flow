@@ -1,5 +1,5 @@
 import { Catalog } from '../shared/Catalog.js'
-import type { AgentRunContext, AgentRunOutput } from './Agent.js'
+import type { AgentRunContext, ProviderRunOutput } from './Agent.js'
 import type { ProviderKind } from './Tool.js'
 import type { WorkspacePlan, WorkspaceRequest } from './Workspace.js'
 
@@ -67,8 +67,9 @@ export abstract class Provider {
     Provider.catalog.reset()
   }
 
-  /** Corre el loop de tools de este provider para un Agent ya resuelto. */
-  abstract run(input: AgentRunContext): Promise<AgentRunOutput>
+  /** Corre el loop de tools de este provider para un Agent ya resuelto. Nunca
+   *  devuelve un `AgentExit` — ver `ProviderRunOutput`. */
+  abstract run(input: AgentRunContext): Promise<ProviderRunOutput>
 
   /**
    * Default cuando el Provider no lo sobreescribe: aplica el cap declarado

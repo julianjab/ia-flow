@@ -14,6 +14,7 @@ export type {
   AgentRunContext,
   AgentRunInput,
   AgentRunOutput,
+  ProviderRunOutput,
   AgentToolEntry,
   AgentVariableValue,
   BashRunConfig,
