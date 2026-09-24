@@ -1,3 +1,4 @@
+import { getPayloadWriter } from '../infra/PayloadWriter.js'
 import { getShellRunner } from '../infra/ShellRunner.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 import { Catalog } from '../shared/Catalog.js'
@@ -297,14 +298,18 @@ export class Agent {
     await this.onStart(input.payload)
     let outcome: string
     let error: unknown
+    let summary: string | undefined
+    let structuredOutput: Record<string, unknown> | undefined
     try {
       const result = await this.execute(input)
       outcome = await this.verifyWorktree(input.payload, result.outcome, result.workspace)
+      summary = result.summary
+      structuredOutput = result.structuredOutput
     } catch (err) {
       outcome = ERROR_EXIT
       error = err
     }
-    return this.finalize(outcome, input.payload, startedAt, error)
+    return this.finalize(outcome, input.payload, startedAt, error, summary, structuredOutput)
   }
 
   /** Sin `payload` no hay nada que marcar — un agente de triage/normalización
@@ -325,7 +330,12 @@ export class Agent {
    * necesita para saber DÓNDE correr `this.verify[]` — viaja como parte del
    * resultado en vez de que verifyWorktree tenga que resolverlo de nuevo.
    */
-  protected async execute(input: AgentRunInput): Promise<{ outcome: string; workspace?: WorkspacePlan }> {
+  protected async execute(input: AgentRunInput): Promise<{
+    outcome: string
+    workspace?: WorkspacePlan
+    summary?: string
+    structuredOutput?: Record<string, unknown>
+  }> {
     const provider = await this.resolveProvider(input.payload ?? {})
 
     const admission = await provider.canAccept({
@@ -365,7 +375,12 @@ export class Agent {
       systemPrompts: this.resolveSystemPrompts(),
       mcpServers: McpCatalogEntry.resolveAll(this.mcpCatalogIds),
     })
-    return { outcome: output.outcome, workspace }
+    return {
+      outcome: output.outcome,
+      workspace,
+      summary: output.summary,
+      structuredOutput: output.structuredOutput,
+    }
   }
 
   /**
@@ -449,12 +464,18 @@ export class Agent {
     payload: Record<string, unknown> | undefined,
     startedAt: Date,
     error?: unknown,
+    summary?: string,
+    structuredOutput?: Record<string, unknown>,
   ): Promise<AgentRunOutput> {
     const exit = this.matchExit(outcome)
     if (payload != null) {
       payload.agentWorking = false
       const nextStatus = exitSet(exit)
-      if (nextStatus != null) payload.status = nextStatus
+      if (nextStatus != null) {
+        payload.status = nextStatus
+        await this.writeStatus(payload, nextStatus)
+      }
+      if (summary != null) await this.writeComment(payload, exit, summary)
     }
     const payloadId = typeof payload?.id === 'string' ? payload.id : undefined
     ExecutionLog.append(
@@ -470,7 +491,41 @@ export class Agent {
         finishedAt: new Date(),
       }),
     )
-    return { outcome, exit }
+    return { outcome, exit, summary, structuredOutput }
+  }
+
+  /**
+   * `payload.status` ya está mutado en memoria antes de esto — acá se hace
+   * DURABLE, hacia la fuente remota que `payload` representa. Best-effort
+   * a propósito, mismo criterio que "guardar el link del hilo de Slack es
+   * best-effort" en v1: el ExecutionLog y el payload en memoria ya reflejan
+   * qué pasó en ESTE dispatch; perder la persistencia remota es peor de
+   * evitar, pero no puede tumbar un cierre que ya decidió su resultado. Sin
+   * PayloadWriter seteado, no-op — es capacidad opt-in (ver PayloadWriter.js).
+   */
+  private async writeStatus(payload: Record<string, unknown>, status: string): Promise<void> {
+    try {
+      await getPayloadWriter()?.applyStatus(payload, status)
+    } catch {
+      // silencioso a propósito — ver doc de arriba.
+    }
+  }
+
+  /** Mismo criterio best-effort que writeStatus. `target: 'none'` no llama
+   *  al writer — evita que un Provider sin credenciales de comentario reciba
+   *  una llamada que de todas formas iba a no-opear del otro lado. */
+  private async writeComment(
+    payload: Record<string, unknown>,
+    exit: AgentExit | undefined,
+    summary: string,
+  ): Promise<void> {
+    const target = resolveCommentTarget(exit, this.comment)
+    if (target === 'none') return
+    try {
+      await getPayloadWriter()?.postComment(payload, target, summary)
+    } catch {
+      // silencioso a propósito — ver writeStatus.
+    }
   }
 
   /**

@@ -10,6 +10,7 @@ export type {
   AgentOutputField,
   AgentProvider,
   AgentProviderChoiceProps,
+  AgentRunContext,
   AgentRunInput,
   AgentRunOutput,
   AgentToolEntry,
@@ -85,6 +86,8 @@ export { Conditional } from './pipeline/Conditional.js'
 export type { PipelineProps } from './pipeline/Pipeline.js'
 export { Pipeline } from './pipeline/Pipeline.js'
 
+export type { PayloadWriter } from './infra/PayloadWriter.js'
+export { getPayloadWriter, setPayloadWriter } from './infra/PayloadWriter.js'
 export type { SecretResolver } from './infra/SecretResolver.js'
 export { getSecretResolver, setSecretResolver } from './infra/SecretResolver.js'
 export type { ShellRunner, ShellRunOptions, ShellRunResult } from './infra/ShellRunner.js'
