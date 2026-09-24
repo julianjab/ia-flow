@@ -2,7 +2,6 @@ import { getPayloadWriter } from '../infra/PayloadWriter.js'
 import { getShellRunner } from '../infra/ShellRunner.js'
 import { Condition, type ConditionRow } from '../pipeline/Condition.js'
 import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
-import { Catalog } from '../shared/Catalog.js'
 import { Execution } from './Execution.js'
 import { ExecutionLog } from './ExecutionLog.js'
 import { McpCatalogEntry } from './McpCatalogEntry.js'
@@ -209,50 +208,42 @@ export interface AgentRunOutput extends ProviderRunOutput {
 }
 
 /**
+ * Lo que resuelve un `Agent` en vivo, contra cualquier repo real (v1's
+ * `IAgentRepository`, o lo que sea) — inyectado, nunca implementado acá: el
+ * dominio no sabe qué hay del otro lado, sólo que le devuelven una fila.
+ * `projectId` es opcional porque no todo caller lo tiene.
+ */
+export interface AgentSource {
+  get(id: string, projectId?: string): AgentRow | undefined
+}
+
+/**
  * Identidad + capacidad de un agente: qué tools tiene, con qué provider corre,
  * y cómo cierra (exits). NO sabe cuándo le toca correr — eso es 100% de
  * Pipeline.when/on (en v1 vivía en AgentActivationSchema; ver migración
- * 059-activation-into-rules). Un Agent se autoindexa por id y las Pipeline lo
- * referencian por ese id — nunca se embebe en una cadena de `do`.
+ * 059-activation-into-rules). Un Agent se referencia por id — nunca se
+ * embebe en una cadena de `do`.
  *
- * Se autoindexa igual que Execution/Project/PipelineActionEntry: antes vivía en
- * una `AgentRegistry` aparte, pero register/resolve/list/visibleTo son la
- * misma forma (Map + query) sin motivo para ser una segunda clase.
+ * `resolve()` no cachea nada — pega contra el `AgentSource` inyectado en
+ * CADA llamada y arma un `Agent` fresco vía `fromRow`, mismo criterio que
+ * `RuleEngineHandler.loadRules` en v1 (lee `ruleRepo.visibleTo(...)` por
+ * evento en vez de cachear reglas): un agente editado en la UI aplica en el
+ * próximo dispatch, no en el próximo reinicio. No hay catálogo en memoria
+ * como fallback — inyectar es EL mecanismo, también en tests: un test
+ * inyecta un `AgentSource` de mentira (un `Map` en memoria, por ejemplo),
+ * nunca un modo especial de esta clase.
  */
 export class Agent {
-  private static readonly catalog = new Catalog<Agent>((a) => a.id)
+  private static source?: AgentSource
 
-  /** Rechaza id duplicado y valida que `exits` sea consistente (ninguna
-   *  clave vacía, `output` declarado si alguna Pipeline espera
-   *  `{{steps.<id>.output.<campo>}}`) — un exit mal formado tiene que fallar
-   *  ACÁ, al registrar, no en cada matchExit() de cada run. */
-  static register(agent: Agent): void {
-    if (Agent.resolve(agent.id) != null) throw new Error(`Agent duplicado: ${agent.id}`)
-    for (const [name, exit] of Object.entries(agent.exits)) {
-      if (name.trim() === '') throw new Error(`Agent ${agent.id}: exit con clave vacía`)
-      if (typeof exit === 'object' && exit.set.trim() === '') {
-        throw new Error(`Agent ${agent.id}: exit "${name}" con set vacío`)
-      }
-    }
-    Agent.catalog.register(agent)
+  static setSource(source: AgentSource): void {
+    Agent.source = source
   }
 
-  static resolve(id: string): Agent | undefined {
-    return Agent.catalog.resolve(id)
-  }
-
-  static list(): Agent[] {
-    return Agent.catalog.list().sort((a, b) => a.position - b.position)
-  }
-
-  /** Agentes visibles desde un proyecto: los globales (`projectId: null`) + los propios. */
-  static visibleTo(projectId: string | undefined): Agent[] {
-    return Agent.list().filter((a) => a.projectId == null || a.projectId === projectId)
-  }
-
-  /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
-  static reset(): void {
-    Agent.catalog.reset()
+  static resolve(id: string, projectId?: string): Agent | undefined {
+    if (Agent.source == null) throw new Error('Agent: falta inyectar un AgentSource (ver Agent.setSource)')
+    const row = Agent.source.get(id, projectId)
+    return row == null ? undefined : Agent.fromRow(row)
   }
 
   readonly id: string

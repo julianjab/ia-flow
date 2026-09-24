@@ -65,7 +65,7 @@ export class AgentAction extends PipelineActionEntry {
       }
     }
 
-    const agent = Agent.resolve(this.agentId)
+    const agent = Agent.resolve(this.agentId, ctx.event.scope?.projectId)
     if (agent == null) throw new Error(`AgentAction: agente desconocido "${this.agentId}"`)
 
     const project =

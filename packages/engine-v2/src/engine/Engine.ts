@@ -13,21 +13,26 @@ import { Execution, type ExecutionMessage } from './Execution.js'
  */
 export const MAX_EVENT_DEPTH = 10
 
+/** Fuente en vivo del roster de Pipeline — inyectada, nunca cacheada acá.
+ *  `Engine.dispatch` la consulta en CADA evento (mismo criterio que
+ *  `RuleEngineHandler.loadRules` en v1: lee `ruleRepo.visibleTo(...)` por
+ *  evento, nunca cachea reglas), así que una Pipeline editada en la UI
+ *  aplica en el próximo dispatch. */
+export interface PipelineSource {
+  list(): Promise<Pipeline[]>
+}
+
 /**
- * Dueño del roster de Pipeline y de despacharlos contra cada evento del bus.
+ * Dueño de despachar cada evento del bus contra el roster de Pipeline vivo.
  * Equivalente a rule-engine-handler.ts + TaskDispatcher + SourceIssueManager
  * de v1, colapsados: acá no hay scan — todo entra como DomainEvent (lo que en
  * v1 produce el scan queda afuera de este esqueleto, es quien PUBLICA al bus).
  */
 export class Engine {
-  private readonly pipelines: Pipeline[] = []
-
-  constructor(private readonly bus: EventBus) {}
-
-  register(pipeline: Pipeline): void {
-    this.pipelines.push(pipeline)
-    this.pipelines.sort((a, b) => a.position - b.position)
-  }
+  constructor(
+    private readonly bus: EventBus,
+    private readonly pipelines: PipelineSource,
+  ) {}
 
   start(): void {
     this.bus.subscribe('*', (event) => {
@@ -65,7 +70,8 @@ export class Engine {
     if (Execution.tryAppend(taskId, message)) return 'dispatched'
 
     const project = event.scope?.projectId ? Project.resolve(event.scope.projectId) : undefined
-    const matched = this.pipelines.filter((p) => p.matches(event, project))
+    const pipelines = await this.pipelines.list()
+    const matched = pipelines.filter((p) => p.matches(event, project))
     const survived: Pipeline[] = []
     for (const p of matched) {
       if (await p.matchesText(event)) survived.push(p)

@@ -1,10 +1,11 @@
 export { Catalog } from './shared/Catalog.js'
-export type { ProjectProps, ProjectRow, ProjectSettings } from './domain/Project.js'
+export type { ProjectProps, ProjectRow, ProjectSettings, ProjectSource } from './domain/Project.js'
 export { Project } from './domain/Project.js'
-export type { RepoProps, RepoRow } from './domain/Repo.js'
+export type { RepoProps, RepoRow, RepoSource } from './domain/Repo.js'
 export { Repo } from './domain/Repo.js'
 export type {
   AgentDefinitionProps,
+  AgentSource,
   AgentExit,
   AgentProviderChoiceRow,
   AgentRow,
@@ -33,6 +34,7 @@ export {
   SUCCESS_EXIT,
 } from './engine/Agent.js'
 export { AgentRunEntity } from './engine/AgentRunEntity.js'
+export type { PipelineSource } from './engine/Engine.js'
 export { Engine, MAX_EVENT_DEPTH } from './engine/Engine.js'
 export type {
   DispatchOutcome,

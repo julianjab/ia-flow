@@ -102,7 +102,9 @@ export class Pipeline extends Conditional {
       if (!step.shouldRun(runCtx)) continue
       const next = this.do[i + 1]
       runCtx.nextSchema =
-        next instanceof AgentAction ? Agent.resolve(next.agentId)?.expectedInput : undefined
+        next instanceof AgentAction
+          ? Agent.resolve(next.agentId, ctx.event.scope?.projectId)?.expectedInput
+          : undefined
       try {
         const out = await step.run(runCtx)
         if (step.id) runCtx.steps[step.id] = out

@@ -1,9 +1,12 @@
-import { Catalog } from '../shared/Catalog.js'
-
 export interface RepoProps {
   name: string
   projectId: string
   path?: string
+}
+
+/** Fuente en vivo inyectada — un `Repo` nunca se cachea en memoria. */
+export interface RepoSource {
+  get(projectId: string, name: string): RepoRow | undefined
 }
 
 /**
@@ -13,24 +16,21 @@ export interface RepoProps {
  * sin saber qué generador existe del otro lado. `path` es lo único que
  * `ScriptAction` necesita para resolver un `cwd`.
  *
- * Se autoindexa como el resto del dominio — clave compuesta `projectId:name`
- * porque `name` sólo es único DENTRO de un proyecto (dos proyectos pueden
- * tener cada uno un repo "backend").
+ * `resolve()` pega contra el `RepoSource` inyectado en CADA llamada — sin
+ * caché, mismo criterio que `Agent.resolve`/`Project.resolve`. Inyectar es
+ * EL mecanismo, también en tests.
  */
 export class Repo {
-  private static readonly catalog = new Catalog<Repo>((r) => `${r.projectId}:${r.name}`)
+  private static source?: RepoSource
 
-  static register(repo: Repo): void {
-    Repo.catalog.register(repo)
+  static setSource(source: RepoSource): void {
+    Repo.source = source
   }
 
   static resolve(projectId: string, name: string): Repo | undefined {
-    return Repo.catalog.resolve(`${projectId}:${name}`)
-  }
-
-  /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
-  static reset(): void {
-    Repo.catalog.reset()
+    if (Repo.source == null) throw new Error('Repo: falta inyectar un RepoSource (ver Repo.setSource)')
+    const row = Repo.source.get(projectId, name)
+    return row == null ? undefined : Repo.fromRow(row)
   }
 
   readonly name: string

@@ -1,5 +1,4 @@
 import { Condition } from '../pipeline/Condition.js'
-import { Catalog } from '../shared/Catalog.js'
 
 export interface ProjectSettings {
   maxConcurrentDispatches?: number
@@ -14,6 +13,11 @@ export interface ProjectProps {
   settings?: ProjectSettings
 }
 
+/** Fuente en vivo inyectada — un `Project` nunca se cachea en memoria. */
+export interface ProjectSource {
+  get(id: string): ProjectRow | undefined
+}
+
 /**
  * Un scope de capacidad + overrides de pipeline — nada más. El engine tiene
  * que ser agnóstico a CUALQUIER generador de eventos (GitHub, Slack, lo que
@@ -24,25 +28,25 @@ export interface ProjectProps {
  * consultan de verdad: capacidad (`maxConcurrentDispatches`) y overrides de
  * matching (`disabledPipelineIds`, `baseWhen`).
  *
- * Se autoindexa por id (estático) igual que Execution — mismo motivo: una
- * clase `ProjectRegistry` aparte sólo para `Map + get` no paga su lugar.
- * `Engine.dispatch` usa `Project.resolve(event.scope?.projectId)` en vez de
- * recibir un registry inyectado.
+ * `resolve()` pega contra el `ProjectSource` inyectado en CADA llamada —
+ * sin caché, mismo criterio que `Agent.resolve` (ver su comentario): un
+ * proyecto editado en la UI aplica en el próximo dispatch. Inyectar es EL
+ * mecanismo, también en tests — nada de un catálogo en memoria como modo
+ * alternativo.
  */
 export class Project {
-  private static readonly catalog = new Catalog<Project>((p) => p.id)
+  private static source?: ProjectSource
 
-  static register(project: Project): void {
-    Project.catalog.register(project)
+  static setSource(source: ProjectSource): void {
+    Project.source = source
   }
 
   static resolve(id: string): Project | undefined {
-    return Project.catalog.resolve(id)
-  }
-
-  /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
-  static reset(): void {
-    Project.catalog.reset()
+    if (Project.source == null) {
+      throw new Error('Project: falta inyectar un ProjectSource (ver Project.setSource)')
+    }
+    const row = Project.source.get(id)
+    return row == null ? undefined : Project.fromRow(row)
   }
 
   readonly id: string

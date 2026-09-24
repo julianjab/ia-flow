@@ -7,15 +7,22 @@
  * piezas que ya están implementadas de verdad: no hay nada acá que no exista
  * ya en `src/`.
  *
+ * `Project`/`Repo`/`Agent` ya NO tienen catálogo en memoria — se resuelven
+ * SIEMPRE contra una fuente inyectada (`setSource`), nunca cacheada. Acá la
+ * fuente es un par de `Map` de juguete; en `apps/server` es un adapter que
+ * pega contra los repos reales de v1. Es EL mismo mecanismo en los dos
+ * casos, y es también cómo un test mockearía esto — no hay un modo especial
+ * "de test" en las clases.
+ *
  * Correr: `bun run demo` (desde packages/engine-v2).
  */
-import { Agent, ERROR_EXIT, SUCCESS_EXIT } from '../src/engine/Agent.js'
+import { Agent, type AgentRow, ERROR_EXIT, SUCCESS_EXIT } from '../src/engine/Agent.js'
 import type { AgentRunContext, ProviderRunOutput } from '../src/engine/Agent.js'
-import { Engine } from '../src/engine/Engine.js'
+import { Engine, type PipelineSource } from '../src/engine/Engine.js'
 import { ExecutionLog } from '../src/engine/ExecutionLog.js'
 import { Provider } from '../src/engine/Provider.js'
-import { Project } from '../src/domain/Project.js'
-import { Repo } from '../src/domain/Repo.js'
+import { Project, type ProjectRow } from '../src/domain/Project.js'
+import { Repo, type RepoRow } from '../src/domain/Repo.js'
 import { DomainEvent } from '../src/events/DomainEvent.js'
 import { EventBus } from '../src/events/EventBus.js'
 import { AgentAction } from '../src/pipeline/actions/AgentAction.js'
@@ -34,34 +41,45 @@ class EchoProvider extends Provider {
   }
 }
 
-Project.register(new Project({ id: 'demo-project' }))
-Repo.register(new Repo({ name: 'demo-repo', projectId: 'demo-project', path: '/tmp/demo-repo' }))
+// --- fuentes de juguete: un Map en memoria, igual de válido que cualquier
+// otro adapter — Project/Repo/Agent no saben ni les importa qué hay detrás. ---
+const projectRows = new Map<string, ProjectRow>([['demo-project', { id: 'demo-project' }]])
+Project.setSource({ get: (id) => projectRows.get(id) })
+
+const repoRows = new Map<string, RepoRow>([
+  ['demo-project:demo-repo', { name: 'demo-repo', projectId: 'demo-project', path: '/tmp/demo-repo' }],
+])
+Repo.setSource({ get: (projectId, name) => repoRows.get(`${projectId}:${name}`) })
+
+const agentRows = new Map<string, AgentRow>([
+  [
+    'echo-agent',
+    {
+      id: 'echo-agent',
+      provider: 'echo-provider',
+      // {{title}} viene del payload del evento, {{variables.tone}} de la
+      // config del propio agente — las dos fuentes que Agent.renderPrompt
+      // combina antes de que el Provider vea una sola letra del prompt.
+      prompt: 'Resolvé el issue "{{title}}" con tono {{variables.tone}}.',
+      variables: { tone: 'profesional' },
+      exits: { [SUCCESS_EXIT]: 'closed', [ERROR_EXIT]: 'failed' },
+    },
+  ],
+])
+Agent.setSource({ get: (id) => agentRows.get(id) })
+
 Provider.register(new EchoProvider({ id: 'echo-provider', kind: 'sync' }))
 
-Agent.register(
-  new Agent({
-    id: 'echo-agent',
-    provider: 'echo-provider',
-    // {{title}} viene del payload del evento, {{variables.tone}} de la
-    // config del propio agente — las dos fuentes que Agent.renderPrompt
-    // combina antes de que el Provider vea una sola letra del prompt.
-    prompt: 'Resolvé el issue "{{title}}" con tono {{variables.tone}}.',
-    variables: { tone: 'profesional' },
-    exits: { [SUCCESS_EXIT]: 'closed', [ERROR_EXIT]: 'failed' },
-  }),
-)
-
 AgentAction.register('run-echo-agent', new AgentAction({ id: 'run-echo-agent', agentId: 'echo-agent' }))
-
 const pipeline = new Pipeline({
   id: 'demo-pipeline',
   on: ['issue.observed'],
   do: [AgentAction.resolve('run-echo-agent') as AgentAction],
 })
+const pipelineSource: PipelineSource = { list: async () => [pipeline] }
 
 const bus = new EventBus()
-const engine = new Engine(bus)
-engine.register(pipeline)
+const engine = new Engine(bus, pipelineSource)
 engine.start()
 
 console.log('Publicando issue.observed…')
