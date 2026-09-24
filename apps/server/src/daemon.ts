@@ -16,6 +16,8 @@ import {
   WAIT_EXPIRED,
   WAIT_RESUMED,
 } from '@ia-flow/shared'
+import { EngineV2Bridge } from './adapters/engine-v2/EngineV2Bridge.js'
+import { buildEngineV2, hydrateEngineV2Catalogs } from './adapters/engine-v2/hydrate.js'
 import { PrOutcomeHandler } from './adapters/github/pr-outcome-handler.js'
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
@@ -264,6 +266,34 @@ function registerWaits(): void {
   )
 }
 
+/** `IA_FLOW_ENGINE_V2=1` — interruptor explícito, apagado por default: el
+ *  Provider concreto (`V1ProviderAdapter`) tiene limitaciones conocidas (sin
+ *  interpolación de variables, sin mensajes en vivo/checkpoints) y todavía
+ *  no hay camino de recarga cuando cambia la config — ver hydrate.ts. */
+function engineV2Enabled(): boolean {
+  return Bun.env.IA_FLOW_ENGINE_V2 === '1'
+}
+
+/**
+ * `engine-v2` corre EN PARALELO al motor de reglas de `@ia-flow/rules`, no en
+ * su reemplazo — el mismo evento le llega a los dos vía `eventBus.subscribe`
+ * (`RuleEngineHandler` sigue siendo el único que aplica transiciones/corre
+ * agentes de verdad hasta que esto se valide). `EngineV2Bridge.handle()`
+ * reenvía el evento al `Engine` de v2 y reporta su outcome — que hoy no
+ * afecta al agregado de `eventBus.publish` porque `RuleEngineHandler` sigue
+ * siendo el handler que manda la señal real.
+ */
+async function registerEngineV2(): Promise<void> {
+  if (!engineV2Enabled()) {
+    log.info('IA_FLOW_ENGINE_V2 no está en "1" — engine-v2 no se registra')
+    return
+  }
+  hydrateEngineV2Catalogs()
+  const engine = await buildEngineV2()
+  eventBus.subscribe(new EngineV2Bridge(engine))
+  log.warn('engine-v2 registrado EN PARALELO al motor de reglas — ver limitaciones en V1ProviderAdapter/hydrate.ts')
+}
+
 // Igual que `registerWaits`: se suscribe APARTE del motor de reglas — no es
 // una regla, es telemetría que se cruza con cada `pr.merged`/`pr.closed`/
 // `pr.review_submitted` publicado por el traductor de GitHub, aunque ninguna
@@ -491,6 +521,7 @@ export async function startDaemon(): Promise<void> {
   registerRuleEngine()
   registerWaits()
   registerPrOutcomeTracking()
+  await registerEngineV2()
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys
