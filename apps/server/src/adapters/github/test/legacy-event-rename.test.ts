@@ -11,11 +11,26 @@ describe('usesLegacyTaxonomy', () => {
       false,
     )
   })
+
+  it('tipo.action de un evento crudo (issue_comment.created, projects_v2_item.edited, …) ya no es taxonomía vieja — el matcher lo entiende nativo', () => {
+    expect(
+      usesLegacyTaxonomy([
+        'issue_comment.created',
+        'issues.opened',
+        'projects_v2_item.edited',
+        'projects_v2.edited',
+      ]),
+    ).toBe(false)
+  })
 })
 
 describe('planLegacyRename', () => {
   it('sin taxonomía vieja, no hay nada que hacer', () => {
     expect(planLegacyRename(['issue.status_changed'], null)).toBeNull()
+  })
+
+  it('tipo.action de un evento crudo tampoco necesita nada — el matcher ya lo resuelve', () => {
+    expect(planLegacyRename(['issue.created', 'projects_v2_item.edited'], null)).toBeNull()
   })
 
   it('un tipo simple se traduce y agrega el requirement de action', () => {
