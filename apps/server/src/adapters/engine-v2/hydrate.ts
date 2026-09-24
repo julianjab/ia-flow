@@ -4,6 +4,8 @@ import {
   Engine,
   type EngineSources,
   EventBus,
+  Execution,
+  ExecutionLog,
   Pipeline,
   type PipelineRow,
   Project,
@@ -77,6 +79,20 @@ function v1Sources(): EngineSources {
         const rows = projectId != null ? agentRepo.visibleTo(projectId) : agentRepo.inScope(null)
         const row = rows.find((r) => r.id === id)
         return row == null ? undefined : Agent.fromRow(row as unknown as AgentRow)
+      },
+    },
+    // "executions_logs -> executions": todavía no hay una tabla de v1 para
+    // esperas/pausas (v1 tiene `waits`/`run_checkpoints` propias, que no
+    // portamos) — la fuente real disponible HOY es el propio `ExecutionLog`
+    // de v2, extendido con `waitUntil`/`checkpoint`. Cuando exista una tabla
+    // durable de v1 para esto, este adapter cambia, `Engine`/`Execution` no.
+    executions: {
+      list: async (taskId) =>
+        ExecutionLog.byTask(taskId)
+          .map((entry) => Execution.fromLog(entry))
+          .filter((e): e is Execution => e != null),
+      consume: async (id) => {
+        ExecutionLog.consume(id)
       },
     },
   }

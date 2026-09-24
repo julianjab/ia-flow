@@ -1,6 +1,42 @@
+import type { DomainEvent } from '../events/DomainEvent.js'
 import type { PipelineActionKind } from '../pipeline/actions/PipelineActionEntry.js'
+import { Conditional, type ConditionalProps } from '../pipeline/Conditional.js'
 
-export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting'
+
+export interface WaitConditionProps extends ConditionalProps {
+  /** `DomainEvent.type` que le hablan. */
+  on: string[]
+  /** Agente que corre al despertar cuando NO es el mismo que se pausó
+   *  (ausente ⇒ el propio `Execution.agentId`) — mismo campo que
+   *  `wait.resumeWith` en v1. */
+  resumeWith?: string
+}
+
+/**
+ * Qué la despierta — reusa `Conditional` (mismo `when`/`whenText` que
+ * `Pipeline`/`PipelineActionEntry`/`AgentProviderChoice`, ningún motor de
+ * matching nuevo): el gate puro (`when`) Y el impuro (`whenText`, un
+ * clasificador) le quedan gratis, sólo agrega `on` y `resumeWith`.
+ */
+export class WaitCondition extends Conditional {
+  readonly on: string[]
+  readonly resumeWith?: string
+
+  constructor(props: WaitConditionProps) {
+    super(props)
+    this.on = props.on
+    this.resumeWith = props.resumeWith
+  }
+}
+
+/** `Execution` sin ninguna entidad de verdad detrás — lo que recibe una
+ *  instancia reconstruida por `fromLog`: nada corre en ESTE proceso para
+ *  ella, así que un `append()` no tiene a quién entregarle nada. */
+const DORMANT_ENTITY: ExecutionEntity = {
+  supportsAppend: () => false,
+  appendMessage: () => {},
+}
 
 export type DispatchOutcomeKind = 'dispatched' | 'skipped' | 'deferred'
 
@@ -42,7 +78,9 @@ export interface ExecutionProps {
   /** Identificador de correlación (`event.scope.issueId`), cuando el evento tiene uno. */
   taskId?: string
   kind: PipelineActionKind
-  entity: ExecutionEntity
+  /** Ausente ⇒ `DORMANT_ENTITY` — el caso de `Execution.fromLog`, donde no
+   *  hay ningún loop vivo en ESTE proceso al que entregarle un append. */
+  entity?: ExecutionEntity
   startedAt?: Date
   /** Los cuatro campos de acá abajo son lo que antes vivía en una clase
    *  `PendingTask` aparte, pensada para contar caps de concurrencia — se
@@ -57,6 +95,10 @@ export interface ExecutionProps {
   /** Presente cuando este run es un sub-agente — excluido de
    *  `runningForProject` (ver ese método) para no producir deadlock. */
   parentRunId?: string
+  /** Presente cuando esta instancia nace `waiting` — desde `wait()` o
+   *  reconstruida por `fromLog`. */
+  waitUntil?: WaitCondition
+  checkpoint?: unknown
 }
 
 /**
@@ -90,6 +132,8 @@ export class Execution {
   readonly projectId?: string
   readonly providerId?: string
   readonly parentRunId?: string
+  waitUntil?: WaitCondition
+  checkpoint?: unknown
 
   constructor(props: ExecutionProps) {
     this.id = props.id
@@ -97,14 +141,19 @@ export class Execution {
     this.doId = props.doId
     this.taskId = props.taskId
     this.kind = props.kind
-    this.entity = props.entity
-    this.status = 'running'
+    this.entity = props.entity ?? DORMANT_ENTITY
+    this.status = props.waitUntil != null ? 'waiting' : 'running'
     this.startedAt = props.startedAt ?? new Date()
     this.agentId = props.agentId
     this.projectId = props.projectId
     this.providerId = props.providerId
     this.parentRunId = props.parentRunId
-    Execution.index(this)
+    this.waitUntil = props.waitUntil
+    this.checkpoint = props.checkpoint
+    // Una 'waiting' reconstruida por fromLog no vive en ESTE proceso —
+    // indexarla igual rompería isRunning()/capacidad (ver runningForAgent):
+    // el índice en memoria es sólo para trabajo activo de ESTE proceso.
+    if (this.status === 'running') Execution.index(this)
   }
 
   /** `taskId` ausente ⇒ bucket `''` (mismo patrón que ExecutionLog) — así
@@ -211,5 +260,65 @@ export class Execution {
     this.status = 'failed'
     this.finishedAt = new Date()
     Execution.unindex(this)
+  }
+
+  /**
+   * Deja de estar activa en ESTE proceso — igual que `complete()`/`fail()`,
+   * se saca del índice en memoria — pero no es un cierre: `checkpoint` (si
+   * vino) es lo que un futuro resume necesitaría para retomar sin perder lo
+   * que el agente ya sabía. Quien la vuelve a encontrar más adelante es un
+   * `ExecutionSource` inyectado (leyendo de `ExecutionLog` u otra fuente
+   * durable) vía `fromLog`, no este mismo objeto — una vez pausada, ESTA
+   * instancia ya cumplió su función.
+   */
+  wait(condition: WaitCondition, checkpoint?: unknown): void {
+    this.status = 'waiting'
+    this.waitUntil = condition
+    this.checkpoint = checkpoint
+    Execution.unindex(this)
+  }
+
+  /** ¿Este evento es lo que esta Execution está esperando? Mismo motor de
+   *  matching que `Pipeline.matches` (`WaitCondition.matchesAllConditions`,
+   *  heredado de `Conditional` — `when` Y `whenText`), sin scope ni
+   *  `enabled` — eso ya lo filtró quien la encontró por taskId. */
+  async matchesWaitEvent(event: DomainEvent): Promise<boolean> {
+    if (this.status !== 'waiting' || this.waitUntil == null) return false
+    if (!this.waitUntil.on.includes(event.type)) return false
+    return this.waitUntil.matchesAllConditions(event.payload)
+  }
+
+  /**
+   * Reconstruye una Execution 'waiting' a partir de una fila durable (hoy
+   * `ExecutionLog`, mañana lo que sea que un `ExecutionSource` real use) —
+   * `undefined` si la fila no representa una espera viva, para que quien
+   * llama pueda `.filter()` sin chequear el status a mano. No indexa en
+   * memoria (ver el constructor): esta instancia nace ya 'waiting'.
+   */
+  static fromLog(entry: {
+    id: string
+    taskId?: string
+    pipelineId?: string
+    doId?: string
+    agentId: string
+    projectId?: string
+    status: string
+    waitUntil?: WaitCondition
+    checkpoint?: unknown
+    startedAt: Date
+  }): Execution | undefined {
+    if (entry.status !== 'waiting' || entry.waitUntil == null) return undefined
+    return new Execution({
+      id: entry.id,
+      pipelineId: entry.pipelineId ?? '',
+      doId: entry.doId ?? '',
+      taskId: entry.taskId,
+      kind: 'agent',
+      agentId: entry.agentId,
+      projectId: entry.projectId,
+      startedAt: entry.startedAt,
+      waitUntil: entry.waitUntil,
+      checkpoint: entry.checkpoint,
+    })
   }
 }

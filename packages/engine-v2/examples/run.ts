@@ -21,12 +21,14 @@ import { Project, type ProjectRow } from '../src/domain/Project.js'
 import { Repo, type RepoRow } from '../src/domain/Repo.js'
 import type { AgentRunContext, ProviderRunOutput } from '../src/engine/Agent.js'
 import { Agent, type AgentRow, ERROR_EXIT, SUCCESS_EXIT } from '../src/engine/Agent.js'
-import { Engine } from '../src/engine/Engine.js'
+import { Engine, type ExecutionSource } from '../src/engine/Engine.js'
+import { Execution, WaitCondition } from '../src/engine/Execution.js'
 import { ExecutionLog } from '../src/engine/ExecutionLog.js'
 import { Provider } from '../src/engine/Provider.js'
 import { DomainEvent } from '../src/events/DomainEvent.js'
 import { EventBus } from '../src/events/EventBus.js'
 import { AgentAction } from '../src/pipeline/actions/AgentAction.js'
+import { Condition } from '../src/pipeline/Condition.js'
 import { Pipeline } from '../src/pipeline/Pipeline.js'
 
 /** El provider más simple posible: cierra todo run como éxito, sin correr
@@ -85,7 +87,22 @@ const pipeline = new Pipeline({
   do: [AgentAction.resolve('run-echo-agent') as AgentAction],
 })
 
+// "executions_logs -> executions": la fuente de espera nunca inventa un
+// schema propio — lee lo que YA está en ExecutionLog (extendido con
+// waitUntil/checkpoint) y lo reconstruye vía Execution.fromLog. Es la misma
+// clase que ya loguea cada run terminado; una 'waiting' es sólo otra fila.
+const executionSource: ExecutionSource = {
+  list: async (taskId) =>
+    ExecutionLog.byTask(taskId)
+      .map((entry) => Execution.fromLog(entry))
+      .filter((e): e is Execution => e != null),
+  consume: async (id) => {
+    ExecutionLog.consume(id)
+  },
+}
+
 const bus = new EventBus()
+
 const engine = new Engine(bus, {
   pipelines: { list: async () => [pipeline] },
   projects: { get: (id) => fromRow(projectRows.get(id), Project.fromRow) },
@@ -93,6 +110,7 @@ const engine = new Engine(bus, {
     get: (projectId, name) => fromRow(repoRows.get(`${projectId}:${name}`), Repo.fromRow),
   },
   agents: { get: (id) => fromRow(agentRows.get(id), Agent.fromRow) },
+  executions: executionSource,
 })
 engine.start()
 
@@ -121,3 +139,59 @@ if (log.length === 0 || log[0]?.status !== 'completed') {
   process.exit(1)
 }
 console.log('\n✅ engine-v2 corrió punta a punta: evento → pipeline → agente → provider → log')
+
+// --- segunda parte: pausar y despertar ---
+// Simula lo que un agente real haría vía una tool `pause_until`: acá lo
+// armamos a mano porque esa tool todavía no existe (ver el comentario de
+// Engine.resumeExecution) — pero de acá para abajo es el mecanismo REAL,
+// no un mock: la misma ExecutionLog, el mismo Engine.dispatch.
+console.log('\nPausando "demo-1" — espera un ci.finished con status=green…')
+ExecutionLog.append(
+  new ExecutionLog({
+    id: 'wait-1',
+    taskId: 'demo-1',
+    agentId: 'echo-agent',
+    projectId: 'demo-project',
+    outcome: 'waiting',
+    status: 'waiting',
+    startedAt: new Date(),
+    waitUntil: new WaitCondition({
+      on: ['ci.finished'],
+      when: [new Condition('status', '=', 'green')],
+    }),
+  }),
+)
+
+console.log('Publicando ci.finished con status=yellow (NO debería despertarla)…')
+bus.publish(
+  new DomainEvent(
+    'ci.finished',
+    { status: 'yellow' },
+    { scope: { projectId: 'demo-project', issueId: 'demo-1' } },
+  ),
+)
+await new Promise((resolve) => setTimeout(resolve, 20))
+if (ExecutionLog.byTask('demo-1').find((e) => e.id === 'wait-1') == null) {
+  console.error('\n❌ un ci.finished que NO matchea igual consumió la espera')
+  process.exit(1)
+}
+
+console.log('Publicando ci.finished con status=green (SÍ debería despertarla)…')
+bus.publish(
+  new DomainEvent(
+    'ci.finished',
+    { status: 'green' },
+    { scope: { projectId: 'demo-project', issueId: 'demo-1' } },
+  ),
+)
+await new Promise((resolve) => setTimeout(resolve, 50))
+
+const stillWaiting = ExecutionLog.byTask('demo-1').find((e) => e.id === 'wait-1')
+const resumedRuns = ExecutionLog.byTask('demo-1').filter((e) => e.status === 'completed')
+if (stillWaiting != null || resumedRuns.length < 2) {
+  console.error('\n❌ la espera no se consumió o el agente no se retomó')
+  process.exit(1)
+}
+console.log(
+  '\n✅ la espera matcheó sólo con el evento correcto, se consumió, y el agente se retomó directo',
+)

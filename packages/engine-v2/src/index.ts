@@ -33,7 +33,7 @@ export {
   SUCCESS_EXIT,
 } from './engine/Agent.js'
 export { AgentRunEntity } from './engine/AgentRunEntity.js'
-export type { EngineSources, PipelineSource } from './engine/Engine.js'
+export type { EngineSources, ExecutionSource, PipelineSource } from './engine/Engine.js'
 export { Engine, MAX_EVENT_DEPTH } from './engine/Engine.js'
 export type {
   DispatchOutcome,
@@ -42,8 +42,9 @@ export type {
   ExecutionMessage,
   ExecutionProps,
   ExecutionStatus,
+  WaitConditionProps,
 } from './engine/Execution.js'
-export { Execution } from './engine/Execution.js'
+export { Execution, WaitCondition } from './engine/Execution.js'
 export type { ExecutionLogProps, ExecutionLogStatus } from './engine/ExecutionLog.js'
 export { ExecutionLog } from './engine/ExecutionLog.js'
 export type { McpCatalogEntryProps, McpTransport } from './engine/McpCatalogEntry.js'

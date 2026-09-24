@@ -1,6 +1,7 @@
 import type { AgentExit } from './Agent.js'
+import type { WaitCondition } from './Execution.js'
 
-export type ExecutionLogStatus = 'completed' | 'failed'
+export type ExecutionLogStatus = 'completed' | 'failed' | 'waiting'
 
 export interface ExecutionLogProps {
   id: string
@@ -9,6 +10,7 @@ export interface ExecutionLogProps {
    *  bucket `''`. */
   taskId?: string
   agentId: string
+  projectId?: string
   pipelineId?: string
   doId?: string
   outcome: string
@@ -20,6 +22,10 @@ export interface ExecutionLogProps {
   error?: string
   startedAt: Date
   finishedAt?: Date
+  /** Presentes sólo cuando `status: 'waiting'` — lo que `Execution.fromLog`
+   *  necesita para reconstruir la espera (ver Engine.dispatch). */
+  waitUntil?: WaitCondition
+  checkpoint?: unknown
 }
 
 /**
@@ -36,6 +42,7 @@ export class ExecutionLog {
   readonly id: string
   readonly taskId?: string
   readonly agentId: string
+  readonly projectId?: string
   readonly pipelineId?: string
   readonly doId?: string
   readonly outcome: string
@@ -45,11 +52,14 @@ export class ExecutionLog {
   readonly error?: string
   readonly startedAt: Date
   readonly finishedAt?: Date
+  readonly waitUntil?: WaitCondition
+  readonly checkpoint?: unknown
 
   constructor(props: ExecutionLogProps) {
     this.id = props.id
     this.taskId = props.taskId
     this.agentId = props.agentId
+    this.projectId = props.projectId
     this.pipelineId = props.pipelineId
     this.doId = props.doId
     this.outcome = props.outcome
@@ -59,6 +69,8 @@ export class ExecutionLog {
     this.error = props.error
     this.startedAt = props.startedAt
     this.finishedAt = props.finishedAt
+    this.waitUntil = props.waitUntil
+    this.checkpoint = props.checkpoint
   }
 
   static append(entry: ExecutionLog): void {
@@ -74,6 +86,23 @@ export class ExecutionLog {
     return [...(ExecutionLog.byTaskId.get(taskId ?? '') ?? [])].sort(
       (a, b) => a.startedAt.getTime() - b.startedAt.getTime(),
     )
+  }
+
+  /**
+   * Saca UNA entrada por id — es lo que hace que despertar una espera sea
+   * idempotente (mismo criterio que `waitRepo.consume` en v1: "el borrado ES
+   * la clave de idempotencia"). Sin esto, dos eventos que matchean la misma
+   * espera antes de que el primero termine de procesarse la despertarían
+   * dos veces.
+   */
+  static consume(id: string): void {
+    for (const list of ExecutionLog.byTaskId.values()) {
+      const idx = list.findIndex((entry) => entry.id === id)
+      if (idx !== -1) {
+        list.splice(idx, 1)
+        return
+      }
+    }
   }
 
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
