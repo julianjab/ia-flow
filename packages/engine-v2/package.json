@@ -8,7 +8,8 @@
   "scripts": {
     "build": "echo 'engine-v2 is source-only'",
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "demo": "bun run examples/run.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",
