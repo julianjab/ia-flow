@@ -222,22 +222,32 @@ describe('executions router', () => {
     // whose `source` matches ours isn't "forwarded from elsewhere", it's an
     // orphan from a previous life of THIS process. It must fall through to
     // the orphan-close branch instead of being stuck as advisory-only forever.
-    test('closes a same-instance orphaned row instead of treating it as remote-owned', async () => {
-      // El INSTANCE_ID real (typ. undefined en test, sin IA_FLOW_INSTANCE_ID
-      // seteado) — no un literal inventado: `execution.source` sólo necesita
-      // IGUALAR lo que este proceso considera "propio", sea lo que sea.
-      seed([makeExec({ id: 'e1', source: INSTANCE_ID })])
-      const res = await app.request('/e1/cancel', { method: 'POST' })
-      expect(res.status).toBe(200)
-      const body = (await res.json()) as {
-        ok: boolean
-        orphaned?: boolean
-        execution: ExecutionLog
-      }
-      expect(body.orphaned).toBe(true)
-      expect(body.execution.outcome).toBe('cancelled')
-      expect(body.execution.finishedAt).toEqual(expect.any(String))
-    })
+    //
+    // `INSTANCE_ID` es un `const` calculado una sola vez al importar
+    // container.js desde `Bun.env.IA_FLOW_INSTANCE_ID` — no hay forma de
+    // pisarlo con `spyOn` (no es un método) sin volver a `mock.module` y
+    // reabrir el leak que este archivo dejó de tener. Sin esa env var
+    // seteada (el caso normal en CI/local), `INSTANCE_ID` es `undefined`, y
+    // un `execution.source` truthy que lo "iguale" es imposible de fabricar
+    // — el test se saltea en vez de fingir que ejercita la rama
+    // `execution.source === INSTANCE_ID` (que colapsaría con la de "sin
+    // source" del test de arriba y pasaría en verde sin probar nada).
+    test.skipIf(INSTANCE_ID === undefined)(
+      'closes a same-instance orphaned row instead of treating it as remote-owned',
+      async () => {
+        seed([makeExec({ id: 'e1', source: INSTANCE_ID })])
+        const res = await app.request('/e1/cancel', { method: 'POST' })
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as {
+          ok: boolean
+          orphaned?: boolean
+          execution: ExecutionLog
+        }
+        expect(body.orphaned).toBe(true)
+        expect(body.execution.outcome).toBe('cancelled')
+        expect(body.execution.finishedAt).toEqual(expect.any(String))
+      },
+    )
 
     test('cancels an in-flight pending task', async () => {
       seed([makeExec({ id: 'e1' })])
