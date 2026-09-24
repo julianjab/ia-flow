@@ -19,6 +19,7 @@ export {
   validateActions,
 } from './actions.js'
 export { renderBrief } from './brief.js'
+export { onMatchesEvent } from './event-type-match.js'
 export type { EventBusOptions, EventHandler, EventOutcome, IEventBus } from './bus.js'
 export { aggregateOutcomes, InMemoryEventBus } from './bus.js'
 export type { RejectedRule, RuleMatchInput, RuleMatchResult, RuleRejectionReason } from './match.js'

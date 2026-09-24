@@ -5,6 +5,7 @@
 // al matchear y que vence. Por eso esto es un módulo de treinta líneas y no un
 // mecanismo aparte.
 import type { EngineEvent, Wait } from '@ia-flow/shared'
+import { onMatchesEvent } from './event-type-match.js'
 import { evalWhen } from './when.js'
 
 /** ¿Este evento despierta esta espera?
@@ -14,7 +15,7 @@ import { evalWhen } from './when.js'
  *  que hace que esperar sea seguro con varias tasks en vuelo. */
 export function matchesWait(wait: Wait, event: EngineEvent, now: number): boolean {
   if (Date.parse(wait.expiresAt) <= now) return false
-  if (!wait.on.includes(event.type)) return false
+  if (!onMatchesEvent(wait.on, event)) return false
   if (event.scope.projectId && event.scope.projectId !== wait.projectId) return false
   // `issueId` es el ancla: cuando el evento lo trae, tiene que ser el de la
   // task que espera. Un evento sin issueId (un `ci.finished` que GitHub no

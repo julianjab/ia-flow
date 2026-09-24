@@ -11,6 +11,7 @@
 // `whenText`, que necesita que un modelo lea el evento— vive afuera
 // envolviéndolo, igual que `agent-text-gate.ts` envuelve a `selectAgent`.
 import type { EngineEvent, Rule } from '@ia-flow/shared'
+import { onMatchesEvent } from './event-type-match.js'
 import { matchScope } from './scope.js'
 import { traceWhenAll, type WhenTrace } from './when.js'
 
@@ -46,7 +47,7 @@ export interface RuleMatchResult {
 }
 
 function matchesType(rule: Rule, event: EngineEvent): boolean {
-  return rule.on.includes(event.type)
+  return onMatchesEvent(rule.on, event)
 }
 
 /**
