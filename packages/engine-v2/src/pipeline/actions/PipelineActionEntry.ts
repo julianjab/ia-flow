@@ -1,4 +1,5 @@
 import type { AgentOutput } from '../../engine/Agent.js'
+import type { EngineSources } from '../../engine/Engine.js'
 import type { DomainEvent } from '../../events/DomainEvent.js'
 import type { EventBus } from '../../events/EventBus.js'
 import { Conditional, type ConditionalProps } from '../Conditional.js'
@@ -23,6 +24,9 @@ export interface PipelineExecutionContext {
   /** Pipeline.id dueño de este `do` — lo setea Pipeline.execute antes de
    *  correr cada step; AgentAction lo necesita para crear su Execution. */
   readonly pipelineId: string
+  /** Las fuentes vivas que recibió el `Engine` — por acá, y no por estado
+   *  estático, es como un paso resuelve un Agent/Project/Repo. */
+  readonly sources: EngineSources
   /**
    * Schema que el output de ESTE paso debería cumplir, cuando el siguiente
    * `do` de la cadena es un AgentAction que lo necesita como input tipado.

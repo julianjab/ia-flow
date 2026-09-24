@@ -1,7 +1,9 @@
-import { Project } from '../domain/Project.js'
+import type { ProjectSource } from '../domain/Project.js'
+import type { RepoSource } from '../domain/Repo.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { Pipeline } from '../pipeline/Pipeline.js'
+import type { AgentSource } from './Agent.js'
 import { Execution, type ExecutionMessage } from './Execution.js'
 
 /**
@@ -23,6 +25,20 @@ export interface PipelineSource {
 }
 
 /**
+ * Todo lo que el engine necesita LEER del mundo, en vivo. Se inyecta una vez,
+ * por constructor, y viaja a cada paso dentro de `PipelineExecutionContext` —
+ * nunca como estado estático de las entidades: dos `Engine` en el mismo
+ * proceso (el daemon y un test) pueden tener fuentes distintas, y leer la
+ * firma de `new Engine(...)` alcanza para saber de qué depende.
+ */
+export interface EngineSources {
+  pipelines: PipelineSource
+  projects: ProjectSource
+  agents: AgentSource
+  repos: RepoSource
+}
+
+/**
  * Dueño de despachar cada evento del bus contra el roster de Pipeline vivo.
  * Equivalente a rule-engine-handler.ts + TaskDispatcher + SourceIssueManager
  * de v1, colapsados: acá no hay scan — todo entra como DomainEvent (lo que en
@@ -31,7 +47,7 @@ export interface PipelineSource {
 export class Engine {
   constructor(
     private readonly bus: EventBus,
-    private readonly pipelines: PipelineSource,
+    private readonly sources: EngineSources,
   ) {}
 
   start(): void {
@@ -69,22 +85,24 @@ export class Engine {
     }
     if (Execution.tryAppend(taskId, message)) return 'dispatched'
 
-    const project = event.scope?.projectId ? Project.resolve(event.scope.projectId) : undefined
-    const pipelines = await this.pipelines.list()
+    const project = event.scope?.projectId
+      ? this.sources.projects.get(event.scope.projectId)
+      : undefined
+    const pipelines = await this.sources.pipelines.list()
     const matched = pipelines.filter((p) => p.matches(event, project))
     const survived: Pipeline[] = []
     for (const p of matched) {
       if (await p.matchesText(event)) survived.push(p)
     }
 
-    const exclusive = survived
-      .filter((p) => p.exclusive)
-      .sort((a, b) => a.position - b.position)[0]
+    const exclusive = survived.filter((p) => p.exclusive).sort((a, b) => a.position - b.position)[0]
     const toRun = exclusive ? [exclusive] : survived.filter((p) => !p.exclusive)
     if (toRun.length === 0) return 'skipped'
 
     await Promise.all(
-      toRun.map((p) => p.execute({ event, steps: {}, bus: this.bus, pipelineId: p.id })),
+      toRun.map((p) =>
+        p.execute({ event, steps: {}, bus: this.bus, pipelineId: p.id, sources: this.sources }),
+      ),
     )
     return 'dispatched'
   }

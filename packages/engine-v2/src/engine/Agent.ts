@@ -208,13 +208,14 @@ export interface AgentRunOutput extends ProviderRunOutput {
 }
 
 /**
- * Lo que resuelve un `Agent` en vivo, contra cualquier repo real (v1's
- * `IAgentRepository`, o lo que sea) — inyectado, nunca implementado acá: el
- * dominio no sabe qué hay del otro lado, sólo que le devuelven una fila.
- * `projectId` es opcional porque no todo caller lo tiene.
+ * Port: de dónde sale un `Agent`, en vivo, contra cualquier repo real (v1's
+ * `IAgentRepository`, o lo que sea). Inyectado por constructor en el `Engine`
+ * (`EngineSources`), nunca conocido por `Agent`; el adapter es dueño de
+ * traducir su fila con `Agent.fromRow`. `projectId` es opcional porque no
+ * todo caller lo tiene.
  */
 export interface AgentSource {
-  get(id: string, projectId?: string): AgentRow | undefined
+  get(id: string, projectId?: string): Agent | undefined
 }
 
 /**
@@ -224,28 +225,14 @@ export interface AgentSource {
  * 059-activation-into-rules). Un Agent se referencia por id — nunca se
  * embebe en una cadena de `do`.
  *
- * `resolve()` no cachea nada — pega contra el `AgentSource` inyectado en
- * CADA llamada y arma un `Agent` fresco vía `fromRow`, mismo criterio que
- * `RuleEngineHandler.loadRules` en v1 (lee `ruleRepo.visibleTo(...)` por
- * evento en vez de cachear reglas): un agente editado en la UI aplica en el
- * próximo dispatch, no en el próximo reinicio. No hay catálogo en memoria
- * como fallback — inyectar es EL mecanismo, también en tests: un test
- * inyecta un `AgentSource` de mentira (un `Map` en memoria, por ejemplo),
- * nunca un modo especial de esta clase.
+ * Entidad: no sabe de dónde viene. Buscarla es trabajo de un `AgentSource`
+ * que el `Engine` recibe por constructor y consulta en CADA dispatch, sin
+ * caché — mismo criterio que `RuleEngineHandler.loadRules` en v1: un agente
+ * editado en la UI aplica en el próximo dispatch, no en el próximo reinicio.
+ * Un test inyecta un `AgentSource` de mentira (un `Map`), nunca un modo
+ * especial de esta clase.
  */
 export class Agent {
-  private static source?: AgentSource
-
-  static setSource(source: AgentSource): void {
-    Agent.source = source
-  }
-
-  static resolve(id: string, projectId?: string): Agent | undefined {
-    if (Agent.source == null) throw new Error('Agent: falta inyectar un AgentSource (ver Agent.setSource)')
-    const row = Agent.source.get(id, projectId)
-    return row == null ? undefined : Agent.fromRow(row)
-  }
-
   readonly id: string
   readonly provider: AgentProvider
   readonly prompt: string
@@ -491,7 +478,9 @@ export class Agent {
 
     const runner = getShellRunner()
     if (runner == null) {
-      throw new Error('Agent.verify necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)')
+      throw new Error(
+        'Agent.verify necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)',
+      )
     }
     for (const command of this.verify) {
       const result = await runner.run(command, [], { cwd })
@@ -653,7 +642,12 @@ export class Agent {
   private static providerFromRow(provider: AgentRow['provider']): AgentProvider {
     if (typeof provider === 'string') return provider
     return provider.map(
-      (row) => new AgentProviderChoice({ providerId: row.providerId, when: Condition.fromRows(row.when), whenText: row.whenText }),
+      (row) =>
+        new AgentProviderChoice({
+          providerId: row.providerId,
+          when: Condition.fromRows(row.when),
+          whenText: row.whenText,
+        }),
     )
   }
 }

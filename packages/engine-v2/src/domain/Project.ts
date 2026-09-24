@@ -13,9 +13,14 @@ export interface ProjectProps {
   settings?: ProjectSettings
 }
 
-/** Fuente en vivo inyectada — un `Project` nunca se cachea en memoria. */
+/**
+ * Port: de dónde sale un `Project`, en vivo. Lo implementa quien arma el
+ * `Engine` (un adapter sobre los repos de v1, un `Map` en un test) y lo
+ * inyecta por constructor (`EngineSources`) — `Project` no lo conoce. El
+ * adapter es dueño de traducir su fila con `Project.fromRow`.
+ */
 export interface ProjectSource {
-  get(id: string): ProjectRow | undefined
+  get(id: string): Project | undefined
 }
 
 /**
@@ -28,27 +33,11 @@ export interface ProjectSource {
  * consultan de verdad: capacidad (`maxConcurrentDispatches`) y overrides de
  * matching (`disabledPipelineIds`, `baseWhen`).
  *
- * `resolve()` pega contra el `ProjectSource` inyectado en CADA llamada —
- * sin caché, mismo criterio que `Agent.resolve` (ver su comentario): un
- * proyecto editado en la UI aplica en el próximo dispatch. Inyectar es EL
- * mecanismo, también en tests — nada de un catálogo en memoria como modo
- * alternativo.
+ * Entidad pura: no sabe de dónde viene. Buscarla es trabajo de un
+ * `ProjectSource` que el `Engine` recibe por constructor y consulta en CADA
+ * dispatch, sin caché — un proyecto editado en la UI aplica en el próximo.
  */
 export class Project {
-  private static source?: ProjectSource
-
-  static setSource(source: ProjectSource): void {
-    Project.source = source
-  }
-
-  static resolve(id: string): Project | undefined {
-    if (Project.source == null) {
-      throw new Error('Project: falta inyectar un ProjectSource (ver Project.setSource)')
-    }
-    const row = Project.source.get(id)
-    return row == null ? undefined : Project.fromRow(row)
-  }
-
   readonly id: string
   settings: ProjectSettings
 

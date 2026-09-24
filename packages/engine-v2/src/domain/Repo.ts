@@ -4,9 +4,13 @@ export interface RepoProps {
   path?: string
 }
 
-/** Fuente en vivo inyectada — un `Repo` nunca se cachea en memoria. */
+/**
+ * Port: de dónde sale un `Repo`, en vivo. Inyectado por constructor en el
+ * `Engine` (`EngineSources`), nunca conocido por `Repo`. El adapter es dueño
+ * de traducir su fila con `Repo.fromRow`.
+ */
 export interface RepoSource {
-  get(projectId: string, name: string): RepoRow | undefined
+  get(projectId: string, name: string): Repo | undefined
 }
 
 /**
@@ -16,23 +20,10 @@ export interface RepoSource {
  * sin saber qué generador existe del otro lado. `path` es lo único que
  * `ScriptAction` necesita para resolver un `cwd`.
  *
- * `resolve()` pega contra el `RepoSource` inyectado en CADA llamada — sin
- * caché, mismo criterio que `Agent.resolve`/`Project.resolve`. Inyectar es
- * EL mecanismo, también en tests.
+ * Entidad pura: buscarla es trabajo de un `RepoSource`, consultado en CADA
+ * dispatch sin caché — mismo criterio que `Project`/`Agent`.
  */
 export class Repo {
-  private static source?: RepoSource
-
-  static setSource(source: RepoSource): void {
-    Repo.source = source
-  }
-
-  static resolve(projectId: string, name: string): Repo | undefined {
-    if (Repo.source == null) throw new Error('Repo: falta inyectar un RepoSource (ver Repo.setSource)')
-    const row = Repo.source.get(projectId, name)
-    return row == null ? undefined : Repo.fromRow(row)
-  }
-
   readonly name: string
   readonly projectId: string
   path?: string

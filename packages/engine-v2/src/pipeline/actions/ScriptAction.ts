@@ -1,4 +1,3 @@
-import { Repo } from '../../domain/Repo.js'
 import { getSecretResolver } from '../../infra/SecretResolver.js'
 import { getShellRunner } from '../../infra/ShellRunner.js'
 import { Condition } from '../Condition.js'
@@ -81,7 +80,9 @@ export class ScriptAction extends PipelineActionEntry {
 
     const runner = getShellRunner()
     if (runner == null) {
-      throw new Error('ScriptAction necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)')
+      throw new Error(
+        'ScriptAction necesita un ShellRunner — ver infra/ShellRunner.js (setShellRunner)',
+      )
     }
 
     // Sin Provider (a diferencia de un AgentAction), la ÚNICA fuente de cwd
@@ -92,7 +93,8 @@ export class ScriptAction extends PipelineActionEntry {
     // adivinar `process.cwd()`.
     const projectId = ctx.event.scope?.projectId
     const repoName = ctx.event.scope?.repos?.[0]
-    const repo = repoName != null && projectId != null ? Repo.resolve(projectId, repoName) : undefined
+    const repo =
+      repoName != null && projectId != null ? ctx.sources.repos.get(projectId, repoName) : undefined
     if (repo?.path == null) {
       throw new Error(
         'ScriptAction necesita Repo.path seteado para el repo del evento — sin Provider no hay otra forma de resolver el cwd',
@@ -105,7 +107,9 @@ export class ScriptAction extends PipelineActionEntry {
       timeoutMs: this.timeoutMs,
     })
     if (result.exitCode !== 0) {
-      throw new Error(`ScriptAction "${this.file}" salió con código ${result.exitCode}: ${result.stderr}`)
+      throw new Error(
+        `ScriptAction "${this.file}" salió con código ${result.exitCode}: ${result.stderr}`,
+      )
     }
     return result
   }

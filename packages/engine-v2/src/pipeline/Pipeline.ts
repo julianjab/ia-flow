@@ -1,13 +1,15 @@
 import type { Project } from '../domain/Project.js'
+import type { DomainEvent } from '../events/DomainEvent.js'
 import { AgentAction, type AgentActionProps } from './actions/AgentAction.js'
 import { EmitAction, type EmitActionProps } from './actions/EmitAction.js'
 import { HttpAction, type HttpActionProps } from './actions/HttpAction.js'
+import type {
+  PipelineActionEntry,
+  PipelineExecutionContext,
+} from './actions/PipelineActionEntry.js'
 import { RefAction, type RefActionProps } from './actions/RefAction.js'
 import { ScriptAction, type ScriptActionProps } from './actions/ScriptAction.js'
-import type { DomainEvent } from '../events/DomainEvent.js'
-import { Agent } from '../engine/Agent.js'
 import { Condition } from './Condition.js'
-import type { PipelineActionEntry, PipelineExecutionContext } from './actions/PipelineActionEntry.js'
 import { Conditional, type ConditionalProps } from './Conditional.js'
 
 export interface PipelineProps extends ConditionalProps {
@@ -59,7 +61,7 @@ export class Pipeline extends Conditional {
    * this.when + baseWhen del proyecto, y — cuando `project` viaja — el
    * override `disabledPipelineIds` (este pipeline es global Y el proyecto la
    * apagó). `project` es opcional porque un evento puede no tener projectId
-   * resoluble (Project.resolve sin esa fila, o el evento es cross-proyecto)
+   * resoluble (el `ProjectSource` no tiene esa fila, o el evento es cross-proyecto)
    * — ahí sólo corren los filtros que no lo necesitan.
    */
   matches(event: DomainEvent, project?: Project): boolean {
@@ -103,7 +105,7 @@ export class Pipeline extends Conditional {
       const next = this.do[i + 1]
       runCtx.nextSchema =
         next instanceof AgentAction
-          ? Agent.resolve(next.agentId, ctx.event.scope?.projectId)?.expectedInput
+          ? ctx.sources.agents.get(next.agentId, ctx.event.scope?.projectId)?.expectedInput
           : undefined
       try {
         const out = await step.run(runCtx)
@@ -151,7 +153,10 @@ export class Pipeline extends Conditional {
    * sobre un objeto plano.
    */
   private static actionFromRow(row: PipelineActionRow): PipelineActionEntry {
-    const base = { ...row, when: Condition.fromRows(row.when as Parameters<typeof Condition.fromRows>[0]) }
+    const base = {
+      ...row,
+      when: Condition.fromRows(row.when as Parameters<typeof Condition.fromRows>[0]),
+    }
     switch (row.action) {
       case 'agent':
         return new AgentAction(base as unknown as AgentActionProps)
@@ -164,10 +169,11 @@ export class Pipeline extends Conditional {
       case 'ref':
         return new RefAction(base as unknown as RefActionProps)
       default:
-        throw new Error(`Pipeline.fromRow: acción desconocida "${(row as { action: string }).action}"`)
+        throw new Error(
+          `Pipeline.fromRow: acción desconocida "${(row as { action: string }).action}"`,
+        )
     }
   }
-
 }
 
 /** Fila cruda de `RuleSchema` (v1) — sólo los campos que `Pipeline.fromRow`
@@ -193,4 +199,3 @@ export type PipelineActionRow = { action: 'agent' | 'http' | 'emit' | 'script' |
   string,
   unknown
 >
-

@@ -1,9 +1,8 @@
-import { Agent, type AgentExit } from '../../engine/Agent.js'
+import type { Project } from '../../domain/Project.js'
+import type { Agent, AgentExit } from '../../engine/Agent.js'
 import { AgentRunEntity } from '../../engine/AgentRunEntity.js'
 import { Execution, type ExecutionMessage } from '../../engine/Execution.js'
 import type { WorkspaceRequest } from '../../engine/Workspace.js'
-import { Project } from '../../domain/Project.js'
-import { Repo } from '../../domain/Repo.js'
 import {
   PipelineActionEntry,
   type PipelineActionEntryProps,
@@ -65,11 +64,13 @@ export class AgentAction extends PipelineActionEntry {
       }
     }
 
-    const agent = Agent.resolve(this.agentId, ctx.event.scope?.projectId)
+    const agent = ctx.sources.agents.get(this.agentId, ctx.event.scope?.projectId)
     if (agent == null) throw new Error(`AgentAction: agente desconocido "${this.agentId}"`)
 
     const project =
-      ctx.event.scope?.projectId != null ? Project.resolve(ctx.event.scope.projectId) : undefined
+      ctx.event.scope?.projectId != null
+        ? ctx.sources.projects.get(ctx.event.scope.projectId)
+        : undefined
     if (
       project != null &&
       !Execution.withinCap(
@@ -139,7 +140,7 @@ export class AgentAction extends PipelineActionEntry {
       taskId: ctx.event.scope?.issueId ?? executionId,
       repos: repoNames.map((name) => ({
         name,
-        path: project != null ? Repo.resolve(project.id, name)?.path : undefined,
+        path: project != null ? ctx.sources.repos.get(project.id, name)?.path : undefined,
       })),
       needsWrite: agent.hasWriteTools(),
     }

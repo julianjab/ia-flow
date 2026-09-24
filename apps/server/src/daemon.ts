@@ -17,7 +17,7 @@ import {
   WAIT_RESUMED,
 } from '@ia-flow/shared'
 import { EngineV2Bridge } from './adapters/engine-v2/EngineV2Bridge.js'
-import { buildEngineV2, wireEngineV2Sources } from './adapters/engine-v2/hydrate.js'
+import { buildEngineV2, registerEngineV2Providers } from './adapters/engine-v2/hydrate.js'
 import { PrOutcomeHandler } from './adapters/github/pr-outcome-handler.js'
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { cachedVerdict, rememberVerdict } from './application/rule-whentext-cache.js'
@@ -270,7 +270,7 @@ function registerWaits(): void {
  *  Provider concreto (`V1ProviderAdapter`) tiene limitaciones conocidas (sin
  *  admisión por Task, `step` hardcodeado a `'implement'`, sin mensajes en
  *  vivo/checkpoints) — ver su comentario. `Project`/`Repo`/`Agent`/`Pipeline`
- *  SÍ están al día siempre: `wireEngineV2Sources`/`buildEngineV2` (ver
+ *  SÍ están al día siempre: `buildEngineV2` (ver
  *  hydrate.ts) los resuelven en vivo contra los repos de v1 en cada
  *  dispatch, sin caché — no hay nada que recargar. */
 function engineV2Enabled(): boolean {
@@ -291,10 +291,12 @@ async function registerEngineV2(): Promise<void> {
     log.info('IA_FLOW_ENGINE_V2 no está en "1" — engine-v2 no se registra')
     return
   }
-  wireEngineV2Sources()
+  registerEngineV2Providers()
   const engine = buildEngineV2()
   eventBus.subscribe(new EngineV2Bridge(engine))
-  log.warn('engine-v2 registrado EN PARALELO al motor de reglas — ver limitaciones en V1ProviderAdapter/hydrate.ts')
+  log.warn(
+    'engine-v2 registrado EN PARALELO al motor de reglas — ver limitaciones en V1ProviderAdapter/hydrate.ts',
+  )
 }
 
 // Igual que `registerWaits`: se suscribe APARTE del motor de reglas — no es

@@ -9,8 +9,8 @@
  * clase, ANTES de delegar acá.
  *
  * `Agent`/`Project`/`Repo` NO usan esto — son config real (v1 la persiste,
- * un humano la edita), así que se resuelven en vivo contra una fuente
- * inyectada (`Agent.setSource`/etc.) en cada llamada, nunca cacheadas acá.
+ * un humano la edita), así que se resuelven en vivo contra las
+ * `EngineSources` que recibe el `Engine` por constructor, nunca cacheadas acá.
  * `Provider`/`Tool`/`McpCatalogEntry`/`SystemPromptEntry`/
  * `PipelineActionEntry` sí califican para el catálogo en memoria: se
  * registran una vez al boot (instancias concretas, no filas de config que

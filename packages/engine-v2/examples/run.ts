@@ -7,22 +7,23 @@
  * piezas que ya están implementadas de verdad: no hay nada acá que no exista
  * ya en `src/`.
  *
- * `Project`/`Repo`/`Agent` ya NO tienen catálogo en memoria — se resuelven
- * SIEMPRE contra una fuente inyectada (`setSource`), nunca cacheada. Acá la
- * fuente es un par de `Map` de juguete; en `apps/server` es un adapter que
- * pega contra los repos reales de v1. Es EL mismo mecanismo en los dos
- * casos, y es también cómo un test mockearía esto — no hay un modo especial
- * "de test" en las clases.
+ * `Project`/`Repo`/`Agent`/`Pipeline` se resuelven SIEMPRE contra las
+ * `EngineSources` que recibe el `Engine` por constructor, nunca cacheadas.
+ * Acá las fuentes son `Map` de juguete; en `apps/server` son adapters que
+ * pegan contra los repos reales de v1. Es EL mismo mecanismo en los dos
+ * casos, y es también cómo un test mockearía esto — no hay estado estático
+ * ni un modo especial "de test" en las clases.
  *
  * Correr: `bun run demo` (desde packages/engine-v2).
  */
-import { Agent, type AgentRow, ERROR_EXIT, SUCCESS_EXIT } from '../src/engine/Agent.js'
-import type { AgentRunContext, ProviderRunOutput } from '../src/engine/Agent.js'
-import { Engine, type PipelineSource } from '../src/engine/Engine.js'
-import { ExecutionLog } from '../src/engine/ExecutionLog.js'
-import { Provider } from '../src/engine/Provider.js'
+
 import { Project, type ProjectRow } from '../src/domain/Project.js'
 import { Repo, type RepoRow } from '../src/domain/Repo.js'
+import type { AgentRunContext, ProviderRunOutput } from '../src/engine/Agent.js'
+import { Agent, type AgentRow, ERROR_EXIT, SUCCESS_EXIT } from '../src/engine/Agent.js'
+import { Engine } from '../src/engine/Engine.js'
+import { ExecutionLog } from '../src/engine/ExecutionLog.js'
+import { Provider } from '../src/engine/Provider.js'
 import { DomainEvent } from '../src/events/DomainEvent.js'
 import { EventBus } from '../src/events/EventBus.js'
 import { AgentAction } from '../src/pipeline/actions/AgentAction.js'
@@ -41,15 +42,20 @@ class EchoProvider extends Provider {
   }
 }
 
+function fromRow<R, T>(row: R | undefined, map: (row: R) => T): T | undefined {
+  return row == null ? undefined : map(row)
+}
+
 // --- fuentes de juguete: un Map en memoria, igual de válido que cualquier
 // otro adapter — Project/Repo/Agent no saben ni les importa qué hay detrás. ---
 const projectRows = new Map<string, ProjectRow>([['demo-project', { id: 'demo-project' }]])
-Project.setSource({ get: (id) => projectRows.get(id) })
 
 const repoRows = new Map<string, RepoRow>([
-  ['demo-project:demo-repo', { name: 'demo-repo', projectId: 'demo-project', path: '/tmp/demo-repo' }],
+  [
+    'demo-project:demo-repo',
+    { name: 'demo-repo', projectId: 'demo-project', path: '/tmp/demo-repo' },
+  ],
 ])
-Repo.setSource({ get: (projectId, name) => repoRows.get(`${projectId}:${name}`) })
 
 const agentRows = new Map<string, AgentRow>([
   [
@@ -66,20 +72,28 @@ const agentRows = new Map<string, AgentRow>([
     },
   ],
 ])
-Agent.setSource({ get: (id) => agentRows.get(id) })
 
 Provider.register(new EchoProvider({ id: 'echo-provider', kind: 'sync' }))
 
-AgentAction.register('run-echo-agent', new AgentAction({ id: 'run-echo-agent', agentId: 'echo-agent' }))
+AgentAction.register(
+  'run-echo-agent',
+  new AgentAction({ id: 'run-echo-agent', agentId: 'echo-agent' }),
+)
 const pipeline = new Pipeline({
   id: 'demo-pipeline',
   on: ['issue.observed'],
   do: [AgentAction.resolve('run-echo-agent') as AgentAction],
 })
-const pipelineSource: PipelineSource = { list: async () => [pipeline] }
 
 const bus = new EventBus()
-const engine = new Engine(bus, pipelineSource)
+const engine = new Engine(bus, {
+  pipelines: { list: async () => [pipeline] },
+  projects: { get: (id) => fromRow(projectRows.get(id), Project.fromRow) },
+  repos: {
+    get: (projectId, name) => fromRow(repoRows.get(`${projectId}:${name}`), Repo.fromRow),
+  },
+  agents: { get: (id) => fromRow(agentRows.get(id), Agent.fromRow) },
+})
 engine.start()
 
 console.log('Publicando issue.observed…')
@@ -98,7 +112,9 @@ await new Promise((resolve) => setTimeout(resolve, 50))
 
 const log = ExecutionLog.byTask('demo-1')
 console.log('\nExecutionLog para demo-1:')
-console.log(log.map((entry) => ({ agentId: entry.agentId, outcome: entry.outcome, exit: entry.exit })))
+console.log(
+  log.map((entry) => ({ agentId: entry.agentId, outcome: entry.outcome, exit: entry.exit })),
+)
 
 if (log.length === 0 || log[0]?.status !== 'completed') {
   console.error('\n❌ el demo no completó ningún run — revisar el pipeline/wiring')
