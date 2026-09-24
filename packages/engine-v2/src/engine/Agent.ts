@@ -656,37 +656,6 @@ export class Agent {
     })
   }
 
-  /** Simétrico a `fromRow` — `save_output` snake_case a propósito, mismo
-   *  motivo (es el nombre que espera un lector v1 de esta fila; el store
-   *  propio de v2 tampoco necesita un tercer shape). `provider` (un array de
-   *  `AgentProviderChoice`) serializa a objetos planos porque esa clase
-   *  extiende `Conditional` — el `when` de cada choice pasa por
-   *  `Condition.toRows` igual que en `Pipeline.toRow`. */
-  toRow(): AgentRow {
-    return {
-      id: this.id,
-      provider: Agent.providerToRow(this.provider),
-      prompt: this.prompt,
-      systemPrompts: this.systemPrompts,
-      variables: this.variables,
-      tools: this.tools,
-      save_output: this.saveOutput,
-      providerConfig: this.providerConfig,
-      mcpCatalogIds: this.mcpCatalogIds,
-      requiresBranch: this.requiresBranch,
-      maxConcurrentDispatches: this.maxConcurrentDispatches,
-      allowBlocked: this.allowBlocked,
-      projectId: this.projectId,
-      position: this.position,
-      output: this.output,
-      expectedInput: this.expectedInput,
-      verify: this.verify,
-      onProcess: this.onProcess,
-      exits: this.exits,
-      comment: this.comment,
-    }
-  }
-
   /** Una fila nunca trae instancias de `AgentProviderChoice` — sólo datos
    *  planos, así que `fromRow` los reconstruye acá antes de pasarlos al
    *  constructor. */
@@ -696,21 +665,10 @@ export class Agent {
       (row) => new AgentProviderChoice({ providerId: row.providerId, when: Condition.fromRows(row.when), whenText: row.whenText }),
     )
   }
-
-  private static providerToRow(provider: AgentProvider): AgentRow['provider'] {
-    if (typeof provider === 'string') return provider
-    return provider.map((choice) => ({
-      providerId: choice.providerId,
-      when: Condition.toRows(choice.when),
-      whenText: choice.whenText,
-    }))
-  }
 }
 
-/** Fila cruda de `AgentDefinitionSchema` (v1) — mismos nombres de campo que
- *  `AgentDefinitionProps`, salvo `save_output` (ver `Agent.fromRow`). */
 /** Fila cruda de un `AgentProviderChoice` — datos planos, nunca la clase:
- *  una fila (de v1 o del store propio de v2) no trae instancias. */
+ *  una fila de v1 no trae instancias. */
 export interface AgentProviderChoiceRow {
   providerId: string
   when?: ConditionRow[]

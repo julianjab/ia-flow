@@ -28,10 +28,6 @@ export class Repo {
     return Repo.catalog.resolve(`${projectId}:${name}`)
   }
 
-  static list(): Repo[] {
-    return Repo.catalog.list()
-  }
-
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
     Repo.catalog.reset()
@@ -53,11 +49,6 @@ export class Repo {
    *  agnosticismo ya sacó de esta clase, así que se ignoran acá también. */
   static fromRow(row: RepoRow): Repo {
     return new Repo({ name: row.name, projectId: row.projectId, path: row.path })
-  }
-
-  /** Idéntico a `RepoProps` — no hay nada que traducir. */
-  toRow(): RepoRow {
-    return { name: this.name, projectId: this.projectId, path: this.path }
   }
 }
 

@@ -40,10 +40,6 @@ export class Project {
     return Project.catalog.resolve(id)
   }
 
-  static list(): Project[] {
-    return Project.catalog.list()
-  }
-
   /** Sólo para tests — vacía el índice estático entre corridas aisladas. */
   static reset(): void {
     Project.catalog.reset()
@@ -87,28 +83,12 @@ export class Project {
       },
     })
   }
-
-  /** Simétrico a `fromRow` — usa el mismo nombre `disabledRuleIds` que v1
-   *  (no `disabledPipelineIds`) para que una fila que guardó ESTA clase se
-   *  pueda releer con `fromRow` sin ambigüedad, y para que el store propio
-   *  de v2 (ver `packages/engine-v2-sqlite`) no invente un tercer shape. */
-  toRow(): ProjectRow {
-    return {
-      id: this.id,
-      settings: {
-        maxConcurrentDispatches: this.settings.maxConcurrentDispatches,
-        disabledRuleIds: this.settings.disabledPipelineIds,
-        baseWhen: Condition.toRows(this.settings.baseWhen ?? []),
-      },
-    }
-  }
 }
 
-/** Fila cruda de `Project` — la misma forma que lee `Project.fromRow` de v1
- *  (`packages/shared`), y la que usa el store propio de v2 para persistir
- *  (`packages/engine-v2-sqlite`): sólo lo que esta clase necesita, el resto
- *  (name/language/systemPrompts/Slack/timestamps) es válido en v1 pero sin
- *  lector acá (ver el purge de agnosticismo de esta misma clase). */
+/** Fila cruda de `Project` (v1, `packages/shared`) — sólo lo que
+ *  `Project.fromRow` lee; el resto (name/language/systemPrompts/Slack/
+ *  timestamps) es válido en v1 pero sin lector acá (ver el purge de
+ *  agnosticismo de esta misma clase). */
 export interface ProjectRow {
   id: string
   settings?: {

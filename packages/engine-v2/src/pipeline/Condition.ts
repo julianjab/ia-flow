@@ -72,15 +72,6 @@ export class Condition {
     return new Condition(row.field, row.op ?? '=', row.value, row.logic)
   }
 
-  /** Simétrico a `fromRow` — siempre la forma larga (array), nunca el
-   *  shorthand legacy: serializar de vuelta al `Record<string,string>` sólo
-   *  tendría sentido si TODAS las condiciones fueran `=` sin `logic`, y
-   *  detectar ese caso especial no vale la pena — la forma larga es válida
-   *  en cualquier lector de v1 que entienda `WhenConditionSchema`. */
-  toRow(): ConditionRow {
-    return { field: this.field, op: this.op, value: this.value, logic: this.logic }
-  }
-
   /**
    * `RuleSchema.when` (v1) admite dos formas: un array de condiciones, o un
    * shorthand legacy `Record<string, string>` (igualdad implícita entre
@@ -92,15 +83,10 @@ export class Condition {
     if (Array.isArray(rows)) return rows.map(Condition.fromRow)
     return Object.entries(rows).map(([field, value]) => new Condition(field, '=', value))
   }
-
-  static toRows(conditions: Condition[]): ConditionRow[] {
-    return conditions.map((c) => c.toRow())
-  }
 }
 
-/** Forma larga de `WhenConditionSchema` (v1) — el shorthand
- *  `Record<string,string>` sólo lo acepta `Condition.fromRows` en la
- *  ENTRADA; toda serialización de vuelta usa siempre esta forma. */
+/** Forma larga de `WhenConditionSchema` (v1) — `Condition.fromRows` acepta
+ *  además el shorthand legacy `Record<string,string>`. */
 export interface ConditionRow {
   field: string
   op?: ConditionOp
