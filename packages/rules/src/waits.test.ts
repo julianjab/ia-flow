@@ -61,6 +61,16 @@ describe('matchesWait', () => {
     expect(matchesWait(w, ev({ payload: { conclusion: 'failure' } }), NOW)).toBe(false)
   })
 
+  test('on: tipo.action — la misma azúcar que las reglas, sin when', () => {
+    const w = wait({ on: ['projects_v2_item.edited'] })
+    expect(
+      matchesWait(w, ev({ type: 'projects_v2_item', payload: { action: 'edited' } }), NOW),
+    ).toBe(true)
+    expect(
+      matchesWait(w, ev({ type: 'projects_v2_item', payload: { action: 'created' } }), NOW),
+    ).toBe(false)
+  })
+
   test('una espera vencida ya no despierta', () => {
     // El barrido puede no haber pasado todavía; el matcher no puede confiar
     // en que lo que está en la tabla sigue vivo.
