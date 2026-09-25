@@ -84,22 +84,30 @@ describe('planRowUpdate — casos puros', () => {
 
   // El segundo bug: un when previo con su propio OR perdía el filtro de
   // action en alguna rama si se apendeaba en vez de cruzar-producto.
+  //
+  // `pr.review_submitted` y no `issue_comment.created`: desde que
+  // `onMatchesEvent` (@ia-flow/rules) entiende `tipo.action` nativo, las
+  // cuatro formas dinámicas (`issue_comment.<action>`, `issues.<action>`,
+  // `projects_v2_item.<action>`, `projects_v2.<action>`) ya NO son taxonomía
+  // vieja — `usesLegacyTaxonomy` las ignora, así que ya no sirven para
+  // ejercitar esta rama. `pr.review_submitted` sigue siendo un alias curado
+  // (STATIC_MAPPING) genuino.
   it('un when previo con su propio OR conserva el filtro de action en las dos ramas', () => {
     const plan = planRowUpdate({
       id: 'r3',
-      on_types: JSON.stringify(['issue_comment.created']),
+      on_types: JSON.stringify(['pr.review_submitted']),
       when_conditions: JSON.stringify([
         { field: 'author', op: '=', value: 'a' },
         { field: 'author', op: '=', value: 'b', logic: 'or' },
       ]),
     })
     expect(plan).toEqual({
-      onTypes: ['issue_comment'],
+      onTypes: ['pull_request_review'],
       when: [
         { field: 'author', op: '=', value: 'a' },
-        { field: 'action', op: '=', value: 'created' },
+        { field: 'action', op: '=', value: 'submitted' },
         { field: 'author', op: '=', value: 'b', logic: 'or' },
-        { field: 'action', op: '=', value: 'created' },
+        { field: 'action', op: '=', value: 'submitted' },
       ],
     })
   })
@@ -195,16 +203,32 @@ describe('planRowUpdate — casos puros', () => {
     expect(plan && 'skip' in plan && plan.skip).toBe(true)
   })
 
-  // Mismo motivo: dos tipos curados que requieren `action` DISTINTA no
-  // pueden compartir un `when` — `issues.opened` sólo debería disparar con
-  // `action=opened` en un evento `issues`, no en cualquiera.
-  it('dos tipos curados con requisitos de action distintos se saltean', () => {
+  // `issues.opened` ya no es un alias curado (es `tipo.action` nativo, ver el
+  // test de más abajo) — acá sólo `pr.synchronize` necesita traducción, y
+  // `canAutoTranslate` sigue rechazando la mezcla porque el mapping de
+  // `issues.opened` da `null`: el when no puede distinguir de qué tipo vino
+  // cada delivery si uno de los dos ni siquiera se está traduciendo.
+  it('un alias curado mezclado con un tipo.action ya nativo se saltea', () => {
     const plan = planRowUpdate({
       id: 'r9b',
       on_types: JSON.stringify(['issues.opened', 'pr.synchronize']),
       when_conditions: null,
     })
     expect(plan && 'skip' in plan && plan.skip).toBe(true)
+  })
+
+  // Las cuatro formas dinámicas ya no son taxonomía vieja: el matcher las
+  // entiende nativas, así que la fila queda intacta (no null — la CONDICIÓN
+  // usesLegacyTaxonomy da false, es el mismo camino que una fila sin ningún
+  // tipo curado).
+  it('issue_comment.created / projects_v2_item.edited / etc. no se tocan — ya son nativas', () => {
+    expect(
+      planRowUpdate({
+        id: 'r9d',
+        on_types: JSON.stringify(['issue.created', 'projects_v2_item.edited']),
+        when_conditions: null,
+      }),
+    ).toBeNull()
   })
 
   // ci.finished SÍ mapea a dos tipos crudos, pero a propósito: son el mismo

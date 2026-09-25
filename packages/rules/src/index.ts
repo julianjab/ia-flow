@@ -21,6 +21,7 @@ export {
 export { renderBrief } from './brief.js'
 export type { EventBusOptions, EventHandler, EventOutcome, IEventBus } from './bus.js'
 export { aggregateOutcomes, InMemoryEventBus } from './bus.js'
+export { onMatchesEvent } from './event-type-match.js'
 export type { RejectedRule, RuleMatchInput, RuleMatchResult, RuleRejectionReason } from './match.js'
 export { matchRules, summarizeRuleRejections } from './match.js'
 export type { Disposable, EventNormalizer, EventProducer, Publish } from './producer.js'

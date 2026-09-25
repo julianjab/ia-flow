@@ -60,6 +60,24 @@ describe('matchRules — filtros', () => {
     expect(matched.map((r) => r.id)).toEqual(['global'])
   })
 
+  test('on: mezcla tipo.action con tipos sin action, sin necesitar when', () => {
+    // El caso que forzaba partir una regla en dos: `issue.created`/
+    // `issue.status_changed` no traen `action`, `projects_v2_item.edited` sí
+    // lo necesita — antes, un `when: action=edited` compartido excluía a los
+    // dos primeros.
+    const r = rule({ on: ['issue.created', 'issue.status_changed', 'projects_v2_item.edited'] })
+
+    const created = ev({ type: 'issue.created', payload: {} })
+    const statusChanged = ev({ type: 'issue.status_changed', payload: {} })
+    const boardEdited = ev({ type: 'projects_v2_item', payload: { action: 'edited' } })
+    const boardCreated = ev({ type: 'projects_v2_item', payload: { action: 'created' } })
+
+    expect(matchRules({ event: created, rules: [r] }).matched).toHaveLength(1)
+    expect(matchRules({ event: statusChanged, rules: [r] }).matched).toHaveLength(1)
+    expect(matchRules({ event: boardEdited, rules: [r] }).matched).toHaveLength(1)
+    expect(matchRules({ event: boardCreated, rules: [r] }).rejected[0].reason).toBe('type')
+  })
+
   test('las condiciones evalúan contra el payload, con caminos anidados', () => {
     const r = rule({ when: [{ field: 'pr.isDraft', op: '=', value: 'false' }] })
     const draft = ev({ payload: { pr: { isDraft: true } } })
