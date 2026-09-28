@@ -1,0 +1,34 @@
+# Terminó el CI de un commit. El CI manda decenas de deliveries por push (requested,
+# in_progress, …) y las pipelines sólo escuchan `completed`: el filtro va acá, antes de leer
+# nada. La task es la de la rama `<prefijo><n>` o, si no, la del PR; una corrida sin ninguno de
+# los dos (un push a main) no es de ninguna task.
+id: intake-check-suite
+on: [ github.check_suite ]
+when:
+  - { field: action, op: eq, value: completed }
+  - { field: repository.full_name, op: in, value: '{{vars.repos}}' }
+do:
+  - id: number
+    function: linked_issue
+    with:
+      head: '{{check_suite.head_branch}}'
+      prefix: '{{vars.branchPrefix}}'
+      fallback: '{{check_suite.pull_requests.0.number}}'
+  - emit: task.resolve
+    when: [ { field: steps.number, op: exists } ]
+    payload:
+      emit: check_suite
+      owner: '{{repository.owner.login}}'
+      repo: '{{repository.name}}'
+      number: '{{steps.number}}'
+      pr: '{{check_suite.pull_requests.0.number}}'
+      extra:
+        action: '{{action}}'
+        conclusion: '{{check_suite.conclusion}}'
+        status: '{{check_suite.status}}'
+        name: '{{check_suite.app.name}}'
+        branch: '{{check_suite.head_branch}}'
+        sha: '{{check_suite.head_sha}}'
+        url: '{{check_suite.url}}'
+        prNumber: '{{check_suite.pull_requests.0.number}}'
+        kind: check_suite

@@ -95,7 +95,9 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
       `→ proyecto ${project.id}: board ${project.board.owner}#${project.board.number}, ${project.repos.length} repos`,
     )
   }
-  console.log(`→ ${mounted.pipelines().length} pipelines montadas y validadas`)
+  console.log(
+    `→ ${mounted.pipelines().length} pipelines montadas y validadas, ${mounted.intake().length} de entrada (intake/)`,
+  )
   if (mounted.executions) {
     const { running, waiting, paused } = mounted.executions.stats
     console.log(`→ ejecuciones: ${running} corriendo, ${waiting} esperando, ${paused} pausadas`)

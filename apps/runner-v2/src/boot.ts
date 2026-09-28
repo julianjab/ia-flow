@@ -6,8 +6,8 @@
  *   3. Un board por proyecto (`runner.yaml` → `projects.<id>.board`) y el catálogo de acciones que
  *      nombra la definición (`catalog/buildCatalogs.ts`).
  *   4. El engine con `createEngineFromYaml(.config/engine.yaml)`: los proyectos de
- *      `.config/projects/` (agentes + pipelines, con recarga en caliente), el intake de webhooks
- *      como fuente de código, y las ejecuciones en SQLite (`bun-sqlite`).
+ *      `.config/projects/` (agentes, pipelines y el intake de webhooks, con recarga en caliente) y
+ *      las ejecuciones en SQLite (`bun-sqlite`).
  *
  * En `--dry-run` no hay credenciales: no se verifica GitHub, no se resuelve MCP, no hay workspace
  * y las ejecuciones van a memoria — sólo se construye y valida la definición.
@@ -24,9 +24,12 @@ import {
   type Pipeline,
   providerRegistry,
   type ResolvedRoutes,
-  StaticPipelineSource,
 } from '@ia-tools/agent-pipeline'
-import { createEngineFromYaml, type ExecutionStoreDriver } from '@ia-tools/agent-pipeline-yaml'
+import {
+  createEngineFromYaml,
+  type ExecutionStoreDriver,
+  type HttpConnection,
+} from '@ia-tools/agent-pipeline-yaml'
 import { GithubClient } from '@ia-tools/github-api'
 import type { GithubAuth } from '@ia-tools/github-auth'
 import { parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'
@@ -37,12 +40,9 @@ import {
   WorkspaceSession,
 } from '@ia-tools/workspace'
 import { type BoardActions, buildBoardActions, simulatedWritesFetch } from './actions/board.js'
-import { GithubTaskContextReader, type IntakeContext, type IntakeProject } from './actions/index.js'
-import { GraphqlBoardReader } from './board-reader.js'
 import { buildCatalogs } from './catalog/buildCatalogs.js'
 import type { ProjectSettings, RepoDef, RunnerConfig } from './config/RunnerConfig.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
-import { intakePipelines } from './intake.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { formatEventMessage } from './messages.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
@@ -58,6 +58,8 @@ export interface MountOptions {
   live: boolean
   workspaceDir?: string
   log: (line: string) => void
+  /** Lo que responde la API de GitHub al intake, en vez de GitHub (tests). */
+  githubFetch?: typeof fetch
 }
 
 /** Un proyecto montado: lo de `runner.yaml` más su board. */
@@ -66,17 +68,17 @@ export interface RunnerProject extends ProjectSettings {
 }
 
 export interface MountedRunner {
-  /** Ya suscripto a `bus`: lo que publique un paso (un `EmitAction` del intake) se despacha. */
+  /** Ya suscripto a `bus`: lo que publique un paso (un `emit` del intake) se despacha. */
   engine: Engine
   bus: EventBus
   executions?: ExecutionStore
   /** Las pipelines de los proyectos, como están ahora (la definición se recarga en caliente). */
   pipelines(): Pipeline[]
+  /** Las de entrada (`intake/` de cada proyecto): las que reciben los webhooks crudos. */
+  intake(): Pipeline[]
   /** Las rutas efectivas de un agente de `pipeline`, con los defaults de su proyecto (su
    *  `onError`/`report`) — lo que de verdad va a correr. */
   routesOf(pipeline: Pipeline, agentId: string): ResolvedRoutes
-  /** Las pipelines de entrada de webhooks (`intake.ts`). */
-  intake: Pipeline[]
   projects: RunnerProject[]
   repos: RepoDef[]
   githubAuthMode: string
@@ -94,65 +96,39 @@ function workspaceLogger(log: (line: string) => void): WorkspaceLogger {
   return { info: line('info'), debug: () => {}, warn: line('warn'), error: line('error') }
 }
 
-/** Lo que leen las Actions de resolución (`actions/intake`), con la identidad del runner. */
-function intakeContext(
-  projects: RunnerProject[],
-  client: GithubClient,
-  opts: MountOptions,
-): IntakeContext {
-  const same = (a: string | undefined, b: string) => a?.toLowerCase() === b.toLowerCase()
-  const intakeProject = (project: RunnerProject | undefined): IntakeProject | undefined =>
-    project && {
-      id: project.id,
+/** Las `vars` de un proyecto para el YAML: su board, su prefijo de rama y su catálogo de repos. */
+function projectVars(projects: RunnerProject[]) {
+  return (projectId: string): Record<string, unknown> => {
+    const project = projects.find((candidate) => candidate.id === projectId)
+    if (!project) return {}
+    return {
+      projectId: project.id,
       board: project.board,
       branchPrefix: project.branchPrefix,
-      repos: project.repos
+      // `owner/repo` de cada repo del catálogo: lo que el intake acepta.
+      repos: project.repos.map((repo) => `${repo.githubOwner}/${repo.githubRepo}`),
+      // `{{project.repos}}` de los prompts: el catálogo en texto.
+      reposText: project.repos
         .map(
           (repo) =>
             `- ${repo.name} (${repo.githubOwner}/${repo.githubRepo}): ${repo.description ?? ''}`,
         )
         .join('\n'),
     }
+  }
+}
+
+/** La API de GitHub para los pasos `http` del intake: el `GithubClient` del runner (su identidad,
+ *  sus headers y su chequeo de host), o lo que diga `githubFetch` en un test. */
+function githubConnection(client: GithubClient, opts: MountOptions): HttpConnection {
+  const api = 'https://api.github.com'
+  if (opts.githubFetch) return { baseUrl: api, fetch: opts.githubFetch }
   return {
-    // Estricto: un delivery de un repo que ningún catálogo declara se ignora (la App puede estar
-    // instalada en repos que no son del pipeline).
-    projectForRepo: (owner, repo) =>
-      intakeProject(
-        projects.find((project) =>
-          project.repos.some((r) => same(r.githubOwner, owner) && same(r.githubRepo, repo)),
-        ),
-      ),
-    projectForBoard: (board) =>
-      intakeProject(
-        projects.find((p) => p.board.number === board.number && same(p.board.owner, board.owner)),
-      ),
-    reader: new GraphqlBoardReader(client),
-    taskContext: new GithubTaskContextReader(client),
-    dependents: async (owner, repo, number) => {
-      const blocking = await client.requestJson<
-        Array<{ number: number; state: string; repository_url: string }>
-      >(`/repos/${owner}/${repo}/issues/${number}/dependencies/blocking`)
-      // Un dependiente puede vivir en otro repo: su repo sale de `repository_url`.
-      return blocking.map((issue) => {
-        const [depOwner = owner, depRepo = repo] =
-          issue.repository_url.split('/repos/')[1]?.split('/') ?? []
-        return {
-          owner: depOwner,
-          repo: depRepo,
-          number: issue.number,
-          open: issue.state === 'open',
-        }
-      })
-    },
-    pullRequest: async (owner, repo, number) => {
-      const pr = await client.requestJson<{ head: { ref: string }; body: string | null }>(
-        `/repos/${owner}/${repo}/pulls/${number}`,
-      )
-      return { headRef: pr.head.ref, body: pr.body ?? '' }
-    },
-    client: opts.dryRun ? undefined : client,
-    lastStatus: new Map(),
-    log: opts.log,
+    baseUrl: api,
+    fetch: ((input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      return client.request(`${url.pathname}${url.search}`, init)
+    }) as typeof fetch,
   }
 }
 
@@ -227,18 +203,22 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // Sólo con `--live`: sin él las escrituras a GitHub se simulan, y publicar una branch también.
     gitCredential: opts.live && !opts.dryRun ? () => auth.getToken() : undefined,
     missingTools,
+    github: githubConnection(client, opts),
+    projectVars: projectVars(projects),
   })
 
-  const intake = intakePipelines(intakeContext(projects, client, opts))
   const mounted = createEngineFromYaml(cfg.enginePath, {
     catalogs,
     // En dry-run nada corre: la base de ejecuciones no se abre.
     drivers: { 'bun-sqlite': opts.dryRun ? memoryDriver : bunSqliteStoreDriver },
-    // El intake no tiene proyecto (es el que lo descubre): va como fuente propia, antes.
-    sources: [new StaticPipelineSource(intake)],
     formatMessage: formatEventMessage,
   })
-  const pipelines = () => mounted.sources.flatMap((source) => source.list())
+  const intake = () => mounted.sources.flatMap((source) => source.intakePipelines())
+  const pipelines = () =>
+    mounted.sources.flatMap((source) => {
+      const entry = new Set(source.intakePipelines())
+      return source.list().filter((pipeline) => !entry.has(pipeline))
+    })
   try {
     validateProviderConfigs(pipelines())
   } catch (err) {

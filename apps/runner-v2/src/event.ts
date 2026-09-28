@@ -22,7 +22,7 @@ export interface EventArgs {
    *  aporta el traductor de webhooks, se mezclan al payload ANTES de los `--set`. */
   extra?: Record<string, unknown>
   /** Lo que se mezcla en `task.*` además de lo que sale del issue (`comments`, `ci`, `pr`): lo
-   *  carga el intake (`actions/task-context.ts`); la CLI no lo trae. */
+   *  arma el intake (`task_payload`, `intake/functions.ts`); la CLI no lo trae. */
   taskExtra?: Record<string, unknown>
   /** Lo que se mezcla en `item.*` (lo que filtran las reglas): p. ej. `blocked`, del intake. */
   itemExtra?: Record<string, unknown>
@@ -203,7 +203,7 @@ function setPath(target: Record<string, unknown>, path: string, value: unknown):
   node[keys[keys.length - 1] as string] = value
 }
 
-interface IssueData {
+export interface IssueData {
   title: string
   body: string
   url: string
@@ -290,7 +290,20 @@ export async function buildPayload(
     branchPrefix: string
   },
 ): Promise<Record<string, unknown>> {
-  const issue = await fetchIssue(client, args)
+  return assemblePayload(args, await fetchIssue(client, args), project)
+}
+
+/** El payload de `args` sobre un issue ya leído — lo que comparten la CLI (`buildPayload`) y el
+ *  intake (`task_payload`). */
+export function assemblePayload(
+  args: EventArgs,
+  issue: IssueData,
+  project: {
+    /** `{{project.repos}}` de los prompts: el catálogo de repos del proyecto, en texto. */
+    repos: string
+    branchPrefix: string
+  },
+): Record<string, unknown> {
   const labels = args.labels.length > 0 ? args.labels : issue.labels
   const payload: Record<string, unknown> = {
     owner: args.owner,

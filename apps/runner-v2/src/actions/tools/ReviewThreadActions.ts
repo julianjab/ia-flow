@@ -1,6 +1,6 @@
 /**
  * La contracara escribible de las review threads que `{{task.comments}}` le muestra al agente
- * (`actions/intake/task-context.ts`): cada hilo sin resolver trae su `thread <id>` en la
+ * (`intake/timeline.ts`): cada hilo sin resolver trae su `thread <id>` en la
  * cabecera, y ese id viaja de vuelta acá. El modelo no busca nada — responde o resuelve el hilo
  * que leyó.
  */

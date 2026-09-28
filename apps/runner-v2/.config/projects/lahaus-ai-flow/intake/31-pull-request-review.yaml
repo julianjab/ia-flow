@@ -1,0 +1,36 @@
+# Una review de un PR: lo mismo que `pull_request`, más `state`/`reviewer`/`body` en la raíz —
+# lo que filtra `pr-changes-requested`.
+id: intake-pull-request-review
+on: [ github.pull_request_review ]
+when:
+  - { field: repository.full_name, op: in, value: '{{vars.repos}}' }
+do:
+  - id: number
+    function: linked_issue
+    with:
+      head: '{{pull_request.head.ref}}'
+      body: '{{pull_request.body}}'
+      prefix: '{{vars.branchPrefix}}'
+      fallback: '{{pull_request.number}}'
+  - emit: task.resolve
+    payload:
+      emit: pull_request_review
+      owner: '{{repository.owner.login}}'
+      repo: '{{repository.name}}'
+      number: '{{steps.number}}'
+      pr: '{{pull_request.number}}'
+      extra:
+        action: '{{action}}'
+        pr:
+          number: '{{pull_request.number}}'
+          title: '{{pull_request.title}}'
+          state: '{{pull_request.state}}'
+          isDraft: '{{pull_request.draft}}'
+          merged: '{{pull_request.merged}}'
+          author: '{{pull_request.user.login}}'
+          head: { ref: '{{pull_request.head.ref}}', sha: '{{pull_request.head.sha}}' }
+          base: { ref: '{{pull_request.base.ref}}' }
+          url: '{{pull_request.html_url}}'
+        state: '{{review.state}}'
+        reviewer: '{{review.user.login}}'
+        body: '{{review.body}}'

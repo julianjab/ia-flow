@@ -2,7 +2,7 @@
  * Modo servidor (`--serve`): el engine se monta UNA vez y cada delivery de GitHub recorre
  *
  *   server.ts (firma, 202) → engine.dispatch(github.<evento>, payload crudo)
- *     → pipeline de entrada (intake.ts: resolve + emit) → reglas de config/rules/
+ *     → pipelines de entrada (`intake/` del proyecto) → pipelines del proyecto
  *
  * Cada delivery se despacha en el acto, sin cola: la serie por task y el tope global son de las
  * EJECUCIONES del engine (en SQLite, ver `engine.yaml`). Así un comentario que llega
@@ -10,12 +10,11 @@
  * (sus `injects`), le llega en su próxima vuelta en vez de esperar a que termine.
  *
  * Acá no se traduce nada: completar el evento con lo que necesita el agente es trabajo de las
- * pipelines de entrada del engine y sus Actions (`actions/`).
+ * pipelines de entrada del proyecto (`.config/projects/<id>/intake/`).
  */
 import type { Server } from 'node:http'
 import { createEvent } from '@ia-tools/agent-pipeline'
 import type { MountedRunner } from './boot.js'
-import { RAW_PREFIX } from './intake.js'
 import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
 
 export interface ServeOptions {
@@ -25,6 +24,9 @@ export interface ServeOptions {
 }
 
 type Raw = Record<string, Record<string, unknown> | undefined>
+
+/** El prefijo de los eventos crudos que publica el servidor de webhooks: `github.<evento>`. */
+export const RAW_PREFIX = 'github.'
 
 /** El scope de un delivery crudo, para la traza: el delivery id de GitHub y, si el payload los
  *  trae, el repo y el issue/PR. Los eventos que el intake derive cuelgan de esta misma traza. */
@@ -80,13 +82,14 @@ export async function replayPullRequest(
 
 export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise<Server> {
   const { log } = opts
-  const listened = new Set(mounted.intake.flatMap((pipeline) => pipeline.on))
+  // Leído en cada delivery: el intake se recarga en caliente como el resto de `.config/`.
+  const listened = () => new Set(mounted.intake().flatMap((pipeline) => pipeline.on))
 
   const onDelivery = async (delivery: Delivery) => {
     const type = `${RAW_PREFIX}${delivery.event}`
     const action = typeof delivery.payload.action === 'string' ? `.${delivery.payload.action}` : ''
     // Sin pipeline de entrada para el evento no hay nada que despachar.
-    if (!listened.has(type)) {
+    if (!listened().has(type)) {
       log(`· ${delivery.event}${action} (${delivery.id ?? 'sin id'}): ningún intake lo escucha`)
       return
     }
@@ -109,7 +112,7 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
         id: p.id,
         board: `${p.board.owner}#${p.board.number}`,
       })),
-      listening: [...listened].sort(),
+      listening: [...listened()].filter((type) => type.startsWith(RAW_PREFIX)).sort(),
       executions: mounted.executions?.stats,
     }),
     log,

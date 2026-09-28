@@ -9,14 +9,24 @@
  *                                      (allow/deny, githubAuth, timeout, maxTimeout)
  *   issue_body                         las tools del body que el agente puede tocar (write/check)
  *
+ * Y lo que usa el intake (`intake/` de cada proyecto): la conexión `github` de sus pasos `http`,
+ * las funciones puras que dan forma a lo que leen (`intake/functions.ts`) y las `vars` de cada
+ * proyecto (su board, el prefijo de rama y el catálogo de repos de `runner.yaml`/`repos/`).
+ *
  * Una tool de disco sin workspace (dry-run) no se ofrece: arma cero acciones y queda en
  * `missingTools` para avisarlo una vez.
  */
 import type { Action, McpServerRef, ProviderRegistry } from '@ia-tools/agent-pipeline'
-import type { ActionProvider, ActionRequest, YamlCatalogs } from '@ia-tools/agent-pipeline-yaml'
+import type {
+  ActionProvider,
+  ActionRequest,
+  HttpConnection,
+  YamlCatalogs,
+} from '@ia-tools/agent-pipeline-yaml'
 import { WORKSPACE_TOOLS, type WorkspaceSession, workspaceAction } from '@ia-tools/workspace'
 import { z } from 'zod'
 import type { BoardActions } from '../actions/board.js'
+import { intakeFunctions } from '../intake/functions.js'
 import { issueBodyActions } from '../issue-body.js'
 
 /** Sin `--live` las escrituras a GitHub se simulan: publicar la branch tampoco puede ser real. */
@@ -58,6 +68,10 @@ export interface CatalogDeps {
   gitCredential?: () => Promise<string | undefined>
   /** Lo que la definición pide y este runner no puede dar — se avisa una vez. */
   missingTools: Set<string>
+  /** La API de GitHub con la identidad del runner: la `connection: github` del intake. */
+  github: HttpConnection
+  /** Las `vars` de cada proyecto (`{{vars.board}}`, …), por id. */
+  projectVars: (projectId: string) => Record<string, unknown>
 }
 
 function options<T extends z.ZodType>(schema: T, request: ActionRequest, name: string): z.infer<T> {
@@ -128,6 +142,9 @@ export function buildCatalogs(deps: CatalogDeps): YamlCatalogs {
     providers: deps.providers,
     actions,
     mcpServers: deps.mcpServers,
+    connections: { github: deps.github },
+    functions: intakeFunctions,
+    projectVars: deps.projectVars,
     mappers: {
       /** El reporte de una corrida que falló: el motivo, para el `report` del agente. */
       blockedReport: (err) => ({ summary: `La corrida falló: ${err.message}`, validations: [] }),

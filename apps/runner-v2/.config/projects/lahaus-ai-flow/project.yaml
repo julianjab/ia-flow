@@ -9,8 +9,8 @@ id: lahaus-ai-flow
 # cascada proyecto → regla → paso. Un evento que no lo cumple no llega a
 # evaluar ninguna regla, así que ninguna tiene que repetir la condición.
 #
-# Una sola condición alcanza: este runner siempre resuelve la card antes de
-# despachar (las Actions de `actions/`), así que TODO evento —del board,
+# Una sola condición alcanza: el intake (`intake/`, que este `when` no filtra)
+# siempre resuelve la card antes de publicar, así que TODO evento —del board,
 # comentario, PR o CI— trae `item.labels`. Un PR sin card no trae `item` y
 # no pasa.
 when:

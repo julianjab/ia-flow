@@ -1,0 +1,31 @@
+# Terminó un workflow de Actions: igual que `check_suite`.
+id: intake-workflow-run
+on: [ github.workflow_run ]
+when:
+  - { field: action, op: eq, value: completed }
+  - { field: repository.full_name, op: in, value: '{{vars.repos}}' }
+do:
+  - id: number
+    function: linked_issue
+    with:
+      head: '{{workflow_run.head_branch}}'
+      prefix: '{{vars.branchPrefix}}'
+      fallback: '{{workflow_run.pull_requests.0.number}}'
+  - emit: task.resolve
+    when: [ { field: steps.number, op: exists } ]
+    payload:
+      emit: workflow_run
+      owner: '{{repository.owner.login}}'
+      repo: '{{repository.name}}'
+      number: '{{steps.number}}'
+      pr: '{{workflow_run.pull_requests.0.number}}'
+      extra:
+        action: '{{action}}'
+        conclusion: '{{workflow_run.conclusion}}'
+        status: '{{workflow_run.status}}'
+        name: '{{workflow_run.name}}'
+        branch: '{{workflow_run.head_branch}}'
+        sha: '{{workflow_run.head_sha}}'
+        url: '{{workflow_run.html_url}}'
+        prNumber: '{{workflow_run.pull_requests.0.number}}'
+        kind: workflow_run

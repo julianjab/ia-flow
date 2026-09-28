@@ -24,9 +24,27 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
 └── projects/lahaus-ai-flow/
     ├── project.yaml             filtro del proyecto, system prompts compartidos, onError
     ├── agents/*.yaml            QUÉ hace cada agente y cómo termina (sus salidas)
+    ├── intake/*.yaml            de un webhook CRUDO al evento de la task (antes del filtro)
     ├── pipelines/*.yaml         CUÁNDO corre (una pipeline por columna/evento)
     └── repos/*.yaml             el catálogo de repos (lo lee el runner, no el engine)
 ```
+
+### El intake (`intake/`)
+
+Un webhook entra al engine tal cual lo mandó GitHub (`github.<evento>`) y lo recibe el intake, en
+dos etapas:
+
+1. **Un archivo por webhook** (`10-projects-v2-item.yaml`, `20-issue-comment.yaml`, …) decide QUÉ
+   task es y qué evento le toca, con `when` sobre el payload crudo y lo que haga falta leer (el
+   item del board, el PR de un comentario). Publica `task.resolve`.
+2. **`90-resolve-task.yaml`** lee de GitHub lo que el agente necesita —la card, el issue, sus
+   blockers, el timeline del issue y del PR, el CI— y publica el evento de la task con su scope.
+   Una card que no está en el board de este runner (es del engine de producción) no sigue.
+
+Las lecturas son pasos `http` sobre la conexión `github` (la identidad del runner); lo que queda
+en código son funciones puras que eligen y dan forma (`src/intake/functions.ts`). Un webhook
+nuevo es un YAML; un dato nuevo, un paso `http` en `resolve-task`. Las `vars` (`{{vars.board}}`,
+`{{vars.repos}}`, `{{vars.branchPrefix}}`) salen de `runner.yaml` y `repos/`.
 
 Lo que el YAML nombra y el runner implementa (`src/catalog/buildCatalogs.ts`):
 
@@ -37,6 +55,8 @@ Lo que el YAML nombra y el runner implementa (`src/catalog/buildCatalogs.ts`):
 | `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`) |
 | `issue_body` | las tools del body del issue que el agente puede tocar (`options: { write, check }`) |
 | `blockedReport` | el reporte de una corrida que falló (el `onError` del proyecto) |
+| `connection: github` | la API de GitHub para los pasos `http` del intake, con la identidad del runner |
+| `linked_issue`, `board_item`, `issue_refs`, `open_pr`, `task_payload` | las funciones puras del intake: el issue de un PR, la card en el board, los dependientes, el PR abierto y el payload de la task |
 
 ## Correr
 
@@ -74,9 +94,9 @@ Bun carga el `.env` del directorio desde el que corre (gitignoreado). Variables:
 
 Una card con prerrequisitos abiertos no corre sus agentes (las pipelines filtran
 `item.blocked`, salvo las de agentes que admiten correr bloqueados, como los refiners técnicos).
-Cuando se mergea el PR del último prerrequisito, el intake (`intake:pull_request:unblock`,
-`ResolveUnblockedAction`) busca en GitHub los issues que ése bloqueaba (`dependencies/blocking`)
-y emite `issue.unblocked` para cada uno que quedó sin bloqueadores abiertos. Las pipelines de
+Cuando se mergea el PR del último prerrequisito, el intake (`intake/50-unblock.yaml`) busca en
+GitHub los issues que ése bloqueaba (`dependencies/blocking`) y, por `resolve-task`, emite
+`issue.unblocked` para cada uno que quedó sin bloqueadores abiertos. Las pipelines de
 reentrada de cada columna lo escuchan, así que la card vuelve al agente que le toca donde esté.
 Es el `unblock-dependents-on-merge` del runner de ia-flow, pero para PRs de cualquier repo del
 catálogo, no sólo de `claw-agents`.
