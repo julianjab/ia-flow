@@ -1103,6 +1103,8 @@ watch(
 // próximo refresh (filtro que cambia, o "Actualizar") vuelve a traer la
 // verdad servida por SQLite.
 const liveMode = ref(props.live);
+/** Tope de filas que retiene el modo Live — mismo criterio que MAX_LOG_LINES de apps/desktop/src/devctl.ts. */
+const MAX_LIVE_ENTRIES = 500;
 function isTailView(): boolean {
   return columnSort.value.column === 'time' && columnSort.value.direction === 'desc' && offset.value === 0;
 }
@@ -1137,7 +1139,11 @@ const { connected: liveConnected } = useServerEvents(
     total.value += 1;
     accumulateDiscovered([entry]);
     if (!isTailView()) return;
-    entries.value = [entry, ...entries.value];
+    // Capado a MAX_LIVE_ENTRIES: sin esto, una sesión de horas con el panel
+    // Live abierto acumula miles de filas — cada una fuerza un `[...]` O(n) y
+    // una reconciliación de Vue sobre una lista cada vez más grande, en el
+    // hilo principal, que termina compitiendo con la interacción (clicks).
+    entries.value = [entry, ...entries.value].slice(0, MAX_LIVE_ENTRIES);
   },
   { enabled: props.live },
 );
