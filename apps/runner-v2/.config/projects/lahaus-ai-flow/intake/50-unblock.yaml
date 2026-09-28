@@ -20,7 +20,7 @@ do:
       body: '{{pull_request.body}}'
       prefix: '{{vars.branchPrefix}}'
   - id: blocking
-    http: /repos/{{repository.full_name}}/issues/{{steps.blocker}}/dependencies/blocking
+    http: /repos/{{repository.owner.login}}/{{repository.name}}/issues/{{steps.blocker}}/dependencies/blocking
     connection: github
     when: [ { field: steps.blocker, op: exists } ]
   - id: dependents

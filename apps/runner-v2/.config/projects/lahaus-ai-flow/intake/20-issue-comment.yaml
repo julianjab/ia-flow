@@ -6,7 +6,7 @@ when:
   - { field: repository.full_name, op: in, value: '{{vars.repos}}' }
 do:
   - id: pr
-    http: /repos/{{repository.full_name}}/pulls/{{issue.number}}
+    http: /repos/{{repository.owner.login}}/{{repository.name}}/pulls/{{issue.number}}
     connection: github
     when: [ { field: issue.pull_request, op: exists } ]
   - id: number
