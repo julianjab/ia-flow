@@ -128,6 +128,22 @@ function intakeContext(
       ),
     reader: new GraphqlBoardReader(client),
     taskContext: new GithubTaskContextReader(client),
+    dependents: async (owner, repo, number) => {
+      const blocking = await client.requestJson<
+        Array<{ number: number; state: string; repository_url: string }>
+      >(`/repos/${owner}/${repo}/issues/${number}/dependencies/blocking`)
+      // Un dependiente puede vivir en otro repo: su repo sale de `repository_url`.
+      return blocking.map((issue) => {
+        const [depOwner = owner, depRepo = repo] =
+          issue.repository_url.split('/repos/')[1]?.split('/') ?? []
+        return {
+          owner: depOwner,
+          repo: depRepo,
+          number: issue.number,
+          open: issue.state === 'open',
+        }
+      })
+    },
     pullRequest: async (owner, repo, number) => {
       const pr = await client.requestJson<{ head: { ref: string }; body: string | null }>(
         `/repos/${owner}/${repo}/pulls/${number}`,

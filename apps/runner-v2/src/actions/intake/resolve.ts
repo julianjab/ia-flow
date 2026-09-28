@@ -26,6 +26,14 @@ export interface IntakeProject {
   repos: string
 }
 
+/** Un issue en cualquier repo. */
+export interface IssueRef {
+  owner: string
+  repo: string
+  number: number
+  open: boolean
+}
+
 /** Lo que las Actions de resolución leen del mundo — una interfaz para testearlas sin red. */
 export interface IntakeContext {
   /** El proyecto que declara `owner/repo` en su catálogo — estricto, sin fallback. */
@@ -41,6 +49,9 @@ export interface IntakeContext {
     repo: string,
     number: number,
   ): Promise<{ headRef: string; body: string }>
+  /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`, la dependencia nativa de
+   *  GitHub) — la búsqueda inversa: de un prerrequisito a las tareas que lo esperan. */
+  dependents(owner: string, repo: string, number: number): Promise<IssueRef[]>
   /** Para leer título/body del issue; sin cliente no se lee (dry-run). */
   client?: GithubClient
   /** Último Status visto por item (node id) — el `from` cuando GitHub no lo manda. */
@@ -48,8 +59,17 @@ export interface IntakeContext {
   log(line: string): void
 }
 
+/** Una task resuelta: su proyecto, su id (`owner/repo#n`) y el payload que ve el agente. */
+export interface ResolvedTask {
+  projectId: string
+  task: string
+  payload: Record<string, unknown>
+}
+
 export type Resolution =
-  | { emit: string; projectId: string; task: string; payload: Record<string, unknown> }
+  | ({ emit: string } & ResolvedTask)
+  /** Un mismo evento sobre varias tasks (ej. las que un prerrequisito cerrado destrabó). */
+  | { emitEach: string; tasks: ResolvedTask[] }
   | { emit: null; reason: string }
 
 /**
@@ -107,11 +127,7 @@ export abstract class ResolveAction extends Action<typeof NoInput, Resolution> {
     ctx: PipelineExecutionContext,
   ): Promise<Resolution> {
     const result = await this.resolve(ctx.event.payload as Record<string, unknown>)
-    this.intake.log(
-      result.emit !== null
-        ? `→ ${ctx.event.type} → ${result.emit} ${result.task} (${result.projectId})`
-        : `· ${ctx.event.type} ignorado: ${result.reason}`,
-    )
+    this.intake.log(describe(ctx.event.type, result))
     return result
   }
 
@@ -137,8 +153,14 @@ export abstract class ResolveAction extends Action<typeof NoInput, Resolution> {
   }
 
   /** El payload completo de `args` — el mismo camino que un evento de la CLI, más el contexto de
-   *  la task (comentarios, CI, PR) que un delivery no trae y la CLI no pide. */
-  protected async emit(project: IntakeProject, args: EventArgs): Promise<Resolution> {
+   *  la task (comentarios, CI, PR) que un delivery no trae y la CLI no pide. `closedBlocker` (la
+   *  URL de un issue que se acaba de cerrar) no cuenta como bloqueador aunque GitHub todavía no
+   *  lo haya cerrado: el webhook del merge puede llegar antes que el cierre del issue. */
+  protected async emit(
+    project: IntakeProject,
+    args: EventArgs,
+    closedBlocker?: string,
+  ): Promise<{ emit: string } & ResolvedTask> {
     const context = await this.intake.taskContext.load({
       owner: args.owner,
       repo: args.repo,
@@ -146,15 +168,16 @@ export abstract class ResolveAction extends Action<typeof NoInput, Resolution> {
       pr: args.pr,
       branch: `${project.branchPrefix}${args.number}`,
     })
+    const blockers = context.blockers.filter((b) => b.url !== closedBlocker)
     args.taskExtra = {
       comments: context.comments,
       ci: context.ci,
       ...(context.pr ? { pr: context.pr } : {}),
       // `{{task.blockers}}`: qué la frena, legible para el prompt.
-      blockers: context.blockers.map((b) => `#${b.number} ${b.title} (${b.url})`).join('\n'),
+      blockers: blockers.map((b) => `#${b.number} ${b.title} (${b.url})`).join('\n'),
     }
-    // Lo que filtra el gate de `allowBlocked` (`rules.ts`): hay prerrequisitos abiertos.
-    args.itemExtra = { blocked: context.blockers.length > 0 }
+    // Lo que filtra el gate de las pipelines (`item.blocked`): hay prerrequisitos abiertos.
+    args.itemExtra = { blocked: blockers.length > 0 }
     return {
       emit: args.eventType,
       projectId: project.id,
@@ -162,4 +185,13 @@ export abstract class ResolveAction extends Action<typeof NoInput, Resolution> {
       payload: await buildPayload(args, this.intake.client, project),
     }
   }
+}
+
+/** Lo que el intake hizo con un delivery, para el log. */
+function describe(type: string, result: Resolution): string {
+  if ('emitEach' in result) {
+    return `→ ${type} → ${result.emitEach} ${result.tasks.map((t) => t.task).join(', ')}`
+  }
+  if (result.emit === null) return `· ${type} ignorado: ${result.reason}`
+  return `→ ${type} → ${result.emit} ${result.task} (${result.projectId})`
 }

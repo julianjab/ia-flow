@@ -16,7 +16,9 @@
 import {
   Condition,
   type ConditionRow,
+  deriveEvent,
   EmitAction,
+  FunctionAction,
   Pipeline,
   type PipelineExecutionContext,
   type Runnable,
@@ -25,9 +27,12 @@ import {
   type IntakeContext,
   type Resolution,
   ResolveCiRunAction,
+  type ResolvedTask,
   ResolveIssueCommentAction,
   ResolveProjectItemAction,
   ResolvePullRequestAction,
+  ResolveUnblockedAction,
+  UNBLOCKED_EVENT,
 } from './actions/index.js'
 
 /** El prefijo de los eventos crudos que publica el servidor de webhooks. */
@@ -36,18 +41,36 @@ export const RAW_PREFIX = 'github.'
 type Resolved = Extract<Resolution, { emit: string }>
 const resolved = (ctx: PipelineExecutionContext) => ctx.steps.resolve as Resolved
 
+/** El scope de una task emitida: el proyecto, y `repo`/`issue` además — la telemetría los hereda
+ *  a todo lo que corre debajo, y es por lo que se filtra en Grafana (el delivery crudo de un
+ *  project item no los trae). */
+function taskScope({ projectId, task, payload }: ResolvedTask): Record<string, unknown> {
+  return { projectId, repo: `${payload.owner}/${payload.repo}`, issue: task }
+}
+
 /** Publica lo que resolvió `resolve`, si eligió este `type`. */
 function emitAs(type: string): EmitAction {
   return new EmitAction({
     type,
     when: Condition.fromRows([{ field: 'steps.resolve.emit', op: 'eq', value: type }]),
     payload: (ctx) => resolved(ctx).payload,
-    // `repo`/`issue` además del proyecto: la telemetría los hereda a todo lo que corre debajo, y es
-    // por lo que se filtra en Grafana (el delivery crudo de un project item no los trae).
-    scope: (ctx) => {
-      const { projectId, task, payload } = resolved(ctx)
-      const repo = `${payload.owner}/${payload.repo}`
-      return { projectId, repo, issue: task }
+    scope: (ctx) => taskScope(resolved(ctx)),
+  })
+}
+
+/** Publica `type` una vez por cada task que resolvió `resolve` (`emitEach`), cada una en su scope. */
+function emitEach(type: string): FunctionAction {
+  return new FunctionAction({
+    id: 'emit',
+    when: Condition.fromRows([{ field: 'steps.resolve.emitEach', op: 'eq', value: type }]),
+    fn: async (ctx) => {
+      const { tasks } = ctx.steps.resolve as Extract<Resolution, { emitEach: string }>
+      for (const task of tasks) {
+        await ctx.bus.publish(
+          deriveEvent(ctx.event, type, task.payload, { scope: taskScope(task) }),
+        )
+      }
+      return tasks.map((task) => task.task)
     },
   })
 }
@@ -74,6 +97,17 @@ export function intakePipelines(ctx: IntakeContext): Pipeline[] {
     ),
     intake('issue_comment', new ResolveIssueCommentAction(ctx), ['issue_comment']),
     intake('pull_request', new ResolvePullRequestAction(ctx, 'pull_request'), ['pull_request']),
+    // Un PR mergeado también destraba lo que su issue bloqueaba: las tasks que quedaron sin
+    // prerrequisitos abiertos reciben `issue.unblocked` (el `unblock-dependents` de ia-flow).
+    new Pipeline({
+      id: 'intake:pull_request:unblock',
+      on: [`${RAW_PREFIX}pull_request`],
+      when: Condition.fromRows([
+        { field: 'action', op: 'eq', value: 'closed' },
+        { field: 'pull_request.merged', op: 'eq', value: true },
+      ]),
+      do: [new ResolveUnblockedAction(ctx), emitEach(UNBLOCKED_EVENT)],
+    }),
     intake('pull_request_review', new ResolvePullRequestAction(ctx, 'pull_request_review'), [
       'pull_request_review',
     ]),
