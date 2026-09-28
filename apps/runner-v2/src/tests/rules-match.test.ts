@@ -3,61 +3,78 @@
  * que publica el intake tiene que tener la forma que las pipelines filtran (`item.status`,
  * `to`/`from`, `state`, `conclusion`, …). Sin red: runner en dry-run y board simulado.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { REPORT_MARKER } from '@ia-tools/github-tools'
 import { parse } from 'yaml'
-import type { BoardItem } from '../board-reader.js'
 import type { MountedRunner } from '../boot.js'
 import {
   commentPayload,
-  fakeIntake,
+  type FakeGithubData,
+  type FakeTask,
+  fakeGithub,
   itemPayload,
+  mountWith,
   reviewPayload,
   runIntake,
   runPayload,
 } from './fixtures.js'
-import { CONFIG_DIR, mountDry } from './helpers.js'
+import { CONFIG_DIR } from './helpers.js'
 
 const PROJECT = join(CONFIG_DIR, 'projects', 'lahaus-ai-flow')
+const TASK = 'la-haus/subscriptions#7'
+/** El PR abierto de la task #7, desde su rama, con el CI en verde. */
+const OPEN_PR: FakeGithubData = {
+  prs: {
+    'la-haus/subscriptions#12': { number: 12, head: { ref: 'ia-flow-local/7', sha: 'abc123' } },
+  },
+  checks: [{ status: 'completed', conclusion: 'success' }],
+}
 
-let mounted: MountedRunner
+/** El intake de `.config/` sobre una GitHub donde la task #7 es `task`, y lo que emitió. */
+async function intakeOf(
+  event: string,
+  payload: Record<string, unknown>,
+  task: FakeTask,
+  data: FakeGithubData = {},
+): Promise<{ mounted: MountedRunner; emitted: Awaited<ReturnType<typeof runIntake>>['emitted'] }> {
+  const mounted = await mountWith(
+    fakeGithub({
+      items: { PVTI_1: TASK },
+      ...data,
+      tasks: { [TASK]: { labels: ['blocked'], ...task } },
+    }),
+  )
+  const { emitted } = await runIntake(mounted, event, payload)
+  return { mounted, emitted }
+}
 
-beforeAll(async () => {
-  mounted = await mountDry()
-})
-afterAll(() => mounted.stop())
-
-/**
- * Las reglas que correrían para el evento que emite el intake a partir del delivery crudo. En
- * dry-run el issue no se lee, así que sus labels se fijan acá — por default con `blocked`,
- * la que exige el `when` del proyecto.
- */
+/** Las pipelines de `.config/` que corren para lo que emite el intake a partir del delivery. */
 async function rulesFor(
   event: string,
   payload: Record<string, unknown>,
-  card: Partial<BoardItem>,
-  labels: string[] = ['blocked'],
+  task: FakeTask,
+  data: FakeGithubData = {},
 ) {
-  const { emitted } = await runIntake(event, payload, fakeIntake(card))
-  const selected = await Promise.all(
-    emitted.map((e) => {
-      const item = (e.payload as { item: { labels: string[] } }).item
-      item.labels = labels
-      return mounted.engine.select(e)
-    }),
-  )
-  return selected.flat().map((p) => p.id)
+  const { mounted, emitted } = await intakeOf(event, payload, task, data)
+  try {
+    const selected = await Promise.all(emitted.map((e) => mounted.engine.select(e)))
+    return selected.flat().map((p) => p.id)
+  } finally {
+    mounted.stop()
+  }
 }
 
 const statusChange = (from: string, to: string) =>
   itemPayload('edited', { field_name: 'Status', from: { name: from }, to: { name: to } })
 
 describe('webhook crudo → intake → pipelines de .config/', () => {
-  it('mounts the intake next to the project pipelines, without mixing them', () => {
-    expect(mounted.intake.map((p) => p.id)).toContain('intake:pull_request')
-    expect(mounted.pipelines().some((p) => p.id.startsWith('intake:'))).toBe(false)
+  it('mounts the intake next to the project pipelines, without mixing them', async () => {
+    const mounted = await mountWith(fakeGithub())
+    expect(mounted.intake().map((p) => p.id)).toContain('intake-pull-request')
+    expect(mounted.pipelines().some((p) => p.id.startsWith('intake-'))).toBe(false)
+    mounted.stop()
   })
 
   it('Refined → Build dispatches build-arrival; Review → Build does not', async () => {
@@ -71,49 +88,43 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
 
   it('never touches a card without `blocked` — the project when filters it before any rule', async () => {
     expect(
-      await rulesFor('projects_v2_item', statusChange('Refined', 'Build'), { status: 'Build' }, []),
+      await rulesFor('projects_v2_item', statusChange('Refined', 'Build'), {
+        status: 'Build',
+        labels: [],
+      }),
     ).toEqual([])
     expect(
-      await rulesFor(
-        'pull_request_review',
-        reviewPayload('CHANGES_REQUESTED'),
-        { status: 'Review' },
-        ['backend'],
-      ),
+      await rulesFor('pull_request_review', reviewPayload('changes_requested'), {
+        status: 'Review',
+        labels: ['backend'],
+      }),
     ).toEqual([])
   })
 
   it('a card with open blockers only runs agents with `allowBlocked` (refiners yes, implementer no)', async () => {
-    const blocked = fakeIntake(
-      { status: 'Build' },
-      {
-        taskContext: {
-          load: async () => ({
-            comments: '',
-            ci: '',
-            blockers: [{ number: 3, title: 'migrar', url: 'u' }],
-          }),
-        },
-      },
-    )
-    const rulesOf = async (event: string, payload: Record<string, unknown>) => {
-      const { emitted } = await runIntake(event, payload, blocked)
-      const selected = await Promise.all(
-        emitted.map((e) => {
-          const item = (e.payload as { item: { labels: string[]; blocked?: boolean } }).item
-          expect(item.blocked).toBe(true)
-          item.labels = ['blocked']
-          return mounted.engine.select(e)
-        }),
-      )
-      return selected.flat().map((p) => p.id)
+    const blocked: FakeTask = {
+      status: 'Build',
+      blockedBy: [{ number: 3, title: 'migrar', state: 'open', html_url: 'u' }],
     }
-    expect(await rulesOf('projects_v2_item', statusChange('Refined', 'Build'))).not.toContain(
-      'build-arrival',
+    const { mounted, emitted } = await intakeOf(
+      'projects_v2_item',
+      statusChange('Refined', 'Build'),
+      blocked,
     )
-    expect(await rulesOf('projects_v2_item', statusChange('Backlog', 'Refine'))).toContain(
-      'refine-technical',
-    )
+    expect(
+      (emitted[0]?.payload as { item?: { blocked: boolean } } | undefined)?.item?.blocked,
+    ).toBe(true)
+    mounted.stop()
+
+    expect(
+      await rulesFor('projects_v2_item', statusChange('Refined', 'Build'), blocked),
+    ).not.toContain('build-arrival')
+    expect(
+      await rulesFor('projects_v2_item', statusChange('Backlog', 'Refine'), {
+        ...blocked,
+        status: 'Refine',
+      }),
+    ).toContain('refine-technical')
   })
 
   it('a card moved to Refine dispatches the technical refiner', async () => {
@@ -135,7 +146,7 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
 
   it('changes requested on the PR dispatches pr-changes-requested', async () => {
     expect(
-      await rulesFor('pull_request_review', reviewPayload('CHANGES_REQUESTED'), {
+      await rulesFor('pull_request_review', reviewPayload('changes_requested'), {
         status: 'Review',
       }),
     ).toContain('pr-changes-requested')
@@ -144,8 +155,12 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
   it('an opened PR dispatches the reviewer', async () => {
     const opened = {
       action: 'opened',
-      pull_request: { number: 12, head: { ref: 'ia-flow/7' }, base: { ref: 'main' } },
-      repository: { name: 'subscriptions', owner: { login: 'la-haus' } },
+      pull_request: { number: 12, head: { ref: 'ia-flow-local/7' }, base: { ref: 'main' } },
+      repository: {
+        name: 'subscriptions',
+        full_name: 'la-haus/subscriptions',
+        owner: { login: 'la-haus' },
+      },
     }
     expect(await rulesFor('pull_request', opened, { status: 'Review' })).toContain('review')
     expect(
@@ -154,7 +169,7 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
   })
 
   it("resolves every variable of the reviewer's prompt and of the review brief for an opened PR", async () => {
-    const { emitted } = await runIntake(
+    const { mounted, emitted } = await intakeOf(
       'pull_request',
       {
         action: 'opened',
@@ -165,13 +180,24 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
           state: 'open',
           html_url: 'https://github.com/la-haus/subscriptions/pull/12',
           user: { login: 'ai-lh-developer[bot]' },
-          head: { ref: 'ia-flow/7', sha: 'abc123' },
+          head: { ref: 'ia-flow-local/7', sha: 'abc123' },
           base: { ref: 'main' },
         },
-        repository: { name: 'subscriptions', owner: { login: 'la-haus' } },
+        repository: {
+          name: 'subscriptions',
+          full_name: 'la-haus/subscriptions',
+          owner: { login: 'la-haus' },
+        },
       },
-      fakeIntake({ status: 'Review' }),
+      {
+        status: 'Review',
+        comments: [
+          { body: 'falta paginar', created_at: '2026-09-25T10:00:00Z', user: { login: 'julian' } },
+        ],
+      },
+      OPEN_PR,
     )
+    mounted.stop()
     const payload = emitted[0]?.payload as Record<string, unknown>
     const reviewer = parse(readFileSync(join(PROJECT, 'agents', '30-reviewer.yaml'), 'utf8'))
     const review = parse(readFileSync(join(PROJECT, 'pipelines', '30-review.yaml'), 'utf8'))
@@ -190,13 +216,13 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
       .map((m) => m[1] as string)
       .filter((path) => lookup(path) == null || lookup(path) === '')
     expect(unresolved).toEqual([])
-    expect(lookup('pr.head.ref')).toBe('ia-flow/7')
+    expect(lookup('pr.head.ref')).toBe('ia-flow-local/7')
     expect(lookup('task.ci')).toBe('success')
   })
 
   it('a red CI run on the PR dispatches ci-red', async () => {
     expect(
-      await rulesFor('workflow_run', runPayload('completed', [{ number: 12 }]), {
+      await rulesFor('workflow_run', runPayload('completed', [{ number: 12 }], 'ia-flow-local/7'), {
         status: 'Review',
       }),
     ).toContain('ci-red')

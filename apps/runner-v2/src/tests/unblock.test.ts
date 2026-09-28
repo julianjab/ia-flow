@@ -1,18 +1,24 @@
 /**
  * `unblock-dependents`: un PR mergeado destraba las tasks que su issue bloqueaba. El intake
- * emite `issue.unblocked` para cada una que quedó sin prerrequisitos abiertos, y las pipelines de
- * reentrada de su columna la retoman.
+ * (`intake/50-unblock.yaml`) manda cada dependiente abierto a `resolve-task`, que emite
+ * `issue.unblocked` sólo para las que quedaron sin prerrequisitos abiertos; las pipelines de
+ * reentrada de su columna las retoman.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test'
-import type { IntakeContext, IssueRef } from '../actions/index.js'
-import type { MountedRunner } from '../boot.js'
-import { card, fakeIntake, repository, runIntake } from './fixtures.js'
-import { mountDry } from './helpers.js'
+import { describe, expect, it } from 'bun:test'
+import {
+  type FakeGithubData,
+  type FakeTask,
+  fakeGithub,
+  mountWith,
+  repository,
+  runIntake,
+} from './fixtures.js'
 
+const API = 'https://api.github.com/repos'
 const CLOSED = 'https://github.com/la-haus/subscriptions/issues/7'
 
-/** El webhook de un PR cerrado que implementa el issue #7 (rama `ia-flow/7`). */
-const closedPr = (merged: boolean, headRef = 'ia-flow/7') => ({
+/** El webhook de un PR cerrado que implementa el issue #7 (rama `ia-flow-local/7`). */
+const closedPr = (merged: boolean, headRef = 'ia-flow-local/7') => ({
   action: 'closed',
   number: 12,
   pull_request: {
@@ -25,52 +31,54 @@ const closedPr = (merged: boolean, headRef = 'ia-flow/7') => ({
   repository,
 })
 
-/** Un intake cuyo #7 bloquea a `dependents`; `blockersOf` dice qué bloquea a cada uno. */
-function unblockIntake(
-  dependents: IssueRef[],
-  blockersOf: Record<number, string[]> = {},
-): IntakeContext {
-  return fakeIntake(
-    {},
-    {
-      dependents: vi.fn(async () => dependents),
-      reader: {
-        itemForIssue: vi.fn(async (_board, _owner, _repo, number: number) =>
-          card({ number, status: 'Build' }),
-        ),
-        issueForItem: vi.fn(async () => card()),
-      },
-      taskContext: {
-        load: vi.fn(async ({ number }: { number: number }) => ({
-          comments: '',
-          ci: '',
-          blockers: (blockersOf[number] ?? []).map((url, i) => ({
-            number: 100 + i,
-            title: 'x',
-            url,
-          })),
-        })),
-      },
+const dependent = (number: number, state = 'open', repo = 'subscriptions') => ({
+  number,
+  state,
+  repository_url: `${API}/la-haus/${repo}`,
+})
+
+const blocker = (url: string, state = 'open') => ({ number: 100, title: 'x', state, html_url: url })
+
+/** Una GitHub donde #7 bloquea a `blocking`, y cada dependiente es `tasks[n]`. */
+function world(
+  blocking: ReturnType<typeof dependent>[],
+  tasks: Record<number, FakeTask>,
+): FakeGithubData {
+  return {
+    tasks: {
+      'la-haus/subscriptions#7': { status: 'Build', blocking },
+      ...Object.fromEntries(
+        Object.entries(tasks).map(([n, task]) => [
+          `la-haus/subscriptions#${n}`,
+          { labels: ['blocked'], ...task },
+        ]),
+      ),
     },
-  )
+  }
 }
 
-const issue = (number: number, open = true, repo = 'subscriptions'): IssueRef => ({
-  owner: 'la-haus',
-  repo,
-  number,
-  open,
-})
+async function unblockedBy(payload: Record<string, unknown>, data: FakeGithubData) {
+  const github = fakeGithub(data)
+  const mounted = await mountWith(github)
+  try {
+    const { emitted } = await runIntake(mounted, 'pull_request', payload)
+    return { github, mounted, unblocked: emitted.filter((e) => e.type === 'issue.unblocked') }
+  } finally {
+    mounted.stop()
+  }
+}
 
 describe('intake: unblock-dependents', () => {
   it('emits issue.unblocked for each open dependent the merged issue was the last blocker of', async () => {
     // #9: su único bloqueador era #7 (todavía abierto en GitHub: el merge llegó antes del cierre).
-    // #10: ya cerrado. #11: de un repo que ningún proyecto declara.
-    const ctx = unblockIntake([issue(9), issue(10, false), issue(11, true, 'otro')], {
-      9: [CLOSED],
-    })
-    const { emitted } = await runIntake('pull_request', closedPr(true), ctx)
-    const unblocked = emitted.filter((e) => e.type === 'issue.unblocked')
+    // #10: ya cerrado. #11: de un repo que el catálogo no declara.
+    const { github, unblocked } = await unblockedBy(
+      closedPr(true),
+      world([dependent(9), dependent(10, 'closed'), dependent(11, 'open', 'otro')], {
+        9: { status: 'Build', blockedBy: [blocker(CLOSED)] },
+        10: { status: 'Build' },
+      }),
+    )
     expect(unblocked.map((e) => e.scope)).toEqual([
       {
         projectId: 'lahaus-ai-flow',
@@ -83,59 +91,52 @@ describe('intake: unblock-dependents', () => {
       item: { status: 'Build', blocked: false },
       task: { blockers: '' },
     })
-    expect(ctx.dependents).toHaveBeenCalledWith('la-haus', 'subscriptions', 7)
+    expect(github.calls).toContain(
+      'GET /repos/la-haus/subscriptions/issues/7/dependencies/blocking',
+    )
   })
 
   it('leaves a dependent that still has another open blocker', async () => {
-    const ctx = unblockIntake([issue(9)], { 9: [CLOSED, 'https://github.com/la-haus/x/issues/3'] })
-    const { emitted } = await runIntake('pull_request', closedPr(true), ctx)
-    expect(emitted.filter((e) => e.type === 'issue.unblocked')).toEqual([])
+    const { unblocked } = await unblockedBy(
+      closedPr(true),
+      world([dependent(9)], {
+        9: {
+          status: 'Build',
+          blockedBy: [blocker(CLOSED), blocker('https://github.com/la-haus/x/issues/3')],
+        },
+      }),
+    )
+    expect(unblocked).toEqual([])
   })
 
   it('does nothing for a PR closed without merging, or one that closes no issue', async () => {
-    const notMerged = unblockIntake([issue(9)])
-    await runIntake('pull_request', closedPr(false), notMerged)
-    expect(notMerged.dependents).not.toHaveBeenCalled()
+    const data = world([dependent(9)], { 9: { status: 'Build' } })
+    const notMerged = await unblockedBy(closedPr(false), data)
+    expect(notMerged.github.calls.some((call) => call.includes('/dependencies/blocking'))).toBe(
+      false,
+    )
 
-    const noIssue = unblockIntake([issue(9)])
-    await runIntake('pull_request', closedPr(true, 'feat/sin-issue'), noIssue)
-    expect(noIssue.dependents).not.toHaveBeenCalled()
+    const noIssue = await unblockedBy(closedPr(true, 'feat/sin-issue'), data)
+    expect(noIssue.github.calls.some((call) => call.includes('/dependencies/blocking'))).toBe(false)
   })
 })
 
 describe('issue.unblocked → pipelines de .config/', () => {
-  let mounted: MountedRunner
-  beforeAll(async () => {
-    mounted = await mountDry()
-  })
-  afterAll(() => mounted.stop())
-
   /** Las pipelines que corren para la task #9 destrabada, en `status`. */
-  async function pipelinesFor(status: string, type = 'technical') {
-    const ctx = fakeIntake(
-      { status, type },
-      {
-        dependents: vi.fn(async () => [issue(9)]),
-        taskContext: {
-          load: vi.fn(async () => ({
-            comments: '',
-            ci: '',
-            blockers: [{ number: 7, title: 't', url: CLOSED }],
-          })),
-        },
-      },
+  async function pipelinesFor(status: string, type = 'Technical') {
+    const github = fakeGithub(
+      world([dependent(9)], { 9: { status, type, blockedBy: [blocker(CLOSED)] } }),
     )
-    const { emitted } = await runIntake('pull_request', closedPr(true), ctx)
-    const selected = await Promise.all(
-      emitted
-        .filter((e) => e.type === 'issue.unblocked')
-        .map((e) => {
-          // En dry-run el issue no se lee: la label del proyecto (este runner sólo toma `blocked`).
-          ;(e.payload as { item: { labels: string[] } }).item.labels = ['blocked']
-          return mounted.engine.select(e)
-        }),
-    )
-    return selected.flat().map((p) => p.id)
+    const mounted = await mountWith(github)
+    try {
+      const { emitted } = await runIntake(mounted, 'pull_request', closedPr(true))
+      const selected = await Promise.all(
+        emitted.filter((e) => e.type === 'issue.unblocked').map((e) => mounted.engine.select(e)),
+      )
+      return selected.flat().map((p) => p.id)
+    } finally {
+      mounted.stop()
+    }
   }
 
   it('a card in Build goes back to the implementer', async () => {
@@ -143,7 +144,7 @@ describe('issue.unblocked → pipelines de .config/', () => {
   })
 
   it('an epic in Refine goes back to the functional refiner', async () => {
-    expect(await pipelinesFor('Refine', 'functional')).toEqual(['refine-functional'])
+    expect(await pipelinesFor('Refine', 'Functional')).toEqual(['refine-functional'])
   })
 
   it('a technical card in Refine is not re-run: its refiner already runs on blocked cards', async () => {

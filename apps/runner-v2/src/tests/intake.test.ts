@@ -1,68 +1,86 @@
 /**
- * Las pipelines de entrada (`intake.ts`) de punta a punta: un delivery CRUDO entra como
- * `github.<evento>`, la Action de `actions/` lo resuelve y el `EmitAction` publica el evento
- * enriquecido. Sin red: el board se simula y el issue no se lee (dry-run de `buildPayload`).
+ * El intake de `.config/projects/lahaus-ai-flow/intake/` de punta a punta: un delivery CRUDO entra
+ * como `github.<evento>`, su pipeline decide qué task es (`task.resolve`) y `resolve-task` lee de
+ * GitHub (simulada) lo que el agente necesita y publica el evento de la task.
  */
-import { beforeEach, describe, expect, it, vi } from 'bun:test'
-import type { IntakeContext } from '../actions/index.js'
-import { linkedIssue } from '../actions/index.js'
+import { describe, expect, it } from 'bun:test'
 import {
   commentPayload,
-  fakeIntake,
+  type FakeGithubData,
+  fakeGithub,
   itemPayload,
+  mountWith,
   repository,
   reviewPayload,
   runIntake,
   runPayload,
 } from './fixtures.js'
 
-describe('intake: projects_v2_item', () => {
-  let ctx: IntakeContext
-  beforeEach(() => {
-    ctx = fakeIntake()
-  })
+const TASK = 'la-haus/subscriptions#7'
 
-  it('emits issue.status_changed with from/to, scoped to the project', async () => {
-    const { emitted } = await runIntake(
+/** El runner con esta GitHub; `run` despacha un delivery crudo y devuelve lo que emitió. */
+async function intake(data: FakeGithubData = {}) {
+  const github = fakeGithub({
+    items: { PVTI_1: TASK },
+    ...data,
+    tasks: { [TASK]: { status: 'Build', type: 'Technical', labels: ['blocked'] }, ...data.tasks },
+  })
+  const mounted = await mountWith(github)
+  return {
+    github,
+    run: async (event: string, payload: Record<string, unknown>) => {
+      try {
+        return await runIntake(mounted, event, payload)
+      } finally {
+        mounted.stop()
+      }
+    },
+  }
+}
+
+describe('intake: projects_v2_item', () => {
+  it('emits issue.status_changed with from/to, scoped to the task', async () => {
+    const { emitted } = await (await intake()).run(
       'projects_v2_item',
       itemPayload('edited', {
         field_name: 'Status',
         from: { name: 'Refined' },
         to: { name: 'Build' },
       }),
-      ctx,
     )
     expect(emitted).toHaveLength(1)
     expect(emitted[0]).toMatchObject({
       type: 'issue.status_changed',
-      scope: { projectId: 'lahaus-ai-flow' },
+      scope: { projectId: 'lahaus-ai-flow', repo: 'la-haus/subscriptions', issue: TASK },
       payload: {
         from: 'Refined',
         to: 'Build',
         task_type: 'technical',
-        item: { status: 'Build', type: 'technical', repos: ['subscriptions'] },
-        task: { id: 'la-haus/subscriptions#7', branch: 'ia-flow/7' },
-        project: { repos: '- subscriptions' },
+        item: { status: 'Build', type: 'technical', repos: ['subscriptions'], blocked: false },
+        task: { id: TASK, branch: 'ia-flow-local/7', title: `Task ${TASK}` },
       },
     })
+    expect(
+      (emitted[0]?.payload as { project?: { repos: string } } | undefined)?.project?.repos,
+    ).toContain('(la-haus/subscriptions)')
   })
 
-  it('falls back to the last status it saw when GitHub omits from/to', async () => {
-    ctx.lastStatus.set('PVTI_1', 'Review')
-    const { emitted } = await runIntake(
+  it('without from/to, to is the status the card has now', async () => {
+    const { emitted } = await (await intake()).run(
       'projects_v2_item',
       itemPayload('edited', { field_name: 'Status' }),
-      ctx,
     )
-    expect(emitted[0]?.payload).toMatchObject({ from: 'Review', to: 'Build' })
-    expect(ctx.lastStatus.get('PVTI_1')).toBe('Build')
+    expect(emitted[0]?.payload).toMatchObject({ to: 'Build', item: { status: 'Build' } })
   })
 
   it('emits nothing for a Status edit that did not change the value', async () => {
-    const { outcome, emitted } = await runIntake(
+    const { outcome, emitted } = await (await intake()).run(
       'projects_v2_item',
-      itemPayload('edited', { field_name: 'Status', from: 'Build', to: 'Build' }),
-      ctx,
+      itemPayload('edited', {
+        field_name: 'Status',
+        from: { name: 'Build' },
+        to: { name: 'Build' },
+      }),
     )
     expect(outcome).toBe('dispatched')
     expect(emitted).toEqual([])
@@ -70,12 +88,11 @@ describe('intake: projects_v2_item', () => {
 
   it('emits issue.created when the card enters the board, and projects_v2_item.edited for other fields', async () => {
     expect(
-      (await runIntake('projects_v2_item', itemPayload('created'), ctx)).emitted[0]?.type,
+      (await (await intake()).run('projects_v2_item', itemPayload('created'))).emitted[0]?.type,
     ).toBe('issue.created')
-    const { emitted } = await runIntake(
+    const { emitted } = await (await intake()).run(
       'projects_v2_item',
       itemPayload('edited', { field_name: 'Task Type' }),
-      ctx,
     )
     expect(emitted[0]).toMatchObject({
       type: 'projects_v2_item.edited',
@@ -88,24 +105,31 @@ describe('intake: projects_v2_item', () => {
       itemPayload('archived'),
       itemPayload('created', undefined, 'DraftIssue'),
     ]) {
-      expect((await runIntake('projects_v2_item', payload, ctx)).outcome).toBe('skipped')
+      const { github, run } = await intake()
+      expect((await run('projects_v2_item', payload)).outcome).toBe('skipped')
+      expect(github.calls).toEqual([])
     }
-    expect(ctx.reader.issueForItem).not.toHaveBeenCalled()
   })
 
-  it('emits nothing for an item of a board that is not mounted', async () => {
-    const other = fakeIntake({ board: { owner: 'la-haus', number: 1 } })
-    expect((await runIntake('projects_v2_item', itemPayload('created'), other)).emitted).toEqual([])
+  it('emits nothing for an item of a board that is not this runner’s', async () => {
+    const { github, run } = await intake({
+      tasks: { [TASK]: { status: 'Build', board: { owner: 'la-haus', number: 1 } } },
+    })
+    expect((await run('projects_v2_item', itemPayload('created'))).emitted).toEqual([])
+    expect(github.calls).toEqual(['graphql node'])
   })
 })
 
 describe('intake: issue_comment', () => {
   it('emits the comment with the board status of its issue', async () => {
-    const ctx = fakeIntake({ status: 'Refine', type: 'functional' })
-    const { emitted } = await runIntake('issue_comment', commentPayload('falta paginar'), ctx)
+    const { emitted } = await (
+      await intake({
+        tasks: { [TASK]: { status: 'Refine', type: 'Functional', labels: ['backend'] } },
+      })
+    ).run('issue_comment', commentPayload('falta paginar'))
     expect(emitted[0]).toMatchObject({
       type: 'issue_comment',
-      scope: { projectId: 'lahaus-ai-flow' },
+      scope: { projectId: 'lahaus-ai-flow', issue: TASK },
       payload: {
         action: 'created',
         body: 'falta paginar',
@@ -117,60 +141,85 @@ describe('intake: issue_comment', () => {
   })
 
   it('puts a comment made on a PR on the issue that PR implements', async () => {
-    const ctx = fakeIntake()
-    const { emitted } = await runIntake(
+    const { github, run } = await intake({
+      prs: {
+        'la-haus/subscriptions#12': { number: 12, head: { ref: 'ia-flow-local/7', sha: 's' } },
+      },
+    })
+    const { emitted } = await run(
       'issue_comment',
       commentPayload('ok', { number: 12, pull_request: {} }),
-      ctx,
     )
-    expect(ctx.pullRequest).toHaveBeenCalledWith('la-haus', 'subscriptions', 12)
+    expect(github.calls).toContain('GET /repos/la-haus/subscriptions/pulls/12')
     expect(emitted[0]?.payload).toMatchObject({
       number: 7,
       prNumber: 12,
-      task: { id: 'la-haus/subscriptions#7' },
+      task: { id: TASK, pr: { number: 12 } },
     })
   })
 
-  it('emits nothing for a repo the catalog does not declare', async () => {
+  it('emits nothing for a repo the catalog does not declare, without reading GitHub', async () => {
     const payload = {
       ...commentPayload('hola'),
-      repository: { name: 'otro', owner: { login: 'la-haus' } },
+      repository: { name: 'otro', full_name: 'la-haus/otro', owner: { login: 'la-haus' } },
     }
-    expect((await runIntake('issue_comment', payload, fakeIntake())).emitted).toEqual([])
+    const { github, run } = await intake()
+    expect((await run('issue_comment', payload)).outcome).toBe('skipped')
+    expect(github.calls).toEqual([])
   })
 })
 
 describe('intake: task context', () => {
-  it('fills task.comments, task.ci and task.pr from the task context reader', async () => {
-    const ctx = fakeIntake()
-    const { emitted } = await runIntake(
-      'pull_request_review',
-      reviewPayload('CHANGES_REQUESTED'),
-      ctx,
-    )
-    expect(ctx.taskContext.load).toHaveBeenCalledWith({
-      owner: 'la-haus',
-      repo: 'subscriptions',
-      number: 7,
-      pr: 12,
-      branch: 'ia-flow/7',
-    })
+  it('fills task.comments, task.ci, task.pr and task.blockers from GitHub', async () => {
+    const { emitted } = await (
+      await intake({
+        tasks: {
+          [TASK]: {
+            status: 'Review',
+            labels: ['blocked'],
+            comments: [
+              {
+                body: 'falta paginar',
+                created_at: '2026-09-25T10:00:00Z',
+                user: { login: 'julian' },
+              },
+            ],
+            blockedBy: [
+              {
+                number: 3,
+                title: 'migrar tabla',
+                state: 'open',
+                html_url: 'https://github.com/x/3',
+              },
+              { number: 2, title: 'ya hecho', state: 'closed', html_url: 'https://github.com/x/2' },
+            ],
+          },
+        },
+        prs: {
+          'la-haus/subscriptions#12': { number: 12, head: { ref: 'ia-flow-local/7', sha: 'abc' } },
+        },
+        checks: [{ status: 'completed', conclusion: 'failure' }],
+      })
+    ).run('pull_request_review', reviewPayload('changes_requested'))
     expect(emitted[0]?.payload).toMatchObject({
+      item: { blocked: true },
       task: {
-        comments: '[2026-09-25 10:00 · issue · julian]\nfalta paginar',
-        ci: 'success',
+        ci: 'failure',
         pr: { number: 12, url: 'https://github.com/la-haus/subscriptions/pull/12' },
+        blockers: '#3 migrar tabla (https://github.com/x/3)',
       },
     })
+    expect(
+      (emitted[0]?.payload as { task?: { comments: string } } | undefined)?.task?.comments,
+    ).toContain('· issue · julian]\nfalta paginar')
   })
 })
 
 describe('intake: pull requests and CI', () => {
   it('flattens a review the way pr-changes-requested reads it', async () => {
-    const { emitted } = await runIntake(
+    const { emitted } = await (await intake()).run(
       'pull_request_review',
-      reviewPayload('CHANGES_REQUESTED'),
-      fakeIntake(),
+      reviewPayload('changes_requested'),
     )
     expect(emitted[0]).toMatchObject({
       type: 'pull_request_review',
@@ -181,31 +230,37 @@ describe('intake: pull requests and CI', () => {
   it('keeps pr.merged on a closed pull_request', async () => {
     const payload = {
       action: 'closed',
-      pull_request: { number: 12, merged: true, head: { ref: 'ia-flow/7' }, base: { ref: 'main' } },
+      pull_request: {
+        number: 12,
+        merged: true,
+        head: { ref: 'ia-flow-local/7' },
+        base: { ref: 'main' },
+      },
       repository,
     }
-    const { emitted } = await runIntake('pull_request', payload, fakeIntake())
-    expect(emitted[0]?.payload).toMatchObject({
+    const { emitted } = await (await intake()).run('pull_request', payload)
+    expect(emitted.find((e) => e.type === 'pull_request')?.payload).toMatchObject({
       action: 'closed',
       pr: { number: 12, merged: true },
     })
   })
 
-  it('only lets completed CI runs through, and needs a PR or an ia-flow branch', async () => {
-    const ctx = fakeIntake()
+  it('only lets completed CI runs through, and needs a PR or a task branch', async () => {
+    const skipped = await intake()
     expect(
-      (await runIntake('workflow_run', runPayload('in_progress', [{ number: 12 }]), ctx)).outcome,
+      (await skipped.run('workflow_run', runPayload('in_progress', [{ number: 12 }]))).outcome,
     ).toBe('skipped')
-    expect((await runIntake('workflow_run', runPayload('completed', []), ctx)).emitted).toEqual([])
+    expect(
+      (await (await intake()).run('workflow_run', runPayload('completed', []))).emitted,
+    ).toEqual([])
 
-    const { emitted } = await runIntake(
+    const { emitted } = await (await intake()).run(
       'workflow_run',
-      runPayload('completed', [{ number: 12 }]),
-      ctx,
+      runPayload('completed', [], 'ia-flow-local/7'),
     )
     expect(emitted[0]).toMatchObject({
       type: 'workflow_run',
-      payload: { action: 'completed', conclusion: 'failure', prNumber: 12, kind: 'workflow_run' },
+      payload: { number: 7, action: 'completed', conclusion: 'failure', kind: 'workflow_run' },
     })
   })
 })
@@ -213,41 +268,26 @@ describe('intake: pull requests and CI', () => {
 describe('intake: cards of another board (another engine)', () => {
   // El issue existe y el repo es del proyecto, pero la card no está en el board de ESTE runner
   // (vive en el de producción): el runner no lo toca, sea cual sea el evento.
-  const offBoard = () =>
-    fakeIntake(
-      {},
-      { reader: { itemForIssue: vi.fn(async () => undefined), issueForItem: vi.fn() } },
-    )
-
   it('ignores comments, reviews and CI runs of an issue that is not on its board', async () => {
     for (const [event, payload] of [
       ['issue_comment', commentPayload('falta paginar')],
-      ['pull_request_review', reviewPayload('CHANGES_REQUESTED')],
-      ['workflow_run', runPayload('completed', [{ number: 12 }], 'ia-flow/7')],
+      ['pull_request_review', reviewPayload('changes_requested')],
+      ['workflow_run', runPayload('completed', [{ number: 12 }], 'ia-flow-local/7')],
     ] as const) {
-      expect((await runIntake(event, payload, offBoard())).emitted, event).toEqual([])
+      const { github, run } = await intake({ tasks: { [TASK]: { status: 'Build', board: null } } })
+      expect((await run(event, payload)).emitted, event).toEqual([])
+      // Sin card no se lee nada más de la task.
+      expect(
+        github.calls.filter((call) => call.includes('/issues/7')),
+        event,
+      ).toEqual([])
     }
   })
 })
 
 describe('intake: the rest', () => {
-  it('has no intake for events no rule needs', async () => {
-    expect((await runIntake('issues', { action: 'opened' }, fakeIntake())).outcome).toBe('skipped')
-    expect((await runIntake('push', {}, fakeIntake())).outcome).toBe('skipped')
-  })
-})
-
-describe('linkedIssue', () => {
-  it('reads the branch with the project prefix, and nothing else', () => {
-    expect(linkedIssue('ia-flow-local/42', '', 'ia-flow-local/')).toBe(42)
-    expect(linkedIssue('ia-flow/42', '', 'ia-flow-local/')).toBeUndefined()
-    expect(linkedIssue('ia-flow/42', 'Closes #9', 'ia-flow-local/')).toBe(9)
-  })
-
-  it('prefers the ia-flow/<n> branch, then a closing reference', () => {
-    expect(linkedIssue('ia-flow/42', 'Closes #9')).toBe(42)
-    expect(linkedIssue('feat/x', 'Implements it.\n\nCloses #9')).toBe(9)
-    expect(linkedIssue('feat/x', 'fixes #3')).toBe(3)
-    expect(linkedIssue('ia-flow/42-extra', 'mentions #9')).toBeUndefined()
+  it('has no intake for events no pipeline needs', async () => {
+    expect((await (await intake()).run('issues', { action: 'opened' })).outcome).toBe('skipped')
+    expect((await (await intake()).run('push', {})).outcome).toBe('skipped')
   })
 })
