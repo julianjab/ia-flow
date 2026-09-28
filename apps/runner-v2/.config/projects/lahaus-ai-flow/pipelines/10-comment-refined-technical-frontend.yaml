@@ -1,0 +1,53 @@
+id: comment-refined-technical-frontend
+name: Refined (técnica, frontend) · comentario → triage → frontend-refiner si accionable
+on: [ issue_comment ]
+when:
+  - field: action
+    op: eq
+    value: created
+  - field: body
+    op: matches
+    value: '^(?![\s\S]*<!-- ia-flow:)'
+  - field: item.status
+    op: eq
+    value: Refined
+  - field: item.type
+    op: neq
+    value: functional
+  - field: item.repos
+    op: contains
+    value: lh-seller-v2-frontend
+scope:
+  projectId: lahaus-ai-flow
+# MENOR que `comment-refined-technical` (30) — mismo mecanismo que el par
+# de `Refine`.
+position: 25
+exclusive: true
+do:
+  - agent: comment-triage
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{event.payload.author}}** comentó en el issue/PR
+      #{{event.payload.issueNumber}} (comment id: `{{event.payload.commentId}}`).
+
+      ## Comentario a clasificar
+
+      {{event.payload.body}}
+  - agent: frontend-refiner
+    brief: |-
+      ## Por qué estás corriendo
+
+      El PRD ya estaba en `Refined`, esperando aprobación humana, y llegó
+      un comentario que `comment-triage` marcó como accionable:
+      **{{input.summary}}**
+
+      No es tu primera pasada: leé el comentario más reciente del issue y
+      ajustá el PRD contra lo que pide. Si toca un cambio de diseño,
+      releé el Figma linkeado con `get_figma_data` en vez de asumirlo.
+routes:
+  comment-triage:
+    routes:
+      actionable:
+        to:
+          - ref: frontend-refiner

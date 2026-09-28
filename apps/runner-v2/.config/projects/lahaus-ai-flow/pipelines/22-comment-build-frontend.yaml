@@ -1,0 +1,54 @@
+id: comment-build-frontend
+name: Build (frontend) · comentario → triage → frontend-implementer si accionable
+on: [ issue_comment ]
+when:
+  - field: action
+    op: eq
+    value: created
+  # Ver `comment-build` en `20-build.yaml` para el porqué del marcador vs.
+  # filtro por autor.
+  - field: body
+    op: matches
+    value: '^(?![\s\S]*<!-- ia-flow:)'
+  - field: item.status
+    op: eq
+    value: Build
+  - field: item.repos
+    op: contains
+    value: lh-seller-v2-frontend
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+position: 25
+exclusive: true
+do:
+  - agent: comment-triage
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{event.payload.author}}** comentó en el issue/PR
+      #{{event.payload.issueNumber}} (comment id: `{{event.payload.commentId}}`).
+
+      ## Comentario a clasificar
+
+      {{event.payload.body}}
+  - agent: frontend-implementer
+    brief: |-
+      ## Por qué estás corriendo
+
+      Un humano comentó en el issue/PR mientras la tarea está en `Build`,
+      y `comment-triage` lo marcó como accionable:
+      **{{input.summary}}**
+
+      Leé el comentario completo y aplicá exactamente lo que pide; no
+      rehagas lo que ya está bien. Si el pedido toca un cambio de diseño,
+      releé el Figma linkeado con `get_figma_data` en vez de asumir qué
+      cambió.
+routes:
+  comment-triage:
+    routes:
+      actionable:
+        to:
+          - ref: frontend-implementer

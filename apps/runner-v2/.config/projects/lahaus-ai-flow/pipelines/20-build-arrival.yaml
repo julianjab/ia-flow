@@ -1,0 +1,108 @@
+# Columna `Build` — el implementer.
+#
+# ── Dos encargos, dos reglas ──────────────────────────────────────────────
+#
+# El implementer atiende DOS encargos distintos:
+#
+#   (a) la card acaba de llegar a `Build` → construir el PRD desde cero
+#   (b) la card ya estuvo acá y volvió → atender un pedido puntual sobre
+#       código que ya existe (el handoff del reviewer, una review thread sin
+#       resolver, un comentario humano)
+#
+# Dejar que el PROMPT lo deduzca —por ejemplo, de si `{{task.comments}}` vino
+# vacío— sería una inferencia sobre un efecto secundario, no una instrucción:
+# un comentario cualquiera en el issue —una pregunta de producto, un
+# "gracias"— llena esa variable y empuja al agente al modo (b) sin que nadie
+# lo haya pedido.
+#
+# Con dos reglas, quien sabe la respuesta la dice.
+#
+# ── Por qué DOS reglas y no una con dos briefs ────────────────────────────
+#
+# El discriminante es la label `reviewed`… que no sirve: el implementer la
+# borra en su `onStart`. Lo que sí distingue los dos casos de forma estable
+# es el evento:
+#
+#   `issue.status_changed` con `to = Build` y `from != Review` → llegó recién
+#                                                                 (caso a)
+#   `issue.created`/`issue.status_changed`/`projects_v2_item.edited`
+#   con `item.status = Build`                                  → está acá
+#                                                                 (caso a en
+#                                                                 el primer
+#                                                                 ciclo, b
+#                                                                 después)
+#
+# `from != Review` es lo que separa los dos casos cuando el movimiento a
+# `Build` es una VUELTA: el `back_to_build` del reviewer también emite
+# `issue.status_changed` con `to = Build`, y sin esa condición ganaría
+# `build-arrival` (position 10) y le diría al implementer "primera corrida,
+# construí desde cero" justo cuando hay un handoff que atender. El evento
+# trae `from` (`packages/rules/src/status-diff.ts`: `from: before`, el status
+# del scan anterior), y como el único que escribe ese snapshot es el scan, la
+# vuelta desde Review siempre llega con `from = Review` y cae en
+# `build-reentry`.
+#
+# `build-reentry` escucha `projects_v2_item.edited`: GitHub lo manda ante
+# cualquier edición de un campo del board (incluida `Labels`, el built-in que
+# refleja las labels del issue), con el item ya resuelto — es lo que hace que
+# sacar `blocked` reactive la card sin esperar un cambio de status.
+# `issues.labeled`/`issues.unlabeled` SÍ llegan ante ese mismo cambio, pero
+# `payload.item` queda vacío ahí: `resolveItem()` pasa el node id del Issue a
+# una query tipada para ProjectV2Item, que no matchea, y la resolución vuelve
+# `null` en silencio (ia-flow, diagnosticado 2026-09-03). `issue.created`
+# cubre el caso (raro) de un issue creado directo en Build.
+#
+# Todos pueden matchear a la vez sobre la misma card. Eso NO produce dos
+# runs: el lock por task del orquestador y el `workingMarker` del board
+# frenan el segundo, y `position` + `exclusive` hacen que gane el de arriba
+# — el de la llegada. El solapamiento es la propiedad que hace que esto
+# funcione, no un accidente que haya que evitar.
+#
+# `build-reentry` SÍ necesita excluir `blocked` de su `when`, por el mismo
+# motivo que `refine-technical` (ver el comentario grande en
+# `10-refine.yaml`): cuando el `implementer` falla, el `onError` de la
+# regla le agrega `blocked`, y esa escritura es en sí
+# misma otro `projects_v2_item.edited` que, sin el guard, vuelve a matchear
+# ESTA regla y redespacha al implementer contra el mismo issue — un loop
+# sobre cada fallo, no una excepción rara.
+
+id: build-arrival
+name: Build · recién llegado → construir desde cero
+on: [ issue.status_changed ]
+when:
+  - field: to
+    op: eq
+    value: Build
+  # La vuelta desde Review (el `back_to_build` del reviewer) no es una
+  # llegada: hay código publicado y un handoff que atender. La atiende
+  # `build-reentry`.
+  - field: from
+    op: neq
+    value: Review
+  # Una ÉPICA nunca se implementa: se desglosa, y son los hijos los que
+  # pasan por Build. Guard contra una card movida de columna a mano.
+  - field: task_type
+    op: neq
+    value: functional
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+position: 10
+exclusive: true
+do:
+  - agent: implementer
+    brief: |-
+      ## Por qué estás corriendo
+
+      La tarea acaba de pasar de `{{event.payload.from}}` a `Build`: un
+      humano aprobó el PRD y esta es la **primera corrida** sobre él.
+
+      Implementá el PRD completo desde cero. Empezá por validar el estado
+      BASE del repo (es tu única oportunidad de distinguir "ya venía roto"
+      de "lo rompí yo"), después explorá, después escribí.
+
+      No hay trabajo previo tuyo que atender: si hay comentarios en el
+      issue, son contexto de refinamiento, no pedidos de cambio sobre
+      código que todavía no existe.

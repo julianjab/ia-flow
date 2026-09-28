@@ -1,0 +1,38 @@
+id: ci-red
+name: CI · rojo sobre un PR → implementer
+on: [ check_suite, workflow_run ]
+when:
+  # `check_suite`/`workflow_run` ya no se fusionan en un tipo `ci.finished`
+  # propio, y el traductor ya no filtra por action — `requested`/
+  # `in_progress` también llegan acá.
+  - field: action
+    op: eq
+    value: completed
+  - field: conclusion
+    op: eq
+    value: failure
+  # Sin PR no hay tarea a la que atribuirlo — un CI rojo sobre `main` es un
+  # problema del repo, no de esta tarea, y el item no se podría resolver
+  # igual (el scope no lleva prNumber).
+  - field: prNumber
+    op: exists
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+position: 20
+exclusive: true
+do:
+  - agent: implementer
+    brief: |-
+      ## Por qué estás corriendo
+
+      El CI del PR #{{event.payload.prNumber}} terminó en rojo:
+      **{{event.payload.name}}** — {{event.payload.url}}
+
+      Andá a ver ese check antes que nada. Si falla por tu diff (lint,
+      formato, un test), arreglalo y volvé a pushear: la validación local
+      del repo es lo que tenía que haberlo evitado, así que corrila y no
+      confíes en el ojo. Si falla por infra ajena al cambio, no lo arregles
+      a la fuerza — decilo en tu resumen y dejá que el reviewer lo evalúe.

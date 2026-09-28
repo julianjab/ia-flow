@@ -1,0 +1,66 @@
+# Columna `Review` — el quality gate.
+#
+# El trigger es el evento REAL de GitHub (`pull_request: opened`), no el
+# status del board. Antes era `item.status = Review` (vía `issue.status_changed`/
+# `projects_v2_item.edited`), que en la práctica coincidía con "hay PR" porque
+# el implementer mueve la card a `Review` en su salida `done` — pero seguía
+# siendo el status, no el hecho. Con `pull_request: opened` el trigger es
+# exactamente "GitHub abrió un PR", sin depender de que el implementer haya
+# seteado bien el status.
+#
+# ── Por qué no hace falta gatear por item.status/item.labels acá ──────────
+#
+# `action: opened` ocurre UNA SOLA VEZ por PR (GitHub no lo reenvía en cada
+# push — eso es `synchronize`), así que no hay riesgo del loop que sí existía
+# con `projects_v2_item.edited` (esa regla podía re-dispararse sola contra su
+# propia escritura de `reviewed`/`blocked` — ver el comentario histórico en
+# `10-refine.yaml` para el caso real que motivó ese guard). Acá cada evento es
+# genuinamente un PR nuevo.
+#
+# ── Lo que se pierde al dejar de escuchar projects_v2_item.edited ─────────
+#
+# La reactivación por sacar `blocked` a mano (cuando el reviewer erroneó)
+# YA NO re-dispara esta regla — antes sí, porque escuchaba cualquier edición
+# del board. Si hace falta forzar una re-review después de destrabar a mano,
+# hoy no hay una regla dedicada para eso (se puede correr manualmente desde
+# la UI de ia-flow, o comentar en el PR — ver `comment-review-approved` más
+# abajo si el PR ya estaba `reviewed`).
+#
+# ── Una sola regla ──────────────────────────────────────────────────────
+#
+# A diferencia de `Build`, acá los dos casos (primera review de un push,
+# re-review después de un ciclo) NO piden encargos distintos — el reviewer
+# valida el diff completo contra el PRD las dos veces, y su Paso 5 ya dice
+# explícitamente que mire cuáles de sus hilos anteriores quedaron atendidos.
+# Un brief por caso repetiría lo que el método ya cubre.
+
+id: review
+name: Review · PR abierto → validar el diff y dar veredicto
+# El engine compara el tipo exacto del evento: la acción va en el `when`.
+on: [ pull_request ]
+when:
+  - field: action
+    op: eq
+    value: opened
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+position: 10
+exclusive: true
+do:
+  - agent: reviewer
+    brief: |-
+      ## Por qué estás corriendo
+
+      Se abrió el PR #{{event.payload.pr.number}} de esta tarea. Sos el
+      último gate antes de que un humano lo mire.
+
+      Validá el diff completo con las cinco dimensiones y re-ejecutá lint y
+      tests localmente — el tilde del implementer en el PRD es su claim, no
+      tu evidencia.
+
+      Tu output son los comentarios sobre el PR y el veredicto. No arregles
+      el código ni edites la descripción del PR: eso es del implementer, y
+      si algo falla vuelve a él por `back_to_build` con tu handoff.

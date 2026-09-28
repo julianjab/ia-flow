@@ -1,0 +1,50 @@
+id: comment-refine-functional
+name: Refine (épica) · comentario → triage → functional-refiner si accionable
+on: [ issue_comment ]
+when:
+  - field: action
+    op: eq
+    value: created
+  - field: body
+    op: matches
+    value: '^(?![\s\S]*<!-- ia-flow:)'
+  - field: item.status
+    op: eq
+    value: Refine
+  - field: item.type
+    op: eq
+    value: functional
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+position: 30
+exclusive: true
+do:
+  - agent: comment-triage
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{event.payload.author}}** comentó en el issue/PR
+      #{{event.payload.issueNumber}} (comment id: `{{event.payload.commentId}}`).
+
+      ## Comentario a clasificar
+
+      {{event.payload.body}}
+  - agent: functional-refiner
+    brief: |-
+      ## Por qué estás corriendo
+
+      Un humano comentó en el issue mientras el desglose estaba en
+      `Refine`, y `comment-triage` lo marcó como accionable:
+      **{{input.summary}}**
+
+      Leé el comentario completo en el issue y ajustá el desglose o el PRD
+      funcional contra lo que pide.
+routes:
+  comment-triage:
+    routes:
+      actionable:
+        to:
+          - ref: functional-refiner

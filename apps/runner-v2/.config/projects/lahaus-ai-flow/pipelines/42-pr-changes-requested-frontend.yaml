@@ -1,0 +1,62 @@
+# Par frontend de `40-pr-feedback.yaml` — mismo motivo que
+# `22-build-frontend.yaml` sobre `20-build.yaml`: sin esto, un
+# `changes_requested` o un CI rojo sobre un PR de `lh-seller-v2-frontend`
+# caía en el `implementer` genérico (sin `figma-mcp`, sin el paso de
+# re-validación contra el diseño), rompiendo el invariante que afirman los
+# headers de `22-build-frontend.yaml` y `22-frontend-implementer.yaml`: "una
+# tarea de este repo nunca llega al implementer genérico".
+#
+# `pull_request_review` y `check_suite`/`workflow_run` NO traen `item`
+# resuelto en el payload (a diferencia de `issue.*`/`projects_v2_item.edited`)
+# — lo que sí
+# traen es `scope.repos`, resuelto por el traductor del webhook
+# (`scopeFor()`, `apps/server/src/adapters/github/webhook-events.ts`). Por
+# eso el filtro de repo acá NO es un `when.item.repos` (no existiría ese
+# campo en el payload) sino `repoName` a nivel de REGLA — el campo de scope
+# que `matchScope` evalúa contra `event.scope.repos`
+# (`packages/rules/src/scope.ts`). Mismo mecanismo que usa
+# `AgentActivationSchema.repoName` para los agentes.
+#
+# ⚠️ Mismo bloqueante de figma-mcp que `22-build-frontend.yaml` — no activar
+# hasta que `FIGMA_MCP_URL` tenga una URL pública real.
+
+id: pr-changes-requested-frontend
+name: PR (frontend) · pidieron cambios → frontend-implementer
+on: [ pull_request_review ]
+when:
+  - field: action
+    op: eq
+    value: submitted
+  - field: state
+    op: eq
+    value: changes_requested
+  - field: item.blocked
+    op: neq
+    value: true
+  - field: repo
+    op: eq
+    value: lh-seller-v2-frontend
+scope:
+  projectId: lahaus-ai-flow
+# MENOR que `pr-changes-requested` (10, en 40-pr-feedback.yaml) — mismo
+# mecanismo que las reglas de `22-build-frontend.yaml`.
+position: 5
+exclusive: true
+do:
+  - agent: frontend-implementer
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{event.payload.reviewer}}** pidió cambios en el PR
+      #{{event.payload.pr.number}}. No es tu primera corrida sobre esta
+      tarea: hay código tuyo publicado y alguien lo leyó.
+
+      Empezá por las review threads sin resolver de ese PR — cada una es un
+      pedido sobre una línea concreta. Arreglá el código, contestá en el
+      hilo con `reply_pr_review_thread` diciendo qué hiciste, y cerralo con
+      `resolve_pr_review_thread` sólo si quedó efectivamente atendido. Si
+      el pedido toca un cambio de diseño, releé el Figma linkeado con
+      `get_figma_data` en vez de asumir qué cambió.
+
+      No rehagas lo que ya está bien, y no toques el alcance del PRD salvo
+      que el pedido venga de un humano y lo redefina explícitamente.

@@ -1,0 +1,77 @@
+# Par frontend de `comment-review-approved` (`30-review.yaml`) — mismo
+# motivo que `22-build-frontend.yaml`: sin esto, un comentario accionable
+# sobre un PR de `lh-seller-v2-frontend` ya aprobado (`reviewed`) caía en el
+# `implementer` genérico en vez de `frontend-implementer`.
+#
+# A diferencia de las reglas de `42-pr-feedback-frontend.yaml`, ésta escucha
+# `issue_comment` (con `when: action = created`), que SÍ resuelve `item`
+# (vía `resolveItem()` del adapter de GitHub, aunque el evento crudo del
+# webhook no lo traiga) — mismo mecanismo que ya usa `comment-build-frontend`
+# en `22-build-frontend.yaml`.
+# Por eso acá el filtro de repo va en el `when` (`item.repos`), no en
+# `repoName` de la regla.
+#
+# ⚠️ Mismo bloqueante de figma-mcp que `22-build-frontend.yaml` — no activar
+# hasta que `FIGMA_MCP_URL` tenga una URL pública real.
+
+id: comment-review-approved-frontend
+name: Review (frontend, aprobado) · comentario → triage → frontend-implementer si accionable
+on: [ issue_comment ]
+when:
+  - field: action
+    op: eq
+    value: created
+  - field: body
+    op: matches
+    value: '^(?![\s\S]*<!-- ia-flow:)'
+  - field: item.status
+    op: eq
+    value: Review
+  # `reviewed` es lo que distingue este caso del que ya cubre `review`
+  # (`30-review.yaml`) leyendo `{{task.comments}}` en su próxima corrida —
+  # sin este filtro, un comentario sobre un PR frontend en Review pero
+  # TODAVÍA sin aprobar dispara este dispatch en paralelo al `reviewer`,
+  # compitiendo por la misma card. Ver `comment-review-approved`
+  # (`30-review.yaml`) para el porqué completo.
+  - field: item.labels
+    op: contains
+    value: 'reviewed'
+  - field: item.repos
+    op: contains
+    value: lh-seller-v2-frontend
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+# MENOR que `comment-review-approved` (30, en 30-review.yaml).
+position: 25
+exclusive: true
+do:
+  - agent: comment-triage
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{event.payload.author}}** comentó en el PR
+      #{{event.payload.issueNumber}} (comment id: `{{event.payload.commentId}}`), que ya estaba aprobado (`reviewed`).
+
+      ## Comentario a clasificar
+
+      {{event.payload.body}}
+  - agent: frontend-implementer
+    brief: |-
+      ## Por qué estás corriendo
+
+      El PR ya estaba aprobado (`reviewed`) y llegó un comentario que
+      `comment-triage` marcó como accionable: **{{input.summary}}**
+
+      Leelo, aplicá exactamente lo que pide, y pusheá — al arrancar, el
+      engine ya sacó `reviewed`, así que el próximo push vuelve a pasar por el
+      reviewer. Si el pedido toca un cambio de diseño, releé el Figma
+      linkeado con `get_figma_data` en vez de asumir qué cambió.
+routes:
+  comment-triage:
+    routes:
+      actionable:
+        to:
+          - ref: frontend-implementer

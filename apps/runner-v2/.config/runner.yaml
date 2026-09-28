@@ -1,0 +1,48 @@
+# runner-v2 — lo que el runner necesita además del engine (engine.yaml).
+#
+# La regla: **secreto → env; comportamiento → acá.** Este archivo se commitea:
+# un token se NOMBRA (`${VAR}`) y el runner lo resuelve del ambiente al arrancar.
+# El ambiente gana sobre este archivo (ver src/config/RunnerConfig.ts).
+
+settings:
+  # Puerto del servidor de webhooks (`--serve`). Env: IA_FLOW_SERVER_PORT.
+  port: 3001
+
+# Identidad de GitHub. `auto` usa la App si están los tres datos, si no
+# GITHUB_TOKEN, si no `gh auth token`. El PEM NO va acá: su ruta sale de
+# IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH.
+github:
+  mode: auto
+  appId: "4599112"
+  installationId: "156768020"
+
+# Los defaults de cada provider para TODOS sus agentes; el `providerConfig` de un
+# agente los pisa clave por clave. Los valida el provider al arrancar.
+providers:
+  anthropic-api:
+    maxTokens: 32000
+    maxToolRounds: 200
+    maxPauseTurnRetries: 5
+
+# Los MCP que los agentes nombran en `mcpServers`. Uno que no responde al
+# arrancar se omite con un aviso: Anthropic rechaza la request entera si un
+# `mcp_servers` está caído, y eso tumbaría a todos los agentes que lo usan.
+# `${GITHUB_TOKEN}` es SIEMPRE el installation token de la App.
+mcp:
+  - id: github-mcp
+    config:
+      type: http
+      url: https://api.githubcopilot.com/mcp/
+      authorizationToken: ${GITHUB_TOKEN}
+  - id: figma-mcp
+    config:
+      type: http
+      url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma
+      authorizationToken: ${FIGMA_MCP_TOKEN}
+
+# Lo que el runner sabe de cada proyecto de .config/projects/: su board de
+# GitHub Projects y el prefijo de la rama de cada task (`<prefijo><número>`).
+projects:
+  lahaus-ai-flow:
+    board: https://github.com/orgs/la-haus/projects/119
+    branchPrefix: ia-flow-local/

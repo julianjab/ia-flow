@@ -1,0 +1,43 @@
+id: build-reentry-frontend
+name: Build (frontend) · sigue acá → atender lo que llegó
+# `projects_v2_item.edited`: sintaxis nativa `tipo.action` (ia-flow >=
+# v1.13.0 — julianjab/ia-flow#253), ver el comentario en `build-reentry`
+# de `20-build.yaml`. Antes de #253 esto era dos reglas separadas
+# (claw-agents#2466: `build-reentry-frontend` + su `-board-edit`).
+on: [ issue.created, issue.status_changed, projects_v2_item.edited ]
+when:
+  - field: item.status
+    op: eq
+    value: Build
+  - field: item.type
+    op: neq
+    value: functional
+  - field: item.repos
+    op: contains
+    value: lh-seller-v2-frontend
+  - field: item.blocked
+    op: neq
+    value: true
+scope:
+  projectId: lahaus-ai-flow
+position: 15
+exclusive: true
+do:
+  - agent: frontend-implementer
+    brief: |-
+      ## Por qué estás corriendo
+
+      La tarea está en `Build`. Si ya trabajaste sobre ella, hay trabajo
+      tuyo publicado y algo lo hizo volver: **empezá por las novedades**,
+      no por el PRD.
+
+      En orden de prioridad: las review threads sin resolver de tu PR (un
+      humano o el reviewer leyó tu código y pidió algo concreto sobre una
+      línea), el handoff `# reviewer · ❌` si hay uno, y después el
+      feedback humano suelto. Arreglá exactamente eso; no rehagas lo que ya
+      está bien. Si el pedido toca un cambio de diseño, releé el Figma
+      linkeado con `get_figma_data` en vez de asumir qué cambió.
+
+      Si las novedades vienen vacías y no hay commits tuyos en la branch,
+      entonces sí es tu primera corrida: implementá el PRD completo,
+      empezando por validar el estado BASE del repo.

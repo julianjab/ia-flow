@@ -1,0 +1,24 @@
+# El engine de runner-v2 (`createEngineFromYaml` de @ia-tools/agent-pipeline-yaml).
+#
+# Las rutas son relativas a este archivo.
+
+# Tope de la cadena de eventos derivados (un paso que emite otro evento).
+maxEventDepth: 10
+
+# Cada corrida con agentes es una EJECUCIÓN de su task: una task nunca corre
+# dos a la vez, y las pausas (esperar el CI) sobreviven a un reinicio porque
+# viven en SQLite. `bun-sqlite` lo registra el runner (src/storage/).
+executions:
+  driver: bun-sqlite
+  path: ../.state/executions.sqlite
+  # Cuántas corridas en paralelo, entre todas las tasks.
+  maxConcurrent: 1
+
+# Un proyecto por subcarpeta de projects/ (project.yaml + agents/ + pipelines/).
+# repos/ no lo lee el engine: es el catálogo de repos que usa el runner.
+sources:
+  - root: ./projects
+
+# Cada cuánto se revisan las pausas vencidas (`timeout` de un `pause`).
+tick:
+  everyMs: 60000

@@ -1,0 +1,32 @@
+id: refine-technical
+name: Refine · técnicas → refiner
+# `projects_v2_item.edited`: sintaxis nativa `tipo.action` (ia-flow >=
+# v1.13.0 — julianjab/ia-flow#253), ver el comentario en `build-reentry`
+# de `20-build.yaml`. Antes de #253 esto era dos reglas separadas
+# (claw-agents#2466: `refine-technical` + su `-board-edit`).
+on: [ issue.created, issue.status_changed, projects_v2_item.edited ]
+when:
+  - field: item.status
+    op: eq
+    value: Refine
+  # `!=` y no `= technical` a propósito: una card SIN Task Type —los
+  # sub-issues recién desglosados, por ejemplo— sigue fluyendo por acá.
+  - field: item.type
+    op: neq
+    value: functional
+scope:
+  projectId: lahaus-ai-flow
+position: 20
+exclusive: true
+do:
+  - agent: refiner
+    brief: |-
+      ## Por qué estás corriendo
+
+      Esta tarea está en `Refine` y es técnica: produci el PRD accionable
+      para que un implementador escriba el código sin más contexto.
+
+      Arrancá por el Paso 0 — el issue puede llegar ya refinado (por un
+      humano, o por vos en una corrida que volvió acá desde `Build`), y en
+      ese caso tu aporte es la VERIFICACIÓN contra el código real, no
+      reescribir el body.
