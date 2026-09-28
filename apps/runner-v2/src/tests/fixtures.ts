@@ -49,6 +49,7 @@ export function fakeIntake(
     projectForBoard: (board) => (board.number === 119 ? PROJECT : undefined),
     reader: { itemForIssue: vi.fn(async () => issue), issueForItem: vi.fn(async () => issue) },
     pullRequest: vi.fn(async () => ({ headRef: 'ia-flow/7', body: '' })),
+    dependents: vi.fn(async () => []),
     taskContext: {
       load: vi.fn(async () => ({
         comments: '[2026-09-25 10:00 · issue · julian]\nfalta paginar',
