@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "types": ["bun"],
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      // UNA sola instancia de zod: la de @ia-tools/agent-pipeline. Los schemas de este runner
+      // viajan a sus tools (`SchemaTool`, `Action`); con dos copias, TypeScript compara sus tipos
+      // genéricos estructuralmente (minutos) y en runtime un schema de una no es de la otra.
+      // Bun respeta `paths` también al correr.
+      "zod": ["../../node_modules/@ia-tools/agent-pipeline/node_modules/zod"]
+    }
+  },
+  "include": ["src/**/*"]
+}

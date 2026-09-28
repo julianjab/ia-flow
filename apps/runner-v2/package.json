@@ -1,0 +1,40 @@
+{
+  "name": "@ia-flow/runner-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "El runner headless de ia-flow sobre @ia-tools/agent-pipeline: la definición del pipeline en .config (engine.yaml + projects/) y las ejecuciones en SQLite",
+  "scripts": {
+    "link:ia-tools": "bash scripts/link-ia-tools.sh",
+    "start": "bun run src/main.ts",
+    "serve": "bun run src/main.ts --serve",
+    "dry-run": "bun run src/main.ts --dry-run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ia-tools/agent-pipeline": "link:@ia-tools/agent-pipeline",
+    "@ia-tools/agent-pipeline-sqlite": "link:@ia-tools/agent-pipeline-sqlite",
+    "@ia-tools/agent-pipeline-yaml": "link:@ia-tools/agent-pipeline-yaml",
+    "@ia-tools/github-api": "link:@ia-tools/github-api",
+    "@ia-tools/github-auth": "link:@ia-tools/github-auth",
+    "@ia-tools/github-tools": "link:@ia-tools/github-tools",
+    "@ia-tools/github-webhook": "link:@ia-tools/github-webhook",
+    "@ia-tools/provider-anthropic": "link:@ia-tools/provider-anthropic",
+    "@ia-tools/telemetry": "link:@ia-tools/telemetry",
+    "@ia-tools/workspace": "link:@ia-tools/workspace",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.222.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "^0.222.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-logs": "^0.222.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.7.0"
+  }
+}
