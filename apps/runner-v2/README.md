@@ -70,9 +70,19 @@ Bun carga el `.env` del directorio desde el que corre (gitignoreado). Variables:
 | `WORKSPACE_DIR` | dónde van clones y worktrees (default: `~/.cache/ia-flow/runner-v2/workspaces`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | trazas y logs por OTLP |
 
+## Tareas bloqueadas por otras (`mark_blocked_by`)
+
+Una card con prerrequisitos abiertos no corre sus agentes (las pipelines filtran
+`item.blocked`, salvo las de agentes que admiten correr bloqueados, como los refiners técnicos).
+Cuando se mergea el PR del último prerrequisito, el intake (`intake:pull_request:unblock`,
+`ResolveUnblockedAction`) busca en GitHub los issues que ése bloqueaba (`dependencies/blocking`)
+y emite `issue.unblocked` para cada uno que quedó sin bloqueadores abiertos. Las pipelines de
+reentrada de cada columna lo escuchan, así que la card vuelve al agente que le toca donde esté.
+Es el `unblock-dependents-on-merge` del runner de ia-flow, pero para PRs de cualquier repo del
+catálogo, no sólo de `claw-agents`.
+
 ## Lo que no se portó del ejemplo
 
 - Las tools `memory_*` del implementer: el runner no las tiene (tampoco el ejemplo).
-- La regla `unblock-dependents-on-merge`: era un script de Python del deploy de claw-agents.
 - Los `settings` del runner de `apps/server` que este runner no implementa (API, websocket,
   polling, remote providers): `runner.yaml` sólo acepta lo que se usa.

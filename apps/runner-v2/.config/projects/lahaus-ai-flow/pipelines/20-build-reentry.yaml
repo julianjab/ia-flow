@@ -9,7 +9,10 @@ name: Build · sigue acá → atender lo que llegó
 # claw-agents#2466) porque un `when` compartido no podía filtrar
 # `action=edited` sin excluir de paso a los dos primeros tipos, que nunca
 # lo traen.
-on: [ issue.created, issue.status_changed, projects_v2_item.edited ]
+# `issue.unblocked`: el intake lo emite cuando se mergea el PR del último
+# prerrequisito abierto de la card (`mark_blocked_by`) — sin eso, destrabarla
+# no genera ningún evento sobre ella y quedaría esperando a que algo la toque.
+on: [ issue.created, issue.status_changed, projects_v2_item.edited, issue.unblocked ]
 when:
   - field: item.status
     op: eq

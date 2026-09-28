@@ -67,7 +67,10 @@ name: Refine · épicas → functional-refiner
 # v1.13.0 — julianjab/ia-flow#253), ver el comentario en `build-reentry`
 # de `20-build.yaml`. Antes de #253 esto era dos reglas separadas
 # (claw-agents#2466: `refine-functional` + su `-board-edit`).
-on: [ issue.created, issue.status_changed, projects_v2_item.edited ]
+# `issue.unblocked`: el intake lo emite cuando se mergea el PR del último
+# prerrequisito abierto de la card (`mark_blocked_by`) — sin eso, destrabarla
+# no genera ningún evento sobre ella y quedaría esperando a que algo la toque.
+on: [ issue.created, issue.status_changed, projects_v2_item.edited, issue.unblocked ]
 when:
   - field: item.status
     op: eq
