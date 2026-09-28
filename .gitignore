@@ -22,3 +22,6 @@ packages/**/package-lock.json
 # segundo proceso (otro toolchain, otra máquina lógica) con la misma regla.
 apps/agent-host/agent-host.yaml
 apps/agent-host/agent-host.backend.yaml
+
+# runner-v2: la base de ejecuciones (engine.yaml → executions.path).
+apps/runner-v2/.state/
