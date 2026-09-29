@@ -15,18 +15,13 @@
 # si diverge más allá de eso, es la señal de reevaluar el fork (ver la nota
 # de `12-frontend-refiner.yaml`).
 #
-# Activación en `rules/22-build-frontend.yaml` (`when: item.repos =
-# lh-seller-v2-frontend`, `exclusive: true`, posición MENOR que las reglas
-# equivalentes de `20-build.yaml`) — así una tarea de este repo nunca llega
-# al `implementer` genérico, y viceversa.
+# Activación en `pipelines/20-build-arrival.yaml` y `21-build-reentry.yaml`:
+# su paso (`when: item.repos contains lh-seller-v2-frontend`) va ANTES que el
+# del `implementer` genérico y las pipelines son `firstMatch` — así una tarea
+# de este repo nunca llega al `implementer` genérico, y viceversa.
 #
-# ⚠️ Mismo bloqueante que `frontend-refiner`: `figma-mcp.config.url` en
-# runner.yaml es `${FIGMA_MCP_URL}`, sin resolver hasta que exista una URL
-# pública real (ver la nota en runner.yaml y en el header de
-# `15-refine-frontend.yaml`). Con `rules/22-build-frontend.yaml` activo antes
-# de esa URL existir, cualquier corrida de `frontend-implementer` falla el
-# request ENTERO contra la Messages API. No activar esa regla hasta que la
-# nota bloqueante de runner.yaml esté resuelta.
+# Usa `figma-mcp` (runner.yaml): sin FIGMA_MCP_TOKEN, o si no responde al
+# arrancar, el runner lo omite con un aviso y el agente corre sin Figma.
 id: frontend-implementer
 # Mismo provider que `implementer` (`20-implementer.yaml`).
 provider: anthropic-api
@@ -222,6 +217,7 @@ allowWrites: true
 mcpServers:
   - github-mcp
   - figma-mcp
+  - memory-mcp
 
 
 # Limpia el bookkeeping de un ciclo build→review→build anterior: con un
@@ -411,25 +407,32 @@ systemPrompts:
         ANTES de fallar — el checklist actualizado vale más que cualquier
         texto para que el próximo run no repita exploración.
 
-      ## Memoria entre corridas (memory_*)
+      ## Memoria entre corridas (memory-mcp)
 
       Distinto del PRD: el PRD es el estado del CÓDIGO de esta tarea; tu
       memoria es lo que APRENDISTE haciéndolo, y sobrevive entre tareas del
-      mismo repo.
+      mismo repo. Es un grafo: entidades con observaciones (frases sueltas).
 
-      - Al arrancar (antes de explorar), consultala con `memory_retrieve`
-        (si sabés la key) o `memory_search`/`memory_list` (si no) — puede
-        haber una nota tuya de una corrida anterior sobre esta MISMA tarea,
-        o una convención del repo que ya descubriste en otra.
+      - Entidades: una por repo (`name`: el repo, ej. `la-haus/subscriptions`;
+        `entityType: repo`) para lo que aplica a cualquier tarea de ese
+        repo, y una por tarea (`name`: el Task ID; `entityType: task`) para
+        lo específico de esta.
+      - Al arrancar (antes de explorar), leé las dos con `open_nodes`
+        (`names: [<repo>, <Task ID>]`), o buscá con `search_nodes` si
+        necesitás algo más amplio — puede haber una nota tuya de una
+        corrida anterior sobre esta MISMA tarea, o una convención del repo
+        que ya descubriste en otra.
       - Al cerrar, si encontraste algo que te hubiera ahorrado tiempo
         saberlo de entrada (una convención no escrita en el CLAUDE.md del
-        repo, un gotcha del build, un patrón que costó encontrar), guardalo
-        con `memory_store`. Key estable y descriptiva: incluí el Task ID si
-        la nota es específica de esta tarea; sin él si aplica a cualquier
-        tarea de este repo.
+        repo, un gotcha del build, un patrón que costó encontrar), agregalo
+        como observación con `add_observations` a la entidad que
+        corresponda; si todavía no existe, creala con `create_entities`
+        (con esa observación adentro).
       - No es para volcar el resumen del run — eso ya lo publica el motor
         en el PR/issue. Es sólo lo que vale la pena no tener que
         redescubrir la próxima vez.
+      - Si las tools de memoria no están (el MCP no respondió al arrancar),
+        seguí sin ellas: no es un bloqueo.
 
       ## Validá el estado BASE del repo antes de implementar
 
@@ -535,7 +538,7 @@ systemPrompts:
          vos: después de tu `done` la tarea queda en pausa hasta que el CI
          del PR termine. En verde pasa a Review; si da rojo, te vuelve a
          despachar con el link al check que falló
-         (`rules/42-pr-feedback-frontend.yaml`).
+         (`pipelines/40-ci-red.yaml`).
          Pollear con `sleep` + una tool de lectura de PR sólo retiene tu
          slot y tu worktree sin ningún beneficio. Si lo que falta es otra
          cosa (una decisión humana, que se mergee otro PR), no la esperes:

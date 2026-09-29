@@ -9,14 +9,13 @@ settings:
   port: 3001
 
 # Identidad de GitHub. `auto` usa la App si están los tres datos, si no
-# GITHUB_TOKEN, si no `gh auth token`. `privateKeyPath` es la RUTA al PEM, fuera
-# del repo (el PEM nunca se copia acá); en otra máquina la pisa
-# IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH.
+# GITHUB_TOKEN, si no `gh auth token`. La ruta al PEM depende de la máquina: va
+# en IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH (el .env, gitignoreado), nunca acá, y
+# el PEM nunca se copia al repo.
 github:
   mode: auto
   appId: "4599112"
   installationId: "156768020"
-  privateKeyPath: /Users/julianbuitrago/Downloads/julianjab_github_app.private-key.pem
 
 # Los defaults de cada provider para TODOS sus agentes; el `providerConfig` de un
 # agente los pisa clave por clave. Los valida el provider al arrancar.
@@ -41,6 +40,15 @@ mcp:
       type: http
       url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma
       authorizationToken: ${FIGMA_MCP_TOKEN}
+  # La memoria de los agentes entre corridas: el MCP oficial `server-memory` (un
+  # grafo en .state/memory.json) que levanta `bun run memory-mcp` en local y
+  # publica un túnel de cloudflared (lo llama Anthropic: tiene que ser público).
+  # La URL, con su path secreto, va en MEMORY_MCP_URL del .env; sin ella, los
+  # agentes corren sin memoria.
+  - id: memory-mcp
+    config:
+      type: http
+      url: ${MEMORY_MCP_URL}
 
 # El engine: cómo lo arma el runner (src/engine/mountEngine.ts).
 # Las rutas son relativas a este archivo. Las fuentes no van acá: las monta el

@@ -6,6 +6,7 @@
   "description": "El runner headless de ia-flow sobre @ia-tools/agent-engine: la definición en .config (runner.yaml, actions/, pipelines/ y projects/) y las ejecuciones en SQLite",
   "scripts": {
     "link:ia-tools": "bash scripts/link-ia-tools.sh",
+    "memory-mcp": "bash scripts/memory-mcp.sh",
     "start": "bun run src/main.ts",
     "serve": "bun run src/main.ts --serve",
     "typecheck": "tsc --noEmit -p tsconfig.json",
