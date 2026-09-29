@@ -1,5 +1,5 @@
 /**
- * El intake de `.config/projects/lahaus-ai-flow/intake/` de punta a punta: un delivery CRUDO entra
+ * El intake de `.config/` (`pipelines/00-intake.yaml`) de punta a punta: un delivery CRUDO entra
  * como `github.<evento>`, `resolve_task` encuentra su task, la lee de GitHub (simulada) y publica
  * el evento de la task.
  */
@@ -124,7 +124,7 @@ describe('intake: issue_comment', () => {
   it('emits the comment with the board status of its issue', async () => {
     const { emitted } = await (
       await intake({
-        tasks: { [TASK]: { status: 'Refine', type: 'Functional', labels: ['backend'] } },
+        tasks: { [TASK]: { status: 'Refine', type: 'Functional', labels: ['blocked', 'backend'] } },
       })
     ).run('issue_comment', commentPayload('falta paginar'))
     expect(emitted[0]).toMatchObject({
@@ -135,7 +135,7 @@ describe('intake: issue_comment', () => {
         body: 'falta paginar',
         author: 'julian',
         commentId: 555,
-        item: { status: 'Refine', type: 'functional', labels: ['backend'] },
+        item: { status: 'Refine', type: 'functional', labels: ['blocked', 'backend'] },
       },
     })
   })
@@ -282,6 +282,20 @@ describe('intake: cards of another board (another engine)', () => {
         github.calls.filter((call) => call.includes('/issues/7')),
         event,
       ).toEqual([])
+    }
+  })
+})
+
+describe('intake: cards without the project label (another engine)', () => {
+  // `runner.yaml` → `label: blocked`: el engine de producción toma las cards SIN esa label.
+  it('publishes nothing for a card of this board without the label', async () => {
+    for (const [event, payload] of [
+      ['issue_comment', commentPayload('falta paginar')],
+      ['projects_v2_item', itemPayload('created')],
+      ['workflow_run', runPayload('completed', [], 'ia-flow-local/7')],
+    ] as const) {
+      const { run } = await intake({ tasks: { [TASK]: { status: 'Build', labels: ['backend'] } } })
+      expect((await run(event, payload)).emitted, event).toEqual([])
     }
   })
 })
