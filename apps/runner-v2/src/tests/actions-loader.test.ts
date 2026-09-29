@@ -4,10 +4,11 @@ import { dirname, join, resolve } from 'node:path'
 import type { Action } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { SlackClient } from '@ia-flow/slack-api'
-import { NodeShellRunner, WorkspaceManager } from '@ia-flow/workspace'
+import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerServices } from '../actions/defineAction.js'
 import { loadActions } from '../actions/loader.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
+import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
 
 /** Dentro de la app: las actions importan el contrato del runner y se resuelven desde donde están. */
 const ROOT = resolve(import.meta.dir, '../../.state/test-configs')
@@ -33,12 +34,14 @@ function config(files: Record<string, string>): string {
   return dir
 }
 
+const workspace = new WorkspaceManager(new NodeShellRunner(), {
+  reposBase: join(ROOT, 'repos'),
+  worktreeBase: join(ROOT, 'worktrees'),
+})
 const services: RunnerServices = {
   github: new GithubClient({ auth: { getToken: async () => 'test' } }),
-  workspace: new WorkspaceManager(new NodeShellRunner(), {
-    reposBase: join(ROOT, 'repos'),
-    worktreeBase: join(ROOT, 'worktrees'),
-  }),
+  workspace,
+  session: new WorkspaceSession(workspace, workspaceTargetFor),
   gitCredential: async () => undefined,
   slack: new SlackClient({ token: 'test' }),
   log: () => {},

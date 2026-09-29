@@ -308,6 +308,38 @@ describe('removeWorktree', () => {
   })
 })
 
+describe('resetWorktree', () => {
+  it('with the run task and branch: drops that branch and recreates it from its last push', async () => {
+    const shell = new StubShell(
+      router([
+        [['git', 'worktree', 'remove'], ok()],
+        [['git', 'branch', '-D'], ok()],
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+    const task = { id: TASK, issueNumber: 7 }
+    const path = await mgr.resetWorktree(TASK, REPO, { task, branch: 'ia-flow/7' })
+
+    expect(path).toBe(worktreePathFor(REPO, worktreeNameFor(task), BASE))
+    expect(shell.find(['git', 'branch', '-D'])?.args).toEqual(['git', 'branch', '-D', 'ia-flow/7'])
+    expect(shell.find(['git', 'worktree', 'add'])?.args).toEqual([
+      'git',
+      'worktree',
+      'add',
+      '-b',
+      'ia-flow/7',
+      path,
+      'origin/ia-flow/7',
+    ])
+  })
+})
+
 // ─── resolveScopes: all four combinations + multi-repo guard ────────────
 
 describe('resolveScopes', () => {

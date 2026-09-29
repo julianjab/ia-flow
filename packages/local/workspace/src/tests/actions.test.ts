@@ -11,6 +11,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import {
   CleanupWorkspaceAction,
+  ResetWorkspaceAction,
   WorkspaceSession,
   type WorkspaceTarget,
   workspaceAction,
@@ -33,6 +34,7 @@ function fakeManager() {
     ensureLocalClone: vi.fn(async () => '/repos/o/r'),
     getOrCreateWorktree: vi.fn(async () => ({ path: dir, branch: 'ia-flow/7' })),
     cleanupTerminalWorktree: vi.fn(async () => {}),
+    resetWorktree: vi.fn(async () => dir),
   }
 }
 
@@ -150,5 +152,21 @@ describe('CleanupWorkspaceAction', () => {
       'ia-flow/7',
       dir,
     )
+  })
+})
+
+describe('ResetWorkspaceAction', () => {
+  it('recreates the run worktree on the same task and branch, and writes', async () => {
+    const { manager, session: s } = session()
+    const reset = new ResetWorkspaceAction(s)
+    expect(reset.sideEffects).toBe('write')
+
+    const result = await reset.run(run(), { reason: 'rompí el lockfile' })
+
+    expect(manager.resetWorktree).toHaveBeenCalledWith('o/r#7', '/repos/o/r', {
+      task: target.task,
+      branch: 'ia-flow/7',
+    })
+    expect(result).toBe(`Worktree recreado en ${dir} (branch ia-flow/7): rompí el lockfile`)
   })
 })
