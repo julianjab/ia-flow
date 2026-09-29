@@ -5,7 +5,7 @@ import type { Action } from '@ia-tools/agent-engine'
 import { GithubClient } from '@ia-tools/github-api'
 import type { RunnerServices } from '../actions/defineAction.js'
 import { loadActions } from '../actions/loader.js'
-import type { ProjectConfig } from '../config/RunnerConfig.js'
+import { loadRunnerConfig } from '../config/RunnerConfig.js'
 
 /** Dentro de la app: las actions importan el contrato del runner y se resuelven desde donde están. */
 const ROOT = resolve(import.meta.dir, '../../.state/test-configs')
@@ -39,23 +39,29 @@ const services: RunnerServices = {
   missingTools: new Set(),
 }
 
-const project = (dir: string, id: string): ProjectConfig => ({
-  id,
-  dir: join(dir, 'projects', id),
-  board: { owner: 'o', number: 1 },
-  branchPrefix: 'p/',
-  repos: [],
-})
+/** `runner.yaml` con las actions globales y un proyecto inline por id, con las suyas si hay. */
+function index(files: Record<string, string>, projects: string[], actions: string): string {
+  const own = (id: string) =>
+    Object.keys(files).some((path) => path.startsWith(`projects/${id}/actions/`))
+      ? `, actions: ./projects/${id}/actions`
+      : ''
+  return [
+    `actions: ${actions}`,
+    ...(projects.length > 0 ? ['projects:'] : []),
+    ...projects.map((id) => `  ${id}: { board: https://github.com/orgs/o/projects/1${own(id)} }`),
+  ].join('\n')
+}
 
 type Built = { id: string; scope: string; sourceId: string; project?: string }
 
-async function mount(files: Record<string, string>, projects: string[] = ['a', 'b']) {
-  const dir = config(files)
-  const loaded = await loadActions(
-    dir,
-    projects.map((id) => project(dir, id)),
-    services,
-  )
+async function mount(
+  files: Record<string, string>,
+  projects: string[] = ['a', 'b'],
+  actions = './actions',
+) {
+  const dir = config({ 'runner.yaml': index(files, projects, actions), ...files })
+  const cfg = loadRunnerConfig(dir)
+  const loaded = await loadActions(cfg.actions, cfg.projects, services)
   const build = (name: string, sourceId: string) => {
     const provider = loaded.catalogs.actions?.[name] as (r: unknown) => Action
     return provider({ sourceId, options: {} }) as unknown as Built
@@ -101,5 +107,17 @@ describe('loadActions', () => {
     await expect(mount({ 'actions/x.ts': 'export default 42\n' })).rejects.toThrow(
       /x\.ts: tiene que exportar por default una definición/,
     )
+  })
+
+  it('takes the actions runner.yaml declares: a list of files or a glob, not the whole folder', async () => {
+    const files = {
+      'actions/one.ts': action('one', 'global'),
+      'actions/two.ts': action('two', 'global'),
+      'actions/three.ts': action('three', 'global'),
+    }
+    expect(
+      (await mount(files, [], '[./actions/one.ts, ./actions/t*.ts]')).loaded.registered.runner,
+    ).toEqual(['one', 'three', 'two'])
+    expect((await mount(files, [], './actions/one.ts')).loaded.registered.runner).toEqual(['one'])
   })
 })

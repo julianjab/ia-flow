@@ -4,8 +4,6 @@
  * el evento de la task.
  */
 import { describe, expect, it } from 'bun:test'
-import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   commentPayload,
   type FakeGithubData,
@@ -17,7 +15,7 @@ import {
   runIntake,
   runPayload,
 } from './fixtures.js'
-import { CONFIG_DIR, configCopy } from './helpers.js'
+import { configCopy } from './helpers.js'
 
 const TASK = 'la-haus/subscriptions#7'
 
@@ -311,19 +309,13 @@ describe('intake: the rest', () => {
 })
 
 describe('intake: several projects', () => {
-  /** `.config` con un segundo proyecto, `otro`, sobre el board 120 y el mismo catálogo. */
+  /** `.config` con un segundo proyecto, inline en runner.yaml: `otro`, sobre el board 120 y el
+   *  mismo catálogo de repos. */
   function twoProjects(): string {
-    const dir = configCopy()
-    const other = join(dir, 'projects', 'otro')
-    mkdirSync(other, { recursive: true })
-    writeFileSync(
-      join(other, 'project.yaml'),
-      'board: https://github.com/orgs/la-haus/projects/120\nbranchPrefix: otro/\nlabel: blocked\n',
-    )
-    cpSync(join(CONFIG_DIR, 'projects/lahaus-ai-flow/repos'), join(other, 'repos'), {
-      recursive: true,
+    return configCopy({
+      'runner.yaml': (content) =>
+        `${content}  otro:\n    board: https://github.com/orgs/la-haus/projects/120\n    branchPrefix: otro/\n    label: blocked\n    repos: ./projects/lahaus-ai-flow/repos\n`,
     })
-    return dir
   }
 
   it('publishes to the project whose board has the card, with its branch prefix and message', async () => {

@@ -139,3 +139,36 @@ describe('injects y ifRunning', () => {
     expect(mounted.executions?.stats).toEqual({ running: 0, waiting: 0, paused: 0 })
   })
 })
+
+describe('runner.yaml as the index', () => {
+  const ids = (mounted: MountedRunner, id: string) =>
+    mounted.sources
+      .find((entry) => entry.id === id)
+      ?.source.list()
+      .map((p) => p.id) ?? []
+
+  it('mounts exactly what it declares: a file and an inline pipeline, no folder discovery', async () => {
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        s.replace(
+          /^pipelines: \.\/pipelines$/m,
+          'pipelines:\n  - ./pipelines/00-intake.yaml\n  - { id: ping, on: [ping], do: [{ emit: pong }] }',
+        ),
+    })
+    const mounted = await mountDry(dir)
+    try {
+      expect(ids(mounted, 'runner')).toEqual(['intake', 'ping'])
+      expect(ids(mounted, 'lahaus-ai-flow')).toHaveLength(8)
+    } finally {
+      mounted.stop()
+    }
+  })
+
+  it('a project declared in runner.yaml that points nowhere breaks the load', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        s.replace('./projects/lahaus-ai-flow/project.yaml', './projects/nope/project.yaml'),
+    })
+    expect(() => loadRunnerConfig(dir)).toThrow(/nope\/project\.yaml: no se pudo leer/)
+  })
+})
