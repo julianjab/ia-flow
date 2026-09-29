@@ -54,7 +54,7 @@ apps/desktop/       Visor Electron de la SPA
 packages/agent-engine/  core, definitions, datasources/{sqlite,yaml}
 packages/github/        auth, api, webhook, tools
 packages/local/         fs, shell, workspace
-packages/               provider-anthropic, telemetry, shared, figma-auth
+packages/               provider-anthropic, telemetry, shared
 ```
 
 Los paquetes del engine son source-only (sin build ni `dist/`): se consumen con
