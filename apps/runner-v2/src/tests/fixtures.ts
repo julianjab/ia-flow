@@ -15,7 +15,7 @@ import {
 import { GLOBAL_SOURCE } from '../actions/loader.js'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
-import { CONFIG_DIR } from './helpers.js'
+import { CONFIG_DIR, mountForTest } from './helpers.js'
 
 export const BOARD = { owner: 'la-haus', number: 119 }
 
@@ -201,19 +201,16 @@ function prJson(owner: string, repo: string, pr: FakePr) {
   }
 }
 
-/** El runner en dry-run con esta GitHub simulada (y, si se pasa, este clasificador de
- *  `whenText`; si no, el de dry-run, que dice que sí). */
+/** Los tests no llaman a Haiku: un `whenText` siempre pasa, salvo que el test traiga su clasificador. */
+const ALWAYS: TextClassifier = { classify: async () => ({ matches: true, reason: 'test' }) }
+
+/** El runner con esta GitHub simulada y este clasificador de `whenText` (default: siempre pasa). */
 export function mountWith(
   github: FakeGithub,
   textClassifier?: TextClassifier,
   dir = CONFIG_DIR,
 ): Promise<MountedRunner> {
-  return mountRunner(loadRunnerConfig(dir), {
-    dryRun: true,
-    log: () => {},
-    githubFetch: github.fetch,
-    ...(textClassifier ? { textClassifier } : {}),
-  })
+  return mountForTest(dir, { githubFetch: github.fetch, textClassifier: textClassifier ?? ALWAYS })
 }
 
 /** Los pasos de `pipeline` que corren para `event` por su `when` — a qué agente va. Con

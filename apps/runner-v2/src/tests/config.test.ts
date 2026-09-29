@@ -7,12 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { type Agent, createEvent, isAgent, PauseAction } from '@ia-tools/agent-engine'
 import type { MountedRunner } from '../boot.js'
 import { applyRunnerEnv, loadRunnerConfig } from '../config/RunnerConfig.js'
-import { CONFIG_DIR, configCopy, mountDry } from './helpers.js'
+import { CONFIG_DIR, configCopy, mountForTest } from './helpers.js'
 
 let mounted: MountedRunner
 
 beforeAll(async () => {
-  mounted = await mountDry()
+  mounted = await mountForTest()
 })
 afterAll(() => mounted.stop())
 
@@ -82,7 +82,7 @@ describe('providerConfig con la estructura del provider', () => {
       'projects/lahaus-ai-flow/agents/10-refiner.yaml': (s) =>
         s.replace(/providerConfig:\n/, 'providerConfig:\n  maxToolRound: 50\n'),
     })
-    await expect(mountDry(dir)).rejects.toThrow(/agente "refiner".*maxToolRound/s)
+    await expect(mountForTest(dir)).rejects.toThrow(/agente "refiner".*maxToolRound/s)
   })
 })
 
@@ -155,7 +155,7 @@ describe('runner.yaml as the index', () => {
           '  pipelines:\n    - { id: ping, on: [ping], do: [{ emit: pong }] }',
         ),
     })
-    const mounted = await mountDry(dir)
+    const mounted = await mountForTest(dir)
     try {
       expect(ids(mounted, 'runner')).toEqual(['ping', 'intake', 'intake-unblock'])
       expect(ids(mounted, 'lahaus-ai-flow')).toHaveLength(8)

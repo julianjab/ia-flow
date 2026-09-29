@@ -2,12 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { parseArgs, parseIssueTarget } from '../cli.js'
 
 describe('parseArgs', () => {
-  it('without anything, it only boots and validates', () => {
-    expect(parseArgs([])).toEqual({ dryRun: false, serve: false })
-    expect(parseArgs(['--dry-run', '--config', '/x'])).toMatchObject({
-      dryRun: true,
-      configDir: '/x',
-    })
+  it('without a mode, it only boots and validates', () => {
+    expect(parseArgs([])).toEqual({ serve: false })
+    expect(parseArgs(['--config', '/x'])).toEqual({ serve: false, configDir: '/x' })
   })
 
   it('a raw webhook from a file, or a real PR', () => {
@@ -16,7 +13,9 @@ describe('parseArgs', () => {
       payloadPath: './d.json',
     })
     expect(parseArgs(['--replay-pr', 'la-haus/x#3'])).toMatchObject({ replayPr: 'la-haus/x#3' })
-    expect(() => parseArgs(['--live'])).toThrow(/argumento desconocido: --live/)
+    for (const gone of ['--live', '--dry-run']) {
+      expect(() => parseArgs([gone])).toThrow(/argumento desconocido/)
+    }
   })
 
   it('does not build events: no event names without github., no event flags', () => {
@@ -25,9 +24,8 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--status', 'Build'])).toThrow(/argumento desconocido/)
   })
 
-  it('one mode at a time, and none of them in dry-run: they read GitHub', () => {
+  it('one mode at a time', () => {
     expect(() => parseArgs(['--serve', '--replay-pr', 'a/b#1'])).toThrow(/van de a uno/)
-    expect(() => parseArgs(['--serve', '--dry-run'])).toThrow(/no admiten --dry-run/)
   })
 })
 

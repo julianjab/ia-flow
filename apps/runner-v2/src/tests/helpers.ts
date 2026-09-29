@@ -1,14 +1,29 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import type { TextClassifier } from '@ia-tools/agent-engine'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
+import { memoryDriver } from '../engine/mountEngine.js'
 
 /** La definición real del runner. */
 export const CONFIG_DIR = resolve(import.meta.dir, '../../.config')
 
-/** El runner montado en dry-run sobre `dir`: sin red, sin workspace, ejecuciones en memoria. */
-export function mountDry(dir = CONFIG_DIR): Promise<MountedRunner> {
-  return mountRunner(loadRunnerConfig(dir), { dryRun: true, log: () => {} })
+/** Sin red: cualquier request a GitHub falla, diciendo cuál. */
+const offline = (async (input: string | URL | Request) => {
+  throw new Error(`test sin red: ${String(input)}`)
+}) as unknown as typeof fetch
+
+/** El runner montado sobre `dir` para un test: GitHub sin red (o `githubFetch`), sin MCP y las
+ *  ejecuciones en memoria. */
+export function mountForTest(
+  dir = CONFIG_DIR,
+  options: { githubFetch?: typeof fetch; textClassifier?: TextClassifier } = {},
+): Promise<MountedRunner> {
+  return mountRunner(loadRunnerConfig(dir), {
+    log: () => {},
+    testing: { githubFetch: options.githubFetch ?? offline, storeDriver: memoryDriver },
+    ...(options.textClassifier ? { textClassifier: options.textClassifier } : {}),
+  })
 }
 
 /** Donde van las copias: DENTRO de la app (`.state/`, gitignoreado), porque las actions de

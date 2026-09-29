@@ -1,7 +1,7 @@
 /**
  * Delivery crudo → pipeline de entrada → evento emitido → pipelines REALES de `.config/`: el evento
  * que publica el intake tiene que tener la forma que las pipelines filtran (`item.status`,
- * `to`/`from`, `state`, `conclusion`, …). Sin red: runner en dry-run y board simulado.
+ * `to`/`from`, `state`, `conclusion`, …). Sin red: el runner con una GitHub simulada (tests).
  */
 import { describe, expect, it, vi } from 'bun:test'
 import { readFileSync } from 'node:fs'

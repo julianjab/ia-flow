@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { Action } from '@ia-tools/agent-engine'
 import { GithubClient } from '@ia-tools/github-api'
+import { NodeShellRunner, WorkspaceManager } from '@ia-tools/workspace'
 import type { RunnerServices } from '../actions/defineAction.js'
 import { loadActions } from '../actions/loader.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
@@ -33,9 +34,12 @@ function config(files: Record<string, string>): string {
 
 const services: RunnerServices = {
   github: new GithubClient({ auth: { getToken: async () => 'test' } }),
-  dryRun: true,
+  workspace: new WorkspaceManager(new NodeShellRunner(), {
+    reposBase: join(ROOT, 'repos'),
+    worktreeBase: join(ROOT, 'worktrees'),
+  }),
+  gitCredential: async () => undefined,
   log: () => {},
-  missingTools: new Set(),
 }
 
 /** `runner.yaml` con las actions globales y un proyecto inline por id, con las suyas si hay. */
