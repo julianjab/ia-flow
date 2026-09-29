@@ -9,12 +9,14 @@ settings:
   port: 3001
 
 # Identidad de GitHub. `auto` usa la App si están los tres datos, si no
-# GITHUB_TOKEN, si no `gh auth token`. El PEM NO va acá: su ruta sale de
+# GITHUB_TOKEN, si no `gh auth token`. `privateKeyPath` es la RUTA al PEM, fuera
+# del repo (el PEM nunca se copia acá); en otra máquina la pisa
 # IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH.
 github:
   mode: auto
   appId: "4599112"
   installationId: "156768020"
+  privateKeyPath: /Users/julianbuitrago/Downloads/julianjab_github_app.private-key.pem
 
 # Los defaults de cada provider para TODOS sus agentes; el `providerConfig` de un
 # agente los pisa clave por clave. Los valida el provider al arrancar.
