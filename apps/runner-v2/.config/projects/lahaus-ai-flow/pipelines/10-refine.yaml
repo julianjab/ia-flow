@@ -15,6 +15,12 @@ scope:
 position: 10
 exclusive: true
 firstMatch: true
+# La card llegó a esta columna con un agente trabajando en ella (otra columna):
+# se le avisa que ceda y esta regla corre apenas cierre. Sólo un cambio de
+# status interrumpe; una edición de otro campo o un desbloqueo esperan.
+ifRunning: interrupt
+interruptOn:
+  - on: [ issue.status_changed ]
 do:
   - agent: functional-refiner
     when:

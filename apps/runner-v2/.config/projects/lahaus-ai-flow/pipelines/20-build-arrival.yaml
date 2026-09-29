@@ -13,6 +13,9 @@ scope:
 position: 10
 exclusive: true
 firstMatch: true
+# La card llegó a Build con un agente trabajando en ella: se le avisa que ceda y
+# el implementer arranca apenas cierre.
+ifRunning: interrupt
 do:
   - agent: frontend-implementer
     when:

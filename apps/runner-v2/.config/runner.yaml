@@ -73,6 +73,17 @@ engine:
   # texto que arma `resolve_task` en `payload.message`.
   formatMessage: '{{message}}'
 
+  # Las pipelines con `ifRunning: interrupt` (un cambio de status con un agente
+  # trabajando): el agente recibe un aviso, cede el turno contando en qué quedó,
+  # no sigue sus salidas y corre el `onInterrupt` del proyecto.
+  interrupt:
+    # Qué pasó, contra el payload del evento: lo lee el agente y va al comentario.
+    reason: 'la card pasó de {{from}} a {{to}}'
+    # Regex sobre quién movió la card (`sender`): el eco de un cambio del propio
+    # runner (su App) nunca interrumpe. Las transiciones las hacen las rutas,
+    # fuera del loop del agente, pero un agente podría mover la card con una tool.
+    ownSenders: '\[bot\]$'
+
 # Qué corre: la composición del runner (el engine sólo ve fuentes ya armadas).
 # Cada lista acepta, sola o en lista, un directorio, un archivo, un glob en el
 # nombre (`./pipelines/0*.yaml`) o el documento inline; las rutas son relativas

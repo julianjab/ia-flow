@@ -159,3 +159,14 @@ onError:
         addLabels:
           - blocked
   report: blockedReport
+
+# Si una regla con `ifRunning: interrupt` corta a un agente (la card cambió de
+# columna mientras trabajaba): en vez de sus salidas —que moverían la card y
+# pisarían la del humano— queda un comentario con por qué paró y en qué quedó.
+onInterrupt:
+  to:
+    - action: post_notice
+      with:
+        target: pr-else-issue
+        summary: "⏸️ **{{steps.interruption.agent}}** paró: {{steps.interruption.reason}}. La retoma `{{steps.interruption.by}}`.\n\n**En qué quedó:** {{steps.interruption.progress}}"
+        validations: []

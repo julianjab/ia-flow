@@ -29,6 +29,10 @@ scope:
 position: 25
 exclusive: true
 firstMatch: true
+# Cada comentario cuenta: dos que llegan con la task ocupada corren los dos, en
+# orden (el default, `replace`, dejaría sólo el último). Los que el agente que
+# corre acepta (`injects`) no llegan acá: se le inyectan.
+ifQueued: keep
 do:
   # ── Refine / Refined ────────────────────────────────────────────────────
   - agent: functional-refiner
