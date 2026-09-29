@@ -6,9 +6,7 @@
  *
  * Modos:
  *   --dry-run   sin credenciales: no verifica GitHub ni resuelve MCP; carga, valida y reporta.
- *   (default)   GitHub y Messages API reales, pero las escrituras de las actions se simulan e
- *               imprimen. El MCP de GitHub corre en Anthropic y SÍ puede escribir.
- *   --live      escrituras reales.
+ *   (default)   GitHub y Messages API reales: las actions escriben de verdad.
  *   --serve     servidor de webhooks.
  *   --event     un webhook crudo desde un archivo; --replay-pr, un PR real como `opened`.
  *
@@ -168,7 +166,6 @@ async function main(telemetry: Telemetry): Promise<'serving' | 'done'> {
   }
   const mounted = await mountRunner(cfg, {
     dryRun: args.dryRun,
-    live: args.live,
     workspaceDir: process.env.WORKSPACE_DIR,
     log,
   })

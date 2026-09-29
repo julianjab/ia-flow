@@ -17,9 +17,6 @@ import {
 import { z } from 'zod'
 import { workspaceTargetFor } from './_lib/workspaceTarget.js'
 
-/** Sin `--live` las escrituras a GitHub se simulan: publicar la branch tampoco puede ser real. */
-const PUBLISH_WITHOUT_LIVE = ['git push *']
-
 const Duration = z.string().regex(/^\d+(s|m|h)$/, 'una duración: `30s`, `45m`, `2h`')
 const DURATION_MS = { s: 1_000, m: 60_000, h: 3_600_000 } as const
 const durationMs = (duration: string) =>
@@ -58,14 +55,12 @@ function diskTool(name: string, ctx: ActionContext): Action[] {
     missingTools.add(`${name} (sin workspace)`)
     return []
   }
-  // `githubAuth` sin credencial (sin `--live`): publicar queda denegado con un motivo legible.
   const publish = githubAuth ? gitCredential : undefined
-  const offline = githubAuth && !publish ? PUBLISH_WITHOUT_LIVE : []
   return [
     workspaceAction(
       name,
       sessionOf(workspace),
-      { ...(allow ? { allow } : {}), deny: [...(deny ?? []), ...offline] },
+      { ...(allow ? { allow } : {}), deny: deny ?? [] },
       {
         ...(publish ? { gitCredential: publish } : {}),
         ...(timeout ? { timeoutMs: durationMs(timeout) } : {}),

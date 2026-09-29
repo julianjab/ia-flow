@@ -71,8 +71,6 @@ actions:
   # `fs_read` de `.git/config` no puede leer ningún token). Para publicar,
   # `bash_run` le pasa la credencial de la App SÓLO a los `git` de red, en
   # el argv de ese comando, acotada a github.com y con los hooks apagados.
-  # Sin `--live` no hay credencial y publicar queda denegado: las
-  # escrituras a GitHub del runner se simulan.
   - action: bash_run
     options:
       # Un comando se corta a los 2m; el agente puede pedir hasta 20m

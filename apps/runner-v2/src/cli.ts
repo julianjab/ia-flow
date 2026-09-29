@@ -7,7 +7,6 @@ export interface RunnerArgs {
   /** La carpeta de la definición (argv `--config`, o RUNNER_CONFIG_DIR). Default: `.config`. */
   configDir?: string
   dryRun: boolean
-  live: boolean
   /** Levanta el servidor de webhooks. */
   serve: boolean
   /** Un webhook crudo: `github.<evento>` y el archivo JSON con su payload. */
@@ -16,10 +15,10 @@ export interface RunnerArgs {
   replayPr?: string
 }
 
-export const USAGE = `uso: bun run src/main.ts [--config <dir>] [--dry-run] [--live]
-     bun run src/main.ts [--config <dir>] [--live] --serve
-     bun run src/main.ts [--config <dir>] [--live] --event github.<evento> <payload.json>
-     bun run src/main.ts [--config <dir>] [--live] --replay-pr <owner>/<repo>#<n>
+export const USAGE = `uso: bun run src/main.ts [--config <dir>] [--dry-run]
+     bun run src/main.ts [--config <dir>] --serve
+     bun run src/main.ts [--config <dir>] --event github.<evento> <payload.json>
+     bun run src/main.ts [--config <dir>] --replay-pr <owner>/<repo>#<n>
 
   Sin nada: carga la definición, valida todo y monta el engine.
   --serve                escucha webhooks de GitHub en POST /api/webhooks/github (puerto
@@ -30,8 +29,7 @@ export const USAGE = `uso: bun run src/main.ts [--config <dir>] [--dry-run] [--l
   --replay-pr <pr>       lee ese PR de GitHub y lo despacha como un \`pull_request\` \`opened\`
   --config <dir>         la carpeta de la definición: runner.yaml, actions/, pipelines/ y projects/
                          (default: RUNNER_CONFIG_DIR o apps/runner-v2/.config)
-  --dry-run              sin credenciales: sólo construye y valida la definición
-  --live                 escrituras REALES a GitHub (sin esto, se simulan e imprimen)`
+  --dry-run              sin credenciales: sólo construye y valida la definición`
 
 /**
  * El issue o PR, en cualquiera de las formas que se copian a mano: `la-haus/eks#9575`,
@@ -49,7 +47,7 @@ export function parseIssueTarget(
 }
 
 export function parseArgs(argv: string[]): RunnerArgs {
-  const args: RunnerArgs = { dryRun: false, live: false, serve: false }
+  const args: RunnerArgs = { dryRun: false, serve: false }
   const value = (i: number, missing: string) => {
     const found = argv[i]
     if (!found || found.startsWith('--')) throw new Error(`${missing}\n\n${USAGE}`)
@@ -58,7 +56,6 @@ export function parseArgs(argv: string[]): RunnerArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--dry-run') args.dryRun = true
-    else if (arg === '--live') args.live = true
     else if (arg === '--serve') args.serve = true
     else if (arg === '--config') args.configDir = value(++i, '--config necesita una carpeta')
     else if (arg === '--replay-pr')

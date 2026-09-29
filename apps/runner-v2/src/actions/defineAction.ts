@@ -24,14 +24,13 @@ export type { ProjectConfig } from '../config/RunnerConfig.js'
 
 /** Lo que el runner monta y comparte con todas las actions. */
 export interface RunnerServices {
-  /** GitHub con la identidad del runner. Sin `--live`, las escrituras se simulan. */
+  /** GitHub con la identidad del runner. */
   github: GithubClient
   /** Los clones y worktrees de las tasks. Sin esto (dry-run), no hay disco. */
   workspace?: WorkspaceManager
-  /** La credencial de los `git` de red. Sin esto (sin `--live`), publicar queda denegado. */
+  /** La credencial de los `git` de red (sin workspace, en dry-run, no hay). */
   gitCredential?: () => Promise<string | undefined>
   dryRun: boolean
-  live: boolean
   log: (line: string) => void
   /** Lo que la definición pide y este runner no puede dar — se avisa una vez al arrancar. */
   missingTools: Set<string>

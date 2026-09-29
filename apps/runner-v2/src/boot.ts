@@ -38,7 +38,6 @@ import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { memoryDriver, mountEngine } from './engine/mountEngine.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
-import { simulatedWritesFetch } from './github/simulatedWrites.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { withScope } from './projects/withScope.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
@@ -60,8 +59,6 @@ const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.cache', 'ia-flow', 'runner-v2',
 export interface MountOptions {
   /** Sin credenciales: no verifica GitHub ni resuelve MCP — sólo construye y valida. */
   dryRun: boolean
-  /** Escrituras reales a GitHub; sin esto, se simulan. */
-  live: boolean
   workspaceDir?: string
   log: (line: string) => void
   /** Lo que responde la API de GitHub en vez de GitHub, con un token de prueba (tests). */
@@ -90,7 +87,7 @@ export interface MountedRunner {
    *  `onError`/`report`) — lo que de verdad va a correr. */
   routesOf(pipeline: Pipeline, agentId: string): ResolvedRoutes
   projects: ProjectConfig[]
-  /** GitHub con la identidad del runner (y las escrituras simuladas, sin `--live`). */
+  /** GitHub con la identidad del runner. */
   github: GithubClient
   githubAuthMode: string
   mcpServers: string[]
@@ -141,10 +138,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   const { auth, mode: githubAuthMode } = await githubIdentity(opts)
   const github = opts.githubFetch
     ? new GithubClient({ auth: { getToken: async () => 'test' }, fetchImpl: opts.githubFetch })
-    : new GithubClient({
-        auth,
-        fetchImpl: opts.live || opts.dryRun ? undefined : simulatedWritesFetch(opts.log),
-      })
+    : new GithubClient({ auth })
   const mcpServers: Record<string, McpServerRef> = opts.dryRun
     ? {}
     : await resolveMcpCatalog(cfg.mcp, auth, warnings)
@@ -167,10 +161,9 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   const services: RunnerServices = {
     github,
     ...(workspace ? { workspace } : {}),
-    // Sólo con `--live`: sin él las escrituras a GitHub se simulan, y publicar una branch también.
-    ...(opts.live && !opts.dryRun ? { gitCredential: () => auth.getToken() } : {}),
+    // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
+    ...(opts.dryRun ? {} : { gitCredential: () => auth.getToken() }),
     dryRun: opts.dryRun,
-    live: opts.live,
     log: opts.log,
     missingTools: new Set<string>(),
   }

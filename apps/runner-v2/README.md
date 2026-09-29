@@ -66,7 +66,7 @@ export default defineAction({ id: 'resolve_task', create: (ctx) => new ResolveTa
 ```
 
 `create` recibe quién la pide (`sourceId`, `agentId`, las `options` del YAML), el proyecto de esa
-fuente, todos los proyectos y los servicios que monta el runner (GitHub, workspace, `--live`). Una
+fuente, todos los proyectos y los servicios que monta el runner (GitHub, workspace, la credencial de git). Una
 fuente de proyecto ve primero las suyas y después las globales; la global, sólo las globales. Un
 id repetido en el mismo scope rompe el arranque. `defineMapper` registra un mapper de `onError`.
 
@@ -120,8 +120,7 @@ cd apps/runner-v2
 bun run dry-run                                   # carga y valida la definición, sin credenciales
 bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
 bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
-IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks (escrituras simuladas)
-IA_FLOW_WEBHOOK_SECRET=... bun run serve --live  # escrituras reales a GitHub
+IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks
 bun test
 bun run typecheck
 ```
