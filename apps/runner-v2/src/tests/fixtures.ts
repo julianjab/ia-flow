@@ -1,6 +1,6 @@
 /**
- * Fixtures del intake: una API de GitHub simulada (el `fetch` de la conexión `github` de
- * `.config/.../intake/`) y deliveries crudos de ejemplo. Los tests recorren el intake REAL de
+ * Fixtures del intake: una API de GitHub simulada (el `fetch` del `GithubClient` del runner, con
+ * el que lee `resolve_task`) y deliveries crudos de ejemplo. Los tests recorren el intake REAL de
  * `.config/`, sin red.
  */
 import {
@@ -210,7 +210,7 @@ export function mountWith(github: FakeGithub, dir = CONFIG_DIR): Promise<Mounted
 
 /**
  * Corre el evento crudo SÓLO por las pipelines de entrada del runner y devuelve lo que publicaron
- * hacia las del proyecto (sin los `task.resolve` intermedios): nada de agentes.
+ * hacia las del proyecto: nada de agentes.
  */
 export async function runIntake(
   mounted: MountedRunner,
@@ -225,7 +225,7 @@ export async function runIntake(
   const engine = new Engine({ bus, pipelines: new StaticPipelineSource(mounted.intake()) })
   engine.start()
   const outcome = await engine.dispatch(createEvent(`github.${event}`, payload))
-  return { outcome, emitted: emitted.filter((e) => e.type !== 'task.resolve') }
+  return { outcome, emitted }
 }
 
 /** Un item del board (el de la task #7) creado o editado. */

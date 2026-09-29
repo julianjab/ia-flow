@@ -1,7 +1,7 @@
 /**
  * El intake de `.config/projects/lahaus-ai-flow/intake/` de punta a punta: un delivery CRUDO entra
- * como `github.<evento>`, su pipeline decide qué task es (`task.resolve`) y `resolve-task` lee de
- * GitHub (simulada) lo que el agente necesita y publica el evento de la task.
+ * como `github.<evento>`, `resolve_task` encuentra su task, la lee de GitHub (simulada) y publica
+ * el evento de la task.
  */
 import { describe, expect, it } from 'bun:test'
 import {
@@ -100,13 +100,13 @@ describe('intake: projects_v2_item', () => {
     })
   })
 
-  it('filters in the pipeline, before any read: other actions and non-issue items', async () => {
+  it('filters before any read: other actions and non-issue items', async () => {
     for (const payload of [
       itemPayload('archived'),
       itemPayload('created', undefined, 'DraftIssue'),
     ]) {
       const { github, run } = await intake()
-      expect((await run('projects_v2_item', payload)).outcome).toBe('skipped')
+      expect((await run('projects_v2_item', payload)).emitted).toEqual([])
       expect(github.calls).toEqual([])
     }
   })
@@ -164,7 +164,7 @@ describe('intake: issue_comment', () => {
       repository: { name: 'otro', full_name: 'la-haus/otro', owner: { login: 'la-haus' } },
     }
     const { github, run } = await intake()
-    expect((await run('issue_comment', payload)).outcome).toBe('skipped')
+    expect((await run('issue_comment', payload)).emitted).toEqual([])
     expect(github.calls).toEqual([])
   })
 })
@@ -246,10 +246,11 @@ describe('intake: pull requests and CI', () => {
   })
 
   it('only lets completed CI runs through, and needs a PR or a task branch', async () => {
-    const skipped = await intake()
+    const inProgress = await intake()
     expect(
-      (await skipped.run('workflow_run', runPayload('in_progress', [{ number: 12 }]))).outcome,
-    ).toBe('skipped')
+      (await inProgress.run('workflow_run', runPayload('in_progress', [{ number: 12 }]))).emitted,
+    ).toEqual([])
+    expect(inProgress.github.calls).toEqual([])
     expect(
       (await (await intake()).run('workflow_run', runPayload('completed', []))).emitted,
     ).toEqual([])

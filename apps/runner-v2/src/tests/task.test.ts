@@ -1,6 +1,6 @@
-/** Las funciones puras que nombra el intake de `.config/` (`intake/functions.ts`). */
+/** Lo puro de `resolve_task` (`intake/task.ts`). */
 import { describe, expect, it } from 'bun:test'
-import { boardItem, issueRefs, linkedIssue, openPr } from '../intake/functions.js'
+import { boardItem, issueRefs, linkedIssue, openPr } from '../intake/task.js'
 
 describe('linkedIssue', () => {
   it('reads the branch with the project prefix, and nothing else', () => {

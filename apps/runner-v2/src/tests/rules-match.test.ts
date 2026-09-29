@@ -72,7 +72,7 @@ const statusChange = (from: string, to: string) =>
 describe('webhook crudo → intake → pipelines de .config/', () => {
   it('mounts the intake next to the project pipelines, without mixing them', async () => {
     const mounted = await mountWith(fakeGithub())
-    expect(mounted.intake().map((p) => p.id)).toContain('intake-pull-request')
+    expect(mounted.intake().map((p) => p.id)).toEqual(['intake', 'intake-unblock'])
     expect(mounted.pipelines().some((p) => p.id.startsWith('intake-'))).toBe(false)
     mounted.stop()
   })
