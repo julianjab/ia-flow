@@ -50,10 +50,10 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
       `→ proyecto ${project.id}: board ${project.board.owner}#${project.board.number}, ${project.repos.length} repos`,
     )
   }
-  for (const { id, yaml } of mounted.sources) {
+  for (const { id, source } of mounted.sources) {
     const actions = mounted.actions[id] ?? []
     console.log(
-      `→ fuente ${id}: ${yaml.list().length} pipelines, ${actions.length} actions en su scope${actions.length > 0 ? ` (${actions.join(', ')})` : ''}`,
+      `→ fuente ${id}: ${source.list().length} pipelines, ${actions.length} actions en su scope${actions.length > 0 ? ` (${actions.join(', ')})` : ''}`,
     )
   }
   if (mounted.executions) {

@@ -7,7 +7,8 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
 
 ## Qué cambia respecto del runner de `apps/server`
 
-- **La definición vive en `.config/`**, en el formato de `@ia-tools/agent-engine-yaml`
+- **La definición vive en `.config/`**, en YAML (`@ia-tools/agent-engine-datasource-yaml` la traduce a
+  definiciones y `@ia-tools/agent-engine-definitions` las arma)
   (agentes y pipelines del engine), y se recarga en caliente: editar un YAML aplica en el
   próximo evento, sin reiniciar. Una versión inválida se loguea y sigue la última buena.
 - **Las ejecuciones persisten en SQLite** (`bun:sqlite`, `.state/executions.sqlite`): una task
@@ -35,9 +36,11 @@ Un archivo por scope: lo global en la raíz, lo de un proyecto en su carpeta.
     └── repos/*.yaml             el catálogo de repos (lo lee el runner, no el engine)
 ```
 
-El engine no sabe de proyectos: ve fuentes. El proyecto es una capa del runner que sólo filtra
-—la fuente de `projects/<id>/` recibe únicamente los eventos con `scope.projectId: <id>`, que fija
-`resolve_task`—; la global recibe todo.
+El engine no sabe de proyectos: ve fuentes. El proyecto es una capa del runner que sólo filtra:
+al montar `projects/<id>/`, el runner le pone `scope.projectId: <id>` a cada una de sus pipelines
+(una propiedad más de la definición, `src/projects/withScope.ts`), así sólo corren con los eventos
+de ese proyecto —los que publica `resolve_task`—; la global recibe todo. El engine lo arma el
+runner desde `engine:` de runner.yaml (`src/engine/mountEngine.ts`).
 
 ### Las actions (`actions/`)
 

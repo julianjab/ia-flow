@@ -5,9 +5,10 @@
  *      resuelto y cada servidor probado, el workspace y el provider `anthropic-api`.
  *   2. Las actions de cada scope (`actions/loader.ts`): las globales de `.config/actions/` y las de
  *      cada `projects/<id>/actions/`.
- *   3. Las fuentes: la global (`.config`: sus `pipelines/` y `agents/`) y una por proyecto, que
- *      sólo recibe los eventos de su `scope.projectId` (`ProjectSource`).
- *   4. El engine con `createEngineFromYaml(runner.yaml, { section: 'engine' })`: el store de
+ *   3. Las fuentes: el datasource YAML de la global (`.config`: sus `pipelines/` y `agents/`) y
+ *      el de cada proyecto, cuyas pipelines llevan `scope.projectId` (`projects/withScope.ts`);
+ *      las arma `DefinitionPipelineSource`.
+ *   4. El engine, desde `engine:` de runner.yaml (`engine/mountEngine.ts`): el store de
  *      ejecuciones en SQLite (`bun-sqlite`), el tick y el clasificador de los `whenText`.
  *
  * En `--dry-run` no hay credenciales: no se verifica GitHub, no se resuelve MCP, no hay workspace
@@ -19,20 +20,15 @@ import {
   type Engine,
   type EventBus,
   type ExecutionStore,
-  InMemoryExecutionStore,
   isAgent,
   type McpServerRef,
   type Pipeline,
-  type PipelineSource,
   providerRegistry,
   type ResolvedRoutes,
   type TextClassifier,
 } from '@ia-tools/agent-engine'
-import {
-  createEngineFromYaml,
-  type ExecutionStoreDriver,
-  YamlPipelineSource,
-} from '@ia-tools/agent-engine-yaml'
+import { YamlDefinitionSource } from '@ia-tools/agent-engine-datasource-yaml'
+import { DefinitionPipelineSource } from '@ia-tools/agent-engine-definitions'
 import { GithubClient } from '@ia-tools/github-api'
 import type { GithubAuth } from '@ia-tools/github-auth'
 import { parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'
@@ -40,10 +36,11 @@ import { NodeShellRunner, type WorkspaceLogger, WorkspaceManager } from '@ia-too
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
+import { memoryDriver, mountEngine } from './engine/mountEngine.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { simulatedWritesFetch } from './github/simulatedWrites.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
-import { ProjectSource } from './projects/ProjectSource.js'
+import { withScope } from './projects/withScope.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
 
 /** El clasificador de `--dry-run`: no llama a ningún modelo, y lo dice en la traza. */
@@ -77,10 +74,7 @@ export interface MountOptions {
 /** Una fuente montada: la global (`runner`) o la de un proyecto. */
 export interface MountedSource {
   id: string
-  /** Sus agentes y pipelines, leídos de YAML. */
-  yaml: YamlPipelineSource
-  /** Lo que ve el engine: la del proyecto, con su filtro por `scope.projectId`. */
-  source: PipelineSource
+  source: DefinitionPipelineSource
 }
 
 export interface MountedRunner {
@@ -129,9 +123,6 @@ function validateProviderConfigs(pipelines: Pipeline[]): void {
     }
   }
 }
-
-const memoryDriver: ExecutionStoreDriver = ({ maxConcurrent }) =>
-  new InMemoryExecutionStore(maxConcurrent !== undefined ? { maxConcurrent } : {})
 
 async function githubIdentity(opts: MountOptions): Promise<{ auth: GithubAuth; mode: string }> {
   if (opts.dryRun) {
@@ -186,24 +177,33 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   const actions = await loadActions(cfg.dir, cfg.projects, services)
   const catalogs = { ...actions.catalogs, providers: providerRegistry, mcpServers }
 
-  const global = new YamlPipelineSource({ dir: cfg.dir, id: GLOBAL_SOURCE, catalogs })
   const sources: MountedSource[] = [
-    { id: GLOBAL_SOURCE, yaml: global, source: global },
-    ...cfg.projects.map((project) => {
-      const yaml = new YamlPipelineSource({ dir: project.dir, id: project.id, catalogs })
-      return { id: project.id, yaml, source: new ProjectSource(yaml, project.id) }
-    }),
+    {
+      id: GLOBAL_SOURCE,
+      source: new DefinitionPipelineSource(
+        new YamlDefinitionSource({ dir: cfg.dir, id: GLOBAL_SOURCE }),
+        catalogs,
+      ),
+    },
+    ...cfg.projects.map((project) => ({
+      id: project.id,
+      source: new DefinitionPipelineSource(
+        withScope(new YamlDefinitionSource({ dir: project.dir, id: project.id }), {
+          projectId: project.id,
+        }),
+        catalogs,
+      ),
+    })),
   ]
 
-  const mounted = createEngineFromYaml(cfg.runnerPath, {
-    section: 'engine',
-    catalogs,
+  const mounted = mountEngine(cfg.engine, {
+    baseDir: cfg.dir,
     sources: sources.map((entry) => entry.source),
     // En dry-run nada corre: la base de ejecuciones no se abre.
     drivers: { 'bun-sqlite': opts.dryRun ? memoryDriver : bunSqliteStoreDriver },
     ...whenTextClassifier(opts),
   })
-  const pipelines = () => sources.flatMap((entry) => entry.yaml.list())
+  const pipelines = () => sources.flatMap((entry) => entry.source.list())
   try {
     validateProviderConfigs(pipelines())
   } catch (err) {
@@ -218,8 +218,8 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     sources,
     pipelines,
     routesOf: (pipeline, agentId) => {
-      const owner = sources.find((entry) => entry.yaml.list().includes(pipeline))
-      return pipeline.routesOf(agentId, owner?.yaml.defaults)
+      const owner = sources.find((entry) => entry.source.list().includes(pipeline))
+      return pipeline.routesOf(agentId, owner?.source.defaults)
     },
     projects: cfg.projects,
     github,

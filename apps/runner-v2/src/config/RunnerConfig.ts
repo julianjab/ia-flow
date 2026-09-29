@@ -2,8 +2,7 @@
  * Lo que el runner lee de `.config/`, un archivo por scope:
  *
  *   runner.yaml                    scope runner: settings, identidad de GitHub, providers, MCP y
- *                                  `engine:` (la config del engine, que valida
- *                                  `@ia-tools/agent-engine-yaml`)
+ *                                  `engine:` (cómo se arma el engine: `engine/mountEngine.ts`)
  *   projects/<id>/project.yaml     scope proyecto: su board, el prefijo de rama y su label
  *   projects/<id>/repos/*.yaml     el catálogo de repos de cada proyecto
  *
@@ -17,6 +16,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
+import { EngineSection } from '../engine/mountEngine.js'
 
 const McpEntrySchema = z.strictObject({
   id: z.string().min(1),
@@ -55,8 +55,8 @@ export const RunnerFileSchema = z.strictObject({
   /** Los defaults de cada provider para todos sus agentes (`anthropic-api: { maxTokens, … }`). */
   providers: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   mcp: z.array(McpEntrySchema).default([]),
-  /** La config del engine (`createEngineFromYaml` con `section: 'engine'`): la valida él. */
-  engine: z.unknown(),
+  /** Cómo se arma el engine (`engine/mountEngine.ts`). */
+  engine: EngineSection.default({}),
 })
 
 export const RepoDefSchema = z.looseObject({
@@ -87,6 +87,7 @@ export interface RunnerConfig {
   github: NonNullable<z.infer<typeof RunnerFileSchema>['github']>
   providers: Record<string, Record<string, unknown>>
   mcp: McpEntry[]
+  engine: EngineSection
   projects: ProjectConfig[]
   repos: RepoDef[]
 }
@@ -158,6 +159,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     github: file.github ?? {},
     providers: file.providers,
     mcp: file.mcp,
+    engine: file.engine,
     projects,
     repos: projects.flatMap((project) => project.repos),
   }

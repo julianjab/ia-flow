@@ -8,7 +8,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Action } from '@ia-tools/agent-engine'
-import type { ActionProvider, ActionRequest, YamlCatalogs } from '@ia-tools/agent-engine-yaml'
+import type { ActionProvider, ActionRequest, Catalogs } from '@ia-tools/agent-engine-definitions'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 import type {
   ActionDefinition,
@@ -29,7 +29,7 @@ interface Scope {
 }
 
 export interface LoadedActions {
-  catalogs: Pick<YamlCatalogs, 'actions' | 'mappers'>
+  catalogs: Pick<Catalogs, 'actions' | 'mappers'>
   /** Qué registró cada scope: `runner` y el id de cada proyecto. */
   registered: Record<string, string[]>
 }

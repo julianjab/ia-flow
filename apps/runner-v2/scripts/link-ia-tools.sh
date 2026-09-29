@@ -19,8 +19,9 @@ fi
 
 packages=(
   agent-engine/core
-  agent-engine/sqlite
-  agent-engine/yaml
+  agent-engine/definitions
+  agent-engine/datasources/sqlite
+  agent-engine/datasources/yaml
   provider-anthropic
   telemetry
   github/api

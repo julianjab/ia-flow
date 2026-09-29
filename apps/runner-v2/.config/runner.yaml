@@ -40,7 +40,7 @@ mcp:
       url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma
       authorizationToken: ${FIGMA_MCP_TOKEN}
 
-# El engine (`createEngineFromYaml` de @ia-tools/agent-engine-yaml, sección `engine`).
+# El engine: cómo lo arma el runner (src/engine/mountEngine.ts).
 # Las rutas son relativas a este archivo. Las fuentes no van acá: las monta el
 # runner — la global (esta carpeta: pipelines/ y agents/) y una por proyecto
 # (projects/<id>/), que sólo recibe los eventos con su `scope.projectId`.

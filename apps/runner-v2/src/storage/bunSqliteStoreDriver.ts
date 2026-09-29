@@ -1,13 +1,13 @@
 /**
- * El driver `bun-sqlite` de `engine.yaml`: las ejecuciones en un archivo SQLite con `bun:sqlite`.
- * El repositorio (`@ia-tools/agent-engine-sqlite`) no depende del runtime: recibe la base abierta.
+ * El driver `bun-sqlite` de `runner.yaml` (`engine.executions`): las ejecuciones en un archivo SQLite con `bun:sqlite`.
+ * El repositorio (`@ia-tools/agent-engine-datasource-sqlite`) no depende del runtime: recibe la base abierta.
  * Así una pausa (esperar el CI) sobrevive a un reinicio del runner.
  */
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ExecutionStore } from '@ia-tools/agent-engine'
-import { SqliteExecutionStore } from '@ia-tools/agent-engine-sqlite'
+import { SqliteExecutionStore } from '@ia-tools/agent-engine-datasource-sqlite'
 
 export function bunSqliteStoreDriver(options: {
   path?: string
