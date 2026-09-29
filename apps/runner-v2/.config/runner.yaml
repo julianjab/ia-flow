@@ -78,8 +78,44 @@ engine:
 # nombre (`./pipelines/0*.yaml`) o el documento inline; las rutas son relativas
 # a este archivo. Editar estas listas recarga las fuentes sin reiniciar.
 sources:
-  # La fuente global: recibe todos los eventos (los webhooks crudos: el intake).
-  pipelines: ./pipelines
+  # La fuente global: recibe todos los eventos. Son los webhooks crudos de
+  # GitHub (`github.<evento>`) → el evento de su task, con `resolve_task`
+  # (.config/actions/): encuentra la task (el issue detrás de un item del board,
+  # el que implementa el PR de un comentario, la rama `<prefijo><n>` de un CI),
+  # decide de qué proyecto es, la lee de GitHub —card, issue, blockers,
+  # comentarios, PR, CI— y publica el evento de la task con su scope:
+  #
+  #   projects_v2_item      → issue.created · issue.status_changed · projects_v2_item.edited
+  #   issue_comment         → issue_comment
+  #   pull_request(_review) → pull_request · pull_request_review
+  #   check_suite, workflow_run (completed) → check_suite · workflow_run
+  #
+  # No publica nada para un repo fuera del catálogo, ni para una card de otro
+  # board o sin la `label` del proyecto (project.yaml): esas son del engine de
+  # producción.
+  pipelines:
+    - id: intake
+      on:
+        - github.projects_v2_item
+        - github.issue_comment
+        - github.pull_request
+        - github.pull_request_review
+        - github.check_suite
+        - github.workflow_run
+      do:
+        - action: resolve_task
+
+    # Un PR mergeado destraba las tasks que su issue bloqueaba (`mark_blocked_by`):
+    # cada una que quedó sin otro blocker abierto recibe `issue.unblocked`, y la
+    # pipeline de reentrada de su columna la retoma.
+    - id: intake-unblock
+      on: [github.pull_request]
+      when:
+        - { field: action, op: eq, value: closed }
+        - { field: pull_request.merged, op: eq, value: true }
+      do:
+        - action: resolve_task
+          with: { unblockDependents: true }
 
   # Las actions globales (código: sólo rutas). Las ve toda fuente; las de un
   # proyecto van en su project.yaml y ganan sobre éstas. Un directorio toma sus

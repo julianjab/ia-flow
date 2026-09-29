@@ -25,7 +25,7 @@ scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
 # runner.yaml
 engine: { … }                       # CÓMO corre: store de ejecuciones, tick, whenText, formatMessage
 sources:                            # QUÉ corre: la composición del runner
-  pipelines: ./pipelines            # la fuente global (el intake)
+  pipelines: [ … ]                  # la fuente global: el intake, inline
   actions: ./actions                # actions globales
   projects:
     lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml   # o el proyecto inline
@@ -85,14 +85,14 @@ pipeline: por eso llegada y reentrada a Build, o CI rojo y cambios pedidos, son 
 ### El intake
 
 Un webhook entra al engine tal cual lo mandó GitHub (`github.<evento>`) y lo recibe el intake:
-`pipelines/00-intake.yaml` es un solo paso, `resolve_task` (`actions/resolve_task.ts`). Es uno
+El intake (`intake`, inline en `sources.pipelines` de runner.yaml) es un solo paso, `resolve_task` (`actions/resolve_task.ts`). Es uno
 para todos los proyectos: decide de cuál es el evento (el board del item, el catálogo de repos, la
 card del issue y la label) y, por cada uno, encuentra la task
 (el issue detrás de un item del board, el que implementa el PR de un comentario o de un CI), la
 lee de GitHub —card, issue, blockers, timeline del issue y del PR, CI— y publica el evento de la
 task con su scope. No publica nada para un repo fuera del catálogo, ni para una card de otro
 board o sin la `label` del proyecto (`project.yaml`; hoy `blocked`): esas son del engine de
-producción. El evento lleva `message`, el texto con el que le llega a un agente que ya corre. `pipelines/01-unblock.yaml` es el mismo paso con `unblockDependents: true`.
+producción. El evento lleva `message`, el texto con el que le llega a un agente que ya corre. `intake-unblock` es el mismo paso con `unblockDependents: true`.
 
 Lo que el YAML nombra y definen las `actions/`:
 
@@ -142,7 +142,7 @@ Bun carga el `.env` del directorio desde el que corre (gitignoreado). Variables:
 
 Una card con prerrequisitos abiertos no corre sus agentes (las pipelines filtran
 `item.blocked`, salvo las de agentes que admiten correr bloqueados, como los refiners técnicos).
-Cuando se mergea el PR del último prerrequisito, el intake (`pipelines/01-unblock.yaml`) busca en
+Cuando se mergea el PR del último prerrequisito, el intake (`intake-unblock`) busca en
 GitHub los issues que ése bloqueaba (`dependencies/blocking`) y emite `issue.unblocked` para cada
 uno que quedó sin bloqueadores abiertos. Las pipelines de
 reentrada de cada columna lo escuchan, así que la card vuelve al agente que le toca donde esté.

@@ -2,7 +2,7 @@
  * Modo servidor (`--serve`): el engine se monta UNA vez y cada delivery de GitHub recorre
  *
  *   server.ts (firma, 202) → engine.dispatch(github.<evento>, payload crudo)
- *     → el intake (`.config/pipelines/00-intake.yaml`, `resolve_task`) → las del proyecto
+ *     → el intake (`sources.pipelines` de runner.yaml: `intake`, con `resolve_task`) → las del proyecto
  *
  * Cada delivery se despacha en el acto, sin cola: la serie por task y el tope global son de las
  * EJECUCIONES del engine (en SQLite, ver `engine.yaml`). Así un comentario que llega
