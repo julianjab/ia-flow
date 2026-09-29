@@ -32,7 +32,7 @@ const implementer = new Agent({
 
 | Tool | Qué hace |
 | --- | --- |
-| `fs_read` | Lee un archivo de texto completo (trunca a 256KB) |
+| `fs_read` | Lee un archivo de texto completo (trunca a 256KB); con `focus`, de uno grande sólo lo pedido |
 | `fs_list` | Lista archivos/carpetas de un directorio (no recursivo) |
 | `fs_grep` | Busca un regex recursivamente, salta `node_modules`/`.git`/`dist`/`.turbo`/`.cache` |
 | `fs_write` | Crea o sobreescribe un archivo completo, creando directorios padre si hace falta |
@@ -40,6 +40,15 @@ const implementer = new Agent({
 
 Cada tool también se exporta suelta, por si una app quiere una sola sin pasar por el registry:
 `new FsReadTool('/path/al/worktree')`.
+
+## `focus` — leer sólo lo que hace falta de un archivo grande
+
+`fs_read` acepta `focus` ("la firma de createOrder y sus validaciones"). Si el archivo supera
+15 000 caracteres, lo manda numerado (hasta 150 000) a quien cumpla la capacidad `FILE_FOCUS`
+(`fileFocus`) y devuelve sólo esas partes, citadas con su rango de líneas. Quién enfoca se inyecta:
+`new FsReadTool(dir, { focus })`, con `capabilityFocuser(ctx.capabilities)` para usar el `Runnable`
+que la app enchufó en el engine (`@ia-flow/workspace` ya lo hace). Sin quién enfoque, o si falla,
+`focus` se ignora y va el archivo (con el motivo, si falló).
 
 ## Seguridad — todo path es relativo y contenido a `baseDir`
 

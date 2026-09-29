@@ -84,11 +84,15 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
   repo), corre el primero cuyo `when` pasa. Es lo que permite una pipeline por momento del flujo
   en vez de una por variante.
 - **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
-  después del `when`. `whenText: <texto>` o `{ text, systemPrompts, model }`; cada system prompt
+  después del `when`. `whenText: <texto>` o `{ text, systemPrompts }`; cada system prompt
   por id (uno del `source.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline
   (`{ text }`), resueltos AL CARGAR — un id que no existe rompe la carga. El de un paso de agente
-  gana sobre el del agente. El clasificador es del `Engine` (`textClassifier`); sin
-  clasificador, o sin veredicto, lo que tiene `whenText` no corre.
+  gana sobre el del agente. Quién decide es la capacidad `whenText` del `Engine` (el
+  modelo es el de ese agente, no del criterio); sin nadie que la cumpla, o sin veredicto, lo que
+  tiene `whenText` no corre.
+- **`capabilities:` de la fuente** (`{ whenText: { agent: text-classifier } }`): quién cumple cada
+  capacidad del engine, armado como cualquier paso. `DefinitionPipelineSource.capabilities` las
+  sirve en vivo; qué fuente las enchufa en el `Engine` lo decide la app.
 - **`scope` en una pipeline** filtra por `event.scope` (cada clave, exacta). Es una propiedad más:
   una app que agrupa fuentes (ej. un proyecto) la pone en la definición antes de armarla.
 - **Los errores dicen dónde**: `<dónde>: <ruta del campo>: <qué>` (`located`); el `path` de cada

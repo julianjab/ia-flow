@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { ToolInputSchema } from '../agent/SchemaTool.js'
+import type { CapabilityInvoker } from '../capability/Capabilities.js'
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js'
 import type { TextClassifier } from '../condition/TextClassifier.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
@@ -31,6 +32,9 @@ export interface PipelineExecutionContext {
   /** Quién evalúa los `whenText` (el del paso y el de la pipeline). Sin esto, un paso con
    *  `whenText` no corre. Lo pone el `Engine`. */
   classifier?: TextClassifier
+  /** Lo que el engine sabe pedirle a un modelo sin atarse a cuál (`Capability`): una tool que
+   *  enfoca un archivo, un gate semántico. Lo pone el `Engine`. */
+  capabilities?: CapabilityInvoker
 }
 
 /** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). El resto, `action`. */

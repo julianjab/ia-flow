@@ -1,5 +1,6 @@
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { Pipeline } from '../pipeline/Pipeline.js'
+import type { Runnable } from '../pipeline/Runnable.js'
 import type { ExitDefaults } from '../routing/ExitRoutes.js'
 
 /**
@@ -14,6 +15,9 @@ export interface PipelineSource {
   readonly id?: string
   /** Defaults de rutas para todas sus pipelines — el nivel "proyecto" de la cascada. */
   readonly defaults?: ExitDefaults
+  /** Quién cumple cada capacidad según esta fuente (`EngineOptions.capabilities` decide cuál
+   *  usa el engine: típicamente las de la fuente global). */
+  readonly capabilities?: Record<string, Runnable>
   /**
    * El primer filtro de la cascada de `when` (fuente → pipeline → paso): por qué NINGUNA de sus
    * pipelines corre para `event`, o `undefined` si el evento pasa. Ausente = deja pasar todo.
@@ -26,6 +30,8 @@ export interface StaticPipelineSourceOptions {
   id?: string
   /** Ver `PipelineSource.defaults`: el `onError`/`report` de todas sus pipelines. */
   defaults?: ExitDefaults
+  /** Ver `PipelineSource.capabilities`. */
+  capabilities?: Record<string, Runnable>
 }
 
 /**
@@ -36,6 +42,7 @@ export interface StaticPipelineSourceOptions {
 export class StaticPipelineSource implements PipelineSource {
   readonly id?: string
   readonly defaults?: ExitDefaults
+  readonly capabilities?: Record<string, Runnable>
 
   constructor(
     private readonly pipelines: Pipeline[],
@@ -52,6 +59,7 @@ export class StaticPipelineSource implements PipelineSource {
     }
     if (options.id !== undefined) this.id = options.id
     if (options.defaults) this.defaults = options.defaults
+    if (options.capabilities) this.capabilities = options.capabilities
   }
 
   list(): Pipeline[] {

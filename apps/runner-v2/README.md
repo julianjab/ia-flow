@@ -23,9 +23,12 @@ scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
 
 ```yaml
 # runner.yaml
-engine: { … }                       # CÓMO corre: store de ejecuciones, tick, whenText, formatMessage, interrupt
+engine: { … }                       # CÓMO corre: store de ejecuciones, tick, formatMessage, interrupt
 sources:                            # QUÉ corre: la composición del runner
   pipelines: [ … ]                  # la fuente global: el intake, inline
+  agents: ./agents                  # sus agentes: los que cumplen capacidades
+  capabilities:                     # lo que el engine le pide a un modelo (whenText, fileFocus)
+    whenText: { agent: text-classifier }
   actions: ./actions                # actions globales
   projects:
     lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml   # o el proyecto inline
@@ -80,7 +83,7 @@ Una por momento del flujo, no por variante: `refine`, `build-arrival`, `build-re
 `e2e`, `ci-red`, `pr-changes-requested` y `comment`. Qué agente atiende lo decide el `when` de
 cada paso — por tipo de task y por repo (frontend o el resto) —, y `firstMatch: true` corre sólo
 el primero que pasa, así que el orden de los pasos es la prioridad. En `comment`, si el comentario
-pide un cambio lo decide su `whenText` (Haiku). Un mismo agente no puede ser dos pasos de una
+pide un cambio lo decide su `whenText` (la capacidad `whenText`: el agente `text-classifier`, Haiku). Un mismo agente no puede ser dos pasos de una
 pipeline: por eso llegada y reentrada a Build, o CI rojo y cambios pedidos, son pipelines aparte.
 
 ### El intake
@@ -150,6 +153,7 @@ catálogo, no sólo de `claw-agents`.
 
 ## Lo que no se portó del ejemplo
 
-- Las tools `memory_*` del implementer: el runner no las tiene (tampoco el ejemplo).
+- Las tools `memory_*` del implementer: la memoria es el MCP oficial (`memory-mcp` en
+  `runner.yaml`, `bun run memory-mcp`), no tools nativas.
 - Los `settings` del runner v1 (`apps/server`) que este runner no implementa (API, websocket,
   polling, remote providers): `runner.yaml` sólo acepta lo que se usa.

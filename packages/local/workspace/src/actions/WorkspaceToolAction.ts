@@ -5,7 +5,7 @@ import {
   type SideEffects,
   type ToolInputSchema,
 } from '@ia-flow/agent-engine'
-import { FsToolRegistry } from '@ia-flow/fs-tools'
+import { capabilityFocuser, FsReadTool, FsToolRegistry } from '@ia-flow/fs-tools'
 import { type BashPolicy, BashRunTool, timeoutNote } from '@ia-flow/shell-tools'
 import type { WorkspaceSession } from './WorkspaceSession.js'
 
@@ -14,7 +14,8 @@ import type { WorkspaceSession } from './WorkspaceSession.js'
  *
  * Las tools de `fs-tools`/`shell-tools` fijan su directorio al construirse y su `handler` no ve
  * el evento; una Action sí (`execute(input, ctx)`). Cada llamada pide el worktree de SU corrida
- * a la `WorkspaceSession` y delega en la tool real construida sobre ese directorio. El modelo ve
+ * a la `WorkspaceSession` y delega en la tool real construida sobre ese directorio (y sobre las
+ * capacidades de la corrida: el `focus` de `fs_read`). El modelo ve
  * el mismo nombre y el mismo schema que la tool original.
  */
 export class WorkspaceToolAction<S extends ToolInputSchema> extends Action<S, string> {
@@ -25,7 +26,7 @@ export class WorkspaceToolAction<S extends ToolInputSchema> extends Action<S, st
   constructor(
     private readonly session: WorkspaceSession,
     template: SchemaTool<S>,
-    private readonly build: (dir: string) => SchemaTool<S>,
+    private readonly build: (dir: string, ctx: PipelineExecutionContext) => SchemaTool<S>,
     sideEffects: SideEffects,
     description?: string,
   ) {
@@ -36,7 +37,7 @@ export class WorkspaceToolAction<S extends ToolInputSchema> extends Action<S, st
   }
 
   async execute(input: unknown, ctx: PipelineExecutionContext): Promise<string> {
-    return this.build(await this.session.dirFor(ctx)).handler(input)
+    return this.build(await this.session.dirFor(ctx), ctx).handler(input)
   }
 }
 
@@ -84,7 +85,14 @@ export function workspaceAction(
   }
   if (!WORKSPACE_TOOLS.has(name)) throw new Error(`workspace: "${name}" no es una tool de disco`)
   // Las 5 fs_* extienden `SchemaTool` (`FsTool`); el registry las devuelve como `Tool` genérico.
-  const fsTool = (dir: string) => new FsToolRegistry(dir).get(name) as SchemaTool<ToolInputSchema>
+  // `fs_read` se arma aparte: enfoca con la capacidad `fileFocus` de la corrida, si alguien la cumple.
+  const fsTool = (dir: string, ctx?: PipelineExecutionContext) => {
+    if (name === 'fs_read') {
+      const focus = capabilityFocuser(ctx?.capabilities)
+      return new FsReadTool(dir, focus ? { focus } : {}) as unknown as SchemaTool<ToolInputSchema>
+    }
+    return new FsToolRegistry(dir).get(name) as SchemaTool<ToolInputSchema>
+  }
   return new WorkspaceToolAction(
     session,
     fsTool('.'),

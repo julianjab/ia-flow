@@ -38,9 +38,13 @@ src/
 │   ├── ToolRegistry.ts      base genérica de registry de Tool con AUTO-REGISTRO por clase
 │   ├── SchemaTool.ts        base de Tool con input declarado como z.strictObject (valida + JSON Schema)
 │   └── tests/
+├── capability/
+│   ├── Capability.ts        lo que el engine le pide a un modelo: nombre + input/output (zod)
+│   ├── Capabilities.ts      corre el `Runnable` enchufado a cada una (`ctx.capabilities`)
+│   └── tests/
 ├── condition/
 │   ├── Condition.ts, Conditional.ts, EventFilter.ts
-│   ├── TextClassifier.ts, AnthropicTextClassifier.ts   el gate semántico (`whenText`)
+│   ├── TextClassifier.ts, CapabilityTextClassifier.ts   el gate semántico (`whenText`)
 │   └── tests/
 ├── events/
 │   ├── DomainEvent.ts, EventBus.ts
@@ -225,8 +229,8 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
   `when`/`whenText` pasa, y al reanudar una pausa de ese paso no sigue con los demás (el checkpoint
   guarda `resumeAt = do.length`). Sin esto, los pasos corren en orden y una pausa reanudada sigue
   con los siguientes — con condiciones evaluadas contra el evento que la despertó.
-- **`whenText` es un gate impuro, aparte del `when`.** Un modelo (`TextClassifier`; el de
-  Anthropic por default en el YAML) decide si el evento cumple el criterio. Lo evalúan el
+- **`whenText` es un gate impuro, aparte del `when`.** Un modelo decide si el evento cumple el
+  criterio: el `TextClassifier` del engine pide la capacidad `whenText` (ver "Capacidades"). Lo evalúan el
   `DispatchPlanner` (el de una pipeline, sólo si ya pasó todo lo barato y ANTES de elegir la
   `exclusive`) y el `StepRunner` (el de un paso). Sin clasificador o sin veredicto, no corre:
   nunca se adivina. Una llamada por (evento, criterio). Una fuente no lo tiene (sería un modelo
@@ -258,6 +262,26 @@ el nivel proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onEr
 `Pipeline.execute`): respeta su `when` y abre su span, pero NO aplica ningún `onError` — si tira,
 el agente no arranca y el error es del agente (su cascada). Suelto, fuera de una pipeline, corre
 directo.
+
+## Capacidades — `capability/`
+
+Lo que el engine (o un paquete de infra) necesita de un modelo sin atarse a cuál: decidir un
+`whenText`, enfocar un archivo largo (`fileFocus`, de fs-tools). Una `Capability` declara SÓLO el
+contrato —`name`, `input` y `output` en zod— y la declara quien la consume. Quién la cumple es un
+`Runnable` que la app enchufa por nombre en `EngineOptions.capabilities` (fijo, o una función que
+resuelve en cada pedido: una fuente que se recarga). Sin nadie enchufado, la capacidad está
+apagada y quien la pide degrada — nunca tira por eso.
+
+- **`Capabilities.invoke(capability, input)`** corre el `Runnable` fuera de toda pipeline y
+  ejecución: un evento `capability.<nombre>` cuyo payload es el input (un prompt lo lee como
+  `{{campo}}`), y el input también como `input` del paso. Valida la salida contra `output`.
+- **Un `Agent`** corre con TODAS sus salidas llevando a un paso `result` cuyo input es `output`:
+  el modelo entrega la respuesta en `submit_<salida>.result`. Sin reportes, `onError` ni
+  `onInterrupt` — el agente de una capacidad no publica nada.
+- **Los pasos las ven en `ctx.capabilities`** (`CapabilityInvoker`: `has`, `invoke`). Lo pone el
+  `Engine` en el contexto de cada pipeline, y `invoke` se lo pasa también al paso que la cumple.
+- **Nada de I/O acá**: el cliente de Anthropic que antes clasificaba los `whenText` desde el
+  core se fue. Ahora es un agente YAML (`text-classifier` en runner-v2).
 
 ## Ejecuciones — `engine/`
 

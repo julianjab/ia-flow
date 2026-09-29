@@ -1,6 +1,7 @@
 /**
  * Un gate semántico (`whenText`): un modelo lee el evento y dice si cumple un criterio escrito en
- * lenguaje natural. Es impuro (una llamada a un modelo) y por eso vive APARTE del `when`: se
+ * lenguaje natural. Qué modelo lo decide es de quien cumple la capacidad `whenText`
+ * (`CapabilityTextClassifier`), no del criterio. Es impuro (una llamada a un modelo) y por eso vive APARTE del `when`: se
  * evalúa después de él, sólo si las condiciones puras ya pasaron.
  */
 export interface WhenText {
@@ -8,8 +9,6 @@ export interface WhenText {
   text: string
   /** Instrucciones para el clasificador, ya resueltas a texto (el YAML las nombra por id). */
   systemPrompts?: string[]
-  /** Default: el del clasificador. */
-  model?: string
 }
 
 /** `matches: null` = no pudo decidir (sin clasificador, sin credencial, error, sin veredicto):

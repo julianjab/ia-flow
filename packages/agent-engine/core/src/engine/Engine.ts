@@ -1,4 +1,6 @@
 import { createLogger, traced } from '@ia-flow/telemetry'
+import { Capabilities, type CapabilityBindings } from '../capability/Capabilities.js'
+import { CapabilityTextClassifier } from '../condition/CapabilityTextClassifier.js'
 import type { TextClassifier } from '../condition/TextClassifier.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus, Unsubscribe } from '../events/EventBus.js'
@@ -35,8 +37,14 @@ export interface EngineOptions {
   executionKey?: (event: DomainEvent<any>) => string | undefined
   /** Cómo se lee un evento inyectado en la conversación del agente. Default: tipo + payload. */
   formatMessage?: (event: DomainEvent<any>) => string
-  /** Quién evalúa los `whenText` (ej. `AnthropicTextClassifier`). Sin esto, una pipeline o un
-   *  paso con `whenText` no corre. */
+  /**
+   * Quién cumple cada `Capability` por nombre (`whenText`, `fileFocus`, …): un `Runnable` —
+   * típicamente un `Agent` con un modelo chico —, fijo o resuelto en cada pedido. Una capacidad
+   * sin nadie está apagada y quien la pide degrada (un `whenText` no corre, `fs_read` ignora
+   * `focus`).
+   */
+  capabilities?: CapabilityBindings
+  /** Quién evalúa los `whenText`. Default: la capacidad `whenText` (`CapabilityTextClassifier`). */
   textClassifier?: TextClassifier
   /**
    * Si un evento lo produjo el propio sistema (ej. un webhook cuyo `sender` es el bot del engine):
@@ -86,7 +94,9 @@ export class Engine {
   constructor(opts: EngineOptions) {
     this.bus = opts.bus
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH
-    this.planner = new DispatchPlanner([opts.pipelines].flat(), opts.textClassifier)
+    const capabilities = new Capabilities(opts.capabilities ?? {}, opts.bus)
+    const classifier = opts.textClassifier ?? new CapabilityTextClassifier(capabilities)
+    this.planner = new DispatchPlanner([opts.pipelines].flat(), classifier)
     this.launcher = new RunLauncher()
     this.coordinator = new ExecutionCoordinator({
       bus: opts.bus,
@@ -96,7 +106,8 @@ export class Engine {
       executionKey: opts.executionKey ?? scopeExecutionKey,
       formatMessage: opts.formatMessage ?? defaultMessage,
       redispatch: (unread, executionId) => this.redelivery.redispatch(unread, executionId),
-      ...(opts.textClassifier ? { classifier: opts.textClassifier } : {}),
+      classifier,
+      capabilities,
       ...(opts.selfOriginated ? { selfOriginated: opts.selfOriginated } : {}),
       ...(opts.interruptReason ? { interruptReason: opts.interruptReason } : {}),
     })

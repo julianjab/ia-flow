@@ -21,8 +21,15 @@ export { ToolRegistry } from './agent/ToolRegistry.js'
 export { Toolset } from './agent/Toolset.js'
 export { NO_TRANSITION_OUTCOMES, TurnProtocol } from './agent/TurnProtocol.js'
 export { YIELD_TOOL_NAME, YieldTool } from './agent/YieldTool.js'
-export type { AnthropicTextClassifierOptions } from './condition/AnthropicTextClassifier.js'
-export { AnthropicTextClassifier } from './condition/AnthropicTextClassifier.js'
+export type { CapabilityBindings, CapabilityInvoker } from './capability/Capabilities.js'
+export { CAPABILITY_RESULT, Capabilities } from './capability/Capabilities.js'
+export type {
+  Capability,
+  CapabilityInput,
+  CapabilityOutput,
+} from './capability/Capability.js'
+export { defineCapability } from './capability/Capability.js'
+export { CapabilityTextClassifier, WHEN_TEXT } from './condition/CapabilityTextClassifier.js'
 export type { ConditionOp, ConditionRow } from './condition/Condition.js'
 export { Condition } from './condition/Condition.js'
 export type { ConditionalProps } from './condition/Conditional.js'

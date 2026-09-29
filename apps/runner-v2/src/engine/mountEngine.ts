@@ -1,12 +1,12 @@
 /**
  * El engine del runner, armado desde la sección `engine:` de `runner.yaml`: el store de
- * ejecuciones (por nombre de driver), el tick que vence pausas, el clasificador de los `whenText`
- * el texto con el que un evento le llega a un agente que ya corre (`formatMessage`) y cómo se
+ * ejecuciones (por nombre de driver), el tick que vence pausas, quién cumple las capacidades
+ * (`whenText`, `fileFocus`: la fuente global las declara en `sources.capabilities`), el texto con el que un evento le llega a un agente que ya corre (`formatMessage`) y cómo se
  * interrumpe a uno (`interrupt`).
  */
 import { isAbsolute, resolve } from 'node:path'
 import {
-  AnthropicTextClassifier,
+  type CapabilityBindings,
   type DomainEvent,
   Engine,
   EventBus,
@@ -33,15 +33,6 @@ export const EngineSection = z.strictObject({
     .optional(),
   /** Cada cuánto se vencen las pausas (`engine.tick()`). */
   tick: z.strictObject({ everyMs: z.number().int().positive() }).optional(),
-  /** El clasificador de los `whenText`: la Messages API de Anthropic. Sin esto, un `whenText`
-   *  no deja correr nada. */
-  whenText: z
-    .strictObject({
-      model: z.string().min(1).optional(),
-      /** La env var con la API key. Default: `ANTHROPIC_API_KEY`. */
-      apiKeyEnv: z.string().min(1).optional(),
-    })
-    .optional(),
   /** Plantilla contra el payload (`'{{message}}'`); vacía, el mensaje por default del engine. */
   formatMessage: z.string().min(1).optional(),
   /** Las pipelines con `ifRunning: interrupt`: qué le dicen al agente y quién no interrumpe. */
@@ -69,7 +60,9 @@ export interface MountEngineOptions {
   baseDir: string
   sources: PipelineSource[]
   drivers: Record<string, StoreDriver>
-  /** Gana sobre el de `whenText`. */
+  /** Quién cumple cada capacidad (ver `EngineOptions.capabilities`). */
+  capabilities?: CapabilityBindings
+  /** Gana sobre la capacidad `whenText` (tests). */
   textClassifier?: TextClassifier
 }
 
@@ -100,15 +93,6 @@ function store(
   return driver({
     ...(path !== undefined ? { path } : {}),
     ...(config.maxConcurrent !== undefined ? { maxConcurrent: config.maxConcurrent } : {}),
-  })
-}
-
-function classifier(config: EngineSection['whenText']): TextClassifier | undefined {
-  if (!config) return undefined
-  const env = config.apiKeyEnv ?? 'ANTHROPIC_API_KEY'
-  return new AnthropicTextClassifier({
-    apiKey: () => process.env[env],
-    ...(config.model ? { model: config.model } : {}),
   })
 }
 
@@ -156,7 +140,6 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     ? store(config.executions, opts.drivers, opts.baseDir)
     : undefined
   const bus = new EventBus()
-  const textClassifier = opts.textClassifier ?? classifier(config.whenText)
   const formatMessage = messageTemplate(config.formatMessage)
   const reason = interruptReason(config.interrupt?.reason)
   const selfOriginated = ownSender(config.interrupt?.ownSenders)
@@ -166,7 +149,8 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     ...(config.maxEventDepth !== undefined ? { maxEventDepth: config.maxEventDepth } : {}),
     ...(executions ? { executions } : {}),
     ...(formatMessage ? { formatMessage } : {}),
-    ...(textClassifier ? { textClassifier } : {}),
+    ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
+    ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
     ...(reason ? { interruptReason: reason } : {}),
     ...(selfOriginated ? { selfOriginated } : {}),
   })

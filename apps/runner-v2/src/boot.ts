@@ -22,6 +22,7 @@ import {
   type Pipeline,
   providerRegistry,
   type ResolvedRoutes,
+  type Runnable,
   type TextClassifier,
 } from '@ia-flow/agent-engine'
 import { YamlDefinitionSource } from '@ia-flow/agent-engine-datasource-yaml'
@@ -91,15 +92,20 @@ function workspaceLogger(log: (line: string) => void): WorkspaceLogger {
 
 /** El `providerConfig` de cada agente de `anthropic-api` tiene la forma de la config del
  *  provider: se valida al montar, para que un typo rompa el arranque y no la primera corrida. */
-function validateProviderConfigs(pipelines: Pipeline[]): void {
-  for (const pipeline of pipelines) {
-    for (const step of pipeline.do) {
-      if (!isAgent(step) || step.definition.provider !== 'anthropic-api') continue
-      try {
-        parseAnthropicAgentConfig(step.definition.providerConfig ?? {})
-      } catch (err) {
-        throw new Error(`agente "${step.id}" (${pipeline.id}): ${(err as Error).message}`)
-      }
+function validateProviderConfigs(
+  pipelines: Pipeline[],
+  capabilities: Record<string, Runnable>,
+): void {
+  const steps = [
+    ...pipelines.flatMap((pipeline) => pipeline.do.map((step) => ({ step, where: pipeline.id }))),
+    ...Object.entries(capabilities).map(([name, step]) => ({ step, where: `capacidad ${name}` })),
+  ]
+  for (const { step, where } of steps) {
+    if (!isAgent(step) || step.definition.provider !== 'anthropic-api') continue
+    try {
+      parseAnthropicAgentConfig(step.definition.providerConfig ?? {})
+    } catch (err) {
+      throw new Error(`agente "${step.id}" (${where}): ${(err as Error).message}`)
     }
   }
 }
@@ -144,14 +150,12 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   const actions = await loadActions(cfg.actions, cfg.projects, services)
   const catalogs = { ...actions.catalogs, providers: providerRegistry, mcpServers }
 
+  const globalSource = new DefinitionPipelineSource(
+    new YamlDefinitionSource({ id: GLOBAL_SOURCE, ...cfg.source }),
+    catalogs,
+  )
   const sources: MountedSource[] = [
-    {
-      id: GLOBAL_SOURCE,
-      source: new DefinitionPipelineSource(
-        new YamlDefinitionSource({ id: GLOBAL_SOURCE, ...cfg.source }),
-        catalogs,
-      ),
-    },
+    { id: GLOBAL_SOURCE, source: globalSource },
     ...cfg.projects.map((project) => ({
       id: project.id,
       source: new DefinitionPipelineSource(
@@ -167,11 +171,13 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     baseDir: cfg.dir,
     sources: sources.map((entry) => entry.source),
     drivers: { 'bun-sqlite': opts.testing?.storeDriver ?? bunSqliteStoreDriver },
+    // Las de la fuente global, en vivo: editar `sources.capabilities` recarga sin reiniciar.
+    capabilities: (name) => globalSource.capabilities[name],
     ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
   })
   const pipelines = () => sources.flatMap((entry) => entry.source.list())
   try {
-    validateProviderConfigs(pipelines())
+    validateProviderConfigs(pipelines(), globalSource.capabilities)
   } catch (err) {
     mounted.stop()
     throw err

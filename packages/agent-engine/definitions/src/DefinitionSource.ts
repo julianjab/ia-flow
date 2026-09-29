@@ -6,6 +6,7 @@ import type {
   ExitDefaults,
   Pipeline,
   PipelineSource,
+  Runnable,
   StaticPipelineSource,
 } from '@ia-flow/agent-engine'
 import { createLogger } from '@ia-flow/telemetry'
@@ -46,6 +47,11 @@ export class DefinitionPipelineSource implements PipelineSource {
 
   get defaults(): ExitDefaults {
     return this.refresh().defaults ?? {}
+  }
+
+  /** Quién cumple cada capacidad (`capabilities:` de la fuente), en vivo. */
+  get capabilities(): Record<string, Runnable> {
+    return this.refresh().capabilities ?? {}
   }
 
   list(): Pipeline[] {

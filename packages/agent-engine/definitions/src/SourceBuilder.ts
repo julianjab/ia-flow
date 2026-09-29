@@ -98,6 +98,7 @@ export class SourceBuilder {
         new StaticPipelineSource(pipelines, {
           id: this.sourceId,
           defaults: this.defaults(doc, context, path),
+          capabilities: this.capabilities(doc, context, path),
         }),
     )
   }
@@ -288,6 +289,19 @@ export class SourceBuilder {
     )
   }
 
+  private capabilities(
+    doc: SourceDoc,
+    context: StepBuildContext,
+    where: string,
+  ): Record<string, Runnable> {
+    return Object.fromEntries(
+      Object.entries(doc.capabilities ?? {}).map(([name, node]) => [
+        name,
+        context.step(node, `${where}: capabilities.${name}`),
+      ]),
+    )
+  }
+
   private defaults(node: DefaultsNode, context: StepBuildContext, where: string): ExitDefaults {
     return {
       ...(node.onError !== undefined
@@ -358,7 +372,6 @@ export class SourceBuilder {
       whenText: {
         text: node.text,
         ...(systemPrompts.length > 0 ? { systemPrompts } : {}),
-        ...(node.model ? { model: node.model } : {}),
       },
     }
   }

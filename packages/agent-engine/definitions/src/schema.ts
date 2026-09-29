@@ -35,7 +35,8 @@ export const ConditionRows = z.array(
 export const StepNode = z.record(z.string(), z.unknown())
 
 /**
- * El gate semántico (`whenText`): el criterio en lenguaje natural, o `{ text, systemPrompts, model }`.
+ * El gate semántico (`whenText`): el criterio en lenguaje natural, o `{ text, systemPrompts }`.
+ * El modelo que decide es el del agente que cumple la capacidad `whenText` (ver el engine).
  * Un system prompt se nombra por id —uno del `source.yaml` o del catálogo— o va inline
  * (`{ text }`); se resuelven al cargar.
  */
@@ -46,7 +47,6 @@ export const WhenTextNode = z.union([
     systemPrompts: z
       .array(z.union([z.string().min(1), z.strictObject({ text: z.string().min(1) })]))
       .optional(),
-    model: z.string().min(1).optional(),
   }),
 ])
 export type WhenTextNode = z.infer<typeof WhenTextNode>
@@ -106,6 +106,9 @@ export const SourceDoc = z.strictObject({
   vars: z.record(z.string(), z.unknown()).optional(),
   /** Van ANTES de los de cada agente de la fuente: el prefijo compartido (y cacheable) de todos. */
   systemPrompts: SystemPromptRefs.optional(),
+  /** Quién cumple cada capacidad del engine (`whenText`, `fileFocus`, …): un paso, típicamente
+   *  `{ agent: <id> }` con un modelo chico. Ver `Capability` en el engine. */
+  capabilities: z.record(z.string().min(1), StepNode).optional(),
   ...Defaults,
 })
 export type SourceDoc = z.infer<typeof SourceDoc>

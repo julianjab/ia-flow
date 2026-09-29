@@ -1,7 +1,7 @@
 id: comment
 name: Comentario humano → el agente de la columna, si pide un cambio
 # Un comentario humano en el issue o su PR, mientras la card está en una columna con un agente
-# que lo pueda atender. Si pide un cambio lo decide el `whenText` (Haiku, `runner.yaml` → `engine.whenText`): una
+# que lo pueda atender. Si pide un cambio lo decide el `whenText` (el agente `text-classifier`, `runner.yaml` → `sources.capabilities.whenText`): una
 # pregunta, un agradecimiento o un feedback ya resuelto no despiertan a nadie. A qué agente va
 # lo decide el `when` de cada paso: `firstMatch` corre el primero que pasa, así que el orden es
 # la prioridad (frontend antes que el genérico).

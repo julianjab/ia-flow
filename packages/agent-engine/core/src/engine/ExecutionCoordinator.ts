@@ -1,5 +1,6 @@
 import { createLogger, inFreshContext, taggedSync, traced } from '@ia-flow/telemetry'
 import { YIELD_TOOL_NAME } from '../agent/YieldTool.js'
+import type { CapabilityInvoker } from '../capability/Capabilities.js'
 import type { TextClassifier } from '../condition/TextClassifier.js'
 import { createEvent, type DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
@@ -65,6 +66,8 @@ export interface ExecutionCoordinatorOptions {
   redispatch: (unread: DomainEvent<any>[], executionId: string) => void
   /** Quién evalúa los `whenText` de los pasos. */
   classifier?: TextClassifier
+  /** Las capacidades que ven los pasos (`ctx.capabilities`). */
+  capabilities?: CapabilityInvoker
   /** Si `event` lo produjo el propio sistema: no interrumpe (ver `EngineOptions`). */
   selfOriginated?: (event: DomainEvent<any>) => boolean
   /** Qué pasó, para leer, cuando `pipeline` interrumpe por `event` (ver `EngineOptions`). */
@@ -94,6 +97,7 @@ export class ExecutionCoordinator {
   private readonly bus: EventBus
   private readonly planner: DispatchPlanner
   private readonly classifier?: TextClassifier
+  private readonly capabilities?: CapabilityInvoker
   private readonly launcher: RunLauncher
   readonly executions?: ExecutionStore
   private readonly executionKey: (event: DomainEvent<any>) => string | undefined
@@ -117,6 +121,7 @@ export class ExecutionCoordinator {
     this.formatMessage = opts.formatMessage
     this.redispatch = opts.redispatch
     this.classifier = opts.classifier
+    this.capabilities = opts.capabilities
     this.selfOriginated = opts.selfOriginated ?? (() => false)
     this.interruptReason = opts.interruptReason ?? defaultInterruptReason
   }
@@ -336,6 +341,7 @@ export class ExecutionCoordinator {
         defaults: source.defaults,
         ...(source.id !== undefined ? { sourceId: source.id } : {}),
         ...(this.classifier ? { classifier: this.classifier } : {}),
+        ...(this.capabilities ? { capabilities: this.capabilities } : {}),
         ...(execution ? { execution } : {}),
       },
       from,

@@ -93,6 +93,9 @@ export const RunnerFileSchema = z.strictObject({
       /** La fuente global: la que recibe todos los eventos (ej. los webhooks crudos). */
       agents: Entries.optional(),
       pipelines: Entries.optional(),
+      /** Quién cumple cada capacidad del engine (`whenText`, `fileFocus`): un paso de la fuente
+       *  global, típicamente `{ agent: <id> }`. Sin una, esa capacidad está apagada. */
+      capabilities: z.record(z.string().min(1), z.record(z.string(), z.unknown())).optional(),
       /** Las actions globales: las ve toda fuente. */
       actions: Paths.optional(),
       /** Cada proyecto: la ruta a su `project.yaml`, o el proyecto inline. */
@@ -204,12 +207,12 @@ function sourceSpec(
   file: Pick<
     ProjectFile,
     'agents' | 'pipelines' | 'vars' | 'systemPrompts' | 'onError' | 'onInterrupt' | 'report'
-  >,
+  > & { capabilities?: Record<string, unknown> },
   base: string,
   origin: string,
 ): YamlSourceSpec {
   const defaults = Object.fromEntries(
-    (['vars', 'systemPrompts', 'onError', 'onInterrupt', 'report'] as const)
+    (['vars', 'systemPrompts', 'onError', 'onInterrupt', 'report', 'capabilities'] as const)
       .filter((key) => file[key] !== undefined)
       .map((key) => [key, file[key]]),
   )
@@ -270,11 +273,12 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
       spec: () => {
-        const { agents, pipelines } = parse(runnerPath, RunnerFileSchema).sources
+        const { agents, pipelines, capabilities } = parse(runnerPath, RunnerFileSchema).sources
         return sourceSpec(
           {
             ...(agents !== undefined ? { agents } : {}),
             ...(pipelines !== undefined ? { pipelines } : {}),
+            ...(capabilities !== undefined ? { capabilities } : {}),
           },
           dir,
           `${runnerPath}: sources`,
