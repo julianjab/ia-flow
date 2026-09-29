@@ -22,3 +22,9 @@ sources:
 # Cada cuánto se revisan las pausas vencidas (`timeout` de un `pause`).
 tick:
   everyMs: 60000
+
+# El clasificador de los `whenText` (pipelines y pasos): Haiku por la Messages API de
+# Anthropic, con la misma ANTHROPIC_API_KEY que los agentes. Sin la key, lo que tiene un
+# `whenText` no corre.
+whenText:
+  model: claude-haiku-4-5
