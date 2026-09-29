@@ -74,3 +74,56 @@ describe('ExecutionScheduler', () => {
     expect(scheduler.running).toBe(0)
   })
 })
+
+describe('Semaphore.resize', () => {
+  it('raising the cap lets waiters in; lowering it cuts nobody and hands no slot above it', async () => {
+    const semaphore = new Semaphore(1)
+    await semaphore.acquire()
+    let second = false
+    void semaphore.acquire().then(() => {
+      second = true
+    })
+    semaphore.resize(2)
+    await tick()
+    expect(second).toBe(true)
+    expect(semaphore.active).toBe(2)
+
+    semaphore.resize(1)
+    let third = false
+    void semaphore.acquire().then(() => {
+      third = true
+    })
+    semaphore.release()
+    await tick()
+    expect(third).toBe(false)
+    expect(semaphore.active).toBe(1)
+    semaphore.release()
+    await tick()
+    expect(third).toBe(true)
+  })
+})
+
+describe('ExecutionScheduler groups', () => {
+  it('caps the tasks of a group below the global cap, and leaves other groups alone', async () => {
+    const scheduler = new ExecutionScheduler(10, {
+      of: (key) => key.split('/')[0],
+      max: (group) => (group === 'p1' ? 1 : undefined),
+    })
+    const a = scheduler.enter('p1/a')
+    const b = scheduler.enter('p1/b')
+    const c = scheduler.enter('p2/c')
+    let bReady = false
+    void b.ready.then(() => {
+      bReady = true
+    })
+    await a.ready
+    await c.ready
+    await tick()
+    expect(bReady).toBe(false)
+    expect(scheduler.running).toBe(2)
+
+    a.release()
+    await b.ready
+    expect(scheduler.running).toBe(2)
+  })
+})
