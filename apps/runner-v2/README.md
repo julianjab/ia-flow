@@ -25,9 +25,18 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
     ├── project.yaml             filtro del proyecto, system prompts compartidos, onError
     ├── agents/*.yaml            QUÉ hace cada agente y cómo termina (sus salidas)
     ├── intake/*.yaml            de un webhook CRUDO al evento de la task (antes del filtro)
-    ├── pipelines/*.yaml         CUÁNDO corre (una pipeline por columna/evento)
+    ├── pipelines/*.yaml         CUÁNDO corre: una pipeline por momento del flujo
     └── repos/*.yaml             el catálogo de repos (lo lee el runner, no el engine)
 ```
+
+### Las pipelines (`pipelines/`)
+
+Una por momento del flujo, no por variante: `refine`, `build-arrival`, `build-reentry`, `review`,
+`e2e`, `ci-red`, `pr-changes-requested` y `comment`. Qué agente atiende lo decide el `when` de
+cada paso — por tipo de task y por repo (frontend o el resto) —, y `firstMatch: true` corre sólo
+el primero que pasa, así que el orden de los pasos es la prioridad. En `comment`, si el comentario
+pide un cambio lo decide su `whenText` (Haiku). Un mismo agente no puede ser dos pasos de una
+pipeline: por eso llegada y reentrada a Build, o CI rojo y cambios pedidos, son pipelines aparte.
 
 ### El intake (`intake/`)
 

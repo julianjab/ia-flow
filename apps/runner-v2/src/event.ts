@@ -306,6 +306,8 @@ export function assemblePayload(
 ): Record<string, unknown> {
   const labels = args.labels.length > 0 ? args.labels : issue.labels
   const payload: Record<string, unknown> = {
+    // Qué evento es: lo que miran los `when` de los pasos de una pipeline que escucha varios.
+    eventType: args.eventType,
     owner: args.owner,
     repo: args.repo,
     number: args.number,

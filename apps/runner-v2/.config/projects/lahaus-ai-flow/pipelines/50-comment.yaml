@@ -3,7 +3,8 @@ name: Comentario humano → el agente de la columna, si pide un cambio
 # Un comentario humano en el issue o su PR, mientras la card está en una columna con un agente
 # que lo pueda atender. Si pide un cambio lo decide el `whenText` (Haiku, `engine.yaml`): una
 # pregunta, un agradecimiento o un feedback ya resuelto no despiertan a nadie. A qué agente va
-# lo decide el `when` de cada paso — son excluyentes, corre exactamente uno.
+# lo decide el `when` de cada paso: `firstMatch` corre el primero que pasa, así que el orden es
+# la prioridad (frontend antes que el genérico).
 #
 # Reemplaza a las 11 `comment-*` de antes (una por columna × tipo × repo, cada una con su
 # `comment-triage`): el triage era un agente sólo para decidir "¿es accionable?", y eso ahora es
@@ -27,6 +28,7 @@ scope:
   projectId: lahaus-ai-flow
 position: 25
 exclusive: true
+firstMatch: true
 do:
   # ── Refine / Refined ────────────────────────────────────────────────────
   - agent: functional-refiner
@@ -64,7 +66,6 @@ do:
     when:
       - { field: item.status, op: in, value: [ Refine, Refined ] }
       - { field: item.type, op: neq, value: functional }
-      - { field: item.repos, op: notContains, value: lh-seller-v2-frontend }
     brief: |-
       ## Por qué estás corriendo
 
@@ -100,9 +101,6 @@ do:
       diseño, releé el Figma linkeado con `get_figma_data` en vez de asumirlo.
   - agent: implementer
     when:
-      - { field: item.status, op: eq, value: Review }
-      - { field: item.labels, op: notContains, value: reviewed }
-      - { field: item.repos, op: notContains, value: lh-seller-v2-frontend, logic: or }
       - { field: item.status, op: in, value: [ Build, Review ] }
       - { field: item.blocked, op: neq, value: true }
     brief: |-

@@ -1,0 +1,61 @@
+id: refine
+name: Refine → el refiner del tipo y el repo de la task
+# Una pipeline, un paso por refiner: `firstMatch` corre el primero cuyo `when` pasa — el orden
+# es la prioridad (épica, frontend, técnica).
+#
+# Las técnicas corren también sobre una card bloqueada (sus refiners no escriben código) y por eso
+# no esperan a `issue.unblocked`; una épica bloqueada sí espera a sus prerrequisitos.
+on: [ issue.created, issue.status_changed, projects_v2_item.edited, issue.unblocked ]
+when:
+  - { field: item.type, op: neq, value: functional }
+  - { field: item.blocked, op: neq, value: true, logic: or }
+  - { field: item.status, op: eq, value: Refine }
+scope:
+  projectId: lahaus-ai-flow
+position: 10
+exclusive: true
+firstMatch: true
+do:
+  - agent: functional-refiner
+    when:
+      - { field: item.type, op: eq, value: functional }
+    brief: |-
+      ## Por qué estás corriendo
+
+      Esta tarea está en `Refine` y clasificada como **Functional**: es una
+      épica. Desglosala en sub-issues técnicos por repo y dejá el PRD
+      funcional en el issue padre.
+
+      Si ya tiene sub-issues, tu corrida es de RECONCILIACIÓN: creá sólo lo
+      que falte contra la tabla del Desglose, sin duplicar ni re-crear
+      hijos cerrados.
+  - agent: frontend-refiner
+    when:
+      - { field: eventType, op: neq, value: issue.unblocked }
+      - { field: item.repos, op: contains, value: lh-seller-v2-frontend }
+    brief: |-
+      ## Por qué estás corriendo
+
+      Esta tarea está en `Refine`, es técnica y vive en un repo frontend:
+      produci el PRD accionable para que un implementador escriba el
+      código sin más contexto. Si la descripción linkea un diseño de
+      Figma, leelo con `get_figma_data` antes de escribir el PRD — no lo
+      asumas del título.
+
+      Arrancá por el Paso 0 — el issue puede llegar ya refinado (por un
+      humano, o por vos en una corrida que volvió acá desde `Build`), y en
+      ese caso tu aporte es la VERIFICACIÓN contra el código real, no
+      reescribir el body.
+  - agent: refiner
+    when:
+      - { field: eventType, op: neq, value: issue.unblocked }
+    brief: |-
+      ## Por qué estás corriendo
+
+      Esta tarea está en `Refine` y es técnica: produci el PRD accionable
+      para que un implementador escriba el código sin más contexto.
+
+      Arrancá por el Paso 0 — el issue puede llegar ya refinado (por un
+      humano, o por vos en una corrida que volvió acá desde `Build`), y en
+      ese caso tu aporte es la VERIFICACIÓN contra el código real, no
+      reescribir el body.

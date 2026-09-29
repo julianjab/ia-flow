@@ -1,156 +1,22 @@
-# Verificación e2e ON-DEMAND — no es parte del pipeline automático, la pide
-# un humano agregando la label `e2e-test` a la card, sólo en Review (no en
-# Build — ver el porqué más abajo).
-#
-# ── Por qué `projects_v2_item.edited` y no `issues.labeled` ───────────────
-#
-# `issues.labeled`/`issues.unlabeled` SÍ llegan cuando cambia una label, pero
-# `payload.item` queda vacío: `resolveItem()` (ia-flow) pasa el node id del
-# Issue a una query de GraphQL tipada para `ProjectV2Item`, no matchea, y la
-# resolución vuelve `null` en silencio — el `when` sobre `item.labels` nunca
-# podría matchear. `projects_v2_item.edited` no tiene ese problema: el id que
-# trae el webhook YA es el del `ProjectV2Item`. Mismo diagnóstico que el resto
-# de las reglas de este roster (ver README.md § "Por qué projects_v2_item.edited").
-#
-# `issue.created`/`issue.status_changed` se suman por la misma razón que en
-# `10-refine.yaml`/`20-build.yaml`: cubren el caso de un issue que llega con
-# la label ya puesta (un cambio de status que lo deja en Review sin que la
-# label se haya tocado en ese evento particular).
-#
-# ── Por qué SÓLO Review, y no también Build ────────────────────────────────
-#
-# El agente lleva `requiresBranch: true` porque necesita `{{task.branch}}`
-# resuelta para que el remote sepa qué checkoutear. La primera versión de
-# esta regla asumía que sin branch el dispatch fallaba visible — FALSO:
-# `resolveLinkedBranch` (packages/agent-engine/src/linked-branch.ts) no
-# falla, CREA una branch nueva desde la default branch del repo cuando
-# `task.branch` está vacío (y si `createLinkedBranch` tira, cae en
-# `task/<id>` igual — nunca aborta el dispatch). Si esta regla matcheara en
-# Build antes de que el implementer haya pusheado algo, un humano
-# agregando `e2e-test` demasiado pronto dispararía al agente contra una
-# branch vacía parada en `main` — specs corriendo contra el código
-# equivocado, con un veredicto (`passed` o `back_to_build`) que parece
-# válido y no lo es.
-#
-# `Review` no tiene ese riesgo: el pipeline garantiza que una card sólo
-# llega ahí con "branch pusheada Y PR abierto" (ver README.md § "El
-# pipeline", salida del implementer) — `task.branch` YA existe siempre que
-# el status es Review, así que `requiresBranch` nunca dispara la creación.
-# Por eso el `when` de abajo gatea con `item.status = Review` en vez de
-# excluir status puntuales: es la única columna donde la precondición real
-# del agente (hay algo pusheado para verificar) está garantizada.
-#
-# ── El precio ────────────────────────────────────────────────────────────
-#
-# El `when` es el único gate, así que mientras `e2e-test` siga puesta,
-# CUALQUIER otra edición del board (otro label, un comentario que toca el
-# campo Working, etc.) re-despacha este agente de nuevo — no en loop (no hay
-# diff que lo perpetúe indefinidamente una vez que `e2e-visual-qa` corre y
-# aplica una salida), pero sí de más mientras la label sigue ahí. Es el mismo
-# trade-off que acepta el resto del roster (ver README.md). Por eso las dos
-# salidas del agente (`passed`, `back_to_build`) sacan `e2e-test`; en el
-# camino de error (`onError`, +blocked) queda a propósito, para que sacar
-# `blocked` reintente sin pedir el e2e de nuevo.
-#
-# ── Por qué `when` sobre `item.repos` y NO `repoName` ───────────────────────
-#
-# El agent-host remoto (`remote:front-end-developer`, PR #2167) sólo tiene
-# el toolchain de Playwright/Node/yarn para `lh-seller-v2-frontend` — correr
-# esto contra otro repo fallaría en el agent-host, no acá. La intención
-# original era resolver esto con `repoName` (fail-closed vía `matchScope`,
-# evaluado ANTES del `when`), pero eso resultó ser un bug silencioso: esta
-# regla SÓLO puede dispararse por `projects_v2_item.edited` (agregar una
-# label no cambia el status, así que `issue.created`/`issue.status_changed`
-# nunca se emiten para este caso — ver `status-diff.ts`), y ese evento
-# webhook NO trae `owner/repo` en el payload de GitHub. Su scope se arma con
-# `scopeForProjectIds()` (`apps/server/src/adapters/github/webhook-events.ts`),
-# que sólo pobla `projectId`, nunca `repos`. `matchScope` (`packages/rules/src/scope.ts`)
-# es un pre-check sin I/O que corre ANTES de resolver el item — con `repoName`
-# seteado y `scope.repos` siempre vacío para este evento, la regla se
-# rechazaba en la etapa de scope en el 100% de los casos, sin llegar nunca al
-# `when`. Confirmado contra prod: cero ejecuciones de `e2e-visual-qa` en
-# `execution_logs` desde que existe la regla (ia-flow issue de seguimiento
-# para el fix de fondo del engine: repos-scope-projects-v2-item-edited).
-#
-# El filtro de repo se movió acá abajo, al `when` sobre `item.repos` — ese
-# campo SÍ se resuelve (vía `GetProjectItemById`) para cualquier regla que
-# pase el scope de proyecto, así que sigue siendo fail-closed en la práctica
-# (sin PR de `lh-seller-v2-frontend`, `item.repos` no lo tiene y el `when` no
-# matchea), sólo que en la etapa correcta.
-#
-# ── Por qué SIN `exclusive: true`, y por qué `review` NO excluye `e2e-test` ─
-#
-# `matchRules` (packages/rules/src/match.ts) ordena por ESPECIFICIDAD antes
-# que por `position`: una regla con `repoName` (ésta) se evalúa ANTES que
-# una con sólo `projectId` (`review`), sin importar sus `position`
-# relativos. Si esta regla llevara `exclusive: true` y matcheara el mismo
-# evento que `review` (una card en Review a la que un humano le agrega
-# `e2e-test` sin que `reviewed` esté puesta todavía), `exclusive` cortaría a
-# `review` ANTES de que se evalúe — el reviewer se quedaría sin correr en
-# ese evento por un motivo que no tiene nada que ver con su propio `when`.
-# `exclusive: false` (el default) evita ESO.
-#
-# La otra mitad de la misma pregunta — si `review` debería excluir
-# `e2e-test` en su `when`, como sí hacen `reviewed`/`blocked` — la respuesta
-# es NO, a propósito. Sin la exclusión, agregar `e2e-test` en Review
-# dispara TAMBIÉN al reviewer sobre el mismo evento, y el segundo dispatch
-# en llegar choca con el lock por task
-# (`WorkspaceManager.acquireTask` → `TaskLockedError`). Es una carrera real,
-# pero el engine no pierde ese dispatch: `TaskDispatcher` atrapa el error y
-# lo entrega en vivo al run activo si es el MISMO agente, o lo deja
-# `deferred` para el próximo scan si no — el precio es un dispatch
-# desperdiciado y una demora, el mismo tipo de sobre-ejecución que el resto
-# de este roster ya acepta (ver README.md § "El precio").
-#
-# La alternativa —excluir `e2e-test` en `review`— cambia ese precio
-# acotado por uno peor: mientras el agent-host `front-end-developer` no
-# esté registrado y corriendo (ver el aviso en `40-e2e.yaml`;
-# `remoteProviders` ya está en `true`), `e2e-visual-qa` nunca corre, así
-# que `e2e-test` nunca se saca sola. Un humano que la agregue a una card
-# sin `reviewed` todavía dejaría al reviewer SILENCIADO de forma
-# indefinida y sin ninguna señal visible (no es `blocked`) hasta que
-# alguien la saque a mano sabiendo por qué. Un dispatch desperdiciado y
-# autorresuelto es preferible a un reviewer que deja de correr en
-# silencio.
-
 id: e2e
-name: On-demand · label e2e-test → verificación visual
-# `projects_v2_item.edited`: sintaxis nativa `tipo.action` (ia-flow >=
-# v1.13.0 — julianjab/ia-flow#253), ver el comentario en `build-reentry`
-# de `20-build.yaml`. Antes de #253 esto era dos reglas separadas
-# (claw-agents#2466: `e2e` + su `-board-edit`).
-# `issue.unblocked`: el intake lo emite cuando se mergea el PR del último
-# prerrequisito abierto de la card (`mark_blocked_by`) — sin eso, destrabarla
-# no genera ningún evento sobre ella y quedaría esperando a que algo la toque.
+name: On-demand · label e2e-test → la verificación del repo de la task
+# Un humano agregó `e2e-test` a una card en Review: frontend → verificación visual en un browser,
+# subscriptions → smoke test de los endpoints contra staging. No es `exclusive`: corre al lado
+# de lo que corresponda a la columna.
 on: [ issue.created, issue.status_changed, projects_v2_item.edited, issue.unblocked ]
 when:
-  # El repo — ver el porqué de que esto viva en `when` y no en `repoName`
-  # más arriba.
-  - field: item.repos
-    op: contains
-    value: lh-seller-v2-frontend
-  # El pedido: un humano agregó esta label.
-  - field: item.labels
-    op: contains
-    value: 'e2e-test'
-  # Una épica nunca es candidata a este agente; el guard cubre el arrastre
-  # manual de la label.
-  - field: item.type
-    op: neq
-    value: functional
-  # La única columna donde `task.branch` está garantizada — ver el
-  # porqué completo arriba.
-  - field: item.status
-    op: eq
-    value: Review
-  - field: item.blocked
-    op: neq
-    value: true
+  - { field: item.labels, op: contains, value: e2e-test }
+  - { field: item.type, op: neq, value: functional }
+  - { field: item.status, op: eq, value: Review }
+  - { field: item.blocked, op: neq, value: true }
 scope:
   projectId: lahaus-ai-flow
 position: 40
+firstMatch: true
 do:
   - agent: e2e-visual-qa
+    when:
+      - { field: item.repos, op: contains, value: lh-seller-v2-frontend }
     brief: |-
       ## Por qué estás corriendo
 
@@ -159,3 +25,13 @@ do:
       paso automático del pipeline. Corré el flujo relevante en un
       browser real contra el entorno de pruebas, dejá la evidencia y tu
       veredicto.
+  - agent: e2e-backend-qa
+    when:
+      - { field: item.repos, op: contains, value: subscriptions }
+    brief: |-
+      ## Por qué estás corriendo
+
+      Un humano agregó la label `e2e-test` a esta card, que está en
+      Review — está pidiendo un smoke test de los endpoints reales
+      contra staging, no es un paso automático del pipeline. Pegale a
+      los endpoints que el cambio tocó y dejá tu veredicto.
