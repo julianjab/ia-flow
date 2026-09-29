@@ -1,14 +1,14 @@
 # runner-v2
 
-El runner headless de ia-flow sobre [`@ia-tools/agent-engine`](https://github.com/julianjab/ia-tools):
+El runner headless de ia-flow sobre [`@ia-flow/agent-engine`](../../packages/agent-engine/core):
 lee `.config/`, registra las actions de cada scope, monta el engine y levanta el servidor de
-webhooks. No traduce ni arma eventos: eso lo hacen las pipelines y las actions de `.config/`. Es el `ai-development-flow` de `ia-tools/examples` traído acá,
+webhooks. No traduce ni arma eventos: eso lo hacen las pipelines y las actions de `.config/`. Es el `ai-development-flow` de los examples de ia-tools traído acá,
 con la definición del pipeline como datos y las ejecuciones en SQLite.
 
-## Qué cambia respecto del runner de `apps/server`
+## Qué cambia respecto del runner v1 (`apps/server`, ya purgado)
 
-- **La definición vive en `.config/`**, en YAML (`@ia-tools/agent-engine-datasource-yaml` la traduce a
-  definiciones y `@ia-tools/agent-engine-definitions` las arma)
+- **La definición vive en `.config/`**, en YAML (`@ia-flow/agent-engine-datasource-yaml` la traduce a
+  definiciones y `@ia-flow/agent-engine-definitions` las arma)
   (agentes y pipelines del engine), y se recarga en caliente: editar un YAML aplica en el
   próximo evento, sin reiniciar. Una versión inválida se loguea y sigue la última buena.
 - **Las ejecuciones persisten en SQLite** (`bun:sqlite`, `.state/executions.sqlite`): una task
@@ -109,14 +109,12 @@ Lo que el YAML nombra y definen las `actions/`:
 
 ## Correr
 
-Los paquetes de ia-tools todavía no se publican: se consumen con `bun link` desde un clon de
-ia-tools al lado de ia-flow (`IA_TOOLS_DIR` si está en otro lado), instalado y compilado.
+Los paquetes del engine (`@ia-flow/agent-engine`, `@ia-flow/github-*`, `@ia-flow/workspace`, …)
+son workspaces de este repo, source-only: se consumen con `workspace:*` y no hay nada que
+compilar ni linkear.
 
 ```bash
-# una vez por máquina (y cuando se agregue un paquete)
-(cd ../ia-tools && pnpm install && pnpm build)
-bun run --cwd apps/runner-v2 link:ia-tools
-bun install
+bun install                                       # desde la raíz del repo
 
 cd apps/runner-v2
 bun run start                                     # verifica GitHub, carga y valida la definición
@@ -147,11 +145,11 @@ Cuando se mergea el PR del último prerrequisito, el intake (`intake-unblock`) b
 GitHub los issues que ése bloqueaba (`dependencies/blocking`) y emite `issue.unblocked` para cada
 uno que quedó sin bloqueadores abiertos. Las pipelines de
 reentrada de cada columna lo escuchan, así que la card vuelve al agente que le toca donde esté.
-Es el `unblock-dependents-on-merge` del runner de ia-flow, pero para PRs de cualquier repo del
+Es el `unblock-dependents-on-merge` del runner v1, pero para PRs de cualquier repo del
 catálogo, no sólo de `claw-agents`.
 
 ## Lo que no se portó del ejemplo
 
 - Las tools `memory_*` del implementer: el runner no las tiene (tampoco el ejemplo).
-- Los `settings` del runner de `apps/server` que este runner no implementa (API, websocket,
+- Los `settings` del runner v1 (`apps/server`) que este runner no implementa (API, websocket,
   polling, remote providers): `runner.yaml` sólo acepta lo que se usa.

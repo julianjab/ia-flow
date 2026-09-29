@@ -2,29 +2,36 @@
 
 Índice del toolkit de Claude Code de este repo. Ver [CLAUDE.md](./CLAUDE.md) para reglas del proyecto.
 
+> **Ojo:** el `apps/server` v1 (hexagonal, migraciones, rutas Hono) y el `apps/agent-host` se
+> purgaron. Los agents y commands marcados con † todavía lo describen: no los uses hasta que se
+> reescriban contra `apps/runner-v2` y los paquetes del engine.
+
 ## Subagents (`.claude/agents/`)
 
 ### Verificadores (read-only, model: haiku)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `server-verifier` | Cambios en `apps/server/**` | Biome + `bun test` server + sanity en `index.ts` |
+| `server-verifier` † | Cambios en `apps/server/**` | Biome + `bun test` server + sanity en `index.ts` |
 | `web-verifier` | Cambios en `apps/web/**` | Biome + `vue-tsc --noEmit` + vitest |
+
+Para `apps/runner-v2` y `packages/**`: `bun run --filter <pkg> typecheck` + `bun run --filter <pkg> test`
+(o `/check`).
 
 ### Ejecutores de código (model: sonnet)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `feature-implementer` | Feature end-to-end en server | Vertical hexagonal: schema Zod en `shared` → port en `domain` → impl en `infrastructure`/`adapters` → use-case en `application` → cableado en `container.ts` → router Hono → migración si aplica → tests colocados |
+| `feature-implementer` † | Feature end-to-end en server | Vertical hexagonal del server v1 |
 | `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `.spec.ts`, dentro de su feature slice (`features/<dominio>/`) o `ui/` |
-| `migration-writer` | "Nueva migración", "add migration" | Migración SQLite consistente + registro en `runner.ts` |
-| `test-writer` | Código sin cobertura | Detecta runner (bun:test vs vitest) y genera tests AAA |
+| `migration-writer` † | "Nueva migración", "add migration" | Migración SQLite del server v1 + registro en `runner.ts` |
+| `test-writer` | Código sin cobertura | Detecta runner (vitest vs bun:test) y genera tests AAA |
 | `debugger` | Bug reportado, stack trace, comportamiento inesperado | Diagnóstico root-cause + fix mínimo + test de regresión |
 
 ### Auditores (read-only, model: sonnet)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre capas | Audita la regla de dependencia (hexagonal en server, feature-sliced en web, contract-only en shared) y distingue deuda nueva de la preexistente |
-| `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica scope del contrato + compat de call-sites en server + web |
-| `engine-agent-author` | "Crear/mejorar un agente del engine", editar `agents/*/agents.*.yaml`, agente que no dispara o loopea | Diseña la `AgentDefinition`: activación → cierre de ciclo → tools mínimas → prompt. Carga el skill `ia-flow-agent-authoring` |
+| `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre paquetes | Audita la regla de dependencia (core del engine sin I/O, feature-sliced en web, contract-only en shared) y distingue deuda nueva de la preexistente |
+| `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica scope del contrato + compat de call-sites en la web |
+| `engine-agent-author` | "Crear/mejorar un agente del engine", editar los YAML de `apps/runner-v2/.config/`, agente que no dispara o loopea | Diseña la definición del agente: activación → cierre de ciclo → tools mínimas → prompt. Carga el skill `ia-flow-agent-authoring` |
 | `code-reviewer` | Antes de commit/PR | Checklist OWASP + convenciones ia-flow, findings con severidad |
 | `pr-writer` | Al abrir PR o redactar commit grande | Conventional Commits + body con Summary/Changes/Test plan |
 
@@ -32,19 +39,19 @@
 
 | Skill | Cuándo se carga | Qué aporta |
 |---|---|---|
-| `ia-flow-agent-authoring` | Crear/editar/depurar agentes del **engine** (`AgentDefinition`), diseñar pipelines de labels o statuses, elegir tools/provider/MCP | `SKILL.md` con el modelo mental + checklist, y `references/` cargadas bajo demanda: `agent-definition`, `activation-and-outcomes`, `dispatch-gates`, `tools`, `providers-and-mcp`, `variables`, `patterns` |
+| `ia-flow-agent-authoring` | Crear/editar/depurar agentes del **engine**, diseñar pipelines de labels o statuses, elegir tools/provider/MCP | `SKILL.md` con el modelo mental + checklist, y `references/` cargadas bajo demanda: `agent-definition`, `activation-and-outcomes`, `dispatch-gates`, `tools`, `providers-and-mcp`, `variables`, `patterns` |
 
 > Ojo con la ambigüedad del término: los agentes de `.claude/agents/` son **subagentes de
-> Claude Code**; los del skill de arriba son **agentes del engine** (filas de `agents` /
-> `agents/*/agents.*.yaml`) que el daemon corre contra issues.
+> Claude Code**; los del skill de arriba son **agentes del engine** (los YAML de
+> `apps/runner-v2/.config/`) que el runner corre contra issues.
 
 ## Slash commands (`.claude/commands/`)
 
 | Command | Uso | Delega en |
 |---|---|---|
 | `/check [--all]` | Gate de calidad: biome + typecheck + tests de workspaces tocados | — |
-| `/migrate <nombre>` | Crear migración SQLite | `migration-writer` |
-| `/add-route <recurso>` | Scaffold de router Hono nuevo | — |
+| `/migrate <nombre>` † | Crear migración SQLite del server v1 | `migration-writer` |
+| `/add-route <recurso>` † | Scaffold de router Hono del server v1 | — |
 
 ## Hooks (`.claude/hooks/` + `.claude/settings.json`)
 
@@ -69,6 +76,6 @@
 5. **Cita fuentes oficiales** al final si el agent implementa patrones.
 6. **Verificadores usan `haiku`**, ejecutores y auditores `sonnet`. Nadie usa `opus` por default.
 7. **Los ejecutores llaman al verificador correspondiente** al terminar, y a `architecture-guardian`
-   si el cambio agregó archivos, carpetas o cruces entre capas.
+   si el cambio agregó archivos, carpetas o cruces entre paquetes.
 8. **Los agents citan rutas reales.** Antes de escribir un path en un agent, verifícalo con `Glob`:
    un agent que enseña una estructura que ya no existe produce código que viola la arquitectura.
