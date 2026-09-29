@@ -36,6 +36,7 @@ export type {
   CapabilityOutput,
 } from './capability/Capability.js'
 export { defineCapability } from './capability/Capability.js'
+export { RESULT_KEY, runForResult } from './capability/runForResult.js'
 export { CapabilityTextClassifier, WHEN_TEXT } from './condition/CapabilityTextClassifier.js'
 export type { ConditionOp, ConditionRow } from './condition/Condition.js'
 export { Condition } from './condition/Condition.js'

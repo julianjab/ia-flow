@@ -2,11 +2,17 @@
  * `fs_*` y `bash_run`: las tools de disco, sobre el worktree de la corrida (el de la task del
  * evento: `_lib/workspaceTarget.ts`). `bash_run` lleva sus OPCIONES del YAML: allow/deny,
  * githubAuth, timeout, maxTimeout.
+ *
+ * `run_agent`: delega en un sub-agente del repo (`.claude/agents/*.md` del worktree). Sus
+ * opciones: `provider` (default `anthropic-api`), `write` (si sus sub-agentes escriben: entonces
+ * la entrada necesita `allowWrite`), `models` (alias → id), `providerConfig`, y las de
+ * `bash_run` para el `bash_run` de sus sub-agentes.
  */
 
 import type { Action } from '@ia-flow/agent-engine'
 import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
 import {
+  RunAgentAction,
   WORKSPACE_TOOLS,
   type WorkspaceManager,
   WorkspaceSession,
@@ -62,6 +68,37 @@ function diskTool(name: string, ctx: ActionContext): Action {
   )
 }
 
-export default [...WORKSPACE_TOOLS].map((name) =>
-  defineAction({ id: name, create: (ctx) => diskTool(name, ctx) }),
-)
+const RunAgentOptions = DiskToolOptions.extend({
+  provider: z.string().min(1).default('anthropic-api'),
+  write: z.boolean().optional(),
+  models: z.record(z.string(), z.string()).optional(),
+  providerConfig: z.record(z.string(), z.unknown()).optional(),
+})
+
+function runAgent(ctx: ActionContext): Action {
+  const parsed = RunAgentOptions.safeParse(ctx.options)
+  if (!parsed.success)
+    throw new Error(`run_agent: options inválidas\n${z.prettifyError(parsed.error)}`)
+  const { provider, write, models, providerConfig, allow, deny, githubAuth, timeout, maxTimeout } =
+    parsed.data
+  const publish = githubAuth ? ctx.services.gitCredential : undefined
+  return new RunAgentAction(sessionOf(ctx.services.workspace), {
+    provider,
+    ...(write ? { write } : {}),
+    ...(models ? { models } : {}),
+    ...(providerConfig ? { providerConfig } : {}),
+    policy: { ...(allow ? { allow } : {}), deny: deny ?? [] },
+    bash: {
+      ...(publish ? { gitCredential: publish } : {}),
+      ...(timeout ? { timeoutMs: durationMs(timeout) } : {}),
+      ...(maxTimeout ? { maxTimeoutMs: durationMs(maxTimeout) } : {}),
+    },
+  })
+}
+
+export default [
+  ...[...WORKSPACE_TOOLS].map((name) =>
+    defineAction({ id: name, create: (ctx) => diskTool(name, ctx) }),
+  ),
+  defineAction({ id: 'run_agent', create: runAgent }),
+]

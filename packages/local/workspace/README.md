@@ -16,6 +16,13 @@ enchufan a [`@ia-flow/agent-engine`](../../agent-engine/core).
     otra acción; sacarla del agente es sacarla de su lista.
   - `CleanupWorkspaceAction` — paso opcional de pipeline (`cleanup_workspace`) que suelta el
     worktree si no tiene trabajo en riesgo.
+  - `RunAgentAction` (`run_agent`) — delega en un sub-agente de Claude Code del repo
+    (`<worktree>/.claude/agents/*.md`), como la tool `Task`. La traducción vive acá, no en el
+    engine: el cuerpo del `.md` es el system prompt, `model` (`sonnet`/`opus`/`haiku`) pasa a un
+    id, y `tools` a las de disco sobre el mismo worktree (`Read`→`fs_read`, `Grep`→`fs_grep`,
+    `Glob`/`LS`→`fs_list`, `Edit`/`MultiEdit`→`fs_edit`, `Write`→`fs_write`, `Bash`→`bash_run`; el
+    resto se descarta). Sin `write` los sub-agentes sólo leen. El hijo corre fuera de la
+    pipeline (`runForResult` del engine): no delega, no ocupa topes, entrega `summary`.
 
 ## Uso
 

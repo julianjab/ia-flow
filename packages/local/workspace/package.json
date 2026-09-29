@@ -16,6 +16,7 @@
     "@ia-flow/agent-engine": "workspace:*",
     "@ia-flow/fs-tools": "workspace:*",
     "@ia-flow/shell-tools": "workspace:*",
+    "yaml": "^2.6.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

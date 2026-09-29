@@ -1,12 +1,10 @@
 import { z } from 'zod'
-import type { AgentRunResult } from '../agent/Agent.js'
 import type { ToolInputSchema } from '../agent/SchemaTool.js'
 import { createEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
-import { FunctionAction } from '../pipeline/actions/FunctionAction.js'
 import type { PipelineExecutionContext, Runnable } from '../pipeline/Runnable.js'
-import { DONE_EXIT, type ExitRoute, resolveRoutes } from '../routing/ExitRoutes.js'
 import type { Capability } from './Capability.js'
+import { RESULT_KEY, runForResult } from './runForResult.js'
 
 /** Quién cumple cada capacidad, por nombre: fijo, o resuelto en cada pedido (una fuente que se
  *  recarga en caliente). `undefined` = apagada. */
@@ -15,7 +13,7 @@ export type CapabilityBindings =
   | ((name: string) => Runnable | undefined)
 
 /** La clave del `submit_*` donde un `Agent` entrega el resultado de la capacidad. */
-export const CAPABILITY_RESULT = 'result'
+export const CAPABILITY_RESULT = RESULT_KEY
 
 /** Lo que un paso ve de las capacidades (`ctx.capabilities`). */
 export interface CapabilityInvoker {
@@ -61,10 +59,7 @@ export class Capabilities implements CapabilityInvoker {
       pipelineId: `capability:${capability.name}`,
       capabilities: this,
     }
-    const raw =
-      runnable.exitRoutes !== undefined
-        ? await this.runChooser(runnable, capability, ctx, payload)
-        : await runnable.run(ctx, payload)
+    const raw = await runForResult(runnable, ctx, payload, capability.output)
     const parsed = capability.output.safeParse(raw)
     if (!parsed.success) {
       throw new Error(
@@ -76,38 +71,5 @@ export class Capabilities implements CapabilityInvoker {
 
   private bound(name: string): Runnable | undefined {
     return typeof this.bindings === 'function' ? this.bindings(name) : this.bindings[name]
-  }
-
-  /** Un paso que elige salidas (un `Agent`): todas llevan a `result`, y eso es la respuesta. */
-  private async runChooser(
-    runnable: Runnable,
-    capability: Capability<ToolInputSchema, ToolInputSchema>,
-    ctx: PipelineExecutionContext,
-    payload: Record<string, unknown>,
-  ): Promise<unknown> {
-    const agentId = runnable.id ?? capability.name
-    const base = runnable.exitRoutes ?? {}
-    const result = new FunctionAction({
-      id: CAPABILITY_RESULT,
-      input: capability.output,
-      fn: (_ctx, input) => input,
-    })
-    const names = Object.keys(base.routes ?? {})
-    const routes: Record<string, ExitRoute> = {}
-    for (const name of names.length > 0 ? names : [DONE_EXIT]) {
-      routes[name] = { to: result, report: null }
-    }
-    const resolved = resolveRoutes(agentId, base, {
-      step: { routes, report: null, onError: null, onInterrupt: null },
-    })
-    const output = await runnable.run({ ...ctx, routesFor: () => resolved }, payload)
-    const outcome = runnable.outcome(output)
-    if (outcome.kind !== 'exit') {
-      const summary = (output as Partial<AgentRunResult>).output?.summary
-      throw new Error(
-        `capacidad "${capability.name}": ${agentId} no eligió salida${summary ? ` — ${summary}` : ''}`,
-      )
-    }
-    return outcome.payload[CAPABILITY_RESULT] ?? {}
   }
 }

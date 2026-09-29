@@ -1,4 +1,6 @@
 export { CleanupWorkspaceAction } from './CleanupWorkspaceAction.js'
+export { type ClaudeAgent, parseClaudeAgent, readClaudeAgents } from './claudeAgents.js'
+export { RunAgentAction, type RunAgentOptions } from './RunAgentAction.js'
 export {
   type PreparedWorkspace,
   WorkspaceSession,
