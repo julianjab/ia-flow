@@ -7,6 +7,14 @@
 settings:
   # Puerto del servidor de webhooks (`--serve`). Env: IA_FLOW_SERVER_PORT.
   port: 3001
+  # OpenTelemetry: trazas y logs por OTLP (ej. el Grafana LGTM local). Sin
+  # endpoint no se exporta nada. Cada clave va a su OTEL_* y el ambiente gana:
+  # endpoint → OTEL_EXPORTER_OTLP_ENDPOINT, serviceName → OTEL_SERVICE_NAME,
+  # environment → OTEL_DEPLOYMENT_ENVIRONMENT.
+  telemetry:
+    endpoint: http://localhost:4318
+    serviceName: ai-development-flow-runner
+    environment: local
 
 # Identidad de GitHub. `auto` usa la App si están los tres datos, si no
 # GITHUB_TOKEN, si no `gh auth token`. La ruta al PEM depende de la máquina: va
