@@ -5,12 +5,12 @@
  * pausa (esperar el CI) sobrevive a un reinicio.
  *
  * Modos:
- *   --dry-run   sin credenciales: no verifica GitHub ni resuelve MCP; carga, valida y reporta.
- *   (default)   GitHub y Messages API reales: las actions escriben de verdad.
+ *   (nada)      verifica GitHub, resuelve MCP, carga y valida todo, y reporta. Todo es real:
+ *               las actions escriben en GitHub y los agentes llaman a la Messages API.
  *   --serve     servidor de webhooks.
  *   --event     un webhook crudo desde un archivo; --replay-pr, un PR real como `opened`.
  *
- *   bun run src/main.ts --dry-run
+ *   bun run src/main.ts
  *   IA_FLOW_WEBHOOK_SECRET=... bun run src/main.ts --serve
  *   bun run src/main.ts --event github.issue_comment ./delivery.json
  *
@@ -59,9 +59,6 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
     console.log(`→ ejecuciones: ${running} corriendo, ${waiting} esperando, ${paused} pausadas`)
   }
   for (const line of mounted.warnings) console.log(`→ aviso: ${line}`)
-  if (mounted.missingTools.size > 0) {
-    console.log(`→ tools sin equivalente: ${[...mounted.missingTools].sort().join(', ')}`)
-  }
 }
 
 /** `anthropic-api` con su config de `providers.anthropic-api` del runner.yaml: los defaults de
@@ -165,7 +162,6 @@ async function main(telemetry: Telemetry): Promise<'serving' | 'done'> {
     runnerLog.info(line)
   }
   const mounted = await mountRunner(cfg, {
-    dryRun: args.dryRun,
     workspaceDir: process.env.WORKSPACE_DIR,
     log,
   })

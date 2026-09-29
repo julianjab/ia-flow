@@ -117,7 +117,7 @@ bun run --cwd apps/runner-v2 link:ia-tools
 bun install
 
 cd apps/runner-v2
-bun run dry-run                                   # carga y valida la definición, sin credenciales
+bun run start                                     # verifica GitHub, carga y valida la definición
 bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
 bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks

@@ -26,14 +26,11 @@ export type { ProjectConfig } from '../config/RunnerConfig.js'
 export interface RunnerServices {
   /** GitHub con la identidad del runner. */
   github: GithubClient
-  /** Los clones y worktrees de las tasks. Sin esto (dry-run), no hay disco. */
-  workspace?: WorkspaceManager
-  /** La credencial de los `git` de red (sin workspace, en dry-run, no hay). */
-  gitCredential?: () => Promise<string | undefined>
-  dryRun: boolean
+  /** Los clones y worktrees de las tasks. */
+  workspace: WorkspaceManager
+  /** La credencial de los `git` de red (la de la App). */
+  gitCredential: () => Promise<string | undefined>
   log: (line: string) => void
-  /** Lo que la definición pide y este runner no puede dar — se avisa una vez al arrancar. */
-  missingTools: Set<string>
 }
 
 /** Lo que recibe `create`: quién la pide y con qué. */

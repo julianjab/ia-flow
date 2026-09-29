@@ -2,8 +2,6 @@
  * `fs_*` y `bash_run`: las tools de disco, sobre el worktree de la corrida (el de la task del
  * evento: `_lib/workspaceTarget.ts`). `bash_run` lleva sus OPCIONES del YAML: allow/deny,
  * githubAuth, timeout, maxTimeout.
- *
- * Sin workspace (dry-run) no hay disco: arman cero acciones y quedan en `missingTools`.
  */
 
 import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
@@ -45,29 +43,23 @@ function sessionOf(manager: WorkspaceManager): WorkspaceSession {
   return session
 }
 
-function diskTool(name: string, ctx: ActionContext): Action[] {
+function diskTool(name: string, ctx: ActionContext): Action {
   const parsed = DiskToolOptions.safeParse(ctx.options)
   if (!parsed.success)
     throw new Error(`${name}: options inválidas\n${z.prettifyError(parsed.error)}`)
   const { allow, deny, githubAuth, timeout, maxTimeout } = parsed.data
-  const { workspace, gitCredential, missingTools } = ctx.services
-  if (!workspace) {
-    missingTools.add(`${name} (sin workspace)`)
-    return []
-  }
+  const { workspace, gitCredential } = ctx.services
   const publish = githubAuth ? gitCredential : undefined
-  return [
-    workspaceAction(
-      name,
-      sessionOf(workspace),
-      { ...(allow ? { allow } : {}), deny: deny ?? [] },
-      {
-        ...(publish ? { gitCredential: publish } : {}),
-        ...(timeout ? { timeoutMs: durationMs(timeout) } : {}),
-        ...(maxTimeout ? { maxTimeoutMs: durationMs(maxTimeout) } : {}),
-      },
-    ),
-  ]
+  return workspaceAction(
+    name,
+    sessionOf(workspace),
+    { ...(allow ? { allow } : {}), deny: deny ?? [] },
+    {
+      ...(publish ? { gitCredential: publish } : {}),
+      ...(timeout ? { timeoutMs: durationMs(timeout) } : {}),
+      ...(maxTimeout ? { maxTimeoutMs: durationMs(maxTimeout) } : {}),
+    },
+  )
 }
 
 export default [...WORKSPACE_TOOLS].map((name) =>

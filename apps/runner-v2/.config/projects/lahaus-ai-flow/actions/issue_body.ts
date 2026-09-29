@@ -62,31 +62,6 @@ export function issueBodyActions(
   return [...writes, ...checks]
 }
 
-/** La nota de runtime sobre las tools del body: cómo se comportan, más allá de su schema. */
-export function issueBodyNote(permission: IssueBodyPermission, actions: Action[]): string {
-  const names = actions.map((action) => `\`${action.id}\``).join(', ')
-  const lines = [
-    '## Cómo se escribe el body del issue en este runtime',
-    '',
-    `Tus tools sobre el body: ${names}.`,
-  ]
-  if (permission.write.length > 0) {
-    lines.push(
-      '',
-      '- `update_<bloque>` recibe los CAMPOS del documento, no markdown: el formato (encabezados, tabla, checkboxes, classDef del diagrama) lo pone el runtime. Todo lo que el prompt describe en la plantilla va en el campo que corresponde.',
-      '- Reescribe sólo su bloque: la descripción original del issue y cualquier otro bloque quedan intactos, así que no la copies adentro del PRD. Mandá el documento completo en cada llamada — los ítems ya tildados que no cambies de texto siguen tildados.',
-    )
-  }
-  if (permission.check.length > 0) {
-    lines.push(
-      '',
-      '- `check_<lista>` sólo tilda: `items` son los números de ítem contando desde 1 en el orden en que aparecen en esa lista del body. No podés reescribir el PRD; si un ítem está mal, decilo en tu reporte.',
-      '- Si el issue no tiene el bloque (un PRD viejo, sin marcadores), la tool lo dice: seguí con el trabajo y reportá el progreso en el cierre.',
-    )
-  }
-  return lines.join('\n')
-}
-
 const IssueBodyOptions = z.strictObject({
   /** Bloques que el agente reescribe completos. */
   write: z.array(z.string()).default([]),

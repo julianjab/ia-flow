@@ -8,7 +8,6 @@
     "link:ia-tools": "bash scripts/link-ia-tools.sh",
     "start": "bun run src/main.ts",
     "serve": "bun run src/main.ts --serve",
-    "dry-run": "bun run src/main.ts --dry-run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test"
   },

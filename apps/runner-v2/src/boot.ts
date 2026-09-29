@@ -10,9 +10,6 @@
  *      (`projects/withScope.ts`); las arma `DefinitionPipelineSource`, y releen su índice si cambia.
  *   4. El engine, desde `engine:` de runner.yaml (`engine/mountEngine.ts`): el store de
  *      ejecuciones en SQLite (`bun-sqlite`), el tick y el clasificador de los `whenText`.
- *
- * En `--dry-run` no hay credenciales: no se verifica GitHub, no se resuelve MCP, no hay workspace
- * y las ejecuciones van a memoria — sólo se construye y valida la definición.
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -36,36 +33,23 @@ import { NodeShellRunner, type WorkspaceLogger, WorkspaceManager } from '@ia-too
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
-import { memoryDriver, mountEngine } from './engine/mountEngine.js'
+import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { withScope } from './projects/withScope.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
 
-/** El clasificador de `--dry-run`: no llama a ningún modelo, y lo dice en la traza. */
-const ASSUME_YES: TextClassifier = {
-  classify: async () => ({ matches: true, reason: 'dry-run: se asume que sí' }),
-}
-
-/** El de `opts`; en `--dry-run` sin uno, `ASSUME_YES`; si no, el de `runner.yaml`. */
-function whenTextClassifier(opts: MountOptions): { textClassifier?: TextClassifier } {
-  const classifier = opts.textClassifier ?? (opts.dryRun ? ASSUME_YES : undefined)
-  return classifier ? { textClassifier: classifier } : {}
-}
-
 /** Donde viven los clones y worktrees si no se pasa `WORKSPACE_DIR`. */
 const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.cache', 'ia-flow', 'runner-v2', 'workspaces')
 
 export interface MountOptions {
-  /** Sin credenciales: no verifica GitHub ni resuelve MCP — sólo construye y valida. */
-  dryRun: boolean
   workspaceDir?: string
   log: (line: string) => void
-  /** Lo que responde la API de GitHub en vez de GitHub, con un token de prueba (tests). */
-  githubFetch?: typeof fetch
-  /** Quién evalúa los `whenText`, en vez del de `runner.yaml` (tests). En `--dry-run` sin esto,
-   *  uno que asume que sí: sin credenciales, la vista previa muestra qué correría. */
+  /** Quién evalúa los `whenText`, en vez del de `runner.yaml` (tests). */
   textClassifier?: TextClassifier
+  /** Sólo tests: la API de GitHub la contesta `githubFetch` (con un token de prueba), no se
+   *  resuelven los MCP y las ejecuciones van a `storeDriver` en vez del driver de runner.yaml. */
+  testing?: { githubFetch: typeof fetch; storeDriver: StoreDriver }
 }
 
 /** Una fuente montada: la global (`runner`) o la de un proyecto. */
@@ -93,7 +77,6 @@ export interface MountedRunner {
   mcpServers: string[]
   /** Qué actions registró cada scope. */
   actions: Record<string, string[]>
-  missingTools: Set<string>
   warnings: string[]
   /** Deja de escuchar el bus y de vencer pausas, y cierra la base de ejecuciones. */
   stop(): void
@@ -122,12 +105,7 @@ function validateProviderConfigs(pipelines: Pipeline[]): void {
 }
 
 async function githubIdentity(opts: MountOptions): Promise<{ auth: GithubAuth; mode: string }> {
-  if (opts.dryRun) {
-    return {
-      auth: { getToken: () => Promise.reject(new Error('dry-run: sin GitHub')) },
-      mode: 'dry-run',
-    }
-  }
+  if (opts.testing) return { auth: { getToken: async () => 'test' }, mode: 'test' }
   const resolved = await resolveGithubAuth()
   await verifyGithubAuth(resolved)
   return { auth: resolved.auth, mode: resolved.mode }
@@ -136,36 +114,32 @@ async function githubIdentity(opts: MountOptions): Promise<{ auth: GithubAuth; m
 export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promise<MountedRunner> {
   const warnings: string[] = []
   const { auth, mode: githubAuthMode } = await githubIdentity(opts)
-  const github = opts.githubFetch
-    ? new GithubClient({ auth: { getToken: async () => 'test' }, fetchImpl: opts.githubFetch })
-    : new GithubClient({ auth })
-  const mcpServers: Record<string, McpServerRef> = opts.dryRun
+  const github = new GithubClient({
+    auth,
+    ...(opts.testing ? { fetchImpl: opts.testing.githubFetch } : {}),
+  })
+  const mcpServers: Record<string, McpServerRef> = opts.testing
     ? {}
     : await resolveMcpCatalog(cfg.mcp, auth, warnings)
 
-  // Clones persistentes en `<root>/repos` y un worktree por task en `<root>/worktrees`. En
-  // dry-run no hay token para clonar.
+  // Clones persistentes en `<root>/repos` y un worktree por task en `<root>/worktrees`.
   const workspaceRoot = opts.workspaceDir ?? DEFAULT_WORKSPACE_ROOT
-  const workspace = opts.dryRun
-    ? undefined
-    : new WorkspaceManager(new NodeShellRunner(), {
-        reposBase: join(workspaceRoot, 'repos'),
-        worktreeBase: join(workspaceRoot, 'worktrees'),
-        githubToken: () => auth.getToken(),
-        // Un PR lo puede pushear otro (un humano, otra máquina): el reviewer tiene que ver el
-        // último commit, no el que quedó en el worktree de una corrida anterior.
-        syncBranchWithRemote: true,
-        log: workspaceLogger(opts.log),
-      })
+  const workspace = new WorkspaceManager(new NodeShellRunner(), {
+    reposBase: join(workspaceRoot, 'repos'),
+    worktreeBase: join(workspaceRoot, 'worktrees'),
+    githubToken: () => auth.getToken(),
+    // Un PR lo puede pushear otro (un humano, otra máquina): el reviewer tiene que ver el
+    // último commit, no el que quedó en el worktree de una corrida anterior.
+    syncBranchWithRemote: true,
+    log: workspaceLogger(opts.log),
+  })
 
   const services: RunnerServices = {
     github,
-    ...(workspace ? { workspace } : {}),
+    workspace,
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
-    ...(opts.dryRun ? {} : { gitCredential: () => auth.getToken() }),
-    dryRun: opts.dryRun,
+    gitCredential: () => auth.getToken(),
     log: opts.log,
-    missingTools: new Set<string>(),
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services)
   const catalogs = { ...actions.catalogs, providers: providerRegistry, mcpServers }
@@ -192,9 +166,8 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   const mounted = mountEngine(cfg.engine, {
     baseDir: cfg.dir,
     sources: sources.map((entry) => entry.source),
-    // En dry-run nada corre: la base de ejecuciones no se abre.
-    drivers: { 'bun-sqlite': opts.dryRun ? memoryDriver : bunSqliteStoreDriver },
-    ...whenTextClassifier(opts),
+    drivers: { 'bun-sqlite': opts.testing?.storeDriver ?? bunSqliteStoreDriver },
+    ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
   })
   const pipelines = () => sources.flatMap((entry) => entry.source.list())
   try {
@@ -219,7 +192,6 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     githubAuthMode,
     mcpServers: Object.keys(mcpServers),
     actions: actions.registered,
-    missingTools: services.missingTools,
     warnings,
     stop: mounted.stop,
   }
