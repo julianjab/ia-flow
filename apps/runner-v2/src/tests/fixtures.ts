@@ -216,10 +216,12 @@ export function mountWith(
   })
 }
 
-/** Los pasos de `pipeline` que corren para `event` por su `when` — a qué agente va. */
+/** Los pasos de `pipeline` que corren para `event` por su `when` — a qué agente va. Con
+ *  `firstMatch`, sólo el primero. */
 export function stepsFor(pipeline: Pipeline, event: DomainEvent): string[] {
   const ctx = { event, steps: {}, bus: new EventBus(), pipelineId: pipeline.id }
-  return pipeline.do.filter((step) => step.shouldRun(ctx)).map((step) => step.id ?? '?')
+  const due = pipeline.do.filter((step) => step.shouldRun(ctx)).map((step) => step.id ?? '?')
+  return pipeline.firstMatch ? due.slice(0, 1) : due
 }
 
 /**

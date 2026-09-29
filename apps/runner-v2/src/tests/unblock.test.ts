@@ -12,6 +12,7 @@ import {
   mountWith,
   repository,
   runIntake,
+  stepsFor,
 } from './fixtures.js'
 
 const API = 'https://api.github.com/repos'
@@ -122,32 +123,35 @@ describe('intake: unblock-dependents', () => {
 })
 
 describe('issue.unblocked → pipelines de .config/', () => {
-  /** Las pipelines que corren para la task #9 destrabada, en `status`. */
-  async function pipelinesFor(status: string, type = 'Technical') {
+  /** Los agentes que corren para la task #9 destrabada, en `status`. */
+  async function agentsFor(status: string, type = 'Technical') {
     const github = fakeGithub(
       world([dependent(9)], { 9: { status, type, blockedBy: [blocker(CLOSED)] } }),
     )
     const mounted = await mountWith(github)
     try {
       const { emitted } = await runIntake(mounted, 'pull_request', closedPr(true))
-      const selected = await Promise.all(
-        emitted.filter((e) => e.type === 'issue.unblocked').map((e) => mounted.engine.select(e)),
+      const unblocked = emitted.filter((e) => e.type === 'issue.unblocked')
+      const agents = await Promise.all(
+        unblocked.map(async (e) =>
+          (await mounted.engine.select(e)).flatMap((pipeline) => stepsFor(pipeline, e)),
+        ),
       )
-      return selected.flat().map((p) => p.id)
+      return agents.flat()
     } finally {
       mounted.stop()
     }
   }
 
   it('a card in Build goes back to the implementer', async () => {
-    expect(await pipelinesFor('Build')).toEqual(['build-reentry'])
+    expect(await agentsFor('Build')).toEqual(['implementer'])
   })
 
   it('an epic in Refine goes back to the functional refiner', async () => {
-    expect(await pipelinesFor('Refine', 'Functional')).toEqual(['refine-functional'])
+    expect(await agentsFor('Refine', 'Functional')).toEqual(['functional-refiner'])
   })
 
   it('a technical card in Refine is not re-run: its refiner already runs on blocked cards', async () => {
-    expect(await pipelinesFor('Refine')).toEqual([])
+    expect(await agentsFor('Refine')).toEqual([])
   })
 })

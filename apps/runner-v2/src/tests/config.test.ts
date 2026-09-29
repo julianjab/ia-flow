@@ -71,7 +71,6 @@ describe('la cascada when', () => {
       pipeline(id)?.trigger.when.some((c) => c.field === 'item.blocked' && c.op === 'neq')
     expect(gated('build-arrival')).toBe(true)
     expect(gated('review')).toBe(true)
-    expect(gated('refine-technical')).toBe(false)
     // `comment` no se frena entera: cada paso decide (los refiners técnicos atienden igual).
     expect(gated('comment')).toBe(false)
   })
@@ -91,7 +90,7 @@ describe('lo que el engine hace por el implementer', () => {
   it('links the task branch on start, ensures the PR and waits for CI before Review', () => {
     for (const [id, agentId] of [
       ['build-arrival', 'implementer'],
-      ['build-arrival-frontend', 'frontend-implementer'],
+      ['build-arrival', 'frontend-implementer'],
     ] as const) {
       const agent = agentOf(id, agentId)
       expect(agent?.id).toBe(agentId)

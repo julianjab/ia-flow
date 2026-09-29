@@ -68,6 +68,26 @@ async function rulesFor(
   }
 }
 
+/** Los agentes que eligen, paso por paso, las pipelines que corren para el delivery. */
+async function agentsFor(
+  event: string,
+  payload: Record<string, unknown>,
+  task: FakeTask,
+  data: FakeGithubData = {},
+) {
+  const { mounted, emitted } = await intakeOf(event, payload, task, data)
+  try {
+    const agents = await Promise.all(
+      emitted.map(async (e) =>
+        (await mounted.engine.select(e)).flatMap((pipeline) => stepsFor(pipeline, e)),
+      ),
+    )
+    return agents.flat()
+  } finally {
+    mounted.stop()
+  }
+}
+
 const statusChange = (from: string, to: string) =>
   itemPayload('edited', { field_name: 'Status', from: { name: from }, to: { name: to } })
 
@@ -122,17 +142,23 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
       await rulesFor('projects_v2_item', statusChange('Refined', 'Build'), blocked),
     ).not.toContain('build-arrival')
     expect(
-      await rulesFor('projects_v2_item', statusChange('Backlog', 'Refine'), {
+      await agentsFor('projects_v2_item', statusChange('Backlog', 'Refine'), {
         ...blocked,
         status: 'Refine',
       }),
-    ).toContain('refine-technical')
+    ).toEqual(['refiner'])
   })
 
-  it('a card moved to Refine dispatches the technical refiner', async () => {
+  it('a card moved to Refine dispatches the refiner of its type', async () => {
     expect(
-      await rulesFor('projects_v2_item', statusChange('Backlog', 'Refine'), { status: 'Refine' }),
-    ).toContain('refine-technical')
+      await agentsFor('projects_v2_item', statusChange('Backlog', 'Refine'), { status: 'Refine' }),
+    ).toEqual(['refiner'])
+    expect(
+      await agentsFor('projects_v2_item', statusChange('Backlog', 'Refine'), {
+        status: 'Refine',
+        type: 'Functional',
+      }),
+    ).toEqual(['functional-refiner'])
   })
 
   it("a human comment goes to the comment pipeline; the pipeline's own report does not", async () => {
@@ -314,5 +340,70 @@ describe('comment.yaml: a qué agente va un comentario', () => {
       [],
     )
     expect(classify).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('un paso por agente: frontend o el resto, según el repo de la task', () => {
+  const FRONT = 'la-haus/lh-seller-v2-frontend'
+  const frontend = { name: 'lh-seller-v2-frontend', full_name: FRONT, owner: { login: 'la-haus' } }
+
+  /** Los agentes que corren para `payload` sobre la task #7 de `repo`. */
+  async function agentsIn(
+    repo: 'subscriptions' | 'front',
+    event: string,
+    payload: Record<string, unknown>,
+    task: FakeTask,
+  ) {
+    const key = repo === 'front' ? `${FRONT}#7` : 'la-haus/subscriptions#7'
+    const mounted = await mountWith(
+      fakeGithub({ items: { PVTI_1: key }, tasks: { [key]: { labels: ['blocked'], ...task } } }),
+    )
+    try {
+      const raw =
+        repo === 'front' && 'repository' in payload ? { ...payload, repository: frontend } : payload
+      const { emitted } = await runIntake(mounted, event, raw)
+      const agents = await Promise.all(
+        emitted.map(async (e) => (await mounted.engine.select(e)).flatMap((p) => stepsFor(p, e))),
+      )
+      return agents.flat()
+    } finally {
+      mounted.stop()
+    }
+  }
+
+  it('arrival in Build', async () => {
+    const arrival = statusChange('Refined', 'Build')
+    expect(await agentsIn('front', 'projects_v2_item', arrival, { status: 'Build' })).toEqual([
+      'frontend-implementer',
+    ])
+    expect(
+      await agentsIn('subscriptions', 'projects_v2_item', arrival, { status: 'Build' }),
+    ).toEqual(['implementer'])
+  })
+
+  it('a red CI run and a review asking for changes', async () => {
+    const red = runPayload('completed', [{ number: 12 }], 'ia-flow-local/7')
+    expect(await agentsIn('front', 'workflow_run', red, { status: 'Review' })).toEqual([
+      'frontend-implementer',
+    ])
+    expect(await agentsIn('subscriptions', 'workflow_run', red, { status: 'Review' })).toEqual([
+      'implementer',
+    ])
+    const changes = reviewPayload('changes_requested')
+    expect(await agentsIn('front', 'pull_request_review', changes, { status: 'Review' })).toEqual([
+      'frontend-implementer',
+    ])
+    expect(
+      await agentsIn('subscriptions', 'pull_request_review', changes, { status: 'Review' }),
+    ).toEqual(['implementer'])
+  })
+
+  it('the on-demand e2e of the repo', async () => {
+    const toReview = statusChange('Build', 'Review')
+    const e2e: FakeTask = { status: 'Review', labels: ['blocked', 'e2e-test'] }
+    expect(await agentsIn('front', 'projects_v2_item', toReview, e2e)).toEqual(['e2e-visual-qa'])
+    expect(await agentsIn('subscriptions', 'projects_v2_item', toReview, e2e)).toEqual([
+      'e2e-backend-qa',
+    ])
   })
 })
