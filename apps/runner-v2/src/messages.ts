@@ -3,7 +3,7 @@
  * sabe qué es un comentario o una review, así que el texto lo arma la app. Corto y con quién lo
  * dijo — va al lado de su trabajo en curso, no reemplaza el brief.
  */
-import type { DomainEvent } from '@ia-tools/agent-pipeline'
+import type { DomainEvent } from '@ia-tools/agent-engine'
 
 type Payload = Record<string, unknown>
 

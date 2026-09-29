@@ -1,13 +1,13 @@
 # runner-v2
 
-El runner headless de ia-flow sobre [`@ia-tools/agent-pipeline`](https://github.com/julianjab/ia-tools):
+El runner headless de ia-flow sobre [`@ia-tools/agent-engine`](https://github.com/julianjab/ia-tools):
 recibe los webhooks de GitHub, los traduce a eventos de la task y corre los agentes que le
 tocan a cada columna del board. Es el `ai-development-flow` de `ia-tools/examples` traído acá,
 con la definición del pipeline como datos y las ejecuciones en SQLite.
 
 ## Qué cambia respecto del runner de `apps/server`
 
-- **La definición vive en `.config/`**, en el formato de `@ia-tools/agent-pipeline-yaml`
+- **La definición vive en `.config/`**, en el formato de `@ia-tools/agent-engine-yaml`
   (agentes y pipelines del engine), y se recarga en caliente: editar un YAML aplica en el
   próximo evento, sin reiniciar. Una versión inválida se loguea y sigue la última buena.
 - **Las ejecuciones persisten en SQLite** (`bun:sqlite`, `.state/executions.sqlite`): una task

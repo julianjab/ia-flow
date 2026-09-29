@@ -1,5 +1,5 @@
 /**
- * runner-v2 — el runner headless de ia-flow sobre `@ia-tools/agent-pipeline`. La definición del
+ * runner-v2 — el runner headless de ia-flow sobre `@ia-tools/agent-engine`. La definición del
  * pipeline vive en `.config/` (engine.yaml + runner.yaml + projects/<id>/) y las ejecuciones en
  * SQLite, así que una pausa (esperar el CI) sobrevive a un reinicio.
  *
@@ -28,7 +28,7 @@ import {
   type Pipeline,
   providerRegistry,
   type Runnable,
-} from '@ia-tools/agent-pipeline'
+} from '@ia-tools/agent-engine'
 import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'
 import { createLogger } from '@ia-tools/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'

@@ -1,5 +1,5 @@
 /**
- * El SDK de OpenTelemetry del runner. Los paquetes (`agent-pipeline`, `provider-anthropic`)
+ * El SDK de OpenTelemetry del runner. Los paquetes (`agent-engine`, `provider-anthropic`)
  * instrumentan sólo contra la API; es la APP la que decide si exporta y a dónde. Acá: OTLP/HTTP
  * al endpoint de `OTEL_EXPORTER_OTLP_ENDPOINT` — el Grafana LGTM de `examples/apps/otel` en local,
  * o un Collector/Datadog Agent en otro lado, sin cambiar código.

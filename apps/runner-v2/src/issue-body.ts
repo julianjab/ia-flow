@@ -9,7 +9,7 @@
  * agente que declara `update_issue_body` a secas sigue recibiendo esa tool (el body entero): es la
  * decisión explícita de darle todo.
  */
-import type { Action } from '@ia-tools/agent-pipeline'
+import type { Action } from '@ia-tools/agent-engine'
 import type { GithubClient } from '@ia-tools/github-api'
 import { CheckSectionItemsAction, IssueSectionAction } from '@ia-tools/github-tools'
 import { ISSUE_BODY_SECTIONS } from './prd.js'

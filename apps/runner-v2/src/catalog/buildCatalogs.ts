@@ -1,6 +1,6 @@
 /**
  * Lo que la definición de `.config/projects/` nombra y el runner implementa: el catálogo que
- * recibe `@ia-tools/agent-pipeline-yaml`. Casi todo depende de dónde se usa, así que son
+ * recibe `@ia-tools/agent-engine-yaml`. Casi todo depende de dónde se usa, así que son
  * `ActionProvider`s:
  *
  *   update_issue, <tools del board>   el board del PROYECTO (cada uno tiene el suyo)
@@ -14,8 +14,8 @@
  * Una tool de disco sin workspace (dry-run) no se ofrece: arma cero acciones y queda en
  * `missingTools` para avisarlo una vez.
  */
-import type { Action, McpServerRef, ProviderRegistry } from '@ia-tools/agent-pipeline'
-import type { ActionProvider, ActionRequest, YamlCatalogs } from '@ia-tools/agent-pipeline-yaml'
+import type { Action, McpServerRef, ProviderRegistry } from '@ia-tools/agent-engine'
+import type { ActionProvider, ActionRequest, YamlCatalogs } from '@ia-tools/agent-engine-yaml'
 import { WORKSPACE_TOOLS, type WorkspaceSession, workspaceAction } from '@ia-tools/workspace'
 import { z } from 'zod'
 import type { BoardActions } from '../actions/board.js'

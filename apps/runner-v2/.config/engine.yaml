@@ -1,4 +1,4 @@
-# El engine de runner-v2 (`createEngineFromYaml` de @ia-tools/agent-pipeline-yaml).
+# El engine de runner-v2 (`createEngineFromYaml` de @ia-tools/agent-engine-yaml).
 #
 # Las rutas son relativas a este archivo.
 

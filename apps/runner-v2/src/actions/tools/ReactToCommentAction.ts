@@ -1,4 +1,4 @@
-import { Action, type PipelineExecutionContext } from '@ia-tools/agent-pipeline'
+import { Action, type PipelineExecutionContext } from '@ia-tools/agent-engine'
 import type { GithubClient } from '@ia-tools/github-api'
 import { issueFromPayload } from '@ia-tools/github-tools'
 import { z } from 'zod'

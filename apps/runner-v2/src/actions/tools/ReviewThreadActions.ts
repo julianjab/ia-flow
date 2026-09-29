@@ -4,7 +4,7 @@
  * cabecera, y ese id viaja de vuelta acá. El modelo no busca nada — responde o resuelve el hilo
  * que leyó.
  */
-import { Action } from '@ia-tools/agent-pipeline'
+import { Action } from '@ia-tools/agent-engine'
 import type { GithubClient } from '@ia-tools/github-api'
 import { z } from 'zod'
 

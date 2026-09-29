@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "El runner headless de ia-flow sobre @ia-tools/agent-pipeline: la definición del pipeline en .config (engine.yaml + projects/) y las ejecuciones en SQLite",
+  "description": "El runner headless de ia-flow sobre @ia-tools/agent-engine: la definición del pipeline en .config (engine.yaml + projects/) y las ejecuciones en SQLite",
   "scripts": {
     "link:ia-tools": "bash scripts/link-ia-tools.sh",
     "start": "bun run src/main.ts",
@@ -13,9 +13,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "link:@ia-tools/agent-pipeline",
-    "@ia-tools/agent-pipeline-sqlite": "link:@ia-tools/agent-pipeline-sqlite",
-    "@ia-tools/agent-pipeline-yaml": "link:@ia-tools/agent-pipeline-yaml",
+    "@ia-tools/agent-engine": "link:@ia-tools/agent-engine",
+    "@ia-tools/agent-engine-sqlite": "link:@ia-tools/agent-engine-sqlite",
+    "@ia-tools/agent-engine-yaml": "link:@ia-tools/agent-engine-yaml",
     "@ia-tools/github-api": "link:@ia-tools/github-api",
     "@ia-tools/github-auth": "link:@ia-tools/github-auth",
     "@ia-tools/github-tools": "link:@ia-tools/github-tools",

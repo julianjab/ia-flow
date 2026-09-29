@@ -8,7 +8,7 @@
  * API real, las escrituras se imprimen y devuelven una respuesta falsa. Así se prueba el ruteo
  * completo contra issues reales sin tocar el board.
  */
-import type { Action } from '@ia-tools/agent-pipeline'
+import type { Action } from '@ia-tools/agent-engine'
 import type { GithubClient } from '@ia-tools/github-api'
 import {
   EnsurePullRequestAction,

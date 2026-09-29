@@ -25,8 +25,8 @@ import {
   providerRegistry,
   type ResolvedRoutes,
   type TextClassifier,
-} from '@ia-tools/agent-pipeline'
-import { createEngineFromYaml, type ExecutionStoreDriver } from '@ia-tools/agent-pipeline-yaml'
+} from '@ia-tools/agent-engine'
+import { createEngineFromYaml, type ExecutionStoreDriver } from '@ia-tools/agent-engine-yaml'
 import { GithubClient } from '@ia-tools/github-api'
 import type { GithubAuth } from '@ia-tools/github-auth'
 import { parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'

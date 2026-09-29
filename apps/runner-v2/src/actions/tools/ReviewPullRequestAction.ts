@@ -2,7 +2,7 @@
  * El review del reviewer sobre el PR: reemplaza al MCP de GitHub para ese rol, que además trae
  * `push_files`, `create_or_update_file`, `merge_pull_request`… con el token de la App.
  */
-import { Action, type PipelineExecutionContext } from '@ia-tools/agent-pipeline'
+import { Action, type PipelineExecutionContext } from '@ia-tools/agent-engine'
 import type { GithubClient } from '@ia-tools/github-api'
 import { z } from 'zod'
 import { prFrom } from './pr-ref.js'

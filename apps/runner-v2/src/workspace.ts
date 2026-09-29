@@ -3,7 +3,7 @@
  * app: cómo su evento se traduce a un `WorkspaceTarget`. El ciclo de vida (clone, worktree,
  * locks, limpieza) es `@ia-tools/workspace`.
  */
-import type { PipelineExecutionContext } from '@ia-tools/agent-pipeline'
+import type { PipelineExecutionContext } from '@ia-tools/agent-engine'
 import type { WorkspaceTarget } from '@ia-tools/workspace'
 
 /**

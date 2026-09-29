@@ -2,7 +2,7 @@
  * De `EventArgs` a `DomainEvent` contra el engine montado — lo que comparten la CLI (un evento
  * armado a mano) y el servidor de webhooks (un evento traducido de un delivery de GitHub).
  */
-import { createEvent, type DomainEvent } from '@ia-tools/agent-pipeline'
+import { createEvent, type DomainEvent } from '@ia-tools/agent-engine'
 import type { MountedRunner, RunnerProject } from './boot.js'
 import { buildPayload, type EventArgs } from './event.js'
 
@@ -31,7 +31,7 @@ export async function toDomainEvent(
     branchPrefix: project.branchPrefix,
   })
   // El scope es lo que se filtra en la telemetría: cada span y log hereda `ia.projectId`,
-  // `ia.repo`, `ia.issue` (ver la telemetría de `@ia-tools/agent-pipeline`).
+  // `ia.repo`, `ia.issue` (ver la telemetría de `@ia-tools/agent-engine`).
   const repo = `${args.owner}/${args.repo}`
   return createEvent(args.eventType, payload, {
     scope: {

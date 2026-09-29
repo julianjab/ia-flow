@@ -12,15 +12,15 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ia_tools="${IA_TOOLS_DIR:-$(cd "$here/../../../.." && pwd)/ia-tools}"
 
-if [[ ! -d "$ia_tools/packages/agent-pipeline" ]]; then
+if [[ ! -d "$ia_tools/packages/agent-engine/core" ]]; then
   echo "No encuentro ia-tools en $ia_tools — pasalo con IA_TOOLS_DIR=<ruta>" >&2
   exit 1
 fi
 
 packages=(
-  agent-pipeline
-  agent-pipeline-sqlite
-  agent-pipeline-yaml
+  agent-engine/core
+  agent-engine/sqlite
+  agent-engine/yaml
   provider-anthropic
   telemetry
   github/api

@@ -1,6 +1,6 @@
 /**
  * Lo que el runner lee de `.config/` además del engine (que lee `engine.yaml` y `projects/` por su
- * cuenta, con `@ia-tools/agent-pipeline-yaml`):
+ * cuenta, con `@ia-tools/agent-engine-yaml`):
  *
  *   runner.yaml                    settings, identidad de GitHub, providers, MCP y el board de
  *                                  cada proyecto
