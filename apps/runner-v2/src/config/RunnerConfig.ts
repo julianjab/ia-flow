@@ -3,9 +3,9 @@
  * carpeta — cada cosa se declara.
  *
  *   runner.yaml      scope runner: settings, identidad de GitHub, providers, MCP, `engine:` (cómo
- *                    se arma el engine: `engine/mountEngine.ts`), la fuente global (`agents`,
- *                    `pipelines`), sus `actions` y los `projects` (cada uno, la ruta a su
- *                    `project.yaml` o el proyecto inline)
+ *                    corre el engine: `engine/mountEngine.ts`) y `sources:` (qué corre: la fuente
+ *                    global —`agents`, `pipelines`—, las `actions` globales y los `projects`,
+ *                    cada uno la ruta a su `project.yaml` o el proyecto inline)
  *   project.yaml     scope proyecto: board, prefijo de rama y label (el runner), los defaults de su
  *                    fuente (`systemPrompts`, `onError`, `report`, `vars`), sus `agents`,
  *                    `pipelines`, `actions` y `repos`
@@ -84,15 +84,20 @@ export const RunnerFileSchema = z.strictObject({
   /** Los defaults de cada provider para todos sus agentes (`anthropic-api: { maxTokens, … }`). */
   providers: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   mcp: z.array(McpEntrySchema).default([]),
-  /** Cómo se arma el engine (`engine/mountEngine.ts`). */
+  /** Cómo corre el engine (`engine/mountEngine.ts`). */
   engine: EngineSection.default({}),
-  /** La fuente global: la que recibe todos los eventos (ej. los webhooks crudos). */
-  agents: Entries.optional(),
-  pipelines: Entries.optional(),
-  /** Las actions globales: las ve toda fuente. */
-  actions: Paths.optional(),
-  /** Cada proyecto: la ruta a su `project.yaml`, o el proyecto inline. */
-  projects: z.record(z.string(), z.union([z.string().min(1), ProjectFileSchema])).default({}),
+  /** Qué corre: la composición del runner, que el engine sólo ve como fuentes ya armadas. */
+  sources: z
+    .strictObject({
+      /** La fuente global: la que recibe todos los eventos (ej. los webhooks crudos). */
+      agents: Entries.optional(),
+      pipelines: Entries.optional(),
+      /** Las actions globales: las ve toda fuente. */
+      actions: Paths.optional(),
+      /** Cada proyecto: la ruta a su `project.yaml`, o el proyecto inline. */
+      projects: z.record(z.string(), z.union([z.string().min(1), ProjectFileSchema])).default({}),
+    })
+    .default({ projects: {} }),
 })
 type RunnerFile = z.infer<typeof RunnerFileSchema>
 
@@ -217,7 +222,7 @@ function sourceSpec(
 function locateProject(runnerPath: string, id: string, entry: string | ProjectFile) {
   const base = dirname(runnerPath)
   if (typeof entry !== 'string') {
-    return { file: runnerPath, base, origin: `${runnerPath}: projects.${id}`, inline: true }
+    return { file: runnerPath, base, origin: `${runnerPath}: sources.projects.${id}`, inline: true }
   }
   const file = join(base, entry)
   return { file, base: dirname(file), origin: file, inline: false }
@@ -227,7 +232,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
   const at = locateProject(runnerPath, id, entry)
   const read = (): ProjectFile => {
     if (!at.inline) return parse(at.file, ProjectFileSchema)
-    const project = parse(runnerPath, RunnerFileSchema).projects[id]
+    const project = parse(runnerPath, RunnerFileSchema).sources.projects[id]
     if (!project || typeof project === 'string') throw new Error(`${at.origin}: ya no está inline`)
     return project
   }
@@ -247,7 +252,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
 export function loadRunnerConfig(dir: string): RunnerConfig {
   const runnerPath = join(dir, 'runner.yaml')
   const file = parse(runnerPath, RunnerFileSchema)
-  const projects = Object.entries(file.projects).map(([id, entry]) =>
+  const projects = Object.entries(file.sources.projects).map(([id, entry]) =>
     readProject(runnerPath, id, entry),
   )
   return {
@@ -258,17 +263,17 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     providers: file.providers,
     mcp: file.mcp,
     engine: file.engine,
-    actions: actionFiles(file.actions, dir, runnerPath),
+    actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
       spec: () => {
-        const { agents, pipelines } = parse(runnerPath, RunnerFileSchema)
+        const { agents, pipelines } = parse(runnerPath, RunnerFileSchema).sources
         return sourceSpec(
           {
             ...(agents !== undefined ? { agents } : {}),
             ...(pipelines !== undefined ? { pipelines } : {}),
           },
           dir,
-          runnerPath,
+          `${runnerPath}: sources`,
         )
       },
       watch: [runnerPath],

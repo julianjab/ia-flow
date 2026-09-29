@@ -23,11 +23,12 @@ scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
 
 ```yaml
 # runner.yaml
-engine: { … }                       # store de ejecuciones, tick, whenText, formatMessage
-pipelines: ./pipelines              # la fuente global (el intake)
-actions: ./actions                  # actions globales
-projects:
-  lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml   # o el proyecto inline
+engine: { … }                       # CÓMO corre: store de ejecuciones, tick, whenText, formatMessage
+sources:                            # QUÉ corre: la composición del runner
+  pipelines: ./pipelines            # la fuente global (el intake)
+  actions: ./actions                # actions globales
+  projects:
+    lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml   # o el proyecto inline
 
 # projects/lahaus-ai-flow/project.yaml
 board: https://github.com/orgs/la-haus/projects/119
