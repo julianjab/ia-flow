@@ -72,7 +72,8 @@ describe('la cascada when', () => {
     expect(gated('build-arrival')).toBe(true)
     expect(gated('review')).toBe(true)
     expect(gated('refine-technical')).toBe(false)
-    expect(gated('comment-refine-technical')).toBe(false)
+    // `comment` no se frena entera: cada paso decide (los refiners técnicos atienden igual).
+    expect(gated('comment')).toBe(false)
   })
 })
 
@@ -119,9 +120,8 @@ describe('lo que el engine hace por el implementer', () => {
 })
 
 describe('injects y ifRunning', () => {
-  it('the working agents accept human comments and change requests; triage accepts nothing', () => {
+  it('the working agents accept human comments and change requests', () => {
     const implementer = agentOf('build-arrival', 'implementer')
-    const triage = agentOf('comment-refine-technical', 'comment-triage')
 
     const human = createEvent('issue_comment', { action: 'created', body: 'usá el enum' })
     const own = createEvent('issue_comment', {
@@ -135,7 +135,6 @@ describe('injects y ifRunning', () => {
     expect(implementer?.accepts(human)).toBe(true)
     expect(implementer?.accepts(own)).toBe(false)
     expect(implementer?.accepts(changes)).toBe(true)
-    expect(triage?.accepts(human)).toBe(false)
 
     for (const p of mounted.pipelines()) expect(['wait', 'skip']).toContain(p.ifRunning)
     expect(mounted.executions?.stats).toEqual({ running: 0, waiting: 0, paused: 0 })

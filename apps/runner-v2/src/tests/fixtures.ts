@@ -8,7 +8,9 @@ import {
   type DomainEvent,
   Engine,
   EventBus,
+  type Pipeline,
   StaticPipelineSource,
+  type TextClassifier,
 } from '@ia-tools/agent-pipeline'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
@@ -198,14 +200,26 @@ function prJson(owner: string, repo: string, pr: FakePr) {
   }
 }
 
-/** El runner en dry-run con esta GitHub simulada. */
-export function mountWith(github: FakeGithub, dir = CONFIG_DIR): Promise<MountedRunner> {
+/** El runner en dry-run con esta GitHub simulada (y, si se pasa, este clasificador de
+ *  `whenText`; si no, el de dry-run, que dice que sí). */
+export function mountWith(
+  github: FakeGithub,
+  textClassifier?: TextClassifier,
+  dir = CONFIG_DIR,
+): Promise<MountedRunner> {
   return mountRunner(loadRunnerConfig(dir), {
     dryRun: true,
     live: false,
     log: () => {},
     githubFetch: github.fetch,
+    ...(textClassifier ? { textClassifier } : {}),
   })
+}
+
+/** Los pasos de `pipeline` que corren para `event` por su `when` — a qué agente va. */
+export function stepsFor(pipeline: Pipeline, event: DomainEvent): string[] {
+  const ctx = { event, steps: {}, bus: new EventBus(), pipelineId: pipeline.id }
+  return pipeline.do.filter((step) => step.shouldRun(ctx)).map((step) => step.id ?? '?')
 }
 
 /**

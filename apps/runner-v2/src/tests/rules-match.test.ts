@@ -3,9 +3,10 @@
  * que publica el intake tiene que tener la forma que las pipelines filtran (`item.status`,
  * `to`/`from`, `state`, `conclusion`, …). Sin red: runner en dry-run y board simulado.
  */
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, vi } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { TextClassifier } from '@ia-tools/agent-pipeline'
 import { REPORT_MARKER } from '@ia-tools/github-tools'
 import { parse } from 'yaml'
 import type { MountedRunner } from '../boot.js'
@@ -19,6 +20,7 @@ import {
   reviewPayload,
   runIntake,
   runPayload,
+  stepsFor,
 } from './fixtures.js'
 import { CONFIG_DIR } from './helpers.js'
 
@@ -133,10 +135,10 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
     ).toContain('refine-technical')
   })
 
-  it("a human comment in Refine goes to triage; the pipeline's own report does not", async () => {
+  it("a human comment goes to the comment pipeline; the pipeline's own report does not", async () => {
     expect(
       await rulesFor('issue_comment', commentPayload('falta paginar'), { status: 'Refine' }),
-    ).toContain('comment-refine-technical')
+    ).toEqual(['comment'])
     expect(
       await rulesFor('issue_comment', commentPayload(`${REPORT_MARKER}\nlisto`), {
         status: 'Refine',
@@ -226,5 +228,91 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
         status: 'Review',
       }),
     ).toContain('ci-red')
+  })
+})
+
+describe('comment.yaml: a qué agente va un comentario', () => {
+  const FRONT = 'la-haus/lh-seller-v2-frontend'
+  const frontend = {
+    name: 'lh-seller-v2-frontend',
+    full_name: FRONT,
+    owner: { login: 'la-haus' },
+  }
+
+  /** La pipeline que corre y los agentes que su `when` elige, para un comentario en `repo`. */
+  async function routing(task: FakeTask, repo = 'subscriptions', classifier?: TextClassifier) {
+    const key = `la-haus/${repo}#7`
+    const mounted = await mountWith(
+      fakeGithub({ tasks: { [key]: { labels: ['blocked'], ...task } } }),
+      classifier,
+    )
+    try {
+      const payload =
+        repo === 'subscriptions'
+          ? commentPayload('falta paginar')
+          : { ...commentPayload('falta paginar'), repository: frontend }
+      const { emitted } = await runIntake(mounted, 'issue_comment', payload)
+      const event = emitted[0]
+      if (!event) return { pipelines: [], agents: [] }
+      const pipelines = await mounted.engine.select(event)
+      return {
+        pipelines: pipelines.map((p) => p.id),
+        agents: pipelines.flatMap((p) => stepsFor(p, event)),
+      }
+    } finally {
+      mounted.stop()
+    }
+  }
+
+  it('Refine and Refined go to the refiner of the task type and repo', async () => {
+    expect((await routing({ status: 'Refine' })).agents).toEqual(['refiner'])
+    expect((await routing({ status: 'Refined' })).agents).toEqual(['refiner'])
+    expect((await routing({ status: 'Refine', type: 'Functional' })).agents).toEqual([
+      'functional-refiner',
+    ])
+    expect((await routing({ status: 'Refined' }, 'lh-seller-v2-frontend')).agents).toEqual([
+      'frontend-refiner',
+    ])
+  })
+
+  it('Build and Review go to the implementer; frontend only in Build or with the PR approved', async () => {
+    expect((await routing({ status: 'Build' })).agents).toEqual(['implementer'])
+    expect((await routing({ status: 'Build' }, 'lh-seller-v2-frontend')).agents).toEqual([
+      'frontend-implementer',
+    ])
+    expect(
+      (
+        await routing(
+          { status: 'Review', labels: ['blocked', 'reviewed'] },
+          'lh-seller-v2-frontend',
+        )
+      ).agents,
+    ).toEqual(['frontend-implementer'])
+    expect((await routing({ status: 'Review' }, 'lh-seller-v2-frontend')).agents).toEqual([
+      'implementer',
+    ])
+    expect((await routing({ status: 'Review', labels: ['blocked', 'reviewed'] })).agents).toEqual([
+      'implementer',
+    ])
+  })
+
+  it('a card with open blockers only reaches the technical refiners', async () => {
+    const blockedBy = [{ number: 3, title: 'migrar', state: 'open', html_url: 'u' }]
+    expect((await routing({ status: 'Refine', blockedBy })).agents).toEqual(['refiner'])
+    expect((await routing({ status: 'Refine', type: 'Functional', blockedBy })).agents).toEqual([])
+    expect((await routing({ status: 'Build', blockedBy })).agents).toEqual([])
+  })
+
+  it('a column without an agent does not even ask the model, and a comment the model says is not a change runs nothing', async () => {
+    const classify = vi.fn(async () => ({ matches: false, reason: 'es una pregunta' }))
+    expect((await routing({ status: 'Backlog' }, 'subscriptions', { classify })).pipelines).toEqual(
+      [],
+    )
+    expect(classify).not.toHaveBeenCalled()
+
+    expect((await routing({ status: 'Build' }, 'subscriptions', { classify })).pipelines).toEqual(
+      [],
+    )
+    expect(classify).toHaveBeenCalledTimes(1)
   })
 })
