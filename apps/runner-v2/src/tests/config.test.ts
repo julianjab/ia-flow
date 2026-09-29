@@ -151,8 +151,8 @@ describe('runner.yaml as the index', () => {
     const dir = configCopy({
       'runner.yaml': (s) =>
         s.replace(
-          /^pipelines: \.\/pipelines$/m,
-          'pipelines:\n  - ./pipelines/00-intake.yaml\n  - { id: ping, on: [ping], do: [{ emit: pong }] }',
+          /^ {2}pipelines: \.\/pipelines$/m,
+          '  pipelines:\n    - ./pipelines/00-intake.yaml\n    - { id: ping, on: [ping], do: [{ emit: pong }] }',
         ),
     })
     const mounted = await mountDry(dir)

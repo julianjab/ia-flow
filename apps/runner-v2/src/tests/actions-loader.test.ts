@@ -46,9 +46,10 @@ function index(files: Record<string, string>, projects: string[], actions: strin
       ? `, actions: ./projects/${id}/actions`
       : ''
   return [
-    `actions: ${actions}`,
-    ...(projects.length > 0 ? ['projects:'] : []),
-    ...projects.map((id) => `  ${id}: { board: https://github.com/orgs/o/projects/1${own(id)} }`),
+    'sources:',
+    `  actions: ${actions}`,
+    ...(projects.length > 0 ? ['  projects:'] : []),
+    ...projects.map((id) => `    ${id}: { board: https://github.com/orgs/o/projects/1${own(id)} }`),
   ].join('\n')
 }
 

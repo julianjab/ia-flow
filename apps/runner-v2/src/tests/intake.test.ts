@@ -309,12 +309,12 @@ describe('intake: the rest', () => {
 })
 
 describe('intake: several projects', () => {
-  /** `.config` con un segundo proyecto, inline en runner.yaml: `otro`, sobre el board 120 y el
+  /** `.config` con un segundo proyecto, inline en runner.yaml (`sources.projects`): `otro`, sobre el board 120 y el
    *  mismo catálogo de repos. */
   function twoProjects(): string {
     return configCopy({
       'runner.yaml': (content) =>
-        `${content}  otro:\n    board: https://github.com/orgs/la-haus/projects/120\n    branchPrefix: otro/\n    label: blocked\n    repos: ./projects/lahaus-ai-flow/repos\n`,
+        `${content}    otro:\n      board: https://github.com/orgs/la-haus/projects/120\n      branchPrefix: otro/\n      label: blocked\n      repos: ./projects/lahaus-ai-flow/repos\n`,
     })
   }
 
