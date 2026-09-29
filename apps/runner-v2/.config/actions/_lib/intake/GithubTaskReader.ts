@@ -70,11 +70,30 @@ export interface RawTaskContext {
   statuses?: Array<{ state: string }>
 }
 
+type ItemIssue = Awaited<ReturnType<GithubTaskReader['readItem']>>
+
 export class GithubTaskReader {
+  private items?: Map<string, Promise<ItemIssue>>
+
   constructor(private readonly client: GithubClient) {}
 
+  /** Un lector que lee cada item una sola vez: el de un webhook, que miran varios proyectos. */
+  withItemCache(): GithubTaskReader {
+    const reader = new GithubTaskReader(this.client)
+    reader.items = new Map()
+    return reader
+  }
+
   /** El issue que envuelve un item del board, y de qué board es el item. */
-  async issueOfItem(itemId: string) {
+  issueOfItem(itemId: string): Promise<ItemIssue> {
+    const cached = this.items?.get(itemId)
+    if (cached) return cached
+    const read = this.readItem(itemId)
+    this.items?.set(itemId, read)
+    return read
+  }
+
+  private async readItem(itemId: string) {
     const data = await this.client.graphql<{
       node: {
         project?: { number: number; owner?: { login?: string } }

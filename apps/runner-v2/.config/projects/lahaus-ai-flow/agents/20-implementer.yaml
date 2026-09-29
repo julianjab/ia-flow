@@ -6,7 +6,7 @@
 #
 # El MÉTODO vive en `systemPrompts` (se cachea); en `prompt` va sólo lo que
 # tiene `{{`. La referencia de validación por stack y la convención de
-# commits viven en `project.yaml`, compartidas con el reviewer, que es quien
+# commits viven en `source.yaml`, compartidas con el reviewer, que es quien
 # las juzga.
 id: implementer
 # Corre contra la Messages API, dentro del runner: con un worktree en

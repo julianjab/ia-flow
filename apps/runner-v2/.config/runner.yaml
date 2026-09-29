@@ -1,4 +1,4 @@
-# runner-v2 — lo que el runner necesita además del engine (engine.yaml).
+# runner-v2 — el scope runner: lo global (identidad, providers, MCP) y el engine (`engine:`).
 #
 # La regla: **secreto → env; comportamiento → acá.** Este archivo se commitea:
 # un token se NOMBRA (`${VAR}`) y el runner lo resuelve del ambiente al arrancar.
@@ -40,15 +40,33 @@ mcp:
       url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma
       authorizationToken: ${FIGMA_MCP_TOKEN}
 
-# Lo que el runner sabe de cada proyecto de .config/projects/: su board de
-# GitHub Projects, el prefijo de la rama de cada task (`<prefijo><número>`) y
-# qué cards del board son suyas.
-projects:
-  lahaus-ai-flow:
-    board: https://github.com/orgs/la-haus/projects/119
-    branchPrefix: ia-flow-local/
-    # Este runner y el de claw-agents escuchan el mismo board (119). El reparto
-    # es por la label `blocked`: el de claw-agents excluye esas cards y este
-    # toma SÓLO esas. Lo aplican el intake (`resolve_task` no publica nada de
-    # una card sin la label) y la CLI.
-    label: blocked
+# El engine (`createEngineFromYaml` de @ia-tools/agent-engine-yaml, sección `engine`).
+# Las rutas son relativas a este archivo. Las fuentes no van acá: las monta el
+# runner — la global (esta carpeta: pipelines/ y agents/) y una por proyecto
+# (projects/<id>/), que sólo recibe los eventos con su `scope.projectId`.
+engine:
+  # Tope de la cadena de eventos derivados (un paso que emite otro evento).
+  maxEventDepth: 10
+
+  # Cada corrida con agentes es una EJECUCIÓN de su task: una task nunca corre
+  # dos a la vez, y las pausas (esperar el CI) sobreviven a un reinicio porque
+  # viven en SQLite. `bun-sqlite` lo registra el runner (src/storage/).
+  executions:
+    driver: bun-sqlite
+    path: ../.state/executions.sqlite
+    # Cuántas corridas en paralelo, entre todas las tasks.
+    maxConcurrent: 1
+
+  # Cada cuánto se revisan las pausas vencidas (`timeout` de un `pause`).
+  tick:
+    everyMs: 60000
+
+  # El clasificador de los `whenText` (pipelines y pasos): Haiku por la Messages
+  # API de Anthropic, con la misma ANTHROPIC_API_KEY que los agentes. Sin la
+  # key, lo que tiene un `whenText` no corre.
+  whenText:
+    model: claude-haiku-4-5
+
+  # Cómo le llega a un agente que ya corre un evento que acepta (`injects`): el
+  # texto que arma `resolve_task` en `payload.message`.
+  formatMessage: '{{message}}'

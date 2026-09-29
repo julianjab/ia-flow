@@ -5,14 +5,19 @@
  *     write: [prd]                                     → update_prd(<schema del PRD>)
  *     check: [prd.zona_de_impacto]                     → check_prd_zona_de_impacto({ items })
  *
+ * Es de este proyecto: las secciones del body (el PRD) son su formato (`_lib/prd.ts`).
+ *
  * El modelo nunca ve una tool genérica de "editar el body": ve exactamente lo que le toca. Un
  * agente que declara `update_issue_body` a secas sigue recibiendo esa tool (el body entero): es la
  * decisión explícita de darle todo.
  */
+
+import { defineAction } from '@ia-flow/runner-v2/actions'
 import type { Action } from '@ia-tools/agent-engine'
 import type { GithubClient } from '@ia-tools/github-api'
 import { CheckSectionItemsAction, IssueSectionAction } from '@ia-tools/github-tools'
-import { ISSUE_BODY_SECTIONS } from './prd.js'
+import { z } from 'zod'
+import { ISSUE_BODY_SECTIONS } from './_lib/prd.js'
 
 export interface IssueBodyPermission {
   /** Bloques que el agente reescribe completos. */
@@ -81,3 +86,22 @@ export function issueBodyNote(permission: IssueBodyPermission, actions: Action[]
   }
   return lines.join('\n')
 }
+
+const IssueBodyOptions = z.strictObject({
+  /** Bloques que el agente reescribe completos. */
+  write: z.array(z.string()).default([]),
+  /** Checklists (`<bloque>.<campo>`) en los que sólo puede tildar. */
+  check: z.array(z.string()).default([]),
+})
+
+export default defineAction({
+  id: 'issue_body',
+  create: (ctx) => {
+    if (!ctx.agentId) throw new Error('issue_body es de un agente')
+    const parsed = IssueBodyOptions.safeParse(ctx.options)
+    if (!parsed.success) {
+      throw new Error(`issue_body: options inválidas\n${z.prettifyError(parsed.error)}`)
+    }
+    return issueBodyActions(ctx.agentId, parsed.data, ctx.services.github)
+  },
+})

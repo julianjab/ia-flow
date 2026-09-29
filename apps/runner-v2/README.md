@@ -1,8 +1,8 @@
 # runner-v2
 
 El runner headless de ia-flow sobre [`@ia-tools/agent-engine`](https://github.com/julianjab/ia-tools):
-recibe los webhooks de GitHub, los traduce a eventos de la task y corre los agentes que le
-tocan a cada columna del board. Es el `ai-development-flow` de `ia-tools/examples` traído acá,
+lee `.config/`, registra las actions de cada scope, monta el engine y levanta el servidor de
+webhooks. No traduce ni arma eventos: eso lo hacen las pipelines y las actions de `.config/`. Es el `ai-development-flow` de `ia-tools/examples` traído acá,
 con la definición del pipeline como datos y las ejecuciones en SQLite.
 
 ## Qué cambia respecto del runner de `apps/server`
@@ -17,16 +17,45 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
 
 ## `.config/`
 
+Un archivo por scope: lo global en la raíz, lo de un proyecto en su carpeta.
+
 ```
 .config/
-├── engine.yaml                  el engine: store de ejecuciones, fuentes, tick de pausas
-├── runner.yaml                  identidad de GitHub, providers, MCP y el board de cada proyecto
+├── runner.yaml                  scope runner: identidad de GitHub, providers, MCP y `engine:`
+│                                (store de ejecuciones, tick, clasificador de `whenText`, formatMessage)
+├── actions/*.ts                 actions globales: resolve_task, github (board y tools), workspace
+│   └── _lib/                    sus helpers (no se registran)
+├── pipelines/*.yaml             la fuente global: el intake (00-intake, 01-unblock)
 └── projects/lahaus-ai-flow/
-    ├── project.yaml             system prompts compartidos, onError
+    ├── project.yaml             scope proyecto, para el runner: board, prefijo de rama, label
+    ├── source.yaml              su fuente del engine: system prompts compartidos, onError
+    ├── actions/*.ts             actions del proyecto: issue_body (el formato del PRD), blockedReport
     ├── agents/*.yaml            QUÉ hace cada agente y cómo termina (sus salidas)
     ├── pipelines/*.yaml         CUÁNDO corre: una pipeline por momento del flujo
     └── repos/*.yaml             el catálogo de repos (lo lee el runner, no el engine)
 ```
+
+El engine no sabe de proyectos: ve fuentes. El proyecto es una capa del runner que sólo filtra
+—la fuente de `projects/<id>/` recibe únicamente los eventos con `scope.projectId: <id>`, que fija
+`resolve_task`—; la global recibe todo.
+
+### Las actions (`actions/`)
+
+Cada `*.ts` que está directo en una carpeta `actions/` exporta por default una definición (o una
+lista) y se registra sola en su scope:
+
+```ts
+import { defineAction } from '@ia-flow/runner-v2/actions'
+export default defineAction({ id: 'resolve_task', create: (ctx) => new ResolveTaskAction(…) })
+```
+
+`create` recibe quién la pide (`sourceId`, `agentId`, las `options` del YAML), el proyecto de esa
+fuente, todos los proyectos y los servicios que monta el runner (GitHub, workspace, `--live`). Una
+fuente de proyecto ve primero las suyas y después las globales; la global, sólo las globales. Un
+id repetido en el mismo scope rompe el arranque. `defineMapper` registra un mapper de `onError`.
+
+Las actions importan paquetes y el contrato del runner: la carpeta de la definición tiene que
+vivir DENTRO de `apps/runner-v2` (así resuelven sus dependencias), también con `RUNNER_CONFIG_DIR`.
 
 ### Las pipelines (`pipelines/`)
 
@@ -40,14 +69,16 @@ pipeline: por eso llegada y reentrada a Build, o CI rojo y cambios pedidos, son 
 ### El intake
 
 Un webhook entra al engine tal cual lo mandó GitHub (`github.<evento>`) y lo recibe el intake:
-`pipelines/00-intake.yaml` es un solo paso, `resolve_task` (`src/intake/`). La acción encuentra la task
+`pipelines/00-intake.yaml` es un solo paso, `resolve_task` (`actions/resolve_task.ts`). Es uno
+para todos los proyectos: decide de cuál es el evento (el board del item, el catálogo de repos, la
+card del issue y la label) y, por cada uno, encuentra la task
 (el issue detrás de un item del board, el que implementa el PR de un comentario o de un CI), la
 lee de GitHub —card, issue, blockers, timeline del issue y del PR, CI— y publica el evento de la
 task con su scope. No publica nada para un repo fuera del catálogo, ni para una card de otro
-board o sin la `label` del proyecto (`runner.yaml`; hoy `blocked`): esas son del engine de
-producción. `pipelines/01-unblock.yaml` es el mismo paso con `unblockDependents: true`.
+board o sin la `label` del proyecto (`project.yaml`; hoy `blocked`): esas son del engine de
+producción. El evento lleva `message`, el texto con el que le llega a un agente que ya corre. `pipelines/01-unblock.yaml` es el mismo paso con `unblockDependents: true`.
 
-Lo que el YAML nombra y el runner implementa (`src/catalog/buildCatalogs.ts`):
+Lo que el YAML nombra y definen las `actions/`:
 
 | Nombre | Qué es |
 | --- | --- |
@@ -71,7 +102,8 @@ bun install
 
 cd apps/runner-v2
 bun run dry-run                                   # carga y valida la definición, sin credenciales
-bun run src/main.ts issue.status_changed la-haus/subscriptions#123 --status Refine --label blocked --dry-run
+bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
+bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks (escrituras simuladas)
 IA_FLOW_WEBHOOK_SECRET=... bun run serve --live  # escrituras reales a GitHub
 bun test

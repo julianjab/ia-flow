@@ -7,9 +7,10 @@ import {
 import { z } from 'zod'
 import type { BoardRef, GithubTaskReader } from './GithubTaskReader.js'
 import { type EventFields, locate, mergedBlocker } from './locate.js'
+import { eventMessage } from './message.js'
 import { boardItem, issueRefs, linkedIssue, taskPayload } from './task.js'
 
-/** El proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
+/** Un proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
 export interface ResolveTaskProject {
   id: string
   board: BoardRef
@@ -43,13 +44,15 @@ const UNBLOCKED = 'issue.unblocked'
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /**
- * `resolve_task`: el intake entero en un paso. De un webhook crudo de GitHub (`github.<evento>`)
- * encuentra la task (`locate`), la lee de GitHub —la card de ESTE board, el issue, sus blockers,
- * el timeline del issue y del PR, el CI— y publica el evento de la task con el payload que ven los
- * agentes y el scope `{projectId, repo, issue}`: desde ahí corre como una ejecución de esa task.
+ * `resolve_task`: el intake entero en un paso, para TODOS los proyectos. De un webhook crudo de
+ * GitHub (`github.<evento>`) decide de qué proyecto es —el board del item, el catálogo de repos,
+ * la card del issue y la label— y, por cada uno, encuentra la task (`locate`), la lee de GitHub
+ * —la card de ese board, el issue, sus blockers, el timeline del issue y del PR, el CI— y publica
+ * el evento de la task con el payload que ven los agentes (y su `message`) y el scope
+ * `{projectId, repo, issue}`: desde ahí sólo lo ve la fuente de ese proyecto.
  *
- * No publica nada para un repo que el catálogo no declara, ni para un issue que no está en el board
- * del proyecto (es de otro engine: el de producción comparte los repos).
+ * No publica nada para un repo que ningún catálogo declara, ni para un issue que no está en el
+ * board de ningún proyecto (es de otro engine: el de producción comparte los repos).
  */
 export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   readonly description = 'Resuelve la task de un webhook de GitHub y publica su evento'
@@ -57,13 +60,38 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   override readonly sideEffects = 'none' as const
 
   constructor(
-    private readonly project: ResolveTaskProject,
+    private readonly projects: () => ResolveTaskProject[],
     private readonly reader: GithubTaskReader,
   ) {
     super({ id: 'resolve_task' })
   }
 
   async execute(input: z.infer<typeof Input>, ctx: PipelineExecutionContext): Promise<Resolved> {
+    const projects = this.projects()
+    if (projects.length === 0) return { skipped: 'no hay proyectos montados' }
+    // Un item del board se lee una vez aunque haya varios proyectos.
+    const reader = this.reader.withItemCache()
+    const results = await Promise.all(
+      projects.map((project) => new ProjectResolver(project, reader).resolve(input, ctx)),
+    )
+    const emitted = results.flatMap((result) => ('emitted' in result ? result.emitted : []))
+    if (emitted.length > 0) return { emitted }
+    return {
+      skipped: results
+        .map((result, i) => `${projects[i]?.id}: ${'skipped' in result ? result.skipped : ''}`)
+        .join(' · '),
+    }
+  }
+}
+
+/** Lo que `resolve_task` hace para UN proyecto. */
+class ProjectResolver {
+  constructor(
+    private readonly project: ResolveTaskProject,
+    private readonly reader: GithubTaskReader,
+  ) {}
+
+  async resolve(input: z.infer<typeof Input>, ctx: PipelineExecutionContext): Promise<Resolved> {
     const raw = (ctx.event.payload ?? {}) as Record<string, unknown>
     const type = ctx.event.type.replace(/^github\./, '')
     if (input.unblockDependents) return this.unblocked(raw, ctx)
@@ -149,7 +177,8 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
       repos: this.project.reposText,
     })
     if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }
-    const event = deriveEvent(ctx.event, built.type, built.payload, {
+    const payload = { ...built.payload, message: eventMessage(built.type, built.payload) }
+    const event = deriveEvent(ctx.event, built.type, payload, {
       scope: built.scope,
       ...(ctx.execution ? { executionId: ctx.execution.id } : {}),
     })

@@ -1,4 +1,4 @@
-# Los webhooks de GitHub → el evento de su task (`resolve_task`, src/intake/).
+# Los webhooks de GitHub → el evento de su task (`resolve_task`, .config/actions/).
 #
 # La acción encuentra la task (el issue detrás de un item del board, el que implementa el PR
 # de un comentario, la rama `<prefijo><n>` de un CI), la lee de GitHub —card, issue, blockers,
@@ -10,7 +10,7 @@
 #   check_suite, workflow_run (completed) → check_suite · workflow_run
 #
 # No publica nada para un repo fuera del catálogo, ni para una card de otro board o sin la
-# `label` del proyecto (`runner.yaml`): esas son del engine de producción.
+# `label` del proyecto (`projects/<id>/project.yaml`): esas son del engine de producción.
 id: intake
 on:
   - github.projects_v2_item

@@ -1,10 +1,13 @@
 /**
- * Lo que el runner lee de `.config/` además del engine (que lee `engine.yaml` y `projects/` por su
- * cuenta, con `@ia-tools/agent-engine-yaml`):
+ * Lo que el runner lee de `.config/`, un archivo por scope:
  *
- *   runner.yaml                    settings, identidad de GitHub, providers, MCP y el board de
- *                                  cada proyecto
+ *   runner.yaml                    scope runner: settings, identidad de GitHub, providers, MCP y
+ *                                  `engine:` (la config del engine, que valida
+ *                                  `@ia-tools/agent-engine-yaml`)
+ *   projects/<id>/project.yaml     scope proyecto: su board, el prefijo de rama y su label
  *   projects/<id>/repos/*.yaml     el catálogo de repos de cada proyecto
+ *
+ * Los agentes y pipelines de cada scope los lee el engine (`source.yaml`, `agents/`, `pipelines/`).
  *
  * Todo `.strict()`: una clave mal escrita rompe el arranque en vez de quedar como config que nadie
  * lee. `applyRunnerEnv` vuelca `github`/`settings` al env — **el env real gana**, así un PEM local
@@ -28,7 +31,8 @@ const McpEntrySchema = z.strictObject({
 })
 export type McpEntry = z.infer<typeof McpEntrySchema>
 
-const ProjectSettingsSchema = z.strictObject({
+/** `projects/<id>/project.yaml`: lo que el runner sabe de un proyecto. */
+export const ProjectFileSchema = z.strictObject({
   /** El GitHub Project v2 del proyecto: `https://github.com/orgs/<org>/projects/<n>`. */
   board: z.string().regex(/github\.com\/orgs\/[^/]+\/projects\/\d+/, 'un GitHub Project v2 de org'),
   /** `task.branch` = `<branchPrefix><número>`. */
@@ -51,7 +55,8 @@ export const RunnerFileSchema = z.strictObject({
   /** Los defaults de cada provider para todos sus agentes (`anthropic-api: { maxTokens, … }`). */
   providers: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   mcp: z.array(McpEntrySchema).default([]),
-  projects: z.record(z.string(), ProjectSettingsSchema),
+  /** La config del engine (`createEngineFromYaml` con `section: 'engine'`): la valida él. */
+  engine: z.unknown(),
 })
 
 export const RepoDefSchema = z.looseObject({
@@ -62,11 +67,13 @@ export const RepoDefSchema = z.looseObject({
 })
 export type RepoDef = z.infer<typeof RepoDefSchema> & { projectId: string }
 
-export interface ProjectSettings {
+/** Un proyecto: su carpeta (`projects/<id>/`), su `project.yaml` y su catálogo de repos. */
+export interface ProjectConfig {
   id: string
+  dir: string
   board: { owner: string; number: number }
   branchPrefix: string
-  /** Ver `label` en `runner.yaml`. */
+  /** Ver `label` en `project.yaml`. */
   label?: string
   repos: RepoDef[]
 }
@@ -74,12 +81,13 @@ export interface ProjectSettings {
 export interface RunnerConfig {
   /** La carpeta de la definición (`.config`). */
   dir: string
-  enginePath: string
+  /** `runner.yaml`: también la config del engine, en su sección `engine:`. */
+  runnerPath: string
   settings: NonNullable<z.infer<typeof RunnerFileSchema>['settings']>
   github: NonNullable<z.infer<typeof RunnerFileSchema>['github']>
   providers: Record<string, Record<string, unknown>>
   mcp: McpEntry[]
-  projects: ProjectSettings[]
+  projects: ProjectConfig[]
   repos: RepoDef[]
 }
 
@@ -97,8 +105,8 @@ function parseBoard(url: string): { owner: string; number: number } {
 }
 
 /** `projects/<id>/repos/*.yaml`: una entrada suelta o una lista por archivo. */
-function readRepos(dir: string, projectId: string): RepoDef[] {
-  const reposDir = join(dir, 'projects', projectId, 'repos')
+function readRepos(projectDir: string, projectId: string): RepoDef[] {
+  const reposDir = join(projectDir, 'repos')
   if (!existsSync(reposDir)) return []
   return readdirSync(reposDir)
     .filter((name) => /\.ya?ml$/.test(name))
@@ -111,43 +119,41 @@ function readRepos(dir: string, projectId: string): RepoDef[] {
     })
 }
 
+function parse<T>(path: string, schema: z.ZodType<T>): T {
+  const parsed = schema.safeParse(readYaml(path))
+  if (!parsed.success) throw new Error(`${path}: inválido\n${z.prettifyError(parsed.error)}`)
+  return parsed.data
+}
+
+/** Un proyecto por subcarpeta de `projects/` con `project.yaml`. */
+function readProjects(dir: string): ProjectConfig[] {
+  const root = join(dir, 'projects')
+  if (!existsSync(root)) return []
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(root, entry.name, 'project.yaml')))
+    .map((entry) => entry.name)
+    .sort()
+    .map((id) => {
+      const projectDir = join(root, id)
+      const file = parse(join(projectDir, 'project.yaml'), ProjectFileSchema)
+      return {
+        id,
+        dir: projectDir,
+        board: parseBoard(file.board),
+        branchPrefix: file.branchPrefix,
+        ...(file.label ? { label: file.label } : {}),
+        repos: readRepos(projectDir, id),
+      }
+    })
+}
+
 export function loadRunnerConfig(dir: string): RunnerConfig {
   const runnerPath = join(dir, 'runner.yaml')
-  const enginePath = join(dir, 'engine.yaml')
-  if (!existsSync(enginePath)) throw new Error(`${dir}: falta engine.yaml`)
-  const parsed = RunnerFileSchema.safeParse(readYaml(runnerPath))
-  if (!parsed.success) throw new Error(`${runnerPath}: inválido\n${z.prettifyError(parsed.error)}`)
-  const file = parsed.data
-  // Cada proyecto de projects/ necesita su board acá: sin él no hay dónde leer ni escribir.
-  const folders = existsSync(join(dir, 'projects'))
-    ? readdirSync(join(dir, 'projects'), { withFileTypes: true })
-        .filter(
-          (entry) =>
-            entry.isDirectory() && existsSync(join(dir, 'projects', entry.name, 'project.yaml')),
-        )
-        .map((entry) => entry.name)
-    : []
-  const missing = folders.filter((id) => !(id in file.projects))
-  if (missing.length > 0) {
-    throw new Error(
-      `${runnerPath}: falta el board de ${missing.map((id) => `projects.${id}`).join(', ')}`,
-    )
-  }
-  const projects = Object.entries(file.projects).map(([id, settings]) => {
-    if (!existsSync(join(dir, 'projects', id))) {
-      throw new Error(`${runnerPath}: projects.${id} no tiene carpeta en projects/${id}/`)
-    }
-    return {
-      id,
-      board: parseBoard(settings.board),
-      branchPrefix: settings.branchPrefix,
-      ...(settings.label ? { label: settings.label } : {}),
-      repos: readRepos(dir, id),
-    }
-  })
+  const file = parse(runnerPath, RunnerFileSchema)
+  const projects = readProjects(dir)
   return {
     dir,
-    enginePath,
+    runnerPath,
     settings: file.settings ?? {},
     github: file.github ?? {},
     providers: file.providers,

@@ -16,8 +16,10 @@
       // viajan a sus tools (`SchemaTool`, `Action`); con dos copias, TypeScript compara sus tipos
       // genéricos estructuralmente (minutos) y en runtime un schema de una no es de la otra.
       // Bun respeta `paths` también al correr.
-      "zod": ["../../node_modules/@ia-tools/agent-engine/node_modules/zod"]
+      "zod": ["../../node_modules/@ia-tools/agent-engine/node_modules/zod"],
+      // El contrato de las actions de `.config/` (defineAction, los servicios del runner).
+      "@ia-flow/runner-v2/actions": ["./src/actions/defineAction.ts"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", ".config/**/*.ts"]
 }

@@ -7,7 +7,7 @@
  *   openPr        el PR abierto de la task: el del evento, o el de su rama
  *   taskPayload   el evento de la task, con la forma que filtran las pipelines y leen los prompts
  */
-import { assemblePayload, type EventArgs } from '../event.js'
+import { assemblePayload, type EventArgs } from './payload.js'
 import {
   type RawComment,
   type RawReview,
@@ -157,7 +157,6 @@ export function taskPayload(input: TaskInput) {
     commentId: input.comment?.id ?? 0,
     ...(input.comment ? { comment: input.comment.body } : {}),
     ...(input.pr !== undefined ? { pr: input.pr } : {}),
-    sets: [],
     ...(extra ? { extra } : {}),
     taskExtra: {
       comments: taskTimeline({ ...input, pr: input.openPr?.number }),

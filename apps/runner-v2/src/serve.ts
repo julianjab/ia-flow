@@ -2,7 +2,7 @@
  * Modo servidor (`--serve`): el engine se monta UNA vez y cada delivery de GitHub recorre
  *
  *   server.ts (firma, 202) → engine.dispatch(github.<evento>, payload crudo)
- *     → el intake (`pipelines/00-intake.yaml`, `resolve_task`) → las demás pipelines
+ *     → el intake (`.config/pipelines/00-intake.yaml`, `resolve_task`) → las del proyecto
  *
  * Cada delivery se despacha en el acto, sin cola: la serie por task y el tope global son de las
  * EJECUCIONES del engine (en SQLite, ver `engine.yaml`). Así un comentario que llega
@@ -44,20 +44,32 @@ export function deliveryScope(delivery: Delivery): Record<string, string> {
   }
 }
 
+/** Un webhook crudo, despachado como un delivery (`--event`, `--replay-pr`). */
+export async function dispatchRaw(
+  mounted: MountedRunner,
+  delivery: Delivery,
+  log: (line: string) => void,
+): Promise<void> {
+  const outcome = await mounted.engine.dispatch(
+    createEvent(`${RAW_PREFIX}${delivery.event}`, delivery.payload, {
+      scope: deliveryScope(delivery),
+    }),
+  )
+  log(`→ ${delivery.event}: ${outcome}`)
+}
+
 /**
  * Un PR real, despachado como si GitHub acabara de mandar su `pull_request` `opened`: lo lee de
- * la API y lo publica CRUDO (`github.pull_request`), así recorre el intake y las reglas igual que
- * un delivery — sin túnel ni webhook de org. Lo que filtren el intake o el `when` del proyecto (card fuera
- * del board, sin `blocked`) se filtra igual.
+ * la API y lo publica CRUDO (`github.pull_request`), así recorre el intake y las pipelines igual
+ * que un delivery — sin túnel ni webhook de org. Lo que filtre el intake (card fuera del board,
+ * sin la label del proyecto) se filtra igual.
  */
 export async function replayPullRequest(
   mounted: MountedRunner,
   target: { owner: string; repo: string; number: number },
   log: (line: string) => void,
 ): Promise<void> {
-  const client = mounted.projects[0]?.actions.client
-  if (!client) throw new Error('--replay-pr: no hay ningún proyecto montado')
-  const pr = await client.requestJson<
+  const pr = await mounted.github.requestJson<
     Record<string, unknown> & { base: { repo: unknown }; user: unknown }
   >(`/repos/${target.owner}/${target.repo}/pulls/${target.number}`)
   const delivery: Delivery = {
@@ -72,18 +84,19 @@ export async function replayPullRequest(
     },
   }
   log(`→ replay: ${target.owner}/${target.repo}#${target.number} como pull_request.opened`)
-  const outcome = await mounted.engine.dispatch(
-    createEvent(`${RAW_PREFIX}${delivery.event}`, delivery.payload, {
-      scope: deliveryScope(delivery),
-    }),
-  )
-  log(`→ replay: ${outcome}`)
+  await dispatchRaw(mounted, delivery, log)
 }
 
 export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise<Server> {
   const { log } = opts
-  // Leído en cada delivery: el intake se recarga en caliente como el resto de `.config/`.
-  const listened = () => new Set(mounted.intake().flatMap((pipeline) => pipeline.on))
+  // Leído en cada delivery: las pipelines se recargan en caliente como el resto de `.config/`.
+  const listened = () =>
+    new Set(
+      mounted
+        .pipelines()
+        .flatMap((pipeline) => pipeline.on)
+        .filter((type) => type.startsWith(RAW_PREFIX)),
+    )
 
   const onDelivery = async (delivery: Delivery) => {
     const type = `${RAW_PREFIX}${delivery.event}`
@@ -112,7 +125,7 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
         id: p.id,
         board: `${p.board.owner}#${p.board.number}`,
       })),
-      listening: [...listened()].filter((type) => type.startsWith(RAW_PREFIX)).sort(),
+      listening: [...listened()].sort(),
       executions: mounted.executions?.stats,
     }),
     log,

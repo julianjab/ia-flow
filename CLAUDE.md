@@ -19,7 +19,7 @@ apps/server/           Hono API + WS (IA_FLOW_SERVER_PORT, default 3001) — per
                        `Dockerfile.runner` + `RUNNER-DEPLOY.md`: el flavor headless en contenedor
 apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /api and /ws al puerto del server
 apps/runner-v2/        Runner headless sobre @ia-tools/agent-engine (ia-tools, vía `bun link`): la definición
-                       en `.config/` (engine.yaml + projects/) y las ejecuciones en SQLite — ver su README
+                       en `.config/` (runner.yaml + actions/ + pipelines/ + projects/) y las ejecuciones en SQLite — ver su README
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
 packages/github-auth/  Credenciales de GitHub: PAT / gh CLI / GitHub App (@ia-flow/github-auth)
