@@ -97,7 +97,20 @@ export const ProjectFileSchema = z.strictObject({
 type ProjectFile = z.infer<typeof ProjectFileSchema>
 
 export const RunnerFileSchema = z.strictObject({
-  settings: z.strictObject({ port: z.number().int().positive().optional() }).optional(),
+  settings: z
+    .strictObject({
+      port: z.number().int().positive().optional(),
+      /** OpenTelemetry: a dónde van las trazas y los logs (OTLP) y cómo se llama el servicio. Sin
+       *  `endpoint` (ni `OTEL_EXPORTER_OTLP_ENDPOINT`), no se exporta nada. */
+      telemetry: z
+        .strictObject({
+          endpoint: z.string().min(1).optional(),
+          serviceName: z.string().min(1).optional(),
+          environment: z.string().min(1).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   github: z
     .strictObject({
       mode: z.enum(['auto', 'static', 'gh-cli', 'github-app']).optional(),
@@ -325,6 +338,12 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
   }
 }
 
+const TELEMETRY_ENV: Record<string, string> = {
+  endpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
+  serviceName: 'OTEL_SERVICE_NAME',
+  environment: 'OTEL_DEPLOYMENT_ENVIRONMENT',
+}
+
 const GITHUB_ENV: Record<string, string> = {
   mode: 'IA_FLOW_GITHUB_AUTH_MODE',
   appId: 'IA_FLOW_GITHUB_APP_ID',
@@ -337,7 +356,7 @@ export interface RunnerEnvReport {
   overriddenByEnv: string[]
 }
 
-/** `github` y `settings.port` al env, salvo lo que el env ya trae. */
+/** `github`, `settings.port` y `settings.telemetry` al env, salvo lo que el env ya trae. */
 export function applyRunnerEnv(cfg: RunnerConfig): RunnerEnvReport {
   const applied: string[] = []
   const overriddenByEnv: string[] = []
@@ -351,6 +370,10 @@ export function applyRunnerEnv(cfg: RunnerConfig): RunnerEnvReport {
   }
   for (const [key, value] of Object.entries(cfg.github)) {
     const name = GITHUB_ENV[key]
+    if (name && value !== undefined) put(name, String(value))
+  }
+  for (const [key, value] of Object.entries(cfg.settings.telemetry ?? {})) {
+    const name = TELEMETRY_ENV[key]
     if (name && value !== undefined) put(name, String(value))
   }
   if (cfg.settings.port !== undefined) put('IA_FLOW_SERVER_PORT', String(cfg.settings.port))

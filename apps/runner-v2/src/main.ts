@@ -130,13 +130,18 @@ async function dispatchOne(
   }
 }
 
-async function main(telemetry: Telemetry): Promise<'serving' | 'done'> {
+let telemetry: Telemetry | undefined
+
+async function main(): Promise<'serving' | 'done'> {
   const args = parseArgs(process.argv.slice(2))
   const configDir = expandHome(
     args.configDir ?? process.env.RUNNER_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
   )
   const cfg = loadRunnerConfig(configDir)
   const envReport = applyRunnerEnv(cfg)
+  // Después de la config: `telemetry:` de runner.yaml ya está en las `OTEL_*`.
+  const started = startTelemetry('0.1.0')
+  telemetry = started
   console.log(
     `→ config: ${configDir} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
   )
@@ -152,25 +157,24 @@ async function main(telemetry: Telemetry): Promise<'serving' | 'done'> {
   reportBoot(mounted, envReport)
 
   if (args.serve) {
-    await startServing(mounted, cfg, telemetry, log)
+    await startServing(mounted, cfg, started, log)
     return 'serving'
   }
   try {
-    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, telemetry, log)
+    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, started, log)
     return 'done'
   } finally {
     mounted.stop()
   }
 }
 
-const telemetry = startTelemetry('0.1.0')
-main(telemetry)
+main()
   .then(async (outcome) => {
     // El servidor sigue vivo (y exporta en batch); una corrida de CLI exporta y termina.
-    if (outcome !== 'serving') await telemetry.shutdown()
+    if (outcome !== 'serving') await telemetry?.shutdown()
   })
   .catch(async (err) => {
     console.error(err instanceof Error ? err.message : err)
-    await telemetry.shutdown()
+    await telemetry?.shutdown()
     process.exit(1)
   })
