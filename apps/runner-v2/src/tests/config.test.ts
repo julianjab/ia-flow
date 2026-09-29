@@ -4,7 +4,7 @@
  * corrida.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { type Agent, createEvent, isAgent, PauseAction } from '@ia-tools/agent-engine'
+import { type Agent, createEvent, isAgent, PauseAction } from '@ia-flow/agent-engine'
 import type { MountedRunner } from '../boot.js'
 import { applyRunnerEnv, loadRunnerConfig } from '../config/RunnerConfig.js'
 import { CONFIG_DIR, configCopy, mountForTest } from './helpers.js'

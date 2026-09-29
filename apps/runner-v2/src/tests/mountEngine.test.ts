@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { createEvent } from '@ia-tools/agent-engine'
+import { createEvent } from '@ia-flow/agent-engine'
 import { interruptReason, messageTemplate, mountEngine, ownSender } from '../engine/mountEngine.js'
 
 describe('mountEngine', () => {

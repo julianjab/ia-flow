@@ -1,14 +1,14 @@
 /**
  * Las ejecuciones en `bun:sqlite`: el mismo contrato que el store en memoria de
- * `@ia-tools/agent-engine`, y una pausa que sobrevive a cerrar y reabrir la base.
+ * `@ia-flow/agent-engine`, y una pausa que sobrevive a cerrar y reabrir la base.
  */
 import { describe, expect, it } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EventFilter, Pause } from '@ia-tools/agent-engine'
-import { executionStoreContract } from '@ia-tools/agent-engine/testing'
-import type { SqliteExecutionStore } from '@ia-tools/agent-engine-datasource-sqlite'
+import { EventFilter, Pause } from '@ia-flow/agent-engine'
+import { executionStoreContract } from '@ia-flow/agent-engine/testing'
+import type { SqliteExecutionStore } from '@ia-flow/agent-engine-datasource-sqlite'
 import { bunSqliteStoreDriver } from '../storage/bunSqliteStoreDriver.js'
 
 executionStoreContract('bun-sqlite', (options) =>

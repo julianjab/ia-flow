@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { createEvent, Engine, EventBus } from '@ia-tools/agent-engine'
+import { createEvent, Engine, EventBus } from '@ia-flow/agent-engine'
 import {
   DefinitionPipelineSource,
   type DefinitionSource,
   type SourceDocs,
-} from '@ia-tools/agent-engine-definitions'
+} from '@ia-flow/agent-engine-definitions'
 import { withScope } from '../projects/withScope.js'
 
 /** Un datasource en memoria con una pipeline por id. */

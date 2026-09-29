@@ -1,6 +1,6 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import type { TextClassifier } from '@ia-tools/agent-engine'
+import type { TextClassifier } from '@ia-flow/agent-engine'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { memoryDriver } from '../engine/mountEngine.js'

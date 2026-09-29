@@ -1,8 +1,8 @@
 /** La única pieza del workspace que es de la app: evento → `WorkspaceTarget`. El ciclo de vida
- *  (clone, worktree, sync) se prueba en `@ia-tools/workspace`. */
+ *  (clone, worktree, sync) se prueba en `@ia-flow/workspace`. */
 
 import { describe, expect, it } from 'bun:test'
-import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-tools/agent-engine'
+import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import { workspaceTargetFor } from '../../.config/actions/_lib/workspaceTarget.js'
 
 const ctx = (payload: Record<string, unknown>): PipelineExecutionContext => ({
