@@ -18,26 +18,38 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
 
 ## `.config/`
 
-Un archivo por scope: lo global en la raíz, lo de un proyecto en su carpeta.
+`runner.yaml` es el índice: nada se descubre por carpeta, cada cosa se declara. Un archivo por
+scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
 
+```yaml
+# runner.yaml
+engine: { … }                       # store de ejecuciones, tick, whenText, formatMessage
+pipelines: ./pipelines              # la fuente global (el intake)
+actions: ./actions                  # actions globales
+projects:
+  lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml   # o el proyecto inline
+
+# projects/lahaus-ai-flow/project.yaml
+board: https://github.com/orgs/la-haus/projects/119
+branchPrefix: ia-flow-local/
+label: blocked
+systemPrompts: [ … ]                # los defaults de su fuente (antes source.yaml)
+onError: { … }
+agents: ./agents
+pipelines: ./pipelines
+actions: ./actions
+repos: ./repos
 ```
-.config/
-├── runner.yaml                  scope runner: identidad de GitHub, providers, MCP y `engine:`
-│                                (store de ejecuciones, tick, clasificador de `whenText`, formatMessage)
-├── actions/*.ts                 actions globales: resolve_task, github (board y tools), workspace
-│   └── _lib/                    sus helpers (no se registran)
-├── pipelines/*.yaml             la fuente global: el intake (00-intake, 01-unblock)
-└── projects/lahaus-ai-flow/
-    ├── project.yaml             scope proyecto, para el runner: board, prefijo de rama, label
-    ├── source.yaml              su fuente del engine: system prompts compartidos, onError
-    ├── actions/*.ts             actions del proyecto: issue_body (el formato del PRD), blockedReport
-    ├── agents/*.yaml            QUÉ hace cada agente y cómo termina (sus salidas)
-    ├── pipelines/*.yaml         CUÁNDO corre: una pipeline por momento del flujo
-    └── repos/*.yaml             el catálogo de repos (lo lee el runner, no el engine)
-```
+
+`agents`, `pipelines` y `repos` aceptan, solos o en lista, un directorio (sus `*.yaml` en orden de
+nombre), un archivo, un glob en el nombre del archivo (`./pipelines/1*.yaml`) o el documento
+inline; `actions` (código) sólo rutas — un directorio toma sus `*.ts` directos (no `_lib/`, ni
+tests). Las rutas son relativas al archivo que las declara, y una que no existe rompe el arranque.
+Editar `runner.yaml` o un `project.yaml` recarga sus fuentes (agentes y pipelines) sin reiniciar;
+lo demás (board, label, actions, repos) se lee al arrancar.
 
 El engine no sabe de proyectos: ve fuentes. El proyecto es una capa del runner que sólo filtra:
-al montar `projects/<id>/`, el runner le pone `scope.projectId: <id>` a cada una de sus pipelines
+al montar un proyecto, el runner le pone `scope.projectId: <id>` a cada una de sus pipelines
 (una propiedad más de la definición, `src/projects/withScope.ts`), así sólo corren con los eventos
 de ese proyecto —los que publica `resolve_task`—; la global recibe todo. El engine lo arma el
 runner desde `engine:` de runner.yaml (`src/engine/mountEngine.ts`).

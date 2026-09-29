@@ -5,9 +5,9 @@
  *      resuelto y cada servidor probado, el workspace y el provider `anthropic-api`.
  *   2. Las actions de cada scope (`actions/loader.ts`): las globales de `.config/actions/` y las de
  *      cada `projects/<id>/actions/`.
- *   3. Las fuentes: el datasource YAML de la global (`.config`: sus `pipelines/` y `agents/`) y
- *      el de cada proyecto, cuyas pipelines llevan `scope.projectId` (`projects/withScope.ts`);
- *      las arma `DefinitionPipelineSource`.
+ *   3. Las fuentes: el datasource YAML de la global (lo que declara `runner.yaml`) y el de cada
+ *      proyecto (lo que declara su `project.yaml`), cuyas pipelines llevan `scope.projectId`
+ *      (`projects/withScope.ts`); las arma `DefinitionPipelineSource`, y releen su índice si cambia.
  *   4. El engine, desde `engine:` de runner.yaml (`engine/mountEngine.ts`): el store de
  *      ejecuciones en SQLite (`bun-sqlite`), el tick y el clasificador de los `whenText`.
  *
@@ -174,21 +174,21 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     log: opts.log,
     missingTools: new Set<string>(),
   }
-  const actions = await loadActions(cfg.dir, cfg.projects, services)
+  const actions = await loadActions(cfg.actions, cfg.projects, services)
   const catalogs = { ...actions.catalogs, providers: providerRegistry, mcpServers }
 
   const sources: MountedSource[] = [
     {
       id: GLOBAL_SOURCE,
       source: new DefinitionPipelineSource(
-        new YamlDefinitionSource({ dir: cfg.dir, id: GLOBAL_SOURCE }),
+        new YamlDefinitionSource({ id: GLOBAL_SOURCE, ...cfg.source }),
         catalogs,
       ),
     },
     ...cfg.projects.map((project) => ({
       id: project.id,
       source: new DefinitionPipelineSource(
-        withScope(new YamlDefinitionSource({ dir: project.dir, id: project.id }), {
+        withScope(new YamlDefinitionSource({ id: project.id, ...project.source }), {
           projectId: project.id,
         }),
         catalogs,

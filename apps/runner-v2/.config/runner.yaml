@@ -72,3 +72,19 @@ engine:
   # Cómo le llega a un agente que ya corre un evento que acepta (`injects`): el
   # texto que arma `resolve_task` en `payload.message`.
   formatMessage: '{{message}}'
+
+# La fuente global: recibe todos los eventos (los webhooks crudos van acá: el
+# intake). Cada lista acepta, sola o en lista, un directorio, un archivo, un
+# glob en el nombre (`./pipelines/0*.yaml`) o el documento inline; las rutas son
+# relativas a este archivo. Editar estas listas recarga la fuente sin reiniciar.
+pipelines: ./pipelines
+
+# Las actions globales (código: sólo rutas). Las ve toda fuente; las de un
+# proyecto van en su project.yaml y ganan sobre éstas. Un directorio toma sus
+# `*.ts` directos (no `_lib/`, ni tests).
+actions: ./actions
+
+# Cada proyecto: la ruta a su project.yaml, o el proyecto inline. Su fuente sólo
+# recibe los eventos con su `scope.projectId` (los que publica `resolve_task`).
+projects:
+  lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml

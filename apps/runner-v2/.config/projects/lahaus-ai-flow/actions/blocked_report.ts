@@ -1,6 +1,6 @@
 /**
  * `blockedReport`: el reporte de una corrida que falló, para el `report` del `onError` del
- * proyecto (source.yaml): el motivo.
+ * proyecto (project.yaml): el motivo.
  */
 import { defineMapper } from '@ia-flow/runner-v2/actions'
 

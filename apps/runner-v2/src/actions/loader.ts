@@ -1,11 +1,9 @@
 /**
- * Registra las actions de `.config/` respetando la jerarquía: las de `actions/` (globales) y las
- * de `projects/<id>/actions/` (del proyecto). Una fuente de proyecto ve primero las suyas y después
+ * Registra las actions que declaran `runner.yaml` (globales) y cada `project.yaml` (del proyecto),
+ * respetando la jerarquía. Una fuente de proyecto ve primero las suyas y después
  * las globales; la global, sólo las globales. Un id repetido dentro del mismo scope rompe el
  * arranque.
  */
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Action } from '@ia-tools/agent-engine'
 import type { ActionProvider, ActionRequest, Catalogs } from '@ia-tools/agent-engine-definitions'
@@ -19,9 +17,6 @@ import type {
 
 /** El id de la fuente global (la raíz de `.config`). */
 export const GLOBAL_SOURCE = 'runner'
-
-const MODULE = /\.ts$/
-const NOT_A_MODULE = /\.(test|d)\.ts$/
 
 interface Scope {
   actions: Map<string, { definition: ActionDefinition; file: string }>
@@ -41,15 +36,9 @@ function isDefinition(value: unknown): value is Definition {
   )
 }
 
-/** Cada `*.ts` que está directo en `dir` (los de `_lib/` y los tests no). */
-async function loadScope(dir: string): Promise<Scope> {
+/** Los módulos de un scope (ya resueltos por `RunnerConfig`: archivos, directorios o globs). */
+async function loadScope(files: string[]): Promise<Scope> {
   const scope: Scope = { actions: new Map(), mappers: new Map() }
-  if (!existsSync(dir)) return scope
-  const files = readdirSync(dir)
-    .filter((name) => MODULE.test(name) && !NOT_A_MODULE.test(name))
-    .map((name) => join(dir, name))
-    .filter((path) => statSync(path).isFile())
-    .sort()
   for (const file of files) {
     const exported = ((await import(pathToFileURL(file).href)) as { default?: unknown }).default
     const definitions = [exported].flat()
@@ -74,13 +63,13 @@ async function loadScope(dir: string): Promise<Scope> {
 }
 
 export async function loadActions(
-  configDir: string,
+  globalFiles: string[],
   projects: ProjectConfig[],
   services: RunnerServices,
 ): Promise<LoadedActions> {
-  const global = await loadScope(join(configDir, 'actions'))
+  const global = await loadScope(globalFiles)
   const own = new Map<string, Scope>()
-  for (const project of projects) own.set(project.id, await loadScope(join(project.dir, 'actions')))
+  for (const project of projects) own.set(project.id, await loadScope(project.actions))
 
   const provider =
     (name: string): ActionProvider =>

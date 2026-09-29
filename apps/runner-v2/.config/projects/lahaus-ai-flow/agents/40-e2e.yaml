@@ -11,7 +11,7 @@
 # encabezado de esa regla para el porqué de ese evento y no `issues.labeled`.
 #
 # Método en `systemPrompts` propio: este agente no comparte los tres bloques
-# de `source.yaml` con el resto del roster (rol distinto — no lee/escribe
+# de `project.yaml` con el resto del roster (rol distinto — no lee/escribe
 # Python ni Ruby, corre un browser), así que trae su propio bloque de
 # sistema en vez de heredar "cómo se valida un repo".
 #
