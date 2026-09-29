@@ -2,7 +2,7 @@
 # funcional en el issue padre y crea los sub-issues técnicos en el repo de
 # la-haus que corresponda a cada uno.
 #
-# Activación en `rules/10-refine.yaml`; acá queda qué hace el agente y cómo
+# Activación en `pipelines/10-refine.yaml`; acá queda qué hace el agente y cómo
 # termina. El MÉTODO (rol, exploración, plantillas, reglas de corte, cierre)
 # vive en `systemPrompts`: es idéntico entre tasks, así que se cachea. En
 # `prompt` va sólo lo que tiene `{{`.

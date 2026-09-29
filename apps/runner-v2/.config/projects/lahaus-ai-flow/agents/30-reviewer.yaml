@@ -2,7 +2,7 @@
 # PR. Corre SIEMPRE en anthropic-api con repo local (`bash_run` materializa el
 # worktree de la task).
 #
-# Activación en `rules/30-review.yaml`. Método en `systemPrompts`. La
+# Activación en `pipelines/30-review.yaml`. Método en `systemPrompts`. La
 # referencia de validación por stack vive en `project.yaml`, compartida con
 # el implementer: son justamente los dos agentes que tienen que estar de
 # acuerdo sobre qué significa "validado".

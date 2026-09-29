@@ -1,14 +1,14 @@
 # Verificación e2e on-demand: corre el flujo en un browser real contra un
 # entorno de pruebas y deja el veredicto en el PR/issue.
 #
-# ── Activación (ver rules/35-e2e.yaml) ─────────────────────────────────────
+# ── Activación (ver pipelines/35-e2e.yaml) ─────────────────────────────────
 #
 # No es un paso fijo del pipeline (a diferencia de refiner/implementer/
 # reviewer): lo dispara un HUMANO agregando la label `e2e-test` a la card,
 # sólo en Review — es la única columna donde `{{task.branch}}` está
-# garantizada (ver el porqué completo en `rules/35-e2e.yaml`).
+# garantizada (ver el porqué completo en `pipelines/35-e2e.yaml`).
 # `projects_v2_item.edited` es lo único que puede avisar eso — ver el
-# encabezado de esa regla para el porqué de ese evento y no `issues.labeled`.
+# encabezado de esa pipeline para el porqué de ese evento y no `issues.labeled`.
 #
 # Método en `systemPrompts` propio: este agente no comparte los tres bloques
 # de `project.yaml` con el resto del roster (rol distinto — no lee/escribe
@@ -32,7 +32,7 @@
 # pedido, eso es un hallazgo que vuelve al implementer — no algo que este
 # agente arregla él mismo: calificaría su propio trabajo.
 #
-# ── El ciclo (ver rules/35-e2e.yaml) ───────────────────────────────────────
+# ── El ciclo (ver pipelines/35-e2e.yaml) ───────────────────────────────────
 #
 #   activa   projects_v2_item.edited + label `e2e-test` agregada, repo
 #            lh-seller-v2-frontend, sin `blocked`

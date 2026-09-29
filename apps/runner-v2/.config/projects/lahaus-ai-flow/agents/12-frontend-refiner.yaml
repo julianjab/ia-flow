@@ -6,9 +6,9 @@
 # reviewer, que no lo necesitan) — duplicar acá es el costo más chico de los
 # dos mientras haya un solo repo frontend en el pipeline.
 #
-# Activación en `rules/10-refine.yaml` (`refine-technical-frontend`,
-# `when: item.repos = lh-seller-v2-frontend`, `exclusive: true` con posición
-# MENOR que `refine-technical`) — así una tarea de este repo nunca llega al
+# Activación en `pipelines/10-refine.yaml`: su paso (`when: item.repos
+# contains lh-seller-v2-frontend`) va ANTES que el del `refiner` genérico y la
+# pipeline es `firstMatch` — así una tarea de este repo nunca llega al
 # `refiner` genérico, y viceversa.
 #
 # Si se agrega un segundo repo frontend: sumarlo al `when` de la regla

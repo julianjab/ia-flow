@@ -4,11 +4,11 @@
 # (`e2e-test` es un pedido de un humano, no un paso del pipeline), pero un
 # rol de verificación distinto porque no hay browser que mirar.
 #
-# ── Activación (ver rules/36-e2e-backend.yaml) ─────────────────────────────
+# ── Activación (ver pipelines/35-e2e.yaml) ─────────────────────────────────
 #
 # Igual que el frontend: sólo dispara en Review, la única columna donde
 # `{{task.branch}}` está garantizada (branch pusheada + PR abierto). Ver el
-# porqué completo en `rules/35-e2e.yaml` — aplica idéntico acá.
+# porqué completo en `pipelines/35-e2e.yaml` — aplica idéntico acá.
 #
 # ── Dónde corre ─────────────────────────────────────────────────────────
 #
@@ -42,7 +42,7 @@
 # Igual que el frontend: reporta, no arregla. Un hallazgo de smoke test
 # vuelve al implementer.
 #
-# ── El ciclo (ver rules/36-e2e-backend.yaml) ───────────────────────────────
+# ── El ciclo (ver pipelines/35-e2e.yaml) ───────────────────────────────────
 #
 #   activa   projects_v2_item.edited + label `e2e-test` agregada, repo
 #            subscriptions, sin `blocked`

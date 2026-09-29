@@ -1,7 +1,7 @@
 # El refinador técnico: convierte un issue en un PRD accionable, verificado
 # contra el código real del repo.
 #
-# Activación en `rules/10-refine.yaml`. Método en `systemPrompts`. En `prompt`
+# Activación en `pipelines/10-refine.yaml`. Método en `systemPrompts`. En `prompt`
 # queda sólo lo que tiene `{{`.
 id: refiner
 provider: anthropic-api
