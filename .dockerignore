@@ -3,10 +3,6 @@
 .git
 .claude/worktrees
 .claude/scheduled_tasks.lock
-apps/server/logs
-apps/server/src/logs
-apps/server/config/providers.json
-apps/server/config/system-prompt.md
 apps/web/dist
 apps/web/node_modules
 tasks
