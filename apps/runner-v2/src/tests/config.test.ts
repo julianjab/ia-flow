@@ -147,17 +147,17 @@ describe('runner.yaml as the index', () => {
       ?.source.list()
       .map((p) => p.id) ?? []
 
-  it('mounts exactly what it declares: a file and an inline pipeline, no folder discovery', async () => {
+  it('mounts exactly what it declares: the inline intake, plus a pipeline added to the list', async () => {
     const dir = configCopy({
       'runner.yaml': (s) =>
         s.replace(
-          /^ {2}pipelines: \.\/pipelines$/m,
-          '  pipelines:\n    - ./pipelines/00-intake.yaml\n    - { id: ping, on: [ping], do: [{ emit: pong }] }',
+          /^ {2}pipelines:$/m,
+          '  pipelines:\n    - { id: ping, on: [ping], do: [{ emit: pong }] }',
         ),
     })
     const mounted = await mountDry(dir)
     try {
-      expect(ids(mounted, 'runner')).toEqual(['intake', 'ping'])
+      expect(ids(mounted, 'runner')).toEqual(['ping', 'intake', 'intake-unblock'])
       expect(ids(mounted, 'lahaus-ai-flow')).toHaveLength(8)
     } finally {
       mounted.stop()

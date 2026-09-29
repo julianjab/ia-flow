@@ -1,5 +1,5 @@
 /**
- * El intake de `.config/` (`pipelines/00-intake.yaml`) de punta a punta: un delivery CRUDO entra
+ * El intake de `.config/` (`sources.pipelines` de runner.yaml) de punta a punta: un delivery CRUDO entra
  * como `github.<evento>`, `resolve_task` encuentra su task, la lee de GitHub (simulada) y publica
  * el evento de la task.
  */
