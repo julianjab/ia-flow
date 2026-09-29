@@ -9,7 +9,8 @@
 #   pull_request(_review) → pull_request · pull_request_review
 #   check_suite, workflow_run (completed) → check_suite · workflow_run
 #
-# No publica nada para un repo fuera del catálogo ni para una card de otro board.
+# No publica nada para un repo fuera del catálogo, ni para una card de otro board o sin la
+# `label` del proyecto (`runner.yaml`): esas son del engine de producción.
 id: intake
 on:
   - github.projects_v2_item

@@ -33,6 +33,9 @@ const ProjectSettingsSchema = z.strictObject({
   board: z.string().regex(/github\.com\/orgs\/[^/]+\/projects\/\d+/, 'un GitHub Project v2 de org'),
   /** `task.branch` = `<branchPrefix><número>`. */
   branchPrefix: z.string().min(1).default('ia-flow/'),
+  /** Sólo las cards con esta label son de este runner — para convivir con otro engine sobre el
+   *  mismo board. Sin esto, todas las del board. */
+  label: z.string().min(1).optional(),
 })
 
 export const RunnerFileSchema = z.strictObject({
@@ -63,6 +66,8 @@ export interface ProjectSettings {
   id: string
   board: { owner: string; number: number }
   branchPrefix: string
+  /** Ver `label` en `runner.yaml`. */
+  label?: string
   repos: RepoDef[]
 }
 
@@ -136,6 +141,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
       id,
       board: parseBoard(settings.board),
       branchPrefix: settings.branchPrefix,
+      ...(settings.label ? { label: settings.label } : {}),
       repos: readRepos(dir, id),
     }
   })

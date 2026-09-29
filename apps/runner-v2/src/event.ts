@@ -22,7 +22,7 @@ export interface EventArgs {
    *  aporta el traductor de webhooks, se mezclan al payload ANTES de los `--set`. */
   extra?: Record<string, unknown>
   /** Lo que se mezcla en `task.*` además de lo que sale del issue (`comments`, `ci`, `pr`): lo
-   *  arma el intake (`task_payload`, `intake/functions.ts`); la CLI no lo trae. */
+   *  arma el intake (`taskPayload`, `intake/task.ts`); la CLI no lo trae. */
   taskExtra?: Record<string, unknown>
   /** Lo que se mezcla en `item.*` (lo que filtran las reglas): p. ej. `blocked`, del intake. */
   itemExtra?: Record<string, unknown>

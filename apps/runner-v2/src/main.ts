@@ -96,7 +96,7 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
     )
   }
   console.log(
-    `→ ${mounted.pipelines().length} pipelines montadas y validadas, ${mounted.intake().length} de entrada (intake/)`,
+    `→ ${mounted.pipelines().length} pipelines montadas y validadas, ${mounted.intake().length} de entrada (webhooks)`,
   )
   if (mounted.executions) {
     const { running, waiting, paused } = mounted.executions.stats
@@ -207,10 +207,16 @@ async function dispatchEvent(
     throw new Error(`ningún proyecto montado declara el repo "${event.repo}"\n\n${USAGE}`)
   }
   const domainEvent = await toDomainEvent(project, event, args.dryRun)
-  const selected = await mounted.engine.select(domainEvent)
   console.log(
     `→ evento ${event.eventType} ${event.owner}/${event.repo}#${event.number} (${project.id})`,
   )
+  // Lo mismo que el intake: una card sin la label del proyecto es de otro engine.
+  const labels = (domainEvent.payload as { item?: { labels?: string[] } }).item?.labels ?? []
+  if (project.label && !labels.includes(project.label)) {
+    console.log(`→ la card no tiene la label \`${project.label}\`: no es de este runner`)
+    return
+  }
+  const selected = await mounted.engine.select(domainEvent)
   if (selected.length === 0) {
     console.log('→ ninguna pipeline matchea este evento')
     // Igual se despacha: la traza guarda por qué no corrió cada una.

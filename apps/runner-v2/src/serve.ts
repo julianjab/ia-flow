@@ -2,7 +2,7 @@
  * Modo servidor (`--serve`): el engine se monta UNA vez y cada delivery de GitHub recorre
  *
  *   server.ts (firma, 202) → engine.dispatch(github.<evento>, payload crudo)
- *     → pipelines de entrada (`intake/` del proyecto) → pipelines del proyecto
+ *     → el intake (`pipelines/00-intake.yaml`, `resolve_task`) → las demás pipelines
  *
  * Cada delivery se despacha en el acto, sin cola: la serie por task y el tope global son de las
  * EJECUCIONES del engine (en SQLite, ver `engine.yaml`). Así un comentario que llega
@@ -10,7 +10,7 @@
  * (sus `injects`), le llega en su próxima vuelta en vez de esperar a que termine.
  *
  * Acá no se traduce nada: completar el evento con lo que necesita el agente es trabajo de las
- * pipelines de entrada del proyecto (`.config/projects/<id>/intake/`).
+ * pipelines de entrada del proyecto (`resolve_task`).
  */
 import type { Server } from 'node:http'
 import { createEvent } from '@ia-tools/agent-pipeline'

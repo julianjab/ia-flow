@@ -1,22 +1,7 @@
 id: lahaus-ai-flow
-# ── Convivencia con el engine de producción sobre el MISMO board ──────────
-#
-# Este runner y el de claw-agents escuchan el mismo board (119). El reparto
-# es por la label `blocked`: el `baseWhen` del `project.yaml` de claw-agents
-# excluye las cards con `blocked`, y este runner toma SÓLO esas.
-#
-# Es el `when` del `Project` en el engine (boot.ts): el primer filtro de la
-# cascada proyecto → regla → paso. Un evento que no lo cumple no llega a
-# evaluar ninguna regla, así que ninguna tiene que repetir la condición.
-#
-# Una sola condición alcanza: el intake (`intake/`, que este `when` no filtra)
-# siempre resuelve la card antes de publicar, así que TODO evento —del board,
-# comentario, PR o CI— trae `item.labels`. Un PR sin card no trae `item` y
-# no pasa.
-when:
-  - field: item.labels
-    op: contains
-    value: blocked
+# Qué cards del board son de este runner (la label `blocked`, para convivir con
+# el engine de producción) está en `runner.yaml` → `projects.lahaus-ai-flow.label`:
+# lo aplica el intake (`pipelines/00-intake.yaml`) antes de publicar nada.
 # El prefijo compartido: va antes de los system prompts de CADA agente del proyecto.
 systemPrompts:
   - text: You are Claude Code, Anthropic's official CLI for Claude.

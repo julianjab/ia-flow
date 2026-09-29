@@ -44,6 +44,7 @@ import { GithubTaskReader } from './intake/GithubTaskReader.js'
 import { ResolveTaskAction } from './intake/ResolveTaskAction.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { formatEventMessage } from './messages.js'
+import { RAW_PREFIX } from './serve.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
 import { workspaceTargetFor } from './workspace.js'
 
@@ -87,7 +88,7 @@ export interface MountedRunner {
   executions?: ExecutionStore
   /** Las pipelines de los proyectos, como están ahora (la definición se recarga en caliente). */
   pipelines(): Pipeline[]
-  /** Las de entrada (`intake/` de cada proyecto): las que reciben los webhooks crudos. */
+  /** Las de entrada: las que reciben los webhooks crudos (`github.<evento>`). */
   intake(): Pipeline[]
   /** Las rutas efectivas de un agente de `pipeline`, con los defaults de su proyecto (su
    *  `onError`/`report`) — lo que de verdad va a correr. */
@@ -116,6 +117,7 @@ function resolveTask(project: RunnerProject, reader: GithubTaskReader): ResolveT
       id: project.id,
       board: project.board,
       branchPrefix: project.branchPrefix,
+      ...(project.label ? { label: project.label } : {}),
       repos: project.repos.map((repo) => `${repo.githubOwner}/${repo.githubRepo}`),
       reposText: project.repos
         .map(
@@ -213,12 +215,11 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     formatMessage: formatEventMessage,
     ...whenTextClassifier(opts),
   })
-  const intake = () => mounted.sources.flatMap((source) => source.intakePipelines())
-  const pipelines = () =>
-    mounted.sources.flatMap((source) => {
-      const entry = new Set(source.intakePipelines())
-      return source.list().filter((pipeline) => !entry.has(pipeline))
-    })
+  // El intake son las pipelines que reciben los webhooks crudos (`github.<evento>`).
+  const all = () => mounted.sources.flatMap((source) => source.list())
+  const isIntake = (pipeline: Pipeline) => pipeline.on.some((type) => type.startsWith(RAW_PREFIX))
+  const intake = () => all().filter(isIntake)
+  const pipelines = () => all().filter((pipeline) => !isIntake(pipeline))
   try {
     validateProviderConfigs(pipelines())
   } catch (err) {

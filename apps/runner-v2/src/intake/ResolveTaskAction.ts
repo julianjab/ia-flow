@@ -18,6 +18,8 @@ export interface ResolveTaskProject {
   repos: string[]
   /** `{{project.repos}}` de los prompts: el catálogo en texto. */
   reposText: string
+  /** Sólo las cards con esta label son de este runner (ver `runner.yaml`). */
+  label?: string
 }
 
 const Input = z.strictObject({
@@ -71,8 +73,10 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     const task =
       'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
     if ('skipped' in task) return task
-    const event = await this.publish(ctx, task, location)
-    return event ? { emitted: [String(event.scope?.issue)] } : { skipped: 'sin evento' }
+    const published = await this.publish(ctx, task, location)
+    return 'skip' in published
+      ? { skipped: published.skip }
+      : { emitted: [String(published.scope?.issue)] }
   }
 
   /** El issue detrás de un item, si el item es del board de este proyecto. */
@@ -109,24 +113,31 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   }
 
   /**
-   * Lee la task y publica su evento. Sin card en el board de este proyecto no publica nada;
-   * con `onlyIfUnblocked`, tampoco si le queda algún blocker abierto (sin contar `closedBlocker`).
+   * Lee la task y publica su evento. No publica nada —y dice por qué— si no tiene card en el
+   * board del proyecto, si no tiene la `label` del proyecto (es de otro engine), o, con
+   * `onlyIfUnblocked`, si le queda algún blocker abierto (sin contar `closedBlocker`).
    */
   private async publish(
     ctx: PipelineExecutionContext,
     task: TaskRef,
     fields: EventFields,
     options: { closedBlocker?: string; onlyIfUnblocked?: boolean } = {},
-  ): Promise<DomainEvent<unknown> | undefined> {
+  ): Promise<DomainEvent<unknown> | { skip: string }> {
+    const ref = `${task.owner}/${task.repo}#${task.number}`
     const card = boardItem(
       await this.reader.itemsOfIssue(task.owner, task.repo, task.number),
       this.project.board,
     )
-    if (!card) return undefined
+    if (!card) return { skip: `${ref} no está en el board de ${this.project.id}` }
     const context = await this.reader.context({
       ...task,
       branch: `${this.project.branchPrefix}${task.number}`,
     })
+    const { label } = this.project
+    const labels = context.issue.labels.map((l) => (typeof l === 'string' ? l : l.name))
+    if (label && !labels.includes(label)) {
+      return { skip: `${ref} no tiene la label \`${label}\`: no es de este runner` }
+    }
     const built = taskPayload({
       ...task,
       ...fields,
@@ -137,7 +148,7 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
       branchPrefix: this.project.branchPrefix,
       repos: this.project.reposText,
     })
-    if (options.onlyIfUnblocked && built.blocked) return undefined
+    if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }
     const event = deriveEvent(ctx.event, built.type, built.payload, {
       scope: built.scope,
       ...(ctx.execution ? { executionId: ctx.execution.id } : {}),
@@ -162,13 +173,13 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     )
     const emitted: string[] = []
     for (const dependent of dependents) {
-      const event = await this.publish(
+      const published = await this.publish(
         ctx,
         dependent,
         { emit: UNBLOCKED, extra: {} },
         { closedBlocker, onlyIfUnblocked: true },
       )
-      if (event) emitted.push(String(event.scope?.issue))
+      if (!('skip' in published)) emitted.push(String(published.scope?.issue))
     }
     return emitted.length > 0
       ? { emitted }

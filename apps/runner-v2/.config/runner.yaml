@@ -41,8 +41,14 @@ mcp:
       authorizationToken: ${FIGMA_MCP_TOKEN}
 
 # Lo que el runner sabe de cada proyecto de .config/projects/: su board de
-# GitHub Projects y el prefijo de la rama de cada task (`<prefijo><número>`).
+# GitHub Projects, el prefijo de la rama de cada task (`<prefijo><número>`) y
+# qué cards del board son suyas.
 projects:
   lahaus-ai-flow:
     board: https://github.com/orgs/la-haus/projects/119
     branchPrefix: ia-flow-local/
+    # Este runner y el de claw-agents escuchan el mismo board (119). El reparto
+    # es por la label `blocked`: el de claw-agents excluye esas cards y este
+    # toma SÓLO esas. Lo aplican el intake (`resolve_task` no publica nada de
+    # una card sin la label) y la CLI.
+    label: blocked
