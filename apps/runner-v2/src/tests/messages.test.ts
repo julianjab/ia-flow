@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { createEvent } from '@ia-tools/agent-pipeline'
+import { createEvent } from '@ia-tools/agent-engine'
 import { formatEventMessage } from '../messages.js'
 
 describe('formatEventMessage', () => {

@@ -2,7 +2,7 @@
  *  (clone, worktree, sync) se prueba en `@ia-tools/workspace`. */
 
 import { describe, expect, it } from 'bun:test'
-import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-tools/agent-pipeline'
+import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-tools/agent-engine'
 import { workspaceTargetFor } from '../workspace.js'
 
 const ctx = (payload: Record<string, unknown>): PipelineExecutionContext => ({

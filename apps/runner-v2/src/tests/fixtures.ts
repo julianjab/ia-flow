@@ -11,7 +11,7 @@ import {
   type Pipeline,
   StaticPipelineSource,
   type TextClassifier,
-} from '@ia-tools/agent-pipeline'
+} from '@ia-tools/agent-engine'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { CONFIG_DIR } from './helpers.js'

@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { TextClassifier } from '@ia-tools/agent-pipeline'
+import type { TextClassifier } from '@ia-tools/agent-engine'
 import { REPORT_MARKER } from '@ia-tools/github-tools'
 import { parse } from 'yaml'
 import type { MountedRunner } from '../boot.js'
