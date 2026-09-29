@@ -210,7 +210,6 @@ export function mountWith(
 ): Promise<MountedRunner> {
   return mountRunner(loadRunnerConfig(dir), {
     dryRun: true,
-    live: false,
     log: () => {},
     githubFetch: github.fetch,
     ...(textClassifier ? { textClassifier } : {}),

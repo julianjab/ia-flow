@@ -34,7 +34,6 @@ function config(files: Record<string, string>): string {
 const services: RunnerServices = {
   github: new GithubClient({ auth: { getToken: async () => 'test' } }),
   dryRun: true,
-  live: false,
   log: () => {},
   missingTools: new Set(),
 }

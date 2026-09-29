@@ -8,7 +8,7 @@ export const CONFIG_DIR = resolve(import.meta.dir, '../../.config')
 
 /** El runner montado en dry-run sobre `dir`: sin red, sin workspace, ejecuciones en memoria. */
 export function mountDry(dir = CONFIG_DIR): Promise<MountedRunner> {
-  return mountRunner(loadRunnerConfig(dir), { dryRun: true, live: false, log: () => {} })
+  return mountRunner(loadRunnerConfig(dir), { dryRun: true, log: () => {} })
 }
 
 /** Donde van las copias: DENTRO de la app (`.state/`, gitignoreado), porque las actions de

@@ -3,7 +3,7 @@ import { parseArgs, parseIssueTarget } from '../cli.js'
 
 describe('parseArgs', () => {
   it('without anything, it only boots and validates', () => {
-    expect(parseArgs([])).toEqual({ dryRun: false, live: false, serve: false })
+    expect(parseArgs([])).toEqual({ dryRun: false, serve: false })
     expect(parseArgs(['--dry-run', '--config', '/x'])).toMatchObject({
       dryRun: true,
       configDir: '/x',
@@ -15,10 +15,8 @@ describe('parseArgs', () => {
       type: 'github.issue_comment',
       payloadPath: './d.json',
     })
-    expect(parseArgs(['--live', '--replay-pr', 'la-haus/x#3'])).toMatchObject({
-      live: true,
-      replayPr: 'la-haus/x#3',
-    })
+    expect(parseArgs(['--replay-pr', 'la-haus/x#3'])).toMatchObject({ replayPr: 'la-haus/x#3' })
+    expect(() => parseArgs(['--live'])).toThrow(/argumento desconocido: --live/)
   })
 
   it('does not build events: no event names without github., no event flags', () => {
