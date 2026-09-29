@@ -28,6 +28,7 @@ import type { Action, AllowedAction } from '../pipeline/actions/Action.js'
 import type { Runnable } from '../pipeline/Runnable.js'
 import type { ExitRoutes } from '../routing/ExitRoutes.js'
 import type { ToolInputSchema } from './SchemaTool.js'
+import type { AgentWaits } from './WaitTool.js'
 
 export interface SystemPromptRef {
   id?: string
@@ -90,6 +91,12 @@ export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
    * propio engine).
    */
   injects?: EventFilterProps[]
+  /**
+   * Qué eventos puede esperar a mitad de su turno (`wait_for_event`): la ejecución se pausa y el
+   * agente sigue en la misma conversación cuando llega uno (o vence el plazo). Sin esto no espera.
+   * Un agente que espera es una pausa más de la pipeline: va último en su lista de destinos.
+   */
+  waits?: AgentWaits
   providerConfig?: Record<string, unknown>
   mcpServers?: McpServerRef[]
   /** Si el paso tira y no hay `onError` en la cascada, seguir con el siguiente `Runnable` de la

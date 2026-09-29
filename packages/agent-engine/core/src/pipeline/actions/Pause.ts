@@ -33,6 +33,9 @@ export class Pause {
     private readonly branches: ReadonlyArray<{ name: string; filter: EventFilter }>,
     /** `Date.now()` a partir del cual vence, si tiene `timeout`. */
     readonly expiresAt?: number,
+    /** Lo que el paso que pausó necesita para seguir donde quedó (la conversación de un agente
+     *  que espera): va al `Checkpoint.state`, no al JSON de la pausa. */
+    readonly state?: unknown,
   ) {}
 
   /** La rama que `event` despierta — la primera que declara, si pasa más de una. */

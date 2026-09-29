@@ -1,5 +1,5 @@
 import type { Pause } from './actions/Pause.js'
-import type { Resumption } from './Pipeline.js'
+import type { Checkpoint, Resumption } from './Pipeline.js'
 import type { PipelineGraph } from './PipelineGraph.js'
 import type { PipelineExecutionContext, Runnable } from './Runnable.js'
 
@@ -29,15 +29,39 @@ export class Checkpoints {
       )
     }
     ctx.execution.pause(pause, {
+      ...this.checkpoint(ctx, pause.pauseId, resumeAt),
+      ...(pause.state !== undefined ? { state: pause.state } : {}),
+    })
+    return ctx.steps
+  }
+
+  /** `step` guarda por dónde va (su `state`), o lo borra (`undefined`: terminó). Sin ejecución, o
+   *  sin id por el que encontrarlo al retomar, no hay nada que guardar. */
+  progress(ctx: PipelineExecutionContext, step: Runnable, resumeAt: number, state: unknown): void {
+    if (!ctx.execution?.progress || step.id === undefined) return
+    ctx.execution.progress(
+      state === undefined
+        ? undefined
+        : {
+            ...this.checkpoint(ctx, step.id, resumeAt),
+            steps: { ...ctx.steps },
+            state,
+            ...(ctx.resume?.attempts ? { attempts: ctx.resume.attempts } : {}),
+          },
+    )
+  }
+
+  private checkpoint(ctx: PipelineExecutionContext, pauseId: string, resumeAt: number): Checkpoint {
+    return {
       pipelineId: this.pipelineId,
-      pauseId: pause.pauseId,
+      pauseId,
       resumeAt,
       steps: ctx.steps,
       shape: this.shape,
+      savedAt: new Date().toISOString(),
       ...(ctx.sourceId !== undefined ? { sourceId: ctx.sourceId } : {}),
       ...(ctx.event.scope ? { scope: ctx.event.scope } : {}),
-    })
-    return ctx.steps
+    }
   }
 
   /** Lo que corre al reanudar por la rama de `from` — si la pipeline no cambió mientras esperaba. */
@@ -47,6 +71,6 @@ export class Checkpoints {
         `Pipeline(${this.pipelineId}): cambió mientras estaba pausada (era "${checkpoint.shape}", es "${this.shape}") — no se puede reanudar`,
       )
     }
-    return this.graph.pause(checkpoint.pauseId).targetsOf(branch)
+    return this.graph.resumeTargets(checkpoint.pauseId, branch)
   }
 }

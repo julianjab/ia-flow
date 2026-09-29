@@ -334,6 +334,38 @@ function withInjectedMessages(
   return [...messages.slice(0, -1), { role: 'user', content }]
 }
 
+/**
+ * La conversación que se retoma (`ctx.resume`), con lo que pasó mientras tanto sumado al último
+ * turno del usuario — que es siempre el de los resultados de tools de la vuelta en la que quedó.
+ * Una conversación que no es de este provider se ignora: se empieza del prompt.
+ */
+function resumedConversation(ctx: ProviderRunContext): AnthropicMessage[] | undefined {
+  const resume = ctx.resume
+  if (!resume || !isConversation(resume.conversation)) return undefined
+  const conversation = resume.conversation
+  const last = conversation.at(-1)
+  const note = { type: 'text', text: `[Mientras esperabas]\n${resume.message}` }
+  if (last?.role !== 'user') return [...conversation, { role: 'user', content: [note] }]
+  const content = Array.isArray(last.content)
+    ? [...last.content, note]
+    : [{ type: 'text', text: String(last.content) }, note]
+  return [...conversation.slice(0, -1), { role: 'user', content }]
+}
+
+function isConversation(value: unknown): value is AnthropicMessage[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (message) =>
+        typeof message === 'object' &&
+        message !== null &&
+        ((message as { role?: unknown }).role === 'user' ||
+          (message as { role?: unknown }).role === 'assistant'),
+    )
+  )
+}
+
 function needsSubmit(terminalTools: Tool[]): boolean {
   if (terminalTools.length === 0) return false
   if (terminalTools.length > 1) return true
@@ -400,7 +432,8 @@ export class AnthropicProvider implements Provider {
     }))
     const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])]
 
-    let messages: AnthropicMessage[] = pc.resumeMessages ?? [{ role: 'user', content: ctx.prompt }]
+    let messages: AnthropicMessage[] = resumedConversation(ctx) ??
+      pc.resumeMessages ?? [{ role: 'user', content: ctx.prompt }]
     // Las salidas; `fail_turn` (failure) también es terminal, pero no cuenta para insistir.
     const terminalTools = ctx.tools.filter((tool) => tool.terminal && !tool.failure)
     let nudged = false
@@ -509,7 +542,14 @@ export class AnthropicProvider implements Provider {
       })
       if (submitted) {
         const text = data.content.find((block) => block.type === 'text')?.text ?? ''
-        return { outcome: 'success', summary: text }
+        // La conversación con los resultados de esta vuelta: la que se retoma si la terminal
+        // fue una espera (`wait_for_event`).
+        const conversation: AnthropicMessage[] = [
+          ...messages,
+          { role: 'assistant', content: data.content },
+          { role: 'user', content: toolResults },
+        ]
+        return { outcome: 'success', summary: text, conversation }
       }
       toolRounds++
       // `maxPauseTurnRetries` cuenta pausas SEGUIDAS: una vuelta de tools es progreso, así que
@@ -525,6 +565,8 @@ export class AnthropicProvider implements Provider {
         { role: 'assistant', content: data.content },
         { role: 'user', content: toolResults },
       ]
+      // Si el proceso muere acá, se retoma desde esta vuelta.
+      ctx.saveConversation?.(messages)
     }
   }
 

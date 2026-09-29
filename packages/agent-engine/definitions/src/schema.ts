@@ -164,6 +164,15 @@ export const AgentDoc = z.strictObject({
   allowWrites: z.boolean().optional(),
   onStart: z.array(StepNode).optional(),
   injects: z.array(EventFilterNode).optional(),
+  /** Qué eventos puede esperar a mitad de su turno (`wait_for_event`): la ejecución se pausa y
+   *  sigue en la misma conversación cuando llega uno, o vence el plazo. */
+  waits: z
+    .strictObject({
+      on: z.array(z.string().min(1)).min(1),
+      defaultMinutes: z.number().int().positive().optional(),
+      maxMinutes: z.number().int().positive().optional(),
+    })
+    .optional(),
   providerConfig: z.record(z.string(), z.unknown()).optional(),
   /** Por id (del catálogo `mcpServers`) o inline. Un id que el catálogo no tiene se omite con un
    *  aviso: el agente corre sin ese servidor. */

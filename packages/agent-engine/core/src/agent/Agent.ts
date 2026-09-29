@@ -1,11 +1,15 @@
 import { createLogger, taggedSync } from '@ia-flow/telemetry'
+import { Condition } from '../condition/Condition.js'
 import { EventFilter } from '../condition/EventFilter.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
+import { Pause, TIMEOUT_BRANCH } from '../pipeline/actions/Pause.js'
 import type {
   ExecutionHandle,
   PipelineExecutionContext,
+  Resumable,
   StepKind,
   StepOutcome,
+  StepResume,
 } from '../pipeline/Runnable.js'
 import { Runnable } from '../pipeline/Runnable.js'
 import { type ExitRoutes, resolveRoutes, routeTargets } from '../routing/ExitRoutes.js'
@@ -20,6 +24,13 @@ import type { ToolInputSchema } from './SchemaTool.js'
 import { Toolset } from './Toolset.js'
 import { TurnProtocol } from './TurnProtocol.js'
 import { inboxTag } from './tracing.js'
+import type { Waiting } from './WaitTool.js'
+
+/** La rama por la que despierta un agente que esperaba (`wait_for_event`): llegó su evento. */
+export const WAIT_EVENT_BRANCH = 'event'
+
+/** Cuánto del evento que lo despierta se le muestra al agente. */
+const MAX_WAKE_EVENT_CHARS = 12_000
 
 /** Lo que devuelve `Agent.run` y queda en `ctx.steps[id]`. */
 export interface AgentRunResult {
@@ -30,6 +41,8 @@ export interface AgentRunResult {
   payload?: Record<string, unknown>
   /** Si lo interrumpieron y cedió el turno (`yield_turn`): en qué quedó. Sin `exit`. */
   progress?: string
+  /** Si pausó su turno esperando un evento (`wait_for_event`): qué espera. Sin `exit`. */
+  waiting?: Waiting
 }
 
 /**
@@ -48,6 +61,7 @@ export class Agent extends Runnable {
   private readonly registry: ProviderRegistry
   private readonly renderer: PromptRenderer
   private readonly injects: EventFilter[]
+  private resumable: Resumable | undefined
 
   constructor(
     definition: AgentDefinitionProps,
@@ -86,8 +100,22 @@ export class Agent extends Runnable {
    *  `cancelled`) es un output a secas. */
   override outcome(output: unknown): StepOutcome {
     const result = output as AgentRunResult
+    if (result.waiting) return { kind: 'pause', pause: this.pauseFor(result) }
     if (result.exit === undefined) return { kind: 'output', output }
     return { kind: 'exit', output, exit: result.exit, payload: result.payload ?? {} }
+  }
+
+  /** Un agente que puede esperar (`waits`) es una pausa de la pipeline: se retoma a sí mismo, por
+   *  el evento que esperaba o porque venció el plazo. */
+  override asResumable(): Resumable | undefined {
+    if (!this.definition.waits) return undefined
+    this.resumable ??= {
+      id: this.definition.id,
+      branchNames: [WAIT_EVENT_BRANCH, TIMEOUT_BRANCH],
+      targetsOf: () => [this],
+      allTargets: [this],
+    }
+    return this.resumable
   }
 
   /** Si `event` pasa alguno de sus `injects`. */
@@ -107,8 +135,11 @@ export class Agent extends Runnable {
     const parsedInput = this.parseInput(def.input, input) ?? {}
     const routes =
       ctx.routesFor?.(this) ?? resolveRoutes(def.id, this.exitRoutes, { project: ctx.defaults })
+    // Retoma su propia conversación (esperaba un evento, o el proceso murió mientras corría): el
+    // `onStart` ya corrió la primera vez.
+    const resume = ctx.resume?.step === def.id ? ctx.resume : undefined
 
-    await this.runOnStart(ctx)
+    if (!resume) await this.runOnStart(ctx)
 
     const variables = def.variables ?? {}
     const { prompt, systemPrompts } = this.renderer.render(
@@ -125,14 +156,18 @@ export class Agent extends Runnable {
       def.id,
       routes,
       execution ? () => execution.interruption !== undefined : undefined,
+      def.waits,
     )
     const tools = this.toolset.forRun(ctx, turn.tools)
+    const message = resume ? wakeMessage(resume) : undefined
 
     execution?.enter(this)
     const output = await provider
       .run({
         agentId: def.id,
-        prompt,
+        // Sin conversación que retomar (un provider que no la guarda), empieza de nuevo sabiendo
+        // qué pasó.
+        prompt: message && resume?.state === undefined ? `${prompt}\n\n${message}` : prompt,
         systemPrompts,
         variables,
         providerConfig: def.providerConfig ?? {},
@@ -140,10 +175,36 @@ export class Agent extends Runnable {
         tools,
         ctx,
         ...(execution ? { inbox: () => this.readInbox(execution) } : {}),
+        ...(message && resume?.state !== undefined
+          ? { resume: { conversation: resume.state, message } }
+          : {}),
+        ...(ctx.saveProgress
+          ? { saveConversation: (conversation: unknown) => ctx.saveProgress?.(this, conversation) }
+          : {}),
       })
-      .finally(() => execution?.leave())
+      .finally(() => {
+        execution?.leave()
+        ctx.saveProgress?.(this, undefined)
+      })
 
     return turn.resolve(output)
+  }
+
+  /** La pausa de un agente que espera: su evento, o que venza el plazo — y la conversación, para
+   *  seguirla al despertar. */
+  private pauseFor({ waiting, output }: AgentRunResult): Pause {
+    const { on, when, timeoutMs } = waiting as Waiting
+    return new Pause(
+      this.definition.id,
+      [
+        {
+          name: WAIT_EVENT_BRANCH,
+          filter: new EventFilter({ on, when: Condition.fromRows(when) }),
+        },
+      ],
+      Date.now() + timeoutMs,
+      output.conversation,
+    )
   }
 
   /** Los pasos de `onStart`, en orden. Dentro de una pipeline corren como sus pasos (su `when`,
@@ -177,4 +238,18 @@ export class Agent extends Runnable {
       )
     }
   }
+}
+
+/** Lo que lee el agente al retomar: qué pasó mientras no estaba. */
+function wakeMessage({ branch, event, note }: StepResume): string {
+  if (note) return note
+  if (branch === TIMEOUT_BRANCH) {
+    return 'Venció la espera sin que llegara el evento que esperabas. Seguí con lo que tengas, o terminá tu turno.'
+  }
+  const payload = JSON.stringify(event.payload, null, 2)
+  const shown =
+    payload.length > MAX_WAKE_EVENT_CHARS
+      ? `${payload.slice(0, MAX_WAKE_EVENT_CHARS)}\n…(recortado)`
+      : payload
+  return `Llegó el evento que esperabas (${event.type}):\n\n${shown}\n\nSeguí con tu trabajo.`
 }

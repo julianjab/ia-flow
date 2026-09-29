@@ -146,6 +146,7 @@ export class SourceBuilder {
               on: filter.on,
               when: Condition.fromRows(filter.when),
             })),
+            ...(doc.waits ? { waits: doc.waits } : {}),
             providerConfig: doc.providerConfig,
             mcpServers: this.mcpServers(doc.mcpServers, where('mcpServers')),
             continueOnError: doc.continueOnError,

@@ -83,6 +83,12 @@ export const stepTrace: TraceOptions<StepRunner, StepArgs, StepRun> = {
       if (run.output !== undefined) span.setAttribute('ia.step.output', truncate(run.output))
       return
     }
+    // Un agente que pausó su turno esperando un evento (`wait_for_event`): no eligió salida.
+    if (run.paused && !run.exit) {
+      span.setAttribute('ia.agent.waiting', run.paused.describe())
+      this.log.info(`agente "${name}" espera: ${run.paused.describe()}`)
+      return
+    }
     const { output } = run.output as AgentRunResult
     span.setAttributes({
       'ia.agent.outcome': output.outcome,

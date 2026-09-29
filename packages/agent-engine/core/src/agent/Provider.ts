@@ -17,6 +17,16 @@ export interface ProviderRunContext {
    *  de la bandeja. Un provider con loop lo consulta antes de cada vuelta y los suma al próximo
    *  turno del usuario; uno sin loop puede ignorarlo. */
   inbox?: () => string[]
+  /**
+   * Retomar una conversación en vez de empezar del prompt: la que el provider devolvió al
+   * esperar (`ProviderRunOutput.conversation`) o guardó mientras corría (`saveConversation`), y
+   * lo que pasó mientras tanto (`message`: el evento que la despertó, que venció la espera, que
+   * el runner se reinició). Es opaca para el engine: sólo la entiende el provider que la armó.
+   */
+  resume?: { conversation: unknown; message: string }
+  /** Guardar la conversación en curso, para retomarla si el proceso muere a mitad de camino.
+   *  Un provider con loop la pasa después de cada vuelta; uno sin conversación, nunca. */
+  saveConversation?: (conversation: unknown) => void
 }
 
 /** Lo que un Provider reporta al terminar. `outcome` es el nombre que `matchExit` busca en
@@ -25,6 +35,10 @@ export interface ProviderRunOutput {
   outcome: string
   summary?: string
   structuredOutput?: Record<string, unknown>
+  /** La conversación hasta la tool terminal que cerró el turno, incluidos sus resultados — lo
+   *  que se retoma cuando el agente espera un evento (`wait_for_event`). Opaca, como en
+   *  `ProviderRunContext.resume`. */
+  conversation?: unknown
 }
 
 /**

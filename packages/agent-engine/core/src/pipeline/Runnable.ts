@@ -35,6 +35,25 @@ export interface PipelineExecutionContext {
   /** Lo que el engine sabe pedirle a un modelo sin atarse a cuál (`Capability`): una tool que
    *  enfoca un archivo, un gate semántico. Lo pone el `Engine`. */
   capabilities?: CapabilityInvoker
+  /** Se está retomando un paso donde quedó (ver `Checkpoint.state`). Lo pone `Pipeline.execute`
+   *  mientras corre lo que retoma. */
+  resume?: StepResume
+  /** Guardar por dónde va `step` (`state`), o borrarlo (`undefined`: terminó), para retomarlo si
+   *  el proceso muere. Lo pone `Pipeline.execute` para el paso de `do[]` que corre. */
+  saveProgress?: (step: Runnable, state: unknown) => void
+}
+
+/** Un paso que se retoma donde quedó: su `id`, por qué rama y con qué evento despertó, y lo que
+ *  guardó (`state`). */
+export interface StepResume {
+  step: string
+  branch: string
+  event: DomainEvent<any>
+  state: unknown
+  /** Qué pasó mientras tanto (ej. el runner se reinició). */
+  note?: string
+  /** Cuántas veces ya se retomó tras un reinicio. */
+  attempts?: number
 }
 
 /** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). El resto, `action`. */
@@ -97,6 +116,9 @@ export interface ExecutionHandle {
   /** La pipeline se cortó en una `PauseAction`: la ejecución espera hasta que la despierte un
    *  evento (o venza), y guarda por dónde seguir. */
   pause(pause: Pause, checkpoint: Checkpoint): void
+  /** Por dónde va el paso activo, para retomarlo si el proceso muere (`undefined`: ya no hay
+   *  nada que retomar). Un store persistente lo guarda con la ejecución. */
+  progress?(checkpoint: Checkpoint | undefined): void
 }
 
 export interface RunnableProps extends ConditionalProps {

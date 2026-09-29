@@ -155,6 +155,8 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     ...(selfOriginated ? { selfOriginated } : {}),
   })
   const unsubscribe = engine.start()
+  // Lo que se retoma tras un reinicio queda vencido: que corra ya, no en el primer tick.
+  if (config.tick) engine.tick()
   const ticker = config.tick ? setInterval(() => engine.tick(), config.tick.everyMs) : undefined
   ticker?.unref()
   return {

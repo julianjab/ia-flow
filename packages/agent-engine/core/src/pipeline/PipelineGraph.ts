@@ -79,6 +79,16 @@ export class PipelineGraph {
     return pause
   }
 
+  /** Lo que corre al retomar por `branch` desde `id`: los destinos de esa rama de la pausa, o el
+   *  agente mismo si lo que se retoma es uno que guardaba su progreso cuando el proceso murió. */
+  resumeTargets(id: string, branch: string): Runnable[] {
+    const pause = this.pauses.get(id)
+    if (pause) return pause.targetsOf(branch)
+    const agent = this.agents.get(id)
+    if (agent) return [agent]
+    throw new Error(`Pipeline(${this.pipelineId}): no hay una pausa ni un agente "${id}"`)
+  }
+
   private findAgents(): Map<string, Runnable> {
     const agents = new Map<string, Runnable>()
     const visit = (step: Runnable) => {
@@ -110,7 +120,9 @@ export class PipelineGraph {
         if (pause) {
           pauses.set(pause.id, pause)
           walk(pause.allTargets)
-        } else if (step.exitRoutes !== undefined) {
+        }
+        // Un agente que espera es una pausa Y elige salidas.
+        if (step.exitRoutes !== undefined) {
           walk(this.resolve(step).exits.flatMap((exit) => exit.targets))
         }
       }

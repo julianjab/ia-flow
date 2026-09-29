@@ -1,7 +1,7 @@
 import { createLogger } from '@ia-flow/telemetry'
 import type { DomainEvent } from '../events/DomainEvent.js'
-import type { IfPaused, IfQueued } from '../pipeline/Pipeline.js'
-import { Execution } from './Execution.js'
+import type { Checkpoint, IfPaused, IfQueued } from '../pipeline/Pipeline.js'
+import { Execution, type ExecutionRecord } from './Execution.js'
 import type { ExecutionRepository } from './ExecutionRepository.js'
 import { ExecutionScheduler } from './ExecutionScheduler.js'
 
@@ -27,7 +27,17 @@ export interface ExecutionStoreOptions {
   repository: ExecutionRepository
   /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
   maxConcurrent?: number
+  /** Retomar tras un reinicio la que corría con un paso que guardaba su progreso (un agente y
+   *  su conversación). Default: hasta 10 veces seguidas, y si se guardó hace menos de 24 h. */
+  resume?: { maxAttempts?: number; maxAgeMs?: number }
 }
+
+const RESUME_MAX_ATTEMPTS = 10
+const RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+/** Lo que lee el agente que se retoma tras un reinicio. */
+export const RESTART_NOTE =
+  'El runner se reinició mientras trabajabas. Tu conversación sigue acá, pero lo que estaba en curso (un comando, una tool) pudo no terminar: verificá el estado antes de seguir.'
 
 /** Lo que una ejecución interrumpida (el proceso murió mientras corría) había recibido sin leer. */
 export interface OrphanedEvents {
@@ -39,8 +49,9 @@ export interface OrphanedEvents {
  * Dónde viven las ejecuciones: una por task (serie por `key`), un tope global en paralelo
  * (`ExecutionScheduler`), y qué pasa con una pausa cuando a su task le toca otra corrida
  * (`ifPaused`). Cada ejecución le anota sus cambios al `ExecutionRepository`; con uno persistente,
- * al construirse recupera lo que quedó vivo: las pausadas vuelven a esperar, y las que corrían
- * cuando el proceso murió se cierran `failed` (`interrupted`) y dejan lo que no leyeron en
+ * al construirse recupera lo que quedó vivo: las pausadas vuelven a esperar; las que corrían con
+ * un paso que guardaba su progreso se retoman ahí (quedan pausadas y vencidas: el próximo
+ * `tick` las corre); y las demás se cierran `failed` (`interrupted`) y dejan lo que no leyeron en
  * `takeOrphaned()` para que el engine lo re-despache.
  */
 export class ExecutionStore {
@@ -51,6 +62,7 @@ export class ExecutionStore {
   /** La última corrida `replace` esperando turno, por task y pipeline. */
   private readonly queued = new Map<string, QueuedTicket>()
   private orphaned: OrphanedEvents[] = []
+  private readonly resumeLimits: { maxAttempts: number; maxAgeMs: number }
 
   constructor(options: ExecutionStoreOptions) {
     const max = options.maxConcurrent ?? Number.POSITIVE_INFINITY
@@ -59,6 +71,10 @@ export class ExecutionStore {
     }
     this.repository = options.repository
     this.scheduler = new ExecutionScheduler(max)
+    this.resumeLimits = {
+      maxAttempts: options.resume?.maxAttempts ?? RESUME_MAX_ATTEMPTS,
+      maxAgeMs: options.resume?.maxAgeMs ?? RESUME_MAX_AGE_MS,
+    }
     this.recover()
   }
 
@@ -184,6 +200,17 @@ export class ExecutionStore {
       // Corría cuando el proceso murió: su agente murió con él.
       const events = this.repository.unread(record.id)
       this.repository.read(record.id)
+      const resumable = this.resumable(record)
+      if (resumable) {
+        this.track(Execution.restore(this.restartable(record, resumable, events), this.repository))
+        this.log.warn(
+          `${record.id} se interrumpió con el proceso: se retoma en ${resumable.pauseId}`,
+          {
+            'ia.execution.id': record.id,
+          },
+        )
+        continue
+      }
       this.repository.save({
         ...record,
         status: 'failed',
@@ -195,6 +222,47 @@ export class ExecutionStore {
         'ia.execution.id': record.id,
       })
     }
+  }
+
+  /** El checkpoint desde el que se retoma una que corría, si guardó uno y no pasó los topes. */
+  private resumable(record: ExecutionRecord): Checkpoint | undefined {
+    const checkpoint = record.checkpoint
+    if (checkpoint?.state === undefined) return undefined
+    const attempts = checkpoint.attempts ?? 0
+    const age = Date.now() - Date.parse(checkpoint.savedAt ?? record.startedAt)
+    if (attempts >= this.resumeLimits.maxAttempts || !(age <= this.resumeLimits.maxAgeMs)) {
+      this.log.warn(
+        `${record.id}: no se retoma (${attempts} intentos, guardado hace ${Math.round(age / 1000)} s)`,
+        { 'ia.execution.id': record.id },
+      )
+      return undefined
+    }
+    return checkpoint
+  }
+
+  /** La que corría, como pausada y ya vencida: el engine la retoma en el próximo `tick`. Lo que
+   *  había recibido sin leer va en el aviso al agente, no a otra corrida que la reemplazaría. */
+  private restartable(
+    record: ExecutionRecord,
+    checkpoint: Checkpoint,
+    unread: DomainEvent<any>[],
+  ): ExecutionRecord {
+    const pending = unread.map((event) => {
+      const payload = JSON.stringify(event.payload)
+      return `- ${event.type}: ${payload.length > 2_000 ? `${payload.slice(0, 2_000)}…` : payload}`
+    })
+    const note =
+      pending.length > 0
+        ? `${RESTART_NOTE}\n\nMientras tanto llegó:\n${pending.join('\n')}`
+        : RESTART_NOTE
+    const paused: ExecutionRecord = {
+      ...record,
+      status: 'paused',
+      pause: { pauseId: checkpoint.pauseId, branches: [], expiresAt: Date.now() },
+      checkpoint: { ...checkpoint, note, attempts: (checkpoint.attempts ?? 0) + 1 },
+    }
+    this.repository.save(paused)
+    return paused
   }
 
   private admit(execution: Execution, release: () => void): void {

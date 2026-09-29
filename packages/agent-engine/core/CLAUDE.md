@@ -361,7 +361,23 @@ Reglas que no son obvias al leer el código:
   puede pausar: falla diciendo por qué, en vez de pisar el checkpoint de la que la contiene.
 - **Si la pipeline cambió mientras esperaba, no se reanuda.** El `Checkpoint` guarda la forma de
   `do[]` (`shape`); si al reanudar no coincide, la ejecución falla en vez de seguir en otro paso.
-- **Sólo entre pasos.** Pausar a mitad del loop de un agente (y retomar su conversación) no está.
+- **Un agente también pausa, a mitad de su turno** (`wait_for_event`). Si declara `waits: { on }`
+  y corre dentro de una ejecución, recibe esa tool: la llama con qué eventos esperar (sólo de los
+  que declara), condiciones y plazo, y su turno termina. `Agent.outcome` lo devuelve como una
+  `Pause` más (id = el del agente, ramas `event` y `timeout`) con la conversación del provider
+  (`ProviderRunOutput.conversation`) como `state`, que va al `Checkpoint`. Al despertar, la
+  pipeline lo retoma a él mismo (`Agent.asResumable`) con `ctx.resume`: sin `onStart`, con la
+  conversación (`ProviderRunContext.resume`) y lo que pasó — el evento, o que venció. Como toda
+  pausa, un agente que espera va último en su lista de destinos.
+- **Retomar tras un reinicio.** Un paso de `do[]` (o el que se retoma) guarda su progreso con
+  `ctx.saveProgress` — un agente, la conversación que el provider le pasa en cada vuelta
+  (`saveConversation`) — y lo borra al terminar. `Execution.progress` lo anota en el
+  `Checkpoint` del registro mientras corre. Al arrancar, el store retoma la que corría con
+  progreso: la deja pausada y vencida (el próximo `tick`, o el que hace el runner al montar, la
+  corre por `timeout`), con `RESTART_NOTE` + lo que recibió sin leer como aviso. Topes: 10
+  intentos seguidos y 24 h desde que guardó (`ExecutionStoreOptions.resume`); pasados, cierra
+  `failed/interrupted` como antes. Un agente anidado (destino de una salida) no guarda progreso:
+  no hay cómo seguir una lista de destinos a medias.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
   `busy`; inyectar mira el paso activo de `current`.
@@ -378,8 +394,8 @@ Reglas que no son obvias al leer el código:
   entrega, vía `ExecutionJournal`. El repositorio es SÍNCRONO a propósito: el store ocupa la task en
   el mismo tick del `start`. `InMemoryExecutionStore` alcanza para un proceso;
   `@ia-flow/agent-engine-datasource-sqlite` guarda en SQLite. Al construirse, el `ExecutionStore` recupera lo
-  que el repositorio dejó vivo: las pausadas vuelven a esperar, las que corrían se cierran `failed`
-  (`closeReason: interrupted`) y lo que no leyeron lo re-despacha el `Engine` al construirse
+  que el repositorio dejó vivo: las pausadas vuelven a esperar, las que corrían con progreso
+  guardado se retoman (ver arriba), las demás se cierran `failed` (`closeReason: interrupted`) y lo que no leyeron lo re-despacha el `Engine` al construirse
   (`takeOrphaned`). Un proceso por base: turnos y tope viven en memoria.
 - **`ifRunning: 'interrupt'` corta al agente, no a la ejecución a lo bruto.** La regla que llega
   (ej. la tarjeta cambió de columna) le deja un aviso en el inbox (`Execution.interrupt` →

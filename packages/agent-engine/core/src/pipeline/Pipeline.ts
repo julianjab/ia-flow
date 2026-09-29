@@ -38,6 +38,18 @@ export interface Checkpoint {
   sourceId?: string
   /** El scope del evento, para el evento con el que vence (`execution.expired`). */
   scope?: Record<string, unknown>
+  /**
+   * Lo que el paso `pauseId` necesita para seguir DONDE QUEDÓ en vez de empezar de nuevo: la
+   * conversación de un agente que espera un evento (`wait_for_event`), o la que guardaba mientras
+   * corría cuando el proceso murió. Opaco para el engine (lo arma y lo lee el provider).
+   */
+  state?: unknown
+  /** Qué pasó mientras tanto, para quien retoma (ej. el runner se reinició). */
+  note?: string
+  /** Cuántas veces ya se retomó tras un reinicio: el store deja de reintentar pasado un tope. */
+  attempts?: number
+  /** Cuándo se guardó (ISO). */
+  savedAt?: string
 }
 
 /** Reanudar una pipeline pausada por una rama de su pausa. */
@@ -270,12 +282,23 @@ export class Pipeline {
     let resumeAt = 0
     if (from) {
       // Reanudar: primero la rama que la despertó (con el evento que la despertó en
-      // `steps.<pausa>`), después el resto de `do[]` desde donde se había cortado.
+      // `steps.<pausa>`), después el resto de `do[]` desde donde se había cortado. Un paso que
+      // pausó a mitad de camino (un agente que espera) retoma con su `state`.
       const targets = this.checkpoints.resume(from)
       const { checkpoint, branch } = from
       runCtx.steps[checkpoint.pauseId] = { branch, event: ctx.event.payload }
+      runCtx.resume = {
+        step: checkpoint.pauseId,
+        branch,
+        event: ctx.event,
+        state: checkpoint.state,
+        ...(checkpoint.note ? { note: checkpoint.note } : {}),
+        ...(checkpoint.attempts ? { attempts: checkpoint.attempts } : {}),
+      }
       for (const target of targets) {
+        this.anchor(runCtx, target, checkpoint.resumeAt)
         const paused = await this.runner.run(target, undefined, runCtx, `resume:${branch}`)
+        delete runCtx.resume
         if (paused) return this.checkpoints.save(runCtx, paused, checkpoint.resumeAt)
         if (runCtx.execution?.interruption) return runCtx.steps
       }
@@ -284,6 +307,7 @@ export class Pipeline {
     for (let index = resumeAt; index < this.do.length; index++) {
       const step = this.do[index] as Runnable
       if (this.graph.routed.has(step)) continue
+      this.anchor(runCtx, step, index + 1)
       const { ran, paused } = await this.runner.attempt(step, undefined, runCtx, 'do')
       // `firstMatch`: lo que sigue a una alternativa que corrió no corre, tampoco al reanudarla.
       if (paused) {
@@ -294,6 +318,15 @@ export class Pipeline {
       if (ran && this.firstMatch) break
     }
     return runCtx.steps
+  }
+
+  /** Si el proceso muere mientras `step` (un paso de `do[]`, o el que se retoma) guarda su
+   *  progreso, la ejecución sabe retomarlo ahí y seguir desde `resumeAt`. Un paso anidado (el
+   *  destino de una salida) no guarda: no hay cómo seguir la lista de destinos a medias. */
+  private anchor(ctx: PipelineExecutionContext, step: Runnable, resumeAt: number): void {
+    ctx.saveProgress = (from, state) => {
+      if (from === step) this.checkpoints.progress(ctx, step, resumeAt, state)
+    }
   }
 }
 

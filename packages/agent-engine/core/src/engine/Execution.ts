@@ -42,8 +42,10 @@ export interface ExecutionRecord {
   closedAt?: string
   /** Por qué cerró, si no fue por su propia corrida (ej. `interrupted` tras un reinicio). */
   closeReason?: string
-  /** Con qué se despierta y por dónde sigue, mientras está pausada. */
+  /** Con qué se despierta, mientras está pausada. */
   pause?: PauseJSON
+  /** Por dónde sigue: mientras está pausada, desde su pausa; mientras corre, desde el paso que
+   *  guarda su progreso (`progress`), si alguno — con eso se retoma tras un reinicio. */
   checkpoint?: Checkpoint
 }
 
@@ -83,6 +85,8 @@ export class Execution {
   private step: Runnable | undefined
   private interrupted: Interruption | undefined
   private paused: { pause: Pause; checkpoint: Checkpoint } | undefined
+  /** Por dónde va el paso activo mientras corre (ver `progress`). */
+  private progressed: Checkpoint | undefined
   private closedAt?: string
   private closeReason?: string
   /** Devuelve su lugar y su task al store — lo pone el store cada vez que se los da. */
@@ -214,6 +218,15 @@ export class Execution {
     return this.markRead(this.inbox.takeUnread())
   }
 
+  /** Por dónde va el paso activo (o `undefined`: terminó). Se anota en el journal: si el proceso
+   *  muere, el store la retoma desde ahí en vez de darla por perdida. */
+  progress(checkpoint: Checkpoint | undefined): void {
+    if (this.status !== 'running') return
+    if (checkpoint === undefined && this.progressed === undefined) return
+    this.progressed = checkpoint
+    this.journal?.save(this.toRecord())
+  }
+
   /** Su pipeline se cortó en una pausa: queda `paused` hasta que la despierte un evento o venza.
    *  Devuelve su lugar y su task cuando `run` termina de desarmar la corrida. */
   pause(pause: Pause, checkpoint: Checkpoint): void {
@@ -222,6 +235,7 @@ export class Execution {
     }
     this.status = 'paused'
     this.step = undefined
+    this.progressed = undefined
     this.paused = { pause, checkpoint }
     this.journal?.save(this.toRecord())
     this.log.info(`${this.id} se pausa en "${pause.pauseId}" (${pause.describe()})`, {
@@ -276,6 +290,7 @@ export class Execution {
     this.status = status
     this.step = undefined
     this.paused = undefined
+    this.progressed = undefined
     this.inbox.takeMissed()
     this.closedAt = new Date().toISOString()
     this.closeReason = reason
@@ -305,7 +320,9 @@ export class Execution {
       ...(this.closeReason ? { closeReason: this.closeReason } : {}),
       ...(this.paused
         ? { pause: this.paused.pause.toJSON(), checkpoint: this.paused.checkpoint }
-        : {}),
+        : this.progressed
+          ? { checkpoint: this.progressed }
+          : {}),
     }
   }
 
