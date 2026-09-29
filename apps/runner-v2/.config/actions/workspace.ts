@@ -1,7 +1,10 @@
 /**
  * `fs_*` y `bash_run`: las tools de disco, sobre el worktree de la corrida (el de la task del
- * evento: `_lib/workspaceTarget.ts`). `bash_run` lleva sus OPCIONES del YAML: allow/deny,
+ * evento: `src/workspace/workspaceTarget.ts`, la `session` de los servicios). `bash_run` lleva sus OPCIONES del YAML: allow/deny,
  * githubAuth, timeout, maxTimeout.
+ *
+ * `workspace_reset`: el agente descarta su worktree y lo recrea limpio. `cleanup_workspace`: paso
+ * de pipeline que suelta el worktree si no tiene trabajo en riesgo.
  *
  * `run_agent`: delega en un sub-agente del repo (`.claude/agents/*.md` del worktree). Sus
  * opciones: `provider` (default `anthropic-api`), `write` (si sus sub-agentes escriben: entonces
@@ -12,14 +15,13 @@
 import type { Action } from '@ia-flow/agent-engine'
 import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
 import {
+  CleanupWorkspaceAction,
+  ResetWorkspaceAction,
   RunAgentAction,
   WORKSPACE_TOOLS,
-  type WorkspaceManager,
-  WorkspaceSession,
   workspaceAction,
 } from '@ia-flow/workspace'
 import { z } from 'zod'
-import { workspaceTargetFor } from './_lib/workspaceTarget.js'
 
 const Duration = z.string().regex(/^\d+(s|m|h)$/, 'una duración: `30s`, `45m`, `2h`')
 const DURATION_MS = { s: 1_000, m: 60_000, h: 3_600_000 } as const
@@ -38,27 +40,16 @@ const DiskToolOptions = z.strictObject({
   maxTimeout: Duration.optional(),
 })
 
-/** Una sesión por manager: el worktree de cada corrida se resuelve del evento. */
-const sessions = new WeakMap<WorkspaceManager, WorkspaceSession>()
-function sessionOf(manager: WorkspaceManager): WorkspaceSession {
-  let session = sessions.get(manager)
-  if (!session) {
-    session = new WorkspaceSession(manager, workspaceTargetFor)
-    sessions.set(manager, session)
-  }
-  return session
-}
-
 function diskTool(name: string, ctx: ActionContext): Action {
   const parsed = DiskToolOptions.safeParse(ctx.options)
   if (!parsed.success)
     throw new Error(`${name}: options inválidas\n${z.prettifyError(parsed.error)}`)
   const { allow, deny, githubAuth, timeout, maxTimeout } = parsed.data
-  const { workspace, gitCredential } = ctx.services
+  const { gitCredential } = ctx.services
   const publish = githubAuth ? gitCredential : undefined
   return workspaceAction(
     name,
-    sessionOf(workspace),
+    ctx.services.session,
     { ...(allow ? { allow } : {}), deny: deny ?? [] },
     {
       ...(publish ? { gitCredential: publish } : {}),
@@ -82,7 +73,7 @@ function runAgent(ctx: ActionContext): Action {
   const { provider, write, models, providerConfig, allow, deny, githubAuth, timeout, maxTimeout } =
     parsed.data
   const publish = githubAuth ? ctx.services.gitCredential : undefined
-  return new RunAgentAction(sessionOf(ctx.services.workspace), {
+  return new RunAgentAction(ctx.services.session, {
     provider,
     ...(write ? { write } : {}),
     ...(models ? { models } : {}),
@@ -101,4 +92,14 @@ export default [
     defineAction({ id: name, create: (ctx) => diskTool(name, ctx) }),
   ),
   defineAction({ id: 'run_agent', create: runAgent }),
+  // El agente descarta su worktree y arranca de nuevo (escribe: necesita `allowWrite`).
+  defineAction({
+    id: 'workspace_reset',
+    create: (ctx) => new ResetWorkspaceAction(ctx.services.session),
+  }),
+  // Paso de pipeline: suelta el worktree si no tiene trabajo en riesgo.
+  defineAction({
+    id: 'cleanup_workspace',
+    create: (ctx) => new CleanupWorkspaceAction(ctx.services.session),
+  }),
 ]

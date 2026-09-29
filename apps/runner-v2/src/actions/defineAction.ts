@@ -18,7 +18,7 @@
 import type { Action } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
 import type { SlackClient } from '@ia-flow/slack-api'
-import type { WorkspaceManager } from '@ia-flow/workspace'
+import type { WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 
 export type { ProjectConfig } from '../config/RunnerConfig.js'
@@ -30,6 +30,9 @@ export interface RunnerServices {
   github: GithubClient
   /** Los clones y worktrees de las tasks. */
   workspace: WorkspaceManager
+  /** El worktree de CADA corrida, a demanda (`workspaceTargetFor`): lo comparten las tools de
+   *  disco y los providers que corren en él (`claude-cli`). */
+  session: WorkspaceSession
   /** La credencial de los `git` de red (la de la App). */
   gitCredential: () => Promise<string | undefined>
   /** Slack con el bot token (`SLACK_BOT_TOKEN`); sin token, `enabled` es false. */

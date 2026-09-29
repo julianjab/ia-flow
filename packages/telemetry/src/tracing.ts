@@ -143,6 +143,35 @@ export async function withSpan<T>(
   )
 }
 
+/** El contexto activo (con su span), para colgar de él trabajo que llega después por otro
+ *  camino — ej. los hooks de un CLI que reportan sus tools por HTTP mientras el agente corre. */
+export function captureContext(): Context {
+  return context.active()
+}
+
+/**
+ * Abre un span que se cierra en otro momento (`span.end()`), colgado de `parent` en vez del
+ * contexto activo: para lo que empieza y termina en llamadas separadas (un `PreToolUse` y su
+ * `PostToolUse`). Lleva los atributos heredados de `parent`.
+ */
+export function startSpan(
+  name: string,
+  attributes: Attributes,
+  options: SpanOptions & { parent?: Context } = {},
+): Span {
+  const parent = options.parent ?? context.active()
+  const spanTracer = options.scope ? trace.getTracer(options.scope) : tracer
+  return spanTracer.startSpan(
+    name,
+    {
+      kind: options.kind ?? SpanKind.INTERNAL,
+      attributes: { ...inheritedAttributes(parent), ...attributes },
+      ...(options.links?.length ? { links: options.links } : {}),
+    },
+    parent,
+  )
+}
+
 /** Marca el span como fallido sin cortar el flujo — para errores que alguien maneja (un
  *  `onError`), que igual tienen que verse en la traza. */
 export function markError(span: Span, err: unknown): void {
@@ -293,5 +322,5 @@ export function taggedSync<This, Args extends unknown[], R>(
 
 // El resto del código (este paquete y los que instrumentan con él) no importa
 // `@opentelemetry/api`: los tipos que necesita para declarar una traza salen de acá.
-export type { Attributes, Span }
+export type { Attributes, Context, Span }
 export { SpanKind }

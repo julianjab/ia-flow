@@ -27,6 +27,7 @@ packages/agent-engine/
   datasources/sqlite/  @ia-flow/agent-engine-datasource-sqlite — ExecutionRepository sobre SQLite
   datasources/yaml/    @ia-flow/agent-engine-datasource-yaml — YAML → definiciones
 packages/provider-anthropic/  @ia-flow/provider-anthropic — el Provider de Anthropic
+packages/provider-claude-cli/ @ia-flow/provider-claude-cli — el Provider sobre el CLI `claude`
 packages/telemetry/    @ia-flow/telemetry — trazas y logs (OpenTelemetry)
 packages/github/       auth/ api/ webhook/ tools/ — @ia-flow/github-{auth,api,webhook,tools}
 packages/local/        fs/ shell/ workspace/ — @ia-flow/{fs-tools,shell-tools,workspace}
@@ -44,13 +45,14 @@ que extienden los paquetes del engine.
 Cross-package dependency graph:
 
 ```
-runner-v2 → agent-engine, definitions, datasource-{sqlite,yaml}, provider-anthropic, telemetry,
+runner-v2 → agent-engine, definitions, datasource-{sqlite,yaml}, provider-{anthropic,claude-cli}, telemetry,
             github-{auth,api,webhook,tools}, slack-{api,tools}, workspace
 agent-engine          → telemetry
 definitions           → agent-engine, telemetry
 datasource-sqlite     → agent-engine, telemetry
 datasource-yaml       → agent-engine, definitions
 provider-anthropic    → agent-engine, telemetry
+provider-claude-cli   → agent-engine, telemetry
 github-api            → github-auth
 github-tools          → agent-engine, github-api, github-auth
 fs-tools, shell-tools → agent-engine
@@ -76,6 +78,7 @@ un paquete**. En una línea:
 | `@ia-flow/agent-engine-datasource-yaml` | Traduce YAML a `SourceDocs`. Nada más: no arma entidades ni sabe de proyectos |
 | `@ia-flow/agent-engine-datasource-sqlite` | `ExecutionRepository` sobre SQLite detrás del puerto `SqliteDatabase` (`bun:sqlite` o `node:sqlite`): las pausas sobreviven a un reinicio |
 | `@ia-flow/provider-anthropic` | `Provider` de Anthropic (Messages API, tools, MCP remoto, streaming SSE, spans GenAI) — infra concreta |
+| `@ia-flow/provider-claude-cli` | `Provider` sobre el CLI `claude` (print o tmux): las tools del agente por un MCP local, inbox y traza por hooks — infra concreta |
 | `@ia-flow/telemetry` | Instrumentación contra las APIs de OpenTelemetry (`createLogger`, decorators de trazas); el SDK lo registra la app |
 | `@ia-flow/github-auth` | Token de GitHub: PAT / OAuth user token o GitHub App (JWT → installation token cacheado). Standalone |
 | `@ia-flow/github-api` | Cliente REST/GraphQL de GitHub sobre `GithubAuth` |

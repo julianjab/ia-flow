@@ -30,9 +30,13 @@ import { YamlDefinitionSource } from '@ia-flow/agent-engine-datasource-yaml'
 import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
 import { GithubClient } from '@ia-flow/github-api'
 import type { GithubAuth } from '@ia-flow/github-auth'
-import { parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic'
 import { SlackClient } from '@ia-flow/slack-api'
-import { NodeShellRunner, type WorkspaceLogger, WorkspaceManager } from '@ia-flow/workspace'
+import {
+  NodeShellRunner,
+  type WorkspaceLogger,
+  WorkspaceManager,
+  WorkspaceSession,
+} from '@ia-flow/workspace'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
@@ -40,7 +44,9 @@ import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { withScope } from './projects/withScope.js'
+import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
+import { workspaceTargetFor } from './workspace/workspaceTarget.js'
 
 /** Donde viven los clones y worktrees si no se pasa `WORKSPACE_DIR`. */
 const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.cache', 'ia-flow', 'runner-v2', 'workspaces')
@@ -81,6 +87,8 @@ export interface MountedRunner {
   /** Qué actions registró cada scope. */
   actions: Record<string, string[]>
   warnings: string[]
+  /** Lo que reciben las actions — y los providers que lo necesitan (el worktree). */
+  services: RunnerServices
   /** Deja de escuchar el bus y de vencer pausas, y cierra la base de ejecuciones. */
   stop(): void
 }
@@ -92,20 +100,22 @@ function workspaceLogger(log: (line: string) => void): WorkspaceLogger {
   return { info: line('info'), debug: () => {}, warn: line('warn'), error: line('error') }
 }
 
-/** El `providerConfig` de cada agente de `anthropic-api` tiene la forma de la config del
- *  provider: se valida al montar, para que un typo rompa el arranque y no la primera corrida. */
+/** El `providerConfig` de cada agente tiene la forma de la config de su provider: se valida al
+ *  montar, para que un typo rompa el arranque y no la primera corrida. */
 function validateProviderConfigs(
   pipelines: Pipeline[],
   capabilities: Record<string, Runnable>,
+  validatorFor: ReturnType<typeof agentConfigValidator>,
 ): void {
   const steps = [
     ...pipelines.flatMap((pipeline) => pipeline.do.map((step) => ({ step, where: pipeline.id }))),
     ...Object.entries(capabilities).map(([name, step]) => ({ step, where: `capacidad ${name}` })),
   ]
   for (const { step, where } of steps) {
-    if (!isAgent(step) || step.definition.provider !== 'anthropic-api') continue
+    const validate = isAgent(step) ? validatorFor(step.definition.provider) : undefined
+    if (!validate || !isAgent(step)) continue
     try {
-      parseAnthropicAgentConfig(step.definition.providerConfig ?? {})
+      validate(step.definition.providerConfig ?? {})
     } catch (err) {
       throw new Error(`agente "${step.id}" (${where}): ${(err as Error).message}`)
     }
@@ -162,6 +172,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   const services: RunnerServices = {
     github,
     workspace,
+    session: new WorkspaceSession(workspace, workspaceTargetFor),
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
     gitCredential: () => auth.getToken(),
     slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
@@ -198,7 +209,12 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   })
   const pipelines = () => sources.flatMap((entry) => entry.source.list())
   try {
-    validateProviderConfigs(pipelines(), globalSource.capabilities)
+    validateProviderDefaults(cfg.providers)
+    validateProviderConfigs(
+      pipelines(),
+      globalSource.capabilities,
+      agentConfigValidator(cfg.providers),
+    )
   } catch (err) {
     mounted.stop()
     throw err
@@ -220,6 +236,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     mcpServers: Object.keys(mcpServers),
     actions: actions.registered,
     warnings,
+    services,
     stop: mounted.stop,
   }
 }

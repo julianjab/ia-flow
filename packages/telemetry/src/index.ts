@@ -2,6 +2,7 @@ export type { ConsoleSinkOptions, Logger, LogLevel, LogRecord, LogSink } from '.
 export { addLogSink, consoleSink, createLogger, otelSink, setLogSinks } from './logging.js'
 export type {
   Attributes,
+  Context,
   Span,
   SpanLink,
   SpanOptions,
@@ -9,6 +10,7 @@ export type {
   TraceOptions,
 } from './tracing.js'
 export {
+  captureContext,
   captureSpanLink,
   INSTRUMENTATION_SCOPE,
   inFreshContext,
@@ -17,6 +19,7 @@ export {
   markError,
   SpanKind,
   scopeAttributes,
+  startSpan,
   tagged,
   taggedSync,
   traced,

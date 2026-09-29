@@ -707,7 +707,11 @@ export class WorkspaceManager {
    * Serialized per-repo (both the remove and the recreate share the same
    * `#withRepoLock` scope so a concurrent `getOrCreate` can't interleave).
    */
-  async resetWorktree(taskId: string, repoBasePath?: string): Promise<string> {
+  async resetWorktree(
+    taskId: string,
+    repoBasePath?: string,
+    opts: { task?: WorktreeNameSource; branch?: string } = {},
+  ): Promise<string> {
     const base = repoBasePath ?? this.#taskRepoPaths.get(taskId)
     if (!base) {
       throw new Error(
@@ -717,11 +721,17 @@ export class WorkspaceManager {
     // La task registrada en `acquireTask` gana sobre el id pelado: es lo que
     // hace que el worktree recreado caiga en el MISMO directorio legible que
     // el que se acaba de borrar.
-    const source = this.#taskSources.get(taskId) ?? { id: taskId }
+    // `opts.task`/`opts.branch`: el mismo directorio y la misma branch que la corrida usa (una
+    // branch que no es `task/<id>`), sin depender de `acquireTask`.
+    const source = opts.task ?? this.#taskSources.get(taskId) ?? { id: taskId }
     return this.#withRepoLock(base, async () => {
-      this.#log.info({ taskId, repoBasePath: base }, 'reset')
-      await this.#doRemove(source, base)
-      const { path } = await this.#doGetOrCreate(source, base, {})
+      this.#log.info({ taskId, repoBasePath: base, branch: opts.branch }, 'reset')
+      await this.#doRemove(source, base, opts.branch)
+      const { path } = await this.#doGetOrCreate(
+        source,
+        base,
+        opts.branch ? { branch: opts.branch } : {},
+      )
       return path
     })
   }

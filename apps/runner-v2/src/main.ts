@@ -18,12 +18,11 @@
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { providerRegistry } from '@ia-flow/agent-engine'
-import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic'
 import { createLogger } from '@ia-flow/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
+import { registerProviders } from './providers/providers.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
 import { startTelemetry, type Telemetry } from './telemetry.js'
 
@@ -61,24 +60,6 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
   for (const line of mounted.warnings) console.log(`→ aviso: ${line}`)
 }
 
-/** `anthropic-api` con su config de `providers.anthropic-api` del runner.yaml: los defaults de
- *  todos sus agentes, con la misma estructura que el `providerConfig` de cada uno. */
-function registerProvider(log: (line: string) => void, config: Record<string, unknown> = {}): void {
-  // `maxConcurrent` es del provider (cuántos agentes a la vez), no de la config de cada corrida.
-  const { maxConcurrent, ...runConfig } = config
-  const { resumeMessages: _, ...defaults } = parseAnthropicAgentConfig(runConfig)
-  providerRegistry.register(
-    new AnthropicProvider({
-      id: 'anthropic-api',
-      ...defaults,
-      ...(typeof maxConcurrent === 'number' ? { maxConcurrent } : {}),
-      model: process.env.ANTHROPIC_MODEL ?? defaults.model ?? 'claude-sonnet-5',
-      onToolCall: (name, input) => log(`[tool] ${name} ${JSON.stringify(input).slice(0, 200)}`),
-      onToolResult: (name, result) => log(`[tool:${name}] ${result.slice(0, 200)}`),
-    }),
-  )
-}
-
 /** Un número positivo de un env var, o el default. */
 function positiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value)
@@ -104,7 +85,7 @@ async function startServing(
   telemetry: Telemetry,
   log: (line: string) => void,
 ): Promise<void> {
-  registerProvider(log, cfg.providers['anthropic-api'])
+  registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
   await serve(mounted, {
     // `applyRunnerEnv` ya volcó settings.port a este env var.
     port: positiveInt(process.env.IA_FLOW_SERVER_PORT, 3001),
@@ -130,7 +111,7 @@ async function dispatchOne(
   telemetry: Telemetry,
   log: (line: string) => void,
 ): Promise<void> {
-  registerProvider(log, cfg.providers['anthropic-api'])
+  registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
   try {
     if (args.replayPr) {
       const target = parseIssueTarget(args.replayPr)
