@@ -71,12 +71,15 @@ function boardItem(raw: Raw): Location {
   if (item.from !== undefined && item.from === item.to) {
     return { skip: `Status sin cambio (${item.to})` }
   }
+  // Quién movió la card: el engine no deja que el eco de un cambio del propio runner (su App)
+  // interrumpa al agente que corre (`engine.interrupt.ownSenders` en runner.yaml).
+  const sender = (raw.sender as { login?: unknown } | undefined)?.login
   return {
     item: item.itemId,
     emit: 'issue.status_changed',
     // Sin `to` (GitHub no siempre lo manda), el status que quedó en el board.
     ...(item.to !== undefined ? { status: item.to } : {}),
-    extra: { from: item.from, to: item.to },
+    extra: { from: item.from, to: item.to, ...(typeof sender === 'string' ? { sender } : {}) },
   }
 }
 

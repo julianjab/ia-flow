@@ -7,7 +7,7 @@
  *                    global —`agents`, `pipelines`—, las `actions` globales y los `projects`,
  *                    cada uno la ruta a su `project.yaml` o el proyecto inline)
  *   project.yaml     scope proyecto: board, prefijo de rama y label (el runner), los defaults de su
- *                    fuente (`systemPrompts`, `onError`, `report`, `vars`), sus `agents`,
+ *                    fuente (`systemPrompts`, `onError`, `onInterrupt`, `report`, `vars`), sus `agents`,
  *                    `pipelines`, `actions` y `repos`
  *
  * `agents`, `pipelines` y `repos` aceptan, solos o en lista: un directorio, un archivo, un glob en
@@ -50,6 +50,7 @@ const SourceDefaults = {
   vars: z.record(z.string(), z.unknown()).optional(),
   systemPrompts: z.unknown().optional(),
   onError: z.unknown().optional(),
+  onInterrupt: z.unknown().optional(),
   report: z.unknown().optional(),
 }
 
@@ -200,12 +201,15 @@ function readRepos(
 
 /** La parte de fuente de un proyecto (o de `runner.yaml`): lo que lee el datasource. */
 function sourceSpec(
-  file: Pick<ProjectFile, 'agents' | 'pipelines' | 'vars' | 'systemPrompts' | 'onError' | 'report'>,
+  file: Pick<
+    ProjectFile,
+    'agents' | 'pipelines' | 'vars' | 'systemPrompts' | 'onError' | 'onInterrupt' | 'report'
+  >,
   base: string,
   origin: string,
 ): YamlSourceSpec {
   const defaults = Object.fromEntries(
-    (['vars', 'systemPrompts', 'onError', 'report'] as const)
+    (['vars', 'systemPrompts', 'onError', 'onInterrupt', 'report'] as const)
       .filter((key) => file[key] !== undefined)
       .map((key) => [key, file[key]]),
   )

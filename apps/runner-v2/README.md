@@ -23,7 +23,7 @@ scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
 
 ```yaml
 # runner.yaml
-engine: { … }                       # CÓMO corre: store de ejecuciones, tick, whenText, formatMessage
+engine: { … }                       # CÓMO corre: store de ejecuciones, tick, whenText, formatMessage, interrupt
 sources:                            # QUÉ corre: la composición del runner
   pipelines: [ … ]                  # la fuente global: el intake, inline
   actions: ./actions                # actions globales
@@ -36,6 +36,7 @@ branchPrefix: ia-flow-local/
 label: blocked
 systemPrompts: [ … ]                # los defaults de su fuente (antes source.yaml)
 onError: { … }
+onInterrupt: { … }                  # qué queda si una regla corta a un agente (el comentario)
 agents: ./agents
 pipelines: ./pipelines
 actions: ./actions
@@ -99,6 +100,7 @@ Lo que el YAML nombra y definen las `actions/`:
 | Nombre | Qué es |
 | --- | --- |
 | `update_issue`, `post_comment` | transiciones del board y el comentario de cierre (firmado por el agente) |
+| `post_notice` | un comentario sin firma de agente: el aviso del `onInterrupt` del proyecto (quién paró y en qué quedó) |
 | `react_to_comment`, `review_pull_request`, `pr_checks`, `create_github_issue`, … | las tools de GitHub del proyecto |
 | `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`) |
 | `issue_body` | las tools del body del issue que el agente puede tocar (`options: { write, check }`) |

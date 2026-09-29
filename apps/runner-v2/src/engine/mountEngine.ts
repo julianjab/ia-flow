@@ -1,7 +1,8 @@
 /**
  * El engine del runner, armado desde la sección `engine:` de `runner.yaml`: el store de
  * ejecuciones (por nombre de driver), el tick que vence pausas, el clasificador de los `whenText`
- * y el texto con el que un evento le llega a un agente que ya corre (`formatMessage`).
+ * el texto con el que un evento le llega a un agente que ya corre (`formatMessage`) y cómo se
+ * interrumpe a uno (`interrupt`).
  */
 import { isAbsolute, resolve } from 'node:path'
 import {
@@ -11,6 +12,7 @@ import {
   EventBus,
   type ExecutionStore,
   InMemoryExecutionStore,
+  type Pipeline,
   type PipelineSource,
   renderText,
   type TextClassifier,
@@ -42,6 +44,17 @@ export const EngineSection = z.strictObject({
     .optional(),
   /** Plantilla contra el payload (`'{{message}}'`); vacía, el mensaje por default del engine. */
   formatMessage: z.string().min(1).optional(),
+  /** Las pipelines con `ifRunning: interrupt`: qué le dicen al agente y quién no interrumpe. */
+  interrupt: z
+    .strictObject({
+      /** Qué pasó, en palabras: plantilla contra el payload del evento que interrumpe. Lo lee
+       *  el agente en el aviso y queda en `steps.interruption.reason` (el comentario). */
+      reason: z.string().min(1).optional(),
+      /** Regex sobre `payload.sender`: un evento de esos logins es el eco de un cambio del
+       *  propio runner y nunca interrumpe — sólo espera. */
+      ownSenders: z.string().min(1).optional(),
+    })
+    .optional(),
 })
 export type EngineSection = z.infer<typeof EngineSection>
 
@@ -112,6 +125,32 @@ export function messageTemplate(
   }
 }
 
+/** `interrupt.reason`: la plantilla contra el payload; vacía (o sin nada que decir), el texto
+ *  por default del engine. */
+export function interruptReason(
+  template: string | undefined,
+): ((event: DomainEvent<any>, pipeline: Pipeline) => string) | undefined {
+  if (!template) return undefined
+  return (event, pipeline) => {
+    const payload = event.payload
+    const root = typeof payload === 'object' && payload !== null ? payload : {}
+    const text = renderText(template, root as Record<string, unknown>).trim()
+    return text || `llegó "${event.type}" y va a correr "${pipeline.id}"`
+  }
+}
+
+/** `interrupt.ownSenders`: si el evento lo mandó un login del propio runner. */
+export function ownSender(
+  pattern: string | undefined,
+): ((event: DomainEvent<any>) => boolean) | undefined {
+  if (!pattern) return undefined
+  const own = new RegExp(pattern)
+  return (event) => {
+    const sender = (event.payload as { sender?: unknown } | undefined)?.sender
+    return typeof sender === 'string' && own.test(sender)
+  }
+}
+
 export function mountEngine(config: EngineSection, opts: MountEngineOptions): MountedEngine {
   const executions = config.executions
     ? store(config.executions, opts.drivers, opts.baseDir)
@@ -119,6 +158,8 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
   const bus = new EventBus()
   const textClassifier = opts.textClassifier ?? classifier(config.whenText)
   const formatMessage = messageTemplate(config.formatMessage)
+  const reason = interruptReason(config.interrupt?.reason)
+  const selfOriginated = ownSender(config.interrupt?.ownSenders)
   const engine = new Engine({
     bus,
     pipelines: opts.sources,
@@ -126,6 +167,8 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     ...(executions ? { executions } : {}),
     ...(formatMessage ? { formatMessage } : {}),
     ...(textClassifier ? { textClassifier } : {}),
+    ...(reason ? { interruptReason: reason } : {}),
+    ...(selfOriginated ? { selfOriginated } : {}),
   })
   const unsubscribe = engine.start()
   const ticker = config.tick ? setInterval(() => engine.tick(), config.tick.everyMs) : undefined

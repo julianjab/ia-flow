@@ -56,6 +56,13 @@ export default [
       return new PostCommentAction({ client: ctx.services.github, heading: ctx.agentId })
     },
   }),
+  // Sin firma de agente: un aviso del runner que corre fuera de un agente — el `onInterrupt` del
+  // proyecto (quién se interrumpió va en el texto). Lleva la marca `<!-- ia-flow:` igual que un
+  // reporte, así la regla de comentarios no lo toma por un pedido humano.
+  withClient(
+    'post_notice',
+    (ctx) => new PostCommentAction({ client: ctx.services.github, id: 'post_notice' }),
+  ),
   withClient('react_to_comment', (ctx) => new ReactToCommentAction(ctx.services.github)),
   withClient(
     'update_issue_body',
