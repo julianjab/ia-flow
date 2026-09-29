@@ -1,0 +1,27 @@
+{
+  "name": "@ia-flow/provider-anthropic",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Provider de Anthropic (Messages API) para @ia-flow/agent-engine — streaming, retries, extended thinking, task budgets, MCP remoto y checkpointing, portado de ia-flow",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

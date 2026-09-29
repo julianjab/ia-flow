@@ -15,9 +15,9 @@
  * export default defineAction({ id: 'resolve_task', create: (ctx) => new ResolveTaskAction(…) })
  * ```
  */
-import type { Action } from '@ia-tools/agent-engine'
-import type { GithubClient } from '@ia-tools/github-api'
-import type { WorkspaceManager } from '@ia-tools/workspace'
+import type { Action } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
+import type { WorkspaceManager } from '@ia-flow/workspace'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 
 export type { ProjectConfig } from '../config/RunnerConfig.js'

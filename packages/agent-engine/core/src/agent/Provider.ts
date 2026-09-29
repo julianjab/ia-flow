@@ -1,0 +1,63 @@
+import type { PipelineExecutionContext } from '../pipeline/Runnable.js'
+import type { AgentVariableValue, McpServerRef, Tool } from './AgentDefinition.js'
+
+/** Lo que `Agent.run()` arma para el Provider — el prompt ya interpolado, nunca `{{...}}`
+ *  crudo. `ctx` es el `PipelineExecutionContext` completo del paso, por si un provider
+ *  necesita algo que no está en los campos de arriba (poco común, pero ahí está). */
+export interface ProviderRunContext {
+  agentId: string
+  prompt: string
+  systemPrompts: string[]
+  variables: Record<string, AgentVariableValue>
+  providerConfig: Record<string, unknown>
+  mcpServers: McpServerRef[]
+  tools: Tool[]
+  ctx: PipelineExecutionContext
+  /** Mensajes que llegaron mientras el agente corre (sus `injects`), en orden — y los saca
+   *  de la bandeja. Un provider con loop lo consulta antes de cada vuelta y los suma al próximo
+   *  turno del usuario; uno sin loop puede ignorarlo. */
+  inbox?: () => string[]
+}
+
+/** Lo que un Provider reporta al terminar. `outcome` es el nombre que `matchExit` busca en
+ *  `AgentDefinitionProps.exits` — típicamente 'success'/'error', o lo que el modelo decida. */
+export interface ProviderRunOutput {
+  outcome: string
+  summary?: string
+  structuredOutput?: Record<string, unknown>
+}
+
+/**
+ * Contrato que cualquier backend de IA implementa — Anthropic, OpenAI, un CLI corriendo en
+ * una sesión de terminal, lo que sea. `run` es sólo `Promise<ProviderRunOutput>`: nada le
+ * exige resolver rápido, así que un provider asíncrono (lanza un trabajo y se entera de que
+ * terminó por un canal aparte — ver ia-flow's TmuxClaudeProvider) simplemente mantiene esa
+ * promesa pendiente hasta ese momento. El harness no necesita saber la diferencia.
+ */
+export interface Provider {
+  readonly id: string
+  run(ctx: ProviderRunContext): Promise<ProviderRunOutput>
+}
+
+/** Registry por id — un Provider se registra una vez y cualquier `AgentDefinitionProps` lo
+ *  referencia por `provider: 'ese-id'`. Mismo patrón que `Provider.resolve(id)` en ia-flow. */
+export class ProviderRegistry {
+  private readonly providers = new Map<string, Provider>()
+
+  register(provider: Provider): this {
+    this.providers.set(provider.id, provider)
+    return this
+  }
+
+  resolve(id: string): Provider | undefined {
+    return this.providers.get(id)
+  }
+}
+
+/**
+ * Singleton module-level que `new Agent(def)` consulta por default. `ProviderRegistry` en sí
+ * es una clase instanciable (no un singleton forzado) — si necesitás aislar registries entre
+ * tests o entre apps del mismo proceso, `new ProviderRegistry()` y pasalo como segundo
+ * argumento: `new Agent(def, registry)`.
+ */
+export const providerRegistry = new ProviderRegistry()

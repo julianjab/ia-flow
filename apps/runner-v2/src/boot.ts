@@ -23,13 +23,13 @@ import {
   providerRegistry,
   type ResolvedRoutes,
   type TextClassifier,
-} from '@ia-tools/agent-engine'
-import { YamlDefinitionSource } from '@ia-tools/agent-engine-datasource-yaml'
-import { DefinitionPipelineSource } from '@ia-tools/agent-engine-definitions'
-import { GithubClient } from '@ia-tools/github-api'
-import type { GithubAuth } from '@ia-tools/github-auth'
-import { parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'
-import { NodeShellRunner, type WorkspaceLogger, WorkspaceManager } from '@ia-tools/workspace'
+} from '@ia-flow/agent-engine'
+import { YamlDefinitionSource } from '@ia-flow/agent-engine-datasource-yaml'
+import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
+import { GithubClient } from '@ia-flow/github-api'
+import type { GithubAuth } from '@ia-flow/github-auth'
+import { parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic'
+import { NodeShellRunner, type WorkspaceLogger, WorkspaceManager } from '@ia-flow/workspace'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'

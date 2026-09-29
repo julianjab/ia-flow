@@ -1,0 +1,26 @@
+{
+  "name": "@ia-flow/github-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tool[] de agent-engine respaldadas por la REST API de GitHub — leer/comentar/etiquetar issues, buscar issues. Puente entre @ia-flow/github-api (client) y @ia-flow/agent-engine (el tipo Tool)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/github-api": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@ia-flow/github-auth": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

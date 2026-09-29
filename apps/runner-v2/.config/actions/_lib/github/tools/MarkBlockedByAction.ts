@@ -1,4 +1,4 @@
-import { Action } from '@ia-tools/agent-engine'
+import { Action } from '@ia-flow/agent-engine'
 import { z } from 'zod'
 import type { GithubProjectContext } from './project.js'
 

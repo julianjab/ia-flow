@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "strict": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    // Sólo @types/node: sin esto tsc incluye el @types/bun hoisteado por las apps del workspace
+    // y `typeof fetch` pasa a exigir `preconnect`, que ningún mock de los tests tiene.
+    "types": ["node"]
+  }
+}

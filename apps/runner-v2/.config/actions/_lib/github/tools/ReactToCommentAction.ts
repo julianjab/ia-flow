@@ -1,6 +1,6 @@
-import { Action, type PipelineExecutionContext } from '@ia-tools/agent-engine'
-import type { GithubClient } from '@ia-tools/github-api'
-import { issueFromPayload } from '@ia-tools/github-tools'
+import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
+import { issueFromPayload } from '@ia-flow/github-tools'
 import { z } from 'zod'
 
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/

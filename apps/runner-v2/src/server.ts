@@ -13,7 +13,7 @@
  * fallo — queda en el log del runner.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { GithubWebhookVerifier } from '@ia-tools/github-webhook'
+import { GithubWebhookVerifier } from '@ia-flow/github-webhook'
 
 /** Un delivery ya verificado, tal cual lo mandó GitHub. */
 export interface Delivery {

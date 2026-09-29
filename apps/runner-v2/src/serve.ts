@@ -13,7 +13,7 @@
  * pipelines de entrada del proyecto (`resolve_task`).
  */
 import type { Server } from 'node:http'
-import { createEvent } from '@ia-tools/agent-engine'
+import { createEvent } from '@ia-flow/agent-engine'
 import type { MountedRunner } from './boot.js'
 import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
 

@@ -4,8 +4,8 @@
  * cabecera, y ese id viaja de vuelta acá. El modelo no busca nada — responde o resuelve el hilo
  * que leyó.
  */
-import { Action } from '@ia-tools/agent-engine'
-import type { GithubClient } from '@ia-tools/github-api'
+import { Action } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
 import { z } from 'zod'
 
 const THREAD_ID = /^PRRT_[A-Za-z0-9_-]+$/

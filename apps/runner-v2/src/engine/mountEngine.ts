@@ -16,7 +16,7 @@ import {
   type PipelineSource,
   renderText,
   type TextClassifier,
-} from '@ia-tools/agent-engine'
+} from '@ia-flow/agent-engine'
 import { z } from 'zod'
 
 export const EngineSection = z.strictObject({

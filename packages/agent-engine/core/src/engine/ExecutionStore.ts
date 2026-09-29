@@ -1,0 +1,215 @@
+import { createLogger } from '@ia-flow/telemetry'
+import type { DomainEvent } from '../events/DomainEvent.js'
+import type { IfPaused, IfQueued } from '../pipeline/Pipeline.js'
+import { Execution } from './Execution.js'
+import type { ExecutionRepository } from './ExecutionRepository.js'
+import { ExecutionScheduler } from './ExecutionScheduler.js'
+
+export interface StartExecution {
+  key: string
+  pipelineId: string
+  /** Si la task tiene una ejecución pausada cuando le toca: reemplazarla (default) o esperar a
+   *  que termine (`Pipeline.ifPaused`). */
+  ifPaused?: IfPaused
+  /** Si ya hay una corrida de esta misma pipeline ESPERANDO turno en la task: reemplazarla
+   *  (`replace`: la que esperaba no arranca, `start` le devuelve `undefined`) o encolarse detrás
+   *  (`keep`, el default del store; el de una `Pipeline` es `replace`). La que ya corre nunca se
+   *  reemplaza. */
+  ifQueued?: IfQueued
+}
+
+/** Una corrida esperando turno que se puede reemplazar: la marca la corrida que llega después. */
+interface QueuedTicket {
+  replaced: boolean
+}
+
+export interface ExecutionStoreOptions {
+  repository: ExecutionRepository
+  /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
+  maxConcurrent?: number
+}
+
+/** Lo que una ejecución interrumpida (el proceso murió mientras corría) había recibido sin leer. */
+export interface OrphanedEvents {
+  executionId: string
+  events: DomainEvent<any>[]
+}
+
+/**
+ * Dónde viven las ejecuciones: una por task (serie por `key`), un tope global en paralelo
+ * (`ExecutionScheduler`), y qué pasa con una pausa cuando a su task le toca otra corrida
+ * (`ifPaused`). Cada ejecución le anota sus cambios al `ExecutionRepository`; con uno persistente,
+ * al construirse recupera lo que quedó vivo: las pausadas vuelven a esperar, y las que corrían
+ * cuando el proceso murió se cierran `failed` (`interrupted`) y dejan lo que no leyeron en
+ * `takeOrphaned()` para que el engine lo re-despache.
+ */
+export class ExecutionStore {
+  readonly log = createLogger('agent-engine.execution')
+  private readonly repository: ExecutionRepository
+  private readonly scheduler: ExecutionScheduler
+  private readonly byKey = new Map<string, Execution>()
+  /** La última corrida `replace` esperando turno, por task y pipeline. */
+  private readonly queued = new Map<string, QueuedTicket>()
+  private orphaned: OrphanedEvents[] = []
+
+  constructor(options: ExecutionStoreOptions) {
+    const max = options.maxConcurrent ?? Number.POSITIVE_INFINITY
+    if (!(max >= 1)) {
+      throw new Error(`${this.constructor.name}: maxConcurrent tiene que ser ≥ 1 (llegó ${max})`)
+    }
+    this.repository = options.repository
+    this.scheduler = new ExecutionScheduler(max)
+    this.recover()
+  }
+
+  /** La de esta task, corriendo o pausada, si hay. */
+  current(key: string): Execution | undefined {
+    return this.byKey.get(key)
+  }
+
+  /** Si la task tiene una ejecución corriendo O esperando turno — una pausada no la ocupa. Se
+   *  marca en el mismo tick del `start`/`resume`, así que no hay ventana en la que una task
+   *  ocupada parezca libre. */
+  busy(key: string): boolean {
+    return this.scheduler.busy(key)
+  }
+
+  /**
+   * Abre una ejecución: espera a que termine la que esté corriendo para la misma task (una task
+   * nunca corre dos a la vez) y a que haya lugar bajo el tope global. Si la task tenía una
+   * pausada, la reemplaza (`superseded`) — o, con `ifPaused: 'wait'`, espera a que termine SIN
+   * ocupar la task ni un lugar, así la pausa puede despertar o vencer.
+   *
+   * Con `ifQueued: 'replace'`, una corrida de la misma pipeline que todavía esperaba turno en la
+   * task queda reemplazada por ésta: cuando le toca, cede el turno sin arrancar y su `start`
+   * devuelve `undefined`. Ésta toma el lugar del final de la cola — corre con el evento más nuevo.
+   */
+  start(props: StartExecution & { ifQueued: IfQueued }): Promise<Execution | undefined>
+  start(props: Omit<StartExecution, 'ifQueued'>): Promise<Execution>
+  async start({
+    key,
+    pipelineId,
+    ifPaused = 'supersede',
+    ifQueued = 'keep',
+  }: StartExecution): Promise<Execution | undefined> {
+    const queuedAt = Date.now()
+    const ticket = ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : undefined
+    for (;;) {
+      const { ready, release } = this.scheduler.enter(key)
+      await ready
+      if (ticket?.replaced) {
+        release()
+        this.log.info(`${pipelineId} en cola para ${key} quedó reemplazada por una más nueva`, {
+          'ia.pipeline.id': pipelineId,
+        })
+        return undefined
+      }
+      const previous = this.byKey.get(key)
+      if (previous?.status === 'paused' && ifPaused === 'wait') {
+        // Devuelve la task y el lugar mientras espera: reteniéndolos, la pausa no podría despertar
+        // ni vencer (`wake` y `tick` no tocan una task ocupada) y se esperarían entre sí.
+        release()
+        this.log.info(`${pipelineId} espera a que ${previous.id} termine su pausa`, {
+          'ia.execution.id': previous.id,
+          'ia.pipeline.id': pipelineId,
+        })
+        await previous.finished
+        continue
+      }
+      // Arranca: ya no está en cola, ninguna posterior la reemplaza.
+      if (ticket) this.dequeue(key, pipelineId, ticket)
+      // Primero cierra la pausa que reemplaza: una task tiene una sola ejecución viva.
+      if (previous?.status === 'paused') previous.close('superseded')
+      const execution = Execution.open({
+        id: this.repository.nextId(),
+        key,
+        pipelineId,
+        queuedAt,
+        journal: this.repository,
+      })
+      this.admit(execution, release)
+      return execution
+    }
+  }
+
+  /** Marca reemplazada la corrida de `pipelineId` que esperaba turno en `key`, y deja ésta. */
+  private enqueueReplacing(key: string, pipelineId: string): QueuedTicket {
+    const slot = queueSlot(key, pipelineId)
+    const previous = this.queued.get(slot)
+    if (previous) previous.replaced = true
+    const ticket: QueuedTicket = { replaced: false }
+    this.queued.set(slot, ticket)
+    return ticket
+  }
+
+  private dequeue(key: string, pipelineId: string, ticket: QueuedTicket): void {
+    const slot = queueSlot(key, pipelineId)
+    if (this.queued.get(slot) === ticket) this.queued.delete(slot)
+  }
+
+  /** Vuelve a admitir una ejecución que despertó (`Execution.wake`): espera su turno en la task
+   *  y lugar bajo el tope, igual que `start`. La parte que ocupa la task corre en el mismo tick. */
+  async resume(execution: Execution): Promise<void> {
+    const { ready, release } = this.scheduler.enter(execution.key)
+    await ready
+    this.admit(execution, release)
+  }
+
+  /** Las pausadas — para ver cuáles vencieron. */
+  paused(): Execution[] {
+    return [...this.byKey.values()].filter((execution) => execution.status === 'paused')
+  }
+
+  get stats(): { running: number; waiting: number; paused: number } {
+    return {
+      running: this.scheduler.running,
+      waiting: this.scheduler.waiting,
+      paused: this.paused().length,
+    }
+  }
+
+  /** Lo que las ejecuciones interrumpidas por un reinicio recibieron sin leer — y lo consume. */
+  takeOrphaned(): OrphanedEvents[] {
+    const orphaned = this.orphaned
+    this.orphaned = []
+    return orphaned
+  }
+
+  private recover(): void {
+    for (const record of this.repository.live()) {
+      if (record.status === 'paused') {
+        this.track(Execution.restore(record, this.repository))
+        continue
+      }
+      // Corría cuando el proceso murió: su agente murió con él.
+      const events = this.repository.unread(record.id)
+      this.repository.read(record.id)
+      this.repository.save({
+        ...record,
+        status: 'failed',
+        closedAt: new Date().toISOString(),
+        closeReason: 'interrupted',
+      })
+      if (events.length > 0) this.orphaned.push({ executionId: record.id, events })
+      this.log.warn(`${record.id} se interrumpió con el proceso: queda failed`, {
+        'ia.execution.id': record.id,
+      })
+    }
+  }
+
+  private admit(execution: Execution, release: () => void): void {
+    this.track(execution)
+    execution.admit(release)
+  }
+
+  private track(execution: Execution): void {
+    this.byKey.set(execution.key, execution)
+    void execution.finished.then(() => {
+      if (this.byKey.get(execution.key) === execution) this.byKey.delete(execution.key)
+    })
+  }
+}
+
+function queueSlot(key: string, pipelineId: string): string {
+  return JSON.stringify([key, pipelineId])
+}

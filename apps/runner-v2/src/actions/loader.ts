@@ -5,8 +5,8 @@
  * arranque.
  */
 import { pathToFileURL } from 'node:url'
-import type { Action } from '@ia-tools/agent-engine'
-import type { ActionProvider, ActionRequest, Catalogs } from '@ia-tools/agent-engine-definitions'
+import type { Action } from '@ia-flow/agent-engine'
+import type { ActionProvider, ActionRequest, Catalogs } from '@ia-flow/agent-engine-definitions'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 import type {
   ActionDefinition,

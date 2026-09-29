@@ -1,0 +1,24 @@
+{
+  "name": "@ia-flow/fs-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tool[] de agent-engine para leer/listar/buscar/escribir/editar archivos, contenidas a un baseDir (worktree) — réplica acotada de fs_read/fs_list/fs_grep/fs_write/fs_edit de ai-development-flow",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

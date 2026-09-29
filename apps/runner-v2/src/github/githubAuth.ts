@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash, createPublicKey } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { GithubAppAuth, type GithubAuth, GithubTokenAuth } from '@ia-tools/github-auth'
+import { GithubAppAuth, type GithubAuth, GithubTokenAuth } from '@ia-flow/github-auth'
 
 export interface ResolvedGithubAuth {
   auth: GithubAuth

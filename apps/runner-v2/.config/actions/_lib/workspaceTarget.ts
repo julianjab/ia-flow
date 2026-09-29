@@ -1,10 +1,10 @@
 /**
  * Qué checkout necesita una corrida de ESTE runner — la única pieza del workspace que es de la
  * app: cómo su evento se traduce a un `WorkspaceTarget`. El ciclo de vida (clone, worktree,
- * locks, limpieza) es `@ia-tools/workspace`.
+ * locks, limpieza) es `@ia-flow/workspace`.
  */
-import type { PipelineExecutionContext } from '@ia-tools/agent-engine'
-import type { WorkspaceTarget } from '@ia-tools/workspace'
+import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { WorkspaceTarget } from '@ia-flow/workspace'
 
 /**
  * La task del payload (`task.id`, número, título → worktree `task-<n>`), su repo, y la branch:

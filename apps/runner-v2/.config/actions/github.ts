@@ -1,12 +1,11 @@
 /**
  * Las actions de GitHub sobre el board del proyecto que las pide: las transiciones (`update_issue`,
- * `post_comment` de `@ia-tools/github-tools`) y las tools que un agente pide por id en su YAML —
- * las de `@ia-tools/github-tools` y las de `_lib/github/tools/`, todas `Action` (el mismo objeto
+ * `post_comment` de `@ia-flow/github-tools`) y las tools que un agente pide por id en su YAML —
+ * las de `@ia-flow/github-tools` y las de `_lib/github/tools/`, todas `Action` (el mismo objeto
  * sirve de paso de pipeline y de tool del modelo).
  */
 
-import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
-import type { Action } from '@ia-tools/agent-engine'
+import type { Action } from '@ia-flow/agent-engine'
 import {
   EnsurePullRequestAction,
   LinkBranchAction,
@@ -14,7 +13,8 @@ import {
   PostCommentAction,
   UpdateIssueAction,
   UpdateIssueBodyAction,
-} from '@ia-tools/github-tools'
+} from '@ia-flow/github-tools'
+import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
 import {
   AddSubIssueAction,
   AddToProjectAction,

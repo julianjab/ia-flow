@@ -3,7 +3,7 @@ import {
   type DomainEvent,
   deriveEvent,
   type PipelineExecutionContext,
-} from '@ia-tools/agent-engine'
+} from '@ia-flow/agent-engine'
 import { z } from 'zod'
 import type { BoardRef, GithubTaskReader } from './GithubTaskReader.js'
 import { type EventFields, locate, mergedBlocker } from './locate.js'

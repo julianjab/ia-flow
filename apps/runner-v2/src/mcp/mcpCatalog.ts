@@ -3,8 +3,8 @@
  * `runner.yaml` con sus `${VAR}` resueltos y probado. `${GITHUB_TOKEN}` es SIEMPRE el installation
  * token de la App (nunca del env); el resto sale de `process.env`.
  */
-import type { McpServerRef } from '@ia-tools/agent-engine'
-import type { GithubAuth } from '@ia-tools/github-auth'
+import type { McpServerRef } from '@ia-flow/agent-engine'
+import type { GithubAuth } from '@ia-flow/github-auth'
 import type { McpEntry } from '../config/RunnerConfig.js'
 
 async function interpolate(value: string, resolveSecret: (name: string) => Promise<string>) {

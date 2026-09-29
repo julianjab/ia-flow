@@ -12,10 +12,10 @@
  * decisión explícita de darle todo.
  */
 
+import type { Action } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
+import { CheckSectionItemsAction, IssueSectionAction } from '@ia-flow/github-tools'
 import { defineAction } from '@ia-flow/runner-v2/actions'
-import type { Action } from '@ia-tools/agent-engine'
-import type { GithubClient } from '@ia-tools/github-api'
-import { CheckSectionItemsAction, IssueSectionAction } from '@ia-tools/github-tools'
 import { z } from 'zod'
 import { ISSUE_BODY_SECTIONS } from './_lib/prd.js'
 

@@ -2,7 +2,7 @@
  * El PR sobre el que escribe o lee una tool: SIEMPRE el del evento (`pr.*` del intake), nunca uno
  * que elija el modelo.
  */
-import type { PipelineExecutionContext } from '@ia-tools/agent-engine'
+import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
 
 export interface PrRef {
   owner: string

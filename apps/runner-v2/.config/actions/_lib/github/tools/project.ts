@@ -4,7 +4,7 @@
  * ESE catálogo — un agente sólo crea o enlaza issues en repos que el proyecto declara, nunca en
  * uno que se le ocurra.
  */
-import type { GithubClient } from '@ia-tools/github-api'
+import type { GithubClient } from '@ia-flow/github-api'
 
 export interface GithubProjectContext {
   client: GithubClient

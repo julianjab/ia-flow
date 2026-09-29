@@ -1,0 +1,23 @@
+{
+  "name": "@ia-flow/github-api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cliente delgado y autenticado de la REST API de GitHub — toma cualquier GithubAuth de @ia-flow/github-auth",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/github-auth": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

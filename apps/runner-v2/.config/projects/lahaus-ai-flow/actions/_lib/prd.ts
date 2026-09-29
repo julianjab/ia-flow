@@ -8,7 +8,7 @@
  * Los checklists que otro agente tilda van en su propio sub-bloque (`prd.zona_de_impacto`,
  * `prd.criterios_aceptacion`): es lo que `check_*` puede tocar, y nada más.
  */
-import { type IssueSectionDefinition, wrapSection } from '@ia-tools/github-tools'
+import { type IssueSectionDefinition, wrapSection } from '@ia-flow/github-tools'
 import { z } from 'zod'
 
 const MERMAID_CLASSES = `  classDef creado fill:#c6f6d5,stroke:#2f855a,stroke-width:2px,color:#1a202c

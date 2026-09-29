@@ -1,5 +1,5 @@
-import { Action, type PipelineExecutionContext } from '@ia-tools/agent-engine'
-import type { GithubClient } from '@ia-tools/github-api'
+import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
 import { z } from 'zod'
 import { prFrom } from './pr-ref.js'
 

@@ -4,7 +4,7 @@
  * (issue, blockers, timeline del issue y de su PR, CI). Sólo lecturas: devuelve lo que GitHub
  * contestó, y `task.ts` le da forma.
  */
-import type { GithubClient } from '@ia-tools/github-api'
+import type { GithubClient } from '@ia-flow/github-api'
 import { openPr, type RawItem, type RawPr } from './task.js'
 import type { RawComment, RawReview, RawThread } from './timeline.js'
 

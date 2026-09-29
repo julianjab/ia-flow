@@ -20,7 +20,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { expandPath, type YamlSourceSpec } from '@ia-tools/agent-engine-datasource-yaml'
+import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'

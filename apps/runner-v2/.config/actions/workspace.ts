@@ -4,14 +4,14 @@
  * githubAuth, timeout, maxTimeout.
  */
 
+import type { Action } from '@ia-flow/agent-engine'
 import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
-import type { Action } from '@ia-tools/agent-engine'
 import {
   WORKSPACE_TOOLS,
   type WorkspaceManager,
   WorkspaceSession,
   workspaceAction,
-} from '@ia-tools/workspace'
+} from '@ia-flow/workspace'
 import { z } from 'zod'
 import { workspaceTargetFor } from './_lib/workspaceTarget.js'
 

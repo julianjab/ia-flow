@@ -4,7 +4,7 @@
  * publica `resolve_task`). Se pone sobre las definiciones, antes de armarlas: el datasource no
  * sabe de proyectos, y el engine sólo filtra por `scope`.
  */
-import type { DefinitionSource } from '@ia-tools/agent-engine-definitions'
+import type { DefinitionSource } from '@ia-flow/agent-engine-definitions'
 
 export function withScope(
   datasource: DefinitionSource,

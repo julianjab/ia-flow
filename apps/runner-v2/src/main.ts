@@ -1,5 +1,5 @@
 /**
- * runner-v2 — el runner headless de ia-flow sobre `@ia-tools/agent-engine`. Lee `.config/`
+ * runner-v2 — el runner headless de ia-flow sobre `@ia-flow/agent-engine`. Lee `.config/`
  * (runner.yaml, las actions y las fuentes de cada scope), registra las actions, monta el engine y
  * levanta el servidor: no arma ni traduce eventos. Las ejecuciones viven en SQLite, así que una
  * pausa (esperar el CI) sobrevive a un reinicio.
@@ -18,9 +18,9 @@
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { providerRegistry } from '@ia-tools/agent-engine'
-import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'
-import { createLogger } from '@ia-tools/telemetry'
+import { providerRegistry } from '@ia-flow/agent-engine'
+import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic'
+import { createLogger } from '@ia-flow/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'

@@ -18,7 +18,7 @@ import {
   parseGithubProjectItemPayload,
   parseGithubPullRequestPayload,
   parseGithubPullRequestReviewPayload,
-} from '@ia-tools/github-webhook'
+} from '@ia-flow/github-webhook'
 import { linkedIssue } from './task.js'
 
 type Raw = Record<string, unknown>
