@@ -227,7 +227,7 @@ export function stepsFor(pipeline: Pipeline, event: DomainEvent): string[] {
 
 /** Las pipelines de la fuente global (`.config/pipelines/`): el intake. */
 export function globalPipelines(mounted: MountedRunner): Pipeline[] {
-  return mounted.sources.find((entry) => entry.id === GLOBAL_SOURCE)?.yaml.list() ?? []
+  return mounted.sources.find((entry) => entry.id === GLOBAL_SOURCE)?.source.list() ?? []
 }
 
 /**

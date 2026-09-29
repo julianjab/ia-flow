@@ -97,7 +97,7 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
     const ids = (id: string) =>
       mounted.sources
         .find((entry) => entry.id === id)
-        ?.yaml.list()
+        ?.source.list()
         .map((p) => p.id) ?? []
     expect(ids('runner')).toEqual(['intake', 'intake-unblock'])
     expect(ids('lahaus-ai-flow').some((id) => id.startsWith('intake'))).toBe(false)

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventFilter, Pause } from '@ia-tools/agent-engine'
 import { executionStoreContract } from '@ia-tools/agent-engine/testing'
-import type { SqliteExecutionStore } from '@ia-tools/agent-engine-sqlite'
+import type { SqliteExecutionStore } from '@ia-tools/agent-engine-datasource-sqlite'
 import { bunSqliteStoreDriver } from '../storage/bunSqliteStoreDriver.js'
 
 executionStoreContract('bun-sqlite', (options) =>
