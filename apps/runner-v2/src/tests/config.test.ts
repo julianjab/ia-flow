@@ -116,9 +116,15 @@ describe('lo que el engine hace por el implementer', () => {
     expect(routes.onError?.origin).toBe('project')
     expect(routes.report?.target.id).toBe('post_comment')
   })
+
+  it('an interrupted agent comments why it stopped: the project onInterrupt', () => {
+    const routes = mounted.routesOf(pipeline('build-arrival') as never, 'implementer')
+    expect(routes.onInterrupt?.origin).toBe('project')
+    expect(routes.onInterrupt?.route.to).toMatchObject([{ action: { id: 'post_notice' } }])
+  })
 })
 
-describe('injects y ifRunning', () => {
+describe('injects, ifRunning e ifQueued', () => {
   it('the working agents accept human comments and change requests', () => {
     const implementer = agentOf('build-arrival', 'implementer')
 
@@ -135,8 +141,31 @@ describe('injects y ifRunning', () => {
     expect(implementer?.accepts(own)).toBe(false)
     expect(implementer?.accepts(changes)).toBe(true)
 
-    for (const p of mounted.pipelines()) expect(['wait', 'skip']).toContain(p.ifRunning)
     expect(mounted.executions?.stats).toEqual({ running: 0, waiting: 0, paused: 0 })
+  })
+
+  it('a status change cuts the agent of another column; an edit of the card only waits', () => {
+    const interrupting = ['refine', 'build-arrival', 'build-reentry']
+    const statusChanged = createEvent('issue.status_changed', { from: 'Build', to: 'Refine' })
+    const edited = createEvent('projects_v2_item.edited', { fieldName: 'Task Type' })
+    for (const id of interrupting) {
+      expect(pipeline(id)?.ifRunning).toBe('interrupt')
+      expect(pipeline(id)?.interrupts(statusChanged)).toBe(true)
+    }
+    // Las que escuchan más que un cambio de status sólo interrumpen con él.
+    for (const id of ['refine', 'build-reentry']) {
+      expect(pipeline(id)?.interrupts(edited)).toBe(false)
+    }
+    expect(pipeline('build-arrival')?.on).toEqual(['issue.status_changed'])
+    for (const p of mounted.pipelines()) {
+      if (!interrupting.includes(p.id)) expect(p.ifRunning).toBe('wait')
+    }
+  })
+
+  it('every comment counts: the comment rule keeps its queue, the rest replace theirs', () => {
+    for (const p of mounted.pipelines()) {
+      expect(p.ifQueued).toBe(p.id === 'comment' ? 'keep' : 'replace')
+    }
   })
 })
 

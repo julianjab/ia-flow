@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { createEvent } from '@ia-tools/agent-engine'
-import { messageTemplate, mountEngine } from '../engine/mountEngine.js'
+import { interruptReason, messageTemplate, mountEngine, ownSender } from '../engine/mountEngine.js'
 
 describe('mountEngine', () => {
   it('builds the engine from runner.yaml engine: — store by driver name, depth', () => {
@@ -31,5 +31,29 @@ describe('messageTemplate', () => {
     )
     expect(format(createEvent('x', { n: 1 }))).toBe('Evento x: {"n":1}')
     expect(messageTemplate(undefined)).toBeUndefined()
+  })
+})
+
+describe('interrupt', () => {
+  const pipeline = { id: 'build-reentry' } as never
+
+  it('reason renders against the payload; with nothing to say, the engine default', () => {
+    const reason = interruptReason('la card pasó de {{from}} a {{to}}') as NonNullable<
+      ReturnType<typeof interruptReason>
+    >
+    expect(
+      reason(createEvent('issue.status_changed', { from: 'Build', to: 'Refine' }), pipeline),
+    ).toBe('la card pasó de Build a Refine')
+    const empty = interruptReason('{{nope}}') as NonNullable<ReturnType<typeof interruptReason>>
+    expect(empty(createEvent('x', {}), pipeline)).toBe('llegó "x" y va a correr "build-reentry"')
+    expect(interruptReason(undefined)).toBeUndefined()
+  })
+
+  it("ownSenders: only an event sent by a matching login is the runner's own echo", () => {
+    const own = ownSender('\\[bot\\]$') as NonNullable<ReturnType<typeof ownSender>>
+    expect(own(createEvent('issue.status_changed', { sender: 'ia-flow-local[bot]' }))).toBe(true)
+    expect(own(createEvent('issue.status_changed', { sender: 'julian' }))).toBe(false)
+    expect(own(createEvent('issue.status_changed', {}))).toBe(false)
+    expect(ownSender(undefined)).toBeUndefined()
   })
 })

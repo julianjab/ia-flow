@@ -66,6 +66,18 @@ describe('intake: projects_v2_item', () => {
     ).toContain('(la-haus/subscriptions)')
   })
 
+  it("says who moved the card (sender): the echo of the runner's own change does not interrupt", async () => {
+    const { emitted } = await (await intake()).run('projects_v2_item', {
+      ...itemPayload('edited', {
+        field_name: 'Status',
+        from: { name: 'Build' },
+        to: { name: 'Refine' },
+      }),
+      sender: { login: 'julian' },
+    })
+    expect(emitted[0]?.payload).toMatchObject({ from: 'Build', to: 'Refine', sender: 'julian' })
+  })
+
   it('without from/to, to is the status the card has now', async () => {
     const { emitted } = await (await intake()).run(
       'projects_v2_item',
