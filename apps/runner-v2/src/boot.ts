@@ -25,11 +25,7 @@ import {
   providerRegistry,
   type ResolvedRoutes,
 } from '@ia-tools/agent-pipeline'
-import {
-  createEngineFromYaml,
-  type ExecutionStoreDriver,
-  type HttpConnection,
-} from '@ia-tools/agent-pipeline-yaml'
+import { createEngineFromYaml, type ExecutionStoreDriver } from '@ia-tools/agent-pipeline-yaml'
 import { GithubClient } from '@ia-tools/github-api'
 import type { GithubAuth } from '@ia-tools/github-auth'
 import { parseAnthropicAgentConfig } from '@ia-tools/provider-anthropic'
@@ -43,6 +39,8 @@ import { type BoardActions, buildBoardActions, simulatedWritesFetch } from './ac
 import { buildCatalogs } from './catalog/buildCatalogs.js'
 import type { ProjectSettings, RepoDef, RunnerConfig } from './config/RunnerConfig.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
+import { GithubTaskReader } from './intake/GithubTaskReader.js'
+import { ResolveTaskAction } from './intake/ResolveTaskAction.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { formatEventMessage } from './messages.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
@@ -58,7 +56,7 @@ export interface MountOptions {
   live: boolean
   workspaceDir?: string
   log: (line: string) => void
-  /** Lo que responde la API de GitHub al intake, en vez de GitHub (tests). */
+  /** Lo que responde la API de GitHub en vez de GitHub, con un token de prueba (tests). */
   githubFetch?: typeof fetch
 }
 
@@ -96,40 +94,23 @@ function workspaceLogger(log: (line: string) => void): WorkspaceLogger {
   return { info: line('info'), debug: () => {}, warn: line('warn'), error: line('error') }
 }
 
-/** Las `vars` de un proyecto para el YAML: su board, su prefijo de rama y su catálogo de repos. */
-function projectVars(projects: RunnerProject[]) {
-  return (projectId: string): Record<string, unknown> => {
-    const project = projects.find((candidate) => candidate.id === projectId)
-    if (!project) return {}
-    return {
-      projectId: project.id,
+/** El `resolve_task` de un proyecto: su board, su prefijo de rama y su catálogo de repos. */
+function resolveTask(project: RunnerProject, reader: GithubTaskReader): ResolveTaskAction {
+  return new ResolveTaskAction(
+    {
+      id: project.id,
       board: project.board,
       branchPrefix: project.branchPrefix,
-      // `owner/repo` de cada repo del catálogo: lo que el intake acepta.
       repos: project.repos.map((repo) => `${repo.githubOwner}/${repo.githubRepo}`),
-      // `{{project.repos}}` de los prompts: el catálogo en texto.
       reposText: project.repos
         .map(
           (repo) =>
             `- ${repo.name} (${repo.githubOwner}/${repo.githubRepo}): ${repo.description ?? ''}`,
         )
         .join('\n'),
-    }
-  }
-}
-
-/** La API de GitHub para los pasos `http` del intake: el `GithubClient` del runner (su identidad,
- *  sus headers y su chequeo de host), o lo que diga `githubFetch` en un test. */
-function githubConnection(client: GithubClient, opts: MountOptions): HttpConnection {
-  const api = 'https://api.github.com'
-  if (opts.githubFetch) return { baseUrl: api, fetch: opts.githubFetch }
-  return {
-    baseUrl: api,
-    fetch: ((input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(String(input))
-      return client.request(`${url.pathname}${url.search}`, init)
-    }) as typeof fetch,
-  }
+    },
+    reader,
+  )
 }
 
 /** El `providerConfig` de cada agente de `anthropic-api` tiene la forma de la config del
@@ -164,10 +145,12 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     auth = resolved.auth
     githubAuthMode = resolved.mode
   }
-  const client = new GithubClient({
-    auth,
-    fetchImpl: opts.live || opts.dryRun ? undefined : simulatedWritesFetch(opts.log),
-  })
+  const client = opts.githubFetch
+    ? new GithubClient({ auth: { getToken: async () => 'test' }, fetchImpl: opts.githubFetch })
+    : new GithubClient({
+        auth,
+        fetchImpl: opts.live || opts.dryRun ? undefined : simulatedWritesFetch(opts.log),
+      })
   const mcpServers: Record<string, McpServerRef> = opts.dryRun
     ? {}
     : await resolveMcpCatalog(cfg.mcp, auth, warnings)
@@ -203,8 +186,9 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // Sólo con `--live`: sin él las escrituras a GitHub se simulan, y publicar una branch también.
     gitCredential: opts.live && !opts.dryRun ? () => auth.getToken() : undefined,
     missingTools,
-    github: githubConnection(client, opts),
-    projectVars: projectVars(projects),
+    intake: new Map(
+      projects.map((project) => [project.id, resolveTask(project, new GithubTaskReader(client))]),
+    ),
   })
 
   const mounted = createEngineFromYaml(cfg.enginePath, {

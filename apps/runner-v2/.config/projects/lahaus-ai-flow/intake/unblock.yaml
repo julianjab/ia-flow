@@ -1,0 +1,11 @@
+# unblock-dependents: un PR mergeado destraba las tasks que su issue bloqueaba
+# (`mark_blocked_by`). Cada una que quedó sin otro blocker abierto recibe `issue.unblocked`, y
+# la pipeline de reentrada de su columna la retoma.
+id: intake-unblock
+on: [ github.pull_request ]
+when:
+  - { field: action, op: eq, value: closed }
+  - { field: pull_request.merged, op: eq, value: true }
+do:
+  - action: resolve_task
+    with: { unblockDependents: true }

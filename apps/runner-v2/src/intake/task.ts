@@ -1,15 +1,12 @@
 /**
- * Las funciones que el intake de `.config/` nombra (`{ function: <nombre>, with: {...} }`). Son
- * PURAS: no leen GitHub (eso lo hacen los pasos `http` del YAML), sólo eligen y dan forma a lo que
- * leyeron. Ninguna sabe de un webhook en particular.
+ * Lo que `resolve_task` hace con lo que leyó de GitHub — puro, sin I/O:
  *
- *   linked_issue   el issue que implementa un PR: su rama `<prefijo><n>` o un `Closes #n`
- *   board_item     la card de un board entre los items de un issue (status y tipo)
- *   issue_refs     los issues abiertos de una lista de GitHub, de los repos del proyecto
- *   open_pr        el PR abierto de la task: el del evento, o el de su rama
- *   task_payload   el evento de la task, con la forma que filtran las pipelines y leen los prompts
+ *   linkedIssue   el issue que implementa un PR: su rama `<prefijo><n>` o un `Closes #n`
+ *   boardItem     la card de un board entre los items de un issue (status y tipo)
+ *   issueRefs     los issues abiertos de una lista de GitHub, de los repos del proyecto
+ *   openPr        el PR abierto de la task: el del evento, o el de su rama
+ *   taskPayload   el evento de la task, con la forma que filtran las pipelines y leen los prompts
  */
-import type { FunctionActionProps } from '@ia-tools/agent-pipeline'
 import { assemblePayload, type EventArgs } from '../event.js'
 import {
   type RawComment,
@@ -19,16 +16,10 @@ import {
   taskTimeline,
 } from './timeline.js'
 
-type Fn = FunctionActionProps['fn']
 type Input = Record<string, unknown>
 
 const same = (a: unknown, b: unknown) =>
   typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
-
-const num = (value: unknown): number | undefined => {
-  const n = typeof value === 'string' && value !== '' ? Number(value) : value
-  return typeof n === 'number' && Number.isInteger(n) ? n : undefined
-}
 
 /** El issue de un PR: la rama `<prefix><n>` que abre el implementer, o una referencia de cierre
  *  (`Closes #n`) en el body; si no, `fallback`. */
@@ -46,7 +37,7 @@ export function linkedIssue(
 }
 
 /** Un `ProjectV2Item` por GraphQL: su board y los valores de sus campos single-select. */
-interface RawItem {
+export interface RawItem {
   id: string
   project?: { number: number; owner?: { login?: string } }
   fieldValues?: { nodes?: Array<{ name?: string; field?: { name?: string } } | null> }
@@ -78,7 +69,7 @@ export function boardItem(
 }
 
 /** Un issue como lo devuelve `dependencies/blocking`: su repo sale de `repository_url`. */
-interface RawIssueRef {
+export interface RawIssueRef {
   number: number
   state: string
   repository_url: string
@@ -93,7 +84,7 @@ export function issueRefs(issues: RawIssueRef[] | undefined, repos: string[]) {
   })
 }
 
-interface RawPr {
+export interface RawPr {
   number: number
   html_url: string
   state: string
@@ -200,33 +191,4 @@ export function taskPayload(input: TaskInput) {
     // `repo`/`issue` además del proyecto: la telemetría los hereda a todo lo que corre debajo.
     scope: { projectId: input.projectId, repo: `${input.owner}/${input.repo}`, issue: task },
   }
-}
-
-/** Lo que `with` le pasa a cada una, validado lo justo: los datos son de GitHub. */
-export const intakeFunctions: Record<string, Fn> = {
-  linked_issue: (_ctx, input = {}) =>
-    linkedIssue(
-      input.head as string | undefined,
-      input.body as string | undefined,
-      String(input.prefix),
-    ) ?? num(input.fallback),
-  board_item: (_ctx, input = {}) =>
-    boardItem(
-      input.items as RawItem[] | undefined,
-      input.board as { owner: string; number: number },
-    ),
-  issue_refs: (_ctx, input = {}) =>
-    issueRefs(input.issues as RawIssueRef[] | undefined, (input.repos as string[]) ?? []),
-  open_pr: (_ctx, input = {}) =>
-    openPr(input.byNumber as RawPr | undefined, input.byBranch as RawPr[] | undefined),
-  task_payload: (_ctx, input = {}) => {
-    const number = num(input.number)
-    if (number === undefined) throw new Error(`task_payload: number inválido (${input.number})`)
-    const pr = num(input.pr)
-    return taskPayload({
-      ...(input as unknown as TaskInput),
-      number,
-      ...(pr !== undefined ? { pr } : { pr: undefined }),
-    })
-  },
 }
