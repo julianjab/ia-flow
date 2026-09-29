@@ -108,7 +108,7 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
     ).not.toContain('build-arrival')
   })
 
-  it('never touches a card without `blocked` — the project when filters it before any rule', async () => {
+  it('never touches a card without `blocked` — the runner label filters it before any rule', async () => {
     expect(
       await rulesFor('projects_v2_item', statusChange('Refined', 'Build'), {
         status: 'Build',

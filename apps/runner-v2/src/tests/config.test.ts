@@ -57,7 +57,7 @@ describe('runner.yaml', () => {
 })
 
 describe('la cascada when', () => {
-  it('the project when (only blocked cards) is not repeated in each pipeline', () => {
+  it('the ownership label (only blocked cards) is not repeated in each pipeline — resolve_task filters it', () => {
     for (const p of mounted.pipelines()) {
       const repeated = p.trigger.when.some(
         (c) => c.field === 'item.labels' && c.op === 'contains' && c.value === 'blocked',
