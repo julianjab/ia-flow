@@ -53,7 +53,6 @@ on: [a]
 whenText:
   text: yes, pide un cambio
   systemPrompts: [criterio-pr, del-catalogo, { text: Inline. }]
-  model: claude-sonnet-4-6
 do:
   - { function: ran }
 `,
@@ -76,7 +75,6 @@ do:
         'Del catálogo.',
         'Inline.',
       ],
-      model: 'claude-sonnet-4-6',
     })
     expect(asked).toContainEqual({ text: 'no aplica' })
   })

@@ -1,7 +1,13 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-flow/agent-engine'
+import {
+  Capabilities,
+  createEvent,
+  EventBus,
+  FunctionAction,
+  type PipelineExecutionContext,
+} from '@ia-flow/agent-engine'
 import { describe, expect, it, vi } from 'vitest'
 import {
   CleanupWorkspaceAction,
@@ -13,6 +19,7 @@ import type { WorkspaceManager } from '../WorkspaceManager.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'ws-actions-'))
 writeFileSync(join(dir, 'a.txt'), 'hola\n')
+writeFileSync(join(dir, 'big.txt'), 'x'.repeat(20_000))
 
 const target: WorkspaceTarget = {
   task: { id: 'o/r#7', issueNumber: 7 },
@@ -73,6 +80,31 @@ describe('workspaceAction', () => {
     const read = workspaceAction('fs_read', s)
     expect(read).toMatchObject({ id: 'fs_read', sideEffects: 'none' })
     expect(await read.run(run(), { path: 'a.txt' })).toContain('hola')
+  })
+
+  it('fs_read focuses a big file with the fileFocus capability of the run', async () => {
+    const { session: s } = session()
+    const read = workspaceAction('fs_read', s)
+    const seen: unknown[] = []
+    const capabilities = new Capabilities(
+      {
+        fileFocus: new FunctionAction({
+          fn: (ctx) => {
+            seen.push(ctx.event.payload)
+            return { text: '## lines 1-1\nxxx' }
+          },
+        }),
+      },
+      new EventBus(),
+    )
+
+    const result = await read.asTool({ ...run(), capabilities }).handler({
+      path: 'big.txt',
+      focus: 'el principio',
+    })
+
+    expect(result).toMatch(/## lines 1-1\nxxx$/)
+    expect(seen).toMatchObject([{ path: 'big.txt', focus: 'el principio' }])
   })
 
   it('bash_run writes, and enforces the policy it was given', async () => {

@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { Capabilities } from '../../capability/Capabilities.js'
 import { Engine } from '../../engine/Engine.js'
 import { StaticPipelineSource } from '../../engine/PipelineSource.js'
 import { createEvent } from '../../events/DomainEvent.js'
 import { EventBus } from '../../events/EventBus.js'
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js'
 import { Pipeline } from '../../pipeline/Pipeline.js'
-import { AnthropicTextClassifier } from '../AnthropicTextClassifier.js'
+import { CapabilityTextClassifier } from '../CapabilityTextClassifier.js'
 import { Condition } from '../Condition.js'
 import type { TextClassifier, TextVerdict } from '../TextClassifier.js'
 
@@ -159,7 +160,7 @@ describe('whenText', () => {
     expect(calls).toBe(3)
   })
 
-  it('without a classifier, a whenText never lets through', async () => {
+  it('without anyone fulfilling the whenText capability, a whenText never lets through', async () => {
     const ran: string[] = []
     const engine = new Engine({
       bus: new EventBus(),
@@ -176,81 +177,90 @@ describe('whenText', () => {
   })
 })
 
-describe('AnthropicTextClassifier', () => {
-  const answer = (input: unknown, status = 200) =>
-    new Response(
-      JSON.stringify(
-        status === 200
-          ? { content: [{ type: 'tool_use', name: 'verdict', input }] }
-          : { error: { message: 'overloaded' } },
-      ),
-      {
-        status,
-        headers: { 'content-type': 'application/json' },
-      },
-    )
+describe('CapabilityTextClassifier', () => {
+  const bus = new EventBus()
+  const classifierWith = (fn: FunctionAction['fn']) =>
+    new CapabilityTextClassifier(new Capabilities({ whenText: new FunctionAction({ fn }) }, bus))
 
-  it('asks Haiku with the verdict tool forced, the criterion and the event, and the extra system prompts', async () => {
-    const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
-      answer({ matches: true, reason: 'pide paginar' }),
-    )
-    const classifier = new AnthropicTextClassifier({ apiKey: 'k', fetch })
+  it('asks the whenText capability with the criterion, the event as JSON and the instructions', async () => {
+    const seen: unknown[] = []
+    const classifier = classifierWith((ctx) => {
+      seen.push(ctx.event.payload)
+      return { matches: true, reason: 'pide paginar' }
+    })
 
     const verdict = await classifier.classify({
-      whenText: { text: 'El comentario pide un cambio', systemPrompts: ['Sos estricto.'] },
+      whenText: {
+        text: 'El comentario pide un cambio',
+        systemPrompts: ['Sos estricto.', 'Y breve.'],
+      },
       subject: { body: 'falta paginar' },
     })
 
     expect(verdict).toEqual({ matches: true, reason: 'pide paginar' })
-    const [url, init] = fetch.mock.calls[0] ?? []
-    expect(url).toBe('https://api.anthropic.com/v1/messages')
-    expect(init?.headers).toMatchObject({ 'x-api-key': 'k', 'anthropic-version': '2023-06-01' })
-    const body = JSON.parse(String(init?.body))
-    expect(body.model).toBe('claude-haiku-4-5')
-    expect(body.tool_choice).toEqual({ type: 'tool', name: 'verdict' })
-    expect(body.system).toMatch(/Sos un clasificador[\s\S]*\n\nSos estricto\.$/)
-    expect(body.messages[0].content).toContain('El comentario pide un cambio')
-    expect(body.messages[0].content).toContain('"body": "falta paginar"')
+    expect(seen).toEqual([
+      {
+        criterion: 'El comentario pide un cambio',
+        event: JSON.stringify({ body: 'falta paginar' }, null, 2),
+        instructions: 'Sos estricto.\n\nY breve.',
+      },
+    ])
   })
 
-  it('a whenText model wins over the default one', async () => {
-    const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
-      answer({ matches: false, reason: '' }),
-    )
-    await new AnthropicTextClassifier({ apiKey: 'k', fetch, model: 'm1' }).classify({
-      whenText: { text: 'x', model: 'm2' },
-      subject: {},
+  it('cuts a long event', async () => {
+    let event = ''
+    const classifier = classifierWith((ctx) => {
+      event = String((ctx.event.payload as { event: string }).event)
+      return { matches: false, reason: '' }
     })
-    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)).model).toBe('m2')
+    await classifier.classify({ whenText: { text: 'x' }, subject: { body: 'a'.repeat(20_000) } })
+    expect(event.length).toBeLessThan(13_000)
+    expect(event).toMatch(/…\(recortado\)$/)
   })
 
-  it('without a key, an error or a verdict, it cannot decide', async () => {
+  it('without anyone, with an error or with an answer off-contract, it cannot decide', async () => {
     const whenText = { text: 'x' }
     expect(
-      await new AnthropicTextClassifier({ apiKey: () => undefined }).classify({
+      await new CapabilityTextClassifier(new Capabilities({}, bus)).classify({
         whenText,
         subject: {},
       }),
-    ).toMatchObject({ matches: null })
+    ).toEqual({ matches: null, reason: 'nadie cumple la capacidad whenText' })
     expect(
-      await new AnthropicTextClassifier({
-        apiKey: 'k',
-        fetch: async () => answer({}, 529),
-      }).classify({ whenText, subject: {} }),
-    ).toEqual({ matches: null, reason: 'Anthropic 529: overloaded' })
-    expect(
-      await new AnthropicTextClassifier({
-        apiKey: 'k',
-        fetch: async () => answer({ reason: 'dudo' }),
-      }).classify({ whenText, subject: {} }),
-    ).toEqual({ matches: null, reason: 'el modelo no devolvió un veredicto' })
-    expect(
-      await new AnthropicTextClassifier({
-        apiKey: 'k',
-        fetch: async () => {
-          throw new Error('ECONNRESET')
-        },
+      await classifierWith(() => {
+        throw new Error('ECONNRESET')
       }).classify({ whenText, subject: {} }),
     ).toEqual({ matches: null, reason: 'el clasificador falló: ECONNRESET' })
+    expect(
+      await classifierWith(() => ({ reason: 'dudo' })).classify({ whenText, subject: {} }),
+    ).toMatchObject({ matches: null, reason: expect.stringContaining('no cumple el contrato') })
+  })
+})
+
+describe('whenText through Engine.capabilities', () => {
+  it('the engine asks the Runnable bound to whenText', async () => {
+    const ran: string[] = []
+    const engine = new Engine({
+      bus: new EventBus(),
+      capabilities: {
+        whenText: new FunctionAction({
+          fn: (ctx) => ({
+            matches: (ctx.event.payload as { criterion: string }).criterion === 'yes',
+            reason: '',
+          }),
+        }),
+      },
+      pipelines: source({
+        id: 'p',
+        pipelines: ['yes', 'no'].map(
+          (text) =>
+            new Pipeline({ id: text, on: ['a'], whenText: { text }, do: [step(text, ran)] }),
+        ),
+      }),
+    })
+
+    await engine.dispatch(createEvent('a', {}))
+
+    expect(ran).toEqual(['yes'])
   })
 })

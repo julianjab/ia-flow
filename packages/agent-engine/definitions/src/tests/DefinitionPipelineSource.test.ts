@@ -1,4 +1,4 @@
-import { createEvent, Engine, EventBus } from '@ia-flow/agent-engine'
+import { createEvent, Engine, EventBus, ProviderRegistry } from '@ia-flow/agent-engine'
 import { pipelineSourceContract } from '@ia-flow/agent-engine/testing'
 import { describe, expect, it } from 'vitest'
 import { DefinitionPipelineSource } from '../DefinitionSource.js'
@@ -60,5 +60,43 @@ describe('DefinitionPipelineSource', () => {
       pipelines: [pipelineDoc({ id: 'c', on: ['build'], do: [{ nope: 1 }] })],
     })
     expect(() => new DefinitionPipelineSource(broken)).toThrow(/mem:pipelines\/c/)
+  })
+
+  it('builds the capabilities of the source like any step, and the engine asks them', async () => {
+    const providers = new ProviderRegistry().register({
+      id: 'fake',
+      run: async (ctx) => {
+        const criterion = (ctx.ctx.event.payload as { criterion: string }).criterion
+        await ctx.tools
+          .find((tool) => tool.name === 'submit_done')
+          ?.handler({ result: { matches: criterion === 'yes', reason: ctx.prompt } })
+        return { outcome: 'success' }
+      },
+    })
+    const source = new DefinitionPipelineSource(
+      new MemorySource({
+        id: 's',
+        source: {
+          path: 'mem:source',
+          doc: { capabilities: { whenText: { agent: 'classifier' } } },
+        },
+        agents: [
+          {
+            path: 'mem:agents/classifier',
+            doc: { id: 'classifier', provider: 'fake', prompt: 'criterio: {{criterion}}' } as never,
+          },
+        ],
+        pipelines: ['yes', 'no'].map((id) => emitting(id, { whenText: id })),
+      }),
+      { providers },
+    )
+    expect(Object.keys(source.capabilities)).toEqual(['whenText'])
+
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: source,
+      capabilities: (name) => source.capabilities[name],
+    })
+    expect((await engine.select(createEvent('build', {}))).map((p) => p.id)).toEqual(['yes'])
   })
 })
