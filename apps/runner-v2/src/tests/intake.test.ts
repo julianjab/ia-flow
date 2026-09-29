@@ -4,6 +4,8 @@
  * el evento de la task.
  */
 import { describe, expect, it } from 'bun:test'
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   commentPayload,
   type FakeGithubData,
@@ -15,6 +17,7 @@ import {
   runIntake,
   runPayload,
 } from './fixtures.js'
+import { CONFIG_DIR, configCopy } from './helpers.js'
 
 const TASK = 'la-haus/subscriptions#7'
 
@@ -304,5 +307,46 @@ describe('intake: the rest', () => {
   it('has no intake for events no pipeline needs', async () => {
     expect((await (await intake()).run('issues', { action: 'opened' })).outcome).toBe('skipped')
     expect((await (await intake()).run('push', {})).outcome).toBe('skipped')
+  })
+})
+
+describe('intake: several projects', () => {
+  /** `.config` con un segundo proyecto, `otro`, sobre el board 120 y el mismo catálogo. */
+  function twoProjects(): string {
+    const dir = configCopy()
+    const other = join(dir, 'projects', 'otro')
+    mkdirSync(other, { recursive: true })
+    writeFileSync(
+      join(other, 'project.yaml'),
+      'board: https://github.com/orgs/la-haus/projects/120\nbranchPrefix: otro/\nlabel: blocked\n',
+    )
+    cpSync(join(CONFIG_DIR, 'projects/lahaus-ai-flow/repos'), join(other, 'repos'), {
+      recursive: true,
+    })
+    return dir
+  }
+
+  it('publishes to the project whose board has the card, with its branch prefix and message', async () => {
+    const github = fakeGithub({
+      items: { PVTI_1: TASK },
+      tasks: {
+        [TASK]: {
+          status: 'Build',
+          labels: ['blocked'],
+          board: { owner: 'la-haus', number: 120 },
+        },
+      },
+    })
+    const mounted = await mountWith(github, undefined, twoProjects())
+    try {
+      const { emitted } = await runIntake(mounted, 'issue_comment', commentPayload('ojo con esto'))
+      expect(emitted.map((event) => event.scope?.projectId)).toEqual(['otro'])
+      expect(emitted[0]?.payload).toMatchObject({
+        task: { branch: 'otro/7' },
+        message: expect.stringContaining('ojo con esto'),
+      })
+    } finally {
+      mounted.stop()
+    }
   })
 })

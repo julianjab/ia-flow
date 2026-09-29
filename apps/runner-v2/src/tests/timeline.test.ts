@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { formatComments, rollupCi, taskTimeline } from '../intake/timeline.js'
+import {
+  formatComments,
+  rollupCi,
+  taskTimeline,
+} from '../../.config/actions/_lib/intake/timeline.js'
 
 describe('formatComments', () => {
   it('orders by date and heads each block with date · origin · author, like ia-flow', () => {

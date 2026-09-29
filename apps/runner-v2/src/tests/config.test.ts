@@ -35,11 +35,11 @@ describe('runner.yaml', () => {
     expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido/)
   })
 
-  it('a project folder without its board in runner.yaml breaks the load', () => {
+  it('a project.yaml without its board breaks the load', () => {
     const dir = configCopy({
-      'runner.yaml': (s) => s.replace(/projects:\n {2}lahaus-ai-flow:[\s\S]*$/, 'projects: {}\n'),
+      'projects/lahaus-ai-flow/project.yaml': (s) => s.replace(/^board: .*$/m, ''),
     })
-    expect(() => loadRunnerConfig(dir)).toThrow(/falta el board de projects\.lahaus-ai-flow/)
+    expect(() => loadRunnerConfig(dir)).toThrow(/project\.yaml: inválido[\s\S]*board/)
   })
 
   it('the real environment wins over runner.yaml', () => {

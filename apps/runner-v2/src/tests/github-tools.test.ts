@@ -9,7 +9,7 @@ import {
   MarkBlockedByAction,
   ReplyPrReviewThreadAction,
   ResolvePrReviewThreadAction,
-} from '../actions/tools/index.js'
+} from '../../.config/actions/_lib/github/tools/index.js'
 
 const ctx = (): PipelineExecutionContext => ({
   event: createEvent('task', {}),

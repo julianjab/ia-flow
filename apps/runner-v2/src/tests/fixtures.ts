@@ -12,6 +12,7 @@ import {
   StaticPipelineSource,
   type TextClassifier,
 } from '@ia-tools/agent-engine'
+import { GLOBAL_SOURCE } from '../actions/loader.js'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { CONFIG_DIR } from './helpers.js'
@@ -224,6 +225,11 @@ export function stepsFor(pipeline: Pipeline, event: DomainEvent): string[] {
   return pipeline.firstMatch ? due.slice(0, 1) : due
 }
 
+/** Las pipelines de la fuente global (`.config/pipelines/`): el intake. */
+export function globalPipelines(mounted: MountedRunner): Pipeline[] {
+  return mounted.sources.find((entry) => entry.id === GLOBAL_SOURCE)?.yaml.list() ?? []
+}
+
 /**
  * Corre el evento crudo SÓLO por las pipelines de entrada del runner y devuelve lo que publicaron
  * hacia las del proyecto: nada de agentes.
@@ -238,7 +244,7 @@ export async function runIntake(
   bus.subscribe('*', (e) => {
     emitted.push(e)
   })
-  const engine = new Engine({ bus, pipelines: new StaticPipelineSource(mounted.intake()) })
+  const engine = new Engine({ bus, pipelines: new StaticPipelineSource(globalPipelines(mounted)) })
   engine.start()
   const outcome = await engine.dispatch(createEvent(`github.${event}`, payload))
   return { outcome, emitted }

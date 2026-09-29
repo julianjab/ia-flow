@@ -92,10 +92,15 @@ const statusChange = (from: string, to: string) =>
   itemPayload('edited', { field_name: 'Status', from: { name: from }, to: { name: to } })
 
 describe('webhook crudo → intake → pipelines de .config/', () => {
-  it('mounts the intake next to the project pipelines, without mixing them', async () => {
+  it('mounts the intake in the global source, and the flow in the project one', async () => {
     const mounted = await mountWith(fakeGithub())
-    expect(mounted.intake().map((p) => p.id)).toEqual(['intake', 'intake-unblock'])
-    expect(mounted.pipelines().some((p) => p.id.startsWith('intake-'))).toBe(false)
+    const ids = (id: string) =>
+      mounted.sources
+        .find((entry) => entry.id === id)
+        ?.yaml.list()
+        .map((p) => p.id) ?? []
+    expect(ids('runner')).toEqual(['intake', 'intake-unblock'])
+    expect(ids('lahaus-ai-flow').some((id) => id.startsWith('intake'))).toBe(false)
     mounted.stop()
   })
 

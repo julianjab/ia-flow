@@ -1,6 +1,11 @@
 /** Lo puro de `resolve_task` (`intake/task.ts`). */
 import { describe, expect, it } from 'bun:test'
-import { boardItem, issueRefs, linkedIssue, openPr } from '../intake/task.js'
+import {
+  boardItem,
+  issueRefs,
+  linkedIssue,
+  openPr,
+} from '../../.config/actions/_lib/intake/task.js'
 
 describe('linkedIssue', () => {
   it('reads the branch with the project prefix, and nothing else', () => {

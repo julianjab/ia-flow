@@ -1,5 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { type MountedRunner, mountRunner } from '../boot.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
@@ -12,9 +11,14 @@ export function mountDry(dir = CONFIG_DIR): Promise<MountedRunner> {
   return mountRunner(loadRunnerConfig(dir), { dryRun: true, live: false, log: () => {} })
 }
 
-/** Una copia de `.config` en un directorio temporal, con `edit` aplicado a sus archivos. */
+/** Donde van las copias: DENTRO de la app (`.state/`, gitignoreado), porque las actions de
+ *  `.config` importan paquetes y el contrato del runner, y se resuelven desde donde están. */
+const COPIES = resolve(import.meta.dir, '../../.state/test-configs')
+
+/** Una copia de `.config`, con `edit` aplicado a sus archivos. */
 export function configCopy(edit: Record<string, (content: string) => string> = {}): string {
-  const dir = join(mkdtempSync(join(tmpdir(), 'runner-v2-config-')), '.config')
+  mkdirSync(COPIES, { recursive: true })
+  const dir = join(mkdtempSync(join(COPIES, 'config-')), '.config')
   cpSync(CONFIG_DIR, dir, { recursive: true })
   for (const [file, change] of Object.entries(edit)) {
     const path = join(dir, file)
