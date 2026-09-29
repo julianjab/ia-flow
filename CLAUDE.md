@@ -31,7 +31,9 @@ packages/telemetry/    @ia-flow/telemetry — trazas y logs (OpenTelemetry)
 packages/github/       auth/ api/ webhook/ tools/ — @ia-flow/github-{auth,api,webhook,tools}
 packages/local/        fs/ shell/ workspace/ — @ia-flow/{fs-tools,shell-tools,workspace}
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
-scripts/               One-off ops scripts (GitHub Project setup, proxy de webhooks)
+packages/figma-auth/   Credencial OAuth (PKCE) del MCP remoto oficial de Figma (@ia-flow/figma-auth) —
+                       `bun run auth:figma`; hoy sin consumidor en código (ver su CLAUDE.md)
+scripts/               One-off ops scripts (GitHub Project setup, login de Figma, proxy de webhooks)
 .claude/               Agents, commands, hooks, settings for this repo
 ```
 
@@ -55,7 +57,7 @@ github-tools          → agent-engine, github-api, github-auth
 fs-tools, shell-tools → agent-engine
 workspace             → agent-engine, fs-tools, shell-tools
 github-auth, github-webhook, telemetry → nada del monorepo (standalone)
-web → shared
+web → shared            figma-auth → shared
 ```
 
 `shared` has no runtime deps beyond Zod. `agent-engine` **no** depende de ningún paquete de
