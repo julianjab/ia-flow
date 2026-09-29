@@ -147,6 +147,7 @@ export class SourceBuilder {
               when: Condition.fromRows(filter.when),
             })),
             ...(doc.waits ? { waits: doc.waits } : {}),
+            ...(doc.maxConcurrent !== undefined ? { maxConcurrent: doc.maxConcurrent } : {}),
             providerConfig: doc.providerConfig,
             mcpServers: this.mcpServers(doc.mcpServers, where('mcpServers')),
             continueOnError: doc.continueOnError,

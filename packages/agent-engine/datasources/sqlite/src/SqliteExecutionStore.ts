@@ -1,4 +1,4 @@
-import { ExecutionStore } from '@ia-flow/agent-engine'
+import { type ExecutionGroups, ExecutionStore } from '@ia-flow/agent-engine'
 import type { SqliteDatabase } from './SqliteDatabase.js'
 import { SqliteExecutionRepository } from './SqliteExecutionRepository.js'
 
@@ -7,6 +7,8 @@ export interface SqliteExecutionStoreOptions {
   database: SqliteDatabase
   /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
   maxConcurrent?: number
+  /** Topes por grupo de tasks (ej. por proyecto), debajo del global. */
+  groups?: ExecutionGroups
 }
 
 /**
@@ -23,6 +25,7 @@ export class SqliteExecutionStore extends ExecutionStore {
     super({
       repository,
       ...(options.maxConcurrent !== undefined ? { maxConcurrent: options.maxConcurrent } : {}),
+      ...(options.groups ? { groups: options.groups } : {}),
     })
     this.database = repository
   }

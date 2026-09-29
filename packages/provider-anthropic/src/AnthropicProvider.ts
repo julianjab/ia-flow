@@ -60,6 +60,8 @@ export interface AnthropicRunConfig {
  * corrida (`AnthropicRunConfig`) son los defaults del provider, que cada agente puede pisar.
  */
 export interface AnthropicProviderOptions extends AnthropicClientOptions, AnthropicRunConfig {
+  /** Cuántos agentes corren a la vez sobre este provider (`Provider.maxConcurrent`). */
+  maxConcurrent?: number
   /** Id con el que se registra en `providerRegistry` — lo que cada `AgentDefinition` pone en
    *  `provider: '...'`. */
   id: string
@@ -387,11 +389,13 @@ function needsSubmit(terminalTools: Tool[]): boolean {
  */
 export class AnthropicProvider implements Provider {
   readonly id: string
+  readonly maxConcurrent?: number
   readonly log = createLogger('provider-anthropic')
   private readonly client: AnthropicClient
 
   constructor(private readonly options: AnthropicProviderOptions) {
     this.id = options.id
+    if (options.maxConcurrent !== undefined) this.maxConcurrent = options.maxConcurrent
     this.client = new AnthropicClient(options)
   }
 

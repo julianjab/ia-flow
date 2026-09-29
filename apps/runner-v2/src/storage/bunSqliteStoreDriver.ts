@@ -6,12 +6,13 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { ExecutionStore } from '@ia-flow/agent-engine'
+import type { ExecutionGroups, ExecutionStore } from '@ia-flow/agent-engine'
 import { SqliteExecutionStore } from '@ia-flow/agent-engine-datasource-sqlite'
 
 export function bunSqliteStoreDriver(options: {
   path?: string
   maxConcurrent?: number
+  groups?: ExecutionGroups
 }): ExecutionStore {
   if (!options.path) {
     throw new Error('executions.path: el driver bun-sqlite necesita el archivo de la base')
@@ -23,5 +24,6 @@ export function bunSqliteStoreDriver(options: {
   return new SqliteExecutionStore({
     database,
     ...(options.maxConcurrent !== undefined ? { maxConcurrent: options.maxConcurrent } : {}),
+    ...(options.groups ? { groups: options.groups } : {}),
   })
 }

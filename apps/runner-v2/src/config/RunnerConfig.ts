@@ -63,6 +63,8 @@ export const ProjectFileSchema = z.strictObject({
   /** Sólo las cards con esta label son de este runner — para convivir con otro engine sobre el
    *  mismo board. Sin esto, todas las del board. */
   label: z.string().min(1).optional(),
+  /** Cuántas corridas de sus tasks a la vez (debajo de `engine.executions.maxConcurrent`). */
+  maxConcurrent: z.number().int().positive().optional(),
   ...SourceDefaults,
   agents: Entries.optional(),
   pipelines: Entries.optional(),
@@ -122,6 +124,8 @@ export interface ProjectConfig {
   branchPrefix: string
   /** Ver `label` en `project.yaml`. */
   label?: string
+  /** Ver `maxConcurrent` en `project.yaml`. */
+  maxConcurrent?: number
   repos: RepoDef[]
   /** Los módulos de sus actions. */
   actions: string[]
@@ -250,6 +254,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     board: parseBoard(project.board),
     branchPrefix: project.branchPrefix,
     ...(project.label ? { label: project.label } : {}),
+    ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
     repos: readRepos(project, at.base, at.origin, id),
     actions: actionFiles(project.actions, at.base, at.origin),
     source: { spec: () => sourceSpec(read(), at.base, at.origin), watch: [at.file] },

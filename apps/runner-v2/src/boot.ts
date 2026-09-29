@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import {
   type Engine,
   type EventBus,
+  type ExecutionGroups,
   type ExecutionStore,
   isAgent,
   type McpServerRef,
@@ -110,6 +111,23 @@ function validateProviderConfigs(
   }
 }
 
+/** El tope de cada proyecto (`maxConcurrent` de su `project.yaml`): el grupo de una task es su
+ *  `projectId`, que viene en la clave de la ejecución (el scope que publica `resolve_task`). */
+function projectGroups(projects: ProjectConfig[]): ExecutionGroups {
+  const caps = new Map(projects.map((project) => [project.id, project.maxConcurrent]))
+  return {
+    of: (key) => {
+      try {
+        const entry = (JSON.parse(key) as Array<[string, unknown]>).find(([k]) => k === 'projectId')
+        return typeof entry?.[1] === 'string' ? entry[1] : undefined
+      } catch {
+        return undefined
+      }
+    },
+    max: (group) => caps.get(group),
+  }
+}
+
 async function githubIdentity(opts: MountOptions): Promise<{ auth: GithubAuth; mode: string }> {
   if (opts.testing) return { auth: { getToken: async () => 'test' }, mode: 'test' }
   const resolved = await resolveGithubAuth()
@@ -171,6 +189,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     baseDir: cfg.dir,
     sources: sources.map((entry) => entry.source),
     drivers: { 'bun-sqlite': opts.testing?.storeDriver ?? bunSqliteStoreDriver },
+    groups: projectGroups(cfg.projects),
     // Las de la fuente global, en vivo: editar `sources.capabilities` recarga sin reiniciar.
     capabilities: (name) => globalSource.capabilities[name],
     ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),

@@ -64,11 +64,14 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
 /** `anthropic-api` con su config de `providers.anthropic-api` del runner.yaml: los defaults de
  *  todos sus agentes, con la misma estructura que el `providerConfig` de cada uno. */
 function registerProvider(log: (line: string) => void, config: Record<string, unknown> = {}): void {
-  const { resumeMessages: _, ...defaults } = parseAnthropicAgentConfig(config)
+  // `maxConcurrent` es del provider (cuántos agentes a la vez), no de la config de cada corrida.
+  const { maxConcurrent, ...runConfig } = config
+  const { resumeMessages: _, ...defaults } = parseAnthropicAgentConfig(runConfig)
   providerRegistry.register(
     new AnthropicProvider({
       id: 'anthropic-api',
       ...defaults,
+      ...(typeof maxConcurrent === 'number' ? { maxConcurrent } : {}),
       model: process.env.ANTHROPIC_MODEL ?? defaults.model ?? 'claude-sonnet-5',
       onToolCall: (name, input) => log(`[tool] ${name} ${JSON.stringify(input).slice(0, 200)}`),
       onToolResult: (name, result) => log(`[tool:${name}] ${result.slice(0, 200)}`),

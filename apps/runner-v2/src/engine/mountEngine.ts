@@ -10,6 +10,7 @@ import {
   type DomainEvent,
   Engine,
   EventBus,
+  type ExecutionGroups,
   type ExecutionStore,
   InMemoryExecutionStore,
   type Pipeline,
@@ -50,16 +51,25 @@ export const EngineSection = z.strictObject({
 export type EngineSection = z.infer<typeof EngineSection>
 
 /** Arma el store de un driver. `path` ya viene resuelto. */
-export type StoreDriver = (options: { path?: string; maxConcurrent?: number }) => ExecutionStore
+export type StoreDriver = (options: {
+  path?: string
+  maxConcurrent?: number
+  groups?: ExecutionGroups
+}) => ExecutionStore
 
-export const memoryDriver: StoreDriver = ({ maxConcurrent }) =>
-  new InMemoryExecutionStore(maxConcurrent !== undefined ? { maxConcurrent } : {})
+export const memoryDriver: StoreDriver = ({ maxConcurrent, groups }) =>
+  new InMemoryExecutionStore({
+    ...(maxConcurrent !== undefined ? { maxConcurrent } : {}),
+    ...(groups ? { groups } : {}),
+  })
 
 export interface MountEngineOptions {
   /** Contra qué se resuelven las rutas relativas (la carpeta de `runner.yaml`). */
   baseDir: string
   sources: PipelineSource[]
   drivers: Record<string, StoreDriver>
+  /** Los topes por grupo de tasks (por proyecto), debajo del de `executions`. */
+  groups?: ExecutionGroups
   /** Quién cumple cada capacidad (ver `EngineOptions.capabilities`). */
   capabilities?: CapabilityBindings
   /** Gana sobre la capacidad `whenText` (tests). */
@@ -78,6 +88,7 @@ function store(
   config: NonNullable<EngineSection['executions']>,
   drivers: Record<string, StoreDriver>,
   baseDir: string,
+  groups?: ExecutionGroups,
 ): ExecutionStore {
   const available: Record<string, StoreDriver> = { memory: memoryDriver, ...drivers }
   const driver = available[config.driver]
@@ -93,6 +104,7 @@ function store(
   return driver({
     ...(path !== undefined ? { path } : {}),
     ...(config.maxConcurrent !== undefined ? { maxConcurrent: config.maxConcurrent } : {}),
+    ...(groups ? { groups } : {}),
   })
 }
 
@@ -137,7 +149,7 @@ export function ownSender(
 
 export function mountEngine(config: EngineSection, opts: MountEngineOptions): MountedEngine {
   const executions = config.executions
-    ? store(config.executions, opts.drivers, opts.baseDir)
+    ? store(config.executions, opts.drivers, opts.baseDir, opts.groups)
     : undefined
   const bus = new EventBus()
   const formatMessage = messageTemplate(config.formatMessage)

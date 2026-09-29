@@ -17,6 +17,7 @@ import type { AgentDefinitionProps } from './AgentDefinition.js'
 import { PromptRenderer, type SystemPromptCatalog } from './PromptRenderer.js'
 import {
   providerRegistry as defaultProviderRegistry,
+  type Provider,
   type ProviderRegistry,
   type ProviderRunOutput,
 } from './Provider.js'
@@ -31,6 +32,9 @@ export const WAIT_EVENT_BRANCH = 'event'
 
 /** Cuánto del evento que lo despierta se le muestra al agente. */
 const MAX_WAKE_EVENT_CHARS = 12_000
+
+/** Cuánto espera un agente cuyo provider dijo que no puede tomarlo, si no dice cuánto. */
+const DEFAULT_RETRY_AFTER_MS = 30_000
 
 /** Lo que devuelve `Agent.run` y queda en `ctx.steps[id]`. */
 export interface AgentRunResult {
@@ -161,6 +165,7 @@ export class Agent extends Runnable {
     const tools = this.toolset.forRun(ctx, turn.tools)
     const message = resume ? wakeMessage(resume) : undefined
 
+    const release = await this.admission(provider, ctx)
     execution?.enter(this)
     const output = await provider
       .run({
@@ -184,10 +189,35 @@ export class Agent extends Runnable {
       })
       .finally(() => {
         execution?.leave()
+        release()
         ctx.saveProgress?.(this, undefined)
       })
 
     return turn.resolve(output)
+  }
+
+  /**
+   * Lugar bajo los topes de este agente y de su provider (`ctx.limits`), y el visto bueno del
+   * provider (`canAccept`): si dice que no, suelta el lugar y vuelve a preguntar después.
+   */
+  private async admission(provider: Provider, ctx: PipelineExecutionContext): Promise<() => void> {
+    for (;;) {
+      const release =
+        (await ctx.limits?.acquire([
+          { key: `agent:${this.definition.id}`, max: this.definition.maxConcurrent },
+          { key: `provider:${provider.id}`, max: provider.maxConcurrent },
+        ])) ?? (() => {})
+      const admission = (await provider.canAccept?.({ agentId: this.definition.id, ctx })) ?? {
+        accept: true,
+      }
+      if (admission.accept) return release
+      release()
+      const waitMs = admission.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS
+      this.log.info(
+        `${this.definition.id}: ${provider.id} no lo toma ahora (${admission.reason}) — reintenta en ${waitMs} ms`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
   }
 
   /** La pausa de un agente que espera: su evento, o que venza el plazo — y la conversación, para

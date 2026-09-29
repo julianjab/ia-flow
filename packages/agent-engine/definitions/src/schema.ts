@@ -173,6 +173,8 @@ export const AgentDoc = z.strictObject({
       maxMinutes: z.number().int().positive().optional(),
     })
     .optional(),
+  /** Cuántas corridas de este agente a la vez, entre todas las tasks. */
+  maxConcurrent: z.number().int().positive().optional(),
   providerConfig: z.record(z.string(), z.unknown()).optional(),
   /** Por id (del catálogo `mcpServers`) o inline. Un id que el catálogo no tiene se omite con un
    *  aviso: el agente corre sin ese servidor. */

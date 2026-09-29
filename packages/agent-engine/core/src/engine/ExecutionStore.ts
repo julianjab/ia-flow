@@ -3,7 +3,7 @@ import type { DomainEvent } from '../events/DomainEvent.js'
 import type { Checkpoint, IfPaused, IfQueued } from '../pipeline/Pipeline.js'
 import { Execution, type ExecutionRecord } from './Execution.js'
 import type { ExecutionRepository } from './ExecutionRepository.js'
-import { ExecutionScheduler } from './ExecutionScheduler.js'
+import { type ExecutionGroups, ExecutionScheduler } from './ExecutionScheduler.js'
 
 export interface StartExecution {
   key: string
@@ -27,6 +27,8 @@ export interface ExecutionStoreOptions {
   repository: ExecutionRepository
   /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
   maxConcurrent?: number
+  /** Topes por grupo de tasks (ej. por proyecto), debajo del global. */
+  groups?: ExecutionGroups
   /** Retomar tras un reinicio la que corría con un paso que guardaba su progreso (un agente y
    *  su conversación). Default: hasta 10 veces seguidas, y si se guardó hace menos de 24 h. */
   resume?: { maxAttempts?: number; maxAgeMs?: number }
@@ -70,7 +72,7 @@ export class ExecutionStore {
       throw new Error(`${this.constructor.name}: maxConcurrent tiene que ser ≥ 1 (llegó ${max})`)
     }
     this.repository = options.repository
-    this.scheduler = new ExecutionScheduler(max)
+    this.scheduler = new ExecutionScheduler(max, options.groups)
     this.resumeLimits = {
       maxAttempts: options.resume?.maxAttempts ?? RESUME_MAX_ATTEMPTS,
       maxAgeMs: options.resume?.maxAgeMs ?? RESUME_MAX_AGE_MS,

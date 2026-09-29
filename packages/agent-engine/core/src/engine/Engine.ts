@@ -5,6 +5,7 @@ import type { TextClassifier } from '../condition/TextClassifier.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus, Unsubscribe } from '../events/EventBus.js'
 import type { Pipeline } from '../pipeline/Pipeline.js'
+import { ConcurrencyLimits } from './ConcurrencyLimits.js'
 import { DispatchPlanner } from './DispatchPlanner.js'
 import { ExecutionCoordinator } from './ExecutionCoordinator.js'
 import type { ExecutionStore } from './ExecutionStore.js'
@@ -46,6 +47,13 @@ export interface EngineOptions {
   capabilities?: CapabilityBindings
   /** Quién evalúa los `whenText`. Default: la capacidad `whenText` (`CapabilityTextClassifier`). */
   textClassifier?: TextClassifier
+  /**
+   * Aplicar los topes por agente (`AgentDefinitionProps.maxConcurrent`) y por provider
+   * (`Provider.maxConcurrent`, `canAccept`). Default: sí. Un agente pide su lugar al entrar a su
+   * paso — con su ejecución ya en curso —, así que el tope global (`executions`) sigue siendo el
+   * techo. Uno que corre fuera de una pipeline (capacidad, sub-agente) no los ocupa.
+   */
+  limits?: boolean
   /**
    * Si un evento lo produjo el propio sistema (ej. un webhook cuyo `sender` es el bot del engine):
    * nunca interrumpe (`ifRunning: 'interrupt'`), sólo espera. Es la red contra que un agente se
@@ -108,6 +116,7 @@ export class Engine {
       redispatch: (unread, executionId) => this.redelivery.redispatch(unread, executionId),
       classifier,
       capabilities,
+      ...(opts.limits === false ? {} : { limits: new ConcurrencyLimits() }),
       ...(opts.selfOriginated ? { selfOriginated: opts.selfOriginated } : {}),
       ...(opts.interruptReason ? { interruptReason: opts.interruptReason } : {}),
     })

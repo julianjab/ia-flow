@@ -6,6 +6,7 @@ import { createEvent, type DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { Pipeline, Resumption } from '../pipeline/Pipeline.js'
 import type { ExecutionHandle, Interruption } from '../pipeline/Runnable.js'
+import type { ConcurrencyLimits } from './ConcurrencyLimits.js'
 import type { Candidate, DispatchPlanner } from './DispatchPlanner.js'
 import type { Execution, Wake } from './Execution.js'
 import type { ExecutionStore } from './ExecutionStore.js'
@@ -68,6 +69,8 @@ export interface ExecutionCoordinatorOptions {
   classifier?: TextClassifier
   /** Las capacidades que ven los pasos (`ctx.capabilities`). */
   capabilities?: CapabilityInvoker
+  /** Los topes por agente y provider (`ctx.limits`). */
+  limits?: ConcurrencyLimits
   /** Si `event` lo produjo el propio sistema: no interrumpe (ver `EngineOptions`). */
   selfOriginated?: (event: DomainEvent<any>) => boolean
   /** Qué pasó, para leer, cuando `pipeline` interrumpe por `event` (ver `EngineOptions`). */
@@ -98,6 +101,7 @@ export class ExecutionCoordinator {
   private readonly planner: DispatchPlanner
   private readonly classifier?: TextClassifier
   private readonly capabilities?: CapabilityInvoker
+  private readonly limits?: ConcurrencyLimits
   private readonly launcher: RunLauncher
   readonly executions?: ExecutionStore
   private readonly executionKey: (event: DomainEvent<any>) => string | undefined
@@ -122,6 +126,7 @@ export class ExecutionCoordinator {
     this.redispatch = opts.redispatch
     this.classifier = opts.classifier
     this.capabilities = opts.capabilities
+    this.limits = opts.limits
     this.selfOriginated = opts.selfOriginated ?? (() => false)
     this.interruptReason = opts.interruptReason ?? defaultInterruptReason
   }
@@ -342,6 +347,7 @@ export class ExecutionCoordinator {
         ...(source.id !== undefined ? { sourceId: source.id } : {}),
         ...(this.classifier ? { classifier: this.classifier } : {}),
         ...(this.capabilities ? { capabilities: this.capabilities } : {}),
+        ...(this.limits ? { limits: this.limits } : {}),
         ...(execution ? { execution } : {}),
       },
       from,

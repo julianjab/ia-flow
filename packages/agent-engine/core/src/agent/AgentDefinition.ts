@@ -97,6 +97,8 @@ export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
    * Un agente que espera es una pausa más de la pipeline: va último en su lista de destinos.
    */
   waits?: AgentWaits
+  /** Cuántas corridas de este agente a la vez, entre todas las tasks (ver `EngineOptions.limits`). */
+  maxConcurrent?: number
   providerConfig?: Record<string, unknown>
   mcpServers?: McpServerRef[]
   /** Si el paso tira y no hay `onError` en la cascada, seguir con el siguiente `Runnable` de la

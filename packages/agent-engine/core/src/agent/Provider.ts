@@ -50,8 +50,20 @@ export interface ProviderRunOutput {
  */
 export interface Provider {
   readonly id: string
+  /** Cuántos agentes corren a la vez sobre este provider, entre todas las tasks. Default: sin
+   *  tope (el engine sólo lo aplica si le da `EngineOptions.limits`). */
+  readonly maxConcurrent?: number
+  /**
+   * Si puede tomar esta corrida ahora (ej. un host remoto con su propia capacidad). Se pregunta
+   * con el lugar ya tomado; si dice que no, el agente suelta el lugar y espera `retryAfterMs`
+   * antes de volver a preguntar — la corrida se demora, no falla.
+   */
+  canAccept?(request: { agentId: string; ctx: PipelineExecutionContext }): Promise<Admission>
   run(ctx: ProviderRunContext): Promise<ProviderRunOutput>
 }
+
+/** La respuesta de `Provider.canAccept`. */
+export type Admission = { accept: true } | { accept: false; reason: string; retryAfterMs?: number }
 
 /** Registry por id — un Provider se registra una vez y cualquier `AgentDefinitionProps` lo
  *  referencia por `provider: 'ese-id'`. Mismo patrón que `Provider.resolve(id)` en ia-flow. */

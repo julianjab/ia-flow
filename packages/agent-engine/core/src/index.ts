@@ -1,5 +1,5 @@
 export type { AgentRunResult } from './agent/Agent.js'
-export { Agent } from './agent/Agent.js'
+export { Agent, WAIT_EVENT_BRANCH } from './agent/Agent.js'
 export type {
   AgentDefinitionProps,
   AgentVariableValue,
@@ -10,7 +10,12 @@ export type {
 export { FAIL_TOOL_NAME, FailTool } from './agent/FailTool.js'
 export type { RenderedPrompt, SystemPromptCatalog } from './agent/PromptRenderer.js'
 export { PromptRenderer } from './agent/PromptRenderer.js'
-export type { Provider, ProviderRunContext, ProviderRunOutput } from './agent/Provider.js'
+export type {
+  Admission,
+  Provider,
+  ProviderRunContext,
+  ProviderRunOutput,
+} from './agent/Provider.js'
 export { ProviderRegistry, providerRegistry } from './agent/Provider.js'
 export type { ToolInputSchema } from './agent/SchemaTool.js'
 export { SchemaTool } from './agent/SchemaTool.js'
@@ -20,6 +25,8 @@ export type { ToolConstructor } from './agent/ToolRegistry.js'
 export { ToolRegistry } from './agent/ToolRegistry.js'
 export { Toolset } from './agent/Toolset.js'
 export { NO_TRANSITION_OUTCOMES, TurnProtocol } from './agent/TurnProtocol.js'
+export type { AgentWaits, Waiting } from './agent/WaitTool.js'
+export { WAIT_TOOL_NAME, WaitTool } from './agent/WaitTool.js'
 export { YIELD_TOOL_NAME, YieldTool } from './agent/YieldTool.js'
 export type { CapabilityBindings, CapabilityInvoker } from './capability/Capabilities.js'
 export { CAPABILITY_RESULT, Capabilities } from './capability/Capabilities.js'
@@ -37,6 +44,8 @@ export { Conditional } from './condition/Conditional.js'
 export type { EventFilterProps } from './condition/EventFilter.js'
 export { EventFilter } from './condition/EventFilter.js'
 export type { TextClassifier, TextVerdict, WhenText } from './condition/TextClassifier.js'
+export type { Slot } from './engine/ConcurrencyLimits.js'
+export { ConcurrencyLimits } from './engine/ConcurrencyLimits.js'
 export type { EngineOptions } from './engine/Engine.js'
 export { DEFAULT_MAX_EVENT_DEPTH, Engine, scopeExecutionKey } from './engine/Engine.js'
 export type {
@@ -51,12 +60,13 @@ export { Execution } from './engine/Execution.js'
 export type { Offer } from './engine/ExecutionCoordinator.js'
 export { interruptNotice } from './engine/ExecutionCoordinator.js'
 export type { ExecutionRepository } from './engine/ExecutionRepository.js'
+export type { ExecutionGroups } from './engine/ExecutionScheduler.js'
 export type {
   ExecutionStoreOptions,
   OrphanedEvents,
   StartExecution,
 } from './engine/ExecutionStore.js'
-export { ExecutionStore } from './engine/ExecutionStore.js'
+export { ExecutionStore, RESTART_NOTE } from './engine/ExecutionStore.js'
 export { InMemoryExecutionRepository } from './engine/InMemoryExecutionRepository.js'
 export type { InMemoryExecutionStoreOptions } from './engine/InMemoryExecutionStore.js'
 export { InMemoryExecutionStore } from './engine/InMemoryExecutionStore.js'
@@ -105,6 +115,7 @@ export type {
   RunnableProps,
   StepKind,
   StepOutcome,
+  StepResume,
 } from './pipeline/Runnable.js'
 export { INTERRUPTION_STEP, Runnable } from './pipeline/Runnable.js'
 export type {

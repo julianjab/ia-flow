@@ -3,6 +3,7 @@ import type { ToolInputSchema } from '../agent/SchemaTool.js'
 import type { CapabilityInvoker } from '../capability/Capabilities.js'
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js'
 import type { TextClassifier } from '../condition/TextClassifier.js'
+import type { ConcurrencyLimits } from '../engine/ConcurrencyLimits.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { ErrorRoute, ExitDefaults, ExitRoutes, ResolvedRoutes } from '../routing/ExitRoutes.js'
@@ -35,6 +36,10 @@ export interface PipelineExecutionContext {
   /** Lo que el engine sabe pedirle a un modelo sin atarse a cuál (`Capability`): una tool que
    *  enfoca un archivo, un gate semántico. Lo pone el `Engine`. */
   capabilities?: CapabilityInvoker
+  /** Los topes por agente y por provider: un agente pide lugar antes de correr. Lo pone el
+   *  `Engine`; un agente que corre fuera de una pipeline (una capacidad, un sub-agente) no lo ve
+   *  y no los ocupa. */
+  limits?: ConcurrencyLimits
   /** Se está retomando un paso donde quedó (ver `Checkpoint.state`). Lo pone `Pipeline.execute`
    *  mientras corre lo que retoma. */
   resume?: StepResume

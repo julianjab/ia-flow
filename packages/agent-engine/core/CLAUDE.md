@@ -378,6 +378,18 @@ Reglas que no son obvias al leer el código:
   intentos seguidos y 24 h desde que guardó (`ExecutionStoreOptions.resume`); pasados, cierra
   `failed/interrupted` como antes. Un agente anidado (destino de una salida) no guarda progreso:
   no hay cómo seguir una lista de destinos a medias.
+- **Topes, del más general al más fino** — se suman, ninguno reemplaza a otro:
+  1. el turno de la task (`KeyedQueue`: una task nunca corre dos a la vez);
+  2. el de su grupo (`ExecutionStoreOptions.groups`: ej. las tasks de un proyecto);
+  3. el global (`maxConcurrent` del store): el techo del proceso;
+  4. al entrar a su paso, el del agente (`AgentDefinitionProps.maxConcurrent`) y el de su provider
+     (`Provider.maxConcurrent`), en `ConcurrencyLimits` (`ctx.limits`, del `Engine`); y
+     `Provider.canAccept`: si no puede ahora, el agente suelta el lugar y reintenta — se demora,
+     no falla.
+  1–3 se piden al abrir la ejecución (en ese orden); 4, recién cuando el paso es un agente — una
+  pipeline puede tener varios. Los nombres se piden ordenados: dos pedidos que comparten lugares
+  no se esperan en cruz. Un agente fuera de una pipeline (capacidad, sub-agente) no ocupa 4: un
+  hijo que esperara el lugar que tiene su padre sería un deadlock.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
   `busy`; inyectar mira el paso activo de `current`.

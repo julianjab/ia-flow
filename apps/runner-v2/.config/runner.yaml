@@ -19,6 +19,8 @@ github:
 
 # Los defaults de cada provider para TODOS sus agentes; el `providerConfig` de un
 # agente los pisa clave por clave. Los valida el provider al arrancar.
+# `maxConcurrent` es del provider: cuántos agentes corren a la vez sobre él, entre
+# todas las tasks (además del de cada agente y del de cada proyecto).
 providers:
   anthropic-api:
     maxTokens: 32000
