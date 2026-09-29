@@ -45,15 +45,6 @@ allowWrites: true
 mcpServers:
   - github-mcp
 
-# Lo que recibe cuando lo despacha `comment-triage` por su salida
-# `actionable`: el pedido del comentario, resumido — `{{input.summary}}` en
-# el brief de la regla.
-input:
-  summary:
-    type: string
-    optional: true
-    description: >-
-      Qué pidió el comentario, en una o dos frases — para el agente que lo atiende.
 
 # Su output es el PRD funcional + el desglose, y eso vive en el issue padre.
 # Una épica no tiene PR; se fija el issue para que un futuro PR colgado del

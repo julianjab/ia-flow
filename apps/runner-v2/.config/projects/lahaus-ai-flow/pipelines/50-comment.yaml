@@ -1,0 +1,118 @@
+id: comment
+name: Comentario humano → el agente de la columna, si pide un cambio
+# Un comentario humano en el issue o su PR, mientras la card está en una columna con un agente
+# que lo pueda atender. Si pide un cambio lo decide el `whenText` (Haiku, `engine.yaml`): una
+# pregunta, un agradecimiento o un feedback ya resuelto no despiertan a nadie. A qué agente va
+# lo decide el `when` de cada paso — son excluyentes, corre exactamente uno.
+#
+# Reemplaza a las 11 `comment-*` de antes (una por columna × tipo × repo, cada una con su
+# `comment-triage`): el triage era un agente sólo para decidir "¿es accionable?", y eso ahora es
+# el `whenText`. Lo que se perdió: la reacción 👍/👎 que dejaba en el comentario.
+on: [ issue_comment ]
+when:
+  - { field: action, op: eq, value: created }
+  # Los comentarios del propio pipeline (el reporte de cierre) no cuentan.
+  - { field: body, op: matches, value: '^(?![\s\S]*<!-- ia-flow:)' }
+  - { field: item.status, op: in, value: [ Refine, Refined, Build, Review ] }
+whenText:
+  text: >-
+    El comentario pide un cambio de código, de PRD o de comportamiento que un agente de
+    refinamiento o de implementación tenga que actuar. NO lo cumple una pregunta, un
+    agradecimiento, una aclaración de producto sin acción, o un feedback que ya está resuelto.
+  systemPrompts:
+    - text: >-
+        El comentario a juzgar es `body` (de `author`); `task.comments` es la conversación
+        previa, sólo como contexto para saber si ya se resolvió.
+scope:
+  projectId: lahaus-ai-flow
+position: 25
+exclusive: true
+do:
+  # ── Refine / Refined ────────────────────────────────────────────────────
+  - agent: functional-refiner
+    when:
+      - { field: item.status, op: in, value: [ Refine, Refined ] }
+      - { field: item.type, op: eq, value: functional }
+      - { field: item.blocked, op: neq, value: true }
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{author}}** comentó en el issue mientras el desglose estaba en
+      `{{item.status}}`, pidiendo un cambio:
+
+      {{body}}
+
+      Leé el comentario más reciente del issue y ajustá el desglose o el PRD
+      funcional contra lo que pide — no lo rehagas desde cero.
+  - agent: frontend-refiner
+    when:
+      - { field: item.status, op: in, value: [ Refine, Refined ] }
+      - { field: item.type, op: neq, value: functional }
+      - { field: item.repos, op: contains, value: lh-seller-v2-frontend }
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{author}}** comentó en el issue mientras el PRD estaba en
+      `{{item.status}}`, pidiendo un cambio:
+
+      {{body}}
+
+      Leé el comentario más reciente del issue y ajustá el PRD contra lo que
+      pide — no lo rehagas desde cero. Si toca un cambio de diseño, releé el
+      Figma linkeado con `get_figma_data` en vez de asumirlo.
+  - agent: refiner
+    when:
+      - { field: item.status, op: in, value: [ Refine, Refined ] }
+      - { field: item.type, op: neq, value: functional }
+      - { field: item.repos, op: notContains, value: lh-seller-v2-frontend }
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{author}}** comentó en el issue mientras el PRD estaba en
+      `{{item.status}}`, pidiendo un cambio:
+
+      {{body}}
+
+      Leé el comentario más reciente del issue y ajustá el PRD contra lo que
+      pide — no lo rehagas desde cero.
+
+  # ── Build / Review ──────────────────────────────────────────────────────
+  # Frontend: en Build, y en Review con el PR ya aprobado (`reviewed`). Un PR de frontend que
+  # todavía espera al reviewer lo atiende el implementer genérico (como antes).
+  - agent: frontend-implementer
+    when:
+      - { field: item.status, op: eq, value: Review }
+      - { field: item.labels, op: contains, value: reviewed }
+      - { field: item.status, op: eq, value: Build, logic: or }
+      - { field: item.repos, op: contains, value: lh-seller-v2-frontend }
+      - { field: item.blocked, op: neq, value: true }
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{author}}** comentó en el issue/PR mientras la tarea estaba en
+      `{{item.status}}`, pidiendo un cambio:
+
+      {{body}}
+
+      Aplicá exactamente lo que pide y pusheá; no rehagas lo que ya está bien.
+      Si el PR ya estaba aprobado, al arrancar se sacó `reviewed`: tu próximo
+      push vuelve a pasar por el reviewer. Si el pedido toca un cambio de
+      diseño, releé el Figma linkeado con `get_figma_data` en vez de asumirlo.
+  - agent: implementer
+    when:
+      - { field: item.status, op: eq, value: Review }
+      - { field: item.labels, op: notContains, value: reviewed }
+      - { field: item.repos, op: notContains, value: lh-seller-v2-frontend, logic: or }
+      - { field: item.status, op: in, value: [ Build, Review ] }
+      - { field: item.blocked, op: neq, value: true }
+    brief: |-
+      ## Por qué estás corriendo
+
+      **{{author}}** comentó en el issue/PR mientras la tarea estaba en
+      `{{item.status}}`, pidiendo un cambio:
+
+      {{body}}
+
+      Aplicá exactamente lo que pide y pusheá; no rehagas lo que ya está bien.
+      Si el PR ya estaba aprobado, al arrancar se sacó `reviewed`: tu próximo
+      push vuelve a pasar por el reviewer.

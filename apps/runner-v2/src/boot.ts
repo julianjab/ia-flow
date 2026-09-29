@@ -24,6 +24,7 @@ import {
   type Pipeline,
   providerRegistry,
   type ResolvedRoutes,
+  type TextClassifier,
 } from '@ia-tools/agent-pipeline'
 import { createEngineFromYaml, type ExecutionStoreDriver } from '@ia-tools/agent-pipeline-yaml'
 import { GithubClient } from '@ia-tools/github-api'
@@ -46,6 +47,17 @@ import { formatEventMessage } from './messages.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
 import { workspaceTargetFor } from './workspace.js'
 
+/** El clasificador de `--dry-run`: no llama a ningún modelo, y lo dice en la traza. */
+const ASSUME_YES: TextClassifier = {
+  classify: async () => ({ matches: true, reason: 'dry-run: se asume que sí' }),
+}
+
+/** El de `opts`; en `--dry-run` sin uno, `ASSUME_YES`; si no, el de `engine.yaml`. */
+function whenTextClassifier(opts: MountOptions): { textClassifier?: TextClassifier } {
+  const classifier = opts.textClassifier ?? (opts.dryRun ? ASSUME_YES : undefined)
+  return classifier ? { textClassifier: classifier } : {}
+}
+
 /** Donde viven los clones y worktrees si no se pasa `WORKSPACE_DIR`. */
 const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.cache', 'ia-flow', 'runner-v2', 'workspaces')
 
@@ -58,6 +70,9 @@ export interface MountOptions {
   log: (line: string) => void
   /** Lo que responde la API de GitHub en vez de GitHub, con un token de prueba (tests). */
   githubFetch?: typeof fetch
+  /** Quién evalúa los `whenText`, en vez del de `engine.yaml` (tests). En `--dry-run` sin esto,
+   *  uno que asume que sí: sin credenciales, la vista previa muestra qué correría. */
+  textClassifier?: TextClassifier
 }
 
 /** Un proyecto montado: lo de `runner.yaml` más su board. */
@@ -196,6 +211,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // En dry-run nada corre: la base de ejecuciones no se abre.
     drivers: { 'bun-sqlite': opts.dryRun ? memoryDriver : bunSqliteStoreDriver },
     formatMessage: formatEventMessage,
+    ...whenTextClassifier(opts),
   })
   const intake = () => mounted.sources.flatMap((source) => source.intakePipelines())
   const pipelines = () =>

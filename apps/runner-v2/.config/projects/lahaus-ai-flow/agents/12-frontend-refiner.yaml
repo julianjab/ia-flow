@@ -43,15 +43,6 @@ mcpServers:
   - github-mcp
   - figma-mcp
 
-# Lo que recibe cuando lo despacha `comment-triage` por su salida
-# `actionable`: el pedido del comentario, resumido — `{{input.summary}}` en
-# el brief de la regla.
-input:
-  summary:
-    type: string
-    optional: true
-    description: >-
-      Qué pidió el comentario, en una o dos frases — para el agente que lo atiende.
 
 # Lo que produce este agente es el PRD, y el PRD **es** el issue. Cuando una
 # card vuelve a `Refine` con un PR abierto —un ciclo `back_to_build`, o un
