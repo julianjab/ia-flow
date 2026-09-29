@@ -54,6 +54,39 @@ describe('runner.yaml', () => {
       else process.env.IA_FLOW_GITHUB_APP_ID = before
     }
   })
+
+  it('settings.telemetry goes to the OTEL_* variables, unless the environment has them', () => {
+    const names = [
+      'OTEL_EXPORTER_OTLP_ENDPOINT',
+      'OTEL_SERVICE_NAME',
+      'OTEL_DEPLOYMENT_ENVIRONMENT',
+    ]
+    const before = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+    for (const name of names) delete process.env[name]
+    process.env.OTEL_SERVICE_NAME = 'desde-el-env'
+    const dir = configCopy({
+      // Lo que traiga el runner.yaml real se reemplaza por esto.
+      'runner.yaml': (s) =>
+        s
+          .replace(/\n {2}telemetry:\n(?: {4}.*\n)*/, '\n')
+          .replace(
+            'settings:\n',
+            'settings:\n  telemetry:\n    endpoint: http://localhost:4318\n    serviceName: runner\n',
+          ),
+    })
+    try {
+      const report = applyRunnerEnv(loadRunnerConfig(dir))
+      expect(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://localhost:4318')
+      expect(report.applied).toContain('OTEL_EXPORTER_OTLP_ENDPOINT')
+      expect(process.env.OTEL_SERVICE_NAME).toBe('desde-el-env')
+      expect(report.overriddenByEnv).toContain('OTEL_SERVICE_NAME')
+    } finally {
+      for (const name of names) {
+        if (before[name] === undefined) delete process.env[name]
+        else process.env[name] = before[name]
+      }
+    }
+  })
 })
 
 describe('la cascada when', () => {
