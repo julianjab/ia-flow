@@ -768,7 +768,13 @@ describe('AnthropicProvider.run', () => {
         ctxFor({ tools: [submit('submit_done', [], onCall), submit('submit_back')] }),
       )
 
-      expect(result).toEqual({ outcome: 'success', summary: 'PRD listo' })
+      expect(result).toMatchObject({ outcome: 'success', summary: 'PRD listo' })
+      // La conversación con los resultados de la vuelta: la que se retoma si fue una espera.
+      expect((result.conversation as Array<{ role: string }>).map((m) => m.role)).toEqual([
+        'user',
+        'assistant',
+        'user',
+      ])
       expect(onCall).toHaveBeenCalledWith({ x: 1 })
       expect(fetchImpl).toHaveBeenCalledTimes(1)
     })
@@ -893,6 +899,84 @@ describe('AnthropicProvider.run', () => {
       await providerWith(fetchImpl).run(ctxFor({ tools: [submit('submit_done', ['report'])] }))
 
       expect(fetchImpl).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('resuming a conversation', () => {
+    const provider = (fetchImpl: unknown) =>
+      new AnthropicProvider({
+        id: 'x',
+        model: 'claude-x',
+        apiKey: 'sk',
+        stream: false,
+        fetchImpl: fetchImpl as typeof fetch,
+      })
+    const endTurn = () =>
+      jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' })
+    const sentMessages = (fetchImpl: { mock: { calls: unknown[][] } }, call = 0) =>
+      JSON.parse(String((fetchImpl.mock.calls[call]?.[1] as RequestInit | undefined)?.body))
+        .messages
+
+    it('starts from the conversation it is given, with the news in the last user turn', async () => {
+      const fetchImpl = vi.fn(async () => endTurn())
+      const conversation = [
+        { role: 'user', content: 'hola' },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'wait_for_event', input: {} }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: 'Esperando.' }],
+        },
+      ]
+
+      await provider(fetchImpl).run(
+        ctxFor({ resume: { conversation, message: 'Llegó el CI verde.' } }),
+      )
+
+      const messages = sentMessages(fetchImpl)
+      expect(messages).toHaveLength(3)
+      expect(messages[2].content).toEqual([
+        { type: 'tool_result', tool_use_id: 't1', content: 'Esperando.' },
+        { type: 'text', text: '[Mientras esperabas]\nLlegó el CI verde.' },
+      ])
+    })
+
+    it('ignores a conversation that is not its own and starts from the prompt', async () => {
+      const fetchImpl = vi.fn(async () => endTurn())
+      await provider(fetchImpl).run(ctxFor({ resume: { conversation: 'otra cosa', message: 'x' } }))
+      expect(sentMessages(fetchImpl)).toEqual([{ role: 'user', content: 'hola' }])
+    })
+
+    it('saves the conversation after every tool round', async () => {
+      const saved: unknown[] = []
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            content: [{ type: 'tool_use', id: 't1', name: 'echo', input: {} }],
+            stop_reason: 'tool_use',
+          }),
+        )
+        .mockResolvedValueOnce(endTurn())
+      const echo = {
+        name: 'echo',
+        description: 'e',
+        inputSchema: { type: 'object' },
+        handler: () => 'eco',
+      }
+
+      await provider(fetchImpl).run(
+        ctxFor({ tools: [echo], saveConversation: (conversation) => saved.push(conversation) }),
+      )
+
+      expect(saved).toHaveLength(1)
+      expect((saved[0] as Array<{ role: string }>).map((m) => m.role)).toEqual([
+        'user',
+        'assistant',
+        'user',
+      ])
     })
   })
 })

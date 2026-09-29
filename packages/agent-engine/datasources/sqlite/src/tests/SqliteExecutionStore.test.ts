@@ -130,4 +130,74 @@ describe('SqliteExecutionStore across a restart', () => {
     expect(b.id).not.toBe(a.id)
     after.close()
   })
+
+  it('an agent waiting mid-turn keeps its conversation across a restart and resumes it', async () => {
+    const path = dbFile()
+    const seen: unknown[] = []
+    const waiter = (step: 'wait' | 'done') =>
+      new Pipeline({
+        id: 'build',
+        on: ['build'],
+        do: [
+          new Agent(
+            { id: 'implementer', provider: 'p', prompt: 'p', waits: { on: ['check_suite'] } },
+            new ProviderRegistry().register({
+              id: 'p',
+              run: async (ctx) => {
+                seen.push(ctx.resume)
+                const tool = step === 'wait' ? 'wait_for_event' : 'submit_done'
+                const input = step === 'wait' ? { on: ['check_suite'], reason: 'CI' } : {}
+                await ctx.tools.find((candidate) => candidate.name === tool)?.handler(input)
+                return { outcome: 'success', conversation: [{ role: 'user', content: 'hola' }] }
+              },
+            }),
+          ),
+        ],
+      })
+
+    const before = new SqliteExecutionStore({ database: openNodeSqlite(path) })
+    await new Engine({
+      bus: new EventBus(),
+      pipelines: { list: () => [waiter('wait')] },
+      executions: before,
+    }).dispatch(event('build'))
+    before.close()
+
+    const after = new SqliteExecutionStore({ database: openNodeSqlite(path) })
+    const second = new Engine({
+      bus: new EventBus(),
+      pipelines: { list: () => [waiter('done')] },
+      executions: after,
+    })
+    expect(await second.dispatch(event('check_suite', { conclusion: 'success' }))).toBe('resumed')
+    expect(seen[1]).toMatchObject({ conversation: [{ role: 'user', content: 'hola' }] })
+    after.close()
+  })
+
+  it('a running agent that saved its conversation is resumed after a restart', async () => {
+    const path = dbFile()
+    const before = new SqliteExecutionStore({ database: openNodeSqlite(path) })
+    const running = await before.start({ key: KEY, pipelineId: 'build' })
+    running.progress({
+      pipelineId: 'build',
+      pauseId: 'implementer',
+      resumeAt: 1,
+      steps: {},
+      shape: 'implementer',
+      state: [{ role: 'user', content: 'hola' }],
+      savedAt: new Date().toISOString(),
+    })
+    before.close()
+
+    const after = new SqliteExecutionStore({ database: openNodeSqlite(path) })
+    const restored = after.current(KEY)
+    expect(restored?.id).toBe(running.id)
+    expect(restored?.status).toBe('paused')
+    expect(restored?.expired(Date.now())).toBe(true)
+    expect(after.database.find(running.id)?.checkpoint).toMatchObject({
+      state: [{ role: 'user', content: 'hola' }],
+      attempts: 1,
+    })
+    after.close()
+  })
 })
