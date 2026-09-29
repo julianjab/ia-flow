@@ -67,4 +67,31 @@ describe('UpdateIssueBodyAction', () => {
 
     expect(new UpdateIssueBodyAction({ client }).sideEffects).toBe('write')
   })
+
+  it('keeps the owned sections of the current body that the new one does not bring', async () => {
+    const patched: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method === 'PATCH') {
+        patched.push(JSON.parse(init.body as string).body)
+        return new Response('{}')
+      }
+      return new Response(
+        JSON.stringify({
+          body: 'viejo\n\n<!-- ia-flow:slack -->\n## Slack\n\nhttps://hilo\n<!-- /ia-flow:slack -->',
+        }),
+      )
+    })
+    const client = new GithubClient({
+      auth: new GithubTokenAuth('t'),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    await new UpdateIssueBodyAction({ client, keepSections: ['slack'] }).run(ctxFor(), {
+      body: '## PRD nuevo',
+    })
+
+    expect(patched[0]).toBe(
+      '## PRD nuevo\n\n<!-- ia-flow:slack -->\n## Slack\n\nhttps://hilo\n<!-- /ia-flow:slack -->\n',
+    )
+  })
 })

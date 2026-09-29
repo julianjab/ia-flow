@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { Action } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
+import { SlackClient } from '@ia-flow/slack-api'
 import { NodeShellRunner, WorkspaceManager } from '@ia-flow/workspace'
 import type { RunnerServices } from '../actions/defineAction.js'
 import { loadActions } from '../actions/loader.js'
@@ -39,6 +40,7 @@ const services: RunnerServices = {
     worktreeBase: join(ROOT, 'worktrees'),
   }),
   gitCredential: async () => undefined,
+  slack: new SlackClient({ token: 'test' }),
   log: () => {},
 }
 
