@@ -18,9 +18,11 @@
  * lee. `applyRunnerEnv` vuelca `github`/`settings` al env — **el env real gana**, así un PEM local
  * se apunta con IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH sin editar el archivo.
  */
+
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
+import type { SlackReviewConfig } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
@@ -54,6 +56,23 @@ const SourceDefaults = {
   report: z.unknown().optional(),
 }
 
+/** A quién taguea un pedido de review en Slack: `<@id>`. */
+const SlackMemberRefSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  isBot: z.boolean().optional(),
+})
+
+/** El pedido de review en Slack de un proyecto, o de un repo de su catálogo (que lo pisa campo
+ *  por campo): el canal, a quién taguear y con qué texto. */
+export const SlackReviewSchema = z.object({
+  slackReviewChannel: z.string().min(1).optional(),
+  slackReviewers: z.array(SlackMemberRefSchema).optional(),
+  slackReviewMessage: z
+    .strictObject({ first: z.string().optional(), reReview: z.string().optional() })
+    .optional(),
+})
+
 /** Un proyecto (su `project.yaml`, o inline en `runner.yaml`). */
 export const ProjectFileSchema = z.strictObject({
   /** El GitHub Project v2 del proyecto: `https://github.com/orgs/<org>/projects/<n>`. */
@@ -65,6 +84,9 @@ export const ProjectFileSchema = z.strictObject({
   label: z.string().min(1).optional(),
   /** Cuántas corridas de sus tasks a la vez (debajo de `engine.executions.maxConcurrent`). */
   maxConcurrent: z.number().int().positive().optional(),
+  /** El pedido de review en Slack (`request_slack_review`): canal, a quién taguear y con qué
+   *  texto. Un repo del catálogo los pisa campo por campo. */
+  ...SlackReviewSchema.shape,
   ...SourceDefaults,
   agents: Entries.optional(),
   pipelines: Entries.optional(),
@@ -126,6 +148,8 @@ export interface ProjectConfig {
   label?: string
   /** Ver `maxConcurrent` en `project.yaml`. */
   maxConcurrent?: number
+  /** Ver `slackReview*` en `project.yaml`. */
+  slackReview: SlackReviewConfig
   repos: RepoDef[]
   /** Los módulos de sus actions. */
   actions: string[]
@@ -255,6 +279,11 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     branchPrefix: project.branchPrefix,
     ...(project.label ? { label: project.label } : {}),
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
+    slackReview: {
+      ...(project.slackReviewChannel ? { slackReviewChannel: project.slackReviewChannel } : {}),
+      ...(project.slackReviewers ? { slackReviewers: project.slackReviewers } : {}),
+      ...(project.slackReviewMessage ? { slackReviewMessage: project.slackReviewMessage } : {}),
+    },
     repos: readRepos(project, at.base, at.origin, id),
     actions: actionFiles(project.actions, at.base, at.origin),
     source: { spec: () => sourceSpec(read(), at.base, at.origin), watch: [at.file] },

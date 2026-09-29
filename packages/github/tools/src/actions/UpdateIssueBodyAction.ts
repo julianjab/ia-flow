@@ -3,6 +3,7 @@ import type { GithubClient } from '@ia-flow/github-api'
 import { z } from 'zod'
 import { issuePath } from '../shared.js'
 import { type IssueRefResolver, issueFromPayload } from './issueRef.js'
+import { readSection, writeSection } from './issueSection.js'
 
 export const UpdateIssueBodyInput = z.strictObject({
   body: z
@@ -19,6 +20,10 @@ export interface UpdateIssueBodyActionOptions {
   client: GithubClient
   issue?: IssueRefResolver
   id?: string
+  /** Bloques con dueño (`<!-- ia-flow:<id> -->`) que el body nuevo conserva del viejo si no los
+   *  trae: los escribe otro (ej. `slack`, el link del hilo de review), y reescribir el PRD no los
+   *  puede borrar. */
+  keepSections?: string[]
 }
 
 /**
@@ -32,19 +37,34 @@ export class UpdateIssueBodyAction extends Action<typeof UpdateIssueBodyInput, s
   readonly input = UpdateIssueBodyInput
   private readonly client: GithubClient
   private readonly resolveIssue: IssueRefResolver
+  private readonly keepSections: string[]
 
   constructor(options: UpdateIssueBodyActionOptions) {
     super({ id: options.id ?? 'update_issue_body' })
     this.client = options.client
     this.resolveIssue = options.issue ?? issueFromPayload
+    this.keepSections = options.keepSections ?? []
   }
 
   async execute(input: UpdateIssueBodyInput, ctx: PipelineExecutionContext): Promise<string> {
     const issue = this.resolveIssue(ctx)
-    await this.client.requestJson(issuePath(issue.owner, issue.repo, issue.number), {
-      method: 'PATCH',
-      body: JSON.stringify({ body: input.body }),
-    })
+    const path = issuePath(issue.owner, issue.repo, issue.number)
+    const body = await this.withKeptSections(path, input.body)
+    await this.client.requestJson(path, { method: 'PATCH', body: JSON.stringify({ body }) })
     return `Body actualizado: ${issue.owner}/${issue.repo}#${issue.number} (${input.body.length} caracteres)`
+  }
+
+  /** `next` con los bloques de `keepSections` del body actual que no trae. */
+  private async withKeptSections(path: string, next: string): Promise<string> {
+    if (this.keepSections.length === 0) return next
+    const current = (await this.client.requestJson<{ body?: string | null }>(path)).body ?? ''
+    let body = next
+    for (const id of this.keepSections) {
+      const kept = readSection(current, id)
+      if (kept !== undefined && readSection(body, id) === undefined) {
+        body = writeSection(body, id, kept)
+      }
+    }
+    return body
   }
 }

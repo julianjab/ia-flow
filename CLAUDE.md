@@ -30,6 +30,7 @@ packages/provider-anthropic/  @ia-flow/provider-anthropic — el Provider de Ant
 packages/telemetry/    @ia-flow/telemetry — trazas y logs (OpenTelemetry)
 packages/github/       auth/ api/ webhook/ tools/ — @ia-flow/github-{auth,api,webhook,tools}
 packages/local/        fs/ shell/ workspace/ — @ia-flow/{fs-tools,shell-tools,workspace}
+packages/slack/        api/ tools/ — @ia-flow/slack-{api,tools}
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 scripts/               One-off ops scripts (GitHub Project setup, proxy de webhooks)
 .claude/               Agents, commands, hooks, settings for this repo
@@ -37,14 +38,14 @@ scripts/               One-off ops scripts (GitHub Project setup, proxy de webho
 
 Los workspaces se declaran en el `package.json` raíz (`apps/*`, `packages/*`,
 `packages/agent-engine/*`, `packages/agent-engine/datasources/*`, `packages/github/*`,
-`packages/local/*`) y todo se consume con `workspace:*`. `tsconfig.base.json` (raíz) es la base
+`packages/local/*`, `packages/slack/*`) y todo se consume con `workspace:*`. `tsconfig.base.json` (raíz) es la base
 que extienden los paquetes del engine.
 
 Cross-package dependency graph:
 
 ```
 runner-v2 → agent-engine, definitions, datasource-{sqlite,yaml}, provider-anthropic, telemetry,
-            github-{auth,api,webhook,tools}, workspace
+            github-{auth,api,webhook,tools}, slack-{api,tools}, workspace
 agent-engine          → telemetry
 definitions           → agent-engine, telemetry
 datasource-sqlite     → agent-engine, telemetry
@@ -53,8 +54,9 @@ provider-anthropic    → agent-engine, telemetry
 github-api            → github-auth
 github-tools          → agent-engine, github-api, github-auth
 fs-tools, shell-tools → agent-engine
+slack-tools           → agent-engine, slack-api
 workspace             → agent-engine, fs-tools, shell-tools
-github-auth, github-webhook, telemetry → nada del monorepo (standalone)
+github-auth, github-webhook, slack-api, telemetry → nada del monorepo (standalone)
 web → shared
 ```
 
@@ -81,6 +83,8 @@ un paquete**. En una línea:
 | `@ia-flow/github-tools` | Puente `github-api` ↔ `agent-engine`: las `Tool` de GitHub de un agente |
 | `@ia-flow/fs-tools` | `fs_read`/`fs_list`/`fs_grep`/`fs_write`/`fs_edit`, contenidas a un `baseDir` |
 | `@ia-flow/shell-tools` | `bash_run` sin shell, contra una policy allow/deny posicional |
+| `@ia-flow/slack-api` | Cliente de la Web API de Slack (bot token) + el pedido de review, puro. Standalone |
+| `@ia-flow/slack-tools` | Las `Action` de Slack de un agente: leer un hilo o un canal, publicar |
 | `@ia-flow/workspace` | Clone persistente por repo + `git worktree` por task, con locks, reuso y limpieza; lo enchufa al engine |
 
 Cómo se trabajan:

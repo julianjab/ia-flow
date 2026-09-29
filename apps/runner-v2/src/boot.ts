@@ -31,6 +31,7 @@ import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
 import { GithubClient } from '@ia-flow/github-api'
 import type { GithubAuth } from '@ia-flow/github-auth'
 import { parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic'
+import { SlackClient } from '@ia-flow/slack-api'
 import { NodeShellRunner, type WorkspaceLogger, WorkspaceManager } from '@ia-flow/workspace'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
@@ -163,6 +164,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     workspace,
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
     gitCredential: () => auth.getToken(),
+    slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services)

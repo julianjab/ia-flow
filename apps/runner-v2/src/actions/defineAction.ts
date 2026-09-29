@@ -17,10 +17,12 @@
  */
 import type { Action } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
+import type { SlackClient } from '@ia-flow/slack-api'
 import type { WorkspaceManager } from '@ia-flow/workspace'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 
 export type { ProjectConfig } from '../config/RunnerConfig.js'
+export { SlackReviewSchema } from '../config/RunnerConfig.js'
 
 /** Lo que el runner monta y comparte con todas las actions. */
 export interface RunnerServices {
@@ -30,6 +32,8 @@ export interface RunnerServices {
   workspace: WorkspaceManager
   /** La credencial de los `git` de red (la de la App). */
   gitCredential: () => Promise<string | undefined>
+  /** Slack con el bot token (`SLACK_BOT_TOKEN`); sin token, `enabled` es false. */
+  slack: SlackClient
   log: (line: string) => void
 }
 

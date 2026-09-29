@@ -9,7 +9,8 @@
     "packages/agent-engine/*",
     "packages/agent-engine/datasources/*",
     "packages/github/*",
-    "packages/local/*"
+    "packages/local/*",
+    "packages/slack/*"
   ],
   "scripts": {
     "dev": "bun run dev:web",
@@ -46,6 +47,10 @@
     "test:github-webhook": "bun run --cwd packages/github/webhook test",
     "typecheck:github-tools": "bun run --cwd packages/github/tools typecheck",
     "test:github-tools": "bun run --cwd packages/github/tools test",
+    "typecheck:slack-api": "bun run --cwd packages/slack/api typecheck",
+    "test:slack-api": "bun run --cwd packages/slack/api test",
+    "typecheck:slack-tools": "bun run --cwd packages/slack/tools typecheck",
+    "test:slack-tools": "bun run --cwd packages/slack/tools test",
     "typecheck:fs": "bun run --cwd packages/local/fs typecheck",
     "test:fs": "bun run --cwd packages/local/fs test",
     "typecheck:shell": "bun run --cwd packages/local/shell typecheck",
@@ -58,8 +63,8 @@
     "test:web": "bun run --cwd apps/web test",
     "typecheck:desktop": "bun run --cwd apps/desktop typecheck",
     "test:desktop": "bun test apps/desktop",
-    "typecheck": "bun run typecheck:shared && bun run typecheck:agent-engine && bun run typecheck:agent-engine-definitions && bun run typecheck:datasource-sqlite && bun run typecheck:datasource-yaml && bun run typecheck:provider-anthropic && bun run typecheck:telemetry && bun run typecheck:github-auth && bun run typecheck:github-api && bun run typecheck:github-webhook && bun run typecheck:github-tools && bun run typecheck:fs && bun run typecheck:shell && bun run typecheck:workspace && bun run typecheck:runner-v2 && bun run typecheck:web && bun run typecheck:desktop",
-    "test": "bun run test:shared && bun run test:agent-engine && bun run test:agent-engine-definitions && bun run test:datasource-sqlite && bun run test:datasource-yaml && bun run test:provider-anthropic && bun run test:telemetry && bun run test:github-auth && bun run test:github-api && bun run test:github-webhook && bun run test:github-tools && bun run test:fs && bun run test:shell && bun run test:workspace && bun run test:runner-v2 && bun run test:web && bun run test:desktop",
+    "typecheck": "bun run typecheck:shared && bun run typecheck:agent-engine && bun run typecheck:agent-engine-definitions && bun run typecheck:datasource-sqlite && bun run typecheck:datasource-yaml && bun run typecheck:provider-anthropic && bun run typecheck:telemetry && bun run typecheck:github-auth && bun run typecheck:github-api && bun run typecheck:github-webhook && bun run typecheck:github-tools && bun run typecheck:slack-api && bun run typecheck:slack-tools && bun run typecheck:fs && bun run typecheck:shell && bun run typecheck:workspace && bun run typecheck:runner-v2 && bun run typecheck:web && bun run typecheck:desktop",
+    "test": "bun run test:shared && bun run test:agent-engine && bun run test:agent-engine-definitions && bun run test:datasource-sqlite && bun run test:datasource-yaml && bun run test:provider-anthropic && bun run test:telemetry && bun run test:github-auth && bun run test:github-api && bun run test:github-webhook && bun run test:github-tools && bun run test:slack-api && bun run test:slack-tools && bun run test:fs && bun run test:shell && bun run test:workspace && bun run test:runner-v2 && bun run test:web && bun run test:desktop",
     "check": "biome check . && bun run typecheck && bun run test"
   },
   "devDependencies": {

@@ -21,6 +21,8 @@
     "@ia-flow/github-tools": "workspace:*",
     "@ia-flow/github-webhook": "workspace:*",
     "@ia-flow/provider-anthropic": "workspace:*",
+    "@ia-flow/slack-api": "workspace:*",
+    "@ia-flow/slack-tools": "workspace:*",
     "@ia-flow/telemetry": "workspace:*",
     "@ia-flow/workspace": "workspace:*",
     "@opentelemetry/api": "^1.9.0",

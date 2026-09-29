@@ -66,7 +66,8 @@ export default [
   withClient('react_to_comment', (ctx) => new ReactToCommentAction(ctx.services.github)),
   withClient(
     'update_issue_body',
-    (ctx) => new UpdateIssueBodyAction({ client: ctx.services.github }),
+    // El link del hilo de review (`request_slack_review`) sobrevive a que un agente reescriba el PRD.
+    (ctx) => new UpdateIssueBodyAction({ client: ctx.services.github, keepSections: ['slack'] }),
   ),
   withClient(
     'list_sub_issues_brief',
