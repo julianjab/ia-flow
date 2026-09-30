@@ -55,6 +55,15 @@ describe('ReviewPullRequestAction', () => {
     ).rejects.toThrow(/no trae un PR/)
   })
 
+  it('rejects a long body — the summary and the verdict go in the report, not in the review', async () => {
+    const requestJson = vi.fn()
+    const action = new ReviewPullRequestAction({ requestJson } as unknown as GithubClient)
+    await expect(
+      action.asTool(ctx(prEvent)).handler({ body: 'x'.repeat(1_501), comments: [] }),
+    ).rejects.toThrow(/van en el `report` de tu submit_\*/)
+    expect(requestJson).not.toHaveBeenCalled()
+  })
+
   it('is a write action (an agent needs allowWrite to get it)', () => {
     expect(new ReviewPullRequestAction({} as GithubClient).sideEffects).toBe('write')
   })
