@@ -16,6 +16,7 @@ no código de acá. El modelo completo (pipelines, intake, providers, MCP) está
 | `engine/` | montar el engine, scope por proyecto, marca Working | cambia cómo corre el engine en el runner |
 | `providers/` | providers, hosts remotos y su telemetría | un provider nuevo o un cambio de hosts |
 | `mcp/` | catálogo de MCP y `mcpHost` | un MCP nuevo o cómo se publica |
+| `github/` | la identidad de GitHub del runner y el login de la web (device flow) | cambia cómo se autentica el runner o una persona |
 | `inbox/` | la bandeja de la web, su API, tareas, ingresos | la web necesita ver o hacer algo |
 | `assistant/` | el asistente de la web | cambia el asistente |
 | `storage/` | SQLite: actividad, conversaciones, ejecuciones | cambia qué se persiste |
