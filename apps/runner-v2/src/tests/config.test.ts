@@ -39,6 +39,31 @@ describe('runner.yaml', () => {
     expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido/)
   })
 
+  it('mcpHost: each MCP the runner publishes, and an mcp entry pointing at one with hosted', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        `${s}\nmcpHost:\n  figma:\n    command: [figma-developer-mcp, --port, '3333']\n    upstream: http://127.0.0.1:3333/mcp\n    token: \${FIGMA_MCP_TOKEN}\n`.replace(
+          'url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma',
+          'url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma\n      hosted: figma',
+        ),
+    })
+    const cfg = loadRunnerConfig(dir)
+    expect(cfg.mcpHost.figma).toEqual({
+      command: ['figma-developer-mcp', '--port', '3333'],
+      upstream: 'http://127.0.0.1:3333/mcp',
+      token: '${FIGMA_MCP_TOKEN}',
+    })
+    expect(cfg.mcp.find((entry) => entry.id === 'figma-mcp')?.config.hosted).toBe('figma')
+  })
+
+  it('mcpHost rejects an entry without its token instead of publishing it open', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        `${s}\nmcpHost:\n  figma:\n    command: [figma-developer-mcp]\n    upstream: http://127.0.0.1:3333/mcp\n`,
+    })
+    expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido[\s\S]*token/)
+  })
+
   it('a project.yaml without its board breaks the load', () => {
     const dir = configCopy({
       'projects/lahaus-ai-flow/project.yaml': (s) => s.replace(/^board: .*$/m, ''),
