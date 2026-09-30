@@ -334,8 +334,4 @@ export class Pipeline {
   }
 }
 
-/** Type guard útil para quien construye pipelines dinámicamente desde config — distingue un
- *  paso respaldado por LLM de un `Runnable` genérico (Emit/Http/Function). */
-export function isAgent(step: Runnable): step is Agent {
-  return step.kind === 'agent'
-}
+export { isAgent } from './isAgent.js'

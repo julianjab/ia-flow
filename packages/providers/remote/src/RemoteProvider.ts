@@ -19,7 +19,8 @@ import {
 } from '@ia-flow/provider-shared'
 import { createLogger, exportTraceContext } from '@ia-flow/telemetry'
 import { type HostTask, PROTOCOL_PREFIX } from './protocol.js'
-import { providerId, type RemoteHub } from './RemoteHub.js'
+import { providerId } from './providerId.js'
+import type { RemoteHub } from './RemoteHub.js'
 
 export interface RemoteProviderOptions {
   hub: RemoteHub

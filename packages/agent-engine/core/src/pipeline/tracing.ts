@@ -5,7 +5,8 @@
 import { type Attributes, markError, type TraceOptions, truncate } from '@ia-flow/telemetry'
 import type { Agent, AgentRunResult } from '../agent/Agent.js'
 import { SCOPE } from '../engine/tracing.js'
-import { isAgent, type Pipeline, type StepRun, type StepVia } from './Pipeline.js'
+import { isAgent } from './isAgent.js'
+import type { Pipeline, StepRun, StepVia } from './Pipeline.js'
 import type { PipelineExecutionContext, Runnable } from './Runnable.js'
 import type { StepRunner } from './StepRunner.js'
 

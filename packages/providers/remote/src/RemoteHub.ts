@@ -14,6 +14,7 @@ import {
   type SubscribeResponse,
   TranscriptPost,
 } from './protocol.js'
+import { providerId } from './providerId.js'
 import { RemoteProvider } from './RemoteProvider.js'
 
 export interface RemoteHubOptions {
@@ -374,10 +375,6 @@ export class RemoteHub {
   }
 }
 
-export function providerId(name: string): string {
-  return `remote:${name}`
-}
-
 class BadRequest extends Error {}
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -403,3 +400,5 @@ function json(status: number, value: unknown): Response {
     headers: { 'content-type': 'application/json' },
   })
 }
+
+export { providerId } from './providerId.js'
