@@ -279,7 +279,8 @@ export class Execution {
       else this.close('done')
       return result
     } catch (err) {
-      this.close('failed')
+      // El motivo queda en `closeReason`: sin él, una ejecución `failed` no dice por qué.
+      this.close('failed', err instanceof Error ? err.message : String(err))
       throw err
     }
   }

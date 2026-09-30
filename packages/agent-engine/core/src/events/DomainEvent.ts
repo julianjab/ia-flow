@@ -1,5 +1,9 @@
 /** Un evento crudo del mundo — no sabe nada de negocio, sólo lleva forma. */
 export interface DomainEvent<TPayload = Record<string, unknown>> {
+  /** Único por evento (un UUID): lo que cita el log de eventos, una ejecución o un replay. */
+  id: string
+  /** El evento del que se derivó (`deriveEvent`), si alguno: la cadena de causas. */
+  parentId?: string
   /** Nombre del evento, ej. "github.issue.opened", "slack.message", "travel.trip.requested". */
   type: string
   payload: TPayload
@@ -19,6 +23,9 @@ export interface DomainEvent<TPayload = Record<string, unknown>> {
 }
 
 export interface CreateEventOptions {
+  /** Default: un UUID nuevo. Pasarlo es para un replay (el mismo evento otra vez) o un test. */
+  id?: string
+  parentId?: string
   scope?: Record<string, unknown>
   depth?: number
   occurredAt?: string
@@ -31,6 +38,8 @@ export function createEvent<TPayload = Record<string, unknown>>(
   opts: CreateEventOptions = {},
 ): DomainEvent<TPayload> {
   return {
+    id: opts.id ?? globalThis.crypto.randomUUID(),
+    ...(opts.parentId ? { parentId: opts.parentId } : {}),
     type,
     payload,
     scope: opts.scope,
@@ -51,12 +60,13 @@ export function deriveEvent<TPayload = Record<string, unknown>>(
   parent: DomainEvent,
   type: string,
   payload: TPayload,
-  opts: Omit<CreateEventOptions, 'depth'> = {},
+  opts: Omit<CreateEventOptions, 'depth' | 'parentId'> = {},
 ): DomainEvent<TPayload> {
   return createEvent(type, payload, {
     ...opts,
     scope: opts.scope ?? parent.scope,
     depth: parent.depth + 1,
+    parentId: parent.id,
     executionId: opts.executionId ?? parent.executionId,
   })
 }

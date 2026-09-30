@@ -115,6 +115,8 @@ export class ExecutionCoordinator {
     DomainEvent<any>,
     { executionId: string; branch: string }
   >()
+  /** La primera ejecución que abrió cada evento — lo que su `dispatch` anota en el journal. */
+  private readonly opened = new WeakMap<DomainEvent<any>, string>()
 
   constructor(opts: ExecutionCoordinatorOptions) {
     this.bus = opts.bus
@@ -169,6 +171,22 @@ export class ExecutionCoordinator {
     return late ? { kind: 'resumed', ...late } : undefined
   }
 
+  /** La ejecución que abrió `event`, si ya abrió alguna (la primera, si abrió varias). */
+  openedBy(event: DomainEvent<any>): string | undefined {
+    return this.opened.get(event)
+  }
+
+  /** Recuerda la primera ejecución que abrió `event`. */
+  private noteOpened(event: DomainEvent<any>, executionId: string): void {
+    if (!this.opened.has(event)) this.opened.set(event, executionId)
+  }
+
+  /** La ejecución (corriendo o pausada) de la task de `event`, si hay. */
+  currentId(event: DomainEvent<any>): string | undefined {
+    const key = this.executions ? this.executionKey(event) : undefined
+    return key === undefined ? undefined : this.executions?.current(key)?.id
+  }
+
   /**
    * Qué hacer con una pipeline que matcheó (ver `Resolution`). Sincrónico a propósito: decide y
    * marca la task ocupada sin ceder el turno, así otro despacho no la ve libre a medias. Lo que
@@ -215,6 +233,7 @@ export class ExecutionCoordinator {
       })
       // Otra corrida de la misma pipeline llegó mientras ésta esperaba y la reemplazó.
       if (!execution) return undefined
+      this.noteOpened(event, execution.id)
       return this.runAsExecution(execution, () => this.runPipeline(candidate, event, execution))
     }
     return {

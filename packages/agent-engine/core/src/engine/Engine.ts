@@ -6,7 +6,13 @@ import type { DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus, Unsubscribe } from '../events/EventBus.js'
 import type { Pipeline } from '../pipeline/Pipeline.js'
 import { ConcurrencyLimits } from './ConcurrencyLimits.js'
-import { DispatchPlanner } from './DispatchPlanner.js'
+import {
+  type DispatchDecision,
+  type DispatchJournal,
+  type DispatchRecord,
+  dispatchDecisions,
+} from './DispatchJournal.js'
+import { type DispatchPlan, DispatchPlanner } from './DispatchPlanner.js'
 import { ExecutionCoordinator } from './ExecutionCoordinator.js'
 import type { ExecutionStore } from './ExecutionStore.js'
 import type { PipelineSource } from './PipelineSource.js'
@@ -66,6 +72,8 @@ export interface EngineOptions {
    *  aviso y queda en `steps.interruption.reason` (ej. "la tarjeta pasó a Review"). Default: el
    *  tipo del evento y la pipeline que viene. */
   interruptReason?: (event: DomainEvent<any>, pipeline: Pipeline) => string
+  /** Dónde anotar cada evento despachado y qué se decidió con él (ver `DispatchJournal`). */
+  dispatchJournal?: DispatchJournal
 }
 
 /** La task de un evento: su `scope` con las claves ordenadas — dos eventos de la misma task
@@ -75,6 +83,14 @@ export function scopeExecutionKey(event: DomainEvent<any>): string | undefined {
   const keys = Object.keys(scope).sort()
   if (keys.length === 0) return undefined
   return JSON.stringify(keys.map((key) => [key, scope[key]]))
+}
+
+/** El mensaje de un error — el de cada corrida, si fallaron varias (`AggregateError`). */
+function errorMessage(err: unknown): string {
+  if (err instanceof AggregateError && err.errors.length > 0) {
+    return `${err.message}: ${err.errors.map(errorMessage).join('; ')}`
+  }
+  return err instanceof Error ? err.message : String(err)
 }
 
 function defaultMessage(event: DomainEvent<any>): string {
@@ -98,10 +114,12 @@ export class Engine {
   private readonly launcher: RunLauncher
   private readonly coordinator: ExecutionCoordinator
   private readonly redelivery: Redelivery
+  private readonly dispatchJournal?: DispatchJournal
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH
+    this.dispatchJournal = opts.dispatchJournal
     const capabilities = new Capabilities(opts.capabilities ?? {}, opts.bus)
     const classifier = opts.textClassifier ?? new CapabilityTextClassifier(capabilities)
     this.planner = new DispatchPlanner([opts.pipelines].flat(), classifier)
@@ -157,23 +175,83 @@ export class Engine {
    * cambio corre SÓLO la de mayor prioridad (menor `position`) entre las exclusive — MÁS
    * cualquier pipeline (exclusive o no) de prioridad todavía mayor que esa (position aún
    * menor), que no queda bloqueada por una exclusive de menor prioridad que ella misma.
+   *
+   * Con un `dispatchJournal`, cada evento queda anotado una vez al terminar el despacho: qué hizo
+   * cada pipeline que lo escucha, el resultado y la ejecución que tocó — también si lo descartó el
+   * tope de profundidad o si tiró.
    */
   @traced(dispatchTrace)
   async dispatch(event: DomainEvent<any>): Promise<DispatchOutcome> {
-    if (event.depth >= this.maxEventDepth) return 'skipped'
+    if (event.depth >= this.maxEventDepth) {
+      this.journal({ event, decisions: [], outcome: 'skipped' })
+      return 'skipped'
+    }
 
-    // Primero la ejecución de su task. Si corre y su paso activo acepta el evento, ya lo
-    // recibió — antes de ceder el turno, así el paso no sale de su loop en el medio.
-    const injected = this.coordinator.inject(event)
-    if (injected) this.redelivery.rememberOrigin(event)
-    const { toRun } = await this.planner.decide(event)
-    // Si está pausada y el evento la despierta, se reanuda — recién acá, pegado a lanzar la
-    // corrida: despertarla antes de `decide` dejaría una ejecución despierta sin quién la corra
-    // si `decide` falla.
-    const offer = injected ?? this.coordinator.wokenLate(event) ?? this.coordinator.wake(event)
-    return this.launcher.launch(toRun, event, offer, (candidate) =>
-      this.coordinator.resolveRunning(candidate, event, offer),
-    )
+    let plan: DispatchPlan | undefined
+    try {
+      // Primero la ejecución de su task. Si corre y su paso activo acepta el evento, ya lo
+      // recibió — antes de ceder el turno, así el paso no sale de su loop en el medio.
+      const injected = this.coordinator.inject(event)
+      if (injected) this.redelivery.rememberOrigin(event)
+      plan = await this.planner.decide(event)
+      // Si está pausada y el evento la despierta, se reanuda — recién acá, pegado a lanzar la
+      // corrida: despertarla antes de `decide` dejaría una ejecución despierta sin quién la corra
+      // si `decide` falla.
+      const offer = injected ?? this.coordinator.wokenLate(event) ?? this.coordinator.wake(event)
+      // Anotado ya, con lo previsto: una corrida de un agente dura minutos y el evento tiene que
+      // verse mientras tanto. Al terminar se vuelve a anotar (mismo id) con lo que pasó.
+      this.journal({
+        event,
+        decisions: dispatchDecisions(plan, event),
+        outcome: plan.toRun.length > 0 ? 'dispatched' : offer ? 'injected' : 'skipped',
+        ...(offer?.executionId ? { executionId: offer.executionId } : {}),
+      })
+      const outcome = await this.launcher.launch(plan.toRun, event, offer, (candidate) =>
+        this.coordinator.resolveRunning(candidate, event, offer),
+      )
+      const executionId =
+        outcome === 'skipped'
+          ? undefined
+          : (offer?.executionId ??
+            this.coordinator.openedBy(event) ??
+            this.coordinator.currentId(event))
+      this.journal({
+        event,
+        decisions: dispatchDecisions(plan, event),
+        outcome,
+        ...(executionId ? { executionId } : {}),
+      })
+      return outcome
+    } catch (err) {
+      this.journal({
+        event,
+        decisions: plan ? dispatchDecisions(plan, event) : [],
+        outcome: 'error',
+        error: errorMessage(err),
+      })
+      throw err
+    }
+  }
+
+  /** Anota el despacho en el journal, si hay. Un journal roto no corta el despacho. */
+  private journal(entry: DispatchRecord): void {
+    if (!this.dispatchJournal) return
+    try {
+      this.dispatchJournal.record(entry)
+    } catch (err) {
+      this.log.warn(`no se pudo anotar el evento "${entry.event.type}": ${errorMessage(err)}`, {
+        'ia.event.id': entry.event.id,
+      })
+    }
+  }
+
+  /**
+   * "¿Por qué corrió / no corrió?": qué haría cada pipeline que escucha `event`, con el mismo
+   * criterio que `dispatch` (y las mismas `DispatchDecision` que anota su journal) — sin correr
+   * nada ni anotarlo. Un `whenText` sí consulta al clasificador.
+   */
+  async explain(event: DomainEvent<any>): Promise<DispatchDecision[]> {
+    return dispatchDecisions(await this.planner.plan(event), event)
   }
 
   /**

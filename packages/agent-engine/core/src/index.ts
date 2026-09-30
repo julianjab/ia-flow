@@ -53,6 +53,13 @@ export { EventFilter } from './condition/EventFilter.js'
 export type { TextClassifier, TextVerdict, WhenText } from './condition/TextClassifier.js'
 export type { Slot } from './engine/ConcurrencyLimits.js'
 export { ConcurrencyLimits } from './engine/ConcurrencyLimits.js'
+export type {
+  DispatchDecision,
+  DispatchJournal,
+  DispatchRecord,
+} from './engine/DispatchJournal.js'
+export { dispatchDecisions } from './engine/DispatchJournal.js'
+export type { Candidate, DispatchPlan } from './engine/DispatchPlanner.js'
 export type { EngineOptions } from './engine/Engine.js'
 export { DEFAULT_MAX_EVENT_DEPTH, Engine, scopeExecutionKey } from './engine/Engine.js'
 export type {
