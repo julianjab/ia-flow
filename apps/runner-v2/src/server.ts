@@ -7,6 +7,8 @@
  *                               pensada para quedar expuesta a internet y dispara agentes, así
  *                               que falla CERRADA, nunca abierta.
  *   GET  /api/webhooks/status   qué escucha el runner — sólo lectura, sin datos sensibles.
+ *   GET  /health                el proceso contesta: la probe de k8s y el healthcheck del
+ *                               balanceador. No mira GitHub ni la base — un 200 es "sigo vivo".
  *
  * Responde ANTES de traducir y despachar: GitHub corta el delivery a los 10 s y una corrida de un
  * agente dura minutos. La contracara es que un error de traducción no le llega a GitHub como
@@ -26,6 +28,7 @@ export interface Delivery {
 
 export const GITHUB_WEBHOOK_PATH = '/api/webhooks/github'
 const STATUS_PATH = '/api/webhooks/status'
+export const HEALTH_PATH = '/health'
 /** El tope de GitHub para un payload de webhook. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024
 /** Cuántos delivery ids recordar para descartar reintentos de GitHub. */
@@ -141,6 +144,7 @@ export function createWebhookServer(opts: WebhookServerOptions): Server {
     const path = (req.url ?? '').split('?')[0]
     const handle = async () => {
       if (req.method === 'POST' && path === GITHUB_WEBHOOK_PATH) return github(req, res)
+      if (req.method === 'GET' && path === HEALTH_PATH) return send(res, 200, { ok: true })
       if (await opts.api?.handle(req, res)) return
       if (req.method === 'GET' && path === STATUS_PATH) {
         return send(res, 200, {
