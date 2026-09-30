@@ -387,3 +387,30 @@ export const BoardRestSchema = z.object({
   columns: z.array(z.object({ status: z.string(), items: z.array(BoardRestItemSchema) })),
 })
 export type BoardRest = z.infer<typeof BoardRestSchema>
+
+/** Una entrada del runner: por dónde le llegan los eventos de afuera. */
+export const IngressSourceSchema = z.object({
+  /** `github` o `slack`: el prefijo de los eventos crudos que entran por acá (`github.push`…). */
+  id: z.string(),
+  name: z.string(),
+  /** `webhook` (GitHub le hace POST al runner) o `socket` (el runner abre la conexión, Slack). */
+  kind: z.enum(['webhook', 'socket']),
+  /** Dónde escucha, si es un webhook: el path al que GitHub manda. */
+  endpoint: z.string().optional(),
+  /** Si tiene lo que necesita para funcionar (el secret del webhook, el app token de Slack). */
+  configured: z.boolean(),
+  /** Qué falta, si no está configurada. */
+  missing: z.string().optional(),
+  last_at: z.string().optional(),
+  count_24h: z.number(),
+  /** Cuántos quedan guardados (los de los últimos `retention_days`). */
+  count_kept: z.number(),
+})
+export type IngressSource = z.infer<typeof IngressSourceSchema>
+
+/** `GET /api/ingress`: las entradas del runner y cuánto les llega. */
+export const IngressSchema = z.object({
+  sources: z.array(IngressSourceSchema),
+  retention_days: z.number(),
+})
+export type Ingress = z.infer<typeof IngressSchema>
