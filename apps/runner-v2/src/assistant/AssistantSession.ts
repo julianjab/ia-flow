@@ -33,6 +33,7 @@ export const ACTION_LABELS: Record<TaskAction, string> = {
   relaunch: 'Relanzar',
   retry: 'Reintentar',
   stop: 'Pedirle al agente que pare',
+  rerun_review: 'Re-ejecutar el review',
 }
 
 /** Lo que vuelve de una lectura, acotado: el modelo no necesita 200 KB de traza. */

@@ -13,6 +13,8 @@ import type { InboxSettings } from './InboxSection.js'
 export interface BoardCard {
   /** `owner/repo#n` */
   ref: string
+  /** El id del item en el board (`PVTI_…`): con él se simula un cambio de Status. */
+  itemId?: string
   projectId: string
   title: string
   url: string
@@ -113,16 +115,28 @@ function fromActivity(activity: TaskActivity): Classification | undefined {
   return undefined
 }
 
-/** Lo que el pipeline dejó en manos de una persona: mergear o aprobar el PRD. */
+/** Lo que el pipeline dejó en manos de una persona: Review (mergear, o destrabar un review que
+ *  no aprobó) o aprobar el PRD. Una card en Review siempre te necesita, pase lo que pase con ella
+ *  — salvo mientras algo corre, que gana antes (`fromActivity`). */
 function awaitingHuman(card: BoardCard, { labels, statuses }: ClassifyOptions['settings']) {
-  if (card.status === statuses.review && card.labels.includes(labels.reviewed)) {
+  if (card.status === statuses.review) {
     const pr = card.pr ? ` · PR #${card.pr.number}` : ' · sin PR abierto'
+    if (card.labels.includes(labels.reviewed)) {
+      return {
+        group: 'need',
+        kind: 'merge',
+        why: `Review + ${labels.reviewed}${pr}`,
+        since: card.updatedAt,
+        actions: card.pr ? ['merge'] : [],
+      } satisfies Classification
+    }
+    // Sin PR no hay nada que revisar: el pipeline de review no correría.
     return {
       group: 'need',
-      kind: 'merge',
-      why: `Review + ${labels.reviewed}${pr}`,
+      kind: 'review',
+      why: `Review sin ${labels.reviewed}${pr}`,
       since: card.updatedAt,
-      actions: card.pr ? ['merge'] : [],
+      actions: card.pr && card.itemId ? ['rerun_review'] : [],
     } satisfies Classification
   }
   if (card.status === statuses.refined) {
@@ -215,7 +229,13 @@ export function classify(
 }
 
 const GROUP_ORDER: Record<InboxGroup, number> = { need: 0, fail: 1, run: 2, queue: 3, idle: 4 }
-const KIND_ORDER: Partial<Record<InboxKind, number>> = { merge: 0, prd: 1, doubt: 2, stale: 3 }
+const KIND_ORDER: Partial<Record<InboxKind, number>> = {
+  merge: 0,
+  review: 1,
+  prd: 2,
+  doubt: 3,
+  stale: 4,
+}
 
 /** El orden de la bandeja: por grupo; en "te necesita", lo más cerca de Done primero; dentro de
  *  cada caso, lo más viejo arriba. */

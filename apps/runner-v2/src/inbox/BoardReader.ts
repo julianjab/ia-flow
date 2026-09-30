@@ -100,6 +100,7 @@ export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | un
   const taskType = field('Task Type')
   return {
     ref: `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`,
+    itemId: item.id,
     projectId: spec.projectId,
     title: issue.title ?? '',
     url: issue.url ?? '',

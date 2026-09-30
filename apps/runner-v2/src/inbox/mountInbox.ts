@@ -12,7 +12,9 @@ import { DeviceFlow } from '../github/deviceFlow.js'
 import type { ApiRouter } from '../http/ApiRouter.js'
 import { runnerApi } from '../http/runnerApi.js'
 import { SseHub } from '../http/sse.js'
+import { dispatchRaw } from '../serve.js'
 import type { ActivityStore } from '../storage/activityStore.js'
+import { statusChangeWebhook } from '../tasks/statusChangeWebhook.js'
 import { TaskActions } from '../tasks/TaskActions.js'
 import { taskOfKey } from './ActivityPort.js'
 import { BoardReader, type BoardSpec } from './BoardReader.js'
@@ -91,6 +93,20 @@ export function mountInbox(
         options.log(`relanzar ${ref}: ${err instanceof Error ? err.message : String(err)}`)
       })
       return `volví a despachar ${last.type}`
+    },
+    // Como si la persona hubiera movido la card a Review: el intake lee la card y el PR frescos, y
+    // el pipeline de review corre con sus condiciones de siempre (PR abierto, sin blockers).
+    rerunReview: async (ref, by) => {
+      const card = await inbox.card(ref)
+      if (!card?.itemId) throw new Error(`${ref} no está en el board`)
+      const status = cfg.inbox.statuses.review
+      const delivery = statusChangeWebhook({ itemId: card.itemId, status, sender: by })
+      dispatchRaw(mounted, delivery, options.log).catch((err: unknown) => {
+        options.log(
+          `re-ejecutar review ${ref}: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      })
+      return `volví a correr ${status} para ${ref}`
     },
     stop: (ref, by) => {
       const running = store.activity.executions({

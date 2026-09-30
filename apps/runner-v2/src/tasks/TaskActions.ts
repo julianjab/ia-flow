@@ -1,7 +1,7 @@
 /**
  * Lo que una persona hace sobre una tarea desde la bandeja (o confirmando lo que propuso el
- * asistente): mergear, aprobar el PRD, devolverla, contestar y destrabar, relanzar, reintentar o
- * pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
+ * asistente): mergear, aprobar el PRD, devolverla, contestar y destrabar, relanzar, reintentar,
+ * re-ejecutar el review o pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
  * queda a su nombre en el board — y sólo si la bandeja dice que la acción aplica a la tarea.
  */
 import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
@@ -23,6 +23,8 @@ export interface TaskActionsOptions {
   settings: Pick<InboxSettings, 'labels' | 'statuses' | 'mergeMethod'>
   /** Vuelve a despachar el último evento de la tarea (relanzar, reintentar). */
   redispatch(ref: string, by: string): Promise<string>
+  /** Vuelve a correr el pipeline de Review, como si la card acabara de llegar ahí. */
+  rerunReview(ref: string, by: string): Promise<string>
   /** Le pide al agente que corre para la tarea que termine (suave: lo lee en su próxima vuelta). */
   stop(ref: string, by: string): string
   /** Después de un cambio: que la bandeja relea el board. */
@@ -179,6 +181,8 @@ export class TaskActions {
       }
       case 'stop':
         return this.options.stop(ref, login)
+      case 'rerun_review':
+        return this.options.rerunReview(ref, login)
     }
   }
 }
