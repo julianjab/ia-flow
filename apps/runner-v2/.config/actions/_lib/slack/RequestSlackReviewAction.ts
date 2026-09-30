@@ -102,15 +102,21 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
 
     const thread = readSection(body, SLACK_SECTION)?.match(/https?:\/\/\S+/)?.[0]
     const kind = thread ? 're-review' : 'first'
+    const message = buildSlackReviewMessage({
+      kind,
+      reviewers: target.reviewers,
+      prUrl: pr.html_url,
+      prTitle: pr.title,
+      messages: target.messages,
+    })
     const posted = await slack.postMessage({
       channel: target.channel,
-      text: buildSlackReviewMessage({
-        kind,
-        reviewers: target.reviewers,
-        prUrl: pr.html_url,
-        prTitle: pr.title,
-        messages: target.messages,
-      }),
+      // El mensaje que abre el hilo lleva SIEMPRE el issue y el PR: con ellos una respuesta en el
+      // hilo se resuelve a su task sin buscar (`_lib/intake/slack.ts`), aunque la plantilla no los
+      // incluya.
+      text: thread
+        ? message
+        : withThreadRefs(message, `${task.owner}/${task.repo}#${task.number}`, pr.html_url),
       ...(thread ? { threadTs: threadTsOf(thread) } : {}),
     })
     if (thread) return `Re-review pedido en el hilo: ${thread}`
@@ -159,6 +165,15 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
       )
     }
   }
+}
+
+/** El texto con el issue (`owner/repo#N`) y la URL del PR al final, si la plantilla no los trae. */
+export function withThreadRefs(text: string, issueRef: string, prUrl: string): string {
+  const missing = [
+    text.includes(issueRef) ? undefined : `Issue: ${issueRef}`,
+    text.includes(prUrl) ? undefined : prUrl,
+  ].filter((line): line is string => line !== undefined)
+  return missing.length > 0 ? `${text}\n${missing.join('\n')}` : text
 }
 
 /** La task del evento (lo que publica `resolve_task`). */

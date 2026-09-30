@@ -7,8 +7,9 @@ import {
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
 import type { BoardRef, GithubTaskReader } from './GithubTaskReader.js'
-import { type EventFields, locate, mergedBlocker } from './locate.js'
+import { type EventFields, type Location, locate, mergedBlocker } from './locate.js'
 import { eventMessage } from './message.js'
+import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { boardItem, issueRefs, linkedIssue, taskPayload } from './task.js'
 
 /** Un proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
@@ -65,6 +66,8 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   constructor(
     private readonly projects: () => ResolveTaskProject[],
     private readonly reader: GithubTaskReader,
+    /** Para las respuestas de un hilo de Slack (`slack.message`); sin esto se saltan. */
+    private readonly slack?: SlackLocateDeps,
   ) {
     super({ id: 'resolve_task' })
   }
@@ -72,10 +75,22 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   async execute(input: z.infer<typeof Input>, ctx: PipelineExecutionContext): Promise<Resolved> {
     const projects = this.projects()
     if (projects.length === 0) return { skipped: 'no hay proyectos montados' }
+    // Slack se lee una vez, aunque haya varios proyectos: dice de qué repo y PR es el hilo.
+    let slackLocation: Location | undefined
+    if (ctx.event.type.startsWith('slack.')) {
+      if (!this.slack) return { skipped: 'Slack no está configurado para el intake' }
+      slackLocation = await locateSlack(
+        (ctx.event.payload ?? {}) as Record<string, unknown>,
+        this.slack,
+      )
+      if ('skip' in slackLocation) return { skipped: slackLocation.skip }
+    }
     // Un item del board se lee una vez aunque haya varios proyectos.
     const reader = this.reader.withItemCache()
     const results = await Promise.all(
-      projects.map((project) => new ProjectResolver(project, reader).resolve(input, ctx)),
+      projects.map((project) =>
+        new ProjectResolver(project, reader).resolve(input, ctx, slackLocation),
+      ),
     )
     const emitted = results.flatMap((result) => ('emitted' in result ? result.emitted : []))
     if (emitted.length > 0) return { emitted }
@@ -94,12 +109,16 @@ class ProjectResolver {
     private readonly reader: GithubTaskReader,
   ) {}
 
-  async resolve(input: z.infer<typeof Input>, ctx: PipelineExecutionContext): Promise<Resolved> {
+  async resolve(
+    input: z.infer<typeof Input>,
+    ctx: PipelineExecutionContext,
+    located?: Location,
+  ): Promise<Resolved> {
     const raw = (ctx.event.payload ?? {}) as Record<string, unknown>
     const type = ctx.event.type.replace(/^github\./, '')
     if (input.unblockDependents) return this.unblocked(raw, ctx)
 
-    const location = locate(type, raw, this.project.branchPrefix)
+    const location = located ?? locate(type, raw, this.project.branchPrefix)
     if ('skip' in location) return { skipped: location.skip }
     const task =
       'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)

@@ -114,7 +114,13 @@ export const RunnerFileSchema = z.strictObject({
    *  taguear al asignado de una task (`request_slack_review`). Se lee al arrancar. */
   slack: z
     .strictObject({
-      users: z.record(z.string().min(1), SlackMemberRefSchema).optional(),
+      users: z
+        .record(z.string().min(1), SlackMemberRefSchema)
+        .refine((users) => {
+          const ids = Object.values(users).map((user) => user.id)
+          return new Set(ids).size === ids.length
+        }, 'dos logins con el mismo id de Slack: la búsqueda inversa (Slack → GitHub) sería ambigua')
+        .optional(),
     })
     .optional(),
   settings: z

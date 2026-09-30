@@ -21,5 +21,21 @@ export default defineAction({
           reposText: reposText(project),
         })),
       new GithubTaskReader(ctx.services.github),
+      {
+        users: ctx.services.slackUsers,
+        threads: {
+          rootOf: async (channel, threadTs) => {
+            const [root] = await ctx.services.slack.replies({ channel, ts: threadTs })
+            if (!root) return undefined
+            const botId = await ctx.services.slack.botUserId().catch(() => undefined)
+            return {
+              text: root.text ?? '',
+              fromBot: root.bot_id !== undefined || (botId !== undefined && root.user === botId),
+            }
+          },
+          permalink: (channel, ts) => ctx.services.slack.permalink(channel, ts),
+          userName: (userId) => ctx.services.slack.userName(userId),
+        },
+      },
     ),
 })
