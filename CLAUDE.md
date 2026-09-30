@@ -32,7 +32,7 @@ packages/provider-remote/     @ia-flow/provider-remote — un Provider en otra m
 packages/telemetry/    @ia-flow/telemetry — trazas y logs (OpenTelemetry)
 packages/github/       auth/ api/ webhook/ tools/ — @ia-flow/github-{auth,api,webhook,tools}
 packages/local/        fs/ shell/ workspace/ — @ia-flow/{fs-tools,shell-tools,workspace}
-packages/slack/        api/ tools/ — @ia-flow/slack-{api,tools}
+packages/slack/        api/ tools/ socket/ — @ia-flow/slack-{api,tools,socket}
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 scripts/               One-off ops scripts (GitHub Project setup, proxy de webhooks)
 .claude/               Agents, commands, hooks, settings for this repo
@@ -60,7 +60,7 @@ github-tools          → agent-engine, github-api, github-auth
 fs-tools, shell-tools → agent-engine
 slack-tools           → agent-engine, slack-api
 workspace             → agent-engine, fs-tools, shell-tools
-github-auth, github-webhook, slack-api, telemetry → nada del monorepo (standalone)
+github-auth, github-webhook, slack-api, slack-socket, telemetry → nada del monorepo (standalone)
 web → shared
 ```
 
@@ -90,6 +90,7 @@ un paquete**. En una línea:
 | `@ia-flow/fs-tools` | `fs_read`/`fs_list`/`fs_grep`/`fs_write`/`fs_edit`, contenidas a un `baseDir` |
 | `@ia-flow/shell-tools` | `bash_run` sin shell, contra una policy allow/deny posicional |
 | `@ia-flow/slack-api` | Cliente de la Web API de Slack (bot token) + el pedido de review, puro. Standalone |
+| `@ia-flow/slack-socket` | Slack por Socket Mode (app token `xapp-`): recibe menciones y mensajes de hilo por WebSocket —sin URL pública ni firmas—, con ack inmediato, dedupe, filtro de bots y reconexión. Standalone |
 | `@ia-flow/slack-tools` | Las `Action` de Slack de un agente: leer un hilo o un canal, publicar |
 | `@ia-flow/workspace` | Clone persistente por repo + `git worktree` por task, con locks, reuso y limpieza; lo enchufa al engine |
 

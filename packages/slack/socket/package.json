@@ -1,0 +1,20 @@
+{
+  "name": "@ia-flow/slack-socket",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Slack Socket Mode (app token): recibe menciones y mensajes de hilo por WebSocket, sin URL pública — sin SDK, fetch y WebSocket inyectables",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}
