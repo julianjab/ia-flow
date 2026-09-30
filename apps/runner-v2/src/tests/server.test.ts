@@ -82,6 +82,13 @@ describe('webhook server', () => {
     expect(onDelivery).not.toHaveBeenCalled()
   })
 
+  it('answers /health with 200 even without a webhook secret', async () => {
+    const { base } = await start(undefined)
+    const res = await fetch(`${base}/health`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+  })
+
   it('answers ping without handing it over', async () => {
     const { base, onDelivery } = await start(SECRET)
     const body = JSON.stringify({ zen: 'hi' })
