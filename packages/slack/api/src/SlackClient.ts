@@ -30,6 +30,7 @@ interface SlackResponse {
 
 export class SlackClient {
   private readonly names = new Map<string, string>()
+  private botId?: string
 
   constructor(private readonly options: SlackClientOptions) {}
 
@@ -98,6 +99,15 @@ export class SlackClient {
     } catch {
       return userId
     }
+  }
+
+  /** El id de Slack del bot (`U…`, de `auth.test`), para reconocer sus propios mensajes. Se pide una
+   *  sola vez. */
+  async botUserId(): Promise<string> {
+    if (this.botId) return this.botId
+    const { user_id } = await this.call<{ user_id: string }>('auth.test', {}, 'POST')
+    this.botId = user_id
+    return user_id
   }
 
   private token(): string | undefined {
