@@ -28,6 +28,9 @@ apps/agent-host/agent-host.backend.yaml
 apps/runner-v2/.config/
 apps/runner-v2/.state/
 
+# El lockfile binario de Bun < 1.2: el que se versiona es `bun.lock` (texto).
+bun.lockb
+
 # El workspace de un editor es de cada quien.
 *.code-workspace
 
