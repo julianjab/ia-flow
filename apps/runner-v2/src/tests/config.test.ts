@@ -64,6 +64,27 @@ describe('runner.yaml', () => {
     expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido[\s\S]*token/)
   })
 
+  it('the database defaults to <IA_FLOW_HOME>/runner.sqlite, never next to the config', () => {
+    const previous = process.env.IA_FLOW_HOME
+    process.env.IA_FLOW_HOME = '/tmp/ia-flow-home-test'
+    try {
+      expect(loadRunnerConfig(CONFIG_DIR).engine.executions?.path).toBe(
+        '/tmp/ia-flow-home-test/runner.sqlite',
+      )
+      const dir = configCopy({
+        'runner.yaml': (s) =>
+          s.replace(
+            '    driver: bun-sqlite\n',
+            '    driver: bun-sqlite\n    path: ./db/x.sqlite\n',
+          ),
+      })
+      expect(loadRunnerConfig(dir).engine.executions?.path).toBe(join(dir, 'db/x.sqlite'))
+    } finally {
+      if (previous === undefined) delete process.env.IA_FLOW_HOME
+      else process.env.IA_FLOW_HOME = previous
+    }
+  })
+
   it('a project.yaml without its board breaks the load', () => {
     const dir = configCopy({
       'projects/lahaus-ai-flow/project.yaml': (s) => s.replace(/^board: .*$/m, ''),
