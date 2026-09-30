@@ -124,6 +124,7 @@ bun run start                                     # verifica GitHub, carga y val
 bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
 bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks
+IA_FLOW_PROVIDER_HOST_TOKEN=... bun run host     # presta los providers locales a otros runners
 bun test
 bun run typecheck
 ```
@@ -143,6 +144,45 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `CLAUDE_CODE_OAUTH_TOKEN` | la credencial del provider `claude-cli` (el CLI `claude`) |
 | `SLACK_BOT_TOKEN` | las actions de Slack y `request_slack_review` |
 | `MEMORY_MCP_URL` | el MCP de memoria (`runner.yaml` lo nombra como `${MEMORY_MCP_URL}`) |
+| `IA_FLOW_PROVIDER_HOST_TOKEN`, `IA_FLOW_PROVIDER_HOST_PORT` | `--host`: el bearer que se exige y el puerto (default 3002) |
+
+## Providers en otra máquina (`type: remote` y `--host`)
+
+Un runner puede correr un agente con el provider de OTRA máquina —una con el CLI `claude`
+logueado, más RAM, otra red— sin que ese agente se entere: es el `RemoteAgentProvider` +
+`agent-host` de v1 sobre el engine nuevo, en [`@ia-flow/provider-remote`](../../packages/provider-remote).
+
+La máquina que presta levanta este mismo runner con `--host` (su propia `.config`: sus
+providers, su GitHub para clonar el worktree):
+
+```yaml
+# runner.yaml de la máquina que presta
+providers:
+  claude-cli: { type: claude-cli, mode: print, maxConcurrent: 2 }
+host:
+  port: 3002
+  providers: [claude-cli]          # default: todos los locales
+  rules:                           # qué trabajo toma: todas tienen que pasar
+    - { field: repo, op: matches, value: la-haus/* }
+```
+
+Y el runner que despacha la declara como un provider más; los agentes la nombran por su clave:
+
+```yaml
+# runner.yaml del runner que despacha
+providers:
+  gpu-box:
+    type: remote
+    url: http://gpu-box:3002
+    token: ${IA_FLOW_REMOTE_GPU_BOX_TOKEN}   # el IA_FLOW_PROVIDER_HOST_TOKEN del otro lado
+    provider: claude-cli                     # el id allá (default: esta misma clave)
+    maxConcurrent: 2
+```
+
+Las tools del agente corren en el runner que despacha (vuelven por el mismo canal: el host no
+se conecta de vuelta); el modelo y las tools nativas del CLI, en el host. Con un CLI remoto hay
+dos worktrees: un agente así no debería declarar actions de disco (`fs_*`, `bash_run`). El
+detalle —pistas de admisión, silencio, huérfanas, límites— en el README del paquete.
 
 ## Tareas bloqueadas por otras (`mark_blocked_by`)
 
@@ -160,4 +200,5 @@ catálogo, no sólo de `claw-agents`.
 - Las tools `memory_*` del implementer: la memoria es el MCP oficial (`memory-mcp` en
   `runner.yaml`, `bun run memory-mcp`), no tools nativas.
 - Los `settings` del runner v1 (`apps/server`) que este runner no implementa (API, websocket,
-  polling, remote providers): `runner.yaml` sólo acepta lo que se usa.
+  polling): `runner.yaml` sólo acepta lo que se usa. Los remote providers sí se portaron
+  (`type: remote` y `--host`, arriba), sin el registro dinámico de hosts ni su pantalla.

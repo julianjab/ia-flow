@@ -14,7 +14,8 @@ const host = new RemoteProviderHost({
   token: process.env.IA_FLOW_PROVIDER_HOST_TOKEN,
   admit: admissionRules([{ field: 'repo', op: 'matches', value: 'la-haus/*' }]),
 })
-Bun.serve({ port: 3002, fetch: host.fetch })
+// idleTimeout: Bun corta a los 10 s por default, y cada sync espera hasta 15 s (long-poll).
+Bun.serve({ port: 3002, fetch: host.fetch, idleTimeout: 60 })
 
 // el runner
 providerRegistry.register(

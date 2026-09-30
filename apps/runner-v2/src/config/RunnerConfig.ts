@@ -22,6 +22,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
+import { AdmissionRule } from '@ia-flow/provider-remote'
 import type { SlackReviewConfig } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
@@ -130,6 +131,21 @@ export const RunnerFileSchema = z.strictObject({
     .optional(),
   /** Los defaults de cada provider para todos sus agentes (`anthropic-api: { maxTokens, … }`). */
   providers: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
+  /** `--host`: cómo expone este runner sus providers locales a otros runners
+   *  (`@ia-flow/provider-remote`). El token va en IA_FLOW_PROVIDER_HOST_TOKEN, nunca acá. */
+  host: z
+    .strictObject({
+      /** Env: IA_FLOW_PROVIDER_HOST_PORT (gana). Default: 3002. */
+      port: z.number().int().positive().optional(),
+      /** Cuáles expone. Default: todos los locales (no los `type: remote`). */
+      providers: z.array(z.string().min(1)).optional(),
+      /** Qué trabajo toma esta máquina: reglas sobre las pistas de cada corrida (`repo`,
+       *  `agentId`, `eventType`, el `scope`), todas tienen que pasar. */
+      rules: z.array(AdmissionRule).optional(),
+      /** Cuánto sin noticias del runner hasta cortar una corrida. Default: 120. */
+      orphanAfterSeconds: z.number().int().positive().optional(),
+    })
+    .optional(),
   mcp: z.array(McpEntrySchema).default([]),
   /** Cómo corre el engine (`engine/mountEngine.ts`). */
   engine: EngineSection.default({}),
@@ -189,6 +205,7 @@ export interface RunnerConfig {
   settings: NonNullable<RunnerFile['settings']>
   github: NonNullable<RunnerFile['github']>
   providers: Record<string, Record<string, unknown>>
+  host: NonNullable<RunnerFile['host']>
   mcp: McpEntry[]
   engine: EngineSection
   /** Los módulos de las actions globales. */
@@ -328,6 +345,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     settings: file.settings ?? {},
     github: file.github ?? {},
     providers: file.providers,
+    host: file.host ?? {},
     mcp: file.mcp,
     engine: file.engine,
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),

@@ -8,6 +8,7 @@
  *   (nada)      verifica GitHub, resuelve MCP, carga y valida todo, y reporta. Todo es real:
  *               las actions escriben en GitHub y los agentes llaman a la Messages API.
  *   --serve     servidor de webhooks.
+ *   --host      presta sus providers locales a otros runners (`type: remote` del otro lado).
  *   --event     un webhook crudo desde un archivo; --replay-pr, un PR real como `opened`.
  *
  *   bun run src/main.ts
@@ -22,6 +23,7 @@ import { createLogger } from '@ia-flow/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
+import { createProviderHost, DEFAULT_HOST_PORT, hostedProviders } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
 import { startTelemetry, type Telemetry } from './telemetry.js'
@@ -103,6 +105,40 @@ async function startServing(
   }
 }
 
+/** El host de providers: los locales de este runner, para los `type: remote` de otros. Como el
+ *  servidor de webhooks, no termina solo. */
+function startHosting(
+  mounted: MountedRunner,
+  cfg: RunnerConfig,
+  telemetry: Telemetry,
+  log: (line: string) => void,
+): void {
+  const registered = registerProviders(cfg.providers, {
+    cwd: (ctx) => mounted.services.session.dirFor(ctx),
+    log,
+  })
+  const providers = hostedProviders(registered, cfg.host)
+  const host = createProviderHost(providers, cfg.host, process.env.IA_FLOW_PROVIDER_HOST_TOKEN)
+  const port = positiveInt(
+    process.env.IA_FLOW_PROVIDER_HOST_PORT,
+    cfg.host.port ?? DEFAULT_HOST_PORT,
+  )
+  // Bun corta una conexión inactiva a los 10 s por default, y cada sync del runner espera hasta
+  // 15 s (long-poll): sin esto, todos se cortarían a mitad de la espera.
+  const server = Bun.serve({ port, fetch: host.fetch, idleTimeout: 60 })
+  console.log(
+    `→ host: ${providers.map((provider) => provider.id).join(', ')} en http://localhost:${server.port}/v1${cfg.host.rules?.length ? ` (${cfg.host.rules.length} reglas de admisión)` : ''}`,
+  )
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      host.close()
+      void server.stop()
+      mounted.stop()
+      void telemetry.shutdown().finally(() => process.exit(0))
+    })
+  }
+}
+
 /** Un webhook crudo: `--event` (desde un archivo) o `--replay-pr` (un PR real, como `opened`). */
 async function dispatchOne(
   mounted: MountedRunner,
@@ -158,6 +194,10 @@ async function main(): Promise<'serving' | 'done'> {
 
   if (args.serve) {
     await startServing(mounted, cfg, started, log)
+    return 'serving'
+  }
+  if (args.host) {
+    startHosting(mounted, cfg, started, log)
     return 'serving'
   }
   try {

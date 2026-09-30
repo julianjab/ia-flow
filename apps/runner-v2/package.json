@@ -9,7 +9,8 @@
     "start": "bun run src/main.ts",
     "serve": "bun run src/main.ts --serve",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test"
+    "test": "bun test",
+    "host": "bun run src/main.ts --host"
   },
   "dependencies": {
     "@ia-flow/agent-engine": "workspace:*",
@@ -22,6 +23,7 @@
     "@ia-flow/github-webhook": "workspace:*",
     "@ia-flow/provider-anthropic": "workspace:*",
     "@ia-flow/provider-claude-cli": "workspace:*",
+    "@ia-flow/provider-remote": "workspace:*",
     "@ia-flow/slack-api": "workspace:*",
     "@ia-flow/slack-tools": "workspace:*",
     "@ia-flow/telemetry": "workspace:*",
