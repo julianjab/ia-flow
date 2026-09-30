@@ -5,19 +5,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 type Script = (req: AssistantRequest, signal?: AbortSignal) => AsyncGenerator<AssistantStreamEvent>
 let script: Script = async function* () {}
 const requests: AssistantRequest[] = []
+const streamOpts: Array<{ githubToken?: string }> = []
 
 const executeProposal = vi.fn()
 const fetchProjects = vi.fn()
 
 vi.mock('../api', () => ({
-  streamAssistant: (req: AssistantRequest, opts: { signal?: AbortSignal }) => {
+  streamAssistant: (
+    req: AssistantRequest,
+    opts: { signal?: AbortSignal; githubToken?: string },
+  ) => {
     requests.push(JSON.parse(JSON.stringify(req)))
+    streamOpts.push({ ...(opts.githubToken ? { githubToken: opts.githubToken } : {}) })
     return script(req, opts.signal)
   },
   executeProposal: (...a: unknown[]) => executeProposal(...a),
   fetchProjects: () => fetchProjects(),
 }))
 
+import { useGithubSessionStore } from '@/stores/githubSession'
 import { sameScope, useAssistantChatStore } from '../store'
 
 const proposal: AssistantProposal = {
@@ -39,6 +45,7 @@ describe('useAssistantChatStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     requests.length = 0
+    streamOpts.length = 0
     script = say('respuesta')
     executeProposal.mockReset()
     fetchProjects.mockReset().mockResolvedValue([])
@@ -91,6 +98,83 @@ describe('useAssistantChatStore', () => {
       'assistant:respuesta',
       'user:dos',
     ])
+  })
+
+  describe('conversaciones guardadas', () => {
+    const saved = (text: string): Script =>
+      async function* () {
+        yield { type: 'text', delta: text }
+        yield { type: 'conversation', id: 'c1' }
+        yield { type: 'done', text }
+      }
+
+    it('con login, la respuesta trae su conversación y la próxima pregunta la sigue', async () => {
+      useGithubSessionStore().github = { login: 'julian', token: 'gho_1' }
+      script = saved('uno')
+      const chat = useAssistantChatStore()
+      await chat.send('¿qué pasó?')
+      expect(chat.conversationId).toBe('c1')
+      await chat.send('¿y ahora?')
+      expect(requests[1]?.conversation_id).toBe('c1')
+      expect(streamOpts[1]).toEqual({ githubToken: 'gho_1' })
+    })
+
+    it('sin login no se manda ni el token ni la conversación', async () => {
+      const chat = useAssistantChatStore()
+      chat.conversationId = 'c1'
+      await chat.send('hola')
+      expect(requests[0]?.conversation_id).toBeUndefined()
+      expect(streamOpts[0]).toEqual({})
+    })
+
+    it('«Nueva» empieza de cero en el mismo contexto: el modelo ya no ve lo anterior', async () => {
+      useGithubSessionStore().github = { login: 'julian', token: 'gho_1' }
+      script = saved('uno')
+      const chat = useAssistantChatStore()
+      chat.setScope({ kind: 'task', ref: 'acme/api#7' })
+      await chat.send('primera')
+      chat.newConversation()
+      expect(chat.turns).toEqual([])
+      expect(chat.conversationId).toBeNull()
+      expect(chat.scope).toEqual({ kind: 'task', ref: 'acme/api#7' })
+      await chat.send('segunda')
+      expect(requests[1]?.messages).toEqual([{ role: 'user', content: 'segunda' }])
+      expect(requests[1]?.conversation_id).toBeUndefined()
+    })
+
+    it('retomar una conversación la dibuja y la sigue; sus propuestas ya no se ejecutan desde acá', async () => {
+      const chat = useAssistantChatStore()
+      chat.resume({
+        id: 'c9',
+        scope: { kind: 'task', ref: 'acme/api#7' },
+        title: '¿qué hago?',
+        created_at: '2026-09-30T10:00:00Z',
+        updated_at: '2026-09-30T10:01:00Z',
+        messages: 2,
+        thread: [
+          { role: 'user', content: '¿qué hago?', created_at: 'x', proposals: [], tasks: [] },
+          {
+            role: 'assistant',
+            content: 'Mergeá.',
+            created_at: 'x',
+            proposals: [proposal],
+            tasks: [],
+          },
+        ],
+      })
+      expect(chat.scope).toEqual({ kind: 'task', ref: 'acme/api#7' })
+      expect(chat.conversationId).toBe('c9')
+      expect(chat.turns.map((t) => t.kind)).toEqual(['user', 'assistant', 'proposal'])
+      expect(chat.turns[2]).toMatchObject({ status: 'past' })
+      useGithubSessionStore().github = { login: 'julian', token: 'gho_1' }
+      await chat.send('¿y después?')
+      expect(requests[0]?.messages.map((m) => m.content)).toEqual([
+        '¿qué hago?',
+        'Mergeá.',
+        '¿y después?',
+      ])
+      expect(requests[0]?.conversation_id).toBe('c9')
+    })
   })
 
   it('una línea de actividad se ve mientras trabaja y se va al terminar', async () => {
