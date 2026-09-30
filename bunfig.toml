@@ -1,0 +1,5 @@
+# Bun >= 1.3 instala los workspaces con el linker `isolated` por default: zod queda en
+# node_modules/.bun y no en node_modules/zod, que es donde lo fija `paths` de runner-v2 (UNA sola
+# instancia de zod para el engine y las actions de .config). Hoisted, como con Bun 1.1.
+[install]
+linker = "hoisted"
