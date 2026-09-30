@@ -161,6 +161,9 @@ sources:
     whenText: { agent: text-classifier }
     # `fs_read` con `focus` sobre un archivo grande: sólo las partes pedidas.
     fileFocus: { agent: file-focus }
+    # El nombre de la rama de una task en un proyecto sin `branchPrefix`
+    # (`feat/<slug>`, como ia-flow). Sin esto, `task/<número>`.
+    branchName: { agent: branch-namer }
 
   # Las actions globales (código: sólo rutas). Las ve toda fuente; las de un
   # proyecto van en su project.yaml y ganan sobre éstas. Un directorio toma sus

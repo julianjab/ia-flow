@@ -5,6 +5,7 @@ import {
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
 import { z } from 'zod'
+import { TaskBranches } from './branch.js'
 import type { BoardRef, GithubTaskReader } from './GithubTaskReader.js'
 import { type EventFields, locate, mergedBlocker } from './locate.js'
 import { eventMessage } from './message.js'
@@ -14,7 +15,9 @@ import { boardItem, issueRefs, linkedIssue, taskPayload } from './task.js'
 export interface ResolveTaskProject {
   id: string
   board: BoardRef
-  branchPrefix: string
+  /** Con prefijo, la rama de la task es `<prefijo><número>`; sin él, como ia-flow (ver
+   *  `TaskBranches`). */
+  branchPrefix?: string
   /** `owner/repo` de cada repo del catálogo. */
   repos: string[]
   /** `{{project.repos}}` de los prompts: el catálogo en texto. */
@@ -157,15 +160,17 @@ class ProjectResolver {
       this.project.board,
     )
     if (!card) return { skip: `${ref} no está en el board de ${this.project.id}` }
-    const context = await this.reader.context({
-      ...task,
-      branch: `${this.project.branchPrefix}${task.number}`,
-    })
+    const branches = new TaskBranches(this.reader, this.project.branchPrefix)
+    const known = await branches.known(task)
+    const context = await this.reader.context({ ...task, ...(known ? { branch: known } : {}) })
     const { label } = this.project
     const labels = context.issue.labels.map((l) => (typeof l === 'string' ? l : l.name))
     if (label && !labels.includes(label)) {
       return { skip: `${ref} no tiene la label \`${label}\`: no es de este runner` }
     }
+    // Recién acá, con la task ya confirmada de este runner: proponer un nombre puede costar un modelo.
+    const branch =
+      known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx))
     const built = taskPayload({
       ...task,
       ...fields,
@@ -173,7 +178,7 @@ class ProjectResolver {
       card,
       ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
       projectId: this.project.id,
-      branchPrefix: this.project.branchPrefix,
+      branch,
       repos: this.project.reposText,
     })
     if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }

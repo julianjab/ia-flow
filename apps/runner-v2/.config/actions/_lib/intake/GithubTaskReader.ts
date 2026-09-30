@@ -39,6 +39,12 @@ const ISSUE_OF_ITEM = `query($id: ID!) {
   }
 }`
 
+const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) { linkedBranches(first: 10) { nodes { ref { name } } } }
+  }
+}`
+
 const REVIEW_THREADS = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
@@ -126,6 +132,18 @@ export class GithubTaskReader {
     return this.client.requestJson(`/repos/${owner}/${repo}/pulls/${number}`)
   }
 
+  /** Las ramas vinculadas al issue (su sección "Development"): la de la task, si ya tiene una. */
+  async linkedBranches(owner: string, repo: string, number: number): Promise<string[]> {
+    const data = await this.client.graphql<{
+      repository?: {
+        issue?: { linkedBranches?: { nodes?: Array<{ ref?: { name: string } | null }> } } | null
+      } | null
+    }>(LINKED_BRANCHES, { owner, repo, number })
+    return (data.repository?.issue?.linkedBranches?.nodes ?? [])
+      .map((node) => node.ref?.name)
+      .filter((name): name is string => Boolean(name))
+  }
+
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */
   dependents(owner: string, repo: string, number: number) {
     return this.client.requestJson<
@@ -133,14 +151,14 @@ export class GithubTaskReader {
     >(`/repos/${owner}/${repo}/issues/${number}/dependencies/blocking`)
   }
 
-  /** El issue, sus blockers y su timeline; con PR abierto (el del evento, o el de su rama), el
-   *  timeline del PR y su CI. */
+  /** El issue, sus blockers y su timeline; con PR abierto (el del evento, o el de su rama, si ya
+   *  se sabe cuál es), el timeline del PR y su CI. */
   async context(task: {
     owner: string
     repo: string
     number: number
     pr?: number
-    branch: string
+    branch?: string
   }): Promise<RawTaskContext> {
     const base = `/repos/${task.owner}/${task.repo}`
     const [issue, blockers, issueComments, pr] = await Promise.all([
@@ -178,11 +196,13 @@ export class GithubTaskReader {
     }
   }
 
-  /** El PR del evento si sigue abierto; si no trae uno, el abierto desde la rama de la task. */
-  private async openPr(base: string, task: { owner: string; pr?: number; branch: string }) {
+  /** El PR del evento si sigue abierto; si no trae uno, el abierto desde la rama de la task. Sin
+   *  rama todavía (una task nueva, sin prefijo), no hay PR que buscar. */
+  private async openPr(base: string, task: { owner: string; pr?: number; branch?: string }) {
     if (task.pr !== undefined) {
       return openPr(await this.client.requestJson<RawPr>(`${base}/pulls/${task.pr}`), undefined)
     }
+    if (!task.branch) return undefined
     const head = encodeURIComponent(`${task.owner}:${task.branch}`)
     return openPr(
       undefined,

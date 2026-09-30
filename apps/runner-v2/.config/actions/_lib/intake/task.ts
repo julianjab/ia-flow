@@ -26,9 +26,9 @@ const same = (a: unknown, b: unknown) =>
 export function linkedIssue(
   head: string | undefined,
   body: string | undefined,
-  prefix: string,
+  prefix: string | undefined,
 ): number | undefined {
-  if (head?.startsWith(prefix)) {
+  if (prefix && head?.startsWith(prefix)) {
     const n = head.slice(prefix.length)
     if (/^\d+$/.test(n)) return Number(n)
   }
@@ -130,7 +130,8 @@ export interface TaskInput {
   checks?: Array<{ status: string; conclusion: string | null }>
   statuses?: Array<{ state: string }>
   projectId: string
-  branchPrefix: string
+  /** La rama de la task (`task.branch`). */
+  branch: string
   /** `{{project.repos}}` de los prompts. */
   repos: string
 }
@@ -185,7 +186,7 @@ export function taskPayload(input: TaskInput) {
     blocked: blockers.length > 0,
     payload: assemblePayload(args, issue, {
       repos: input.repos,
-      branchPrefix: input.branchPrefix,
+      branch: input.branch,
     }),
     // `repo`/`issue` además del proyecto: la telemetría los hereda a todo lo que corre debajo.
     scope: { projectId: input.projectId, repo: `${input.owner}/${input.repo}`, issue: task },

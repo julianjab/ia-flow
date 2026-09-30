@@ -15,7 +15,7 @@ export default defineAction({
         ctx.projects().map((project) => ({
           id: project.id,
           board: project.board,
-          branchPrefix: project.branchPrefix,
+          ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
           ...(project.label ? { label: project.label } : {}),
           repos: repoRefs(project),
           reposText: reposText(project),

@@ -39,7 +39,7 @@ export type Location =
   /** Un issue de `owner/repo`: `number`, o el que implementa el PR `inspect` (hay que leerlo). */
   | ({ owner: string; repo: string; number?: number; pr?: number; inspect?: number } & EventFields)
 
-export function locate(type: string, raw: Raw, branchPrefix: string): Location {
+export function locate(type: string, raw: Raw, branchPrefix: string | undefined): Location {
   switch (type) {
     case 'projects_v2_item':
       return boardItem(raw)
@@ -97,7 +97,7 @@ function comment(raw: Raw): Location {
   return { owner, repo, number, ...fields }
 }
 
-function pullRequest(type: string, raw: Raw, branchPrefix: string): Location {
+function pullRequest(type: string, raw: Raw, branchPrefix: string | undefined): Location {
   const review =
     type === 'pull_request_review' ? parseGithubPullRequestReviewPayload(raw) : undefined
   const pr = review ?? parseGithubPullRequestPayload(raw)
@@ -127,14 +127,20 @@ function pullRequest(type: string, raw: Raw, branchPrefix: string): Location {
   }
 }
 
-function ciRun(type: 'check_suite' | 'workflow_run', raw: Raw, branchPrefix: string): Location {
+function ciRun(
+  type: 'check_suite' | 'workflow_run',
+  raw: Raw,
+  branchPrefix: string | undefined,
+): Location {
   // El CI manda decenas de deliveries por push; las pipelines sólo escuchan `completed`.
   if (raw.action !== 'completed') return { skip: `${type}.${raw.action}` }
   const run = parseGithubCheckPayload(type, raw)
   const prNumber = run.prNumbers[0]
   const number = linkedIssue(run.branch, '', branchPrefix) ?? prNumber
   if (number === undefined) {
-    return { skip: `corrida sin PR ni rama ${branchPrefix}<n> (${run.branch})` }
+    return {
+      skip: `corrida sin PR${branchPrefix ? ` ni rama ${branchPrefix}<n>` : ''} (${run.branch})`,
+    }
   }
   return {
     owner: run.owner,
@@ -159,7 +165,7 @@ function ciRun(type: 'check_suite' | 'workflow_run', raw: Raw, branchPrefix: str
 /** El issue que implementa un PR mergeado — el prerrequisito que el merge cierra. */
 export function mergedBlocker(
   raw: Raw,
-  branchPrefix: string,
+  branchPrefix: string | undefined,
 ): { skip: string } | { owner: string; repo: string; number: number } {
   const pr = parseGithubPullRequestPayload(raw)
   if (!pr.merged) return { skip: `PR #${pr.number} cerrado sin mergear` }

@@ -77,8 +77,9 @@ export const SlackReviewSchema = z.object({
 export const ProjectFileSchema = z.strictObject({
   /** El GitHub Project v2 del proyecto: `https://github.com/orgs/<org>/projects/<n>`. */
   board: z.string().regex(/github\.com\/orgs\/[^/]+\/projects\/\d+/, 'un GitHub Project v2 de org'),
-  /** `task.branch` = `<branchPrefix><número>`. */
-  branchPrefix: z.string().min(1).default('ia-flow/'),
+  /** Con esto, `task.branch` = `<branchPrefix><número>`. Sin esto, como ia-flow: la rama
+   *  vinculada al issue, o la que propone la capacidad `branchName` (`feat/<slug>`). */
+  branchPrefix: z.string().min(1).optional(),
   /** Sólo las cards con esta label son de este runner — para convivir con otro engine sobre el
    *  mismo board. Sin esto, todas las del board. */
   label: z.string().min(1).optional(),
@@ -156,7 +157,7 @@ export interface ProjectConfig {
   /** Contra qué se resuelven sus rutas: la carpeta de su `project.yaml`. */
   dir: string
   board: { owner: string; number: number }
-  branchPrefix: string
+  branchPrefix?: string
   /** Ver `label` en `project.yaml`. */
   label?: string
   /** Ver `maxConcurrent` en `project.yaml`. */
@@ -289,7 +290,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     id,
     dir: at.base,
     board: parseBoard(project.board),
-    branchPrefix: project.branchPrefix,
+    ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
     ...(project.label ? { label: project.label } : {}),
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
     slackReview: {

@@ -38,7 +38,8 @@ export function assemblePayload(
   project: {
     /** `{{project.repos}}` de los prompts: el catálogo de repos del proyecto, en texto. */
     repos: string
-    branchPrefix: string
+    /** La rama de la task. */
+    branch: string
   },
 ): Record<string, unknown> {
   const labels = args.labels.length > 0 ? args.labels : issue.labels
@@ -60,7 +61,7 @@ export function assemblePayload(
       issueUrl: issue.url,
       repos: args.repo,
       repo: { name: args.repo },
-      branch: `${project.branchPrefix}${args.number}`,
+      branch: project.branch,
       comments: '',
       ...(args.pr
         ? {
