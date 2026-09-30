@@ -6,8 +6,12 @@
  *   projects_v2_item     created → issue.created · Status → issue.status_changed (from/to) ·
  *                        otro campo → projects_v2_item.edited
  *   issue_comment        el issue, o el que implementa el PR si se comentó en un PR
- *   pull_request(_review) el issue que implementa el PR (rama o `Closes #n`), o el PR mismo
- *   check_suite, workflow_run   la task de la rama `<prefijo><n>`, o la del PR; sólo `completed`
+ *   pull_request(_review) el issue que implementa el PR (rama o `Closes #n`); sin él, se salta
+ *   check_suite, workflow_run   la task de la rama `<prefijo><n>`, o la del PR (hay que leerlo);
+ *                        sólo `completed`
+ *
+ * Un PR sin issue vinculado no es una task: su número no resuelve como `Issue` en GraphQL, así
+ * que usarlo como número de task rompía el despacho con `Could not resolve to an Issue`.
  *
  * Los filtros baratos van acá, antes de cualquier lectura: una acción que ninguna pipeline
  * escucha, un item que no es un issue, un CI que no terminó.
@@ -101,10 +105,12 @@ function pullRequest(type: string, raw: Raw, branchPrefix: string | undefined): 
   const review =
     type === 'pull_request_review' ? parseGithubPullRequestReviewPayload(raw) : undefined
   const pr = review ?? parseGithubPullRequestPayload(raw)
+  const number = linkedIssue(pr.headRef, pr.body, branchPrefix)
+  if (number === undefined) return { skip: `PR #${pr.number} no cierra ningún issue` }
   return {
     owner: pr.owner,
     repo: pr.repo,
-    number: linkedIssue(pr.headRef, pr.body, branchPrefix) ?? pr.number,
+    number,
     pr: pr.number,
     emit: type,
     extra: {
@@ -136,8 +142,9 @@ function ciRun(
   if (raw.action !== 'completed') return { skip: `${type}.${raw.action}` }
   const run = parseGithubCheckPayload(type, raw)
   const prNumber = run.prNumbers[0]
-  const number = linkedIssue(run.branch, '', branchPrefix) ?? prNumber
-  if (number === undefined) {
+  const number = linkedIssue(run.branch, '', branchPrefix)
+  // Sin la rama de la task, el issue lo dice el PR (su body): `inspect` lo lee.
+  if (number === undefined && prNumber === undefined) {
     return {
       skip: `corrida sin PR${branchPrefix ? ` ni rama ${branchPrefix}<n>` : ''} (${run.branch})`,
     }
@@ -145,8 +152,8 @@ function ciRun(
   return {
     owner: run.owner,
     repo: run.repo,
-    number,
-    ...(prNumber !== undefined ? { pr: prNumber } : {}),
+    ...(number !== undefined ? { number } : {}),
+    ...(prNumber !== undefined ? { pr: prNumber, inspect: prNumber } : {}),
     emit: type,
     extra: {
       action: raw.action,

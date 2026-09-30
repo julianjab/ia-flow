@@ -134,10 +134,11 @@ class ProjectResolver {
       return { skipped: `${owner}/${repo} no es del catálogo de ${this.project.id}` }
     }
     let number = location.number
-    if (location.inspect !== undefined) {
+    if (number === undefined && location.inspect !== undefined) {
       const pr = await this.reader.pull(owner, repo, location.inspect)
-      number =
-        linkedIssue(pr.head.ref, pr.body ?? '', this.project.branchPrefix) ?? location.inspect
+      number = linkedIssue(pr.head.ref, pr.body ?? '', this.project.branchPrefix)
+      // Un PR sin issue no es una task: su número no resuelve como `Issue`.
+      if (number === undefined) return { skipped: `PR #${location.inspect} no cierra ningún issue` }
     }
     if (number === undefined) return { skipped: 'el webhook no dice de qué issue es' }
     return { owner, repo, number, ...(location.pr !== undefined ? { pr: location.pr } : {}) }
