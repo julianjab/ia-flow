@@ -98,7 +98,14 @@ routes:
   approved:
     when: >-
       El diff cumple el PRD y pasa las validaciones: listo para un humano.
-    to: { action: update_issue, with: { addLabels: [ reviewed ] } }
+    # Primero la marca, después el pedido en Slack: si Slack falla (sin token, canal
+    # inexistente, CI en rojo) la card ya quedó aprobada y el `onError` del proyecto la
+    # marca `blocked` con el motivo, en vez de perder el veredicto. El pedido va a los
+    # reviewers del repo (`slackReviewChannel`/`slackReviewers`); si ya hay un hilo (`## Slack`
+    # del issue) contesta ahí como re-review.
+    to:
+      - { action: update_issue, with: { addLabels: [ reviewed ] } }
+      - { action: request_slack_review }
   back_to_build:
     when: >-
       El diff tiene errores de implementación o de tests recuperables con un ajuste a la implementación (un bug, un test rojo, un desvío del PRD, lint sucio); la branch está en conflicto con la default branch y hay que resolverlo; falta el PR de la branch; o el PR tiene un problema de CI/CD que un rebuild/re-push resuelve (título fuera de convención, workflow que falla por el contenido del diff). NO la uses para fallos ajenos al cambio (infra caída, permisos, el repo base roto): eso es el camino de error normal, que bloquea el issue para un humano.
