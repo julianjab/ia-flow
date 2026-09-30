@@ -53,6 +53,30 @@ describe('useAssistantChatStore', () => {
     expect(chat.streaming).toBe(false)
   })
 
+  it('las tareas de la respuesta quedan como un turno propio, debajo del texto', async () => {
+    const task = {
+      ref: 'acme/api#7',
+      project_id: 'core',
+      title: 'Algo',
+      url: 'https://github.com/acme/api/issues/7',
+      group: 'need' as const,
+      kind: 'merge' as const,
+      labels: [],
+      why: 'PR aprobado',
+      since: '2026-09-30T10:00:00Z',
+      actions: ['merge' as const],
+    }
+    script = async function* () {
+      yield { type: 'text', delta: 'Mirá esta.' }
+      yield { type: 'tasks', items: [task] }
+      yield { type: 'done', text: 'Mirá esta.' }
+    }
+    const chat = useAssistantChatStore()
+    await chat.send('¿qué me necesita?')
+    expect(chat.turns.map((t) => t.kind)).toEqual(['user', 'assistant', 'tasks'])
+    expect(chat.turns[2]).toMatchObject({ items: [{ ref: 'acme/api#7' }] })
+  })
+
   it('manda el contexto y la conversación completa (el servidor es stateless)', async () => {
     const chat = useAssistantChatStore()
     chat.setScope({ kind: 'task', ref: 'acme/api#7' })

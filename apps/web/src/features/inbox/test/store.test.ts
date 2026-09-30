@@ -118,6 +118,21 @@ describe('useInboxStore', () => {
     expect(store.openRef).toBeNull()
   })
 
+  it('focus (pedido del asistente) abre la tarea y suelta los filtros que la esconderían', async () => {
+    const store = useInboxStore()
+    await store.refresh()
+    store.project = 'core'
+    store.setGroupFilter('need')
+    store.focus('other/web#3')
+    expect(store.groupFilter).toBeNull()
+    expect(store.project).toBeNull()
+    expect(store.openRef).toBe('other/web#3')
+    expect(getTaskDetail).toHaveBeenCalledWith('other/web#3')
+    // Otra vez la misma: queda abierta (no es un toggle).
+    store.focus('other/web#3')
+    expect(store.openRef).toBe('other/web#3')
+  })
+
   it('un error de detalle queda en su tarjeta', async () => {
     getTaskDetail.mockRejectedValue(new Error('404'))
     const store = useInboxStore()
