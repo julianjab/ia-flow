@@ -74,3 +74,16 @@ describe('SlackClient', () => {
     await expect(off.history('C1')).rejects.toThrow(/SLACK_BOT_TOKEN/)
   })
 })
+
+describe('SlackClient.botUserId', () => {
+  it('asks auth.test once and remembers the bot id', async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) =>
+      answer({ ok: true, user_id: 'UBOT' }),
+    )
+    const slack = new SlackClient({ token: 'xoxb', fetchImpl: fetchImpl as never })
+    expect(await slack.botUserId()).toBe('UBOT')
+    expect(await slack.botUserId()).toBe('UBOT')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('auth.test')
+  })
+})
