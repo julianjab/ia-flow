@@ -5,13 +5,7 @@ import type {
   ProviderRunContext,
   ProviderRunOutput,
 } from '@ia-flow/agent-engine'
-import {
-  exitsOf,
-  labelOf,
-  RunChannel,
-  runParent,
-  turnPrompt,
-} from '@ia-flow/provider-shared'
+import { exitsOf, labelOf, RunChannel, runParent, turnPrompt } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { launchCli } from './CliLauncher.js'
 import {
@@ -196,7 +190,6 @@ export class ClaudeCliProvider implements Provider {
   }
 }
 
-
 /** La sesión a retomar, si la conversación es de este provider. */
 function conversationOf(value: unknown): ClaudeCliConversation | undefined {
   const { sessionId, session } = (value ?? {}) as { sessionId?: unknown; session?: unknown }
@@ -215,9 +208,6 @@ function isSessionRef(value: unknown): value is SessionRef {
 function describeRef(ref: SessionRef): string {
   return ref.kind === 'tmux' ? `tmux ${ref.name}` : `pid ${ref.pid}`
 }
-
-
-
 
 function tail(output: string): string {
   const text = output.trim()
