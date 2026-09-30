@@ -20,6 +20,7 @@ import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { BoardCard } from '../inbox/classify.js'
 import { InboxSection } from '../inbox/InboxSection.js'
 import { InboxService } from '../inbox/InboxService.js'
+import { IngressService } from '../ingress/IngressService.js'
 import { createWebhookServer } from '../server.js'
 import { SqliteConversationStore } from '../storage/SqliteConversationStore.js'
 import { TaskActions } from '../tasks/TaskActions.js'
@@ -157,6 +158,11 @@ async function start(token: string | null = TOKEN, push = true) {
     }),
     assistant: assistantFor(inbox, conversations),
     conversations,
+    ingress: new IngressService({
+      log: { ingressEvents: () => [], ingressCount: () => ({ count: 0 }) },
+      retentionDays: 14,
+      sources: [{ id: 'github', name: 'GitHub', kind: 'webhook', configured: true }],
+    }),
     config: () => ({ projects: [], pipelines: [], agents: [], providers: [], mcp: [] }),
     hub,
     log: () => {},
@@ -521,6 +527,14 @@ describe('runner API', () => {
     const { value } = await reader.read()
     expect(new TextDecoder().decode(value)).toContain('"refs":["o/r#1"]')
     await reader.cancel()
+  })
+
+  it('serves the ingresses and what arrived at each; an unknown one is a 404', async () => {
+    const { call } = await start()
+    const ingress = await (await call('/api/ingress')).json()
+    expect(ingress).toMatchObject({ sources: [{ id: 'github', count_24h: 0 }], retention_days: 14 })
+    expect(await (await call('/api/ingress/github/events')).json()).toEqual([])
+    expect((await call('/api/ingress/jira/events')).status).toBe(404)
   })
 
   it('without github.clientId there is no device flow', async () => {
