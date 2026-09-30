@@ -36,9 +36,65 @@ export interface AnthropicContentBlock {
 }
 
 export interface AnthropicMessagesResponse {
+  /** `msg_…`: el id de ESTA respuesta. */
+  id?: string
+  /** El modelo que respondió de verdad — puede no ser el pedido (un alias). */
+  model?: string
   content: AnthropicContentBlock[]
-  stop_reason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'pause_turn' | null
+  stop_reason:
+    | 'end_turn'
+    | 'tool_use'
+    | 'max_tokens'
+    | 'stop_sequence'
+    | 'pause_turn'
+    | 'refusal'
+    | 'model_context_window_exceeded'
+    | null
+  stop_sequence?: string | null
+  /** Por qué paró, estructurado (hoy: el detalle de un `refusal`). */
+  stop_details?: unknown
   usage?: Record<string, unknown>
+  /** El header `request-id` de la respuesta — no viene en el body. Es lo que pide soporte de
+   *  Anthropic para rastrear un request; el `_` es la convención del SDK oficial. */
+  _request_id?: string
+}
+
+/** Un status no-ok de la API, con el body ya desarmado: `error.type` (`invalid_request_error`,
+ *  `overloaded_error`, …), el mensaje y el `request-id`. El `message` es el de siempre (status +
+ *  body crudo), así que quien sólo lo imprime no cambia. */
+export class AnthropicApiError extends Error {
+  readonly status: number
+  readonly requestId?: string
+  readonly errorType?: string
+  readonly errorMessage?: string
+
+  constructor(status: number, body: string, requestId: string | undefined) {
+    super(`AnthropicClient: Anthropic API → ${status}: ${body}`)
+    this.name = 'AnthropicApiError'
+    this.status = status
+    const parsed = parseErrorBody(body)
+    const id = requestId ?? parsed.requestId
+    if (id) this.requestId = id
+    if (parsed.type) this.errorType = parsed.type
+    if (parsed.message) this.errorMessage = parsed.message
+  }
+}
+
+function parseErrorBody(body: string): { type?: string; message?: string; requestId?: string } {
+  try {
+    const json = JSON.parse(body) as {
+      error?: { type?: unknown; message?: unknown }
+      request_id?: unknown
+    }
+    return {
+      ...(typeof json.error?.type === 'string' ? { type: json.error.type } : {}),
+      ...(typeof json.error?.message === 'string' ? { message: json.error.message } : {}),
+      ...(typeof json.request_id === 'string' ? { requestId: json.request_id } : {}),
+    }
+  } catch {
+    // Un body que no es JSON (un 502 de un proxy): queda sólo en el `message`.
+    return {}
+  }
 }
 
 export interface AnthropicClientOptions {
@@ -153,13 +209,13 @@ export class AnthropicClient {
     const requestBody = { ...body, stream: useStream }
 
     const res = await this.requestWithRetry(requestBody, headers, fetchImpl, maxRetries)
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`AnthropicClient: Anthropic API → ${res.status}: ${text}`)
-    }
-    return useStream
+    const requestId = res.headers.get('request-id') ?? undefined
+    if (!res.ok) throw new AnthropicApiError(res.status, await res.text(), requestId)
+    const data = useStream
       ? ((await readAnthropicSseStream(res, opts.onDelta)) as unknown as AnthropicMessagesResponse)
       : ((await res.json()) as AnthropicMessagesResponse)
+    if (requestId) data._request_id = requestId
+    return data
   }
 
   private async requestWithRetry(

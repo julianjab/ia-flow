@@ -15,7 +15,7 @@ import {
   type AnthropicRetryInfo,
   type AnthropicSendOptions,
 } from './AnthropicClient.js'
-import { chatTrace, toolTrace } from './tracing.js'
+import { chatTrace, describeBlocks, logRejectedRequest, toolTrace } from './tracing.js'
 
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type AnthropicThinkingConfig =
@@ -290,7 +290,18 @@ function buildOutputConfig(
  * (la API rechaza cualquier `mcp_tool_use` sin su `mcp_tool_result`). Se saca el bloque huérfano
  * antes de cada request: el modelo pierde esa tool call puntual, no toda la conversación.
  */
-function stripOrphanedMcpToolUse(messages: AnthropicMessage[]): AnthropicMessage[] {
+export interface StrippedMcpToolUse {
+  /** Índice del mensaje del asistente en `messages`. */
+  index: number
+  dropped: Array<{ id?: string; name?: string; server?: string }>
+  /** Cómo quedó el mensaje: si termina en `thinking`, la API lo va a rechazar igual. */
+  blocksAfter: string
+}
+
+function stripOrphanedMcpToolUse(
+  messages: AnthropicMessage[],
+  onStrip?: (stripped: StrippedMcpToolUse) => void,
+): AnthropicMessage[] {
   let sanitized: AnthropicMessage[] | undefined
   messages.forEach((msg, index) => {
     if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return
@@ -307,6 +318,11 @@ function stripOrphanedMcpToolUse(messages: AnthropicMessage[]): AnthropicMessage
         : [{ type: 'text', text: '[mcp tool call descartada: nunca volvió un resultado]' }]
     sanitized ??= [...messages]
     sanitized[index] = { ...msg, content: nextContent }
+    onStrip?.({
+      index,
+      dropped: orphaned.map((b) => ({ id: b.id, name: b.name, server: b.server_name })),
+      blocksAfter: describeBlocks(nextContent),
+    })
   })
   return sanitized ?? messages
 }
@@ -468,7 +484,17 @@ export class AnthropicProvider implements Provider {
           model,
           max_tokens: effectiveMaxTokens,
           system: systemBlocks,
-          messages: stripOrphanedMcpToolUse(messages),
+          messages: stripOrphanedMcpToolUse(messages, (stripped) =>
+            this.log.warn(
+              `mcp_tool_use sin result descartado del mensaje ${stripped.index} (vuelta ${round})`,
+              {
+                'ia.round': round,
+                'ia.message.index': stripped.index,
+                'ia.dropped': JSON.stringify(stripped.dropped),
+                'ia.message.blocks_after': stripped.blocksAfter,
+              },
+            ),
+          ),
           // Auto-cache a nivel request, además del breakpoint explícito del system: cachea el
           // último bloque cacheable de `messages` y lo corre sola en cada vuelta.
           cache_control: { type: 'ephemeral' },
@@ -502,6 +528,10 @@ export class AnthropicProvider implements Provider {
         // extended thinking. Si igual no llama, `Agent` decide (falla o toma la única salida).
         if (needsSubmit(terminalTools) && !nudged) {
           nudged = true
+          this.log.info(`end_turn sin tool terminal — se insiste una vez (vuelta ${round})`, {
+            'ia.round': round,
+            'ia.response.blocks': describeBlocks(data.content),
+          })
           messages = [
             ...messages,
             { role: 'assistant', content: data.content },
@@ -530,6 +560,11 @@ export class AnthropicProvider implements Provider {
           )
         }
         pauses++
+        this.log.info(`pause_turn — se retoma el turno (${pauses}/${cfg.maxPauseTurnRetries})`, {
+          'ia.round': round,
+          'ia.pauses': pauses,
+          'ia.response.blocks': describeBlocks(data.content),
+        })
         messages = [...messages, { role: 'assistant', content: data.content }]
         continue
       }
@@ -584,12 +619,18 @@ export class AnthropicProvider implements Provider {
   }
 
   @traced(chatTrace)
-  private send(
+  private async send(
     body: ChatRequest,
-    _round: number,
+    round: number,
     sendOptions: AnthropicSendOptions,
   ): Promise<AnthropicMessagesResponse> {
-    return this.client.send(body, sendOptions)
+    try {
+      return await this.client.send(body, sendOptions)
+    } catch (err) {
+      // No se maneja: se le suma al log la forma de la conversación rechazada y sigue subiendo.
+      logRejectedRequest(this.log, err, body, round)
+      throw err
+    }
   }
 
   @traced(toolTrace)

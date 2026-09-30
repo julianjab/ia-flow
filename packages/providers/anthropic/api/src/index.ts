@@ -7,7 +7,7 @@ export type {
   AnthropicSendOptions,
   AnthropicStreamDelta,
 } from './AnthropicClient.js'
-export { AnthropicClient, backoffMs } from './AnthropicClient.js'
+export { AnthropicApiError, AnthropicClient, backoffMs } from './AnthropicClient.js'
 export type {
   AnthropicAgentProviderConfig,
   AnthropicEffort,
