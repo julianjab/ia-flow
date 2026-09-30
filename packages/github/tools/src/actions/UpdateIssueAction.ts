@@ -11,6 +11,10 @@ export const UpdateIssueInput = z.strictObject({
     .record(z.string().min(1), z.string().min(1))
     .optional()
     .describe('Campos single-select del proyecto, por nombre: { "Task Type": "Technical" }'),
+  clearFields: z
+    .array(z.string().min(1))
+    .optional()
+    .describe('Campos del proyecto a vaciar, por nombre (ej. la marca "Working")'),
   addLabels: z.array(z.string().min(1)).optional().describe('Labels a agregar'),
   removeLabels: z.array(z.string().min(1)).optional().describe('Labels a sacar'),
   state: z.enum(['open', 'closed']).optional().describe('Abrir o cerrar el issue'),
@@ -80,6 +84,12 @@ const SET_FIELD_MUTATION = `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID
   }) { projectV2Item { id } }
 }`
 
+const CLEAR_FIELD_MUTATION = `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+  clearProjectV2ItemFieldValue(input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId }) {
+    projectV2Item { id }
+  }
+}`
+
 const same = (a: string | undefined, b: string) => a?.toLowerCase() === b.toLowerCase()
 
 /**
@@ -112,9 +122,11 @@ export class UpdateIssueAction extends Action<typeof UpdateIssueInput> {
     const changes: string[] = []
     const fields = { ...input.fields, ...(input.status ? { Status: input.status } : {}) }
 
-    if (Object.keys(fields).length > 0) {
-      await this.setProjectFields(issue, fields)
+    const clear = input.clearFields ?? []
+    if (Object.keys(fields).length > 0 || clear.length > 0) {
+      await this.setProjectFields(issue, fields, clear)
       changes.push(...Object.entries(fields).map(([name, value]) => `${name}=${value}`))
+      changes.push(...clear.map((name) => `${name}=∅`))
     }
     if (input.addLabels?.length) {
       await this.client.requestJson(issuePath(issue.owner, issue.repo, issue.number, '/labels'), {
@@ -146,7 +158,11 @@ export class UpdateIssueAction extends Action<typeof UpdateIssueInput> {
     return changes.length > 0 ? `${target}: ${changes.join(', ')}` : `${target}: sin cambios`
   }
 
-  private async setProjectFields(issue: IssueRef, fields: Record<string, string>): Promise<void> {
+  private async setProjectFields(
+    issue: IssueRef,
+    fields: Record<string, string>,
+    clear: string[] = [],
+  ): Promise<void> {
     const project = this.project
     if (!project) {
       throw new Error(
@@ -190,6 +206,15 @@ export class UpdateIssueAction extends Action<typeof UpdateIssueInput> {
         itemId: item.id,
         fieldId: field.id,
         optionId: option.id,
+      })
+    }
+    for (const name of clear) {
+      const field = available.find((candidate) => same(candidate.name, name))
+      if (!field?.id) throw new Error(`update_issue: el proyecto no tiene un campo "${name}"`)
+      await this.client.graphql(CLEAR_FIELD_MUTATION, {
+        projectId: item.project.id,
+        itemId: item.id,
+        fieldId: field.id,
       })
     }
   }
