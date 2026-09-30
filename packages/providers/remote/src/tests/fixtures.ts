@@ -1,62 +1,78 @@
 import {
+  createEvent,
   EventBus,
-  type Provider,
+  ProviderRegistry,
   type ProviderRunContext,
-  type ProviderRunOutput,
   type Tool,
 } from '@ia-flow/agent-engine'
-import { RemoteProvider, type RemoteProviderOptions } from '../RemoteProvider.js'
-import { RemoteProviderHost, type RemoteProviderHostOptions } from '../RemoteProviderHost.js'
+import { HostClient, type TaskRunner } from '../HostClient.js'
+import type { AcceptRow } from '../protocol.js'
+import { RemoteHub } from '../RemoteHub.js'
 
-export const TOKEN = 'secreto'
+export const TOKEN = 'secreto-de-hosts'
+export const RUNNER = 'http://runner.test'
 
-/** Un provider local de mentira: lo que hace cada corrida lo decide el test. */
-export class ScriptedProvider implements Provider {
-  readonly runs: ProviderRunContext[] = []
-  constructor(
-    readonly id: string,
-    private readonly script: (ctx: ProviderRunContext) => Promise<ProviderRunOutput>,
-    readonly maxConcurrent?: number,
-  ) {}
+/** Un `fetch` que le pega directo al hub, sin red. */
+export function wire(hub: RemoteHub): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) =>
+    (await hub.fetch(new Request(input, init))) ??
+    new Response('no es del hub', { status: 404 })) as typeof fetch
+}
 
-  run(ctx: ProviderRunContext): Promise<ProviderRunOutput> {
-    this.runs.push(ctx)
-    return this.script(ctx)
-  }
+export function makeHub(overrides: Partial<ConstructorParameters<typeof RemoteHub>[0]> = {}) {
+  const registry = new ProviderRegistry()
+  const hub = new RemoteHub({
+    registry,
+    token: TOKEN,
+    longPollMs: 30,
+    sweepIntervalMs: 0,
+    ...overrides,
+  })
+  return { hub, registry }
 }
 
 export function makeHost(
-  providers: Provider[],
-  options: Partial<RemoteProviderHostOptions> = {},
-): RemoteProviderHost {
-  return new RemoteProviderHost({ providers, token: TOKEN, sweepIntervalMs: 0, ...options })
-}
-
-/** Un `fetch` que le pega directo al handler del host, sin red. */
-export function wire(host: RemoteProviderHost): typeof fetch {
-  return (async (input: string | URL | Request, init?: RequestInit) =>
-    host.fetch(new Request(input, init))) as typeof fetch
-}
-
-export function makeClient(
-  host: RemoteProviderHost | typeof fetch,
-  options: Partial<RemoteProviderOptions> = {},
-): RemoteProvider {
-  return new RemoteProvider({
-    id: 'remote',
-    provider: 'local',
-    url: 'http://host.test',
-    token: TOKEN,
-    fetchImpl: typeof host === 'function' ? host : wire(host),
-    timing: {
-      longPollMs: 200,
-      requestSlackMs: 500,
-      retryDelayMs: 10,
-      busyRetryMs: 10,
-      unreachableRetryMs: 10,
-    },
-    ...options,
+  hub: RemoteHub,
+  run: TaskRunner,
+  options: { name?: string; maxConcurrent?: number; accepts?: AcceptRow[]; token?: string } = {},
+): HostClient {
+  return new HostClient({
+    runnerUrl: RUNNER,
+    token: options.token ?? TOKEN,
+    name: options.name ?? 'laptop',
+    maxConcurrent: options.maxConcurrent ?? 1,
+    accepts: options.accepts ?? [],
+    run,
+    fetchImpl: wire(hub),
+    retryMs: 10,
   })
+}
+
+/** Lo que haría la sesión del CLI allá: llamar una tool por el MCP de la corrida en el runner. */
+export async function callTool(
+  hub: RemoteHub,
+  url: string,
+  name: string,
+  args: unknown = {},
+): Promise<{ text: string; isError?: boolean }> {
+  const res = await wire(hub)(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
+  })
+  const body = (await res.json()) as {
+    result: { content: Array<{ text: string }>; isError?: boolean }
+  }
+  return { text: body.result.content[0]?.text ?? '', isError: body.result.isError }
+}
+
+export function tool(name: string, handler: Tool['handler'], extra: Partial<Tool> = {}): Tool {
+  return { name, description: name, inputSchema: { type: 'object' }, handler, ...extra }
 }
 
 export function runContext(overrides: Partial<ProviderRunContext> = {}): ProviderRunContext {
@@ -69,14 +85,7 @@ export function runContext(overrides: Partial<ProviderRunContext> = {}): Provide
     mcpServers: [],
     tools: [],
     ctx: {
-      event: {
-        id: 'e1',
-        type: 'github.issues',
-        payload: { owner: 'la-haus', repo: 'eks', number: 7 },
-        scope: { projectId: 'p1' },
-        occurredAt: '2026-09-29T00:00:00.000Z',
-        depth: 0,
-      },
+      event: createEvent('issue.status_changed', { owner: 'la-haus', repo: 'eks', number: 7 }),
       steps: {},
       bus: new EventBus(),
       pipelineId: 'build',
@@ -85,17 +94,11 @@ export function runContext(overrides: Partial<ProviderRunContext> = {}): Provide
   }
 }
 
-export function tool(name: string, handler: Tool['handler'], extra: Partial<Tool> = {}): Tool {
-  return { name, description: name, inputSchema: { type: 'object' }, handler, ...extra }
-}
-
-/** La tool `name` del contexto del provider local (un proxy hacia el runner). */
-export function call(ctx: ProviderRunContext, name: string, input: unknown = {}) {
-  const found = ctx.tools.find((candidate) => candidate.name === name)
-  if (!found) throw new Error(`sin tool ${name}`)
-  return found.handler(input)
-}
-
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+/** Hasta que `check` dé true (o se agote). */
+export async function until(check: () => boolean, ms = 2_000): Promise<void> {
+  const start = Date.now()
+  while (!check()) {
+    if (Date.now() - start > ms) throw new Error('timeout esperando la condición')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
 }
