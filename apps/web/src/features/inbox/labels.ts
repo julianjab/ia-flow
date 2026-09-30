@@ -25,6 +25,7 @@ export const ACTION_LABEL: Record<TaskAction, string> = {
   relaunch: 'Relanzar',
   retry: 'Reintentar',
   stop: 'Detener',
+  rerun_review: 'Re-ejecutar review',
 }
 
 /** La pregunta de confirmación en la página (no `window.confirm`). */
@@ -44,12 +45,15 @@ export function confirmText(action: TaskAction, ref: string): string {
       return `¿Reintentar ${ref}?`
     case 'stop':
       return `¿Detener la ejecución de ${ref}?`
+    case 'rerun_review':
+      return `¿Volver a correr el reviewer sobre el PR de ${ref}?`
   }
 }
 
 /** La acción principal de cada caso — una sola por card. El resto son neutras. */
 const PRIMARY_BY_KIND: Partial<Record<InboxKind, TaskAction>> = {
   merge: 'merge',
+  review: 'rerun_review',
   prd: 'approve_prd',
   doubt: 'answer_and_unblock',
   stale: 'relaunch',
@@ -66,6 +70,7 @@ export const LEGEND: readonly { group: InboxGroup; rules: string[]; order?: stri
     group: 'need',
     rules: [
       'Listo para mergear: status Review + label reviewed.',
+      'Review sin aprobar: status Review sin reviewed — pase lo que pase con la tarea (salvo mientras el reviewer corre). Se puede re-ejecutar el review.',
       'PRD para aprobar: status Refined.',
       'El agente tiene una duda: blocked y la ejecución salió por la salida de error del agente.',
       'Sin movimiento: Refine o Build, sin blocked, sin ejecución corriendo ni en cola, más de 24 h sin cambios.',

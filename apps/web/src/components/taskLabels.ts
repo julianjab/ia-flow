@@ -13,6 +13,7 @@ export const GROUP_LABEL: Record<InboxGroup, string> = {
 
 export const KIND_LABEL: Record<InboxKind, string> = {
   merge: 'Listo para mergear',
+  review: 'Review sin aprobar',
   prd: 'PRD para aprobar',
   doubt: 'El agente tiene una duda',
   stale: 'Sin movimiento',
