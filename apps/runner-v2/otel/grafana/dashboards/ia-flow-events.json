@@ -1,0 +1,167 @@
+{
+  "uid": "ia-flow-events",
+  "title": "ia-flow · eventos",
+  "description": "Todo lo que pasó por cada evento, filtrable por proyecto, repo e issue. Click en un trace id → el árbol completo (evento → pipeline → agente → modelo/tools).",
+  "tags": [
+    "ia-flow",
+    "otel"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "label": "Proyecto (regex)",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "value": ".*",
+          "text": ".*"
+        }
+      },
+      {
+        "name": "repo",
+        "label": "Repo (regex)",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "value": ".*",
+          "text": ".*"
+        }
+      },
+      {
+        "name": "issue",
+        "label": "Issue (regex, ej. .*#4190)",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "value": ".*",
+          "text": ".*"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Eventos (un trace por evento)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "tableType": "traces",
+          "limit": 100,
+          "query": "{ name =~ \"event .*\" && span.ia.projectId =~ \"$project\" && span.ia.repo =~ \"$repo\" && span.ia.issue =~ \"$issue\" }"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Agentes: salida elegida y duración",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "tableType": "spans",
+          "limit": 100,
+          "query": "{ span.ia.step.kind = \"agent\" && span.ia.projectId =~ \"$project\" && span.ia.repo =~ \"$repo\" && span.ia.issue =~ \"$issue\" } | select(span.ia.issue, span.ia.pipeline.id, span.ia.agent.exit, span.ia.agent.outcome, span.ia.agent.failure)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Llamadas al modelo: tokens por request",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "tableType": "spans",
+          "limit": 200,
+          "query": "{ span.gen_ai.operation.name = \"chat\" && span.ia.projectId =~ \"$project\" && span.ia.repo =~ \"$repo\" && span.ia.issue =~ \"$issue\" } | select(span.ia.issue, span.ia.agent.id, span.gen_ai.request.model, span.gen_ai.usage.input_tokens, span.gen_ai.usage.output_tokens, span.gen_ai.usage.cache_read_input_tokens, span.gen_ai.response.finish_reasons)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Logs (click en trace_id → la traza)",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=~\".+\"} | ia_projectId=~\"$project\" | ia_repo=~\"$repo\" | ia_issue=~\"$issue\""
+        }
+      ]
+    }
+  ]
+}

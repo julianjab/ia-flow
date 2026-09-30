@@ -1,0 +1,2004 @@
+{
+  "uid": "ia-issue",
+  "title": "ia-flow · issue",
+  "description": "Todo lo de un issue: qué ejecuciones tiene abiertas ahora, qué agentes corrieron y qué tools usaron, cada evento con su traza, los requests al modelo y los logs — con salto directo del log a su traza.",
+  "tags": [
+    "ia-flow",
+    "otel"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "ia-flow"
+      ],
+      "asDropdown": false,
+      "title": "ia-flow",
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "issue",
+        "label": "Issue",
+        "type": "query",
+        "datasource": {
+          "type": "tempo",
+          "uid": "tempo"
+        },
+        "query": {
+          "refId": "TempoDatasourceVariableQueryEditor-VariableQuery",
+          "type": 1,
+          "label": "ia.issue",
+          "query": ""
+        },
+        "refresh": 2,
+        "sort": 1,
+        "allowCustomValue": true,
+        "current": {}
+      },
+      {
+        "name": "agent",
+        "label": "Agente",
+        "type": "query",
+        "datasource": {
+          "type": "tempo",
+          "uid": "tempo"
+        },
+        "query": {
+          "refId": "TempoDatasourceVariableQueryEditor-VariableQuery",
+          "type": 1,
+          "label": "ia.agent.id",
+          "query": "{ span.ia.issue = \"$issue\" }"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "allowCustomValue": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "allValue": ".*"
+      },
+      {
+        "name": "execution",
+        "label": "Ejecución",
+        "type": "textbox",
+        "hide": 0,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "search",
+        "label": "Buscar en los logs",
+        "type": "textbox",
+        "hide": 0,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "noise",
+        "label": "Ruido",
+        "type": "custom",
+        "query": "Sin duplicados de tools : ^tool (MCP )?\\x22[^\\x22]+\\x22$,Todo : ^$,Sin resultados de tools : ^(tool (MCP )?\\x22[^\\x22]+\\x22$|[[]tool:),Sin tools : ^([[]tool|tool )",
+        "options": [
+          {
+            "text": "Sin duplicados de tools",
+            "value": "^tool (MCP )?\\x22[^\\x22]+\\x22$",
+            "selected": true
+          },
+          {
+            "text": "Todo",
+            "value": "^$",
+            "selected": false
+          },
+          {
+            "text": "Sin resultados de tools",
+            "value": "^(tool (MCP )?\\x22[^\\x22]+\\x22$|[[]tool:)",
+            "selected": false
+          },
+          {
+            "text": "Sin tools",
+            "value": "^([[]tool|tool )",
+            "selected": false
+          }
+        ],
+        "current": {
+          "text": "Sin duplicados de tools",
+          "value": "^tool (MCP )?\\x22[^\\x22]+\\x22$"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "table",
+      "title": "Issues (click en uno → su detalle abajo)",
+      "description": "Cada issue con actividad en el rango. `Estado`: ▶ corriendo (una ejecución abierta en un runner que sigue latiendo), ⏸ pausada (esperando un evento: el CI, un review…), ✗ cortada (quedó abierta en un proceso que murió y nadie la retomó) o inactivo. `Eventos`: cuántos llegaron; `Pasos de agente`: cuántas veces terminó un agente; `Errores`: logs de error.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "max by (ia_issue) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_issue) (((((((sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) <= 0) and on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) * 0 + 1000000) or ((((((sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) > 0) unless (((((sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (ia_issue, process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) * 0 + 1000) or (((((((sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) <= 0) unless (((((sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (ia_issue, process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (ia_issue, process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) * 0 + 1)) or sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" |~ \"^evento \\\".*\\\": (corren|ninguna)\" [$__range])) or sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" |~ \"^agente \\\".*\\\" (eligió|terminó sin salida)\" [$__range])) or sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | detected_level = \"error\" [$__range])) or sum by (ia_issue) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" [$__range])) * 0"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "ia_issue": 0,
+              "Value #B": 1,
+              "Value #A": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "ia_issue": "Issue",
+              "Value #B": "Estado",
+              "Value #A": "Última actividad",
+              "Value #C": "Eventos",
+              "Value #D": "Pasos de agente",
+              "Value #E": "Errores"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Última actividad",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Issue"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 340
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Ver el detalle de ${__value.raw}",
+                    "url": "/d/ia-issue?${__url_time_range}&var-issue=${__value.raw:percentencode}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Estado"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "· inactivo",
+                        "color": "text"
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000000,
+                      "to": 1000000000000.0,
+                      "result": {
+                        "text": "▶ corriendo",
+                        "color": "green"
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000,
+                      "to": 999999,
+                      "result": {
+                        "text": "⏸ pausada",
+                        "color": "orange"
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1,
+                      "to": 999,
+                      "result": {
+                        "text": "✗ cortada",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Última actividad"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errores"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 11
+      }
+    },
+    {
+      "type": "row",
+      "title": "Detalle — $issue",
+      "collapsed": false,
+      "panels": [],
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Pasos de agente",
+      "description": "Veces que un agente terminó (eligió una salida, terminó sin salida o falló).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" | regexp \"(?P<exit>eligió \\\"[^\\\"]+\\\"|terminó sin salida|falló)\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Llamadas a tools",
+      "description": "Tools que llamaron los agentes (locales y MCP).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 5,
+        "y": 12,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Tools que fallaron",
+      "description": "Llamadas a tools que devolvieron error al modelo (comando denegado, input inválido…).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "orange"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 10,
+        "y": 12,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Comandos bash",
+      "description": "Comandos que corrió `bash_run`.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 15,
+        "y": 12,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Errores",
+      "description": "Logs de error: requests al modelo que fallaron, pasos o acciones que fallaron.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | detected_level = \"error\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "red"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 7,
+      "gridPos": {
+        "x": 20,
+        "y": 12,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "table",
+      "title": "Ejecuciones del issue — click en una → filtra el detalle a ella",
+      "description": "Cada ejecución del issue en el rango: qué pipeline abrió, cuándo, cuánto lleva o duró, en qué estado está (`▶ corriendo`, `⏸ pausada` esperando un evento, `✓ cerrada`, `✗ cortada` si su proceso murió con ella abierta, `↪ retomada` si un reinicio la siguió en otro proceso — su fila es la del PID nuevo) y con qué resultado cerró (`done`, `superseded`…), qué evento la abrió (`La abrió`), cuánto esperó en cola a que la task se liberara, y sus pasos de agente, tools y errores. El porqué de cada una está en «Por qué pasó». `▶ corriendo` exige que su proceso siga latiendo (`runner vivo:` cada minuto).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "min by (process_pid, ia_execution_id, pipeline, ia_event_type) (min_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" | regexp \"abre: (?P<pipeline>[^ ]+)\" | unwrap observed_timestamp [$__range])) / 1000000"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+        },
+        {
+          "refId": "H",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" | regexp \"esperó (?P<waited>[0-9]+) ms\" | unwrap waited [$__range]))"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "(((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) <= 0) and on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) or (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) > 0) unless (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) or (((((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) <= 0) unless (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) * 0 + 2000) or ((((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])))) * 0 + 3000) or (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range])) * 0 + 1000)"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (process_pid, ia_execution_id, result) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" | regexp \"cierra: (?P<result>[^ ]+)\" [$__range]))"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | detected_level = \"error\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" [$__range])) * 0"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "Duración",
+            "binary": {
+              "left": "Value #B",
+              "operator": "-",
+              "right": "Value #A"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #B": true,
+              "Value #D": true
+            },
+            "indexByName": {
+              "ia_execution_id": 0,
+              "pipeline": 1,
+              "ia_event_type": 2,
+              "Value #C": 3,
+              "result": 4,
+              "Value #A": 5,
+              "Value #H": 6,
+              "Duración": 7,
+              "Value #E": 8,
+              "Value #F": 9,
+              "Value #G": 10,
+              "process_pid": 11
+            },
+            "renameByName": {
+              "ia_execution_id": "Ejecución",
+              "pipeline": "Pipeline",
+              "ia_event_type": "La abrió",
+              "Value #H": "Esperó en cola",
+              "Value #C": "Estado",
+              "result": "Resultado",
+              "Value #A": "Abrió",
+              "Value #E": "Pasos de agente",
+              "Value #F": "Tools",
+              "Value #G": "Errores",
+              "process_pid": "PID"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Abrió",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "decimals": 0,
+          "noValue": "—"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Estado"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1000": {
+                        "text": "✓ cerrada",
+                        "color": "text"
+                      },
+                      "2000": {
+                        "text": "✗ cortada (su proceso murió)",
+                        "color": "red"
+                      },
+                      "3000": {
+                        "text": "↪ retomada en otro proceso",
+                        "color": "blue"
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1,
+                      "to": 999,
+                      "result": {
+                        "text": "⏸ pausada",
+                        "color": "orange"
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": -1000000000.0,
+                      "to": 0,
+                      "result": {
+                        "text": "▶ corriendo",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abrió"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Esperó en cola"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duración"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errores"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ejecución"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Filtrar el detalle a esta ejecución",
+                    "url": "/d/ia-issue?${__url_time_range}&${issue:queryparam}&${agent:queryparam}&var-execution=${__value.raw:percentencode}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Actividad del issue",
+      "description": "Logs del issue por nivel: cuándo pasó algo, y cuándo algo falló.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "expr": "sum by (detected_level) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" [$__interval]))",
+          "legendFormat": "{{detected_level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "info"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warn"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "debug"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 14,
+        "y": 24,
+        "w": 10,
+        "h": 8
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Por qué pasó — decisiones del engine (qué evento, qué pipeline, qué reemplazó a qué)",
+      "description": "Sólo las líneas del engine que explican las ejecuciones: cada evento y qué pipelines corrieron (o `ninguna`), cuándo una esperó porque la task estaba ocupada, cuándo una en cola quedó reemplazada por otra más nueva, y cuándo cada ejecución abrió, se pausó y cerró. Una `cierra: superseded` la cerró la ejecución que abre en la línea siguiente.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id =~ \"$execution.*\" |~ \"^evento \\\"|abre: | cierra: | se pausa | se reanuda |en cola para|quedó reemplazada|^agente \\\"|^paso \\\"|falló\" | line_format \"{{ .ia_event_type }} · {{ __line__ }}\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 14,
+        "h": 8
+      }
+    },
+    {
+      "type": "table",
+      "title": "Agentes (por ejecución) — click en el agente o la ejecución → filtra el detalle",
+      "description": "Cada agente que corrió en el rango: cuándo arrancó (su primer log) y cuándo logueó por última vez, cuántas tools llamó, cuántas fallaron, y cómo terminó. `▶ en curso` = todavía no eligió salida (o murió sin cerrar).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "min by (ia_execution_id, ia_pipeline_id, ia_agent_id) (min_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "max by (ia_execution_id, ia_pipeline_id, ia_agent_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" [$__range])) * 0"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id, exit) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" | regexp \"(?P<exit>eligió \\\"[^\\\"]+\\\"|terminó sin salida|falló)\" [$__range]))"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "Duración",
+            "binary": {
+              "left": "Value #B",
+              "operator": "-",
+              "right": "Value #A"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #B": true,
+              "Value #E": true
+            },
+            "indexByName": {
+              "ia_agent_id": 0,
+              "exit": 1,
+              "Value #A": 2,
+              "Duración": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "ia_pipeline_id": 6,
+              "ia_execution_id": 7
+            },
+            "renameByName": {
+              "ia_agent_id": "Agente",
+              "exit": "Terminó",
+              "Value #A": "Arrancó",
+              "Value #C": "Tools",
+              "Value #D": "Tools con error",
+              "ia_pipeline_id": "Pipeline",
+              "ia_execution_id": "Ejecución"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Arrancó",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Arrancó"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duración"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Terminó"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "▶ en curso"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^eligió \"(.*)\"$",
+                      "result": {
+                        "text": "→ $1",
+                        "color": "green"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "falló": {
+                        "text": "✖ falló",
+                        "color": "red"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "terminó sin salida": {
+                        "text": "⚠ sin salida",
+                        "color": "orange"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tools con error"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Agente"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Filtrar el detalle a este agente",
+                    "url": "/d/ia-issue?${__url_time_range}&${issue:queryparam}&${execution:queryparam}&var-agent=${__value.raw:percentencode}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ejecución"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Filtrar el detalle a esta ejecución",
+                    "url": "/d/ia-issue?${__url_time_range}&${issue:queryparam}&${agent:queryparam}&var-execution=${__value.raw:percentencode}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tools usadas",
+      "description": "Qué tools llamó cada agente y cuántas veces fallaron. Las MCP llevan el server (`github-mcp.issue_read`). Click en la tool → sus logs.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) * 0"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "tool": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "ia_agent_id": 3
+            },
+            "renameByName": {
+              "tool": "Tool",
+              "Value #A": "Llamadas",
+              "Value #B": "Errores",
+              "ia_agent_id": "Agente"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Llamadas",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 50
+          },
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Llamadas"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errores"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tool"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Logs de esta tool",
+                    "url": "/d/ia-issue?${__url_time_range}&${issue:queryparam}&${agent:queryparam}&${execution:queryparam}&var-search=${__value.raw:percentencode}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 8,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "Comandos bash",
+      "description": "Los comandos que corrió `bash_run`, los más repetidos arriba.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "instant",
+          "expr": "sum by (ia_agent_id, command) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range]))"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "command": 0,
+              "Value": 1,
+              "ia_agent_id": 2
+            },
+            "renameByName": {
+              "command": "Comando",
+              "Value": "Veces",
+              "ia_agent_id": "Agente"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Veces",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 50
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Comando"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 420
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 8,
+        "y": 40,
+        "w": 8,
+        "h": 10
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Tools que fallaron (y qué devolvieron)",
+      "description": "Cada llamada a una tool que devolvió error al modelo, con el error completo.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" | line_format \"[{{ .ia_agent_id }}] {{ __line__ }}\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "id": 14,
+      "gridPos": {
+        "x": 16,
+        "y": 40,
+        "w": 8,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "Trazas del issue (una por evento)",
+      "description": "Cada evento que llegó para el issue y todo lo que causó. Click en el trace id → el árbol completo: evento → pipeline → agente → requests al modelo y tools.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "tableType": "traces",
+          "limit": 100,
+          "spss": 20,
+          "query": "{ name =~ \"event .*\" && span.ia.issue = \"$issue\" }"
+        }
+      ],
+      "transformations": [],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 15,
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "table",
+      "title": "Agentes que terminaron (spans) — salida, outcome, provider",
+      "description": "Un span por paso de agente, cuando termina: salida elegida, quién la eligió (`exit_origin`), outcome, provider y duración. Un agente en curso todavía no tiene span (ver la tabla de arriba).",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "tableType": "spans",
+          "limit": 50,
+          "spss": 20,
+          "query": "{ span.ia.step.kind = \"agent\" && span.ia.issue = \"$issue\" && span.ia.agent.id =~ \"$agent\" } | select(span.ia.agent.id, span.ia.agent.exit, span.ia.agent.exit_origin, span.ia.agent.outcome, span.ia.agent.provider, span.ia.pipeline.id, span.ia.execution.id, status, duration)"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "traceService": true,
+              "traceName": true,
+              "name": true,
+              "ia.issue": true,
+              "ia.step.kind": true,
+              "gen_ai.operation.name": true
+            },
+            "indexByName": {
+              "spanID": 0,
+              "ia.agent.id": 1,
+              "ia.agent.exit": 2,
+              "ia.agent.exit_origin": 3,
+              "ia.agent.outcome": 4,
+              "ia.agent.provider": 5,
+              "ia.pipeline.id": 6,
+              "ia.execution.id": 7,
+              "status": 8,
+              "duration": 9
+            },
+            "renameByName": {
+              "spanID": "Span",
+              "status": "Estado",
+              "duration": "Duración",
+              "ia.agent.id": "Agente",
+              "ia.agent.exit": "Salida",
+              "ia.agent.exit_origin": "La eligió",
+              "ia.agent.outcome": "Outcome",
+              "ia.agent.provider": "Provider",
+              "ia.pipeline.id": "Pipeline",
+              "ia.execution.id": "Ejecución"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 16,
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "table",
+      "title": "Requests al modelo",
+      "description": "Cada request a la API: agente, modelo, tokens y por qué terminó.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "tableType": "spans",
+          "limit": 50,
+          "spss": 20,
+          "query": "{ span.gen_ai.operation.name = \"chat\" && span.ia.issue = \"$issue\" && span.ia.agent.id =~ \"$agent\" } | select(span.ia.agent.id, span.gen_ai.request.model, span.gen_ai.usage.input_tokens, span.gen_ai.usage.output_tokens, span.gen_ai.usage.cache_read_input_tokens, span.gen_ai.response.finish_reasons, duration)"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "traceService": true,
+              "traceName": true,
+              "name": true,
+              "ia.issue": true,
+              "ia.step.kind": true,
+              "gen_ai.operation.name": true
+            },
+            "indexByName": {
+              "spanID": 0,
+              "ia.agent.id": 1,
+              "gen_ai.request.model": 2,
+              "gen_ai.usage.input_tokens": 3,
+              "gen_ai.usage.output_tokens": 4,
+              "gen_ai.usage.cache_read_input_tokens": 5,
+              "gen_ai.response.finish_reasons": 6,
+              "status": 7,
+              "duration": 8
+            },
+            "renameByName": {
+              "spanID": "Span",
+              "status": "Estado",
+              "duration": "Duración",
+              "ia.agent.id": "Agente",
+              "gen_ai.request.model": "Modelo",
+              "gen_ai.usage.input_tokens": "Input",
+              "gen_ai.usage.output_tokens": "Output",
+              "gen_ai.usage.cache_read_input_tokens": "Cache read",
+              "gen_ai.response.finish_reasons": "Fin"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "x": 12,
+        "y": 58,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Logs del issue (más nuevos arriba · click en un log → trace_id → la traza)",
+      "description": "Todo lo que loguearon el engine, los agentes, el provider y las tools para el issue. Cada línea dice su paso y ejecución (`[implementer · a090520e]`); en el detalle, `trace_id` abre su traza. `Buscar` filtra por texto; `Ruido` esconde líneas de tools.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" |~ \"(?i)$search\" !~ \"$noise\" | line_format \"{{ if .ia_step_id }}[{{ .ia_step_id }}{{ if .ia_execution_id }} · {{ trunc 8 .ia_execution_id }}{{ end }}] {{ end }}{{ __line__ }}\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false
+      },
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 24,
+        "h": 18
+      }
+    }
+  ]
+}

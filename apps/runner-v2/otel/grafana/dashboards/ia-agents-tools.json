@@ -1,0 +1,2936 @@
+{
+  "uid": "ia-agents-tools",
+  "title": "ia-flow · agentes y tools",
+  "description": "Métricas por agente, tool y modelo: corridas, errores, duración, qué tools usa cada agente y cuántos tokens gasta. Prometheus (span metrics de Tempo) para cualquier rango; Tempo (TraceQL metrics) para el cruce agente × tool y los tokens.",
+  "tags": [
+    "ia-flow",
+    "otel"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "ia-flow"
+      ],
+      "asDropdown": false,
+      "title": "ia-flow",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Servicio",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(traces_spanmetrics_calls_total{span_name=~\"agent .*\"}, service)",
+          "refId": "service"
+        },
+        "definition": "label_values(traces_spanmetrics_calls_total{span_name=~\"agent .*\"}, service)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "agent",
+        "label": "Agente (regex; trazas y bash)",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Resumen",
+      "collapsed": false,
+      "panels": [],
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Corridas de agentes",
+      "description": "Pasos de agente (span `agent <id>`) en el rango.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\"}[$__range])))",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Agentes con error",
+      "description": "Corridas de agente que terminaron en ERROR (incluidas las que cubrió un onError).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range])) or vector(0)) / sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\"}[$__range]))",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Duración p95 de un agente",
+      "description": "Del arranque del agente hasta que eligió salida (incluye sus requests y tools).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"agent .*\"}[$__range])))",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue"
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Llamadas a tools",
+      "description": "Tools locales ejecutadas (span `execute_tool <name>`), incluidas las `submit_*`.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__range])))",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Tools con error",
+      "description": "Llamadas a tools que devolvieron error al modelo (is_error).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range])) or vector(0)) / sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__range]))",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Requests al modelo",
+      "description": "Requests a la Messages API (span `chat <model>`).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"chat .*\"}[$__range])))",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 7,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "Agentes",
+      "collapsed": false,
+      "panels": [],
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Por agente",
+      "description": "Corridas, errores y duración de cada agente en el rango.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (agent) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\"}[$__range]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (agent) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (agent) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\"))) / round(sum by (agent) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\"}[$__range]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (agent, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"agent .*\"}[$__range]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (agent, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"agent .*\"}[$__range]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "agent": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "agent": "Agente",
+              "Value #A": "Corridas",
+              "Value #B": "Errores",
+              "Value #C": "% error",
+              "Value #D": "p50",
+              "Value #E": "p95"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Corridas",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "% error"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green"
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.05
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errores"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^p(50|95)$"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Agente"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Corridas"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Corridas por agente",
+      "description": "Corridas de cada agente en el tiempo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "10m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (agent) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"agent .*\"}[$__interval]), \"agent\", \"$1\", \"span_name\", \"agent (.*)\"))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{agent}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ],
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 10
+      }
+    },
+    {
+      "type": "row",
+      "title": "Tools",
+      "collapsed": false,
+      "panels": [],
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Por tool",
+      "description": "Llamadas, errores y duración de cada tool en el rango. Las `submit_*` y `fail_turn` son las tools con las que un agente elige su salida.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (tool) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__range]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (tool) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (tool) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\"))) / round(sum by (tool) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__range]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (tool, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__range]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (tool, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__range]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "tool": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "tool": "Tool",
+              "Value #A": "Llamadas",
+              "Value #B": "Errores",
+              "Value #C": "% error",
+              "Value #D": "p50",
+              "Value #E": "p95"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Llamadas",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "% error"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green"
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.05
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errores"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^p(50|95)$"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tool"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Llamadas"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 12
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Llamadas por tool",
+      "description": "Llamadas a cada tool en el tiempo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "10m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (tool) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"execute_tool .*\"}[$__interval]), \"tool\", \"$1\", \"span_name\", \"execute_tool (.*)\"))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{tool}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ],
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 12
+      }
+    },
+    {
+      "type": "row",
+      "title": "Modelos",
+      "collapsed": false,
+      "panels": [],
+      "id": 14,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Por modelo",
+      "description": "Requests a la API por modelo; la duración es la de cada request.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (model) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"chat .*\"}[$__range]), \"model\", \"$1\", \"span_name\", \"chat (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (model) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"chat .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range]), \"model\", \"$1\", \"span_name\", \"chat (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (model) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"chat .*\", status_code=\"STATUS_CODE_ERROR\"}[$__range]), \"model\", \"$1\", \"span_name\", \"chat (.*)\"))) / round(sum by (model) (label_replace(increase(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"chat .*\"}[$__range]), \"model\", \"$1\", \"span_name\", \"chat (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (model, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"chat .*\"}[$__range]), \"model\", \"$1\", \"span_name\", \"chat (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (model, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"chat .*\"}[$__range]), \"model\", \"$1\", \"span_name\", \"chat (.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "model": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "model": "Modelo",
+              "Value #A": "Requests",
+              "Value #B": "Errores",
+              "Value #C": "% error",
+              "Value #D": "p50",
+              "Value #E": "p95"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Requests",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "% error"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green"
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.05
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errores"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^p(50|95)$"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Modelo"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requests"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 15,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Duración p95 por modelo",
+      "description": "Latencia p95 de cada request a la API.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (model, le) (label_replace(increase(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"chat .*\"}[$__rate_interval]), \"model\", \"$1\", \"span_name\", \"chat (.*)\")))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "mean"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 16,
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Por agente, desde las trazas (últimas 24 h — tope de TraceQL metrics)",
+      "collapsed": false,
+      "panels": [],
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tools que usa cada agente",
+      "description": "Llamadas a cada tool por agente, y cuántas devolvieron error al modelo. Sale de las trazas (TraceQL metrics): cubre las últimas 24 h aunque el rango del dashboard sea otro.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ name =~ \"execute_tool .*\" && resource.service.name =~ \"$service\" && span.ia.agent.id =~ \"$agent\" } | count_over_time() by (span.ia.agent.id, span.gen_ai.tool.name, status)",
+          "metricsQueryType": "instant",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByLabels",
+          "options": {
+            "value": "status",
+            "join": [
+              "span.ia.agent.id",
+              "span.gen_ai.tool.name"
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "reduce": {
+              "include": [
+                "\"unset\"",
+                "\"error\"",
+                "\"ok\""
+              ],
+              "reducer": "sum"
+            },
+            "alias": "Llamadas"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "\"unset\"": true,
+              "\"ok\"": true
+            },
+            "indexByName": {
+              "span.ia.agent.id": 0,
+              "span.gen_ai.tool.name": 1,
+              "Llamadas": 2,
+              "\"error\"": 3
+            },
+            "renameByName": {
+              "\"error\"": "Errores"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Llamadas",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^\"(.*)\"$",
+                "result": {
+                  "text": "$1"
+                }
+              }
+            }
+          ],
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.tool.name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.request.model"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Modelo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Llamadas"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 12
+      }
+    },
+    {
+      "type": "table",
+      "title": "Requests al modelo por agente",
+      "description": "Cuántas requests hizo cada agente a cada modelo. Sale de las trazas (TraceQL metrics): cubre las últimas 24 h aunque el rango del dashboard sea otro.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span.gen_ai.operation.name = \"chat\" && resource.service.name =~ \"$service\" && span.ia.agent.id =~ \"$agent\" } | count_over_time() by (span.ia.agent.id, span.gen_ai.request.model)",
+          "metricsQueryType": "instant",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true,
+              "Time": true
+            },
+            "indexByName": {
+              "span.ia.agent.id": 0,
+              "span.gen_ai.request.model": 1,
+              "value": 2
+            },
+            "renameByName": {
+              "value": "Requests"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Requests",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^\"(.*)\"$",
+                "result": {
+                  "text": "$1"
+                }
+              }
+            }
+          ],
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.tool.name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.request.model"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Modelo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requests"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 19,
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 12
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tokens de entrada",
+      "description": "Tokens de entrada (sin contar los leídos de cache) de todas las requests. Sale de las trazas (TraceQL metrics): cubre las últimas 24 h aunque el rango del dashboard sea otro.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span.gen_ai.operation.name = \"chat\" && resource.service.name =~ \"$service\" && span.ia.agent.id =~ \"$agent\" } | sum_over_time(span.gen_ai.usage.input_tokens) by (span.ia.agent.id, span.gen_ai.request.model)",
+          "metricsQueryType": "instant",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true,
+              "Time": true
+            },
+            "indexByName": {
+              "span.ia.agent.id": 0,
+              "span.gen_ai.request.model": 1,
+              "value": 2
+            },
+            "renameByName": {
+              "value": "Entrada"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Entrada",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^\"(.*)\"$",
+                "result": {
+                  "text": "$1"
+                }
+              }
+            }
+          ],
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.tool.name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.request.model"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Modelo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Entrada"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 20,
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 8,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tokens de salida",
+      "description": "Tokens generados por el modelo. Sale de las trazas (TraceQL metrics): cubre las últimas 24 h aunque el rango del dashboard sea otro.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span.gen_ai.operation.name = \"chat\" && resource.service.name =~ \"$service\" && span.ia.agent.id =~ \"$agent\" } | sum_over_time(span.gen_ai.usage.output_tokens) by (span.ia.agent.id, span.gen_ai.request.model)",
+          "metricsQueryType": "instant",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true,
+              "Time": true
+            },
+            "indexByName": {
+              "span.ia.agent.id": 0,
+              "span.gen_ai.request.model": 1,
+              "value": 2
+            },
+            "renameByName": {
+              "value": "Salida"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Salida",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^\"(.*)\"$",
+                "result": {
+                  "text": "$1"
+                }
+              }
+            }
+          ],
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.tool.name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.request.model"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Modelo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Salida"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 21,
+      "gridPos": {
+        "x": 8,
+        "y": 51,
+        "w": 8,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tokens leídos de cache",
+      "description": "Tokens del prompt cache: cuanto más altos respecto de la entrada, más barato sale el agente. Sale de las trazas (TraceQL metrics): cubre las últimas 24 h aunque el rango del dashboard sea otro.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span.gen_ai.operation.name = \"chat\" && resource.service.name =~ \"$service\" && span.ia.agent.id =~ \"$agent\" } | sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by (span.ia.agent.id, span.gen_ai.request.model)",
+          "metricsQueryType": "instant",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true,
+              "Time": true
+            },
+            "indexByName": {
+              "span.ia.agent.id": 0,
+              "span.gen_ai.request.model": 1,
+              "value": 2
+            },
+            "renameByName": {
+              "value": "Cache"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Cache",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^\"(.*)\"$",
+                "result": {
+                  "text": "$1"
+                }
+              }
+            }
+          ],
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.tool.name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.request.model"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Modelo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cache"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 22,
+      "gridPos": {
+        "x": 16,
+        "y": 51,
+        "w": 8,
+        "h": 10
+      }
+    },
+    {
+      "type": "row",
+      "title": "Bash — qué comandos corren los agentes (bash_run)",
+      "collapsed": false,
+      "panels": [],
+      "id": 23,
+      "gridPos": {
+        "x": 0,
+        "y": 61,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Programas más usados",
+      "description": "Cuántas veces corrió cada programa (el primer token del comando: git, uv, sed…). Sale de los logs `tool \"bash_run\"` del rango.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (program) (count_over_time({service_name=~\".+\", service_name=~\"$service\"} |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | ia_agent_id =~ \"$agent\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<program>[^ \\\"]+)\" | program != \"\" [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "program": 0,
+              "Value #A": 1
+            },
+            "renameByName": {
+              "Value #A": "Veces"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Veces",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "unit": "locale",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "program"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Programa"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Veces"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 24,
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 6,
+        "h": 11
+      }
+    },
+    {
+      "type": "table",
+      "title": "Comandos más usados",
+      "description": "Los comandos completos, con sus argumentos, que más se repiten en el rango.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "topk(25, sum by (command) (count_over_time({service_name=~\".+\", service_name=~\"$service\"} |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | ia_agent_id =~ \"$agent\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range])))",
+          "queryType": "instant"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "command": 0,
+              "Value #A": 1
+            },
+            "renameByName": {
+              "Value #A": "Veces"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Veces",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "unit": "locale",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "command"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Comando"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Veces"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 25,
+      "gridPos": {
+        "x": 6,
+        "y": 62,
+        "w": 10,
+        "h": 11
+      }
+    },
+    {
+      "type": "table",
+      "title": "Programas por agente",
+      "description": "Qué programas usa cada agente, y cuántas veces.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (ia_agent_id, program) (count_over_time({service_name=~\".+\", service_name=~\"$service\"} |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | ia_agent_id =~ \"$agent\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<program>[^ \\\"]+)\" | program != \"\" [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "ia_agent_id": 0,
+              "program": 1,
+              "Value #A": 2
+            },
+            "renameByName": {
+              "Value #A": "Veces"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Veces",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "unit": "locale",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ia_agent_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "program"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Programa"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Veces"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 26,
+      "gridPos": {
+        "x": 16,
+        "y": 62,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Programas en el tiempo",
+      "description": "Ejecuciones de cada programa en el tiempo.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "interval": "10m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (program) (count_over_time({service_name=~\".+\", service_name=~\"$service\"} |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | ia_agent_id =~ \"$agent\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<program>[^ \\\"]+)\" | program != \"\" [$__interval]))",
+          "queryType": "range",
+          "legendFormat": "{{program}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ],
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 27,
+      "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 14,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "Comandos que fallaron",
+      "description": "Comandos de `bash_run` que devolvieron error al modelo (exit ≠ 0, comando no permitido por la política, binario inexistente…). Sale de las trazas (TraceQL metrics): cubre las últimas 24 h aunque el rango del dashboard sea otro.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ name = \"execute_tool bash_run\" && status = error && resource.service.name =~ \"$service\" && span.ia.agent.id =~ \"$agent\" } | count_over_time() by (span.ia.agent.id, span.ia.tool.input)",
+          "metricsQueryType": "instant",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true,
+              "Time": true
+            },
+            "indexByName": {
+              "span.ia.agent.id": 0,
+              "span.ia.tool.input": 1,
+              "value": 2
+            },
+            "renameByName": {
+              "value": "Fallos"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Fallos",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "minWidth": 60
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^\"(.*)\"$",
+                "result": {
+                  "text": "$1"
+                }
+              }
+            }
+          ],
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agente"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.tool.name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.gen_ai.request.model"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Modelo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fallos"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.tool.input"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Comando"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^\"?\\{\\\\?\"command\\\\?\":\\\\?\"(.*?)\\\\?\"[,}].*$",
+                      "result": {
+                        "text": "$1"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "span.ia.agent.id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 28,
+      "gridPos": {
+        "x": 14,
+        "y": 73,
+        "w": 10,
+        "h": 10
+      }
+    }
+  ]
+}

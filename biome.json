@@ -11,7 +11,8 @@
       "!**/*.sqlite",
       "!**/apps/web/src/**/*.vue",
       "!**/handoff",
-      "!v2"
+      "!v2",
+      "!**/otel/grafana/dashboards"
     ]
   },
   "formatter": {

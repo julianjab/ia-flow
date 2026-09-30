@@ -140,7 +140,7 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `FIGMA_MCP_TOKEN` | el token del MCP de Figma (`runner.yaml` lo nombra como `${FIGMA_MCP_TOKEN}`) |
 | `RUNNER_CONFIG_DIR` | otra carpeta de definición (default: `.config`) |
 | `WORKSPACE_DIR` | dónde van clones y worktrees (default: `~/.cache/ia-flow/runner-v2/workspaces`) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | trazas y logs por OTLP |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | trazas y logs por OTLP — `bun run otel` levanta el Grafana local con los dashboards ([otel/](otel/README.md)) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | la credencial del provider `claude-cli` (el CLI `claude`) |
 | `SLACK_BOT_TOKEN` | las actions de Slack y `request_slack_review` |
 | `MEMORY_MCP_URL` | el MCP de memoria (`runner.yaml` lo nombra como `${MEMORY_MCP_URL}`) |
