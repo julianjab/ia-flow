@@ -4,7 +4,8 @@ import { computed } from 'vue';
 import type { StreamState } from '@/features/inbox/stream';
 
 // La segunda fila de la pantalla (R12): el filtro por proyecto —sólo si el
-// runner tiene más de uno— y cómo está la conexión en vivo.
+// runner tiene más de uno—, los links al Project y a su board en GitHub, y cómo
+// está la conexión en vivo.
 
 const props = defineProps<{
   projects: InboxProject[];
@@ -22,6 +23,11 @@ const LIVE_COPY: Record<StreamState, string> = {
   polling: 'sin stream · se actualiza cada 30 s',
 };
 const liveCopy = computed(() => LIVE_COPY[props.stream]);
+
+/** Los proyectos a la vista: el elegido, o todos. Con más de uno, cada link dice de cuál es. */
+const linked = computed(() =>
+  props.projects.filter((p) => p.url && (!props.project || p.id === props.project)),
+);
 </script>
 
 <template>
@@ -41,6 +47,16 @@ const liveCopy = computed(() => LIVE_COPY[props.stream]);
         {{ p.id }}
       </button>
     </div>
+
+    <nav v-if="linked.length" class="tb__links" aria-label="En GitHub">
+      <span v-for="p in linked" :key="p.id" class="tb__proj">
+        <span v-if="projects.length > 1" class="tb__id mono">{{ p.id }}</span>
+        <a :href="p.url" target="_blank" rel="noopener noreferrer" class="tb__link">Proyecto ↗</a>
+        <a v-if="p.board_url && p.board_url !== p.url" :href="p.board_url" target="_blank" rel="noopener noreferrer" class="tb__link">
+          Board ↗
+        </a>
+      </span>
+    </nav>
 
     <p class="tb__live" :data-state="stream" role="status">
       <span v-if="stream === 'live'" class="live-dot" aria-hidden="true" />
@@ -67,6 +83,12 @@ const liveCopy = computed(() => LIVE_COPY[props.stream]);
 }
 .tb__chip:hover { background: var(--panel-hi); color: var(--fg); }
 .tb__chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.tb__links { display: flex; flex-wrap: wrap; gap: 0 1rem; }
+.tb__proj { display: inline-flex; align-items: center; gap: 0 0.75rem; }
+.tb__id { color: var(--fg-dim); font-size: var(--fs-chrome); }
+/* `a:hover` global pinta el fondo: se redefine en el propio :hover. */
+.tb__link { display: inline-flex; align-items: center; min-height: var(--tap-h); color: var(--info); font-size: var(--fs-body-sm); }
+.tb__link:hover { background: transparent; color: var(--fg); text-decoration: underline; }
 .tb__live { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0 auto; color: var(--fg-dim); font-family: var(--font-mono); font-size: var(--fs-chrome); }
 .tb__live[data-state='polling'],
 .tb__live[data-state='reconnecting'] { color: var(--warn); }

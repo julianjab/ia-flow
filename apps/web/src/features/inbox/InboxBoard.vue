@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue';
 import InboxSection from '@/features/inbox/InboxSection.vue';
 import InboxSummary from '@/features/inbox/InboxSummary.vue';
 import InboxToolbar from '@/features/inbox/InboxToolbar.vue';
+import BoardRest from '@/features/inbox/BoardRest.vue';
 import RulesLegend from '@/features/inbox/RulesLegend.vue';
 import TaskDetailDrawer from '@/features/inbox/TaskDetailDrawer.vue';
 import { useInboxStore } from '@/features/inbox/store';
@@ -71,6 +72,8 @@ watch(
         @reload="store.loadDetail($event)"
       />
     </div>
+
+    <BoardRest v-if="store.inbox" />
 
     <RulesLegend />
 

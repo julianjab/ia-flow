@@ -1,4 +1,6 @@
 import {
+  type BoardRest,
+  BoardRestSchema,
   type ConfigSummary,
   ConfigSummarySchema,
   type ExplainResult,
@@ -27,6 +29,14 @@ export async function getInbox(project?: string): Promise<Inbox> {
     params: project ? { project } : undefined,
   })
   return InboxSchema.parse(data)
+}
+
+/** Lo que la bandeja no muestra, por columna: se pide al abrir «Resto del board». */
+export async function getBoardRest(project?: string): Promise<BoardRest> {
+  const { data } = await axios.get<unknown>('/api/board', {
+    params: project ? { project } : undefined,
+  })
+  return BoardRestSchema.parse(data)
 }
 
 export async function getTaskDetail(ref: string, executionId?: string): Promise<TaskDetail> {

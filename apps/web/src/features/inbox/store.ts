@@ -1,4 +1,5 @@
 import type {
+  BoardRest,
   EventLogEntry,
   Inbox,
   InboxGroup,
@@ -12,7 +13,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import { serverTarget } from '@/composables/useServerTarget'
-import { getInbox, getTaskDetail, postTaskAction } from '@/features/inbox/api'
+import { getBoardRest, getInbox, getTaskDetail, postTaskAction } from '@/features/inbox/api'
 import { GROUPS } from '@/features/inbox/labels'
 import { connectRunnerStream, type StreamState } from '@/features/inbox/stream'
 
@@ -45,6 +46,11 @@ export const useInboxStore = defineStore('inbox', () => {
   const openRef = ref<string | null>(null)
   /** La tarea abierta se ve en grande (el panel de detalle), no sólo dentro de su tarjeta. */
   const expanded = ref(false)
+
+  /** El resto del board: se pide recién cuando alguien abre esa sección. */
+  const rest = ref<BoardRest | null>(null)
+  const restLoading = ref(false)
+  const restError = ref<string | null>(null)
   const details = ref<Record<string, DetailState>>({})
   const actions = ref<Record<string, ActionState>>({})
   const streamState = ref<StreamState>('connecting')
@@ -133,6 +139,18 @@ export const useInboxStore = defineStore('inbox', () => {
 
   function collapse(): void {
     expanded.value = false
+  }
+
+  async function loadRest(): Promise<void> {
+    restLoading.value = true
+    try {
+      rest.value = await getBoardRest(project.value ?? undefined)
+      restError.value = null
+    } catch (err) {
+      restError.value = extractErrorMessage(err)
+    } finally {
+      restLoading.value = false
+    }
   }
 
   /** Abre una tarea pedida desde afuera (el asistente): sin filtros que la escondan. */
@@ -270,6 +288,10 @@ export const useInboxStore = defineStore('inbox', () => {
     groupFilter,
     openRef,
     expanded,
+    rest,
+    restLoading,
+    restError,
+    loadRest,
     details,
     actions,
     streamState,
