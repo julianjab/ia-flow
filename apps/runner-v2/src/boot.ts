@@ -14,6 +14,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type DispatchJournal,
   type Engine,
   type EventBus,
   type ExecutionGroups,
@@ -57,6 +58,8 @@ export interface MountOptions {
   log: (line: string) => void
   /** Quién evalúa los `whenText`, en vez del de `runner.yaml` (tests). */
   textClassifier?: TextClassifier
+  /** Dónde queda cada evento despachado (`storage/activityStore.ts`). */
+  dispatchJournal?: DispatchJournal
   /** Sólo tests: la API de GitHub la contesta `githubFetch` (con un token de prueba), no se
    *  resuelven los MCP y las ejecuciones van a `storeDriver` en vez del driver de runner.yaml. */
   testing?: { githubFetch: typeof fetch; storeDriver: StoreDriver }
@@ -211,6 +214,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // Las de la fuente global, en vivo: editar `sources.capabilities` recarga sin reiniciar.
     capabilities: (name) => globalSource.capabilities[name],
     ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
+    ...(opts.dispatchJournal ? { dispatchJournal: opts.dispatchJournal } : {}),
   })
   // `Working = Yes` en la card mientras su ejecución corre (ver `project.yaml` → workingMarker).
   const stopWorking = mounted.executions

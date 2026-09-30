@@ -1,11 +1,13 @@
 /**
- * El SDK de OpenTelemetry del runner. Los paquetes (`agent-engine`, `provider-anthropic`)
- * instrumentan sólo contra la API; es la APP la que decide si exporta y a dónde. Acá: OTLP/HTTP
- * al endpoint de `OTEL_EXPORTER_OTLP_ENDPOINT` — el Grafana LGTM de `examples/apps/otel` en local,
- * o un Collector/Datadog Agent en otro lado, sin cambiar código.
+ * El SDK de OpenTelemetry del runner. Los paquetes (`agent-engine`, los providers) instrumentan
+ * sólo contra la API; es la APP la que decide a dónde va. Una sola emisión, dos destinos:
  *
- * Sin `OTEL_EXPORTER_OTLP_ENDPOINT` no se registra nada y toda la instrumentación queda en no-op.
+ *   - SIEMPRE, la base de actividad (`traceRecorder` → SQLite): cada span y log de una ejecución,
+ *     en el momento — lo que leen la bandeja y el asistente.
+ *   - Con `OTEL_EXPORTER_OTLP_ENDPOINT`, además OTLP/HTTP (el Grafana LGTM de `otel/` en local, o
+ *     un Collector/Datadog Agent), en lotes de 1 s.
  */
+import { addLogSink, type TraceJournal, traceRecorder } from '@ia-flow/telemetry'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
@@ -17,6 +19,9 @@ import {
   type Span,
   type SpanProcessor,
 } from '@opentelemetry/sdk-trace-base'
+
+/** Cada cuánto sale un lote a OTLP: casi en vivo, sin un request por span. */
+const EXPORT_DELAY_MS = 1_000
 
 export interface Telemetry {
   /** El trace id de cada evento despachado (spans raíz `event <type>`), en orden. */
@@ -39,10 +44,25 @@ class RootTraceRecorder implements SpanProcessor {
   async shutdown(): Promise<void> {}
 }
 
-export function startTelemetry(serviceVersion: string): Telemetry {
+/** A dónde van los registros de cada ejecución: la base (`--serve`) o el runner que pidió la
+ *  corrida (`--host`). Se decide después de arrancar la telemetría, al elegir el modo. */
+export class TraceRoute implements TraceJournal {
+  private target?: TraceJournal
+
+  to(target: TraceJournal): void {
+    this.target = target
+  }
+
+  write(record: Parameters<TraceJournal['write']>[0]): void {
+    this.target?.write(record)
+  }
+}
+
+export function startTelemetry(serviceVersion: string, route: TraceRoute): Telemetry {
   const traceIds: string[] = []
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-  if (!endpoint) return { traceIds, shutdown: async () => {} }
+  const recorder = traceRecorder(route)
+  addLogSink(recorder.logSink)
 
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
@@ -52,13 +72,27 @@ export function startTelemetry(serviceVersion: string): Telemetry {
     }),
     spanProcessors: [
       new RootTraceRecorder(traceIds),
-      new BatchSpanProcessor(new OTLPTraceExporter()),
+      recorder.spanProcessor,
+      ...(endpoint
+        ? [
+            new BatchSpanProcessor(new OTLPTraceExporter(), {
+              scheduledDelayMillis: EXPORT_DELAY_MS,
+            }),
+          ]
+        : []),
     ],
-    logRecordProcessors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter() })],
+    logRecordProcessors: endpoint
+      ? [
+          new BatchLogRecordProcessor({
+            exporter: new OTLPLogExporter(),
+            scheduledDelayMillis: EXPORT_DELAY_MS,
+          }),
+        ]
+      : [],
     // Sin auto-instrumentación (http/undici): los spans que importan los emite el engine, y un
     // span por cada GET a GitHub taparía el árbol.
     instrumentations: [],
   })
   sdk.start()
-  return { traceIds, endpoint, shutdown: () => sdk.shutdown() }
+  return { traceIds, ...(endpoint ? { endpoint } : {}), shutdown: () => sdk.shutdown() }
 }

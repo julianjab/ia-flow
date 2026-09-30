@@ -28,6 +28,12 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
 import {
+  AssistantSection,
+  type AssistantSettings,
+  InboxSection,
+  type InboxSettings,
+} from '../inbox/InboxSection.js'
+import {
   DEFAULT_WORKING_MARKER,
   type WorkingMarker,
   WorkingMarkerSchema,
@@ -127,6 +133,8 @@ export const RunnerFileSchema = z.strictObject({
       appId: z.string().optional(),
       installationId: z.string().optional(),
       privateKeyPath: z.string().optional(),
+      /** El client id de la GitHub App: el login de cada persona en la web (device flow). */
+      clientId: z.string().optional(),
     })
     .optional(),
   /** Los defaults de cada provider para todos sus agentes (`anthropic-api: { maxTokens, … }`). */
@@ -149,6 +157,10 @@ export const RunnerFileSchema = z.strictObject({
   mcp: z.array(McpEntrySchema).default([]),
   /** Cómo corre el engine (`engine/mountEngine.ts`). */
   engine: EngineSection.default({}),
+  /** La bandeja de la web (`inbox/InboxSection.ts`). */
+  inbox: InboxSection.prefault({}),
+  /** El asistente de la web. */
+  assistant: AssistantSection.prefault({}),
   /** Qué corre: la composición del runner, que el engine sólo ve como fuentes ya armadas. */
   sources: z
     .strictObject({
@@ -208,6 +220,8 @@ export interface RunnerConfig {
   host: NonNullable<RunnerFile['host']>
   mcp: McpEntry[]
   engine: EngineSection
+  inbox: InboxSettings
+  assistant: AssistantSettings
   /** Los módulos de las actions globales. */
   actions: string[]
   /** La fuente global, releída de `runner.yaml` cuando cambia. */
@@ -348,6 +362,8 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     host: file.host ?? {},
     mcp: file.mcp,
     engine: file.engine,
+    inbox: file.inbox,
+    assistant: file.assistant,
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
       spec: () => {
@@ -380,6 +396,7 @@ const GITHUB_ENV: Record<string, string> = {
   appId: 'IA_FLOW_GITHUB_APP_ID',
   installationId: 'IA_FLOW_GITHUB_APP_INSTALLATION_ID',
   privateKeyPath: 'IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH',
+  clientId: 'IA_FLOW_GITHUB_CLIENT_ID',
 }
 
 export interface RunnerEnvReport {

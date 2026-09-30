@@ -18,6 +18,7 @@ import {
   RemoteProvider,
   type RemoteProviderConfig,
 } from '@ia-flow/provider-remote'
+import type { TraceRecord } from '@ia-flow/telemetry'
 
 export const ANTHROPIC_PROVIDER = 'anthropic-api'
 export const CLAUDE_CLI_TYPE = 'claude-cli'
@@ -29,6 +30,9 @@ export interface RegisterProvidersOptions {
   /** El worktree de una corrida (donde corre una sesión del CLI). */
   cwd: (ctx: PipelineExecutionContext) => Promise<string>
   log: (line: string) => void
+  /** Lo que un provider `remote` trae de su host (spans y logs de la corrida): a la base de
+   *  actividad, igual que lo que corre acá. */
+  onTrace?: (record: TraceRecord) => void
 }
 
 /** Registra en el `providerRegistry` global cada provider que declara `runner.yaml`, y los
@@ -42,7 +46,7 @@ export function registerProviders(
   ]
   for (const [id, config] of Object.entries(providers)) {
     if (config.type === CLAUDE_CLI_TYPE) registered.push(claudeCli(id, config, options))
-    else if (config.type === REMOTE_TYPE) registered.push(remote(id, config))
+    else if (config.type === REMOTE_TYPE) registered.push(remote(id, config, options.onTrace))
   }
   for (const provider of registered) providerRegistry.register(provider)
   return registered
@@ -115,8 +119,17 @@ function claudeCli(
   })
 }
 
-function remote(id: string, config: Record<string, unknown>): Provider {
-  return new RemoteProvider({ id, ...remoteConfig(config), hints: runnerHints })
+function remote(
+  id: string,
+  config: Record<string, unknown>,
+  onTrace?: (record: TraceRecord) => void,
+): Provider {
+  return new RemoteProvider({
+    id,
+    ...remoteConfig(config),
+    hints: runnerHints,
+    ...(onTrace ? { onTrace } : {}),
+  })
 }
 
 /** La entrada `remote`, con sus `${VAR}` resueltos del ambiente: el token es un secreto y

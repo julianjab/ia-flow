@@ -26,6 +26,7 @@
     "@ia-flow/provider-anthropic": "workspace:*",
     "@ia-flow/provider-claude-cli": "workspace:*",
     "@ia-flow/provider-remote": "workspace:*",
+    "@ia-flow/shared": "workspace:*",
     "@ia-flow/slack-api": "workspace:*",
     "@ia-flow/slack-tools": "workspace:*",
     "@ia-flow/telemetry": "workspace:*",

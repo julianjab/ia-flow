@@ -1,0 +1,103 @@
+/**
+ * Lo que pasó en el runner, en SQLite: cada evento con lo que decidió cada pipeline (`event_log`)
+ * y cada span y log de cada ejecución (`execution_trace`). Es la memoria del asistente y de la
+ * bandeja; OTLP (si hay endpoint) es la otra copia, para mirar a fondo en Grafana o Datadog.
+ *
+ * Usa el MISMO archivo que las ejecuciones (`engine.executions.path`) por una segunda conexión — en
+ * WAL eso es seguro — así la bandeja cruza ejecuciones y eventos con un JOIN. Sin base de
+ * ejecuciones (driver `memory`), en memoria.
+ */
+import { Database } from 'bun:sqlite'
+import { mkdirSync } from 'node:fs'
+import { dirname, isAbsolute, resolve } from 'node:path'
+import type { DispatchJournal, DispatchRecord, DomainEvent } from '@ia-flow/agent-engine'
+import {
+  migrate,
+  SqliteActivityReader,
+  SqliteDispatchJournal,
+  SqliteTraceJournal,
+} from '@ia-flow/agent-engine-datasource-sqlite'
+import type { TraceRecord } from '@ia-flow/telemetry'
+import { trace } from '@opentelemetry/api'
+import type { RunnerConfig } from '../config/RunnerConfig.js'
+import { summarizeEvent } from '../inbox/eventSummary.js'
+import { SqliteActivity } from '../inbox/SqliteActivity.js'
+
+const DAY_MS = 86_400_000
+
+export interface ActivityStore {
+  activity: SqliteActivity
+  /** El journal del engine: anota y avisa. */
+  dispatchJournal: DispatchJournal
+  /** Anota un span o log de una ejecución, y avisa. */
+  writeTrace(record: TraceRecord): void
+  /** Un webhook que no llegó al engine (nadie lo escucha). */
+  ignored(event: DomainEvent<any>, reason: string): void
+  /** Cada evento anotado y cada registro de traza, en el momento. */
+  onDispatch(listener: (entry: DispatchRecord) => void): () => void
+  onTrace(listener: (record: TraceRecord) => void): () => void
+  /** Borra lo que tiene más de `retentionDays`. */
+  prune(): void
+  close(): void
+}
+
+function databasePath(cfg: RunnerConfig): string {
+  const executions = cfg.engine.executions
+  if (executions?.driver !== 'bun-sqlite' || !executions.path) return ':memory:'
+  if (executions.path === ':memory:' || isAbsolute(executions.path)) return executions.path
+  return resolve(cfg.dir, executions.path)
+}
+
+export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): ActivityStore {
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
+  const database = new Database(path, { create: true })
+  if (path !== ':memory:') database.exec('PRAGMA journal_mode = WAL')
+  migrate(database)
+
+  const dispatchListeners = new Set<(entry: DispatchRecord) => void>()
+  const traceListeners = new Set<(record: TraceRecord) => void>()
+  const notify = <T>(listeners: Set<(value: T) => void>, value: T) => {
+    for (const listener of listeners) {
+      try {
+        listener(value)
+      } catch {
+        // Un listener roto (un cliente SSE que se fue) no corta la anotación.
+      }
+    }
+  }
+
+  const events = new SqliteDispatchJournal({
+    database,
+    summarize: (event) => summarizeEvent(event, cfg.inbox.commentExcerpt),
+    traceId: () => trace.getActiveSpan()?.spanContext().traceId,
+  })
+  const traces = new SqliteTraceJournal({
+    database,
+    onWrite: (record) => notify(traceListeners, record),
+  })
+
+  return {
+    activity: new SqliteActivity(new SqliteActivityReader(database)),
+    dispatchJournal: {
+      record: (entry) => {
+        events.record(entry)
+        notify(dispatchListeners, entry)
+      },
+    },
+    writeTrace: (record) => traces.write(record),
+    ignored: (event, reason) => events.append({ event, reason }),
+    onDispatch: (listener) => {
+      dispatchListeners.add(listener)
+      return () => dispatchListeners.delete(listener)
+    },
+    onTrace: (listener) => {
+      traceListeners.add(listener)
+      return () => traceListeners.delete(listener)
+    },
+    prune: () => {
+      const cutoff = new Date(Date.now() - cfg.inbox.retentionDays * DAY_MS).toISOString()
+      new SqliteActivityReader(database).prune(cutoff)
+    },
+    close: () => database.close(),
+  }
+}

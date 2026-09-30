@@ -7,6 +7,7 @@
 import { isAbsolute, resolve } from 'node:path'
 import {
   type CapabilityBindings,
+  type DispatchJournal,
   type DomainEvent,
   Engine,
   EventBus,
@@ -74,6 +75,8 @@ export interface MountEngineOptions {
   capabilities?: CapabilityBindings
   /** Gana sobre la capacidad `whenText` (tests). */
   textClassifier?: TextClassifier
+  /** Dónde queda cada evento con lo que decidió cada pipeline (la base de actividad). */
+  dispatchJournal?: DispatchJournal
 }
 
 export interface MountedEngine {
@@ -165,6 +168,7 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
     ...(reason ? { interruptReason: reason } : {}),
     ...(selfOriginated ? { selfOriginated } : {}),
+    ...(opts.dispatchJournal ? { dispatchJournal: opts.dispatchJournal } : {}),
   })
   const unsubscribe = engine.start()
   const ticker = config.tick ? setInterval(() => engine.tick(), config.tick.everyMs) : undefined
