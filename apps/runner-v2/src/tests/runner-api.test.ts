@@ -24,6 +24,7 @@ import { TaskActions } from '../tasks/TaskActions.js'
 
 const TOKEN = 'runner-secret'
 const settings = InboxSection.parse({})
+const projectLabels = new Map([['p', 'blocked']])
 
 const cards: BoardCard[] = [
   {
@@ -32,7 +33,8 @@ const cards: BoardCard[] = [
     title: 'Mergeable',
     url: 'https://github.com/o/r/issues/1',
     status: 'Review',
-    labels: ['reviewed'],
+    // `blocked` es el label del proyecto: marca que la card es de este runner.
+    labels: ['reviewed', 'blocked'],
     updatedAt: '2026-09-29T11:00:00Z',
     blockedBy: [],
     pr: { number: 9, url: 'https://github.com/o/r/pull/9' },
@@ -82,7 +84,9 @@ const fakeProvider: Provider = {
       action: 'merge',
       reason: 'el reviewer aprobó',
     })
-    await tool(ctx, 'submit_done').handler({ result: { answer: 'Te propuse mergear.' } })
+    await tool(ctx, 'submit_done').handler({
+      result: { answer: 'Te propuse mergear.', tasks: ['o/r#1', 'o/r#2'] },
+    })
     return { outcome: 'success' }
   },
 }
@@ -97,6 +101,7 @@ function assistantFor(inbox: InboxService): Assistant {
     activity,
     config: () => ({ projects: [], pipelines: [], agents: [] }),
     status: () => ({}),
+    projectLabels,
   })
   const [definition] = [assistantActions].flat()
   const actions = definition?.create({ services: { assistant: desk } } as ActionContext) as Action[]
@@ -134,6 +139,7 @@ async function start(token: string | null = TOKEN, push = true) {
     actions: new TaskActions({
       inbox,
       boards: new Map([['p', { owner: 'o', number: 1 }]]),
+      projectLabels,
       settings,
       redispatch: async () => 'ok',
       stop: () => 'ok',
@@ -255,7 +261,9 @@ describe('runner API', () => {
       .split('\n')
       .filter((line) => line.startsWith('data: '))
       .map((line) => JSON.parse(line.slice(6)))
-    expect(events.map((event) => event.type)).toEqual(['proposal', 'text', 'done'])
+    expect(events.map((event) => event.type)).toEqual(['proposal', 'text', 'tasks', 'done'])
+    // o/r#2 queda fuera del contexto de la tarea: no sale como card.
+    expect(events[2].items.map((item: { ref: string }) => item.ref)).toEqual(['o/r#1'])
     expect(events.at(-1)).toEqual({ type: 'done', text: 'Te propuse mergear.' })
     expect(events[0].proposal).toMatchObject({
       ref: 'o/r#1',
@@ -315,6 +323,29 @@ describe('runner API', () => {
     })
     expect(await res.text()).toContain('"text":"Nada raro."')
     expect(refused).toMatch(/answer/)
+    fakeProvider.run = defaultRun
+  })
+
+  it('the assistant never sees the project label, so it cannot read it as a block', async () => {
+    const { call } = await start()
+    let read = ''
+    fakeProvider.run = async (ctx) => {
+      read = String(await tool(ctx, 'assistant_get_task').handler({ ref: 'o/r#1' }))
+      read += String(await tool(ctx, 'assistant_list_tasks').handler({}))
+      await tool(ctx, 'submit_done').handler({ result: { answer: 'ok' } })
+      return { outcome: 'success' }
+    }
+    await (
+      await call('/api/assistant', {
+        method: 'POST',
+        body: JSON.stringify({
+          scope: { kind: 'task', ref: 'o/r#1' },
+          messages: [{ role: 'user', content: 'x' }],
+        }),
+      })
+    ).text()
+    expect(read).toContain('"reviewed"')
+    expect(read).not.toContain('"blocked"')
     fakeProvider.run = defaultRun
   })
 
