@@ -1,4 +1,4 @@
-import { createLogger } from '@ia-flow/telemetry'
+import { createLogger, withRemoteTraceContext, withSpan } from '@ia-flow/telemetry'
 import {
   type AcceptRow,
   type HostTask,
@@ -112,11 +112,17 @@ export class HostClient {
     if (this.active.has(task.runId)) return
     const controller = new AbortController()
     this.active.set(task.runId, controller)
-    this.log.info(`${task.agentId}: corrida ${task.runId} (${task.label})`)
-    void (async () => {
+    // Todo lo de la corrida cuelga del span del agente en el runner, con sus atributos: los logs y
+    // spans del host se ven en la misma traza y en la misma ejecución que los del runner.
+    void withRemoteTraceContext(task.trace, async () => {
+      this.log.info(`${task.agentId}: corrida ${task.runId} (${task.label})`)
       let report: RunReport | undefined
       try {
-        report = await this.options.run(task, { base: this.base }, controller.signal)
+        report = await withSpan(
+          `host.run ${task.agentId}`,
+          { 'ia.host.name': this.options.name, 'ia.host.run_id': task.runId },
+          () => this.options.run(task, { base: this.base }, controller.signal),
+        )
       } catch (error) {
         report = { status: 'failed', message: (error as Error).message }
       } finally {
@@ -124,7 +130,7 @@ export class HostClient {
       }
       // Cortada por el runner: ya sabe cómo terminó.
       if (report && !controller.signal.aborted) await this.report(task, report)
-    })()
+    })
   }
 
   private async report(task: HostTask, report: RunReport): Promise<void> {

@@ -29,7 +29,12 @@ export interface RemoteHubOptions {
   /** Cada cuánto se barren los hosts vencidos. Default: 5 s; `0`, sólo `sweep()` (tests). */
   sweepIntervalMs?: number
   now?: () => number
+  /** Lo que un host exporta con el SDK estándar (OTLP/HTTP JSON, ya parseado), para que el runner
+   *  lo guarde y lo reexporte como suyo. Sin esto, esas rutas responden 404. */
+  onTelemetry?: (signal: TelemetrySignal, payload: unknown) => void | Promise<void>
 }
+
+export type TelemetrySignal = 'traces' | 'logs'
 
 /** Un host suscrito, como lo ve el runner. */
 export interface HostInfo {
@@ -237,6 +242,7 @@ export class RemoteHub {
       const denied = this.authorize(req)
       if (denied) return denied
       if (parts[1] === 'subscribe') return await this.onSubscribe(req)
+      if (parts[1] === 'telemetry') return await this.onTelemetry(parts[2], req)
       if (parts[2] === 'poll' && parts[1]) return await this.onPoll(parts[1], req)
       return json(404, { error: 'ruta desconocida' })
     } catch (error) {
@@ -244,6 +250,19 @@ export class RemoteHub {
       this.log.error(`api de hosts: ${(error as Error).message}`)
       return json(500, { error: 'error interno' })
     }
+  }
+
+  /** Un export OTLP/HTTP de un host. Sólo JSON: el exporter `-http` del SDK lo manda así. */
+  private async onTelemetry(signal: string | undefined, req: Request): Promise<Response> {
+    const handler = this.options.onTelemetry
+    if (!handler || (signal !== 'traces' && signal !== 'logs')) {
+      return json(404, { error: 'ruta desconocida' })
+    }
+    if (!(req.headers.get('content-type') ?? '').includes('application/json')) {
+      return json(415, { error: 'sólo OTLP/HTTP JSON' })
+    }
+    await handler(signal, await body(req))
+    return json(200, {})
   }
 
   private async onSubscribe(req: Request): Promise<Response> {

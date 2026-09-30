@@ -17,7 +17,7 @@ import {
   runParent,
   turnPrompt,
 } from '@ia-flow/provider-shared'
-import { createLogger } from '@ia-flow/telemetry'
+import { createLogger, exportTraceContext } from '@ia-flow/telemetry'
 import { type HostTask, PROTOCOL_PREFIX } from './protocol.js'
 import { providerId, type RemoteHub } from './RemoteHub.js'
 
@@ -123,6 +123,8 @@ export class RemoteProvider implements Provider {
         report: `${base}/report`,
       },
     }
+    const trace = exportTraceContext()
+    if (trace) task.trace = trace
     const minutes = numberOr(config.timeoutMinutes, DEFAULT_TIMEOUT_MINUTES) + TIMEOUT_GRACE_MINUTES
     this.log.info(`${ctx.agentId}: corrida ${task.runId} a ${this.id}`)
     try {

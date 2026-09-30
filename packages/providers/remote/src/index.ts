@@ -12,7 +12,7 @@ export {
   SubscribeResponse,
   TranscriptPost,
 } from './protocol.js'
-export type { HostInfo, RemoteHubOptions, RemoteRunEnd } from './RemoteHub.js'
+export type { HostInfo, RemoteHubOptions, RemoteRunEnd, TelemetrySignal } from './RemoteHub.js'
 export { providerId, RemoteHub } from './RemoteHub.js'
 export type { RemoteProviderOptions } from './RemoteProvider.js'
 export { RemoteProvider } from './RemoteProvider.js'

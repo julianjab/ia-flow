@@ -9,6 +9,8 @@
  *   POST /v1/runs/<token>/transcript    los requests al modelo (uso) que el host lee de    │ el path
  *                                       la transcripción de su sesión                      │
  *   POST /v1/runs/<token>/report        cómo terminó la sesión del lado del host          ┘
+ *   POST /v1/hosts/telemetry/traces     (bearer de hosts) OTLP/HTTP JSON estándar: las trazas
+ *   POST /v1/hosts/telemetry/logs       y los logs del host, que el runner guarda y reexporta
  *
  * El runner no conduce nada: le entrega la tarea al host y espera en el canal de la corrida (el de
  * `@ia-flow/provider-shared`, el mismo que usa el CLI local) a que el modelo llame una tool
@@ -107,6 +109,15 @@ export const HostTask = z.strictObject({
     transcript: z.string().optional(),
     report: z.string(),
   }),
+  /** El span del agente en el runner (W3C `traceparent`) y sus atributos heredados
+   *  (`ia.execution.id`, `ia.issue`…): lo que el host traza y loguea cuelga de ahí, igual que en
+   *  el runner. */
+  trace: z
+    .strictObject({
+      traceparent: z.string(),
+      attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    })
+    .optional(),
 })
 export type HostTask = z.infer<typeof HostTask>
 

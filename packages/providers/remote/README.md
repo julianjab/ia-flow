@@ -55,6 +55,19 @@ Lo declara al suscribirse y lo decide **el runner** (`RemoteProvider.canAccept`)
 Un "no" demora la corrida o pasa al candidato siguiente (el comodín `remote:*` los prueba en orden
 de suscripción; sin ninguno, el siguiente de `providers` es el respaldo).
 
+## La telemetría del host es la del runner
+
+El host no tiene backend propio: su SDK exporta OTLP/HTTP **JSON estándar** al runner
+(`POST /v1/hosts/telemetry/{traces,logs}`, con el bearer de hosts), y el runner lo recibe con
+`onTelemetry` — lo guarda en su base de actividad y lo reexporta a su collector. Para que se vea
+igual que lo del runner, cada `HostTask` lleva `trace`: el `traceparent` del span del agente y
+sus atributos heredados (`ia.execution.id`, `ia.issue`…). `HostClient` corre la tarea colgada de
+ahí, en un span `host.run <agente>` (`ia.host.name`): el worktree, la sesión y sus logs quedan en la
+misma traza y la misma ejecución que el resto de la corrida.
+
+Lo que no es de una corrida (suscripción, un poll caído) no entra en la base, pero sí se reexporta.
+Y lo que pasa cuando el host no llega al runner no puede viajar por él: queda en su consola.
+
 ## Límites conocidos
 
 - **La transcripción queda allá.** El canal no lee el `transcript_path` (es del disco del host):
