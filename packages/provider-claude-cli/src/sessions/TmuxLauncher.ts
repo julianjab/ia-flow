@@ -89,6 +89,7 @@ export class TmuxLauncher implements Launcher {
     return {
       exited,
       describe: `tmux attach -t ${name}`,
+      ref: { kind: 'tmux', name },
       close: async () => {
         stopped = true
         await run('tmux', ['kill-session', '-t', `=${name}`]).catch(() => {})

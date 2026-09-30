@@ -34,6 +34,7 @@ export class PrintLauncher implements Launcher {
     return {
       exited,
       describe: `pid ${child.pid ?? '?'}`,
+      ...(child.pid !== undefined ? { ref: { kind: 'pid' as const, pid: child.pid } } : {}),
       close: async () => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
         await exited

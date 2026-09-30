@@ -18,13 +18,16 @@ import { RunChannel } from './RunChannel.js'
 import { RunServer } from './RunServer.js'
 import { writeSessionFiles } from './SessionFiles.js'
 import type { CliSession, Launcher, SessionExit } from './sessions/CliSession.js'
+import { closeOrphan, type SessionRef } from './sessions/orphans.js'
 import { PrintLauncher } from './sessions/PrintLauncher.js'
 import { TmuxLauncher } from './sessions/TmuxLauncher.js'
 
 /** La conversación de una corrida del CLI: la sesión de Claude Code, que se retoma con
- *  `--resume` (tras esperar un evento, o tras un reinicio del runner). */
+ *  `--resume` (tras esperar un evento, o tras un reinicio del runner), y dónde corría — para
+ *  cerrarla si quedó huérfana. */
 export interface ClaudeCliConversation {
   sessionId: string
+  session?: SessionRef
 }
 
 export interface ClaudeCliProviderOptions extends ClaudeCliConfig {
@@ -40,6 +43,8 @@ export interface ClaudeCliProviderOptions extends ClaudeCliConfig {
   server?: RunServer
   /** Cómo se lanza cada modo (tests). */
   launchers?: Partial<Record<ClaudeCliMode, Launcher>>
+  /** Cómo se cierra una sesión huérfana (tests). Default: `closeOrphan`. */
+  closeOrphan?: (ref: SessionRef) => Promise<boolean>
 }
 
 const DEFAULT_TIMEOUT_MINUTES = 120
@@ -77,6 +82,7 @@ export class ClaudeCliProvider implements Provider {
       maxConcurrent: _m,
       server: _s,
       launchers: _l,
+      closeOrphan: _o,
       ...defaults
     } = options
     this.defaults = parseClaudeCliConfig(defaults)
@@ -96,9 +102,15 @@ export class ClaudeCliProvider implements Provider {
     const server = this.server()
     const endpoints = await server.open(channel)
     const resumed = conversationOf(ctx.resume?.conversation)
+    // La sesión anterior sigue viva si el runner se reinició mientras corría: se cierra antes de
+    // retomar su conversación en una nueva.
+    const close = this.options.closeOrphan ?? closeOrphan
+    if (resumed?.session && (await close(resumed.session))) {
+      this.log.warn(`${ctx.agentId}: cerré la sesión huérfana ${describeRef(resumed.session)}`)
+    }
     const sessionId = resumed?.sessionId ?? randomUUID()
     // Desde ya: si el runner muere a mitad de la corrida, se retoma esta sesión.
-    const conversation: ClaudeCliConversation = { sessionId }
+    let conversation: ClaudeCliConversation = { sessionId }
     ctx.saveConversation?.(conversation)
 
     const files = await writeSessionFiles({
@@ -113,7 +125,9 @@ export class ClaudeCliProvider implements Provider {
     })
     const promptFile = join(files.dir, 'prompt.md')
     const prompt =
-      resumed && ctx.resume ? `[Mientras esperabas]\n${ctx.resume.message}` : ctx.prompt
+      resumed && ctx.resume
+        ? `[Continuación de tu turno]\n${ctx.resume.message}\n\nSeguí donde quedaste.`
+        : ctx.prompt
     await writeFile(promptFile, prompt, { mode: 0o600 })
 
     let session: CliSession | undefined
@@ -127,6 +141,10 @@ export class ClaudeCliProvider implements Provider {
         ...(cfg.surface ? { surface: true } : {}),
       })
       this.log.info(`${ctx.agentId}: sesión ${mode} ${session.describe}`)
+      if (session.ref) {
+        conversation = { sessionId, session: session.ref }
+        ctx.saveConversation?.(conversation)
+      }
       const ended = await this.race(channel, session, cfg.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES)
       if (ended.kind === 'done') return { outcome: 'success', conversation }
       if (ended.kind === 'timeout') {
@@ -188,8 +206,21 @@ export class ClaudeCliProvider implements Provider {
 
 /** La sesión a retomar, si la conversación es de este provider. */
 function conversationOf(value: unknown): ClaudeCliConversation | undefined {
-  const sessionId = (value as { sessionId?: unknown } | undefined)?.sessionId
-  return typeof sessionId === 'string' && sessionId ? { sessionId } : undefined
+  const { sessionId, session } = (value ?? {}) as { sessionId?: unknown; session?: unknown }
+  if (typeof sessionId !== 'string' || !sessionId) return undefined
+  return isSessionRef(session) ? { sessionId, session } : { sessionId }
+}
+
+function isSessionRef(value: unknown): value is SessionRef {
+  const ref = value as { kind?: unknown; name?: unknown; pid?: unknown } | undefined
+  return (
+    (ref?.kind === 'tmux' && typeof ref.name === 'string') ||
+    (ref?.kind === 'pid' && typeof ref.pid === 'number')
+  )
+}
+
+function describeRef(ref: SessionRef): string {
+  return ref.kind === 'tmux' ? `tmux ${ref.name}` : `pid ${ref.pid}`
 }
 
 /** La credencial OAuth del CLI viaja en el `--settings`, no en el shell. */

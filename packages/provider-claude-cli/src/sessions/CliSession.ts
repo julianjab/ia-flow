@@ -20,11 +20,15 @@ export interface SessionExit {
   output: string
 }
 
+import type { SessionRef } from './orphans.js'
+
 /** Una sesión lanzada: cuándo terminó sola, y cómo cortarla. */
 export interface CliSession {
   readonly exited: Promise<SessionExit>
   /** Para los logs: `tmux attach -t …`, `pid 123`. */
   readonly describe: string
+  /** Dónde corre: lo que se guarda para cerrarla si queda huérfana tras un reinicio. */
+  readonly ref?: SessionRef
   close(): Promise<void>
 }
 
