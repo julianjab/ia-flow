@@ -137,6 +137,21 @@ describe('AssistantLauncher', () => {
     wrapper.unmount()
   })
 
+  it('la ref de una propuesta abre su tarea (no se repite como card aparte)', async () => {
+    script = async function* () {
+      yield { type: 'proposal', proposal }
+      yield { type: 'done', text: 'Conviene mergear.' }
+    }
+    const { wrapper, ui, chat } = await open()
+    await chat.send('¿qué hago?')
+    await flushPromises()
+    ;($('[data-test="open-acme/api#7"]') as HTMLElement).click()
+    await flushPromises()
+    expect(ui.isOpen).toBe(false)
+    expect(useTaskFocusStore().request).toBe('acme/api#7')
+    wrapper.unmount()
+  })
+
   it('Escape cierra la ventana', async () => {
     const { wrapper, ui } = await open()
     $('[role="dialog"]')?.dispatchEvent(
