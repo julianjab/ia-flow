@@ -58,6 +58,7 @@ describe('labels', () => {
 
   it('cada caso de «te necesita» y «falló» tiene UNA acción principal; correr y esperar, ninguna', () => {
     expect(primaryAction('merge')).toBe('merge')
+    expect(primaryAction('review')).toBe('rerun_review')
     expect(primaryAction('doubt')).toBe('answer_and_unblock')
     expect(primaryAction('crash')).toBe('retry')
     expect(primaryAction('agent')).toBeUndefined()
@@ -66,5 +67,6 @@ describe('labels', () => {
 
   it('la confirmación nombra la tarea', () => {
     expect(confirmText('stop', 'a/b#1')).toContain('a/b#1')
+    expect(confirmText('rerun_review', 'a/b#1')).toContain('a/b#1')
   })
 })
