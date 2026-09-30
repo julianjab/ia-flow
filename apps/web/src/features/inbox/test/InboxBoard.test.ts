@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { detail, execution, inbox, item } from './fixtures'
+import { detail, execution, inbox, item, trace } from './fixtures'
 
 const getInbox = vi.fn()
 const getTaskDetail = vi.fn()
@@ -124,6 +124,34 @@ describe('InboxBoard', () => {
     expect(wrapper.text()).toContain('No pude terminar.')
     expect(wrapper.text()).toContain('presupuesto agotado')
     expect(wrapper.find('[data-action="retry"]').exists()).toBe(true)
+  })
+
+  it('en la tarjeta el detalle es compacto; «Ver detalle completo» lo abre en grande con la traza', async () => {
+    getInbox.mockResolvedValue(inbox([run]))
+    getTaskDetail.mockResolvedValue(
+      detail(run, { trace: [trace({ name: 'fs_read app/models/ability.rb' })] }),
+    )
+    const { wrapper } = await mountBoard()
+    await wrapper.find('.card__row').trigger('click')
+    await flushPromises()
+
+    // En la columna angosta no va la traza: se ofrece verla en grande.
+    expect(wrapper.find('.card .td__log').exists()).toBe(false)
+    await wrapper.find('[data-test="expand"]').trigger('click')
+    await flushPromises()
+
+    const panel = document.body.querySelector('[role="dialog"]')
+    expect(panel?.getAttribute('aria-label')).toBe('Detalle de acme/api#3')
+    expect(panel?.textContent).toContain('fs_read app/models/ability.rb')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    // Escape lo cierra y la tarjeta sigue abierta.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(wrapper.find('.card__row').attributes('aria-expanded')).toBe('true')
+    expect(document.body.style.overflow).toBe('')
+    wrapper.unmount()
   })
 
   it('«Preguntarle al asistente» abre el asistente apuntado a esa tarea', async () => {

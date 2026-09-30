@@ -133,6 +133,22 @@ describe('useInboxStore', () => {
     expect(store.openRef).toBe('other/web#3')
   })
 
+  it('expand abre la tarea en grande (y la carga si no estaba abierta); cerrar la tarjeta lo suelta', async () => {
+    const store = useInboxStore()
+    await store.refresh()
+    store.expand('acme/api#2')
+    expect(store.openRef).toBe('acme/api#2')
+    expect(store.expanded).toBe(true)
+    expect(getTaskDetail).toHaveBeenCalledWith('acme/api#2')
+    store.collapse()
+    expect(store.expanded).toBe(false)
+    expect(store.openRef).toBe('acme/api#2')
+    store.expand('acme/api#2')
+    store.toggle('acme/api#2')
+    expect(store.expanded).toBe(false)
+    expect(store.openRef).toBeNull()
+  })
+
   it('un error de detalle queda en su tarjeta', async () => {
     getTaskDetail.mockRejectedValue(new Error('404'))
     const store = useInboxStore()
