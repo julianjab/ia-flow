@@ -27,12 +27,7 @@ import type { SlackReviewConfig } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
-import {
-  AssistantSection,
-  type AssistantSettings,
-  InboxSection,
-  type InboxSettings,
-} from '../inbox/InboxSection.js'
+import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
 import {
   DEFAULT_WORKING_MARKER,
   type WorkingMarker,
@@ -159,8 +154,6 @@ export const RunnerFileSchema = z.strictObject({
   engine: EngineSection.default({}),
   /** La bandeja de la web (`inbox/InboxSection.ts`). */
   inbox: InboxSection.prefault({}),
-  /** El asistente de la web. */
-  assistant: AssistantSection.prefault({}),
   /** Qué corre: la composición del runner, que el engine sólo ve como fuentes ya armadas. */
   sources: z
     .strictObject({
@@ -221,7 +214,6 @@ export interface RunnerConfig {
   mcp: McpEntry[]
   engine: EngineSection
   inbox: InboxSettings
-  assistant: AssistantSettings
   /** Los módulos de las actions globales. */
   actions: string[]
   /** La fuente global, releída de `runner.yaml` cuando cambia. */
@@ -363,7 +355,6 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     mcp: file.mcp,
     engine: file.engine,
     inbox: file.inbox,
-    assistant: file.assistant,
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
       spec: () => {

@@ -1,7 +1,7 @@
 /**
- * `inbox:` y `assistant:` de `runner.yaml`: con qué criterio el runner arma la bandeja (qué label
- * es "bloqueada", qué status es "Refined"…), cuánto guarda lo que pasó, y en qué provider corre el
- * asistente. Todo tiene default: un `runner.yaml` sin estas secciones funciona igual.
+ * `inbox:` de `runner.yaml`: con qué criterio el runner arma la bandeja (qué label es "bloqueada",
+ * qué status es "Refined"…) y cuánto guarda lo que pasó. Todo tiene default: un `runner.yaml` sin
+ * esta sección funciona igual. El asistente es un agente (`sources.capabilities.assistant`).
  */
 import { z } from 'zod'
 
@@ -33,13 +33,3 @@ export const InboxSection = z.strictObject({
   mergeMethod: z.enum(['merge', 'squash', 'rebase']).default('squash'),
 })
 export type InboxSettings = z.infer<typeof InboxSection>
-
-export const AssistantSection = z.strictObject({
-  /** Un provider registrado que streamee (`anthropic-api`). */
-  provider: z.string().min(1).default('anthropic-api'),
-  /** Su config para el asistente (`model`, `maxTokens`…), con la forma de la de ese provider. */
-  providerConfig: z.record(z.string(), z.unknown()).default({}),
-  /** El system prompt, relativo a `runner.yaml`. */
-  systemPrompt: z.string().min(1).default('./assistant/system.md'),
-})
-export type AssistantSettings = z.infer<typeof AssistantSection>

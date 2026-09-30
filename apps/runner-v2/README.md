@@ -164,7 +164,7 @@ En el mismo puerto que los webhooks, `--serve` expone la API de la web (contrato
 | `GET /api/stream` | SSE: qué cambió (una tarea, una traza, un evento) |
 | `POST /api/tasks/:owner/:repo/:n/actions` | mergear, aprobar el PRD, devolver, contestar y destrabar, relanzar, reintentar, pedir que pare — con el token de GitHub de quien lo hace (`x-github-token`): el movimiento queda a su nombre |
 | `POST /api/auth/github/device` (+ `/poll`) | el login de GitHub de la web (device flow de la App); el runner no guarda el token |
-| `POST /api/assistant` | el asistente (SSE): lee la bandeja, las tareas, la config y la traza, y **propone** acciones que la persona confirma |
+| `POST /api/assistant` | el asistente (SSE): la capacidad `assistant` (ver abajo) |
 
 **Lo que pasó queda en SQLite**, en el mismo archivo que las ejecuciones (`engine.executions.path`):
 `event_log` (cada evento, qué decidió cada pipeline y por qué) y `execution_trace` (cada span y
@@ -182,11 +182,15 @@ inbox:
   retentionDays: 14
   commentExcerpt: 140   # cuánto de un comentario queda en el resumen del evento
   mergeMethod: squash
-assistant:
-  provider: anthropic-api
-  providerConfig: {}
-  systemPrompt: ./assistant/system.md
 ```
+
+**El asistente es un agente más**, enchufado a la capacidad `assistant` de la fuente global
+(`sources.capabilities.assistant: { agent: assistant }`). Su modelo, su prompt y sus tools son
+dato: `.config/agents/assistant.yaml` y `.config/actions/assistant.ts` (las `assistant_*`: bandeja,
+tarea, "¿por qué?", traza, config, eventos, estado, y `assistant_propose_action`, que propone y no
+ejecuta). Cada pregunta abre una sesión con su contexto —todo el runner, un proyecto o una tarea—
+que esas tools respetan (`src/assistant/AssistantSession.ts`); lo que el modelo escribe se streamea
+(`Capabilities.invoke(…, { onText })`). Sacar la línea de `sources.capabilities` lo apaga.
 
 ## Providers en otra máquina (`type: remote` y `--host`)
 

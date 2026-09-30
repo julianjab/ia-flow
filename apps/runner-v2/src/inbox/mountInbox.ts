@@ -3,9 +3,7 @@
  * actividad y GitHub, los conecta al stream de cambios y devuelve la API para el mismo puerto de
  * los webhooks. Composición: la lógica vive en cada pieza.
  */
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { createEvent, providerRegistry } from '@ia-flow/agent-engine'
+import { createEvent } from '@ia-flow/agent-engine'
 import type { RunnerStreamEvent } from '@ia-flow/shared'
 import { Assistant } from '../assistant/Assistant.js'
 import type { MountedRunner } from '../boot.js'
@@ -122,26 +120,22 @@ export function mountInbox(
       routesOf: mounted.routesOf,
     })
 
+  // El asistente es la capacidad `assistant` (un agente de la fuente global); sus tools leen de acá.
+  mounted.services.assistant.connect({
+    inbox,
+    activity: store.activity,
+    config,
+    status: () => ({
+      projects: specs.map((spec) => `${spec.projectId} (${spec.board.owner}#${spec.board.number})`),
+      providers: Object.keys(cfg.providers),
+      executions: mounted.executions?.stats,
+      webhookSecret: Boolean(process.env.IA_FLOW_WEBHOOK_SECRET?.trim()),
+      watchingInbox: hub.size,
+    }),
+  })
   const assistant = new Assistant({
-    provider: () => providerRegistry.resolve(cfg.assistant.provider),
-    providerId: cfg.assistant.provider,
-    providerConfig: cfg.assistant.providerConfig,
-    systemPrompt: readFileSync(resolve(cfg.dir, cfg.assistant.systemPrompt), 'utf8'),
-    deps: {
-      inbox,
-      activity: store.activity,
-      config,
-      status: () => ({
-        projects: specs.map(
-          (spec) => `${spec.projectId} (${spec.board.owner}#${spec.board.number})`,
-        ),
-        providers: Object.keys(cfg.providers),
-        executions: mounted.executions?.stats,
-        webhookSecret: Boolean(process.env.IA_FLOW_WEBHOOK_SECRET?.trim()),
-        watchingInbox: hub.size,
-      }),
-    },
-    bus: mounted.bus,
+    capabilities: mounted.engine.capabilities,
+    desk: mounted.services.assistant,
   })
 
   const clientId = process.env.IA_FLOW_GITHUB_CLIENT_ID?.trim()

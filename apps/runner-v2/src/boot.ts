@@ -40,6 +40,7 @@ import {
 } from '@ia-flow/workspace'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
+import { AssistantDesk } from './assistant/AssistantDesk.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
@@ -184,6 +185,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
     gitCredential: () => auth.getToken(),
     slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
+    assistant: new AssistantDesk(),
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services)

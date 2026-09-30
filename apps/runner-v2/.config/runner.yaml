@@ -173,6 +173,9 @@ sources:
     # El nombre de la rama de una task en un proyecto sin `branchPrefix`
     # (`feat/<slug>`, como ia-flow). Sin esto, `task/<número>`.
     branchName: { agent: branch-namer }
+    # El asistente de la web (`POST /api/assistant`): lee la bandeja, las tareas, la
+    # traza y la config, y propone acciones que la persona confirma. Sin esto, apagado.
+    assistant: { agent: assistant }
 
   # Las actions globales (código: sólo rutas). Las ve toda fuente; las de un
   # proyecto van en su project.yaml y ganan sobre éstas. Un directorio toma sus
