@@ -1,8 +1,10 @@
 /**
  * El asistente de la web: cada pregunta es un pedido a la capacidad `assistant`, que cumple el
  * agente que la fuente global enchufa (`.config/agents/assistant.yaml`). El runner abre una sesión
- * con el contexto del pedido (`AssistantDesk`) para que las tools del agente lo respeten, y
- * streamea lo que el modelo escribe. La conversación la guarda la web: llega entera en cada pedido.
+ * con el contexto del pedido (`AssistantDesk`) para que las tools del agente lo respeten. La
+ * respuesta es la que el agente entrega en `submit_done` (obligatoria): el texto suelto que escriba
+ * entre tools es narración y no se muestra — si no, un modelo que cierra sin escribir deja la web
+ * vacía, y uno que escribe y además resume, la duplica. La conversación la guarda la web.
  */
 import type { CapabilityInvoker } from '@ia-flow/agent-engine'
 import type { AssistantRequest, AssistantScope, AssistantStreamEvent } from '@ia-flow/shared'
@@ -58,33 +60,18 @@ export class Assistant {
       })
       return
     }
-    let streamed = ''
     let session: { id: string; close(): void } | undefined
     try {
       session = this.options.desk.open(request.scope, emit)
-      const result = await this.options.capabilities.invoke(
-        ASSISTANT,
-        {
-          session: session.id,
-          context: contextText(request.scope),
-          history: historyText(request),
-          question: request.messages.at(-1)?.content ?? '',
-        },
-        {
-          onText: (delta) => {
-            streamed += delta
-            emit({ type: 'text', delta })
-          },
-        },
-      )
-      // Un modelo que dejó la respuesta en `submit_done` y no como texto: igual se ve.
-      const answer = result?.answer?.trim()
-      if (answer && !streamed.includes(answer)) {
-        const delta = `${streamed ? '\n\n' : ''}${answer}`
-        streamed += delta
-        emit({ type: 'text', delta })
-      }
-      emit({ type: 'done', text: streamed })
+      const result = await this.options.capabilities.invoke(ASSISTANT, {
+        session: session.id,
+        context: contextText(request.scope),
+        history: historyText(request),
+        question: request.messages.at(-1)?.content ?? '',
+      })
+      const answer = result?.answer ?? ''
+      emit({ type: 'text', delta: answer })
+      emit({ type: 'done', text: answer })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this.log.warn(`el asistente falló: ${message}`)

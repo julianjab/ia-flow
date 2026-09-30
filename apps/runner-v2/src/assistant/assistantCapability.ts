@@ -10,7 +10,7 @@ import { SESSION_KEY } from './AssistantDesk.js'
 export const ASSISTANT = defineCapability({
   name: 'assistant',
   description:
-    'Contesta una pregunta de quien opera el runner sobre la bandeja, una tarea o la config, con las tools `assistant_*`, y propone acciones que la persona confirma. La respuesta es el texto que escribe; cierra con submit_done.',
+    'Contesta una pregunta de quien opera el runner sobre la bandeja, una tarea o la config, con las tools `assistant_*`, y propone acciones que la persona confirma. La respuesta completa va en `submit_done.result.answer`.',
   input: z.strictObject({
     /** El pedido: las tools del asistente encuentran por acá su contexto (`AssistantDesk`). */
     [SESSION_KEY]: z.string(),
@@ -21,7 +21,8 @@ export const ASSISTANT = defineCapability({
     question: z.string(),
   }),
   output: z.strictObject({
-    /** Opcional: si el modelo no escribió su respuesta como texto, la entrega acá. */
-    answer: z.string().optional(),
+    /** La respuesta que lee la persona, completa (markdown). Obligatoria: un `submit_done` sin ella
+     *  lo rechaza la tool y el modelo tiene que volver a cerrar. */
+    answer: z.string().trim().min(1),
   }),
 })
