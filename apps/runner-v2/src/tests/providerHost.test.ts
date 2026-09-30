@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { ProviderRegistry } from '@ia-flow/agent-engine'
 import type { CliLaunchSpec, LaunchedCli, SessionExit } from '@ia-flow/provider-anthropic-cli'
 import { HostClient, type HostTask, RemoteHub } from '@ia-flow/provider-remote'
@@ -140,6 +143,52 @@ describe('cliTaskRunner', () => {
       session: { id: 's1', resume: false },
     })
     expect(fake.closed()).toBe(true)
+  })
+
+  it("forwards the session's model requests to the runner's transcript endpoint when it ends", async () => {
+    const fake = fakeLaunch()
+    const root = await mkdtemp(join(tmpdir(), 'ia-flow-host-'))
+    await mkdir(join(root, '-work-eks'))
+    await writeFile(
+      join(root, '-work-eks', 's1.jsonl'),
+      `${JSON.stringify({
+        type: 'assistant',
+        timestamp: new Date(Date.now() + 1_000).toISOString(),
+        message: {
+          id: 'm1',
+          model: 'claude-opus',
+          content: [{ type: 'text', text: 'hecho' }],
+          usage: { input_tokens: 4, output_tokens: 2 },
+        },
+      })}\n`,
+    )
+    const posts: Array<{ url: string; body: unknown }> = []
+    const run = cliTaskRunner({
+      session: { dirFor: async () => '/work' },
+      provider,
+      log: () => {},
+      launch: fake.launch,
+      close: async () => false,
+      transcriptsDir: root,
+      fetchImpl: (async (url: string, init: RequestInit) => {
+        posts.push({ url, body: JSON.parse(String(init.body)) })
+        return new Response('{}')
+      }) as unknown as typeof fetch,
+    })
+    const withTranscript = task({
+      endpoints: { ...task().endpoints, transcript: '/v1/runs/tk/transcript' },
+    })
+    const ended = run(withTranscript, { base: 'https://runner' }, new AbortController().signal)
+    await Bun.sleep(5)
+    fake.exit({ code: 0, output: '' })
+    await ended
+    await rm(root, { recursive: true, force: true })
+
+    expect(posts).toHaveLength(1)
+    expect(posts[0]?.url).toBe('https://runner/v1/runs/tk/transcript')
+    expect(posts[0]?.body).toMatchObject({
+      messages: [{ id: 'm1', usage: { inputTokens: 4, outputTokens: 2 }, texts: ['hecho'] }],
+    })
   })
 
   it('a run the runner closes (the model already chose its exit) ends without a report', async () => {

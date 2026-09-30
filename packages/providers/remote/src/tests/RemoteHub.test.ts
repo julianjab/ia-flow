@@ -204,6 +204,54 @@ describe('una corrida', () => {
   })
 })
 
+describe('transcripción', () => {
+  const message = {
+    id: 'msg_1',
+    model: 'claude-opus',
+    usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    texts: ['listo'],
+    sidechain: false,
+  }
+
+  it('los requests que el host lee de su transcripción llegan al canal de la corrida', async () => {
+    const { hub, registry } = makeHub()
+    const texts: string[] = []
+    const statuses: number[] = []
+    started(
+      makeHost(hub, async (task, runner, signal) => {
+        const url = `${runner.base}${task.endpoints.transcript}`
+        const ok = await wire(hub)(url, {
+          method: 'POST',
+          body: JSON.stringify({ messages: [message] }),
+        })
+        const bad = await wire(hub)(url, { method: 'POST', body: JSON.stringify({ messages: 1 }) })
+        statuses.push(ok.status, bad.status)
+        await callTool(hub, `${runner.base}${task.endpoints.mcp}`, 'submit_done')
+        await aborted(signal)
+        return undefined
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    await (registry.resolve('remote:laptop') as Provider).run(
+      runContext({
+        tools: [tool('submit_done', () => 'ok', { terminal: true })],
+        onText: (text: string) => texts.push(text),
+      }),
+    )
+    expect(statuses).toEqual([200, 400])
+    expect(texts).toEqual(['listo'])
+  })
+
+  it('una corrida desconocida es un 404', async () => {
+    const { hub } = makeHub()
+    const res = await wire(hub)(`${RUNNER}/v1/runs/nadie/transcript`, {
+      method: 'POST',
+      body: JSON.stringify({ messages: [message] }),
+    })
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('canAccept', () => {
   it('con las condiciones del host (el when de las pipelines) y su tope, sin ir al host', async () => {
     const { hub, registry } = makeHub()
