@@ -80,7 +80,8 @@ describe('workspaceAction', () => {
   it('runs the real fs tool over the run worktree, under the same name', async () => {
     const { session: s } = session()
     const read = workspaceAction('fs_read', s)
-    expect(read).toMatchObject({ id: 'fs_read', sideEffects: 'none' })
+    // De workspace: un provider nativo (el CLI) no la recibe — tiene su `Read`.
+    expect(read).toMatchObject({ id: 'fs_read', sideEffects: 'none', workspace: true })
     expect(await read.run(run(), { path: 'a.txt' })).toContain('hola')
   })
 

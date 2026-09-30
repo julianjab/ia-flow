@@ -49,6 +49,33 @@ describe('RemoteProvider.run', () => {
     expect(host.running('local')).toBe(0)
   })
 
+  it('un provider nativo del host no recibe las tools de workspace; uno del runner, sí', async () => {
+    const script = async () => ({ outcome: 'success' as const })
+    const native = Object.assign(new ScriptedProvider('native', script), {
+      workspace: 'native' as const,
+    })
+    const plain = new ScriptedProvider('plain', script)
+    const host = makeHost([native, plain])
+    const ctx = runContext({
+      tools: [
+        tool('fs_write', () => 'ok', { workspace: true }),
+        tool('read_issue', () => 'ok'),
+        tool('submit_done', () => 'ok', { terminal: true }),
+      ],
+    })
+
+    await makeClient(host, { provider: 'native' }).run(ctx)
+    await makeClient(host, { provider: 'plain' }).run(ctx)
+
+    // Sus Read/Edit trabajan el worktree de ESTA máquina: un fs_write del runner escribiría en otro.
+    expect(native.runs[0]?.tools.map((t) => t.name)).toEqual(['read_issue', 'submit_done'])
+    expect(plain.runs[0]?.tools.map((t) => t.name)).toEqual([
+      'fs_write',
+      'read_issue',
+      'submit_done',
+    ])
+  })
+
   it('un error de la tool le llega al provider del host como excepción', async () => {
     const local = new ScriptedProvider('local', async (ctx) => {
       const error = await Promise.resolve(call(ctx, 'boom')).catch((e: Error) => e.message)
