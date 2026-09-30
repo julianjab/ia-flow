@@ -105,6 +105,26 @@ function pretty({ time, level, scope, message, attributes }: LogRecord): string 
 
 let sinks: LogSink[] = [otelSink()]
 
+let minLevel: LogLevel = 'info'
+
+/** Nivel mínimo de TODOS los loggers y sinks (default `info`): lo de abajo no se emite. La app lo
+ *  fija una vez al bootear (el runner, desde `LOG_LEVEL`). */
+export function setLogLevel(level: LogLevel): void {
+  minLevel = level
+}
+
+/** Si un log de este nivel se emitiría — para no armar un payload caro (un body entero de debug)
+ *  que después se descarta. */
+export function isLogLevelEnabled(level: LogLevel): boolean {
+  return LEVEL_ORDER[level] >= LEVEL_ORDER[minLevel]
+}
+
+/** `LOG_LEVEL` (o cualquier texto) → un `LogLevel`, o `undefined` si no es uno. */
+export function parseLogLevel(value: string | undefined): LogLevel | undefined {
+  const level = value?.trim().toLowerCase()
+  return level && Object.hasOwn(LEVEL_ORDER, level) ? (level as LogLevel) : undefined
+}
+
 /** Reemplaza los destinos de TODOS los loggers, incluidos los ya creados. */
 export function setLogSinks(next: LogSink[]): void {
   sinks = [...next]
@@ -119,6 +139,7 @@ export function addLogSink(sink: LogSink): () => void {
 }
 
 function emit(level: LogLevel, scope: string, message: string, attributes: Attributes): void {
+  if (!isLogLevelEnabled(level)) return
   const span = trace.getActiveSpan()?.spanContext()
   const record: LogRecord = {
     time: new Date(),
