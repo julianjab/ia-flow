@@ -18,7 +18,20 @@
 # son los comentarios y el veredicto. Lo que encuentra viaja en el handoff y
 # lo aplica el implementer.
 id: reviewer
-provider: anthropic-api
+# Primero un host suscrito (`remote:*`, su `claude` en SU worktree); si no hay o
+# ninguno lo acepta, la API con su presupuesto (abajo).
+providers:
+  - id: remote:*
+    config: { model: opus }
+  # Opus con presupuesto grande: este paso corre tests de verdad y lee el diff
+  # completo — es el único gate antes de un humano.
+  - id: anthropic-api
+    config:
+      model: claude-opus-5
+      maxTokens: 16000
+      effort: high
+      taskBudgetTokens: 150000
+      maxPauseTurnRetries: 5
 # Todo como Action, sin el MCP de GitHub: el MCP trae `push_files`,
 # `create_or_update_file` y `merge_pull_request` con el token de la App, y
 # con eso el "no escribe historia" de este rol era decorativo. Lo único que
@@ -110,15 +123,6 @@ routes:
     when: >-
       El diff tiene errores de implementación o de tests recuperables con un ajuste a la implementación (un bug, un test rojo, un desvío del PRD, lint sucio); la branch está en conflicto con la default branch y hay que resolverlo; falta el PR de la branch; o el PR tiene un problema de CI/CD que un rebuild/re-push resuelve (título fuera de convención, workflow que falla por el contenido del diff). NO la uses para fallos ajenos al cambio (infra caída, permisos, el repo base roto): eso es el camino de error normal, que bloquea el issue para un humano.
     to: { action: update_issue, with: { status: Build } }
-
-# Opus con presupuesto grande: este paso corre tests de verdad y lee el diff
-# completo — es el único gate antes de un humano.
-providerConfig:
-  model: claude-opus-5
-  maxTokens: 16000
-  effort: high
-  taskBudgetTokens: 150000
-  maxPauseTurnRetries: 5
 
 systemPrompts:
   - text: |
