@@ -135,18 +135,13 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     return undefined
   })
 
-  // Con `x-github-token`, el intercambio se guarda a nombre de ese login; sin él, no queda en
-  // ningún lado. Una conversación de otro login no existe para quien pregunta.
+  // Con `x-github-token`, el intercambio se guarda a nombre de ese login; sin él —o con un token
+  // que ya no sirve— contesta igual y no guarda nada. Seguir una conversación que no es de ese
+  // login (otra sesión, borrada, vencida) abre una nueva: la ajena nunca se lee ni se toca.
   router.post('/api/assistant', async (req, res) => {
     const request = parseBody(AssistantRequestSchema, await req.json())
     const token = req.header('x-github-token')
-    const login = token ? await loginOf(token) : undefined
-    if (
-      request.conversation_id &&
-      (!login || !options.conversations?.owns(request.conversation_id, login))
-    ) {
-      throw new HttpError(404, 'Esa conversación no existe o no es tuya')
-    }
+    const login = token ? await loginOf(token).catch(() => undefined) : undefined
     openSse(res)
     const emit = (event: AssistantStreamEvent) => writeSse(res, event)
     await options.assistant.answer(request, emit, login ? { login } : {})
