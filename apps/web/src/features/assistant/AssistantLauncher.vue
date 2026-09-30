@@ -11,7 +11,7 @@ import { useAssistantStore } from '@/stores/assistant';
 // ya apuntado a una tarea con `useAssistantStore().open({ kind: 'task', ref })`.
 //
 // Sobre 768px la ventana flota abajo a la derecha, sin backdrop: la bandeja
-// sigue viva detrás (tocar una tarea del chat la abre sin cerrarlo). Bajo 768px
+// sigue viva detrás (tocar una tarea del chat oculta el chat y la abre). Bajo 768px
 // ocupa la pantalla (R6: en táctil nada flota anclado) y bloquea el scroll de
 // atrás. Cerrar no corta una respuesta en curso: sigue llegando, y si termina
 // con el chat cerrado la burbuja lo marca como no leído.

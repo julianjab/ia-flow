@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
-import { useIsMobile } from '@/composables/useIsMobile';
 import AssistantHistory from '@/features/assistant/AssistantHistory.vue';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
@@ -18,7 +17,6 @@ const chat = useAssistantChatStore();
 const ui = useAssistantStore();
 const session = useGithubSessionStore();
 const taskFocus = useTaskFocusStore();
-const { isMobile } = useIsMobile();
 
 const end = ref<HTMLElement | null>(null);
 
@@ -45,12 +43,11 @@ watch(
   { deep: true },
 );
 
-// Una tarea de la respuesta: la bandeja la abre (si se está en otra pantalla,
-// `AppShell` vuelve a la bandeja). En desktop el chat flota al costado y queda
-// abierto; en un teléfono tapa la bandeja, así que se cierra (la conversación
-// queda en el store).
+// Una tarea de la respuesta: se oculta el chat y la bandeja la abre (si se está
+// en otra pantalla, `AppShell` vuelve a la bandeja). La conversación queda en el
+// store: la burbuja la vuelve a mostrar tal cual.
 function openTask(ref: string) {
-  if (isMobile.value) ui.close();
+  ui.close();
   taskFocus.focus(ref);
 }
 
