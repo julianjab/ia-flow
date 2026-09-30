@@ -14,6 +14,7 @@ vi.mock('../api', () => ({
 
 import { useAssistantStore } from '@/stores/assistant'
 import { useGithubSessionStore } from '@/stores/githubSession'
+import { useTaskFocusStore } from '@/stores/taskFocus'
 import AssistantLauncher from '../AssistantLauncher.vue'
 import { useAssistantChatStore } from '../store'
 
@@ -99,6 +100,40 @@ describe('AssistantLauncher', () => {
     ui.open()
     await flushPromises()
     expect($('[data-test="unread"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('tocar una tarea de la respuesta oculta el chat y la abre en la bandeja', async () => {
+    script = async function* () {
+      yield { type: 'text', delta: 'Mirá esta.' }
+      yield {
+        type: 'tasks',
+        items: [
+          {
+            ref: 'acme/api#7',
+            project_id: 'core',
+            title: 'Algo',
+            url: 'https://github.com/acme/api/issues/7',
+            group: 'need',
+            kind: 'merge',
+            labels: [],
+            why: 'PR aprobado',
+            since: '2026-09-30T10:00:00Z',
+            actions: ['merge'],
+          },
+        ],
+      }
+      yield { type: 'done', text: 'Mirá esta.' }
+    }
+    const { wrapper, ui, chat } = await open()
+    await chat.send('¿qué me necesita?')
+    await flushPromises()
+    ;($('[data-test="open-acme/api#7"]') as HTMLElement).click()
+    await flushPromises()
+    expect(ui.isOpen).toBe(false)
+    expect(useTaskFocusStore().request).toBe('acme/api#7')
+    // La conversación queda: la burbuja la vuelve a mostrar.
+    expect(chat.turns.map((t) => t.kind)).toEqual(['user', 'assistant', 'tasks'])
     wrapper.unmount()
   })
 
