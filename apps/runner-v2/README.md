@@ -124,7 +124,7 @@ bun run start                                     # verifica GitHub, carga y val
 bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
 bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks
-bun run host:serve                               # presta los providers locales a otros runners,
+bun run host:serve                               # le presta su CLI `claude` a un runner (se suscribe),
                                                  # con su propio .env.host (ver .env.host.example)
 bun test
 bun run typecheck
@@ -145,7 +145,8 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `CLAUDE_CODE_OAUTH_TOKEN` | la credencial del provider `claude-cli` (el CLI `claude`) |
 | `SLACK_BOT_TOKEN` | las actions de Slack y `request_slack_review` |
 | `MEMORY_MCP_URL` | el MCP de memoria (`runner.yaml` lo nombra como `${MEMORY_MCP_URL}`) |
-| `IA_FLOW_PROVIDER_HOST_TOKEN`, `IA_FLOW_PROVIDER_HOST_PORT` | `--host`: el bearer que se exige y el puerto (default 3002) |
+| `IA_FLOW_HOST_TOKEN` | el token de hosts: el runner lo exige a los que se suscriben, y el host lo presenta |
+| `IA_FLOW_HOST_NAME`, `IA_FLOW_HOST_RUNNER_URL` | `--host`: pisan `host.name` y `host.runner` |
 | `IA_FLOW_API_TOKEN` | el token de la API de la web (`x-ia-flow-token`); sin él, la API responde 503 |
 | `IA_FLOW_GITHUB_CLIENT_ID` | (o `github.clientId`) el client id de la GitHub App: el login de cada persona en la web |
 
@@ -202,48 +203,52 @@ la web muestra como cards. Sacar la línea de `sources.capabilities` lo apaga.
 contexto, y cada login ve y borra sólo las suyas. Sin sesión el chat funciona igual, pero no queda.
 La pregunta y su respuesta se guardan juntas y sólo si hubo respuesta.
 
-## Providers en otra máquina (`type: remote` y `--host`)
+## Providers en otra máquina (`--host` y `remote:*`)
 
-Un runner puede correr un agente con el provider de OTRA máquina —una con el CLI `claude`
-logueado, más RAM, otra red— sin que ese agente se entere: es el `RemoteAgentProvider` +
-`agent-host` de v1 sobre el engine nuevo, en [`@ia-flow/provider-remote`](../../packages/providers/remote).
+Un runner puede correr un agente en OTRA máquina —una con el CLI `claude` logueado, más RAM, otra
+red— como si fuera un CLI local, pero contra una API: el host se suscribe al runner y pide tareas;
+el runner le entrega cada corrida y la espera. Es el `agent-host` de v1 sobre el engine nuevo, en
+[`@ia-flow/provider-remote`](../../packages/providers/remote) (ahí, el detalle).
 
-La máquina que presta levanta este mismo runner con `--host` y su propia `.config`. Un host no
-despacha nada: monta sólo su identidad de GitHub (para clonar), su workspace (`WORKSPACE_DIR`) y
-sus providers — ni engine, ni fuentes, ni base de ejecuciones, ni la marca Working. Su
-`runner.yaml` alcanza con `github:`, `providers:` y `host:`:
+**El host** es este mismo runner con `--host` (`bun run host:serve`, con su `.env.host`) y su propia
+`.config`. No despacha nada: monta su identidad de GitHub (para clonar), su workspace
+(`WORKSPACE_DIR`) y el CLI que presta — ni engine, ni fuentes, ni base de ejecuciones, ni servidor.
+Todas las conexiones salen de él: no necesita URL pública.
 
 ```yaml
 # runner.yaml de la máquina que presta
+github: { … }                              # para clonar
 providers:
-  claude-cli: { type: claude-cli, mode: print, maxConcurrent: 2 }
+  claude-tmux: { type: claude-cli, mode: tmux, timeoutMinutes: 120 }
 host:
-  port: 3002
-  providers: [claude-cli]          # default: todos los locales
-  rules:                           # qué trabajo toma: todas tienen que pasar
-    - { field: repo, op: matches, value: la-haus/* }
+  name: julian-laptop                      # → remote:julian-laptop (env: IA_FLOW_HOST_NAME)
+  runner: https://ia-flow.example.com      # la base del runner (env: IA_FLOW_HOST_RUNNER_URL)
+  provider: claude-tmux                    # default: la única entrada claude-cli
+  maxConcurrent: 1
+  accepts:                                 # qué toma: como el `when` de las pipelines
+    - { field: repo, op: in, value: [ subscriptions, eks ] }
+    - { field: agentId, op: neq, value: reviewer }
 ```
 
-Y el runner que despacha la declara como un provider más; los agentes la nombran por su clave:
+**El runner** no declara hosts: con `IA_FLOW_HOST_TOKEN` en su ambiente (el mismo que presenta el
+host), `--serve` monta la API de hosts en el puerto de los webhooks (`/v1/hosts/*`, `/v1/runs/*`) y
+cada host que se suscribe aparece como `remote:<name>`. Los agentes lo nombran, o usan el comodín:
 
 ```yaml
-# runner.yaml del runner que despacha
 providers:
-  gpu-box:
-    type: remote
-    url: http://gpu-box:3002
-    token: ${IA_FLOW_REMOTE_GPU_BOX_TOKEN}   # el IA_FLOW_PROVIDER_HOST_TOKEN del otro lado
-    provider: claude-cli                     # el id allá (default: esta misma clave)
-    maxConcurrent: 2
+  - id: remote:*            # cualquier host suscrito que lo acepte, en orden de suscripción
+    config: { model: opus }
+  - id: claude-tmux         # el respaldo si no hay ninguno (sin respaldo, espera a que llegue uno)
 ```
 
-Las tools del agente corren en el runner que despacha (vuelven por el mismo canal: el host no
-se conecta de vuelta); el modelo y las tools nativas del CLI, en el host, sobre SU worktree. Las
-tools de workspace del agente (`fs_*`, `bash_run`, …) no le llegan a un provider con workspace
-nativo como el CLI, así que hay un solo checkout: el del host. Lo que el provider hace allá
-(spans y logs) vuelve por el sync y el runner lo reexporta a su collector con los ids
-originales: la corrida remota se ve entera en su Grafana, sin configurar OTLP en el host. El
-detalle —pistas de admisión, silencio, huérfanas, límites— en el README del paquete.
+El canal de la corrida es el mismo que el del CLI local, montado en la API del runner: las tools del
+agente (su MCP), los hooks (la traza de las tools nativas, el inbox, no terminar sin cerrar el turno)
+y el cierre cuando el modelo llama `submit_*`. El host sólo lanza `claude` en SU worktree apuntando
+ahí, y lo corta cuando el runner cierra la corrida. Un solo checkout, el del host: las tools de
+workspace del agente no le llegan, y el `git push` sale con las credenciales de esa máquina.
+
+Un `--event` también monta la API de hosts (con `IA_FLOW_HOST_TOKEN`), así un evento suelto puede
+correr un agente `remote:*` — para probar un host sin levantar `--serve`.
 
 ## Tareas bloqueadas por otras (`mark_blocked_by`)
 
@@ -261,5 +266,5 @@ catálogo, no sólo de `claw-agents`.
 - Las tools `memory_*` del implementer: la memoria es el MCP oficial (`memory-mcp` en
   `runner.yaml`, `bun run memory-mcp`), no tools nativas.
 - Los `settings` del runner v1 (`apps/server`) que este runner no implementa (API, websocket,
-  polling): `runner.yaml` sólo acepta lo que se usa. Los remote providers sí se portaron
-  (`type: remote` y `--host`, arriba), sin el registro dinámico de hosts ni su pantalla.
+  polling): `runner.yaml` sólo acepta lo que se usa. Los hosts remotos sí se portaron (`--host` y
+  `remote:*`, arriba): se suscriben solos, sin la pantalla de v1.

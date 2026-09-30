@@ -1,30 +1,23 @@
 # @ia-flow/provider-remote
 
-`Provider` que corre en otra máquina — cliente (`RemoteProvider`) y host (`RemoteProviderHost`).
-El contrato de uso y el porqué de cada decisión están en `README.md`: leelo antes de tocar algo.
+`Provider` que corre en otra máquina — `RemoteHub` + `RemoteProvider` (el runner) y `HostClient`
+(el host). El contrato y el porqué de cada decisión están en `README.md`: leelo antes de tocar algo.
 
 ## Estructura
 
 ```
 src/
-├── protocol.ts            el cable, en zod: lo único que comparten los dos lados
-├── config.ts              la entrada `type: remote` de runner.yaml
-├── RemoteProvider.ts      cliente: canAccept (sonda) + run (abre y delega en RemoteRun)
-├── RemoteRun.ts           cliente, una corrida: el loop de sync, las tools corriendo acá
-├── RemoteProviderHost.ts  host: el handler de fetch, auth, topes, barrido de huérfanas
-├── HostedRun.ts           host, una corrida: el provider local con tools proxy + la cola de eventos
-├── AdmissionRules.ts      reglas del host sobre las pistas (puro)
-├── traceContext.ts        el `traceparent` del agente: se arma en el runner y se lee en el host
-└── tests/                 end-to-end sin red: el fetch del cliente le pega al handler del host
+├── protocol.ts        el cable, en zod: lo único que comparten los dos lados
+├── RemoteHub.ts       runner: suscripción, long-poll de tareas, canales de las corridas, vencimiento
+├── RemoteProvider.ts  runner: `remote:<name>` — canAccept (tope + condiciones) y run (entrega y espera)
+├── HostClient.ts      host: se suscribe, pide tareas, corre cada una (`TaskRunner`) y reporta
+└── tests/             end-to-end sin red: el fetch del host le pega al `fetch` del hub
 ```
 
 ## Reglas
 
-- **Un cambio de cable va en `protocol.ts`** y se valida en los dos lados. Un campo nuevo es
-  opcional o tiene default: un runner y un host de versiones distintas tienen que seguir
-  hablando.
-- **Todo lo que el runner manda es idempotente**: se reenvía hasta que un sync vuelve bien. Un
-  campo nuevo de `SyncRequest` necesita su forma de descartar el repetido en `HostedRun`.
-- **Nada de red real en los tests**: `fetchImpl` al handler del host (`tests/fixtures.ts`).
-- **Los timings son inyectables** (`timing`, `orphanAfterMs`, `sweep(now)`): nada de esperar
-  segundos reales en un test.
+- **Un cambio de cable va en `protocol.ts`** y se valida en los dos lados.
+- **El host abre todas las conexiones**: nada que el runner tenga que alcanzar.
+- **El canal es el de `@ia-flow/provider-shared`**: lo que cambie en cómo se sirven tools o hooks,
+  va ahí, no acá.
+- **Nada de red real en los tests**: `wire(hub)` (`tests/fixtures.ts`).

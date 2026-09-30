@@ -30,7 +30,7 @@ packages/providers/     los Provider del engine
   shared/              @ia-flow/provider-shared — el canal de una corrida (tools por MCP, hooks) y su ruteo
   anthropic/api/       @ia-flow/provider-anthropic-api — la Messages API de Anthropic
   anthropic/cli/       @ia-flow/provider-anthropic-cli — el CLI `claude` (Claude Code)
-  remote/              @ia-flow/provider-remote — un Provider en otra máquina (cliente + host HTTP)
+  remote/              @ia-flow/provider-remote — un Provider en otra máquina: el host se suscribe y pide tareas
 packages/telemetry/    @ia-flow/telemetry — trazas y logs (OpenTelemetry)
 packages/github/       auth/ api/ webhook/ tools/ — @ia-flow/github-{auth,api,webhook,tools}
 packages/local/        fs/ shell/ workspace/ — @ia-flow/{fs-tools,shell-tools,workspace}
@@ -57,7 +57,7 @@ datasource-yaml       → agent-engine, definitions
 provider-anthropic-api → agent-engine, telemetry
 provider-shared        → agent-engine, telemetry
 provider-anthropic-cli → agent-engine, provider-shared, telemetry
-provider-remote        → agent-engine, telemetry
+provider-remote        → agent-engine, provider-shared, telemetry
 github-api            → github-auth
 github-tools          → agent-engine, github-api, github-auth
 fs-tools, shell-tools → agent-engine
@@ -84,7 +84,7 @@ un paquete**. En una línea:
 | `@ia-flow/agent-engine-datasource-sqlite` | `ExecutionRepository` sobre SQLite detrás del puerto `SqliteDatabase` (`bun:sqlite` o `node:sqlite`): las pausas sobreviven a un reinicio |
 | `@ia-flow/provider-anthropic-api` | `Provider` de Anthropic (Messages API, tools, MCP remoto, streaming SSE, spans GenAI) — infra concreta |
 | `@ia-flow/provider-anthropic-cli` | `Provider` sobre el CLI `claude` (print o tmux): las tools del agente por un MCP local, inbox y traza por hooks — infra concreta |
-| `@ia-flow/provider-remote` | `Provider` en otra máquina: `RemoteProvider` (el runner) + `RemoteProviderHost` (expone cualquier provider local por HTTP); las tools del agente vuelven al runner por el sync — infra concreta |
+| `@ia-flow/provider-remote` | `Provider` en otra máquina: el host se suscribe al runner y pide tareas (`HostClient`); el runner (`RemoteHub`) le entrega cada corrida y la espera en su canal — `remote:<name>`, `remote:*` — infra concreta |
 | `@ia-flow/telemetry` | Instrumentación contra las APIs de OpenTelemetry (`createLogger`, decorators de trazas); el SDK lo registra la app |
 | `@ia-flow/github-auth` | Token de GitHub: PAT / OAuth user token o GitHub App (JWT → installation token cacheado). Standalone |
 | `@ia-flow/github-api` | Cliente REST/GraphQL de GitHub sobre `GithubAuth` |
