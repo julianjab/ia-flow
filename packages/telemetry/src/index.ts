@@ -1,3 +1,5 @@
+export type { ErrorDetail } from './errors.js'
+export { describeError, flattenError } from './errors.js'
 export type { ConsoleSinkOptions, Logger, LogLevel, LogRecord, LogSink } from './logging.js'
 export { addLogSink, consoleSink, createLogger, otelSink, setLogSinks } from './logging.js'
 export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'
@@ -15,6 +17,7 @@ export type {
 export {
   captureContext,
   captureSpanLink,
+  errorAttributes,
   INSTRUMENTATION_SCOPE,
   inFreshContext,
   inheritedAttributes,

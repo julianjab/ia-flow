@@ -27,6 +27,7 @@ import {
   SpanStatusCode,
   trace,
 } from '@opentelemetry/api'
+import { describeError, flattenError } from './errors.js'
 import type { Logger } from './logging.js'
 
 /** El instrumentation scope por defecto — cada paquete debería pasar el suyo (`scope`). */
@@ -177,7 +178,31 @@ export function startSpan(
 export function markError(span: Span, err: unknown): void {
   const error = err instanceof Error ? err : new Error(String(err))
   span.recordException(error)
-  span.setStatus({ code: SpanStatusCode.ERROR, message: error.message })
+  // Las causas de un `AggregateError` / `cause` quedan como excepciones propias del span.
+  for (const inner of flattenError(err).slice(1)) {
+    span.addEvent('exception', {
+      'exception.type': inner.type,
+      'exception.message': truncate(inner.message),
+      'exception.path': inner.path,
+      ...(inner.stack ? { 'exception.stacktrace': truncate(inner.stack) } : {}),
+    })
+  }
+  span.setStatus({ code: SpanStatusCode.ERROR, message: truncate(describeError(err)) })
+}
+
+/** Atributos `exception.*` de un error para un log: tipo, mensaje con causas, stack, y cada
+ *  causa (`AggregateError.errors`, `cause`) en `exception.causes` como JSON. */
+export function errorAttributes(err: unknown): Attributes {
+  const [root, ...causes] = flattenError(err)
+  if (!root) return {}
+  return {
+    'exception.type': root.type,
+    'exception.message': truncate(describeError(err)),
+    ...(root.stack ? { 'exception.stacktrace': truncate(root.stack) } : {}),
+    ...(causes.length > 0
+      ? { 'exception.causes.count': causes.length, 'exception.causes': truncate(causes) }
+      : {}),
+  }
 }
 
 /** Un método async de `This` — lo único que `@traced` y `@tagged` saben decorar. */
@@ -227,10 +252,7 @@ function logEscapedError(instance: unknown, spanName: string, err: unknown): voi
     if (loggedErrors.has(err)) return
     loggedErrors.add(err)
   }
-  const message = err instanceof Error ? err.message : String(err)
-  log.error(`${spanName} falló: ${message}`, {
-    'exception.type': err instanceof Error ? err.name : typeof err,
-  })
+  log.error(`${spanName} falló: ${describeError(err)}`, errorAttributes(err))
 }
 
 /**
