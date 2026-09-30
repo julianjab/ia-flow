@@ -46,8 +46,8 @@ export const FileToModifySchema = z.object({
 export const ApiContractSchema = z.object({
   endpoint: z.string(),
   method: z.string(),
-  request_schema: z.record(z.unknown()),
-  response_schema: z.record(z.unknown()),
+  request_schema: z.record(z.string(), z.unknown()),
+  response_schema: z.record(z.string(), z.unknown()),
 })
 
 export const TestScenarioSchema = z.object({

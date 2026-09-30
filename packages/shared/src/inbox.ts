@@ -5,8 +5,9 @@
  */
 import { z } from 'zod'
 
-/** Los cuatro grupos de la bandeja, en orden de urgencia. */
-export const InboxGroupSchema = z.enum(['need', 'fail', 'run', 'queue'])
+/** Los cuatro grupos de la bandeja, en orden de urgencia — más `idle`, que nunca está en la
+ *  bandeja: es el de una tarea que se pide por su ref (el detalle, el asistente) y no necesita nada. */
+export const InboxGroupSchema = z.enum(['need', 'fail', 'run', 'queue', 'idle'])
 export type InboxGroup = z.infer<typeof InboxGroupSchema>
 
 /**
@@ -16,6 +17,7 @@ export type InboxGroup = z.infer<typeof InboxGroupSchema>
  * - fail: `crash` (la corrida falló por el runner o el provider)
  * - run: `agent` (ejecución corriendo), `ci` (pausada esperando el CI)
  * - queue: `turn` (encolada detrás de otra), `dep` (bloqueada por otro issue)
+ * - idle: `idle` (fuera de la bandeja)
  */
 export const InboxKindSchema = z.enum([
   'merge',
@@ -27,6 +29,7 @@ export const InboxKindSchema = z.enum([
   'ci',
   'turn',
   'dep',
+  'idle',
 ])
 export type InboxKind = z.infer<typeof InboxKindSchema>
 
@@ -137,7 +140,7 @@ export const EventLogEntrySchema = z.object({
   depth: z.number(),
   project_id: z.string().optional(),
   task_ref: z.string().optional(),
-  summary: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  summary: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   outcome: EventOutcomeSchema,
   error: z.string().optional(),
   decisions: z.array(PipelineDecisionSchema),
@@ -163,14 +166,16 @@ export const TraceEntrySchema = z.object({
   parent_span_id: z.string().optional(),
   execution_id: z.string(),
   origin: z.string(),
-  attributes: z.record(z.unknown()),
+  attributes: z.record(z.string(), z.unknown()),
 })
 export type TraceEntry = z.infer<typeof TraceEntrySchema>
 
 export const TaskDetailSchema = z.object({
   item: InboxItemSchema,
   description: z.string().optional(),
+  /** De la más nueva a la más vieja. */
   executions: z.array(ExecutionSummarySchema),
+  /** De lo más nuevo a lo más viejo. */
   events: z.array(EventLogEntrySchema),
   /** La traza de la última ejecución (o de `?execution=`), en orden. */
   trace: z.array(TraceEntrySchema),
@@ -182,7 +187,7 @@ export const ExplainResultSchema = z.object({
   ref: z.string(),
   event: z.object({
     type: z.string(),
-    summary: z.record(z.union([z.string(), z.number(), z.boolean()])),
+    summary: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   }),
   /** De dónde salió el evento: el último que recibió la tarea, o uno armado para la pregunta. */
   source: z.enum(['last_event', 'synthetic']),
@@ -209,7 +214,7 @@ export const ConfigSummarySchema = z.object({
     z.object({
       id: z.string(),
       providers: z.array(z.string()),
-      routes: z.record(z.string()),
+      routes: z.record(z.string(), z.string()),
     }),
   ),
 })
