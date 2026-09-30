@@ -94,7 +94,8 @@ export class RemoteProvider implements Provider {
       maxStopNudges: numberOr(config.maxStopNudges, DEFAULT_STOP_NUDGES),
       ...(ctx.onText ? { onText: ctx.onText } : {}),
       since: new Date(),
-      // La sesión escribe su transcripción en el disco del host.
+      // La sesión escribe su transcripción en el disco del host: es éste quien la lee y la manda
+      // por `/transcript` (el uso de cada request).
       transcript: false,
     })
     const base = `${PROTOCOL_PREFIX}/runs/${channel.token}`
@@ -115,7 +116,12 @@ export class RemoteProvider implements Provider {
         occurredAt: ctx.ctx.event.occurredAt,
       },
       session: { id: sessionId, resume: resumedSession !== undefined },
-      endpoints: { mcp: `${base}/mcp`, hooks: `${base}/hooks`, report: `${base}/report` },
+      endpoints: {
+        mcp: `${base}/mcp`,
+        hooks: `${base}/hooks`,
+        transcript: `${base}/transcript`,
+        report: `${base}/report`,
+      },
     }
     const minutes = numberOr(config.timeoutMinutes, DEFAULT_TIMEOUT_MINUTES) + TIMEOUT_GRACE_MINUTES
     this.log.info(`${ctx.agentId}: corrida ${task.runId} a ${this.id}`)

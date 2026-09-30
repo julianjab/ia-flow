@@ -10,6 +10,7 @@ export {
   RunReport,
   SubscribeRequest,
   SubscribeResponse,
+  TranscriptPost,
 } from './protocol.js'
 export type { HostInfo, RemoteHubOptions, RemoteRunEnd } from './RemoteHub.js'
 export { providerId, RemoteHub } from './RemoteHub.js'

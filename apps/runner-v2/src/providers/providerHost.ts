@@ -31,6 +31,7 @@ import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
 import { CLAUDE_CLI_TYPE } from './providers.js'
+import { forwardTranscript, type TranscriptForwarder } from './transcriptForwarder.js'
 
 const DEFAULT_TIMEOUT_MINUTES = 120
 /** Lo que se deja pasar entre que el runner cierra la corrida y se corta la sesión: que la
@@ -135,6 +136,10 @@ export function cliTaskRunner(opts: {
   log: (line: string) => void
   launch?: typeof launchCli
   close?: typeof closeOrphan
+  /** Dónde está la transcripción del CLI (default `~/.claude/projects`) y cómo se le habla al
+   *  runner: los tests los inyectan. */
+  transcriptsDir?: string
+  fetchImpl?: typeof fetch
 }): TaskRunner {
   const launch = opts.launch ?? launchCli
   const close = opts.close ?? closeOrphan
@@ -163,6 +168,8 @@ export function cliTaskRunner(opts: {
       ...(opts.provider.bin ? { bin: opts.provider.bin } : {}),
     })
     opts.log(`${task.agentId}: sesión ${config.mode ?? 'print'} ${launched.session.describe}`)
+    // El uso de cada request vive en la transcripción de ESTE disco: se lo manda al runner.
+    const transcript = startTranscript(task, runner, opts)
     const minutes = config.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
@@ -182,10 +189,27 @@ export function cliTaskRunner(opts: {
     } finally {
       if (timer) clearTimeout(timer)
       await delay(CLOSE_GRACE_MS)
+      await transcript?.stop()
       await launched.session.close().catch(() => {})
       await launched.cleanup().catch(() => {})
     }
   }
+}
+
+/** El reenvío del uso al runner, si éste lo pide (`endpoints.transcript`: un runner viejo no). */
+function startTranscript(
+  task: HostTask,
+  runner: { base: string },
+  opts: { transcriptsDir?: string; fetchImpl?: typeof fetch },
+): TranscriptForwarder | undefined {
+  if (!task.endpoints.transcript) return undefined
+  return forwardTranscript({
+    url: `${runner.base}${task.endpoints.transcript}`,
+    sessionId: task.session.id,
+    since: new Date(),
+    ...(opts.transcriptsDir ? { projectsDir: opts.transcriptsDir } : {}),
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  })
 }
 
 /** Lo que el workspace necesita de la corrida: su evento (de él sale el worktree). */

@@ -152,8 +152,9 @@ export class RunChannel {
   }
 
   /** Un request al modelo, como un span GenAI colgado del agente (como `chat <model>` del
-   *  provider de la API), y su texto a `onText`. */
-  private recordMessage(message: TranscriptMessage): void {
+   *  provider de la API), y su texto a `onText`. Lo llama la lectura de la transcripción, o —si la
+   *  sesión corre en otra máquina— quien se la reenvía. */
+  recordMessage(message: TranscriptMessage): void {
     const model = message.model ?? 'unknown'
     const span = startSpan(
       `chat ${model}`,

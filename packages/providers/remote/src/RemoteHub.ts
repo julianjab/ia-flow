@@ -12,6 +12,7 @@ import {
   RunReport,
   SubscribeRequest,
   type SubscribeResponse,
+  TranscriptPost,
 } from './protocol.js'
 import { RemoteProvider } from './RemoteProvider.js'
 
@@ -307,6 +308,13 @@ export class RemoteHub {
       const run = this.runs.get(token)
       if (!run) return json(404, { error: 'corrida desconocida' })
       run.end({ kind: 'report', report: parse(RunReport, await body(req)) })
+      return json(200, {})
+    }
+    if (kind === 'transcript') {
+      const run = this.runs.get(token)
+      if (!run) return json(404, { error: 'corrida desconocida' })
+      const { messages } = parse(TranscriptPost, await body(req))
+      for (const message of messages) run.channel.recordMessage(message)
       return json(200, {})
     }
     const reply = await this.router.handle(kind, token, event, await body(req))

@@ -27,6 +27,7 @@
     "@ia-flow/provider-anthropic-api": "workspace:*",
     "@ia-flow/provider-anthropic-cli": "workspace:*",
     "@ia-flow/provider-remote": "workspace:*",
+    "@ia-flow/provider-shared": "workspace:*",
     "@ia-flow/shared": "workspace:*",
     "@ia-flow/slack-api": "workspace:*",
     "@ia-flow/slack-socket": "workspace:*",

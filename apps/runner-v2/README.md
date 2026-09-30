@@ -244,7 +244,10 @@ providers:
 
 El canal de la corrida es el mismo que el del CLI local, montado en la API del runner: las tools del
 agente (su MCP), los hooks (la traza de las tools nativas, el inbox, no terminar sin cerrar el turno)
-y el cierre cuando el modelo llama `submit_*`. El host sólo lanza `claude` en SU worktree apuntando
+y el cierre cuando el modelo llama `submit_*`. El uso de cada request al modelo sale de la
+transcripción de la sesión, que `claude` escribe en el disco del host: el host la sigue y la manda
+por `POST /v1/runs/<token>/transcript`, y el runner la registra como spans `chat <model>` (los
+tokens del dashboard). El host sólo lanza `claude` en SU worktree apuntando
 ahí, y lo corta cuando el runner cierra la corrida. Un solo checkout, el del host: las tools de
 workspace del agente no le llegan, y el `git push` sale con las credenciales de esa máquina.
 

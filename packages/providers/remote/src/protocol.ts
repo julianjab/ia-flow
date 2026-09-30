@@ -6,7 +6,9 @@
  *   POST /v1/hosts/<session>/poll       (bearer de hosts) long-poll: tareas nuevas y corridas cerradas
  *   POST /v1/runs/<token>/mcp           el MCP de la corrida (las tools del agente)       ┐ el token de
  *   POST /v1/runs/<token>/hooks/<Ev>    los hooks de Claude Code (traza, inbox, cierre)   │ la corrida, en
- *   POST /v1/runs/<token>/report        cómo terminó la sesión del lado del host          ┘ el path
+ *   POST /v1/runs/<token>/transcript    los requests al modelo (uso) que el host lee de    │ el path
+ *                                       la transcripción de su sesión                      │
+ *   POST /v1/runs/<token>/report        cómo terminó la sesión del lado del host          ┘
  *
  * El runner no conduce nada: le entrega la tarea al host y espera en el canal de la corrida (el de
  * `@ia-flow/provider-shared`, el mismo que usa el CLI local) a que el modelo llame una tool
@@ -97,8 +99,14 @@ export const HostTask = z.strictObject({
   }),
   /** La sesión del CLI: una nueva con ese id, o retomar la que tiene ese id. */
   session: z.strictObject({ id: z.string(), resume: z.boolean() }),
-  /** Paths en el runner (relativos a su base): el MCP, los hooks y el reporte de la corrida. */
-  endpoints: z.strictObject({ mcp: z.string(), hooks: z.string(), report: z.string() }),
+  /** Paths en el runner (relativos a su base): el MCP, los hooks, la transcripción y el reporte
+   *  de la corrida. Sin `transcript` (un runner viejo), el host no reenvía el uso. */
+  endpoints: z.strictObject({
+    mcp: z.string(),
+    hooks: z.string(),
+    transcript: z.string().optional(),
+    report: z.string(),
+  }),
 })
 export type HostTask = z.infer<typeof HostTask>
 
@@ -118,3 +126,24 @@ export const RunReport = z.strictObject({
   message: z.string().optional(),
 })
 export type RunReport = z.infer<typeof RunReport>
+
+/** Los requests al modelo de una sesión, como los arma `TranscriptTail` en el host: cada uno con su
+ *  uso y su texto. El runner los registra como spans `chat <model>` de la corrida. */
+export const TranscriptPost = z.strictObject({
+  messages: z.array(
+    z.strictObject({
+      id: z.string(),
+      model: z.string().optional(),
+      usage: z.strictObject({
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+        cacheReadTokens: z.number(),
+        cacheCreationTokens: z.number(),
+      }),
+      texts: z.array(z.string()),
+      timestamp: z.string().optional(),
+      sidechain: z.boolean(),
+    }),
+  ),
+})
+export type TranscriptPost = z.infer<typeof TranscriptPost>
