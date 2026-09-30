@@ -3,7 +3,13 @@
  * qué agentes y acciones corre, y a dónde lleva cada salida de sus agentes. Es lo que el asistente
  * lee para explicar "por qué pasó esto" sin abrir los YAML.
  */
-import { isAgent, type Pipeline, type ResolvedRoutes } from '@ia-flow/agent-engine'
+import {
+  END,
+  isAgent,
+  type Pipeline,
+  type ResolvedRoutes,
+  type Runnable,
+} from '@ia-flow/agent-engine'
 import type { ConfigSummary, InboxProject } from '@ia-flow/shared'
 
 export interface ConfigSource {
@@ -31,7 +37,12 @@ function routeText(routes: ResolvedRoutes): Record<string, string> {
   for (const exit of routes.exits) {
     out[exit.name] = exit.targets.map((target) => stepId(target)).join(' → ') || '(nada)'
   }
-  if (routes.onError) out.onError = JSON.stringify(routes.onError.route)
+  // Sólo los ids de los pasos: serializar el `ErrorRoute` vuelca las acciones vivas con su cliente
+  // (y el `auth` de GitHub: privateKey, token) a una respuesta que lee la web.
+  if (routes.onError) {
+    const steps = [routes.onError.route.to ?? []].flat().filter((target) => target !== END)
+    out.onError = steps.map((target) => stepId(target as Runnable)).join(' → ') || '(nada)'
+  }
   return out
 }
 
