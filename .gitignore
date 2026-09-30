@@ -25,3 +25,6 @@ apps/agent-host/agent-host.backend.yaml
 
 # runner-v2: la base de ejecuciones (engine.yaml → executions.path).
 apps/runner-v2/.state/
+
+# Credenciales: la llave privada de la GitHub App (y cualquier otra) nunca va al repo.
+*.pem
