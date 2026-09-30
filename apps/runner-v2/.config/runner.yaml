@@ -88,7 +88,7 @@ mcp:
       url: https://ia-flow-hooks.ss.lahaus.com/mcp/figma
       authorizationToken: ${FIGMA_MCP_TOKEN}
   # La memoria de los agentes entre corridas: el MCP oficial `server-memory` (un
-  # grafo en .state/memory.json) que levanta `bun run memory-mcp` en local y
+  # grafo en <IA_FLOW_HOME>/memory.json) que levanta `bun run memory-mcp` en local y
   # publica un túnel de cloudflared (lo llama Anthropic: tiene que ser público).
   # La URL, con su path secreto, va en MEMORY_MCP_URL del .env; sin ella, los
   # agentes corren sin memoria.
@@ -107,10 +107,11 @@ engine:
 
   # Cada corrida con agentes es una EJECUCIÓN de su task: una task nunca corre
   # dos a la vez, y las pausas (esperar el CI) sobreviven a un reinicio porque
-  # viven en SQLite. `bun-sqlite` lo registra el runner (src/storage/).
+  # viven en SQLite. `bun-sqlite` lo registra el runner (src/storage/). Sin
+  # `path`, la base es <IA_FLOW_HOME>/runner.sqlite (default
+  # ~/.local/state/ia-flow/runner): el runner no escribe al lado de su config.
   executions:
     driver: bun-sqlite
-    path: ../.state/executions.sqlite
     # Cuántas corridas en paralelo, entre todas las tasks.
     maxConcurrent: 5
 

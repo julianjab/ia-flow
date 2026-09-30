@@ -10,7 +10,7 @@
  */
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
-import { dirname, isAbsolute, resolve } from 'node:path'
+import { dirname } from 'node:path'
 import type { DispatchJournal, DispatchRecord, DomainEvent } from '@ia-flow/agent-engine'
 import {
   migrate,
@@ -48,9 +48,9 @@ export interface ActivityStore {
 
 function databasePath(cfg: RunnerConfig): string {
   const executions = cfg.engine.executions
+  // Ya resuelta por `loadRunnerConfig` (relativa a runner.yaml, o la de IA_FLOW_HOME).
   if (executions?.driver !== 'bun-sqlite' || !executions.path) return ':memory:'
-  if (executions.path === ':memory:' || isAbsolute(executions.path)) return executions.path
-  return resolve(cfg.dir, executions.path)
+  return executions.path
 }
 
 export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): ActivityStore {

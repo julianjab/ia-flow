@@ -36,6 +36,7 @@ import {
   type WorkingMarker,
   WorkingMarkerSchema,
 } from '../working/workingMarker.js'
+import { defaultDatabasePath, runnerHome } from './runnerHome.js'
 
 const McpEntrySchema = z.strictObject({
   id: z.string().min(1),
@@ -385,6 +386,23 @@ function withKeyPath(github: RunnerConfig['github'], dir: string): RunnerConfig[
   return { ...github, privateKeyPath: resolved }
 }
 
+/** `engine.executions.path` resuelta: relativa a `runner.yaml`, o —sin ella y con `bun-sqlite`—
+ *  la base de `IA_FLOW_HOME`. El runner nunca escribe al lado de su config por default. */
+function withExecutionsPath(engine: EngineSection, dir: string): EngineSection {
+  const executions = engine.executions
+  if (executions?.driver !== 'bun-sqlite') return engine
+  const path = executions.path
+  const resolved =
+    path === undefined
+      ? defaultDatabasePath()
+      : path === ':memory:' || isAbsolute(path)
+        ? path
+        : path.startsWith('~/')
+          ? join(homedir(), path.slice(2))
+          : resolve(dir, path)
+  return { ...engine, executions: { ...executions, path: resolved } }
+}
+
 export function loadRunnerConfig(dir: string): RunnerConfig {
   const runnerPath = join(dir, 'runner.yaml')
   const file = parse(runnerPath, RunnerFileSchema)
@@ -401,7 +419,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     host: file.host ?? {},
     mcp: file.mcp,
     mcpHost: file.mcpHost,
-    engine: file.engine,
+    engine: withExecutionsPath(file.engine, dir),
     inbox: file.inbox,
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
@@ -465,5 +483,7 @@ export function applyRunnerEnv(cfg: RunnerConfig): RunnerEnvReport {
     if (name && value !== undefined) put(name, String(value))
   }
   if (cfg.settings.port !== undefined) put('IA_FLOW_SERVER_PORT', String(cfg.settings.port))
+  // Resuelto, para que runner.yaml lo pueda nombrar (`${IA_FLOW_HOME}/memory.json` en un mcpHost).
+  if (!process.env.IA_FLOW_HOME?.trim()) process.env.IA_FLOW_HOME = runnerHome()
   return { applied, overriddenByEnv }
 }

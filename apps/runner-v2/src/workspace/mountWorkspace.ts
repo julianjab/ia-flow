@@ -4,7 +4,6 @@
  * runner (`boot.ts`) y el host de providers (`--host`, `providers/providerHost.ts`): cada uno el
  * suyo, en su disco.
  */
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   NodeShellRunner,
@@ -12,16 +11,8 @@ import {
   WorkspaceManager,
   WorkspaceSession,
 } from '@ia-flow/workspace'
+import { defaultWorkspaceRoot } from '../config/runnerHome.js'
 import { workspaceTargetFor } from './workspaceTarget.js'
-
-/** Donde viven los clones y worktrees si no se pasa `WORKSPACE_DIR`. */
-export const DEFAULT_WORKSPACE_ROOT = join(
-  homedir(),
-  '.cache',
-  'ia-flow',
-  'runner-v2',
-  'workspaces',
-)
 
 /** Los logs del `WorkspaceManager` por el log del runner: `[workspace] <mensaje> <contexto>`. */
 function workspaceLogger(log: (line: string) => void): WorkspaceLogger {
@@ -35,7 +26,8 @@ export function mountWorkspace(opts: {
   githubToken: () => Promise<string>
   log: (line: string) => void
 }): { workspace: WorkspaceManager; session: WorkspaceSession } {
-  const root = opts.root ?? DEFAULT_WORKSPACE_ROOT
+  // Sin `WORKSPACE_DIR`: <IA_FLOW_HOME>/workspaces.
+  const root = opts.root ?? defaultWorkspaceRoot()
   const workspace = new WorkspaceManager(new NodeShellRunner(), {
     reposBase: join(root, 'repos'),
     worktreeBase: join(root, 'worktrees'),

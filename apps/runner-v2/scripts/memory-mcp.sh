@@ -12,16 +12,15 @@
 #
 #   MEMORY_MCP_TOKEN   obligatorio: el path secreto
 #   MEMORY_MCP_PORT    default 8931
-#   MEMORY_FILE_PATH   default .state/memory.json (gitignoreado)
+#   MEMORY_FILE_PATH   default <IA_FLOW_HOME>/memory.json (~/.local/state/ia-flow/runner)
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -z "${MEMORY_MCP_TOKEN:-}" ]]; then
   echo "falta MEMORY_MCP_TOKEN: el path secreto del MCP (queda público detrás del túnel)" >&2
   exit 1
 fi
 port="${MEMORY_MCP_PORT:-8931}"
-export MEMORY_FILE_PATH="${MEMORY_FILE_PATH:-$here/.state/memory.json}"
+export MEMORY_FILE_PATH="${MEMORY_FILE_PATH:-${IA_FLOW_HOME:-$HOME/.local/state/ia-flow/runner}/memory.json}"
 mkdir -p "$(dirname "$MEMORY_FILE_PATH")"
 
 echo "memory-mcp: http://localhost:$port/mcp/<token> → $MEMORY_FILE_PATH"
