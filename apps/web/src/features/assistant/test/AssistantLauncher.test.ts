@@ -56,7 +56,7 @@ describe('AssistantLauncher', () => {
     }
   })
 
-  it('hay UN solo punto de entrada: el botón flotante, que se esconde al abrir', async () => {
+  it('la burbuja es el único punto de entrada: abre y cierra una ventana, sin backdrop', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const wrapper = mount(AssistantLauncher, {
@@ -66,8 +66,49 @@ describe('AssistantLauncher', () => {
     expect($$('.fab')).toHaveLength(1)
     ;($('.fab') as HTMLElement).click()
     await flushPromises()
-    expect($$('.fab')).toHaveLength(0)
     expect($('[role="dialog"]')).not.toBeNull()
+    expect($('.fab')?.getAttribute('aria-expanded')).toBe('true')
+    // La página de atrás sigue usable: no hay backdrop ni se bloquea el scroll.
+    expect($('.bs-backdrop')).toBeNull()
+    expect(document.body.style.overflow).toBe('')
+    ;($('.fab') as HTMLElement).click()
+    await flushPromises()
+    expect($('[role="dialog"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('cerrar no corta la respuesta: termina igual y la burbuja la marca como no leída', async () => {
+    let release: () => void = () => {}
+    script = async function* () {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      yield { type: 'text', delta: 'Listo.' }
+      yield { type: 'done', text: 'Listo.' }
+    }
+    const { wrapper, ui, chat } = await open()
+    const sent = chat.send('¿qué pasó?')
+    await flushPromises()
+    ui.close()
+    await flushPromises()
+    release()
+    await sent
+    await flushPromises()
+    expect(chat.turns.at(-1)).toMatchObject({ kind: 'assistant', text: 'Listo.' })
+    expect($('[data-test="unread"]')).not.toBeNull()
+    ui.open()
+    await flushPromises()
+    expect($('[data-test="unread"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('Escape cierra la ventana', async () => {
+    const { wrapper, ui } = await open()
+    $('[role="dialog"]')?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    )
+    await flushPromises()
+    expect(ui.isOpen).toBe(false)
     wrapper.unmount()
   })
 
