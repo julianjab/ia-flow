@@ -295,3 +295,20 @@ describe('reviewer', () => {
     ])
   })
 })
+
+describe('runner.yaml → slack.users', () => {
+  it('maps a GitHub login to its Slack user, and is empty when absent', () => {
+    expect(loadRunnerConfig(CONFIG_DIR).slack.users).toBeDefined()
+    const dir = configCopy({
+      'runner.yaml': (s) => `${s}\nslack:\n  users:\n    julianjab: { id: U123, name: juli }\n`,
+    })
+    expect(loadRunnerConfig(dir).slack.users).toEqual({ julianjab: { id: 'U123', name: 'juli' } })
+  })
+
+  it('rejects a user without its Slack id', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) => `${s}\nslack:\n  users:\n    julianjab: { name: juli }\n`,
+    })
+    expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido/)
+  })
+})

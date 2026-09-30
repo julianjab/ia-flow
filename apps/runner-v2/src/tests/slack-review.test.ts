@@ -17,6 +17,7 @@ const ctx = (payload: Record<string, unknown> = TASK): PipelineExecutionContext 
 
 function github(opts: {
   body?: string
+  assignees?: string[]
   checks?: Array<{ status: string; conclusion: string | null }>
 }) {
   const patched: string[] = []
@@ -45,7 +46,11 @@ function github(opts: {
         ),
       }
     }
-    if (path.endsWith('/issues/7')) return { body: opts.body ?? 'El PRD' }
+    if (path.endsWith('/issues/7'))
+      return {
+        body: opts.body ?? 'El PRD',
+        assignees: (opts.assignees ?? []).map((login) => ({ login })),
+      }
     throw new Error(`no esperaba ${path}`)
   })
   return { client: { requestJson } as unknown as GithubClient, patched, requestJson }
@@ -63,11 +68,18 @@ function slack() {
   return { client: new SlackClient({ token: 'xoxb', fetchImpl: fetchImpl as never }), posted }
 }
 
-const action = (gh: ReturnType<typeof github>, sl: ReturnType<typeof slack>, repo = {}) =>
+const action = (
+  gh: ReturnType<typeof github>,
+  sl: ReturnType<typeof slack>,
+  repo = {},
+  users: Record<string, { id: string }> = {},
+  project: Record<string, unknown> = PROJECT,
+) =>
   new RequestSlackReviewAction({
     github: gh.client,
     slack: sl.client,
-    project: PROJECT,
+    project,
+    users,
     repo: () => repo,
   })
 
@@ -129,5 +141,46 @@ describe('request_slack_review', () => {
       repo: () => undefined,
     })
     await expect(off.run(ctx(), {})).rejects.toThrow(/SLACK_BOT_TOKEN/)
+  })
+})
+
+describe('request_slack_review: the assignee', () => {
+  const users = { julianjab: { id: 'UJULI' } }
+
+  it('tags the assignee of the issue and the configured reviewers', async () => {
+    const gh = github({ assignees: ['JulianJab'] })
+    const sl = slack()
+    await action(gh, sl, {}, users).run(ctx(), {})
+    expect(String(sl.posted[0]?.text)).toContain('<@UJULI> <@U1>')
+  })
+
+  it('tags only the configured reviewers when the assignee is not in slack.users', async () => {
+    const gh = github({ assignees: ['otro'] })
+    const sl = slack()
+    await action(gh, sl, {}, users).run(ctx(), {})
+    const text = String(sl.posted[0]?.text)
+    expect(text).toContain('<@U1>')
+    expect(text).not.toContain('UJULI')
+  })
+
+  it('says who is missing from slack.users when there is nobody else to tag', async () => {
+    const gh = github({ assignees: ['otro'] })
+    const sl = slack()
+    const project = { slackReviewChannel: 'CREV1' }
+    await expect(action(gh, sl, {}, users, project).run(ctx(), {})).rejects.toThrow(
+      /otro.*slack\.users/,
+    )
+    expect(sl.posted).toEqual([])
+  })
+
+  it('tags the assignee in the re-review too', async () => {
+    const gh = github({
+      assignees: ['julianjab'],
+      body: `<!-- ia-flow:slack -->\n## Slack\n\n${THREAD}\n<!-- /ia-flow:slack -->`,
+    })
+    const sl = slack()
+    await action(gh, sl, {}, users).run(ctx(), {})
+    expect(String(sl.posted[0]?.text)).toContain('<@UJULI>')
+    expect(sl.posted[0]?.thread_ts).toBeDefined()
   })
 })

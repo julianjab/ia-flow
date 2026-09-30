@@ -45,6 +45,7 @@ const services: RunnerServices = {
   session: new WorkspaceSession(workspace, workspaceTargetFor),
   gitCredential: async () => undefined,
   slack: new SlackClient({ token: 'test' }),
+  slackUsers: {},
   assistant: new AssistantDesk(),
   log: () => {},
 }
