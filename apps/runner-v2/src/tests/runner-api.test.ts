@@ -64,6 +64,7 @@ function fakeGithub(push = true) {
     })
     if (url.endsWith('/user')) {
       const auth = new Headers(init?.headers).get('authorization')
+      if (auth === 'Bearer gho_revoked') return new Response('Bad credentials', { status: 401 })
       return Response.json({ login: auth === 'Bearer gho_other' ? 'otra' : 'julian' })
     }
     if (url.endsWith('/repos/o/r')) return Response.json({ permissions: { push } })
@@ -420,6 +421,26 @@ describe('runner API', () => {
       })
     })
 
+    it('a GitHub token that no longer works still gets an answer, just not saved', async () => {
+      const { call } = await start()
+      const types = (await events(await ask(call, {}, gh('gho_revoked')))).map((e) => e.type)
+      expect(types).toContain('done')
+      expect(types).not.toContain('conversation')
+    })
+
+    it('a conversation that is gone continues in a new one instead of failing', async () => {
+      const { call } = await start()
+      const id = (await events(await ask(call, {}, gh()))).find(
+        (e) => e.type === 'conversation',
+      )?.id
+      await call(`/api/assistant/conversations/${id}`, { method: 'DELETE', headers: gh() })
+      const next = (await events(await ask(call, { conversation_id: id }, gh()))).find(
+        (e) => e.type === 'conversation',
+      )?.id
+      expect(next).toBeString()
+      expect(next).not.toBe(id)
+    })
+
     it("someone else's conversation does not exist for you", async () => {
       const { call } = await start()
       const id = (await events(await ask(call, {}, gh()))).find(
@@ -428,7 +449,16 @@ describe('runner API', () => {
       expect(
         (await call(`/api/assistant/conversations/${id}`, { headers: gh('gho_other') })).status,
       ).toBe(404)
-      expect((await ask(call, { conversation_id: id }, gh('gho_other'))).status).toBe(404)
+      // Seguirla con otro login abre una nueva de ese login: la ajena no crece ni se lee.
+      const other = (await events(await ask(call, { conversation_id: id }, gh('gho_other')))).find(
+        (e) => e.type === 'conversation',
+      )?.id
+      expect(other).toBeString()
+      expect(other).not.toBe(id)
+      expect(
+        (await (await call(`/api/assistant/conversations/${id}`, { headers: gh() })).json())
+          .messages,
+      ).toBe(2)
       expect(
         (
           await call(`/api/assistant/conversations/${id}`, {
