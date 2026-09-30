@@ -62,8 +62,8 @@ y cada regla dice cómo arreglarla. Lo que no se puede verificar:
 ## Tests
 
 - Paquetes: `src/**/tests/*.test.ts` (Vitest), nunca contra la red real (`fetchImpl` inyectable).
-- `apps/runner-v2`: `<módulo>.test.ts` al lado del módulo (`bun test`); `src/tests/` sólo los de
-  punta a punta.
+- `apps/runner-v2`: `<módulo>.test.ts` al lado del módulo (`bun test`). Ningún test depende de una
+  config de deploy: la config local (`apps/runner-v2/.config/`) no está en git.
 - `apps/web`: `test/Foo.test.ts` junto al componente o módulo (Vitest).
 
 ## Commits y ramas

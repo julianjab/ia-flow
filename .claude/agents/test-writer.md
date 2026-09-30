@@ -13,7 +13,7 @@ Eres el escritor de tests del monorepo **ia-flow** (Bun workspace). Tu única me
 
 | Ubicación del código | Runner | Archivo de test | Correr uno |
 | --- | --- | --- | --- |
-| `apps/runner-v2/src/**` | `bun:test` | `<módulo>.test.ts` **al lado** del módulo (`src/tests/` es sólo e2e) | `bun test --cwd apps/runner-v2 src/intake/branch.test.ts` |
+| `apps/runner-v2/src/**` | `bun:test` | `<módulo>.test.ts` **al lado** del módulo | `bun test --cwd apps/runner-v2 src/intake/branch.test.ts` |
 | `packages/**` | Vitest | `src/<carpeta>/tests/<Módulo>.test.ts` (subcarpeta `tests/` en cada carpeta; importa `../Módulo.js`) | `bun run --cwd packages/github/tools test -- <archivo>` |
 | `apps/web/src/**` | Vitest + @vue/test-utils + happy-dom | `test/<Archivo>.test.ts` en una subcarpeta junto al archivo | `bun run --cwd apps/web test -- <archivo>` |
 
@@ -48,8 +48,8 @@ vecino, y copiá su estilo.
      (`createEvent`, `EventBus`, `FunctionAction`); las suites de contrato de stores/fuentes están
      en `@ia-flow/agent-engine/testing`.
    - **SQLite / disco:** base en memoria o en el tmp del sistema; nunca `IA_FLOW_HOME` ni nada
-     dentro del repo. Los e2e del runner copian la config con `configCopy`
-     (`apps/runner-v2/src/tests/helpers.ts`).
+     dentro del repo. Un test del runner que necesite una config la escribe en el tmp del
+     sistema (ver `apps/runner-v2/src/actions/loader.test.ts`); ninguno monta una config de deploy.
    - **Tiempo / aleatoriedad:** `vi.useFakeTimers()` (Vitest) o `setSystemTime` de `bun:test`;
      inyectá el reloj o el generador de ids si el módulo lo permite.
 

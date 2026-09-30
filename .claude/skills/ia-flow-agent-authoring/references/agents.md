@@ -2,7 +2,7 @@
 
 Schema: `AgentDoc` en `packages/agent-engine/definitions/src/schema.ts` (strict: una clave que no
 existe rompe la carga). Ejemplo completo y comentado:
-`apps/runner-v2/.config/projects/lahaus-ai-flow/agents/20-implementer.yaml`.
+`projects/lahaus-ai-flow/agents/20-implementer.yaml` de la config de La Haus (`la-haus/claw-agents` → `agents/ai-development-flow/config/`).
 
 Un archivo por agente, `id` adentro. Un agente global (en `agents/` junto a `runner.yaml`) lo ve
 la fuente global; los de un proyecto, su proyecto.

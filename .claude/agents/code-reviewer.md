@@ -58,7 +58,7 @@ obvio:
 - Tipos y schemas cruzando server↔web deben vivir en `packages/shared`, no duplicados.
 - Nada de estado escrito dentro del repo: el runner usa `IA_FLOW_HOME`; los tests, el tmp del sistema.
 - Un prompt, pipeline o agente de un deploy va en la config YAML (`runner.yaml` + `projects/`), no en código. Una `{{variable}}` de un prompt tiene que existir en el payload del evento (`apps/runner-v2/src/intake/payload.ts`): una desconocida queda literal.
-- Tests donde van: runner `<módulo>.test.ts` al lado (e2e en `src/tests/`); paquetes `src/**/tests/*.test.ts`; web `test/Foo.test.ts` junto al archivo. Nunca `__tests__/`.
+- Tests donde van: runner `<módulo>.test.ts` al lado; paquetes `src/**/tests/*.test.ts`; web `test/Foo.test.ts` junto al archivo. Nunca `__tests__/`.
 - El código y sus tests en commits separados (lo exige un hook).
 - **Paridad API ↔ front:** un campo/endpoint nuevo consumible desde HTTP (endpoint, campo de
   `providerConfig`, campo de schema en `packages/shared`, config de agente/proyecto) que no tiene

@@ -43,11 +43,11 @@ tabla de `apps/runner-v2/AGENTS.md`? Señales de lugar equivocado:
 - Lógica en `http/` (el borde sólo recibe y delega), o una tool genérica de GitHub/Slack en
   `actions/builtin/` en vez de `packages/github/tools` / `packages/slack/tools`.
 - Un prompt, pipeline o agente de un deploy escrito en código en vez de en la config
-  (`apps/runner-v2/.config/` o la del deploy).
+  (la del deploy, p. ej. claw-agents; `apps/runner-v2/.config/` es local y no está en git).
 - Un import nuevo en `.config/**/actions/*.ts` de un paquete que no está en
   `src/bundle/modules.ts` (rompe en el deploy).
 - Estado escrito dentro del repo en vez de `IA_FLOW_HOME` (`src/config/runnerHome.ts`).
-- Test unitario fuera de su módulo: va `<módulo>.test.ts` al lado; `src/tests/` es sólo e2e.
+- Test unitario fuera de su módulo: va `<módulo>.test.ts` al lado.
 
 **packages/** — la lógica en el paquete que la usa (tabla "Dónde va cada cambio" del
 `AGENTS.md` raíz); `packages/agent-engine/core` sin I/O (`fetch`, `node:fs`, `process.env`).

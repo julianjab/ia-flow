@@ -3,7 +3,6 @@ dist/
 .env
 .env.host
 *.local
-bun.lockb
 .DS_Store
 apps/server/logs/
 apps/server/src/logs/
@@ -24,8 +23,13 @@ packages/**/package-lock.json
 apps/agent-host/agent-host.yaml
 apps/agent-host/agent-host.backend.yaml
 
-# runner-v2: la base de ejecuciones (engine.yaml → executions.path).
+# runner-v2: la config para correrlo en local es de cada quien (la de un deploy vive en su repo,
+# p. ej. claw-agents), y el estado va a IA_FLOW_HOME. `.state/` queda por los checkouts viejos.
+apps/runner-v2/.config/
 apps/runner-v2/.state/
+
+# El workspace de un editor es de cada quien.
+*.code-workspace
 
 # Credenciales: la llave privada de la GitHub App (y cualquier otra) nunca va al repo.
 *.pem

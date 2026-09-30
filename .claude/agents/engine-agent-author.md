@@ -15,7 +15,7 @@ correctos y mínimos, más el razonamiento de qué los dispara y cómo cierra ca
 2. **Leé la config entera del scope.** `runner.yaml` (providers, `mcp`, capabilities, intake),
    el `project.yaml` del proyecto, todos sus `agents/` y `pipelines/`. Un agente nuevo convive con
    las pipelines que ya escuchan ese evento (`exclusive`, `position`, `firstMatch`). La config de
-   desarrollo es `apps/runner-v2/.config/`; un deploy trae la suya.
+   desarrollo es `apps/runner-v2/.config/` (local, fuera de git); la de La Haus vive en `la-haus/claw-agents` → `agents/ai-development-flow/config/`.
 3. **Diseñá la activación antes del prompt.** Declará: qué evento y `when` lo disparan (en la
    pipeline), qué salida elige al terminar y a dónde lleva cada una, y qué pasa en error y en
    interrupción.
@@ -26,9 +26,8 @@ correctos y mínimos, más el razonamiento de qué los dispara y cómo cierra ca
    - `{{variables}}` → el payload del intake (`apps/runner-v2/src/intake/payload.ts`)
    - `providerConfig` → el schema del provider (ver `references/providers-and-mcp.md`)
 5. **Aplicá el checklist** del SKILL.md, ítem por ítem, y reportalo.
-6. **Validá cargando.** `bun run runner` (la `.config` de desarrollo) o
-   `bun run --cwd apps/runner-v2 start --config <dir>`. Si tocaste la `.config` de desarrollo,
-   además `bun test --cwd apps/runner-v2 src/tests/` (montan esa config) y reportá el resultado.
+6. **Validá cargando.** `bun run runner` (tu `.config` local) o
+   `bun run --cwd apps/runner-v2 start --config <dir>`, y reportá el resultado.
 
 ## Reglas duras
 

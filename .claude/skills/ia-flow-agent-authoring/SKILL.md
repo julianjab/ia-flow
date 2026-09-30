@@ -17,7 +17,7 @@ Fuentes de verdad — leelas, no las copies:
 | Reglas de la definición (brief, `ref`, `{{vars}}`, `allowWrites`, `whenText`, `http`) | `packages/agent-engine/definitions/CLAUDE.md` |
 | Semántica de ejecución (salidas, cascada de rutas, `injects`, pausas, `ifRunning`, `ifQueued`, topes) | `packages/agent-engine/core/CLAUDE.md` |
 | Forma de `runner.yaml` / `project.yaml` | `apps/runner-v2/src/config/RunnerConfig.ts`, `apps/runner-v2/README.md` |
-| Config de ejemplo real (la de desarrollo) | `apps/runner-v2/.config/` |
+| Config real de referencia (producción de La Haus) | `la-haus/claw-agents` → `agents/ai-development-flow/config/` |
 
 Si el código contradice este skill, gana el código.
 
@@ -78,16 +78,13 @@ Hechos que gobiernan todo diseño:
 ## Validar
 
 ```bash
-bun run runner                                            # .config de desarrollo: carga y valida
+bun run runner                                            # tu .config local: carga y valida
 bun run --cwd apps/runner-v2 start --config <dir>         # otra config (un deploy)
-bun test --cwd apps/runner-v2 src/tests/                  # e2e: montan .config/ (rules-match.test.ts
-                                                          # prueba qué pipeline corre por evento)
 ```
 
 Un error de schema sale con archivo y campo. Con el runner en `--serve`,
 `GET /api/explain?ref=<owner>/<repo>%23<n>&event=<tipo>` re-planea el último evento de esa task
 (o uno sintético de ese tipo) en seco: qué pipeline correría y por qué las demás no.
-Si tocaste `.config/`, un test de `src/tests/` puede romper a propósito: ajustalo en el mismo cambio.
 
 ## Prompts
 
@@ -120,7 +117,7 @@ Si tocaste `.config/`, un test de `src/tests/` puede romper a propósito: ajusta
 - [ ] Toda `{{variable}}` existe en el payload del evento que lo dispara (una desconocida queda
       literal, sin error). `{{vars.x}}` existe en la fuente (si no, no carga).
 - [ ] Secretos sólo nombrados (`${ENV}`), nunca en el YAML.
-- [ ] `bun run runner` carga sin errores; los e2e de `src/tests/` pasan (si tocaste `.config/`).
+- [ ] La config carga sin errores (`bun run runner` o `start --config <dir>`).
 
 ## Referencias
 

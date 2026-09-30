@@ -107,7 +107,7 @@ Verificación:
 ## Casos especiales del stack ia-flow
 
 - **`EPIPE` en esbuild/vitest (apps/web, paquetes):** pasa al correr vitest dentro del runtime de Bun (`bun test`, `--bun`). Usá el script del paquete (`bun run --cwd apps/web test`), que lanza vitest con Node, y anotalo en el reporte.
-- **Un test de `apps/runner-v2/src/tests/` rompe tras cambiar un prompt o pipeline:** es a propósito, esos tests montan la `.config` real. Ajustá el test o el YAML, no lo saltees.
+- **Un cambio de prompt o pipeline no rompe tests:** ningún test monta una config de deploy; validala cargándola (`bun run --cwd apps/runner-v2 start --config <dir>`).
 - **`@memoize` no funciona / error de decorators:** Bun corrió desde otro directorio (lee `experimentalDecorators` del `tsconfig` del cwd). Corré con `--cwd` del paquete.
 - **La config de un deploy rompe al arrancar pero no en local:** una action de la config importa un paquete que no está en `apps/runner-v2/src/bundle/modules.ts` (`bundle/modules.test.ts` lo avisa).
 - **`SQLITE_BUSY` / "database is locked":** típicamente transacción larga, conexión no cerrada, o falta de `busy_timeout`. Confirma `PRAGMA journal_mode=wal` y `PRAGMA busy_timeout=5000`. Busca `db.exec` / `.prepare` sin `.finalize()` o transacciones sin `COMMIT`/`ROLLBACK`.

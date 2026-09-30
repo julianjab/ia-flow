@@ -2,7 +2,7 @@
 
 Schema: `PipelineDoc` en `packages/agent-engine/definitions/src/schema.ts`. Semántica:
 `packages/agent-engine/core/CLAUDE.md` § "Salidas de un agente" y § "Ejecuciones". Ejemplos
-reales: `apps/runner-v2/.config/projects/lahaus-ai-flow/pipelines/`.
+reales: la config de La Haus (`la-haus/claw-agents` → `agents/ai-development-flow/config/`, `projects/lahaus-ai-flow/pipelines/`).
 
 ## Qué eventos hay (`on`)
 

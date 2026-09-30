@@ -7,7 +7,8 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
 
 ## Qué cambia respecto del runner v1 (`apps/server`, ya purgado)
 
-- **La definición vive en `.config/`**, en YAML (`@ia-flow/agent-engine-datasource-yaml` la traduce a
+- **La definición vive en una carpeta de config** (`--config`, `RUNNER_CONFIG_DIR`, o `.config/` local —
+  no versionada—), en YAML (`@ia-flow/agent-engine-datasource-yaml` la traduce a
   definiciones y `@ia-flow/agent-engine-definitions` las arma)
   (agentes y pipelines del engine), y se recarga en caliente: editar un YAML aplica en el
   próximo evento, sin reiniciar. Una versión inválida se loguea y sigue la última buena.
@@ -16,7 +17,10 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
   a un reinicio. Una corrida que el reinicio cortó queda `failed` (`interrupted`) y lo que no
   llegó a leer se vuelve a despachar.
 
-## `.config/`
+## La carpeta de config (`.config/` en local)
+
+No está en git: es de cada quien. La de producción de La Haus vive en `la-haus/claw-agents` → `agents/ai-development-flow/config/`, y es el
+mejor punto de partida para armar la tuya.
 
 `runner.yaml` es el índice: nada se descubre por carpeta, cada cosa se declara. Un archivo por
 scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
@@ -143,7 +147,7 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | el provider `anthropic-api` |
 | `IA_FLOW_WEBHOOK_SECRET` | el HMAC de los webhooks (sin él, todo POST responde 503) |
 | `FIGMA_MCP_TOKEN` | el token del MCP de Figma (`runner.yaml` lo nombra como `${FIGMA_MCP_TOKEN}`) |
-| `RUNNER_CONFIG_DIR` | otra carpeta de definición (default: `.config`) |
+| `RUNNER_CONFIG_DIR` | la carpeta de la config (default: `.config`, local y no versionada) |
 | `IA_FLOW_HOME` | el estado de esta máquina, fuera del repo: `runner.sqlite`, `workspaces/`, `memory.json` (default: `~/.local/state/ia-flow/runner`) |
 | `WORKSPACE_DIR` | dónde van clones y worktrees (default: `<IA_FLOW_HOME>/workspaces`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | trazas y logs por OTLP — `bun run otel` levanta el Grafana local con los dashboards ([otel/](otel/README.md)) |
@@ -307,7 +311,7 @@ Cada release adjunta el runner como un solo archivo (`bun run release:package`,
 la trae cada deploy (`RUNNER_CONFIG_DIR` o `--config`), en cualquier carpeta. Sus actions
 importan `@ia-flow/*` y `zod`, y el bundle se los sirve como módulos virtuales
 (`src/bundle/modules.ts`) — con las mismas instancias que usa el runner. Un paquete que no esté en
-esa lista rompe el arranque del deploy; `dist-modules.test.ts` lo avisa antes contra esta `.config`.
+esa lista rompe el arranque del deploy.
 
 `GET /health` contesta 200 mientras el proceso vive: es la probe de k8s y del balanceador.
 

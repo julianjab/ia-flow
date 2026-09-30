@@ -34,7 +34,7 @@ tampoco: va en la config de ese deploy.
 bun test --cwd apps/runner-v2                       # la suite
 bun test --cwd apps/runner-v2 src/intake/branch.test.ts   # un archivo
 bun run --cwd apps/runner-v2 typecheck
-bun run runner                                      # carga y valida .config sin servir
+bun run runner                                      # carga y valida tu .config local sin servir
 bun run release:package                             # el bundle: dist/artifacts/ia-flow-runner.js
 ```
 
@@ -42,13 +42,12 @@ bun run release:package                             # el bundle: dist/artifacts/
 
 - **Las fronteras entre carpetas las verifica `bun run lint:boundaries`** (en `check`): `http/`
   sólo llega a `intake/`, `intake/` no conoce ninguna feature, nada importa `main.ts`.
-- **`.config/` es la config de desarrollo** (la de La Haus para correr en local), no el ejemplo
-  canónico ni código del runner. Sus acciones son del proyecto (`issue_body`, `blockedReport`).
+- **`.config/` es tu config local y NO está en git** (`.gitignore`): para correr el runner en tu
+  máquina, copiá la de un deploy (la de La Haus: `la-haus/claw-agents` → `agents/ai-development-flow/config/`) y ajustala (label, túneles, providers).
 - **Una config vive en cualquier carpeta** (`--config` o `RUNNER_CONFIG_DIR`): sus acciones
   resuelven `@ia-flow/*` y `zod` por los módulos virtuales (`bundle/`). Si una config importa un
-  paquete que no está en `bundle/modules.ts`, rompe en el deploy; `bundle/modules.test.ts` lo avisa.
+  paquete que no está en `bundle/modules.ts`, rompe al arrancar: validala con `bun run runner`.
 - **El estado va a `IA_FLOW_HOME`** (default `~/.local/state/ia-flow/runner`): la base
   (`runner.sqlite`), los workspaces y la memoria. Nunca dentro del repo.
-- **Los tests de `src/tests/` montan la `.config` real**: un cambio de prompt o pipeline puede
-  romperlos, y es a propósito.
-- Las copias de config de un test van al tmp del sistema (`tests/helpers.ts` → `configCopy`).
+- **Ningún test depende de una config de deploy.** Un test que necesite una config la arma en el
+  tmp del sistema (ver `actions/loader.test.ts`).
