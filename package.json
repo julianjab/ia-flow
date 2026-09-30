@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
+  "packageManager": "bun@1.4.2",
   "workspaces": [
     "apps/*",
     "packages/*",
