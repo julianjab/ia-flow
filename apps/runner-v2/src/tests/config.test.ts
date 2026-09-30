@@ -4,6 +4,8 @@
  * corrida.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { type Agent, createEvent, isAgent, PauseAction } from '@ia-flow/agent-engine'
 import type { MountedRunner } from '../boot.js'
 import { applyRunnerEnv, loadRunnerConfig } from '../config/RunnerConfig.js'
@@ -53,6 +55,22 @@ describe('runner.yaml', () => {
       if (before === undefined) delete process.env.IA_FLOW_GITHUB_APP_ID
       else process.env.IA_FLOW_GITHUB_APP_ID = before
     }
+  })
+
+  it('github.privateKeyPath is relative to runner.yaml, or ~/, or absolute', () => {
+    const load = (path: string) => {
+      const dir = configCopy({
+        'runner.yaml': (s) =>
+          s
+            .replace(/^ {2}privateKeyPath: .*\n/m, '')
+            .replace('  mode: auto\n', `  mode: auto\n  privateKeyPath: ${path}\n`),
+      })
+      return { dir, path: loadRunnerConfig(dir).github.privateKeyPath }
+    }
+    const relative = load('../app.pem')
+    expect(relative.path).toBe(join(dirname(relative.dir), 'app.pem'))
+    expect(load('~/keys/app.pem').path).toBe(join(homedir(), 'keys/app.pem'))
+    expect(load('/etc/app.pem').path).toBe('/etc/app.pem')
   })
 
   it('settings.telemetry goes to the OTEL_* variables, unless the environment has them', () => {
