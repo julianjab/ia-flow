@@ -1,61 +1,196 @@
 import { describe, expect, it } from 'bun:test'
-import { EventBus, type Provider } from '@ia-flow/agent-engine'
-import { RemoteProvider } from '@ia-flow/provider-remote'
-import { createProviderHost, hostedProviders } from '../providers/providerHost.js'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { ProviderRegistry } from '@ia-flow/agent-engine'
+import type { CliLaunchSpec, LaunchedCli, SessionExit } from '@ia-flow/provider-anthropic-cli'
+import { HostClient, type HostTask, RemoteHub } from '@ia-flow/provider-remote'
+import type { RunnerConfig } from '../config/RunnerConfig.js'
+import { cliTaskRunner, hostSettings } from '../providers/providerHost.js'
+import { nodeHandler } from '../providers/remoteHosts.js'
 
-const local = (id: string): Provider => ({ id, run: async () => ({ outcome: 'success' }) })
-const remote = new RemoteProvider({ id: 'box', url: 'http://box', token: 't' })
+const cfgOf = (host: RunnerConfig['host'], providers: RunnerConfig['providers'] = {}) =>
+  ({ host, providers }) as RunnerConfig
 
-describe('providerHost', () => {
-  it('exposes every local provider by default, never a remote one', () => {
-    const hosted = hostedProviders([local('anthropic-api'), local('claude-cli'), remote], {})
-    expect(hosted.map((provider) => provider.id)).toEqual(['anthropic-api', 'claude-cli'])
-  })
+const CLI = {
+  'claude-tmux': { type: 'claude-cli', mode: 'tmux', model: 'opus', bin: '/bin/claude' },
+}
 
-  it('host.providers picks which, and an unknown one breaks the boot', () => {
-    const registered = [local('anthropic-api'), local('claude-cli'), remote]
-    expect(hostedProviders(registered, { providers: ['claude-cli'] }).map((p) => p.id)).toEqual([
-      'claude-cli',
-    ])
-    expect(() => hostedProviders(registered, { providers: ['box'] })).toThrow(
-      /"box" no es un provider local \(hay: anthropic-api, claude-cli\)/,
+const task = (over: Partial<HostTask> = {}): HostTask => ({
+  runId: 'r1',
+  agentId: 'implementer',
+  label: 'implementer-task-7',
+  prompt: 'hacé la tarea',
+  systemPrompts: ['sos un agente'],
+  exits: ['submit_done'],
+  mcpServers: [{ id: 'github-mcp', config: { url: 'https://mcp', authorizationToken: 't' } }],
+  providerConfig: { model: 'sonnet' },
+  event: {
+    id: 'e1',
+    type: 'issue.status_changed',
+    payload: { owner: 'la-haus', repo: 'eks', number: 7 },
+    occurredAt: '2026-09-30T00:00:00.000Z',
+  },
+  session: { id: 's1', resume: false },
+  endpoints: { mcp: '/v1/runs/tk/mcp', hooks: '/v1/runs/tk/hooks', report: '/v1/runs/tk/report' },
+  ...over,
+})
+
+/** Una sesión de mentira: termina cuando el test la suelta. */
+function fakeLaunch() {
+  const specs: CliLaunchSpec[] = []
+  let finish!: (exit: SessionExit) => void
+  let closed = false
+  const launch = async (spec: CliLaunchSpec): Promise<LaunchedCli> => {
+    specs.push(spec)
+    return {
+      session: {
+        exited: new Promise((resolve) => {
+          finish = resolve
+        }),
+        describe: 'tmux attach -t x',
+        close: async () => {
+          closed = true
+        },
+      },
+      cleanup: async () => {},
+    }
+  }
+  return { launch, specs, exit: (exit: SessionExit) => finish(exit), closed: () => closed }
+}
+
+describe('hostSettings', () => {
+  it('takes name, runner and token (the environment wins) and the only claude-cli it lends', () => {
+    const settings = hostSettings(
+      cfgOf(
+        {
+          name: 'laptop',
+          runner: 'https://runner',
+          accepts: [{ field: 'repo', op: 'eq', value: 'eks' }],
+        },
+        CLI,
+      ),
+      { IA_FLOW_HOST_TOKEN: 'secreto', IA_FLOW_HOST_NAME: 'otra' },
     )
-  })
-
-  it('refuses to start without a token', () => {
-    expect(() => createProviderHost([local('a')], {}, undefined)).toThrow(
-      /IA_FLOW_PROVIDER_HOST_TOKEN/,
-    )
-  })
-
-  it('applies host.rules to the probe of a runner', async () => {
-    const host = createProviderHost(
-      [local('claude-cli')],
-      { rules: [{ field: 'repo', op: 'matches', value: 'la-haus/*' }] },
-      'secreto',
-    )
-    const client = new RemoteProvider({
-      id: 'box',
-      provider: 'claude-cli',
-      url: 'http://host.test',
+    expect(settings).toMatchObject({
+      name: 'otra',
+      runner: 'https://runner',
       token: 'secreto',
-      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) =>
-        host.fetch(new Request(input, init))) as typeof fetch,
-      hints: (ctx) => ({ repo: [String((ctx.event.payload as { repo: string }).repo)] }),
+      maxConcurrent: 1,
+      accepts: [{ field: 'repo', op: 'eq', value: 'eks' }],
+      provider: {
+        id: 'claude-tmux',
+        defaults: { mode: 'tmux', model: 'opus' },
+        bin: '/bin/claude',
+      },
     })
-    const ctx = (repo: string) => ({
-      event: { id: 'e1', type: 'github.issues', payload: { repo }, occurredAt: '', depth: 0 },
-      steps: {},
-      bus: new EventBus(),
-      pipelineId: 'build',
-    })
+  })
 
-    expect(await client.canAccept({ agentId: 'a', ctx: ctx('la-haus/eks') })).toEqual({
-      accept: true,
+  it('says what is missing, and which claude-cli to name when there are several', () => {
+    expect(() => hostSettings(cfgOf({}, CLI), {})).toThrow(
+      /host.name .*host.runner .*IA_FLOW_HOST_TOKEN/,
+    )
+    const two = { ...CLI, 'claude-cli': { type: 'claude-cli' } }
+    expect(() =>
+      hostSettings(cfgOf({ name: 'l', runner: 'https://r' }, two), { IA_FLOW_HOST_TOKEN: 't' }),
+    ).toThrow(/nombrá cuál en host.provider/)
+    expect(
+      hostSettings(cfgOf({ name: 'l', runner: 'https://r', provider: 'claude-cli' }, two), {
+        IA_FLOW_HOST_TOKEN: 't',
+      }).provider.id,
+    ).toBe('claude-cli')
+  })
+})
+
+describe('cliTaskRunner', () => {
+  const provider = { id: 'claude-tmux', defaults: { mode: 'tmux' as const, model: 'opus' } }
+
+  it('launches claude in the task worktree against the run channel in the runner, and reports how it ended', async () => {
+    const fake = fakeLaunch()
+    const closedOrphans: string[] = []
+    const dirs: unknown[] = []
+    const run = cliTaskRunner({
+      session: {
+        dirFor: async (ctx) => {
+          dirs.push(ctx.event.payload)
+          return '/work/eks-7'
+        },
+      },
+      provider,
+      log: () => {},
+      launch: fake.launch,
+      close: async (ref) => {
+        closedOrphans.push(ref.kind === 'tmux' ? ref.name : '')
+        return false
+      },
     })
-    expect(await client.canAccept({ agentId: 'a', ctx: ctx('otra/eks') })).toMatchObject({
-      accept: false,
+    const ended = run(task(), { base: 'https://runner' }, new AbortController().signal)
+    await Bun.sleep(5)
+    fake.exit({ code: 1, output: 'se cayó' })
+
+    expect(await ended).toEqual({ status: 'exited', code: 1, message: 'se cayó' })
+    expect(dirs).toEqual([{ owner: 'la-haus', repo: 'eks', number: 7 }])
+    expect(closedOrphans).toEqual(['iaflow-implementer-task-7'])
+    expect(fake.specs[0]).toMatchObject({
+      endpoints: { mcp: 'https://runner/v1/runs/tk/mcp', hooks: 'https://runner/v1/runs/tk/hooks' },
+      cwd: '/work/eks-7',
+      label: 'implementer-task-7',
+      exits: ['submit_done'],
+      // Los defaults del provider que presta, pisados por los del agente.
+      config: { mode: 'tmux', model: 'sonnet' },
+      session: { id: 's1', resume: false },
     })
-    host.close()
+    expect(fake.closed()).toBe(true)
+  })
+
+  it('a run the runner closes (the model already chose its exit) ends without a report', async () => {
+    const fake = fakeLaunch()
+    const controller = new AbortController()
+    const run = cliTaskRunner({
+      session: { dirFor: async () => '/work' },
+      provider,
+      log: () => {},
+      launch: fake.launch,
+      close: async () => false,
+    })
+    const ended = run(task(), { base: 'https://runner' }, controller.signal)
+    await Bun.sleep(5)
+    controller.abort()
+    expect(await ended).toBeUndefined()
+    expect(fake.closed()).toBe(true)
+  })
+})
+
+describe('the runner hosts API over the webhook server (node http)', () => {
+  it('a host subscribes over HTTP and shows up as remote:<name>', async () => {
+    const registry = new ProviderRegistry()
+    const hub = new RemoteHub({ registry, token: 'secreto', longPollMs: 20, sweepIntervalMs: 0 })
+    const api = nodeHandler((req) => hub.fetch(req))
+    const server = createServer((req, res) => {
+      void api.handle(req, res).then((handled) => {
+        if (!handled) res.writeHead(404).end()
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+    const { port } = server.address() as AddressInfo
+    const client = new HostClient({
+      runnerUrl: `http://127.0.0.1:${port}`,
+      token: 'secreto',
+      name: 'laptop',
+      maxConcurrent: 1,
+      accepts: [],
+      run: async () => undefined,
+      retryMs: 10,
+    })
+    client.start()
+    try {
+      for (let i = 0; i < 100 && !registry.resolve('remote:laptop'); i++) await Bun.sleep(10)
+      expect(registry.resolve('remote:laptop')?.workspace).toBe('native')
+      const other = await fetch(`http://127.0.0.1:${port}/api/otra`)
+      expect(other.status).toBe(404)
+    } finally {
+      await client.stop()
+      hub.close()
+      server.close()
+    }
   })
 })
