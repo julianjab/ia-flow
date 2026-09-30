@@ -6,6 +6,7 @@ import {
   type ProviderRunContext,
   type ProviderRunOutput,
   type Tool,
+  toolsFor,
 } from '@ia-flow/agent-engine'
 import {
   type Attributes,
@@ -61,7 +62,7 @@ export class HostedRun {
    */
   start(provider: Provider): void {
     const run = () =>
-      withInheritedAttributes(this.inherited(), () => provider.run(this.runContext()))
+      withInheritedAttributes(this.inherited(), () => provider.run(this.runContext(provider)))
     const parent = contextFromTraceparent(this.request.traceparent)
     ;(parent ? runIn(parent, run) : run()).then(
       (output) => this.end({ type: 'done', output: outputWire(output) }),
@@ -128,7 +129,10 @@ export class HostedRun {
     return this.endedAt !== undefined && now - this.endedAt > retainMs
   }
 
-  private runContext(): ProviderRunContext {
+  /** Las tools de workspace llegan porque el runner no sabe qué provider corre acá: si el de acá
+   *  es nativo, no se le dan — sus tools propias trabajan el worktree de ESTA máquina, y las del
+   *  runner, el de allá. */
+  private runContext(provider: Provider): ProviderRunContext {
     const req = this.request
     return {
       agentId: req.agentId,
@@ -137,7 +141,7 @@ export class HostedRun {
       variables: req.variables,
       providerConfig: req.providerConfig,
       mcpServers: req.mcpServers,
-      tools: req.tools.map((spec) => this.proxy(spec)),
+      tools: toolsFor(provider, req.tools).map((spec) => this.proxy(spec)),
       ctx: pipelineContext(req.context),
       ...(req.inbox ? { inbox: () => this.inbox.splice(0) } : {}),
       ...(req.resume ? { resume: req.resume } : {}),

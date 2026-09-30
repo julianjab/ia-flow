@@ -173,12 +173,13 @@ export class RemoteProvider implements Provider {
       variables: ctx.variables,
       providerConfig: ctx.providerConfig,
       mcpServers: ctx.mcpServers,
-      tools: ctx.tools.map(({ name, description, inputSchema, terminal, failure }) => ({
+      tools: ctx.tools.map(({ name, description, inputSchema, terminal, failure, workspace }) => ({
         name,
         description,
         inputSchema,
         ...(terminal ? { terminal } : {}),
         ...(failure ? { failure } : {}),
+        ...(workspace ? { workspace } : {}),
       })),
       context: {
         event: {

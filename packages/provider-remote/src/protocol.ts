@@ -38,6 +38,8 @@ export const ToolSpec = z.object({
   inputSchema: z.record(z.string(), z.unknown()),
   terminal: z.boolean().optional(),
   failure: z.boolean().optional(),
+  /** Opera sobre el worktree (`Tool.workspace`): el host no se la da a un provider nativo. */
+  workspace: z.boolean().optional(),
 })
 export type ToolSpec = z.infer<typeof ToolSpec>
 
