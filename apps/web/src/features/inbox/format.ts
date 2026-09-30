@@ -1,16 +1,13 @@
 import type { ExecutionSummary, ExecutionUsage, TraceEntry } from '@ia-flow/shared'
+import { clock } from '@/components/eventText'
+
+// La hora de un evento la comparte con la pantalla de entradas: vive en `components/`.
+export { clock }
 
 // Formato de lo que la bandeja muestra: horas, duraciones, tokens y la línea de
 // una traza. Puro y sin Vue.
 
 const pad = (n: number) => String(n).padStart(2, '0')
-
-/** `HH:MM:SS` en hora local; el ISO crudo si no parsea. */
-export function clock(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 /** `3m 12s`, `18 s`, `1h 05m`. */
 export function duration(ms: number): string {
