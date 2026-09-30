@@ -15,6 +15,8 @@ export interface BoardCard {
   ref: string
   /** El id del item en el board (`PVTI_…`): con él se simula un cambio de Status. */
   itemId?: string
+  /** Sin la label del proyecto: es de otro engine. Sólo se muestra en el resto del board. */
+  foreign?: boolean
   projectId: string
   title: string
   url: string

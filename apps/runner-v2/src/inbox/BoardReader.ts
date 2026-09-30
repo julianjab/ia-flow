@@ -10,8 +10,52 @@ import type { BoardCard } from './classify.js'
 export interface BoardSpec {
   projectId: string
   board: { owner: string; number: number }
-  /** Sólo las cards con esta label (`project.yaml` → `label`). */
+  /** Las cards de este runner llevan esta label (`project.yaml` → `label`); el resto es `foreign`. */
   label?: string
+}
+
+/** Lo que se sabe del Project en sí: sus links y el orden de sus columnas. */
+export interface BoardMeta {
+  url: string
+  boardUrl: string
+  /** Las opciones del campo Status, en el orden del board. */
+  statuses: string[]
+}
+
+/** La página de un Project v2 de org. */
+export const projectUrl = (board: BoardSpec['board']) =>
+  `https://github.com/orgs/${board.owner}/projects/${board.number}`
+
+interface MetaPage {
+  organization?: {
+    projectV2?: {
+      url: string
+      views: { nodes: Array<{ number: number; layout: string }> }
+      field?: { options?: Array<{ name: string }> } | null
+    } | null
+  } | null
+}
+
+const metaQuery = `query($owner: String!, $number: Int!) {
+  organization(login: $owner) {
+    projectV2(number: $number) {
+      url
+      views(first: 20) { nodes { number layout } }
+      field(name: "Status") { ... on ProjectV2SingleSelectField { options { name } } }
+    }
+  }
+}`
+
+/** Los links y columnas de un Project, de su respuesta de GraphQL. */
+export function toBoardMeta(data: MetaPage, board: BoardSpec['board']): BoardMeta {
+  const project = data.organization?.projectV2
+  const url = project?.url ?? projectUrl(board)
+  const view = project?.views.nodes.find((node) => node.layout === 'BOARD_LAYOUT')
+  return {
+    url,
+    boardUrl: view ? `${url}/views/${view.number}` : url,
+    statuses: project?.field?.options?.map((option) => option.name) ?? [],
+  }
 }
 
 interface RawIssueRef {
@@ -86,13 +130,12 @@ const MAX_PAGES = 10
 const refOf = (issue: RawIssueRef): string =>
   `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`
 
-/** Una card del board, si es un issue abierto (y del runner, si el proyecto tiene label). */
+/** Una card del board, si es un issue abierto; sin la label del proyecto, marcada `foreign`. */
 export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | undefined {
   const issue = item.content
   if (item.isArchived || !issue?.repository || issue.number === undefined) return undefined
   if (issue.state !== 'OPEN') return undefined
   const labels = (issue.labels?.nodes ?? []).map((label) => label.name)
-  if (spec.label && !labels.includes(spec.label)) return undefined
   const field = (name: string) =>
     item.fieldValues?.nodes.find((value) => value.field?.name === name)?.name
   const pr = issue.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN')
@@ -101,6 +144,7 @@ export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | un
   return {
     ref: `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`,
     itemId: item.id,
+    ...(spec.label && !labels.includes(spec.label) ? { foreign: true } : {}),
     projectId: spec.projectId,
     title: issue.title ?? '',
     url: issue.url ?? '',
@@ -128,6 +172,20 @@ export class BoardReader {
   })
   cards(spec: BoardSpec): Promise<BoardCard[]> {
     return this.read(spec)
+  }
+
+  /** Los links y columnas del Project: casi no cambian, se releen cada diez minutos. Si GitHub no
+   *  responde, los links que se pueden armar sin preguntar y columnas sin orden. */
+  @memoize({
+    ttlMs: 10 * 60_000,
+    key: (spec: BoardSpec) => `${spec.board.owner}/${spec.board.number}`,
+  })
+  meta(spec: BoardSpec): Promise<BoardMeta> {
+    const { owner, number } = spec.board
+    return this.client
+      .graphql<MetaPage>(metaQuery, { owner, number })
+      .then((data) => toBoardMeta(data, spec.board))
+      .catch(() => toBoardMeta({}, spec.board))
   }
 
   /** Lo próximo que se pida, se relee (un webhook de ese board, una acción desde la bandeja). */

@@ -92,6 +92,9 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
 
   router.get('/api/inbox', (req) => inbox.inbox(req.query.get('project') ?? undefined))
 
+  // Lo que la bandeja no muestra: se pide aparte (la web, sólo al abrir esa sección).
+  router.get('/api/board', (req) => inbox.rest(req.query.get('project') ?? undefined))
+
   router.get('/api/tasks/:owner/:repo/:number', async (req) => {
     const detail = await inbox.detail(refOf(req.params), req.query.get('execution') ?? undefined)
     if (!detail)

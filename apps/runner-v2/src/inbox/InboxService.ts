@@ -1,11 +1,21 @@
 /**
  * La bandeja: las cards de cada board cruzadas con lo que el runner sabe de su task (la ejecución
  * viva, la última cerrada, si espera turno, el último evento), clasificadas por `classify`. También
- * el detalle de una tarea (sus ejecuciones, eventos y traza) y el "¿por qué corrió / no corrió?".
+ * el detalle de una tarea (sus ejecuciones, eventos y traza), el "¿por qué corrió / no corrió?" y
+ * el resto del board (lo que la bandeja no muestra, incluidas las cards de otros engines).
  */
-import type { ExecutionSummary, ExplainResult, Inbox, InboxItem, TaskDetail } from '@ia-flow/shared'
+import type {
+  BoardRest,
+  BoardRestItem,
+  ExecutionSummary,
+  ExplainResult,
+  Inbox,
+  InboxItem,
+  InboxProject,
+  TaskDetail,
+} from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
-import type { BoardSpec } from './BoardReader.js'
+import { type BoardMeta, type BoardSpec, projectUrl } from './BoardReader.js'
 import {
   type BoardCard,
   type Classification,
@@ -17,7 +27,12 @@ import type { InboxSettings } from './InboxSection.js'
 
 export interface InboxServiceOptions {
   projects: BoardSpec[]
-  board: { cards(spec: BoardSpec): Promise<BoardCard[]> }
+  board: {
+    /** Todas las cards abiertas del board; las de otro engine, `foreign`. */
+    cards(spec: BoardSpec): Promise<BoardCard[]>
+    /** Los links y columnas del Project. Sin esto, el link del Project sin la vista de tablero. */
+    meta?(spec: BoardSpec): Promise<BoardMeta>
+  }
   activity: ActivityPort
   /** Las claves de ejecución con una corrida esperando turno (`ExecutionStore.waitingKeys`). */
   waitingKeys: () => string[]
@@ -40,11 +55,70 @@ export class InboxService {
     return this.options.projects.filter((spec) => !projectId || spec.projectId === projectId)
   }
 
-  private async cards(projectId?: string): Promise<BoardCard[]> {
+  /** Todas las cards de los boards, las de otros engines incluidas. */
+  private async boardCards(projectId?: string): Promise<BoardCard[]> {
     const boards = await Promise.all(
       this.specs(projectId).map((spec) => this.options.board.cards(spec)),
     )
     return boards.flat()
+  }
+
+  /** Las cards de este runner: las que clasifica la bandeja, mueven las acciones y lee el asistente. */
+  private async cards(projectId?: string): Promise<BoardCard[]> {
+    return (await this.boardCards(projectId)).filter((card) => !card.foreign)
+  }
+
+  private async projects(projectId?: string): Promise<InboxProject[]> {
+    return Promise.all(
+      this.specs(projectId).map(async (spec) => {
+        const meta = await this.options.board.meta?.(spec)
+        const url = meta?.url ?? projectUrl(spec.board)
+        return { id: spec.projectId, board: spec.board, url, board_url: meta?.boardUrl ?? url }
+      }),
+    )
+  }
+
+  /** Lo que la bandeja no muestra —lo propio sin pendientes y lo de otros engines—, por columna
+   *  en el orden del board; una columna que el board no declara, al final. */
+  async rest(projectId?: string): Promise<BoardRest> {
+    const cards = await this.boardCards(projectId)
+    const shown = new Set((await this.inbox(projectId)).items.map((item) => item.ref))
+    const order: string[] = []
+    for (const spec of this.specs(projectId)) {
+      for (const status of (await this.options.board.meta?.(spec))?.statuses ?? []) {
+        if (!order.includes(status)) order.push(status)
+      }
+    }
+    const columns = new Map<string, BoardRestItem[]>()
+    for (const card of cards) {
+      if (shown.has(card.ref)) continue
+      const status = card.status ?? 'Sin status'
+      const items = columns.get(status) ?? []
+      items.push({
+        ref: card.ref,
+        project_id: card.projectId,
+        title: card.title,
+        url: card.url,
+        ...(card.status ? { status: card.status } : {}),
+        labels: card.labels,
+        updated_at: card.updatedAt,
+        ...(card.pr ? { pr: card.pr } : {}),
+        foreign: card.foreign === true,
+      })
+      columns.set(status, items)
+    }
+    const rank = (status: string) => {
+      const at = order.indexOf(status)
+      return at === -1 ? order.length : at
+    }
+    return {
+      columns: [...columns.entries()]
+        .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+        .map(([status, items]) => ({
+          status,
+          items: items.sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+        })),
+    }
   }
 
   /** La card de una tarea, en el board que la tenga. */
@@ -139,7 +213,7 @@ export class InboxService {
     }
     return {
       generated_at: this.now().toISOString(),
-      projects: this.specs(projectId).map((spec) => ({ id: spec.projectId, board: spec.board })),
+      projects: await this.projects(projectId),
       items: items.sort(inboxOrder),
     }
   }
