@@ -20,11 +20,11 @@ import { z } from 'zod'
 import type { Assistant } from '../assistant/Assistant.js'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
 import { type DeviceFlow, githubLogin } from '../github/deviceFlow.js'
-import type { InboxService } from '../inbox/InboxService.js'
-import type { IngressService } from '../inbox/IngressService.js'
-import { TaskActionError, type TaskActions } from '../inbox/TaskActions.js'
-import { ApiRouter, HttpError, sendJson } from './ApiRouter.js'
-import { openSse, type SseHub, writeSse } from './sse.js'
+import { ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
+import { openSse, type SseHub, writeSse } from '../http/sse.js'
+import type { InboxService } from './InboxService.js'
+import type { IngressService } from './IngressService.js'
+import { TaskActionError, type TaskActions } from './TaskActions.js'
 
 export interface RunnerApiOptions {
   token: string | undefined

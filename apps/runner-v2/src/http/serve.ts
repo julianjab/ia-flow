@@ -16,9 +16,10 @@ import type { Server } from 'node:http'
 import { createEvent, type DomainEvent } from '@ia-flow/agent-engine'
 import { createLogger, describeError, errorAttributes } from '@ia-flow/telemetry'
 import type { MountedRunner } from '../boot.js'
+import { type Delivery, deliveryScope } from '../intake/dispatch.js'
+import { listenedTypes, RAW_PREFIX } from '../intake/listening.js'
 import { type SlackIngressOptions, startSlackIngress } from '../intake/slackIngress.js'
-import { listenedTypes, RAW_PREFIX } from './listening.js'
-import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
+import { createWebhookServer, GITHUB_WEBHOOK_PATH } from './server.js'
 
 const telemetryLog = createLogger('ia-flow-runner-v2.serve')
 
@@ -34,69 +35,6 @@ export interface ServeOptions {
   onDelivery?: (delivery: Delivery) => void
   /** Un delivery que no llega al engine: queda anotado igual, con por qué. */
   onIgnored?: (event: DomainEvent<any>, reason: string) => void
-}
-
-type Raw = Record<string, Record<string, unknown> | undefined>
-
-export { RAW_PREFIX }
-
-/** El scope de un delivery crudo, para la traza: el delivery id de GitHub y, si el payload los
- *  trae, el repo y el issue/PR. Los eventos que el intake derive cuelgan de esta misma traza. */
-export function deliveryScope(delivery: Delivery): Record<string, string> {
-  const raw = delivery.payload as Raw
-  const repo = raw.repository?.full_name
-  const number = raw.issue?.number ?? raw.pull_request?.number
-  return {
-    source: 'webhook',
-    ...(delivery.id ? { deliveryId: delivery.id } : {}),
-    ...(typeof repo === 'string' ? { repo } : {}),
-    ...(typeof repo === 'string' && typeof number === 'number'
-      ? { issue: `${repo}#${number}` }
-      : {}),
-  }
-}
-
-/** Un webhook crudo, despachado como un delivery (`--event`, `--replay-pr`). */
-export async function dispatchRaw(
-  mounted: MountedRunner,
-  delivery: Delivery,
-  log: (line: string) => void,
-): Promise<void> {
-  const outcome = await mounted.engine.dispatch(
-    createEvent(`${RAW_PREFIX}${delivery.event}`, delivery.payload, {
-      scope: deliveryScope(delivery),
-    }),
-  )
-  log(`→ ${delivery.event}: ${outcome}`)
-}
-
-/**
- * Un PR real, despachado como si GitHub acabara de mandar su `pull_request` `opened`: lo lee de
- * la API y lo publica CRUDO (`github.pull_request`), así recorre el intake y las pipelines igual
- * que un delivery — sin túnel ni webhook de org. Lo que filtre el intake (card fuera del board,
- * sin la label del proyecto) se filtra igual.
- */
-export async function replayPullRequest(
-  mounted: MountedRunner,
-  target: { owner: string; repo: string; number: number },
-  log: (line: string) => void,
-): Promise<void> {
-  const pr = await mounted.github.requestJson<
-    Record<string, unknown> & { base: { repo: unknown }; user: unknown }
-  >(`/repos/${target.owner}/${target.repo}/pulls/${target.number}`)
-  const delivery: Delivery = {
-    event: 'pull_request',
-    id: `replay-${target.owner}-${target.repo}-${target.number}-${Date.now()}`,
-    payload: {
-      action: 'opened',
-      number: target.number,
-      pull_request: pr,
-      repository: pr.base.repo,
-      sender: pr.user,
-    },
-  }
-  log(`→ replay: ${target.owner}/${target.repo}#${target.number} como pull_request.opened`)
-  await dispatchRaw(mounted, delivery, log)
 }
 
 export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise<Server> {

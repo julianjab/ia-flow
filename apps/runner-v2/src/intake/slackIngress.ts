@@ -18,7 +18,7 @@ import {
 } from '@ia-flow/slack-socket'
 import { createLogger, describeError, errorAttributes } from '@ia-flow/telemetry'
 import type { MountedRunner } from '../boot.js'
-import { listenedTypes, SLACK_PREFIX } from '../http/listening.js'
+import { listenedTypes, SLACK_PREFIX } from './listening.js'
 
 const telemetryLog = createLogger('ia-flow-runner-v2.slack')
 

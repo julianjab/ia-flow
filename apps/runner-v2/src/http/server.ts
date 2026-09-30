@@ -17,14 +17,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { GithubWebhookVerifier } from '@ia-flow/github-webhook'
 
-/** Un delivery ya verificado, tal cual lo mandó GitHub. */
-export interface Delivery {
-  /** `X-GitHub-Event`. */
-  event: string
-  /** `X-GitHub-Delivery` — GitHub reintenta con el mismo id. */
-  id?: string
-  payload: Record<string, unknown>
-}
+import type { Delivery } from '../intake/dispatch.js'
+
+export type { Delivery }
 
 export const GITHUB_WEBHOOK_PATH = '/api/webhooks/github'
 const STATUS_PATH = '/api/webhooks/status'
