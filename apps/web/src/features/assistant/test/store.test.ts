@@ -21,6 +21,7 @@ vi.mock('../api', () => ({
   },
   executeProposal: (...a: unknown[]) => executeProposal(...a),
   fetchProjects: () => fetchProjects(),
+  fetchTasks: async () => [{ ref: 'acme/api#7', title: 'Algo', group: 'need', kind: 'merge' }],
 }))
 
 import { useGithubSessionStore } from '@/stores/githubSession'
@@ -326,15 +327,14 @@ describe('useAssistantChatStore', () => {
     expect(chat.turns).toHaveLength(2)
     chat.setScope({ kind: 'task', ref: 'acme/api#7' })
     expect(chat.turns).toHaveLength(0)
-    expect(chat.chips.map((c) => c.label)).toEqual(['General', 'acme/api#7'])
   })
 
-  it('con un solo proyecto arranca en él; con varios, un chip por proyecto', async () => {
+  it('con un solo proyecto arranca en él; con varios, en general — y trae las tareas para el #', async () => {
     fetchProjects.mockResolvedValue([{ id: 'core', board: { owner: 'a', number: 1 } }])
     const one = useAssistantChatStore()
     await one.loadProjects()
     expect(one.scope).toEqual({ kind: 'project', project_id: 'core' })
-    expect(one.chips.map((c) => c.label)).toEqual(['General', 'Proyecto'])
+    expect(one.tasks.map((t) => t.ref)).toEqual(['acme/api#7'])
 
     setActivePinia(createPinia())
     fetchProjects.mockResolvedValue([
@@ -344,7 +344,6 @@ describe('useAssistantChatStore', () => {
     const many = useAssistantChatStore()
     await many.loadProjects()
     expect(many.scope).toEqual({ kind: 'general' })
-    expect(many.chips.map((c) => c.label)).toEqual(['General', 'core', 'web'])
   })
 
   it('las sugerencias cambian con el contexto', () => {

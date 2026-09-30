@@ -10,6 +10,8 @@ vi.mock('../api', () => ({
   streamAssistant: () => script(),
   executeProposal: (...a: unknown[]) => executeProposal(...a),
   fetchProjects: async () => [],
+  fetchTasks: async () => [],
+  listConversations: async () => [],
 }))
 
 import { useAssistantStore } from '@/stores/assistant'
@@ -162,21 +164,30 @@ describe('AssistantLauncher', () => {
     wrapper.unmount()
   })
 
-  it('abierto desde una tarjeta fija el contexto de esa tarea y ofrece sus sugerencias', async () => {
+  it('abierto desde una tarjeta fija el contexto de esa tarea: en la caja, en el título y en las sugerencias', async () => {
     const { wrapper, chat } = await open({ kind: 'task', ref: 'acme/api#7' })
     expect(chat.scope).toEqual({ kind: 'task', ref: 'acme/api#7' })
-    const chips = $$('.ap__scopes .ap__chip')
-    expect(chips.map((c) => c.textContent?.trim())).toEqual(['General', 'acme/api#7'])
-    expect(chips[1]?.getAttribute('aria-pressed')).toBe('true')
-    expect($$('.ap__suggest .ap__chip').map((c) => c.textContent?.trim())).toContain(
-      '¿Qué pasó con esta tarea?',
-    )
+    expect($('[data-test="scope"]')?.textContent).toContain('7 api')
+    expect($('.cw__sub')?.textContent).toContain('sobre acme/api#7')
+    expect($$('.st__q').map((c) => c.textContent?.trim())).toContain('¿Qué pasó con esta tarea?')
+    wrapper.unmount()
+  })
+
+  it('una conversación vacía pregunta de qué hablar; elegir cambia el contexto', async () => {
+    const { wrapper, chat } = await open()
+    expect(document.body.textContent).toContain('¿De qué querés hablar?')
+    const general = $$('.st__opt').find((b) =>
+      b.textContent?.includes('Todo el runner'),
+    ) as HTMLElement
+    general.click()
+    await flushPromises()
+    expect(chat.scope).toEqual({ kind: 'general' })
     wrapper.unmount()
   })
 
   it('un chip de sugerencia hace la pregunta y muestra la respuesta en streaming', async () => {
     const { wrapper } = await open()
-    ;($('.ap__suggest .ap__chip') as HTMLElement).click()
+    ;($('.st__q') as HTMLElement).click()
     await flushPromises()
     expect(document.body.textContent).toContain('Hola, soy el asistente.')
     wrapper.unmount()

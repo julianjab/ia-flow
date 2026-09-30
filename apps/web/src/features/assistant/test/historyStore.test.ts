@@ -47,11 +47,11 @@ describe('useAssistantHistoryStore', () => {
     expect(listConversations).not.toHaveBeenCalled()
   })
 
-  it('con login lista las del contexto actual, con su token', async () => {
+  it('con login lista todas sus conversaciones, de todos los contextos, con su token', async () => {
     useGithubSessionStore().github = { login: 'julian', token: 'gho_1' }
     const history = useAssistantHistoryStore()
     await history.load()
-    expect(listConversations).toHaveBeenCalledWith({ kind: 'general' }, 'gho_1')
+    expect(listConversations).toHaveBeenCalledWith(null, 'gho_1')
     expect(history.items.map((c) => c.id)).toEqual(['c1'])
   })
 
