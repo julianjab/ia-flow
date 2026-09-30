@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
+import AssistantHistory from '@/features/assistant/AssistantHistory.vue';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
 import { parseInline } from '@/features/assistant/format';
@@ -72,6 +73,8 @@ function run(id: number) {
         {{ chip.label }}
       </button>
     </div>
+
+    <AssistantHistory />
 
     <div class="ap__thread" aria-live="polite">
       <p v-if="!chat.turns.length" class="ap__intro">

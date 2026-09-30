@@ -8,7 +8,7 @@ import { useGithubSessionStore } from '@/stores/githubSession';
 
 defineProps<{
   proposal: AssistantProposal;
-  status: 'open' | 'running' | 'done' | 'dismissed';
+  status: 'open' | 'running' | 'done' | 'dismissed' | 'past';
   message?: string;
   error?: string;
 }>();
@@ -50,13 +50,16 @@ const session = useGithubSessionStore();
 
     <p v-if="status === 'done'" class="pc__done" role="status">✓ Ejecutada<template v-if="message"> · {{ message }}</template></p>
     <p v-else-if="status === 'dismissed'" class="pc__dim">Descartada.</p>
+    <!-- De una conversación retomada: la tarea pudo cambiar desde entonces. Se actúa desde la bandeja. -->
+    <p v-else-if="status === 'past'" class="pc__dim">De una conversación anterior: si todavía aplica, hacelo desde la bandeja.</p>
     <p v-if="error" class="pc__err" role="alert">✕ {{ error }}</p>
   </div>
 </template>
 
 <style scoped>
 .pc { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.6rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--panel-alt); }
-.pc[data-status='dismissed'] { border-color: var(--border); opacity: 0.7; }
+.pc[data-status='dismissed'],
+.pc[data-status='past'] { border-color: var(--border); opacity: 0.7; }
 .pc p { margin: 0; overflow-wrap: anywhere; }
 .pc__kind { color: var(--fg-dim); }
 .pc__what { color: var(--fg); }

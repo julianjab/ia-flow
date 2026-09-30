@@ -1,4 +1,5 @@
 import type {
+  AssistantConversation,
   AssistantMessage,
   AssistantProposal,
   AssistantScope,
@@ -9,9 +10,11 @@ import type {
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { executeProposal, fetchProjects, streamAssistant } from '@/features/assistant/api'
+import { useGithubSessionStore } from '@/stores/githubSession'
 
-// La conversación del asistente. El servidor es stateless: la página guarda los
-// turnos y manda la conversación completa en cada pregunta. Que el drawer esté
+// La conversación del asistente. La página guarda los turnos y manda la
+// conversación completa en cada pregunta; con login de GitHub, el runner además
+// la guarda (`conversationId`) y se puede retomar desde «Anteriores». Que el drawer esté
 // abierto y con qué contexto se pidió vive en `stores/assistant.ts`, para que la
 // bandeja lo abra sin importar de esta feature.
 
@@ -22,7 +25,8 @@ export type Turn =
       id: number
       kind: 'proposal'
       proposal: AssistantProposal
-      status: 'open' | 'running' | 'done' | 'dismissed'
+      /** `past`: de una conversación retomada — ya no se ejecuta desde acá. */
+      status: 'open' | 'running' | 'done' | 'dismissed' | 'past'
       message?: string
       error?: string
     }
@@ -65,6 +69,9 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   const projects = ref<InboxProject[]>([])
   const turns = ref<Turn[]>([])
   const streaming = ref(false)
+  /** La conversación guardada que sigue esta charla; `null` hasta la primera respuesta con login. */
+  const conversationId = ref<string | null>(null)
+  const session = useGithubSessionStore()
 
   let history: AssistantMessage[] = []
   /** Lo que el usuario hizo desde la última pregunta: viaja delante de la próxima. */
@@ -120,6 +127,29 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     turns.value = []
     history = []
     notes = []
+    conversationId.value = null
+  }
+
+  /** «Nueva»: empieza de cero en el mismo contexto. La anterior queda guardada (con login). */
+  function newConversation(): void {
+    reset()
+  }
+
+  /** Retoma una conversación guardada: sus turnos en pantalla y su historia para el modelo. */
+  function resume(conversation: AssistantConversation): void {
+    setScope(conversation.scope)
+    reset()
+    conversationId.value = conversation.id
+    for (const message of conversation.thread) {
+      history.push({ role: message.role, content: message.content })
+      if (message.role === 'user') {
+        push({ kind: 'user', text: message.content })
+        continue
+      }
+      push({ kind: 'assistant', text: message.content, activity: null, streaming: false })
+      for (const proposal of message.proposals) push({ kind: 'proposal', proposal, status: 'past' })
+      if (message.tasks.length) push({ kind: 'tasks', items: message.tasks })
+    }
   }
 
   /** Cambia de contexto. Una conversación es de UN contexto: cambiar la empieza de cero. */
@@ -155,7 +185,17 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     failed: string | null
   }
 
+  /** Los eventos que escriben en la conversación, no sólo en el turno que responde. */
+  const CONVERSATION_EVENTS = new Set<AssistantStreamEvent['type']>([
+    'proposal',
+    'tasks',
+    'conversation',
+  ])
+
   function applyEvent(event: AssistantStreamEvent, reply: Reply, gen: number): void {
+    if (event.type === 'proposal') reply.proposed = true
+    // Un stream viejo (se cambió de contexto) ya no escribe en la conversación nueva.
+    if (gen !== generation && CONVERSATION_EVENTS.has(event.type)) return
     switch (event.type) {
       case 'text':
         reply.answer += event.delta
@@ -165,14 +205,16 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
         patch(reply.id, { activity: event.summary })
         break
       case 'proposal':
-        reply.proposed = true
-        if (gen === generation) push({ kind: 'proposal', proposal: event.proposal, status: 'open' })
+        push({ kind: 'proposal', proposal: event.proposal, status: 'open' })
         break
       case 'tasks':
-        if (gen === generation && event.items.length) push({ kind: 'tasks', items: event.items })
+        if (event.items.length) push({ kind: 'tasks', items: event.items })
+        break
+      case 'conversation':
+        conversationId.value = event.id
         break
       case 'done':
-        if (!reply.answer && event.text) reply.answer = event.text
+        if (!reply.answer) reply.answer = event.text
         break
       case 'error':
         reply.failed = event.message
@@ -207,9 +249,15 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     abort = controller
 
     try {
+      const github = session.github
       const events = streamAssistant(
-        { scope: scope.value, messages: messages() },
-        { signal: controller.signal },
+        {
+          scope: scope.value,
+          messages: messages(),
+          // Sin login no se guarda: una conversación guardada no se sigue sin su dueño.
+          ...(conversationId.value && github ? { conversation_id: conversationId.value } : {}),
+        },
+        { signal: controller.signal, ...(github ? { githubToken: github.token } : {}) },
       )
       for await (const event of events) applyEvent(event, reply, gen)
     } finally {
@@ -261,11 +309,14 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     projects,
     turns,
     streaming,
+    conversationId,
     chips,
     suggestions,
     placeholder,
     loadProjects,
     setScope,
+    newConversation,
+    resume,
     send,
     stop,
     runProposal,

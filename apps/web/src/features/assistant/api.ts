@@ -1,6 +1,11 @@
 import {
+  type AssistantConversation,
+  AssistantConversationSchema,
+  type AssistantConversationSummary,
+  AssistantConversationSummarySchema,
   type AssistantProposal,
   type AssistantRequest,
+  type AssistantScope,
   type AssistantStreamEvent,
   type InboxProject,
   RunnerInfoSchema,
@@ -16,8 +21,8 @@ import { parseAssistantEvent, splitSse } from '@/features/assistant/sse'
  *
  * `fetch` y no axios: una respuesta SSE se lee de a chunks con un reader, y un
  * `EventSource` no puede hacer POST. Como no pasa por el interceptor de axios,
- * el token del server se pone acá. El servidor es stateless: la conversación
- * completa viaja en cada request.
+ * el token del server se pone acá. La conversación completa viaja en cada
+ * request; con `githubToken`, el runner además la guarda a nombre de ese login.
  *
  * Cualquier falla (HTTP, red, un stream que se corta sin `done`) sale como un
  * evento `error`, así quien consume tiene UN solo camino de error. Abortar con
@@ -25,7 +30,7 @@ import { parseAssistantEvent, splitSse } from '@/features/assistant/sse'
  */
 export async function* streamAssistant(
   request: AssistantRequest,
-  opts: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+  opts: { signal?: AbortSignal; fetchImpl?: typeof fetch; githubToken?: string } = {},
 ): AsyncGenerator<AssistantStreamEvent> {
   const target = serverTarget()
   const doFetch = opts.fetchImpl ?? fetch
@@ -36,6 +41,7 @@ export async function* streamAssistant(
         'content-type': 'application/json',
         accept: 'text/event-stream',
         ...(target.token ? { 'x-ia-flow-token': target.token } : {}),
+        ...(opts.githubToken ? { 'x-github-token': opts.githubToken } : {}),
       },
       body: JSON.stringify(request),
       signal: opts.signal,
@@ -115,4 +121,35 @@ export async function executeProposal(
   const parsed = TaskActionResultSchema.safeParse(res.data)
   if (parsed.success) return parsed.data
   throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
+}
+
+// ── conversaciones guardadas: siempre del login de GitHub que las pide ─────
+
+const asUser = (githubToken: string) => ({ headers: { 'x-github-token': githubToken } })
+
+/** Las conversaciones guardadas de este login en un contexto, de la más reciente a la más vieja. */
+export async function listConversations(
+  scope: AssistantScope,
+  githubToken: string,
+): Promise<AssistantConversationSummary[]> {
+  const { data } = await axios.get<unknown>('/api/assistant/conversations', {
+    ...asUser(githubToken),
+    params: { scope: JSON.stringify(scope) },
+  })
+  return AssistantConversationSummarySchema.array().parse(data)
+}
+
+export async function getConversation(
+  id: string,
+  githubToken: string,
+): Promise<AssistantConversation> {
+  const { data } = await axios.get<unknown>(
+    `/api/assistant/conversations/${encodeURIComponent(id)}`,
+    asUser(githubToken),
+  )
+  return AssistantConversationSchema.parse(data)
+}
+
+export async function deleteConversation(id: string, githubToken: string): Promise<void> {
+  await axios.delete(`/api/assistant/conversations/${encodeURIComponent(id)}`, asUser(githubToken))
 }
