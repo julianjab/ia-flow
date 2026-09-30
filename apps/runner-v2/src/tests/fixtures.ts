@@ -37,6 +37,8 @@ export interface FakeTask {
   /** Los issues que ella bloquea, como los devuelve `dependencies/blocking`. */
   blocking?: Array<{ number: number; state: string; repository_url: string }>
   comments?: Array<{ body: string; created_at: string; user: { login: string } }>
+  /** Las ramas vinculadas al issue (sección "Development"). */
+  linkedBranches?: string[]
 }
 
 export interface FakePr {
@@ -107,6 +109,11 @@ class FakeGithubApi {
       const task = this.tasks[key]
       const issue = task ? { projectItems: { nodes: this.items(key, task) } } : null
       return { data: { repository: { issue } } }
+    }
+    if (query.includes('linkedBranches')) {
+      const key = taskKey(String(variables.owner), String(variables.repo), String(variables.number))
+      const nodes = (this.tasks[key]?.linkedBranches ?? []).map((name) => ({ ref: { name } }))
+      return { data: { repository: { issue: { linkedBranches: { nodes } } } } }
     }
     if (query.includes('reviewThreads')) {
       return { data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }

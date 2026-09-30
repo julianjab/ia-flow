@@ -354,3 +354,41 @@ describe('intake: several projects', () => {
     }
   })
 })
+
+describe('intake: the task branch without branchPrefix (as ia-flow)', () => {
+  /** El proyecto sin `branchPrefix`, con esta GitHub. */
+  async function withoutPrefix(task: Record<string, unknown> = {}) {
+    const github = fakeGithub({
+      items: { PVTI_1: TASK },
+      tasks: { [TASK]: { status: 'Build', type: 'Technical', labels: ['blocked'], ...task } },
+    })
+    const dir = configCopy({
+      'projects/lahaus-ai-flow/project.yaml': (s) => s.replace(/^branchPrefix: .*$/m, ''),
+    })
+    const mounted = await mountWith(github, undefined, dir)
+    try {
+      const { emitted } = await runIntake(
+        mounted,
+        'projects_v2_item',
+        itemPayload('edited', {
+          field_name: 'Status',
+          from: { name: 'Refined' },
+          to: { name: 'Build' },
+        }),
+      )
+      return (emitted[0]?.payload as { task?: { branch?: string } } | undefined)?.task?.branch
+    } finally {
+      mounted.stop()
+    }
+  }
+
+  it('is the branch already linked to the issue', async () => {
+    expect(await withoutPrefix({ linkedBranches: ['feat/paginar-leads'] })).toBe(
+      'feat/paginar-leads',
+    )
+  })
+
+  it('without a linked branch nor the branchName capability, it is task/<n>', async () => {
+    expect(await withoutPrefix()).toBe('task/7')
+  })
+})
