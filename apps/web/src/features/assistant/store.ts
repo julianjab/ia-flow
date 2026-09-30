@@ -9,7 +9,12 @@ import type {
 } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { executeProposal, fetchProjects, streamAssistant } from '@/features/assistant/api'
+import {
+  executeProposal,
+  fetchProjects,
+  fetchTasks,
+  streamAssistant,
+} from '@/features/assistant/api'
 import { useGithubSessionStore } from '@/stores/githubSession'
 
 // La conversación del asistente. La página guarda los turnos y manda la
@@ -36,12 +41,6 @@ export type Turn =
 /** Un turno sin su `id` (lo asigna el store); distribuye sobre la unión. */
 type NewTurn = Turn extends infer T ? (T extends unknown ? Omit<T, 'id'> : never) : never
 
-export interface ScopeChip {
-  key: string
-  label: string
-  scope: AssistantScope
-}
-
 /** Cuántos mensajes viajan en cada pregunta: el contexto útil, no un historial infinito. */
 const HISTORY_CAP = 20
 
@@ -64,9 +63,9 @@ export function sameScope(a: AssistantScope, b: AssistantScope): boolean {
 
 export const useAssistantChatStore = defineStore('assistant-chat', () => {
   const scope = ref<AssistantScope>({ kind: 'general' })
-  /** La última tarea sobre la que se preguntó: habilita el chip «Tarea». */
-  const lastTaskRef = ref<string | null>(null)
   const projects = ref<InboxProject[]>([])
+  /** Las tareas de la bandeja: de qué se puede hablar con `#` (y los atajos al empezar). */
+  const tasks = ref<InboxItem[]>([])
   const turns = ref<Turn[]>([])
   const streaming = ref(false)
   /** La conversación guardada que sigue esta charla; `null` hasta la primera respuesta con login. */
@@ -82,25 +81,6 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   /** Sube al cambiar de contexto: un stream viejo no puede escribir en la conversación nueva. */
   let generation = 0
 
-  const chips = computed<ScopeChip[]>(() => {
-    const out: ScopeChip[] = [{ key: 'general', label: 'General', scope: { kind: 'general' } }]
-    for (const p of projects.value) {
-      out.push({
-        key: `project:${p.id}`,
-        label: projects.value.length > 1 ? p.id : 'Proyecto',
-        scope: { kind: 'project', project_id: p.id },
-      })
-    }
-    if (lastTaskRef.value) {
-      out.push({
-        key: `task:${lastTaskRef.value}`,
-        label: lastTaskRef.value,
-        scope: { kind: 'task', ref: lastTaskRef.value },
-      })
-    }
-    return out
-  })
-
   const suggestions = computed(() => SUGGESTIONS[scope.value.kind])
 
   const placeholder = computed(() => {
@@ -114,6 +94,11 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
       projects.value = await fetchProjects()
     } catch {
       projects.value = []
+    }
+    try {
+      tasks.value = await fetchTasks()
+    } catch {
+      tasks.value = []
     }
     // Un solo proyecto: es el contexto natural, salvo que ya se haya elegido otro.
     if (!scopeChosen && projects.value.length === 1 && projects.value[0]) {
@@ -172,7 +157,6 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
    *  vuelve al volver a él; un contexto sin nada arranca de cero. */
   function setScope(next: AssistantScope): void {
     scopeChosen = true
-    if (next.kind === 'task') lastTaskRef.value = next.ref
     if (sameScope(scope.value, next)) return
     if (turns.value.length) {
       parked.set(keyOf(scope.value), {
@@ -337,12 +321,11 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
 
   return {
     scope,
-    lastTaskRef,
     projects,
+    tasks,
     turns,
     streaming,
     conversationId,
-    chips,
     suggestions,
     placeholder,
     loadProjects,

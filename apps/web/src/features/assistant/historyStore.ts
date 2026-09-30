@@ -6,9 +6,9 @@ import { deleteConversation, getConversation, listConversations } from '@/featur
 import { useAssistantChatStore } from '@/features/assistant/store'
 import { useGithubSessionStore } from '@/stores/githubSession'
 
-// Las conversaciones guardadas del contexto actual, de quien tiene la sesión de
-// GitHub: listarlas, retomar una (la carga en el chat) y borrarla. Sin login no
-// hay historial, y la lista queda vacía.
+// Las conversaciones guardadas de quien tiene la sesión de GitHub, de todos los
+// contextos: el menú lateral del asistente. Listarlas, retomar una (la carga en
+// el chat, con su contexto) y borrarla. Sin login no hay historial.
 
 export const useAssistantHistoryStore = defineStore('assistant-history', () => {
   const chat = useAssistantChatStore()
@@ -26,7 +26,7 @@ export const useAssistantHistoryStore = defineStore('assistant-history', () => {
     }
     loading.value = true
     try {
-      items.value = await listConversations(chat.scope, github.token)
+      items.value = await listConversations(null, github.token)
       error.value = null
     } catch (err) {
       error.value = extractErrorMessage(err)

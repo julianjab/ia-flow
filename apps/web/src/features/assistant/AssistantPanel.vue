@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
-import AssistantHistory from '@/features/assistant/AssistantHistory.vue';
 import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
+import AssistantStart from '@/features/assistant/AssistantStart.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
 import { parseInline } from '@/features/assistant/format';
-import { sameScope, useAssistantChatStore } from '@/features/assistant/store';
+import { useAssistantChatStore } from '@/features/assistant/store';
 import { useAssistantStore } from '@/stores/assistant';
 import { useGithubSessionStore } from '@/stores/githubSession';
 import { useTaskFocusStore } from '@/stores/taskFocus';
 
-// El cuerpo del asistente: chips de contexto (General / Proyecto / Tarea), la
-// conversación y las sugerencias del contexto. El servidor es stateless; los
-// turnos viven en `store.ts` y sobreviven a cerrar y abrir el asistente.
+// El cuerpo del asistente: la conversación, o —si está vacía— de qué hablar. El
+// contexto se elige ahí o en la caja de pregunta; los turnos viven en `store.ts` y
+// sobreviven a cerrar y abrir el asistente.
 
 const chat = useAssistantChatStore();
 const ui = useAssistantStore();
@@ -69,27 +69,9 @@ function run(id: number) {
 
 <template>
   <div class="ap">
-    <div class="ap__scopes" role="group" aria-label="Contexto">
-      <button
-        v-for="chip in chat.chips"
-        :key="chip.key"
-        type="button"
-        class="ap__chip"
-        :class="{ mono: chip.scope.kind === 'task' }"
-        :aria-pressed="sameScope(chip.scope, chat.scope)"
-        @click="chat.setScope(chip.scope)"
-      >
-        {{ chip.label }}
-      </button>
-    </div>
+    <AssistantStart v-if="!chat.turns.length" />
 
-    <AssistantHistory />
-
-    <div class="ap__thread" aria-live="polite">
-      <p v-if="!chat.turns.length" class="ap__intro">
-        Preguntá qué pasó con una tarea, por qué algo no corrió, o pedí que reintente, apruebe o
-        mergee. Las acciones te las propone y vos las confirmás.
-      </p>
+    <div v-else class="ap__thread" aria-live="polite">
 
       <template v-for="turn in chat.turns" :key="turn.id">
         <p v-if="turn.kind === 'user'" class="ap__msg ap__msg--user">{{ turn.text }}</p>
@@ -126,44 +108,13 @@ function run(id: number) {
       <span ref="end" />
     </div>
 
-    <div v-if="!chat.streaming" class="ap__suggest">
-      <button
-        v-for="s in chat.suggestions"
-        :key="s"
-        type="button"
-        class="ap__chip ap__chip--ghost"
-        @click="chat.send(s)"
-      >
-        {{ s }}
-      </button>
-    </div>
   </div>
 </template>
 
 <style scoped>
-.ap { display: flex; flex-direction: column; min-height: 0; }
-.ap__scopes,
-.ap__suggest { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.5rem 1rem; }
-.ap__suggest { border-top: 1px solid var(--border); }
-/* Chip de filtro: `--tap-h-sm` (DESIGN_SYSTEM «Grilla vs. blanco táctil»). */
-.ap__chip {
-  min-height: var(--tap-h-sm);
-  max-width: 100%;
-  padding: 0 0.75rem;
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius-sm);
-  background: var(--panel-hi);
-  color: var(--fg);
-  font-size: var(--fs-body-sm);
-  overflow-wrap: anywhere;
-  text-align: left;
-}
-.ap__chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
-.ap__chip--ghost { background: none; border-color: var(--border); color: var(--fg-mute); }
-.ap__chip:hover:not([aria-pressed='true']) { background: var(--panel-alt); color: var(--fg); }
+.ap { display: flex; flex-direction: column; min-height: 100%; }
 
 .ap__thread { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.5rem 1rem; }
-.ap__intro { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); line-height: 1.5; }
 .ap__msg { margin: 0; max-width: 88%; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-body-sm); line-height: 1.5; }
 /* Burbujas de chat: el radio es el del sistema ×3 y la esquina de donde "sale" el
    mensaje queda en `--radius-sm`. Quien pregunta, a la derecha; el asistente, a

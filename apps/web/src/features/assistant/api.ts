@@ -7,7 +7,9 @@ import {
   type AssistantRequest,
   type AssistantScope,
   type AssistantStreamEvent,
+  type InboxItem,
   type InboxProject,
+  InboxSchema,
   RunnerInfoSchema,
   type TaskActionResult,
   TaskActionResultSchema,
@@ -94,6 +96,13 @@ function errorText(status: number, body: string): string {
 }
 
 /** Los proyectos del runner, para los chips de contexto. Se pide acá y no a la bandeja: la feature no depende de otra. */
+/** Las tareas de la bandeja, para elegir de qué hablar (`#`). Se pide acá y no a la bandeja: la
+ *  feature no depende de otra. */
+export async function fetchTasks(): Promise<InboxItem[]> {
+  const { data } = await axios.get<unknown>('/api/inbox')
+  return InboxSchema.parse(data).items
+}
+
 export async function fetchProjects(): Promise<InboxProject[]> {
   const { data } = await axios.get<unknown>('/api/runner')
   return RunnerInfoSchema.parse(data).projects
@@ -128,13 +137,14 @@ export async function executeProposal(
 const asUser = (githubToken: string) => ({ headers: { 'x-github-token': githubToken } })
 
 /** Las conversaciones guardadas de este login en un contexto, de la más reciente a la más vieja. */
+/** Las conversaciones guardadas de este login —de un contexto, o de todos—, la más reciente primero. */
 export async function listConversations(
-  scope: AssistantScope,
+  scope: AssistantScope | null,
   githubToken: string,
 ): Promise<AssistantConversationSummary[]> {
   const { data } = await axios.get<unknown>('/api/assistant/conversations', {
     ...asUser(githubToken),
-    params: { scope: JSON.stringify(scope) },
+    ...(scope ? { params: { scope: JSON.stringify(scope) } } : {}),
   })
   return AssistantConversationSummarySchema.array().parse(data)
 }
