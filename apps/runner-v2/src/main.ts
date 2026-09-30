@@ -116,6 +116,14 @@ async function startServing(
       console.log(line)
       runnerLog.info(line)
     },
+    // Sin `SLACK_APP_TOKEN` no se levanta el ingreso de Slack.
+    slack: {
+      appToken: () => process.env.SLACK_APP_TOKEN,
+      log: (line) => {
+        console.log(line)
+        runnerLog.info(line)
+      },
+    },
     api: inbox.api,
     onDelivery: () => inbox.board.invalidate(),
     onIgnored: (event, reason) => store.ignored(event, reason),

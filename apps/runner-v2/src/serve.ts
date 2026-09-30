@@ -16,7 +16,9 @@ import type { Server } from 'node:http'
 import { createEvent, type DomainEvent } from '@ia-flow/agent-engine'
 import { createLogger, describeError, errorAttributes } from '@ia-flow/telemetry'
 import type { MountedRunner } from './boot.js'
+import { listenedTypes, RAW_PREFIX } from './listening.js'
 import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
+import { type SlackIngressOptions, startSlackIngress } from './slackIngress.js'
 
 const telemetryLog = createLogger('ia-flow-runner-v2.serve')
 
@@ -24,6 +26,8 @@ export interface ServeOptions {
   port: number
   secret: string | undefined
   log: (line: string) => void
+  /** Slack por Socket Mode (los mensajes llegan como `slack.message`). Sin esto, no se levanta. */
+  slack?: SlackIngressOptions
   /** La API de la web, en el mismo puerto que los webhooks. */
   api?: { handle: NonNullable<Parameters<typeof createWebhookServer>[0]['api']>['handle'] }
   /** Cada delivery verificado, antes de despacharlo (la bandeja relee el board). */
@@ -34,8 +38,7 @@ export interface ServeOptions {
 
 type Raw = Record<string, Record<string, unknown> | undefined>
 
-/** El prefijo de los eventos crudos que publica el servidor de webhooks: `github.<evento>`. */
-export const RAW_PREFIX = 'github.'
+export { RAW_PREFIX }
 
 /** El scope de un delivery crudo, para la traza: el delivery id de GitHub y, si el payload los
  *  trae, el repo y el issue/PR. Los eventos que el intake derive cuelgan de esta misma traza. */
@@ -99,13 +102,7 @@ export async function replayPullRequest(
 export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise<Server> {
   const { log } = opts
   // Leído en cada delivery: las pipelines se recargan en caliente como el resto de `.config/`.
-  const listened = () =>
-    new Set(
-      mounted
-        .pipelines()
-        .flatMap((pipeline) => pipeline.on)
-        .filter((type) => type.startsWith(RAW_PREFIX)),
-    )
+  const listened = () => listenedTypes(mounted)
 
   const onDelivery = async (delivery: Delivery) => {
     opts.onDelivery?.(delivery)
@@ -156,6 +153,10 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
   })
   // Las pausas que vencen (`timeout`) las revisa el engine solo: `tick.everyMs` de engine.yaml.
   log(`→ escuchando webhooks en http://localhost:${opts.port}${GITHUB_WEBHOOK_PATH}`)
+  if (opts.slack) {
+    const ingress = await startSlackIngress(mounted, mounted.services.slack, opts.slack)
+    server.once('close', () => ingress?.stop())
+  }
   if (!opts.secret?.trim()) {
     log('→ aviso: sin IA_FLOW_WEBHOOK_SECRET todo POST responde 503')
   }

@@ -29,6 +29,7 @@
     "@ia-flow/provider-remote": "workspace:*",
     "@ia-flow/shared": "workspace:*",
     "@ia-flow/slack-api": "workspace:*",
+    "@ia-flow/slack-socket": "workspace:*",
     "@ia-flow/slack-tools": "workspace:*",
     "@ia-flow/telemetry": "workspace:*",
     "@ia-flow/workspace": "workspace:*",

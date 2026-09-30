@@ -248,9 +248,20 @@ export const EVENT_CATALOG: EventTypeDef[] = [
   {
     type: 'slack.message',
     description:
-      'Un mensaje en un canal o hilo. Entra SIN proyecto: sólo lo ven las reglas globales.',
+      'Un mensaje humano en un canal o hilo donde está el bot, recibido por Socket Mode (una mención `app_mention` o un `message`). Entra SIN proyecto: sólo lo ven las reglas globales. `mentionsBot` dice si el texto menciona al bot; `author` es el id de Slack de quien escribió.',
     source: 'slack',
-    fields: ['text', 'channel', 'author', 'ts', 'threadTs', 'isThreadReply'],
+    fields: [
+      'text',
+      'channel',
+      'author',
+      'ts',
+      'threadTs',
+      'isThreadReply',
+      'kind',
+      'eventId',
+      'mentions',
+      'mentionsBot',
+    ],
   },
 
   // ─── Asistente conversacional ────────────────────────────────────────────

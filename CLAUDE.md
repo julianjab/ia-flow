@@ -48,7 +48,7 @@ Cross-package dependency graph:
 
 ```
 runner-v2 → agent-engine, definitions, datasource-{sqlite,yaml}, provider-{anthropic-api,anthropic-cli,remote}, telemetry,
-            github-{auth,api,webhook,tools}, slack-{api,tools}, workspace
+            github-{auth,api,webhook,tools}, slack-{api,tools,socket}, workspace
 agent-engine          → telemetry
 definitions           → agent-engine, telemetry
 datasource-sqlite     → agent-engine, telemetry
