@@ -9,7 +9,7 @@
 import type { CapabilityInvoker } from '@ia-flow/agent-engine'
 import type { AssistantRequest, AssistantScope, AssistantStreamEvent } from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
-import type { AssistantDesk } from './AssistantDesk.js'
+import { type AssistantDesk, SESSION_KEY } from './AssistantDesk.js'
 import { ASSISTANT } from './assistantCapability.js'
 
 export interface AssistantOptions {
@@ -71,6 +71,10 @@ export class Assistant {
       })
       const answer = result?.answer ?? ''
       emit({ type: 'text', delta: answer })
+      const tasks = await this.options.desk
+        .sessionOf({ [SESSION_KEY]: session.id })
+        .resolveTasks(result?.tasks ?? [])
+      if (tasks.length > 0) emit({ type: 'tasks', items: tasks })
       emit({ type: 'done', text: answer })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

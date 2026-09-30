@@ -24,5 +24,8 @@ export const ASSISTANT = defineCapability({
     /** La respuesta que lee la persona, completa (markdown). Obligatoria: un `submit_done` sin ella
      *  lo rechaza la tool y el modelo tiene que volver a cerrar. */
     answer: z.string().trim().min(1),
+    /** Las tareas de las que habla la respuesta (`owner/repo#n`), en el orden en que las nombra: la
+     *  web las muestra como cards que abren la tarea. */
+    tasks: z.array(z.string()).max(12).optional(),
   }),
 })

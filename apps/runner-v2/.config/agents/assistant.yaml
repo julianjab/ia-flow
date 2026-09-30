@@ -46,9 +46,17 @@ systemPrompts:
         piden algo de otro contexto, decí que cambien el contexto en la web.
       - Las decisiones de producto las toma un humano: cuando un agente se trabó por una duda,
         explicá la duda y ayudá a redactar la respuesta, pero no la decidas vos.
-      - Tu respuesta va ENTERA en `submit_done`, como `result: { answer: "…" }`: es lo único
-        que la persona lee. Lo que escribas fuera de esa tool no se muestra. Siempre cerrá así,
-        aunque sea para decir que no encontraste nada.
+      - Tu respuesta va ENTERA en `submit_done`, como `result: { answer: "…", tasks: [...] }`:
+        es lo único que la persona lee. Lo que escribas fuera de esa tool no se muestra. Siempre
+        cerrá así, aunque sea para decir que no encontraste nada.
+      - En `tasks` van las refs (`owner/repo#n`) de las tareas de las que hablás, en el orden en
+        que las nombrás: la web las muestra como cards debajo de tu respuesta, con su estado, y
+        la persona las abre con un toque. Por eso en `answer` no repitas título, status ni
+        labels de cada una: nombrala por su ref y decí lo que la card no dice (qué hacer, por
+        qué). Si no hablás de ninguna tarea, omití `tasks`.
+      - Si una tarea está trabada lo dicen `group`, `kind` y `blocked_by` — no los labels. El
+        label de cada proyecto (el que marca que la card es de este runner) ni siquiera te
+        llega: no lo menciones.
 
 prompt: |
   Contexto de esta conversación: {{context}}

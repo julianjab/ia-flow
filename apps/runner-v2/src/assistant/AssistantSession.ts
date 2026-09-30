@@ -21,6 +21,8 @@ export interface AssistantBackend {
   config: () => ConfigSummary
   /** El estado del runner: providers, ejecuciones, webhooks. */
   status: () => Record<string, unknown>
+  /** El label de cada proyecto (`project.yaml`), por id: marca que la card es de este runner. */
+  projectLabels?: ReadonlyMap<string, string>
 }
 
 export const ACTION_LABELS: Record<TaskAction, string> = {
@@ -43,6 +45,7 @@ export function asToolResult(value: unknown): string {
 
 /** Un item sin lo que el modelo no necesita para razonar. */
 function brief(item: InboxItem) {
+  // `labels` ya viene sin el label del proyecto (`withoutOwnLabel`).
   return {
     ref: item.ref,
     project: item.project_id,
@@ -76,6 +79,24 @@ export class AssistantSession {
     this.emit({ type: 'tool', name, summary })
   }
 
+  /** Sin el label del proyecto: marca de quién es la card (este runner o el otro engine), no un
+   *  bloqueo — que el modelo lo vea sólo lo confunde. Un bloqueo real es `group`/`kind`/`blocked_by`. */
+  private withoutOwnLabel(item: InboxItem): InboxItem {
+    const own = this.backend.projectLabels?.get(item.project_id)
+    return own ? { ...item, labels: item.labels.filter((label) => label !== own) } : item
+  }
+
+  /** Las tareas de una respuesta, como están en la bandeja: las de afuera del contexto o que no
+   *  existen se descartan (no rompen la respuesta ya escrita). Sin repetir, en orden. */
+  async resolveTasks(refs: readonly string[]): Promise<InboxItem[]> {
+    const items: InboxItem[] = []
+    for (const ref of new Set(refs)) {
+      const item = await this.task(ref).catch(() => undefined)
+      if (item) items.push(item)
+    }
+    return items
+  }
+
   /** La tarea, si cae en el contexto; si no, un error que el modelo lee. */
   async task(ref: unknown): Promise<InboxItem> {
     const wanted = String(ref ?? '').trim()
@@ -92,8 +113,12 @@ export class AssistantSession {
 
   async listTasks() {
     this.activity('list_tasks', 'leyendo la bandeja')
-    if (this.scope.kind === 'task') return [brief(await this.task(this.scope.ref))]
-    return (await this.backend.inbox.inbox(this.projectId)).items.map(brief)
+    if (this.scope.kind === 'task') {
+      return [brief(this.withoutOwnLabel(await this.task(this.scope.ref)))]
+    }
+    return (await this.backend.inbox.inbox(this.projectId)).items
+      .map((item) => this.withoutOwnLabel(item))
+      .map(brief)
   }
 
   async taskDetail(ref: unknown) {
@@ -102,6 +127,7 @@ export class AssistantSession {
     const detail = await this.backend.inbox.detail(item.ref)
     return {
       ...detail,
+      ...(detail ? { item: this.withoutOwnLabel(detail.item) } : {}),
       trace: detail?.trace.slice(-60).map((entry) => ({
         at: entry.start_time,
         kind: entry.kind,

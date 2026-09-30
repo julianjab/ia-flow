@@ -70,12 +70,14 @@ export function mountInbox(
     mounted.executions?.observe((record) => changed(taskOfKey(record.key).taskRef)) ?? (() => {}),
   ]
 
+  // El label de cada proyecto: marca que la card es de este runner (el board se comparte).
+  const projectLabels = new Map(
+    specs.flatMap((spec) => (spec.label ? [[spec.projectId, spec.label] as const] : [])),
+  )
   const actions = new TaskActions({
     inbox,
     boards: new Map(specs.map((spec) => [spec.projectId, spec.board])),
-    projectLabels: new Map(
-      specs.flatMap((spec) => (spec.label ? [[spec.projectId, spec.label] as const] : [])),
-    ),
+    projectLabels,
     settings: cfg.inbox,
     redispatch: async (ref, by) => {
       const last = store.activity.lastDispatchedEvent(ref)
@@ -125,6 +127,7 @@ export function mountInbox(
     inbox,
     activity: store.activity,
     config,
+    projectLabels,
     status: () => ({
       projects: specs.map((spec) => `${spec.projectId} (${spec.board.owner}#${spec.board.number})`),
       providers: Object.keys(cfg.providers),
