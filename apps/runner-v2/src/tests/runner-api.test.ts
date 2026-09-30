@@ -270,9 +270,8 @@ describe('runner API', () => {
       .split('\n')
       .filter((line) => line.startsWith('data: '))
       .map((line) => JSON.parse(line.slice(6)))
-    expect(events.map((event) => event.type)).toEqual(['proposal', 'text', 'tasks', 'done'])
-    // o/r#2 queda fuera del contexto de la tarea: no sale como card.
-    expect(events[2].items.map((item: { ref: string }) => item.ref)).toEqual(['o/r#1'])
+    // o/r#1 ya tiene su propuesta y o/r#2 queda fuera del contexto: ninguna sale como card.
+    expect(events.map((event) => event.type)).toEqual(['proposal', 'text', 'done'])
     expect(events.at(-1)).toEqual({ type: 'done', text: 'Te propuse mergear.' })
     expect(events[0].proposal).toMatchObject({
       ref: 'o/r#1',
@@ -308,6 +307,31 @@ describe('runner API', () => {
     })
     expect(await res.text()).toContain('"type":"done"')
     expect(refused).toMatch(/Fuera de contexto/)
+    fakeProvider.run = defaultRun
+  })
+
+  it('the tasks of an answer come resolved and in scope', async () => {
+    const { call } = await start()
+    fakeProvider.run = async (ctx) => {
+      await tool(ctx, 'submit_done').handler({
+        result: { answer: 'Mirá esta.', tasks: ['o/r#1', 'o/r#2'] },
+      })
+      return { outcome: 'success' }
+    }
+    const res = await call('/api/assistant', {
+      method: 'POST',
+      body: JSON.stringify({
+        scope: { kind: 'task', ref: 'o/r#1' },
+        messages: [{ role: 'user', content: 'x' }],
+      }),
+    })
+    const tasks = (await res.text())
+      .split('\n')
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => JSON.parse(line.slice(6)))
+      .find((event) => event.type === 'tasks')
+    // o/r#2 queda fuera del contexto de la tarea: no sale como card.
+    expect(tasks.items.map((item: { ref: string }) => item.ref)).toEqual(['o/r#1'])
     fakeProvider.run = defaultRun
   })
 
@@ -392,7 +416,13 @@ describe('runner API', () => {
       const first = await events(await ask(call, {}, gh()))
       const id = first.find((event) => event.type === 'conversation')?.id
       expect(id).toBeString()
+      // La segunda respuesta nombra la tarea sin proponer nada: esa sí va como card.
+      fakeProvider.run = async (ctx) => {
+        await tool(ctx, 'submit_done').handler({ result: { answer: 'Es ésta.', tasks: ['o/r#1'] } })
+        return { outcome: 'success' }
+      }
       await events(await ask(call, { conversation_id: id }, gh()))
+      fakeProvider.run = defaultRun
 
       const scope = encodeURIComponent(JSON.stringify({ kind: 'task', ref: 'o/r#1' }))
       const list = await (
@@ -413,11 +443,17 @@ describe('runner API', () => {
         'user',
         'assistant',
       ])
-      // Las tareas vuelven como están ahora en la bandeja; la propuesta, como se hizo.
+      // La propuesta, como se hizo (su tarea no se repite como card); las tareas, como están
+      // ahora en la bandeja.
       expect(saved.thread[1]).toMatchObject({
         content: 'Te propuse mergear.',
-        tasks: [{ ref: 'o/r#1', kind: 'merge' }],
+        tasks: [],
         proposals: [{ action: 'merge', ref: 'o/r#1' }],
+      })
+      expect(saved.thread[3]).toMatchObject({
+        content: 'Es ésta.',
+        tasks: [{ ref: 'o/r#1', kind: 'merge' }],
+        proposals: [],
       })
     })
 
