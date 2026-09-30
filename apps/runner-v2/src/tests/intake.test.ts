@@ -228,6 +228,62 @@ describe('intake: task context', () => {
   })
 })
 
+describe('intake: the task PR comes from GitHub, not from a branch name', () => {
+  it('a card reaching Review gets task.pr from the PR linked to its issue, on any branch', async () => {
+    const { emitted } = await (
+      await intake({
+        tasks: { [TASK]: { status: 'Review' } },
+        prs: {
+          'la-haus/subscriptions#1679': {
+            number: 1679,
+            closes: 7,
+            head: { ref: 'feat/auth0-strategy-crm-admin-registration', sha: 'abc' },
+          },
+        },
+      })
+    ).run(
+      'projects_v2_item',
+      itemPayload('edited', {
+        field_name: 'Status',
+        from: { name: 'Build' },
+        to: { name: 'Review' },
+      }),
+    )
+    expect(emitted[0]).toMatchObject({
+      type: 'issue.status_changed',
+      payload: {
+        to: 'Review',
+        task: { pr: { number: 1679, headRef: 'feat/auth0-strategy-crm-admin-registration' } },
+      },
+    })
+  })
+
+  it('a PR that is not linked to the issue is not its PR, even on a `ia-flow-local/<n>` branch', async () => {
+    const { emitted } = await (
+      await intake({
+        tasks: { [TASK]: { status: 'Review' } },
+        prs: {
+          'la-haus/subscriptions#12': {
+            number: 12,
+            closes: null,
+            head: { ref: 'ia-flow-local/7', sha: 's' },
+          },
+        },
+      })
+    ).run(
+      'projects_v2_item',
+      itemPayload('edited', {
+        field_name: 'Status',
+        from: { name: 'Build' },
+        to: { name: 'Review' },
+      }),
+    )
+    expect(emitted).toHaveLength(1)
+    const payload = emitted[0]?.payload as { task?: { pr?: unknown } } | undefined
+    expect(payload?.task?.pr).toBeUndefined()
+  })
+})
+
 describe('intake: pull requests and CI', () => {
   it('flattens a review the way pr-changes-requested reads it', async () => {
     const { emitted } = await (await intake()).run(
@@ -258,19 +314,21 @@ describe('intake: pull requests and CI', () => {
     })
   })
 
-  it('only lets completed CI runs through, and needs a PR or a task branch', async () => {
+  it('only lets completed CI runs through, and needs a PR', async () => {
     const inProgress = await intake()
     expect(
       (await inProgress.run('workflow_run', runPayload('in_progress', [{ number: 12 }]))).emitted,
     ).toEqual([])
     expect(inProgress.github.calls).toEqual([])
+    // Sin PR no hay relación que leer, aunque la rama parezca de una task.
     expect(
-      (await (await intake()).run('workflow_run', runPayload('completed', []))).emitted,
+      (await (await intake()).run('workflow_run', runPayload('completed', [], 'ia-flow-local/7')))
+        .emitted,
     ).toEqual([])
 
     const { emitted } = await (await intake()).run(
       'workflow_run',
-      runPayload('completed', [], 'ia-flow-local/7'),
+      runPayload('completed', [{ number: 12 }]),
     )
     expect(emitted[0]).toMatchObject({
       type: 'workflow_run',
@@ -282,25 +340,33 @@ describe('intake: pull requests and CI', () => {
 describe('intake: a PR that closes no issue is not a task', () => {
   // Su número no resuelve como `Issue` en GraphQL: usarlo de task rompía el despacho con
   // `Could not resolve to an Issue with the number of N`.
-  const noGraphql = (calls: string[]) => calls.filter((call) => call.startsWith('graphql'))
+  const closesNothing = {
+    prs: {
+      'la-haus/subscriptions#12': { number: 12, closes: null, head: { ref: 'feat/x', sha: 's' } },
+    },
+  }
+  /** Lo único que se lee es qué cierra el PR: nada de la task. */
+  const onlyClosingRefs = (calls: string[]) =>
+    calls.filter((call) => !call.includes('closingIssuesReferences'))
+  const prPayload = {
+    number: 12,
+    body: 'Closes #7',
+    head: { ref: 'ia-flow-local/7', sha: 's' },
+    base: { ref: 'main' },
+  }
 
-  it('skips a CI run whose PR has no task branch and closes no issue', async () => {
-    const { github, run } = await intake()
+  it('skips a CI run whose PR closes no issue', async () => {
+    const { github, run } = await intake(closesNothing)
     const { emitted } = await run('workflow_run', runPayload('completed', [{ number: 12 }]))
     expect(emitted).toEqual([])
-    expect(github.calls).toContain('GET /repos/la-haus/subscriptions/pulls/12')
-    expect(noGraphql(github.calls)).toEqual([])
+    expect(onlyClosingRefs(github.calls)).toEqual([])
   })
 
-  it('finds the issue of a CI run in the body of its PR when the branch does not say', async () => {
+  it('finds the issue of a CI run by what GitHub says the PR closes, whatever its branch', async () => {
     const { emitted } = await (
       await intake({
         prs: {
-          'la-haus/subscriptions#12': {
-            number: 12,
-            body: 'Closes #7',
-            head: { ref: 'feat/x', sha: 's' },
-          },
+          'la-haus/subscriptions#12': { number: 12, closes: 7, head: { ref: 'feat/x', sha: 's' } },
         },
       })
     ).run('workflow_run', runPayload('completed', [{ number: 12 }]))
@@ -310,48 +376,25 @@ describe('intake: a PR that closes no issue is not a task', () => {
     })
   })
 
-  it('skips a pull_request and a review that close no issue', async () => {
+  it('ignores the branch name and the body: only what GitHub links counts', async () => {
     for (const [event, payload] of [
-      [
-        'pull_request',
-        {
-          action: 'opened',
-          pull_request: {
-            number: 12,
-            body: '',
-            head: { ref: 'feat/x', sha: 's' },
-            base: { ref: 'main' },
-          },
-          repository,
-        },
-      ],
-      [
-        'pull_request_review',
-        {
-          ...reviewPayload('approved'),
-          pull_request: {
-            number: 12,
-            body: '',
-            head: { ref: 'feat/x', sha: 's' },
-            base: { ref: 'main' },
-          },
-        },
-      ],
+      ['pull_request', { action: 'opened', pull_request: prPayload, repository }],
+      ['pull_request_review', { ...reviewPayload('approved'), pull_request: prPayload }],
     ] as const) {
-      const { github, run } = await intake()
+      const { github, run } = await intake(closesNothing)
       expect((await run(event, payload)).emitted, event).toEqual([])
-      expect(noGraphql(github.calls), event).toEqual([])
+      expect(onlyClosingRefs(github.calls), event).toEqual([])
     }
   })
 
   it('skips a comment on a PR that closes no issue', async () => {
-    const { github, run } = await intake()
+    const { github, run } = await intake(closesNothing)
     const { emitted } = await run(
       'issue_comment',
       commentPayload('ok', { number: 12, pull_request: {} }),
     )
     expect(emitted).toEqual([])
-    expect(noGraphql(github.calls)).toEqual([])
+    expect(onlyClosingRefs(github.calls).filter((c) => c.startsWith('graphql'))).toEqual([])
   })
 })
 

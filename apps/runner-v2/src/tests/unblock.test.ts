@@ -18,8 +18,8 @@ import {
 const API = 'https://api.github.com/repos'
 const CLOSED = 'https://github.com/la-haus/subscriptions/issues/7'
 
-/** El webhook de un PR cerrado que implementa el issue #7 (rama `ia-flow-local/7`). */
-const closedPr = (merged: boolean, headRef = 'ia-flow-local/7') => ({
+/** El webhook de un PR cerrado que, según GitHub, cierra el issue #7 (su rama no importa). */
+const closedPr = (merged: boolean, headRef = 'feat/x') => ({
   action: 'closed',
   number: 12,
   pull_request: {
@@ -117,7 +117,12 @@ describe('intake: unblock-dependents', () => {
       false,
     )
 
-    const noIssue = await unblockedBy(closedPr(true, 'feat/sin-issue'), data)
+    const noIssue = await unblockedBy(closedPr(true), {
+      ...data,
+      prs: {
+        'la-haus/subscriptions#12': { number: 12, closes: null, head: { ref: 'x', sha: 's' } },
+      },
+    })
     expect(noIssue.github.calls.some((call) => call.includes('/dependencies/blocking'))).toBe(false)
   })
 })

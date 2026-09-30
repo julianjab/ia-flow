@@ -47,6 +47,9 @@ export interface FakePr {
   body?: string
   title?: string
   head: { ref: string; sha: string }
+  /** El issue que el PR cierra según GitHub (su "Development"), sea cual sea su rama; `null` =
+   *  ninguno. Sin declarar, cierra el #7 de la suite. */
+  closes?: number | null
 }
 
 export interface FakeGithubData {
@@ -84,14 +87,19 @@ export function fakeGithub(data: FakeGithubData = {}): FakeGithub {
         query: string
         variables: Record<string, unknown>
       }
-      api.calls.push(`graphql ${query.match(/(node|projectItems|reviewThreads)/)?.[1] ?? '?'}`)
+      api.calls.push(
+        `graphql ${query.match(/(closingIssuesReferences|closedByPullRequestsReferences|node|projectItems|reviewThreads)/)?.[1] ?? '?'}`,
+      )
       return json(api.graphql(query, variables))
     }
     api.calls.push(`${init.method ?? 'GET'} ${url.pathname}${url.search}`)
-    return api.rest(url.pathname, url.searchParams)
+    return api.rest(url.pathname)
   }) as typeof fetch
   return { fetch: fetchImpl, calls: api.calls }
 }
+
+/** El issue que cierra un PR que el test no declara: la task de la suite. */
+const DEFAULT_CLOSES = 7
 
 const NOT_FOUND = () => json({ message: 'Not Found' }, 404)
 
@@ -116,20 +124,45 @@ class FakeGithubApi {
       const nodes = (this.tasks[key]?.linkedBranches ?? []).map((name) => ({ ref: { name } }))
       return { data: { repository: { issue: { linkedBranches: { nodes } } } } }
     }
+    if (query.includes('closingIssuesReferences')) {
+      const pr =
+        this.data.prs?.[
+          taskKey(String(variables.owner), String(variables.repo), String(variables.number))
+        ]
+      const closes = pr?.closes === undefined ? DEFAULT_CLOSES : pr.closes
+      const nodes =
+        closes === null
+          ? []
+          : [
+              {
+                number: closes,
+                repository: { name: String(variables.repo), owner: { login: variables.owner } },
+              },
+            ]
+      return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes } } } } }
+    }
+    if (query.includes('closedByPullRequestsReferences')) {
+      const nodes = Object.values(this.data.prs ?? {})
+        .filter(
+          (pr) =>
+            (pr.closes === undefined ? DEFAULT_CLOSES : pr.closes) === Number(variables.number),
+        )
+        .map((pr) => ({ number: pr.number, state: (pr.state ?? 'open').toUpperCase() }))
+      return { data: { repository: { issue: { closedByPullRequestsReferences: { nodes } } } } }
+    }
     if (query.includes('reviewThreads')) {
       return { data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }
     }
     return { errors: [{ message: `query desconocida: ${query.slice(0, 40)}` }] }
   }
 
-  rest(path: string, search: URLSearchParams): Response {
+  rest(path: string): Response {
     const [, owner = '', repo = '', rest = ''] =
       path.match(/^\/repos\/([^/]+)\/([^/]+)\/(.+)$/) ?? []
     const issue = rest.match(/^issues\/(\d+)(\/.*)?$/)
     if (issue) return this.issue(owner, repo, issue[1] as string, issue[2])
     const pull = rest.match(/^pulls\/(\d+)(\/reviews)?$/)
     if (pull) return pull[2] ? json([]) : json(this.pull(owner, repo, pull[1] as string))
-    if (rest === 'pulls') return json(this.openFrom(owner, repo, search.get('head') ?? ''))
     if (/^commits\/[^/]+\/check-runs$/.test(rest))
       return json({ check_runs: this.data.checks ?? [] })
     if (/^commits\/[^/]+\/status$/.test(rest)) return json({ statuses: [] })
@@ -187,15 +220,6 @@ class FakeGithubApi {
       head: { ref: 'feat/x', sha: 'sha' },
     }
     return prJson(owner, repo, pr)
-  }
-
-  private openFrom(owner: string, repo: string, head: string) {
-    return Object.entries(this.data.prs ?? {})
-      .filter(
-        ([key, pr]) => key.startsWith(`${owner}/${repo}#`) && `${owner}:${pr.head.ref}` === head,
-      )
-      .map(([, pr]) => prJson(owner, repo, pr))
-      .filter((pr) => pr.state === 'open')
   }
 }
 

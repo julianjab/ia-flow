@@ -1,27 +1,6 @@
 /** Lo puro de `resolve_task` (`intake/task.ts`). */
 import { describe, expect, it } from 'bun:test'
-import {
-  boardItem,
-  issueRefs,
-  linkedIssue,
-  openPr,
-} from '../../.config/actions/_lib/intake/task.js'
-
-describe('linkedIssue', () => {
-  it('reads the branch with the project prefix, and nothing else', () => {
-    expect(linkedIssue('ia-flow-local/42', '', 'ia-flow-local/')).toBe(42)
-    expect(linkedIssue('ia-flow/42', '', 'ia-flow-local/')).toBeUndefined()
-    expect(linkedIssue('ia-flow/42', 'Closes #9', 'ia-flow-local/')).toBe(9)
-  })
-
-  it('prefers the branch, then a closing reference', () => {
-    expect(linkedIssue('ia-flow/42', 'Closes #9', 'ia-flow/')).toBe(42)
-    expect(linkedIssue('feat/x', 'Implements it.\n\nCloses #9', 'ia-flow/')).toBe(9)
-    expect(linkedIssue('feat/x', 'fixes #3', 'ia-flow/')).toBe(3)
-    expect(linkedIssue('ia-flow/42-extra', 'mentions #9', 'ia-flow/')).toBeUndefined()
-    expect(linkedIssue(undefined, undefined, 'ia-flow/')).toBeUndefined()
-  })
-})
+import { boardItem, issueRefs, openPr } from '../../.config/actions/_lib/intake/task.js'
 
 describe('boardItem', () => {
   const item = (number: number, owner: string, fields: Array<[string, string]>) => ({
@@ -84,8 +63,11 @@ describe('openPr', () => {
     base: { ref: 'main' },
   })
 
-  it('the event PR if still open, otherwise the one open from the task branch', () => {
-    expect(openPr(pr(12), [pr(13)])).toEqual({
+  it('is the PR as `task.pr` while it is open, whatever its branch is called', () => {
+    expect(openPr({ ...pr(12), head: { sha: 'sha12', ref: 'feat/auth0' } })?.headRef).toBe(
+      'feat/auth0',
+    )
+    expect(openPr(pr(12))).toEqual({
       number: 12,
       url: 'https://github.com/x/pull/12',
       headSha: 'sha12',
@@ -94,8 +76,6 @@ describe('openPr', () => {
       headRef: 'ia-flow-local/7',
       baseRef: 'main',
     })
-    expect(openPr(pr(12, 'closed'), undefined)).toBeUndefined()
-    expect(openPr(undefined, [pr(13)])?.number).toBe(13)
-    expect(openPr(undefined, [])).toBeUndefined()
+    expect(openPr(pr(12, 'closed'))).toBeUndefined()
   })
 })

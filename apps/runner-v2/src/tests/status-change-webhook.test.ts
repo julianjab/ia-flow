@@ -10,7 +10,7 @@ describe('statusChangeWebhook', () => {
   it('the intake reads it as the card arriving at the column, moved by that person', () => {
     const delivery = statusChangeWebhook({ itemId: 'PVTI_1', status: 'Review', sender: 'julian' })
     expect(delivery.event).toBe('projects_v2_item')
-    expect(locate(delivery.event, delivery.payload, undefined)).toEqual({
+    expect(locate(delivery.event, delivery.payload)).toEqual({
       item: 'PVTI_1',
       emit: 'issue.status_changed',
       status: 'Review',
