@@ -38,6 +38,12 @@ export interface RunChannelOptions {
   /** Cuándo arrancó la corrida: lo anterior de la transcripción (una sesión retomada) no se
    *  vuelve a emitir. */
   since?: Date
+  /** Leer la transcripción de la sesión (`transcript_path` de los hooks). Default: sí. Una sesión
+   *  en otra máquina (un host remoto) la escribe en SU disco: el path no es de éste. */
+  transcript?: boolean
+  /** Cada señal de vida de la sesión (una tool, un hook): quien la espera de lejos mide el
+   *  silencio con esto. */
+  onActivity?: () => void
 }
 
 /**
@@ -82,6 +88,7 @@ export class RunChannel {
   /** `tools/call`: corre la tool en el runner (con el `ctx` de la corrida que ya capturó). Un
    *  error vuelve como resultado con `isError`, para que el modelo lo lea y se corrija. */
   async call(name: string, args: unknown): Promise<{ text: string; isError: boolean }> {
+    this.options.onActivity?.()
     const tool = this.options.tools.find((candidate) => candidate.name === name)
     if (!tool) return { text: `No existe la tool "${name}"`, isError: true }
     const span = startSpan(
@@ -109,6 +116,7 @@ export class RunChannel {
   /** Un hook de Claude Code: traza sus tools nativas, entrega el inbox y no lo deja terminar sin
    *  cerrar el turno. */
   hook(event: string, input: Record<string, unknown>): HookOutput {
+    this.options.onActivity?.()
     this.logHook(event, input)
     this.readTranscript(event, input)
     switch (event) {
@@ -139,7 +147,7 @@ export class RunChannel {
    *  de escribir, así que el último mensaje también sale. */
   private readTranscript(event: string, input: Record<string, unknown>): void {
     const path = input.transcript_path
-    if (typeof path !== 'string' || !path) return
+    if (this.options.transcript === false || typeof path !== 'string' || !path) return
     void this.transcript.read(path, { flush: event === 'Stop' })
   }
 

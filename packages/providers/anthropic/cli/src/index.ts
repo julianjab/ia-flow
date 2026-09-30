@@ -1,15 +1,13 @@
 export type { ClaudeCliConversation, ClaudeCliProviderOptions } from './ClaudeCliProvider.js'
-export { ClaudeCliProvider } from './ClaudeCliProvider.js'
+export { ClaudeCliProvider, exitsOf, labelOf, turnPrompt } from './ClaudeCliProvider.js'
+export type { CliLaunchSpec, LaunchedCli } from './CliLauncher.js'
+export { launchCli } from './CliLauncher.js'
 export {
   ClaudeCliConfig,
   ClaudeCliMode,
   mergeClaudeCliConfig,
   parseClaudeCliConfig,
 } from './config.js'
-export type { McpReply } from './McpProtocol.js'
-export { handleMcp } from './McpProtocol.js'
-export type { HookOutput, RunChannelOptions } from './RunChannel.js'
-export { MCP_SERVER_NAME, mcpToolName, RunChannel } from './RunChannel.js'
 export type { RunEndpoints } from './RunServer.js'
 export { RunServer } from './RunServer.js'
 export type { SessionFiles, SessionSpec } from './SessionFiles.js'

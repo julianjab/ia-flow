@@ -27,6 +27,7 @@ packages/agent-engine/
   datasources/sqlite/  @ia-flow/agent-engine-datasource-sqlite — ExecutionRepository sobre SQLite
   datasources/yaml/    @ia-flow/agent-engine-datasource-yaml — YAML → definiciones
 packages/providers/     los Provider del engine
+  shared/              @ia-flow/provider-shared — el canal de una corrida (tools por MCP, hooks) y su ruteo
   anthropic/api/       @ia-flow/provider-anthropic-api — la Messages API de Anthropic
   anthropic/cli/       @ia-flow/provider-anthropic-cli — el CLI `claude` (Claude Code)
   remote/              @ia-flow/provider-remote — un Provider en otra máquina (cliente + host HTTP)
@@ -54,7 +55,8 @@ definitions           → agent-engine, telemetry
 datasource-sqlite     → agent-engine, telemetry
 datasource-yaml       → agent-engine, definitions
 provider-anthropic-api → agent-engine, telemetry
-provider-anthropic-cli → agent-engine, telemetry
+provider-shared        → agent-engine, telemetry
+provider-anthropic-cli → agent-engine, provider-shared, telemetry
 provider-remote        → agent-engine, telemetry
 github-api            → github-auth
 github-tools          → agent-engine, github-api, github-auth

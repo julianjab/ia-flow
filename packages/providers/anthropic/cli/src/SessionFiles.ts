@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServerRef } from '@ia-flow/agent-engine'
-import { MCP_SERVER_NAME, mcpToolName } from './RunChannel.js'
+import { MCP_SERVER_NAME, mcpToolName } from '@ia-flow/provider-shared'
 import type { RunEndpoints } from './RunServer.js'
 
 /** Los hooks de Claude Code que se reenvían al runner: traza (`Pre`/`PostToolUse`), inbox

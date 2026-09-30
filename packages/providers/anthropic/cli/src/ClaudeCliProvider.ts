@@ -1,26 +1,22 @@
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import type {
   PipelineExecutionContext,
   Provider,
   ProviderRunContext,
   ProviderRunOutput,
 } from '@ia-flow/agent-engine'
+import { RunChannel } from '@ia-flow/provider-shared'
 import { captureContext, createLogger, withInheritedAttributes } from '@ia-flow/telemetry'
+import { launchCli } from './CliLauncher.js'
 import {
   type ClaudeCliConfig,
   type ClaudeCliMode,
   mergeClaudeCliConfig,
   parseClaudeCliConfig,
 } from './config.js'
-import { RunChannel } from './RunChannel.js'
 import { RunServer } from './RunServer.js'
-import { writeSessionFiles } from './SessionFiles.js'
 import type { CliSession, Launcher, SessionExit } from './sessions/CliSession.js'
 import { closeOrphan, type SessionRef } from './sessions/orphans.js'
-import { PrintLauncher } from './sessions/PrintLauncher.js'
-import { TmuxLauncher } from './sessions/TmuxLauncher.js'
 
 /** La conversación de una corrida del CLI: la sesión de Claude Code, que se retoma con
  *  `--resume` (tras esperar un evento, o tras un reinicio del runner), y dónde corría — para
@@ -118,33 +114,24 @@ export class ClaudeCliProvider implements Provider {
     let conversation: ClaudeCliConversation = { sessionId }
     ctx.saveConversation?.(conversation)
 
-    const files = await writeSessionFiles({
-      endpoints,
-      systemPrompts: ctx.systemPrompts,
-      exits: ctx.tools.filter((tool) => tool.terminal && !tool.failure).map((tool) => tool.name),
-      mcpServers: ctx.mcpServers,
-      env: credentialEnv(cfg.env ?? {}),
-      ...(cfg.model ? { model: cfg.model } : {}),
-      args: cfg.args ?? [],
-      session: { id: sessionId, resume: resumed !== undefined },
-    })
-    const promptFile = join(files.dir, 'prompt.md')
-    const prompt =
-      resumed && ctx.resume
-        ? `[Continuación de tu turno]\n${ctx.resume.message}\n\nSeguí donde quedaste.`
-        : ctx.prompt
-    await writeFile(promptFile, prompt, { mode: 0o600 })
-
     let session: CliSession | undefined
+    let cleanup = async () => {}
     try {
-      session = await this.launcher(mode).launch({
-        bin: this.options.bin ?? 'claude',
-        argv: files.argv,
-        promptFile,
+      const launched = await launchCli({
+        endpoints,
         cwd,
         label: labelOf(ctx),
-        ...(cfg.surface ? { surface: true } : {}),
+        prompt: turnPrompt(ctx, resumed !== undefined),
+        systemPrompts: ctx.systemPrompts,
+        exits: exitsOf(ctx),
+        mcpServers: ctx.mcpServers,
+        config: cfg,
+        session: { id: sessionId, resume: resumed !== undefined },
+        ...(this.options.bin ? { bin: this.options.bin } : {}),
+        ...(this.options.launchers ? { launchers: this.options.launchers } : {}),
       })
+      session = launched.session
+      cleanup = launched.cleanup
       this.log.info(`${ctx.agentId}: sesión ${mode} ${session.describe}`)
       if (session.ref) {
         conversation = { sessionId, session: session.ref }
@@ -166,7 +153,7 @@ export class ClaudeCliProvider implements Provider {
         await session.close().catch(() => {})
       }
       server.close(channel)
-      await files.cleanup().catch(() => {})
+      await cleanup().catch(() => {})
     }
   }
 
@@ -201,12 +188,6 @@ export class ClaudeCliProvider implements Provider {
     sharedServer ??= new RunServer()
     return sharedServer
   }
-
-  private launcher(mode: ClaudeCliMode): Launcher {
-    return (
-      this.options.launchers?.[mode] ?? (mode === 'tmux' ? new TmuxLauncher() : new PrintLauncher())
-    )
-  }
 }
 
 /** El contexto del agente del que cuelga todo lo que llega por los hooks, con `ia.execution.id`
@@ -237,14 +218,23 @@ function describeRef(ref: SessionRef): string {
   return ref.kind === 'tmux' ? `tmux ${ref.name}` : `pid ${ref.pid}`
 }
 
-/** La credencial OAuth del CLI viaja en el `--settings`, no en el shell. */
-function credentialEnv(env: Record<string, string>): Record<string, string> {
-  const token = process.env.CLAUDE_CODE_OAUTH_TOKEN
-  return token && !env.CLAUDE_CODE_OAUTH_TOKEN ? { CLAUDE_CODE_OAUTH_TOKEN: token, ...env } : env
+/** El prompt del turno: el del agente, o lo que pasó si se retoma una sesión que esperaba. */
+export function turnPrompt(
+  ctx: Pick<ProviderRunContext, 'prompt' | 'resume'>,
+  resumed: boolean,
+): string {
+  return resumed && ctx.resume
+    ? `[Continuación de tu turno]\n${ctx.resume.message}\n\nSeguí donde quedaste.`
+    : ctx.prompt
+}
+
+/** Las tools que cierran el turno como una salida (no `fail_turn`). */
+export function exitsOf(ctx: Pick<ProviderRunContext, 'tools'>): string[] {
+  return ctx.tools.filter((tool) => tool.terminal && !tool.failure).map((tool) => tool.name)
 }
 
 /** `<agente>-task-<n>`: lo que ve un humano en `tmux ls`. */
-function labelOf(ctx: ProviderRunContext): string {
+export function labelOf(ctx: Pick<ProviderRunContext, 'agentId' | 'ctx'>): string {
   const number = (ctx.ctx.event.payload as { number?: unknown } | undefined)?.number
   return typeof number === 'number' ? `${ctx.agentId}-task-${number}` : ctx.agentId
 }

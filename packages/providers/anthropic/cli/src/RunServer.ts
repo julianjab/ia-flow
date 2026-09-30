@@ -1,8 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { ChannelRouter, type RunChannel } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
-import { handleMcp } from './McpProtocol.js'
-import type { RunChannel } from './RunChannel.js'
 
 /** Dónde le habla una sesión del CLI al runner. */
 export interface RunEndpoints {
@@ -18,23 +17,25 @@ const MAX_BODY = 5 * 1024 * 1024
  * El servidor HTTP local de las sesiones del CLI: `POST /mcp/<token>` (las tools de la corrida) y
  * `POST /hooks/<token>/<Evento>` (los hooks de Claude Code). Escucha en `127.0.0.1`, en un puerto
  * efímero, y arranca con la primera corrida: no depende del servidor del runner, así que sirve
- * también cuando el runner corre un evento suelto. Un token por corrida — muere al cerrarla.
+ * también cuando el runner corre un evento suelto. Un token por corrida — muere al cerrarla. Qué
+ * contesta cada ruta lo decide el `ChannelRouter` (`@ia-flow/provider-shared`); esto es el
+ * transporte.
  */
 export class RunServer {
   readonly log = createLogger('provider-anthropic-cli')
   private server: Server | undefined
   private listening: Promise<string> | undefined
-  private readonly channels = new Map<string, RunChannel>()
+  private readonly router = new ChannelRouter()
 
   /** Registra la corrida y devuelve sus URLs. */
   async open(channel: RunChannel): Promise<RunEndpoints> {
     const base = await this.start()
-    this.channels.set(channel.token, channel)
+    this.router.open(channel)
     return { mcp: `${base}/mcp/${channel.token}`, hooks: `${base}/hooks/${channel.token}` }
   }
 
   close(channel: RunChannel): void {
-    this.channels.delete(channel.token)
+    this.router.close(channel)
   }
 
   /** Apaga el servidor (tests, o el runner al salir). */
@@ -65,22 +66,11 @@ export class RunServer {
 
   private async route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const [, kind, token, event] = (req.url ?? '').split('?')[0]?.split('/') ?? []
-    const channel = token ? this.channels.get(token) : undefined
     if (req.method !== 'POST') {
       send(res, 405, { error: 'sólo POST' })
       return
     }
-    if (kind === 'hooks') {
-      // Un hook nunca tiene que romper la sesión: sin corrida (ya cerró), no hay nada que decir.
-      const input = await readJson(req)
-      send(res, 200, channel ? channel.hook(event ?? '', asObject(input)) : {})
-      return
-    }
-    if (kind !== 'mcp' || !channel) {
-      send(res, 404, { error: 'corrida desconocida' })
-      return
-    }
-    const reply = await handleMcp(channel, await readJson(req))
+    const reply = await this.router.handle(kind ?? '', token ?? '', event, await readJson(req))
     if (reply.body === null) {
       res.writeHead(reply.status).end()
       return
@@ -103,8 +93,4 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   }
   const text = Buffer.concat(chunks).toString('utf-8')
   return text ? JSON.parse(text) : {}
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }

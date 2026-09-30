@@ -1,8 +1,8 @@
 {
-  "name": "@ia-flow/provider-anthropic-cli",
+  "name": "@ia-flow/provider-shared",
   "private": true,
   "version": "0.1.0",
-  "description": "Provider de agent-engine sobre el CLI `claude` (Claude Code): headless (`-p`) o en una sesión de tmux, con las tools del agente por MCP y el inbox y la traza por hooks",
+  "description": "Lo que comparten los providers: el canal de una corrida (las tools del agente por MCP, los hooks de Claude Code, la transcripción) y su ruteo HTTP, montable en cualquier servidor",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@ia-flow/agent-engine": "workspace:*",
-    "@ia-flow/provider-shared": "workspace:*",
     "@ia-flow/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "zod": "^4.3.6"
