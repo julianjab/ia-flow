@@ -96,7 +96,10 @@ async function startServing(
   registerProviders(cfg.providers, {
     cwd: (ctx) => mounted.services.session.dirFor(ctx),
     log,
-    onTrace: (record) => store.writeTrace(record),
+    onTrace: (record) => {
+      store.writeTrace(record)
+      telemetry.remote(record)
+    },
   })
   const inbox = mountInbox(mounted, cfg, store, { version: VERSION, log })
   // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
@@ -167,9 +170,17 @@ async function dispatchOne(
   cfg: RunnerConfig,
   args: RunnerArgs,
   telemetry: Telemetry,
+  store: ActivityStore,
   log: (line: string) => void,
 ): Promise<void> {
-  registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
+  registerProviders(cfg.providers, {
+    cwd: (ctx) => mounted.services.session.dirFor(ctx),
+    log,
+    onTrace: (record) => {
+      store.writeTrace(record)
+      telemetry.remote(record)
+    },
+  })
   try {
     if (args.replayPr) {
       const target = parseIssueTarget(args.replayPr)
@@ -235,7 +246,7 @@ async function main(): Promise<'serving' | 'done'> {
     return 'serving'
   }
   try {
-    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, started, log)
+    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, started, store, log)
     return 'done'
   } finally {
     mounted.stop()
