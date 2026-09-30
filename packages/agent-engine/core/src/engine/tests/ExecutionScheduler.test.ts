@@ -127,3 +127,23 @@ describe('ExecutionScheduler groups', () => {
     expect(scheduler.running).toBe(2)
   })
 })
+
+describe('ExecutionScheduler.waitingKeys', () => {
+  it('lists the tasks with a run waiting its turn, and drops them once they start', async () => {
+    const scheduler = new ExecutionScheduler(1)
+    const a = scheduler.enter('a')
+    const b = scheduler.enter('b')
+    const a2 = scheduler.enter('a')
+    await a.ready
+    expect(scheduler.waitingKeys().sort()).toEqual(['a', 'b'])
+
+    a.release()
+    await b.ready
+    expect(scheduler.waitingKeys()).toEqual(['a'])
+
+    b.release()
+    await a2.ready
+    expect(scheduler.waitingKeys()).toEqual([])
+    a2.release()
+  })
+})
