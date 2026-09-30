@@ -208,15 +208,35 @@ export class SqliteActivityReader {
     return row ? toEntry(row) : undefined
   }
 
-  /** Los eventos más nuevos (desde `since`, ISO, si se pide), del más nuevo al más viejo. */
-  recentEvents(opts: { since?: string; limit?: number } = {}): LoggedEvent[] {
+  /** Los eventos más nuevos (desde `since`, ISO, si se pide; sólo los de tipo `typePrefix…`, como
+   *  `github.` para lo que llegó por webhook), del más nuevo al más viejo. */
+  recentEvents(opts: { since?: string; limit?: number; typePrefix?: string } = {}): LoggedEvent[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM event_log WHERE ($since IS NULL OR occurred_at >= $since)
+           AND ($prefix IS NULL OR substr(type, 1, length($prefix)) = $prefix)
          ORDER BY occurred_at DESC, recorded_at DESC LIMIT $limit`,
       )
-      .all({ $since: opts.since ?? null, $limit: opts.limit ?? 100 }) as EventRow[]
+      .all({
+        $since: opts.since ?? null,
+        $prefix: opts.typePrefix ?? null,
+        $limit: opts.limit ?? 100,
+      }) as EventRow[]
     return rows.map(toEntry)
+  }
+
+  /** Cuántos eventos de tipo `typePrefix…` hay desde `since` (ISO), y cuándo llegó el último. */
+  countEvents(opts: { typePrefix: string; since?: string }): { count: number; lastAt?: string } {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n, MAX(occurred_at) AS last FROM event_log
+         WHERE substr(type, 1, length($prefix)) = $prefix AND ($since IS NULL OR occurred_at >= $since)`,
+      )
+      .get({ $prefix: opts.typePrefix, $since: opts.since ?? null }) as {
+      n: number
+      last: string | null
+    }
+    return { count: row.n, ...(row.last ? { lastAt: row.last } : {}) }
   }
 
   /** La traza de una ejecución en orden, desde después de `afterSeq` (para seguirla en vivo). */
