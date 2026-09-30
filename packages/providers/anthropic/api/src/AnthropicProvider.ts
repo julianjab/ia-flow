@@ -15,6 +15,11 @@ import {
   type AnthropicRetryInfo,
   type AnthropicSendOptions,
 } from './AnthropicClient.js'
+import {
+  PAUSE_TURN_CONTINUE,
+  pairOrphanedMcpToolUse,
+  withAssistantThenUser,
+} from './conversation.js'
 import { chatTrace, describeBlocks, logRejectedRequest, toolTrace } from './tracing.js'
 
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -284,56 +289,12 @@ function buildOutputConfig(
   return Object.keys(outputConfig).length > 0 ? outputConfig : undefined
 }
 
-/**
- * Anthropic resuelve un `mcp_tool_use` server-side y devuelve su `mcp_tool_result` en el MISMO
- * `content` — si ese par llega roto, reenviar la conversación tal cual la deja 400 PARA SIEMPRE
- * (la API rechaza cualquier `mcp_tool_use` sin su `mcp_tool_result`). Se saca el bloque huérfano
- * antes de cada request: el modelo pierde esa tool call puntual, no toda la conversación.
- */
-export interface StrippedMcpToolUse {
-  /** Índice del mensaje del asistente en `messages`. */
-  index: number
-  dropped: Array<{ id?: string; name?: string; server?: string }>
-  /** Cómo quedó el mensaje: si termina en `thinking`, la API lo va a rechazar igual. */
-  blocksAfter: string
-}
-
-function stripOrphanedMcpToolUse(
-  messages: AnthropicMessage[],
-  onStrip?: (stripped: StrippedMcpToolUse) => void,
-): AnthropicMessage[] {
-  let sanitized: AnthropicMessage[] | undefined
-  messages.forEach((msg, index) => {
-    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return
-    const content = msg.content as AnthropicContentBlock[]
-    const resultIds = new Set(
-      content.filter((b) => b.type === 'mcp_tool_result').map((b) => b.tool_use_id),
-    )
-    const orphaned = content.filter((b) => b.type === 'mcp_tool_use' && !resultIds.has(b.id))
-    if (orphaned.length === 0) return
-    const remaining = content.filter((b) => !orphaned.includes(b))
-    const nextContent: AnthropicContentBlock[] =
-      remaining.length > 0
-        ? remaining
-        : [{ type: 'text', text: '[mcp tool call descartada: nunca volvió un resultado]' }]
-    sanitized ??= [...messages]
-    sanitized[index] = { ...msg, content: nextContent }
-    onStrip?.({
-      index,
-      dropped: orphaned.map((b) => ({ id: b.id, name: b.name, server: b.server_name })),
-      blocksAfter: describeBlocks(nextContent),
-    })
-  })
-  return sanitized ?? messages
-}
-
 /** Vale la pena insistir si el agente no puede cerrar solo: más de una salida, o una única salida
  *  que pide datos. Con una sola `submit_done` sin campos requeridos, `Agent` la toma sin submit. */
 /**
  * Lo que llegó mientras el agente corre (`ctx.inbox`, `ifRunning: inject`) entra al turno del
- * usuario que está por mandarse — después de los `tool_result`, que la API exige primero. Sólo
- * si el último mensaje es del usuario: tras un `pause_turn` el último es del asistente (el turno
- * sigue), así que el inbox espera a la vuelta siguiente en vez de cortar esa continuación.
+ * usuario que está por mandarse — después de los `tool_result`, que la API exige primero (o
+ * del "Continuá." de un `pause_turn`). Sólo si el último mensaje es del usuario.
  */
 function withInjectedMessages(
   messages: AnthropicMessage[],
@@ -484,14 +445,13 @@ export class AnthropicProvider implements Provider {
           model,
           max_tokens: effectiveMaxTokens,
           system: systemBlocks,
-          messages: stripOrphanedMcpToolUse(messages, (stripped) =>
+          messages: pairOrphanedMcpToolUse(messages, (paired) =>
             this.log.warn(
-              `mcp_tool_use sin result descartado del mensaje ${stripped.index} (vuelta ${round})`,
+              `mcp_tool_use sin result en el mensaje ${paired.index}: pareado con un error (vuelta ${round})`,
               {
                 'ia.round': round,
-                'ia.message.index': stripped.index,
-                'ia.dropped': JSON.stringify(stripped.dropped),
-                'ia.message.blocks_after': stripped.blocksAfter,
+                'ia.message.index': paired.index,
+                'ia.paired': JSON.stringify(paired.paired),
               },
             ),
           ),
@@ -532,14 +492,11 @@ export class AnthropicProvider implements Provider {
             'ia.round': round,
             'ia.response.blocks': describeBlocks(data.content),
           })
-          messages = [
-            ...messages,
-            { role: 'assistant', content: data.content },
-            {
-              role: 'user',
-              content: `Para terminar tu turno tenés que llamar a una de estas tools: ${terminalTools.map((tool) => tool.name).join(', ')}.`,
-            },
-          ]
+          messages = withAssistantThenUser(
+            messages,
+            data.content,
+            `Para terminar tu turno tenés que llamar a una de estas tools: ${terminalTools.map((tool) => tool.name).join(', ')}.`,
+          )
           continue
         }
         const text = data.content.find((block) => block.type === 'text')?.text ?? ''
@@ -550,8 +507,9 @@ export class AnthropicProvider implements Provider {
         // El modelo se pausó a MITAD de turno — no es una pausa entre turnos (eso sería
         // `end_turn`/`tool_use` normal), es el mecanismo que usa la API para runs largos con
         // tools server-side (MCP remoto, extended thinking): el turno sigue, así que se
-        // reenvía la conversación con el contenido parcial agregado, sin turno de usuario de
-        // por medio, y el modelo continúa desde donde quedó. Tiene su propio tope
+        // reenvía la conversación con el contenido parcial agregado (sus llamadas MCP colgadas
+        // pareadas con un error, sin thinking al final) y un "Continuá.", y el modelo sigue
+        // desde donde quedó. Tiene su propio tope
         // (`maxPauseTurnRetries`): una pausa no es una vuelta de tools, pero tampoco puede
         // repetirse sin fin.
         if (pauses >= cfg.maxPauseTurnRetries) {
@@ -565,7 +523,9 @@ export class AnthropicProvider implements Provider {
           'ia.pauses': pauses,
           'ia.response.blocks': describeBlocks(data.content),
         })
-        messages = [...messages, { role: 'assistant', content: data.content }]
+        // Con un "Continuá." explícito detrás: un asistente al final es un prefill, y con thinking
+        // la API lo rechaza (ver conversation.ts).
+        messages = withAssistantThenUser(messages, data.content, PAUSE_TURN_CONTINUE)
         continue
       }
 

@@ -21,6 +21,9 @@ src/
 ├── AnthropicProvider.ts  clase AnthropicProvider (implementa Provider) — compone un
 │                         AnthropicClient y le agrega el loop de tool_use, MCP remoto,
 │                         thinking/task budgets, checkpointing.
+├── conversation.ts       cómo se arma lo que se reenvía: llamadas MCP colgadas pareadas con
+│                         un error, nunca `thinking` al final, siempre termina en el usuario
+│                         (tras un `pause_turn`, "Continuá."). Cada regla salió de un 400 real.
 ├── tracing.ts            qué deja el provider en la traza — opciones de @traced para `send`
 │                         (`chat <model>`) y `executeTool` (`execute_tool <name>`).
 ├── sse.ts                reensamblado de streaming SSE → misma forma que un response
