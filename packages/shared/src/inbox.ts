@@ -277,6 +277,9 @@ export type AssistantMessage = z.infer<typeof AssistantMessageSchema>
 export const AssistantRequestSchema = z.object({
   scope: AssistantScopeSchema,
   messages: z.array(AssistantMessageSchema).min(1),
+  /** La conversación guardada a la que sigue esta pregunta. Se guarda sólo con login de GitHub
+   *  (`x-github-token`): sin él, el chat funciona pero no queda en ningún lado. */
+  conversation_id: z.string().optional(),
 })
 export type AssistantRequest = z.infer<typeof AssistantRequestSchema>
 
@@ -299,6 +302,8 @@ export const AssistantStreamEventSchema = z.discriminatedUnion('type', [
   /** Las tareas de las que habla la respuesta, como están en la bandeja: la web las muestra como
    *  cards que abren la tarea. Llega después del texto, antes de `done`. */
   z.object({ type: z.literal('tasks'), items: z.array(InboxItemSchema) }),
+  /** La conversación donde quedó guardado el intercambio (sólo con login). Llega antes de `done`. */
+  z.object({ type: z.literal('conversation'), id: z.string() }),
   z.object({ type: z.literal('done'), text: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ])
@@ -311,3 +316,31 @@ export const RunnerStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('event'), entry: EventLogEntrySchema }),
 ])
 export type RunnerStreamEvent = z.infer<typeof RunnerStreamEventSchema>
+
+/** Una conversación guardada del asistente, en la lista: de quién la tuvo (su login de GitHub). */
+export const AssistantConversationSummarySchema = z.object({
+  id: z.string(),
+  scope: AssistantScopeSchema,
+  /** La primera pregunta, recortada. */
+  title: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  messages: z.number(),
+})
+export type AssistantConversationSummary = z.infer<typeof AssistantConversationSummarySchema>
+
+/** Un mensaje guardado. Las tareas vienen como están AHORA en la bandeja, no como estaban. */
+export const AssistantStoredMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string(),
+  created_at: z.string(),
+  proposals: z.array(AssistantProposalSchema),
+  tasks: z.array(InboxItemSchema),
+})
+export type AssistantStoredMessage = z.infer<typeof AssistantStoredMessageSchema>
+
+export const AssistantConversationSchema = AssistantConversationSummarySchema.extend({
+  /** En orden: de la primera pregunta a la última respuesta. */
+  thread: z.array(AssistantStoredMessageSchema),
+})
+export type AssistantConversation = z.infer<typeof AssistantConversationSchema>
