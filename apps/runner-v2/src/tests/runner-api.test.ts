@@ -71,19 +71,18 @@ const tool = (ctx: Parameters<Provider['run']>[0], name: string) => {
   return found
 }
 
-/** El provider del agente `assistant`: streamea texto, propone una acción con su tool y cierra
- *  con `submit_done`, como pide el contrato de la capacidad. */
+/** El provider del agente `assistant`: narra (no se muestra), propone una acción con su tool y
+ *  cierra con la respuesta en `submit_done`, como pide el contrato de la capacidad. */
 const fakeProvider: Provider = {
   id: 'fake',
   run: async (ctx) => {
-    ctx.onText?.('Hola. ')
+    ctx.onText?.('Voy a mirar la tarea. ')
     await tool(ctx, 'assistant_propose_action').handler({
       ref: 'o/r#1',
       action: 'merge',
       reason: 'el reviewer aprobó',
     })
-    ctx.onText?.('Te propuse mergear.')
-    await tool(ctx, 'submit_done').handler({ result: {} })
+    await tool(ctx, 'submit_done').handler({ result: { answer: 'Te propuse mergear.' } })
     return { outcome: 'success' }
   },
 }
@@ -242,7 +241,7 @@ describe('runner API', () => {
     expect(github.calls.some((request) => request.method === 'PUT')).toBe(false)
   })
 
-  it('streams the assistant: text, the proposal, and the end', async () => {
+  it('streams the assistant: the proposal, then the answer from submit_done', async () => {
     const { call } = await start()
     const res = await call('/api/assistant', {
       method: 'POST',
@@ -256,8 +255,9 @@ describe('runner API', () => {
       .split('\n')
       .filter((line) => line.startsWith('data: '))
       .map((line) => JSON.parse(line.slice(6)))
-    expect(events.map((event) => event.type)).toEqual(['text', 'proposal', 'text', 'done'])
-    expect(events[1].proposal).toMatchObject({
+    expect(events.map((event) => event.type)).toEqual(['proposal', 'text', 'done'])
+    expect(events.at(-1)).toEqual({ type: 'done', text: 'Te propuse mergear.' })
+    expect(events[0].proposal).toMatchObject({
       ref: 'o/r#1',
       action: 'merge',
       label: 'Mergear el PR',
@@ -279,7 +279,7 @@ describe('runner API', () => {
         .catch((err: Error) => {
           refused = err.message
         })
-      await tool(ctx, 'submit_done').handler({ result: {} })
+      await tool(ctx, 'submit_done').handler({ result: { answer: 'No puedo: es otra tarea.' } })
       return { outcome: 'success' }
     }
     const res = await call('/api/assistant', {
@@ -291,6 +291,30 @@ describe('runner API', () => {
     })
     expect(await res.text()).toContain('"type":"done"')
     expect(refused).toMatch(/Fuera de contexto/)
+    fakeProvider.run = defaultRun
+  })
+
+  it('a submit_done without an answer is refused, so the model has to answer', async () => {
+    const { call } = await start()
+    let refused = ''
+    fakeProvider.run = async (ctx) => {
+      await Promise.resolve()
+        .then(() => tool(ctx, 'submit_done').handler({ result: {} }))
+        .catch((err: Error) => {
+          refused = err.message
+        })
+      await tool(ctx, 'submit_done').handler({ result: { answer: 'Nada raro.' } })
+      return { outcome: 'success' }
+    }
+    const res = await call('/api/assistant', {
+      method: 'POST',
+      body: JSON.stringify({
+        scope: { kind: 'task', ref: 'o/r#1' },
+        messages: [{ role: 'user', content: 'x' }],
+      }),
+    })
+    expect(await res.text()).toContain('"text":"Nada raro."')
+    expect(refused).toMatch(/answer/)
     fakeProvider.run = defaultRun
   })
 
