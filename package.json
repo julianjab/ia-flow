@@ -21,7 +21,7 @@
     "start:web": "bun run --cwd apps/web build && bun run --cwd apps/web preview",
     "runner": "bun run --cwd apps/runner-v2 start",
     "runner:serve": "bun run --cwd apps/runner-v2 serve",
-    "runner:host": "bun run --cwd apps/runner-v2 host",
+    "runner:host": "bun run --cwd apps/runner-v2 host:serve",
     "setup:github": "bun run scripts/setup-github-project.ts",
     "build": "bun run --cwd packages/shared build && bun run --cwd apps/web build",
     "install:all": "bun install",

@@ -10,7 +10,7 @@
     "serve": "bun run src/main.ts --serve",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
-    "host": "bun run src/main.ts --host",
+    "host": "bun --env-file=.env.host run src/main.ts --host",
     "host:serve": "bun --env-file=.env.host run src/main.ts --host",
     "otel": "docker compose -f otel/compose.yaml up -d",
     "otel:dashboards": "python3 otel/grafana/gen-issue-dashboard.py otel/grafana/dashboards/ia-issue.json && python3 otel/grafana/gen-agents-tools-dashboard.py otel/grafana/dashboards/ia-agents-tools.json && curl -s -u admin:admin -X POST http://localhost:3000/api/admin/provisioning/dashboards/reload"
