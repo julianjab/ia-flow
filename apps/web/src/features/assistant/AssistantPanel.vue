@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
+import { useIsMobile } from '@/composables/useIsMobile';
 import AssistantHistory from '@/features/assistant/AssistantHistory.vue';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
@@ -17,6 +18,7 @@ const chat = useAssistantChatStore();
 const ui = useAssistantStore();
 const session = useGithubSessionStore();
 const taskFocus = useTaskFocusStore();
+const { isMobile } = useIsMobile();
 
 const end = ref<HTMLElement | null>(null);
 
@@ -43,11 +45,12 @@ watch(
   { deep: true },
 );
 
-// Una tarea de la respuesta: se cierra el asistente y la bandeja la abre (si se
-// está en otra pantalla, `AppShell` vuelve a la bandeja). La conversación queda:
-// vive en el store para cuando se vuelva a abrir.
+// Una tarea de la respuesta: la bandeja la abre (si se está en otra pantalla,
+// `AppShell` vuelve a la bandeja). En desktop el chat flota al costado y queda
+// abierto; en un teléfono tapa la bandeja, así que se cierra (la conversación
+// queda en el store).
 function openTask(ref: string) {
-  ui.close();
+  if (isMobile.value) ui.close();
   taskFocus.focus(ref);
 }
 
@@ -87,14 +90,16 @@ function run(id: number) {
 
         <div v-else-if="turn.kind === 'assistant'" class="ap__msg ap__msg--assistant">
           <p v-if="turn.activity" class="ap__activity mono">· {{ turn.activity }}</p>
-          <p v-if="turn.text" class="ap__text">
+          <p v-if="turn.text" class="ap__bubble ap__text">
             <template v-for="(seg, i) in parseInline(turn.text)" :key="i">
               <code v-if="seg.kind === 'code'" class="ap__code">{{ seg.text }}</code>
               <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
               <template v-else>{{ seg.text }}</template>
             </template>
           </p>
-          <p v-else-if="turn.streaming" class="ap__thinking">Pensando…</p>
+          <p v-else-if="turn.streaming" class="ap__bubble ap__typing" aria-label="Pensando…">
+            <span /><span /><span />
+          </p>
         </div>
 
         <AssistantProposalCard
@@ -152,13 +157,38 @@ function run(id: number) {
 
 .ap__thread { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.5rem 1rem; }
 .ap__intro { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); line-height: 1.5; }
-.ap__msg { margin: 0; max-width: 92%; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-body-sm); line-height: 1.5; }
-.ap__msg--user { align-self: flex-end; padding: 0.4rem 0.7rem; border-radius: var(--radius); background: var(--panel-hi); color: var(--fg); white-space: pre-wrap; }
-.ap__msg--assistant { align-self: flex-start; }
+.ap__msg { margin: 0; max-width: 88%; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-body-sm); line-height: 1.5; }
+/* Burbujas de chat: el radio es el del sistema ×3 y la esquina de donde "sale" el
+   mensaje queda en `--radius-sm`. Quien pregunta, a la derecha; el asistente, a
+   la izquierda, con el borde de lo que escribió el modelo (R16: `--ai` sólo como marca). */
+.ap__msg--user {
+  align-self: flex-end;
+  padding: 0.45rem 0.75rem;
+  border-radius: calc(var(--radius) * 3) calc(var(--radius) * 3) var(--radius-sm) calc(var(--radius) * 3);
+  background: var(--panel-hi);
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+.ap__msg--assistant { display: flex; flex-direction: column; gap: 0.2rem; align-self: flex-start; }
 .ap__msg--assistant p { margin: 0; }
-.ap__text { color: var(--fg-mute); white-space: pre-wrap; }
+.ap__bubble {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--ai);
+  border-radius: calc(var(--radius) * 3) calc(var(--radius) * 3) calc(var(--radius) * 3) var(--radius-sm);
+  background: var(--panel-alt);
+}
+.ap__text { color: var(--fg); white-space: pre-wrap; }
 .ap__code { padding: 0 0.25rem; border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--fg); font-family: var(--font-mono); font-size: 0.92em; }
-.ap__activity { color: var(--fg-dim); font-size: var(--fs-micro); }
-.ap__thinking { color: var(--fg-dim); animation: blink 1.6s ease-in-out infinite; }
+.ap__activity { padding-left: 0.25rem; color: var(--fg-dim); font-size: var(--fs-micro); }
+/* «Escribiendo…»: tres puntos, en lugar de un texto que parpadea. */
+.ap__typing { display: inline-flex; gap: 0.3rem; align-self: flex-start; padding: 0.7rem 0.85rem; }
+.ap__typing span { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--fg-dim); animation: ap-dot 1.2s ease-in-out infinite; }
+.ap__typing span:nth-child(2) { animation-delay: 0.15s; }
+.ap__typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ap-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-0.15rem); }
+}
 .ap__note { margin: 0; color: var(--danger); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 </style>
