@@ -131,6 +131,8 @@ export function mountInbox(
   const config = () =>
     configSummary({
       projects: specs.map((spec) => ({ id: spec.projectId, board: spec.board })),
+      providers: cfg.providers,
+      mcp: cfg.mcp,
       pipelines: () =>
         mounted.sources.flatMap(({ id, source }) =>
           source.list().map((pipeline) => ({ pipeline, sourceId: id })),

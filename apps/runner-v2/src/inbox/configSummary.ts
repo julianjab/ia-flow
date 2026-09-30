@@ -8,6 +8,10 @@ import type { ConfigSummary, InboxProject } from '@ia-flow/shared'
 
 export interface ConfigSource {
   projects: InboxProject[]
+  /** `providers:` de runner.yaml: de cada uno sale sólo lo que `providerSummary` deja pasar. */
+  providers?: Record<string, Record<string, unknown>>
+  /** `mcp:` de runner.yaml: de cada uno, su id y el host de su URL. */
+  mcp?: Array<{ id: string; config: { url?: string } }>
   /** Cada pipeline con el id de su fuente (la global `runner` o un proyecto). */
   pipelines(): Array<{ pipeline: Pipeline; sourceId: string }>
   routesOf(pipeline: Pipeline, agentId: string): ResolvedRoutes
@@ -29,6 +33,30 @@ function routeText(routes: ResolvedRoutes): Record<string, string> {
   }
   if (routes.onError) out.onError = JSON.stringify(routes.onError.route)
   return out
+}
+
+/** Un provider sin nada que pueda ser un secreto: una lista de claves permitidas, no una de
+ *  prohibidas (un campo nuevo con un token no se cuela solo). Sin `type`, el de Anthropic. */
+function providerSummary(id: string, config: Record<string, unknown>) {
+  const text = (key: string) =>
+    typeof config[key] === 'string' ? (config[key] as string) : undefined
+  const max = config.maxConcurrent
+  return {
+    id,
+    type: text('type') ?? 'anthropic-api',
+    ...(text('mode') ? { mode: text('mode') } : {}),
+    ...(text('provider') ? { provider: text('provider') } : {}),
+    ...(typeof max === 'number' ? { max_concurrent: max } : {}),
+  }
+}
+
+/** El host de la URL de un MCP; sin URL armable (una variable sin resolver), que viene del env. */
+function mcpHost(url: string | undefined): string {
+  try {
+    return url ? new URL(url).host : '—'
+  } catch {
+    return 'del ambiente'
+  }
 }
 
 export function configSummary(source: ConfigSource): ConfigSummary {
@@ -55,5 +83,13 @@ export function configSummary(source: ConfigSource): ConfigSummary {
       actions: steps.filter((step) => !isAgent(step)).map(stepId),
     }
   })
-  return { projects: source.projects, pipelines, agents: [...agents.values()] }
+  return {
+    projects: source.projects,
+    pipelines,
+    agents: [...agents.values()],
+    providers: Object.entries(source.providers ?? {}).map(([id, config]) =>
+      providerSummary(id, config),
+    ),
+    mcp: (source.mcp ?? []).map((entry) => ({ id: entry.id, host: mcpHost(entry.config.url) })),
+  }
 }
