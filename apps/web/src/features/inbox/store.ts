@@ -118,6 +118,16 @@ export const useInboxStore = defineStore('inbox', () => {
     void loadDetail(ref)
   }
 
+  /** Abre una tarea pedida desde afuera (el asistente): sin filtros que la escondan. */
+  function focus(ref: string): void {
+    groupFilter.value = null
+    const item = inbox.value?.items.find((i) => i.ref === ref)
+    if (item && project.value && item.project_id !== project.value) project.value = null
+    if (openRef.value === ref) return
+    openRef.value = ref
+    void loadDetail(ref)
+  }
+
   function setGroupFilter(group: InboxGroup | null): void {
     groupFilter.value = groupFilter.value === group ? null : group
   }
@@ -253,6 +263,7 @@ export const useInboxStore = defineStore('inbox', () => {
     refresh,
     loadDetail,
     toggle,
+    focus,
     setGroupFilter,
     runAction,
     clearAction,

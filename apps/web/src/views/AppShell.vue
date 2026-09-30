@@ -1,14 +1,27 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { RouterLink, RouterView } from 'vue-router';
+import { computed, watch } from 'vue';
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import { currentBaseUrl } from '@/features/servers/selection';
 import { useGithubSessionStore } from '@/stores/githubSession';
+import { useTaskFocusStore } from '@/stores/taskFocus';
 
 // El chrome: UNA barra de identidad (R9) — qué app, contra qué server, quién sos
 // en GitHub — y tres destinos. Bajo 768px la navegación baja a una segunda fila
 // de la misma barra; arriba comparten fila.
 
 const session = useGithubSessionStore();
+
+// Una tarea pedida desde afuera de la bandeja (una card del asistente) se abre en
+// la bandeja: si se está en otra pantalla, se vuelve. La bandeja consume el pedido.
+const taskFocus = useTaskFocusStore();
+const route = useRoute();
+const router = useRouter();
+watch(
+  () => taskFocus.request,
+  (ref) => {
+    if (ref && route.name !== 'inbox') void router.push({ name: 'inbox' });
+  },
+);
 
 const host = computed(() => {
   try {

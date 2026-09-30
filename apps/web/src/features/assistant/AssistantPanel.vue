@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
+import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
 import { parseInline } from '@/features/assistant/format';
 import { sameScope, useAssistantChatStore } from '@/features/assistant/store';
 import { useAssistantStore } from '@/stores/assistant';
 import { useGithubSessionStore } from '@/stores/githubSession';
+import { useTaskFocusStore } from '@/stores/taskFocus';
 
 // El cuerpo del asistente: chips de contexto (General / Proyecto / Tarea), la
 // conversación y las sugerencias del contexto. El servidor es stateless; los
@@ -13,6 +15,7 @@ import { useGithubSessionStore } from '@/stores/githubSession';
 const chat = useAssistantChatStore();
 const ui = useAssistantStore();
 const session = useGithubSessionStore();
+const taskFocus = useTaskFocusStore();
 
 const end = ref<HTMLElement | null>(null);
 
@@ -38,6 +41,14 @@ watch(
   },
   { deep: true },
 );
+
+// Una tarea de la respuesta: se cierra el asistente y la bandeja la abre (si se
+// está en otra pantalla, `AppShell` vuelve a la bandeja). La conversación queda:
+// vive en el store para cuando se vuelva a abrir.
+function openTask(ref: string) {
+  ui.close();
+  taskFocus.focus(ref);
+}
 
 function run(id: number) {
   const github = session.github;
@@ -92,6 +103,8 @@ function run(id: number) {
           @run="run(turn.id)"
           @dismiss="chat.dismissProposal(turn.id)"
         />
+
+        <AssistantTaskList v-else-if="turn.kind === 'tasks'" :items="turn.items" @open="openTask" />
 
         <p v-else class="ap__note" role="alert">✕ {{ turn.text }}</p>
       </template>

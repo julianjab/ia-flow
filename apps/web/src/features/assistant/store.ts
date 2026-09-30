@@ -3,6 +3,7 @@ import type {
   AssistantProposal,
   AssistantScope,
   AssistantStreamEvent,
+  InboxItem,
   InboxProject,
 } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
@@ -25,6 +26,7 @@ export type Turn =
       message?: string
       error?: string
     }
+  | { id: number; kind: 'tasks'; items: InboxItem[] }
   | { id: number; kind: 'note'; text: string }
 
 /** Un turno sin su `id` (lo asigna el store); distribuye sobre la unión. */
@@ -165,6 +167,9 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
       case 'proposal':
         reply.proposed = true
         if (gen === generation) push({ kind: 'proposal', proposal: event.proposal, status: 'open' })
+        break
+      case 'tasks':
+        if (gen === generation && event.items.length) push({ kind: 'tasks', items: event.items })
         break
       case 'done':
         if (!reply.answer && event.text) reply.answer = event.text

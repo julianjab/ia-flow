@@ -20,7 +20,7 @@ const detailId = computed(() => `detail-${props.item.ref}`);
 </script>
 
 <template>
-  <article class="card" :data-group="item.group" :data-open="open">
+  <article :id="`card-${item.ref}`" class="card" :data-group="item.group" :data-open="open">
     <button
       type="button"
       class="card__row"

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue';
 import InboxSection from '@/features/inbox/InboxSection.vue';
 import InboxSummary from '@/features/inbox/InboxSummary.vue';
 import InboxToolbar from '@/features/inbox/InboxToolbar.vue';
 import RulesLegend from '@/features/inbox/RulesLegend.vue';
 import { useInboxStore } from '@/features/inbox/store';
+import { useTaskFocusStore } from '@/stores/taskFocus';
 
 // La bandeja completa: resumen que filtra, los cuatro grupos en orden de
 // urgencia (te necesita → falló → corriendo → en cola), estados de carga /
@@ -15,6 +16,20 @@ const store = useInboxStore();
 
 onMounted(() => store.start());
 onBeforeUnmount(() => store.stop());
+
+// Una tarea pedida desde afuera (una card del asistente): se abre y se trae a la vista.
+const focusRequest = useTaskFocusStore();
+watch(
+  () => focusRequest.request,
+  async () => {
+    const ref = focusRequest.consume();
+    if (!ref) return;
+    store.focus(ref);
+    await nextTick();
+    document.getElementById(`card-${ref}`)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
