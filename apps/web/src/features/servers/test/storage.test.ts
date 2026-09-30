@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadServers, parseServers, saveServers } from '../storage'
+import { loadServers, parseServers, saveGithubFor, saveServers } from '../storage'
 
 /** Simula el puente que expone la app de escritorio. */
 function installBridge(initial: unknown = null) {
@@ -173,5 +173,37 @@ describe('parseServers', () => {
         { baseUrl: 'http://a:1', token: 'segundo' },
       ]),
     ).toHaveLength(1)
+  })
+
+  it('conserva el login de GitHub y descarta uno roto', () => {
+    expect(
+      parseServers([
+        { baseUrl: 'http://a:1', github: { token: 't', login: 'ada' } },
+        { baseUrl: 'http://b:1', github: { token: 't' } },
+      ]),
+    ).toEqual([
+      { baseUrl: 'http://a:1', github: { token: 't', login: 'ada' } },
+      { baseUrl: 'http://b:1' },
+    ])
+  })
+
+  it('saveGithubFor guarda y borra el login de UN server sin tocar los demás', async () => {
+    await saveServers([{ baseUrl: 'http://a:1', token: 'x' }, { baseUrl: 'http://b:1' }])
+
+    await saveGithubFor('http://a:1', { token: 't', login: 'ada' })
+    expect(await loadServers()).toEqual([
+      { baseUrl: 'http://a:1', token: 'x', github: { token: 't', login: 'ada' } },
+      { baseUrl: 'http://b:1' },
+    ])
+
+    await saveGithubFor('http://a:1', null)
+    expect(await loadServers()).toEqual([
+      { baseUrl: 'http://a:1', token: 'x' },
+      { baseUrl: 'http://b:1' },
+    ])
+
+    // Un server que no está declarado no tiene dónde colgar el login.
+    await saveGithubFor('http://zzz:1', { token: 't', login: 'ada' })
+    expect(await loadServers()).toHaveLength(2)
   })
 })

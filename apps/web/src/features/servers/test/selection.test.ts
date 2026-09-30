@@ -32,41 +32,47 @@ describe('selección de server', () => {
     expect(axios.defaults.baseURL).toBe('http://localhost:3020')
   })
 
-  it('el WS apunta al server elegido, no al que sirve la página', async () => {
-    const { selectServer, wsOrigin } = await import('../selection')
-    selectServer('http://localhost:3020')
-    expect(wsOrigin()).toBe('localhost:3020')
-  })
-
-  it('sin elección, el WS sigue saliendo por el host de la página', async () => {
-    const { restoreSelectedServer, wsOrigin } = await import('../selection')
-    restoreSelectedServer()
-    expect(wsOrigin()).toBe(window.location.host)
-  })
-
   it('el tipo del elegido sobrevive al reload', async () => {
-    // Es lo que decide qué navegación dibuja el shell, y se decide ANTES de
-    // que ninguna request haya vuelto. Re-derivarlo costaría una sonda contra
-    // un proceso que puede estar caído — y un agent-host que no contesta no
-    // deja de ser un agent-host.
+    // Se decide ANTES de que ninguna request haya vuelto. Re-derivarlo costaría
+    // una sonda contra un proceso que puede estar caído.
     const first = await import('../selection')
-    first.selectServer('http://localhost:3012', 'tok', 'agent-host')
+    first.selectServer('http://localhost:3012', 'tok', 'unknown')
 
     vi.resetModules()
     const second = await import('../selection')
     second.restoreSelectedServer()
 
-    expect(second.getSelectedKind()).toBe('agent-host')
+    expect(second.getSelectedKind()).toBe('unknown')
   })
 
-  it('una elección guardada por una versión sin tipo cuenta como server', async () => {
-    // Es lo que había antes de que existiera el campo: sin él, un reload
-    // después de actualizar habría dejado al operador sin menú.
+  it('una elección guardada sin tipo cuenta como runner', async () => {
     localStorage.setItem('ia-flow:servers:selected', 'http://localhost:3001')
 
     const { restoreSelectedServer, getSelectedKind } = await import('../selection')
     restoreSelectedServer()
 
-    expect(getSelectedKind()).toBe('server')
+    expect(getSelectedKind()).toBe('runner')
+  })
+
+  it('el login de GitHub del elegido sobrevive al reload', async () => {
+    const first = await import('../selection')
+    first.selectServer('http://localhost:3020', 'tok', 'runner', { token: 'gho_x', login: 'ada' })
+
+    vi.resetModules()
+    const second = await import('../selection')
+    second.restoreSelectedServer()
+
+    expect(second.getSelectedGithub()).toEqual({ token: 'gho_x', login: 'ada' })
+    second.setSelectedGithub(null)
+    expect(second.getSelectedGithub()).toBeNull()
+    expect(localStorage.getItem('ia-flow:servers:selected-github')).toBeNull()
+  })
+
+  it('un login roto en el storage es "sin sesión", no una excepción', async () => {
+    localStorage.setItem('ia-flow:servers:selected', 'http://localhost:3020')
+    localStorage.setItem('ia-flow:servers:selected-github', '{"token":1}')
+    const { restoreSelectedServer, getSelectedGithub } = await import('../selection')
+    restoreSelectedServer()
+    expect(getSelectedGithub()).toBeNull()
   })
 })

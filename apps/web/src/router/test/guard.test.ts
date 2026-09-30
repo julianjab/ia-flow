@@ -1,70 +1,56 @@
-// El guard que evita montar pantallas de server contra un agent-host.
+// El router mínimo: `/` bandeja, `/webhooks`, `/servers`; sin server elegido, todo va a /servers.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const getSelectedKind = vi.fn<() => 'server' | 'agent-host' | 'unknown'>()
+const hasChosenServer = vi.fn<() => boolean>()
 
 vi.mock('@/features/servers/selection', () => ({
-  getSelectedKind: () => getSelectedKind(),
-  getSelectedServer: () => 'http://localhost:3012',
+  hasChosenServer: () => hasChosenServer(),
 }))
 
 // Los componentes de las rutas no importan acá: el guard decide por path.
-vi.mock('@/views/AppShell.vue', () => ({ default: { template: '<div/>' } }))
-vi.mock('@/views/DashboardView.vue', () => ({ default: { template: '<div/>' } }))
-vi.mock('@/views/GeneralView.vue', () => ({ default: { template: '<div/>' } }))
-vi.mock('@/views/ProjectDetailView.vue', () => ({ default: { template: '<div/>' } }))
-vi.mock('@/views/ProjectsListView.vue', () => ({ default: { template: '<div/>' } }))
+vi.mock('@/views/AppShell.vue', () => ({ default: { template: '<div><router-view/></div>' } }))
+vi.mock('@/views/InboxView.vue', () => ({ default: { template: '<div/>' } }))
+vi.mock('@/views/WebhooksView.vue', () => ({ default: { template: '<div/>' } }))
 vi.mock('@/views/ServerPickerView.vue', () => ({ default: { template: '<div/>' } }))
-vi.mock('@/features/agent-host/AgentHostView.vue', () => ({
-  default: { template: '<div/>' },
-}))
-vi.mock('@/features/agent-host/AgentHostLogsView.vue', () => ({
-  default: { template: '<div/>' },
-}))
 
-async function go(to: string): Promise<string> {
+async function go(to: string): Promise<{ path: string; name: unknown }> {
   vi.resetModules()
   const { default: router } = await import('../index')
   await router.push(to).catch(() => {})
   await router.isReady()
-  return router.currentRoute.value.path
+  return { path: router.currentRoute.value.path, name: router.currentRoute.value.name }
 }
 
-describe('guard por tipo de proceso', () => {
+describe('rutas y guard de server elegido', () => {
   beforeEach(() => {
-    getSelectedKind.mockReset()
+    hasChosenServer.mockReset()
   })
 
-  it('con un agent-host elegido, un bookmark a /dashboard no monta el dashboard', async () => {
-    // El menú ya no lo ofrece, pero un bookmark o un history.back() sí llegan
-    // acá — y DashboardView dispara /api/* contra un proceso que no las tiene.
-    getSelectedKind.mockReturnValue('agent-host')
-
-    expect(await go('/dashboard')).toBe('/agent-host/provider')
+  it('con un server elegido la raíz es la bandeja', async () => {
+    hasChosenServer.mockReturnValue(true)
+    expect(await go('/')).toEqual({ path: '/', name: 'inbox' })
   })
 
-  it('tampoco monta el detalle de un proyecto', async () => {
-    getSelectedKind.mockReturnValue('agent-host')
+  it('/webhooks se monta', async () => {
+    hasChosenServer.mockReturnValue(true)
+    expect(await go('/webhooks')).toEqual({ path: '/webhooks', name: 'webhooks' })
+  })
 
-    expect(await go('/projects/abc/overview')).toBe('/agent-host/provider')
+  it('sin server elegido, la bandeja y los webhooks mandan a /servers', async () => {
+    hasChosenServer.mockReturnValue(false)
+    expect((await go('/')).path).toBe('/servers')
+    expect((await go('/webhooks')).path).toBe('/servers')
   })
 
   it('/servers queda afuera del corte — es de donde se sale', async () => {
-    getSelectedKind.mockReturnValue('agent-host')
-
-    expect(await go('/servers')).toBe('/servers')
+    hasChosenServer.mockReturnValue(false)
+    expect(await go('/servers')).toEqual({ path: '/servers', name: 'servers' })
   })
 
-  it('los logs del agent-host sí se montan', async () => {
-    getSelectedKind.mockReturnValue('agent-host')
-
-    expect(await go('/agent-host/logs')).toBe('/agent-host/logs')
-  })
-
-  it('con un server elegido no cambia nada', async () => {
-    getSelectedKind.mockReturnValue('server')
-
-    expect(await go('/dashboard')).toBe('/dashboard')
+  it('una ruta de la web vieja (dashboard, projects…) cae en la bandeja', async () => {
+    hasChosenServer.mockReturnValue(true)
+    expect((await go('/dashboard')).path).toBe('/')
+    expect((await go('/projects/abc/overview')).path).toBe('/')
   })
 })

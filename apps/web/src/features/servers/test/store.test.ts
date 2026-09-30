@@ -12,13 +12,13 @@ vi.mock('@/features/servers/api', async () => {
 function reply(url: string, over: Partial<ProbedServer> = {}): ProbedServer {
   return {
     baseUrl: url,
-    kind: 'server',
+    kind: 'runner',
     reachable: true,
     needsToken: false,
     latencyMs: 1,
     projects: [],
-    remoteProviders: [],
-    agentHost: null,
+    deviceFlow: true,
+    assistant: true,
     ...over,
   }
 }
@@ -124,5 +124,18 @@ describe('useServersStore', () => {
 
     expect(store.servers).toHaveLength(0)
     expect(store.saved).toHaveLength(0)
+  })
+
+  it('guarda el login de GitHub junto al server y lo devuelve por githubFor', async () => {
+    const { useServersStore } = await import('../store')
+    const store = useServersStore()
+    await store.init()
+    await store.addServer('localhost:3030')
+
+    await store.updateServer('http://localhost:3030', { github: { token: 't', login: 'ada' } })
+    expect(store.githubFor('http://localhost:3030')).toEqual({ token: 't', login: 'ada' })
+
+    await store.updateServer('http://localhost:3030', { github: undefined })
+    expect(store.githubFor('http://localhost:3030')).toBeUndefined()
   })
 })

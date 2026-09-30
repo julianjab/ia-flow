@@ -38,8 +38,8 @@ function webhookStatus(
   }
 }
 
-async function mountCard(secretConfigured = true) {
-  const wrapper = mount(WebhookStatusCard, { props: { secretConfigured } })
+async function mountCard() {
+  const wrapper = mount(WebhookStatusCard)
   await flushPromises()
   return wrapper
 }
@@ -56,7 +56,13 @@ beforeEach(() => {
 
 describe('WebhookStatusCard', () => {
   it('warns that the endpoint answers 503 while the secret is missing', async () => {
-    const wrapper = await mountCard(false)
+    getWebhookStatusMock.mockResolvedValue({
+      defaultMode: 'webhook',
+      secretConfigured: false,
+      endpoint: '/api/webhooks/github',
+      projects: [],
+    })
+    const wrapper = await mountCard()
     expect(wrapper.text()).toContain('IA_FLOW_WEBHOOK_SECRET')
     expect(wrapper.text()).toContain('503')
   })
@@ -84,5 +90,19 @@ describe('WebhookStatusCard', () => {
     const wrapper = await mountCard()
     expect(wrapper.text()).toContain('polling')
     expect(wrapper.text()).toContain('pull en cada intervalo')
+  })
+
+  it('shows the error and what to check when the runner does not answer', async () => {
+    getWebhookStatusMock.mockRejectedValue(new Error('runner caído'))
+    const wrapper = await mountCard()
+    expect(wrapper.find('[role="alert"]').text()).toContain('✕ runner caído')
+    expect(wrapper.text()).toContain('/api/webhooks/status')
+  })
+
+  it('reloads on demand', async () => {
+    const wrapper = await mountCard()
+    getWebhookStatusMock.mockClear()
+    await wrapper.find('.btn').trigger('click')
+    expect(getWebhookStatusMock).toHaveBeenCalledTimes(1)
   })
 })
