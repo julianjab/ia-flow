@@ -10,11 +10,14 @@ settings:
   # OpenTelemetry: trazas y logs por OTLP (ej. el Grafana LGTM local). Sin
   # endpoint no se exporta nada. Cada clave va a su OTEL_* y el ambiente gana:
   # endpoint → OTEL_EXPORTER_OTLP_ENDPOINT, serviceName → OTEL_SERVICE_NAME,
-  # environment → OTEL_DEPLOYMENT_ENVIRONMENT.
+  # environment → OTEL_DEPLOYMENT_ENVIRONMENT, logLevel → LOG_LEVEL.
   telemetry:
     endpoint: http://localhost:4318
     serviceName: ai-development-flow-runner
     environment: local
+    # debug | info | warn | error. En `debug` el provider anthropic-api vuelca
+    # cada request y respuesta de la API, con las credenciales tapadas.
+    logLevel: info
 
 # Identidad de GitHub. `auto` usa la App si están los tres datos, si no
 # GITHUB_TOKEN, si no `gh auth token`. `privateKeyPath` es la RUTA al PEM,

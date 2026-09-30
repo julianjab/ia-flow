@@ -7,7 +7,8 @@
  *   - Con `OTEL_EXPORTER_OTLP_ENDPOINT`, además OTLP/HTTP (el Grafana LGTM de `otel/` en local, o
  *     un Collector/Datadog Agent), en lotes de 1 s.
  *
- * `LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`) fija el nivel mínimo de los dos.
+ * `LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`; `settings.telemetry.logLevel` de
+ * `runner.yaml` la llena si el env no la trae) fija el nivel mínimo de los dos.
  * En `debug` los providers además vuelcan cada request y respuesta de su API, con las credenciales
  * tapadas.
  */

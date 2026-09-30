@@ -133,6 +133,9 @@ export const RunnerFileSchema = z.strictObject({
           endpoint: z.string().min(1).optional(),
           serviceName: z.string().min(1).optional(),
           environment: z.string().min(1).optional(),
+          /** Nivel mínimo de los logs (`LOG_LEVEL`). En `debug` los providers vuelcan cada
+           *  request y respuesta de su API, con las credenciales tapadas. */
+          logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
         })
         .optional(),
     })
@@ -416,6 +419,7 @@ const TELEMETRY_ENV: Record<string, string> = {
   endpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
   serviceName: 'OTEL_SERVICE_NAME',
   environment: 'OTEL_DEPLOYMENT_ENVIRONMENT',
+  logLevel: 'LOG_LEVEL',
 }
 
 const GITHUB_ENV: Record<string, string> = {
