@@ -10,6 +10,7 @@ import {
   AnthropicClient,
   type AnthropicClientOptions,
   type AnthropicContentBlock,
+  type AnthropicDeltaHandler,
   type AnthropicMessagesResponse,
   type AnthropicRetryInfo,
   type AnthropicSendOptions,
@@ -441,6 +442,14 @@ export class AnthropicProvider implements Provider {
     // Las salidas; `fail_turn` (failure) también es terminal, pero no cuenta para insistir.
     const terminalTools = ctx.tools.filter((tool) => tool.terminal && !tool.failure)
     let nudged = false
+    // El texto en vivo (`ctx.onText`): sólo los deltas de texto, no el thinking. Sin streaming no
+    // hay deltas — el caller ve el texto recién en el span de la llamada.
+    const onText = ctx.onText
+    const onDelta: AnthropicDeltaHandler | undefined = onText
+      ? (delta) => {
+          if (delta.type === 'text') onText(delta.delta)
+        }
+      : undefined
 
     let toolRounds = 0
     let pauses = 0
@@ -468,7 +477,7 @@ export class AnthropicProvider implements Provider {
         if (thinking) body.thinking = thinking
         if (apiMcpServers) body.mcp_servers = await withTokens(apiMcpServers)
         if (outputConfig) body.output_config = outputConfig
-        return this.send(body, round, { stream: useStream, extraBetas, maxRetries })
+        return this.send(body, round, { stream: useStream, extraBetas, maxRetries, onDelta })
       }
 
       let data = await sendOnce(maxTokens)

@@ -46,8 +46,9 @@ de retry distinto), va en `AnthropicClient`. Si es "cómo interpretamos la respu
 `text_delta`/`thinking_delta`, no el acumulado) — vive en `sse.ts`
 (`readAnthropicSseStream(res, onDelta)`), no en `AnthropicProvider`: éste necesita el `content`
 completo para resolver `stop_reason`/tool_use/exit, así que expone observabilidad batch
-(`onToolCall`/`onToolResult`) pero no un `onDelta` propio. Un caller que quiera texto en vivo
-(un chat) usa `AnthropicClient` directo — ver `README.md` y `examples/apps/chat.ts` (en el repo ia-tools, no migrado).
+(`onToolCall`/`onToolResult`) pero no un `onDelta` propio. Lo que sí hace es enchufar
+`ProviderRunContext.onText` (el contrato del engine para el texto en vivo) al `onDelta` del
+cliente: sólo los deltas de `text`, nunca el thinking, y sólo con `stream` (sin SSE no hay deltas).
 
 ## Telemetría — spans GenAI, sólo por API
 
