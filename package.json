@@ -28,6 +28,7 @@
     "install:all": "bun install",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
+    "lint:boundaries": "depcruise apps/runner-v2 packages --config .dependency-cruiser.cjs",
     "format": "biome format --write .",
     "biome": "biome check --write .",
     "typecheck:shared": "bun run --cwd packages/shared typecheck",
@@ -78,10 +79,11 @@
     "test:desktop": "bun test apps/desktop",
     "typecheck": "bun run typecheck:shared && bun run typecheck:agent-engine && bun run typecheck:agent-engine-definitions && bun run typecheck:datasource-sqlite && bun run typecheck:datasource-yaml && bun run typecheck:provider-shared && bun run typecheck:provider-anthropic-api && bun run typecheck:provider-anthropic-cli && bun run typecheck:provider-remote && bun run typecheck:telemetry && bun run typecheck:github-auth && bun run typecheck:github-api && bun run typecheck:github-webhook && bun run typecheck:github-tools && bun run typecheck:slack-api && bun run typecheck:slack-tools && bun run typecheck:slack-socket && bun run typecheck:fs && bun run typecheck:shell && bun run typecheck:workspace && bun run typecheck:runner-v2 && bun run typecheck:web && bun run typecheck:desktop",
     "test": "bun run test:shared && bun run test:agent-engine && bun run test:agent-engine-definitions && bun run test:datasource-sqlite && bun run test:datasource-yaml && bun run test:provider-shared && bun run test:provider-anthropic-api && bun run test:provider-anthropic-cli && bun run test:provider-remote && bun run test:telemetry && bun run test:github-auth && bun run test:github-api && bun run test:github-webhook && bun run test:github-tools && bun run test:slack-api && bun run test:slack-tools && bun run test:slack-socket && bun run test:fs && bun run test:shell && bun run test:workspace && bun run test:runner-v2 && bun run test:web && bun run test:desktop",
-    "check": "biome check . && bun run typecheck && bun run test"
+    "check": "biome check . && bun run lint:boundaries && bun run typecheck && bun run test"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.12"
+    "@biomejs/biome": "2.5.12",
+    "dependency-cruiser": "^18.5.0"
   },
   "trustedDependencies": [
     "@biomejs/biome",

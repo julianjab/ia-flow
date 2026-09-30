@@ -35,6 +35,11 @@ jobs:
       - name: Format check
         run: bunx biome format .
 
+      # Las fronteras entre paquetes y carpetas (.dependency-cruiser.cjs): cada
+      # regla es una ausencia verificada, con cómo arreglarla en su mensaje.
+      - name: Boundaries
+        run: bun run lint:boundaries
+
       # Cubre todos los paquetes y apps del workspace. Un check que no puede
       # fallar no es un check.
       - name: Typecheck (workspace)
