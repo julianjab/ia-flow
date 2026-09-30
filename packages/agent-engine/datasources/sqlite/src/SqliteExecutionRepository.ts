@@ -45,13 +45,6 @@ export class SqliteExecutionRepository implements ExecutionRepository {
     migrate(this.db)
   }
 
-  nextId(): string {
-    const { value } = this.db
-      .prepare(`UPDATE counters SET value = value + 1 WHERE name = 'execution' RETURNING value`)
-      .get() as { value: number }
-    return `exec-${value}`
-  }
-
   save(record: ExecutionRecord): void {
     this.db
       .prepare(

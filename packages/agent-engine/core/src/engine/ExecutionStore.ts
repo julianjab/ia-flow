@@ -29,6 +29,9 @@ export interface ExecutionStoreOptions {
   maxConcurrent?: number
   /** Topes por grupo de tasks (ej. por proyecto), debajo del global. */
   groups?: ExecutionGroups
+  /** El id de cada ejecución nueva. Default: un UUID (no se repite entre reinicios ni entre
+   *  procesos, sin estado en el repositorio). */
+  newId?: () => string
   /** Retomar tras un reinicio la que corría con un paso que guardaba su progreso (un agente y
    *  su conversación). Default: hasta 10 veces seguidas, y si se guardó hace menos de 24 h. */
   resume?: { maxAttempts?: number; maxAgeMs?: number }
@@ -65,6 +68,7 @@ export class ExecutionStore {
   private readonly queued = new Map<string, QueuedTicket>()
   private orphaned: OrphanedEvents[] = []
   private readonly resumeLimits: { maxAttempts: number; maxAgeMs: number }
+  private readonly newId: () => string
 
   constructor(options: ExecutionStoreOptions) {
     const max = options.maxConcurrent ?? Number.POSITIVE_INFINITY
@@ -73,6 +77,7 @@ export class ExecutionStore {
     }
     this.repository = options.repository
     this.scheduler = new ExecutionScheduler(max, options.groups)
+    this.newId = options.newId ?? (() => globalThis.crypto.randomUUID())
     this.resumeLimits = {
       maxAttempts: options.resume?.maxAttempts ?? RESUME_MAX_ATTEMPTS,
       maxAgeMs: options.resume?.maxAgeMs ?? RESUME_MAX_AGE_MS,
@@ -139,7 +144,7 @@ export class ExecutionStore {
       // Primero cierra la pausa que reemplaza: una task tiene una sola ejecución viva.
       if (previous?.status === 'paused') previous.close('superseded')
       const execution = Execution.open({
-        id: this.repository.nextId(),
+        id: this.newId(),
         key,
         pipelineId,
         queuedAt,

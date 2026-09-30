@@ -11,7 +11,7 @@ fuera del core.
 ```
 src/
 ├── SqliteDatabase.ts             el puerto: la base síncrona que comparten node:sqlite y bun:sqlite
-├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread / nextId
+├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread
 ├── SqliteExecutionStore.ts       ExecutionStore sobre ese repositorio (+ close)
 ├── node.ts                       entry `./node`: openNodeSqlite + `sqliteStoreDriver` (un store sobre node:sqlite)
 ├── migrations.ts                 el esquema por versión (PRAGMA user_version)
@@ -31,7 +31,8 @@ src/
   las demás → `failed` con `close_reason = 'interrupted'`, y lo que no leyeron sale una sola vez por
   `takeOrphaned()` (el `Engine` lo re-despacha).
 - **Migraciones**: una nueva se AGREGA al final de `MIGRATIONS`; nunca se edita una que ya corrió.
-- **Ids** de un contador en la base (`exec-N`): no se repiten entre reinicios.
+- **Ids**: UUID (los genera el `ExecutionStore`). La tabla `counters` de la migración 1 quedó
+  sin uso: una migración no se edita.
 - `node:sqlite` imprime un `ExperimentalWarning` al cargarse.
 
 ## Antes de commitear

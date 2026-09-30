@@ -6,12 +6,6 @@ import type { ExecutionRepository } from './ExecutionRepository.js'
 export class InMemoryExecutionRepository implements ExecutionRepository {
   private readonly records = new Map<string, ExecutionRecord>()
   private readonly inboxes = new Map<string, Array<{ event: DomainEvent<any>; read: boolean }>>()
-  private sequence = 1
-
-  nextId(): string {
-    return `exec-${this.sequence++}`
-  }
-
   save(record: ExecutionRecord): void {
     if (record.status === 'running' || record.status === 'paused') {
       this.records.set(record.id, record)

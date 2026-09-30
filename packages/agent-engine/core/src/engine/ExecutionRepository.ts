@@ -10,8 +10,6 @@ import type { ExecutionJournal, ExecutionRecord } from './Execution.js'
  * escritura asíncrona abriría una ventana en la que otra corrida la vería libre.
  */
 export interface ExecutionRepository extends ExecutionJournal {
-  /** Un id que ninguna ejecución guardada tiene. */
-  nextId(): string
   /** Las ejecuciones que quedaron vivas (`running` o `paused`) — para recuperarlas al arrancar. */
   live(): ExecutionRecord[]
   /** Lo que se le entregó a `executionId` y nadie leyó. */

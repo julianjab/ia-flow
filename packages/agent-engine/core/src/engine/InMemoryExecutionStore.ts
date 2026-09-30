@@ -7,6 +7,8 @@ export interface InMemoryExecutionStoreOptions {
   maxConcurrent?: number
   /** Topes por grupo de tasks (ver `ExecutionStoreOptions.groups`). */
   groups?: ExecutionGroups
+  /** Ver `ExecutionStoreOptions.newId`. */
+  newId?: () => string
 }
 
 /** Store en memoria: alcanza para un proceso. Un reinicio pierde todo — también las pausas. */
