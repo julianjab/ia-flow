@@ -4,9 +4,11 @@
  * corrida.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { type Agent, createEvent, isAgent, PauseAction } from '@ia-flow/agent-engine'
+import { parse } from 'yaml'
 import type { MountedRunner } from '../boot.js'
 import { applyRunnerEnv, loadRunnerConfig } from '../config/RunnerConfig.js'
 import { CONFIG_DIR, configCopy, mountForTest } from './helpers.js'
@@ -279,5 +281,17 @@ describe('runner.yaml as the index', () => {
         s.replace('./projects/lahaus-ai-flow/project.yaml', './projects/nope/project.yaml'),
     })
     expect(() => loadRunnerConfig(dir)).toThrow(/nope\/project\.yaml: no se pudo leer/)
+  })
+})
+
+describe('reviewer', () => {
+  it('marks the card reviewed and only then asks for the review in Slack when it approves', () => {
+    const reviewer = parse(
+      readFileSync(join(CONFIG_DIR, 'projects/lahaus-ai-flow/agents/30-reviewer.yaml'), 'utf8'),
+    ) as { routes: { approved: { to: Array<{ action: string }> } } }
+    expect(reviewer.routes.approved.to.map((step) => step.action)).toEqual([
+      'update_issue',
+      'request_slack_review',
+    ])
   })
 })
