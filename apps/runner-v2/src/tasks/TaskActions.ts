@@ -49,6 +49,26 @@ function parseRef(ref: string): IssueTarget {
   return { owner: match[1] as string, repo: match[2] as string, number: Number(match[3]) }
 }
 
+/**
+ * Que quien pide la acción pueda escribir en el repo de la tarea, preguntándole a GitHub con SU
+ * token. Sin esto, relanzar o parar (que no tocan GitHub) los podría pedir cualquier cuenta: el
+ * runner los hace con su propia identidad.
+ */
+async function assertCanPush(
+  client: GithubClient,
+  target: IssueTarget,
+  login: string,
+): Promise<void> {
+  const res = await client.request(`/repos/${target.owner}/${target.repo}`)
+  const repo = res.ok ? ((await res.json()) as { permissions?: { push?: boolean } }) : undefined
+  if (!repo?.permissions?.push) {
+    throw new TaskActionError(
+      `${login} no tiene permiso de escritura en ${target.owner}/${target.repo}`,
+      403,
+    )
+  }
+}
+
 /** `UpdateIssueAction` fuera de una pipeline: el issue lo fija la bandeja, no un evento. */
 const NO_CTX = {} as PipelineExecutionContext
 
@@ -74,6 +94,11 @@ export class TaskActions {
       auth: new GithubTokenAuth(github.token),
       ...(this.options.fetchImpl ? { fetchImpl: this.options.fetchImpl } : {}),
     })
+    // Lo que se puede rechazar sin preguntarle nada a GitHub, antes.
+    if (request.action === 'answer_and_unblock' && !request.comment?.trim()) {
+      throw new TaskActionError('contestar necesita el comentario', 400)
+    }
+    await assertCanPush(client, parseRef(ref), github.login)
     const board = this.options.boards.get(item.project_id)
     const message = await this.apply(request, ref, client, board, item.pr?.number, github.login)
     this.log.info(`${github.login}: ${request.action} sobre ${ref} → ${message}`, {
@@ -116,8 +141,7 @@ export class TaskActions {
       case 'back_to_refine':
         return update({ status: statuses.refine })
       case 'answer_and_unblock': {
-        const comment = request.comment?.trim()
-        if (!comment) throw new TaskActionError('contestar necesita el comentario', 400)
+        const comment = request.comment?.trim() ?? ''
         await client.requestJson(
           `/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`,
           { method: 'POST', body: JSON.stringify({ body: comment }) },

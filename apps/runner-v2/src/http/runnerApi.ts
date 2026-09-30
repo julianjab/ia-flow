@@ -36,6 +36,9 @@ export interface RunnerApiOptions {
 
 const DevicePollRequest = z.object({ device_code: z.string().min(1) })
 
+/** Cuánto se confía en el login de un token de GitHub antes de volver a preguntar. */
+const LOGIN_TTL_MS = 5 * 60_000
+
 function refOf(params: Record<string, string>): string {
   return `${params.owner}/${params.repo}#${params.number}`
 }
@@ -53,17 +56,17 @@ function parseBody<T>(
 export function runnerApi(options: RunnerApiOptions): ApiRouter {
   const { inbox, hub } = options
   const router = new ApiRouter({ token: options.token, log: options.log })
-  /** El login de cada token de GitHub ya visto: no preguntarle a GitHub en cada acción. */
-  const logins = new Map<string, Promise<string>>()
+  /** El login de cada token de GitHub ya visto, por un rato: no preguntarle a GitHub en cada
+   *  acción, pero que un token revocado deje de servir sin reiniciar el runner. */
+  const logins = new Map<string, { login: Promise<string>; at: number }>()
   const loginOf = (token: string) => {
-    let login = logins.get(token)
-    if (!login) {
-      login = githubLogin(token, options.fetchImpl).catch((err: unknown) => {
-        logins.delete(token)
-        throw new HttpError(401, (err as Error).message)
-      })
-      logins.set(token, login)
-    }
+    const cached = logins.get(token)
+    if (cached && Date.now() - cached.at < LOGIN_TTL_MS) return cached.login
+    const login = githubLogin(token, options.fetchImpl).catch((err: unknown) => {
+      logins.delete(token)
+      throw new HttpError(401, (err as Error).message)
+    })
+    logins.set(token, { login, at: Date.now() })
     return login
   }
 
