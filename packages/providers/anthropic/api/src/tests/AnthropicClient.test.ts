@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AnthropicClient, backoffMs } from '../AnthropicClient.js'
+import { AnthropicApiError, AnthropicClient, backoffMs } from '../AnthropicClient.js'
 
 function jsonResponse(
   body: unknown,
@@ -161,6 +161,52 @@ describe('AnthropicClient.send', () => {
 
     await expect(client.send({}, { stream: false })).rejects.toThrow('400')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the request-id header on the response, as _request_id', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        { id: 'msg_1', content: [], stop_reason: 'end_turn' },
+        { headers: { 'request-id': 'req_123' } },
+      ),
+    )
+    const client = new AnthropicClient({
+      apiKey: 'sk-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    const result = await client.send({ model: 'claude-x', messages: [] }, { stream: false })
+
+    expect(result._request_id).toBe('req_123')
+    expect(result.id).toBe('msg_1')
+  })
+
+  it('throws an AnthropicApiError with the error type, message and request id taken apart', async () => {
+    const body = {
+      type: 'error',
+      error: { type: 'invalid_request_error', message: 'messages.1: nope' },
+      request_id: 'req_body',
+    }
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(body, { status: 400, headers: { 'request-id': 'req_header' } }),
+    )
+    const client = new AnthropicClient({
+      apiKey: 'sk-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    const err = await client
+      .send({ model: 'claude-x', messages: [] }, { stream: false })
+      .catch((e) => e)
+
+    expect(err).toBeInstanceOf(AnthropicApiError)
+    expect(err).toMatchObject({
+      status: 400,
+      requestId: 'req_header',
+      errorType: 'invalid_request_error',
+      errorMessage: 'messages.1: nope',
+    })
+    expect(err.message).toBe(`AnthropicClient: Anthropic API → 400: ${JSON.stringify(body)}`)
   })
 
   it('retries a 429 and succeeds once retries are available', async () => {
