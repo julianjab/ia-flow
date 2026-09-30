@@ -64,7 +64,7 @@ y cada regla dice cómo arreglarla. Lo que no se puede verificar:
 - Paquetes: `src/**/tests/*.test.ts` (Vitest), nunca contra la red real (`fetchImpl` inyectable).
 - `apps/runner-v2`: `<módulo>.test.ts` al lado del módulo (`bun test`); `src/tests/` sólo los de
   punta a punta.
-- `apps/web`: `Foo.vue` + `Foo.spec.ts` (Vitest).
+- `apps/web`: `test/Foo.test.ts` junto al componente o módulo (Vitest).
 
 ## Commits y ramas
 
