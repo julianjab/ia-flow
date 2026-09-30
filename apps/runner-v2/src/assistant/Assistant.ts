@@ -92,9 +92,11 @@ export class Assistant {
       })
       const answer = result?.answer ?? ''
       emit({ type: 'text', delta: answer })
+      // Una tarea con propuesta ya tiene su card (la de la acción): no se repite.
+      const proposed = new Set(proposals.map((proposal) => proposal.ref))
       const tasks = await this.options.desk
         .sessionOf({ [SESSION_KEY]: session.id })
-        .resolveTasks(result?.tasks ?? [])
+        .resolveTasks((result?.tasks ?? []).filter((ref) => !proposed.has(ref)))
       if (tasks.length > 0) emit({ type: 'tasks', items: tasks })
       const saved = this.save(request, asker, {
         role: 'assistant',
