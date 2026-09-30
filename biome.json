@@ -10,7 +10,6 @@
       "!**/logs",
       "!**/*.sqlite",
       "!**/apps/web/src/**/*.vue",
-      "!**/handoff",
       "!v2",
       "!**/otel/grafana/dashboards"
     ]
