@@ -133,7 +133,9 @@ describe('TaskActions', () => {
       changed: () => {},
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
         calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
-        return Response.json({})
+        return Response.json(
+          String(input).endsWith('/repos/o/r') ? { permissions: { push: true } } : {},
+        )
       }) as typeof fetch,
     })
     await expect(
@@ -146,6 +148,7 @@ describe('TaskActions', () => {
     )
     expect(done).toMatchObject({ ok: true, github_login: 'julian' })
     expect(calls).toEqual([
+      'GET https://api.github.com/repos/o/r',
       'POST https://api.github.com/repos/o/r/issues/1/comments',
       'DELETE https://api.github.com/repos/o/r/issues/1/labels/blocked',
     ])

@@ -39,7 +39,7 @@ const activity: ActivityPort = {
 }
 
 /** GitHub de mentira: el login de un token y lo que se le pidió. */
-function fakeGithub() {
+function fakeGithub(push = true) {
   const calls: Array<{ method: string; url: string; body?: unknown }> = []
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
@@ -49,6 +49,7 @@ function fakeGithub() {
       ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
     })
     if (url.endsWith('/user')) return Response.json({ login: 'julian' })
+    if (url.endsWith('/repos/o/r')) return Response.json({ permissions: { push } })
     return Response.json({ merged: true })
   }) as typeof fetch
   return { calls, fetchImpl }
@@ -71,8 +72,8 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.close()
 })
 
-async function start(token: string | null = TOKEN) {
-  const github = fakeGithub()
+async function start(token: string | null = TOKEN, push = true) {
+  const github = fakeGithub(push)
   const hub = new SseHub<RunnerStreamEvent>()
   const inbox = new InboxService({
     projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
@@ -120,7 +121,14 @@ async function start(token: string | null = TOKEN) {
     log: () => {},
   })
   await new Promise<void>((resolve) => server.listen(0, resolve))
-  servers.push({ close: () => server.close() })
+  // Cortar también las conexiones abiertas (keep-alive, el SSE): si no, `fetch` reusa una contra
+  // este server cuando el puerto le toca a otro test.
+  servers.push({
+    close: () => {
+      server.closeAllConnections()
+      server.close()
+    },
+  })
   const base = `http://localhost:${(server.address() as AddressInfo).port}`
   const call = (path: string, init: RequestInit & { headers?: Record<string, string> } = {}) =>
     fetch(`${base}${path}`, { ...init, headers: { 'x-ia-flow-token': TOKEN, ...init.headers } })
@@ -184,6 +192,21 @@ describe('runner API', () => {
       url: 'https://api.github.com/repos/o/r/pulls/9/merge',
       body: { merge_method: 'squash' },
     })
+  })
+
+  it('refuses an action from someone who cannot write to the repo', async () => {
+    const { call, github } = await start(TOKEN, false)
+    const res = await call('/api/tasks/o/r/1/actions', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'merge' }),
+      headers: { 'x-github-token': 'gho_x' },
+    })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('julian'),
+    })
+    expect(github.calls.some((request) => request.method === 'PUT')).toBe(false)
   })
 
   it('streams the assistant: text, the proposal, and the end', async () => {
