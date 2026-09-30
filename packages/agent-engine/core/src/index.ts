@@ -63,6 +63,7 @@ export { interruptNotice } from './engine/ExecutionCoordinator.js'
 export type { ExecutionRepository } from './engine/ExecutionRepository.js'
 export type { ExecutionGroups } from './engine/ExecutionScheduler.js'
 export type {
+  ExecutionListener,
   ExecutionStoreOptions,
   OrphanedEvents,
   StartExecution,

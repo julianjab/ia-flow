@@ -1,7 +1,12 @@
 import { createLogger } from '@ia-flow/telemetry'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { Checkpoint, IfPaused, IfQueued } from '../pipeline/Pipeline.js'
-import { Execution, type ExecutionRecord } from './Execution.js'
+import {
+  Execution,
+  type ExecutionJournal,
+  type ExecutionRecord,
+  type ExecutionStatus,
+} from './Execution.js'
 import type { ExecutionRepository } from './ExecutionRepository.js'
 import { type ExecutionGroups, ExecutionScheduler } from './ExecutionScheduler.js'
 
@@ -44,6 +49,10 @@ const RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000
 export const RESTART_NOTE =
   'El runner se reinició mientras trabajabas. Tu conversación sigue acá, pero lo que estaba en curso (un comando, una tool) pudo no terminar: verificá el estado antes de seguir.'
 
+/** Quien quiere enterarse de cada cambio de estado de una ejecución (arrancó, se pausó, se
+ *  reanudó, cerró) — ej. marcar la task como en curso en un board. */
+export type ExecutionListener = (record: ExecutionRecord) => void
+
 /** Lo que una ejecución interrumpida (el proceso murió mientras corría) había recibido sin leer. */
 export interface OrphanedEvents {
   executionId: string
@@ -69,6 +78,14 @@ export class ExecutionStore {
   private orphaned: OrphanedEvents[] = []
   private readonly resumeLimits: { maxAttempts: number; maxAgeMs: number }
   private readonly newId: () => string
+  private readonly listeners = new Set<ExecutionListener>()
+  /** El último estado avisado de cada ejecución viva: se avisa un CAMBIO, no cada guardado. */
+  private readonly lastStatus = new Map<string, ExecutionStatus>()
+  /** Lo que pasó al recuperar (antes de que nadie pudiera escuchar): se le repite a cada nuevo. */
+  private readonly recovered: ExecutionRecord[] = []
+  private recovering = false
+  /** El repositorio, más el aviso a los que escuchan. Es el journal de cada ejecución. */
+  private readonly journal: ExecutionJournal
 
   constructor(options: ExecutionStoreOptions) {
     const max = options.maxConcurrent ?? Number.POSITIVE_INFINITY
@@ -76,13 +93,20 @@ export class ExecutionStore {
       throw new Error(`${this.constructor.name}: maxConcurrent tiene que ser ≥ 1 (llegó ${max})`)
     }
     this.repository = options.repository
+    this.journal = {
+      save: (record) => this.save(record),
+      delivered: (id, event) => this.repository.delivered(id, event),
+      read: (id) => this.repository.read(id),
+    }
     this.scheduler = new ExecutionScheduler(max, options.groups)
     this.newId = options.newId ?? (() => globalThis.crypto.randomUUID())
     this.resumeLimits = {
       maxAttempts: options.resume?.maxAttempts ?? RESUME_MAX_ATTEMPTS,
       maxAgeMs: options.resume?.maxAgeMs ?? RESUME_MAX_AGE_MS,
     }
+    this.recovering = true
     this.recover()
+    this.recovering = false
   }
 
   /** La de esta task, corriendo o pausada, si hay. */
@@ -148,7 +172,7 @@ export class ExecutionStore {
         key,
         pipelineId,
         queuedAt,
-        journal: this.repository,
+        journal: this.journal,
       })
       this.admit(execution, release)
       return execution
@@ -191,6 +215,17 @@ export class ExecutionStore {
     }
   }
 
+  /**
+   * Avisa cada cambio de estado de una ejecución: al arrancar, pausarse, reanudarse y cerrar — no
+   * cada guardado de su progreso. Lo que pasó al recuperar tras un reinicio (antes de que nadie
+   * escuchara) se le repite al que se suma. Un listener que tira no frena la ejecución.
+   */
+  observe(listener: ExecutionListener): () => void {
+    this.listeners.add(listener)
+    for (const record of this.recovered) this.notify(listener, record)
+    return () => this.listeners.delete(listener)
+  }
+
   /** Lo que las ejecuciones interrumpidas por un reinicio recibieron sin leer — y lo consume. */
   takeOrphaned(): OrphanedEvents[] {
     const orphaned = this.orphaned
@@ -201,7 +236,7 @@ export class ExecutionStore {
   private recover(): void {
     for (const record of this.repository.live()) {
       if (record.status === 'paused') {
-        this.track(Execution.restore(record, this.repository))
+        this.track(Execution.restore(record, this.journal))
         continue
       }
       // Corría cuando el proceso murió: su agente murió con él.
@@ -209,7 +244,7 @@ export class ExecutionStore {
       this.repository.read(record.id)
       const resumable = this.resumable(record)
       if (resumable) {
-        this.track(Execution.restore(this.restartable(record, resumable, events), this.repository))
+        this.track(Execution.restore(this.restartable(record, resumable, events), this.journal))
         this.log.warn(
           `${record.id} se interrumpió con el proceso: se retoma en ${resumable.pauseId}`,
           {
@@ -218,7 +253,7 @@ export class ExecutionStore {
         )
         continue
       }
-      this.repository.save({
+      this.save({
         ...record,
         status: 'failed',
         closedAt: new Date().toISOString(),
@@ -268,8 +303,34 @@ export class ExecutionStore {
       pause: { pauseId: checkpoint.pauseId, branches: [], expiresAt: Date.now() },
       checkpoint: { ...checkpoint, note, attempts: (checkpoint.attempts ?? 0) + 1 },
     }
-    this.repository.save(paused)
+    this.save(paused)
     return paused
+  }
+
+  /** Guarda y, si cambió su estado, avisa. */
+  private save(record: ExecutionRecord): void {
+    this.repository.save(record)
+    if (this.lastStatus.get(record.id) === record.status) return
+    if (record.status === 'running' || record.status === 'paused') {
+      this.lastStatus.set(record.id, record.status)
+    } else {
+      this.lastStatus.delete(record.id)
+    }
+    if (this.listeners.size === 0) {
+      if (this.recovering) this.recovered.push(record)
+      return
+    }
+    for (const listener of this.listeners) this.notify(listener, record)
+  }
+
+  private notify(listener: ExecutionListener, record: ExecutionRecord): void {
+    try {
+      listener(record)
+    } catch (error) {
+      this.log.warn(`un listener de ejecuciones falló: ${(error as Error).message}`, {
+        'ia.execution.id': record.id,
+      })
+    }
   }
 
   private admit(execution: Execution, release: () => void): void {
