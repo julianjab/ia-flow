@@ -3,6 +3,7 @@ import {
   buildSlackReviewMessage,
   compactSlackReviewMessage,
   DEFAULT_SLACK_REVIEW_MESSAGES,
+  githubLoginOf,
   mapAssigneesToSlack,
   renderMentions,
   resolveSlackReviewTarget,
@@ -277,5 +278,19 @@ describe('resolveSlackReviewTarget con asignados', () => {
 
   it('tags only the configured reviewers when no assignee is on Slack', () => {
     expect(resolveSlackReviewTarget(undefined, project, [])).toMatchObject({ reviewers: [BOT] })
+  })
+})
+
+describe('githubLoginOf', () => {
+  const directory = { julianjab: JULI, ana: { id: 'U3' } }
+
+  it('finds the GitHub login of a Slack user id', () => {
+    expect(githubLoginOf('U1', directory)).toBe('julianjab')
+    expect(githubLoginOf('U3', directory)).toBe('ana')
+  })
+
+  it('is undefined for someone who is not in the directory', () => {
+    expect(githubLoginOf('UX', directory)).toBeUndefined()
+    expect(githubLoginOf('U1', undefined)).toBeUndefined()
   })
 })
