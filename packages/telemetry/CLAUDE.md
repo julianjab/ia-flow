@@ -24,6 +24,10 @@ src/
 ├── logging.ts     createLogger, LogSink, setLogSinks/addLogSink, otelSink, consoleSink
 ├── traceRecord.ts TraceRecord + TraceJournal: la traza de una ejecución como datos planos
 ├── traceRecorder.ts  traceRecorder(journal): SpanProcessor + LogSink que anotan esa traza
+├── otlpRecords.ts TraceRecord → OTLP/JSON (reexportar lo que llegó de otro proceso)
+├── otlpIngest.ts  OTLP/JSON → TraceRecord (lo que un host exportó con el SDK estándar)
+├── remoteContext.ts  exportTraceContext / withRemoteTraceContext: la traza cruza a otro proceso
+├── redact.ts      redactSecrets: un volcado de debug sin credenciales
 ├── index.ts
 └── tests/         tracing.test.ts, logging.test.ts, traceRecorder.test.ts
 ```

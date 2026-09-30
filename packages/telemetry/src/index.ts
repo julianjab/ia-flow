@@ -11,6 +11,8 @@ export {
   setLogLevel,
   setLogSinks,
 } from './logging.js'
+export type { OtlpLogsPayload, OtlpTracesPayload } from './otlpIngest.js'
+export { recordsFromOtlpLogs, recordsFromOtlpTraces } from './otlpIngest.js'
 export type {
   OtlpResource,
   RecordExporter,
@@ -18,6 +20,8 @@ export type {
 } from './otlpRecords.js'
 export { otlpLogs, otlpTraces, recordExporter } from './otlpRecords.js'
 export { REDACTED, redactSecrets } from './redact.js'
+export type { RemoteTraceContext } from './remoteContext.js'
+export { exportTraceContext, withRemoteTraceContext } from './remoteContext.js'
 export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'
 export type { TraceRecorder, TraceRecorderOptions } from './traceRecorder.js'
 export { EXECUTION_ATTRIBUTE, traceRecorder } from './traceRecorder.js'
