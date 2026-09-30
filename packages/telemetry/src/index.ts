@@ -27,3 +27,4 @@ export {
   withInheritedAttributes,
   withSpan,
 } from './tracing.js'
+export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'
