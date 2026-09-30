@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { hasChosenServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
+import ConfigView from '@/views/ConfigView.vue'
 import InboxView from '@/views/InboxView.vue'
 import ServerPickerView from '@/views/ServerPickerView.vue'
 import WebhooksView from '@/views/WebhooksView.vue'
@@ -16,6 +17,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       // Home: la bandeja sobre el board.
       { path: '', name: 'inbox', component: InboxView },
+      { path: 'config', name: 'config', component: ConfigView },
       { path: 'webhooks', name: 'webhooks', component: WebhooksView },
     ],
   },

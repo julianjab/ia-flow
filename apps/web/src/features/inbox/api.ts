@@ -1,8 +1,6 @@
 import {
   type BoardRest,
   BoardRestSchema,
-  type ConfigSummary,
-  ConfigSummarySchema,
   type ExplainResult,
   ExplainResultSchema,
   type Inbox,
@@ -74,9 +72,4 @@ export async function explainTask(ref: string, event?: string): Promise<ExplainR
     params: event ? { ref, event } : { ref },
   })
   return ExplainResultSchema.parse(data)
-}
-
-export async function getConfig(): Promise<ConfigSummary> {
-  const { data } = await axios.get<unknown>('/api/config')
-  return ConfigSummarySchema.parse(data)
 }
