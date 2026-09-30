@@ -60,6 +60,7 @@ describe('toBoardCard', () => {
     )
     expect(card).toEqual({
       ref: 'la-haus/subs#7',
+      itemId: 'PVTI_1',
       projectId: 'p',
       title: 'Una tarea',
       url: 'https://github.com/la-haus/subs/issues/7',
@@ -129,6 +130,7 @@ describe('TaskActions', () => {
       boards: new Map(),
       settings: InboxSection.parse({}),
       redispatch: async () => 'ok',
+      rerunReview: async () => 'ok',
       stop: () => 'ok',
       changed: () => {},
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
@@ -175,6 +177,7 @@ describe('TaskActions', () => {
       projectLabels: new Map([['p', 'blocked']]),
       settings: InboxSection.parse({}),
       redispatch: async () => 'ok',
+      rerunReview: async () => 'ok',
       stop: () => 'ok',
       changed: () => {},
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {

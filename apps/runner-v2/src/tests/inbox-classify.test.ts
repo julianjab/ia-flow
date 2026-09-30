@@ -74,6 +74,30 @@ describe('classify', () => {
     expect(withoutPr?.actions).toEqual([])
   })
 
+  it('Review without reviewed always needs you, whatever else, with a review to re-run', () => {
+    const stuck = card({ status: 'Review', itemId: 'PVTI_1', pr: { number: 7, url: 'u' } })
+    expect(classify(stuck, idle, options)).toMatchObject({
+      group: 'need',
+      kind: 'review',
+      why: 'Review sin reviewed · PR #7',
+      actions: ['rerun_review'],
+    })
+    // Ni un blocker ni una corrida cerrada la mueven de ahí.
+    expect(
+      classify(
+        { ...stuck, blockedBy: ['o/r#2'] },
+        { waiting: false, lastClosed: run({ status: 'done' }) },
+        options,
+      ),
+    ).toMatchObject({ group: 'need', kind: 'review' })
+    // Sin PR no hay nada que revisar: se ve, pero sin la acción.
+    expect(classify(card({ status: 'Review', itemId: 'PVTI_1' }), idle, options)?.actions).toEqual(
+      [],
+    )
+    // Mientras el reviewer corre, corre.
+    expect(classify(stuck, { waiting: false, live: run() }, options)?.group).toBe('run')
+  })
+
   it('Refined asks for the PRD approval', () => {
     expect(classify(card({ status: 'Refined' }), idle, options)).toMatchObject({
       group: 'need',
@@ -146,17 +170,19 @@ describe('classify', () => {
 })
 
 describe('inboxOrder', () => {
-  it('groups by urgency, merge before prd, oldest first', () => {
+  it('groups by urgency, merge before an unapproved review before prd, oldest first', () => {
     const items = [
       { group: 'queue' as const, kind: 'dep' as const, since: '1' },
       { group: 'need' as const, kind: 'prd' as const, since: '1' },
       { group: 'need' as const, kind: 'merge' as const, since: '3' },
       { group: 'need' as const, kind: 'merge' as const, since: '2' },
       { group: 'fail' as const, kind: 'crash' as const, since: '1' },
+      { group: 'need' as const, kind: 'review' as const, since: '1' },
     ]
     expect(items.sort(inboxOrder).map((item) => `${item.kind}:${item.since}`)).toEqual([
       'merge:2',
       'merge:3',
+      'review:1',
       'prd:1',
       'crash:1',
       'dep:1',
