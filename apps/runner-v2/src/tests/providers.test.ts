@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { providerRegistry } from '@ia-flow/agent-engine'
-import { ClaudeCliProvider } from '@ia-flow/provider-claude-cli'
+import { ClaudeCliProvider } from '@ia-flow/provider-anthropic-cli'
 import { RemoteProvider } from '@ia-flow/provider-remote'
 import {
   agentConfigValidator,
