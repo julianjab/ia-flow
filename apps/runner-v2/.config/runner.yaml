@@ -84,7 +84,7 @@ engine:
     driver: bun-sqlite
     path: ../.state/executions.sqlite
     # Cuántas corridas en paralelo, entre todas las tasks.
-    maxConcurrent: 1
+    maxConcurrent: 5
 
   # Cada cuánto se revisan las pausas vencidas (`timeout` de un `pause`).
   tick:
