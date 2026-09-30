@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { Action } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { SlackClient } from '@ia-flow/slack-api'
@@ -11,8 +12,8 @@ import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
 
-/** Dentro de la app: las actions importan el contrato del runner y se resuelven desde donde están. */
-const ROOT = resolve(import.meta.dir, '../../.state/test-configs')
+/** En el tmp del sistema: las actions resuelven el contrato del runner por los módulos virtuales. */
+const ROOT = join(tmpdir(), 'ia-flow-runner-test-configs')
 
 /** Una action que dice quién la armó: su scope y la fuente que la pidió. */
 const action = (

@@ -1,4 +1,5 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { TextClassifier } from '@ia-flow/agent-engine'
 import { type MountedRunner, mountRunner } from '../boot.js'
@@ -26,9 +27,9 @@ export function mountForTest(
   })
 }
 
-/** Donde van las copias: DENTRO de la app (`.state/`, gitignoreado), porque las actions de
- *  `.config` importan paquetes y el contrato del runner, y se resuelven desde donde están. */
-const COPIES = resolve(import.meta.dir, '../../.state/test-configs')
+/** Donde van las copias: el tmp del sistema. Sus actions resuelven los paquetes por los módulos
+ *  virtuales (preload de `bunfig.toml`), así que no tienen que vivir dentro de la app. */
+const COPIES = join(tmpdir(), 'ia-flow-runner-test-configs')
 
 /** Una copia de `.config`, con `edit` aplicado a sus archivos. */
 export function configCopy(edit: Record<string, (content: string) => string> = {}): string {
