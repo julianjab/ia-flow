@@ -10,6 +10,13 @@ when:
   - { field: item.type, op: neq, value: functional }
   - { field: item.blocked, op: neq, value: true, logic: or }
   - { field: item.status, op: eq, value: Refine }
+  # Una edición de la card que GitHub hace solo, como eco de lo que hizo un agente (abrir el PR
+  # vincula «Linked pull requests», pedir review toca «Reviewers», crear sub-issues mueve
+  # «Sub-issues progress»; y «Working», la marca que pone y saca el propio runner mientras la
+  # task corre), no es una novedad: sin esto el implementer que abre su PR se
+  # re-dispara a sí mismo. `fieldName` sólo viene en `projects_v2_item.edited`; en el resto de
+  # los eventos no está y `notIn` pasa.
+  - { field: fieldName, op: notIn, value: [ Linked pull requests, Reviewers, Sub-issues progress, Working ] }
 scope:
   projectId: lahaus-ai-flow
 position: 10
