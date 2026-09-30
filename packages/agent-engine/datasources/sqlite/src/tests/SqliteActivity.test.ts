@@ -184,6 +184,30 @@ describe('SqliteDispatchJournal + SqliteActivityReader: events', () => {
     ).toEqual([other.id, second.id])
   })
 
+  it('filters and counts events by type prefix: what came in through each ingress', () => {
+    const { events, reader } = setup()
+    const at = (occurredAt: string, type: string) => createEvent(type, {}, { occurredAt })
+    const push = at('2026-09-29T10:00:00.000Z', 'github.push')
+    const item = at('2026-09-29T11:00:00.000Z', 'github.projects_v2_item')
+    const slack = at('2026-09-29T12:00:00.000Z', 'slack.message')
+    const derived = at('2026-09-29T13:00:00.000Z', 'issue.status_changed')
+    for (const event of [push, item, slack, derived]) {
+      events.record({ event, decisions: [], outcome: 'dispatched' })
+    }
+    expect(reader.recentEvents({ typePrefix: 'github.' }).map((e) => e.id)).toEqual([
+      item.id,
+      push.id,
+    ])
+    expect(reader.countEvents({ typePrefix: 'github.' })).toEqual({
+      count: 2,
+      lastAt: '2026-09-29T11:00:00.000Z',
+    })
+    expect(
+      reader.countEvents({ typePrefix: 'github.', since: '2026-09-29T10:30:00.000Z' }).count,
+    ).toBe(1)
+    expect(reader.countEvents({ typePrefix: 'nada.' })).toEqual({ count: 0 })
+  })
+
   it('stores a numeric issue as text', () => {
     const { events, reader } = setup()
     events.record({
