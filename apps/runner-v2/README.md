@@ -145,6 +145,48 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `SLACK_BOT_TOKEN` | las actions de Slack y `request_slack_review` |
 | `MEMORY_MCP_URL` | el MCP de memoria (`runner.yaml` lo nombra como `${MEMORY_MCP_URL}`) |
 | `IA_FLOW_PROVIDER_HOST_TOKEN`, `IA_FLOW_PROVIDER_HOST_PORT` | `--host`: el bearer que se exige y el puerto (default 3002) |
+| `IA_FLOW_API_TOKEN` | el token de la API de la web (`x-ia-flow-token`); sin él, la API responde 503 |
+| `IA_FLOW_GITHUB_CLIENT_ID` | (o `github.clientId`) el client id de la GitHub App: el login de cada persona en la web |
+
+## La bandeja, el asistente y lo que pasó (`--serve`)
+
+En el mismo puerto que los webhooks, `--serve` expone la API de la web (contrato:
+`packages/shared/src/inbox.ts`). Todo pide `IA_FLOW_API_TOKEN` en `x-ia-flow-token` (o
+`Authorization: Bearer`, o `?token=` para el stream) y responde CORS al origen que pregunte.
+
+| Ruta | Qué |
+| --- | --- |
+| `GET /api/runner` | quién es (el selector de servidores de la web lo reconoce por acá) |
+| `GET /api/inbox?project=` | la bandeja: **te necesita**, **falló**, **corriendo**, **en cola** (`inbox/classify.ts`) |
+| `GET /api/tasks/:owner/:repo/:n` | una tarea: sus ejecuciones, los eventos con qué decidió cada pipeline, y la traza |
+| `GET /api/explain?ref=&event=` | "¿por qué corrió / no corrió?": el mismo plan del engine, en seco |
+| `GET /api/config` | la config cargada, en corto |
+| `GET /api/stream` | SSE: qué cambió (una tarea, una traza, un evento) |
+| `POST /api/tasks/:owner/:repo/:n/actions` | mergear, aprobar el PRD, devolver, contestar y destrabar, relanzar, reintentar, pedir que pare — con el token de GitHub de quien lo hace (`x-github-token`): el movimiento queda a su nombre |
+| `POST /api/auth/github/device` (+ `/poll`) | el login de GitHub de la web (device flow de la App); el runner no guarda el token |
+| `POST /api/assistant` | el asistente (SSE): lee la bandeja, las tareas, la config y la traza, y **propone** acciones que la persona confirma |
+
+**Lo que pasó queda en SQLite**, en el mismo archivo que las ejecuciones (`engine.executions.path`):
+`event_log` (cada evento, qué decidió cada pipeline y por qué) y `execution_trace` (cada span y
+log de cada ejecución, en el momento: tools, mensajes del modelo con sus tokens, hooks del CLI,
+lo que vuelve de un host remoto). Es lo mismo que sale por OTLP, emitido una sola vez: la
+telemetría se registra siempre y OTLP es un destino más cuando hay endpoint. Se borra lo que tiene
+más de `inbox.retentionDays`.
+
+```yaml
+# runner.yaml — todo opcional, estos son los defaults
+inbox:
+  labels: { blocked: blocked, reviewed: reviewed }
+  statuses: { refine: Refine, refined: Refined, build: Build, review: Review }
+  staleHours: 24        # "sin movimiento"
+  retentionDays: 14
+  commentExcerpt: 140   # cuánto de un comentario queda en el resumen del evento
+  mergeMethod: squash
+assistant:
+  provider: anthropic-api
+  providerConfig: {}
+  systemPrompt: ./assistant/system.md
+```
 
 ## Providers en otra máquina (`type: remote` y `--host`)
 

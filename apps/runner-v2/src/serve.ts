@@ -13,7 +13,7 @@
  * pipelines de entrada del proyecto (`resolve_task`).
  */
 import type { Server } from 'node:http'
-import { createEvent } from '@ia-flow/agent-engine'
+import { createEvent, type DomainEvent } from '@ia-flow/agent-engine'
 import type { MountedRunner } from './boot.js'
 import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
 
@@ -21,6 +21,12 @@ export interface ServeOptions {
   port: number
   secret: string | undefined
   log: (line: string) => void
+  /** La API de la web, en el mismo puerto que los webhooks. */
+  api?: { handle: NonNullable<Parameters<typeof createWebhookServer>[0]['api']>['handle'] }
+  /** Cada delivery verificado, antes de despacharlo (la bandeja relee el board). */
+  onDelivery?: (delivery: Delivery) => void
+  /** Un delivery que no llega al engine: queda anotado igual, con por qué. */
+  onIgnored?: (event: DomainEvent<any>, reason: string) => void
 }
 
 type Raw = Record<string, Record<string, unknown> | undefined>
@@ -99,16 +105,19 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
     )
 
   const onDelivery = async (delivery: Delivery) => {
+    opts.onDelivery?.(delivery)
     const type = `${RAW_PREFIX}${delivery.event}`
     const action = typeof delivery.payload.action === 'string' ? `.${delivery.payload.action}` : ''
+    const event = createEvent(type, delivery.payload, { scope: deliveryScope(delivery) })
     // Sin pipeline de entrada para el evento no hay nada que despachar.
     if (!listened().has(type)) {
       log(`· ${delivery.event}${action} (${delivery.id ?? 'sin id'}): ningún intake lo escucha`)
+      opts.onIgnored?.(event, 'ningún intake lo escucha')
       return
     }
     const tag = `${delivery.event}${action} (${delivery.id ?? 'sin id'})`
     mounted.engine
-      .dispatch(createEvent(type, delivery.payload, { scope: deliveryScope(delivery) }))
+      .dispatch(event)
       .then((outcome) => {
         if (outcome === 'skipped') log(`· ${tag}: filtrado por el intake`)
       })
@@ -128,6 +137,7 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
       listening: [...listened()].sort(),
       executions: mounted.executions?.stats,
     }),
+    ...(opts.api ? { api: opts.api } : {}),
     log,
   })
   await new Promise<void>((resolve, reject) => {

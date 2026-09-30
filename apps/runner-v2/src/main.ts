@@ -24,10 +24,12 @@ import { type MountedRunner, mountRunner } from './boot.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
 import { startHeartbeat } from './heartbeat.js'
+import { mountInbox } from './inbox/mountInbox.js'
 import { createProviderHost, DEFAULT_HOST_PORT, hostedProviders } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
-import { startTelemetry, type Telemetry } from './telemetry.js'
+import { type ActivityStore, openActivityStore } from './storage/activityStore.js'
+import { startTelemetry, type Telemetry, TraceRoute } from './telemetry.js'
 
 /** Lo que el runner imprime también sale como log OTLP, con la traza activa y el scope del evento. */
 const runnerLog = createLogger('ia-flow-runner-v2')
@@ -63,6 +65,8 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
   for (const line of mounted.warnings) console.log(`→ aviso: ${line}`)
 }
 
+const VERSION = '0.1.0'
+
 /** Un número positivo de un env var, o el default. */
 function positiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value)
@@ -86,9 +90,15 @@ async function startServing(
   mounted: MountedRunner,
   cfg: RunnerConfig,
   telemetry: Telemetry,
+  store: ActivityStore,
   log: (line: string) => void,
 ): Promise<void> {
-  registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
+  registerProviders(cfg.providers, {
+    cwd: (ctx) => mounted.services.session.dirFor(ctx),
+    log,
+    onTrace: (record) => store.writeTrace(record),
+  })
+  const inbox = mountInbox(mounted, cfg, store, { version: VERSION, log })
   // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
   // — no en el primer tick, y nunca en una validación o un evento suelto.
   mounted.engine.tick()
@@ -103,11 +113,19 @@ async function startServing(
       console.log(line)
       runnerLog.info(line)
     },
+    api: inbox.api,
+    onDelivery: () => inbox.board.invalidate(),
+    onIgnored: (event, reason) => store.ignored(event, reason),
   })
+  if (!process.env.IA_FLOW_API_TOKEN?.trim()) {
+    console.log('→ aviso: sin IA_FLOW_API_TOKEN la API de la web responde 503')
+  }
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       stopHeartbeat()
+      inbox.close()
       mounted.stop()
+      store.close()
       void telemetry.shutdown().finally(() => process.exit(0))
     })
   }
@@ -119,6 +137,7 @@ function startHosting(
   mounted: MountedRunner,
   cfg: RunnerConfig,
   telemetry: Telemetry,
+  route: TraceRoute,
   log: (line: string) => void,
 ): void {
   const registered = registerProviders(cfg.providers, {
@@ -127,6 +146,8 @@ function startHosting(
   })
   const providers = hostedProviders(registered, cfg.host)
   const host = createProviderHost(providers, cfg.host, process.env.IA_FLOW_PROVIDER_HOST_TOKEN)
+  // Lo que corre acá vuelve, por el sync, al runner que pidió cada corrida.
+  route.to({ write: (record) => host.trace(record) })
   const port = positiveInt(
     process.env.IA_FLOW_PROVIDER_HOST_PORT,
     cfg.host.port ?? DEFAULT_HOST_PORT,
@@ -184,8 +205,12 @@ async function main(): Promise<'serving' | 'done'> {
   const cfg = loadRunnerConfig(configDir)
   const envReport = applyRunnerEnv(cfg)
   // Después de la config: `telemetry:` de runner.yaml ya está en las `OTEL_*`.
-  const started = startTelemetry('0.1.0')
+  const route = new TraceRoute()
+  const started = startTelemetry(VERSION, route)
   telemetry = started
+  // La memoria de lo que pasa (bandeja, asistente): acá, salvo en `--host`, que la devuelve.
+  const store = args.host ? undefined : openActivityStore(cfg)
+  if (store) route.to({ write: (record) => store.writeTrace(record) })
   console.log(
     `→ config: ${configDir} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
   )
@@ -197,15 +222,16 @@ async function main(): Promise<'serving' | 'done'> {
   const mounted = await mountRunner(cfg, {
     workspaceDir: process.env.WORKSPACE_DIR,
     log,
+    ...(store ? { dispatchJournal: store.dispatchJournal } : {}),
   })
   reportBoot(mounted, envReport)
 
-  if (args.serve) {
-    await startServing(mounted, cfg, started, log)
+  if (args.serve && store) {
+    await startServing(mounted, cfg, started, store, log)
     return 'serving'
   }
   if (args.host) {
-    startHosting(mounted, cfg, started, log)
+    startHosting(mounted, cfg, started, route, log)
     return 'serving'
   }
   try {
@@ -213,6 +239,7 @@ async function main(): Promise<'serving' | 'done'> {
     return 'done'
   } finally {
     mounted.stop()
+    store?.close()
   }
 }
 

@@ -38,6 +38,8 @@ export interface WebhookServerOptions {
   onDelivery: (delivery: Delivery) => Promise<void>
   /** Lo que `GET /api/webhooks/status` agrega a la respuesta. */
   status?: () => Record<string, unknown>
+  /** La API de la web (`http/ApiRouter.ts`): si atiende la ruta, el webhook no la ve. */
+  api?: { handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> }
   log: (line: string) => void
 }
 
@@ -139,6 +141,7 @@ export function createWebhookServer(opts: WebhookServerOptions): Server {
     const path = (req.url ?? '').split('?')[0]
     const handle = async () => {
       if (req.method === 'POST' && path === GITHUB_WEBHOOK_PATH) return github(req, res)
+      if (await opts.api?.handle(req, res)) return
       if (req.method === 'GET' && path === STATUS_PATH) {
         return send(res, 200, {
           endpoint: GITHUB_WEBHOOK_PATH,
