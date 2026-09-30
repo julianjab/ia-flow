@@ -38,6 +38,10 @@ export interface Checkpoint {
   sourceId?: string
   /** El scope del evento, para el evento con el que vence (`execution.expired`). */
   scope?: Record<string, unknown>
+  /** El payload del evento de la corrida al pausarse: el de `execution.expired` lo lleva, así lo
+   *  que corre al vencer (o al retomar tras un reinicio) ve la task igual que la corrida que
+   *  pausó — un `update_issue` sabe qué issue es. */
+  payload?: unknown
   /**
    * Lo que el paso `pauseId` necesita para seguir DONDE QUEDÓ en vez de empezar de nuevo: la
    * conversación de un agente que espera un evento (`wait_for_event`), o la que guardaba mientras

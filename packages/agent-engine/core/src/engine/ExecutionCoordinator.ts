@@ -243,7 +243,8 @@ export class ExecutionCoordinator {
   }
 
   /**
-   * Las pausas vencidas se reanudan por su rama `timeout`, con un evento `execution.expired`. Con
+   * Las pausas vencidas se reanudan por su rama `timeout`, con un evento `execution.expired` que
+   * trae el payload de la corrida que pausó (`Checkpoint.payload`) más `executionId`/`pauseId`. Con
    * una corrida ya en cola sobre la task, la pausa no vence: esa corrida la reemplaza.
    */
   expireDue(now: number): void {
@@ -259,9 +260,16 @@ export class ExecutionCoordinator {
     if (this.executions?.busy(execution.key)) return 'skipped'
     const wake = execution.wakeOnTimeout()
     if (!wake) return 'skipped'
+    // Con el payload de la corrida que pausó: lo que corre ahora (la rama `timeout`, el agente
+    // que se retoma y sus rutas) necesita la task, no sólo qué ejecución venció.
+    const saved = wake.checkpoint.payload
     const event = createEvent(
       'execution.expired',
-      { executionId: execution.id, pauseId: wake.checkpoint.pauseId },
+      {
+        ...(typeof saved === 'object' && saved !== null ? saved : {}),
+        executionId: execution.id,
+        pauseId: wake.checkpoint.pauseId,
+      },
       wake.checkpoint.scope ? { scope: wake.checkpoint.scope } : {},
     )
     await this.resumption(execution, wake, event).run()

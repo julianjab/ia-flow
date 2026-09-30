@@ -61,6 +61,7 @@ export class Checkpoints {
       savedAt: new Date().toISOString(),
       ...(ctx.sourceId !== undefined ? { sourceId: ctx.sourceId } : {}),
       ...(ctx.event.scope ? { scope: ctx.event.scope } : {}),
+      ...(ctx.event.payload !== undefined ? { payload: ctx.event.payload } : {}),
     }
   }
 
