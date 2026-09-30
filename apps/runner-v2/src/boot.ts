@@ -46,6 +46,7 @@ import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import { withScope } from './projects/withScope.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
+import { trackWorking } from './working/workingMarker.js'
 import { workspaceTargetFor } from './workspace/workspaceTarget.js'
 
 /** Donde viven los clones y worktrees si no se pasa `WORKSPACE_DIR`. */
@@ -207,6 +208,10 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     capabilities: (name) => globalSource.capabilities[name],
     ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
   })
+  // `Working = Yes` en la card mientras su ejecución corre (ver `project.yaml` → workingMarker).
+  const stopWorking = mounted.executions
+    ? trackWorking(mounted.executions, cfg.projects, github, opts.log)
+    : () => {}
   const pipelines = () => sources.flatMap((entry) => entry.source.list())
   try {
     validateProviderDefaults(cfg.providers)
@@ -237,6 +242,9 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     actions: actions.registered,
     warnings,
     services,
-    stop: mounted.stop,
+    stop: () => {
+      stopWorking()
+      mounted.stop()
+    },
   }
 }

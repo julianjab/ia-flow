@@ -26,6 +26,11 @@ import type { SlackReviewConfig } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
+import {
+  DEFAULT_WORKING_MARKER,
+  type WorkingMarker,
+  WorkingMarkerSchema,
+} from '../working/workingMarker.js'
 
 const McpEntrySchema = z.strictObject({
   id: z.string().min(1),
@@ -85,6 +90,9 @@ export const ProjectFileSchema = z.strictObject({
   label: z.string().min(1).optional(),
   /** Cuántas corridas de sus tasks a la vez (debajo de `engine.executions.maxConcurrent`). */
   maxConcurrent: z.number().int().positive().optional(),
+  /** La marca "en curso" de una task en el board mientras su ejecución corre (el `Working = Yes`
+   *  de ia-flow). Ausente: `{ field: Working, on: Yes }` (apagar = vaciar); `null`: sin marca. */
+  workingMarker: WorkingMarkerSchema.nullable().optional(),
   /** El pedido de review en Slack (`request_slack_review`): canal, a quién taguear y con qué
    *  texto. Un repo del catálogo los pisa campo por campo. */
   ...SlackReviewSchema.shape,
@@ -160,6 +168,8 @@ export interface ProjectConfig {
   branchPrefix?: string
   /** Ver `label` en `project.yaml`. */
   label?: string
+  /** La marca "en curso" (ya con el default); `null`: sin marca. */
+  workingMarker: WorkingMarker | null
   /** Ver `maxConcurrent` en `project.yaml`. */
   maxConcurrent?: number
   /** Ver `slackReview*` en `project.yaml`. */
@@ -292,6 +302,8 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     board: parseBoard(project.board),
     ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
     ...(project.label ? { label: project.label } : {}),
+    workingMarker:
+      project.workingMarker === undefined ? DEFAULT_WORKING_MARKER : project.workingMarker,
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
     slackReview: {
       ...(project.slackReviewChannel ? { slackReviewChannel: project.slackReviewChannel } : {}),
