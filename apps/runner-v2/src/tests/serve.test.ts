@@ -3,7 +3,8 @@ import { createHmac } from 'node:crypto'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { MountedRunner } from '../boot.js'
-import { deliveryScope, serve } from '../http/serve.js'
+import { serve } from '../http/serve.js'
+import { deliveryScope } from '../intake/dispatch.js'
 
 const repository = { full_name: 'la-haus/subscriptions' }
 
