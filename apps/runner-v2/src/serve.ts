@@ -14,8 +14,11 @@
  */
 import type { Server } from 'node:http'
 import { createEvent, type DomainEvent } from '@ia-flow/agent-engine'
+import { createLogger, describeError, errorAttributes } from '@ia-flow/telemetry'
 import type { MountedRunner } from './boot.js'
 import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
+
+const telemetryLog = createLogger('ia-flow-runner-v2.serve')
 
 export interface ServeOptions {
   port: number
@@ -122,7 +125,14 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
         if (outcome === 'skipped') log(`· ${tag}: filtrado por el intake`)
       })
       .catch((err: unknown) => {
-        log(`  ${tag}: el despacho falló: ${err instanceof Error ? err.message : String(err)}`)
+        // Un `AggregateError` trae la causa de cada pipeline en `errors`: a la consola, todas en
+        // la línea; a telemetría, el detalle completo (tipo, stack y cada causa) correlacionado.
+        log(`  ${tag}: el despacho falló: ${describeError(err)}`)
+        telemetryLog.error(`${tag}: el despacho falló`, {
+          ...errorAttributes(err),
+          'github.event': delivery.event,
+          ...(delivery.id ? { 'github.delivery': delivery.id } : {}),
+        })
       })
   }
 
