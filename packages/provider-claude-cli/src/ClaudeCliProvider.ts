@@ -68,6 +68,9 @@ let sharedServer: RunServer | undefined
  */
 export class ClaudeCliProvider implements Provider {
   readonly id: string
+  // El CLI trabaja el worktree con sus tools (`Read`, `Edit`, `Bash`, `Task`): las del agente que
+  // hacen lo mismo no le llegan por MCP.
+  readonly workspace = 'native' as const
   readonly maxConcurrent?: number
   readonly log = createLogger('provider-claude-cli')
   private readonly defaults: ClaudeCliConfig
