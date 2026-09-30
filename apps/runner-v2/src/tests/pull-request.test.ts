@@ -48,6 +48,18 @@ describe('ReviewPullRequestAction', () => {
     expect(out).toContain('2 comentario(s)')
   })
 
+  it("an event without its own PR reviews the task's open PR (`task.pr`)", async () => {
+    const requestJson = vi.fn(async () => ({ html_url: 'u' }))
+    const action = new ReviewPullRequestAction({ requestJson } as unknown as GithubClient)
+    await action.run(
+      ctx({ owner: 'la-haus', repo: 'subscriptions', task: { pr: { number: 9, headSha: 'def' } } }),
+      { comments: [{ path: 'a', line: 1, body: 'x' }] },
+    )
+    const [path, init] = requestJson.mock.calls[0] as unknown as [string, { body: string }]
+    expect(path).toBe('/repos/la-haus/subscriptions/pulls/9/reviews')
+    expect(JSON.parse(init.body).commit_id).toBe('def')
+  })
+
   it('refuses to run without a PR in the event — the model never picks the PR', async () => {
     const action = new ReviewPullRequestAction({ requestJson: vi.fn() } as unknown as GithubClient)
     await expect(

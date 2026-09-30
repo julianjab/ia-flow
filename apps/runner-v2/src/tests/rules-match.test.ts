@@ -185,7 +185,20 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
     ).toContain('pr-changes-requested')
   })
 
-  it('an opened PR dispatches the reviewer', async () => {
+  it('the card reaching Review with an open PR dispatches the reviewer — every cycle', async () => {
+    expect(
+      await rulesFor(
+        'projects_v2_item',
+        statusChange('Build', 'Review'),
+        { status: 'Review' },
+        OPEN_PR,
+      ),
+    ).toContain('review')
+    // Sin PR abierto no hay nada que revisar.
+    expect(
+      await rulesFor('projects_v2_item', statusChange('Build', 'Review'), { status: 'Review' }),
+    ).not.toContain('review')
+    // Abrir el PR ya no lo dispara: la card todavía no llegó a Review (el CI corre).
     const opened = {
       action: 'opened',
       pull_request: { number: 12, head: { ref: 'ia-flow-local/7' }, base: { ref: 'main' } },
@@ -195,33 +208,13 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
         owner: { login: 'la-haus' },
       },
     }
-    expect(await rulesFor('pull_request', opened, { status: 'Review' })).toContain('review')
-    expect(
-      await rulesFor('pull_request', { ...opened, action: 'synchronize' }, { status: 'Review' }),
-    ).not.toContain('review')
+    expect(await rulesFor('pull_request', opened, { status: 'Build' })).not.toContain('review')
   })
 
-  it("resolves every variable of the reviewer's prompt and of the review brief for an opened PR", async () => {
+  it("resolves every variable of the reviewer's prompt and of the review brief when the card reaches Review", async () => {
     const { mounted, emitted } = await intakeOf(
-      'pull_request',
-      {
-        action: 'opened',
-        pull_request: {
-          number: 12,
-          title: 'feat(core): paginar leads',
-          body: 'Closes #7',
-          state: 'open',
-          html_url: 'https://github.com/la-haus/subscriptions/pull/12',
-          user: { login: 'ai-lh-developer[bot]' },
-          head: { ref: 'ia-flow-local/7', sha: 'abc123' },
-          base: { ref: 'main' },
-        },
-        repository: {
-          name: 'subscriptions',
-          full_name: 'la-haus/subscriptions',
-          owner: { login: 'la-haus' },
-        },
-      },
+      'projects_v2_item',
+      statusChange('Build', 'Review'),
       {
         status: 'Review',
         comments: [
@@ -250,6 +243,8 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
       .filter((path) => lookup(path) == null || lookup(path) === '')
     expect(unresolved).toEqual([])
     expect(lookup('pr.head.ref')).toBe('ia-flow-local/7')
+    expect(lookup('pr.head.sha')).toBe('abc123')
+    expect(lookup('task.pr.headSha')).toBe('abc123')
     expect(lookup('task.ci')).toBe('success')
   })
 

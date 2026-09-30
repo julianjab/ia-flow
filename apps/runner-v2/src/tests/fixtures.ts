@@ -45,6 +45,7 @@ export interface FakePr {
   number: number
   state?: string
   body?: string
+  title?: string
   head: { ref: string; sha: string }
 }
 
@@ -203,7 +204,10 @@ function prJson(owner: string, repo: string, pr: FakePr) {
     number: pr.number,
     state: pr.state ?? 'open',
     body: pr.body ?? '',
+    title: pr.title ?? `PR ${pr.number}`,
+    user: { login: 'ai-lh-developer[bot]' },
     head: pr.head,
+    base: { ref: 'main' },
     html_url: `https://github.com/${owner}/${repo}/pull/${pr.number}`,
   }
 }

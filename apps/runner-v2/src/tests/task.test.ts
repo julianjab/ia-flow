@@ -78,7 +78,10 @@ describe('openPr', () => {
     number,
     state,
     html_url: `https://github.com/x/pull/${number}`,
-    head: { sha: `sha${number}` },
+    title: `PR ${number}`,
+    user: { login: 'bot' },
+    head: { sha: `sha${number}`, ref: 'ia-flow-local/7' },
+    base: { ref: 'main' },
   })
 
   it('the event PR if still open, otherwise the one open from the task branch', () => {
@@ -86,6 +89,10 @@ describe('openPr', () => {
       number: 12,
       url: 'https://github.com/x/pull/12',
       headSha: 'sha12',
+      title: 'PR 12',
+      author: 'bot',
+      headRef: 'ia-flow-local/7',
+      baseRef: 'main',
     })
     expect(openPr(pr(12, 'closed'), undefined)).toBeUndefined()
     expect(openPr(undefined, [pr(13)])?.number).toBe(13)
