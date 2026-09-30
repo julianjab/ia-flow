@@ -26,9 +26,9 @@ export const USAGE = `uso: bun run src/main.ts [--config <dir>]
   --serve                escucha webhooks de GitHub en POST /api/webhooks/github (puerto
                          settings.port / IA_FLOW_SERVER_PORT, default 3001; secreto
                          IA_FLOW_WEBHOOK_SECRET)
-  --host                 presta los providers locales a otros runners (\`type: remote\` del otro
-                         lado): \`host:\` de runner.yaml, puerto IA_FLOW_PROVIDER_HOST_PORT
-                         (default 3002), token IA_FLOW_PROVIDER_HOST_TOKEN
+  --host                 le presta su CLI \`claude\` a un runner (\`remote:<name>\` del otro lado):
+                         \`host:\` de runner.yaml, se suscribe a /v1/hosts del runner con
+                         IA_FLOW_HOST_TOKEN — sólo conexiones de salida
   --event <tipo> <json>  despacha un webhook crudo (\`github.pull_request\`, …) con el payload del
                          archivo — el mismo camino que un delivery
   --replay-pr <pr>       lee ese PR de GitHub y lo despacha como un \`pull_request\` \`opened\`

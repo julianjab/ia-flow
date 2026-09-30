@@ -301,7 +301,7 @@ Cada release adjunta el runner como un solo archivo (`bun run release:package`,
 `scripts/package-release.ts`), construido y probado con Bun **1.4.2**. La config no va adentro:
 la trae cada deploy (`RUNNER_CONFIG_DIR` o `--config`), en cualquier carpeta. Sus actions
 importan `@ia-flow/*` y `zod`, y el bundle se los sirve como módulos virtuales
-(`src/dist/modules.ts`) — con las mismas instancias que usa el runner. Un paquete que no esté en
+(`src/bundle/modules.ts`) — con las mismas instancias que usa el runner. Un paquete que no esté en
 esa lista rompe el arranque del deploy; `dist-modules.test.ts` lo avisa antes contra esta `.config`.
 
 `GET /health` contesta 200 mientras el proceso vive: es la probe de k8s y del balanceador.

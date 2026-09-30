@@ -1,13 +1,15 @@
-# Construye y publica la app de escritorio de una release.
+# Construye y publica los artefactos de una release.
 #
 # Lo dispara el tag que crea `release-please.yml` al mergear su Release PR.
 # `workflow_dispatch` está para rehacer una release sin tocar la versión.
 #
+#   ia-flow-runner.js              el runner headless (`apps/runner-v2`), un bundle
+#   ia-flow-runner-<v>.tar.gz      el bundle + Dockerfile.example + VERSION + BUN_VERSION
+#   SHA256SUMS                     para `ADD --checksum`
 #   IA Flow-<version>-<arch>.dmg   la app de escritorio
 #
-# Los bundles de `apps/server` (flavors `full` y `runner`) y `apps/agent-host`
-# ya no existen: el runner headless es `apps/runner-v2` sobre los paquetes
-# `@ia-flow/agent-engine*`, y todavía no tiene artefacto publicado.
+# No se publican imágenes: el bundle se referencia con un `ADD` desde el
+# Dockerfile de cada deploy, sobre su base y con su config.
 name: Release
 
 on:
@@ -38,7 +40,62 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  runner:
+    name: Runner (ia-flow-runner.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # El MISMO pin que scripts/package-release.ts (BUN_VERSION), que
+          # además se niega a empaquetar con otro.
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Empaquetar
+        run: bun run scripts/package-release.ts "${TAG#v}"
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+
+      - name: Adjuntar a la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            dist/artifacts/*.js
+            dist/artifacts/*.tar.gz
+            dist/artifacts/SHA256SUMS
+          append_body: true
+          body: |
+
+            ### Runner
+
+            El runner headless (`apps/runner-v2`) es un solo archivo. Se baja
+            con un `ADD` desde el Dockerfile de cada deploy, junto a su config:
+
+            ```dockerfile
+            FROM oven/bun:1.4.2-slim
+            ADD --chown=bun:bun --chmod=644 https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-runner.js /app/runner.js
+            COPY config/ /app/config/
+            ENV RUNNER_CONFIG_DIR=/app/config
+            ENTRYPOINT ["bun", "run", "/app/runner.js", "--serve"]
+            ```
+
+            Las actions `.ts` de la config importan `@ia-flow/*` y `zod`: el
+            bundle se los sirve, no hace falta `node_modules`. Verificá la
+            descarga con `SHA256SUMS`. Bun: **1.4.2**.
+
   desktop:
+    # Después del runner: los dos adjuntan a la MISMA Release con
+    # `append_body`, que es un read-modify-write del body.
+    needs: runner
     name: IA Flow.app (dmg)
     # macOS obligatorio: un .dmg se construye con `hdiutil`, que no existe en
     # Linux. Es también el único job que cuesta minutos de macOS runner.
@@ -53,8 +110,8 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          # Mismo pin que ci.yml: Bun 1.4.x rompe @memoize (issue #80).
-          bun-version: "1.1.30"
+          # Mismo pin que ci.yml y scripts/package-release.ts.
+          bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
 
