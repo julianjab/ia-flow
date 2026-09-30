@@ -71,6 +71,14 @@ mcp:
       type: http
       url: https://api.githubcopilot.com/mcp/
       authorizationToken: ${GITHUB_TOKEN}
+  # El mismo MCP en solo lectura (`/readonly`: sólo las tools con `readOnlyHint`, ni
+  # merge ni comentarios). Lo usa el asistente de la web: lee issues y PRs, y lo
+  # que se mueve lo confirma una persona, firmado con su login.
+  - id: github-mcp-readonly
+    config:
+      type: http
+      url: https://api.githubcopilot.com/mcp/readonly
+      authorizationToken: ${GITHUB_TOKEN}
   - id: figma-mcp
     config:
       type: http

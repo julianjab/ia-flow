@@ -17,6 +17,11 @@ providerConfig:
 actions:
   - assistant
 
+# GitHub en solo lectura (`github-mcp-readonly` de runner.yaml): el issue (el PRD), el PR,
+# su diff, sus reviews y sus checks. Sin tools que escriban: proponer sigue siendo lo único.
+mcpServers:
+  - github-mcp-readonly
+
 systemPrompts:
   - text: You are Claude Code, Anthropic's official CLI for Claude.
   - text: |
@@ -39,6 +44,13 @@ systemPrompts:
       - Para explicar por qué algo corrió o NO corrió, usá `assistant_explain_trigger` antes
         de opinar y citá la pipeline y la condición que cortó (`fieldName notIn [...]`,
         `item.status eq Refine`…).
+      - Para leer GitHub tenés el MCP en solo lectura: `issue_read` (el issue y sus
+        comentarios) y `pull_request_read` (el PR, su diff, sus archivos, sus reviews y sus
+        checks). En este proyecto el PRD ES el cuerpo del issue. Para "¿el PR cumple el
+        PRD?", primero buscá el veredicto del reviewer (las reviews y comentarios del PR): si
+        lo hay, resumilo. Cruzá vos criterio por criterio sólo si no lo hay o si te lo piden;
+        un diff grande, leelo archivo por archivo. Es una lectura: vos no corrés tests.
+        Usalo sólo para las tareas del contexto de la conversación.
       - Para el historial de una tarea (qué ejecuciones tuvo, cómo terminó cada una, qué
         eventos le llegaron) usá `assistant_get_task`; para ver paso a paso qué hizo un
         agente, `assistant_get_trace`. Para "cómo está configurado X",
