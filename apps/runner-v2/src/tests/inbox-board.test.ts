@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { createEvent } from '@ia-flow/agent-engine'
-import { toBoardCard } from '../inbox/BoardReader.js'
+import { toBoardCard, toBoardMeta } from '../inbox/BoardReader.js'
 import { summarizeEvent } from '../inbox/eventSummary.js'
 import { InboxSection } from '../inbox/InboxSection.js'
 import { TaskActions } from '../tasks/TaskActions.js'
@@ -73,11 +73,13 @@ describe('toBoardCard', () => {
     })
   })
 
-  it('skips closed issues, archived items and cards without the project label', () => {
+  it('skips closed issues and archived items; marks the cards of another engine', () => {
     const spec = { projectId: 'p', board: { owner: 'la-haus', number: 119 } }
     expect(toBoardCard(item({ state: 'CLOSED' }), spec)).toBeUndefined()
     expect(toBoardCard(item({}, { isArchived: true }), spec)).toBeUndefined()
-    expect(toBoardCard(item({}), { ...spec, label: 'ia-flow' })).toBeUndefined()
+    // Sin la label del proyecto no se descarta: es de otro engine.
+    expect(toBoardCard(item({}), { ...spec, label: 'ia-flow' })).toMatchObject({ foreign: true })
+    expect(toBoardCard(item({}), { ...spec, label: 'blocked' })?.foreign).toBeUndefined()
   })
 })
 
@@ -106,6 +108,42 @@ describe('summarizeEvent', () => {
     expect(summary.comment).toHaveLength(20)
     expect(summary).toMatchObject({ author: 'ana', issue: 'o/r#1' })
     expect(summarizeEvent(comment, 0).comment).toBeUndefined()
+  })
+})
+
+describe('toBoardMeta', () => {
+  const board = { owner: 'la-haus', number: 119 }
+  it('the project page, its first board view and the Status columns in order', () => {
+    const meta = toBoardMeta(
+      {
+        organization: {
+          projectV2: {
+            url: 'https://github.com/orgs/la-haus/projects/119',
+            views: {
+              nodes: [
+                { number: 1, layout: 'TABLE_LAYOUT' },
+                { number: 3, layout: 'BOARD_LAYOUT' },
+              ],
+            },
+            field: { options: [{ name: 'Backlog' }, { name: 'Review' }] },
+          },
+        },
+      },
+      board,
+    )
+    expect(meta).toEqual({
+      url: 'https://github.com/orgs/la-haus/projects/119',
+      boardUrl: 'https://github.com/orgs/la-haus/projects/119/views/3',
+      statuses: ['Backlog', 'Review'],
+    })
+  })
+
+  it('without an answer, the links that can be built and no column order', () => {
+    expect(toBoardMeta({}, board)).toEqual({
+      url: 'https://github.com/orgs/la-haus/projects/119',
+      boardUrl: 'https://github.com/orgs/la-haus/projects/119',
+      statuses: [],
+    })
   })
 })
 
