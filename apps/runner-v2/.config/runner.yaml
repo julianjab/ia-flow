@@ -34,6 +34,7 @@ providers:
     maxTokens: 32000
     maxToolRounds: 200
     maxPauseTurnRetries: 5
+    maxConcurrent: 3
   # Un provider sobre el CLI `claude` (Claude Code): los agentes con
   # `provider: claude-cli` corren como una sesión del CLI en el worktree de la
   # task, con todo el CLI habilitado y sus actions por MCP. `mode: print`
@@ -43,6 +44,14 @@ providers:
     type: claude-cli
     mode: print
     timeoutMinutes: 120
+  # El mismo CLI en una sesión de tmux (`tmux attach -t iaflow-<agente>-task-<n>`).
+  # Un agente con `providers: [claude-tmux, anthropic-api]` corre acá si hay
+  # lugar, y si no en la API.
+  claude-tmux:
+    type: claude-cli
+    mode: tmux
+    timeoutMinutes: 120
+    maxConcurrent: 2
 
 # Los MCP que los agentes nombran en `mcpServers`. Uno que no responde al
 # arrancar se omite con un aviso: Anthropic rechaza la request entera si un

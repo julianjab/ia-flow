@@ -14,7 +14,14 @@ id: implementer
 # WORKSPACE_DIR valida igual los repos Python (`uv` + CPython 3.12). Lo que
 # no está son los toolchains no-Python (Flutter, Ruby, Terraform, yarn):
 # para esos repos entrega sin validar y el reviewer es el único gate.
-provider: anthropic-api
+# Dónde corre, en orden: una sesión del CLI en tmux si tiene lugar (se mira con
+# `tmux attach`), si no la API. Cada uno con su config; al retomar una espera o
+# un reinicio sigue en el que empezó.
+providers:
+  - id: claude-tmux
+    config: { model: opus }
+  - id: anthropic-api
+    config: { model: claude-opus-5 }
 # Lo que le pueden inyectar mientras corre: lo lee en su próxima vuelta en
 # vez de que el evento espere a que termine y lo relance. Es TODO el filtro
 # (las reglas no se evalúan para un evento inyectado): por eso excluye acá
@@ -398,8 +405,6 @@ routes:
 # provider cae a sus defaults — silenciosamente, sin log: se pierde el
 # `model` Y el `mcpServers` del catálogo, o sea el agente arranca SIN las
 # tools del MCP de GitHub.
-providerConfig:
-  model: claude-opus-5
 
 systemPrompts:
   # Lo que le llega mientras corre (`injects`, arriba) entra como un turno
