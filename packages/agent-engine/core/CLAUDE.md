@@ -275,6 +275,8 @@ apagada y quien la pide degrada — nunca tira por eso.
 - **`Capabilities.invoke(capability, input)`** corre el `Runnable` fuera de toda pipeline y
   ejecución: un evento `capability.<nombre>` cuyo payload es el input (un prompt lo lee como
   `{{campo}}`), y el input también como `input` del paso. Valida la salida contra `output`.
+  Con `{ onText }` (tercer argumento) el texto del modelo sale en vivo: viaja en
+  `ctx.onText` hasta el `Agent`, que se lo pasa al provider (`ProviderRunContext.onText`).
 - **Un `Agent`** corre con TODAS sus salidas llevando a un paso `result` cuyo input es `output`:
   el modelo entrega la respuesta en `submit_<salida>.result`. Sin reportes, `onError` ni
   `onInterrupt` — el agente de una capacidad no publica nada.

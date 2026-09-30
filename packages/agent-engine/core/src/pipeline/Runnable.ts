@@ -46,6 +46,9 @@ export interface PipelineExecutionContext {
   /** Guardar por dónde va `step` (`state`), o borrarlo (`undefined`: terminó), para retomarlo si
    *  el proceso muere. Lo pone `Pipeline.execute` para el paso de `do[]` que corre. */
   saveProgress?: (step: Runnable, state: unknown) => void
+  /** El texto del modelo a medida que se escribe (`ProviderRunContext.onText`): quien corre un
+   *  agente fuera de una pipeline (una capacidad pedida por la web) lo muestra en vivo. */
+  onText?: (delta: string) => void
 }
 
 /** Un paso que se retoma donde quedó: su `id`, por qué rama y con qué evento despertó, y lo que

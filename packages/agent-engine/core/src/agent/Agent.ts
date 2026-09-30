@@ -189,6 +189,7 @@ export class Agent extends Runnable {
         mcpServers: def.mcpServers ?? [],
         tools: toolsFor(provider, tools),
         ctx,
+        ...(ctx.onText ? { onText: ctx.onText } : {}),
         ...(execution ? { inbox: () => this.readInbox(execution) } : {}),
         ...(message && conversation !== undefined ? { resume: { conversation, message } } : {}),
         ...(ctx.saveProgress

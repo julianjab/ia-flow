@@ -25,7 +25,13 @@ export interface CapabilityInvoker {
   invoke<I extends ToolInputSchema, O extends ToolInputSchema>(
     capability: Capability<I, O>,
     input: z.input<I>,
+    options?: InvokeOptions,
   ): Promise<z.infer<O> | undefined>
+}
+
+export interface InvokeOptions {
+  /** El texto del modelo a medida que se escribe, si el provider streamea. */
+  onText?: (delta: string) => void
 }
 
 /**
@@ -48,6 +54,7 @@ export class Capabilities implements CapabilityInvoker {
   async invoke<I extends ToolInputSchema, O extends ToolInputSchema>(
     capability: Capability<I, O>,
     input: z.input<I>,
+    options: InvokeOptions = {},
   ): Promise<z.infer<O> | undefined> {
     const runnable = this.bound(capability.name)
     if (!runnable) return undefined
@@ -58,6 +65,7 @@ export class Capabilities implements CapabilityInvoker {
       bus: this.bus,
       pipelineId: `capability:${capability.name}`,
       capabilities: this,
+      ...(options.onText ? { onText: options.onText } : {}),
     }
     const raw = await runForResult(runnable, ctx, payload, capability.output)
     const parsed = capability.output.safeParse(raw)

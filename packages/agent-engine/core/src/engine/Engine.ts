@@ -1,5 +1,9 @@
 import { createLogger, traced } from '@ia-flow/telemetry'
-import { Capabilities, type CapabilityBindings } from '../capability/Capabilities.js'
+import {
+  Capabilities,
+  type CapabilityBindings,
+  type CapabilityInvoker,
+} from '../capability/Capabilities.js'
 import { CapabilityTextClassifier } from '../condition/CapabilityTextClassifier.js'
 import type { TextClassifier } from '../condition/TextClassifier.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
@@ -115,12 +119,15 @@ export class Engine {
   private readonly coordinator: ExecutionCoordinator
   private readonly redelivery: Redelivery
   private readonly dispatchJournal?: DispatchJournal
+  /** Las capacidades enchufadas: la app también las pide (ej. el asistente de la web). */
+  readonly capabilities: CapabilityInvoker
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH
     this.dispatchJournal = opts.dispatchJournal
     const capabilities = new Capabilities(opts.capabilities ?? {}, opts.bus)
+    this.capabilities = capabilities
     const classifier = opts.textClassifier ?? new CapabilityTextClassifier(capabilities)
     this.planner = new DispatchPlanner([opts.pipelines].flat(), classifier)
     this.launcher = new RunLauncher()

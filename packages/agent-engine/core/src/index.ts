@@ -35,7 +35,11 @@ export { NO_TRANSITION_OUTCOMES, TurnProtocol } from './agent/TurnProtocol.js'
 export type { AgentWaits, Waiting } from './agent/WaitTool.js'
 export { WAIT_TOOL_NAME, WaitTool } from './agent/WaitTool.js'
 export { YIELD_TOOL_NAME, YieldTool } from './agent/YieldTool.js'
-export type { CapabilityBindings, CapabilityInvoker } from './capability/Capabilities.js'
+export type {
+  CapabilityBindings,
+  CapabilityInvoker,
+  InvokeOptions,
+} from './capability/Capabilities.js'
 export { CAPABILITY_RESULT, Capabilities } from './capability/Capabilities.js'
 export type {
   Capability,
