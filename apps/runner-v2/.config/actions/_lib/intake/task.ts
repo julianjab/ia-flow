@@ -149,6 +149,7 @@ export interface TaskInput {
   reviews?: RawReview[]
   checks?: Array<{ status: string; conclusion: string | null }>
   statuses?: Array<{ state: string }>
+  workflowRuns?: Array<{ status: string }>
   projectId: string
   /** La rama de la task (`task.branch`). */
   branch: string
@@ -188,6 +189,7 @@ export function taskPayload(input: TaskInput) {
         ? rollupCi(
             input.checks ?? [],
             (input.statuses ?? []).map((s) => s.state),
+            input.workflowRuns ?? [],
           )
         : '',
       ...(input.openPr ? { pr: input.openPr } : {}),

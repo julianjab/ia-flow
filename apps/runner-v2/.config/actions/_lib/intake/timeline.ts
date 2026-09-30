@@ -53,10 +53,15 @@ export function formatComments(comments: Comment[]): string {
 }
 
 /** Checks + statuses del commit → un solo estado, con el criterio de un `statusCheckRollup`:
- *  cualquier rojo gana, después cualquier pendiente; sin nada, vacío. */
+ *  cualquier rojo gana, después cualquier pendiente; sin nada, vacío.
+ *
+ *  Los workflow runs sólo suman pendientes: uno en cola (esperando runner, o un `needs`) todavía
+ *  no creó sus check-runs, y sin él el rollup daba verde con los checks rápidos ya terminados.
+ *  Uno terminado ya está en sus check-runs, con su conclusión. */
 export function rollupCi(
   checkRuns: Array<{ status: string; conclusion: string | null }>,
   statuses: string[],
+  workflowRuns: Array<{ status: string }> = [],
 ): string {
   const states = [
     ...checkRuns.map((run) =>
@@ -69,6 +74,7 @@ export function rollupCi(
           : 'success',
     ),
     ...statuses.map((state) => (state === 'error' ? 'failure' : state)),
+    ...workflowRuns.filter((run) => run.status !== 'completed').map(() => 'pending'),
   ]
   if (states.length === 0) return ''
   if (states.includes('failure')) return 'failure'

@@ -267,7 +267,13 @@ routes:
     # modelo no lo abrió, le agrega el `Closes` si le falta; falla si no se
     # publicó nada), esperar el CI del PR y recién después pasar la card a
     # Review. La espera es una pausa: la ejecución devuelve su lugar.
-    #   - CI verde → Review.
+    #   - CI verde → Review. Verde es TODO el CI del commit (`task.ci`, el
+    #     rollup que arma `resolve_task`), no el check_suite que llegó: cada
+    #     workflow de Actions es su propio suite, y uno rápido (validar el
+    #     título) terminaba en verde con el CI de verdad todavía corriendo —
+    #     el reviewer aprobaba y `request_slack_review` fallaba por CI en curso.
+    #     Escucha también `workflow_run`: si al llegar el último suite la API
+    #     todavía lo da en curso, el `workflow_run` que le sigue lo ve terminado.
     #   - CI rojo NO es una rama: lo levanta `ci-red`, que relanza al
     #     implementer y reemplaza esta pausa.
     #   - Sin CI → Review al vencer. Un CI que termina mientras el agente
@@ -277,9 +283,9 @@ routes:
       - pause: wait-ci
         branches:
           green:
-            on: [ check_suite ]
+            on: [ check_suite, workflow_run ]
             when:
-              - { field: conclusion, op: eq, value: success }
+              - { field: task.ci, op: eq, value: success }
             to: { action: update_issue, with: { status: Review } }
         timeout:
           after: 30m

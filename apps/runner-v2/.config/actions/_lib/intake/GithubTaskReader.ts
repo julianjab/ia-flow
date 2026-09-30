@@ -92,6 +92,8 @@ export interface RawTaskContext {
   reviews?: RawReview[]
   checks?: Array<{ status: string; conclusion: string | null }>
   statuses?: Array<{ state: string }>
+  /** Los workflow runs de Actions del commit: uno en cola todavía no tiene check-runs. */
+  workflowRuns?: Array<{ status: string }>
 }
 
 type ItemIssue = Awaited<ReturnType<GithubTaskReader['readItem']>>
@@ -225,7 +227,7 @@ export class GithubTaskReader {
       this.openPr(task),
     ])
     if (!pr) return { issue, blockers, issueComments }
-    const [prComments, threads, reviews, checks, status] = await Promise.all([
+    const [prComments, threads, reviews, checks, status, runs] = await Promise.all([
       this.client.requestJson<RawComment[]>(`${base}/issues/${pr.number}/comments?per_page=100`),
       this.client.graphql<{
         repository?: { pullRequest?: { reviewThreads?: { nodes?: RawThread[] } } | null } | null
@@ -237,6 +239,13 @@ export class GithubTaskReader {
       this.client.requestJson<{ statuses: NonNullable<RawTaskContext['statuses']> }>(
         `${base}/commits/${pr.headSha}/status`,
       ),
+      // Best-effort: sin permiso de `actions` (o en un repo sin Actions) el rollup se queda con
+      // los checks y statuses, como antes.
+      this.client
+        .requestJson<{ workflow_runs: NonNullable<RawTaskContext['workflowRuns']> }>(
+          `${base}/actions/runs?head_sha=${pr.headSha}&per_page=100`,
+        )
+        .catch(() => ({ workflow_runs: [] })),
     ])
     return {
       issue,
@@ -248,6 +257,7 @@ export class GithubTaskReader {
       reviews,
       checks: checks.check_runs,
       statuses: status.statuses,
+      workflowRuns: runs.workflow_runs,
     }
   }
 
