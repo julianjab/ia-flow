@@ -136,7 +136,7 @@ export class AssistantSession {
     const item = await this.task(ref)
     this.activity('get_task', `leyendo ${item.ref}`)
     const detail = await this.backend.inbox.detail(item.ref)
-    if (!detail) return detail
+    if (!detail) throw new Error(`${item.ref} ya no está en la bandeja`)
     // La cola de la traza, sin payloads: el detalle (y el resto) se pide con assistant_get_trace.
     const from = Math.max(detail.trace.length - TASK_TRACE_TAIL, 0)
     return {
