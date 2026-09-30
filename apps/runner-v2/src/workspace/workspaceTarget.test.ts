@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'bun:test'
 import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-flow/agent-engine'
-import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
+import { workspaceTargetFor } from './workspaceTarget.js'
 
 const ctx = (payload: Record<string, unknown>): PipelineExecutionContext => ({
   event: createEvent('pull_request', payload),

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import type { EventLogEntry } from '@ia-flow/shared'
-import { IngressService } from '../ingress/IngressService.js'
+import { IngressService } from './IngressService.js'
 
 const entry = (id: string, type: string, occurred_at: string): EventLogEntry => ({
   id,

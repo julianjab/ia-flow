@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { providerRegistry } from '@ia-flow/agent-engine'
 import { ClaudeCliProvider } from '@ia-flow/provider-anthropic-cli'
-import {
-  agentConfigValidator,
-  registerProviders,
-  validateProviderDefaults,
-} from '../providers/providers.js'
+import { agentConfigValidator, registerProviders, validateProviderDefaults } from './providers.js'
 
 const PROVIDERS = {
   'anthropic-api': { maxTokens: 1000, maxConcurrent: 2 },

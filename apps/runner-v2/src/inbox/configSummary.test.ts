@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { END } from '@ia-flow/agent-engine'
-import { configSummary } from '../inbox/configSummary.js'
+import { configSummary } from './configSummary.js'
 
 describe('configSummary', () => {
   const summary = configSummary({

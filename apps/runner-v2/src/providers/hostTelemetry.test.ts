@@ -9,8 +9,8 @@ import type { TraceRecord } from '@ia-flow/telemetry'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
-import { hostTelemetryIngest, parseOtlpHeaders } from '../hostTelemetry.js'
-import { listenHosts, mountRemoteHosts } from '../providers/remoteHosts.js'
+import { hostTelemetryIngest, parseOtlpHeaders } from './hostTelemetry.js'
+import { listenHosts, mountRemoteHosts } from './remoteHosts.js'
 
 const TOKEN = 'secreto-de-hosts'
 const closers: Array<() => void> = []

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'bun:test'
 import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
 import { SlackClient } from '@ia-flow/slack-api'
-import { RequestSlackReviewAction } from '../actions/RequestSlackReviewAction.js'
+import { RequestSlackReviewAction } from './RequestSlackReviewAction.js'
 
 const TASK = { owner: 'la-haus', repo: 'subscriptions', number: 7, task: { branch: 'ia-flow/7' } }
 const THREAD = 'https://x.slack.com/archives/CREV1/p1699999999123456'

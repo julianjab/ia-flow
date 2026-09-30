@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'bun:test'
 import { createHmac } from 'node:crypto'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { Delivery } from '../server.js'
-import { createWebhookServer } from '../server.js'
+import type { Delivery } from './server.js'
+import { createWebhookServer } from './server.js'
 
 const SECRET = 'whsec_test'
 

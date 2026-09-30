@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { HEARTBEAT_PREFIX, heartbeatLine, startHeartbeat } from '../heartbeat.js'
+import { HEARTBEAT_PREFIX, heartbeatLine, startHeartbeat } from './heartbeat.js'
 
 describe('heartbeat', () => {
   it('beats right away with the execution counts, under the prefix the dashboard looks for', () => {

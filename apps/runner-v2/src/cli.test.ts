@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseArgs, parseIssueTarget } from '../cli.js'
+import { parseArgs, parseIssueTarget } from './cli.js'
 
 describe('parseArgs', () => {
   it('without a mode, it only boots and validates', () => {

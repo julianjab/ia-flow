@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { findTranscript, forwardTranscript } from '../providers/transcriptForwarder.js'
+import { findTranscript, forwardTranscript } from './transcriptForwarder.js'
 
 const dirs: string[] = []
 afterEach(async () => {

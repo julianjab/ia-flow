@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { ExecutionSummary } from '@ia-flow/shared'
-import { type BoardCard, classify, inboxOrder, type TaskActivity } from '../inbox/classify.js'
-import { InboxSection } from '../inbox/InboxSection.js'
+import { type BoardCard, classify, inboxOrder, type TaskActivity } from './classify.js'
+import { InboxSection } from './InboxSection.js'
 
 const settings = InboxSection.parse({})
 const now = new Date('2026-09-29T12:00:00Z')

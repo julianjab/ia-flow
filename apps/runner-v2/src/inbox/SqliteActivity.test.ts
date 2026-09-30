@@ -8,8 +8,8 @@ import {
   SqliteTraceJournal,
 } from '@ia-flow/agent-engine-datasource-sqlite'
 import type { TraceRecord } from '@ia-flow/telemetry'
-import { summarizeEvent } from '../inbox/eventSummary.js'
-import { SqliteActivity } from '../inbox/SqliteActivity.js'
+import { summarizeEvent } from './eventSummary.js'
+import { SqliteActivity } from './SqliteActivity.js'
 
 const KEY = JSON.stringify([
   ['issue', 'o/r#1'],

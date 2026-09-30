@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { EventFilter, Pause } from '@ia-flow/agent-engine'
 import { executionStoreContract } from '@ia-flow/agent-engine/testing'
 import type { SqliteExecutionStore } from '@ia-flow/agent-engine-datasource-sqlite'
-import { bunSqliteStoreDriver } from '../storage/bunSqliteStoreDriver.js'
+import { bunSqliteStoreDriver } from './bunSqliteStoreDriver.js'
 
 executionStoreContract('bun-sqlite', (options) =>
   bunSqliteStoreDriver({ path: ':memory:', ...options }),

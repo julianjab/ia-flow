@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { locate } from '@ia-flow/github-webhook'
-import { statusChangeWebhook } from '../tasks/statusChangeWebhook.js'
+import { statusChangeWebhook } from './statusChangeWebhook.js'
 
 describe('statusChangeWebhook', () => {
   it('the intake reads it as the card arriving at the column, moved by that person', () => {

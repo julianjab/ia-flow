@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { eventMessage } from '../intake/message.js'
+import { eventMessage } from './message.js'
 
 describe('eventMessage', () => {
   it('reads a human comment with its author', () => {

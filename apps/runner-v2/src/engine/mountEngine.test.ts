@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { createEvent } from '@ia-flow/agent-engine'
-import { interruptReason, messageTemplate, mountEngine, ownSender } from '../engine/mountEngine.js'
+import { interruptReason, messageTemplate, mountEngine, ownSender } from './mountEngine.js'
 
 describe('mountEngine', () => {
   it('builds the engine from runner.yaml engine: — store by driver name, depth', () => {

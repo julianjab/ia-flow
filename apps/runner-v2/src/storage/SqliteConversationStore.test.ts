@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
 import { conversationTitle } from '../assistant/ConversationStore.js'
-import { SqliteConversationStore } from '../storage/SqliteConversationStore.js'
+import { SqliteConversationStore } from './SqliteConversationStore.js'
 
 const task = { kind: 'task', ref: 'o/r#1' } as const
 const general = { kind: 'general' } as const

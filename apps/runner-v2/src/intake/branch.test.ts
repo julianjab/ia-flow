@@ -7,7 +7,7 @@ import {
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
 import type { GithubTaskReader } from '@ia-flow/github-tools'
-import { sanitizeBranchName, TaskBranches } from '../intake/branch.js'
+import { sanitizeBranchName, TaskBranches } from './branch.js'
 
 const reader = (linked: string[] = []) =>
   ({ linkedBranches: async () => linked }) as unknown as GithubTaskReader

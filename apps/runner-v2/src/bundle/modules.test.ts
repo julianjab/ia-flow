@@ -7,8 +7,8 @@ import { describe, expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { VIRTUAL_MODULES } from '../bundle/modules.js'
-import { CONFIG_DIR } from './helpers.js'
+import { CONFIG_DIR } from '../tests/helpers.js'
+import { VIRTUAL_MODULES } from './modules.js'
 
 function tsFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import type { EventLogEntry, ExecutionSummary } from '@ia-flow/shared'
-import type { ActivityPort, StoredEvent } from '../inbox/ActivityPort.js'
-import type { BoardMeta } from '../inbox/BoardReader.js'
-import type { BoardCard } from '../inbox/classify.js'
-import { InboxSection } from '../inbox/InboxSection.js'
-import { InboxService } from '../inbox/InboxService.js'
+import type { ActivityPort, StoredEvent } from './ActivityPort.js'
+import type { BoardMeta } from './BoardReader.js'
+import type { BoardCard } from './classify.js'
+import { InboxSection } from './InboxSection.js'
+import { InboxService } from './InboxService.js'
 
 const now = new Date('2026-09-29T12:00:00Z')
 const card = (ref: string, patch: Partial<BoardCard> = {}): BoardCard => ({

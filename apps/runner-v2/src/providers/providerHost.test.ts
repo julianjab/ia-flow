@@ -8,8 +8,8 @@ import { ProviderRegistry } from '@ia-flow/agent-engine'
 import type { CliLaunchSpec, LaunchedCli, SessionExit } from '@ia-flow/provider-anthropic-cli'
 import { HostClient, type HostTask, RemoteHub } from '@ia-flow/provider-remote'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
-import { cliTaskRunner, hostSettings } from '../providers/providerHost.js'
-import { nodeHandler } from '../providers/remoteHosts.js'
+import { cliTaskRunner, hostSettings } from './providerHost.js'
+import { nodeHandler } from './remoteHosts.js'
 
 const cfgOf = (host: RunnerConfig['host'], providers: RunnerConfig['providers'] = {}) =>
   ({ host, providers }) as RunnerConfig

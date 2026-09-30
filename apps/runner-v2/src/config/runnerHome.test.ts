@@ -6,7 +6,7 @@ import {
   defaultDatabasePath,
   defaultWorkspaceRoot,
   runnerHome,
-} from '../config/runnerHome.js'
+} from './runnerHome.js'
 
 describe('runnerHome', () => {
   it('is IA_FLOW_HOME, with ~ expanded, or ~/.local/state/ia-flow/runner', () => {

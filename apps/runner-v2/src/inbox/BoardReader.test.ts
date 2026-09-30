@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { createEvent } from '@ia-flow/agent-engine'
-import { toBoardCard, toBoardMeta } from '../inbox/BoardReader.js'
-import { summarizeEvent } from '../inbox/eventSummary.js'
-import { InboxSection } from '../inbox/InboxSection.js'
-import { TaskActions } from '../tasks/TaskActions.js'
+import { toBoardCard, toBoardMeta } from './BoardReader.js'
+import { summarizeEvent } from './eventSummary.js'
+import { InboxSection } from './InboxSection.js'
+import { TaskActions } from './TaskActions.js'
 
 const item = (content: Record<string, unknown>, patch: Record<string, unknown> = {}) => ({
   id: 'PVTI_1',

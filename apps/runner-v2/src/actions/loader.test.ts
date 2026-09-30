@@ -6,12 +6,12 @@ import type { Action } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { SlackClient } from '@ia-flow/slack-api'
 import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
-import { BUILTIN_ACTIONS } from '../actions/builtin/index.js'
-import type { RunnerServices } from '../actions/defineAction.js'
-import { loadActions } from '../actions/loader.js'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
+import { BUILTIN_ACTIONS } from './builtin/index.js'
+import type { RunnerServices } from './defineAction.js'
+import { loadActions } from './loader.js'
 
 /** En el tmp del sistema: las actions resuelven el contrato del runner por los módulos virtuales. */
 const ROOT = join(tmpdir(), 'ia-flow-runner-test-configs')

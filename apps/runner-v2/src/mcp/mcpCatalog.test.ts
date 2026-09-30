@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { resolveMcpCatalog } from '../mcp/mcpCatalog.js'
+import { resolveMcpCatalog } from './mcpCatalog.js'
 
 let local: ReturnType<typeof Bun.serve> | undefined
 afterEach(() => {

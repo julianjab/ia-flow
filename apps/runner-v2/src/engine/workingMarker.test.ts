@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { createEvent, InMemoryExecutionStore, scopeExecutionKey } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
-import { DEFAULT_WORKING_MARKER, taskOfKey, trackWorking } from '../working/workingMarker.js'
+import { DEFAULT_WORKING_MARKER, taskOfKey, trackWorking } from './workingMarker.js'
 
 const SCOPE = { projectId: 'p1', repo: 'la-haus/subscriptions', issue: 'la-haus/subscriptions#7' }
 const KEY = scopeExecutionKey(createEvent('x', {}, { scope: SCOPE })) as string

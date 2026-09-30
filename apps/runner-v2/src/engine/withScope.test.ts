@@ -5,7 +5,7 @@ import {
   type DefinitionSource,
   type SourceDocs,
 } from '@ia-flow/agent-engine-definitions'
-import { withScope } from '../projects/withScope.js'
+import { withScope } from './withScope.js'
 
 /** Un datasource en memoria con una pipeline por id. */
 const memory = (id: string, pipelines: string[]): DefinitionSource => ({

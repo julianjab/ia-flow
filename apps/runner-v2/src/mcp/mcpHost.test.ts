@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { type McpHost, type McpHostEntry, startMcpHost } from '../mcp/mcpHost.js'
+import { type McpHost, type McpHostEntry, startMcpHost } from './mcpHost.js'
 
 /** Un proceso de mentira: no sale hasta que lo matan, o sale ya con `exitAfterMs`. */
 function fakeSpawn(calls: string[][], exitAfterMs?: number) {

@@ -4,9 +4,9 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { withThreadRefs } from '../actions/RequestSlackReviewAction.js'
-import { locateSlack, type SlackThreadPort } from '../intake/slack.js'
-import { globalPipelines } from './fixtures.js'
-import { mountForTest } from './helpers.js'
+import { globalPipelines } from '../tests/fixtures.js'
+import { mountForTest } from '../tests/helpers.js'
+import { locateSlack, type SlackThreadPort } from './slack.js'
 
 const ROOT =
   '<@U1> porfavor revisar\nhttps://github.com/la-haus/subscriptions/pull/12\nIssue: la-haus/subscriptions#7'

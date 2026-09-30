@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import type { DomainEvent } from '@ia-flow/agent-engine'
 import type { SlackSocketEvent } from '@ia-flow/slack-socket'
-import { listenedTypes } from '../listening.js'
-import { slackMessageEvent, slackScope, startSlackIngress } from '../slackIngress.js'
+import { listenedTypes } from '../http/listening.js'
+import { slackMessageEvent, slackScope, startSlackIngress } from './slackIngress.js'
 
 /** Reintenta `check` hasta que no tire (o vence): lo que `vi.waitFor` hace en vitest. */
 async function waitFor(check: () => unknown, timeoutMs = 1_000): Promise<void> {
