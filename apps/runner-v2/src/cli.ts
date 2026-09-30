@@ -8,7 +8,7 @@ export interface RunnerArgs {
   configDir?: string
   /** Levanta el servidor de webhooks. */
   serve: boolean
-  /** Expone los providers locales a otros runners (`@ia-flow/provider-remote`). */
+  /** Le presta su CLI `claude` a un runner: se suscribe y pide tareas (`@ia-flow/provider-remote`). */
   host: boolean
   /** Un webhook crudo: `github.<evento>` y el archivo JSON con su payload. */
   event?: { type: string; payloadPath: string }

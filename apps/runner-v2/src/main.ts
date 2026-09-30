@@ -8,7 +8,7 @@
  *   (nada)      verifica GitHub, resuelve MCP, carga y valida todo, y reporta. Todo es real:
  *               las actions escriben en GitHub y los agentes llaman a la Messages API.
  *   --serve     servidor de webhooks.
- *   --host      presta sus providers locales a otros runners (`type: remote` del otro lado).
+ *   --host      le presta su CLI `claude` a un runner: se suscribe y pide tareas (`remote:<name>`).
  *   --event     un webhook crudo desde un archivo; --replay-pr, un PR real como `opened`.
  *
  *   bun run src/main.ts
@@ -25,8 +25,9 @@ import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
 import { startHeartbeat } from './heartbeat.js'
 import { mountInbox } from './inbox/mountInbox.js'
-import { DEFAULT_HOST_PORT, type MountedHost, mountHost } from './providers/providerHost.js'
+import { type MountedHost, mountHost } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
+import { listenHosts, mountRemoteHosts, nodeHandler } from './providers/remoteHosts.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
 import { type ActivityStore, openActivityStore } from './storage/activityStore.js'
 import { startTelemetry, type Telemetry, TraceRoute } from './telemetry.js'
@@ -93,15 +94,11 @@ async function startServing(
   store: ActivityStore,
   log: (line: string) => void,
 ): Promise<void> {
-  registerProviders(cfg.providers, {
-    cwd: (ctx) => mounted.services.session.dirFor(ctx),
-    log,
-    onTrace: (record) => {
-      store.writeTrace(record)
-      telemetry.remote(record)
-    },
-  })
+  registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
   const inbox = mountInbox(mounted, cfg, store, { version: VERSION, log })
+  // Los hosts que se suscriben (`remote:<name>`), en el mismo puerto que los webhooks.
+  const hosts = mountRemoteHosts()
+  const hostsApi = nodeHandler((req) => hosts.fetch(req))
   // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
   // — no en el primer tick, y nunca en una validación o un evento suelto.
   mounted.engine.tick()
@@ -124,16 +121,22 @@ async function startServing(
         runnerLog.info(line)
       },
     },
-    api: inbox.api,
+    api: {
+      handle: async (req, res) => (await hostsApi.handle(req, res)) || inbox.api.handle(req, res),
+    },
     onDelivery: () => inbox.board.invalidate(),
     onIgnored: (event, reason) => store.ignored(event, reason),
   })
   if (!process.env.IA_FLOW_API_TOKEN?.trim()) {
     console.log('→ aviso: sin IA_FLOW_API_TOKEN la API de la web responde 503')
   }
+  if (!process.env.IA_FLOW_HOST_TOKEN?.trim()) {
+    console.log('→ aviso: sin IA_FLOW_HOST_TOKEN ningún host se puede suscribir (remote:*)')
+  }
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       stopHeartbeat()
+      hosts.close()
       inbox.close()
       mounted.stop()
       store.close()
@@ -142,32 +145,22 @@ async function startServing(
   }
 }
 
-/** El host de providers: los locales de este runner, para los `type: remote` de otros. Como el
- *  servidor de webhooks, no termina solo. */
+/** El host: se suscribe al runner y toma tareas hasta que lo apaguen. Sin servidor propio. */
 function startHosting(
-  { host, providers, githubAuthMode }: MountedHost,
-  cfg: RunnerConfig,
+  { client, settings, githubAuthMode }: MountedHost,
   telemetry: Telemetry,
-  route: TraceRoute,
 ): void {
   console.log(`→ github: ${githubAuthMode}`)
-  // Lo que corre acá vuelve, por el sync, al runner que pidió cada corrida.
-  route.to({ write: (record) => host.trace(record) })
-  const port = positiveInt(
-    process.env.IA_FLOW_PROVIDER_HOST_PORT,
-    cfg.host.port ?? DEFAULT_HOST_PORT,
-  )
-  // Bun corta una conexión inactiva a los 10 s por default, y cada sync del runner espera hasta
-  // 15 s (long-poll): sin esto, todos se cortarían a mitad de la espera.
-  const server = Bun.serve({ port, fetch: host.fetch, idleTimeout: 60 })
   console.log(
-    `→ host: ${providers.map((provider) => provider.id).join(', ')} en http://localhost:${server.port}/v1${cfg.host.rules?.length ? ` (${cfg.host.rules.length} reglas de admisión)` : ''}`,
+    `→ host ${settings.name}: presta ${settings.provider.id} a ${settings.runner} (hasta ${settings.maxConcurrent} a la vez${settings.accepts.length > 0 ? `, ${settings.accepts.length} condiciones` : ''})`,
   )
+  client.start()
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      host.close()
-      void server.stop()
-      void telemetry.shutdown().finally(() => process.exit(0))
+      void client
+        .stop()
+        .then(() => telemetry.shutdown())
+        .finally(() => process.exit(0))
     })
   }
 }
@@ -178,17 +171,14 @@ async function dispatchOne(
   cfg: RunnerConfig,
   args: RunnerArgs,
   telemetry: Telemetry,
-  store: ActivityStore,
   log: (line: string) => void,
 ): Promise<void> {
-  registerProviders(cfg.providers, {
-    cwd: (ctx) => mounted.services.session.dirFor(ctx),
-    log,
-    onTrace: (record) => {
-      store.writeTrace(record)
-      telemetry.remote(record)
-    },
-  })
+  registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
+  // Un agente con `remote:*` necesita que sus hosts lo alcancen también en un evento suelto.
+  const hosts = process.env.IA_FLOW_HOST_TOKEN?.trim() ? mountRemoteHosts() : undefined
+  const server = hosts
+    ? await listenHosts(hosts, positiveInt(process.env.IA_FLOW_SERVER_PORT, 3001), log)
+    : undefined
   try {
     if (args.replayPr) {
       const target = parseIssueTarget(args.replayPr)
@@ -203,6 +193,8 @@ async function dispatchOne(
       await dispatchRaw(mounted, { event: args.event.type.slice('github.'.length), payload }, log)
     }
   } finally {
+    hosts?.close()
+    server?.close()
     reportTraces(telemetry)
   }
 }
@@ -228,10 +220,9 @@ async function main(): Promise<'serving' | 'done'> {
     console.log(`→ config: ${configDir} — host`)
     const mountedHost = await mountHost(cfg, {
       ...(process.env.WORKSPACE_DIR ? { workspaceDir: process.env.WORKSPACE_DIR } : {}),
-      token: process.env.IA_FLOW_PROVIDER_HOST_TOKEN,
       log,
     })
-    startHosting(mountedHost, cfg, started, route)
+    startHosting(mountedHost, started)
     return 'serving'
   }
 
@@ -254,7 +245,7 @@ async function main(): Promise<'serving' | 'done'> {
     return 'serving'
   }
   try {
-    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, started, store, log)
+    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, started, log)
     return 'done'
   } finally {
     mounted.stop()

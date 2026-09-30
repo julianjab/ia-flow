@@ -1,9 +1,11 @@
 /**
  * Los providers del runner, desde `providers:` de `runner.yaml`: `anthropic-api` (la Messages
- * API), cualquier entrada con `type: claude-cli` (el CLI `claude`, con el id de su clave) y
- * cualquiera con `type: remote` (un provider que corre en otra máquina, detrás de un
- * `RemoteProviderHost` — ver `--host`). Cada entrada local son los defaults de sus agentes, con la
- * forma del `providerConfig` de cada uno, más `maxConcurrent` (del provider, no de la corrida).
+ * API) y cualquier entrada con `type: claude-cli` (el CLI `claude`, con el id de su clave). Cada
+ * entrada son los defaults de sus agentes, con la forma del `providerConfig` de cada uno, más
+ * `maxConcurrent` (del provider, no de la corrida).
+ *
+ * Los de otras máquinas no se declaran acá: un host se suscribe solo y aparece como
+ * `remote:<name>` (ver `remoteHosts.ts`); los agentes lo nombran, o `remote:*`.
  */
 import {
   type PipelineExecutionContext,
@@ -12,17 +14,9 @@ import {
 } from '@ia-flow/agent-engine'
 import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic-api'
 import { ClaudeCliProvider, parseClaudeCliConfig } from '@ia-flow/provider-anthropic-cli'
-import {
-  type AdmissionHints,
-  parseRemoteProviderConfig,
-  RemoteProvider,
-  type RemoteProviderConfig,
-} from '@ia-flow/provider-remote'
-import type { TraceRecord } from '@ia-flow/telemetry'
 
 export const ANTHROPIC_PROVIDER = 'anthropic-api'
 export const CLAUDE_CLI_TYPE = 'claude-cli'
-export const REMOTE_TYPE = 'remote'
 
 type ProvidersConfig = Record<string, Record<string, unknown>>
 
@@ -30,13 +24,10 @@ export interface RegisterProvidersOptions {
   /** El worktree de una corrida (donde corre una sesión del CLI). */
   cwd: (ctx: PipelineExecutionContext) => Promise<string>
   log: (line: string) => void
-  /** Lo que un provider `remote` trae de su host (spans y logs de la corrida): a la base de
-   *  actividad, igual que lo que corre acá. */
-  onTrace?: (record: TraceRecord) => void
 }
 
 /** Registra en el `providerRegistry` global cada provider que declara `runner.yaml`, y los
- *  devuelve (los locales son los que `--host` puede exponer). */
+ *  devuelve (un host presta uno de ellos). */
 export function registerProviders(
   providers: ProvidersConfig,
   options: RegisterProvidersOptions,
@@ -46,15 +37,14 @@ export function registerProviders(
   ]
   for (const [id, config] of Object.entries(providers)) {
     if (config.type === CLAUDE_CLI_TYPE) registered.push(claudeCli(id, config, options))
-    else if (config.type === REMOTE_TYPE) registered.push(remote(id, config, options.onTrace))
   }
   for (const provider of registered) providerRegistry.register(provider)
   return registered
 }
 
 /** Cómo se valida el `providerConfig` de un agente, según su provider — al montar, para que un
- *  typo rompa el arranque y no la primera corrida. `undefined`: un provider que no se valida (uno
- *  remoto: lo valida el provider del host, que es el que sabe qué acepta). */
+ *  typo rompa el arranque y no la primera corrida. `undefined`: un provider que no se valida acá
+ *  (`remote:*`: lo valida el host, que es el que sabe qué acepta). */
 export function agentConfigValidator(
   providers: ProvidersConfig,
 ): (providerId: string) => ((raw: unknown) => void) | undefined {
@@ -68,27 +58,18 @@ export function agentConfigValidator(
   }
 }
 
-/** Valida las entradas `claude-cli` y `remote` de `runner.yaml` (sin registrarlas). */
+/** Valida las entradas `claude-cli` de `runner.yaml` (sin registrarlas). */
 export function validateProviderDefaults(providers: ProvidersConfig): void {
   for (const [id, config] of Object.entries(providers)) {
     try {
       if (config.type === CLAUDE_CLI_TYPE) {
         const { type: _type, maxConcurrent: _max, bin: _bin, ...defaults } = config
         parseClaudeCliConfig(defaults)
-      } else if (config.type === REMOTE_TYPE) {
-        remoteConfig(config)
       }
     } catch (error) {
       throw new Error(`providers.${id}: ${(error as Error).message}`)
     }
   }
-}
-
-/** Las pistas que el host usa en sus reglas, además de agente, tipo de evento y scope: el repo
- *  de la task (`owner/repo`), si el evento lo trae. */
-export function runnerHints(ctx: PipelineExecutionContext): AdmissionHints {
-  const { owner, repo } = (ctx.event.payload ?? {}) as { owner?: unknown; repo?: unknown }
-  return typeof owner === 'string' && typeof repo === 'string' ? { repo: [`${owner}/${repo}`] } : {}
 }
 
 function registerAnthropic(config: Record<string, unknown>, log: (line: string) => void): Provider {
@@ -116,39 +97,5 @@ function claudeCli(
     ...parseClaudeCliConfig(defaults),
     ...(typeof bin === 'string' ? { bin } : {}),
     ...(typeof maxConcurrent === 'number' ? { maxConcurrent } : {}),
-  })
-}
-
-function remote(
-  id: string,
-  config: Record<string, unknown>,
-  onTrace?: (record: TraceRecord) => void,
-): Provider {
-  return new RemoteProvider({
-    id,
-    ...remoteConfig(config),
-    hints: runnerHints,
-    ...(onTrace ? { onTrace } : {}),
-  })
-}
-
-/** La entrada `remote`, con sus `${VAR}` resueltos del ambiente: el token es un secreto y
- *  `runner.yaml` sólo lo nombra. */
-function remoteConfig(config: Record<string, unknown>): RemoteProviderConfig {
-  const { type: _type, ...rest } = config
-  const resolved = Object.fromEntries(
-    Object.entries(rest).map(([key, value]) => [
-      key,
-      typeof value === 'string' ? fromEnv(value) : value,
-    ]),
-  )
-  return parseRemoteProviderConfig(resolved)
-}
-
-function fromEnv(value: string): string {
-  return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => {
-    const found = process.env[name]?.trim()
-    if (!found) throw new Error(`falta ${name} en el ambiente`)
-    return found
   })
 }
