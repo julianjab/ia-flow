@@ -148,6 +148,7 @@ export function mountInbox(
   const api = runnerApi({
     token: process.env.IA_FLOW_API_TOKEN,
     version: options.version,
+    projects: specs.map((spec) => ({ id: spec.projectId, board: spec.board })),
     inbox,
     actions,
     assistant,

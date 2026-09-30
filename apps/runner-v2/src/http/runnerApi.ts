@@ -8,6 +8,7 @@ import {
   type AssistantStreamEvent,
   type ConfigSummary,
   DevicePollSchema,
+  type InboxProject,
   type RunnerInfo,
   type RunnerStreamEvent,
   TaskActionRequestSchema,
@@ -23,6 +24,8 @@ import { openSse, type SseHub, writeSse } from './sse.js'
 export interface RunnerApiOptions {
   token: string | undefined
   version: string
+  /** Los proyectos y su board, de la config. */
+  projects: InboxProject[]
   inbox: InboxService
   actions: TaskActions
   assistant: Assistant
@@ -70,12 +73,12 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     return login
   }
 
+  // Contesta al toque, sin leer el board: es lo que la web consulta para reconocer al runner.
   router.get('/api/runner', async (): Promise<RunnerInfo> => {
-    const projects = (await inbox.inbox()).projects
     return {
       service: 'ia-flow-runner',
       version: options.version,
-      projects,
+      projects: options.projects,
       github_login: { device_flow: options.deviceFlow !== undefined },
       assistant: options.assistant.available,
     }
