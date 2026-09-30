@@ -10,8 +10,8 @@ import {
   type Provider,
   providerRegistry,
 } from '@ia-flow/agent-engine'
-import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic'
-import { ClaudeCliProvider, parseClaudeCliConfig } from '@ia-flow/provider-claude-cli'
+import { AnthropicProvider, parseAnthropicAgentConfig } from '@ia-flow/provider-anthropic-api'
+import { ClaudeCliProvider, parseClaudeCliConfig } from '@ia-flow/provider-anthropic-cli'
 import {
   type AdmissionHints,
   parseRemoteProviderConfig,

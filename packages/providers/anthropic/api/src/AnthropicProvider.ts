@@ -391,7 +391,7 @@ function needsSubmit(terminalTools: Tool[]): boolean {
 export class AnthropicProvider implements Provider {
   readonly id: string
   readonly maxConcurrent?: number
-  readonly log = createLogger('provider-anthropic')
+  readonly log = createLogger('provider-anthropic-api')
   private readonly client: AnthropicClient
 
   constructor(private readonly options: AnthropicProviderOptions) {

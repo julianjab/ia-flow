@@ -206,7 +206,7 @@ La pregunta y su respuesta se guardan juntas y sólo si hubo respuesta.
 
 Un runner puede correr un agente con el provider de OTRA máquina —una con el CLI `claude`
 logueado, más RAM, otra red— sin que ese agente se entere: es el `RemoteAgentProvider` +
-`agent-host` de v1 sobre el engine nuevo, en [`@ia-flow/provider-remote`](../../packages/provider-remote).
+`agent-host` de v1 sobre el engine nuevo, en [`@ia-flow/provider-remote`](../../packages/providers/remote).
 
 La máquina que presta levanta este mismo runner con `--host` y su propia `.config`. Un host no
 despacha nada: monta sólo su identidad de GitHub (para clonar), su workspace (`WORKSPACE_DIR`) y

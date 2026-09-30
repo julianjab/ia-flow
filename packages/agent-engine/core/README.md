@@ -100,7 +100,7 @@ pasás como `action.allowWrite()`.
 a partir de una `AgentDefinitionProps` (id, `provider`, `prompt`, `input`, `tools`, `actions`,
 `routes`, `report`, `onError`, ...) más un `Provider` — resuelto por id contra un
 `ProviderRegistry`. El `Provider` es el ÚNICO punto que sabe hablar con un backend real; ese
-código vive fuera del paquete (ver `@ia-flow/provider-anthropic`).
+código vive fuera del paquete (ver `@ia-flow/provider-anthropic-api`).
 
 Un agente termina eligiendo una **salida**. Por cada una, el modelo recibe una tool
 `submit_<salida>` cuyo schema es el input de los pasos a los que lleva (menos lo fijado con
@@ -195,14 +195,14 @@ Quedaron en el repo **ia-tools**, en `examples/` (gitignoreado, no se migraron a
   código nuevo, sólo otro `Pipeline`.
 - `tools/` — lógica de negocio mock de las tools del travel-planner.
 
-El `Provider` real de Anthropic es `@ia-flow/provider-anthropic` (paquete propio, no vive acá —
+El `Provider` real de Anthropic es `@ia-flow/provider-anthropic-api` (paquete propio, no vive acá —
 ver su README). `AgentDefinitionProps`/`Agent`/`Provider`/`ProviderRegistry` SÍ están en `src/`
 de ESTE paquete — son contrato puro, sin I/O (ver la sección de `Agent` más arriba).
 
 ### Por qué los examples no viven adentro de este paquete
 
-`@ia-flow/provider-anthropic` depende de `agent-engine` (implementa su `Provider`). Si un
+`@ia-flow/provider-anthropic-api` depende de `agent-engine` (implementa su `Provider`). Si un
 example que usa AMBOS paquetes viviera dentro de `agent-engine/examples/`, este paquete
-necesitaría a su vez depender de `provider-anthropic` (aunque sea sólo en `devDependencies`) —
+necesitaría a su vez depender de `provider-anthropic-api` (aunque sea sólo en `devDependencies`) —
 una dependencia cíclica entre workspaces. En ia-flow el ejemplo vivo de los dos juntos es
 `apps/runner-v2`, que depende de ambos sin que ninguno dependa del otro.

@@ -1,7 +1,7 @@
 # @ia-flow/telemetry
 
 Trazas y logs para cualquier paquete del engine de ia-flow. No sabe nada de agentes ni pipelines: lo usan
-`agent-engine`, `provider-anthropic` y cualquier otro paquete (los de `github/` no necesitan
+`agent-engine`, `provider-anthropic-api` y cualquier otro paquete (los de `github/` no necesitan
 arrastrar el engine para loguear).
 
 ## Qué es y qué NO es
@@ -72,5 +72,5 @@ bun run --filter @ia-flow/telemetry typecheck
 bun run --filter @ia-flow/telemetry test
 ```
 
-`agent-engine` y `provider-anthropic` importan el `src/` de este paquete (source-only, sin
+`agent-engine` y `provider-anthropic-api` importan el `src/` de este paquete (source-only, sin
 `dist/`): un cambio de su API se ve al instante en ellos — corré también sus `typecheck`.

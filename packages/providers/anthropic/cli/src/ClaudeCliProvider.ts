@@ -72,7 +72,7 @@ export class ClaudeCliProvider implements Provider {
   // hacen lo mismo no le llegan por MCP.
   readonly workspace = 'native' as const
   readonly maxConcurrent?: number
-  readonly log = createLogger('provider-claude-cli')
+  readonly log = createLogger('provider-anthropic-cli')
   private readonly defaults: ClaudeCliConfig
 
   constructor(private readonly options: ClaudeCliProviderOptions) {

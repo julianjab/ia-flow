@@ -19,7 +19,7 @@ import { TranscriptTail } from './transcript/TranscriptTail.js'
 export const MCP_SERVER_NAME = 'ia-flow'
 export const mcpToolName = (tool: string) => `mcp__${MCP_SERVER_NAME}__${tool}`
 
-const SCOPE = '@ia-flow/provider-claude-cli'
+const SCOPE = '@ia-flow/provider-anthropic-cli'
 
 /** Lo que devuelve un hook: el JSON que Claude Code lee de su stdout. */
 export type HookOutput = Record<string, unknown>
@@ -47,7 +47,7 @@ export interface RunChannelOptions {
  * varias corridas en paralelo, cada una sólo ve lo suyo.
  */
 export class RunChannel {
-  readonly log = createLogger('provider-claude-cli')
+  readonly log = createLogger('provider-anthropic-cli')
   readonly token = randomUUID()
   readonly done: Promise<void>
   private finishDone!: () => void

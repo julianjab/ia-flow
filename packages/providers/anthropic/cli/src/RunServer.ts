@@ -21,7 +21,7 @@ const MAX_BODY = 5 * 1024 * 1024
  * también cuando el runner corre un evento suelto. Un token por corrida — muere al cerrarla.
  */
 export class RunServer {
-  readonly log = createLogger('provider-claude-cli')
+  readonly log = createLogger('provider-anthropic-cli')
   private server: Server | undefined
   private listening: Promise<string> | undefined
   private readonly channels = new Map<string, RunChannel>()

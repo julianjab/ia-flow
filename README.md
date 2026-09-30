@@ -2,7 +2,7 @@
 
 Orquesta agentes de IA contra repos y GitHub Projects. Monorepo Bun: un runner
 headless (`apps/runner-v2`) sobre los paquetes del engine (`packages/agent-engine/*`,
-`provider-anthropic`, `github/*`, `local/*`, `telemetry`), una SPA Vue 3 y su visor
+`provider-anthropic-api`, `github/*`, `local/*`, `telemetry`), una SPA Vue 3 y su visor
 Electron.
 
 La guía profunda de arquitectura está en [CLAUDE.md](./CLAUDE.md); esto es lo
@@ -23,7 +23,7 @@ Anthropic con las tuyas, y el consumo se factura a tu cuenta bajo los términos
 de Anthropic.
 
 El runner lee `ANTHROPIC_API_KEY` (otra variable si `runner.yaml` la nombra con
-`apiKeyEnv`). `@ia-flow/provider-anthropic` también acepta
+`apiKeyEnv`). `@ia-flow/provider-anthropic-api` también acepta
 `CLAUDE_CODE_OAUTH_TOKEN`, que gana si está seteado.
 
 ```bash
@@ -54,7 +54,7 @@ apps/desktop/       Visor Electron de la SPA
 packages/agent-engine/  core, definitions, datasources/{sqlite,yaml}
 packages/github/        auth, api, webhook, tools
 packages/local/         fs, shell, workspace
-packages/               provider-anthropic, telemetry, shared
+packages/               provider-anthropic-api, telemetry, shared
 ```
 
 Los paquetes del engine son source-only (sin build ni `dist/`): se consumen con

@@ -1,4 +1,4 @@
-# @ia-flow/provider-anthropic
+# @ia-flow/provider-anthropic-api
 
 `Provider` de Anthropic para `@ia-flow/agent-engine`, portado de
 `packages/ai-providers/src/anthropic-api` del ia-flow v1 (ya purgado). Ver `README.md` para el contrato de uso;
@@ -55,7 +55,7 @@ cliente: sólo los deltas de `text`, nunca el thinking, y sólo con `stream` (si
 `AnthropicProvider` instrumenta sólo con `@ia-flow/telemetry` (sin SDK: no-op; no depende de
 `@opentelemetry/api` salvo en los tests): `@traced` sobre `send` y `executeTool` — lo que
 registran vive en `tracing.ts`, el loop no toca spans — y el campo
-`readonly log = createLogger('provider-anthropic')` para los logs y los errores que se escapan.
+`readonly log = createLogger('provider-anthropic-api')` para los logs y los errores que se escapan.
 Cada span y log hereda el scope del evento (`ia.issue`, `ia.repo`, …) y cuelga del paso del
 agente sin plumbing:
 
@@ -91,8 +91,8 @@ frames SSE crudos para probar `readAnthropicSseStream` sin pasar por HTTP en abs
 ## Antes de tocar código
 
 ```bash
-bun run --filter @ia-flow/provider-anthropic typecheck
-bun run --filter @ia-flow/provider-anthropic test
+bun run --filter @ia-flow/provider-anthropic-api typecheck
+bun run --filter @ia-flow/provider-anthropic-api test
 ```
 
 Source-only como `agent-engine`: sin build ni `dist/` — los `exports` apuntan a `src/*.ts`.

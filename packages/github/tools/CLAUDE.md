@@ -50,7 +50,7 @@ sola vez, compartida con `@ia-flow/fs-tools` y cualquier otro dominio de tools f
 4. Sumala a los exports de `src/index.ts` (tipo + clase).
 5. Un `describe()` en `src/tools/tests/<Nombre>Tool.test.ts`, instanciando la clase directo
    (`new MiTool(clientWith(fetchImpl))`) con un `fetchImpl` fake — nunca pega a la red real
-   (mismo criterio que `provider-anthropic`/`github`).
+   (mismo criterio que `provider-anthropic-api`/`github`).
 6. Si el endpoint devuelve un shape que ya usa otra tool (ej. un issue), reusá
    `this.issuePath()`/`this.summarizeIssue()` (heredados de `GithubTool`) en vez de duplicar el
    parseo o la validación de `owner`/`repo`/`number` (estos son inputs controlados por el
@@ -73,7 +73,7 @@ las clases registradas.
 ## Contrato de errores — coincide con `AnthropicProvider`
 
 Un `handler` que tira (`GithubClient.requestJson` ya tira con el status + body en un 4xx/5xx) NO
-se atrapa acá — `AnthropicProvider.run` (en `provider-anthropic`) envuelve cada `tool.handler` en
+se atrapa acá — `AnthropicProvider.run` (en `provider-anthropic-api`) envuelve cada `tool.handler` en
 su propio try/catch y lo convierte en un `tool_result` con `is_error: true`. Agregar un
 try/catch acá sería redundante y escondería el mensaje de error real detrás de uno genérico.
 

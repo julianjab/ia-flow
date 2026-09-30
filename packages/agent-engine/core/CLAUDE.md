@@ -20,7 +20,7 @@ que existe un `prompt`, `systemPrompts`, sus salidas; eso es dominio, no infra, 
 TypeScript puro sin `fetch` ni credenciales. La línea real es **contrato vs. implementación
 con I/O real**: un `Provider` CONCRETO que le pega a la API de Anthropic/OpenAI/lo que sea
 (hace `fetch`, lee `process.env`, maneja retries) es infra — vive en su propio paquete
-(`@ia-flow/provider-anthropic`), nunca en `src/` de ESTE paquete. Antes de agregar algo acá,
+(`@ia-flow/provider-anthropic-api`), nunca en `src/` de ESTE paquete. Antes de agregar algo acá,
 preguntate: ¿esto compila sin tocar la red ni el filesystem? Si la respuesta es no, no va acá.
 
 ## Estructura
@@ -93,7 +93,7 @@ src/
 Los examples (los tres casos de uso que motivaron el paquete) NO viven acá — ver
 "Por qué los examples no viven adentro de este paquete" en `README.md`. Quedaron en el repo
 ia-tools (`examples/`, gitignoreado, no migrados), porque combinan este paquete con
-`@ia-flow/provider-anthropic`, y ese paquete depende de éste — meterlos adentro crearía una
+`@ia-flow/provider-anthropic-api`, y ese paquete depende de éste — meterlos adentro crearía una
 dependencia cíclica entre workspaces.
 
 ### `Runnable` — la base única de `Pipeline.do[]`

@@ -1,4 +1,4 @@
-# @ia-flow/provider-claude-cli
+# @ia-flow/provider-anthropic-cli
 
 `Provider` de `@ia-flow/agent-engine` sobre el CLI `claude` (Claude Code). El agente corre como
 una sesión del CLI en el worktree de la task, con **todo el CLI habilitado** (sus tools nativas,

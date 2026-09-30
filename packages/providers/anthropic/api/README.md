@@ -1,4 +1,4 @@
-# @ia-flow/provider-anthropic
+# @ia-flow/provider-anthropic-api
 
 `Provider` de Anthropic para [`@ia-flow/agent-engine`](../agent-engine/core) — habla la Messages
 API real: streaming, retries con backoff, extended thinking, task budgets, MCP remoto y
@@ -10,10 +10,10 @@ que `agent-engine` no modela).
 ## Instalar (dentro del monorepo)
 
 ```bash
-bun run --filter @ia-flow/provider-anthropic test
+bun run --filter @ia-flow/provider-anthropic-api test
 ```
 
-`"@ia-flow/provider-anthropic": "workspace:*"` en el `package.json` de quien lo use. Es
+`"@ia-flow/provider-anthropic-api": "workspace:*"` en el `package.json` de quien lo use. Es
 source-only (los `exports` apuntan a `src/*.ts`, sin build ni `dist/`); su única dependencia
 runtime es `@ia-flow/agent-engine`.
 
@@ -21,7 +21,7 @@ runtime es `@ia-flow/agent-engine`.
 
 ```ts
 import { Agent, Pipeline, providerRegistry } from '@ia-flow/agent-engine';
-import { AnthropicProvider } from '@ia-flow/provider-anthropic';
+import { AnthropicProvider } from '@ia-flow/provider-anthropic-api';
 
 providerRegistry.register(new AnthropicProvider({ id: 'anthropic-api', model: 'claude-sonnet-5' }));
 
@@ -110,7 +110,7 @@ Solo del provider (no se pisan por agente):
 un chat — usá `AnthropicClient` directo, con `onDelta`:
 
 ```ts
-import { AnthropicClient } from '@ia-flow/provider-anthropic';
+import { AnthropicClient } from '@ia-flow/provider-anthropic-api';
 
 const client = new AnthropicClient({}); // toma ANTHROPIC_API_KEY del entorno
 

@@ -12,7 +12,7 @@ import type {
 } from './AnthropicClient.js'
 import type { AnthropicProvider, ChatRequest, ToolResultBlock } from './AnthropicProvider.js'
 
-const scope = '@ia-flow/provider-anthropic'
+const scope = '@ia-flow/provider-anthropic-api'
 
 /**
  * `chat <model>` por cada request a la API — un reintento por `max_tokens` es otro span. Lleva el

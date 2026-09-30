@@ -57,7 +57,7 @@ GetIssueTool(client)`.
 
 Un error de la API (404, 401, rate limit) hace que un `handler` tire — `AnthropicProvider` ya
 convierte eso en un `tool_result` con `is_error: true` en vez de tumbar el run entero (ver
-`provider-anthropic`), así que las tools acá no necesitan su propio try/catch defensivo.
+`provider-anthropic-api`), así que las tools acá no necesitan su propio try/catch defensivo.
 
 ## Por qué es un paquete propio y no vive en `@ia-flow/github-api`
 
