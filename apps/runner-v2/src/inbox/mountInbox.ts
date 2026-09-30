@@ -139,6 +139,7 @@ export function mountInbox(
   const assistant = new Assistant({
     capabilities: mounted.engine.capabilities,
     desk: mounted.services.assistant,
+    conversations: store.conversations,
   })
 
   const clientId = process.env.IA_FLOW_GITHUB_CLIENT_ID?.trim()
@@ -149,6 +150,7 @@ export function mountInbox(
     inbox,
     actions,
     assistant,
+    conversations: store.conversations,
     ...(clientId ? { deviceFlow: new DeviceFlow({ clientId }) } : {}),
     config,
     hub,

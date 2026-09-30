@@ -4,7 +4,10 @@
  * GitHub de quien las hace, el device flow para ese login, y el asistente.
  */
 import {
+  type AssistantConversation,
+  type AssistantConversationSummary,
   AssistantRequestSchema,
+  AssistantScopeSchema,
   type AssistantStreamEvent,
   type ConfigSummary,
   DevicePollSchema,
@@ -15,6 +18,7 @@ import {
 } from '@ia-flow/shared'
 import { z } from 'zod'
 import type { Assistant } from '../assistant/Assistant.js'
+import type { ConversationStore } from '../assistant/ConversationStore.js'
 import { type DeviceFlow, githubLogin } from '../github/deviceFlow.js'
 import type { InboxService } from '../inbox/InboxService.js'
 import { TaskActionError, type TaskActions } from '../tasks/TaskActions.js'
@@ -29,6 +33,8 @@ export interface RunnerApiOptions {
   inbox: InboxService
   actions: TaskActions
   assistant: Assistant
+  /** Las conversaciones guardadas del asistente, de cada login. Sin esto, no hay historial. */
+  conversations?: ConversationStore
   /** Sin `github.clientId` no hay login desde la web. */
   deviceFlow?: DeviceFlow
   config: () => ConfigSummary
@@ -129,13 +135,73 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     return undefined
   })
 
+  // Con `x-github-token`, el intercambio se guarda a nombre de ese login; sin él, no queda en
+  // ningún lado. Una conversación de otro login no existe para quien pregunta.
   router.post('/api/assistant', async (req, res) => {
     const request = parseBody(AssistantRequestSchema, await req.json())
+    const token = req.header('x-github-token')
+    const login = token ? await loginOf(token) : undefined
+    if (
+      request.conversation_id &&
+      (!login || !options.conversations?.owns(request.conversation_id, login))
+    ) {
+      throw new HttpError(404, 'Esa conversación no existe o no es tuya')
+    }
     openSse(res)
     const emit = (event: AssistantStreamEvent) => writeSse(res, event)
-    await options.assistant.answer(request, emit)
+    await options.assistant.answer(request, emit, login ? { login } : {})
     res.end()
     return undefined
+  })
+
+  /** El login de quien pide su historial: sin él no hay historial. */
+  const historyOwner = async (header: string | undefined) => {
+    if (!options.conversations) throw new HttpError(501, 'Este runner no guarda conversaciones')
+    if (!header) throw new HttpError(401, 'Iniciá sesión con GitHub para ver tus conversaciones')
+    return { store: options.conversations, login: await loginOf(header) }
+  }
+
+  // `?scope=` es un AssistantScope en JSON: sólo las de ese contexto.
+  router.get(
+    '/api/assistant/conversations',
+    async (req): Promise<AssistantConversationSummary[]> => {
+      const { store, login } = await historyOwner(req.header('x-github-token'))
+      const raw = req.query.get('scope')
+      let scope: unknown
+      try {
+        scope = raw ? JSON.parse(raw) : undefined
+      } catch {
+        throw new HttpError(400, '?scope= no es JSON')
+      }
+      return store.list(
+        login,
+        scope === undefined ? undefined : parseBody(AssistantScopeSchema, scope),
+      )
+    },
+  )
+
+  router.get('/api/assistant/conversations/:id', async (req): Promise<AssistantConversation> => {
+    const { store, login } = await historyOwner(req.header('x-github-token'))
+    const conversation = store.get(req.params.id as string, login)
+    if (!conversation) throw new HttpError(404, 'Esa conversación no existe o no es tuya')
+    // Las tareas, como están ahora en la bandeja; una que ya no está en ningún board se omite.
+    const thread = await Promise.all(
+      conversation.thread.map(async (message) => ({
+        ...message,
+        tasks: (await Promise.all(message.tasks.map((ref) => inbox.item(ref)))).filter(
+          (item) => item !== undefined,
+        ),
+      })),
+    )
+    return { ...conversation, thread }
+  })
+
+  router.delete('/api/assistant/conversations/:id', async (req) => {
+    const { store, login } = await historyOwner(req.header('x-github-token'))
+    if (!store.remove(req.params.id as string, login)) {
+      throw new HttpError(404, 'Esa conversación no existe o no es tuya')
+    }
+    return { ok: true }
   })
 
   router.post('/api/auth/github/device', async () => {

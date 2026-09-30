@@ -4,17 +4,32 @@
  * con el contexto del pedido (`AssistantDesk`) para que las tools del agente lo respeten. La
  * respuesta es la que el agente entrega en `submit_done` (obligatoria): el texto suelto que escriba
  * entre tools es narración y no se muestra — si no, un modelo que cierra sin escribir deja la web
- * vacía, y uno que escribe y además resume, la duplica. La conversación la guarda la web.
+ * vacía, y uno que escribe y además resume, la duplica. La web manda la conversación entera en
+ * cada pedido; con el login de GitHub de quien pregunta, además se guarda (`ConversationStore`):
+ * la pregunta y la respuesta juntas, sólo si hubo respuesta.
  */
 import type { CapabilityInvoker } from '@ia-flow/agent-engine'
-import type { AssistantRequest, AssistantScope, AssistantStreamEvent } from '@ia-flow/shared'
+import type {
+  AssistantProposal,
+  AssistantRequest,
+  AssistantScope,
+  AssistantStreamEvent,
+} from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { type AssistantDesk, SESSION_KEY } from './AssistantDesk.js'
 import { ASSISTANT } from './assistantCapability.js'
+import { type ConversationStore, conversationTitle } from './ConversationStore.js'
 
 export interface AssistantOptions {
   capabilities: CapabilityInvoker
   desk: AssistantDesk
+  /** Dónde se guardan las conversaciones de quien pregunta con login. Sin esto, no se guardan. */
+  conversations?: ConversationStore
+}
+
+/** Quién pregunta: con login, el intercambio se guarda a su nombre. */
+export interface Asker {
+  login?: string
 }
 
 /** Cuántos mensajes de la conversación viajan al modelo: los últimos. */
@@ -52,6 +67,7 @@ export class Assistant {
   async answer(
     request: AssistantRequest,
     emit: (event: AssistantStreamEvent) => void,
+    asker: Asker = {},
   ): Promise<void> {
     if (!this.options.capabilities.has(ASSISTANT.name)) {
       emit({
@@ -60,9 +76,14 @@ export class Assistant {
       })
       return
     }
+    const proposals: AssistantProposal[] = []
+    const collect = (event: AssistantStreamEvent) => {
+      if (event.type === 'proposal') proposals.push(event.proposal)
+      emit(event)
+    }
     let session: { id: string; close(): void } | undefined
     try {
-      session = this.options.desk.open(request.scope, emit)
+      session = this.options.desk.open(request.scope, collect)
       const result = await this.options.capabilities.invoke(ASSISTANT, {
         session: session.id,
         context: contextText(request.scope),
@@ -75,6 +96,13 @@ export class Assistant {
         .sessionOf({ [SESSION_KEY]: session.id })
         .resolveTasks(result?.tasks ?? [])
       if (tasks.length > 0) emit({ type: 'tasks', items: tasks })
+      const saved = this.save(request, asker, {
+        role: 'assistant',
+        content: answer,
+        proposals,
+        tasks: tasks.map((task) => task.ref),
+      })
+      if (saved) emit({ type: 'conversation', id: saved })
       emit({ type: 'done', text: answer })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -83,5 +111,22 @@ export class Assistant {
     } finally {
       session?.close()
     }
+  }
+
+  /** La pregunta y su respuesta, en la conversación del pedido o en una nueva. Devuelve su id. */
+  private save(
+    request: AssistantRequest,
+    asker: Asker,
+    reply: Parameters<ConversationStore['append']>[1][number],
+  ): string | undefined {
+    const store = this.options.conversations
+    if (!store || !asker.login) return undefined
+    const question = request.messages.at(-1)?.content ?? ''
+    const id =
+      request.conversation_id && store.owns(request.conversation_id, asker.login)
+        ? request.conversation_id
+        : store.create(asker.login, request.scope, conversationTitle(question))
+    store.append(id, [{ role: 'user', content: question, proposals: [], tasks: [] }, reply])
+    return id
   }
 }

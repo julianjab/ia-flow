@@ -1,6 +1,7 @@
 /**
- * Lo que pasó en el runner, en SQLite: cada evento con lo que decidió cada pipeline (`event_log`)
- * y cada span y log de cada ejecución (`execution_trace`). Es la memoria del asistente y de la
+ * Lo que pasó en el runner, en SQLite: cada evento con lo que decidió cada pipeline (`event_log`),
+ * cada span y log de cada ejecución (`execution_trace`) y las conversaciones guardadas del asistente
+ * (`assistant_conversation`). Es la memoria del asistente y de la
  * bandeja; OTLP (si hay endpoint) es la otra copia, para mirar a fondo en Grafana o Datadog.
  *
  * Usa el MISMO archivo que las ejecuciones (`engine.executions.path`) por una segunda conexión — en
@@ -19,14 +20,18 @@ import {
 } from '@ia-flow/agent-engine-datasource-sqlite'
 import type { TraceRecord } from '@ia-flow/telemetry'
 import { trace } from '@opentelemetry/api'
+import type { ConversationStore } from '../assistant/ConversationStore.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { summarizeEvent } from '../inbox/eventSummary.js'
 import { SqliteActivity } from '../inbox/SqliteActivity.js'
+import { SqliteConversationStore } from './SqliteConversationStore.js'
 
 const DAY_MS = 86_400_000
 
 export interface ActivityStore {
   activity: SqliteActivity
+  /** Las conversaciones del asistente, por login de GitHub. */
+  conversations: ConversationStore
   /** El journal del engine: anota y avisa. */
   dispatchJournal: DispatchJournal
   /** Anota un span o log de una ejecución, y avisa. */
@@ -36,7 +41,7 @@ export interface ActivityStore {
   /** Cada evento anotado y cada registro de traza, en el momento. */
   onDispatch(listener: (entry: DispatchRecord) => void): () => void
   onTrace(listener: (record: TraceRecord) => void): () => void
-  /** Borra lo que tiene más de `retentionDays`. */
+  /** Borra lo que tiene más de `retentionDays` (las conversaciones, `conversationRetentionDays`). */
   prune(): void
   close(): void
 }
@@ -76,8 +81,11 @@ export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): 
     onWrite: (record) => notify(traceListeners, record),
   })
 
+  const conversations = new SqliteConversationStore(database)
+
   return {
     activity: new SqliteActivity(new SqliteActivityReader(database)),
+    conversations,
     dispatchJournal: {
       record: (entry) => {
         events.record(entry)
@@ -97,6 +105,9 @@ export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): 
     prune: () => {
       const cutoff = new Date(Date.now() - cfg.inbox.retentionDays * DAY_MS).toISOString()
       new SqliteActivityReader(database).prune(cutoff)
+      conversations.prune(
+        new Date(Date.now() - cfg.inbox.conversationRetentionDays * DAY_MS).toISOString(),
+      )
     },
     close: () => database.close(),
   }

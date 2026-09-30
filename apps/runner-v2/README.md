@@ -164,7 +164,9 @@ En el mismo puerto que los webhooks, `--serve` expone la API de la web (contrato
 | `GET /api/stream` | SSE: qué cambió (una tarea, una traza, un evento) |
 | `POST /api/tasks/:owner/:repo/:n/actions` | mergear, aprobar el PRD, devolver, contestar y destrabar, relanzar, reintentar, pedir que pare — con el token de GitHub de quien lo hace (`x-github-token`): el movimiento queda a su nombre |
 | `POST /api/auth/github/device` (+ `/poll`) | el login de GitHub de la web (device flow de la App); el runner no guarda el token |
-| `POST /api/assistant` | el asistente (SSE): la capacidad `assistant` (ver abajo) |
+| `POST /api/assistant` | el asistente (SSE): la capacidad `assistant` (ver abajo). Con `x-github-token`, el intercambio se guarda a nombre de ese login |
+| `GET /api/assistant/conversations?scope=` | las conversaciones guardadas de quien pide (`x-github-token`), del contexto `scope` (un `AssistantScope` en JSON) |
+| `GET` / `DELETE /api/assistant/conversations/:id` | una conversación guardada (sus tareas, como están ahora en la bandeja) / borrarla. La de otro login no existe: 404 |
 
 **Lo que pasó queda en SQLite**, en el mismo archivo que las ejecuciones (`engine.executions.path`):
 `event_log` (cada evento, qué decidió cada pipeline y por qué) y `execution_trace` (cada span y
@@ -180,6 +182,7 @@ inbox:
   statuses: { refine: Refine, refined: Refined, build: Build, review: Review }
   staleHours: 24        # "sin movimiento"
   retentionDays: 14
+  conversationRetentionDays: 90   # una conversación del asistente sin tocar
   commentExcerpt: 140   # cuánto de un comentario queda en el resumen del evento
   mergeMethod: squash
 ```
@@ -189,8 +192,14 @@ inbox:
 dato: `.config/agents/assistant.yaml` y `.config/actions/assistant.ts` (las `assistant_*`: bandeja,
 tarea, "¿por qué?", traza, config, eventos, estado, y `assistant_propose_action`, que propone y no
 ejecuta). Cada pregunta abre una sesión con su contexto —todo el runner, un proyecto o una tarea—
-que esas tools respetan (`src/assistant/AssistantSession.ts`); lo que el modelo escribe se streamea
-(`Capabilities.invoke(…, { onText })`). Sacar la línea de `sources.capabilities` lo apaga.
+que esas tools respetan (`src/assistant/AssistantSession.ts`). La respuesta es la que el agente
+entrega en `submit_done` (`answer`, obligatoria), junto con las tareas de las que habla (`tasks`), que
+la web muestra como cards. Sacar la línea de `sources.capabilities` lo apaga.
+
+**Las conversaciones se guardan por login de GitHub** (`assistant_conversation` y
+`assistant_message`, en la misma base): sólo cuando quien pregunta tiene sesión, cada una de UN
+contexto, y cada login ve y borra sólo las suyas. Sin sesión el chat funciona igual, pero no queda.
+La pregunta y su respuesta se guardan juntas y sólo si hubo respuesta.
 
 ## Providers en otra máquina (`type: remote` y `--host`)
 

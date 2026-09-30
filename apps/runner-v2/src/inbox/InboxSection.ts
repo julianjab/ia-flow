@@ -27,6 +27,8 @@ export const InboxSection = z.strictObject({
   staleHours: z.number().positive().default(24),
   /** Cuántos días se guardan los eventos, las trazas y las ejecuciones cerradas. */
   retentionDays: z.number().int().positive().default(14),
+  /** Cuántos días sin tocar se guarda una conversación del asistente. */
+  conversationRetentionDays: z.number().int().positive().default(90),
   /** Cuánto de un comentario queda en el resumen de un evento. */
   commentExcerpt: z.number().int().min(0).default(140),
   /** Cómo se mergea un PR desde la bandeja. */

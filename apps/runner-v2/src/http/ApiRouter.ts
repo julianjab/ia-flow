@@ -103,6 +103,10 @@ export class ApiRouter {
     return this.add('POST', pattern, handler, opts)
   }
 
+  delete(pattern: string, handler: ApiHandler, opts: { public?: boolean } = {}): this {
+    return this.add('DELETE', pattern, handler, opts)
+  }
+
   private add(
     method: string,
     pattern: string,
@@ -124,7 +128,7 @@ export class ApiRouter {
     res.setHeader('access-control-allow-origin', origin)
     res.setHeader('vary', 'origin')
     res.setHeader('access-control-allow-headers', ALLOWED_HEADERS)
-    res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS')
+    res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS')
     res.setHeader('access-control-max-age', '600')
   }
 
