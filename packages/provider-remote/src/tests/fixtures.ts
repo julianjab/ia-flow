@@ -70,6 +70,7 @@ export function runContext(overrides: Partial<ProviderRunContext> = {}): Provide
     tools: [],
     ctx: {
       event: {
+        id: 'e1',
         type: 'github.issues',
         payload: { owner: 'la-haus', repo: 'eks', number: 7 },
         scope: { projectId: 'p1' },
