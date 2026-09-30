@@ -107,6 +107,38 @@ describe('runner.yaml', () => {
       }
     }
   })
+  it('settings.telemetry.logLevel goes to LOG_LEVEL, unless the environment has it', () => {
+    const before = process.env.LOG_LEVEL
+    const level = () => process.env.LOG_LEVEL
+    delete process.env.LOG_LEVEL
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        s
+          .replace(/\n {2}telemetry:\n(?: {4}.*\n)*/, '\n')
+          .replace('settings:\n', 'settings:\n  telemetry:\n    logLevel: debug\n'),
+    })
+    try {
+      expect(applyRunnerEnv(loadRunnerConfig(dir)).applied).toContain('LOG_LEVEL')
+      expect(level()).toBe('debug')
+
+      process.env.LOG_LEVEL = 'warn'
+      expect(applyRunnerEnv(loadRunnerConfig(dir)).overriddenByEnv).toContain('LOG_LEVEL')
+      expect(level()).toBe('warn')
+    } finally {
+      if (before === undefined) delete process.env.LOG_LEVEL
+      else process.env.LOG_LEVEL = before
+    }
+  })
+
+  it('rejects a logLevel that is not a level', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        s
+          .replace(/\n {2}telemetry:\n(?: {4}.*\n)*/, '\n')
+          .replace('settings:\n', 'settings:\n  telemetry:\n    logLevel: verbose\n'),
+    })
+    expect(() => loadRunnerConfig(dir)).toThrow()
+  })
 })
 
 describe('la cascada when', () => {
