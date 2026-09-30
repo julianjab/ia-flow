@@ -26,6 +26,37 @@ const checkpoint = {
 const restart = (repository: InMemoryExecutionRepository) => new ExecutionStore({ repository })
 
 describe('ExecutionStore with a repository', () => {
+  it('observe: one notice per status change — not per saved progress', async () => {
+    const store = new ExecutionStore({ repository: new InMemoryExecutionRepository() })
+    const seen: string[] = []
+    store.observe((record) => seen.push(record.status))
+    const execution = await store.start({ key: 't', pipelineId: 'build' })
+    execution.progress({ ...checkpoint, state: ['c'] })
+    execution.progress({ ...checkpoint, state: ['c', 'd'] })
+    await execution.run(async () => execution.pause(pause(), checkpoint))
+    execution.wake(createEvent('ci', {}))
+    await store.resume(execution)
+    await execution.run(async () => undefined)
+
+    expect(seen).toEqual(['running', 'paused', 'running', 'done'])
+  })
+
+  it('observe: what happened on recovery is replayed to whoever subscribes later', () => {
+    const repository = new InMemoryExecutionRepository()
+    repository.save({
+      id: 'e1',
+      key: 't',
+      pipelineId: 'build',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      waitedMs: 0,
+    })
+    const store = restart(repository)
+    const seen: string[] = []
+    store.observe((record) => seen.push(`${record.id}:${record.status}`))
+    expect(seen).toEqual(['e1:failed'])
+  })
+
   it('ids are UUIDs by default, and a newId option replaces them', async () => {
     const byDefault = await new InMemoryExecutionStore().start({ key: 'a', pipelineId: 'p' })
     expect(byDefault.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
