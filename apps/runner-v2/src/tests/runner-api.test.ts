@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import type { AddressInfo } from 'node:net'
-import { EventBus, type Provider } from '@ia-flow/agent-engine'
+import {
+  type Action,
+  Agent,
+  Capabilities,
+  EventBus,
+  type Provider,
+  ProviderRegistry,
+} from '@ia-flow/agent-engine'
 import type { RunnerStreamEvent } from '@ia-flow/shared'
+import assistantActions from '../../.config/actions/assistant.js'
+import type { ActionContext } from '../actions/defineAction.js'
 import { Assistant } from '../assistant/Assistant.js'
+import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { runnerApi } from '../http/runnerApi.js'
 import { SseHub } from '../http/sse.js'
 import type { ActivityPort } from '../inbox/ActivityPort.js'
@@ -55,16 +65,50 @@ function fakeGithub(push = true) {
   return { calls, fetchImpl }
 }
 
-/** Un provider que streamea texto y propone una acción con la tool del asistente. */
+const tool = (ctx: Parameters<Provider['run']>[0], name: string) => {
+  const found = ctx.tools.find((candidate) => candidate.name === name)
+  if (!found) throw new Error(`el agente no tiene la tool ${name}`)
+  return found
+}
+
+/** El provider del agente `assistant`: streamea texto, propone una acción con su tool y cierra
+ *  con `submit_done`, como pide el contrato de la capacidad. */
 const fakeProvider: Provider = {
   id: 'fake',
   run: async (ctx) => {
     ctx.onText?.('Hola. ')
-    const propose = ctx.tools.find((tool) => tool.name === 'propose_action')
-    await propose?.handler({ ref: 'o/r#1', action: 'merge', reason: 'el reviewer aprobó' })
+    await tool(ctx, 'assistant_propose_action').handler({
+      ref: 'o/r#1',
+      action: 'merge',
+      reason: 'el reviewer aprobó',
+    })
     ctx.onText?.('Te propuse mergear.')
-    return { outcome: 'success', summary: 'Hola. Te propuse mergear.' }
+    await tool(ctx, 'submit_done').handler({ result: {} })
+    return { outcome: 'success' }
   },
+}
+const defaultRun = fakeProvider.run
+
+/** La capacidad `assistant` como en el runner: el agente con las actions de
+ *  `.config/actions/assistant.ts`, leyendo de la bandeja por el desk. */
+function assistantFor(inbox: InboxService): Assistant {
+  const desk = new AssistantDesk()
+  desk.connect({
+    inbox,
+    activity,
+    config: () => ({ projects: [], pipelines: [], agents: [] }),
+    status: () => ({}),
+  })
+  const [definition] = [assistantActions].flat()
+  const actions = definition?.create({ services: { assistant: desk } } as ActionContext) as Action[]
+  const agent = new Agent(
+    { id: 'assistant', provider: 'fake', prompt: '{{question}}', actions },
+    new ProviderRegistry().register(fakeProvider),
+  )
+  return new Assistant({
+    capabilities: new Capabilities({ assistant: agent }, new EventBus()),
+    desk,
+  })
 }
 
 const servers: Array<{ close(): void }> = []
@@ -97,19 +141,7 @@ async function start(token: string | null = TOKEN, push = true) {
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),
-    assistant: new Assistant({
-      provider: () => fakeProvider,
-      providerId: 'fake',
-      providerConfig: {},
-      systemPrompt: 'sos el asistente',
-      deps: {
-        inbox,
-        activity,
-        config: () => ({ projects: [], pipelines: [], agents: [] }),
-        status: () => ({}),
-      },
-      bus: new EventBus(),
-    }),
+    assistant: assistantFor(inbox),
     config: () => ({ projects: [], pipelines: [], agents: [] }),
     hub,
     log: () => {},
@@ -234,17 +266,22 @@ describe('runner API', () => {
 
   it('the assistant cannot act outside its task', async () => {
     const { call } = await start()
-    const outside: Provider = {
-      id: 'fake',
-      run: async (ctx) => {
-        const propose = ctx.tools.find((tool) => tool.name === 'propose_action')
-        await expect(
-          propose?.handler({ ref: 'o/r#2', action: 'merge', reason: 'x' }),
-        ).rejects.toThrow(/Fuera de contexto/)
-        return { outcome: 'success', summary: 'ok' }
-      },
+    let refused = ''
+    fakeProvider.run = async (ctx) => {
+      await Promise.resolve()
+        .then(() =>
+          tool(ctx, 'assistant_propose_action').handler({
+            ref: 'o/r#2',
+            action: 'merge',
+            reason: 'x',
+          }),
+        )
+        .catch((err: Error) => {
+          refused = err.message
+        })
+      await tool(ctx, 'submit_done').handler({ result: {} })
+      return { outcome: 'success' }
     }
-    fakeProvider.run = outside.run
     const res = await call('/api/assistant', {
       method: 'POST',
       body: JSON.stringify({
@@ -253,6 +290,8 @@ describe('runner API', () => {
       }),
     })
     expect(await res.text()).toContain('"type":"done"')
+    expect(refused).toMatch(/Fuera de contexto/)
+    fakeProvider.run = defaultRun
   })
 
   it('the stream tells the web what changed', async () => {

@@ -7,6 +7,7 @@ import { SlackClient } from '@ia-flow/slack-api'
 import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerServices } from '../actions/defineAction.js'
 import { loadActions } from '../actions/loader.js'
+import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
 
@@ -44,6 +45,7 @@ const services: RunnerServices = {
   session: new WorkspaceSession(workspace, workspaceTargetFor),
   gitCredential: async () => undefined,
   slack: new SlackClient({ token: 'test' }),
+  assistant: new AssistantDesk(),
   log: () => {},
 }
 
