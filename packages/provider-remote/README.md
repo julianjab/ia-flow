@@ -98,12 +98,13 @@ Lo que **no** se trajo, porque el contrato nuevo lo resuelve distinto:
 - **El inbox llega con hasta un long-poll de demora** (`longPollMs`, 15 s): el runner lo manda en
   cada sync. Un mensaje que llega después de que el provider de allá dejó de leer se pierde con la
   corrida — igual que con un provider local que termina.
-- **Dos checkouts.** Con un provider de CLI en el host, sus tools nativas (Bash, Edit) trabajan
-  en el worktree del HOST; las actions de disco del agente (`fs_*`, `bash_run`), en el del runner.
-  Un agente remoto de CLI no debería declarar actions de disco.
+- **Un solo checkout, el del host.** Las tools de workspace del agente (`Tool.workspace`: `fs_*`,
+  `bash_run`, …) viajan marcadas, y el host no se las da a un provider con workspace nativo (el
+  CLI): sus tools propias trabajan el worktree del host, y las del runner trabajarían el otro.
+  Con un provider del runner allá (`anthropic-api`), llegan y corren en el runner, como todas.
 - **La traza cruza, y lo que pasa allá vuelve si el runner lo pide.** El `RunRequest` lleva el
   W3C `traceparent` del span del agente: el host corre el provider de allá como su hijo (una sola
-  traza, cada máquina la exporta a su OTLP), con `ia.execution.id` (la ejecución del runner),
+  traza; cada máquina la exporta a su OTLP, si tiene uno), con `ia.execution.id` (la ejecución del runner),
   `ia.agent.id` y el scope del evento como atributos heredados — todo span y log de allá queda
   etiquetado con la ejecución de acá. Los spans de las tools siguen en el runner, colgados del
   agente.
@@ -115,7 +116,9 @@ Lo que **no** se trajo, porque el contrato nuevo lo resuelve distinto:
   llegan antes del `done`. El runner llama `onTrace` (un `origin` que quedó en el default del host,
   `runner`, llega como el `id` del `RemoteProvider`) y `ctx.onText`. Es opt-in: un runner viejo no
   lo pide y un host viejo lo ignora; sin `observe` el host no encola nada. Lo que el host anota
-  después del `done` (el runner ya soltó la corrida) queda sólo en su OTLP.
+  después del `done` (el runner ya soltó la corrida) queda sólo en su OTLP. El runner de
+  `apps/runner-v2` reexporta lo que recibe a su propio collector (`recordExporter` de
+  `@ia-flow/telemetry`, con los ids originales), así un host no necesita OTLP propio.
 - **El `providerConfig` no se valida en el runner**: viaja tal cual y lo valida el provider del
   host, que es el que sabe qué acepta. Un typo aparece en la primera corrida, no al montar.
 - **`mcpServers` viaja con sus credenciales** (ej. el token de GitHub del MCP): usá HTTPS entre

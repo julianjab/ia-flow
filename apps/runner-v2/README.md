@@ -198,8 +198,10 @@ Un runner puede correr un agente con el provider de OTRA máquina —una con el 
 logueado, más RAM, otra red— sin que ese agente se entere: es el `RemoteAgentProvider` +
 `agent-host` de v1 sobre el engine nuevo, en [`@ia-flow/provider-remote`](../../packages/provider-remote).
 
-La máquina que presta levanta este mismo runner con `--host` (su propia `.config`: sus
-providers, su GitHub para clonar el worktree):
+La máquina que presta levanta este mismo runner con `--host` y su propia `.config`. Un host no
+despacha nada: monta sólo su identidad de GitHub (para clonar), su workspace (`WORKSPACE_DIR`) y
+sus providers — ni engine, ni fuentes, ni base de ejecuciones, ni la marca Working. Su
+`runner.yaml` alcanza con `github:`, `providers:` y `host:`:
 
 ```yaml
 # runner.yaml de la máquina que presta
@@ -226,8 +228,11 @@ providers:
 ```
 
 Las tools del agente corren en el runner que despacha (vuelven por el mismo canal: el host no
-se conecta de vuelta); el modelo y las tools nativas del CLI, en el host. Con un CLI remoto hay
-dos worktrees: un agente así no debería declarar actions de disco (`fs_*`, `bash_run`). El
+se conecta de vuelta); el modelo y las tools nativas del CLI, en el host, sobre SU worktree. Las
+tools de workspace del agente (`fs_*`, `bash_run`, …) no le llegan a un provider con workspace
+nativo como el CLI, así que hay un solo checkout: el del host. Lo que el provider hace allá
+(spans y logs) vuelve por el sync y el runner lo reexporta a su collector con los ids
+originales: la corrida remota se ve entera en su Grafana, sin configurar OTLP en el host. El
 detalle —pistas de admisión, silencio, huérfanas, límites— en el README del paquete.
 
 ## Tareas bloqueadas por otras (`mark_blocked_by`)
