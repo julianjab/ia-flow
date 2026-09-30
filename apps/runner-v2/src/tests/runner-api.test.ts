@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, it } from 'bun:test'
 import type { AddressInfo } from 'node:net'
 import {
@@ -20,6 +21,7 @@ import type { BoardCard } from '../inbox/classify.js'
 import { InboxSection } from '../inbox/InboxSection.js'
 import { InboxService } from '../inbox/InboxService.js'
 import { createWebhookServer } from '../server.js'
+import { SqliteConversationStore } from '../storage/SqliteConversationStore.js'
 import { TaskActions } from '../tasks/TaskActions.js'
 
 const TOKEN = 'runner-secret'
@@ -60,7 +62,10 @@ function fakeGithub(push = true) {
       url,
       ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
     })
-    if (url.endsWith('/user')) return Response.json({ login: 'julian' })
+    if (url.endsWith('/user')) {
+      const auth = new Headers(init?.headers).get('authorization')
+      return Response.json({ login: auth === 'Bearer gho_other' ? 'otra' : 'julian' })
+    }
     if (url.endsWith('/repos/o/r')) return Response.json({ permissions: { push } })
     return Response.json({ merged: true })
   }) as typeof fetch
@@ -94,7 +99,7 @@ const defaultRun = fakeProvider.run
 
 /** La capacidad `assistant` como en el runner: el agente con las actions de
  *  `.config/actions/assistant.ts`, leyendo de la bandeja por el desk. */
-function assistantFor(inbox: InboxService): Assistant {
+function assistantFor(inbox: InboxService, conversations: SqliteConversationStore): Assistant {
   const desk = new AssistantDesk()
   desk.connect({
     inbox,
@@ -112,6 +117,7 @@ function assistantFor(inbox: InboxService): Assistant {
   return new Assistant({
     capabilities: new Capabilities({ assistant: agent }, new EventBus()),
     desk,
+    conversations,
   })
 }
 
@@ -123,6 +129,7 @@ afterEach(() => {
 async function start(token: string | null = TOKEN, push = true) {
   const github = fakeGithub(push)
   const hub = new SseHub<RunnerStreamEvent>()
+  const conversations = new SqliteConversationStore(new Database(':memory:'))
   const inbox = new InboxService({
     projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
     board: { cards: async () => cards },
@@ -146,7 +153,8 @@ async function start(token: string | null = TOKEN, push = true) {
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),
-    assistant: assistantFor(inbox),
+    assistant: assistantFor(inbox, conversations),
+    conversations,
     config: () => ({ projects: [], pipelines: [], agents: [] }),
     hub,
     log: () => {},
@@ -347,6 +355,94 @@ describe('runner API', () => {
     expect(read).toContain('"reviewed"')
     expect(read).not.toContain('"blocked"')
     fakeProvider.run = defaultRun
+  })
+
+  describe('saved conversations', () => {
+    const ask = (
+      call: Awaited<ReturnType<typeof start>>['call'],
+      body: Record<string, unknown>,
+      headers: Record<string, string> = {},
+    ) =>
+      call('/api/assistant', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          scope: { kind: 'task', ref: 'o/r#1' },
+          messages: [{ role: 'user', content: '¿qué hago?' }],
+          ...body,
+        }),
+      })
+    const events = async (res: Response) =>
+      (await res.text())
+        .split('\n')
+        .filter((line) => line.startsWith('data: '))
+        .map((line) => JSON.parse(line.slice(6)))
+    const gh = (token = 'gho_x') => ({ 'x-github-token': token })
+
+    it('without a GitHub login nothing is saved', async () => {
+      const { call } = await start()
+      const types = (await events(await ask(call, {}))).map((event) => event.type)
+      expect(types).not.toContain('conversation')
+      expect((await call('/api/assistant/conversations')).status).toBe(401)
+    })
+
+    it('with a login, each exchange lands in one conversation of that context', async () => {
+      const { call } = await start()
+      const first = await events(await ask(call, {}, gh()))
+      const id = first.find((event) => event.type === 'conversation')?.id
+      expect(id).toBeString()
+      await events(await ask(call, { conversation_id: id }, gh()))
+
+      const scope = encodeURIComponent(JSON.stringify({ kind: 'task', ref: 'o/r#1' }))
+      const list = await (
+        await call(`/api/assistant/conversations?scope=${scope}`, { headers: gh() })
+      ).json()
+      expect(list).toMatchObject([{ id, title: '¿qué hago?', messages: 4 }])
+      const other = encodeURIComponent(JSON.stringify({ kind: 'general' }))
+      expect(
+        await (await call(`/api/assistant/conversations?scope=${other}`, { headers: gh() })).json(),
+      ).toEqual([])
+
+      const saved = await (
+        await call(`/api/assistant/conversations/${id}`, { headers: gh() })
+      ).json()
+      expect(saved.thread.map((m: { role: string }) => m.role)).toEqual([
+        'user',
+        'assistant',
+        'user',
+        'assistant',
+      ])
+      // Las tareas vuelven como están ahora en la bandeja; la propuesta, como se hizo.
+      expect(saved.thread[1]).toMatchObject({
+        content: 'Te propuse mergear.',
+        tasks: [{ ref: 'o/r#1', kind: 'merge' }],
+        proposals: [{ action: 'merge', ref: 'o/r#1' }],
+      })
+    })
+
+    it("someone else's conversation does not exist for you", async () => {
+      const { call } = await start()
+      const id = (await events(await ask(call, {}, gh()))).find(
+        (e) => e.type === 'conversation',
+      )?.id
+      expect(
+        (await call(`/api/assistant/conversations/${id}`, { headers: gh('gho_other') })).status,
+      ).toBe(404)
+      expect((await ask(call, { conversation_id: id }, gh('gho_other'))).status).toBe(404)
+      expect(
+        (
+          await call(`/api/assistant/conversations/${id}`, {
+            method: 'DELETE',
+            headers: gh('gho_other'),
+          })
+        ).status,
+      ).toBe(404)
+      expect(
+        (await call(`/api/assistant/conversations/${id}`, { method: 'DELETE', headers: gh() }))
+          .status,
+      ).toBe(200)
+      expect((await call(`/api/assistant/conversations/${id}`, { headers: gh() })).status).toBe(404)
+    })
   })
 
   it('the stream tells the web what changed', async () => {
