@@ -35,7 +35,6 @@ import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { start as devctlStart, stop as devctlStop, logsOf, statusAll, stopAll } from './devctl.js'
 import { normalizeList, type StoredList } from './servers-store.js'
 
 /** Lo que ve el renderer cuando no hay nada guardado, o cuando no es él quien pregunta. */
@@ -370,12 +369,8 @@ function migrateLegacyServers(): void {
  * Sólo contesta a una página del origen que servimos nosotros.
  *
  * Cinturón sobre el `will-navigate` de createWindow: si alguna vez se abre un
- * camino de navegación que ese guard no cubra, los tokens (o el permiso de
- * spawnear procesos, ver `registerDevctlIpc`) no se entregan igual. Dos
- * chequeos independientes para el mismo secreto es barato.
- *
- * Módulo, no local a `registerServersIpc`: `registerDevctlIpc` necesita el
- * mismo guard — es el mismo origen confiable, no uno nuevo por feature.
+ * camino de navegación que ese guard no cubra, los tokens no se entregan
+ * igual. Dos chequeos independientes para el mismo secreto es barato.
  */
 function fromOurPage(e: { senderFrame: { url: string } | null }): boolean {
   const url = e.senderFrame?.url
@@ -441,49 +436,6 @@ function registerServersIpc(): void {
       // cierre. Avisar es mejor que fallar en silencio.
       process.stderr.write(`[desktop] no pude guardar los servers: ${String(err)}\n`)
     }
-  })
-}
-
-/**
- * Panel de "Procesos locales" — server, web, y los dos agent-host del repo.
- *
- * Mismo guard `fromOurPage` que `servers:*`: spawnear procesos arbitrarios en
- * la máquina del operador es al menos tan sensible como leerle tokens, así
- * que una página que no sirvió esta app no ve el bridge (ver preload.ts).
- *
- * Sólo tiene sentido en dev (`!PACKAGED`): el bundle empaquetado no trae el
- * repo, así que no hay `apps/server`/`apps/web`/`apps/agent-host` que
- * spawnear — los handlers igual se registran (un `invoke` sin handler
- * rechaza feo) pero devuelven el error explícito.
- */
-function registerDevctlIpc(): void {
-  ipcMain.handle('devctl:status', async (e) => {
-    if (!fromOurPage(e as never)) return []
-    return statusAll()
-  })
-
-  ipcMain.handle('devctl:logs', (e, id: unknown) => {
-    if (!fromOurPage(e as never)) return []
-    return typeof id === 'string' ? logsOf(id) : []
-  })
-
-  ipcMain.handle('devctl:start', async (e, payload: unknown) => {
-    if (!fromOurPage(e as never)) return { ok: false, error: 'no autorizado' }
-    if (PACKAGED) {
-      return { ok: false, error: 'esta app empaquetada no tiene el repo — sólo funciona en dev' }
-    }
-    const { id, mode, port } = (payload ?? {}) as Record<string, unknown>
-    if (typeof id !== 'string' || typeof mode !== 'string' || typeof port !== 'number') {
-      return { ok: false, error: 'payload inválido' }
-    }
-    return devctlStart(REPO_ROOT, id, mode as 'dev' | 'run', port)
-  })
-
-  ipcMain.handle('devctl:stop', (e, payload: unknown) => {
-    if (!fromOurPage(e as never)) return { ok: false, error: 'no autorizado' }
-    const { id } = (payload ?? {}) as Record<string, unknown>
-    if (typeof id !== 'string') return { ok: false, error: 'payload inválido' }
-    return devctlStop(id)
   })
 }
 
@@ -718,7 +670,6 @@ async function boot(): Promise<void> {
 
 app.whenReady().then(() => {
   registerServersIpc()
-  registerDevctlIpc()
   return boot()
 })
 
@@ -731,16 +682,9 @@ app.on('window-all-closed', () => app.quit())
 // `before-quit` no alcanza: un `kill` al proceso de Electron (o un pkill) no
 // dispara ese evento, y ahí es justamente cuando queda el huérfano. Por eso se
 // atienden también las señales y el exit del proceso.
-//
-// `stopAll()` (devctl) va al lado de `killChild()`: son dos registries
-// separados —éste es el único hijo fijo de la app (la web en dev), aquél son
-// los 4 procesos que el operador levantó a mano desde el panel— pero el mismo
-// motivo de existir: sin esto, cerrar la app con procesos del panel corriendo
-// los deja huérfanos ocupando sus puertos.
 function killChild(): void {
   child?.kill()
   child = null
-  stopAll()
 }
 
 app.on('before-quit', killChild)
