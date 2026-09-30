@@ -16,8 +16,11 @@ import {
   addLogSink,
   consoleSink,
   createLogger,
+  isLogLevelEnabled,
   type LogRecord,
   otelSink,
+  parseLogLevel,
+  setLogLevel,
   setLogSinks,
 } from '../logging.js'
 import { withInheritedAttributes, withSpan } from '../tracing.js'
@@ -45,6 +48,7 @@ afterAll(() => {
 beforeEach(() => exported.reset())
 afterEach(() => {
   setLogSinks([otelSink()])
+  setLogLevel('info')
   vi.restoreAllMocks()
 })
 
@@ -69,9 +73,9 @@ describe('createLogger', () => {
     const { sink, records } = collector()
     setLogSinks([sink])
 
-    createLogger().debug('hola')
+    createLogger().info('hola')
 
-    expect(records[0]).toMatchObject({ level: 'debug', scope: '@ia-flow/telemetry' })
+    expect(records[0]).toMatchObject({ level: 'info', scope: '@ia-flow/telemetry' })
   })
 
   it('fans every log out to all the sinks, with inherited attributes and the trace ids', async () => {
@@ -198,5 +202,49 @@ describe('consoleSink', () => {
     consoleSink({ level: 'debug' })(record({ level: 'debug' }))
 
     expect(out).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('setLogLevel', () => {
+  it('drops debug by default, for every sink', () => {
+    const { sink, records } = collector()
+    setLogSinks([sink])
+
+    createLogger('x').debug('ruido')
+
+    expect(records).toEqual([])
+    expect(isLogLevelEnabled('debug')).toBe(false)
+  })
+
+  it('lets debug through once the app asks for it', () => {
+    const { sink, records } = collector()
+    setLogSinks([sink])
+    setLogLevel('debug')
+
+    createLogger('x').debug('detalle')
+
+    expect(records[0]).toMatchObject({ level: 'debug', message: 'detalle' })
+    expect(isLogLevelEnabled('debug')).toBe(true)
+  })
+
+  it('drops everything under the minimum', () => {
+    const { sink, records } = collector()
+    setLogSinks([sink])
+    setLogLevel('warn')
+
+    const log = createLogger('x')
+    log.info('no')
+    log.warn('sí')
+
+    expect(records.map((record) => record.message)).toEqual(['sí'])
+  })
+})
+
+describe('parseLogLevel', () => {
+  it('reads a level whatever its case, and rejects anything else', () => {
+    expect(parseLogLevel(' DEBUG ')).toBe('debug')
+    expect(parseLogLevel('warn')).toBe('warn')
+    expect(parseLogLevel('verbose')).toBeUndefined()
+    expect(parseLogLevel(undefined)).toBeUndefined()
   })
 })
