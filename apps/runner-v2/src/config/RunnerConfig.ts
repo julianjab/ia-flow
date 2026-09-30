@@ -29,13 +29,13 @@ import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
-import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
-import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
 import {
   DEFAULT_WORKING_MARKER,
   type WorkingMarker,
   WorkingMarkerSchema,
-} from '../working/workingMarker.js'
+} from '../engine/workingMarker.js'
+import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
+import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
 import { defaultDatabasePath, runnerHome } from './runnerHome.js'
 
 const McpEntrySchema = z.strictObject({

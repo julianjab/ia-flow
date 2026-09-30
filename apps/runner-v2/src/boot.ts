@@ -7,7 +7,7 @@
  *      globales de la config y las de cada `projects/<id>/actions/`.
  *   3. Las fuentes: el datasource YAML de la global (lo que declara `runner.yaml`) y el de cada
  *      proyecto (lo que declara su `project.yaml`), cuyas pipelines llevan `scope.projectId`
- *      (`projects/withScope.ts`); las arma `DefinitionPipelineSource`, y releen su índice si cambia.
+ *      (`engine/withScope.ts`); las arma `DefinitionPipelineSource`, y releen su índice si cambia.
  *   4. El engine, desde `engine:` de runner.yaml (`engine/mountEngine.ts`): el store de
  *      ejecuciones en SQLite (`bun-sqlite`), el tick y el clasificador de los `whenText`.
  */
@@ -36,13 +36,13 @@ import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import { AssistantDesk } from './assistant/AssistantDesk.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
+import { withScope } from './engine/withScope.js'
+import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import type { McpHost } from './mcp/mcpHost.js'
-import { withScope } from './projects/withScope.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
-import { trackWorking } from './working/workingMarker.js'
 import { mountWorkspace } from './workspace/mountWorkspace.js'
 
 export interface MountOptions {

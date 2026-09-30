@@ -9,7 +9,7 @@
  *
  * Un host (`--host`) no tiene backend propio: sin `OTEL_EXPORTER_OTLP_ENDPOINT`, su SDK exporta
  * OTLP/HTTP JSON estándar AL RUNNER (`/v1/hosts/telemetry/*`, con el token de hosts), que lo guarda
- * en su base y lo reexporta a su collector (`hostTelemetry.ts`). Lo suyo sale con
+ * en su base y lo reexporta a su collector (`providers/hostTelemetry.ts`). Lo suyo sale con
  * `service.instance.id` e `ia.origin` = su nombre.
  *
  * `LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`; `settings.telemetry.logLevel` de

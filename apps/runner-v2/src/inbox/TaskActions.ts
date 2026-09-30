@@ -10,8 +10,8 @@ import { GithubTokenAuth } from '@ia-flow/github-auth'
 import { UpdateIssueAction, type UpdateIssueInput } from '@ia-flow/github-tools'
 import type { TaskAction, TaskActionRequest, TaskActionResult } from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
-import type { InboxSettings } from '../inbox/InboxSection.js'
-import type { InboxService } from '../inbox/InboxService.js'
+import type { InboxSettings } from './InboxSection.js'
+import type { InboxService } from './InboxService.js'
 
 export interface TaskActionsOptions {
   inbox: Pick<InboxService, 'item'>

@@ -55,7 +55,7 @@ lo demás (board, label, actions, repos) se lee al arrancar.
 
 El engine no sabe de proyectos: ve fuentes. El proyecto es una capa del runner que sólo filtra:
 al montar un proyecto, el runner le pone `scope.projectId: <id>` a cada una de sus pipelines
-(una propiedad más de la definición, `src/projects/withScope.ts`), así sólo corren con los eventos
+(una propiedad más de la definición, `src/engine/withScope.ts`), así sólo corren con los eventos
 de ese proyecto —los que publica `resolve_task`—; la global recibe todo. El engine lo arma el
 runner desde `engine:` de runner.yaml (`src/engine/mountEngine.ts`).
 

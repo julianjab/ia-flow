@@ -15,10 +15,10 @@
 import type { Server } from 'node:http'
 import { createEvent, type DomainEvent } from '@ia-flow/agent-engine'
 import { createLogger, describeError, errorAttributes } from '@ia-flow/telemetry'
-import type { MountedRunner } from './boot.js'
+import type { MountedRunner } from '../boot.js'
+import { type SlackIngressOptions, startSlackIngress } from '../intake/slackIngress.js'
 import { listenedTypes, RAW_PREFIX } from './listening.js'
 import { createWebhookServer, type Delivery, GITHUB_WEBHOOK_PATH } from './server.js'
-import { type SlackIngressOptions, startSlackIngress } from './slackIngress.js'
 
 const telemetryLog = createLogger('ia-flow-runner-v2.serve')
 

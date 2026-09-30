@@ -1,4 +1,4 @@
-import type { MountedRunner } from './boot.js'
+import type { MountedRunner } from '../boot.js'
 
 /** El prefijo de los eventos crudos de GitHub (`github.<evento>`) y el de los de Slack. */
 export const RAW_PREFIX = 'github.'
