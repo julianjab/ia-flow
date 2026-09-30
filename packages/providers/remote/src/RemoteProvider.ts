@@ -1,240 +1,168 @@
-import type {
-  Admission,
-  PipelineExecutionContext,
-  Provider,
-  ProviderRunContext,
-  ProviderRunOutput,
-} from '@ia-flow/agent-engine'
-import { createLogger, type TraceRecord } from '@ia-flow/telemetry'
-import type { RemoteProviderConfig } from './config.js'
+import { randomUUID } from 'node:crypto'
 import {
-  type AdmissionHints,
-  CapacityResponse,
-  hintsToQuery,
-  PROTOCOL_PREFIX,
-  RunAccepted,
-  type RunRequest,
-} from './protocol.js'
-import { RemoteRun } from './RemoteRun.js'
-import { activeTraceparent } from './traceContext.js'
+  type Admission,
+  Condition,
+  type McpServerRef,
+  type PipelineExecutionContext,
+  type Provider,
+  type ProviderRunContext,
+  type ProviderRunOutput,
+} from '@ia-flow/agent-engine'
+import {
+  type CliConversation,
+  cliSessionOf,
+  exitsOf,
+  labelOf,
+  RunChannel,
+  runParent,
+  turnPrompt,
+} from '@ia-flow/provider-shared'
+import { createLogger } from '@ia-flow/telemetry'
+import { type HostTask, PROTOCOL_PREFIX } from './protocol.js'
+import { providerId, type RemoteHub } from './RemoteHub.js'
 
-/** Los tiempos del cliente. Todos tienen default; los tests los achican. */
-export interface RemoteTiming {
-  /** La sonda de capacidad corre en el camino caliente de cada corrida: corta a propósito. */
-  probeTimeoutMs: number
-  /** Cuánto se espera que el host ACEPTE la corrida (no que la termine). */
-  acceptTimeoutMs: number
-  /** Cuánto retiene el host cada sync esperando algo nuevo. */
-  longPollMs: number
-  /** Lo que se le suma a un request para darlo por colgado. */
-  requestSlackMs: number
-  /** Cuánto esperar antes de reintentar un sync fallido. */
-  retryDelayMs: number
-  /** Cuándo volver a preguntarle a un host que no contesta. */
-  unreachableRetryMs: number
-  /** Cuándo volver a preguntarle a un host al tope, si no dice cuándo. */
-  busyRetryMs: number
+export interface RemoteProviderOptions {
+  hub: RemoteHub
+  /** El nombre con el que se suscribió el host. */
+  host: string
 }
 
-const DEFAULT_TIMING: RemoteTiming = {
-  probeTimeoutMs: 2_000,
-  acceptTimeoutMs: 30_000,
-  longPollMs: 15_000,
-  requestSlackMs: 10_000,
-  retryDelayMs: 2_000,
-  unreachableRetryMs: 30_000,
-  busyRetryMs: 30_000,
-}
-const DEFAULT_MAX_SILENCE_SECONDS = 120
-
-export interface RemoteProviderOptions extends RemoteProviderConfig {
-  /** El id con el que lo nombran los agentes. */
-  id: string
-  /** Pistas propias del runner para las reglas del host (ej. `repo`), además de `agentId`,
-   *  `eventType` y el `scope` del evento. */
-  hints?: (ctx: PipelineExecutionContext) => AdmissionHints
-  fetchImpl?: typeof fetch
-  timing?: Partial<RemoteTiming>
-  /** Cada span y log que el host registra de la ejecución, a medida que pasa (ej. el
-   *  `TraceJournal` del runner). Con esto —o con un `ctx.onText`— la corrida pide `observe`. El
-   *  `origin` que el host deja en su default (`runner`) llega como el `id` de este provider. */
-  onTrace?: (record: TraceRecord) => void
-}
+/** Cuánto espera el runner si el host está lleno o se fue, antes de volver a preguntar. */
+const BUSY_RETRY_MS = 10_000
+const DEFAULT_TIMEOUT_MINUTES = 120
+/** Lo que se le suma al tope del host: que su propio corte llegue antes que el del runner. */
+const TIMEOUT_GRACE_MINUTES = 2
+const DEFAULT_STOP_NUDGES = 2
 
 /**
- * Un `Provider` que corre en otra máquina — un `RemoteProviderHost` que expone ahí un provider
- * local (Anthropic, el CLI `claude`). Para el engine es un provider más: `canAccept` le pregunta
- * al host si puede, y `run` abre la corrida allá y la sigue hasta que termina. Las tools del agente
- * no viajan: corren acá, cuando el modelo de allá las llama (ver `RemoteRun`).
+ * Un host suscrito, como provider: `remote:<name>`. Para el engine es uno más, con workspace
+ * nativo (el host trabaja SU worktree con las tools de su CLI, así que las tools de workspace del
+ * agente no le llegan). `run` no conduce nada: abre el canal de la corrida en la API del runner,
+ * le entrega la tarea al host, y espera a que el modelo — allá — cierre el turno llamando una tool
+ * terminal por el MCP de acá.
  */
 export class RemoteProvider implements Provider {
   readonly id: string
-  readonly maxConcurrent?: number
+  readonly workspace = 'native' as const
   readonly log = createLogger('provider-remote')
-  private readonly base: string
-  private readonly remoteId: string
-  private readonly timing: RemoteTiming
-  private readonly fetchImpl: typeof fetch
 
   constructor(private readonly options: RemoteProviderOptions) {
-    this.id = options.id
-    if (options.maxConcurrent !== undefined) this.maxConcurrent = options.maxConcurrent
-    this.base = options.url.replace(/\/+$/, '')
-    this.remoteId = options.provider ?? options.id
-    this.timing = { ...DEFAULT_TIMING, ...options.timing }
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.id = providerId(options.host)
   }
 
   /**
-   * Le pregunta al host: corre en otro proceso, puede servir a varios runners y sabe cosas que
-   * este no (su carga, sus reglas). Un "no" explícito demora la corrida; un host que no contesta,
-   * también — mandarle trabajo a uno caído la haría fallar de verdad. Cualquier otra respuesta
-   * (un 404 de un host viejo, un body raro) admite: la corrida sigue y, si algo está mal, falla
-   * en `run` diciendo qué.
+   * Lo decide el runner, con lo que el host declaró al suscribirse: su tope y sus condiciones —
+   * las del `when` de las pipelines, sobre el payload del evento más `agentId` y `eventType`. Sin
+   * ir y volver al host.
    */
   async canAccept(request: { agentId: string; ctx: PipelineExecutionContext }): Promise<Admission> {
-    const hints = this.hintsFor(request.agentId, request.ctx)
-    const url = `${this.providerUrl()}/capacity?${hintsToQuery(hints)}`
-    let res: Response
-    try {
-      res = await this.fetchImpl(url, {
-        headers: this.headers(),
-        signal: AbortSignal.timeout(this.timing.probeTimeoutMs),
-      })
-    } catch (error) {
+    const host = this.options.hub.host(this.options.host)
+    if (!host) {
+      return { accept: false, reason: `${this.id} no está suscrito`, retryAfterMs: BUSY_RETRY_MS }
+    }
+    const { maxConcurrent } = host.subscription
+    if (host.runs.size >= maxConcurrent) {
       return {
         accept: false,
-        reason: `host ${this.base} inalcanzable: ${(error as Error).message}`,
-        retryAfterMs: this.timing.unreachableRetryMs,
+        reason: `${this.id} al tope (${host.runs.size}/${maxConcurrent})`,
+        retryAfterMs: BUSY_RETRY_MS,
       }
     }
-    if (!res.ok) return { accept: true }
-    const parsed = CapacityResponse.safeParse(await res.json().catch(() => undefined))
-    if (!parsed.success || parsed.data.accepting) return { accept: true }
+    const subject = subjectOf(request.agentId, request.ctx)
+    if (Condition.evaluateAll(host.conditions, subject)) return { accept: true }
+    const failed = host.conditions.filter((condition) => !condition.evaluate(subject))
     return {
       accept: false,
-      reason: `host ${this.base}: ${parsed.data.reason ?? 'no está tomando trabajo'}`,
-      retryAfterMs: parsed.data.retryAfterMs ?? this.timing.busyRetryMs,
+      reason: `${this.id} no toma esto: ${failed.map((condition) => condition.describe(subject)).join('; ')}`,
+      retryAfterMs: BUSY_RETRY_MS,
     }
   }
 
   async run(ctx: ProviderRunContext): Promise<ProviderRunOutput> {
-    const runId = await this.open(this.requestOf(ctx))
-    this.log.info(`${ctx.agentId}: corrida ${runId} en ${this.base} (${this.remoteId})`)
-    const silence = this.options.maxSilenceSeconds ?? DEFAULT_MAX_SILENCE_SECONDS
-    const minutes = this.options.runTimeoutMinutes
-    return new RemoteRun({
-      providerId: this.id,
-      ...(this.options.onTrace ? { onTrace: this.options.onTrace } : {}),
-      runUrl: `${this.base}${PROTOCOL_PREFIX}/runs/${encodeURIComponent(runId)}`,
-      headers: this.headers(),
-      fetchImpl: this.fetchImpl,
-      ctx,
-      longPollMs: this.timing.longPollMs,
-      requestSlackMs: this.timing.requestSlackMs,
-      retryDelayMs: this.timing.retryDelayMs,
-      maxSilenceMs: silence === 0 ? Number.POSITIVE_INFINITY : silence * 1000,
-      deadline: minutes ? Date.now() + minutes * 60_000 : Number.POSITIVE_INFINITY,
-    }).result()
-  }
+    const config = ctx.providerConfig
+    const resumedSession = cliSessionOf(ctx.resume?.conversation)
+    const sessionId = resumedSession ?? randomUUID()
+    const conversation: CliConversation = { sessionId }
+    // Desde ya: si el runner muere a mitad de la corrida, se retoma esta sesión.
+    ctx.saveConversation?.(conversation)
 
-  /**
-   * Abre la corrida. Un 503 es la contracara de `canAccept`: la sonda admitió y otro runner tomó
-   * el último lugar en el medio (es consultiva, no reserva). No es un fallo — se espera lo que
-   * pida el host y se vuelve a intentar.
-   */
-  private async open(request: RunRequest): Promise<string> {
-    const body = JSON.stringify(request)
-    while (true) {
-      const res = await this.fetchImpl(`${this.providerUrl()}/runs`, {
-        method: 'POST',
-        headers: { ...this.headers(), 'content-type': 'application/json' },
-        body,
-        signal: AbortSignal.timeout(this.timing.acceptTimeoutMs),
-      })
-      if (res.status === 202) return RunAccepted.parse(await res.json()).runId
-      const text = await res.text().catch(() => '')
-      if (res.status !== 503) {
-        throw new Error(`${this.id}: ${this.base} respondió ${res.status} — ${text.slice(0, 500)}`)
-      }
-      const waitMs = retryAfterMs(res, text) ?? this.timing.busyRetryMs
-      this.log.info(`${request.agentId}: ${this.base} al tope — reintenta en ${waitMs} ms`)
-      await delay(waitMs)
-    }
-  }
-
-  private requestOf(ctx: ProviderRunContext): RunRequest {
-    const { event } = ctx.ctx
-    const traceparent = activeTraceparent()
-    return {
+    const channel = new RunChannel({
       agentId: ctx.agentId,
-      prompt: ctx.prompt,
+      tools: ctx.tools,
+      ...(ctx.inbox ? { inbox: ctx.inbox } : {}),
+      parent: runParent(ctx),
+      maxStopNudges: numberOr(config.maxStopNudges, DEFAULT_STOP_NUDGES),
+      ...(ctx.onText ? { onText: ctx.onText } : {}),
+      since: new Date(),
+      // La sesión escribe su transcripción en el disco del host.
+      transcript: false,
+    })
+    const base = `${PROTOCOL_PREFIX}/runs/${channel.token}`
+    const task: HostTask = {
+      runId: randomUUID(),
+      agentId: ctx.agentId,
+      label: labelOf(ctx),
+      prompt: turnPrompt(ctx, resumedSession !== undefined),
       systemPrompts: ctx.systemPrompts,
-      variables: ctx.variables,
-      providerConfig: ctx.providerConfig,
-      mcpServers: ctx.mcpServers,
-      tools: ctx.tools.map(({ name, description, inputSchema, terminal, failure, workspace }) => ({
-        name,
-        description,
-        inputSchema,
-        ...(terminal ? { terminal } : {}),
-        ...(failure ? { failure } : {}),
-        ...(workspace ? { workspace } : {}),
-      })),
-      context: {
-        event: {
-          id: event.id,
-          ...(event.parentId ? { parentId: event.parentId } : {}),
-          type: event.type,
-          payload: event.payload,
-          ...(event.scope ? { scope: event.scope } : {}),
-          occurredAt: event.occurredAt,
-          depth: event.depth,
-          ...(event.executionId ? { executionId: event.executionId } : {}),
-        },
-        pipelineId: ctx.ctx.pipelineId,
-        ...(ctx.ctx.sourceId ? { sourceId: ctx.ctx.sourceId } : {}),
-        ...(ctx.ctx.execution ? { executionId: ctx.ctx.execution.id } : {}),
+      exits: exitsOf(ctx),
+      mcpServers: await resolveMcpServers(ctx.mcpServers),
+      providerConfig: config,
+      event: {
+        id: ctx.ctx.event.id,
+        type: ctx.ctx.event.type,
+        payload: ctx.ctx.event.payload,
+        ...(ctx.ctx.event.scope ? { scope: ctx.ctx.event.scope } : {}),
+        occurredAt: ctx.ctx.event.occurredAt,
       },
-      hints: this.hintsFor(ctx.agentId, ctx.ctx),
-      inbox: ctx.inbox !== undefined,
-      saveConversation: ctx.saveConversation !== undefined,
-      ...(ctx.resume ? { resume: ctx.resume } : {}),
-      ...(traceparent ? { traceparent } : {}),
-      ...(this.options.onTrace || ctx.onText ? { observe: true } : {}),
+      session: { id: sessionId, resume: resumedSession !== undefined },
+      endpoints: { mcp: `${base}/mcp`, hooks: `${base}/hooks`, report: `${base}/report` },
     }
-  }
-
-  private hintsFor(agentId: string, ctx: PipelineExecutionContext): AdmissionHints {
-    const hints: AdmissionHints = { agentId: [agentId], eventType: [ctx.event.type] }
-    for (const [key, value] of Object.entries(ctx.event.scope ?? {})) {
-      if (typeof value === 'string' || typeof value === 'number') hints[key] = [String(value)]
+    const minutes = numberOr(config.timeoutMinutes, DEFAULT_TIMEOUT_MINUTES) + TIMEOUT_GRACE_MINUTES
+    this.log.info(`${ctx.agentId}: corrida ${task.runId} a ${this.id}`)
+    try {
+      const end = await this.options.hub.dispatch(this.options.host, task, channel, minutes)
+      // Un reporte que llega justo después de cerrar el turno cuenta como cerrado.
+      if (end.kind === 'done' || channel.finished) return { outcome: 'success', conversation }
+      if (end.kind === 'timeout') {
+        return { outcome: 'error', summary: `${this.id}: la corrida superó ${end.minutes} min` }
+      }
+      if (end.kind === 'lost') return { outcome: 'error', summary: end.reason }
+      const { report } = end
+      return {
+        outcome: 'error',
+        summary:
+          report.status === 'failed'
+            ? `${this.id} no pudo correrla: ${report.message ?? 'sin detalle'}`
+            : `la sesión en ${this.id} terminó sin cerrar el turno (código ${report.code ?? '?'})${report.message ? `: ${report.message}` : ''}`,
+      }
+    } finally {
+      await channel.close().catch(() => {})
     }
-    return { ...hints, ...this.options.hints?.(ctx) }
-  }
-
-  private providerUrl(): string {
-    return `${this.base}${PROTOCOL_PREFIX}/providers/${encodeURIComponent(this.remoteId)}`
-  }
-
-  private headers(): Record<string, string> {
-    return { authorization: `Bearer ${this.options.token}` }
   }
 }
 
-/** El `retryAfterMs` del body (en ms, el del host) o, si no viene, `Retry-After` (RFC 9110, en
- *  segundos: lo que manda un proxy en el medio). */
-function retryAfterMs(res: Response, body: string): number | undefined {
-  try {
-    const parsed = CapacityResponse.partial().parse(JSON.parse(body))
-    if (parsed.retryAfterMs !== undefined) return parsed.retryAfterMs
-  } catch {
-    // No es un body del host.
-  }
-  const seconds = Number.parseInt(res.headers.get('retry-after') ?? '', 10)
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined
+/** Contra qué se evalúan las condiciones del host: el payload del evento, más quién y qué. */
+function subjectOf(agentId: string, ctx: PipelineExecutionContext): Record<string, unknown> {
+  const payload = ctx.event.payload
+  const base = typeof payload === 'object' && payload !== null ? payload : {}
+  return { ...base, agentId, eventType: ctx.event.type, scope: ctx.event.scope ?? {} }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+/** Los MCP externos del agente como viajan: con la credencial ya resuelta (un token puede ser
+ *  una función que refresca) y sin nada que no sea JSON. */
+async function resolveMcpServers(servers: McpServerRef[]): Promise<HostTask['mcpServers']> {
+  return Promise.all(
+    servers.map(async ({ id, config }) => {
+      const raw = config.authorizationToken
+      const token = typeof raw === 'function' ? await (raw as () => unknown)() : raw
+      const plain = Object.fromEntries(
+        Object.entries(config).filter(([, value]) => typeof value !== 'function'),
+      )
+      return { id, config: token === undefined ? plain : { ...plain, authorizationToken: token } }
+    }),
+  )
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
 }
