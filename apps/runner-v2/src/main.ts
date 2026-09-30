@@ -25,7 +25,7 @@ import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
 import { startHeartbeat } from './heartbeat.js'
 import { mountInbox } from './inbox/mountInbox.js'
-import { createProviderHost, DEFAULT_HOST_PORT, hostedProviders } from './providers/providerHost.js'
+import { DEFAULT_HOST_PORT, type MountedHost, mountHost } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
 import { type ActivityStore, openActivityStore } from './storage/activityStore.js'
@@ -134,18 +134,12 @@ async function startServing(
 /** El host de providers: los locales de este runner, para los `type: remote` de otros. Como el
  *  servidor de webhooks, no termina solo. */
 function startHosting(
-  mounted: MountedRunner,
+  { host, providers, githubAuthMode }: MountedHost,
   cfg: RunnerConfig,
   telemetry: Telemetry,
   route: TraceRoute,
-  log: (line: string) => void,
 ): void {
-  const registered = registerProviders(cfg.providers, {
-    cwd: (ctx) => mounted.services.session.dirFor(ctx),
-    log,
-  })
-  const providers = hostedProviders(registered, cfg.host)
-  const host = createProviderHost(providers, cfg.host, process.env.IA_FLOW_PROVIDER_HOST_TOKEN)
+  console.log(`→ github: ${githubAuthMode}`)
   // Lo que corre acá vuelve, por el sync, al runner que pidió cada corrida.
   route.to({ write: (record) => host.trace(record) })
   const port = positiveInt(
@@ -162,7 +156,6 @@ function startHosting(
     process.once(signal, () => {
       host.close()
       void server.stop()
-      mounted.stop()
       void telemetry.shutdown().finally(() => process.exit(0))
     })
   }
@@ -208,30 +201,37 @@ async function main(): Promise<'serving' | 'done'> {
   const route = new TraceRoute()
   const started = startTelemetry(VERSION, route)
   telemetry = started
-  // La memoria de lo que pasa (bandeja, asistente): acá, salvo en `--host`, que la devuelve.
-  const store = args.host ? undefined : openActivityStore(cfg)
-  if (store) route.to({ write: (record) => store.writeTrace(record) })
-  console.log(
-    `→ config: ${configDir} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
-  )
-
   const log = (line: string) => {
     console.log(`  ${line}`)
     runnerLog.info(line)
   }
+  if (args.host) {
+    console.log(`→ config: ${configDir} — host`)
+    const mountedHost = await mountHost(cfg, {
+      ...(process.env.WORKSPACE_DIR ? { workspaceDir: process.env.WORKSPACE_DIR } : {}),
+      token: process.env.IA_FLOW_PROVIDER_HOST_TOKEN,
+      log,
+    })
+    startHosting(mountedHost, cfg, started, route)
+    return 'serving'
+  }
+
+  // La memoria de lo que pasa (bandeja, asistente).
+  const store = openActivityStore(cfg)
+  route.to({ write: (record) => store.writeTrace(record) })
+  console.log(
+    `→ config: ${configDir} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
+  )
+
   const mounted = await mountRunner(cfg, {
     workspaceDir: process.env.WORKSPACE_DIR,
     log,
-    ...(store ? { dispatchJournal: store.dispatchJournal } : {}),
+    dispatchJournal: store.dispatchJournal,
   })
   reportBoot(mounted, envReport)
 
-  if (args.serve && store) {
+  if (args.serve) {
     await startServing(mounted, cfg, started, store, log)
-    return 'serving'
-  }
-  if (args.host) {
-    startHosting(mounted, cfg, started, route, log)
     return 'serving'
   }
   try {
@@ -239,7 +239,7 @@ async function main(): Promise<'serving' | 'done'> {
     return 'done'
   } finally {
     mounted.stop()
-    store?.close()
+    store.close()
   }
 }
 
