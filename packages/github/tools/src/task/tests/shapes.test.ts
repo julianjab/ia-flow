@@ -1,6 +1,6 @@
 /** Lo puro de `resolve_task` (`intake/task.ts`). */
-import { describe, expect, it } from 'bun:test'
-import { boardItem, issueRefs, openPr } from '../../.config/actions/_lib/intake/task.js'
+import { describe, expect, it } from 'vitest'
+import { boardItem, issueRefs, openPr } from '../shapes.js'
 
 describe('boardItem', () => {
   const item = (number: number, owner: string, fields: Array<[string, string]>) => ({

@@ -3,8 +3,8 @@
  * `locateSlack` (puro, contra un hilo simulado), el texto que abre el hilo y el pipeline de entrada.
  */
 import { describe, expect, it } from 'bun:test'
-import { locateSlack, type SlackThreadPort } from '../../.config/actions/_lib/intake/slack.js'
-import { withThreadRefs } from '../../.config/actions/_lib/slack/RequestSlackReviewAction.js'
+import { withThreadRefs } from '../actions/RequestSlackReviewAction.js'
+import { locateSlack, type SlackThreadPort } from '../intake/slack.js'
 import { globalPipelines } from './fixtures.js'
 import { mountForTest } from './helpers.js'
 

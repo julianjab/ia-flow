@@ -1,10 +1,7 @@
-import { describe, expect, it, vi } from 'bun:test'
 import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
-import {
-  PrChecksAction,
-  ReviewPullRequestAction,
-} from '../../.config/actions/_lib/github/tools/index.js'
+import { describe, expect, it, vi } from 'vitest'
+import { PrChecksAction, ReviewPullRequestAction } from '../index.js'
 
 const ctx = (payload: Record<string, unknown>): PipelineExecutionContext => ({
   event: createEvent('pull_request', payload),

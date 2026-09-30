@@ -6,6 +6,7 @@ import type { Action } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { SlackClient } from '@ia-flow/slack-api'
 import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
+import { BUILTIN_ACTIONS } from '../actions/builtin/index.js'
 import type { RunnerServices } from '../actions/defineAction.js'
 import { loadActions } from '../actions/loader.js'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
@@ -83,6 +84,25 @@ async function mount(
 }
 
 describe('loadActions', () => {
+  it('the builtin catalog is global: every source sees it without declaring it', async () => {
+    const dir = config({ 'runner.yaml': index({}, ['a'], '[]') })
+    const cfg = loadRunnerConfig(dir)
+    const loaded = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)
+    expect(loaded.registered.runner).toEqual(
+      expect.arrayContaining(['resolve_task', 'update_issue', 'bash_run', 'request_slack_review']),
+    )
+    expect(Object.keys(loaded.catalogs.actions ?? {})).toContain('pr_checks')
+  })
+
+  it('a config action with the id of a builtin one breaks the boot', async () => {
+    const files = { 'actions/update_issue.ts': action('update_issue', 'global') }
+    const dir = config({ 'runner.yaml': index(files, [], './actions'), ...files })
+    const cfg = loadRunnerConfig(dir)
+    await expect(loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)).rejects.toThrow(
+      /"update_issue" ya está definida en el runner/,
+    )
+  })
+
   it('a project sees its own actions first, then the global ones; the global source only the global', async () => {
     const { loaded, build } = await mount({
       'actions/shared.ts': action('shared', 'global'),

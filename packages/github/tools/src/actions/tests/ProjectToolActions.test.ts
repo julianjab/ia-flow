@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'bun:test'
 import { createEvent, EventBus, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AddSubIssueAction,
   AddToProjectAction,
@@ -9,7 +9,7 @@ import {
   MarkBlockedByAction,
   ReplyPrReviewThreadAction,
   ResolvePrReviewThreadAction,
-} from '../../.config/actions/_lib/github/tools/index.js'
+} from '../index.js'
 
 const ctx = (): PipelineExecutionContext => ({
   event: createEvent('task', {}),

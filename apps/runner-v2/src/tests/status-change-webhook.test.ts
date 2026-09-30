@@ -3,7 +3,7 @@
  * movido la card a Review.
  */
 import { describe, expect, it } from 'bun:test'
-import { locate } from '../../.config/actions/_lib/intake/locate.js'
+import { locate } from '@ia-flow/github-webhook'
 import { statusChangeWebhook } from '../tasks/statusChangeWebhook.js'
 
 describe('statusChangeWebhook', () => {

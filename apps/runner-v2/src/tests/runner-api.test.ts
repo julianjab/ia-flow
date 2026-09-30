@@ -10,7 +10,7 @@ import {
   ProviderRegistry,
 } from '@ia-flow/agent-engine'
 import type { RunnerStreamEvent } from '@ia-flow/shared'
-import assistantActions from '../../.config/actions/assistant.js'
+import assistantActions from '../actions/builtin/assistant.js'
 import type { ActionContext } from '../actions/defineAction.js'
 import { Assistant } from '../assistant/Assistant.js'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
@@ -101,7 +101,7 @@ const fakeProvider: Provider = {
 const defaultRun = fakeProvider.run
 
 /** La capacidad `assistant` como en el runner: el agente con las actions de
- *  `.config/actions/assistant.ts`, leyendo de la bandeja por el desk. */
+ *  `src/actions/builtin/assistant.ts`, leyendo de la bandeja por el desk. */
 function assistantFor(inbox: InboxService, conversations: SqliteConversationStore): Assistant {
   const desk = new AssistantDesk()
   desk.connect({
