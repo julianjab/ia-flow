@@ -17,7 +17,7 @@
  */
 import type { Action } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
-import type { SlackClient } from '@ia-flow/slack-api'
+import type { SlackClient, SlackUserDirectory } from '@ia-flow/slack-api'
 import type { WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { AssistantDesk } from '../assistant/AssistantDesk.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
@@ -41,6 +41,8 @@ export interface RunnerServices {
   gitCredential: () => Promise<string | undefined>
   /** Slack con el bot token (`SLACK_BOT_TOKEN`); sin token, `enabled` es false. */
   slack: SlackClient
+  /** `slack.users` de `runner.yaml`: login de GitHub → usuario de Slack. */
+  slackUsers: SlackUserDirectory
   /** Los pedidos abiertos al asistente de la web: las actions `assistant_*` encuentran el suyo. */
   assistant: AssistantDesk
   log: (line: string) => void

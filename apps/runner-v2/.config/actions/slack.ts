@@ -33,6 +33,7 @@ export default [
       return new RequestSlackReviewAction({
         github: ctx.services.github,
         slack: ctx.services.slack,
+        users: ctx.services.slackUsers,
         project: project.slackReview,
         // Un repo del catálogo puede traer `slackReviewChannel`/`slackReviewers`/`slackReviewMessage`.
         repo: (owner, repo) => {

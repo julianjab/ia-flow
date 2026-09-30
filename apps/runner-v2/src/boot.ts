@@ -161,6 +161,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
     gitCredential: () => auth.getToken(),
     slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
+    slackUsers: cfg.slack.users,
     assistant: new AssistantDesk(),
     log: opts.log,
   }

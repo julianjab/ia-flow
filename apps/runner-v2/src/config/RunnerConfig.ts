@@ -25,7 +25,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
 import { AdmissionRule } from '@ia-flow/provider-remote'
-import type { SlackReviewConfig } from '@ia-flow/slack-api'
+import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
@@ -110,6 +110,13 @@ export const ProjectFileSchema = z.strictObject({
 type ProjectFile = z.infer<typeof ProjectFileSchema>
 
 export const RunnerFileSchema = z.strictObject({
+  /** Slack: quién es cada persona allá. `users` mapea el login de GitHub al usuario de Slack, para
+   *  taguear al asignado de una task (`request_slack_review`). Se lee al arrancar. */
+  slack: z
+    .strictObject({
+      users: z.record(z.string().min(1), SlackMemberRefSchema).optional(),
+    })
+    .optional(),
   settings: z
     .strictObject({
       port: z.number().int().positive().optional(),
@@ -212,6 +219,8 @@ export interface RunnerConfig {
   runnerPath: string
   settings: NonNullable<RunnerFile['settings']>
   github: NonNullable<RunnerFile['github']>
+  /** `slack.users` de `runner.yaml`: login de GitHub → usuario de Slack. */
+  slack: { users: SlackUserDirectory }
   providers: Record<string, Record<string, unknown>>
   host: NonNullable<RunnerFile['host']>
   mcp: McpEntry[]
@@ -361,6 +370,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     runnerPath,
     settings: file.settings ?? {},
     github: withKeyPath(file.github ?? {}, dir),
+    slack: { users: file.slack?.users ?? {} },
     providers: file.providers,
     host: file.host ?? {},
     mcp: file.mcp,

@@ -3,9 +3,11 @@ import type { GithubClient } from '@ia-flow/github-api'
 import { readSection, writeSection } from '@ia-flow/github-tools'
 import {
   buildSlackReviewMessage,
+  mapAssigneesToSlack,
   resolveSlackReviewTarget,
   type SlackClient,
   type SlackReviewConfig,
+  type SlackUserDirectory,
   slackReviewBlockedReason,
   threadTsOf,
 } from '@ia-flow/slack-api'
@@ -24,6 +26,9 @@ const Input = z.strictObject({
 export interface RequestSlackReviewOptions {
   github: GithubClient
   slack: SlackClient
+  /** Login de GitHub → usuario de Slack (`slack.users` de runner.yaml): a quién taguear según los
+   *  asignados del issue. */
+  users?: SlackUserDirectory
   /** Canal, reviewers y textos del proyecto. */
   project: SlackReviewConfig
   /** Los del repo de la task (`owner/repo`), que pisan los del proyecto campo por campo. */
@@ -46,7 +51,8 @@ interface PullRequest {
 }
 
 /**
- * `request_slack_review`: taguea a los reviewers del repo en su canal con el PR de la task y —si
+ * `request_slack_review`: taguea a los asignados del issue (los que tienen usuario de Slack en
+ * `slack.users`) Y a los reviewers del repo, en el canal del repo, con el PR de la task y —si
  * ya hubo un pedido— contesta DENTRO del mismo hilo (re-review). El link del hilo vive en el
  * bloque `## Slack` del body del issue; `update_issue_body` lo conserva.
  *
@@ -55,7 +61,7 @@ interface PullRequest {
  */
 export class RequestSlackReviewAction extends Action<typeof Input, string> {
   readonly description =
-    'Pide review del PR de la task en Slack: taguea a los reviewers en el canal del repo, o contesta en el hilo del pedido anterior si ya hubo uno. Falla si no hay un PR abierto o si su CI no terminó (o terminó en rojo, salvo `allowFailedCi`).'
+    'Pide review del PR de la task en Slack: taguea a los asignados del issue (según `slack.users` de runner.yaml) y a los reviewers del repo, en el canal del repo; o contesta en el hilo del pedido anterior si ya hubo uno. Falla si no hay un PR abierto o si su CI no terminó (o terminó en rojo, salvo `allowFailedCi`).'
   readonly input = Input
 
   constructor(private readonly options: RequestSlackReviewOptions) {
@@ -68,15 +74,32 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
     const task = taskFrom(ctx)
     const pr = await this.pullRequest(task)
     await this.assertCi(task, pr, input.allowFailedCi ?? false)
+    // Se lee el issue ANTES de validar el destino: sus asignados deciden a quién se taguea.
+    const issuePath = `/repos/${task.owner}/${task.repo}/issues/${task.number}`
+    const issue = await github.requestJson<{
+      body?: string | null
+      assignees?: Array<{ login: string }> | null
+    }>(issuePath)
+    const body = issue.body ?? ''
+    const { members, unmapped } = mapAssigneesToSlack(
+      (issue.assignees ?? []).map((assignee) => assignee.login),
+      this.options.users,
+    )
     const target = resolveSlackReviewTarget(
       this.options.repo(task.owner, task.repo),
       this.options.project,
+      members,
     )
     const blocked = slackReviewBlockedReason(target)
-    if (blocked || !target.channel) throw new Error(blocked ?? 'Falta el canal de Slack')
+    if (blocked || !target.channel) {
+      const reason = blocked ?? 'Falta el canal de Slack'
+      throw new Error(
+        unmapped.length > 0
+          ? `${reason}. Los asignados del issue (${unmapped.join(', ')}) no tienen usuario de Slack: agregalos en runner.yaml → slack.users`
+          : reason,
+      )
+    }
 
-    const issuePath = `/repos/${task.owner}/${task.repo}/issues/${task.number}`
-    const body = (await github.requestJson<{ body?: string | null }>(issuePath)).body ?? ''
     const thread = readSection(body, SLACK_SECTION)?.match(/https?:\/\/\S+/)?.[0]
     const kind = thread ? 're-review' : 'first'
     const posted = await slack.postMessage({
