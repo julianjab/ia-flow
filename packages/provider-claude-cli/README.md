@@ -23,6 +23,21 @@ providerRegistry.register(
     `Pre`/`PostToolUse` abren y cierran un span `execute_tool` por tool nativa (colgado del span
     del agente, sale por OTLP); `PostToolUse` entrega el inbox como `additionalContext`; `Stop`
     no deja terminar sin cerrar el turno (insiste `maxStopNudges` veces) y entrega lo que llegó.
+    Se reenvían también `SubagentStop`, `SessionStart` y `UserPromptSubmit`.
+- **La traza, a medida que pasa** (nada acumulado al final):
+  - **Un log por hook** (`hookTaxonomy.ts`, la taxonomía de v1) dentro de la traza del agente y
+    con `ia.execution.id`: `tool.pre` (debug), `tool.call` + `tool.result` (apareados por
+    `ia.tool.use_id`), `subagent.start` (un `Task`), `subagent.stop`, `agent.prompt`, `agent.stop`,
+    `agent.session_start` — el nombre va también en `ia.hook.event`. Inputs, respuestas y prompts
+    recortados a 10 KB; `ia.tool.is_error` sólo con un flag explícito (`is_error`/`isError`/
+    `success`), nunca adivinado por `stderr`.
+  - **Un span `chat <model>` por request al modelo**, leído de la transcripción que el CLI escribe
+    (`transcript_path` de cada hook): `TranscriptTail` lee sólo los bytes nuevos (guarda el offset
+    y una última línea a medio escribir), junta las líneas de un mismo `message.id` quedándose
+    con el último `usage`, y emite cada mensaje apenas se completa — el último, en el `Stop` o al
+    cerrar la corrida. Atributos GenAI (`gen_ai.usage.*_tokens`, incluidos los de cache) colgados
+    del agente, y el texto a `ctx.onText`. Una sesión retomada no re-emite su historia. Si la
+    transcripción falta o no se lee, la corrida sigue igual.
 - **Archivos de la sesión** (carpeta 0700, archivos 0600, se borran al terminar):
   `--append-system-prompt-file` (los `systemPrompts` del agente + la nota de sesión
   desatendida), `--settings` (`env` con `CLAUDE_CODE_OAUTH_TOKEN` + hooks), `--mcp-config`

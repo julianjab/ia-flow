@@ -7,7 +7,7 @@ import type {
   ProviderRunContext,
   ProviderRunOutput,
 } from '@ia-flow/agent-engine'
-import { captureContext, createLogger } from '@ia-flow/telemetry'
+import { captureContext, createLogger, withInheritedAttributes } from '@ia-flow/telemetry'
 import {
   type ClaudeCliConfig,
   type ClaudeCliMode,
@@ -96,8 +96,10 @@ export class ClaudeCliProvider implements Provider {
       agentId: ctx.agentId,
       tools: ctx.tools,
       ...(ctx.inbox ? { inbox: ctx.inbox } : {}),
-      parent: captureContext(),
+      parent: runContext(ctx),
       maxStopNudges: cfg.maxStopNudges ?? DEFAULT_STOP_NUDGES,
+      ...(ctx.onText ? { onText: ctx.onText } : {}),
+      since: new Date(),
     })
     const server = this.server()
     const endpoints = await server.open(channel)
@@ -155,7 +157,7 @@ export class ClaudeCliProvider implements Provider {
         summary: `la sesión del CLI terminó sin cerrar el turno (código ${ended.exit.code ?? '?'})${tail(ended.exit.output)}`,
       }
     } finally {
-      channel.close()
+      await channel.close().catch(() => {})
       if (session) {
         await delay(CLOSE_GRACE_MS)
         await session.close().catch(() => {})
@@ -202,6 +204,15 @@ export class ClaudeCliProvider implements Provider {
       this.options.launchers?.[mode] ?? (mode === 'tmux' ? new TmuxLauncher() : new PrintLauncher())
     )
   }
+}
+
+/** El contexto del agente del que cuelga todo lo que llega por los hooks, con `ia.execution.id`
+ *  seguro (la pipeline ya lo hereda; un agente suelto con ejecución también lo lleva). */
+function runContext(ctx: ProviderRunContext) {
+  const execution = ctx.ctx.execution
+  return execution
+    ? withInheritedAttributes({ 'ia.execution.id': execution.id }, captureContext)
+    : captureContext()
 }
 
 /** La sesión a retomar, si la conversación es de este provider. */

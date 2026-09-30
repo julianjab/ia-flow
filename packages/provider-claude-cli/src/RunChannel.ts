@@ -5,9 +5,14 @@ import {
   createLogger,
   markError,
   type Span,
+  SpanKind,
   startSpan,
   truncate,
 } from '@ia-flow/telemetry'
+import { context } from '@opentelemetry/api'
+import { hookLogs } from './hookTaxonomy.js'
+import type { TranscriptMessage } from './transcript/TranscriptAssembler.js'
+import { TranscriptTail } from './transcript/TranscriptTail.js'
 
 /** El nombre del servidor MCP de la corrida en el `--mcp-config`: sus tools le llegan al modelo
  *  como `mcp__ia-flow__<tool>`. */
@@ -28,6 +33,11 @@ export interface RunChannelOptions {
   parent: Context
   /** Cuántas veces insistir en que cierre con `submit_*`. */
   maxStopNudges: number
+  /** El texto del modelo, mensaje por mensaje, a medida que la transcripción lo registra. */
+  onText?: (text: string) => void
+  /** Cuándo arrancó la corrida: lo anterior de la transcripción (una sesión retomada) no se
+   *  vuelve a emitir. */
+  since?: Date
 }
 
 /**
@@ -44,10 +54,15 @@ export class RunChannel {
   private finishedFlag = false
   private nudges = 0
   private readonly spans = new Map<string, Span>()
+  private readonly transcript: TranscriptTail
 
   constructor(private readonly options: RunChannelOptions) {
     this.done = new Promise((resolve) => {
       this.finishDone = resolve
+    })
+    this.transcript = new TranscriptTail({
+      onMessage: (message) => this.recordMessage(message),
+      ...(options.since ? { since: options.since } : {}),
     })
   }
 
@@ -94,6 +109,8 @@ export class RunChannel {
   /** Un hook de Claude Code: traza sus tools nativas, entrega el inbox y no lo deja terminar sin
    *  cerrar el turno. */
   hook(event: string, input: Record<string, unknown>): HookOutput {
+    this.logHook(event, input)
+    this.readTranscript(event, input)
     switch (event) {
       case 'PreToolUse':
         this.startNative(input)
@@ -104,9 +121,52 @@ export class RunChannel {
       case 'Stop':
         return this.onStop()
       default:
-        this.log.debug(`${this.options.agentId}: hook ${event}`)
         return {}
     }
+  }
+
+  /** Cada hook deja su log (ver `hookTaxonomy`), dentro de la traza del agente: sale con su
+   *  `traceId` y los atributos heredados (`ia.execution.id`, el scope del evento). */
+  private logHook(event: string, input: Record<string, unknown>): void {
+    context.with(this.options.parent, () => {
+      for (const { level, message, attributes } of hookLogs(event, input)) {
+        this.log[level](message, { 'ia.agent.id': this.options.agentId, ...attributes })
+      }
+    })
+  }
+
+  /** Lo nuevo de la transcripción, sin esperar: el hook contesta ya. En `Stop` el modelo terminó
+   *  de escribir, así que el último mensaje también sale. */
+  private readTranscript(event: string, input: Record<string, unknown>): void {
+    const path = input.transcript_path
+    if (typeof path !== 'string' || !path) return
+    void this.transcript.read(path, { flush: event === 'Stop' })
+  }
+
+  /** Un request al modelo, como un span GenAI colgado del agente (como `chat <model>` del
+   *  provider de la API), y su texto a `onText`. */
+  private recordMessage(message: TranscriptMessage): void {
+    const model = message.model ?? 'unknown'
+    const span = startSpan(
+      `chat ${model}`,
+      {
+        'gen_ai.operation.name': 'chat',
+        'gen_ai.provider.name': 'anthropic',
+        'gen_ai.request.model': model,
+        'gen_ai.response.model': model,
+        'gen_ai.response.id': message.id,
+        'gen_ai.usage.input_tokens': message.usage.inputTokens,
+        'gen_ai.usage.output_tokens': message.usage.outputTokens,
+        'gen_ai.usage.cache_read_input_tokens': message.usage.cacheReadTokens,
+        'gen_ai.usage.cache_creation_input_tokens': message.usage.cacheCreationTokens,
+        ...(message.sidechain ? { 'ia.transcript.sidechain': true } : {}),
+      },
+      { parent: this.options.parent, scope: SCOPE, kind: SpanKind.CLIENT },
+    )
+    for (const text of message.texts) span.addEvent('assistant.text', { 'ia.text': truncate(text) })
+    span.end()
+    if (message.sidechain || !this.options.onText) return
+    for (const text of message.texts) this.options.onText(text)
   }
 
   private finish(): void {
@@ -161,10 +221,6 @@ export class RunChannel {
         { parent: this.options.parent, scope: SCOPE },
       ),
     )
-    this.log.info(`${this.options.agentId}: tool "${name}"`, {
-      'gen_ai.tool.name': name,
-      'ia.tool.input': truncate(input.tool_input, 500),
-    })
   }
 
   private endNative(input: Record<string, unknown>): void {
@@ -176,10 +232,12 @@ export class RunChannel {
     span.end()
   }
 
-  /** Cierra los spans que quedaron abiertos (la sesión murió a mitad de una tool). */
-  close(): void {
+  /** Cierra los spans que quedaron abiertos (la sesión murió a mitad de una tool) y termina de
+   *  leer la transcripción: el último mensaje sale aunque no haya llegado un `Stop`. */
+  async close(): Promise<void> {
     for (const span of this.spans.values()) span.end()
     this.spans.clear()
+    await this.transcript.finish()
   }
 }
 
