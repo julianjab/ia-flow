@@ -5,8 +5,14 @@ import type {
   ProviderRunContext,
   ProviderRunOutput,
 } from '@ia-flow/agent-engine'
-import { RunChannel } from '@ia-flow/provider-shared'
-import { captureContext, createLogger, withInheritedAttributes } from '@ia-flow/telemetry'
+import {
+  exitsOf,
+  labelOf,
+  RunChannel,
+  runParent,
+  turnPrompt,
+} from '@ia-flow/provider-shared'
+import { createLogger } from '@ia-flow/telemetry'
 import { launchCli } from './CliLauncher.js'
 import {
   type ClaudeCliConfig,
@@ -95,7 +101,7 @@ export class ClaudeCliProvider implements Provider {
       agentId: ctx.agentId,
       tools: ctx.tools,
       ...(ctx.inbox ? { inbox: ctx.inbox } : {}),
-      parent: runContext(ctx),
+      parent: runParent(ctx),
       maxStopNudges: cfg.maxStopNudges ?? DEFAULT_STOP_NUDGES,
       ...(ctx.onText ? { onText: ctx.onText } : {}),
       since: new Date(),
@@ -190,14 +196,6 @@ export class ClaudeCliProvider implements Provider {
   }
 }
 
-/** El contexto del agente del que cuelga todo lo que llega por los hooks, con `ia.execution.id`
- *  seguro (la pipeline ya lo hereda; un agente suelto con ejecución también lo lleva). */
-function runContext(ctx: ProviderRunContext) {
-  const execution = ctx.ctx.execution
-  return execution
-    ? withInheritedAttributes({ 'ia.execution.id': execution.id }, captureContext)
-    : captureContext()
-}
 
 /** La sesión a retomar, si la conversación es de este provider. */
 function conversationOf(value: unknown): ClaudeCliConversation | undefined {
@@ -218,26 +216,8 @@ function describeRef(ref: SessionRef): string {
   return ref.kind === 'tmux' ? `tmux ${ref.name}` : `pid ${ref.pid}`
 }
 
-/** El prompt del turno: el del agente, o lo que pasó si se retoma una sesión que esperaba. */
-export function turnPrompt(
-  ctx: Pick<ProviderRunContext, 'prompt' | 'resume'>,
-  resumed: boolean,
-): string {
-  return resumed && ctx.resume
-    ? `[Continuación de tu turno]\n${ctx.resume.message}\n\nSeguí donde quedaste.`
-    : ctx.prompt
-}
 
-/** Las tools que cierran el turno como una salida (no `fail_turn`). */
-export function exitsOf(ctx: Pick<ProviderRunContext, 'tools'>): string[] {
-  return ctx.tools.filter((tool) => tool.terminal && !tool.failure).map((tool) => tool.name)
-}
 
-/** `<agente>-task-<n>`: lo que ve un humano en `tmux ls`. */
-export function labelOf(ctx: Pick<ProviderRunContext, 'agentId' | 'ctx'>): string {
-  const number = (ctx.ctx.event.payload as { number?: unknown } | undefined)?.number
-  return typeof number === 'number' ? `${ctx.agentId}-task-${number}` : ctx.agentId
-}
 
 function tail(output: string): string {
   const text = output.trim()

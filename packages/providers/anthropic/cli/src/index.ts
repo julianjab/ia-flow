@@ -1,5 +1,5 @@
 export type { ClaudeCliConversation, ClaudeCliProviderOptions } from './ClaudeCliProvider.js'
-export { ClaudeCliProvider, exitsOf, labelOf, turnPrompt } from './ClaudeCliProvider.js'
+export { ClaudeCliProvider } from './ClaudeCliProvider.js'
 export type { CliLaunchSpec, LaunchedCli } from './CliLauncher.js'
 export { launchCli } from './CliLauncher.js'
 export {
