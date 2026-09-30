@@ -27,7 +27,12 @@ id: frontend-implementer
 # Dónde corre, en orden: una sesión del CLI en tmux si tiene lugar (se mira con
 # `tmux attach`), si no la API. Cada uno con su config; al retomar una espera o
 # un reinicio sigue en el que empezó.
+# Primero un host suscrito que la tome (`remote:*`: una máquina que presta su
+# `claude`, en orden de suscripción, si sus condiciones la aceptan); si no hay o
+# están llenos, el claude de este runner; y la API como último respaldo.
 providers:
+  - id: remote:*
+    config: { model: opus }
   - id: claude-tmux
     config: { model: opus }
   - id: anthropic-api
