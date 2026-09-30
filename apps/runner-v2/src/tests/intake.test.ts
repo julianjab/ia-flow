@@ -279,6 +279,82 @@ describe('intake: pull requests and CI', () => {
   })
 })
 
+describe('intake: a PR that closes no issue is not a task', () => {
+  // Su número no resuelve como `Issue` en GraphQL: usarlo de task rompía el despacho con
+  // `Could not resolve to an Issue with the number of N`.
+  const noGraphql = (calls: string[]) => calls.filter((call) => call.startsWith('graphql'))
+
+  it('skips a CI run whose PR has no task branch and closes no issue', async () => {
+    const { github, run } = await intake()
+    const { emitted } = await run('workflow_run', runPayload('completed', [{ number: 12 }]))
+    expect(emitted).toEqual([])
+    expect(github.calls).toContain('GET /repos/la-haus/subscriptions/pulls/12')
+    expect(noGraphql(github.calls)).toEqual([])
+  })
+
+  it('finds the issue of a CI run in the body of its PR when the branch does not say', async () => {
+    const { emitted } = await (
+      await intake({
+        prs: {
+          'la-haus/subscriptions#12': {
+            number: 12,
+            body: 'Closes #7',
+            head: { ref: 'feat/x', sha: 's' },
+          },
+        },
+      })
+    ).run('workflow_run', runPayload('completed', [{ number: 12 }]))
+    expect(emitted[0]).toMatchObject({
+      type: 'workflow_run',
+      payload: { number: 7, prNumber: 12, kind: 'workflow_run' },
+    })
+  })
+
+  it('skips a pull_request and a review that close no issue', async () => {
+    for (const [event, payload] of [
+      [
+        'pull_request',
+        {
+          action: 'opened',
+          pull_request: {
+            number: 12,
+            body: '',
+            head: { ref: 'feat/x', sha: 's' },
+            base: { ref: 'main' },
+          },
+          repository,
+        },
+      ],
+      [
+        'pull_request_review',
+        {
+          ...reviewPayload('approved'),
+          pull_request: {
+            number: 12,
+            body: '',
+            head: { ref: 'feat/x', sha: 's' },
+            base: { ref: 'main' },
+          },
+        },
+      ],
+    ] as const) {
+      const { github, run } = await intake()
+      expect((await run(event, payload)).emitted, event).toEqual([])
+      expect(noGraphql(github.calls), event).toEqual([])
+    }
+  })
+
+  it('skips a comment on a PR that closes no issue', async () => {
+    const { github, run } = await intake()
+    const { emitted } = await run(
+      'issue_comment',
+      commentPayload('ok', { number: 12, pull_request: {} }),
+    )
+    expect(emitted).toEqual([])
+    expect(noGraphql(github.calls)).toEqual([])
+  })
+})
+
 describe('intake: cards of another board (another engine)', () => {
   // El issue existe y el repo es del proyecto, pero la card no está en el board de ESTE runner
   // (vive en el de producción): el runner no lo toca, sea cual sea el evento.
