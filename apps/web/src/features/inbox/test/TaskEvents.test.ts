@@ -34,7 +34,7 @@ const event = (over: Partial<EventLogEntry>): EventLogEntry => ({
 describe('TaskEvents', () => {
   it('cada evento arranca colapsado: qué llegó, cómo terminó y cuántas pipelines no aplicaron', () => {
     const w = mount(TaskEvents, { props: { taskRef: 'o/r#1', events: [event({})] } })
-    const item = w.get('details.ev__item')
+    const item = w.get('details.er')
     expect(item.attributes('open')).toBeUndefined()
     const row = w.get('summary').text()
     expect(row).toContain('projects_v2_item.edited')
@@ -46,7 +46,7 @@ describe('TaskEvents', () => {
 
   it('abierto, cada condición que cortó va en su renglón', () => {
     const w = mount(TaskEvents, { props: { taskRef: 'o/r#1', events: [event({})] } })
-    expect(w.findAll('.ev__reason').map((r) => r.text())).toEqual([
+    expect(w.findAll('.er__reason').map((r) => r.text())).toEqual([
       'no cumple: item.status eq "Refine" (vino "Review")',
       'fieldName notIn ["Working"] (vino "Working")',
       'no cumple: item.labels contains "e2e-test"',
@@ -67,7 +67,7 @@ describe('TaskEvents', () => {
       },
     })
     expect(w.get('summary').text()).toContain('✓ corrió review')
-    expect(w.get('details.ev__item').attributes('open')).toBeDefined()
+    expect(w.get('details.er').attributes('open')).toBeDefined()
     expect(w.text()).toContain('✕ se cayó')
   })
 })
