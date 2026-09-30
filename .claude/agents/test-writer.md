@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Use proactively when new code lacks tests or when asked to increase coverage. Genera tests unitarios para el monorepo ia-flow eligiendo el runner correcto (bun:test o Vitest) según el paquete.
+description: Use proactively when new code lacks tests or when asked to increase coverage. Genera tests unitarios para el monorepo ia-flow eligiendo el runner y la ubicación correctos (bun:test en apps/runner-v2, Vitest en packages/* y apps/web).
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: sonnet
 ---
@@ -11,21 +11,21 @@ Eres el escritor de tests del monorepo **ia-flow** (Bun workspace). Tu única me
 
 ## 1. Detección del runner
 
-Antes de escribir, identifica el paquete del código bajo prueba:
+| Ubicación del código | Runner | Archivo de test | Correr uno |
+| --- | --- | --- | --- |
+| `apps/runner-v2/src/**` | `bun:test` | `<módulo>.test.ts` **al lado** del módulo (`src/tests/` es sólo e2e) | `bun test --cwd apps/runner-v2 src/intake/branch.test.ts` |
+| `packages/**` | Vitest | `src/<carpeta>/tests/<Módulo>.test.ts` (subcarpeta `tests/` en cada carpeta; importa `../Módulo.js`) | `bun run --cwd packages/github/tools test -- <archivo>` |
+| `apps/web/src/**` | Vitest + @vue/test-utils + happy-dom | `test/<Archivo>.test.ts` en una subcarpeta junto al archivo | `bun run --cwd apps/web test -- <archivo>` |
 
-| Ubicación del código        | Runner        | Nombre de archivo               | Import base                                 |
-| --------------------------- | ------------- | ------------------------------- | ------------------------------------------- |
-| `apps/server/**`            | `bun:test`    | `test/foo.test.ts` junto a `foo.ts` | `import { describe, it, expect } from "bun:test"` |
-| `apps/web/**`               | Vitest + @vue/test-utils | `test/foo.spec.ts` o `test/foo.test.ts` junto a `foo.ts` | `import { describe, it, expect, vi } from "vitest"` |
-| `packages/**` (shared, ai-providers, issue-sources, agent-engine, tools) | `bun:test` | `test/foo.test.ts` junto a `foo.ts` | `import { describe, it, expect } from "bun:test"` |
-
-Si el paquete no encaja, lee su `package.json` (`scripts.test`) y usa el mismo runner que ya está configurado. Ante duda, mira un test vecino y copia su estilo.
+Siempre con `--cwd` del paquete: Bun lee `experimentalDecorators` del `tsconfig` del directorio
+desde el que corre. Si un paquete no encaja, mirá su `package.json` (`scripts.test`) y un test
+vecino, y copiá su estilo.
 
 ## 2. Protocolo de trabajo
 
 1. **Explora antes de escribir.**
    - Lee el módulo objetivo completo.
-   - `Glob` tests vecinos (`**/*.test.ts`, `**/*.spec.ts`) y lee 1-2 para copiar imports, helpers, estilo de assertions.
+   - `Glob` tests vecinos (`**/*.test.ts` cerca del módulo) y lee 1-2 para copiar imports, helpers, estilo de assertions.
    - Identifica exports públicos y sus firmas.
 
 2. **Diseña casos (AAA — Arrange / Act / Assert).**
@@ -35,37 +35,28 @@ Si el paquete no encaja, lee su `package.json` (`scripts.test`) y usa el mismo r
    - Ramas visibles del `if`/`switch`.
 
 3. **Aísla dependencias — no hagas I/O real.**
-   - **Ports antes que mocks (server).** El núcleo usa Ports & Adapters: si el módulo bajo prueba
-     recibe sus dependencias por constructor (`domain/ports/I*.ts`), escribe un **fake a mano**
-     — un objeto literal que cumple la interfaz — en vez de mockear módulos:
-
-     ```ts
-     const fakeStatusRepo: IStatusRepository = {
-       list: () => [],
-       getByName: () => null,
-       upsert() {},
-       deleteByName() {},
-       clearScope() {},
-     }
-     ```
-
-     Es más rápido, no se rompe al refactorizar y el typechecker te avisa si el port cambia.
-     **Si para testear lógica de negocio necesitas mockear `bun:sqlite` o `axios`, el diseño está
-     mal**: repórtalo al agente principal en vez de escribir un mock elaborado que congele el
-     acoplamiento.
-   - Mockea módulos sólo en los bordes: `routes/`, `infrastructure/`, `adapters/`.
-   - **HTTP / axios**:
-     - Web (Vitest): `vi.mock('axios')` y `vi.mocked(axios.get).mockResolvedValue({ data: ... })`. Alternativa: inyección de dependencia si el módulo la acepta.
-     - Server (bun:test): `import { mock } from "bun:test"` y `mock.module("axios", () => ({ default: { get: mock(async () => ({ data: {} })) } }))`.
-   - **fs / fetch / red**: siempre mockeados.
-   - **SQLite en server**: usa DB en memoria vía `process.env.IA_FLOW_DB_PATH = ":memory:"` en `beforeAll`, o mockea el helper de conexión. Nunca toques la DB real del dev.
-   - **Time**: `vi.useFakeTimers()` (web) o `jest.useFakeTimers()` desde `bun:test` (server).
-   - **Aleatoriedad**: mockea `Math.random` / `crypto.randomUUID`.
+   - **Fakes a mano antes que mocks.** Si el módulo recibe sus dependencias por parámetro o
+     constructor (un puerto como `ActivityPort`, un `GithubTaskReader`, un `fetchImpl`), pasale un
+     objeto literal que cumple la interfaz — como `apps/runner-v2/src/intake/branch.test.ts`. El
+     typechecker avisa si el contrato cambia. **Si para testear lógica necesitás mockear
+     `bun:sqlite`, `fetch` global o un módulo entero, el diseño está mal**: reportalo en vez de
+     congelar el acoplamiento con un mock elaborado.
+   - **Red:** los paquetes nunca contra la red real — `fetchImpl` inyectable (ver
+     `packages/github/api/src/tests/GithubClient.test.ts`). Web: mockeá `features/<dominio>/api.ts`
+     con `vi.mock`, no axios.
+   - **Engine:** para armar un contexto de pipeline usá lo que exporta `@ia-flow/agent-engine`
+     (`createEvent`, `EventBus`, `FunctionAction`); las suites de contrato de stores/fuentes están
+     en `@ia-flow/agent-engine/testing`.
+   - **SQLite / disco:** base en memoria o en el tmp del sistema; nunca `IA_FLOW_HOME` ni nada
+     dentro del repo. Los e2e del runner copian la config con `configCopy`
+     (`apps/runner-v2/src/tests/helpers.ts`).
+   - **Tiempo / aleatoriedad:** `vi.useFakeTimers()` (Vitest) o `setSystemTime` de `bun:test`;
+     inyectá el reloj o el generador de ids si el módulo lo permite.
 
 4. **Componentes Vue (apps/web).**
    - Usa `mount` (o `shallowMount` cuando quieras aislar hijos) de `@vue/test-utils`.
    - Entorno `happy-dom` (ya configurado en Vitest).
-   - Pinia: crea un store fresco por test con `createTestingPinia({ createSpy: vi.fn })` de `@pinia/testing` si está disponible; si no, `setActivePinia(createPinia())` en `beforeEach`.
+   - Pinia: `setActivePinia(createPinia())` en `beforeEach` (`@pinia/testing` no está instalado).
    - Assertions preferidas: `wrapper.get(selector)`, `wrapper.text()`, `wrapper.emitted('evento')`, `await wrapper.find('button').trigger('click')`.
    - Stubea componentes hijos pesados con `global.stubs`.
 
@@ -87,16 +78,11 @@ Si el paquete no encaja, lee su `package.json` (`scripts.test`) y usa el mismo r
 
 ## 4. Ejecución y reporte final
 
-Al terminar de escribir, corre los tests **solo del paquete afectado**:
+Al terminar, corré **sólo los archivos que escribiste** con el comando de la tabla del paso 1, y
+después la suite del paquete (`bun run test:<pkg>`, p. ej. `test:runner-v2`, `test:github-tools`,
+`test:web`).
 
-```bash
-# Server o shared
-cd apps/server && bun test path/al/archivo.test.ts
-cd packages/shared && bun test
-
-# Web
-cd apps/web && bunx vitest run path/al/archivo.spec.ts
-```
+Commiteá (si te lo piden) los tests en un commit separado del código: lo exige un hook.
 
 Si todo pasa, reporta al agente principal:
 - Archivos creados (paths absolutos).

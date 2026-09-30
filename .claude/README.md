@@ -15,14 +15,14 @@ Para `apps/runner-v2` y `packages/**`: `bun run typecheck:<pkg>` + `bun run test
 ### Ejecutores de código (model: sonnet)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `.spec.ts`, dentro de su feature slice (`features/<dominio>/`) o `ui/` |
+| `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `test/<Nombre>.test.ts`, dentro de su feature slice (`features/<dominio>/`) o `ui/` |
 | `test-writer` | Código sin cobertura | Detecta runner (vitest vs bun:test) y genera tests AAA |
 | `debugger` | Bug reportado, stack trace, comportamiento inesperado | Diagnóstico root-cause + fix mínimo + test de regresión |
 
 ### Auditores (read-only, model: sonnet)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre paquetes | Audita la regla de dependencia (core del engine sin I/O, feature-sliced en web, contract-only en shared) y distingue deuda nueva de la preexistente |
+| `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre paquetes | Corre `bun run lint:boundaries` y audita lo que la herramienta no ve (carpeta de dominio en runner-v2, feature-sliced en web, contract-only en shared); distingue deuda nueva de la preexistente |
 | `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica scope del contrato + compat de call-sites en la web |
 | `engine-agent-author` | "Crear/mejorar un agente del engine", editar los YAML de una config del runner (`runner.yaml`, `projects/`), agente que no dispara o loopea | Diseña la definición del agente: activación → cierre de ciclo → tools mínimas → prompt. Carga el skill `ia-flow-agent-authoring` |
 | `code-reviewer` | Antes de commit/PR | Checklist OWASP + convenciones ia-flow, findings con severidad |
@@ -32,7 +32,7 @@ Para `apps/runner-v2` y `packages/**`: `bun run typecheck:<pkg>` + `bun run test
 
 | Skill | Cuándo se carga | Qué aporta |
 |---|---|---|
-| `ia-flow-agent-authoring` | Crear/editar/depurar agentes del **engine**, diseñar pipelines de labels o statuses, elegir tools/provider/MCP | `SKILL.md` con el modelo mental + checklist, y `references/` cargadas bajo demanda: `agent-definition`, `activation-and-outcomes`, `dispatch-gates`, `tools`, `providers-and-mcp`, `variables`, `patterns` |
+| `ia-flow-agent-authoring` | Crear/editar/depurar agentes del **engine**, diseñar pipelines de labels o statuses, elegir tools/provider/MCP | `SKILL.md` con el modelo mental + checklist, y `references/` cargadas bajo demanda: `pipelines`, `agents`, `variables`, `providers-and-mcp` |
 
 > Ojo con la ambigüedad del término: los agentes de `.claude/agents/` son **subagentes de
 > Claude Code**; los del skill de arriba son **agentes del engine** (los YAML de
@@ -42,7 +42,7 @@ Para `apps/runner-v2` y `packages/**`: `bun run typecheck:<pkg>` + `bun run test
 
 | Command | Uso | Delega en |
 |---|---|---|
-| `/check [--all]` | Gate de calidad: biome + typecheck + tests de workspaces tocados | — |
+| `/check [--all]` | Gate de calidad: biome + `lint:boundaries` + typecheck + tests de workspaces tocados | — |
 
 ## Hooks (`.claude/hooks/` + `.claude/settings.json`)
 
