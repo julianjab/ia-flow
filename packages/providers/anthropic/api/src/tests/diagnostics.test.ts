@@ -50,8 +50,8 @@ function provider(fetchImpl: ReturnType<typeof vi.fn>) {
   })
 }
 
-/** El incidente de subscriptions#1637: un `pause_turn` que corta con un `mcp_tool_use` sin result
- *  detrás de un `thinking`, y la API que rechaza el reenvío. */
+/** Un `pause_turn` que corta con un `mcp_tool_use` sin result detrás de un `thinking` (el turno de
+ *  subscriptions#1637), y una API que igual rechaza el reenvío. */
 function pausedThenRejected() {
   return vi
     .fn()
@@ -137,7 +137,7 @@ describe('AnthropicProvider diagnostics', () => {
     })
   })
 
-  it('leaves the trail of #1637: the pause, the stripped call, and the rejected shape', async () => {
+  it('leaves the trail of a rejected request: the pause, and the shape it sent', async () => {
     const run = provider(pausedThenRejected()).run(ctx())
 
     const err = await run.catch((e: unknown) => e)
@@ -151,15 +151,37 @@ describe('AnthropicProvider diagnostics', () => {
     expect(find('info', 'pause_turn')?.attributes).toMatchObject({
       'ia.response.blocks': 'thinking,mcp_tool_use',
     })
-    expect(find('warn', 'mcp_tool_use sin result')?.attributes).toMatchObject({
-      'ia.message.index': 1,
-      'ia.message.blocks_after': 'thinking',
-    })
     expect(find('warn', 'la API rechazó')?.attributes).toMatchObject({
       'anthropic.request_id': 'req_bad',
       'error.type': 'invalid_request_error',
       'http.response.status_code': 400,
-      'ia.request.shape': '0:user[text] 1:assistant[thinking]',
+      'ia.request.shape':
+        '0:user[text] 1:assistant[thinking,mcp_tool_use,mcp_tool_result] 2:user[text]',
+    })
+  })
+
+  it('warns when a resumed conversation carried an unanswered MCP call', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }),
+      )
+    const resumed = {
+      ...ctx(),
+      providerConfig: {
+        resumeMessages: [
+          { role: 'user', content: 'hola' },
+          { role: 'assistant', content: [{ type: 'mcp_tool_use', id: 'm1', name: 'search_code' }] },
+          { role: 'user', content: 'Continuá.' },
+        ],
+      },
+    }
+
+    await provider(fetchImpl).run(resumed)
+
+    expect(find('warn', 'mcp_tool_use sin result')?.attributes).toMatchObject({
+      'ia.message.index': 1,
+      'ia.paired': JSON.stringify([{ id: 'm1', name: 'search_code' }]),
     })
   })
 
