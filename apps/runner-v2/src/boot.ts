@@ -113,12 +113,16 @@ function validateProviderConfigs(
     ...Object.entries(capabilities).map(([name, step]) => ({ step, where: `capacidad ${name}` })),
   ]
   for (const { step, where } of steps) {
-    const validate = isAgent(step) ? validatorFor(step.definition.provider) : undefined
-    if (!validate || !isAgent(step)) continue
-    try {
-      validate(step.definition.providerConfig ?? {})
-    } catch (err) {
-      throw new Error(`agente "${step.id}" (${where}): ${(err as Error).message}`)
+    if (!isAgent(step)) continue
+    // Cada candidato con la config de SU provider: la de anthropic-api no vale en claude-cli.
+    for (const candidate of step.candidates) {
+      try {
+        validatorFor(candidate.id)?.(candidate.config)
+      } catch (err) {
+        throw new Error(
+          `agente "${step.id}" (${where}), provider ${candidate.id}: ${(err as Error).message}`,
+        )
+      }
     }
   }
 }

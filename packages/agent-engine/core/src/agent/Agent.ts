@@ -13,18 +13,20 @@ import type {
 } from '../pipeline/Runnable.js'
 import { Runnable } from '../pipeline/Runnable.js'
 import { type ExitRoutes, resolveRoutes, routeTargets } from '../routing/ExitRoutes.js'
+import { unwrapConversation, wrapConversation } from './AgentConversation.js'
 import type { AgentDefinitionProps } from './AgentDefinition.js'
 import { PromptRenderer, type SystemPromptCatalog } from './PromptRenderer.js'
 import {
   providerRegistry as defaultProviderRegistry,
-  type Provider,
   type ProviderRegistry,
   type ProviderRunOutput,
 } from './Provider.js'
+import { ProviderCandidate } from './ProviderCandidate.js'
+import { ProviderSelector, type SelectedProvider } from './ProviderSelector.js'
 import type { ToolInputSchema } from './SchemaTool.js'
 import { Toolset } from './Toolset.js'
 import { TurnProtocol } from './TurnProtocol.js'
-import { inboxTag } from './tracing.js'
+import { inboxTag, providerTag } from './tracing.js'
 import type { Waiting } from './WaitTool.js'
 
 /** La rama por la que despierta un agente que esperaba (`wait_for_event`): llegó su evento. */
@@ -32,9 +34,6 @@ export const WAIT_EVENT_BRANCH = 'event'
 
 /** Cuánto del evento que lo despierta se le muestra al agente. */
 const MAX_WAKE_EVENT_CHARS = 12_000
-
-/** Cuánto espera un agente cuyo provider dijo que no puede tomarlo, si no dice cuánto. */
-const DEFAULT_RETRY_AFTER_MS = 30_000
 
 /** Lo que devuelve `Agent.run` y queda en `ctx.steps[id]`. */
 export interface AgentRunResult {
@@ -47,6 +46,8 @@ export interface AgentRunResult {
   progress?: string
   /** Si pausó su turno esperando un evento (`wait_for_event`): qué espera. Sin `exit`. */
   waiting?: Waiting
+  /** El provider en el que corrió (uno de sus candidatos). */
+  provider?: string
 }
 
 /**
@@ -62,7 +63,9 @@ export class Agent extends Runnable {
   readonly log = createLogger('agent-engine.agent')
   readonly definition: AgentDefinitionProps
   readonly toolset: Toolset
-  private readonly registry: ProviderRegistry
+  /** Sus providers candidatos, en orden (`providers`, o el único `provider`). */
+  readonly candidates: ProviderCandidate[]
+  private readonly selector: ProviderSelector
   private readonly renderer: PromptRenderer
   private readonly injects: EventFilter[]
   private resumable: Resumable | undefined
@@ -79,7 +82,14 @@ export class Agent extends Runnable {
       continueOnError: definition.continueOnError,
     })
     this.definition = definition
-    this.registry = registry
+    this.candidates = candidatesOf(definition)
+    this.selector = new ProviderSelector(
+      definition.id,
+      definition.maxConcurrent,
+      this.candidates,
+      registry,
+      this.log,
+    )
     this.renderer = new PromptRenderer(systemPrompts)
     this.injects = (definition.injects ?? []).map((filter) => new EventFilter(filter))
     this.assertBaseRoutesTargetActions()
@@ -129,13 +139,6 @@ export class Agent extends Runnable {
 
   async run(ctx: PipelineExecutionContext, input?: unknown): Promise<AgentRunResult> {
     const def = this.definition
-    const provider = this.registry.resolve(def.provider)
-    if (provider == null) {
-      throw new Error(
-        `Agent(${def.id}): provider desconocido "${def.provider}" — ¿lo registraste con providerRegistry.register(...)?`,
-      )
-    }
-
     const parsedInput = this.parseInput(def.input, input) ?? {}
     const routes =
       ctx.routesFor?.(this) ?? resolveRoutes(def.id, this.exitRoutes, { project: ctx.defaults })
@@ -164,65 +167,54 @@ export class Agent extends Runnable {
     )
     const tools = this.toolset.forRun(ctx, turn.tools)
     const message = resume ? wakeMessage(resume) : undefined
+    const saved = resume?.state !== undefined ? unwrapConversation(resume.state) : undefined
 
-    const release = await this.admission(provider, ctx)
+    // Una conversación se retoma en el provider que la armó; si ya no es candidato, se empieza de
+    // nuevo en el que toque, sabiendo qué pasó.
+    const selected = this.chosen(await this.selector.select(ctx, saved?.provider))
+    const { candidate, provider } = selected
+    const conversation =
+      saved && (saved.provider === undefined || saved.provider === candidate.id)
+        ? saved.conversation
+        : undefined
     execution?.enter(this)
     const output = await provider
       .run({
         agentId: def.id,
-        // Sin conversación que retomar (un provider que no la guarda), empieza de nuevo sabiendo
-        // qué pasó.
-        prompt: message && resume?.state === undefined ? `${prompt}\n\n${message}` : prompt,
+        prompt: message && conversation === undefined ? `${prompt}\n\n${message}` : prompt,
         systemPrompts,
         variables,
-        providerConfig: def.providerConfig ?? {},
+        providerConfig: candidate.config,
         mcpServers: def.mcpServers ?? [],
         tools,
         ctx,
         ...(execution ? { inbox: () => this.readInbox(execution) } : {}),
-        ...(message && resume?.state !== undefined
-          ? { resume: { conversation: resume.state, message } }
-          : {}),
+        ...(message && conversation !== undefined ? { resume: { conversation, message } } : {}),
         ...(ctx.saveProgress
-          ? { saveConversation: (conversation: unknown) => ctx.saveProgress?.(this, conversation) }
+          ? {
+              saveConversation: (state: unknown) =>
+                ctx.saveProgress?.(this, wrapConversation(candidate.id, state)),
+            }
           : {}),
       })
       .finally(() => {
         execution?.leave()
-        release()
+        selected.release()
         ctx.saveProgress?.(this, undefined)
       })
 
-    return turn.resolve(output)
+    return { ...turn.resolve(output), provider: candidate.id }
   }
 
-  /**
-   * Lugar bajo los topes de este agente y de su provider (`ctx.limits`), y el visto bueno del
-   * provider (`canAccept`): si dice que no, suelta el lugar y vuelve a preguntar después.
-   */
-  private async admission(provider: Provider, ctx: PipelineExecutionContext): Promise<() => void> {
-    for (;;) {
-      const release =
-        (await ctx.limits?.acquire([
-          { key: `agent:${this.definition.id}`, max: this.definition.maxConcurrent },
-          { key: `provider:${provider.id}`, max: provider.maxConcurrent },
-        ])) ?? (() => {})
-      const admission = (await provider.canAccept?.({ agentId: this.definition.id, ctx })) ?? {
-        accept: true,
-      }
-      if (admission.accept) return release
-      release()
-      const waitMs = admission.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS
-      this.log.info(
-        `${this.definition.id}: ${provider.id} no lo toma ahora (${admission.reason}) — reintenta en ${waitMs} ms`,
-      )
-      await new Promise((resolve) => setTimeout(resolve, waitMs))
-    }
+  /** El provider elegido, en la traza (`providerTag`). */
+  @taggedSync(providerTag)
+  private chosen(selected: SelectedProvider): SelectedProvider {
+    return selected
   }
 
   /** La pausa de un agente que espera: su evento, o que venza el plazo — y la conversación, para
    *  seguirla al despertar. */
-  private pauseFor({ waiting, output }: AgentRunResult): Pause {
+  private pauseFor({ waiting, output, provider }: AgentRunResult): Pause {
     const { on, when, timeoutMs } = waiting as Waiting
     return new Pause(
       this.definition.id,
@@ -233,7 +225,9 @@ export class Agent extends Runnable {
         },
       ],
       Date.now() + timeoutMs,
-      output.conversation,
+      output.conversation !== undefined && provider
+        ? wrapConversation(provider, output.conversation)
+        : output.conversation,
     )
   }
 
@@ -282,4 +276,22 @@ function wakeMessage({ branch, event, note }: StepResume): string {
       ? `${payload.slice(0, MAX_WAKE_EVENT_CHARS)}\n…(recortado)`
       : payload
   return `Llegó el evento que esperabas (${event.type}):\n\n${shown}\n\nSeguí con tu trabajo.`
+}
+
+/** Los candidatos de una definición: `providers`, o el atajo `provider` + `providerConfig`. */
+function candidatesOf(def: AgentDefinitionProps): ProviderCandidate[] {
+  if (def.providers && def.provider) {
+    throw new Error(`Agent(${def.id}): declará \`provider\` o \`providers\`, no los dos`)
+  }
+  if (def.providers) {
+    if (def.providers.length === 0) throw new Error(`Agent(${def.id}): \`providers\` vacío`)
+    return def.providers.map((choice) => new ProviderCandidate(choice))
+  }
+  if (!def.provider) throw new Error(`Agent(${def.id}): falta \`provider\` (o \`providers\`)`)
+  return [
+    new ProviderCandidate({
+      id: def.provider,
+      ...(def.providerConfig ? { config: def.providerConfig } : {}),
+    }),
+  ]
 }

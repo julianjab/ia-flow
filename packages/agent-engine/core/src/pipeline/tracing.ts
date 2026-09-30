@@ -14,9 +14,9 @@ type StepArgs = [Runnable, unknown, PipelineExecutionContext, StepVia, boolean?]
 const stepName = (step: Runnable) => step.id ?? step.constructor.name
 
 /** Con qué corre un agente: provider, tools configuradas (sin las `submit_*`) y MCP servers. */
-function agentAttributes({ definition: def, toolset }: Agent): Attributes {
+function agentAttributes({ definition: def, toolset, candidates }: Agent): Attributes {
   return {
-    'ia.agent.provider': def.provider,
+    'ia.agent.providers': candidates.map((candidate) => candidate.id),
     'ia.agent.tools': toolset.names,
     'ia.agent.mcp_servers': (def.mcpServers ?? []).map((server) => server.id),
   }

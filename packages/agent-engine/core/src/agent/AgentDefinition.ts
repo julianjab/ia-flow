@@ -27,6 +27,7 @@ import type { EventFilterProps } from '../condition/EventFilter.js'
 import type { Action, AllowedAction } from '../pipeline/actions/Action.js'
 import type { Runnable } from '../pipeline/Runnable.js'
 import type { ExitRoutes } from '../routing/ExitRoutes.js'
+import type { ProviderChoice } from './ProviderCandidate.js'
 import type { ToolInputSchema } from './SchemaTool.js'
 import type { AgentWaits } from './WaitTool.js'
 
@@ -61,13 +62,16 @@ export interface Tool<TInput = any> {
 
 export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
   id: string
+  /** Id de un `Provider` registrado en `providerRegistry`, con su `providerConfig`. Es el atajo
+   *  de un solo candidato: o esto, o `providers`. */
+  provider?: string
   /**
-   * Id de un `Provider` registrado en `providerRegistry`. A diferencia de ia-flow, acá sólo
-   * se soporta un id fijo — el desempate entre varios candidatos (`AgentProviderChoice[]`,
-   * por `when`/`whenText`) se agrega el día que un caso real lo necesite, mismo criterio que
-   * usa ia-flow para NO portar el desempate por clasificador hasta que hizo falta.
+   * Varios providers candidatos, en orden de preferencia — cada uno con su config y, si hace
+   * falta, su `when`/`whenText`. Al correr, el agente usa el primero elegible que tenga lugar
+   * (bajo su `maxConcurrent`, y `canAccept`); si todos están llenos, espera al primero que se
+   * libere. Al retomar una conversación, sigue en el provider que la armó.
    */
-  provider: string
+  providers?: ProviderChoice[]
   prompt: string
   /** Lo que el agente recibe cuando lo alcanza una ruta — disponible como `{{input.x}}` en el
    *  prompt. Un agente que también corre por evento (sin input) necesita campos opcionales. */

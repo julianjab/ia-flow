@@ -138,7 +138,21 @@ const InputField = z.strictObject({
 
 export const AgentDoc = z.strictObject({
   id: z.string().min(1),
-  provider: z.string().min(1),
+  /** Un provider con su `providerConfig` — o `providers`, varios candidatos en orden. */
+  provider: z.string().min(1).optional(),
+  /** Candidatos en orden de preferencia: cada uno con su config y, si hace falta, su
+   *  `when`/`whenText`. Corre en el primero elegible con lugar. */
+  providers: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1),
+        config: z.record(z.string(), z.unknown()).optional(),
+        when: ConditionRows.optional(),
+        whenText: WhenTextNode.optional(),
+      }),
+    )
+    .min(1)
+    .optional(),
   prompt: z.string(),
   /** Lo que recibe cuando lo alcanza una ruta (`{{input.x}}`): un schema del catálogo por nombre,
    *  o los campos inline. */

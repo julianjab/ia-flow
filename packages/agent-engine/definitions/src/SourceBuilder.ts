@@ -132,7 +132,19 @@ export class SourceBuilder {
         new Agent(
           {
             id: doc.id,
-            provider: doc.provider,
+            ...(doc.provider ? { provider: doc.provider } : {}),
+            ...(doc.providers
+              ? {
+                  providers: doc.providers.map((choice, i) => ({
+                    id: choice.id,
+                    ...(choice.config ? { config: choice.config } : {}),
+                    when: Condition.fromRows(choice.when),
+                    ...located(where(`providers[${i}].whenText`), () =>
+                      this.whenText(choice.whenText),
+                    ),
+                  })),
+                }
+              : {}),
             prompt: variant.brief ? `${variant.brief.trim()}\n\n${doc.prompt}` : doc.prompt,
             ...(doc.input ? { input: this.input(doc.input) } : {}),
             systemPrompts: [...this.sourceSystemPrompts, ...(doc.systemPrompts ?? [])],

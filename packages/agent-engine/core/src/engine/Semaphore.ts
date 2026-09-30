@@ -27,6 +27,13 @@ export class Semaphore {
     return this.used
   }
 
+  /** Toma un lugar sólo si hay uno libre ya — sin esperar. */
+  tryAcquire(): boolean {
+    if (this.used >= this.limit) return false
+    this.used++
+    return true
+  }
+
   async acquire(): Promise<void> {
     // El lugar se TRASPASA al que espera sin bajar `used`: si se liberara y el siguiente lo
     // tomara en un microtask, otro podría colarse en el medio y pasar el tope.

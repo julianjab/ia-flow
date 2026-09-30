@@ -1,5 +1,7 @@
 export type { AgentRunResult } from './agent/Agent.js'
 export { Agent, WAIT_EVENT_BRANCH } from './agent/Agent.js'
+export type { AgentConversation } from './agent/AgentConversation.js'
+export { unwrapConversation, wrapConversation } from './agent/AgentConversation.js'
 export type {
   AgentDefinitionProps,
   AgentVariableValue,
@@ -17,6 +19,10 @@ export type {
   ProviderRunOutput,
 } from './agent/Provider.js'
 export { ProviderRegistry, providerRegistry } from './agent/Provider.js'
+export type { ProviderChoice } from './agent/ProviderCandidate.js'
+export { ProviderCandidate } from './agent/ProviderCandidate.js'
+export type { SelectedProvider } from './agent/ProviderSelector.js'
+export { DEFAULT_RETRY_AFTER_MS, ProviderSelector } from './agent/ProviderSelector.js'
 export type { ToolInputSchema } from './agent/SchemaTool.js'
 export { SchemaTool } from './agent/SchemaTool.js'
 export type { Submission } from './agent/SubmitTool.js'

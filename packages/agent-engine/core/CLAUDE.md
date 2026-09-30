@@ -390,6 +390,15 @@ Reglas que no son obvias al leer el código:
   pipeline puede tener varios. Los nombres se piden ordenados: dos pedidos que comparten lugares
   no se esperan en cruz. Un agente fuera de una pipeline (capacidad, sub-agente) no ocupa 4: un
   hijo que esperara el lugar que tiene su padre sería un deadlock.
+- **Varios providers por agente** (`AgentDefinitionProps.providers`): candidatos en orden, cada
+  uno una `ProviderCandidate` (un `Conditional`: su `when`/`whenText` contra el evento, como un
+  paso) con su propia config. `ProviderSelector` usa el primero elegible con lugar bajo los topes
+  del agente y del provider (`ConcurrencyLimits.tryAcquire`, sin esperar) y que acepte
+  (`canAccept`); si todos están llenos espera a que se libere un lugar (`released`) o pase el
+  `retryAfterMs`. Con un solo candidato hace cola en él. `provider` + `providerConfig` es el atajo
+  de un candidato. La conversación guardada va marcada con su provider (`AgentConversation`):
+  retomarla sigue en ése — la de un provider no la entiende otro. `AgentRunResult.provider` y
+  `ia.agent.provider` dicen en cuál corrió.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
   `busy`; inyectar mira el paso activo de `current`.
