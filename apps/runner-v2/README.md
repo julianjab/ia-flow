@@ -251,6 +251,14 @@ tokens del dashboard). El host sólo lanza `claude` en SU worktree apuntando
 ahí, y lo corta cuando el runner cierra la corrida. Un solo checkout, el del host: las tools de
 workspace del agente no le llegan, y el `git push` sale con las credenciales de esa máquina.
 
+**La telemetría del host es la del runner.** Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, el host exporta
+sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de
+hosts); el runner los anota en su base (la bandeja los muestra con el nombre del host) y los
+reexporta a su collector con sus `OTEL_EXPORTER_OTLP_HEADERS`. Cada tarea lleva el contexto de traza
+del agente, así que el worktree, la sesión y los logs del host quedan en la misma traza y la misma
+ejecución (`host.run <agente>`). Al host sólo le hace falta `logLevel`. Si no llega al runner,
+queda su consola; con `OTEL_EXPORTER_OTLP_ENDPOINT` propio, exporta directo a ese collector.
+
 Un `--event` también monta la API de hosts (con `IA_FLOW_HOST_TOKEN`), así un evento suelto puede
 correr un agente `remote:*` — para probar un host sin levantar `--serve`.
 

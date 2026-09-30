@@ -7,6 +7,11 @@
  *   - Con `OTEL_EXPORTER_OTLP_ENDPOINT`, además OTLP/HTTP (el Grafana LGTM de `otel/` en local, o
  *     un Collector/Datadog Agent), en lotes de 1 s.
  *
+ * Un host (`--host`) no tiene backend propio: sin `OTEL_EXPORTER_OTLP_ENDPOINT`, su SDK exporta
+ * OTLP/HTTP JSON estándar AL RUNNER (`/v1/hosts/telemetry/*`, con el token de hosts), que lo guarda
+ * en su base y lo reexporta a su collector (`hostTelemetry.ts`). Lo suyo sale con
+ * `service.instance.id` e `ia.origin` = su nombre.
+ *
  * `LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`; `settings.telemetry.logLevel` de
  * `runner.yaml` la llena si el env no la trae) fija el nivel mínimo de los dos.
  * En `debug` los providers además vuelcan cada request y respuesta de su API, con las credenciales
@@ -20,7 +25,9 @@ import {
   type TraceJournal,
   traceRecorder,
 } from '@ia-flow/telemetry'
+import { OTLPLogExporter as JsonLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto'
+import { OTLPTraceExporter as JsonTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs'
@@ -58,8 +65,9 @@ class RootTraceRecorder implements SpanProcessor {
   async shutdown(): Promise<void> {}
 }
 
-/** A dónde van los registros de cada ejecución: la base (`--serve`) o el runner que pidió la
- *  corrida (`--host`). Se decide después de arrancar la telemetría, al elegir el modo. */
+/** A dónde van los registros de cada ejecución: la base (`--serve`). Se decide después de arrancar
+ *  la telemetría, al elegir el modo. En `--host` no va a ningún lado: lo del host le llega al
+ *  runner por OTLP (ver arriba) y es el runner el que lo anota. */
 export class TraceRoute implements TraceJournal {
   private target?: TraceJournal
 
@@ -72,33 +80,55 @@ export class TraceRoute implements TraceJournal {
   }
 }
 
-export function startTelemetry(serviceVersion: string, route: TraceRoute): Telemetry {
+/** Un host: a qué runner le manda su telemetría y con qué nombre. */
+export interface HostTelemetryTarget {
+  name: string
+  runner: string
+  token: string
+}
+
+/** Los exporters: al collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, protobuf), o —un host sin
+ *  collector— al runner, en JSON (lo único que el runner acepta). */
+function exporters(endpoint: string | undefined, host: HostTelemetryTarget | undefined) {
+  if (endpoint) return { traces: new OTLPTraceExporter(), logs: new OTLPLogExporter() }
+  if (!host) return undefined
+  const base = `${host.runner.replace(/\/+$/, '')}/v1/hosts/telemetry`
+  const headers = { authorization: `Bearer ${host.token}` }
+  return {
+    traces: new JsonTraceExporter({ url: `${base}/traces`, headers }),
+    logs: new JsonLogExporter({ url: `${base}/logs`, headers }),
+  }
+}
+
+export function startTelemetry(
+  serviceVersion: string,
+  route: TraceRoute,
+  host?: HostTelemetryTarget,
+): Telemetry {
   const traceIds: string[] = []
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-  const recorder = traceRecorder(route)
+  const recorder = traceRecorder(route, host ? { origin: host.name } : {})
   addLogSink(recorder.logSink)
+  const exporting = exporters(endpoint, host)
 
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
       'service.name': process.env.OTEL_SERVICE_NAME ?? 'ai-development-flow-runner',
       'service.version': serviceVersion,
       'deployment.environment.name': process.env.OTEL_DEPLOYMENT_ENVIRONMENT ?? 'local',
+      ...(host ? { 'service.instance.id': host.name, 'ia.origin': host.name } : {}),
     }),
     spanProcessors: [
       new RootTraceRecorder(traceIds),
       recorder.spanProcessor,
-      ...(endpoint
-        ? [
-            new BatchSpanProcessor(new OTLPTraceExporter(), {
-              scheduledDelayMillis: EXPORT_DELAY_MS,
-            }),
-          ]
+      ...(exporting
+        ? [new BatchSpanProcessor(exporting.traces, { scheduledDelayMillis: EXPORT_DELAY_MS })]
         : []),
     ],
-    logRecordProcessors: endpoint
+    logRecordProcessors: exporting
       ? [
           new BatchLogRecordProcessor({
-            exporter: new OTLPLogExporter(),
+            exporter: exporting.logs,
             scheduledDelayMillis: EXPORT_DELAY_MS,
           }),
         ]

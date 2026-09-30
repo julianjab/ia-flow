@@ -6,10 +6,18 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { providerRegistry } from '@ia-flow/agent-engine'
-import { RemoteHub } from '@ia-flow/provider-remote'
+import { RemoteHub, type RemoteHubOptions } from '@ia-flow/provider-remote'
 
-export function mountRemoteHosts(token = process.env.IA_FLOW_HOST_TOKEN?.trim()): RemoteHub {
-  return new RemoteHub({ registry: providerRegistry, token: token || undefined })
+/** `onTelemetry`: lo que exportan los hosts (ver `hostTelemetry.ts`). */
+export function mountRemoteHosts(
+  onTelemetry?: RemoteHubOptions['onTelemetry'],
+  token = process.env.IA_FLOW_HOST_TOKEN?.trim(),
+): RemoteHub {
+  return new RemoteHub({
+    registry: providerRegistry,
+    token: token || undefined,
+    ...(onTelemetry ? { onTelemetry } : {}),
+  })
 }
 
 /** Un handler `fetch` (el del hub) como handler del servidor node de los webhooks: `true` si la

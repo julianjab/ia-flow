@@ -19,13 +19,14 @@
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { createLogger } from '@ia-flow/telemetry'
+import { createLogger, type TraceJournal } from '@ia-flow/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
 import { startHeartbeat } from './heartbeat.js'
+import { hostTelemetryIngest } from './hostTelemetry.js'
 import { mountInbox } from './inbox/mountInbox.js'
-import { type MountedHost, mountHost } from './providers/providerHost.js'
+import { hostSettings, type MountedHost, mountHost } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { listenHosts, mountRemoteHosts, nodeHandler } from './providers/remoteHosts.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
@@ -96,8 +97,9 @@ async function startServing(
 ): Promise<void> {
   registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
   const inbox = mountInbox(mounted, cfg, store, { version: VERSION, log })
-  // Los hosts que se suscriben (`remote:<name>`), en el mismo puerto que los webhooks.
-  const hosts = mountRemoteHosts()
+  // Los hosts que se suscriben (`remote:<name>`), en el mismo puerto que los webhooks — y su
+  // telemetría, que se anota y reexporta como la del runner.
+  const hosts = mountRemoteHosts(hostIngest({ write: (record) => store.writeTrace(record) }))
   const hostsApi = nodeHandler((req) => hosts.fetch(req))
   // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
   // — no en el primer tick, y nunca en una validación o un evento suelto.
@@ -175,7 +177,9 @@ async function dispatchOne(
 ): Promise<void> {
   registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
   // Un agente con `remote:*` necesita que sus hosts lo alcancen también en un evento suelto.
-  const hosts = process.env.IA_FLOW_HOST_TOKEN?.trim() ? mountRemoteHosts() : undefined
+  const hosts = process.env.IA_FLOW_HOST_TOKEN?.trim()
+    ? mountRemoteHosts(hostIngest(route))
+    : undefined
   const server = hosts
     ? await listenHosts(hosts, positiveInt(process.env.IA_FLOW_SERVER_PORT, 3001), log)
     : undefined
@@ -200,6 +204,20 @@ async function dispatchOne(
 }
 
 let telemetry: Telemetry | undefined
+/** A dónde van los registros de una ejecución de ESTE proceso (la base, en `--serve`). */
+const route = new TraceRoute()
+
+/** La telemetría que exportan los hosts: a `journal`, y reexportada al collector del runner. */
+function hostIngest(journal: TraceJournal) {
+  return hostTelemetryIngest(journal, {
+    ...(process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+      ? { endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT }
+      : {}),
+    ...(process.env.OTEL_EXPORTER_OTLP_HEADERS
+      ? { headers: process.env.OTEL_EXPORTER_OTLP_HEADERS }
+      : {}),
+  })
+}
 
 async function main(): Promise<'serving' | 'done'> {
   const args = parseArgs(process.argv.slice(2))
@@ -208,9 +226,14 @@ async function main(): Promise<'serving' | 'done'> {
   )
   const cfg = loadRunnerConfig(configDir)
   const envReport = applyRunnerEnv(cfg)
-  // Después de la config: `telemetry:` de runner.yaml ya está en las `OTEL_*`.
-  const route = new TraceRoute()
-  const started = startTelemetry(VERSION, route)
+  // Después de la config: `telemetry:` de runner.yaml ya está en las `OTEL_*`. Un host le manda
+  // su telemetría al runner al que presta.
+  const host = args.host ? hostSettings(cfg) : undefined
+  const started = startTelemetry(
+    VERSION,
+    route,
+    host ? { name: host.name, runner: host.runner, token: host.token } : undefined,
+  )
   telemetry = started
   const log = (line: string) => {
     console.log(`  ${line}`)
