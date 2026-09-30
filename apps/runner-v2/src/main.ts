@@ -88,6 +88,9 @@ async function startServing(
   log: (line: string) => void,
 ): Promise<void> {
   registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
+  // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
+  // — no en el primer tick, y nunca en una validación o un evento suelto.
+  mounted.engine.tick()
   await serve(mounted, {
     // `applyRunnerEnv` ya volcó settings.port a este env var.
     port: positiveInt(process.env.IA_FLOW_SERVER_PORT, 3001),
