@@ -40,7 +40,6 @@ sources:                            # QUÉ corre: la composición del runner
 # projects/lahaus-ai-flow/project.yaml
 board: https://github.com/orgs/la-haus/projects/119
 branchPrefix: ia-flow-local/
-label: blocked
 systemPrompts: [ … ]                # los defaults de su fuente (antes source.yaml)
 onError: { … }
 onInterrupt: { … }                  # qué queda si una regla corta a un agente (el comentario)
@@ -99,12 +98,33 @@ pipeline: por eso llegada y reentrada a Build, o CI rojo y cambios pedidos, son 
 Un webhook entra al engine tal cual lo mandó GitHub (`github.<evento>`) y lo recibe el intake:
 El intake (`intake`, inline en `sources.pipelines` de runner.yaml) es un solo paso, `resolve_task` (`src/intake/`). Es uno
 para todos los proyectos: decide de cuál es el evento (el board del item, el catálogo de repos, la
-card del issue y la label) y, por cada uno, encuentra la task
+card del issue y el `when` del intake) y, por cada uno, encuentra la task
 (el issue detrás de un item del board, el que implementa el PR de un comentario o de un CI), la
 lee de GitHub —card, issue, blockers, timeline del issue y del PR, CI— y publica el evento de la
 task con su scope. No publica nada para un repo fuera del catálogo, ni para una card de otro
-board o sin la `label` del proyecto (`project.yaml`; hoy `blocked`): esas son del engine de
-producción. El evento lleva `message`, el texto con el que le llega a un agente que ya corre. `intake-unblock` es el mismo paso con `unblockDependents: true`.
+board, ni para una task que no cumple el `when` del intake. El evento lleva `message`, el texto
+con el que le llega a un agente que ya corre. `intake-unblock` es el mismo paso con
+`unblockDependents: true`.
+
+**Qué tasks toma este runner: `with.when` de `resolve_task`.** Filas como el `when` de una
+pipeline (se combinan de izquierda a derecha), contra el evento de la task ya armado (`item.labels`,
+`item.status`, `item.type`, `task.*`). Una task que no cumple no publica nada: ni las pipelines, ni
+los `injects` de un agente que ya corre, ni una interrupción la ven. Se evalúa antes de proponer la
+rama, así una card descartada no llama al `branch-namer`.
+
+```yaml
+- id: intake
+  on: [ github.projects_v2_item, github.issue_comment, … ]
+  do:
+    - action: resolve_task
+      with:
+        when:
+          - { field: item.labels, op: notContains, value: blocked }   # producción
+          # - { field: item.labels, op: contains, value: blocked }    # un runner local que convive
+```
+
+Si `intake-unblock` tiene que respetar la misma regla, se repite en su paso (o con un ancla YAML).
+La bandeja de la web muestra todas las cards del board del proyecto, las tome o no este runner.
 
 Lo que el YAML nombra (del runner, salvo las marcadas como del proyecto):
 

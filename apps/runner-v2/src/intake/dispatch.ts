@@ -53,7 +53,7 @@ export async function dispatchRaw(
  * Un PR real, despachado como si GitHub acabara de mandar su `pull_request` `opened`: lo lee de
  * la API y lo publica CRUDO (`github.pull_request`), así recorre el intake y las pipelines igual
  * que un delivery — sin túnel ni webhook de org. Lo que filtre el intake (card fuera del board,
- * sin la label del proyecto) se filtra igual.
+ * una task que no cumple el `when` del intake) se filtra igual.
  */
 export async function replayPullRequest(
   mounted: MountedRunner,

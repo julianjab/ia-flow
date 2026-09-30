@@ -17,7 +17,6 @@ export default defineAction({
           id: project.id,
           board: project.board,
           ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
-          ...(project.label ? { label: project.label } : {}),
           repos: repoRefs(project),
           reposText: reposText(project),
         })),

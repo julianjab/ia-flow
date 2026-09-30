@@ -15,8 +15,6 @@ export interface BoardCard {
   ref: string
   /** El id del item en el board (`PVTI_…`): con él se simula un cambio de Status. */
   itemId?: string
-  /** Sin la label del proyecto: es de otro engine. Sólo se muestra en el resto del board. */
-  foreign?: boolean
   projectId: string
   title: string
   url: string
@@ -52,9 +50,6 @@ export interface Classification {
 
 export interface ClassifyOptions {
   settings: Pick<InboxSettings, 'labels' | 'statuses' | 'staleHours'>
-  /** La label que marca las cards del proyecto (`project.yaml` → `label`): si coincide con la de
-   *  "bloqueada", la label no dice nada y sólo cuenta cómo terminó la ejecución. */
-  projectLabel?: string
   now: Date
 }
 
@@ -157,7 +152,7 @@ function awaitingHuman(card: BoardCard, { labels, statuses }: ClassifyOptions['s
 function stuck(
   card: BoardCard,
   activity: TaskActivity,
-  { settings, projectLabel }: ClassifyOptions,
+  { settings }: ClassifyOptions,
 ): Classification | undefined {
   if (card.blockedBy.length > 0) {
     return {
@@ -171,8 +166,7 @@ function stuck(
   const { lastClosed } = activity
   const failure = lastClosed?.failure
   const since = lastClosed?.closed_at ?? card.updatedAt
-  const blockedLabel =
-    settings.labels.blocked !== projectLabel && card.labels.includes(settings.labels.blocked)
+  const blockedLabel = card.labels.includes(settings.labels.blocked)
   if (blockedLabel && failure?.by === 'agent') {
     return {
       group: 'need',

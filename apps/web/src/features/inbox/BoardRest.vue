@@ -3,16 +3,14 @@ import { computed, ref, watch } from 'vue';
 import { formatRelative } from '@/composables/formatRelative';
 import { useInboxStore } from '@/features/inbox/store';
 
-// Lo que la bandeja no muestra: lo propio sin pendientes (Backlog, Todo, lo que
-// terminó…) y, si se pide, las cards de otros engines. Arranca plegado y se pide
-// al runner recién al abrirlo: la bandeja no carga con el board entero. Abierto,
-// cada columna es otra línea plegada con su conteo; una fila abre la tarea en
-// grande, o en GitHub si es de otro engine (este runner no la toca).
+// Lo que la bandeja no muestra: las cards sin pendientes (Backlog, Todo, lo que
+// terminó…). Arranca plegado y se pide al runner recién al abrirlo: la bandeja no
+// carga con el board entero. Abierto, cada columna es otra línea plegada con su
+// conteo; una fila abre la tarea en grande.
 
 const store = useInboxStore();
 
 const open = ref(false);
-const withForeign = ref(false);
 
 watch(
   [open, () => store.project],
@@ -25,12 +23,9 @@ const columns = computed(() =>
   (store.rest?.columns ?? [])
     .map((column) => ({
       status: column.status,
-      items: withForeign.value ? column.items : column.items.filter((item) => !item.foreign),
+      items: column.items,
     }))
     .filter((column) => column.items.length > 0),
-);
-const foreignCount = computed(
-  () => store.rest?.columns.reduce((n, c) => n + c.items.filter((i) => i.foreign).length, 0) ?? 0,
 );
 const total = computed(() => columns.value.reduce((n, c) => n + c.items.length, 0));
 </script>
@@ -52,17 +47,6 @@ const total = computed(() => columns.value.reduce((n, c) => n + c.items.length, 
       <p v-else-if="store.restLoading && !store.rest" class="br__dim">· leyendo el board…</p>
 
       <template v-if="store.rest">
-        <button
-          v-if="foreignCount"
-          type="button"
-          class="br__chip"
-          data-test="foreign"
-          :aria-pressed="withForeign"
-          @click="withForeign = !withForeign"
-        >
-          Incluir las de otros engines ({{ foreignCount }})
-        </button>
-
         <p v-if="!columns.length" class="br__dim">Nada más en el board.</p>
 
         <details v-for="c in columns" :key="c.status" class="br__col">
@@ -73,13 +57,7 @@ const total = computed(() => columns.value.reduce((n, c) => n + c.items.length, 
           </summary>
           <ul class="br__list">
             <li v-for="item in c.items" :key="item.ref">
-              <a v-if="item.foreign" class="br__row" :href="item.url" target="_blank" rel="noopener noreferrer">
-                <span class="br__ref mono">{{ item.ref }}</span>
-                <span class="br__tag">otro engine ↗</span>
-                <span class="br__age mono">{{ formatRelative(item.updated_at) }}</span>
-                <span class="br__title">{{ item.title }}</span>
-              </a>
-              <button v-else type="button" class="br__row" :data-test="`rest-${item.ref}`" @click="store.expand(item.ref)">
+              <button type="button" class="br__row" :data-test="`rest-${item.ref}`" @click="store.expand(item.ref)">
                 <span class="br__ref mono">{{ item.ref }}</span>
                 <span v-if="item.pr" class="br__dim mono">PR #{{ item.pr.number }}</span>
                 <span class="br__age mono">{{ formatRelative(item.updated_at) }}</span>
@@ -109,8 +87,6 @@ const total = computed(() => columns.value.reduce((n, c) => n + c.items.length, 
 .br__body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0 0.75rem 0.75rem; }
 .br__body > p { margin: 0; }
 /* Chip de filtro (`--tap-h-sm`), como los de proyecto. */
-.br__chip { align-self: flex-start; min-height: var(--tap-h-sm); padding: 0 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--fg-mute); font-size: var(--fs-body-sm); }
-.br__chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 .br__col { border-top: 1px solid var(--border-mute); }
 .br__colhead { padding: 0; font-size: var(--fs-body-sm); }
 .br__n { color: var(--fg-dim); font-size: var(--fs-chrome); }
@@ -136,7 +112,6 @@ const total = computed(() => columns.value.reduce((n, c) => n + c.items.length, 
 .br__row:hover { background: var(--panel-alt); }
 .br__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .br__ref { color: var(--fg); font-size: var(--fs-chrome); }
-.br__tag { color: var(--fg-dim); font-size: var(--fs-micro); }
 .br__age { justify-self: end; color: var(--fg-dim); font-size: var(--fs-chrome); white-space: nowrap; }
 .br__title { grid-column: 1 / -1; color: var(--fg-mute); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 </style>

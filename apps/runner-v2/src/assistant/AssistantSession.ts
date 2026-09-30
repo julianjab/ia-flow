@@ -27,8 +27,6 @@ export interface AssistantBackend {
   config: () => ConfigSummary
   /** El estado del runner: providers, ejecuciones, webhooks. */
   status: () => Record<string, unknown>
-  /** El label de cada proyecto (`project.yaml`), por id: marca que la card es de este runner. */
-  projectLabels?: ReadonlyMap<string, string>
 }
 
 export const ACTION_LABELS: Record<TaskAction, string> = {
@@ -56,7 +54,6 @@ const TASK_TRACE_TAIL = 40
 
 /** Un item sin lo que el modelo no necesita para razonar. */
 function brief(item: InboxItem) {
-  // `labels` ya viene sin el label del proyecto (`withoutOwnLabel`).
   return {
     ref: item.ref,
     project: item.project_id,
@@ -90,13 +87,6 @@ export class AssistantSession {
     this.emit({ type: 'tool', name, summary })
   }
 
-  /** Sin el label del proyecto: marca de quién es la card (este runner o el otro engine), no un
-   *  bloqueo — que el modelo lo vea sólo lo confunde. Un bloqueo real es `group`/`kind`/`blocked_by`. */
-  private withoutOwnLabel(item: InboxItem): InboxItem {
-    const own = this.backend.projectLabels?.get(item.project_id)
-    return own ? { ...item, labels: item.labels.filter((label) => label !== own) } : item
-  }
-
   /** Las tareas de una respuesta, como están en la bandeja: las de afuera del contexto o que no
    *  existen se descartan (no rompen la respuesta ya escrita). Sin repetir, en orden. */
   async resolveTasks(refs: readonly string[]): Promise<InboxItem[]> {
@@ -125,11 +115,9 @@ export class AssistantSession {
   async listTasks() {
     this.activity('list_tasks', 'leyendo la bandeja')
     if (this.scope.kind === 'task') {
-      return [brief(this.withoutOwnLabel(await this.task(this.scope.ref)))]
+      return [brief(await this.task(this.scope.ref))]
     }
-    return (await this.backend.inbox.inbox(this.projectId)).items
-      .map((item) => this.withoutOwnLabel(item))
-      .map(brief)
+    return (await this.backend.inbox.inbox(this.projectId)).items.map(brief)
   }
 
   async taskDetail(ref: unknown) {
@@ -141,7 +129,7 @@ export class AssistantSession {
     const from = Math.max(detail.trace.length - TASK_TRACE_TAIL, 0)
     return {
       ...detail,
-      item: this.withoutOwnLabel(detail.item),
+      item: detail.item,
       trace: detail.trace
         .slice(from)
         .map((entry, i) => projectTraceEntry(entry, from + i, DEFAULT_TRACE_FIELDS)),

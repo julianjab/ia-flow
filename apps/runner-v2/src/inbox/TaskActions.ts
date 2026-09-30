@@ -17,9 +17,6 @@ export interface TaskActionsOptions {
   inbox: Pick<InboxService, 'item'>
   /** El board de cada proyecto: los cambios de Status son campos de ese Project v2. */
   boards: Map<string, { owner: string; number: number }>
-  /** La label que marca las cards de cada proyecto (`project.yaml` → `label`). Si es la misma
-   *  que la de "bloqueada", sacarla le entregaría la card a otro engine: no se toca. */
-  projectLabels?: Map<string, string>
   settings: Pick<InboxSettings, 'labels' | 'statuses' | 'mergeMethod'>
   /** Vuelve a despachar el último evento de la tarea (relanzar, reintentar). */
   redispatch(ref: string, by: string): Promise<string>
@@ -135,13 +132,10 @@ export class TaskActions {
     }
     await assertCanPush(client, parseRef(ref), github.login)
     const board = this.options.boards.get(item.project_id)
-    const unblocks =
-      this.options.projectLabels?.get(item.project_id) !== this.options.settings.labels.blocked
     const message = await this.apply(request, ref, client, {
       board,
       pr: item.pr?.number,
       login: github.login,
-      unblocks,
     })
     this.log.info(`${github.login}: ${request.action} sobre ${ref} → ${message}`, {
       'ia.issue': ref,
@@ -160,13 +154,10 @@ export class TaskActions {
       board,
       pr,
       login,
-      unblocks,
     }: {
       board: { owner: string; number: number } | undefined
       pr: number | undefined
       login: string
-      /** Si sacar la label de "bloqueada" es seguro (ver `projectLabels`). */
-      unblocks: boolean
     },
   ): Promise<string> {
     const target = parseRef(ref)
@@ -177,9 +168,7 @@ export class TaskActions {
         ...(board ? { project: board } : {}),
         issue: () => target,
       }).execute(input, NO_CTX)
-    const unblock = async () => {
-      if (unblocks) await update({ removeLabels: [labels.blocked] })
-    }
+    const unblock = () => update({ removeLabels: [labels.blocked] })
     const action: TaskAction = request.action
     switch (action) {
       case 'merge': {
@@ -202,7 +191,7 @@ export class TaskActions {
           { method: 'POST', body: JSON.stringify({ body: comment }) },
         )
         await unblock()
-        return unblocks ? `comentado y sin ${labels.blocked}` : 'comentado'
+        return `comentado y sin ${labels.blocked}`
       }
       case 'relaunch':
         return this.options.redispatch(ref, login)

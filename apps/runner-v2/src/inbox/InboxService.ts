@@ -2,7 +2,7 @@
  * La bandeja: las cards de cada board cruzadas con lo que el runner sabe de su task (la ejecución
  * viva, la última cerrada, si espera turno, el último evento), clasificadas por `classify`. También
  * el detalle de una tarea (sus ejecuciones, eventos y traza), el "¿por qué corrió / no corrió?" y
- * el resto del board (lo que la bandeja no muestra, incluidas las cards de otros engines).
+ * el resto del board (lo que la bandeja no muestra).
  */
 import type {
   BoardRest,
@@ -28,7 +28,7 @@ import type { InboxSettings } from './InboxSection.js'
 export interface InboxServiceOptions {
   projects: BoardSpec[]
   board: {
-    /** Todas las cards abiertas del board; las de otro engine, `foreign`. */
+    /** Todas las cards abiertas del board. */
     cards(spec: BoardSpec): Promise<BoardCard[]>
     /** Los links y columnas del Project. Sin esto, el link del Project sin la vista de tablero. */
     meta?(spec: BoardSpec): Promise<BoardMeta>
@@ -55,7 +55,7 @@ export class InboxService {
     return this.options.projects.filter((spec) => !projectId || spec.projectId === projectId)
   }
 
-  /** Todas las cards de los boards, las de otros engines incluidas. */
+  /** Todas las cards de los boards. */
   private async boardCards(projectId?: string): Promise<BoardCard[]> {
     const boards = await Promise.all(
       this.specs(projectId).map((spec) => this.options.board.cards(spec)),
@@ -63,9 +63,10 @@ export class InboxService {
     return boards.flat()
   }
 
-  /** Las cards de este runner: las que clasifica la bandeja, mueven las acciones y lee el asistente. */
+  /** Las cards del board del proyecto —todas—: las que clasifica la bandeja, mueven las acciones y
+   *  lee el asistente. */
   private async cards(projectId?: string): Promise<BoardCard[]> {
-    return (await this.boardCards(projectId)).filter((card) => !card.foreign)
+    return this.boardCards(projectId)
   }
 
   private async projects(projectId?: string): Promise<InboxProject[]> {
@@ -78,7 +79,7 @@ export class InboxService {
     )
   }
 
-  /** Lo que la bandeja no muestra —lo propio sin pendientes y lo de otros engines—, por columna
+  /** Lo que la bandeja no muestra —las cards sin pendientes—, por columna
    *  en el orden del board; una columna que el board no declara, al final. */
   async rest(projectId?: string): Promise<BoardRest> {
     const cards = await this.boardCards(projectId)
@@ -103,7 +104,6 @@ export class InboxService {
         labels: card.labels,
         updated_at: card.updatedAt,
         ...(card.pr ? { pr: card.pr } : {}),
-        foreign: card.foreign === true,
       })
       columns.set(status, items)
     }
@@ -184,10 +184,9 @@ export class InboxService {
     }
   }
 
-  private classifyOptions(spec: BoardSpec | undefined) {
+  private classifyOptions() {
     return {
       settings: this.options.settings,
-      ...(spec?.label ? { projectLabel: spec.label } : {}),
       now: this.now(),
     }
   }
@@ -199,8 +198,7 @@ export class InboxService {
     const items: InboxItem[] = []
     for (const card of cards) {
       const activity = this.activityOf(card.ref, live, waiting)
-      const spec = this.options.projects.find((entry) => entry.projectId === card.projectId)
-      const found = classify(card, activity, this.classifyOptions(spec))
+      const found = classify(card, activity, this.classifyOptions())
       if (found) items.push(this.toItem(card, activity, found))
     }
     const unlocks = new Map<string, number>()
@@ -223,8 +221,7 @@ export class InboxService {
     const card = await this.card(ref)
     if (!card) return undefined
     const activity = this.activityOf(ref, this.liveByTask(), this.waitingTasks())
-    const spec = this.options.projects.find((entry) => entry.projectId === card.projectId)
-    const found = classify(card, activity, this.classifyOptions(spec)) ?? {
+    const found = classify(card, activity, this.classifyOptions()) ?? {
       group: 'idle',
       kind: 'idle',
       why: `No necesita nada ahora${card.status ? ` (status ${card.status})` : ''}`,

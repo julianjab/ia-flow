@@ -1,9 +1,11 @@
 import {
   Action,
+  Condition,
   type DomainEvent,
   deriveEvent,
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
+import { ConditionRows } from '@ia-flow/agent-engine-definitions'
 import { type BoardRef, boardItem, type GithubTaskReader, issueRefs } from '@ia-flow/github-tools'
 import { type EventFields, type Location, locate, mergedPullRequest } from '@ia-flow/github-webhook'
 import { z } from 'zod'
@@ -23,14 +25,20 @@ export interface ResolveTaskProject {
   repos: string[]
   /** `{{project.repos}}` de los prompts: el catálogo en texto. */
   reposText: string
-  /** Sólo las cards con esta label son de este runner (ver `runner.yaml`). */
-  label?: string
 }
 
 const Input = z.strictObject({
   /** En vez del evento de la task: `issue.unblocked` para cada task que el merge de este PR dejó
    *  sin prerrequisitos abiertos (`mark_blocked_by`). */
   unblockDependents: z.boolean().optional(),
+  /**
+   * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
+   * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
+   * `task.*` y los campos del evento—. Una task que no cumple no publica nada: ni las pipelines,
+   * ni los `injects` de un agente que ya corre, ni una interrupción la ven. Se evalúa antes de
+   * proponer la rama (que puede costar un modelo): `task.branch` es la ya conocida, o vacía.
+   */
+  when: ConditionRows.optional(),
 })
 
 /** Lo que hizo con un webhook, para la traza y el log. */
@@ -45,12 +53,21 @@ interface TaskRef {
 }
 
 const UNBLOCKED = 'issue.unblocked'
+
+/** Por qué `payload` no cumple `when` (las filas que dan false, con lo que vino), o `undefined`. */
+function unmet(when: Condition[], payload: unknown): string | undefined {
+  if (Condition.evaluateAll(when, payload)) return undefined
+  return when
+    .filter((condition) => !condition.evaluate(payload))
+    .map((condition) => condition.describe(payload))
+    .join('; ')
+}
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /**
  * `resolve_task`: el intake entero en un paso, para TODOS los proyectos. De un webhook crudo de
  * GitHub (`github.<evento>`) decide de qué proyecto es —el board del item, el catálogo de repos,
- * la card del issue y la label— y, por cada uno, encuentra la task (`locate`), la lee de GitHub
+ * la card del issue y el `when` del intake— y, por cada uno, encuentra la task (`locate`), la lee de GitHub
  * —la card de ese board, el issue, sus blockers, el timeline del issue y del PR, el CI— y publica
  * el evento de la task con el payload que ven los agentes (y su `message`) y el scope
  * `{projectId, repo, issue}`: desde ahí sólo lo ve la fuente de ese proyecto.
@@ -116,14 +133,15 @@ class ProjectResolver {
   ): Promise<Resolved> {
     const raw = (ctx.event.payload ?? {}) as Record<string, unknown>
     const type = ctx.event.type.replace(/^github\./, '')
-    if (input.unblockDependents) return this.unblocked(raw, ctx)
+    const when = (input.when ?? []).map((row) => new Condition(row))
+    if (input.unblockDependents) return this.unblocked(raw, ctx, when)
 
     const location = located ?? locate(type, raw)
     if ('skip' in location) return { skipped: location.skip }
     const task =
       'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
     if ('skipped' in task) return task
-    const published = await this.publish(ctx, task, location)
+    const published = await this.publish(ctx, task, location, { when })
     return 'skip' in published
       ? { skipped: published.skip }
       : { emitted: [String(published.scope?.issue)] }
@@ -171,14 +189,14 @@ class ProjectResolver {
 
   /**
    * Lee la task y publica su evento. No publica nada —y dice por qué— si no tiene card en el
-   * board del proyecto, si no tiene la `label` del proyecto (es de otro engine), o, con
-   * `onlyIfUnblocked`, si le queda algún blocker abierto (sin contar `closedBlocker`).
+   * board del proyecto, si no cumple el `when` del intake, o, con `onlyIfUnblocked`, si le queda
+   * algún blocker abierto (sin contar `closedBlocker`).
    */
   private async publish(
     ctx: PipelineExecutionContext,
     task: TaskRef,
     fields: EventFields,
-    options: { closedBlocker?: string; onlyIfUnblocked?: boolean } = {},
+    options: { closedBlocker?: string; onlyIfUnblocked?: boolean; when?: Condition[] } = {},
   ): Promise<DomainEvent<unknown> | { skip: string }> {
     const ref = `${task.owner}/${task.repo}#${task.number}`
     const card = boardItem(
@@ -189,24 +207,23 @@ class ProjectResolver {
     const branches = new TaskBranches(this.reader, this.project.branchPrefix)
     const known = await branches.known(task)
     const context = await this.reader.context(task)
-    const { label } = this.project
-    const labels = context.issue.labels.map((l) => (typeof l === 'string' ? l : l.name))
-    if (label && !labels.includes(label)) {
-      return { skip: `${ref} no tiene la label \`${label}\`: no es de este runner` }
-    }
+    const build = (branch: string) =>
+      taskPayload({
+        ...task,
+        ...fields,
+        ...context,
+        card,
+        ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
+        projectId: this.project.id,
+        branch,
+        repos: this.project.reposText,
+      })
+    const failed = unmet(options.when ?? [], build(known ?? '').payload)
+    if (failed) return { skip: `${ref} no cumple el when del intake: ${failed}` }
     // Recién acá, con la task ya confirmada de este runner: proponer un nombre puede costar un modelo.
-    const branch =
-      known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx))
-    const built = taskPayload({
-      ...task,
-      ...fields,
-      ...context,
-      card,
-      ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
-      projectId: this.project.id,
-      branch,
-      repos: this.project.reposText,
-    })
+    const built = build(
+      known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx)),
+    )
     if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }
     const payload = { ...built.payload, message: eventMessage(built.type, built.payload) }
     const event = deriveEvent(ctx.event, built.type, payload, {
@@ -223,6 +240,7 @@ class ProjectResolver {
   private async unblocked(
     raw: Record<string, unknown>,
     ctx: PipelineExecutionContext,
+    when: Condition[],
   ): Promise<Resolved> {
     const merged = mergedPullRequest(raw)
     if ('skip' in merged) return { skipped: merged.skip }
@@ -242,7 +260,7 @@ class ProjectResolver {
           ctx,
           dependent,
           { emit: UNBLOCKED, extra: {} },
-          { closedBlocker, onlyIfUnblocked: true },
+          { closedBlocker, onlyIfUnblocked: true, when },
         )
         if (!('skip' in published)) emitted.push(String(published.scope?.issue))
       }

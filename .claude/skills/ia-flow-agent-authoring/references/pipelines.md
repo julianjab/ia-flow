@@ -20,7 +20,8 @@ un evento de task. El mapeo está en `packages/github/webhook/src/locate.ts`:
 | `issue.unblocked` | se mergeó el PR del último bloqueador (`intake-unblock`) | — |
 
 Todos llevan además `item.*` y `task.*` (ver `variables.md`). El intake no publica nada para un
-repo fuera del catálogo (`repos/`), una card de otro board o sin la `label` del proyecto.
+repo fuera del catálogo (`repos/`), una card de otro board, ni una task que no cumple el `when`
+del intake (`with.when` de `resolve_task` en runner.yaml: qué tasks toma este runner).
 
 ## Filtros, de lo general a lo particular
 

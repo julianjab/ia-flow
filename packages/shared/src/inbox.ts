@@ -367,7 +367,7 @@ export const AssistantConversationSchema = AssistantConversationSummarySchema.ex
 })
 export type AssistantConversation = z.infer<typeof AssistantConversationSchema>
 
-/** Una card del board que no está en la bandeja: sin pendientes, o de otro engine. */
+/** Una card del board que no está en la bandeja: sin pendientes. */
 export const BoardRestItemSchema = z.object({
   ref: z.string(),
   project_id: z.string(),
@@ -377,8 +377,6 @@ export const BoardRestItemSchema = z.object({
   labels: z.array(z.string()),
   updated_at: z.string(),
   pr: z.object({ number: z.number(), url: z.string() }).optional(),
-  /** Sin la label del proyecto: es de otro engine (se ve, pero este runner no la toca). */
-  foreign: z.boolean(),
 })
 export type BoardRestItem = z.infer<typeof BoardRestItemSchema>
 

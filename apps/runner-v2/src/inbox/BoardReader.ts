@@ -10,8 +10,6 @@ import type { BoardCard } from './classify.js'
 export interface BoardSpec {
   projectId: string
   board: { owner: string; number: number }
-  /** Las cards de este runner llevan esta label (`project.yaml` → `label`); el resto es `foreign`. */
-  label?: string
 }
 
 /** Lo que se sabe del Project en sí: sus links y el orden de sus columnas. */
@@ -130,7 +128,7 @@ const MAX_PAGES = 10
 const refOf = (issue: RawIssueRef): string =>
   `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`
 
-/** Una card del board, si es un issue abierto; sin la label del proyecto, marcada `foreign`. */
+/** Una card del board, si es un issue abierto. */
 export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | undefined {
   const issue = item.content
   if (item.isArchived || !issue?.repository || issue.number === undefined) return undefined
@@ -144,7 +142,6 @@ export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | un
   return {
     ref: `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`,
     itemId: item.id,
-    ...(spec.label && !labels.includes(spec.label) ? { foreign: true } : {}),
     projectId: spec.projectId,
     title: issue.title ?? '',
     url: issue.url ?? '',
@@ -168,7 +165,7 @@ export class BoardReader {
   /** Las cards de un board, cacheadas un minuto; `refresh` (o un webhook) relee. */
   @memoize({
     ttlMs: 60_000,
-    key: (spec: BoardSpec) => `${spec.board.owner}/${spec.board.number}/${spec.label ?? ''}`,
+    key: (spec: BoardSpec) => `${spec.board.owner}/${spec.board.number}`,
   })
   cards(spec: BoardSpec): Promise<BoardCard[]> {
     return this.read(spec)

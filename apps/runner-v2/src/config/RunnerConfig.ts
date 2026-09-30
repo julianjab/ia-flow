@@ -6,7 +6,7 @@
  *                    corre el engine: `engine/mountEngine.ts`) y `sources:` (qué corre: la fuente
  *                    global —`agents`, `pipelines`—, las `actions` globales y los `projects`,
  *                    cada uno la ruta a su `project.yaml` o el proyecto inline)
- *   project.yaml     scope proyecto: board, prefijo de rama y label (el runner), los defaults de su
+ *   project.yaml     scope proyecto: board y prefijo de rama (el runner), los defaults de su
  *                    fuente (`systemPrompts`, `onError`, `onInterrupt`, `report`, `vars`), sus `agents`,
  *                    `pipelines`, `actions` y `repos`
  *
@@ -94,9 +94,6 @@ export const ProjectFileSchema = z.strictObject({
   /** Con esto, `task.branch` = `<branchPrefix><número>`. Sin esto, como ia-flow: la rama
    *  vinculada al issue, o la que propone la capacidad `branchName` (`feat/<slug>`). */
   branchPrefix: z.string().min(1).optional(),
-  /** Sólo las cards con esta label son de este runner — para convivir con otro engine sobre el
-   *  mismo board. Sin esto, todas las del board. */
-  label: z.string().min(1).optional(),
   /** Cuántas corridas de sus tasks a la vez (debajo de `engine.executions.maxConcurrent`). */
   maxConcurrent: z.number().int().positive().optional(),
   /** La marca "en curso" de una task en el board mientras su ejecución corre (el `Working = Yes`
@@ -223,8 +220,6 @@ export interface ProjectConfig {
   dir: string
   board: { owner: string; number: number }
   branchPrefix?: string
-  /** Ver `label` en `project.yaml`. */
-  label?: string
   /** La marca "en curso" (ya con el default); `null`: sin marca. */
   workingMarker: WorkingMarker | null
   /** Ver `maxConcurrent` en `project.yaml`. */
@@ -363,7 +358,6 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     dir: at.base,
     board: parseBoard(project.board),
     ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
-    ...(project.label ? { label: project.label } : {}),
     workingMarker:
       project.workingMarker === undefined ? DEFAULT_WORKING_MARKER : project.workingMarker,
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
