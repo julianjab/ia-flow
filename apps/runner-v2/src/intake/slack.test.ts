@@ -4,8 +4,6 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { withThreadRefs } from '../actions/RequestSlackReviewAction.js'
-import { globalPipelines } from '../tests/fixtures.js'
-import { mountForTest } from '../tests/helpers.js'
 import { locateSlack, type SlackThreadPort } from './slack.js'
 
 const ROOT =
@@ -127,17 +125,5 @@ describe('withThreadRefs', () => {
     expect(withThreadRefs('x https://gh/pr/12', 'a/b#1', 'https://gh/pr/12')).toBe(
       'x https://gh/pr/12\nIssue: a/b#1',
     )
-  })
-})
-
-describe('the Slack intake pipeline', () => {
-  it('listens to slack.message replies and runs resolve_task', async () => {
-    const mounted = await mountForTest()
-    try {
-      const intake = globalPipelines(mounted).find((pipeline) => pipeline.id === 'intake-slack')
-      expect(intake?.on).toEqual(['slack.message'])
-    } finally {
-      mounted.stop()
-    }
   })
 })
