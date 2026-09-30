@@ -121,6 +121,16 @@ export class SqliteActivity implements ActivityPort {
     return this.reader.eventsForTask(taskRef, limit).map(toEntry)
   }
 
+  /** Los eventos crudos que entraron por una entrada (`github.`, `slack.`), del más nuevo. */
+  ingressEvents(typePrefix: string, limit: number): EventLogEntry[] {
+    return this.reader.recentEvents({ typePrefix, limit }).map(toEntry)
+  }
+
+  /** Cuántos eventos entraron por una entrada desde `since` (ISO), y el último. */
+  ingressCount(typePrefix: string, since?: string): { count: number; lastAt?: string } {
+    return this.reader.countEvents({ typePrefix, ...(since ? { since } : {}) })
+  }
+
   recentEvents(limit: number, projectId?: string): EventLogEntry[] {
     const events = this.reader.recentEvents({ limit: projectId ? limit * 4 : limit })
     return events

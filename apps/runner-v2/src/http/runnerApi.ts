@@ -21,6 +21,7 @@ import type { Assistant } from '../assistant/Assistant.js'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
 import { type DeviceFlow, githubLogin } from '../github/deviceFlow.js'
 import type { InboxService } from '../inbox/InboxService.js'
+import type { IngressService } from '../ingress/IngressService.js'
 import { TaskActionError, type TaskActions } from '../tasks/TaskActions.js'
 import { ApiRouter, HttpError, sendJson } from './ApiRouter.js'
 import { openSse, type SseHub, writeSse } from './sse.js'
@@ -33,6 +34,8 @@ export interface RunnerApiOptions {
   inbox: InboxService
   actions: TaskActions
   assistant: Assistant
+  /** Las entradas del runner (webhook de GitHub, Slack) y lo que les llegó. */
+  ingress?: IngressService
   /** Las conversaciones guardadas del asistente, de cada login. Sin esto, no hay historial. */
   conversations?: ConversationStore
   /** Sin `github.clientId` no hay login desde la web. */
@@ -132,6 +135,21 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
   })
 
   router.get('/api/config', async () => options.config())
+
+  router.get('/api/ingress', async () => {
+    if (!options.ingress) throw new HttpError(501, 'Este runner no expone sus entradas')
+    return options.ingress.ingress()
+  })
+
+  router.get('/api/ingress/:id/events', async (req) => {
+    if (!options.ingress) throw new HttpError(501, 'Este runner no expone sus entradas')
+    const events = options.ingress.events(
+      req.params.id as string,
+      Number(req.query.get('limit')) || 50,
+    )
+    if (!events) throw new HttpError(404, `${req.params.id} no es una entrada de este runner`)
+    return events
+  })
 
   router.get('/api/stream', async (_req, res) => {
     hub.attach(res)

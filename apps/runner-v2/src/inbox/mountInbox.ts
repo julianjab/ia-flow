@@ -12,7 +12,9 @@ import { DeviceFlow } from '../github/deviceFlow.js'
 import type { ApiRouter } from '../http/ApiRouter.js'
 import { runnerApi } from '../http/runnerApi.js'
 import { SseHub } from '../http/sse.js'
+import { IngressService } from '../ingress/IngressService.js'
 import { dispatchRaw } from '../serve.js'
+import { GITHUB_WEBHOOK_PATH } from '../server.js'
 import type { ActivityStore } from '../storage/activityStore.js'
 import { statusChangeWebhook } from '../tasks/statusChangeWebhook.js'
 import { TaskActions } from '../tasks/TaskActions.js'
@@ -169,6 +171,29 @@ export function mountInbox(
     actions,
     assistant,
     conversations: store.conversations,
+    ingress: new IngressService({
+      log: store.activity,
+      retentionDays: cfg.inbox.retentionDays,
+      // Qué entradas tiene el runner lo dice su ambiente: sin el secret no acepta webhooks, sin el
+      // app token no abre Slack.
+      sources: [
+        {
+          id: 'github',
+          name: 'GitHub',
+          kind: 'webhook',
+          endpoint: GITHUB_WEBHOOK_PATH,
+          configured: Boolean(process.env.IA_FLOW_WEBHOOK_SECRET?.trim()),
+          missing: 'IA_FLOW_WEBHOOK_SECRET',
+        },
+        {
+          id: 'slack',
+          name: 'Slack',
+          kind: 'socket',
+          configured: Boolean(process.env.SLACK_APP_TOKEN?.trim()),
+          missing: 'SLACK_APP_TOKEN',
+        },
+      ],
+    }),
     ...(clientId ? { deviceFlow: new DeviceFlow({ clientId }) } : {}),
     config,
     hub,
