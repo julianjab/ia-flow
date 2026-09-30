@@ -488,6 +488,43 @@ describe('Engine with pauses', () => {
     expect(ran.at(-1)).toBe('expired-note:execution.expired')
   })
 
+  it('the expired event carries the task of the run that paused, so its branch knows the issue', async () => {
+    const seen: unknown[] = []
+    const note = new FunctionAction({ id: 'note', fn: (ctx) => void seen.push(ctx.event.payload) })
+    const pipeline = new Pipeline({
+      id: 'build',
+      on: ['build'],
+      do: [
+        new PauseAction({
+          id: 'wait-ci',
+          branches: { green: { on: ['check_suite'], to: action('review', []) } },
+          timeout: { afterMs: 1_000, to: note },
+        }),
+      ],
+    })
+    const store = new InMemoryExecutionStore()
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: { list: () => [pipeline] },
+      executions: store,
+    })
+    await engine.dispatch(event('build', { owner: 'la-haus', repo: 'subscriptions', number: 7 }))
+    const execution = store.current(KEY)
+
+    engine.tick(Date.now() + 2_000)
+    await vi.waitFor(() => expect(execution?.status).toBe('done'))
+
+    expect(seen).toEqual([
+      {
+        owner: 'la-haus',
+        repo: 'subscriptions',
+        number: 7,
+        executionId: execution?.id,
+        pauseId: 'wait-ci',
+      },
+    ])
+  })
+
   it('after the branch, the pipeline goes on with the rest of do[]', async () => {
     const ran: string[] = []
     const pipeline = new Pipeline({
