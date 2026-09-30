@@ -10,12 +10,20 @@ import { prFrom } from './pr-ref.js'
 /** El encabezado que distingue un hallazgo del reviewer del pedido de un humano. */
 const HEADER = '# reviewer'
 
+/** El cuerpo del review es para lo transversal, no para el resumen: el veredicto lo publica el
+ *  engine con el `report` de la salida. Un body largo es casi siempre ese resumen repetido. */
+const MAX_BODY = 1_500
+
 const ReviewInput = z.strictObject({
   body: z
     .string()
+    .max(
+      MAX_BODY,
+      `El body del review es sólo para hallazgos transversales cortos (máx. ${MAX_BODY} caracteres). El resumen y el veredicto NO van acá: van en el \`report\` de tu submit_* — si los repetís en el review, salen duplicados.`,
+    )
     .optional()
     .describe(
-      'Hallazgos transversales, sin una línea a la cual colgarse. Vacío si todo va inline.',
+      'Sólo hallazgos transversales, sin una línea a la cual colgarse, en pocas líneas. Vacío si todo va inline. NO el resumen ni el veredicto: eso va en el `report` de tu submit_*.',
     ),
   comments: z
     .array(

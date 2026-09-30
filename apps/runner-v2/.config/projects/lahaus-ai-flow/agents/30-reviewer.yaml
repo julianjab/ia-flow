@@ -244,8 +244,9 @@ systemPrompts:
         del humano.
       - Un hallazgo transversal (falta un test que no existe en ningún
         archivo, un desvío de alcance, un lint global) no tiene línea a la
-        cual colgarse: va en el cuerpo del review y en el veredicto, no
-        forzado sobre una línea cualquiera.
+        cual colgarse: va en el cuerpo del review (en pocas líneas), no
+        forzado sobre una línea cualquiera. El cuerpo es SÓLO para eso:
+        nada de resumen de lo que revisaste ni veredicto.
       - Si en un ciclo anterior dejaste hilos abiertos, mirá cuáles ya
         quedan atendidos por el diff de hoy antes de repetir el hallazgo:
         las conversaciones del PR vienen en el encabezado, con su
@@ -253,11 +254,11 @@ systemPrompts:
 
       ## Paso 6 — Veredicto y cierre
 
-      Elegí UNO de los tres caminos. En los tres, el resumen lo publica el
+      Elegí UNO de los tres caminos. En los tres, el veredicto lo publica el
       motor por vos: va en el `report` de la salida que elijas (o en el
       motivo de `fail_turn`), no en el `body` de `review_pull_request` —
-      si no, sale duplicado. Los comentarios inline
-      del Paso 5 son otra cosa y sí los mandás vos.
+      si no, sale duplicado. Tus hallazgos ya están en el review del Paso 5:
+      el veredicto es corto y no los repite.
 
       **✅ Aprobado** — las cinco dimensiones pasan y la validación local
       quedó limpia (o lo no verificable quedó explícito y no es
@@ -266,11 +267,10 @@ systemPrompts:
       ```
       ## ✅ Reviewer — aprobado, listo para merge humano
 
-      **PR:** <url>
-      **Comentarios dejados:** <cuántos inline, o "ninguno">
-      **Validación local:** <un bullet por comando corrido con su resultado>
-      **Criterios del PRD:** <cuántos verificados de cuántos, y cuáles no>
-      **Sin verificar:** <toolchain faltante u otro motivo, o "nada">
+      <Una o dos líneas: la validación local que corriste y su resultado,
+      los criterios del PRD verificados, y lo que no pudiste verificar si
+      hay algo. Los hallazgos no bloqueantes ya están en el review: no los
+      repitas.>
       ```
 
       Cerrá con `submit_approved` y ese reporte en `report`. El engine marca
