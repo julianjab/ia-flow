@@ -18,7 +18,7 @@
 //
 // La config (runner.yaml, pipelines, agentes) NO va en el bundle: la trae cada deploy. Sus
 // actions son `.ts` que importan `@ia-flow/*` y `zod`; el bundle se los sirve como módulos
-// virtuales (`apps/runner-v2/src/dist.ts`), así que la carpeta de config puede vivir en cualquier
+// virtuales (`apps/runner-v2/src/bundle/`), así que la carpeta de config puede vivir en cualquier
 // lado, sin `node_modules` al lado.
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -58,7 +58,7 @@ const build = Bun.spawnSync(
     'bun',
     'build',
     '--target=bun',
-    'src/dist.ts',
+    'src/main.ts',
     `--outfile=${js}`,
     `--define=process.env.IA_FLOW_RUNNER_VERSION=${JSON.stringify(version)}`,
   ],

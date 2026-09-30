@@ -74,8 +74,10 @@ fuente, todos los proyectos y los servicios que monta el runner (GitHub, workspa
 fuente de proyecto ve primero las suyas y después las globales; la global, sólo las globales. Un
 id repetido en el mismo scope rompe el arranque. `defineMapper` registra un mapper de `onError`.
 
-Las actions importan paquetes y el contrato del runner: la carpeta de la definición tiene que
-vivir DENTRO de `apps/runner-v2` (así resuelven sus dependencias), también con `RUNNER_CONFIG_DIR`.
+Las actions importan paquetes (`@ia-flow/*`, `zod`) y el contrato del runner; el runner se los
+sirve como módulos virtuales (`src/bundle/`), así que la carpeta de la definición puede vivir en
+cualquier lado (`RUNNER_CONFIG_DIR` o `--config`): en el bundle, en los tests (el tmp del sistema)
+y en un deploy.
 
 ### Las pipelines (`pipelines/`)
 

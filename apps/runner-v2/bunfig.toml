@@ -1,0 +1,4 @@
+[test]
+# Los módulos virtuales del bundle (`src/bundle/register.ts`): las configs de los tests viven en el
+# tmp del sistema y sus actions igual resuelven `@ia-flow/*` y `zod`.
+preload = ["./src/tests/preload.ts"]

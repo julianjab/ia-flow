@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createLogger, type TraceJournal } from '@ia-flow/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'
+import { registerVirtualModules } from './bundle/register.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
 import { startHeartbeat } from './heartbeat.js'
@@ -228,6 +229,8 @@ function hostIngest(journal: TraceJournal) {
 }
 
 async function main(): Promise<'serving' | 'done'> {
+  // Antes de cargar la config: sus actions resuelven `@ia-flow/*` y `zod` por acá, vivan donde vivan.
+  registerVirtualModules()
   const args = parseArgs(process.argv.slice(2))
   const configDir = expandHome(
     args.configDir ?? process.env.RUNNER_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,

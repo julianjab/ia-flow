@@ -1,5 +1,5 @@
 /**
- * Los paquetes que el bundle publicado (`dist.ts`) les sirve a las actions de `.config/` como
+ * Los paquetes que el runner (`register.ts`, al arrancar) les sirve a las actions de la config como
  * módulos virtuales — con los MISMOS objetos que usa el runner. Una action que importe un paquete
  * que no está acá falla al arrancar con "Cannot find package" (y `dist-modules.test.ts` lo avisa
  * antes, contra la `.config` del repo).
