@@ -1,0 +1,53 @@
+# apps/runner-v2
+
+El runner headless: lee una config (`runner.yaml` + `projects/`), monta `@ia-flow/agent-engine` y
+recibe webhooks de GitHub y mensajes de Slack. Qué agente corre y cuándo es **dato** de la config,
+no código de acá. El modelo completo (pipelines, intake, providers, MCP) está en el `README.md`.
+
+## Dónde va cada cambio
+
+| Carpeta de `src/` | Qué hay | Va acá si… |
+| --- | --- | --- |
+| `main.ts`, `cli.ts`, `boot.ts` | arranque, argumentos, composición | cambia cómo se ensambla el runner |
+| `config/` | `runner.yaml` → `RunnerConfig`, `IA_FLOW_HOME` | agregás o cambiás una clave de la config |
+| `http/` | servidor, router, SSE — el borde, sin lógica | cambia cómo se recibe un request |
+| `intake/` | webhook o Slack → evento de task (`item.*`, `task.*`) | cambia qué ven las pipelines de un evento |
+| `actions/` | contrato, loader y catálogo built-in (`builtin/`) | registrás una acción estándar del runner |
+| `engine/` | montar el engine, scope por proyecto, marca Working | cambia cómo corre el engine en el runner |
+| `providers/` | providers, hosts remotos y su telemetría | un provider nuevo o un cambio de hosts |
+| `mcp/` | catálogo de MCP y `mcpHost` | un MCP nuevo o cómo se publica |
+| `inbox/` | la bandeja de la web, su API, tareas, ingresos | la web necesita ver o hacer algo |
+| `assistant/` | el asistente de la web | cambia el asistente |
+| `storage/` | SQLite: actividad, conversaciones, ejecuciones | cambia qué se persiste |
+| `telemetry/` | OTLP, heartbeat | trazas, logs, métricas |
+| `workspace/` | clones y worktrees de las tasks | cambia dónde o cómo trabaja un agente en disco |
+| `bundle/` | módulos virtuales para las acciones de una config | una config necesita importar otro paquete |
+
+Una tool genérica de GitHub o de Slack **no va acá**: va en `packages/github/tools` o
+`packages/slack/tools`, y `actions/builtin/` sólo la registra. Un prompt o un pipeline de un deploy
+tampoco: va en la config de ese deploy.
+
+## Comandos
+
+```bash
+bun test --cwd apps/runner-v2                       # la suite
+bun test --cwd apps/runner-v2 src/intake/branch.test.ts   # un archivo
+bun run --cwd apps/runner-v2 typecheck
+bun run runner                                      # carga y valida .config sin servir
+bun run release:package                             # el bundle: dist/artifacts/ia-flow-runner.js
+```
+
+## Lo que no dice el código
+
+- **Las fronteras entre carpetas las verifica `bun run lint:boundaries`** (en `check`): `http/`
+  sólo llega a `intake/`, `intake/` no conoce ninguna feature, nada importa `main.ts`.
+- **`.config/` es la config de desarrollo** (la de La Haus para correr en local), no el ejemplo
+  canónico ni código del runner. Sus acciones son del proyecto (`issue_body`, `blockedReport`).
+- **Una config vive en cualquier carpeta** (`--config` o `RUNNER_CONFIG_DIR`): sus acciones
+  resuelven `@ia-flow/*` y `zod` por los módulos virtuales (`bundle/`). Si una config importa un
+  paquete que no está en `bundle/modules.ts`, rompe en el deploy; `bundle/modules.test.ts` lo avisa.
+- **El estado va a `IA_FLOW_HOME`** (default `~/.local/state/ia-flow/runner`): la base
+  (`runner.sqlite`), los workspaces y la memoria. Nunca dentro del repo.
+- **Los tests de `src/tests/` montan la `.config` real**: un cambio de prompt o pipeline puede
+  romperlos, y es a propósito.
+- Las copias de config de un test van al tmp del sistema (`tests/helpers.ts` → `configCopy`).
