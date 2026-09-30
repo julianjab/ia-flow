@@ -75,6 +75,9 @@ export function mountInbox(
   const actions = new TaskActions({
     inbox,
     boards: new Map(specs.map((spec) => [spec.projectId, spec.board])),
+    projectLabels: new Map(
+      specs.flatMap((spec) => (spec.label ? [[spec.projectId, spec.label] as const] : [])),
+    ),
     settings: cfg.inbox,
     redispatch: async (ref, by) => {
       const last = store.activity.lastDispatchedEvent(ref)
