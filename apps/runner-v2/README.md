@@ -124,7 +124,8 @@ bun run start                                     # verifica GitHub, carga y val
 bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
 bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks
-IA_FLOW_PROVIDER_HOST_TOKEN=... bun run host     # presta los providers locales a otros runners
+bun run host:serve                               # presta los providers locales a otros runners,
+                                                 # con su propio .env.host (ver .env.host.example)
 bun test
 bun run typecheck
 ```

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.host
 *.local
 bun.lockb
 .DS_Store
