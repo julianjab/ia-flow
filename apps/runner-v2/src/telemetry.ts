@@ -6,8 +6,19 @@
  *     en el momento — lo que leen la bandeja y el asistente.
  *   - Con `OTEL_EXPORTER_OTLP_ENDPOINT`, además OTLP/HTTP (el Grafana LGTM de `otel/` en local, o
  *     un Collector/Datadog Agent), en lotes de 1 s.
+ *
+ * `LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`) fija el nivel mínimo de los dos.
+ * En `debug` los providers además vuelcan cada request y respuesta de su API, con las credenciales
+ * tapadas.
  */
-import { addLogSink, type TraceJournal, traceRecorder } from '@ia-flow/telemetry'
+import {
+  addLogSink,
+  createLogger,
+  parseLogLevel,
+  setLogLevel,
+  type TraceJournal,
+  traceRecorder,
+} from '@ia-flow/telemetry'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
@@ -19,6 +30,8 @@ import {
   type Span,
   type SpanProcessor,
 } from '@opentelemetry/sdk-trace-base'
+
+const LOG_LEVEL_VAR = 'LOG_LEVEL'
 
 /** Cada cuánto sale un lote a OTLP: casi en vivo, sin un request por span. */
 const EXPORT_DELAY_MS = 1_000
@@ -94,9 +107,23 @@ export function startTelemetry(serviceVersion: string, route: TraceRoute): Telem
     instrumentations: [],
   })
   sdk.start()
+  applyLogLevel(process.env[LOG_LEVEL_VAR])
   return {
     traceIds,
     ...(endpoint ? { endpoint } : {}),
     shutdown: () => sdk.shutdown(),
   }
+}
+
+/** Un `LOG_LEVEL` que no es un nivel no tumba el arranque: se avisa y queda `info`. */
+function applyLogLevel(raw: string | undefined): void {
+  if (raw === undefined || raw.trim() === '') return
+  const level = parseLogLevel(raw)
+  if (level) {
+    setLogLevel(level)
+    return
+  }
+  createLogger('runner').warn(`${LOG_LEVEL_VAR}="${raw}" no es un nivel — sigue en info`, {
+    'ia.log_level.valid': 'debug, info, warn, error',
+  })
 }
