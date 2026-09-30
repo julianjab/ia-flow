@@ -45,6 +45,24 @@ const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: Int!) {
   }
 }`
 
+// Las relaciones issue ↔ PR que GitHub ya lleva (sección "Development" y palabras de cierre): el
+// intake las lee, no las deduce del nombre de una rama.
+const CLOSING_ISSUES = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      closingIssuesReferences(first: 10) { nodes { number repository { name owner { login } } } }
+    }
+  }
+}`
+
+const CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      closedByPullRequestsReferences(first: 10, includeClosedPrs: false) { nodes { number state } }
+    }
+  }
+}`
+
 const REVIEW_THREADS = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
@@ -124,6 +142,44 @@ export class GithubTaskReader {
     return data.repository?.issue?.projectItems?.nodes ?? []
   }
 
+  /** Los issues que el PR cierra (su sección "Development"), en el orden que GitHub los da. */
+  async closingIssues(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<Array<{ owner: string; repo: string; number: number }>> {
+    const data = await this.client.graphql<{
+      repository?: {
+        pullRequest?: {
+          closingIssuesReferences?: {
+            nodes?: Array<{
+              number: number
+              repository: { name: string; owner: { login: string } }
+            }>
+          }
+        } | null
+      } | null
+    }>(CLOSING_ISSUES, { owner, repo, number })
+    return (data.repository?.pullRequest?.closingIssuesReferences?.nodes ?? []).map((node) => ({
+      owner: node.repository.owner.login,
+      repo: node.repository.name,
+      number: node.number,
+    }))
+  }
+
+  /** El PR abierto que cierra el issue (vinculado a mano o con `Closes #n`), si hay uno. */
+  private async linkedOpenPr(owner: string, repo: string, number: number) {
+    const data = await this.client.graphql<{
+      repository?: {
+        issue?: {
+          closedByPullRequestsReferences?: { nodes?: Array<{ number: number; state: string }> }
+        } | null
+      } | null
+    }>(CLOSING_PRS, { owner, repo, number })
+    const nodes = data.repository?.issue?.closedByPullRequestsReferences?.nodes ?? []
+    return nodes.find((node) => node.state === 'OPEN')?.number
+  }
+
   pull(
     owner: string,
     repo: string,
@@ -151,14 +207,13 @@ export class GithubTaskReader {
     >(`/repos/${owner}/${repo}/issues/${number}/dependencies/blocking`)
   }
 
-  /** El issue, sus blockers y su timeline; con PR abierto (el del evento, o el de su rama, si ya
-   *  se sabe cuál es), el timeline del PR y su CI. */
+  /** El issue, sus blockers y su timeline; con PR abierto (el del evento, o el que GitHub dice que
+   *  cierra el issue), el timeline del PR y su CI. */
   async context(task: {
     owner: string
     repo: string
     number: number
     pr?: number
-    branch?: string
   }): Promise<RawTaskContext> {
     const base = `/repos/${task.owner}/${task.repo}`
     const [issue, blockers, issueComments, pr] = await Promise.all([
@@ -167,7 +222,7 @@ export class GithubTaskReader {
         `${base}/issues/${task.number}/dependencies/blocked_by`,
       ),
       this.client.requestJson<RawComment[]>(`${base}/issues/${task.number}/comments?per_page=100`),
-      this.openPr(base, task),
+      this.openPr(task),
     ])
     if (!pr) return { issue, blockers, issueComments }
     const [prComments, threads, reviews, checks, status] = await Promise.all([
@@ -196,17 +251,10 @@ export class GithubTaskReader {
     }
   }
 
-  /** El PR del evento si sigue abierto; si no trae uno, el abierto desde la rama de la task. Sin
-   *  rama todavía (una task nueva, sin prefijo), no hay PR que buscar. */
-  private async openPr(base: string, task: { owner: string; pr?: number; branch?: string }) {
-    if (task.pr !== undefined) {
-      return openPr(await this.client.requestJson<RawPr>(`${base}/pulls/${task.pr}`), undefined)
-    }
-    if (!task.branch) return undefined
-    const head = encodeURIComponent(`${task.owner}:${task.branch}`)
-    return openPr(
-      undefined,
-      await this.client.requestJson<RawPr[]>(`${base}/pulls?state=open&head=${head}`),
-    )
+  /** El PR del evento si sigue abierto; si no trae uno, el que GitHub vincula al issue. */
+  private async openPr(task: { owner: string; repo: string; number: number; pr?: number }) {
+    const number = task.pr ?? (await this.linkedOpenPr(task.owner, task.repo, task.number))
+    if (number === undefined) return undefined
+    return openPr(await this.pull(task.owner, task.repo, number))
   }
 }

@@ -7,10 +7,10 @@ import {
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
 import type { BoardRef, GithubTaskReader } from './GithubTaskReader.js'
-import { type EventFields, type Location, locate, mergedBlocker } from './locate.js'
+import { type EventFields, type Location, locate, mergedPullRequest } from './locate.js'
 import { eventMessage } from './message.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
-import { boardItem, issueRefs, linkedIssue, taskPayload } from './task.js'
+import { boardItem, issueRefs, taskPayload } from './task.js'
 
 /** Un proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
 export interface ResolveTaskProject {
@@ -118,7 +118,7 @@ class ProjectResolver {
     const type = ctx.event.type.replace(/^github\./, '')
     if (input.unblockDependents) return this.unblocked(raw, ctx)
 
-    const location = located ?? locate(type, raw, this.project.branchPrefix)
+    const location = located ?? locate(type, raw)
     if ('skip' in location) return { skipped: location.skip }
     const task =
       'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
@@ -149,18 +149,24 @@ class ProjectResolver {
   }): Promise<TaskRef | { skipped: string }> {
     const { owner, repo } = location
     // Antes de leer nada: un repo que el catálogo no declara no es de este proyecto.
-    if (!this.project.repos.some((full) => same(full, `${owner}/${repo}`))) {
+    if (!this.inCatalog(owner, repo)) {
       return { skipped: `${owner}/${repo} no es del catálogo de ${this.project.id}` }
     }
-    let number = location.number
-    if (number === undefined && location.inspect !== undefined) {
-      const pr = await this.reader.pull(owner, repo, location.inspect)
-      number = linkedIssue(pr.head.ref, pr.body ?? '', this.project.branchPrefix)
-      // Un PR sin issue no es una task: su número no resuelve como `Issue`.
-      if (number === undefined) return { skipped: `PR #${location.inspect} no cierra ningún issue` }
-    }
-    if (number === undefined) return { skipped: 'el webhook no dice de qué issue es' }
-    return { owner, repo, number, ...(location.pr !== undefined ? { pr: location.pr } : {}) }
+    const pr = location.pr !== undefined ? { pr: location.pr } : {}
+    if (location.number !== undefined) return { owner, repo, number: location.number, ...pr }
+    if (location.inspect === undefined) return { skipped: 'el webhook no dice de qué issue es' }
+    // El issue de un PR lo dice GitHub (lo que el PR cierra), no el nombre de su rama. Puede ser de
+    // otro repo: vale el primero que sea de este proyecto.
+    const closing = (await this.reader.closingIssues(owner, repo, location.inspect)).find((issue) =>
+      this.inCatalog(issue.owner, issue.repo),
+    )
+    // Un PR sin issue no es una task: su número no resuelve como `Issue`.
+    if (!closing) return { skipped: `PR #${location.inspect} no cierra ningún issue` }
+    return { ...closing, ...pr }
+  }
+
+  private inCatalog(owner: string, repo: string): boolean {
+    return this.project.repos.some((full) => same(full, `${owner}/${repo}`))
   }
 
   /**
@@ -182,7 +188,7 @@ class ProjectResolver {
     if (!card) return { skip: `${ref} no está en el board de ${this.project.id}` }
     const branches = new TaskBranches(this.reader, this.project.branchPrefix)
     const known = await branches.known(task)
-    const context = await this.reader.context({ ...task, ...(known ? { branch: known } : {}) })
+    const context = await this.reader.context(task)
     const { label } = this.project
     const labels = context.issue.labels.map((l) => (typeof l === 'string' ? l : l.name))
     if (label && !labels.includes(label)) {
@@ -211,32 +217,38 @@ class ProjectResolver {
     return event
   }
 
-  /** `issue.unblocked` para cada dependiente abierto del issue que cierra el PR mergeado que ya no
-   *  tiene otro blocker abierto. El recién cerrado no cuenta: el webhook del merge puede llegar
+  /** `issue.unblocked` para cada dependiente abierto de los issues que cierra el PR mergeado que ya
+   *  no tienen otro blocker abierto. El recién cerrado no cuenta: el webhook del merge puede llegar
    *  antes que su cierre. */
   private async unblocked(
     raw: Record<string, unknown>,
     ctx: PipelineExecutionContext,
   ): Promise<Resolved> {
-    const blocker = mergedBlocker(raw, this.project.branchPrefix)
-    if ('skip' in blocker) return { skipped: blocker.skip }
-    const closedBlocker = `https://github.com/${blocker.owner}/${blocker.repo}/issues/${blocker.number}`
-    const dependents = issueRefs(
-      await this.reader.dependents(blocker.owner, blocker.repo, blocker.number),
-      this.project.repos,
+    const merged = mergedPullRequest(raw)
+    if ('skip' in merged) return { skipped: merged.skip }
+    const blockers = (await this.reader.closingIssues(merged.owner, merged.repo, merged.pr)).filter(
+      (issue) => this.inCatalog(issue.owner, issue.repo),
     )
+    if (blockers.length === 0) return { skipped: `PR #${merged.pr} no cierra ningún issue` }
     const emitted: string[] = []
-    for (const dependent of dependents) {
-      const published = await this.publish(
-        ctx,
-        dependent,
-        { emit: UNBLOCKED, extra: {} },
-        { closedBlocker, onlyIfUnblocked: true },
+    for (const blocker of blockers) {
+      const closedBlocker = `https://github.com/${blocker.owner}/${blocker.repo}/issues/${blocker.number}`
+      const dependents = issueRefs(
+        await this.reader.dependents(blocker.owner, blocker.repo, blocker.number),
+        this.project.repos,
       )
-      if (!('skip' in published)) emitted.push(String(published.scope?.issue))
+      for (const dependent of dependents) {
+        const published = await this.publish(
+          ctx,
+          dependent,
+          { emit: UNBLOCKED, extra: {} },
+          { closedBlocker, onlyIfUnblocked: true },
+        )
+        if (!('skip' in published)) emitted.push(String(published.scope?.issue))
+      }
     }
     return emitted.length > 0
       ? { emitted }
-      : { skipped: `#${blocker.number} no deja ninguna task sin prerrequisitos` }
+      : { skipped: `PR #${merged.pr} no deja ninguna task sin prerrequisitos` }
   }
 }

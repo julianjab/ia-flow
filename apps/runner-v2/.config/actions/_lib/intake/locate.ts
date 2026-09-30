@@ -6,12 +6,13 @@
  *   projects_v2_item     created → issue.created · Status → issue.status_changed (from/to) ·
  *                        otro campo → projects_v2_item.edited
  *   issue_comment        el issue, o el que implementa el PR si se comentó en un PR
- *   pull_request(_review) el issue que implementa el PR (rama o `Closes #n`); sin él, se salta
- *   check_suite, workflow_run   la task de la rama `<prefijo><n>`, o la del PR (hay que leerlo);
- *                        sólo `completed`
+ *   pull_request(_review) el issue que el PR cierra según GitHub (hay que leerlo); sin él, se salta
+ *   check_suite, workflow_run   la task del PR de la corrida (hay que leerlo); sólo `completed`
  *
- * Un PR sin issue vinculado no es una task: su número no resuelve como `Issue` en GraphQL, así
- * que usarlo como número de task rompía el despacho con `Could not resolve to an Issue`.
+ * La relación issue ↔ PR la lleva GitHub (sección "Development", `Closes #n`): acá no se deduce
+ * del nombre de una rama. Un PR sin issue vinculado no es una task: su número no resuelve como
+ * `Issue` en GraphQL, así que usarlo como número de task rompía el despacho con `Could not
+ * resolve to an Issue`.
  *
  * Los filtros baratos van acá, antes de cualquier lectura: una acción que ninguna pipeline
  * escucha, un item que no es un issue, un CI que no terminó.
@@ -23,7 +24,6 @@ import {
   parseGithubPullRequestPayload,
   parseGithubPullRequestReviewPayload,
 } from '@ia-flow/github-webhook'
-import { linkedIssue } from './task.js'
 
 type Raw = Record<string, unknown>
 
@@ -43,7 +43,7 @@ export type Location =
   /** Un issue de `owner/repo`: `number`, o el que implementa el PR `inspect` (hay que leerlo). */
   | ({ owner: string; repo: string; number?: number; pr?: number; inspect?: number } & EventFields)
 
-export function locate(type: string, raw: Raw, branchPrefix: string | undefined): Location {
+export function locate(type: string, raw: Raw): Location {
   switch (type) {
     case 'projects_v2_item':
       return boardItem(raw)
@@ -51,10 +51,10 @@ export function locate(type: string, raw: Raw, branchPrefix: string | undefined)
       return comment(raw)
     case 'pull_request':
     case 'pull_request_review':
-      return pullRequest(type, raw, branchPrefix)
+      return pullRequest(type, raw)
     case 'check_suite':
     case 'workflow_run':
-      return ciRun(type, raw, branchPrefix)
+      return ciRun(type, raw)
     default:
       return { skip: `${type} no es un webhook que el intake entienda` }
   }
@@ -101,17 +101,15 @@ function comment(raw: Raw): Location {
   return { owner, repo, number, ...fields }
 }
 
-function pullRequest(type: string, raw: Raw, branchPrefix: string | undefined): Location {
+function pullRequest(type: string, raw: Raw): Location {
   const review =
     type === 'pull_request_review' ? parseGithubPullRequestReviewPayload(raw) : undefined
   const pr = review ?? parseGithubPullRequestPayload(raw)
-  const number = linkedIssue(pr.headRef, pr.body, branchPrefix)
-  if (number === undefined) return { skip: `PR #${pr.number} no cierra ningún issue` }
   return {
     owner: pr.owner,
     repo: pr.repo,
-    number,
     pr: pr.number,
+    inspect: pr.number,
     emit: type,
     extra: {
       action: raw.action,
@@ -133,27 +131,18 @@ function pullRequest(type: string, raw: Raw, branchPrefix: string | undefined): 
   }
 }
 
-function ciRun(
-  type: 'check_suite' | 'workflow_run',
-  raw: Raw,
-  branchPrefix: string | undefined,
-): Location {
+function ciRun(type: 'check_suite' | 'workflow_run', raw: Raw): Location {
   // El CI manda decenas de deliveries por push; las pipelines sólo escuchan `completed`.
   if (raw.action !== 'completed') return { skip: `${type}.${raw.action}` }
   const run = parseGithubCheckPayload(type, raw)
   const prNumber = run.prNumbers[0]
-  const number = linkedIssue(run.branch, '', branchPrefix)
-  // Sin la rama de la task, el issue lo dice el PR (su body): `inspect` lo lee.
-  if (number === undefined && prNumber === undefined) {
-    return {
-      skip: `corrida sin PR${branchPrefix ? ` ni rama ${branchPrefix}<n>` : ''} (${run.branch})`,
-    }
-  }
+  // Sin PR no hay a qué issue apuntar: la relación la dice GitHub, no la rama.
+  if (prNumber === undefined) return { skip: `corrida sin PR (${run.branch})` }
   return {
     owner: run.owner,
     repo: run.repo,
-    ...(number !== undefined ? { number } : {}),
-    ...(prNumber !== undefined ? { pr: prNumber, inspect: prNumber } : {}),
+    pr: prNumber,
+    inspect: prNumber,
     emit: type,
     extra: {
       action: raw.action,
@@ -169,14 +158,11 @@ function ciRun(
   }
 }
 
-/** El issue que implementa un PR mergeado — el prerrequisito que el merge cierra. */
-export function mergedBlocker(
+/** El PR mergeado de un webhook — el issue que cierra (el prerrequisito) lo dice GitHub. */
+export function mergedPullRequest(
   raw: Raw,
-  branchPrefix: string | undefined,
-): { skip: string } | { owner: string; repo: string; number: number } {
+): { skip: string } | { owner: string; repo: string; pr: number } {
   const pr = parseGithubPullRequestPayload(raw)
   if (!pr.merged) return { skip: `PR #${pr.number} cerrado sin mergear` }
-  const number = linkedIssue(pr.headRef, pr.body, branchPrefix)
-  if (number === undefined) return { skip: `PR #${pr.number} no cierra ningún issue` }
-  return { owner: pr.owner, repo: pr.repo, number }
+  return { owner: pr.owner, repo: pr.repo, pr: pr.number }
 }

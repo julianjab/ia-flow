@@ -1,10 +1,9 @@
 /**
  * Lo que `resolve_task` hace con lo que leyó de GitHub — puro, sin I/O:
  *
- *   linkedIssue   el issue que implementa un PR: su rama `<prefijo><n>` o un `Closes #n`
  *   boardItem     la card de un board entre los items de un issue (status y tipo)
  *   issueRefs     los issues abiertos de una lista de GitHub, de los repos del proyecto
- *   openPr        el PR abierto de la task: el del evento, o el de su rama
+ *   openPr        el PR abierto de la task, en la forma de `task.pr`
  *   taskPayload   el evento de la task, con la forma que filtran las pipelines y leen los prompts
  */
 import { assemblePayload, type EventArgs } from './payload.js'
@@ -20,21 +19,6 @@ type Input = Record<string, unknown>
 
 const same = (a: unknown, b: unknown) =>
   typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
-
-/** El issue de un PR: la rama `<prefix><n>` que abre el implementer, o una referencia de cierre
- *  (`Closes #n`) en el body; si no, `fallback`. */
-export function linkedIssue(
-  head: string | undefined,
-  body: string | undefined,
-  prefix: string | undefined,
-): number | undefined {
-  if (prefix && head?.startsWith(prefix)) {
-    const n = head.slice(prefix.length)
-    if (/^\d+$/.test(n)) return Number(n)
-  }
-  const closing = (body ?? '').match(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/i)
-  return closing?.[1] ? Number(closing[1]) : undefined
-}
 
 /** Un `ProjectV2Item` por GraphQL: su board y los valores de sus campos single-select. */
 export interface RawItem {
@@ -105,23 +89,19 @@ export interface OpenPr {
   baseRef: string
 }
 
-/** El PR abierto de la task: el del evento si sigue abierto, si no el de su rama. */
-export function openPr(
-  byNumber: RawPr | undefined,
-  byBranch: RawPr[] | undefined,
-): OpenPr | undefined {
-  const pr = byNumber ? (byNumber.state === 'open' ? byNumber : undefined) : byBranch?.[0]
-  return (
-    pr && {
-      number: pr.number,
-      url: pr.html_url,
-      headSha: pr.head.sha,
-      title: pr.title ?? '',
-      author: pr.user?.login ?? '',
-      headRef: pr.head.ref ?? '',
-      baseRef: pr.base?.ref ?? '',
-    }
-  )
+/** El PR de la task en `task.pr`, si sigue abierto. Cuál es lo dice GitHub (el del evento, o el que
+ *  cierra el issue), no el nombre de su rama. */
+export function openPr(pr: RawPr): OpenPr | undefined {
+  if (pr.state !== 'open') return undefined
+  return {
+    number: pr.number,
+    url: pr.html_url,
+    headSha: pr.head.sha,
+    title: pr.title ?? '',
+    author: pr.user?.login ?? '',
+    headRef: pr.head.ref ?? '',
+    baseRef: pr.base?.ref ?? '',
+  }
 }
 
 /** `pr.*` con la forma que arma un evento de PR (locate.ts), a partir del PR abierto de la task. */
