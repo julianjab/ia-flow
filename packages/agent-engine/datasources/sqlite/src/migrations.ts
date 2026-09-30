@@ -35,6 +35,53 @@ const MIGRATIONS: string[] = [
   );
   INSERT INTO counters (name, value) VALUES ('execution', 0);
   `,
+  // 2 — la actividad: cada evento y qué se decidió con él (`SqliteDispatchJournal`), y la traza de
+  // cada ejecución (`SqliteTraceJournal`). Lo lee `SqliteActivityReader`.
+  `
+  CREATE TABLE event_log (
+    id             TEXT PRIMARY KEY,
+    parent_id      TEXT,
+    delivery_id    TEXT,
+    type           TEXT NOT NULL,
+    occurred_at    TEXT NOT NULL,
+    depth          INTEGER NOT NULL,
+    project_id     TEXT,
+    task_ref       TEXT,
+    summary_json   TEXT NOT NULL,
+    scope_json     TEXT,
+    payload_json   TEXT,
+    outcome        TEXT NOT NULL,
+    error          TEXT,
+    decisions_json TEXT NOT NULL,
+    execution_id   TEXT,
+    trace_id       TEXT,
+    recorded_at    TEXT NOT NULL
+  );
+  CREATE INDEX event_log_task ON event_log (task_ref, occurred_at);
+  CREATE INDEX event_log_delivery ON event_log (delivery_id);
+  CREATE INDEX event_log_occurred ON event_log (occurred_at);
+
+  CREATE TABLE execution_trace (
+    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id    TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    phase           TEXT,
+    name            TEXT NOT NULL,
+    scope           TEXT,
+    level           TEXT,
+    status          TEXT,
+    status_message  TEXT,
+    start_time      TEXT NOT NULL,
+    end_time        TEXT,
+    duration_ms     REAL,
+    trace_id        TEXT NOT NULL,
+    span_id         TEXT NOT NULL,
+    parent_span_id  TEXT,
+    origin          TEXT NOT NULL,
+    attributes_json TEXT NOT NULL
+  );
+  CREATE INDEX execution_trace_execution ON execution_trace (execution_id, seq);
+  `,
 ]
 
 /** Lleva la base a la última versión del esquema (`PRAGMA user_version`). */
