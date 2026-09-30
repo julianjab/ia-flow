@@ -43,6 +43,7 @@
         "refresh": 2,
         "sort": 1,
         "allowCustomValue": true,
+        "multi": true,
         "current": {}
       },
       {
@@ -57,11 +58,12 @@
           "refId": "TempoDatasourceVariableQueryEditor-VariableQuery",
           "type": 1,
           "label": "ia.agent.id",
-          "query": "{ span.ia.issue = \"$issue\" }"
+          "query": "{ span.ia.issue =~ \"${issue:pipe}\" }"
         },
         "refresh": 2,
         "sort": 1,
         "allowCustomValue": true,
+        "multi": true,
         "current": {
           "text": "All",
           "value": "$__all"
@@ -411,7 +413,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" | regexp \"(?P<exit>eligió \\\"[^\\\"]+\\\"|terminó sin salida|falló)\" [$__range]))"
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" | regexp \"(?P<exit>eligió \\\"[^\\\"]+\\\"|terminó sin salida|falló)\" [$__range]))"
         }
       ],
       "fieldConfig": {
@@ -471,7 +473,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
         }
       ],
       "fieldConfig": {
@@ -531,7 +533,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
         }
       ],
       "fieldConfig": {
@@ -595,7 +597,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range]))"
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range]))"
         }
       ],
       "fieldConfig": {
@@ -655,7 +657,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | detected_level = \"error\" [$__range]))"
+          "expr": "sum(count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | detected_level = \"error\" [$__range]))"
         }
       ],
       "fieldConfig": {
@@ -719,7 +721,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "min by (process_pid, ia_execution_id, pipeline, ia_event_type) (min_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" | regexp \"abre: (?P<pipeline>[^ ]+)\" | unwrap observed_timestamp [$__range])) / 1000000"
+          "expr": "min by (process_pid, ia_execution_id, pipeline, ia_event_type) (min_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" | regexp \"abre: (?P<pipeline>[^ ]+)\" | unwrap observed_timestamp [$__range])) / 1000000"
         },
         {
           "refId": "B",
@@ -728,7 +730,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+          "expr": "max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
         },
         {
           "refId": "H",
@@ -737,7 +739,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" | regexp \"esperó (?P<waited>[0-9]+) ms\" | unwrap waited [$__range]))"
+          "expr": "max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" | regexp \"esperó (?P<waited>[0-9]+) ms\" | unwrap waited [$__range]))"
         },
         {
           "refId": "C",
@@ -746,7 +748,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "(((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) <= 0) and on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) or (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) > 0) unless (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) or (((((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) <= 0) unless (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) * 0 + 2000) or ((((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])))) * 0 + 3000) or (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" [$__range])) * 0 + 1000)"
+          "expr": "(((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) <= 0) and on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) or (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) > 0) unless (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) or (((((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) <= 0) unless (((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range]))))) * 0 + 2000) or ((((((sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se pausa \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0) - (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" se reanuda \" [$__range])) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" abre:\" [$__range])) * 0)) unless sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range]))) unless on (process_pid) sum by (process_pid) (count_over_time({service_name=~\".+\"} |= \"runner vivo:\" [3m]))) and (max by (process_pid, ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])) < on (ia_execution_id) group_left max by (ia_execution_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | unwrap observed_timestamp [$__range])))) * 0 + 3000) or (sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" [$__range])) * 0 + 1000)"
         },
         {
           "refId": "D",
@@ -755,7 +757,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (process_pid, ia_execution_id, result) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" |= \" cierra:\" | regexp \"cierra: (?P<result>[^ ]+)\" [$__range]))"
+          "expr": "sum by (process_pid, ia_execution_id, result) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" |= \" cierra:\" | regexp \"cierra: (?P<result>[^ ]+)\" [$__range]))"
         },
         {
           "refId": "E",
@@ -764,7 +766,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" [$__range])) * 0"
+          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" [$__range])) * 0"
         },
         {
           "refId": "F",
@@ -773,7 +775,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" [$__range])) * 0"
+          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" [$__range])) * 0"
         },
         {
           "refId": "G",
@@ -782,7 +784,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" | detected_level = \"error\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id != \"\" [$__range])) * 0"
+          "expr": "(sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" | detected_level = \"error\" [$__range]))) or sum by (process_pid, ia_execution_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id != \"\" [$__range])) * 0"
         }
       ],
       "transformations": [
@@ -1053,7 +1055,7 @@
             "uid": "loki"
           },
           "queryType": "range",
-          "expr": "sum by (detected_level) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" [$__interval]))",
+          "expr": "sum by (detected_level) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" [$__interval]))",
           "legendFormat": "{{detected_level}}"
         }
       ],
@@ -1166,7 +1168,7 @@
             "uid": "loki"
           },
           "queryType": "range",
-          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_execution_id =~ \"$execution.*\" |~ \"^evento \\\"|abre: | cierra: | se pausa | se reanuda |en cola para|quedó reemplazada|^agente \\\"|^paso \\\"|falló\" | line_format \"{{ .ia_event_type }} · {{ __line__ }}\""
+          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_execution_id =~ \"$execution.*\" |~ \"^evento \\\"|abre: | cierra: | se pausa | se reanuda |en cola para|quedó reemplazada|^agente \\\"|^paso \\\"|falló\" | line_format \"{{ .ia_event_type }} · {{ __line__ }}\""
         }
       ],
       "options": {
@@ -1200,7 +1202,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "min by (ia_execution_id, ia_pipeline_id, ia_agent_id) (min_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+          "expr": "min by (ia_execution_id, ia_pipeline_id, ia_agent_id) (min_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
         },
         {
           "refId": "B",
@@ -1209,7 +1211,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "max by (ia_execution_id, ia_pipeline_id, ia_agent_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
+          "expr": "max by (ia_execution_id, ia_pipeline_id, ia_agent_id) (max_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" | unwrap observed_timestamp [$__range])) / 1000000"
         },
         {
           "refId": "C",
@@ -1218,7 +1220,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" [$__range])) * 0"
+          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" [$__range])) * 0"
         },
         {
           "refId": "D",
@@ -1227,7 +1229,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" [$__range])) * 0"
+          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_execution_id, ia_pipeline_id, ia_agent_id) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" [$__range])) * 0"
         },
         {
           "refId": "E",
@@ -1236,7 +1238,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id, exit) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" | regexp \"(?P<exit>eligió \\\"[^\\\"]+\\\"|terminó sin salida|falló)\" [$__range]))"
+          "expr": "sum by (ia_execution_id, ia_pipeline_id, ia_agent_id, exit) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^(agente|paso) \\\"\" | regexp \"(?P<exit>eligió \\\"[^\\\"]+\\\"|terminó sin salida|falló)\" [$__range]))"
         }
       ],
       "transformations": [
@@ -1491,7 +1493,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
+          "expr": "sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range]))"
         },
         {
           "refId": "B",
@@ -1500,7 +1502,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) * 0"
+          "expr": "sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) or sum by (ia_agent_id, tool) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\"$\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" [$__range])) * 0"
         }
       ],
       "transformations": [
@@ -1662,7 +1664,7 @@
             "uid": "loki"
           },
           "queryType": "instant",
-          "expr": "sum by (ia_agent_id, command) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range]))"
+          "expr": "sum by (ia_agent_id, command) (count_over_time({service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |= \"bash_run\" | gen_ai_tool_name = \"bash_run\" | ia_tool_input != \"\" | line_format \"{{.ia_tool_input}}\" | regexp \"\\\"command\\\":\\\"(?P<command>(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*)\\\"\" | command != \"\" [$__range]))"
         }
       ],
       "transformations": [
@@ -1759,7 +1761,7 @@
             "uid": "loki"
           },
           "queryType": "range",
-          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" | line_format \"[{{ .ia_agent_id }}] {{ __line__ }}\""
+          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" | ia_agent_id != \"\" |~ \"^tool (MCP )?\\\"[^\\\"]+\\\" devolvió error\" | regexp \"^tool (?:MCP )?\\\"(?P<tool>[^\\\"]+)\\\"\" | line_format \"[{{ .ia_agent_id }}] {{ __line__ }}\""
         }
       ],
       "options": {
@@ -1796,7 +1798,7 @@
           "tableType": "traces",
           "limit": 100,
           "spss": 20,
-          "query": "{ name =~ \"event .*\" && span.ia.issue = \"$issue\" }"
+          "query": "{ name =~ \"event .*\" && span.ia.issue =~ \"${issue:pipe}\" }"
         }
       ],
       "transformations": [],
@@ -1834,7 +1836,7 @@
           "tableType": "spans",
           "limit": 50,
           "spss": 20,
-          "query": "{ span.ia.step.kind = \"agent\" && span.ia.issue = \"$issue\" && span.ia.agent.id =~ \"$agent\" } | select(span.ia.agent.id, span.ia.agent.exit, span.ia.agent.exit_origin, span.ia.agent.outcome, span.ia.agent.provider, span.ia.pipeline.id, span.ia.execution.id, status, duration)"
+          "query": "{ span.ia.step.kind = \"agent\" && span.ia.issue =~ \"${issue:pipe}\" && span.ia.agent.id =~ \"${agent:pipe}\" } | select(span.ia.agent.id, span.ia.agent.exit, span.ia.agent.exit_origin, span.ia.agent.outcome, span.ia.agent.provider, span.ia.pipeline.id, span.ia.execution.id, status, duration)"
         }
       ],
       "transformations": [
@@ -1910,7 +1912,7 @@
           "tableType": "spans",
           "limit": 50,
           "spss": 20,
-          "query": "{ span.gen_ai.operation.name = \"chat\" && span.ia.issue = \"$issue\" && span.ia.agent.id =~ \"$agent\" } | select(span.ia.agent.id, span.gen_ai.request.model, span.gen_ai.usage.input_tokens, span.gen_ai.usage.output_tokens, span.gen_ai.usage.cache_read_input_tokens, span.gen_ai.response.finish_reasons, duration)"
+          "query": "{ span.gen_ai.operation.name = \"chat\" && span.ia.issue =~ \"${issue:pipe}\" && span.ia.agent.id =~ \"${agent:pipe}\" } | select(span.ia.agent.id, span.gen_ai.request.model, span.gen_ai.usage.input_tokens, span.gen_ai.usage.output_tokens, span.gen_ai.usage.cache_read_input_tokens, span.gen_ai.response.finish_reasons, duration)"
         }
       ],
       "transformations": [
@@ -1981,7 +1983,7 @@
             "uid": "loki"
           },
           "queryType": "range",
-          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue = \"$issue\" | ia_agent_id =~ \"$agent\" | ia_execution_id =~ \"$execution.*\" |~ \"(?i)$search\" !~ \"$noise\" | line_format \"{{ if .ia_step_id }}[{{ .ia_step_id }}{{ if .ia_execution_id }} · {{ trunc 8 .ia_execution_id }}{{ end }}] {{ end }}{{ __line__ }}\""
+          "expr": "{service_name=~\".+\"} | ia_issue != \"\" | ia_issue =~ \"${issue:pipe}\" | ia_agent_id =~ \"${agent:pipe}\" | ia_execution_id =~ \"$execution.*\" |~ \"(?i)$search\" !~ \"$noise\" | line_format \"{{ if .ia_step_id }}[{{ .ia_step_id }}{{ if .ia_execution_id }} · {{ trunc 8 .ia_execution_id }}{{ end }}] {{ end }}{{ __line__ }}\""
         }
       ],
       "options": {

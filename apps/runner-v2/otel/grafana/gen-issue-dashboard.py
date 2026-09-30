@@ -12,7 +12,7 @@ LOKI = {"type": "loki", "uid": "loki"}
 
 # `.+` además del filtro: Loki rechaza un selector que puede matchear vacío.
 # `!= ""` además: sin issue elegido, `= ""` traería todos los logs que no tienen issue.
-ISSUE_LOGS = '{service_name=~".+"} | ia_issue != "" | ia_issue = "$issue"'
+ISSUE_LOGS = '{service_name=~".+"} | ia_issue != "" | ia_issue =~ "${issue:pipe}"'
 
 panels = []
 
@@ -328,7 +328,7 @@ add(
 # `$agent`: el selector de arriba o un click ("All" vale `.*`). `$execution`: un click en una
 # ejecución (vacío + `.*` = todas).
 DETAIL_LOGS = (
-    f'{ISSUE_LOGS} | ia_agent_id =~ "$agent" | ia_execution_id =~ "$execution.*"'
+    f'{ISSUE_LOGS} | ia_agent_id =~ "${{agent:pipe}}" | ia_execution_id =~ "$execution.*"'
 )
 # Lo que loguea cada paso de agente (lleva `ia_agent_id`).
 AGENT_LOGS = f'{DETAIL_LOGS} | ia_agent_id != ""'
@@ -1140,7 +1140,7 @@ add(
         "Trazas del issue (una por evento)",
         "Cada evento que llegó para el issue y todo lo que causó. Click en el trace id → el árbol "
         "completo: evento → pipeline → agente → requests al modelo y tools.",
-        '{ name =~ "event .*" && span.ia.issue = "$issue" }',
+        '{ name =~ "event .*" && span.ia.issue =~ "${issue:pipe}" }',
         limit=100,
     ),
     0,
@@ -1153,7 +1153,7 @@ add(
         "Agentes que terminaron (spans) — salida, outcome, provider",
         "Un span por paso de agente, cuando termina: salida elegida, quién la eligió (`exit_origin`), "
         "outcome, provider y duración. Un agente en curso todavía no tiene span (ver la tabla de arriba).",
-        '{ span.ia.step.kind = "agent" && span.ia.issue = "$issue" && span.ia.agent.id =~ "$agent" }'
+        '{ span.ia.step.kind = "agent" && span.ia.issue =~ "${issue:pipe}" && span.ia.agent.id =~ "${agent:pipe}" }'
         " | select(span.ia.agent.id, span.ia.agent.exit, span.ia.agent.exit_origin, span.ia.agent.outcome,"
         " span.ia.agent.provider, span.ia.pipeline.id, span.ia.execution.id, status, duration)",
         table_type="spans",
@@ -1176,7 +1176,7 @@ add(
     tempo_search(
         "Requests al modelo",
         "Cada request a la API: agente, modelo, tokens y por qué terminó.",
-        '{ span.gen_ai.operation.name = "chat" && span.ia.issue = "$issue" && span.ia.agent.id =~ "$agent" }'
+        '{ span.gen_ai.operation.name = "chat" && span.ia.issue =~ "${issue:pipe}" && span.ia.agent.id =~ "${agent:pipe}" }'
         " | select(span.ia.agent.id, span.gen_ai.request.model, span.gen_ai.usage.input_tokens,"
         " span.gen_ai.usage.output_tokens, span.gen_ai.usage.cache_read_input_tokens,"
         " span.gen_ai.response.finish_reasons, duration)",
@@ -1232,6 +1232,8 @@ add(
 
 
 def tempo_values(name, label, attribute, filter_="", all_=False):
+    # multi: varios valores a la vez; las queries los usan como regex con `${var:pipe}` (`a|b`, sin
+    # escapar: el formato por defecto de un multi sería `{a,b}`, que LogQL/TraceQL no entienden).
     var = {
         "name": name,
         "label": label,
@@ -1247,6 +1249,7 @@ def tempo_values(name, label, attribute, filter_="", all_=False):
         "refresh": 2,
         "sort": 1,
         "allowCustomValue": True,
+        "multi": True,
         "current": {},
     }
     if all_:
@@ -1309,7 +1312,7 @@ dashboard = {
                 "agent",
                 "Agente",
                 "ia.agent.id",
-                '{ span.ia.issue = "$issue" }',
+                '{ span.ia.issue =~ "${issue:pipe}" }',
                 all_=True,
             ),
             # Texto, no lista: una ejecución en curso (o vieja) no está entre los valores de Tempo y
