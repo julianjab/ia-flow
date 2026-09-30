@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
+import IngressPanel from '@/features/ingress/IngressPanel.vue';
 </script>
 
 <template>
-  <WebhookStatusCard />
+  <IngressPanel />
 </template>

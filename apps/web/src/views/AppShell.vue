@@ -35,7 +35,7 @@ const host = computed(() => {
 const LINKS = [
   { to: { name: 'inbox' }, label: 'Bandeja', hint: 'lo que te necesita' },
   { to: { name: 'config' }, label: 'Config', hint: 'pipelines, agentes, providers' },
-  { to: { name: 'webhooks' }, label: 'Webhooks', hint: 'qué llega de GitHub' },
+  { to: { name: 'webhooks' }, label: 'Webhooks', hint: 'qué llega de GitHub y Slack' },
   { to: '/servers', label: 'Servidores', hint: 'cambiar de runner' },
 ] as const;
 

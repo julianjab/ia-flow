@@ -17,7 +17,7 @@ src/
 ├── router/             Vue Router (SPA)
 ├── views/              Páginas del router. SOLO composición — sin fetch ni lógica de negocio.
 │
-├── features/<dominio>/ La unidad real de la app. Hoy: inbox (la bandeja), assistant, github-login, servers, webhook-status
+├── features/<dominio>/ La unidad real de la app. Hoy: inbox (la bandeja), assistant, config, ingress (las entradas del runner: webhook de GitHub, Slack), github-login, servers
 │   ├── api.ts            Llamadas HTTP del dominio + `.parse()` de la respuesta
 │   ├── store.ts          Pinia composition store (sólo si el estado se comparte/sobrevive nav)
 │   └── *.vue             Componentes del dominio (+ subcarpetas: tabs/, sources/, providerForms/)
