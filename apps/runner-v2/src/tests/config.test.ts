@@ -297,18 +297,28 @@ describe('reviewer', () => {
 })
 
 describe('runner.yaml → slack.users', () => {
-  it('maps a GitHub login to its Slack user, and is empty when absent', () => {
-    expect(loadRunnerConfig(CONFIG_DIR).slack.users).toBeDefined()
-    const dir = configCopy({
-      'runner.yaml': (s) => `${s}\nslack:\n  users:\n    julianjab: { id: U123, name: juli }\n`,
+  const ENTRY = 'julianjab: { id: U02M1QFA0AF, name: julianjab }'
+
+  it('maps a GitHub login to its Slack user', () => {
+    expect(loadRunnerConfig(CONFIG_DIR).slack.users.julianjab).toEqual({
+      id: 'U02M1QFA0AF',
+      name: 'julianjab',
     })
-    expect(loadRunnerConfig(dir).slack.users).toEqual({ julianjab: { id: 'U123', name: 'juli' } })
+    const dir = configCopy({
+      'runner.yaml': (s) => s.replace(ENTRY, 'ana: { id: U123, name: ana }'),
+    })
+    expect(loadRunnerConfig(dir).slack.users).toEqual({ ana: { id: 'U123', name: 'ana' } })
+  })
+
+  it('is empty without the section', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) => s.replace(/^slack:\n {2}users:\n {4}.*\n/m, ''),
+    })
+    expect(loadRunnerConfig(dir).slack.users).toEqual({})
   })
 
   it('rejects a user without its Slack id', () => {
-    const dir = configCopy({
-      'runner.yaml': (s) => `${s}\nslack:\n  users:\n    julianjab: { name: juli }\n`,
-    })
+    const dir = configCopy({ 'runner.yaml': (s) => s.replace(ENTRY, 'julianjab: { name: juli }') })
     expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido/)
   })
 })
