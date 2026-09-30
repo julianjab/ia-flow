@@ -192,6 +192,22 @@ describe('InboxBoard', () => {
     expect(close).toHaveBeenCalled()
   })
 
+  it('arriba, los links al Project y a su board en GitHub', async () => {
+    const url = 'https://github.com/orgs/acme/projects/1'
+    getInbox.mockResolvedValue({
+      ...inbox([need]),
+      projects: [
+        { id: 'core', board: { owner: 'acme', number: 1 }, url, board_url: `${url}/views/3` },
+      ],
+    })
+    const { wrapper } = await mountBoard()
+    const links = wrapper.findAll('.tb__link')
+    expect(links.map((l) => [l.text(), l.attributes('href')])).toEqual([
+      ['Proyecto ↗', url],
+      ['Board ↗', `${url}/views/3`],
+    ])
+  })
+
   it('trae la leyenda «Cómo se decide cada grupo»', async () => {
     getInbox.mockResolvedValue(inbox([]))
     const { wrapper } = await mountBoard()
