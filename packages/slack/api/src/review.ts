@@ -51,6 +51,15 @@ export function mapAssigneesToSlack(
   return { members, unmapped }
 }
 
+/** El login de GitHub de quien escribió en Slack (`slackId`), o `undefined` si no está en `directory`:
+ *  la inversa de `mapAssigneesToSlack`, sobre el mismo mapa. */
+export function githubLoginOf(
+  slackId: string,
+  directory: SlackUserDirectory | undefined,
+): string | undefined {
+  return Object.entries(directory ?? {}).find(([, member]) => member.id === slackId)?.[0]
+}
+
 export interface SlackReviewTarget {
   channel?: string
   reviewers: SlackMemberRef[]

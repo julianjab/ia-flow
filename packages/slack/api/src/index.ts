@@ -12,6 +12,7 @@ export {
   buildSlackReviewMessage,
   compactSlackReviewMessage,
   DEFAULT_SLACK_REVIEW_MESSAGES,
+  githubLoginOf,
   mapAssigneesToSlack,
   renderMentions,
   resolveSlackReviewTarget,
