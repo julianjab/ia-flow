@@ -139,9 +139,9 @@ export class SqliteActivity implements ActivityPort {
       .map(toEntry)
   }
 
-  trace(executionId: string, limit: number): TraceEntry[] {
+  trace(executionId: string, limit?: number): TraceEntry[] {
     const all = this.reader.trace(executionId)
-    return all.slice(-limit).map(toTraceEntry)
+    return (limit === undefined ? all : all.slice(-limit)).map(toTraceEntry)
   }
 
   /** El último evento de dominio (el que armó el intake, con su payload) que el engine despachó. */

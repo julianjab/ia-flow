@@ -25,7 +25,8 @@ export interface ActivityPort {
   eventsForTask(taskRef: string, limit: number): EventLogEntry[]
   /** Lo último que llegó al runner (de un proyecto, o de todos). */
   recentEvents(limit: number, projectId?: string): EventLogEntry[]
-  trace(executionId: string, limit: number): TraceEntry[]
+  /** En orden; con `limit`, las últimas. */
+  trace(executionId: string, limit?: number): TraceEntry[]
   /** El último evento de la task que el engine despachó, con su payload. */
   lastDispatchedEvent(taskRef: string): StoredEvent | undefined
 }
