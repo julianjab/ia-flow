@@ -15,7 +15,7 @@ vi.mock('@/features/inbox/api', () => ({
 import BoardRest from '../BoardRest.vue'
 import { useInboxStore } from '../store'
 
-const row = (ref: string, status: string, foreign = false) => ({
+const row = (ref: string, status: string) => ({
   ref,
   project_id: 'p',
   title: `título ${ref}`,
@@ -23,12 +23,11 @@ const row = (ref: string, status: string, foreign = false) => ({
   status,
   labels: [],
   updated_at: '2026-09-30T10:00:00Z',
-  foreign,
 })
 const rest: Rest = {
   columns: [
     { status: 'Backlog', items: [row('o/r#1', 'Backlog')] },
-    { status: 'Todo', items: [row('o/r#2', 'Todo'), row('o/r#3', 'Todo', true)] },
+    { status: 'Todo', items: [row('o/r#2', 'Todo'), row('o/r#3', 'Todo')] },
   ],
 }
 
@@ -58,18 +57,14 @@ describe('BoardRest', () => {
     expect(getBoardRest).toHaveBeenCalledOnce()
   })
 
-  it('abierto, cuenta por columna y deja afuera las de otros engines hasta que se piden', async () => {
+  it('abierto, cuenta por columna todas las cards del board', async () => {
     const w = render()
     await openIt(w)
-    expect(w.get('summary').text()).toContain('2 cards · Backlog 1 · Todo 1')
-    expect(w.text()).not.toContain('o/r#3')
-    await w.get('[data-test="foreign"]').trigger('click')
-    expect(w.get('summary').text()).toContain('3 cards')
-    // La de otro engine se abre en GitHub: este runner no la toca.
-    expect(w.find('a.br__row').attributes('href')).toBe('https://github.com/o/r#3')
+    expect(w.get('summary').text()).toContain('3 cards · Backlog 1 · Todo 2')
+    expect(w.text()).toContain('o/r#3')
   })
 
-  it('una card propia se abre en grande', async () => {
+  it('una card se abre en grande', async () => {
     const w = render()
     await openIt(w)
     await w.get('[data-test="rest-o/r#1"]').trigger('click')

@@ -27,7 +27,6 @@ import { TaskActions } from './TaskActions.js'
 
 const TOKEN = 'runner-secret'
 const settings = InboxSection.parse({})
-const projectLabels = new Map([['p', 'blocked']])
 
 const cards: BoardCard[] = [
   {
@@ -36,8 +35,7 @@ const cards: BoardCard[] = [
     title: 'Mergeable',
     url: 'https://github.com/o/r/issues/1',
     status: 'Review',
-    // `blocked` es el label del proyecto: marca que la card es de este runner.
-    labels: ['reviewed', 'blocked'],
+    labels: ['reviewed'],
     updatedAt: '2026-09-29T11:00:00Z',
     blockedBy: [],
     pr: { number: 9, url: 'https://github.com/o/r/pull/9' },
@@ -109,7 +107,6 @@ function assistantFor(inbox: InboxService, conversations: SqliteConversationStor
     activity,
     config: () => ({ projects: [], pipelines: [], agents: [], providers: [], mcp: [] }),
     status: () => ({}),
-    projectLabels,
   })
   const [definition] = [assistantActions].flat()
   const actions = definition?.create({ services: { assistant: desk } } as ActionContext) as Action[]
@@ -149,7 +146,6 @@ async function start(token: string | null = TOKEN, push = true, mergeableState =
     actions: new TaskActions({
       inbox,
       boards: new Map([['p', { owner: 'o', number: 1 }]]),
-      projectLabels,
       settings,
       redispatch: async () => 'ok',
       rerunReview: async (ref) => `review de ${ref}`,
@@ -393,29 +389,6 @@ describe('runner API', () => {
     })
     expect(await res.text()).toContain('"text":"Nada raro."')
     expect(refused).toMatch(/answer/)
-    fakeProvider.run = defaultRun
-  })
-
-  it('the assistant never sees the project label, so it cannot read it as a block', async () => {
-    const { call } = await start()
-    let read = ''
-    fakeProvider.run = async (ctx) => {
-      read = String(await tool(ctx, 'assistant_get_task').handler({ ref: 'o/r#1' }))
-      read += String(await tool(ctx, 'assistant_list_tasks').handler({}))
-      await tool(ctx, 'submit_done').handler({ result: { answer: 'ok' } })
-      return { outcome: 'success' }
-    }
-    await (
-      await call('/api/assistant', {
-        method: 'POST',
-        body: JSON.stringify({
-          scope: { kind: 'task', ref: 'o/r#1' },
-          messages: [{ role: 'user', content: 'x' }],
-        }),
-      })
-    ).text()
-    expect(read).toContain('"reviewed"')
-    expect(read).not.toContain('"blocked"')
     fakeProvider.run = defaultRun
   })
 

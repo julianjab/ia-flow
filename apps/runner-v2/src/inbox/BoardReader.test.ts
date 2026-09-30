@@ -73,13 +73,11 @@ describe('toBoardCard', () => {
     })
   })
 
-  it('skips closed issues and archived items; marks the cards of another engine', () => {
+  it('skips closed issues and archived items', () => {
     const spec = { projectId: 'p', board: { owner: 'la-haus', number: 119 } }
     expect(toBoardCard(item({ state: 'CLOSED' }), spec)).toBeUndefined()
     expect(toBoardCard(item({}, { isArchived: true }), spec)).toBeUndefined()
-    // Sin la label del proyecto no se descarta: es de otro engine.
-    expect(toBoardCard(item({}), { ...spec, label: 'ia-flow' })).toMatchObject({ foreign: true })
-    expect(toBoardCard(item({}), { ...spec, label: 'blocked' })?.foreign).toBeUndefined()
+    expect(toBoardCard(item({}), spec)).toMatchObject({ ref: expect.any(String) })
   })
 })
 
@@ -192,45 +190,5 @@ describe('TaskActions', () => {
       'POST https://api.github.com/repos/o/r/issues/1/comments',
       'DELETE https://api.github.com/repos/o/r/issues/1/labels/blocked',
     ])
-  })
-
-  it('never takes off the blocked label when it is the label that marks the project', async () => {
-    const calls: string[] = []
-    const actions = new TaskActions({
-      inbox: {
-        item: async () => ({
-          ref: 'o/r#1',
-          project_id: 'p',
-          title: 't',
-          url: 'u',
-          group: 'need',
-          kind: 'doubt',
-          labels: ['blocked'],
-          why: 'duda',
-          since: '',
-          actions: ['answer_and_unblock'],
-        }),
-      },
-      boards: new Map(),
-      projectLabels: new Map([['p', 'blocked']]),
-      settings: InboxSection.parse({}),
-      redispatch: async () => 'ok',
-      rerunReview: async () => 'ok',
-      stop: () => 'ok',
-      changed: () => {},
-      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
-        calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
-        return Response.json(
-          String(input).endsWith('/repos/o/r') ? { permissions: { push: true } } : {},
-        )
-      }) as typeof fetch,
-    })
-    const done = await actions.run(
-      'o/r#1',
-      { action: 'answer_and_unblock', comment: 'Sólo upgrades.' },
-      { token: 't', login: 'julian' },
-    )
-    expect(done.message).toBe('comentado')
-    expect(calls.some((call) => call.startsWith('DELETE'))).toBe(false)
   })
 })

@@ -108,15 +108,6 @@ describe('InboxService', () => {
     ])
   })
 
-  it('cards of another engine stay out of the inbox, the actions and the tasks', async () => {
-    const { inbox } = service(
-      [card('o/r#1', { status: 'Refined' }), card('o/r#2', { status: 'Refined', foreign: true })],
-      fakeActivity(),
-    )
-    expect((await inbox.inbox()).items.map((item) => item.ref)).toEqual(['o/r#1'])
-    expect(await inbox.item('o/r#2')).toBeUndefined()
-  })
-
   it('the rest of the board: what the inbox does not show, by column in board order, newest first', async () => {
     const meta: BoardMeta = {
       url: 'https://github.com/orgs/la-haus/projects/1',
@@ -127,7 +118,7 @@ describe('InboxService', () => {
       [
         card('o/r#1', { status: 'Refined' }),
         card('o/r#2', { status: 'Todo', updatedAt: '2026-09-28T00:00:00Z' }),
-        card('o/r#3', { status: 'Todo', updatedAt: '2026-09-29T00:00:00Z', foreign: true }),
+        card('o/r#3', { status: 'Todo', updatedAt: '2026-09-29T00:00:00Z' }),
         card('o/r#4', { status: 'Backlog' }),
         card('o/r#5', { status: undefined }),
       ],
@@ -142,7 +133,6 @@ describe('InboxService', () => {
       ['Todo', ['o/r#3', 'o/r#2']],
       ['Sin status', ['o/r#5']],
     ])
-    expect(rest.columns[1]?.items[0]).toMatchObject({ foreign: true })
     expect((await inbox.inbox()).projects[0]).toMatchObject({ board_url: meta.boardUrl })
   })
 

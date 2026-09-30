@@ -143,14 +143,6 @@ describe('classify', () => {
     expect(crash).toMatchObject({ group: 'fail', kind: 'crash', actions: ['retry'] })
   })
 
-  it('the blocked label means nothing when it is also the project label', () => {
-    const result = classify(card({ labels: ['blocked'] }), idle, {
-      ...options,
-      projectLabel: 'blocked',
-    })
-    expect(result).toBeUndefined()
-  })
-
   it('Refine or Build with no movement for staleHours is stale', () => {
     const stale = classify(card({ updatedAt: '2026-09-28T10:00:00Z' }), idle, options)
     expect(stale).toMatchObject({ group: 'need', kind: 'stale', actions: ['relaunch'] })
