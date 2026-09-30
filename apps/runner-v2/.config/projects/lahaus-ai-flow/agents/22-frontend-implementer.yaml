@@ -50,6 +50,9 @@ actions:
   - reply_pr_review_thread
   - resolve_pr_review_thread
   - create_github_issue
+  # Contesta en el hilo de Slack del pedido de review cuando el cambio lo pidieron por ahí
+  # (`{{replyInstructions}}` de `50-comment.yaml`); un comentario de GitHub no la usa.
+  - slack_post_message
   - add_to_project
   - mark_blocked_by
   - list_sub_issues_brief

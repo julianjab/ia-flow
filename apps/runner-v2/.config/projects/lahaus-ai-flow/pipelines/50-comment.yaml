@@ -101,7 +101,9 @@ do:
 
       Aplicá exactamente lo que pide y pusheá; no rehagas lo que ya está bien.
       Si el PR ya estaba aprobado, al arrancar se sacó `reviewed`: tu próximo
-      push vuelve a pasar por el reviewer. Si el pedido toca un cambio de
+      push vuelve a pasar por el reviewer.
+      {{replyInstructions}}
+      Si el pedido toca un cambio de
       diseño, releé el Figma linkeado con `get_figma_data` en vez de asumirlo.
   - agent: implementer
     when:
@@ -118,3 +120,4 @@ do:
       Aplicá exactamente lo que pide y pusheá; no rehagas lo que ya está bien.
       Si el PR ya estaba aprobado, al arrancar se sacó `reviewed`: tu próximo
       push vuelve a pasar por el reviewer.
+      {{replyInstructions}}

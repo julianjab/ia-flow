@@ -48,6 +48,9 @@ actions:
   # documenta el arreglo como un issue nuevo, lo sube al board y marca la
   # tarea actual como bloqueada por él.
   - create_github_issue
+  # Contesta en el hilo de Slack del pedido de review cuando el cambio lo pidieron por ahí
+  # (`{{replyInstructions}}` de `50-comment.yaml`); un comentario de GitHub no la usa.
+  - slack_post_message
   - add_to_project
   - mark_blocked_by
   # Índice compacto de sub-issues, sin bodies — el `list_sub_issues` del

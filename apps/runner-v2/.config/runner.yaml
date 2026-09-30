@@ -162,6 +162,16 @@ sources:
       do:
         - action: resolve_task
 
+    # La respuesta de una persona en el hilo de un pedido de review (Socket Mode, `SLACK_APP_TOKEN`):
+    # `resolve_task` la lleva a su task —el issue y el PR salen del mensaje que abrió el hilo— y la
+    # publica como un comentario del issue, que atiende `50-comment.yaml` como cualquier otro.
+    - id: intake-slack
+      on: [slack.message]
+      when:
+        - { field: isThreadReply, op: eq, value: true }
+      do:
+        - action: resolve_task
+
     # Un PR mergeado destraba las tasks que su issue bloqueaba (`mark_blocked_by`):
     # cada una que quedó sin otro blocker abierto recibe `issue.unblocked`, y la
     # pipeline de reentrada de su columna la retoma.
