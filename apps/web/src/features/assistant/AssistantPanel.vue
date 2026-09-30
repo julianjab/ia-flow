@@ -107,6 +107,7 @@ function run(id: number) {
           :error="turn.error"
           @run="run(turn.id)"
           @dismiss="chat.dismissProposal(turn.id)"
+          @open="openTask"
         />
 
         <AssistantTaskList v-else-if="turn.kind === 'tasks'" :items="turn.items" @open="openTask" />

@@ -13,7 +13,7 @@ defineProps<{
   error?: string;
 }>();
 
-const emit = defineEmits<{ (e: 'run'): void; (e: 'dismiss'): void }>();
+const emit = defineEmits<{ (e: 'run'): void; (e: 'dismiss'): void; (e: 'open', ref: string): void }>();
 
 const session = useGithubSessionStore();
 </script>
@@ -21,7 +21,13 @@ const session = useGithubSessionStore();
 <template>
   <div class="pc" :data-status="status">
     <p class="uc-label pc__kind">acción propuesta</p>
-    <p class="pc__what"><strong>{{ proposal.label }}</strong> <span class="mono">{{ proposal.ref }}</span></p>
+    <p class="pc__what">
+      <strong>{{ proposal.label }}</strong>
+      <!-- La tarea de la propuesta no se repite como card: su ref la abre en la bandeja. -->
+      <button type="button" class="pc__ref mono" :data-test="`open-${proposal.ref}`" @click="emit('open', proposal.ref)">
+        {{ proposal.ref }} →
+      </button>
+    </p>
     <!-- Lo dijo el modelo: `--fg-mute`, nunca un color de estado (R16). -->
     <p class="pc__why"><span class="pc__ai" aria-hidden="true">✦</span> {{ proposal.reason }}</p>
     <blockquote v-if="proposal.comment" class="pc__comment">{{ proposal.comment }}</blockquote>
@@ -62,7 +68,10 @@ const session = useGithubSessionStore();
 .pc[data-status='past'] { border-color: var(--border); opacity: 0.7; }
 .pc p { margin: 0; overflow-wrap: anywhere; }
 .pc__kind { color: var(--fg-dim); }
-.pc__what { color: var(--fg); }
+.pc__what { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; color: var(--fg); }
+/* Link de texto en la línea: el blanco táctil lo da el alto (R1), no una caja. */
+.pc__ref { min-height: var(--tap-h); padding: 0; border: 0; background: none; color: var(--info); font-size: var(--fs-body-sm); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.pc__ref:hover { text-decoration: underline; }
 .pc__why { color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.45; }
 .pc__ai { color: var(--ai); }
 .pc__comment { margin: 0; padding: 0.4rem 0.6rem; border-left: 2px solid var(--ai); background: var(--panel); color: var(--fg-mute); font-size: var(--fs-body-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
