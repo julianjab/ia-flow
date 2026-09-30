@@ -155,4 +155,62 @@ describe('Agent with several provider candidates', () => {
     expect(tmux.runs).toEqual([])
     expect(api.runs[0]?.resume?.conversation).toEqual({ sessionId: 's' })
   })
+
+  describe('a wildcard (remote:*)', () => {
+    it('expands to the registered providers it covers, in order, with its config; the next candidate is the fallback', async () => {
+      const a = provider('remote:a', {
+        canAccept: async () => ({ accept: false, reason: 'lleno', retryAfterMs: 5 }),
+      })
+      const b = provider('remote:b')
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry()
+        .register(a.provider)
+        .register(api.provider)
+        .register(b.provider)
+      const implementer = agent(registry, [
+        { id: 'remote:*', config: { model: 'opus' } },
+        { id: 'anthropic-api' },
+      ])
+
+      const result = await implementer.run(ctx())
+
+      expect(result.provider).toBe('remote:b')
+      expect(b.runs[0]?.providerConfig).toEqual({ model: 'opus' })
+      expect(api.runs).toEqual([])
+    })
+
+    it('with none registered, falls to the next candidate', async () => {
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry().register(api.provider)
+      const result = await agent(registry, [{ id: 'remote:*' }, { id: 'anthropic-api' }]).run(ctx())
+      expect(result.provider).toBe('anthropic-api')
+    })
+
+    it('alone and with none registered, waits until one registers', async () => {
+      const registry = new ProviderRegistry()
+      let chosen: string | undefined
+      void agent(registry, [{ id: 'remote:*' }])
+        .run(ctx())
+        .then((result) => {
+          chosen = result.provider
+        })
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:laptop').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBe('remote:laptop')
+    })
+
+    it('a provider that unregisters stops being a candidate', async () => {
+      const registry = new ProviderRegistry()
+        .register(provider('remote:gone').provider)
+        .register(provider('remote:here').provider)
+      registry.unregister('remote:gone')
+      const result = await agent(registry, [{ id: 'remote:*' }]).run(ctx())
+      expect(result.provider).toBe('remote:here')
+      expect(registry.list().map((p) => p.id)).toEqual(['remote:here'])
+    })
+  })
 })
