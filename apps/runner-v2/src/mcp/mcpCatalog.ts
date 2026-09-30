@@ -7,7 +7,7 @@ import type { McpServerRef } from '@ia-flow/agent-engine'
 import type { GithubAuth } from '@ia-flow/github-auth'
 import type { McpEntry } from '../config/RunnerConfig.js'
 
-async function interpolate(value: string, resolveSecret: (name: string) => Promise<string>) {
+export async function interpolate(value: string, resolveSecret: (name: string) => Promise<string>) {
   let out = value
   for (const match of value.matchAll(/\$\{([A-Z0-9_]+)\}/g)) {
     out = out.replace(match[0], await resolveSecret(match[1] as string))
@@ -48,12 +48,34 @@ async function probeMcp(url: string, authorizationToken?: string): Promise<strin
   }
 }
 
+/** Por qué un servidor no está (o `undefined` si responde). Uno propio (`hosted`) se prueba contra
+ *  su proceso, sin auth — el bearer lo valida el runner —, no contra su URL pública: es este mismo
+ *  runner, que al resolver el catálogo todavía no escucha. */
+async function probeEntry(
+  entry: McpEntry,
+  url: string,
+  token: string | undefined,
+  hostedUpstream: (id: string) => string | undefined,
+): Promise<string | undefined> {
+  const hosted = entry.config.hosted
+  if (!hosted) {
+    const down = await probeMcp(url, token)
+    return down ? ` no responde (${down})` : undefined
+  }
+  const local = hostedUpstream(hosted)
+  if (!local) return `: el mcpHost "${hosted}" no está publicado`
+  const down = await probeMcp(local)
+  return down ? ` no responde (${down})` : undefined
+}
+
 /** Los servidores que responden, por id. Uno caído o sin su secreto queda en `warnings` y fuera
  *  del catálogo: el agente que lo nombra corre sin él. */
 export async function resolveMcpCatalog(
   entries: McpEntry[],
   auth: GithubAuth,
   warnings: string[],
+  /** La URL local de un `mcpHost` (`config.hosted`): contra ella se prueba el servidor. */
+  hostedUpstream: (id: string) => string | undefined = () => undefined,
 ): Promise<Record<string, McpServerRef>> {
   const resolveSecret = async (name: string) => {
     if (name === 'GITHUB_TOKEN') return auth.getToken()
@@ -71,9 +93,9 @@ export async function resolveMcpCatalog(
       const url = await interpolate(entry.config.url, resolveSecret)
       const tokenTemplate = entry.config.authorizationToken
       const token = tokenTemplate ? await interpolate(tokenTemplate, resolveSecret) : undefined
-      const down = await probeMcp(url, token)
+      const down = await probeEntry(entry, url, token, hostedUpstream)
       if (down) {
-        warnings.push(`mcp "${entry.id}" no responde (${down}) — los agentes corren sin él`)
+        warnings.push(`mcp "${entry.id}"${down} — los agentes corren sin él`)
         continue
       }
       // El token se vuelve a resolver en cada request (el provider acepta una función): el

@@ -37,6 +37,7 @@ import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
+import type { McpHost } from './mcp/mcpHost.js'
 import { withScope } from './projects/withScope.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
@@ -50,6 +51,8 @@ export interface MountOptions {
   textClassifier?: TextClassifier
   /** Dónde queda cada evento despachado (`storage/activityStore.ts`). */
   dispatchJournal?: DispatchJournal
+  /** Los MCP que levantó este runner (`mcpHost:`): los `mcp` con `hosted` se prueban contra ellos. */
+  mcpHost?: McpHost
   /** Sólo tests: la API de GitHub la contesta `githubFetch` (con un token de prueba), no se
    *  resuelven los MCP y las ejecuciones van a `storeDriver` en vez del driver de runner.yaml. */
   testing?: { githubFetch: typeof fetch; storeDriver: StoreDriver }
@@ -146,7 +149,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   })
   const mcpServers: Record<string, McpServerRef> = opts.testing
     ? {}
-    : await resolveMcpCatalog(cfg.mcp, auth, warnings)
+    : await resolveMcpCatalog(cfg.mcp, auth, warnings, (id) => opts.mcpHost?.upstreamOf(id))
 
   const { workspace, session } = mountWorkspace({
     ...(opts.workspaceDir ? { root: opts.workspaceDir } : {}),

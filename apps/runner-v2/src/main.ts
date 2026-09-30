@@ -26,6 +26,7 @@ import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/Ru
 import { startHeartbeat } from './heartbeat.js'
 import { hostTelemetryIngest } from './hostTelemetry.js'
 import { mountInbox } from './inbox/mountInbox.js'
+import { type McpHost, startMcpHost } from './mcp/mcpHost.js'
 import { hostSettings, type MountedHost, mountHost } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { listenHosts, mountRemoteHosts, nodeHandler } from './providers/remoteHosts.js'
@@ -67,7 +68,9 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
   for (const line of mounted.warnings) console.log(`→ aviso: ${line}`)
 }
 
-const VERSION = '0.1.0'
+/** La del bundle publicado (`scripts/package-release.ts` la fija con `--define`); desde el árbol
+ *  de trabajo, `dev`. */
+const VERSION = process.env.IA_FLOW_RUNNER_VERSION ?? 'dev'
 
 /** Un número positivo de un env var, o el default. */
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -93,6 +96,7 @@ async function startServing(
   cfg: RunnerConfig,
   telemetry: Telemetry,
   store: ActivityStore,
+  mcpHost: McpHost | undefined,
   log: (line: string) => void,
 ): Promise<void> {
   registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
@@ -124,7 +128,10 @@ async function startServing(
       },
     },
     api: {
-      handle: async (req, res) => (await hostsApi.handle(req, res)) || inbox.api.handle(req, res),
+      handle: async (req, res) =>
+        (await mcpHost?.handle(req, res)) ||
+        (await hostsApi.handle(req, res)) ||
+        inbox.api.handle(req, res),
     },
     onDelivery: () => inbox.board.invalidate(),
     onIgnored: (event, reason) => store.ignored(event, reason),
@@ -138,6 +145,7 @@ async function startServing(
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       stopHeartbeat()
+      mcpHost?.close()
       hosts.close()
       inbox.close()
       mounted.stop()
@@ -256,15 +264,23 @@ async function main(): Promise<'serving' | 'done'> {
     `→ config: ${configDir} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
   )
 
+  // Los MCP propios arrancan antes que el catálogo: el que los nombra (`hosted`) los prueba vivos.
+  const mcpHost =
+    args.serve && Object.keys(cfg.mcpHost).length > 0
+      ? await startMcpHost(cfg.mcpHost, { log })
+      : undefined
+  await mcpHost?.ready()
+
   const mounted = await mountRunner(cfg, {
     workspaceDir: process.env.WORKSPACE_DIR,
     log,
     dispatchJournal: store.dispatchJournal,
+    ...(mcpHost ? { mcpHost } : {}),
   })
   reportBoot(mounted, envReport)
 
   if (args.serve) {
-    await startServing(mounted, cfg, started, store, log)
+    await startServing(mounted, cfg, started, store, mcpHost, log)
     return 'serving'
   }
   try {

@@ -30,6 +30,7 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { EngineSection } from '../engine/mountEngine.js'
 import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
+import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
 import {
   DEFAULT_WORKING_MARKER,
   type WorkingMarker,
@@ -45,6 +46,9 @@ const McpEntrySchema = z.strictObject({
     url: z.string().optional(),
     /** Con `${VAR}`: se resuelve del ambiente (y `${GITHUB_TOKEN}` es el token de la App). */
     authorizationToken: z.string().optional(),
+    /** El id de un `mcpHost` de este runner: se prueba contra su proceso local y no contra `url`
+     *  (la pública, que es este mismo runner y todavía no escucha al resolver el catálogo). */
+    hosted: z.string().min(1).optional(),
   }),
 })
 export type McpEntry = z.infer<typeof McpEntrySchema>
@@ -178,6 +182,9 @@ export const RunnerFileSchema = z.strictObject({
     })
     .optional(),
   mcp: z.array(McpEntrySchema).default([]),
+  /** Los MCP que levanta el runner y publica en `/mcp/<id>` de su puerto (`mcp/mcpHost.ts`), por
+   *  id. Sólo con `--serve`. Para que un agente los use, van también en `mcp` con `hosted: <id>`. */
+  mcpHost: z.record(z.string().regex(/^[a-z0-9-]+$/), McpHostEntrySchema).default({}),
   /** Cómo corre el engine (`engine/mountEngine.ts`). */
   engine: EngineSection.default({}),
   /** La bandeja de la web (`inbox/InboxSection.ts`). */
@@ -242,6 +249,7 @@ export interface RunnerConfig {
   providers: Record<string, Record<string, unknown>>
   host: NonNullable<RunnerFile['host']>
   mcp: McpEntry[]
+  mcpHost: Record<string, McpHostEntry>
   engine: EngineSection
   inbox: InboxSettings
   /** Los módulos de las actions globales. */
@@ -392,6 +400,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     providers: file.providers,
     host: file.host ?? {},
     mcp: file.mcp,
+    mcpHost: file.mcpHost,
     engine: file.engine,
     inbox: file.inbox,
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),

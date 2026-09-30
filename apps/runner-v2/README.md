@@ -262,6 +262,50 @@ queda su consola; con `OTEL_EXPORTER_OTLP_ENDPOINT` propio, exporta directo a es
 Un `--event` también monta la API de hosts (con `IA_FLOW_HOST_TOKEN`), así un evento suelto puede
 correr un agente `remote:*` — para probar un host sin levantar `--serve`.
 
+## MCP propios (`mcpHost:`)
+
+A los MCP de `mcp:` los llama Anthropic (van en `mcp_servers` de la Messages API), así que tienen
+que ser públicos. Los que no son de un tercero —Figma (`figma-developer-mcp`), la memoria de los
+agentes (`server-memory`)— los levanta el runner con `--serve` y los publica en `/mcp/<id>` de su
+mismo puerto, con un bearer propio por entrada (esos procesos no autentican nada):
+
+```yaml
+mcpHost:
+  figma:
+    command: [figma-developer-mcp, --port, '3333', --host, 127.0.0.1, --skip-image-downloads, --no-telemetry]
+    upstream: http://127.0.0.1:3333/mcp
+    token: ${FIGMA_MCP_TOKEN}          # sin resolver: no se levanta y /mcp/figma responde 503
+  memory:
+    command: [supergateway, --stdio, mcp-server-memory, --outputTransport, streamableHttp,
+              --streamableHttpPath, /mcp, --port, '8931']
+    upstream: http://127.0.0.1:8931/mcp
+    token: ${MEMORY_MCP_TOKEN}
+    env: { MEMORY_FILE_PATH: /state/memory.json }
+
+mcp:
+  - id: memory-mcp
+    config:
+      type: http
+      url: https://<runner público>/mcp/memory
+      authorizationToken: ${MEMORY_MCP_TOKEN}
+      hosted: memory                   # se prueba contra su proceso, no contra la URL pública
+```
+
+Cada proceso se relanza si se cae; cinco caídas de menos de 10 s seguidas y queda caído (el
+agente que lo nombra corre sin él, los webhooks siguen). `bun run memory-mcp` sigue sirviendo
+para correrlo aparte, en local, detrás de un túnel.
+
+## El bundle publicado (`ia-flow-runner.js`)
+
+Cada release adjunta el runner como un solo archivo (`bun run release:package`,
+`scripts/package-release.ts`), construido y probado con Bun **1.4.2**. La config no va adentro:
+la trae cada deploy (`RUNNER_CONFIG_DIR` o `--config`), en cualquier carpeta. Sus actions
+importan `@ia-flow/*` y `zod`, y el bundle se los sirve como módulos virtuales
+(`src/dist/modules.ts`) — con las mismas instancias que usa el runner. Un paquete que no esté en
+esa lista rompe el arranque del deploy; `dist-modules.test.ts` lo avisa antes contra esta `.config`.
+
+`GET /health` contesta 200 mientras el proceso vive: es la probe de k8s y del balanceador.
+
 ## Tareas bloqueadas por otras (`mark_blocked_by`)
 
 Una card con prerrequisitos abiertos no corre sus agentes (las pipelines filtran
@@ -276,7 +320,8 @@ catálogo, no sólo de `claw-agents`.
 ## Lo que no se portó del ejemplo
 
 - Las tools `memory_*` del implementer: la memoria es el MCP oficial (`memory-mcp` en
-  `runner.yaml`, `bun run memory-mcp`), no tools nativas.
+  `runner.yaml`: en un deploy, `mcpHost.memory`; en local, `bun run memory-mcp`), no tools
+  nativas.
 - Los `settings` del runner v1 (`apps/server`) que este runner no implementa (API, websocket,
   polling): `runner.yaml` sólo acepta lo que se usa. Los hosts remotos sí se portaron (`--host` y
   `remote:*`, arriba): se suscriben solos, sin la pantalla de v1.
