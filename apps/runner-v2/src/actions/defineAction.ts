@@ -1,9 +1,9 @@
 /**
- * El contrato de una action de `.config/`: cada `*.ts` de una carpeta `actions/` exporta por
- * default una definición (o una lista) y el runner la registra en su scope:
+ * El contrato de una action: una definición (o una lista) que el runner registra en su scope:
  *
- *   .config/actions/*.ts                  globales: las ve toda fuente
- *   .config/projects/<id>/actions/*.ts    del proyecto: sólo su fuente, y ganan sobre las globales
+ *   src/actions/builtin/                  las del runner: globales, las ve toda fuente
+ *   <config>/actions/*.ts                 globales propias de un deploy (`sources.actions`)
+ *   <config>/projects/<id>/actions/*.ts   del proyecto: sólo su fuente, y ganan sobre las globales
  *   actions/_lib/                         helpers: no se registran
  *
  * El runner no arma ninguna acción: le da a cada definición lo que monta —los servicios (GitHub,

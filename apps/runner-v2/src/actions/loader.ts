@@ -36,9 +36,26 @@ function isDefinition(value: unknown): value is Definition {
   )
 }
 
-/** Los módulos de un scope (ya resueltos por `RunnerConfig`: archivos, directorios o globs). */
-async function loadScope(files: string[]): Promise<Scope> {
+/** Suma las definiciones de `file` a un scope. Un id repetido rompe el arranque. */
+function register(scope: Scope, definitions: Definition[], file: string): void {
+  for (const definition of definitions) {
+    const registry = (definition.kind === 'action' ? scope.actions : scope.mappers) as Map<
+      string,
+      { definition: Definition; file: string }
+    >
+    const existing = registry.get(definition.id)
+    if (existing) {
+      throw new Error(`${file}: "${definition.id}" ya está definida en ${existing.file}`)
+    }
+    registry.set(definition.id, { definition, file })
+  }
+}
+
+/** Los módulos de un scope (ya resueltos por `RunnerConfig`: archivos, directorios o globs),
+ *  sobre las definiciones que ya trae (`builtin`). */
+async function loadScope(files: string[], builtin: Definition[] = []): Promise<Scope> {
   const scope: Scope = { actions: new Map(), mappers: new Map() }
+  register(scope, builtin, 'el runner (src/actions/builtin)')
   for (const file of files) {
     const exported = ((await import(pathToFileURL(file).href)) as { default?: unknown }).default
     const definitions = [exported].flat()
@@ -47,17 +64,7 @@ async function loadScope(files: string[]): Promise<Scope> {
         `${file}: tiene que exportar por default una definición (defineAction/defineMapper) o una lista`,
       )
     }
-    for (const definition of definitions) {
-      const registry = (definition.kind === 'action' ? scope.actions : scope.mappers) as Map<
-        string,
-        { definition: Definition; file: string }
-      >
-      const existing = registry.get(definition.id)
-      if (existing) {
-        throw new Error(`${file}: "${definition.id}" ya está definida en ${existing.file}`)
-      }
-      registry.set(definition.id, { definition, file })
-    }
+    register(scope, definitions, file)
   }
   return scope
 }
@@ -66,8 +73,10 @@ export async function loadActions(
   globalFiles: string[],
   projects: ProjectConfig[],
   services: RunnerServices,
+  /** Las del runner (`BUILTIN_ACTIONS`): entran al scope global antes que las de la config. */
+  builtin: Definition[] = [],
 ): Promise<LoadedActions> {
-  const global = await loadScope(globalFiles)
+  const global = await loadScope(globalFiles, builtin)
   const own = new Map<string, Scope>()
   for (const project of projects) own.set(project.id, await loadScope(project.actions))
 

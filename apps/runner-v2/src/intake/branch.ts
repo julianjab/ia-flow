@@ -1,6 +1,6 @@
 import { defineCapability, type PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { GithubTaskReader } from '@ia-flow/github-tools'
 import { z } from 'zod'
-import type { GithubTaskReader } from './GithubTaskReader.js'
 
 /**
  * El nombre de la rama de una task, como lo hacía ia-flow: `<feat|fix|chore|refactor|docs>/<slug>`

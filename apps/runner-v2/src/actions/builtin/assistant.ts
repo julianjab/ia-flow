@@ -8,14 +8,14 @@
  * rechaza. Fuera de un pedido al asistente, fallan diciendo por qué.
  */
 import { Action, type PipelineExecutionContext, type ToolInputSchema } from '@ia-flow/agent-engine'
+import { z } from 'zod'
 import {
   ACTION_LABELS,
   type AssistantDesk,
   type AssistantSession,
   asToolResult,
   defineAction,
-} from '@ia-flow/runner-v2/actions'
-import { z } from 'zod'
+} from '../defineAction.js'
 
 const ref = z.string().describe('owner/repo#numero, p.ej. la-haus/subscriptions#420')
 

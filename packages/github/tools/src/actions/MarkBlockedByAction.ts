@@ -1,6 +1,6 @@
 import { Action } from '@ia-flow/agent-engine'
 import { z } from 'zod'
-import type { GithubProjectContext } from './project.js'
+import type { GithubProjectContext } from './repoCatalog.js'
 
 const Input = z.strictObject({
   blocked_issue_id: z.string().min(1).describe('Node id del issue que queda bloqueado'),

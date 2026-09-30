@@ -1,6 +1,6 @@
 import { Action } from '@ia-flow/agent-engine'
 import { z } from 'zod'
-import type { GithubProjectContext } from './project.js'
+import type { GithubProjectContext } from './repoCatalog.js'
 
 const Input = z.strictObject({
   issue_node_id: z

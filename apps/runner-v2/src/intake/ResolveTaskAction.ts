@@ -4,13 +4,13 @@ import {
   deriveEvent,
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
+import { type BoardRef, boardItem, type GithubTaskReader, issueRefs } from '@ia-flow/github-tools'
+import { type EventFields, type Location, locate, mergedPullRequest } from '@ia-flow/github-webhook'
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
-import type { BoardRef, GithubTaskReader } from './GithubTaskReader.js'
-import { type EventFields, type Location, locate, mergedPullRequest } from './locate.js'
 import { eventMessage } from './message.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
-import { boardItem, issueRefs, taskPayload } from './task.js'
+import { taskPayload } from './task.js'
 
 /** Un proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
 export interface ResolveTaskProject {

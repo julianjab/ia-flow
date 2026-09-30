@@ -141,7 +141,7 @@ engine:
 sources:
   # La fuente global: recibe todos los eventos. Son los webhooks crudos de
   # GitHub (`github.<evento>`) → el evento de su task, con `resolve_task`
-  # (.config/actions/): encuentra la task (el issue detrás de un item del board,
+  # (src/intake/ del runner): encuentra la task (el issue detrás de un item del board,
   # el que implementa el PR de un comentario, la rama `<prefijo><n>` de un CI),
   # decide de qué proyecto es, la lee de GitHub —card, issue, blockers,
   # comentarios, PR, CI— y publica el evento de la task con su scope:
@@ -207,10 +207,10 @@ sources:
     # traza y la config, y propone acciones que la persona confirma. Sin esto, apagado.
     assistant: { agent: assistant }
 
-  # Las actions globales (código: sólo rutas). Las ve toda fuente; las de un
-  # proyecto van en su project.yaml y ganan sobre éstas. Un directorio toma sus
-  # `*.ts` directos (no `_lib/`, ni tests).
-  actions: ./actions
+  # Las actions estándar (GitHub, Slack, workspace, el intake, el asistente) vienen
+  # con el runner (src/actions/builtin/). Acá sólo irían actions propias de este
+  # deploy (código: sólo rutas), que las ve toda fuente; las de un proyecto van en
+  # su project.yaml y ganan sobre éstas.
 
   # Cada proyecto: la ruta a su project.yaml, o el proyecto inline. Su fuente
   # sólo recibe los eventos con su `scope.projectId` (los que publica

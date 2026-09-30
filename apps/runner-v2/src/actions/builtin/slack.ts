@@ -4,14 +4,14 @@
  * llamarlas diciendo por qué.
  */
 
-import { defineAction, SlackReviewSchema } from '@ia-flow/runner-v2/actions'
 import {
   SlackChannelHistoryAction,
   SlackPostMessageAction,
   SlackReadThreadAction,
 } from '@ia-flow/slack-tools'
-import { projectOf } from './_lib/project.js'
-import { RequestSlackReviewAction } from './_lib/slack/RequestSlackReviewAction.js'
+import { defineAction, SlackReviewSchema } from '../defineAction.js'
+import { RequestSlackReviewAction } from '../RequestSlackReviewAction.js'
+import { projectOf } from './project.js'
 
 export default [
   defineAction({

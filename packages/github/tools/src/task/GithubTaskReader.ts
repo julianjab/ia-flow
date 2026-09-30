@@ -5,7 +5,7 @@
  * contestó, y `task.ts` le da forma.
  */
 import type { GithubClient } from '@ia-flow/github-api'
-import { type OpenPr, openPr, type RawItem, type RawPr } from './task.js'
+import { type OpenPr, openPr, type RawItem, type RawPr } from './shapes.js'
 import type { RawComment, RawReview, RawThread } from './timeline.js'
 
 export interface BoardRef {

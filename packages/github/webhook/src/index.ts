@@ -18,3 +18,5 @@ export {
 export type { GithubWebhookEvent } from './GithubWebhookEvent.js'
 export { createGithubWebhookEvent } from './GithubWebhookEvent.js'
 export { GithubWebhookVerifier } from './GithubWebhookVerifier.js'
+export type { EventFields, Location } from './locate.js'
+export { locate, mergedPullRequest } from './locate.js'

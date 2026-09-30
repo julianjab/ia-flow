@@ -1,7 +1,7 @@
 /**
  * Lo que las actions globales necesitan del proyecto de la fuente que las pide.
  */
-import type { ActionContext, ProjectConfig } from '@ia-flow/runner-v2/actions'
+import type { ActionContext, ProjectConfig } from '../defineAction.js'
 
 /** El proyecto de la fuente que la pide: una action de proyecto no va en la fuente global. */
 export function projectOf(ctx: ActionContext, action: string): ProjectConfig {

@@ -112,7 +112,7 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
     const posted = await slack.postMessage({
       channel: target.channel,
       // El mensaje que abre el hilo lleva SIEMPRE el issue y el PR: con ellos una respuesta en el
-      // hilo se resuelve a su task sin buscar (`_lib/intake/slack.ts`), aunque la plantilla no los
+      // hilo se resuelve a su task sin buscar (`src/intake/slack.ts`), aunque la plantilla no los
       // incluya.
       text: thread
         ? message

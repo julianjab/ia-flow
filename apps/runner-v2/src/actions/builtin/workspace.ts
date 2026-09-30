@@ -13,7 +13,6 @@
  */
 
 import type { Action } from '@ia-flow/agent-engine'
-import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
 import {
   CleanupWorkspaceAction,
   ResetWorkspaceAction,
@@ -22,6 +21,7 @@ import {
   workspaceAction,
 } from '@ia-flow/workspace'
 import { z } from 'zod'
+import { type ActionContext, defineAction } from '../defineAction.js'
 
 const Duration = z.string().regex(/^\d+(s|m|h)$/, 'una duración: `30s`, `45m`, `2h`')
 const DURATION_MS = { s: 1_000, m: 60_000, h: 3_600_000 } as const

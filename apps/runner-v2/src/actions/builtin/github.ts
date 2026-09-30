@@ -1,33 +1,31 @@
 /**
  * Las actions de GitHub sobre el board del proyecto que las pide: las transiciones (`update_issue`,
  * `post_comment` de `@ia-flow/github-tools`) y las tools que un agente pide por id en su YAML —
- * las de `@ia-flow/github-tools` y las de `_lib/github/tools/`, todas `Action` (el mismo objeto
+ * las de `@ia-flow/github-tools`, todas `Action` (el mismo objeto
  * sirve de paso de pipeline y de tool del modelo).
  */
 
 import type { Action } from '@ia-flow/agent-engine'
 import {
-  EnsurePullRequestAction,
-  LinkBranchAction,
-  ListSubIssuesBriefAction,
-  PostCommentAction,
-  UpdateIssueAction,
-  UpdateIssueBodyAction,
-} from '@ia-flow/github-tools'
-import { type ActionContext, defineAction } from '@ia-flow/runner-v2/actions'
-import {
   AddSubIssueAction,
   AddToProjectAction,
   CreateGithubIssueAction,
+  EnsurePullRequestAction,
   type GithubProjectContext,
+  LinkBranchAction,
+  ListSubIssuesBriefAction,
   MarkBlockedByAction,
+  PostCommentAction,
   PrChecksAction,
   ReactToCommentAction,
   ReplyPrReviewThreadAction,
   ResolvePrReviewThreadAction,
   ReviewPullRequestAction,
-} from './_lib/github/tools/index.js'
-import { projectOf } from './_lib/project.js'
+  UpdateIssueAction,
+  UpdateIssueBodyAction,
+} from '@ia-flow/github-tools'
+import { type ActionContext, defineAction } from '../defineAction.js'
+import { projectOf } from './project.js'
 
 /** El cliente, el board y el catálogo de repos del proyecto que la pide. */
 function projectContext(ctx: ActionContext, action: string): GithubProjectContext {

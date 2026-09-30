@@ -59,10 +59,12 @@ al montar un proyecto, el runner le pone `scope.projectId: <id>` a cada una de s
 de ese proyecto —los que publica `resolve_task`—; la global recibe todo. El engine lo arma el
 runner desde `engine:` de runner.yaml (`src/engine/mountEngine.ts`).
 
-### Las actions (`actions/`)
+### Las actions
 
-Cada `*.ts` que está directo en una carpeta `actions/` exporta por default una definición (o una
-lista) y se registra sola en su scope:
+Las estándar vienen con el runner (`src/actions/builtin/`): las transiciones y tools de GitHub
+(`@ia-flow/github-tools`), Slack, el workspace, el intake y el asistente. Una config sólo trae las
+suyas: cada `*.ts` que está directo en una carpeta `actions/` exporta por default una definición
+(o una lista) y se registra sola en su scope:
 
 ```ts
 import { defineAction } from '@ia-flow/runner-v2/actions'
@@ -91,7 +93,7 @@ pipeline: por eso llegada y reentrada a Build, o CI rojo y cambios pedidos, son 
 ### El intake
 
 Un webhook entra al engine tal cual lo mandó GitHub (`github.<evento>`) y lo recibe el intake:
-El intake (`intake`, inline en `sources.pipelines` de runner.yaml) es un solo paso, `resolve_task` (`actions/resolve_task.ts`). Es uno
+El intake (`intake`, inline en `sources.pipelines` de runner.yaml) es un solo paso, `resolve_task` (`src/intake/`). Es uno
 para todos los proyectos: decide de cuál es el evento (el board del item, el catálogo de repos, la
 card del issue y la label) y, por cada uno, encuentra la task
 (el issue detrás de un item del board, el que implementa el PR de un comentario o de un CI), la
@@ -100,7 +102,7 @@ task con su scope. No publica nada para un repo fuera del catálogo, ni para una
 board o sin la `label` del proyecto (`project.yaml`; hoy `blocked`): esas son del engine de
 producción. El evento lleva `message`, el texto con el que le llega a un agente que ya corre. `intake-unblock` es el mismo paso con `unblockDependents: true`.
 
-Lo que el YAML nombra y definen las `actions/`:
+Lo que el YAML nombra (del runner, salvo las marcadas como del proyecto):
 
 | Nombre | Qué es |
 | --- | --- |
@@ -108,8 +110,8 @@ Lo que el YAML nombra y definen las `actions/`:
 | `post_notice` | un comentario sin firma de agente: el aviso del `onInterrupt` del proyecto (quién paró y en qué quedó) |
 | `react_to_comment`, `review_pull_request`, `pr_checks`, `create_github_issue`, … | las tools de GitHub del proyecto |
 | `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`) |
-| `issue_body` | las tools del body del issue que el agente puede tocar (`options: { write, check }`) |
-| `blockedReport` | el reporte de una corrida que falló (el `onError` del proyecto) |
+| `issue_body` | del proyecto: las tools del body del issue que el agente puede tocar (`options: { write, check }`) |
+| `blockedReport` | del proyecto: el reporte de una corrida que falló (el `onError` del proyecto) |
 | `resolve_task` | el intake: de un webhook crudo al evento de su task (`unblockDependents` para el unblock) |
 
 ## Correr
@@ -195,7 +197,7 @@ inbox:
 
 **El asistente es un agente más**, enchufado a la capacidad `assistant` de la fuente global
 (`sources.capabilities.assistant: { agent: assistant }`). Su modelo, su prompt y sus tools son
-dato: `.config/agents/assistant.yaml` y `.config/actions/assistant.ts` (las `assistant_*`: bandeja,
+dato: `.config/agents/assistant.yaml` y `src/actions/builtin/assistant.ts` (las `assistant_*`: bandeja,
 tarea, "¿por qué?", traza, config, eventos, estado, y `assistant_propose_action`, que propone y no
 ejecuta). Cada pregunta abre una sesión con su contexto —todo el runner, un proyecto o una tarea—
 que esas tools respetan (`src/assistant/AssistantSession.ts`). La respuesta es la que el agente

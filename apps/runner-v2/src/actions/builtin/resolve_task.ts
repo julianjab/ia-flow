@@ -1,11 +1,12 @@
 /**
  * `resolve_task`: el intake. De un webhook crudo de GitHub al evento de su task, en el proyecto que
- * le toca (ver `_lib/intake/ResolveTaskAction.ts`). Es global: decide de qué proyecto es el evento.
+ * le toca (ver `src/intake/ResolveTaskAction.ts`). Es global: decide de qué proyecto es el evento.
  */
-import { defineAction } from '@ia-flow/runner-v2/actions'
-import { GithubTaskReader } from './_lib/intake/GithubTaskReader.js'
-import { ResolveTaskAction } from './_lib/intake/ResolveTaskAction.js'
-import { repoRefs, reposText } from './_lib/project.js'
+
+import { GithubTaskReader } from '@ia-flow/github-tools'
+import { ResolveTaskAction } from '../../intake/ResolveTaskAction.js'
+import { defineAction } from '../defineAction.js'
+import { repoRefs, reposText } from './project.js'
 
 export default defineAction({
   id: 'resolve_task',

@@ -17,13 +17,13 @@
  * Los filtros baratos van acá, antes de cualquier lectura: una acción que ninguna pipeline
  * escucha, un item que no es un issue, un CI que no terminó.
  */
+import { parseGithubCheckPayload } from './GithubCheckPayload.js'
+import { parseGithubIssueCommentPayload } from './GithubIssuePayload.js'
+import { parseGithubProjectItemPayload } from './GithubProjectItemPayload.js'
 import {
-  parseGithubCheckPayload,
-  parseGithubIssueCommentPayload,
-  parseGithubProjectItemPayload,
   parseGithubPullRequestPayload,
   parseGithubPullRequestReviewPayload,
-} from '@ia-flow/github-webhook'
+} from './GithubPullRequestPayload.js'
 
 type Raw = Record<string, unknown>
 

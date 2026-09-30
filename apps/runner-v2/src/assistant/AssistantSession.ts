@@ -1,7 +1,7 @@
 /**
  * Un pedido al asistente, con su contexto adentro: en el de una tarea sólo ve esa tarea; en el de
  * un proyecto, sus tareas; en el general, todo el runner. Es lo que las actions del agente
- * (`.config/actions/assistant.ts`) llaman: el contexto lo impone el runner, no el modelo. Lee
+ * (`actions/builtin/assistant.ts`) llaman: el contexto lo impone el runner, no el modelo. Lee
  * —bandeja, tarea, eventos, traza, config— y PROPONE acciones: ejecutarlas es de la persona.
  */
 import type {

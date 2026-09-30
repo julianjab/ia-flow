@@ -11,8 +11,9 @@
  * comentario humano en GitHub (`50-comment.yaml`: el gate `whenText`, la columna, `ifQueued`, los
  * `injects` del agente que ya corre), sin una pipeline aparte.
  */
+
+import type { Location } from '@ia-flow/github-webhook'
 import { githubLoginOf, type SlackUserDirectory } from '@ia-flow/slack-api'
-import type { Location } from './locate.js'
 
 type Raw = Record<string, unknown>
 

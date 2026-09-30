@@ -1,6 +1,6 @@
 import { Action } from '@ia-flow/agent-engine'
 import { z } from 'zod'
-import { type GithubProjectContext, resolveRepo } from './project.js'
+import { type GithubProjectContext, resolveRepo } from './repoCatalog.js'
 
 const Input = z.strictObject({
   parent_repo: z.string().min(1).describe('Repo del catálogo donde vive el issue padre'),

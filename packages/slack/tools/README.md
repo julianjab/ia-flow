@@ -10,4 +10,4 @@ Las `Action` de Slack que un agente pide por id — puente entre `@ia-flow/slack
 | `slack_post_message` | Publica en un canal o un hilo (escribe: necesita `allowWrite`) |
 
 `request_slack_review` no vive acá: cruza el PR, su CI y el body del issue (GitHub), así que es
-una action de runner-v2 (`.config/actions/slack.ts`).
+una action de runner-v2 (`src/actions/builtin/slack.ts`).

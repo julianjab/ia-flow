@@ -3,8 +3,8 @@
  *
  *   1. Los servicios: identidad de GitHub (verificada ANTES de montar nada), MCP con `${VAR}`
  *      resuelto y cada servidor probado, el workspace y el provider `anthropic-api`.
- *   2. Las actions de cada scope (`actions/loader.ts`): las globales de `.config/actions/` y las de
- *      cada `projects/<id>/actions/`.
+ *   2. Las actions de cada scope (`actions/loader.ts`): las del runner (`actions/builtin/`), las
+ *      globales de la config y las de cada `projects/<id>/actions/`.
  *   3. Las fuentes: el datasource YAML de la global (lo que declara `runner.yaml`) y el de cada
  *      proyecto (lo que declara su `project.yaml`), cuyas pipelines llevan `scope.projectId`
  *      (`projects/withScope.ts`); las arma `DefinitionPipelineSource`, y releen su índice si cambia.
@@ -30,6 +30,7 @@ import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
 import { GithubClient } from '@ia-flow/github-api'
 import type { GithubAuth } from '@ia-flow/github-auth'
 import { SlackClient } from '@ia-flow/slack-api'
+import { BUILTIN_ACTIONS } from './actions/builtin/index.js'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import { AssistantDesk } from './assistant/AssistantDesk.js'
@@ -168,7 +169,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     assistant: new AssistantDesk(),
     log: opts.log,
   }
-  const actions = await loadActions(cfg.actions, cfg.projects, services)
+  const actions = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)
   const catalogs = { ...actions.catalogs, providers: providerRegistry, mcpServers }
 
   const globalSource = new DefinitionPipelineSource(
