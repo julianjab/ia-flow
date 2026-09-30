@@ -6,11 +6,13 @@ export type {
   SlackReviewKind,
   SlackReviewMessage,
   SlackReviewTarget,
+  SlackUserDirectory,
 } from './review.js'
 export {
   buildSlackReviewMessage,
   compactSlackReviewMessage,
   DEFAULT_SLACK_REVIEW_MESSAGES,
+  mapAssigneesToSlack,
   renderMentions,
   resolveSlackReviewTarget,
   SLACK_REVIEW_TEMPLATE_VARS,

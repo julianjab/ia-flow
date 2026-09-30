@@ -5,6 +5,9 @@ export interface SlackMemberRef {
   isBot?: boolean
 }
 
+/** Quién es cada persona en Slack, por su login de GitHub (minúsculas: GitHub no distingue). */
+export type SlackUserDirectory = Record<string, SlackMemberRef>
+
 /** Los dos textos del pedido: el primero abre el hilo, el re-review cae dentro. */
 export interface SlackReviewMessage {
   first?: string
@@ -24,6 +27,28 @@ export interface SlackReviewConfig {
   slackReviewChannel?: string | null
   slackReviewers?: SlackMemberRef[] | null
   slackReviewMessage?: SlackReviewMessage | null
+}
+
+/**
+ * Los asignados de un issue (`logins` de GitHub) que tienen usuario de Slack en `directory`, y los
+ * que no — para poder decir a quién no se pudo taguear. El login se compara sin distinguir
+ * mayúsculas y un asignado repetido cuenta una vez.
+ */
+export function mapAssigneesToSlack(
+  logins: readonly string[],
+  directory: SlackUserDirectory | undefined,
+): { members: SlackMemberRef[]; unmapped: string[] } {
+  const byLogin = new Map(
+    Object.entries(directory ?? {}).map(([login, member]) => [login.toLowerCase(), member]),
+  )
+  const members: SlackMemberRef[] = []
+  const unmapped: string[] = []
+  for (const login of new Set(logins.map((l) => l.toLowerCase()))) {
+    const member = byLogin.get(login)
+    if (member) members.push(member)
+    else unmapped.push(login)
+  }
+  return { members, unmapped }
 }
 
 export interface SlackReviewTarget {
@@ -59,6 +84,11 @@ export const SLACK_REVIEW_TEMPLATE_VARS = ['mentions', 'prUrl', 'prTitle'] as co
  * gente por repo). Lo mismo vale para los dos textos: redefinir el primer
  * pedido no arrastra el del re-review.
  *
+ * Los `assignees` (los asignados del issue, ya mapeados a Slack) se SUMAN a los revisores
+ * configurados (`slackReviewers` del repo o del proyecto): el review se le pide a quien tiene la
+ * tarea y a quienes revisan el repo, sin taguear dos veces a la misma persona (por `id`). Los
+ * asignados van primero.
+ *
  * Una lista vacía en el repo **hereda**, no significa "no taguear a nadie": sin
  * revisores el pedido no se habilita, y ese "no hay a quién taguear" es lo que
  * el operador ve en el botón. Un array vacío como forma de apagar el pedido
@@ -68,11 +98,13 @@ export const SLACK_REVIEW_TEMPLATE_VARS = ['mentions', 'prUrl', 'prTitle'] as co
 export function resolveSlackReviewTarget(
   repo?: SlackReviewConfig,
   project?: SlackReviewConfig,
+  assignees: readonly SlackMemberRef[] = [],
 ): SlackReviewTarget {
   const channel = firstNonEmpty(repo?.slackReviewChannel, project?.slackReviewChannel)
-  const reviewers = repo?.slackReviewers?.length
+  const configured = repo?.slackReviewers?.length
     ? repo.slackReviewers
     : (project?.slackReviewers ?? [])
+  const reviewers = [...new Map([...assignees, ...configured].map((m) => [m.id, m])).values()]
   const messages: Required<SlackReviewMessage> = {
     first:
       firstNonEmpty(repo?.slackReviewMessage?.first, project?.slackReviewMessage?.first) ??
