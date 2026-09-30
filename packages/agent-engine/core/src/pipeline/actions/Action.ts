@@ -36,6 +36,9 @@ export abstract class Action<
   abstract readonly description: string
   abstract readonly input: S
   readonly sideEffects: SideEffects = 'write'
+  /** Opera sobre el worktree de la task: como tool, no se le ofrece a un provider con workspace
+   *  nativo (ver `Tool.workspace`). */
+  readonly workspace: boolean = false
 
   constructor(props: ActionProps) {
     super(props)
@@ -95,6 +98,7 @@ export class BoundAction extends Action {
   readonly description: string
   readonly input: ToolInputSchema
   override readonly sideEffects: SideEffects
+  override readonly workspace: boolean
 
   constructor(
     readonly target: Action,
@@ -114,6 +118,7 @@ export class BoundAction extends Action {
     this.description = target.description
     this.input = target.input.omit(mask) as unknown as ToolInputSchema
     this.sideEffects = target.sideEffects
+    this.workspace = target.workspace
   }
 
   execute(input: Record<string, unknown>, ctx: PipelineExecutionContext): Promise<unknown> {

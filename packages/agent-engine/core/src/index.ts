@@ -17,8 +17,9 @@ export type {
   Provider,
   ProviderRunContext,
   ProviderRunOutput,
+  ProviderWorkspace,
 } from './agent/Provider.js'
-export { ProviderRegistry, providerRegistry } from './agent/Provider.js'
+export { ProviderRegistry, providerRegistry, toolsFor } from './agent/Provider.js'
 export type { ProviderChoice } from './agent/ProviderCandidate.js'
 export { ProviderCandidate } from './agent/ProviderCandidate.js'
 export type { SelectedProvider } from './agent/ProviderSelector.js'

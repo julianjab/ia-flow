@@ -58,6 +58,9 @@ export interface Tool<TInput = any> {
   /** Tool terminal que cierra el turno como FALLA (`fail_turn`), no como una salida. Un provider
    *  no la cuenta al decidir si insistirle al modelo que elija una salida. */
   failure?: boolean
+  /** Opera sobre el worktree de la task (`fs_*`, `bash_run`, …). No se le ofrece a un provider
+   *  con workspace nativo (`Provider.workspace`): ése trabaja el worktree con sus propias tools. */
+  workspace?: boolean
 }
 
 export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {

@@ -51,8 +51,26 @@ export interface ProviderRunOutput {
  * terminó por un canal aparte — ver ia-flow's TmuxClaudeProvider) simplemente mantiene esa
  * promesa pendiente hasta ese momento. El harness no necesita saber la diferencia.
  */
+/**
+ * Con qué trabaja el modelo el worktree de la task. `runner` (default): con las tools del agente
+ * que operan sobre él (`Tool.workspace`: `fs_*`, `bash_run`, …). `native`: con las suyas propias
+ * (ej. el CLI de Claude Code: `Read`, `Edit`, `Bash`) — ésas no se le ofrecen: serían un segundo
+ * juego de lo mismo, y en otra máquina, un segundo checkout.
+ */
+export type ProviderWorkspace = 'runner' | 'native'
+
+/** Las tools que se le ofrecen a `provider`: sin las de workspace si el suyo es nativo. */
+export function toolsFor<T extends Pick<Tool, 'workspace'>>(
+  provider: Pick<Provider, 'workspace'>,
+  tools: T[],
+): T[] {
+  return provider.workspace === 'native' ? tools.filter((tool) => !tool.workspace) : tools
+}
+
 export interface Provider {
   readonly id: string
+  /** Ver `ProviderWorkspace`. Default: `runner`. */
+  readonly workspace?: ProviderWorkspace
   /** Cuántos agentes corren a la vez sobre este provider, entre todas las tasks. Default: sin
    *  tope (el engine sólo lo aplica si le da `EngineOptions.limits`). */
   readonly maxConcurrent?: number

@@ -8,6 +8,7 @@ export class ActionTool extends SchemaTool<ToolInputSchema> {
   readonly name: string
   readonly description: string
   readonly input: ToolInputSchema
+  readonly workspace?: boolean
 
   constructor(
     private readonly action: Action,
@@ -17,6 +18,7 @@ export class ActionTool extends SchemaTool<ToolInputSchema> {
     this.name = action.id
     this.description = action.description
     this.input = action.input
+    if (action.workspace) this.workspace = true
   }
 
   protected async execute(input: Record<string, unknown>): Promise<string> {

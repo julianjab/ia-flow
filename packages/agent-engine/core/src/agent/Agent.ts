@@ -20,6 +20,7 @@ import {
   providerRegistry as defaultProviderRegistry,
   type ProviderRegistry,
   type ProviderRunOutput,
+  toolsFor,
 } from './Provider.js'
 import { ProviderCandidate } from './ProviderCandidate.js'
 import { ProviderSelector, type SelectedProvider } from './ProviderSelector.js'
@@ -186,7 +187,7 @@ export class Agent extends Runnable {
         variables,
         providerConfig: candidate.config,
         mcpServers: def.mcpServers ?? [],
-        tools,
+        tools: toolsFor(provider, tools),
         ctx,
         ...(execution ? { inbox: () => this.readInbox(execution) } : {}),
         ...(message && conversation !== undefined ? { resume: { conversation, message } } : {}),
