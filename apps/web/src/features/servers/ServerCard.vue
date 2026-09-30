@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { ProbedServer } from '@/features/servers/api';
 import { computed, ref, watch } from 'vue';
+import type { ProbedServer } from '@/features/servers/api';
 
 const props = defineProps<{
   server: ProbedServer;
@@ -10,47 +10,27 @@ const props = defineProps<{
   label?: string;
   /** El token guardado para este server. */
   token?: string;
+  /** El login de GitHub guardado para este server. */
+  github?: { login: string };
 }>();
 
 const emit = defineEmits<{
   (e: 'remove', baseUrl: string): void;
   (e: 'token', payload: { baseUrl: string; token: string }): void;
   (e: 'enter', baseUrl: string): void;
+  (e: 'github-logout', baseUrl: string): void;
 }>();
 
 const port = computed(() => new URL(props.server.baseUrl).port || '80');
-
-const activeProjects = computed(
-  () => props.server.projects.filter((p) => !p.settings?.pollingPaused).length,
-);
-
-const isAgentHost = computed(() => props.server.kind === 'agent-host');
+const isRunner = computed(() => props.server.kind === 'runner');
 
 /**
- * El cap de un agent-host, listo para leer.
- *
- * `null` es "sin cap", no cero — en todo el engine un cap ausente significa
- * "sin límite" (ver la sección de capacidad en CLAUDE.md), así que mostrar un
- * "0" ahí diría exactamente lo contrario de lo que pasa.
- */
-const hostLoad = computed(() => {
-  const h = props.server.agentHost;
-  if (!h) return '';
-  return h.maxConcurrentRuns ? `${h.running} / ${h.maxConcurrentRuns}` : `${h.running}`;
-});
-
-/**
- * El campo del token.
- *
- * Empieza abierto cuando el server contestó 401: en ese estado es literalmente
- * lo único que hay que hacer, y esconderlo detrás de un click sería esconder
- * el arreglo justo cuando hace falta.
+ * El campo del token empieza abierto cuando el server contestó 401: en ese
+ * estado es literalmente lo único que hay que hacer.
  */
 const editing = ref(props.server.needsToken);
 const draft = ref(props.token ?? '');
 
-// El sondeo puede llegar después de montar la tarjeta; si vuelve con 401,
-// abrimos el campo igual.
 watch(
   () => props.server.needsToken,
   (needs) => {
@@ -81,29 +61,24 @@ function saveToken() {
     <header class="card__hd">
       <span class="dot" :class="dotClass" />
       <span class="card__port">{{ label || `:${port}` }}</span>
-      <!-- El tipo se muestra SIEMPRE que se conozca, incluso en un server que
-           pide token: es la única pista de en qué pantalla está el arreglo, y
-           es justo cuando el operador no puede averiguarlo por su cuenta. -->
-      <span v-if="isAgentHost" class="tag tag--host">agent-host</span>
+      <span v-if="isRunner" class="tag">runner{{ server.version ? ` ${server.version}` : '' }}</span>
       <span v-if="current" class="tag tag--current">estás acá</span>
       <button
         v-if="!current"
         class="card__x"
-        title="quitar de la lista"
-        @click.stop="$emit('remove', server.baseUrl)"
+        type="button"
+        aria-label="Quitar de la lista"
+        title="Quitar de la lista"
+        @click.stop="emit('remove', server.baseUrl)"
       >
         ×
       </button>
     </header>
 
-    <!-- El botón se estira sobre TODA la tarjeta con un `::after` absoluto, en
-         vez de envolverla. Es la diferencia entre "la tarjeta es clickeable" y
-         "la tarjeta es un botón": lo segundo, con `:disabled`, dejaba el campo
-         del token inalcanzable justo en el server que lo pide — el navegador
-         no despacha clicks a los descendientes de un botón deshabilitado.
-         Así el área clickeable es la tarjeta entera, sigue siendo un botón de
-         verdad (foco, Enter, lectores de pantalla), y el token y el × se
-         apoyan por encima con un z-index. -->
+    <!-- El botón se estira sobre TODA la tarjeta con un `::after` absoluto: el
+         área clickeable es la tarjeta entera, sigue siendo un botón de verdad
+         (foco, Enter, lectores de pantalla), y el token y el × se apoyan por
+         encima con un z-index. -->
     <button
       class="card__enter"
       type="button"
@@ -116,48 +91,38 @@ function saveToken() {
 
     <p v-if="server.needsToken" class="card__auth">· pide token</p>
     <p v-else-if="!server.reachable" class="card__empty">· no responde</p>
-
-    <!-- Un agent-host no tiene proyectos ni registraciones: tiene UN provider y
-         una ocupación. Son los dos datos con los que se decide si mandarle
-         trabajo, que es lo que esta tarjeta existe para contestar. -->
-    <template v-else-if="isAgentHost">
-      <div class="card__stats">
-        <span class="uc-label">provider</span>
-        <span class="card__val">{{ server.agentHost?.providerName || '—' }}</span>
-        <span class="uc-label">en curso</span>
-        <span class="card__val">{{ hostLoad }}</span>
-        <span class="uc-label">latencia</span>
-        <span class="card__val">{{ Math.round(server.latencyMs) }} ms</span>
-      </div>
-
-      <p v-if="server.agentHost && !server.agentHost.accepting" class="card__auth">
-        · no está aceptando trabajo
-      </p>
-    </template>
+    <p v-else-if="!isRunner" class="card__auth">· no es un runner-v2: esta web no lo opera</p>
 
     <template v-else>
       <div class="card__stats">
         <span class="uc-label">proyectos</span>
-        <span class="card__val">
-          {{ activeProjects }}<span class="card__val-sub"> / {{ server.projects.length }}</span>
-        </span>
-        <span class="uc-label">agent-hosts</span>
-        <span class="card__val">{{ server.remoteProviders.length }}</span>
+        <span class="card__val">{{ server.projects.length }}</span>
         <span class="uc-label">latencia</span>
         <span class="card__val">{{ Math.round(server.latencyMs) }} ms</span>
       </div>
 
       <ul v-if="server.projects.length" class="card__projects">
         <li v-for="p in server.projects" :key="p.id">
-          <span class="card__pdot" :class="{ 'card__pdot--off': p.settings?.pollingPaused }" />
-          {{ p.name || p.id }}
+          <span class="mono">{{ p.id }}</span>
+          <span class="card__dim">{{ p.board.owner }}#{{ p.board.number }}</span>
         </li>
       </ul>
       <p v-else class="card__empty">· sin proyectos</p>
 
-      <ul v-if="server.remoteProviders.length" class="card__providers">
-        <li v-for="r in server.remoteProviders" :key="r.id">remote:{{ r.id }}</li>
-      </ul>
+      <p class="card__gh">
+        <template v-if="github">
+          <span class="uc-label">github</span>
+          <span class="mono">@{{ github.login }}</span>
+          <button
+            class="btn btn--ghost card__ghbtn"
+            type="button"
+            @click.stop="emit('github-logout', server.baseUrl)"
+          >
+            cerrar sesión
+          </button>
+        </template>
+        <span v-else class="card__dim">· sin sesión de GitHub — se inicia desde la bandeja</span>
+      </p>
     </template>
 
     <!-- Siempre disponible, no sólo ante un 401: así se puede pre-cargar el
@@ -172,7 +137,7 @@ function saveToken() {
           :aria-label="`token de ${server.baseUrl}`"
           autocomplete="off"
         />
-        <button class="btn card__tokenbtn" type="submit">guardar</button>
+        <button class="btn" type="submit">guardar</button>
       </form>
       <button v-else class="btn btn--ghost card__tokenlink" type="button" @click="editing = true">
         {{ token ? '· token configurado — cambiar' : '· sin token — configurar' }}
@@ -200,17 +165,23 @@ function saveToken() {
 
 .card__hd { display: flex; align-items: center; gap: 0.5rem; }
 .card__port { font-weight: 600; }
+/* Un ✕ dentro de una fila no crece a 44px de caja: mide 24px visibles y expande
+   su área con `::before` (blanco táctil sin costo de layout, DESIGN_SYSTEM). */
 .card__x {
   position: relative;
   z-index: 1;
   margin-left: auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--fg-dim);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--fs-body);
   line-height: 1;
 }
+.card__x::before { content: ''; position: absolute; inset: -0.5rem; }
 .card__x:hover { color: var(--danger); }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
@@ -220,29 +191,13 @@ function saveToken() {
 
 .card__auth { margin: 0; color: var(--warn); font-size: var(--fs-body-sm); }
 
-.card__token { margin-top: 0.1rem; position: relative; z-index: 1; }
+.card__token { position: relative; z-index: 1; }
 .card__tokenform { display: flex; gap: 0.3rem; }
-.card__tokeninput {
-  flex: 1;
-  min-width: 0;
-  height: var(--tap-h-sm);
-}
-.card__tokenbtn {
-  height: var(--tap-h-sm);
-  padding: 0 0.6rem;
-}
-.card__tokenlink {
-  height: auto;
-  padding: 0;
-  text-align: left;
-  font-size: var(--fs-body-sm);
-}
+.card__tokeninput { flex: 1; min-width: 0; }
+.card__tokenlink { padding: 0; justify-content: flex-start; font-size: var(--fs-body-sm); }
 
-/* Chip / tag: una sola caja — line-height de grilla, mono, radio chico, borde
-   hairline (DESIGN_SYSTEM.md «Chip / tag»). Lo que cambia entre tipos es el
-   color del glifo, no la caja. */
+/* Chip / tag: una sola caja (DESIGN_SYSTEM.md «Chip / tag»). */
 .tag {
-  margin-left: auto;
   line-height: var(--row-h);
   padding: 0 0.4rem;
   border: 1px solid var(--border);
@@ -251,17 +206,11 @@ function saveToken() {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
 }
-.tag--host { border-color: var(--border); }
-.tag--current { color: var(--accent); border-color: var(--accent); }
+.tag--current { margin-left: auto; color: var(--accent); border-color: var(--accent); }
+.tag--current + .card__x { margin-left: 0.25rem; }
 
-.card__enter::after {
-  /* Estira el área clickeable sobre la tarjeta entera. */
-  content: '';
-  position: absolute;
-  inset: 0;
-}
+.card__enter::after { content: ''; position: absolute; inset: 0; }
 .card__enter:disabled::after { display: none; }
-
 .card__enter {
   border: 0;
   background: none;
@@ -276,7 +225,6 @@ function saveToken() {
 .card__enter:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
 .card__enter:disabled { cursor: default; }
 
-
 .card__stats {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -284,13 +232,20 @@ function saveToken() {
   align-items: baseline;
 }
 .card__val { font-variant-numeric: tabular-nums; }
-.card__val-sub { color: var(--fg-dim); }
 
-.card__projects, .card__providers { list-style: none; margin: 0; padding: 0; font-size: 0.8rem; }
-.card__projects li { display: flex; align-items: center; gap: 0.4rem; }
-.card__providers li { color: var(--fg-dim); }
-.card__pdot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: none; }
-.card__pdot--off { background: var(--fg-dim); }
+.card__projects { list-style: none; margin: 0; padding: 0; font-size: var(--fs-body-sm); }
+.card__projects li { display: flex; align-items: baseline; gap: 0.5rem; }
+.card__dim { color: var(--fg-dim); font-size: var(--fs-body-sm); }
+.card__empty { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 
-.card__empty { margin: 0; color: var(--fg-dim); font-size: 0.8rem; }
+.card__gh {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+.card__ghbtn { margin-left: auto; }
 </style>

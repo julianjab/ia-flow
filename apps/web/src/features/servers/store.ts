@@ -4,17 +4,18 @@
 // (en el config dir de la app de escritorio, o en localStorage en un browser —
 // ver storage.ts) y la app sondea exactamente esos.
 //
-// Antes barría 17 puertos de localhost la primera vez y "aprendía" lo que
-// respondiera. Se sacó por tres motivos, y el tercero es el que decide: sólo
-// encontraba servers locales, cada sondeo fallido dejaba un
-// ERR_CONNECTION_REFUSED rojo e inatrapable en la consola, y **adivinaba** —
-// cualquier cosa escuchando en :3014 entraba a la lista como si fuera un
-// server de ia-flow.
+// No se descubre nada: cualquier cosa escuchando en un puerto entraría a la
+// lista como si fuera un runner.
 
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { normalizeBaseUrl, type ProbedServer, probeServer } from '@/features/servers/api'
-import { applySelectedToken, currentBaseUrl, getSelectedServer } from '@/features/servers/selection'
+import {
+  applySelectedToken,
+  currentBaseUrl,
+  type GithubSession,
+  getSelectedServer,
+} from '@/features/servers/selection'
 import { loadServers, type SavedServer, saveServers } from '@/features/servers/storage'
 
 export const useServersStore = defineStore('servers', () => {
@@ -32,6 +33,11 @@ export const useServersStore = defineStore('servers', () => {
 
   function tokenFor(baseUrl: string): string | undefined {
     return saved.value.find((s) => s.baseUrl === baseUrl)?.token
+  }
+
+  /** El login de GitHub guardado para ese server, si lo hay. */
+  function githubFor(baseUrl: string): GithubSession | undefined {
+    return saved.value.find((s) => s.baseUrl === baseUrl)?.github
   }
 
   async function persist(): Promise<void> {
@@ -120,6 +126,7 @@ export const useServersStore = defineStore('servers', () => {
     reachable,
     empty,
     tokenFor,
+    githubFor,
     init,
     scan,
     addServer,

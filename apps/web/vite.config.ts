@@ -57,11 +57,6 @@ export default defineConfig(({ mode }) => {
       target: apiTarget,
       changeOrigin: true,
     },
-    '/ws': {
-      target: apiTarget,
-      ws: true,
-      changeOrigin: true,
-    },
   }
 
   return {

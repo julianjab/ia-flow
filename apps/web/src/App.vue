@@ -1,30 +1,19 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { RouterView } from 'vue-router';
-import RateLimitBanner from './components/RateLimitBanner.vue';
-import AssistantBubble from './features/assistant/AssistantBubble.vue';
-import { installKeyboardNav } from '@/composables/useKeyboardNav';
+import { RouterView, useRoute } from 'vue-router';
+import AssistantLauncher from '@/features/assistant/AssistantLauncher.vue';
+import GithubLoginSheet from '@/features/github-login/GithubLoginSheet.vue';
 
-onMounted(() => {
-  installKeyboardNav();
-});
+const route = useRoute();
 </script>
 
 <template>
-  <RateLimitBanner />
   <RouterView />
-  <AssistantBubble />
-  <div id="toast-container" class="toast-container"></div>
+  <!-- Los dos overlays globales, montados UNA vez: el asistente (único punto de
+       entrada, lo abre también la bandeja) y el login de GitHub (lo pide
+       cualquiera que necesite firmar una acción). En la pantalla de servers
+       todavía no hay un server elegido con el que hablar. -->
+  <template v-if="route.path !== '/servers'">
+    <AssistantLauncher />
+    <GithubLoginSheet />
+  </template>
 </template>
-
-<style>
-.toast-container {
-  position: fixed;
-  bottom: 1rem;
-  right: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  z-index: 1000;
-}
-</style>

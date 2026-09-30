@@ -5,11 +5,21 @@
 // acá se setea `axios.defaults.baseURL`, así que un cambio de server no toca
 // ni una línea de las features.
 //
-// Se puede apuntar a otro origen porque el server abre CORS para todos
-// (`app.use('*', cors({ origin: '*' }))`, apps/server/src/entry/server.ts).
+// Se puede apuntar a otro origen porque el runner abre CORS para todos.
 
 import axios from 'axios'
 import { normalizeBaseUrl, type ServerKind } from '@/features/servers/api'
+
+/**
+ * El login de GitHub del usuario EN ESTE server: el token de su device flow y
+ * el login que firma sus acciones. Es por server —un runner de trabajo y uno
+ * personal pueden tener cuentas distintas— y viaja sólo al endpoint de acciones
+ * (header `x-github-token`), nunca por el interceptor.
+ */
+export interface GithubSession {
+  token: string
+  login: string
+}
 
 const SELECTED_KEY = 'ia-flow:servers:selected'
 /**
@@ -30,11 +40,18 @@ const SELECTED_TOKEN_KEY = 'ia-flow:servers:selected-token'
  * ninguna request haya vuelto, así que no puede esperar a un sondeo.
  *
  * Se guarda en vez de re-derivarse porque re-derivarlo cuesta una request
- * contra un proceso que puede estar caído — y un agent-host que no contesta no
- * deja de ser un agent-host: sin esto, un reload con el container abajo
- * devolvía al operador el menú del server, o sea el de otra cosa.
+ * contra un proceso que puede estar caído.
  */
 const SELECTED_KIND_KEY = 'ia-flow:servers:selected-kind'
+/**
+ * El usuario eligió entrar al server PROXEADO. Ése se guarda como «sin URL»
+ * (`selected === null`, para que las rutas relativas sigan por el proxy de
+ * Vite), o sea que no se distingue de «nunca elegí nada» — y sin esta marca el
+ * guard del router lo devolvería a la pantalla de servers en cada carga.
+ */
+const PROXIED_CHOSEN_KEY = 'ia-flow:servers:proxied-chosen'
+/** El login de GitHub del elegido, por el mismo motivo de timing que el token. */
+const SELECTED_GITHUB_KEY = 'ia-flow:servers:selected-github'
 
 /**
  * El server que la web proxea por su cuenta (VITE_API_TARGET al arrancar).
@@ -45,34 +62,50 @@ export const PROXIED_BASE_URL = (import.meta.env.VITE_API_BASE as string | undef
 
 let selected: string | null = null
 /**
- * El default es `'server'`, no `'unknown'`: es lo que había antes de que
- * existiera este campo, así que una elección guardada por una versión anterior
- * se comporta exactamente como se comportaba.
+ * El default es `'runner'`: sin sondeo previo (el server proxeado de Vite) es
+ * lo único que esta web sabe operar.
  */
-let selectedKind: ServerKind = 'server'
+let selectedKind: ServerKind = 'runner'
+let selectedGithub: GithubSession | null = null
 
 export function getSelectedServer(): string | null {
   return selected
 }
 
-/** Qué proceso estamos mirando. Lo lee el shell para elegir su navegación. */
+/**
+ * ¿Ya se eligió un server? Sin elección no hay nada que mostrar: el router manda
+ * a la pantalla de servers.
+ */
+export function hasChosenServer(): boolean {
+  if (selected) return true
+  try {
+    return localStorage.getItem(PROXIED_CHOSEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Marca que el usuario entró al server proxeado a propósito (ver `PROXIED_CHOSEN_KEY`). */
+export function chooseProxiedServer(): void {
+  try {
+    localStorage.setItem(PROXIED_CHOSEN_KEY, '1')
+  } catch {
+    /* modo privado — vale sólo para esta sesión */
+  }
+}
+
+/** Qué proceso estamos mirando. */
 export function getSelectedKind(): ServerKind {
   return selectedKind
 }
 
 /**
- * Base absoluta para quien NO puede usar rutas relativas (WebSocket, `<img>`,
+ * Base absoluta para quien NO puede usar rutas relativas (`fetch` de un stream,
  * EventSource). Devuelve '' cuando estamos en el server proxeado, que es lo
  * que hace que las rutas relativas sigan siendo lo normal.
  */
 export function apiBase(): string {
   return selected ?? PROXIED_BASE_URL
-}
-
-/** Host:puerto para el WebSocket — el `location.host` deja de servir al cambiar. */
-export function wsOrigin(): string {
-  const base = apiBase()
-  return base ? new URL(base).host : window.location.host
 }
 
 /**
@@ -94,13 +127,9 @@ export function currentBaseUrl(): string {
 let selectedToken: string | undefined
 
 /**
- * El token del elegido, para quien NO puede usar el interceptor de axios.
- *
- * Es el caso del cliente del agent-host (`agentHostClient`), que es una
- * instancia propia de axios contra otro proceso: el interceptor de acá le
- * pondría el header sólo si el origen coincide —y coincide, porque el
- * agent-host ES el elegido—, pero la consola necesita el valor para construir
- * el cliente, no para que se lo inyecten después.
+ * El token del elegido, para quien NO puede usar el interceptor de axios:
+ * `EventSource` y el `fetch` del asistente no pasan por axios y no pueden (o no
+ * deberían) mandar el header a mano.
  */
 export function getSelectedToken(): string | undefined {
   return selectedToken
@@ -150,10 +179,8 @@ function targetsSelected(baseURL: string | undefined, url: string | undefined): 
  *  - el sondeo de la pantalla de servers le pega a CADA URL declarada, que son
  *    hosts arbitrarios que el usuario tipeó. El token del server elegido salía
  *    hacia todos ellos.
- *  - `axios.create()` hereda los defaults, así que el cliente del agent-host
- *    mandaba su `Bearer` correcto Y el `x-ia-flow-token` del server de ia-flow.
- *    El guard del agent-host prefiere `x-ia-flow-token`, así que además de filtrar
- *    el token, respondía 401 con la credencial correcta.
+ *  - `axios.create()` hereda los defaults: cualquier cliente propio contra otro
+ *    proceso llevaría el token del server elegido.
  *
  * El interceptor lo aplica sólo cuando la request va al origen del server
  * elegido, y no pisa un header ya puesto explícitamente por quien llama.
@@ -178,18 +205,24 @@ function applyToken(token: string | undefined): void {
 export function selectServer(
   baseUrl: string | null,
   token?: string,
-  kind: ServerKind = 'server',
+  kind: ServerKind = 'runner',
+  github: GithubSession | null = null,
 ): void {
   selected = baseUrl
   selectedKind = kind
+  selectedGithub = github
   axios.defaults.baseURL = baseUrl ?? undefined
   applyToken(token)
   try {
-    if (baseUrl) localStorage.setItem(SELECTED_KEY, baseUrl)
-    else localStorage.removeItem(SELECTED_KEY)
+    if (baseUrl) {
+      localStorage.setItem(SELECTED_KEY, baseUrl)
+      localStorage.removeItem(PROXIED_CHOSEN_KEY)
+    } else localStorage.removeItem(SELECTED_KEY)
     if (token) localStorage.setItem(SELECTED_TOKEN_KEY, token)
     else localStorage.removeItem(SELECTED_TOKEN_KEY)
     localStorage.setItem(SELECTED_KIND_KEY, kind)
+    if (github) localStorage.setItem(SELECTED_GITHUB_KEY, JSON.stringify(github))
+    else localStorage.removeItem(SELECTED_GITHUB_KEY)
   } catch {
     /* modo privado — la elección vale para esta sesión y nada más */
   }
@@ -208,12 +241,48 @@ export function restoreSelectedServer(): string | null {
     selectServer(
       localStorage.getItem(SELECTED_KEY),
       localStorage.getItem(SELECTED_TOKEN_KEY) ?? undefined,
-      stored === 'agent-host' || stored === 'unknown' ? stored : 'server',
+      // Una elección guardada por la web vieja ('server', 'agent-host') ya no
+      // es operable: cuenta como desconocida hasta que el sondeo diga otra cosa.
+      stored === 'runner' || stored === null ? 'runner' : 'unknown',
+      parseGithub(localStorage.getItem(SELECTED_GITHUB_KEY)),
     )
   } catch {
     selectServer(null)
   }
   return selected
+}
+
+/** Valida lo que sale del localStorage: un valor roto es "sin sesión", no una excepción. */
+export function parseGithub(raw: unknown): GithubSession | null {
+  let value = raw
+  if (typeof raw === 'string') {
+    try {
+      value = JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+  if (!value || typeof value !== 'object') return null
+  const { token, login } = value as Record<string, unknown>
+  return typeof token === 'string' && token && typeof login === 'string' && login
+    ? { token, login }
+    : null
+}
+
+/** El login de GitHub del server elegido. */
+export function getSelectedGithub(): GithubSession | null {
+  return selectedGithub
+}
+
+/** Guarda (o borra, con `null`) el login del server elegido. */
+export function setSelectedGithub(github: GithubSession | null): void {
+  selectedGithub = github
+  try {
+    if (github) localStorage.setItem(SELECTED_GITHUB_KEY, JSON.stringify(github))
+    else localStorage.removeItem(SELECTED_GITHUB_KEY)
+  } catch {
+    /* modo privado — vale para esta sesión */
+  }
 }
 
 /** Re-aplica el token del server ya elegido, una vez que la lista cargó. */

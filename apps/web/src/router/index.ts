@@ -1,107 +1,27 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import AgentHostLogsView from '@/features/agent-host/AgentHostLogsView.vue'
-import AgentHostRunsView from '@/features/agent-host/AgentHostRunsView.vue'
-import AgentHostView from '@/features/agent-host/AgentHostView.vue'
-import { getSelectedKind, getSelectedServer } from '@/features/servers/selection'
+import { hasChosenServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
-import DashboardView from '@/views/DashboardView.vue'
-import DevctlView from '@/views/DevctlView.vue'
-import GeneralView from '@/views/GeneralView.vue'
-import MoreView from '@/views/MoreView.vue'
-import ProjectDetailView from '@/views/ProjectDetailView.vue'
-import ProjectsListView from '@/views/ProjectsListView.vue'
+import InboxView from '@/views/InboxView.vue'
 import ServerPickerView from '@/views/ServerPickerView.vue'
+import WebhooksView from '@/views/WebhooksView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Fuera de AppShell a propósito: elegir server pasa ANTES de entrar a la
-  // app, así que no lleva sidebar, ni topbar, ni stores de un server que
-  // todavía no elegiste.
+  // app, así que no lleva barra ni stores de un server que todavía no elegiste.
   { path: '/servers', name: 'servers', component: ServerPickerView },
-
-  // Igual de fuera de AppShell que /servers y por el mismo motivo: controlar
-  // los procesos de dev locales (server, web, los dos agent-host) pasa ANTES
-  // de tener un server elegido — de hecho suele ser el paso que lo hace
-  // posible. Sólo hace algo dentro de la app de escritorio (ver
-  // `features/devctl/api.ts`); en un browser normal se muestra apagado.
-  { path: '/devctl', name: 'devctl', component: DevctlView },
 
   {
     path: '/',
     component: AppShell,
     children: [
-      // La primera visita pasa por el selector; una vez elegido, la raíz
-      // entra derecho a la pantalla principal de ESE proceso — que depende de
-      // QUÉ elegiste: un agent-host no tiene dashboard —no tiene proyectos ni
-      // ejecuciones—, así que mandarlo ahí lo dejaría en una pantalla que sólo
-      // puede fallar.
-      {
-        path: '',
-        redirect: () => {
-          if (!getSelectedServer()) return '/servers'
-          return getSelectedKind() === 'agent-host' ? '/agent-host' : '/dashboard'
-        },
-      },
-      { path: 'dashboard', name: 'dashboard', component: DashboardView },
-
-      // El índice completo de la app: el cuarto tab de la navegación mobile y
-      // el único camino a las pantallas que el drawer cubría. En desktop la
-      // ruta existe igual (nada se vuelve inalcanzable) pero no se ofrece:
-      // ahí manda el sidebar.
-      { path: 'mas', name: 'mas', component: MoreView },
-
-      // La consola del agent-host. Era un bundle aparte (`agent-host.html`)
-      // porque habla con OTRO proceso y con otra credencial — pero eso no
-      // obliga a que sea otra APP: para el operador es una pantalla más.
-      //
-      // Estas rutas son TODA la app cuando lo elegido es un agent-host: el
-      // shell dibuja sólo estas entradas y ninguna de las de un server (ver
-      // `isAgentHost` en AppShell.vue). `/agent-host/:tab` reemplaza a la
-      // grilla única que tenían las cuatro pantallas de config (provider,
-      // workspace, admisión, servers) — mismo patrón que `/general/:tab` para
-      // el server. `logs` y `runs` quedan aparte, estáticos, y por eso el
-      // router los matchea antes que el `:tab` dinámico.
-      { path: 'agent-host', redirect: '/agent-host/provider' },
-      { path: 'agent-host/logs', name: 'agent-host.logs', component: AgentHostLogsView },
-      { path: 'agent-host/runs', name: 'agent-host.runs', component: AgentHostRunsView },
-      {
-        path: 'agent-host/:tab',
-        name: 'agent-host',
-        component: AgentHostView,
-        props: (route) => ({ tab: route.params.tab }),
-      },
-
-      { path: 'general', redirect: '/general/agentes' },
-      {
-        // :detailId opcional — entrar al detalle de la fila abierta (o
-        // `new` para crear una) queda reflejado en la URL en vez de vivir
-        // solo en un ref local de la sección, que lo lee vía useRoute() y no
-        // como prop (por eso el `props` de acá sigue mapeando sólo `tab`).
-        // El nombre es genérico y no `:agentId` porque las tabs son
-        // excluyentes y ya hay dos secciones que abren detalle así —agentes
-        // y pipeline—: un param por sección serían dos opcionales seguidos,
-        // que el router no puede desambiguar.
-        path: 'general/:tab/:detailId?',
-        name: 'general',
-        component: GeneralView,
-        props: (route) => ({ tab: route.params.tab }),
-      },
-
-      { path: 'projects', name: 'projects', component: ProjectsListView },
-      { path: 'projects/:id', redirect: (to) => `/projects/${to.params.id}/overview` },
-      {
-        path: 'projects/:id/:tab/:detailId?',
-        name: 'projects.detail',
-        component: ProjectDetailView,
-        props: (route) => ({ id: route.params.id, tab: route.params.tab }),
-      },
-
-      // Legacy /repos and /settings/* → new home so bookmarks don't 404.
-      // Repos are now managed per-project at /projects/:id/repos.
-      { path: 'repos', redirect: '/projects' },
-      { path: 'settings', redirect: '/general/agentes' },
-      { path: 'settings/:tab', redirect: '/general/agentes' },
+      // Home: la bandeja sobre el board.
+      { path: '', name: 'inbox', component: InboxView },
+      { path: 'webhooks', name: 'webhooks', component: WebhooksView },
     ],
   },
+
+  // Cualquier ruta de la web vieja (dashboard, projects, general…) cae en la bandeja.
+  { path: '/:rest(.*)*', redirect: '/' },
 ]
 
 const router = createRouter({
@@ -110,22 +30,12 @@ const router = createRouter({
 })
 
 /**
- * Con un agent-host elegido, las rutas de server no se montan.
- *
- * El menú ya no las ofrece y `enter()` manda a la pantalla que corresponde,
- * pero eso cubre la navegación normal — no un bookmark, ni el `history.back()`
- * de quien venía de un server. Esas dos montan `DashboardView` o
- * `ProjectsListView`, que disparan `/api/*` contra un proceso que no las tiene:
- * 404s y toasts de error describiendo un problema que no existe.
- *
+ * Sin server elegido no hay nada que mostrar: todo va a la pantalla de servers.
  * `/servers` queda afuera del corte por lo obvio: es de donde se sale.
- * `/devctl` igual: no habla con NINGÚN server elegido, así que el tipo
- * elegido no debería importarle.
  */
 router.beforeEach((to) => {
-  if (getSelectedKind() !== 'agent-host') return true
-  if (['/servers', '/devctl'].includes(to.path) || to.path.startsWith('/agent-host')) return true
-  return '/agent-host'
+  if (to.path === '/servers') return true
+  return hasChosenServer() ? true : '/servers'
 })
 
 export default router
