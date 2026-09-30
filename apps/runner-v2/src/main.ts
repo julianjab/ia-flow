@@ -23,6 +23,7 @@ import { createLogger } from '@ia-flow/telemetry'
 import { type MountedRunner, mountRunner } from './boot.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
+import { startHeartbeat } from './heartbeat.js'
 import { createProviderHost, DEFAULT_HOST_PORT, hostedProviders } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { dispatchRaw, replayPullRequest, serve } from './serve.js'
@@ -91,6 +92,9 @@ async function startServing(
   // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
   // — no en el primer tick, y nunca en una validación o un evento suelto.
   mounted.engine.tick()
+  const stopHeartbeat = startHeartbeat(
+    () => mounted.engine.executions?.stats ?? { running: 0, waiting: 0, paused: 0 },
+  )
   await serve(mounted, {
     // `applyRunnerEnv` ya volcó settings.port a este env var.
     port: positiveInt(process.env.IA_FLOW_SERVER_PORT, 3001),
@@ -102,6 +106,7 @@ async function startServing(
   })
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
+      stopHeartbeat()
       mounted.stop()
       void telemetry.shutdown().finally(() => process.exit(0))
     })
