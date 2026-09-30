@@ -3,6 +3,7 @@ import {
   buildSlackReviewMessage,
   compactSlackReviewMessage,
   DEFAULT_SLACK_REVIEW_MESSAGES,
+  mapAssigneesToSlack,
   renderMentions,
   resolveSlackReviewTarget,
   slackReviewBlockedReason,
@@ -229,5 +230,52 @@ describe('plantillas configurables', () => {
         messages: { first: 'hola {{nope}}' },
       }),
     ).toBe('hola {{nope}}')
+  })
+})
+
+describe('mapAssigneesToSlack', () => {
+  const directory = { julianjab: JULI, Ana: { id: 'U3', name: 'ana' } }
+
+  it('maps the assignees that have a Slack user, and lists the ones that do not', () => {
+    expect(mapAssigneesToSlack(['julianjab', 'nadie'], directory)).toEqual({
+      members: [JULI],
+      unmapped: ['nadie'],
+    })
+  })
+
+  it('compares logins without caring about case, and counts a repeated one once', () => {
+    expect(mapAssigneesToSlack(['JulianJab', 'julianjab', 'ana'], directory)).toEqual({
+      members: [JULI, { id: 'U3', name: 'ana' }],
+      unmapped: [],
+    })
+  })
+
+  it('has no members without a directory or without assignees', () => {
+    expect(mapAssigneesToSlack(['julianjab'], undefined)).toEqual({
+      members: [],
+      unmapped: ['julianjab'],
+    })
+    expect(mapAssigneesToSlack([], directory)).toEqual({ members: [], unmapped: [] })
+  })
+})
+
+describe('resolveSlackReviewTarget con asignados', () => {
+  const project = { slackReviewChannel: 'C_PROJ', slackReviewers: [BOT] }
+
+  it('tags the assignees and the configured reviewers, the assignees first', () => {
+    expect(resolveSlackReviewTarget(undefined, project, [JULI])).toMatchObject({
+      channel: 'C_PROJ',
+      reviewers: [JULI, BOT],
+    })
+  })
+
+  it('does not tag the same person twice', () => {
+    expect(
+      resolveSlackReviewTarget({ slackReviewers: [JULI, BOT] }, project, [JULI]),
+    ).toMatchObject({ reviewers: [JULI, BOT] })
+  })
+
+  it('tags only the configured reviewers when no assignee is on Slack', () => {
+    expect(resolveSlackReviewTarget(undefined, project, [])).toMatchObject({ reviewers: [BOT] })
   })
 })
