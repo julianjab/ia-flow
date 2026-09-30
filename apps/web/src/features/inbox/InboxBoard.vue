@@ -4,6 +4,7 @@ import InboxSection from '@/features/inbox/InboxSection.vue';
 import InboxSummary from '@/features/inbox/InboxSummary.vue';
 import InboxToolbar from '@/features/inbox/InboxToolbar.vue';
 import RulesLegend from '@/features/inbox/RulesLegend.vue';
+import TaskDetailDrawer from '@/features/inbox/TaskDetailDrawer.vue';
 import { useInboxStore } from '@/features/inbox/store';
 import { useTaskFocusStore } from '@/stores/taskFocus';
 
@@ -72,6 +73,8 @@ watch(
     </div>
 
     <RulesLegend />
+
+    <TaskDetailDrawer />
   </div>
 </template>
 

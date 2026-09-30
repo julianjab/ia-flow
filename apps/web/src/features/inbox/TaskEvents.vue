@@ -10,11 +10,13 @@ import { clock } from '@/features/inbox/format';
 // contra la card. Es la respuesta a la pregunta que más se repite cuando una
 // tarjeta no se mueve.
 
-const props = defineProps<{ taskRef: string; events: EventLogEntry[] }>();
+// `limit`: cuántos se muestran (el panel grande los muestra todos).
+const props = withDefaults(defineProps<{ taskRef: string; events: EventLogEntry[]; limit?: number }>(), {
+  limit: 6,
+});
 
-const SHOWN = 6;
 // Llegan de lo más nuevo a lo más viejo (`TaskDetail.events`).
-const recent = computed(() => props.events.slice(0, SHOWN));
+const recent = computed(() => props.events.slice(0, props.limit));
 
 const GLYPH: Record<PipelineDecision['verdict'], string> = {
   ran: '✓',

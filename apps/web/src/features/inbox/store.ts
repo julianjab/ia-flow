@@ -43,6 +43,8 @@ export const useInboxStore = defineStore('inbox', () => {
   const groupFilter = ref<InboxGroup | null>(null)
 
   const openRef = ref<string | null>(null)
+  /** La tarea abierta se ve en grande (el panel de detalle), no sólo dentro de su tarjeta. */
+  const expanded = ref(false)
   const details = ref<Record<string, DetailState>>({})
   const actions = ref<Record<string, ActionState>>({})
   const streamState = ref<StreamState>('connecting')
@@ -110,12 +112,27 @@ export const useInboxStore = defineStore('inbox', () => {
   }
 
   function toggle(ref: string): void {
+    expanded.value = false
     if (openRef.value === ref) {
       openRef.value = null
       return
     }
     openRef.value = ref
     void loadDetail(ref)
+  }
+
+  /** El detalle completo de una tarea, en grande. Sigue siendo la abierta: la traza y los
+   *  eventos le llegan en vivo igual. */
+  function expand(ref: string): void {
+    if (openRef.value !== ref) {
+      openRef.value = ref
+      void loadDetail(ref)
+    }
+    expanded.value = true
+  }
+
+  function collapse(): void {
+    expanded.value = false
   }
 
   /** Abre una tarea pedida desde afuera (el asistente): sin filtros que la escondan. */
@@ -252,6 +269,7 @@ export const useInboxStore = defineStore('inbox', () => {
     project,
     groupFilter,
     openRef,
+    expanded,
     details,
     actions,
     streamState,
@@ -263,6 +281,8 @@ export const useInboxStore = defineStore('inbox', () => {
     refresh,
     loadDetail,
     toggle,
+    expand,
+    collapse,
     focus,
     setGroupFilter,
     runAction,
