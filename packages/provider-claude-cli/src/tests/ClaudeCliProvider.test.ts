@@ -161,8 +161,44 @@ describe('ClaudeCliProvider', () => {
 
     expect(flag(cli.launched[0]?.argv ?? [], '--resume')).toBe('s-1')
     expect(cli.launched[0]?.argv).not.toContain('--session-id')
-    expect(prompt).toBe('[Mientras esperabas]\nLlegó el CI verde.')
+    expect(prompt).toBe('[Continuación de tu turno]\nLlegó el CI verde.\n\nSeguí donde quedaste.')
     expect(output.conversation).toEqual({ sessionId: 's-1' })
+  })
+
+  it('after a restart, closes the orphan session before resuming, and saves where the new one runs', async () => {
+    const closed: unknown[] = []
+    const cli = new FakeCli(async (url) => {
+      await rpc(url, 'tools/call', { name: 'submit_done', arguments: {} })
+      return undefined
+    })
+    const launch = cli.launch.bind(cli)
+    cli.launch = async (spec) => ({
+      ...(await launch(spec)),
+      ref: { kind: 'tmux' as const, name: 'iaflow-implementer-task-7-2' },
+    })
+    const ctx = runContext({
+      resume: {
+        conversation: {
+          sessionId: 's-1',
+          session: { kind: 'tmux', name: 'iaflow-implementer-task-7' },
+        },
+        message: 'El runner se reinició.',
+      },
+    })
+
+    await provider(cli, {
+      closeOrphan: async (ref: unknown) => {
+        closed.push(ref)
+        return true
+      },
+    }).run(ctx)
+
+    expect(closed).toEqual([{ kind: 'tmux', name: 'iaflow-implementer-task-7' }])
+    expect(flag(cli.launched[0]?.argv ?? [], '--resume')).toBe('s-1')
+    expect(ctx.saved.at(-1)).toEqual({
+      sessionId: 's-1',
+      session: { kind: 'tmux', name: 'iaflow-implementer-task-7-2' },
+    })
   })
 
   it('a session that ends without closing the turn is an error with its output', async () => {
