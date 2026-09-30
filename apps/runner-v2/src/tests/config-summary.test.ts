@@ -2,6 +2,7 @@
  * El resumen de la config que ven la web y el asistente: nunca un secreto de runner.yaml.
  */
 import { describe, expect, it } from 'bun:test'
+import { END } from '@ia-flow/agent-engine'
 import { configSummary } from '../inbox/configSummary.js'
 
 describe('configSummary', () => {
@@ -42,5 +43,28 @@ describe('configSummary', () => {
       { id: 'sin-resolver', host: 'del ambiente' },
     ])
     expect(JSON.stringify(summary)).not.toContain('s3cr3t')
+  })
+
+  it('onError lists the step ids: a live action carries its client, and its auth', () => {
+    const update = {
+      id: 'update_issue',
+      auth: { privateKey: '-----BEGIN-secreto', token: 'ghs_secreto' },
+    }
+    const pipeline = {
+      id: 'p',
+      on: 'item.changed',
+      trigger: { when: [] },
+      exclusive: false,
+      position: 0,
+      do: [{ kind: 'agent', id: 'refiner', candidates: [] }],
+    }
+    const withError = configSummary({
+      projects: [],
+      pipelines: () => [{ pipeline: pipeline as never, sourceId: 'runner' }],
+      routesOf: () =>
+        ({ exits: [], onError: { route: { to: [update, END] }, origin: 'project' } }) as never,
+    })
+    expect(withError.agents[0]?.routes.onError).toBe('update_issue')
+    expect(JSON.stringify(withError)).not.toContain('secreto')
   })
 })
