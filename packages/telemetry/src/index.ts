@@ -1,5 +1,8 @@
 export type { ConsoleSinkOptions, Logger, LogLevel, LogRecord, LogSink } from './logging.js'
 export { addLogSink, consoleSink, createLogger, otelSink, setLogSinks } from './logging.js'
+export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'
+export type { TraceRecorder, TraceRecorderOptions } from './traceRecorder.js'
+export { EXECUTION_ATTRIBUTE, traceRecorder } from './traceRecorder.js'
 export type {
   Attributes,
   Context,
@@ -27,4 +30,3 @@ export {
   withInheritedAttributes,
   withSpan,
 } from './tracing.js'
-export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'

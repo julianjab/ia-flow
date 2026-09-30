@@ -22,8 +22,10 @@ tienen OTel sólo como `devDependency` para sus tests con el SDK en memoria.
 src/
 ├── tracing.ts     @traced, @tagged, withSpan, atributos heredados (withInheritedAttributes)
 ├── logging.ts     createLogger, LogSink, setLogSinks/addLogSink, otelSink, consoleSink
+├── traceRecord.ts TraceRecord + TraceJournal: la traza de una ejecución como datos planos
+├── traceRecorder.ts  traceRecorder(journal): SpanProcessor + LogSink que anotan esa traza
 ├── index.ts
-└── tests/         tracing.test.ts, logging.test.ts
+└── tests/         tracing.test.ts, logging.test.ts, traceRecorder.test.ts
 ```
 
 ## Reglas que no son obvias al leer el código
@@ -55,6 +57,11 @@ src/
 - **`@traced` loguea solo un error que se escapa**, si la instancia tiene un campo `log`: una sola
   vez aunque suba por varios métodos trazados (se loguea en el más profundo; un `WeakSet` marca
   los ya logueados — un throw de un primitivo no se puede marcar y se loguearía en cada nivel).
+- **`traceRecorder` usa sólo los TIPOS del SDK** (`SpanProcessor`, `ReadableSpan`, con
+  `import type`): por eso `@opentelemetry/sdk-trace-base` está en `dependencies`, pero no se carga
+  en runtime. La app registra el `spanProcessor` en el SDK que eligió y suma el `logSink`. Anota
+  sólo lo de una ejecución: un span con `ia.execution.id`, o hijo (misma traza) de uno que la
+  tiene — un LRU spanId → ejecución acotado (20k) cubre los spans sin atributos heredados.
 - **Decorators legacy** (`experimentalDecorators` en `tsconfig.base.json`), no los TC39: vitest 4
   transforma con oxc, que todavía no soporta los estándar.
 
