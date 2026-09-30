@@ -207,6 +207,11 @@ export class ExecutionStore {
     return [...this.byKey.values()].filter((execution) => execution.status === 'paused')
   }
 
+  /** Las tasks con alguna corrida esperando turno — lo que la bandeja muestra "en cola". */
+  waitingKeys(): string[] {
+    return this.scheduler.waitingKeys()
+  }
+
   get stats(): { running: number; waiting: number; paused: number } {
     return {
       running: this.scheduler.running,

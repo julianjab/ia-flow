@@ -18,6 +18,8 @@ export class ExecutionScheduler {
   private readonly queue = new KeyedQueue()
   private readonly slots: Semaphore
   private waitingCount = 0
+  /** Cuántas esperan turno en cada task (o un lugar bajo el tope), para mostrar quién espera. */
+  private readonly waitingByKey = new Map<string, number>()
   private readonly groupLimits = new ConcurrencyLimits()
 
   constructor(
@@ -40,12 +42,18 @@ export class ExecutionScheduler {
     return this.waitingCount
   }
 
+  /** Las tasks con alguna corrida esperando turno (la de adelante de la cola todavía no arrancó). */
+  waitingKeys(): string[] {
+    return [...this.waitingByKey.keys()]
+  }
+
   /**
    * Pide turno en la task y lugar bajo el tope. Todo lo sincrónico va ANTES del primer await: la
    * task queda ocupada en este mismo tick. `release` devuelve las dos cosas.
    */
   enter(key: string): Turn {
     this.waitingCount++
+    this.waitingByKey.set(key, (this.waitingByKey.get(key) ?? 0) + 1)
     const turn = this.queue.enqueue(key)
     let releaseGroup = () => {}
     const ready = (async () => {
@@ -60,6 +68,9 @@ export class ExecutionScheduler {
         await this.slots.acquire()
       } finally {
         this.waitingCount--
+        const left = (this.waitingByKey.get(key) ?? 1) - 1
+        if (left > 0) this.waitingByKey.set(key, left)
+        else this.waitingByKey.delete(key)
       }
     })()
     return {
