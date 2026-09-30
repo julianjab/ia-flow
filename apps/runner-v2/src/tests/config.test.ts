@@ -268,7 +268,7 @@ describe('runner.yaml as the index', () => {
     })
     const mounted = await mountForTest(dir)
     try {
-      expect(ids(mounted, 'runner')).toEqual(['ping', 'intake', 'intake-unblock'])
+      expect(ids(mounted, 'runner')).toEqual(['ping', 'intake', 'intake-slack', 'intake-unblock'])
       expect(ids(mounted, 'lahaus-ai-flow')).toHaveLength(8)
     } finally {
       mounted.stop()
@@ -320,5 +320,16 @@ describe('runner.yaml → slack.users', () => {
   it('rejects a user without its Slack id', () => {
     const dir = configCopy({ 'runner.yaml': (s) => s.replace(ENTRY, 'julianjab: { name: juli }') })
     expect(() => loadRunnerConfig(dir)).toThrow(/runner\.yaml: inválido/)
+  })
+
+  it('rejects two logins with the same Slack id (the Slack → GitHub lookup would be ambiguous)', () => {
+    const dir = configCopy({
+      'runner.yaml': (s) =>
+        s.replace(
+          'julianjab: { id: U02M1QFA0AF, name: julianjab }',
+          'julianjab: { id: U02M1QFA0AF }\n    otro: { id: U02M1QFA0AF }',
+        ),
+    })
+    expect(() => loadRunnerConfig(dir)).toThrow(/mismo id de Slack/)
   })
 })

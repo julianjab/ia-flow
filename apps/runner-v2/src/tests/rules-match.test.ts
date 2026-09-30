@@ -99,7 +99,7 @@ describe('webhook crudo → intake → pipelines de .config/', () => {
         .find((entry) => entry.id === id)
         ?.source.list()
         .map((p) => p.id) ?? []
-    expect(ids('runner')).toEqual(['intake', 'intake-unblock'])
+    expect(ids('runner')).toEqual(['intake', 'intake-slack', 'intake-unblock'])
     expect(ids('lahaus-ai-flow').some((id) => id.startsWith('intake'))).toBe(false)
     mounted.stop()
   })

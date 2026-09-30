@@ -94,6 +94,8 @@ describe('request_slack_review', () => {
     expect(sl.posted[0]).toMatchObject({ channel: 'CREV1' })
     expect(String(sl.posted[0]?.text)).toContain('<@U1>')
     expect(String(sl.posted[0]?.text)).toContain('https://github.com/pr/12')
+    // El mensaje que abre el hilo trae el issue: una respuesta se resuelve a su task sin buscar.
+    expect(String(sl.posted[0]?.text)).toContain('la-haus/subscriptions#7')
     expect(sl.posted[0]?.thread_ts).toBeUndefined()
     expect(gh.patched[0]).toContain('El PRD')
     expect(gh.patched[0]).toContain(`<!-- ia-flow:slack -->\n## Slack\n\n${THREAD}`)
