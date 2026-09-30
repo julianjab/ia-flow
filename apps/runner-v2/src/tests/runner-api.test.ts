@@ -105,7 +105,7 @@ function assistantFor(inbox: InboxService, conversations: SqliteConversationStor
   desk.connect({
     inbox,
     activity,
-    config: () => ({ projects: [], pipelines: [], agents: [] }),
+    config: () => ({ projects: [], pipelines: [], agents: [], providers: [], mcp: [] }),
     status: () => ({}),
     projectLabels,
   })
@@ -157,7 +157,7 @@ async function start(token: string | null = TOKEN, push = true) {
     }),
     assistant: assistantFor(inbox, conversations),
     conversations,
-    config: () => ({ projects: [], pipelines: [], agents: [] }),
+    config: () => ({ projects: [], pipelines: [], agents: [], providers: [], mcp: [] }),
     hub,
     log: () => {},
     fetchImpl: github.fetchImpl,
