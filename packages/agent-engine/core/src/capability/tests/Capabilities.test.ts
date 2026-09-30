@@ -91,6 +91,22 @@ describe('Capabilities', () => {
     expect(submit?.inputSchema).toMatchObject({ required: ['result'] })
   })
 
+  it('the model text reaches onText while the agent answers', async () => {
+    const seen: ProviderRunContext[] = []
+    const capabilities = new Capabilities(
+      { summary: agentCalling('submit_done', { result: { summary: 'corto' } }, seen) },
+      bus,
+    )
+    const deltas: string[] = []
+
+    await capabilities.invoke(SUMMARY, { text: 'largo' }, { onText: (delta) => deltas.push(delta) })
+    seen[0]?.onText?.('hola')
+    expect(deltas).toEqual(['hola'])
+
+    await capabilities.invoke(SUMMARY, { text: 'largo' })
+    expect(seen[1]?.onText).toBeUndefined()
+  })
+
   it('every exit of the agent leads to the result, without its own destinations or report', async () => {
     const reported: string[] = []
     const report = new FunctionAction({ id: 'report', fn: () => void reported.push('report') })
