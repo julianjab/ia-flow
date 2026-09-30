@@ -2,18 +2,12 @@ import type { InboxGroup, InboxKind, TaskAction } from '@ia-flow/shared'
 
 // El vocabulario de la bandeja: qué dice cada grupo, cada caso y cada acción.
 // Vive junto a la feature (no en `shared`): es copy de esta pantalla, el
-// contrato sólo fija las claves.
+// contrato sólo fija las claves. El nombre de cada grupo y cada caso lo comparte
+// con el asistente, así que vive en `components/`.
+export { GROUP_LABEL, KIND_LABEL } from '@/components/taskLabels'
 
 /** Los cuatro grupos que dibuja la bandeja, en orden de urgencia. `idle` nunca sale de `/api/inbox`. */
 export const GROUPS: readonly Exclude<InboxGroup, 'idle'>[] = ['need', 'fail', 'run', 'queue']
-
-export const GROUP_LABEL: Record<InboxGroup, string> = {
-  need: 'Te necesita',
-  fail: 'Falló',
-  run: 'Corriendo',
-  queue: 'En cola',
-  idle: 'Sin pendientes',
-}
 
 export const GROUP_HINT: Record<InboxGroup, string> = {
   need: 'el pipeline se detuvo y sólo vos lo movés',
@@ -21,19 +15,6 @@ export const GROUP_HINT: Record<InboxGroup, string> = {
   run: 'nada que hacer',
   queue: 'va a correr, todavía no',
   idle: 'está en el board, no espera nada de nadie',
-}
-
-export const KIND_LABEL: Record<InboxKind, string> = {
-  merge: 'Listo para mergear',
-  prd: 'PRD para aprobar',
-  doubt: 'El agente tiene una duda',
-  stale: 'Sin movimiento',
-  crash: 'Error del runner',
-  ci: 'Esperando CI',
-  agent: 'Agente trabajando',
-  turn: 'Esperando turno',
-  dep: 'Esperando otro issue',
-  idle: 'Sin pendientes',
 }
 
 export const ACTION_LABEL: Record<TaskAction, string> = {
