@@ -3,8 +3,12 @@ import { parseArgs, parseIssueTarget } from '../cli.js'
 
 describe('parseArgs', () => {
   it('without a mode, it only boots and validates', () => {
-    expect(parseArgs([])).toEqual({ serve: false })
-    expect(parseArgs(['--config', '/x'])).toEqual({ serve: false, configDir: '/x' })
+    expect(parseArgs([])).toEqual({ serve: false, host: false })
+    expect(parseArgs(['--config', '/x'])).toEqual({ serve: false, host: false, configDir: '/x' })
+  })
+
+  it('--host lends the local providers to other runners', () => {
+    expect(parseArgs(['--host'])).toEqual({ serve: false, host: true })
   })
 
   it('a raw webhook from a file, or a real PR', () => {
@@ -26,6 +30,7 @@ describe('parseArgs', () => {
 
   it('one mode at a time', () => {
     expect(() => parseArgs(['--serve', '--replay-pr', 'a/b#1'])).toThrow(/van de a uno/)
+    expect(() => parseArgs(['--serve', '--host'])).toThrow(/van de a uno/)
   })
 })
 
