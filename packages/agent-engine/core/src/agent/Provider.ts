@@ -27,6 +27,9 @@ export interface ProviderRunContext {
   /** Guardar la conversación en curso, para retomarla si el proceso muere a mitad de camino.
    *  Un provider con loop la pasa después de cada vuelta; uno sin conversación, nunca. */
   saveConversation?: (conversation: unknown) => void
+  /** El texto del modelo a medida que se escribe, un pedazo por llamada — para mostrarlo en vivo
+   *  (el asistente de la web). Un provider que no puede streamear no lo llama nunca. */
+  onText?: (delta: string) => void
 }
 
 /** Lo que un Provider reporta al terminar. `outcome` es el nombre que `matchExit` busca en
