@@ -54,7 +54,7 @@ const activity: ActivityPort = {
 }
 
 /** GitHub de mentira: el login de un token y lo que se le pidió. */
-function fakeGithub(push = true) {
+function fakeGithub(push = true, mergeableState = 'clean') {
   const calls: Array<{ method: string; url: string; body?: unknown }> = []
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
@@ -69,6 +69,7 @@ function fakeGithub(push = true) {
       return Response.json({ login: auth === 'Bearer gho_other' ? 'otra' : 'julian' })
     }
     if (url.endsWith('/repos/o/r')) return Response.json({ permissions: { push } })
+    if (url.endsWith('/pulls/9')) return Response.json({ mergeable_state: mergeableState })
     return Response.json({ merged: true })
   }) as typeof fetch
   return { calls, fetchImpl }
@@ -128,8 +129,8 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.close()
 })
 
-async function start(token: string | null = TOKEN, push = true) {
-  const github = fakeGithub(push)
+async function start(token: string | null = TOKEN, push = true, mergeableState = 'clean') {
+  const github = fakeGithub(push, mergeableState)
   const hub = new SseHub<RunnerStreamEvent>()
   const conversations = new SqliteConversationStore(new Database(':memory:'))
   const inbox = new InboxService({
@@ -246,6 +247,35 @@ describe('runner API', () => {
       url: 'https://api.github.com/repos/o/r/pulls/9/merge',
       body: { merge_method: 'squash' },
     })
+  })
+
+  it.each(['blocked', 'dirty', 'behind', 'draft', 'unknown'])(
+    'refuses to merge a PR GitHub reports as %s, without calling the merge endpoint',
+    async (state) => {
+      const { call, github } = await start(TOKEN, true, state)
+      const res = await call('/api/tasks/o/r/1/actions', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'merge' }),
+        headers: { 'x-github-token': 'gho_x' },
+      })
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        message: expect.stringContaining('no se puede mergear'),
+      })
+      expect(github.calls.some((request) => request.method === 'PUT')).toBe(false)
+    },
+  )
+
+  it('merges a PR whose only failing checks are not required (unstable)', async () => {
+    const { call, github } = await start(TOKEN, true, 'unstable')
+    const res = await call('/api/tasks/o/r/1/actions', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'merge' }),
+      headers: { 'x-github-token': 'gho_x' },
+    })
+    expect(res.status).toBe(200)
+    expect(github.calls.some((request) => request.method === 'PUT')).toBe(true)
   })
 
   it('refuses an action from someone who cannot write to the repo', async () => {
