@@ -120,9 +120,7 @@ describe('Engine dispatch journal', () => {
     const last = journal.entries.at(-1)
     expect(last?.outcome).toBe('error')
     expect(last?.error).toContain('kaput')
-    expect(last?.decisions).toEqual([
-      { pipelineId: 'boom', sourceId: '', verdict: 'ran' },
-    ])
+    expect(last?.decisions).toEqual([{ pipelineId: 'boom', sourceId: '', verdict: 'ran' }])
   })
 
   it('records an error from reading the rules, with no decisions', async () => {
@@ -219,7 +217,8 @@ describe('Engine dispatch journal', () => {
     release()
     expect(await build).toBe('dispatched')
 
-    const lastOf = (event: unknown) => journal.entries.filter((entry) => entry.event === event).at(-1)
+    const lastOf = (event: unknown) =>
+      journal.entries.filter((entry) => entry.event === event).at(-1)
     const comment = lastOf(commentEvent)
     const opened = lastOf(buildEvent)
     expect(comment).toMatchObject({ outcome: 'injected', executionId, decisions: [] })
