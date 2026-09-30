@@ -138,6 +138,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   /** Retoma una conversación guardada: sus turnos en pantalla y su historia para el modelo. */
   function resume(conversation: AssistantConversation): void {
     setScope(conversation.scope)
+    parked.delete(keyOf(conversation.scope))
     reset()
     conversationId.value = conversation.id
     for (const message of conversation.thread) {
@@ -152,13 +153,44 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     }
   }
 
-  /** Cambia de contexto. Una conversación es de UN contexto: cambiar la empieza de cero. */
+  /** La conversación de cada contexto que se dejó, para volver a ella (mientras la página viva). */
+  interface Parked {
+    turns: Turn[]
+    history: AssistantMessage[]
+    notes: string[]
+    conversationId: string | null
+  }
+  const parked = new Map<string, Parked>()
+  const keyOf = (s: AssistantScope) =>
+    s.kind === 'general'
+      ? 'general'
+      : s.kind === 'project'
+        ? `project:${s.project_id}`
+        : `task:${s.ref}`
+
+  /** Cambia de contexto. Una conversación es de UN contexto: la del que se deja queda aparcada y
+   *  vuelve al volver a él; un contexto sin nada arranca de cero. */
   function setScope(next: AssistantScope): void {
     scopeChosen = true
     if (next.kind === 'task') lastTaskRef.value = next.ref
     if (sameScope(scope.value, next)) return
+    if (turns.value.length) {
+      parked.set(keyOf(scope.value), {
+        turns: turns.value,
+        history,
+        notes,
+        conversationId: conversationId.value,
+      })
+    }
     scope.value = next
     reset()
+    const back = parked.get(keyOf(next))
+    if (!back) return
+    parked.delete(keyOf(next))
+    turns.value = back.turns
+    history = back.history
+    notes = back.notes
+    conversationId.value = back.conversationId
   }
 
   function push(turn: NewTurn): Turn {

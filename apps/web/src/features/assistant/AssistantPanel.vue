@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
 import AssistantHistory from '@/features/assistant/AssistantHistory.vue';
+import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
 import { parseInline } from '@/features/assistant/format';
@@ -32,6 +33,14 @@ watch(
 );
 
 onMounted(() => void chat.loadProjects());
+
+// Un contexto que se abre vacío retoma su última conversación guardada.
+const history = useAssistantHistoryStore();
+watch(
+  () => [chat.scope, session.github] as const,
+  () => void history.resumeLatest(),
+  { immediate: true },
+);
 
 // Sigue el final mientras llega texto, como un chat.
 watch(
