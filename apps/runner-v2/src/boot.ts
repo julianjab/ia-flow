@@ -11,8 +11,6 @@
  *   4. El engine, desde `engine:` de runner.yaml (`engine/mountEngine.ts`): el store de
  *      ejecuciones en SQLite (`bun-sqlite`), el tick y el clasificador de los `whenText`.
  */
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import {
   type DispatchJournal,
   type Engine,
@@ -32,12 +30,6 @@ import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
 import { GithubClient } from '@ia-flow/github-api'
 import type { GithubAuth } from '@ia-flow/github-auth'
 import { SlackClient } from '@ia-flow/slack-api'
-import {
-  NodeShellRunner,
-  type WorkspaceLogger,
-  WorkspaceManager,
-  WorkspaceSession,
-} from '@ia-flow/workspace'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import { AssistantDesk } from './assistant/AssistantDesk.js'
@@ -49,10 +41,7 @@ import { withScope } from './projects/withScope.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
 import { trackWorking } from './working/workingMarker.js'
-import { workspaceTargetFor } from './workspace/workspaceTarget.js'
-
-/** Donde viven los clones y worktrees si no se pasa `WORKSPACE_DIR`. */
-const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.cache', 'ia-flow', 'runner-v2', 'workspaces')
+import { mountWorkspace } from './workspace/mountWorkspace.js'
 
 export interface MountOptions {
   workspaceDir?: string
@@ -96,13 +85,6 @@ export interface MountedRunner {
   services: RunnerServices
   /** Deja de escuchar el bus y de vencer pausas, y cierra la base de ejecuciones. */
   stop(): void
-}
-
-/** Los logs del `WorkspaceManager` por el log del runner: `[workspace] <mensaje> <contexto>`. */
-function workspaceLogger(log: (line: string) => void): WorkspaceLogger {
-  const line = (level: string) => (obj: object, msg?: string) =>
-    log(`[workspace${level === 'info' ? '' : ` ${level}`}] ${msg ?? ''} ${JSON.stringify(obj)}`)
-  return { info: line('info'), debug: () => {}, warn: line('warn'), error: line('error') }
 }
 
 /** El `providerConfig` de cada agente tiene la forma de la config de su provider: se valida al
@@ -166,22 +148,16 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     ? {}
     : await resolveMcpCatalog(cfg.mcp, auth, warnings)
 
-  // Clones persistentes en `<root>/repos` y un worktree por task en `<root>/worktrees`.
-  const workspaceRoot = opts.workspaceDir ?? DEFAULT_WORKSPACE_ROOT
-  const workspace = new WorkspaceManager(new NodeShellRunner(), {
-    reposBase: join(workspaceRoot, 'repos'),
-    worktreeBase: join(workspaceRoot, 'worktrees'),
+  const { workspace, session } = mountWorkspace({
+    ...(opts.workspaceDir ? { root: opts.workspaceDir } : {}),
     githubToken: () => auth.getToken(),
-    // Un PR lo puede pushear otro (un humano, otra máquina): el reviewer tiene que ver el
-    // último commit, no el que quedó en el worktree de una corrida anterior.
-    syncBranchWithRemote: true,
-    log: workspaceLogger(opts.log),
+    log: opts.log,
   })
 
   const services: RunnerServices = {
     github,
     workspace,
-    session: new WorkspaceSession(workspace, workspaceTargetFor),
+    session,
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
     gitCredential: () => auth.getToken(),
     slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
