@@ -44,7 +44,7 @@ describe('providerHost', () => {
       hints: (ctx) => ({ repo: [String((ctx.event.payload as { repo: string }).repo)] }),
     })
     const ctx = (repo: string) => ({
-      event: { type: 'github.issues', payload: { repo }, occurredAt: '', depth: 0 },
+      event: { id: 'e1', type: 'github.issues', payload: { repo }, occurredAt: '', depth: 0 },
       steps: {},
       bus: new EventBus(),
       pipelineId: 'build',

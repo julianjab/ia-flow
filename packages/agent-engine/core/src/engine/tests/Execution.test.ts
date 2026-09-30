@@ -83,3 +83,16 @@ describe('InMemoryExecutionStore', () => {
     expect(store.busy('task-1')).toBe(false)
   })
 })
+
+describe('Execution.run', () => {
+  it('closes failed with the error message as closeReason when the work throws', async () => {
+    const execution = await new InMemoryExecutionStore().start({ key: 't', pipelineId: 'p' })
+    await expect(
+      execution.run(async () => {
+        throw new Error('el provider se cayó')
+      }),
+    ).rejects.toThrow('el provider se cayó')
+    expect(execution.status).toBe('failed')
+    expect(execution.toRecord().closeReason).toBe('el provider se cayó')
+  })
+})

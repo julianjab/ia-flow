@@ -57,3 +57,21 @@ describe('deriveEvent', () => {
     expect(child.scope).toBeUndefined()
   })
 })
+
+describe('event ids', () => {
+  it('each event gets its own id, unless one is given (a replay)', () => {
+    const a = createEvent('a', {})
+    const b = createEvent('a', {})
+    expect(a.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(b.id).not.toBe(a.id)
+    expect(createEvent('a', {}, { id: 'replayed' }).id).toBe('replayed')
+    expect(a.parentId).toBeUndefined()
+  })
+
+  it('a derived event points to its parent and has an id of its own', () => {
+    const parent = createEvent('a', {})
+    const child = deriveEvent(parent, 'b', {})
+    expect(child.parentId).toBe(parent.id)
+    expect(child.id).not.toBe(parent.id)
+  })
+})

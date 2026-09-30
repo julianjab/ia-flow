@@ -38,7 +38,7 @@ describe('bun-sqlite across a restart', () => {
     expect(restored?.id).toBe(execution.id)
     expect(restored?.pausedOn?.pauseId).toBe('wait-ci')
     expect(
-      restored?.wake({ type: 'check_suite', payload: {}, depth: 0, occurredAt: 'now' }),
+      restored?.wake({ id: 'e1', type: 'check_suite', payload: {}, depth: 0, occurredAt: 'now' }),
     ).toEqual({
       branch: 'green',
       checkpoint,

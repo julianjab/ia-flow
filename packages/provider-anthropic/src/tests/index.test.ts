@@ -35,7 +35,7 @@ describe('package entrypoint', () => {
       mcpServers: [],
       tools: [],
       ctx: {
-        event: { type: 'a', payload: {}, occurredAt: new Date().toISOString(), depth: 0 },
+        event: { id: 'e1', type: 'a', payload: {}, occurredAt: new Date().toISOString(), depth: 0 },
         steps: {},
         bus: {} as never,
         pipelineId: 'p',
