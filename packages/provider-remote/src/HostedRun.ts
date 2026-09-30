@@ -8,8 +8,21 @@ import {
   type ProviderRunOutput,
   type Tool,
 } from '@ia-flow/agent-engine'
-import { createLogger } from '@ia-flow/telemetry'
-import type { RunEvent, RunRequest, SyncRequest, ToolResult } from './protocol.js'
+import {
+  type Attributes,
+  createLogger,
+  scopeAttributes,
+  type TraceRecord,
+  withInheritedAttributes,
+} from '@ia-flow/telemetry'
+import {
+  type RunEvent,
+  type RunRequest,
+  type SyncRequest,
+  type ToolResult,
+  toDomainEvent,
+} from './protocol.js'
+import { contextFromTraceparent, runIn } from './traceContext.js'
 
 type PendingCall = { resolve: (text: string) => void; reject: (error: Error) => void }
 /** Un evento antes de numerarlo — `Omit` sobre la unión, rama por rama. */
@@ -41,9 +54,17 @@ export class HostedRun {
     private readonly request: RunRequest,
   ) {}
 
-  /** Arranca el provider local. No espera: el resultado sale como evento `done`/`failed`. */
+  /**
+   * Arranca el provider local. No espera: el resultado sale como evento `done`/`failed`. Corre
+   * como hijo del span del agente en el runner (el `traceparent` del pedido) y con la ejecución
+   * del runner (`ia.execution.id`) y el scope del evento heredados: todo span y log de allá queda
+   * en la misma traza, etiquetado con la ejecución de acá.
+   */
   start(provider: Provider): void {
-    provider.run(this.runContext()).then(
+    const run = () =>
+      withInheritedAttributes(this.inherited(), () => provider.run(this.runContext()))
+    const parent = contextFromTraceparent(this.request.traceparent)
+    ;(parent ? runIn(parent, run) : run()).then(
       (output) => this.end({ type: 'done', output: outputWire(output) }),
       (error: unknown) =>
         this.end({ type: 'failed', error: error instanceof Error ? error.message : String(error) }),
@@ -52,6 +73,22 @@ export class HostedRun {
 
   get ended(): boolean {
     return this.endedAt !== undefined
+  }
+
+  /** La ejecución del runner a la que pertenece esta corrida, si el runner lleva ejecuciones. */
+  get executionId(): string | undefined {
+    return this.request.context.executionId
+  }
+
+  /** El runner pidió ver lo que pasa acá (`observe`) y la corrida sigue. */
+  get observed(): boolean {
+    return this.request.observe === true && !this.ended
+  }
+
+  /** Un span o log de esta ejecución, para el runner — por el mismo sync (`seq`/`after`): nada se
+   *  pierde ni se repite, y un long-poll en espera vuelve al toque. Sin `observe`, nada. */
+  trace(record: TraceRecord): void {
+    if (this.observed) this.push({ type: 'trace', record })
   }
 
   /** Aplica lo que manda el runner y devuelve los eventos que todavía no reconoció — esperando
@@ -108,7 +145,21 @@ export class HostedRun {
       ...(req.saveConversation
         ? { saveConversation: (conversation: unknown) => this.saveConversation(conversation) }
         : {}),
+      ...(req.observe ? { onText: (delta: string) => this.text(delta) } : {}),
     }
+  }
+
+  private inherited(): Attributes {
+    const executionId = this.executionId
+    return {
+      ...scopeAttributes(this.request.context.event.scope),
+      'ia.agent.id': this.request.agentId,
+      ...(executionId ? { 'ia.execution.id': executionId } : {}),
+    }
+  }
+
+  private text(delta: string): void {
+    if (!this.ended && delta) this.push({ type: 'text', delta })
   }
 
   /** Una tool cuyo handler corre en el runner. Un resultado con error vuelve como excepción: así
@@ -191,7 +242,7 @@ export class HostedRun {
  *  bus propio — lo que el provider publique no vuelve al runner. */
 function pipelineContext(wire: RunRequest['context']): PipelineExecutionContext {
   return {
-    event: wire.event as DomainEvent,
+    event: toDomainEvent(wire.event),
     steps: {},
     bus: new EventBus(),
     pipelineId: wire.pipelineId,

@@ -5,15 +5,20 @@ import {
   createLogger,
   markError,
   startSpan,
+  type TraceRecord,
   truncate,
 } from '@ia-flow/telemetry'
 import { type RunEvent, SyncResponse, type ToolResult } from './protocol.js'
 
 const SCOPE = '@ia-flow/provider-remote'
+/** El `origin` con el que el `traceRecorder` del host anota lo suyo si nadie le dice otro. */
+const HOST_DEFAULT_ORIGIN = 'runner'
 
 export interface RemoteRunOptions {
-  /** El provider del runner, para los mensajes. */
+  /** El provider del runner, para los mensajes — y el `origin` de lo que llega del host. */
   providerId: string
+  /** Los spans y logs del host (eventos `trace`). */
+  onTrace?: (record: TraceRecord) => void
   /** `<base>/v1/runs/<runId>`. */
   runUrl: string
   headers: Record<string, string>
@@ -152,6 +157,18 @@ export class RemoteRun {
           return { output: event.output }
         case 'failed':
           return { error: event.error }
+        case 'trace':
+          this.observe(() =>
+            this.options.onTrace?.(
+              event.record.origin === HOST_DEFAULT_ORIGIN
+                ? { ...event.record, origin: this.options.providerId }
+                : event.record,
+            ),
+          )
+          break
+        case 'text':
+          this.observe(() => this.options.ctx.onText?.(event.delta))
+          break
       }
     }
     return undefined
@@ -184,6 +201,15 @@ export class RemoteRun {
     }
     this.results.push(result)
     this.wake?.abort()
+  }
+
+  /** Quien observa no puede cortar la corrida. */
+  private observe(fn: () => void): void {
+    try {
+      fn()
+    } catch (error) {
+      this.log.debug(`observador de la corrida: ${(error as Error).message}`)
+    }
   }
 
   /** Le avisa al host que la suelte (terminó, o dejamos de esperarla). Best-effort. */

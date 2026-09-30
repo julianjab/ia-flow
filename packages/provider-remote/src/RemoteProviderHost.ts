@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
-import type { Admission, DomainEvent, Provider } from '@ia-flow/agent-engine'
+import type { Admission, Provider } from '@ia-flow/agent-engine'
 import { EventBus } from '@ia-flow/agent-engine'
-import { createLogger } from '@ia-flow/telemetry'
+import { createLogger, type TraceRecord } from '@ia-flow/telemetry'
 import { z } from 'zod'
 import { HostedRun } from './HostedRun.js'
 import {
@@ -11,6 +11,7 @@ import {
   PROTOCOL_PREFIX,
   RunRequest,
   SyncRequest,
+  toDomainEvent,
 } from './protocol.js'
 
 export interface RemoteProviderHostOptions {
@@ -86,6 +87,17 @@ export class RemoteProviderHost {
     let count = 0
     for (const run of this.runs.values()) if (run.providerId === providerId && !run.ended) count++
     return count
+  }
+
+  /**
+   * Un span o log de este proceso (lo que anota el `traceRecorder` del host) para el runner de su
+   * ejecución: va a cada corrida en curso de esa ejecución que pidió `observe`, como evento `trace`
+   * de su sync. Lo que no es de una corrida observada se ignora. No tira.
+   */
+  trace(record: TraceRecord): void {
+    for (const run of this.runs.values()) {
+      if (run.observed && run.executionId === record.executionId) run.trace(record)
+    }
   }
 
   /** Corta las corridas huérfanas y olvida las que terminaron hace rato. */
@@ -168,7 +180,7 @@ export class RemoteProviderHost {
       const admission = await provider.canAccept({
         agentId: request.agentId,
         ctx: {
-          event: request.context.event as DomainEvent,
+          event: toDomainEvent(request.context.event),
           steps: {},
           bus: new EventBus(),
           pipelineId: request.context.pipelineId,

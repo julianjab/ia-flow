@@ -12,6 +12,8 @@
  * del agente viajan como eventos `tool_call` en la respuesta del sync y sus resultados en el
  * siguiente — el host nunca necesita alcanzar al runner, ni tener con qué autenticarse contra él.
  */
+import type { DomainEvent } from '@ia-flow/agent-engine'
+import type { TraceRecord } from '@ia-flow/telemetry'
 import { z } from 'zod'
 
 export const PROTOCOL_PREFIX = '/v1'
@@ -48,6 +50,9 @@ const AgentVariable = z.union([
  *  worktree) y de qué pipeline viene. El resto (`bus`, `steps`, las ejecuciones) es del runner. */
 export const RunContextWire = z.object({
   event: z.object({
+    /** Opcional: un runner anterior a los ids de evento no lo manda. */
+    id: z.string().optional(),
+    parentId: z.string().optional(),
     type: z.string(),
     payload: z.unknown(),
     scope: z.record(z.string(), z.unknown()).optional(),
@@ -60,6 +65,12 @@ export const RunContextWire = z.object({
   executionId: z.string().optional(),
 })
 export type RunContextWire = z.infer<typeof RunContextWire>
+
+/** El evento del wire como `DomainEvent`: un runner anterior a los ids no lo manda, y acá se le
+ *  inventa uno para que el provider de este lado siempre tenga `event.id`. */
+export function toDomainEvent(event: RunContextWire['event']): DomainEvent {
+  return { ...event, id: event.id ?? globalThis.crypto.randomUUID() } as DomainEvent
+}
 
 export const RunRequest = z.object({
   agentId: z.string(),
@@ -76,8 +87,45 @@ export const RunRequest = z.object({
   /** El runner guarda la conversación: el host le da `saveConversation` al provider de allá. */
   saveConversation: z.boolean(),
   resume: z.object({ conversation: z.unknown(), message: z.string() }).optional(),
+  /** El span del agente en el runner (W3C `traceparent`): el provider de allá corre como su hijo,
+   *  en la misma traza. */
+  traceparent: z.string().optional(),
+  /** El runner quiere ver lo que pasa allá mientras pasa: el host le manda eventos `trace` (sus
+   *  spans y logs de esta ejecución) y `text` (el texto del modelo). Un runner viejo no lo pide y
+   *  un host viejo lo ignora. */
+  observe: z.boolean().optional(),
 })
 export type RunRequest = z.infer<typeof RunRequest>
+
+const TraceValueWire = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+  z.array(z.number()),
+  z.array(z.boolean()),
+])
+
+/** Un `TraceRecord` de `@ia-flow/telemetry` en el cable: un span (al empezar o al terminar) o un
+ *  log del host, de la ejecución de la corrida. */
+export const TraceRecordWire = z.object({
+  kind: z.enum(['span', 'log']),
+  phase: z.enum(['start', 'end']).optional(),
+  name: z.string(),
+  scope: z.string().optional(),
+  level: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  status: z.enum(['ok', 'error', 'unset']).optional(),
+  statusMessage: z.string().optional(),
+  startTime: z.string(),
+  endTime: z.string().optional(),
+  durationMs: z.number().optional(),
+  traceId: z.string(),
+  spanId: z.string(),
+  parentSpanId: z.string().optional(),
+  executionId: z.string(),
+  origin: z.string(),
+  attributes: z.record(z.string(), TraceValueWire),
+}) satisfies z.ZodType<TraceRecord>
 
 export const RunAccepted = z.object({ runId: z.string() })
 
@@ -100,6 +148,10 @@ export const RunEvent = z.discriminatedUnion('type', [
   z.object({ seq: z.number(), type: z.literal('conversation'), conversation: z.unknown() }),
   z.object({ seq: z.number(), type: z.literal('done'), output: RunOutputWire }),
   z.object({ seq: z.number(), type: z.literal('failed'), error: z.string() }),
+  /** Sólo con `observe`: un span o log del host, apenas pasa. */
+  z.object({ seq: z.number(), type: z.literal('trace'), record: TraceRecordWire }),
+  /** Sólo con `observe`: el texto del modelo a medida que se escribe (`ProviderRunContext.onText`). */
+  z.object({ seq: z.number(), type: z.literal('text'), delta: z.string() }),
 ])
 export type RunEvent = z.infer<typeof RunEvent>
 

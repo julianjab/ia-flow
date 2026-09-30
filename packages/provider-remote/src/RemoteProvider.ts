@@ -5,7 +5,7 @@ import type {
   ProviderRunContext,
   ProviderRunOutput,
 } from '@ia-flow/agent-engine'
-import { createLogger } from '@ia-flow/telemetry'
+import { createLogger, type TraceRecord } from '@ia-flow/telemetry'
 import type { RemoteProviderConfig } from './config.js'
 import {
   type AdmissionHints,
@@ -16,6 +16,7 @@ import {
   type RunRequest,
 } from './protocol.js'
 import { RemoteRun } from './RemoteRun.js'
+import { activeTraceparent } from './traceContext.js'
 
 /** Los tiempos del cliente. Todos tienen default; los tests los achican. */
 export interface RemoteTiming {
@@ -54,6 +55,10 @@ export interface RemoteProviderOptions extends RemoteProviderConfig {
   hints?: (ctx: PipelineExecutionContext) => AdmissionHints
   fetchImpl?: typeof fetch
   timing?: Partial<RemoteTiming>
+  /** Cada span y log que el host registra de la ejecución, a medida que pasa (ej. el
+   *  `TraceJournal` del runner). Con esto —o con un `ctx.onText`— la corrida pide `observe`. El
+   *  `origin` que el host deja en su default (`runner`) llega como el `id` de este provider. */
+  onTrace?: (record: TraceRecord) => void
 }
 
 /**
@@ -120,6 +125,7 @@ export class RemoteProvider implements Provider {
     const minutes = this.options.runTimeoutMinutes
     return new RemoteRun({
       providerId: this.id,
+      ...(this.options.onTrace ? { onTrace: this.options.onTrace } : {}),
       runUrl: `${this.base}${PROTOCOL_PREFIX}/runs/${encodeURIComponent(runId)}`,
       headers: this.headers(),
       fetchImpl: this.fetchImpl,
@@ -159,6 +165,7 @@ export class RemoteProvider implements Provider {
 
   private requestOf(ctx: ProviderRunContext): RunRequest {
     const { event } = ctx.ctx
+    const traceparent = activeTraceparent()
     return {
       agentId: ctx.agentId,
       prompt: ctx.prompt,
@@ -175,6 +182,8 @@ export class RemoteProvider implements Provider {
       })),
       context: {
         event: {
+          id: event.id,
+          ...(event.parentId ? { parentId: event.parentId } : {}),
           type: event.type,
           payload: event.payload,
           ...(event.scope ? { scope: event.scope } : {}),
@@ -190,6 +199,8 @@ export class RemoteProvider implements Provider {
       inbox: ctx.inbox !== undefined,
       saveConversation: ctx.saveConversation !== undefined,
       ...(ctx.resume ? { resume: ctx.resume } : {}),
+      ...(traceparent ? { traceparent } : {}),
+      ...(this.options.onTrace || ctx.onText ? { observe: true } : {}),
     }
   }
 

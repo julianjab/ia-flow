@@ -13,6 +13,7 @@ export {
   SyncResponse,
   ToolResult,
   ToolSpec,
+  TraceRecordWire,
 } from './protocol.js'
 export type { RemoteProviderOptions, RemoteTiming } from './RemoteProvider.js'
 export { RemoteProvider } from './RemoteProvider.js'

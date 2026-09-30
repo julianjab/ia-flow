@@ -14,6 +14,7 @@ src/
 ├── RemoteProviderHost.ts  host: el handler de fetch, auth, topes, barrido de huérfanas
 ├── HostedRun.ts           host, una corrida: el provider local con tools proxy + la cola de eventos
 ├── AdmissionRules.ts      reglas del host sobre las pistas (puro)
+├── traceContext.ts        el `traceparent` del agente: se arma en el runner y se lee en el host
 └── tests/                 end-to-end sin red: el fetch del cliente le pega al handler del host
 ```
 
