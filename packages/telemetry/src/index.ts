@@ -2,6 +2,12 @@ export type { ErrorDetail } from './errors.js'
 export { describeError, flattenError } from './errors.js'
 export type { ConsoleSinkOptions, Logger, LogLevel, LogRecord, LogSink } from './logging.js'
 export { addLogSink, consoleSink, createLogger, otelSink, setLogSinks } from './logging.js'
+export type {
+  OtlpResource,
+  RecordExporter,
+  RecordExporterOptions,
+} from './otlpRecords.js'
+export { otlpLogs, otlpTraces, recordExporter } from './otlpRecords.js'
 export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'
 export type { TraceRecorder, TraceRecorderOptions } from './traceRecorder.js'
 export { EXECUTION_ATTRIBUTE, traceRecorder } from './traceRecorder.js'
