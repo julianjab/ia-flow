@@ -76,6 +76,21 @@ const mutations = (calls: Call[]) =>
   calls.filter((call) => call.body?.query?.includes('updateProjectV2ItemFieldValue'))
 
 describe('UpdateIssueAction', () => {
+  it('clears a project field (clearFields), e.g. the Working marker', async () => {
+    const { client, calls } = fakeGithub()
+    const action = new UpdateIssueAction({ client, project: { owner: 'la-haus', number: 7 } })
+
+    const result = await action.run(ctxFor(), { clearFields: ['task type'] })
+
+    expect(result).toBe('la-haus/subscriptions#42: task type=∅')
+    const cleared = calls.filter((call) =>
+      call.body?.query?.includes('clearProjectV2ItemFieldValue'),
+    )
+    expect(cleared.map((call) => call.body?.variables)).toEqual([
+      { projectId: 'PROJ', itemId: 'ITEM', fieldId: 'F_TYPE' },
+    ])
+  })
+
   it('moves the issue to a board column through the Project v2 Status field', async () => {
     const { client, calls } = fakeGithub()
     const action = new UpdateIssueAction({ client, project: { owner: 'la-haus', number: 7 } })
@@ -212,6 +227,7 @@ describe('UpdateIssueAction', () => {
 
     expect(Object.keys(toBuild.input.shape).sort()).toEqual([
       'addLabels',
+      'clearFields',
       'fields',
       'removeLabels',
       'state',
