@@ -84,6 +84,8 @@ export class RunAgentAction extends Action<typeof RunAgentInput, string> {
     'Delegá una tarea acotada en un sub-agente especializado del repo (sus `.claude/agents`), como la tool Task de Claude Code. Llamala sin `agent` para ver cuáles hay. El sub-agente no ve tu conversación: el `brief` tiene que traer todo el contexto. Te devuelve su resumen.'
   readonly input = RunAgentInput
   override readonly sideEffects: SideEffects
+  // Corre los `.claude/agents` del worktree: un provider nativo (el CLI) ya los tiene (`Task`).
+  override readonly workspace = true
 
   constructor(
     private readonly session: WorkspaceSession,

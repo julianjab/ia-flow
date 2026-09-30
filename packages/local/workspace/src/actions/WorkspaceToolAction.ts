@@ -22,6 +22,7 @@ export class WorkspaceToolAction<S extends ToolInputSchema> extends Action<S, st
   readonly description: string
   readonly input: S
   override readonly sideEffects: SideEffects
+  override readonly workspace = true
 
   constructor(
     private readonly session: WorkspaceSession,
