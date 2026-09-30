@@ -9,6 +9,7 @@ import { Pipeline } from '../../pipeline/Pipeline.js'
 import { Engine, scopeExecutionKey } from '../Engine.js'
 import { ExecutionStore } from '../ExecutionStore.js'
 import { InMemoryExecutionRepository } from '../InMemoryExecutionRepository.js'
+import { InMemoryExecutionStore } from '../InMemoryExecutionStore.js'
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const pause = () =>
@@ -25,12 +26,22 @@ const checkpoint = {
 const restart = (repository: InMemoryExecutionRepository) => new ExecutionStore({ repository })
 
 describe('ExecutionStore with a repository', () => {
+  it('ids are UUIDs by default, and a newId option replaces them', async () => {
+    const byDefault = await new InMemoryExecutionStore().start({ key: 'a', pipelineId: 'p' })
+    expect(byDefault.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    const custom = await new InMemoryExecutionStore({ newId: () => 'run-1' }).start({
+      key: 'a',
+      pipelineId: 'p',
+    })
+    expect(custom.id).toBe('run-1')
+  })
+
   it('writes every transition of its executions to the repository', async () => {
     const repository = new InMemoryExecutionRepository()
     const store = new ExecutionStore({ repository })
     const execution = await store.start({ key: 't', pipelineId: 'build' })
     expect(repository.live()).toEqual([
-      expect.objectContaining({ id: 'exec-1', status: 'running' }),
+      expect.objectContaining({ id: execution.id, status: 'running' }),
     ])
 
     await execution.run(async () => execution.pause(pause(), checkpoint))

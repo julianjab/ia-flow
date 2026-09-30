@@ -98,6 +98,12 @@ const EVENT = () =>
     { scope: { projectId: 'lahaus', repo: 'la-haus/front', issue: 'la-haus/front#4190' } },
   )
 
+/** Ids predecibles para los asserts (el default es un UUID). */
+function sequentialIds(): () => string {
+  let next = 1
+  return () => `exec-${next++}`
+}
+
 describe('Engine tracing', () => {
   it('hangs everything an event causes from one trace, rooted at the event', async () => {
     await refineSetup().dispatch(EVENT())
@@ -266,7 +272,7 @@ describe('Engine tracing — executions', () => {
         new Pipeline({ id: 'build', on: ['build'], do: [implementer] }),
         new Pipeline({ id: 'comment-build', on: ['issue_comment'], do: [implementer] }),
       ]),
-      executions: new InMemoryExecutionStore(),
+      executions: new InMemoryExecutionStore({ newId: sequentialIds() }),
     })
     return { engine, running, release }
   }
@@ -397,7 +403,7 @@ describe('Engine tracing — pauses', () => {
           ],
         }),
       ]),
-      executions: new InMemoryExecutionStore(),
+      executions: new InMemoryExecutionStore({ newId: sequentialIds() }),
     })
 
     await engine.dispatch(createEvent('start', {}, { scope }))
