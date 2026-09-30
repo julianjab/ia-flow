@@ -44,6 +44,13 @@ describe('rollupCi', () => {
     expect(rollupCi([{ status: 'completed', conclusion: 'skipped' }], ['success'])).toBe('success')
     expect(rollupCi([], [])).toBe('')
   })
+
+  it('a queued workflow run with no check-runs yet keeps it pending; a finished one adds nothing', () => {
+    const fast = [{ status: 'completed', conclusion: 'success' }]
+    expect(rollupCi(fast, [], [{ status: 'completed' }, { status: 'queued' }])).toBe('pending')
+    expect(rollupCi(fast, [], [{ status: 'completed' }])).toBe('success')
+    expect(rollupCi([], [], [{ status: 'waiting' }])).toBe('pending')
+  })
 })
 
 const comment = (body: string, at: string, login = 'julian') => ({

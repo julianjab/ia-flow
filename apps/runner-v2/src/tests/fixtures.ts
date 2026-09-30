@@ -60,6 +60,7 @@ export interface FakeGithubData {
   /** Los PRs por `owner/repo#n` (uno no declarado existe, abierto, desde `feat/x`). */
   prs?: Record<string, FakePr>
   checks?: Array<{ status: string; conclusion: string | null }>
+  workflowRuns?: Array<{ status: string }>
 }
 
 export interface FakeGithub {
@@ -166,6 +167,7 @@ class FakeGithubApi {
     if (/^commits\/[^/]+\/check-runs$/.test(rest))
       return json({ check_runs: this.data.checks ?? [] })
     if (/^commits\/[^/]+\/status$/.test(rest)) return json({ statuses: [] })
+    if (rest === 'actions/runs') return json({ workflow_runs: this.data.workflowRuns ?? [] })
     return NOT_FOUND()
   }
 

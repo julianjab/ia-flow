@@ -225,6 +225,23 @@ describe('lo que el engine hace por el implementer', () => {
     }
   })
 
+  it('wait-ci wakes on green only when the WHOLE CI of the commit is green (task.ci)', async () => {
+    for (const agentId of ['implementer', 'frontend-implementer']) {
+      const done = mounted
+        .routesOf(pipeline('build-arrival') as never, agentId)
+        .exits.find((exit) => exit.name === 'done')
+      const action = done?.targets.find((target) => target.id === 'wait-ci') as PauseAction
+      const pause = await action.run({} as never)
+      const ci = (type: string, conclusion: string, taskCi: string) =>
+        createEvent(type, { action: 'completed', conclusion, task: { ci: taskCi } })
+      // Un suite verde con el resto del CI todavía corriendo NO pasa a Review.
+      expect(pause.match(ci('check_suite', 'success', 'pending'))).toBeUndefined()
+      expect(pause.match(ci('check_suite', 'success', 'success'))).toBe('green')
+      expect(pause.match(ci('workflow_run', 'success', 'success'))).toBe('green')
+      expect(pause.match(ci('check_suite', 'failure', 'failure'))).toBeUndefined()
+    }
+  })
+
   it('a failed run blocks the card: the project onError, reported by the agent', () => {
     const routes = mounted.routesOf(pipeline('build-arrival') as never, 'implementer')
     expect(routes.onError?.origin).toBe('project')

@@ -228,6 +228,23 @@ describe('intake: task context', () => {
   })
 })
 
+describe('intake: task.ci counts the whole CI of the commit', () => {
+  it('a workflow still queued (its jobs not created yet) keeps task.ci pending', async () => {
+    const { emitted } = await (
+      await intake({
+        tasks: { [TASK]: { status: 'Review' } },
+        prs: {
+          'la-haus/subscriptions#12': { number: 12, head: { ref: 'ia-flow-local/7', sha: 'abc' } },
+        },
+        // El workflow rápido (validar el título) ya terminó; el CI de verdad sigue en cola.
+        checks: [{ status: 'completed', conclusion: 'success' }],
+        workflowRuns: [{ status: 'completed' }, { status: 'queued' }],
+      })
+    ).run('pull_request_review', reviewPayload('changes_requested'))
+    expect(emitted[0]?.payload).toMatchObject({ task: { ci: 'pending' } })
+  })
+})
+
 describe('intake: the task PR comes from GitHub, not from a branch name', () => {
   it('a card reaching Review gets task.pr from the PR linked to its issue, on any branch', async () => {
     const { emitted } = await (
