@@ -86,6 +86,7 @@ async function start(token: string | null = TOKEN, push = true) {
   const api = runnerApi({
     token: token ?? undefined,
     version: 'test',
+    projects: [{ id: 'p', board: { owner: 'o', number: 1 } }],
     inbox,
     actions: new TaskActions({
       inbox,
