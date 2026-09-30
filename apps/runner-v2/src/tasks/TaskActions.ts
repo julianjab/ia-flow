@@ -74,6 +74,36 @@ async function assertCanPush(
   }
 }
 
+/** Por qué GitHub no deja mergear un PR, según su `mergeable_state`. */
+const UNMERGEABLE: Record<string, string> = {
+  blocked: 'le faltan checks o reviews requeridos',
+  dirty: 'tiene conflictos con la rama base',
+  behind: 'está desactualizado respecto a la rama base',
+  draft: 'es un borrador',
+  unknown: 'GitHub todavía está calculando su estado, reintentá en unos segundos',
+}
+
+/**
+ * Que el PR esté apto para mergear según GitHub ANTES de pedir el merge. El `PUT /merge` con el
+ * token de un admin se salta la branch protection cuando `enforce_admins` está apagado (en la web
+ * pide marcar "merge without waiting"; la API no): la bandeja no puede depender de esa config.
+ * `unstable` (fallan checks NO requeridos) sí pasa: GitHub también lo deja mergear.
+ */
+async function assertMergeable(
+  client: GithubClient,
+  target: IssueTarget,
+  pr: number,
+): Promise<void> {
+  const data = await client.requestJson<{ mergeable_state?: string; draft?: boolean }>(
+    `/repos/${target.owner}/${target.repo}/pulls/${pr}`,
+  )
+  const state = data.draft ? 'draft' : (data.mergeable_state ?? 'unknown')
+  const reason = UNMERGEABLE[state]
+  if (reason) {
+    throw new TaskActionError(`PR #${pr} no se puede mergear: ${reason} (${state})`, 409)
+  }
+}
+
 /** `UpdateIssueAction` fuera de una pipeline: el issue lo fija la bandeja, no un evento. */
 const NO_CTX = {} as PipelineExecutionContext
 
@@ -154,6 +184,7 @@ export class TaskActions {
     switch (action) {
       case 'merge': {
         if (pr === undefined) throw new TaskActionError(`${ref} no tiene un PR abierto`, 409)
+        await assertMergeable(client, target, pr)
         await client.requestJson(`/repos/${target.owner}/${target.repo}/pulls/${pr}/merge`, {
           method: 'PUT',
           body: JSON.stringify({ merge_method: this.options.settings.mergeMethod }),
