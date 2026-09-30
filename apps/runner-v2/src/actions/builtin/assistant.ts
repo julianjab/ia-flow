@@ -14,7 +14,11 @@ import {
   type AssistantDesk,
   type AssistantSession,
   asToolResult,
+  DEFAULT_TRACE_FIELDS,
   defineAction,
+  TRACE_FIELDS,
+  TRACE_PAGE_LIMIT,
+  TRACE_PAGE_MAX_LIMIT,
 } from '../defineAction.js'
 
 const ref = z.string().describe('owner/repo#numero, p.ej. la-haus/subscriptions#420')
@@ -29,12 +33,15 @@ class AssistantTool<S extends ToolInputSchema> extends Action<S, string> {
     readonly input: S,
     private readonly desk: AssistantDesk,
     private readonly read: (session: AssistantSession, input: z.infer<S>) => unknown,
+    /** `false` para una lectura que ya se acota sola (paginada): cortarla perdería lo que sigue. */
+    private readonly capped = true,
   ) {
     super({ id })
   }
 
   async execute(input: z.infer<S>, ctx: PipelineExecutionContext): Promise<string> {
-    return asToolResult(await this.read(this.desk.sessionOf(ctx.event.payload), input))
+    const value = await this.read(this.desk.sessionOf(ctx.event.payload), input)
+    return asToolResult(value, { capped: this.capped })
   }
 }
 
@@ -69,10 +76,43 @@ function tools(desk: AssistantDesk): Action[] {
     ),
     new AssistantTool(
       'assistant_get_trace',
-      'La traza completa de una ejecución de la tarea (spans y logs: tools, mensajes del modelo con tokens, hooks del CLI), en orden. El id sale de assistant_get_task.',
-      z.strictObject({ ref, execution_id: z.string() }),
+      `Una página de la traza de una ejecución de la tarea (spans y logs: tools, mensajes del modelo con tokens, hooks del CLI), en orden. El id sale de assistant_get_task. Nada se corta: si hay más, \`next_offset\` dice desde dónde pedir la siguiente. Para "¿llamó a X?" usá \`contains\` en vez de leer todo. Sin \`fields\` trae ${DEFAULT_TRACE_FIELDS.join(', ')}; pedí \`attributes.<clave>\` (las claves vienen en \`attribute_keys\`, p.ej. \`attributes.ia.tool.input\`) o \`attributes\` para ver los payloads.`,
+      z.strictObject({
+        ref,
+        execution_id: z.string(),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            'Desde qué entrada (de las que pasan `contains`). Default 0; el `next_offset` de la página anterior.',
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(TRACE_PAGE_MAX_LIMIT)
+          .optional()
+          .describe(
+            `Máximo de entradas por página (default ${TRACE_PAGE_LIMIT}); la página corta antes si se llena.`,
+          ),
+        fields: z
+          .array(z.string())
+          .optional()
+          .describe(
+            `Campos de cada entrada: ${TRACE_FIELDS.join(', ')}, \`attributes\` (todos) o \`attributes.<clave>\` (uno). \`index\` viene siempre.`,
+          ),
+        contains: z
+          .string()
+          .optional()
+          .describe(
+            'Sólo las entradas cuyo nombre o atributos contienen este texto (sin distinguir mayúsculas), p.ej. el nombre de una tool.',
+          ),
+      }),
       desk,
-      (session, input) => session.trace(input.ref, input.execution_id),
+      (session, { ref: task, execution_id, ...query }) => session.trace(task, execution_id, query),
+      false,
     ),
     new AssistantTool(
       'assistant_get_config',

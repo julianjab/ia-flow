@@ -25,6 +25,12 @@ import type { ProjectConfig } from '../config/RunnerConfig.js'
 export type { AssistantDesk } from '../assistant/AssistantDesk.js'
 export type { AssistantSession } from '../assistant/AssistantSession.js'
 export { ACTION_LABELS, asToolResult } from '../assistant/AssistantSession.js'
+export {
+  DEFAULT_TRACE_FIELDS,
+  TRACE_FIELDS,
+  TRACE_PAGE_LIMIT,
+  TRACE_PAGE_MAX_LIMIT,
+} from '../assistant/tracePage.js'
 export type { ProjectConfig } from '../config/RunnerConfig.js'
 export { SlackReviewSchema } from '../config/RunnerConfig.js'
 

@@ -13,6 +13,12 @@ import type {
 } from '@ia-flow/shared'
 import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { InboxService } from '../inbox/InboxService.js'
+import {
+  DEFAULT_TRACE_FIELDS,
+  projectTraceEntry,
+  type TracePageQuery,
+  traceWindow,
+} from './tracePage.js'
 
 /** Lo que el asistente lee del runner. */
 export interface AssistantBackend {
@@ -36,13 +42,17 @@ export const ACTION_LABELS: Record<TaskAction, string> = {
   rerun_review: 'Re-ejecutar el review',
 }
 
-/** Lo que vuelve de una lectura, acotado: el modelo no necesita 200 KB de traza. */
+/** Lo que vuelve de una lectura, acotado. La traza no pasa por acá: se pagina (`tracePage.ts`). */
 const MAX_RESULT_CHARS = 16_000
 
-export function asToolResult(value: unknown): string {
+export function asToolResult(value: unknown, options: { capped?: boolean } = {}): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
+  if (options.capped === false) return text
   return text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}… [recortado]` : text
 }
+
+/** Cuántas entradas del final de la traza trae `get_task`: un vistazo, sin payloads. */
+const TASK_TRACE_TAIL = 40
 
 /** Un item sin lo que el modelo no necesita para razonar. */
 function brief(item: InboxItem) {
@@ -126,18 +136,16 @@ export class AssistantSession {
     const item = await this.task(ref)
     this.activity('get_task', `leyendo ${item.ref}`)
     const detail = await this.backend.inbox.detail(item.ref)
+    if (!detail) return detail
+    // La cola de la traza, sin payloads: el detalle (y el resto) se pide con assistant_get_trace.
+    const from = Math.max(detail.trace.length - TASK_TRACE_TAIL, 0)
     return {
       ...detail,
-      ...(detail ? { item: this.withoutOwnLabel(detail.item) } : {}),
-      trace: detail?.trace.slice(-60).map((entry) => ({
-        at: entry.start_time,
-        kind: entry.kind,
-        phase: entry.phase,
-        name: entry.name,
-        status: entry.status,
-        level: entry.level,
-        attributes: entry.attributes,
-      })),
+      item: this.withoutOwnLabel(detail.item),
+      trace: detail.trace
+        .slice(from)
+        .map((entry, i) => projectTraceEntry(entry, from + i, DEFAULT_TRACE_FIELDS)),
+      trace_note: `Últimas ${detail.trace.length - from} de ${detail.trace.length} entradas de la última ejecución (o de la que muestra la bandeja), sin atributos. Para buscar, ver campos o el resto: assistant_get_trace.`,
     }
   }
 
@@ -150,7 +158,7 @@ export class AssistantSession {
     )
   }
 
-  async trace(ref: unknown, executionId: unknown) {
+  async trace(ref: unknown, executionId: unknown, query: TracePageQuery = {}) {
     const item = await this.task(ref)
     const id = String(executionId ?? '')
     const owns = this.backend.activity
@@ -158,7 +166,7 @@ export class AssistantSession {
       .some((row) => row.id === id)
     if (!owns) throw new Error(`La ejecución ${id} no es de ${item.ref}`)
     this.activity('get_trace', `leyendo la traza de ${id}`)
-    return this.backend.activity.trace(id, 300)
+    return traceWindow(id, this.backend.activity.trace(id), query)
   }
 
   config() {
