@@ -81,6 +81,7 @@ describe('Pipeline.execute', () => {
       output: { outcome: 'success', summary: 'a-out' },
       exit: 'done',
       payload: {},
+      provider: 'fake',
     })
     expect(steps.second).toEqual(steps.first)
   })

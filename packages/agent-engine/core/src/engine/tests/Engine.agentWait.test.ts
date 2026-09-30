@@ -85,7 +85,7 @@ describe('an agent that waits for an event mid-turn', () => {
     expect(paused?.status).toBe('paused')
     expect(paused?.toRecord().checkpoint).toMatchObject({
       pauseId: 'implementer',
-      state: ['turno-1'],
+      state: { provider: 'scripted', conversation: ['turno-1'] },
     })
     expect(ran).toEqual(['onStart'])
 
@@ -165,7 +165,7 @@ describe('an agent whose process died mid-turn', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(repository.live()[0]?.checkpoint).toMatchObject({
       pauseId: 'implementer',
-      state: ['vuelta-1', 'vuelta-2'],
+      state: { provider: 'scripted', conversation: ['vuelta-1', 'vuelta-2'] },
     })
 
     // Reinicio: otro store y otro engine sobre el mismo repositorio.
@@ -265,7 +265,7 @@ describe('an agent whose process died mid-turn', () => {
 
     await engine.dispatch(event('build'))
 
-    expect(saved).toContainEqual(['c'])
+    expect(saved).toContainEqual({ provider: 'scripted', conversation: ['c'] })
     expect(saved.at(-1)).toBeUndefined()
   })
 })

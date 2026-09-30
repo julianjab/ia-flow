@@ -117,6 +117,35 @@ describe('providerConfig con la estructura del provider', () => {
     })
     await expect(mountForTest(dir)).rejects.toThrow(/agente "refiner".*maxToolRound/s)
   })
+
+  it('with several providers, each candidate config is validated against its own provider', async () => {
+    const candidates = (config: string) => (s: string) =>
+      s
+        .replace(/^provider: anthropic-api\n/m, '')
+        .replace(
+          /^providerConfig:\n/m,
+          `providers:\n  - id: claude-cli\n    config: ${config}\n  - id: anthropic-api\n    config: { maxTokens: 100 }\nignoredProviderConfig:\n`,
+        )
+        .replace(/^ignoredProviderConfig:\n(?: {2}.*\n)*/m, '')
+    const good = configCopy({
+      'projects/lahaus-ai-flow/agents/10-refiner.yaml': candidates('{ model: opus }'),
+    })
+    const mounted = await mountForTest(good)
+    const refiner = mounted
+      .pipelines()
+      .flatMap((pipeline) => pipeline.do)
+      .find((step) => step.id === 'refiner') as Agent | undefined
+    expect(refiner?.candidates.map((candidate) => candidate.id)).toEqual([
+      'claude-cli',
+      'anthropic-api',
+    ])
+    mounted.stop()
+
+    const bad = configCopy({
+      'projects/lahaus-ai-flow/agents/10-refiner.yaml': candidates('{ maxTokens: 100 }'),
+    })
+    await expect(mountForTest(bad)).rejects.toThrow(/agente "refiner".*provider claude-cli/s)
+  })
 })
 
 describe('lo que el engine hace por el implementer', () => {

@@ -85,7 +85,12 @@ describe('Engine.dispatch', () => {
 
     expect(outcome).toBe('dispatched')
     expect(seen).toEqual([
-      { output: { outcome: 'success', summary: 'patched' }, exit: 'done', payload: {} },
+      {
+        output: { outcome: 'success', summary: 'patched' },
+        exit: 'done',
+        payload: {},
+        provider: 'fix-provider',
+      },
     ])
   })
 
