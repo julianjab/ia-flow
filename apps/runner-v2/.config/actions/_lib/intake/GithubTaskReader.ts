@@ -5,7 +5,7 @@
  * contestó, y `task.ts` le da forma.
  */
 import type { GithubClient } from '@ia-flow/github-api'
-import { openPr, type RawItem, type RawPr } from './task.js'
+import { type OpenPr, openPr, type RawItem, type RawPr } from './task.js'
 import type { RawComment, RawReview, RawThread } from './timeline.js'
 
 export interface BoardRef {
@@ -68,7 +68,7 @@ export interface RawTaskContext {
   }
   blockers: Array<{ number: number; title: string; state: string; html_url: string }>
   issueComments: RawComment[]
-  openPr?: { number: number; url: string; headSha: string }
+  openPr?: OpenPr
   prComments?: RawComment[]
   threads?: RawThread[]
   reviews?: RawReview[]

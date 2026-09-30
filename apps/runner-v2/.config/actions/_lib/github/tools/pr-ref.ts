@@ -1,6 +1,7 @@
 /**
- * El PR sobre el que escribe o lee una tool: SIEMPRE el del evento (`pr.*` del intake), nunca uno
- * que elija el modelo.
+ * El PR sobre el que escribe o lee una tool: SIEMPRE el del evento, nunca uno que elija el modelo —
+ * el que trae un evento de PR (`pr.*`), o si no el PR abierto de la task (`task.pr`, lo que arma
+ * el intake para cualquier evento de la task: p. ej. la card que llega a Review).
  */
 import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
 
@@ -17,12 +18,15 @@ export function prFrom(ctx: PipelineExecutionContext): PrRef {
     owner?: string
     repo?: string
     pr?: { number?: number; head?: { sha?: string } }
+    task?: { pr?: { number?: number; headSha?: string } }
   }
-  const { owner, repo, pr } = payload
-  if (!owner || !repo || typeof pr?.number !== 'number' || !pr.head?.sha) {
+  const { owner, repo, pr, task } = payload
+  const number = pr?.head?.sha ? pr.number : task?.pr?.number
+  const sha = pr?.head?.sha ?? task?.pr?.headSha
+  if (!owner || !repo || typeof number !== 'number' || !sha) {
     throw new Error(
-      'el evento no trae un PR (pr.number / pr.head.sha): esta tool sólo corre sobre un PR',
+      'el evento no trae un PR (pr.number + pr.head.sha, o task.pr): esta tool sólo corre sobre un PR',
     )
   }
-  return { owner, repo, number: pr.number, sha: pr.head.sha }
+  return { owner, repo, number, sha }
 }

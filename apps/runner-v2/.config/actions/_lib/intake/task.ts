@@ -88,13 +88,53 @@ export interface RawPr {
   number: number
   html_url: string
   state: string
-  head: { sha: string }
+  title?: string
+  user?: { login: string }
+  head: { sha: string; ref?: string }
+  base?: { ref: string }
+}
+
+/** El PR abierto de la task, en `task.pr`. */
+export interface OpenPr {
+  number: number
+  url: string
+  headSha: string
+  title: string
+  author: string
+  headRef: string
+  baseRef: string
 }
 
 /** El PR abierto de la task: el del evento si sigue abierto, si no el de su rama. */
-export function openPr(byNumber: RawPr | undefined, byBranch: RawPr[] | undefined) {
+export function openPr(
+  byNumber: RawPr | undefined,
+  byBranch: RawPr[] | undefined,
+): OpenPr | undefined {
   const pr = byNumber ? (byNumber.state === 'open' ? byNumber : undefined) : byBranch?.[0]
-  return pr && { number: pr.number, url: pr.html_url, headSha: pr.head.sha }
+  return (
+    pr && {
+      number: pr.number,
+      url: pr.html_url,
+      headSha: pr.head.sha,
+      title: pr.title ?? '',
+      author: pr.user?.login ?? '',
+      headRef: pr.head.ref ?? '',
+      baseRef: pr.base?.ref ?? '',
+    }
+  )
+}
+
+/** `pr.*` con la forma que arma un evento de PR (locate.ts), a partir del PR abierto de la task. */
+function eventPr(pr: OpenPr) {
+  return {
+    number: pr.number,
+    title: pr.title,
+    state: 'open',
+    author: pr.author,
+    head: { ref: pr.headRef, sha: pr.headSha },
+    base: { ref: pr.baseRef },
+    url: pr.url,
+  }
 }
 
 /** Lo que `resolve-task.yaml` junta de GitHub para una task. */
@@ -123,7 +163,7 @@ export interface TaskInput {
   }
   blockers?: Array<{ number: number; title: string; state: string; html_url: string }>
   issueComments?: RawComment[]
-  openPr?: { number: number; url: string }
+  openPr?: OpenPr
   prComments?: RawComment[]
   threads?: RawThread[]
   reviews?: RawReview[]
@@ -142,10 +182,13 @@ export function taskPayload(input: TaskInput) {
   )
   const status = input.status ?? input.card.status
   // Un `to` sin valor (GitHub no siempre lo manda en un cambio de Status) es el status que quedó.
-  const extra =
+  const own =
     input.extra && 'to' in input.extra && input.extra.to === undefined
       ? { ...input.extra, to: status }
       : input.extra
+  // Un evento sin PR propio (la card que llega a Review) ve el PR abierto de la task en `pr.*`,
+  // con la forma de un evento de PR: un prompt que lo lee no depende de qué lo disparó.
+  const extra = input.pr === undefined && input.openPr ? { pr: eventPr(input.openPr), ...own } : own
   const args: EventArgs = {
     eventType: input.emit,
     owner: input.owner,
