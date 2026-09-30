@@ -225,6 +225,20 @@ export const ConfigSummarySchema = z.object({
       routes: z.record(z.string(), z.string()),
     }),
   ),
+  /** Los providers de runner.yaml, sin secretos: sólo tipo, modo, a qué provider apunta y su tope. */
+  providers: z
+    .array(
+      z.object({
+        id: z.string(),
+        type: z.string(),
+        mode: z.string().optional(),
+        provider: z.string().optional(),
+        max_concurrent: z.number().optional(),
+      }),
+    )
+    .default([]),
+  /** Los MCP del catálogo: su id y el host (sin path ni token: una URL puede llevar un secreto). */
+  mcp: z.array(z.object({ id: z.string(), host: z.string() })).default([]),
 })
 export type ConfigSummary = z.infer<typeof ConfigSummarySchema>
 
