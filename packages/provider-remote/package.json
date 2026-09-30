@@ -1,0 +1,25 @@
+{
+  "name": "@ia-flow/provider-remote",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Provider de agent-engine que corre en otra máquina: el cliente (RemoteProvider) y el host HTTP que expone cualquier Provider local (RemoteProviderHost); las tools del agente vuelven al runner por el mismo canal",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}
