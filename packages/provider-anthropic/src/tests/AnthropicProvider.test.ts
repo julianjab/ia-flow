@@ -980,3 +980,47 @@ describe('AnthropicProvider.run', () => {
     })
   })
 })
+
+describe('AnthropicProvider.run — texto en vivo (ctx.onText)', () => {
+  function sseResponse(frames: Array<[string, unknown]>): Response {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder()
+        for (const [type, data] of frames) {
+          controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`))
+        }
+        controller.close()
+      },
+    })
+    return new Response(body)
+  }
+
+  it('streams only the text deltas, as they arrive, not the thinking', async () => {
+    const fetchImpl = vi.fn(async () =>
+      sseResponse([
+        ['message_start', { message: { id: 'msg_1', usage: { input_tokens: 5 } } }],
+        ['content_block_start', { index: 0, content_block: { type: 'thinking', thinking: '' } }],
+        ['content_block_delta', { index: 0, delta: { type: 'thinking_delta', thinking: 'hmm' } }],
+        ['content_block_stop', { index: 0 }],
+        ['content_block_start', { index: 1, content_block: { type: 'text', text: '' } }],
+        ['content_block_delta', { index: 1, delta: { type: 'text_delta', text: 'Hola ' } }],
+        ['content_block_delta', { index: 1, delta: { type: 'text_delta', text: 'mundo' } }],
+        ['content_block_stop', { index: 1 }],
+        ['message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 3 } }],
+        ['message_stop', {}],
+      ]),
+    )
+    const provider = new AnthropicProvider({
+      id: 'anthropic-api',
+      model: 'claude-x',
+      apiKey: 'sk',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    const deltas: string[] = []
+
+    const result = await provider.run(ctxFor({ onText: (delta) => deltas.push(delta) }))
+
+    expect(deltas).toEqual(['Hola ', 'mundo'])
+    expect(result.summary).toBe('Hola mundo')
+  })
+})
