@@ -296,6 +296,9 @@ export const AssistantStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), delta: z.string() }),
   z.object({ type: z.literal('tool'), name: z.string(), summary: z.string() }),
   z.object({ type: z.literal('proposal'), proposal: AssistantProposalSchema }),
+  /** Las tareas de las que habla la respuesta, como están en la bandeja: la web las muestra como
+   *  cards que abren la tarea. Llega después del texto, antes de `done`. */
+  z.object({ type: z.literal('tasks'), items: z.array(InboxItemSchema) }),
   z.object({ type: z.literal('done'), text: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ])
