@@ -16,11 +16,13 @@
  *
  * Todo `.strict()`: una clave mal escrita rompe el arranque en vez de quedar como config que nadie
  * lee. `applyRunnerEnv` vuelca `github`/`settings` al env — **el env real gana**, así un PEM local
- * se apunta con IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH sin editar el archivo.
+ * se apunta con IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH sin editar el archivo. `github.privateKeyPath`
+ * es relativo a `runner.yaml` (o `~/…`, o absoluto): el PEM queda fuera de git (`*.pem`), la ruta no.
  */
 
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
 import { AdmissionRule } from '@ia-flow/provider-remote'
 import type { SlackReviewConfig } from '@ia-flow/slack-api'
@@ -127,6 +129,7 @@ export const RunnerFileSchema = z.strictObject({
       mode: z.enum(['auto', 'static', 'gh-cli', 'github-app']).optional(),
       appId: z.string().optional(),
       installationId: z.string().optional(),
+      /** La ruta al PEM de la App: relativa a `runner.yaml`, `~/…` o absoluta. El PEM, nunca en git. */
       privateKeyPath: z.string().optional(),
       /** El client id de la GitHub App: el login de cada persona en la web (device flow). */
       clientId: z.string().optional(),
@@ -339,6 +342,14 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
   }
 }
 
+/** `privateKeyPath` resuelto contra la carpeta de `runner.yaml` (o el home, con `~`). */
+function withKeyPath(github: RunnerConfig['github'], dir: string): RunnerConfig['github'] {
+  const path = github.privateKeyPath
+  if (!path || isAbsolute(path)) return github
+  const resolved = path.startsWith('~/') ? join(homedir(), path.slice(2)) : resolve(dir, path)
+  return { ...github, privateKeyPath: resolved }
+}
+
 export function loadRunnerConfig(dir: string): RunnerConfig {
   const runnerPath = join(dir, 'runner.yaml')
   const file = parse(runnerPath, RunnerFileSchema)
@@ -349,7 +360,7 @@ export function loadRunnerConfig(dir: string): RunnerConfig {
     dir,
     runnerPath,
     settings: file.settings ?? {},
-    github: file.github ?? {},
+    github: withKeyPath(file.github ?? {}, dir),
     providers: file.providers,
     host: file.host ?? {},
     mcp: file.mcp,

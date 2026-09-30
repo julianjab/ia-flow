@@ -134,7 +134,7 @@ todas, comentadas: copialo a `.env`. Las principales:
 
 | Variable | Para qué |
 | --- | --- |
-| `IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH` | el PEM de la GitHub App (el resto de la App está en `runner.yaml`) |
+| `IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH` | pisa `github.privateKeyPath` de `runner.yaml` (ahí, relativa al archivo): el PEM de la GitHub App |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | el provider `anthropic-api` |
 | `IA_FLOW_WEBHOOK_SECRET` | el HMAC de los webhooks (sin él, todo POST responde 503) |
 | `FIGMA_MCP_TOKEN` | el token del MCP de Figma (`runner.yaml` lo nombra como `${FIGMA_MCP_TOKEN}`) |
