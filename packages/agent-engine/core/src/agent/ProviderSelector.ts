@@ -21,6 +21,10 @@ export interface SelectedProvider {
  * los topes del agente y del provider (`ctx.limits`) y que acepte (`canAccept`). Si todos están
  * llenos o dicen que no, espera a que se libere un lugar o pase el `retryAfterMs` y vuelve a
  * probar. Con un solo candidato hace cola en él, como siempre.
+ *
+ * Un candidato comodín (`remote:*`) se resuelve en cada vuelta contra lo registrado en ese momento:
+ * los providers que van y vienen (hosts remotos que se suscriben) entran y salen solos. Sin ninguno
+ * registrado, el agente espera a que llegue uno — o sigue con el candidato siguiente, si hay.
  */
 export class ProviderSelector {
   constructor(
@@ -33,42 +37,99 @@ export class ProviderSelector {
 
   /** `prefer`: el provider de una conversación que se retoma — sólo ése, si sigue declarado. */
   async select(ctx: PipelineExecutionContext, prefer?: string): Promise<SelectedProvider> {
-    const preferred = prefer ? this.candidates.filter((c) => c.id === prefer) : []
-    const { eligible, skipped } =
-      preferred.length > 0 ? { eligible: preferred, skipped: [] } : await this.eligible(ctx)
-    if (eligible.length === 1) {
-      return { ...(await this.queueOn(eligible[0] as ProviderCandidate, ctx)), skipped }
-    }
+    const dynamic = this.candidates.some((candidate) => candidate.wildcard)
     for (;;) {
-      const busy: string[] = []
-      let retryAfterMs: number | undefined
-      for (const candidate of eligible) {
-        const provider = this.resolve(candidate)
-        const release = ctx.limits ? ctx.limits.tryAcquire(this.slots(provider)) : () => {}
-        if (!release) {
-          busy.push(`${candidate.id}: sin lugar`)
-          continue
-        }
-        const admission = await this.admission(provider, ctx)
-        if (admission.accept) {
-          return { candidate, provider, release, skipped: [...skipped, ...busy] }
-        }
-        release()
-        busy.push(`${candidate.id}: ${admission.reason}`)
-        retryAfterMs = Math.min(retryAfterMs ?? Number.POSITIVE_INFINITY, admission.retryAfterMs)
+      const concrete = this.concrete()
+      if (concrete.length === 0) {
+        this.log.info(
+          `${this.agentId}: ningún provider registrado para ${this.candidates.map((c) => c.id).join(', ')} — espera a que llegue uno`,
+        )
+        await this.registryChange()
+        continue
       }
-      this.log.info(`${this.agentId}: ningún provider puede tomarlo ahora (${busy.join('; ')})`)
-      await this.somethingFrees(ctx, retryAfterMs)
+      const preferred = prefer ? concrete.filter((c) => c.id === prefer) : []
+      const { eligible, skipped } =
+        preferred.length > 0
+          ? { eligible: preferred, skipped: [] }
+          : await this.eligible(ctx, concrete)
+      if (!dynamic && eligible.length === 1) {
+        return { ...(await this.queueOn(eligible[0] as ProviderCandidate, ctx)), skipped }
+      }
+      const picked = await this.tryEach(eligible, ctx)
+      if ('candidate' in picked) return { ...picked, skipped: [...skipped, ...picked.skipped] }
+      this.log.info(
+        `${this.agentId}: ningún provider puede tomarlo ahora (${picked.busy.join('; ')})`,
+      )
+      await Promise.race([
+        this.somethingFrees(ctx, picked.retryAfterMs),
+        ...(dynamic ? [this.registry.changed()] : []),
+      ])
     }
+  }
+
+  /** Los candidatos, con cada comodín resuelto contra lo registrado ahora: un id que otro
+   *  candidato nombra explícito no se repite, y uno que ya salió no vuelve a salir. */
+  private concrete(): ProviderCandidate[] {
+    const named = new Set(this.candidates.filter((c) => !c.wildcard).map((c) => c.id))
+    const seen = new Set<string>()
+    const out: ProviderCandidate[] = []
+    for (const candidate of this.candidates) {
+      const ids = candidate.wildcard
+        ? this.registry
+            .list()
+            .map((provider) => provider.id)
+            .filter((id) => candidate.covers(id) && !named.has(id))
+        : [candidate.id]
+      for (const id of ids) {
+        if (seen.has(id)) continue
+        seen.add(id)
+        out.push(id === candidate.id ? candidate : candidate.withId(id))
+      }
+    }
+    return out
+  }
+
+  /** Hasta que cambie lo registrado, o pase el `DEFAULT_RETRY_AFTER_MS`. */
+  private registryChange(): Promise<void> {
+    return Promise.race([this.registry.changed(), delay(DEFAULT_RETRY_AFTER_MS)])
+  }
+
+  /** Una vuelta por los elegibles: el primero con lugar que acepta. */
+  private async tryEach(
+    eligible: ProviderCandidate[],
+    ctx: PipelineExecutionContext,
+  ): Promise<SelectedProvider | { busy: string[]; retryAfterMs?: number }> {
+    const busy: string[] = []
+    let retryAfterMs: number | undefined
+    for (const candidate of eligible) {
+      // Un provider dinámico se pudo ir entre que se resolvió el comodín y ahora.
+      const provider = this.registry.resolve(candidate.id)
+      if (!provider) {
+        busy.push(`${candidate.id}: ya no está registrado`)
+        continue
+      }
+      const release = ctx.limits ? ctx.limits.tryAcquire(this.slots(provider)) : () => {}
+      if (!release) {
+        busy.push(`${candidate.id}: sin lugar`)
+        continue
+      }
+      const admission = await this.admission(provider, ctx)
+      if (admission.accept) return { candidate, provider, release, skipped: busy }
+      release()
+      busy.push(`${candidate.id}: ${admission.reason}`)
+      retryAfterMs = Math.min(retryAfterMs ?? Number.POSITIVE_INFINITY, admission.retryAfterMs)
+    }
+    return retryAfterMs === undefined ? { busy } : { busy, retryAfterMs }
   }
 
   /** Los candidatos elegibles para el evento, en orden. Ninguno es un error de definición. */
   private async eligible(
     ctx: PipelineExecutionContext,
+    candidates: ProviderCandidate[],
   ): Promise<{ eligible: ProviderCandidate[]; skipped: string[] }> {
     const eligible: ProviderCandidate[] = []
     const skipped: string[] = []
-    for (const candidate of this.candidates) {
+    for (const candidate of candidates) {
       const reason = await candidate.ineligible(ctx)
       if (reason) skipped.push(`${candidate.id}: ${reason}`)
       else eligible.push(candidate)

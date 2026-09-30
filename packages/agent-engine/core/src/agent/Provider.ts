@@ -90,14 +90,40 @@ export type Admission = { accept: true } | { accept: false; reason: string; retr
  *  referencia por `provider: 'ese-id'`. Mismo patrón que `Provider.resolve(id)` en ia-flow. */
 export class ProviderRegistry {
   private readonly providers = new Map<string, Provider>()
+  private waiters: Array<() => void> = []
 
   register(provider: Provider): this {
     this.providers.set(provider.id, provider)
+    this.notify()
     return this
+  }
+
+  /** Lo saca: un provider que va y viene (un host remoto que se suscribe y se va). */
+  unregister(id: string): boolean {
+    const removed = this.providers.delete(id)
+    if (removed) this.notify()
+    return removed
   }
 
   resolve(id: string): Provider | undefined {
     return this.providers.get(id)
+  }
+
+  /** Los registrados ahora, en el orden en que se registraron. */
+  list(): Provider[] {
+    return [...this.providers.values()]
+  }
+
+  /** Se resuelve con el próximo alta o baja: un agente que espera un provider que todavía no
+   *  existe (`remote:*` sin hosts) se despierta cuando llega uno. */
+  changed(): Promise<void> {
+    return new Promise((resolve) => this.waiters.push(resolve))
+  }
+
+  private notify(): void {
+    const waiters = this.waiters
+    this.waiters = []
+    for (const wake of waiters) wake()
   }
 }
 

@@ -7,7 +7,9 @@ import type { PipelineExecutionContext } from '../pipeline/Runnable.js'
  * usa el primero elegible que tenga lugar (ver `Agent`).
  */
 export interface ProviderChoice extends ConditionalProps {
-  /** Un provider registrado en el `ProviderRegistry`. */
+  /** Un provider registrado en el `ProviderRegistry` — o un prefijo con `*` al final
+   *  (`remote:*`): todos los registrados en ese momento que empiecen así, en el orden en que se
+   *  registraron, cada uno con esta misma config y este `when`. */
   id: string
   /** Su `providerConfig` en este agente: cada provider tiene la suya. */
   config?: Record<string, unknown>
@@ -17,10 +19,25 @@ export class ProviderCandidate extends Conditional {
   readonly id: string
   readonly config: Record<string, unknown>
 
-  constructor(choice: ProviderChoice) {
+  constructor(private readonly choice: ProviderChoice) {
     super(choice)
     this.id = choice.id
     this.config = choice.config ?? {}
+  }
+
+  /** Un comodín (`remote:*`): se resuelve contra lo registrado al elegir. */
+  get wildcard(): boolean {
+    return this.id.endsWith('*')
+  }
+
+  /** Los ids registrados que cubre (el suyo, o los que empiezan con su prefijo). */
+  covers(id: string): boolean {
+    return this.wildcard ? id.startsWith(this.id.slice(0, -1)) : id === this.id
+  }
+
+  /** El mismo candidato para un provider concreto que cubre su comodín. */
+  withId(id: string): ProviderCandidate {
+    return new ProviderCandidate({ ...this.choice, id })
   }
 
   /** Por qué no es elegible para esta corrida, o `undefined` si lo es. Evalúa contra lo mismo que
