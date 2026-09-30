@@ -1313,8 +1313,9 @@ dashboard = {
                 all_=True,
             ),
             # Texto, no lista: una ejecución en curso (o vieja) no está entre los valores de Tempo y
-            # Grafana la resetearía a "Todos". La tabla "Ejecuciones del issue" es el selector.
-            textbox("execution", "Ejecución"),
+            # Grafana la resetearía a "Todos". La tabla "Ejecuciones del issue" es el selector, así
+            # que la caja va oculta (hide=2): los clicks siguen poniendo `var-execution`.
+            textbox("execution", "Ejecución", hide=2),
             textbox("search", "Buscar en los logs"),
             {
                 "name": "noise",

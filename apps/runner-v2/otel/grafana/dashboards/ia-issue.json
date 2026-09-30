@@ -73,7 +73,7 @@
         "name": "execution",
         "label": "Ejecución",
         "type": "textbox",
-        "hide": 0,
+        "hide": 2,
         "query": "",
         "current": {
           "text": "",
