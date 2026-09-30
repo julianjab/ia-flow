@@ -21,6 +21,8 @@ export type InboxGroup = z.infer<typeof InboxGroupSchema>
  */
 export const InboxKindSchema = z.enum([
   'merge',
+  /** En Review sin `reviewed`: el reviewer no la aprobó (o no corrió). */
+  'review',
   'prd',
   'doubt',
   'stale',
@@ -42,6 +44,8 @@ export const TaskActionSchema = z.enum([
   'relaunch',
   'retry',
   'stop',
+  /** Vuelve a correr el reviewer, como si la card acabara de llegar a Review. */
+  'rerun_review',
 ])
 export type TaskAction = z.infer<typeof TaskActionSchema>
 
