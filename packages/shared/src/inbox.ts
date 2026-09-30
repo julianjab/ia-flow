@@ -105,6 +105,10 @@ export type InboxItem = z.infer<typeof InboxItemSchema>
 export const InboxProjectSchema = z.object({
   id: z.string(),
   board: z.object({ owner: z.string(), number: z.number() }),
+  /** La página del GitHub Project. */
+  url: z.string().optional(),
+  /** Su vista de tablero (la primera con layout de board); si no hay, la del Project. */
+  board_url: z.string().optional(),
 })
 export type InboxProject = z.infer<typeof InboxProjectSchema>
 
@@ -348,3 +352,24 @@ export const AssistantConversationSchema = AssistantConversationSummarySchema.ex
   thread: z.array(AssistantStoredMessageSchema),
 })
 export type AssistantConversation = z.infer<typeof AssistantConversationSchema>
+
+/** Una card del board que no está en la bandeja: sin pendientes, o de otro engine. */
+export const BoardRestItemSchema = z.object({
+  ref: z.string(),
+  project_id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  status: z.string().optional(),
+  labels: z.array(z.string()),
+  updated_at: z.string(),
+  pr: z.object({ number: z.number(), url: z.string() }).optional(),
+  /** Sin la label del proyecto: es de otro engine (se ve, pero este runner no la toca). */
+  foreign: z.boolean(),
+})
+export type BoardRestItem = z.infer<typeof BoardRestItemSchema>
+
+/** `GET /api/board`: lo que la bandeja no muestra, por columna y en el orden del board. */
+export const BoardRestSchema = z.object({
+  columns: z.array(z.object({ status: z.string(), items: z.array(BoardRestItemSchema) })),
+})
+export type BoardRest = z.infer<typeof BoardRestSchema>
