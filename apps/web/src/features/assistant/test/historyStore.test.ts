@@ -74,6 +74,22 @@ describe('useAssistantHistoryStore', () => {
     expect(useAssistantChatStore().conversationId).toBeNull()
   })
 
+  it('un contexto vacío retoma su última conversación guardada; uno con algo, no se toca', async () => {
+    useGithubSessionStore().github = { login: 'julian', token: 'gho_1' }
+    const history = useAssistantHistoryStore()
+    await history.resumeLatest()
+    const chat = useAssistantChatStore()
+    expect(chat.conversationId).toBe('c1')
+    getConversation.mockClear()
+    await history.resumeLatest()
+    expect(getConversation).not.toHaveBeenCalled()
+  })
+
+  it('sin login no retoma nada', async () => {
+    await useAssistantHistoryStore().resumeLatest()
+    expect(listConversations).not.toHaveBeenCalled()
+  })
+
   it('un error queda para mostrarse', async () => {
     useGithubSessionStore().github = { login: 'julian', token: 'gho_1' }
     listConversations.mockRejectedValue(new Error('runner caído'))

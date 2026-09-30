@@ -100,6 +100,23 @@ describe('useAssistantChatStore', () => {
     ])
   })
 
+  it('cambiar de contexto aparca la conversación, y volver la trae de vuelta', async () => {
+    const chat = useAssistantChatStore()
+    chat.setScope({ kind: 'task', ref: 'acme/api#7' })
+    await chat.send('¿qué pasó?')
+    chat.setScope({ kind: 'general' })
+    expect(chat.turns).toEqual([])
+    chat.setScope({ kind: 'task', ref: 'acme/api#7' })
+    expect(chat.turns.map((t) => t.kind)).toEqual(['user', 'assistant'])
+    // Y la historia vuelve con ella: la próxima pregunta la sigue.
+    await chat.send('¿y ahora?')
+    expect(requests.at(-1)?.messages.map((m) => m.content)).toEqual([
+      '¿qué pasó?',
+      'respuesta',
+      '¿y ahora?',
+    ])
+  })
+
   describe('conversaciones guardadas', () => {
     const saved = (text: string): Script =>
       async function* () {
