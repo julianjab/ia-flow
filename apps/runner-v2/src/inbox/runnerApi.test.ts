@@ -52,6 +52,24 @@ const activity: ActivityPort = {
   lastDispatchedEvent: () => undefined,
 }
 
+/** El login del token: `gho_revoked` ya no sirve y `gho_other` es otra cuenta. */
+function userOf(init?: RequestInit): Response {
+  const auth = new Headers(init?.headers).get('authorization')
+  if (auth === 'Bearer gho_revoked') return new Response('Bad credentials', { status: 401 })
+  return Response.json({ login: auth === 'Bearer gho_other' ? 'otra' : 'julian' })
+}
+
+/** Abrir un issue: sólo en julianjab/ia-flow; cualquier otro repo no existe para esa cuenta. */
+function openIssue(url: string): Response {
+  if (!url.endsWith('/repos/julianjab/ia-flow/issues')) {
+    return Response.json({ message: 'Not Found' }, { status: 404 })
+  }
+  return Response.json(
+    { number: 77, html_url: 'https://github.com/julianjab/ia-flow/issues/77' },
+    { status: 201 },
+  )
+}
+
 /** GitHub de mentira: el login de un token y lo que se le pidió. */
 function fakeGithub(push = true, mergeableState = 'clean') {
   const calls: Array<{ method: string; url: string; body?: unknown }> = []
@@ -62,12 +80,9 @@ function fakeGithub(push = true, mergeableState = 'clean') {
       url,
       ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
     })
-    if (url.endsWith('/user')) {
-      const auth = new Headers(init?.headers).get('authorization')
-      if (auth === 'Bearer gho_revoked') return new Response('Bad credentials', { status: 401 })
-      return Response.json({ login: auth === 'Bearer gho_other' ? 'otra' : 'julian' })
-    }
+    if (url.endsWith('/user')) return userOf(init)
     if (url.endsWith('/repos/o/r')) return Response.json({ permissions: { push } })
+    if (url.endsWith('/issues') && init?.method === 'POST') return openIssue(url)
     if (url.endsWith('/pulls/9')) return Response.json({ mergeable_state: mergeableState })
     return Response.json({ merged: true })
   }) as typeof fetch
@@ -99,6 +114,21 @@ const fakeProvider: Provider = {
 }
 const defaultRun = fakeProvider.run
 
+/** El provider del agente `runner-improvements`: propone un issue (el repo lo fija la config). */
+const improverProvider: Provider = {
+  id: 'fake-improver',
+  run: async (ctx) => {
+    await tool(ctx, 'assistant_propose_issue').handler({
+      title: 'Cortar el loop del reviewer',
+      body: '## Problema\nSe re-dispara.',
+      labels: ['runner'],
+      reason: 'falló tres veces igual',
+    })
+    await tool(ctx, 'submit_done').handler({ result: { answer: 'Te propuse un issue.' } })
+    return { outcome: 'success' }
+  },
+}
+
 /** La capacidad `assistant` como en el runner: el agente con las actions de
  *  `src/actions/builtin/assistant.ts`, leyendo de la bandeja por el desk. */
 function assistantFor(inbox: InboxService, conversations: SqliteConversationStore): Assistant {
@@ -109,16 +139,40 @@ function assistantFor(inbox: InboxService, conversations: SqliteConversationStor
     config: () => ({ projects: [], pipelines: [], agents: [], providers: [], mcp: [] }),
     status: () => ({}),
   })
-  const [definition] = [assistantActions].flat()
-  const actions = definition?.create({ services: { assistant: desk } } as ActionContext) as Action[]
+  const [definition, proposeIssue] = [assistantActions].flat()
+  if (!definition || !proposeIssue) throw new Error('faltan las actions del asistente')
+  const ctx = { services: { assistant: desk } } as ActionContext
+  const actions = definition.create(ctx) as Action[]
+  const providers = new ProviderRegistry().register(fakeProvider).register(improverProvider)
   const agent = new Agent(
     { id: 'assistant', provider: 'fake', prompt: '{{question}}', actions },
-    new ProviderRegistry().register(fakeProvider),
+    providers,
+  )
+  const improver = new Agent(
+    {
+      id: 'runner-improvements',
+      provider: 'fake-improver',
+      prompt: '{{question}}',
+      actions: [
+        ...actions,
+        (proposeIssue.create(ctx) as Action).bind({ repo: 'julianjab/ia-flow' }),
+      ],
+    },
+    providers,
   )
   return new Assistant({
-    capabilities: new Capabilities({ assistant: agent }, new EventBus()),
+    capabilities: new Capabilities(
+      { assistant: agent, 'assistant.runner-improvements': improver },
+      new EventBus(),
+    ),
     desk,
     conversations,
+    agents: () => [
+      { id: 'assistant', label: 'Operación' },
+      { id: 'assistant.runner-improvements', label: 'Mejoras del runner' },
+      // Declarado sin quién lo cumpla: no se ofrece.
+      { id: 'assistant.ghost', label: 'Fantasma' },
+    ],
   })
 }
 
@@ -225,6 +279,10 @@ describe('runner API', () => {
       service: 'ia-flow-runner',
       github_login: { device_flow: false },
       assistant: true,
+      assistant_agents: [
+        { id: 'assistant', label: 'Operación' },
+        { id: 'assistant.runner-improvements', label: 'Mejoras del runner' },
+      ],
     })
     expect((await call('/api/tasks/o/r/1')).status).toBe(200)
     expect((await call('/api/tasks/o/r/404')).status).toBe(404)
@@ -317,6 +375,73 @@ describe('runner API', () => {
       ref: 'o/r#1',
       action: 'merge',
       label: 'Mergear el PR',
+    })
+  })
+
+  it('another agent of the assistant answers when the request names it', async () => {
+    const { call } = await start()
+    const ask = async (agent: string) =>
+      (
+        await (
+          await call('/api/assistant', {
+            method: 'POST',
+            body: JSON.stringify({
+              scope: { kind: 'general' },
+              messages: [{ role: 'user', content: '¿qué falló en el proceso?' }],
+              agent,
+            }),
+          })
+        ).text()
+      )
+        .split('\n')
+        .filter((line) => line.startsWith('data: '))
+        .map((line) => JSON.parse(line.slice(6)))
+
+    const events = await ask('assistant.runner-improvements')
+    expect(events.map((event) => event.type)).toEqual(['proposal', 'text', 'done'])
+    // El repo es el que fija la config, no uno que elija el modelo.
+    expect(events[0].proposal).toMatchObject({
+      kind: 'issue',
+      repo: 'julianjab/ia-flow',
+      title: 'Cortar el loop del reviewer',
+      labels: ['runner'],
+      label: 'Abrir un issue en julianjab/ia-flow',
+    })
+    expect(await ask('assistant.ghost')).toEqual([
+      { type: 'error', message: expect.stringContaining('assistant.ghost') },
+    ])
+  })
+
+  it('opens a proposed issue with the GitHub login of whoever confirms it', async () => {
+    const { call, github } = await start()
+    const post = (body: unknown, headers: Record<string, string> = {}) =>
+      call('/api/issues', { method: 'POST', body: JSON.stringify(body), headers })
+    const issue = { repo: 'julianjab/ia-flow', title: 'Cortar el loop', body: 'b', labels: ['x'] }
+
+    expect((await post(issue)).status).toBe(401)
+    expect(
+      (await post({ ...issue, repo: 'no-es-un-repo' }, { 'x-github-token': 'gho_x' })).status,
+    ).toBe(400)
+
+    const created = await post(issue, { 'x-github-token': 'gho_x' })
+    expect(await created.json()).toEqual({
+      ok: true,
+      message: 'julianjab/ia-flow#77 abierto',
+      url: 'https://github.com/julianjab/ia-flow/issues/77',
+      number: 77,
+      github_login: 'julian',
+    })
+    expect(github.calls.find((request) => request.method === 'POST')).toEqual({
+      method: 'POST',
+      url: 'https://api.github.com/repos/julianjab/ia-flow/issues',
+      body: { title: 'Cortar el loop', body: 'b', labels: ['x'] },
+    })
+
+    const refused = await post({ ...issue, repo: 'otra/cosa' }, { 'x-github-token': 'gho_x' })
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('otra/cosa'),
     })
   })
 
@@ -492,6 +617,32 @@ describe('runner API', () => {
       )?.id
       expect(next).toBeString()
       expect(next).not.toBe(id)
+    })
+
+    it('a conversation is of one agent: asking another one continues in a new one', async () => {
+      const { call } = await start()
+      const first = await events(await ask(call, {}, gh()))
+      const id = first.find((event) => event.type === 'conversation')?.id
+      const other = await events(
+        await ask(call, { conversation_id: id, agent: 'assistant.runner-improvements' }, gh()),
+      )
+      const next = other.find((event) => event.type === 'conversation')?.id
+      expect(next).toBeString()
+      expect(next).not.toBe(id)
+      const list = await (await call('/api/assistant/conversations', { headers: gh() })).json()
+      expect(list.map((c: { id: string; agent: string }) => [c.id, c.agent]).sort()).toEqual(
+        [
+          [id, 'assistant'],
+          [next, 'assistant.runner-improvements'],
+        ].sort(),
+      )
+      // La propuesta de issue se guarda tal cual, para mostrarla al retomar.
+      const saved = await (
+        await call(`/api/assistant/conversations/${next}`, { headers: gh() })
+      ).json()
+      expect(saved.thread[1].proposals).toMatchObject([
+        { kind: 'issue', repo: 'julianjab/ia-flow' },
+      ])
     })
 
     it("someone else's conversation does not exist for you", async () => {

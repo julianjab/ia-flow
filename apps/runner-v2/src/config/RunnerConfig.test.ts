@@ -69,18 +69,55 @@ describe('which runner.yaml', () => {
 })
 
 describe('capabilities', () => {
-  it('without sources.capabilities, the runner fulfils all four with its own agents', () => {
+  it('without sources.capabilities, the runner fulfils all of them with its own agents', () => {
     const spec = loadRunnerConfig(config('')).source.spec()
     expect(spec.source).toMatchObject({
       capabilities: {
         assistant: { agent: 'assistant' },
+        'assistant.runner-improvements': { agent: 'runner-improvements' },
         whenText: { agent: 'text-classifier' },
         fileFocus: { agent: 'file-focus' },
         branchName: { agent: 'branch-namer' },
       },
     })
     const ids = [spec.agents].flat().map((doc) => (doc as { id?: string }).id)
-    expect(ids).toEqual(['assistant', 'text-classifier', 'file-focus', 'branch-namer'])
+    expect(ids).toEqual([
+      'assistant',
+      'runner-improvements',
+      'text-classifier',
+      'file-focus',
+      'branch-namer',
+    ])
+  })
+
+  it('the assistant agents come out of their capabilities, without what only the web reads', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-caps-'))
+    writeFileSync(
+      join(dir, 'runner.yaml'),
+      [
+        'sources:',
+        '  capabilities:',
+        '    assistant.costs: { agent: my-costs, label: Costos }',
+        '    assistant: { agent: my-assistant }',
+        '',
+      ].join('\n'),
+    )
+    const cfg = loadRunnerConfig(dir)
+    const capabilities = (cfg.source.spec().source as { capabilities: Record<string, unknown> })
+      .capabilities
+    // El paso que cumple la capacidad no recibe `label` ni `description`.
+    expect(capabilities.assistant).toEqual({ agent: 'my-assistant' })
+    expect(capabilities['assistant.costs']).toEqual({ agent: 'my-costs' })
+    // El de siempre primero; uno que se pisa sin `label` conserva el del runner.
+    expect(cfg.assistantAgents()).toEqual([
+      { id: 'assistant', label: 'Operación', description: 'Qué pasó, por qué y qué hacer' },
+      {
+        id: 'assistant.runner-improvements',
+        label: 'Mejoras del runner',
+        description: 'Fallas del proceso → issues en ia-flow',
+      },
+      { id: 'assistant.costs', label: 'Costos' },
+    ])
   })
 
   it('a capability the config declares wins over the default', () => {

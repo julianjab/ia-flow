@@ -14,6 +14,7 @@ describe('the runner capabilities', () => {
     const ids = BUILTIN_CAPABILITY_AGENTS.map((doc) => doc.id)
     expect(Object.keys(BUILTIN_CAPABILITIES).sort()).toEqual([
       'assistant',
+      'assistant.runner-improvements',
       'branchName',
       'fileFocus',
       'whenText',
