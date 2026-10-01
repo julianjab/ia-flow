@@ -2,12 +2,12 @@
 # nombra por id en vez de copiarlos:
 #
 #   systemPrompts:
-#     - id: claude-code
+#     - id: agentIdentity
 #     - text: lo propio del agente
 #
 # Un id que no está acá (ni en los `systemPrompts` de la fuente del agente) rompe la carga.
 
-- id: claude-code
+- id: agentIdentity
   text: You are Claude Code, Anthropic's official CLI for Claude.
 
 - id: untrusted-data

@@ -12,6 +12,7 @@ providerConfig:
   maxTokens: 8000
   maxToolRounds: 2
 systemPrompts:
+  - id: agentIdentity
   - text: |-
       You are helping a coding agent read a source file that is too large to load whole. You receive the file (path, then its content with line numbers as "N\tline") and a "Reader needs:" line describing what the agent is looking for.
 
