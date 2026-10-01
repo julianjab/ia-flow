@@ -13,6 +13,7 @@ un evento de task. El mapeo está en `packages/github/webhook/src/locate.ts`:
 | --- | --- | --- |
 | `issue.created` | un item nuevo en el board | — |
 | `issue.status_changed` | cambió el Status de la card | `from`, `to`, `sender` |
+| `issue.opened`, `issue.labeled`, `issue.unlabeled` | webhook `issues` del repo (no depende del board: es la señal de un Project v2 de cuenta personal, que no emite `projects_v2_item`) | `action`, `label` (el que se puso o sacó), `sender` |
 | `projects_v2_item.edited` | cambió otro campo de la card | `action`, `fieldName` |
 | `issue_comment` | comentario creado en el issue o en su PR (o respuesta en el hilo de Slack del pedido de review, `intake/slack.ts`) | `body`, `author`, `commentId`, `action` |
 | `pull_request`, `pull_request_review` | un PR que cierra un issue de la task | `action`, `pr.*`; en review: `state`, `reviewer`, `body` |
