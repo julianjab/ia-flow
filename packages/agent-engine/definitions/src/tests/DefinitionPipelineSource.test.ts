@@ -133,25 +133,26 @@ describe('DefinitionPipelineSource', () => {
     ])
   })
 
-  it('a system prompt id that exists nowhere breaks the load instead of running without it', () => {
-    const load = () =>
-      new DefinitionPipelineSource(
-        new MemorySource({
-          id: 's',
-          agents: [
-            {
-              path: 'mem:agents/a',
-              doc: {
-                id: 'a',
-                provider: 'fake',
-                prompt: 'p',
-                systemPrompts: [{ id: 'nope' }],
-              } as never,
-            },
-          ],
-          pipelines: [pipelineDoc({ id: 'run', on: ['build'], do: [{ agent: 'a' }] })],
-        }),
-      )
-    expect(load).toThrow(/agente "a": no hay un system prompt "nope"/)
+  it('a system prompt id that exists nowhere is dropped with a warning: the agent runs without it', () => {
+    const source = new DefinitionPipelineSource(
+      new MemorySource({
+        id: 's',
+        agents: [
+          {
+            path: 'mem:agents/a',
+            doc: {
+              id: 'a',
+              provider: 'fake',
+              prompt: 'p',
+              systemPrompts: [{ id: 'nope' }, { text: 'lo suyo' }],
+            } as never,
+          },
+        ],
+        pipelines: [pipelineDoc({ id: 'run', on: ['build'], do: [{ agent: 'a' }] })],
+      }),
+    )
+    const [step] = source.list()[0]?.do ?? []
+    if (!step || !isAgent(step)) throw new Error('el paso no es un agente')
+    expect(step.definition.systemPrompts?.map((ref) => ref.text)).toEqual(['lo suyo'])
   })
 })

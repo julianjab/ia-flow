@@ -113,19 +113,19 @@ do:
     expect(ran).toHaveBeenCalledTimes(1)
   })
 
-  it('a system prompt id nobody declares breaks the load', () => {
-    expect(() =>
-      mount({
-        'pipelines/p.yaml': `
+  it('a system prompt id nobody declares is dropped with a warning: the gate runs without it', async () => {
+    const { engine, asked } = mount({
+      'pipelines/p.yaml': `
 id: p
 on: [a]
-whenText: { text: x, systemPrompts: [no-existe] }
+whenText: { text: yes, systemPrompts: [no-existe, { text: Inline. }] }
 do:
   - { function: ran }
 `,
-      }),
-    ).toThrow(
-      /pipelines\/p\.yaml: whenText.*no hay un system prompt "no-existe" — la fuente declara: criterio-pr/,
-    )
+    })
+
+    await engine.dispatch(createEvent('a', {}))
+
+    expect(asked).toContainEqual({ text: 'yes', systemPrompts: ['Inline.'] })
   })
 })
