@@ -5,6 +5,9 @@
  *
  *   projects_v2_item     created → issue.created · Status → issue.status_changed (from/to) ·
  *                        otro campo → projects_v2_item.edited
+ *   issues               opened → issue.opened · labeled → issue.labeled · unlabeled →
+ *                        issue.unlabeled (con el `label`): la señal de un repo cuyo board no emite
+ *                        `projects_v2_item` (el Project v2 de una cuenta personal)
  *   issue_comment        el issue, o el que implementa el PR si se comentó en un PR
  *   pull_request(_review) el issue que el PR cierra según GitHub (hay que leerlo); sin él, se salta
  *   check_suite, workflow_run   la task del PR de la corrida (hay que leerlo); sólo `completed`
@@ -18,7 +21,7 @@
  * escucha, un item que no es un issue, un CI que no terminó.
  */
 import { parseGithubCheckPayload } from './GithubCheckPayload.js'
-import { parseGithubIssueCommentPayload } from './GithubIssuePayload.js'
+import { parseGithubIssueCommentPayload, parseGithubIssuePayload } from './GithubIssuePayload.js'
 import { parseGithubProjectItemPayload } from './GithubProjectItemPayload.js'
 import {
   parseGithubPullRequestPayload,
@@ -47,6 +50,8 @@ export function locate(type: string, raw: Raw): Location {
   switch (type) {
     case 'projects_v2_item':
       return boardItem(raw)
+    case 'issues':
+      return issue(raw)
     case 'issue_comment':
       return comment(raw)
     case 'pull_request':
@@ -84,6 +89,33 @@ function boardItem(raw: Raw): Location {
     // Sin `to` (GitHub no siempre lo manda), el status que quedó en el board.
     ...(item.to !== undefined ? { status: item.to } : {}),
     extra: { from: item.from, to: item.to, ...(typeof sender === 'string' ? { sender } : {}) },
+  }
+}
+
+const ISSUE_EVENTS: Record<string, string> = {
+  opened: 'issue.opened',
+  labeled: 'issue.labeled',
+  unlabeled: 'issue.unlabeled',
+}
+
+function issue(raw: Raw): Location {
+  const action = String(raw.action)
+  const emit = ISSUE_EVENTS[action]
+  if (!emit) return { skip: `issues.${action}` }
+  const parsed = parseGithubIssuePayload(raw)
+  // GitHub no manda `issues` para un PR, pero un payload armado a mano podría: no es una task.
+  if (parsed.isPullRequest) return { skip: `issues.${action} de un PR` }
+  const label = (raw.label as { name?: unknown } | undefined)?.name
+  return {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    number: parsed.number,
+    emit,
+    extra: {
+      action,
+      ...(typeof label === 'string' ? { label } : {}),
+      ...(parsed.sender ? { sender: parsed.sender } : {}),
+    },
   }
 }
 
