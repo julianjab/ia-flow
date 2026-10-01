@@ -79,7 +79,7 @@ Hechos que gobiernan todo diseño:
 
 ```bash
 bun run runner                                            # tu .config local: carga y valida
-bun run --cwd apps/runner-v2 start --config <dir>         # otra config (un deploy)
+bun run --cwd apps/runner-v2 start --config <runner.yaml|dir>         # otra config (un deploy)
 ```
 
 Un error de schema sale con archivo y campo. Con el runner en `--serve`,
@@ -117,7 +117,7 @@ Un error de schema sale con archivo y campo. Con el runner en `--serve`,
 - [ ] Toda `{{variable}}` existe en el payload del evento que lo dispara (una desconocida queda
       literal, sin error). `{{vars.x}}` existe en la fuente (si no, no carga).
 - [ ] Secretos sólo nombrados (`${ENV}`), nunca en el YAML.
-- [ ] La config carga sin errores (`bun run runner` o `start --config <dir>`).
+- [ ] La config carga sin errores (`bun run runner` o `start --config <runner.yaml|dir>`).
 
 ## Referencias
 

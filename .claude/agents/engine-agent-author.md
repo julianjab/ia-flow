@@ -27,7 +27,7 @@ correctos y mínimos, más el razonamiento de qué los dispara y cómo cierra ca
    - `providerConfig` → el schema del provider (ver `references/providers-and-mcp.md`)
 5. **Aplicá el checklist** del SKILL.md, ítem por ítem, y reportalo.
 6. **Validá cargando.** `bun run runner` (tu `.config` local) o
-   `bun run --cwd apps/runner-v2 start --config <dir>`, y reportá el resultado.
+   `bun run --cwd apps/runner-v2 start --config <runner.yaml|dir>`, y reportá el resultado.
 
 ## Reglas duras
 

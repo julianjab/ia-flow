@@ -4,8 +4,8 @@
  */
 
 export interface RunnerArgs {
-  /** La carpeta de la definición (argv `--config`, o RUNNER_CONFIG_DIR). Default: `.config`. */
-  configDir?: string
+  /** El `runner.yaml` a correr, o la carpeta que lo tiene (argv `--config`, o RUNNER_CONFIG). */
+  config?: string
   /** Levanta el servidor de webhooks. */
   serve: boolean
   /** Le presta su CLI `claude` a un runner: se suscribe y pide tareas (`@ia-flow/provider-remote`). */
@@ -16,11 +16,11 @@ export interface RunnerArgs {
   replayPr?: string
 }
 
-export const USAGE = `uso: bun run src/main.ts [--config <dir>]
-     bun run src/main.ts [--config <dir>] --serve
-     bun run src/main.ts [--config <dir>] --host
-     bun run src/main.ts [--config <dir>] --event github.<evento> <payload.json>
-     bun run src/main.ts [--config <dir>] --replay-pr <owner>/<repo>#<n>
+export const USAGE = `uso: bun run src/main.ts [--config <runner.yaml|dir>]
+     bun run src/main.ts [--config <runner.yaml|dir>] --serve
+     bun run src/main.ts [--config <runner.yaml|dir>] --host
+     bun run src/main.ts [--config <runner.yaml|dir>] --event github.<evento> <payload.json>
+     bun run src/main.ts [--config <runner.yaml|dir>] --replay-pr <owner>/<repo>#<n>
 
   Sin nada: carga la definición, valida todo y monta el engine.
   --serve                escucha webhooks de GitHub en POST /api/webhooks/github (puerto
@@ -32,7 +32,8 @@ export const USAGE = `uso: bun run src/main.ts [--config <dir>]
   --event <tipo> <json>  despacha un webhook crudo (\`github.pull_request\`, …) con el payload del
                          archivo — el mismo camino que un delivery
   --replay-pr <pr>       lee ese PR de GitHub y lo despacha como un \`pull_request\` \`opened\`
-  --config <dir>         la carpeta de runner.yaml (default: RUNNER_CONFIG_DIR o
+  --config <yaml|dir>    el runner.yaml a correr (p. ej. runner.local.yaml), o la carpeta que
+                         tiene un runner.yaml (default: RUNNER_CONFIG, RUNNER_CONFIG_DIR o
                          apps/runner-v2/.config)`
 
 /**
@@ -61,7 +62,8 @@ export function parseArgs(argv: string[]): RunnerArgs {
     const arg = argv[i]
     if (arg === '--serve') args.serve = true
     else if (arg === '--host') args.host = true
-    else if (arg === '--config') args.configDir = value(++i, '--config necesita una carpeta')
+    else if (arg === '--config')
+      args.config = value(++i, '--config necesita un runner.yaml o su carpeta')
     else if (arg === '--replay-pr')
       args.replayPr = value(++i, '--replay-pr necesita <owner>/<repo>#<n>')
     else if (arg === '--event') {

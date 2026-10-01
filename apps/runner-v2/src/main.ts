@@ -233,10 +233,12 @@ async function main(): Promise<'serving' | 'done'> {
   // Antes de cargar la config: sus actions resuelven `@ia-flow/*` y `zod` por acá, vivan donde vivan.
   registerVirtualModules()
   const args = parseArgs(process.argv.slice(2))
-  const configDir = expandHome(
-    args.configDir ?? process.env.RUNNER_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
+  // El runner.yaml a correr, o su carpeta. RUNNER_CONFIG_DIR queda como alias (el Dockerfile de un
+  // deploy lo fija a la carpeta que hornea).
+  const configPath = expandHome(
+    args.config ?? process.env.RUNNER_CONFIG ?? process.env.RUNNER_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
   )
-  const cfg = loadRunnerConfig(configDir)
+  const cfg = loadRunnerConfig(configPath)
   const envReport = applyRunnerEnv(cfg)
   // Después de la config: `telemetry:` de runner.yaml ya está en las `OTEL_*`. Un host le manda
   // su telemetría al runner al que presta.
@@ -252,7 +254,7 @@ async function main(): Promise<'serving' | 'done'> {
     runnerLog.info(line)
   }
   if (args.host) {
-    console.log(`→ config: ${configDir} — host`)
+    console.log(`→ config: ${cfg.runnerPath} — host`)
     const mountedHost = await mountHost(cfg, {
       ...(process.env.WORKSPACE_DIR ? { workspaceDir: process.env.WORKSPACE_DIR } : {}),
       log,
@@ -265,7 +267,7 @@ async function main(): Promise<'serving' | 'done'> {
   const store = openActivityStore(cfg)
   route.to({ write: (record) => store.writeTrace(record) })
   console.log(
-    `→ config: ${configDir} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
+    `→ config: ${cfg.runnerPath} — ${cfg.projects.length} proyecto(s), ${cfg.repos.length} repos, ${cfg.mcp.length} mcp`,
   )
 
   // Los MCP propios arrancan antes que el catálogo: el que los nombra (`hosted`) los prueba vivos.

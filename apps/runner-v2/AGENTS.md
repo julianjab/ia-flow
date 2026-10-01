@@ -42,9 +42,12 @@ bun run release:package                             # el bundle: dist/artifacts/
 
 - **Las fronteras entre carpetas las verifica `bun run lint:boundaries`** (en `check`): `http/`
   sólo llega a `intake/`, `intake/` no conoce ninguna feature, nada importa `main.ts`.
-- **`.config/` es tu config local y NO está en git** (`.gitignore`): para correr el runner en tu
-  máquina, copiá la de un deploy (la de La Haus: `la-haus/claw-agents` → `agents/ai-development-flow/config/`) y ajustala (label, túneles, providers).
-- **Una config vive en cualquier carpeta** (`--config` o `RUNNER_CONFIG_DIR`): sus acciones
+- **`--config` (o `RUNNER_CONFIG`) apunta al `runner.yaml` a correr**, o a una carpeta (su
+  `runner.yaml`). En local, un `runner.local.yaml` junto al de un deploy (gitignoreado) que reusa
+  sus agentes y pipelines con las mismas rutas: para La Haus, `la-haus/claw-agents` →
+  `agents/ai-development-flow/config/runner.local.yaml`. `apps/runner-v2/.config/` (no versionada)
+  sigue siendo el default si no se dice nada.
+- **Una config vive en cualquier carpeta**: sus acciones
   resuelven `@ia-flow/*` y `zod` por los módulos virtuales (`bundle/`). Si una config importa un
   paquete que no está en `bundle/modules.ts`, rompe al arrancar: validala con `bun run runner`.
 - **El estado va a `IA_FLOW_HOME`** (default `~/.local/state/ia-flow/runner`): la base

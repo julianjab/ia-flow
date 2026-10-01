@@ -20,7 +20,7 @@
  * es relativo a `runner.yaml` (o `~/…`, o absoluto): el PEM queda fuera de git (`*.pem`), la ruta no.
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { ConditionRow } from '@ia-flow/agent-engine'
@@ -415,8 +415,17 @@ function withExecutionsPath(engine: EngineSection, dir: string): EngineSection {
   return { ...engine, executions: { ...executions, path: resolved } }
 }
 
-export function loadRunnerConfig(dir: string): RunnerConfig {
-  const runnerPath = join(dir, 'runner.yaml')
+/** El `runner.yaml` a cargar: `path` si es un archivo (`runner.local.yaml`, el que sea), o
+ *  `<path>/runner.yaml` si es una carpeta. */
+export function runnerPathOf(path: string): string {
+  return existsSync(path) && statSync(path).isFile() ? path : join(path, 'runner.yaml')
+}
+
+/** La config de un `runner.yaml` (o de la carpeta que lo tiene). Sus rutas relativas —agentes,
+ *  pipelines, proyectos, el PEM, la base— se resuelven contra la carpeta del archivo. */
+export function loadRunnerConfig(path: string): RunnerConfig {
+  const runnerPath = runnerPathOf(path)
+  const dir = dirname(runnerPath)
   const file = parse(runnerPath, RunnerFileSchema)
   const projects = Object.entries(file.sources.projects).map(([id, entry]) =>
     readProject(runnerPath, id, entry),

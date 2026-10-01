@@ -40,7 +40,7 @@ Eres un subagente de diagnóstico. Tu objetivo NO es "hacer que el error desapar
 - **"¿Por qué corrió / no corrió?"** con el runner en `--serve`: `GET /api/explain?ref=&event=`
   (el mismo plan del engine, en seco) y `GET /api/tasks/:owner/:repo/:n` (ejecuciones, eventos,
   traza). Piden `x-ia-flow-token`.
-- **Config:** `bun run runner` (o `bun run --cwd apps/runner-v2 start --config <dir>`) carga y
+- **Config:** `bun run runner` (o `bun run --cwd apps/runner-v2 start --config <runner.yaml|dir>`) carga y
   valida la config sin servir: un error de schema sale con archivo y campo.
 - **Env:** `apps/runner-v2/.env.example` lista las variables (el `.env` real no se lee).
 - **Estado del proceso:** si el runner está corriendo, preservá evidencia (copiá filas/traza a
@@ -107,7 +107,7 @@ Verificación:
 ## Casos especiales del stack ia-flow
 
 - **`EPIPE` en esbuild/vitest (apps/web, paquetes):** pasa al correr vitest dentro del runtime de Bun (`bun test`, `--bun`). Usá el script del paquete (`bun run --cwd apps/web test`), que lanza vitest con Node, y anotalo en el reporte.
-- **Un cambio de prompt o pipeline no rompe tests:** ningún test monta una config de deploy; validala cargándola (`bun run --cwd apps/runner-v2 start --config <dir>`).
+- **Un cambio de prompt o pipeline no rompe tests:** ningún test monta una config de deploy; validala cargándola (`bun run --cwd apps/runner-v2 start --config <runner.yaml|dir>`).
 - **`@memoize` no funciona / error de decorators:** Bun corrió desde otro directorio (lee `experimentalDecorators` del `tsconfig` del cwd). Corré con `--cwd` del paquete.
 - **La config de un deploy rompe al arrancar pero no en local:** una action de la config importa un paquete que no está en `apps/runner-v2/src/bundle/modules.ts` (`bundle/modules.test.ts` lo avisa).
 - **`SQLITE_BUSY` / "database is locked":** típicamente transacción larga, conexión no cerrada, o falta de `busy_timeout`. Confirma `PRAGMA journal_mode=wal` y `PRAGMA busy_timeout=5000`. Busca `db.exec` / `.prepare` sin `.finalize()` o transacciones sin `COMMIT`/`ROLLBACK`.
