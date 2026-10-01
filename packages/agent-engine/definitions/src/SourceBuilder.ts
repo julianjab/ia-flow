@@ -147,7 +147,10 @@ export class SourceBuilder {
               : {}),
             prompt: variant.brief ? `${variant.brief.trim()}\n\n${doc.prompt}` : doc.prompt,
             ...(doc.input ? { input: this.input(doc.input) } : {}),
-            systemPrompts: [...this.sourceSystemPrompts, ...(doc.systemPrompts ?? [])],
+            systemPrompts: this.agentSystemPrompts(
+              [...this.sourceSystemPrompts, ...(doc.systemPrompts ?? [])],
+              doc.id,
+            ),
             variables: doc.variables,
             tools: doc.tools?.map((name) => this.tool(name)),
             actions: doc.actions?.flatMap((entry) =>
@@ -388,6 +391,25 @@ export class SourceBuilder {
         ...(systemPrompts.length > 0 ? { systemPrompts } : {}),
       },
     }
+  }
+
+  /**
+   * Los system prompts de un agente, con los que nombra por `id` (sin `text`) ya resueltos: uno de
+   * la fuente con ese `id`, o del catálogo (ej. los que trae una app para todos sus agentes). Un id
+   * que no existe rompe la carga: el agente correría sin las instrucciones que se le pidieron.
+   */
+  private agentSystemPrompts(
+    refs: NonNullable<SourceDoc['systemPrompts']>,
+    agentId: string,
+  ): NonNullable<SourceDoc['systemPrompts']> {
+    return refs.map((ref) => {
+      if (ref.text !== undefined || ref.id === undefined) return ref
+      try {
+        return { id: ref.id, text: this.systemPrompt(ref.id) }
+      } catch (err) {
+        throw new Error(`agente "${agentId}": ${(err as Error).message}`)
+      }
+    })
   }
 
   private systemPrompt(id: string): string {
