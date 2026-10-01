@@ -49,3 +49,8 @@ jobs:
       # engine, bun test en runner-v2 y desktop, vitest en web).
       - name: Test (workspace)
         run: bun run test
+
+      # El bundle del runner como lo arma el release (mismo script): un import que no bundlea, o
+      # los decorators de @memoize compilados como TC39, se ven acá y no al publicar el tag.
+      - name: Release bundle (runner)
+        run: bun run scripts/package-release.ts "0.0.0-ci"
