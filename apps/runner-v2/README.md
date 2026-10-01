@@ -124,7 +124,16 @@ rama, así una card descartada no llama al `branch-namer`.
 ```
 
 Si `intake-unblock` tiene que respetar la misma regla, se repite en su paso (o con un ancla YAML).
-La bandeja de la web muestra todas las cards del board del proyecto, las tome o no este runner.
+
+**Qué cards muestra la bandeja: el `when` del proyecto** (`project.yaml`). Las mismas filas, sólo
+sobre la card (`item.labels`, `item.status`, `item.type`, `item.repos`, `item.blocked`); sin él,
+todas las cards del board. Es independiente del intake: cada uno filtra lo suyo.
+
+```yaml
+# project.yaml
+when:
+  - { field: item.labels, op: contains, value: blocked }
+```
 
 Lo que el YAML nombra (del runner, salvo las marcadas como del proyecto):
 

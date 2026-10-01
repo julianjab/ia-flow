@@ -15,7 +15,7 @@ import type {
   TaskDetail,
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
-import { type BoardMeta, type BoardSpec, projectUrl } from './BoardReader.js'
+import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
 import {
   type BoardCard,
   type Classification,
@@ -55,10 +55,12 @@ export class InboxService {
     return this.options.projects.filter((spec) => !projectId || spec.projectId === projectId)
   }
 
-  /** Todas las cards de los boards. */
+  /** Las cards del proyecto: las de su board que cumplen su `when` (`project.yaml`). */
   private async boardCards(projectId?: string): Promise<BoardCard[]> {
     const boards = await Promise.all(
-      this.specs(projectId).map((spec) => this.options.board.cards(spec)),
+      this.specs(projectId).map(async (spec) =>
+        (await this.options.board.cards(spec)).filter((card) => inProject(spec, card)),
+      ),
     )
     return boards.flat()
   }

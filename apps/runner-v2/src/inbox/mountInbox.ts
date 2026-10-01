@@ -42,6 +42,7 @@ export function mountInbox(
   const specs: BoardSpec[] = cfg.projects.map((project) => ({
     projectId: project.id,
     board: project.board,
+    when: project.when,
   }))
   const board = new BoardReader(mounted.github)
   const inbox = new InboxService({

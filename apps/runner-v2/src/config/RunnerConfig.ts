@@ -23,7 +23,9 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import type { ConditionRow } from '@ia-flow/agent-engine'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
+import { ConditionRows } from '@ia-flow/agent-engine-definitions'
 import { AcceptRow, HostName } from '@ia-flow/provider-remote'
 import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
@@ -94,6 +96,19 @@ export const ProjectFileSchema = z.strictObject({
   /** Con esto, `task.branch` = `<branchPrefix><número>`. Sin esto, como ia-flow: la rama
    *  vinculada al issue, o la que propone la capacidad `branchName` (`feat/<slug>`). */
   branchPrefix: z.string().min(1).optional(),
+  /** Qué cards del board muestra la bandeja: filas como el `when` de una pipeline (se combinan de
+   *  izquierda a derecha) sobre la card —sólo campos `item.*`: `item.labels`, `item.status`,
+   *  `item.type`, `item.repos`, `item.blocked`—. No toca al intake: qué tasks publican eventos lo
+   *  decide su propio `with.when` (`resolve_task`). Sin esto, todas las cards del board. */
+  when: ConditionRows.refine(
+    (rows) =>
+      rows.every(
+        (row) =>
+          row.field.startsWith('item.') &&
+          (row.valueFrom === undefined || row.valueFrom.startsWith('item.')),
+      ),
+    'el when del proyecto sólo mira la card: campos item.* (labels, status, type, repos, blocked)',
+  ).optional(),
   /** Cuántas corridas de sus tasks a la vez (debajo de `engine.executions.maxConcurrent`). */
   maxConcurrent: z.number().int().positive().optional(),
   /** La marca "en curso" de una task en el board mientras su ejecución corre (el `Working = Yes`
@@ -220,6 +235,8 @@ export interface ProjectConfig {
   dir: string
   board: { owner: string; number: number }
   branchPrefix?: string
+  /** Ver `when` en `project.yaml`: vacío, todas las cards del board. */
+  when: ConditionRow[]
   /** La marca "en curso" (ya con el default); `null`: sin marca. */
   workingMarker: WorkingMarker | null
   /** Ver `maxConcurrent` en `project.yaml`. */
@@ -358,6 +375,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     dir: at.base,
     board: parseBoard(project.board),
     ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
+    when: project.when ?? [],
     workingMarker:
       project.workingMarker === undefined ? DEFAULT_WORKING_MARKER : project.workingMarker,
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),

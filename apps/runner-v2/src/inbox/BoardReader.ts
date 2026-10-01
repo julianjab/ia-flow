@@ -3,6 +3,7 @@
  * labels, cuándo cambió, qué la bloquea y el PR que la cierra. Con la identidad del runner y un
  * cache corto por board: la bandeja se pide seguido y cada webhook del board lo invalida.
  */
+import { Condition, type ConditionRow } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
 import { invalidateMemoized, memoize } from '@ia-flow/shared'
 import type { BoardCard } from './classify.js'
@@ -10,6 +11,27 @@ import type { BoardCard } from './classify.js'
 export interface BoardSpec {
   projectId: string
   board: { owner: string; number: number }
+  /** Qué cards son del proyecto (`project.yaml` → `when`): las demás no se muestran. */
+  when?: ConditionRow[]
+}
+
+/** El `item` de una card, con la misma forma que el evento de la task que arma el intake
+ *  (`intake/payload.ts`): lo que mira el `when` del proyecto. */
+export function cardItem(card: BoardCard) {
+  return {
+    status: card.status,
+    // Como el intake: `Task Type` en minúsculas; sin él, `technical`.
+    type: (card.taskType ?? 'technical').toLowerCase(),
+    repos: [card.ref.split('#')[0]?.split('/')[1] ?? ''],
+    labels: card.labels,
+    blocked: card.blockedBy.length > 0,
+  }
+}
+
+/** Si la card es del proyecto: cumple su `when` (sin `when`, todas). */
+export function inProject(spec: Pick<BoardSpec, 'when'>, card: BoardCard): boolean {
+  const when = (spec.when ?? []).map((row) => new Condition(row))
+  return Condition.evaluateAll(when, { item: cardItem(card) })
 }
 
 /** Lo que se sabe del Project en sí: sus links y el orden de sus columnas. */
