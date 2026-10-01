@@ -2,14 +2,18 @@
  * El login de cada persona en la web con su cuenta de GitHub (device flow de la GitHub App): la
  * web muestra un código, la persona lo aprueba en github.com y el token que vuelve firma sus
  * movimientos en el board. El runner sólo intermedia — GitHub no habla CORS en estos endpoints — y
- * nunca guarda el token.
+ * nunca guarda el token. Un token de device flow se renueva sin `client_secret` (`refresh`): la web
+ * guarda el `refresh_token` y lo cambia antes de que venza.
  */
-import type { DeviceCode, DevicePoll } from '@ia-flow/shared'
+import type { DeviceCode, DevicePoll, GithubUserToken } from '@ia-flow/shared'
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 const USER_URL = 'https://api.github.com/user'
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
+
+/** GitHub rechazó el `refresh_token` (vencido, ya usado o revocado): hay que volver a loguearse. */
+export class RefreshRejectedError extends Error {}
 
 export interface DeviceFlowOptions {
   /** El client id de la GitHub App (`github.clientId` / IA_FLOW_GITHUB_CLIENT_ID). */
@@ -62,11 +66,7 @@ export class DeviceFlow {
       grant_type: GRANT_TYPE,
     })
     if (typeof data.access_token === 'string') {
-      return {
-        status: 'ok',
-        access_token: data.access_token,
-        login: await this.login(data.access_token),
-      }
+      return { status: 'ok', ...(await this.userToken(data, data.access_token)) }
     }
     switch (data.error) {
       case 'authorization_pending':
@@ -84,8 +84,40 @@ export class DeviceFlow {
     }
   }
 
+  /** Un token nuevo a cambio del `refresh_token`; GitHub rota los dos. */
+  async refresh(refreshToken: string): Promise<GithubUserToken> {
+    const data = await postForm(this.fetchImpl, ACCESS_TOKEN_URL, {
+      client_id: this.options.clientId,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    })
+    if (typeof data.access_token !== 'string') {
+      throw new RefreshRejectedError(
+        `GitHub no renovó el token: ${String(data.error_description ?? data.error ?? 'sin motivo')}`,
+      )
+    }
+    return this.userToken(data, data.access_token)
+  }
+
   login(token: string): Promise<string> {
     return githubLogin(token, this.fetchImpl)
+  }
+
+  /** El token con su login y, si GitHub los mandó, cómo y cuándo renovarlo. */
+  private async userToken(
+    data: Record<string, unknown>,
+    accessToken: string,
+  ): Promise<GithubUserToken> {
+    const seconds = (value: unknown) => (typeof value === 'number' ? value : undefined)
+    const expiresIn = seconds(data.expires_in)
+    const refreshExpiresIn = seconds(data.refresh_token_expires_in)
+    return {
+      access_token: accessToken,
+      login: await this.login(accessToken),
+      ...(expiresIn !== undefined ? { expires_in: expiresIn } : {}),
+      ...(typeof data.refresh_token === 'string' ? { refresh_token: data.refresh_token } : {}),
+      ...(refreshExpiresIn !== undefined ? { refresh_token_expires_in: refreshExpiresIn } : {}),
+    }
   }
 }
 

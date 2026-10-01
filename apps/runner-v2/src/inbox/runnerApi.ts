@@ -11,6 +11,9 @@ import {
   type AssistantStreamEvent,
   type ConfigSummary,
   DevicePollSchema,
+  GithubRefreshRequestSchema,
+  type GithubUserToken,
+  GithubUserTokenSchema,
   type InboxProject,
   type RunnerInfo,
   type RunnerStreamEvent,
@@ -19,7 +22,7 @@ import {
 import { z } from 'zod'
 import type { Assistant } from '../assistant/Assistant.js'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
-import { type DeviceFlow, githubLogin } from '../github/deviceFlow.js'
+import { type DeviceFlow, githubLogin, RefreshRejectedError } from '../github/deviceFlow.js'
 import { ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
 import { openSse, type SseHub, writeSse } from '../http/sse.js'
 import type { InboxService } from './InboxService.js'
@@ -234,6 +237,19 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     if (!options.deviceFlow) throw new HttpError(501, 'El login con GitHub no está configurado')
     const { device_code } = parseBody(DevicePollRequest, await req.json())
     return DevicePollSchema.parse(await options.deviceFlow.poll(device_code))
+  })
+
+  // La web renueva su token antes de que venza (8 h): un `refresh_token` que GitHub ya no acepta
+  // es un 401 —hay que volver a loguearse—, no un error del runner.
+  router.post('/api/auth/github/refresh', async (req): Promise<GithubUserToken> => {
+    if (!options.deviceFlow) throw new HttpError(501, 'El login con GitHub no está configurado')
+    const { refresh_token } = parseBody(GithubRefreshRequestSchema, await req.json())
+    try {
+      return GithubUserTokenSchema.parse(await options.deviceFlow.refresh(refresh_token))
+    } catch (err) {
+      if (err instanceof RefreshRejectedError) throw new HttpError(401, err.message)
+      throw err
+    }
   })
 
   return router

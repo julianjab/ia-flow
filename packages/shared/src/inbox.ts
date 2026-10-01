@@ -275,12 +275,33 @@ export const DeviceCodeSchema = z.object({
 })
 export type DeviceCode = z.infer<typeof DeviceCodeSchema>
 
+/**
+ * El token de usuario de una GitHub App y cómo renovarlo. Con la expiración de tokens prendida
+ * (el default de GitHub) dura 8 h y viene con un `refresh_token` de 6 meses; sin ella no vence y
+ * no trae ninguno. Los `*_expires_in` son segundos desde que GitHub lo emitió.
+ */
+const GithubUserTokenFields = {
+  access_token: z.string(),
+  login: z.string(),
+  expires_in: z.number().optional(),
+  refresh_token: z.string().optional(),
+  refresh_token_expires_in: z.number().optional(),
+}
+
 export const DevicePollSchema = z.object({
   status: z.enum(['pending', 'slow_down', 'ok', 'denied', 'expired']),
+  ...GithubUserTokenFields,
   access_token: z.string().optional(),
   login: z.string().optional(),
 })
 export type DevicePoll = z.infer<typeof DevicePollSchema>
+
+/** `POST /api/auth/github/refresh`: un token nuevo a cambio del `refresh_token`. GitHub los rota:
+ *  el `refresh_token` usado y el token viejo dejan de servir. */
+export const GithubRefreshRequestSchema = z.object({ refresh_token: z.string().min(1) })
+export type GithubRefreshRequest = z.infer<typeof GithubRefreshRequestSchema>
+export const GithubUserTokenSchema = z.object(GithubUserTokenFields)
+export type GithubUserToken = z.infer<typeof GithubUserTokenSchema>
 
 /** De qué habla el asistente: todo el runner, un proyecto o una tarea. */
 export const AssistantScopeSchema = z.discriminatedUnion('kind', [
