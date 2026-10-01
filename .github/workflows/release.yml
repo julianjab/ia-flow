@@ -84,9 +84,15 @@ jobs:
             FROM oven/bun:1.4.2-slim
             ADD --chown=bun:bun --chmod=644 https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-runner.js /app/runner.js
             COPY config/ /app/config/
-            ENV RUNNER_CONFIG_DIR=/app/config
+            ENV RUNNER_CONFIG=/app/config IA_FLOW_HOME=/state
+            VOLUME ["/state"]
             ENTRYPOINT ["bun", "run", "/app/runner.js", "--serve"]
             ```
+
+            `IA_FLOW_HOME` es donde el runner guarda su base (ejecuciones,
+            pausas, conversaciones) y los workspaces: en un volumen, para que
+            sobrevivan a un reinicio. El tarball trae un `Dockerfile.example`
+            completo (git, usuario `bun`, puerto 3001, `GET /health`).
 
             Las actions `.ts` de la config importan `@ia-flow/*` y `zod`: el
             bundle se los sirve, no hace falta `node_modules`. Verificá la
