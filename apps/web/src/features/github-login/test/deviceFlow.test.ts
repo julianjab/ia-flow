@@ -40,6 +40,17 @@ describe('pollUntilDone', () => {
     expect(poll).toHaveBeenCalledWith('dc')
   })
 
+  it('un token que vence trae con qué renovarlo', async () => {
+    const renewal = { expires_in: 28_800, refresh_token: 'ghr_1', refresh_token_expires_in: 99 }
+    const { opts } = harness([{ status: 'ok', access_token: 'ghu_1', login: 'ada', ...renewal }])
+    expect(await pollUntilDone(opts)).toEqual({
+      status: 'ok',
+      token: 'ghu_1',
+      login: 'ada',
+      ...renewal,
+    })
+  })
+
   it('slow_down suma 5 s al intervalo y lo avisa', async () => {
     const seen: number[] = []
     const { opts, slept } = harness(
