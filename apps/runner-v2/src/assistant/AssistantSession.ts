@@ -40,6 +40,8 @@ export const ACTION_LABELS: Record<TaskAction, string> = {
   rerun_review: 'Re-ejecutar el review',
 }
 
+const REPO_RE = /^[\w.-]+\/[\w.-]+$/
+
 /** Lo que vuelve de una lectura, acotado. La traza no pasa por acá: se pagina (`tracePage.ts`). */
 const MAX_RESULT_CHARS = 16_000
 
@@ -182,6 +184,39 @@ export class AssistantSession {
     }
     this.activity('runner_status', 'leyendo el estado del runner')
     return this.backend.status()
+  }
+
+  /** Muestra la propuesta de abrir un issue en `repo` para que la persona la confirme con su
+   *  login de GitHub. No crea nada. */
+  proposeIssue(input: {
+    repo?: unknown
+    title?: unknown
+    body?: unknown
+    labels?: unknown
+    reason?: unknown
+  }) {
+    const repo = String(input.repo ?? '').trim()
+    if (!REPO_RE.test(repo)) throw new Error(`El repo tiene que ser owner/repo, no "${repo}"`)
+    const title = String(input.title ?? '').trim()
+    const body = String(input.body ?? '').trim()
+    if (!title || !body) throw new Error('El issue necesita título y cuerpo')
+    const labels = Array.isArray(input.labels)
+      ? input.labels.map((label) => String(label).trim()).filter(Boolean)
+      : []
+    this.emit({
+      type: 'proposal',
+      proposal: {
+        id: globalThis.crypto.randomUUID(),
+        kind: 'issue',
+        repo,
+        title,
+        body,
+        ...(labels.length ? { labels } : {}),
+        label: `Abrir un issue en ${repo}`,
+        reason: String(input.reason ?? ''),
+      },
+    })
+    return 'Propuesta mostrada. El issue NO está creado: la persona decide.'
   }
 
   /** Muestra una propuesta para que la persona la confirme. No ejecuta nada. */

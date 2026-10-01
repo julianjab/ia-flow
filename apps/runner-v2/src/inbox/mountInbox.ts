@@ -137,7 +137,8 @@ export function mountInbox(
       routesOf: mounted.routesOf,
     })
 
-  // El asistente es la capacidad `assistant` (un agente de la fuente global); sus tools leen de acá.
+  // El asistente son las capacidades `assistant` y `assistant.<id>` (agentes de la fuente global);
+  // sus tools leen de acá.
   mounted.services.assistant.connect({
     inbox,
     activity: store.activity,
@@ -154,6 +155,7 @@ export function mountInbox(
     capabilities: mounted.engine.capabilities,
     desk: mounted.services.assistant,
     conversations: store.conversations,
+    agents: cfg.assistantAgents,
   })
 
   const clientId = process.env.IA_FLOW_GITHUB_CLIENT_ID?.trim()

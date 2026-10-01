@@ -2,6 +2,9 @@
  * El contrato del asistente de la web como capacidad del engine: quién la cumple es un agente de
  * la fuente global (`sources.capabilities.assistant` en runner.yaml → `.config/agents/assistant.yaml`),
  * editable como cualquier otro. Sin nadie enchufado, el asistente está apagado.
+ *
+ * El asistente puede tener varios agentes: cada uno cumple su propia capacidad con este mismo
+ * contrato, `assistant.<id>` (`assistantCapability`), y la web elige con cuál hablar.
  */
 import { defineCapability } from '@ia-flow/agent-engine'
 import { z } from 'zod'
@@ -29,3 +32,15 @@ export const ASSISTANT = defineCapability({
     tasks: z.array(z.string()).max(12).optional(),
   }),
 })
+
+const byName = new Map<string, typeof ASSISTANT>([[ASSISTANT.name, ASSISTANT]])
+
+/** El contrato del asistente bajo el nombre de uno de sus agentes (`assistant`, `assistant.<id>`). */
+export function assistantCapability(name: string): typeof ASSISTANT {
+  let capability = byName.get(name)
+  if (!capability) {
+    capability = defineCapability({ ...ASSISTANT, name })
+    byName.set(name, capability)
+  }
+  return capability
+}

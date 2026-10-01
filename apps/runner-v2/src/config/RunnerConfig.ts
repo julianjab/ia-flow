@@ -28,10 +28,16 @@ import type { ConditionRow, SystemPromptCatalog } from '@ia-flow/agent-engine'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
 import { ConditionRows } from '@ia-flow/agent-engine-definitions'
 import { AcceptRow, HostName } from '@ia-flow/provider-remote'
+import type { AssistantAgent } from '@ia-flow/shared'
 import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
-import { BUILTIN_CAPABILITIES, BUILTIN_CAPABILITY_AGENTS } from '../capabilities/index.js'
+import {
+  assistantAgents,
+  BUILTIN_CAPABILITIES,
+  BUILTIN_CAPABILITY_AGENTS,
+  isAssistantCapability,
+} from '../capabilities/index.js'
 import { EngineSection } from '../engine/mountEngine.js'
 import {
   DEFAULT_WORKING_MARKER,
@@ -222,7 +228,8 @@ export const RunnerFileSchema = z.strictObject({
       agents: Entries.optional(),
       pipelines: Entries.optional(),
       /** Quién cumple cada capacidad del engine (`whenText`, `fileFocus`): un paso de la fuente
-       *  global, típicamente `{ agent: <id> }`. Sin una, esa capacidad está apagada. */
+       *  global, típicamente `{ agent: <id> }`. Sin una, esa capacidad está apagada. Las del
+       *  asistente (`assistant`, `assistant.<id>`) llevan además `label` y `description`. */
       capabilities: z.record(z.string().min(1), z.record(z.string(), z.unknown())).optional(),
       /** Las actions globales: las ve toda fuente. */
       actions: Paths.optional(),
@@ -285,6 +292,8 @@ export interface RunnerConfig {
   actions: string[]
   /** La fuente global, releída de `runner.yaml` cuando cambia. */
   source: { spec: () => YamlSourceSpec; watch: string[] }
+  /** Los agentes del asistente de la web, como los dejó la última lectura de la fuente global. */
+  assistantAgents: () => AssistantAgent[]
   projects: ProjectConfig[]
   repos: RepoDef[]
 }
@@ -447,6 +456,7 @@ export function loadRunnerConfig(path: string): RunnerConfig {
     readProject(runnerPath, id, entry),
   )
   let prompts = promptsById(file.systemPrompts)
+  let assistants = globalCapabilities(file.sources.capabilities).agents
   return {
     dir,
     runnerPath,
@@ -466,13 +476,15 @@ export function loadRunnerConfig(path: string): RunnerConfig {
         const reread = parse(runnerPath, RunnerFileSchema)
         const { agents, pipelines, capabilities } = reread.sources
         prompts = promptsById(reread.systemPrompts)
+        const global = globalCapabilities(capabilities)
+        assistants = global.agents
         // Las capacidades del runner (`capabilities/`) van con la fuente global: sus agentes como
         // documentos inline, y lo que `sources.capabilities` no declara, cumplido por ellos.
         return sourceSpec(
           {
             agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS],
             ...(pipelines !== undefined ? { pipelines } : {}),
-            capabilities: { ...BUILTIN_CAPABILITIES, ...capabilities },
+            capabilities: global.capabilities,
           },
           dir,
           `${runnerPath}: sources`,
@@ -480,9 +492,25 @@ export function loadRunnerConfig(path: string): RunnerConfig {
       },
       watch: [runnerPath],
     },
+    assistantAgents: () => assistants,
     projects,
     repos: projects.flatMap((project) => project.repos),
   }
+}
+
+/** Las capacidades de la fuente global: las del runner, pisadas por las de `runner.yaml`, y los
+ *  agentes del asistente que salen de ellas. Una entrada propia de un agente del asistente sin
+ *  `label` conserva el de la del runner. */
+function globalCapabilities(own: Record<string, Record<string, unknown>> | undefined) {
+  const merged: Record<string, Record<string, unknown>> = { ...BUILTIN_CAPABILITIES }
+  for (const [name, node] of Object.entries(own ?? {})) {
+    const builtin = BUILTIN_CAPABILITIES[name]
+    merged[name] =
+      builtin && isAssistantCapability(name)
+        ? { label: builtin.label, description: builtin.description, ...node }
+        : node
+  }
+  return assistantAgents(merged)
 }
 
 function promptsById(entries: RunnerFile['systemPrompts']): Map<string, string> {

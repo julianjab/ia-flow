@@ -1,7 +1,8 @@
 /**
  * Las tools del agente `assistant` (el asistente de la web): leer la bandeja, una tarea, por qué
  * corrió o no algo, la traza, la config, los eventos recientes y el estado del runner, y PROPONER
- * una acción que la persona confirma. Ninguna escribe: `sideEffects: 'none'`.
+ * una acción —o abrir un issue (`assistant_propose_issue`)— que la persona confirma. Ninguna
+ * escribe: `sideEffects: 'none'`.
  *
  * Cada una atiende el pedido que la está usando (`AssistantDesk`, por el `session` del payload de
  * la capacidad), y es ese pedido el que impone el contexto: en el de una tarea, otra ref se
@@ -154,7 +155,33 @@ function tools(desk: AssistantDesk): Action[] {
   ]
 }
 
-export default defineAction({
-  id: 'assistant',
-  create: (ctx) => tools(ctx.services.assistant),
-})
+/** Abrir un issue, aparte de las otras: sólo la tiene el agente que la lista (y el repo lo fija
+ *  su YAML con `with: { repo }`, así el modelo no elige dónde). */
+function proposeIssue(desk: AssistantDesk): Action {
+  return new AssistantTool(
+    'assistant_propose_issue',
+    'Propone abrir un issue en GitHub. NO lo crea: la persona lo confirma con un botón y queda abierto con su usuario de GitHub. Antes, buscá si ya hay uno igual.',
+    z.strictObject({
+      repo: z.string().describe('owner/repo donde se abre'),
+      title: z.string().describe('Corto, en imperativo: qué hay que cambiar'),
+      body: z
+        .string()
+        .describe('Markdown: el problema, la evidencia (tarea, ejecución, traza) y la mejora'),
+      labels: z.array(z.string()).optional().describe('Labels que ya existen en el repo'),
+      reason: z.string().describe('Una frase: por qué conviene abrirlo'),
+    }),
+    desk,
+    (session, input) => session.proposeIssue(input),
+  )
+}
+
+export default [
+  defineAction({
+    id: 'assistant',
+    create: (ctx) => tools(ctx.services.assistant),
+  }),
+  defineAction({
+    id: 'assistant_propose_issue',
+    create: (ctx) => proposeIssue(ctx.services.assistant),
+  }),
+]

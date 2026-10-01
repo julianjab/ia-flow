@@ -3,6 +3,9 @@
  * una tarea, el "¿por qué?", la config, el stream de cambios, las acciones firmadas con el login de
  * GitHub de quien las hace, el device flow para ese login, y el asistente.
  */
+
+import { GithubClient } from '@ia-flow/github-api'
+import { GithubTokenAuth } from '@ia-flow/github-auth'
 import {
   type AssistantConversation,
   type AssistantConversationSummary,
@@ -10,6 +13,9 @@ import {
   AssistantScopeSchema,
   type AssistantStreamEvent,
   type ConfigSummary,
+  type CreateIssueRequest,
+  CreateIssueRequestSchema,
+  type CreateIssueResult,
   DevicePollSchema,
   GithubRefreshRequestSchema,
   type GithubUserToken,
@@ -68,6 +74,45 @@ function parseBody<T>(
   return parsed.data as T
 }
 
+/** GitHub no abrió el issue: el status y el mensaje que dio, para la web. */
+class IssueRejectedError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+async function createIssue(
+  request: CreateIssueRequest,
+  token: string,
+  fetchImpl?: typeof fetch,
+): Promise<{ number: number; html_url: string }> {
+  const client = new GithubClient({
+    auth: new GithubTokenAuth(token),
+    ...(fetchImpl ? { fetchImpl } : {}),
+  })
+  const res = await client.request(`/repos/${request.repo}/issues`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: request.title,
+      body: request.body,
+      ...(request.labels?.length ? { labels: request.labels } : {}),
+    }),
+  })
+  if (!res.ok) {
+    const detail = ((await res.json().catch(() => ({}))) as { message?: string }).message
+    // 404/403: el repo no existe para esa cuenta o no puede abrir issues en él.
+    const status = res.status === 404 || res.status === 403 ? 403 : 502
+    throw new IssueRejectedError(
+      status,
+      `GitHub no abrió el issue en ${request.repo} (${res.status}${detail ? `: ${detail}` : ''})`,
+    )
+  }
+  return (await res.json()) as { number: number; html_url: string }
+}
+
 export function runnerApi(options: RunnerApiOptions): ApiRouter {
   const { inbox, hub } = options
   const router = new ApiRouter({ token: options.token, log: options.log })
@@ -93,6 +138,7 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
       projects: options.projects,
       github_login: { device_flow: options.deviceFlow !== undefined },
       assistant: options.assistant.available,
+      assistant_agents: options.assistant.available ? options.assistant.agents() : [],
     }
   })
 
@@ -125,6 +171,34 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
       if (err instanceof TaskActionError || err instanceof HttpError) {
         return reject(err.status, err.message)
       }
+      throw err
+    }
+  })
+
+  // Un issue que propuso el asistente (`assistant_propose_issue`), con el token de quien lo
+  // confirma: lo abre esa persona, en un repo donde ella puede abrirlo. El runner no pone nada suyo.
+  router.post('/api/issues', async (req, res) => {
+    const reject = (status: number, message: string) => {
+      sendJson(res, status, { ok: false, message } satisfies CreateIssueResult)
+      return undefined
+    }
+    const token = req.header('x-github-token')
+    if (!token) return reject(401, 'Iniciá sesión con GitHub para abrir el issue')
+    try {
+      const request = parseBody(CreateIssueRequestSchema, await req.json())
+      const login = await loginOf(token)
+      const created = await createIssue(request, token, options.fetchImpl)
+      options.log(`${login}: abrió ${request.repo}#${created.number} desde el asistente`)
+      return {
+        ok: true,
+        message: `${request.repo}#${created.number} abierto`,
+        url: created.html_url,
+        number: created.number,
+        github_login: login,
+      } satisfies CreateIssueResult
+    } catch (err) {
+      if (err instanceof HttpError) return reject(err.status, err.message)
+      if (err instanceof IssueRejectedError) return reject(err.status, err.message)
       throw err
     }
   })
