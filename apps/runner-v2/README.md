@@ -43,9 +43,9 @@ scope — lo global en `runner.yaml`, lo de un proyecto en su `project.yaml`.
 engine: { … }                       # CÓMO corre: store de ejecuciones, tick, formatMessage, interrupt
 sources:                            # QUÉ corre: la composición del runner
   pipelines: [ … ]                  # la fuente global: el intake, inline
-  agents: ./agents                  # sus agentes: los que cumplen capacidades
-  capabilities:                     # lo que el engine le pide a un modelo (whenText, fileFocus)
-    whenText: { agent: text-classifier }
+  agents: ./agents                  # agentes globales propios (opcional)
+  capabilities:                     # opcional: pisar una capacidad del runner con un agente propio
+    whenText: { agent: my-classifier }
   actions: ./actions                # actions globales
   projects:
     lahaus-ai-flow: ./projects/lahaus-ai-flow/project.yaml   # o el proyecto inline
@@ -241,14 +241,21 @@ inbox:
   mergeMethod: squash
 ```
 
-**El asistente es un agente más**, enchufado a la capacidad `assistant` de la fuente global
-(`sources.capabilities.assistant: { agent: assistant }`). Su modelo, su prompt y sus tools son
-dato: `.config/agents/assistant.yaml` y `src/actions/builtin/assistant.ts` (las `assistant_*`: bandeja,
+**El asistente es un agente más**, el de la capacidad `assistant`, y viene con el runner
+(`src/capabilities/assistant.yaml`): su prompt describe las tools del runner y lo que pinta la web,
+así que cambia con ellos, en este repo. Sus tools son `src/actions/builtin/assistant.ts` (las `assistant_*`: bandeja,
 tarea, "¿por qué?", traza, config, eventos, estado, y `assistant_propose_action`, que propone y no
 ejecuta). Cada pregunta abre una sesión con su contexto —todo el runner, un proyecto o una tarea—
 que esas tools respetan (`src/assistant/AssistantSession.ts`). La respuesta es la que el agente
 entrega en `submit_done` (`answer`, obligatoria), junto con las tareas de las que habla (`tasks`), que
-la web muestra como cards. Sacar la línea de `sources.capabilities` lo apaga.
+la web muestra como cards. Lee GitHub con `github-mcp-readonly` si el deploy lo declara en su `mcp`;
+si no, corre sin él.
+
+**Las capacidades vienen con el runner** (`src/capabilities/`): `assistant`, `whenText`
+(`text-classifier`), `fileFocus` (`file-focus`) y `branchName` (`branch-namer`), cada una con su
+agente embebido en el runner (y en el bundle). Un deploy no declara nada para tenerlas; para cambiar
+una, la pisa en `sources.capabilities` con un agente propio en `sources.agents` —con otro id: un
+agente propio con el id de uno del runner rompe el arranque—.
 
 **Las conversaciones se guardan por login de GitHub** (`assistant_conversation` y
 `assistant_message`, en la misma base): sólo cuando quien pregunta tiene sesión, cada una de UN

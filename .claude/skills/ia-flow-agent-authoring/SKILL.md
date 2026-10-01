@@ -60,8 +60,10 @@ Hechos que gobiernan todo diseño:
 ## Flujo de trabajo
 
 1. **Ubicá dónde vive.** Proyecto → `projects/<id>/agents/NN-<nombre>.yaml` y
-   `projects/<id>/pipelines/NN-<momento>.yaml` (el `NN-` ordena la lectura). Global (capacidades:
-   `text-classifier`, `branch-namer`, `assistant`) → `agents/` junto a `runner.yaml`. Nada se
+   `projects/<id>/pipelines/NN-<momento>.yaml` (el `NN-` ordena la lectura). Las capacidades
+   (`assistant`, `text-classifier`, `file-focus`, `branch-namer`) vienen con el runner
+   (`apps/runner-v2/src/capabilities/`); un deploy sólo las pisa con un agente propio, de otro id,
+   en `sources.agents` + `sources.capabilities`. Nada se
    descubre por carpeta: `runner.yaml`/`project.yaml` declaran cada directorio.
 2. **Diseñá el disparo** en la pipeline: evento, `when` sobre `item.*`/`task_type`/campos del
    evento, `scope`, `exclusive`/`position`, `ifRunning`. → `references/pipelines.md`

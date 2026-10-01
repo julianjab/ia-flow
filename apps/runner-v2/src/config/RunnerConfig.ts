@@ -30,6 +30,7 @@ import { AcceptRow, HostName } from '@ia-flow/provider-remote'
 import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
+import { BUILTIN_CAPABILITIES, BUILTIN_CAPABILITY_AGENTS } from '../capabilities/index.js'
 import { EngineSection } from '../engine/mountEngine.js'
 import {
   DEFAULT_WORKING_MARKER,
@@ -446,11 +447,13 @@ export function loadRunnerConfig(path: string): RunnerConfig {
     source: {
       spec: () => {
         const { agents, pipelines, capabilities } = parse(runnerPath, RunnerFileSchema).sources
+        // Las capacidades del runner (`capabilities/`) van con la fuente global: sus agentes como
+        // documentos inline, y lo que `sources.capabilities` no declara, cumplido por ellos.
         return sourceSpec(
           {
-            ...(agents !== undefined ? { agents } : {}),
+            agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS],
             ...(pipelines !== undefined ? { pipelines } : {}),
-            ...(capabilities !== undefined ? { capabilities } : {}),
+            capabilities: { ...BUILTIN_CAPABILITIES, ...capabilities },
           },
           dir,
           `${runnerPath}: sources`,
