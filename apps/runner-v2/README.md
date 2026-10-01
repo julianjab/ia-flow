@@ -251,7 +251,23 @@ entrega en `submit_done` (`answer`, obligatoria), junto con las tareas de las qu
 la web muestra como cards. Lee GitHub con `github-mcp-readonly` si el deploy lo declara en su `mcp`;
 si no, corre sin él.
 
-**Las capacidades vienen con el runner** (`src/capabilities/`): `assistant`, `whenText`
+**El asistente puede tener varios agentes**: cada capacidad `assistant.<id>` es otro, con el mismo
+contrato, y la web deja elegir con cuál hablar (`GET /api/runner` → `assistant_agents`; el pedido
+lleva `agent`). Su entrada en `sources.capabilities` lleva además `label` y `description` para el
+selector, que el runner saca antes de dársela al engine. Una conversación es de un contexto y de un
+agente. El runner trae `assistant.runner-improvements` (`src/capabilities/runner-improvements.yaml`):
+lee ejecuciones y trazas buscando fallas del proceso y, con `assistant_propose_issue` (el repo lo
+fija su YAML con `with: { repo: julianjab/ia-flow }`), propone abrir un issue en ia-flow; la persona
+lo confirma en la web y `POST /api/issues` lo abre con SU token de GitHub.
+
+```yaml
+sources:
+  capabilities:
+    assistant.costos: { agent: costos, label: Costos, description: Qué gastó cada agente }
+```
+
+**Las capacidades vienen con el runner** (`src/capabilities/`): `assistant`,
+`assistant.runner-improvements`, `whenText`
 (`text-classifier`), `fileFocus` (`file-focus`) y `branchName` (`branch-namer`), cada una con su
 agente embebido en el runner (y en el bundle). Un deploy no declara nada para tenerlas; para cambiar
 una, la pisa en `sources.capabilities` con un agente propio en `sources.agents` —con otro id: un
