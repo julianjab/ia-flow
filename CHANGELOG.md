@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.0.0](https://github.com/julianjab/ia-flow/compare/v1.12.2...v2.0.0) (2026-10-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* the runner bundle is runner-v2; a v1 runner.yaml does not boot.
+
+### Features
+
+* **rules:** permitir on: tipo.action, sin necesitar when para el action ([93e95b3](https://github.com/julianjab/ia-flow/commit/93e95b3f571c893d0f7c63f0adadd306ffdef72e))
+* runner-v2 replaces the v1 server (v2.0.0) ([#256](https://github.com/julianjab/ia-flow/issues/256)) ([e89faf4](https://github.com/julianjab/ia-flow/commit/e89faf42ea2808b3bf280fc87307ed49a2a9b019))
+* **v2:** add Condition and Rule classes ([529f8c8](https://github.com/julianjab/ia-flow/commit/529f8c8ff0d20d6711aa614494ea6f7cfc1a38ff))
+* **v2:** add DomainEvent and EventBus classes ([229c0d7](https://github.com/julianjab/ia-flow/commit/229c0d74d4922ccf4898172b3c97e741343641e2))
+* **v2:** add EventCatalog to type payloads per DomainEvent type ([bef5617](https://github.com/julianjab/ia-flow/commit/bef561756f7550821737e4d42135fd2f2919e2de))
+* **v2:** add infra/ ports for the remaining I/O boundaries and implement up to them ([71bef71](https://github.com/julianjab/ia-flow/commit/71bef7170de681d2bd9635459e772721840f6167))
+* **v2:** add Provider/Workspace/ExecutionLog/PendingTask, fold checkpoint into AgentRunEntity ([513fbca](https://github.com/julianjab/ia-flow/commit/513fbcafd11bc9eb3d6679130914816cd454d03f))
+* **v2:** add Step/Agent/Action/Engine engine classes ([bbf5c15](https://github.com/julianjab/ia-flow/commit/bbf5c15d738a6b0e144ef404fe72c9d834d73ae9))
+* **v2:** add Task/Project/Repo domain entities ([afb30d3](https://github.com/julianjab/ia-flow/commit/afb30d376b185733044517b14664a5157ca9c65b))
+* **v2:** add Tool catalog, split execution (Provider) from declaration (Agent.tools) ([d5bfc15](https://github.com/julianjab/ia-flow/commit/d5bfc1524d44f5d6e267dde425f8ece06a98e41d))
+* **v2:** complete Task/Project/Repo fields against v1 schemas ([8ce3a09](https://github.com/julianjab/ia-flow/commit/8ce3a09081d4736d9e8ee394bd7d053bf0cf9cce))
+* **v2:** extract Conditional base for the when/whenText pattern ([d0d88e5](https://github.com/julianjab/ia-flow/commit/d0d88e5a4e7b7450d66bd26300a8b64ba2c5c02b))
+* **v2:** implement catalogs, Provider defaults, and the Do layer (AgentAction/RefAction/EmitAction) ([92276f4](https://github.com/julianjab/ia-flow/commit/92276f48a157a50de6f767ab32947733f0054e50))
+* **v2:** implement Pipeline.matches/execute and Engine.register/start/dispatch ([1b5c301](https://github.com/julianjab/ia-flow/commit/1b5c301690183b3fcaed3dcc3fec884cf663b064))
+* **v2:** implement pure-logic methods across Condition/EventBus/Execution/Project/Agent/Tool ([accfd33](https://github.com/julianjab/ia-flow/commit/accfd338859d3b02b42714b0637a7d75f30ac29c))
+* **v2:** model Execution as the in-flight instance of a running Do ([4eed622](https://github.com/julianjab/ia-flow/commit/4eed622808316f98b8b5a4e668e92ecf11c4c525))
+* **v2:** model Rule.do as 5 referenced RuleAction variants ([7922908](https://github.com/julianjab/ia-flow/commit/79229083f7a79b680959300b39f93e483d05b4be))
+* **v2:** thread WorkspacePlan from Agent.execute into verifyWorktree ([7f4d2e4](https://github.com/julianjab/ia-flow/commit/7f4d2e462b0a97bd0c0ef4ef2d44034f314e917a))
+* **v2:** wire ExecutionRegistry into dispatch and chain agent output schema ([67478de](https://github.com/julianjab/ia-flow/commit/67478dea0b44b506b8b2bae1ace56428cbfb5976))
+
+
+### Bug Fixes
+
+* **mcp:** open the daemon MCP connection for terminal agents with disk-only tools ([8caaa58](https://github.com/julianjab/ia-flow/commit/8caaa5874f3e31ef50ea9176a6d7f3e149133d40))
+* **release:** keep the runner state on the volume, and build the release bundle in CI ([#257](https://github.com/julianjab/ia-flow/issues/257)) ([e9bf484](https://github.com/julianjab/ia-flow/commit/e9bf484a58cf57e173a88fc1900a4e7a7db22b12))
+* **rules:** remove duplicate onMatchesEvent export in barrel ([3729a56](https://github.com/julianjab/ia-flow/commit/3729a567220b84ffa9e896fa414bbfebdf101651))
+* **v2:** cap event-derivation depth, apply project rule overrides ([a6b16b2](https://github.com/julianjab/ia-flow/commit/a6b16b25b0a194dd8101e72e95b6ae214c8f478d))
+* **v2:** give DomainEvent a unique id, add derive() for causationId ([d1de451](https://github.com/julianjab/ia-flow/commit/d1de451da8857e26491de287ffa2bd8a590ded60))
+* **v2:** give DomainEvent its own scope field ([53dad60](https://github.com/julianjab/ia-flow/commit/53dad603da1f68069a5c9526395e6e3c7c52e57a))
+* **v2:** run verify before finalize, funnel failures to error exit ([0625d4d](https://github.com/julianjab/ia-flow/commit/0625d4dc97d15a777fb42927a260d6da70f8790c))
+* **v2:** thread the caught error into Agent.finalize ([f211dda](https://github.com/julianjab/ia-flow/commit/f211ddaf5f5e91d2392fa0edb90c036c3fba9ad8))
+* **web:** cap entries del panel de logs live para evitar lag de input ([762f664](https://github.com/julianjab/ia-flow/commit/762f66436781874de371ef316b38e7169d2d673d))
+
 ## [1.12.2](https://github.com/julianjab/ia-flow/compare/v1.12.1...v1.12.2) (2026-09-24)
 
 
