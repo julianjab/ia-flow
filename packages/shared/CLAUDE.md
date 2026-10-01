@@ -4,22 +4,22 @@
 
 ## Contenido
 
-- `src/schemas.ts` — TODOS los Zod schemas que cruzan la red o persisten en DB.
-- `src/types.ts` — Tipos derivados con `z.infer<typeof X>`. Nombres sin sufijo `Schema`.
-- `src/template-variables.ts` — Registry global de variables de template disponibles a los agentes.
+- `src/inbox.ts` — el contrato entre `apps/runner-v2` y `apps/web`: la bandeja, el detalle de una
+  tarea, las acciones, el device flow, el asistente y sus conversaciones, el stream. Cada Zod
+  schema junto a su tipo (`z.infer`, el nombre sin sufijo `Schema`).
 - `src/cache.ts` — decorator `@memoize` (cache genérico por método/instancia). Ver más abajo.
 - `src/index.ts` — Re-export barrel.
 
 ## Rol arquitectónico
 
-Es el **contrato**, no una librería de utilidades. Su única razón de existir: que server y web
+Es el **contrato**, no una librería de utilidades. Su única razón de existir: que el runner y la web
 no puedan discrepar sobre la forma de los datos que cruzan la red.
 
-- Va acá lo que **ambos lados** necesitan: schemas de request/response, tipos derivados,
-  enums/constantes del contrato, y el registry de variables de template.
+- Va acá lo que **ambos lados** necesitan: schemas de request/response, tipos derivados y
+  enums/constantes del contrato.
 - **No** va acá: lógica de negocio, helpers de formato usados por un solo lado, tipos internos
   del runner (viven en `apps/runner-v2/src`), ni nada con I/O.
-- Si dudas: si al borrar `apps/web` el símbolo sigue teniendo sentido para el server **y**
+- Si dudas: si al borrar `apps/web` el símbolo sigue teniendo sentido para el runner **y**
   viceversa, pertenece aquí. Si no, vive en la app.
 - **Excepción deliberada — `cache.ts`:** no es parte del contrato de red, es una utilidad
   transversal (sin estado de dominio, sin I/O, sin dependencia de schemas). Vive acá porque
@@ -57,12 +57,13 @@ class BoardReader {
 ## Reglas
 
 - **No runtime deps** salvo Zod. Nada de axios, fs, path, bun:*, browser APIs. Debe correr en ambos entornos.
-- **Cualquier cambio a schemas** requiere pasar por el subagent `shared-schema-guardian` antes de PR (audita usos en server + web).
+- **Cualquier cambio a schemas** requiere pasar por el subagent `shared-schema-guardian` antes de PR (audita usos en runner + web).
 - **Rompiendo compat:** si cambias un schema existente, busca todos los `.parse()` y ajústalos en la misma pasada.
-- **Tests:** `schemas.test.ts` cubre round-trips y edge cases. Añade caso cuando agregues schema.
+- **Sin código muerto:** un export que ni el runner ni la web importan no va acá. Los tests del
+  contrato viven del lado que lo usa (`runnerApi.test.ts`, los `api.test.ts` de la web).
 
 ## Comando
 
 ```bash
-bun run test           # vitest run
+bun run test           # bun test
 ```
