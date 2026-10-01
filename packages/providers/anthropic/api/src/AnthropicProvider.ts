@@ -59,6 +59,10 @@ export interface AnthropicRunConfig {
   /** Un corte por `max_tokens` reintenta UNA vez con el doble de presupuesto (tope 128000)
    *  antes de reportar `'truncated'`. Default true. */
   bumpMaxTokensOnTruncation?: boolean
+  /** Bloques de system que van ANTES de los del agente: lo que este provider necesita que diga
+   *  todo request, sea cual sea el agente (ej. la identidad que pide la API con un token de Claude
+   *  Code). Puestos en el provider, valen para todos sus agentes; el agente los pisa enteros. */
+  systemPrompts?: string[]
 }
 
 /**
@@ -146,6 +150,8 @@ const RUN_CONFIG_CHECKS: Record<keyof AnthropicRunConfig, (value: unknown) => bo
   taskBudgetTokens: isPositiveInt,
   eagerMcpTools: isBoolean,
   bumpMaxTokensOnTruncation: isBoolean,
+  systemPrompts: (value) =>
+    Array.isArray(value) && value.every((text) => typeof text === 'string' && text.length > 0),
 }
 
 /**
@@ -398,7 +404,7 @@ export class AnthropicProvider implements Provider {
     if (taskBudgetTokens != null) extraBetas.push('task-budgets-2026-03-13')
     if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
 
-    const systemBlocks = buildSystemBlocks(ctx.systemPrompts)
+    const systemBlocks = buildSystemBlocks([...(cfg.systemPrompts ?? []), ...ctx.systemPrompts])
     const toolDefs = ctx.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
