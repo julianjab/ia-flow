@@ -1,4 +1,4 @@
-import { createEvent, Engine, EventBus, ProviderRegistry } from '@ia-flow/agent-engine'
+import { createEvent, Engine, EventBus, isAgent, ProviderRegistry } from '@ia-flow/agent-engine'
 import { pipelineSourceContract } from '@ia-flow/agent-engine/testing'
 import { describe, expect, it } from 'vitest'
 import { DefinitionPipelineSource } from '../DefinitionSource.js'
@@ -98,5 +98,60 @@ describe('DefinitionPipelineSource', () => {
       capabilities: (name) => source.capabilities[name],
     })
     expect((await engine.select(createEvent('build', {}))).map((p) => p.id)).toEqual(['yes'])
+  })
+
+  it('an agent names a system prompt by id: from its source, or from the catalog the app passes', () => {
+    const source = new DefinitionPipelineSource(
+      new MemorySource({
+        id: 's',
+        source: {
+          path: 'mem:source',
+          doc: { systemPrompts: [{ id: 'house', text: 'reglas de la casa' }] },
+        },
+        agents: [
+          {
+            path: 'mem:agents/a',
+            doc: {
+              id: 'a',
+              provider: 'fake',
+              prompt: 'p',
+              systemPrompts: [{ id: 'identity' }, { id: 'house' }, { text: 'lo suyo' }],
+            } as never,
+          },
+        ],
+        pipelines: [pipelineDoc({ id: 'run', on: ['build'], do: [{ agent: 'a' }] })],
+      }),
+      { systemPrompts: { resolve: (id) => (id === 'identity' ? 'soy el runner' : undefined) } },
+    )
+    const [step] = source.list()[0]?.do ?? []
+    if (!step || !isAgent(step)) throw new Error('el paso no es un agente')
+    expect(step.definition.systemPrompts?.map((ref) => ref.text)).toEqual([
+      'reglas de la casa',
+      'soy el runner',
+      'reglas de la casa',
+      'lo suyo',
+    ])
+  })
+
+  it('a system prompt id that exists nowhere breaks the load instead of running without it', () => {
+    const load = () =>
+      new DefinitionPipelineSource(
+        new MemorySource({
+          id: 's',
+          agents: [
+            {
+              path: 'mem:agents/a',
+              doc: {
+                id: 'a',
+                provider: 'fake',
+                prompt: 'p',
+                systemPrompts: [{ id: 'nope' }],
+              } as never,
+            },
+          ],
+          pipelines: [pipelineDoc({ id: 'run', on: ['build'], do: [{ agent: 'a' }] })],
+        }),
+      )
+    expect(load).toThrow(/agente "a": no hay un system prompt "nope"/)
   })
 })
