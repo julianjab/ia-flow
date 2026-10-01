@@ -1,6 +1,7 @@
 /**
  * Las conversaciones del asistente, guardadas a nombre del login de GitHub de quien preguntó: cada
- * una es de UN contexto (todo el runner, un proyecto, una tarea), como en la web. Es el puerto; la
+ * una es de UN contexto (todo el runner, un proyecto, una tarea) y de UN agente del asistente, como
+ * en la web. Es el puerto; la
  * implementación sobre SQLite vive en `storage/`.
  */
 import type {
@@ -22,10 +23,11 @@ export interface StoredConversation extends AssistantConversationSummary {
 }
 
 export interface ConversationStore {
-  /** Una conversación nueva de `login` en `scope`; devuelve su id. */
-  create(login: string, scope: AssistantScope, title: string): string
-  /** Si la conversación existe y es de `login`. */
-  owns(id: string, login: string): boolean
+  /** Una conversación nueva de `login` en `scope`, con `agent` (sin él, el de siempre); devuelve
+   *  su id. */
+  create(login: string, scope: AssistantScope, title: string, agent?: string): string
+  /** Si la conversación existe y es de `login` (y, con `agent`, de ese agente). */
+  owns(id: string, login: string, agent?: string): boolean
   /** Suma mensajes, juntos (un intercambio entero o nada). */
   append(id: string, turns: StoredTurn[]): void
   /** Las de `login`, de la más reciente a la más vieja; con `scope`, sólo las de ese contexto. */
