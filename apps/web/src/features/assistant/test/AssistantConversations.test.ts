@@ -9,7 +9,7 @@ const deleteConversation = vi.fn()
 vi.mock('../api', () => ({
   streamAssistant: async function* () {},
   executeProposal: vi.fn(),
-  fetchProjects: async () => [],
+  fetchRunner: async () => ({ projects: [], agents: [] }),
   fetchTasks: async () => [],
   listConversations: (...a: unknown[]) => listConversations(...a),
   getConversation: (...a: unknown[]) => getConversation(...a),
@@ -24,6 +24,7 @@ const now = new Date()
 const conv = (id: string, title: string, scope: object, updated: Date) => ({
   id,
   scope,
+  agent: 'assistant',
   title,
   created_at: updated.toISOString(),
   updated_at: updated.toISOString(),

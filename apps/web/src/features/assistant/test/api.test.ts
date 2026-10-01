@@ -6,7 +6,7 @@ vi.mock('@/composables/useServerTarget', () => ({
   serverTarget: () => ({ base: 'http://r:1', token: 'ia', url: (p: string) => `http://r:1${p}` }),
 }))
 
-import { executeProposal, fetchProjects, streamAssistant } from '../api'
+import { createIssue, executeProposal, fetchRunner, streamAssistant } from '../api'
 
 const REQUEST = {
   scope: { kind: 'general' as const },
@@ -122,7 +122,7 @@ describe('streamAssistant', () => {
   })
 })
 
-describe('executeProposal / fetchProjects', () => {
+describe('executeProposal / createIssue / fetchRunner', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('ejecuta con el token de GitHub del usuario contra el endpoint de acciones', async () => {
@@ -150,16 +150,40 @@ describe('executeProposal / fetchProjects', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
-  it('fetchProjects lee los proyectos de /api/runner', async () => {
-    vi.spyOn(axios, 'get').mockResolvedValue({
-      data: {
-        service: 'ia-flow-runner',
-        version: '2',
-        projects: [{ id: 'core', board: { owner: 'a', number: 1 } }],
-        github_login: { device_flow: true },
-        assistant: true,
-      },
+  it('abre un issue propuesto con el token de GitHub del usuario', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({
+      status: 200,
+      data: { ok: true, message: 'o/r#3 abierto', url: 'https://github.com/o/r/issues/3' },
     })
-    expect(await fetchProjects()).toEqual([{ id: 'core', board: { owner: 'a', number: 1 } }])
+    const result = await createIssue({ repo: 'o/r', title: 'T', body: 'B', labels: ['x'] }, 'gho_1')
+    expect(result).toMatchObject({ ok: true, url: 'https://github.com/o/r/issues/3' })
+    const [url, body, config] = post.mock.calls[0] as unknown as [
+      string,
+      unknown,
+      { headers: Record<string, string> },
+    ]
+    expect(url).toBe('/api/issues')
+    expect(body).toEqual({ repo: 'o/r', title: 'T', body: 'B', labels: ['x'] })
+    expect(config.headers['x-github-token']).toBe('gho_1')
+  })
+
+  it('fetchRunner lee los proyectos y los agentes del asistente de /api/runner', async () => {
+    const info = {
+      service: 'ia-flow-runner',
+      version: '2',
+      projects: [{ id: 'core', board: { owner: 'a', number: 1 } }],
+      github_login: { device_flow: true },
+      assistant: true,
+    }
+    const get = vi.spyOn(axios, 'get').mockResolvedValue({
+      data: { ...info, assistant_agents: [{ id: 'assistant', label: 'Operación' }] },
+    })
+    expect(await fetchRunner()).toEqual({
+      projects: [{ id: 'core', board: { owner: 'a', number: 1 } }],
+      agents: [{ id: 'assistant', label: 'Operación' }],
+    })
+    // Un runner de antes de los agentes no los manda: no hay qué elegir.
+    get.mockResolvedValue({ data: info })
+    expect((await fetchRunner()).agents).toEqual([])
   })
 })

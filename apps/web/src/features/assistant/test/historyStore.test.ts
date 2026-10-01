@@ -9,7 +9,7 @@ const deleteConversation = vi.fn()
 vi.mock('../api', () => ({
   streamAssistant: async function* () {},
   executeProposal: vi.fn(),
-  fetchProjects: async () => [],
+  fetchRunner: async () => ({ projects: [], agents: [] }),
   listConversations: (...a: unknown[]) => listConversations(...a),
   getConversation: (...a: unknown[]) => getConversation(...a),
   deleteConversation: (...a: unknown[]) => deleteConversation(...a),
@@ -22,6 +22,7 @@ import { useAssistantChatStore } from '../store'
 const conversation: AssistantConversation = {
   id: 'c1',
   scope: { kind: 'general' },
+  agent: 'assistant',
   title: '¿está sano?',
   created_at: '2026-09-30T10:00:00Z',
   updated_at: '2026-09-30T10:00:00Z',

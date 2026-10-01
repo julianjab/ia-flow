@@ -8,7 +8,8 @@ const requests: AssistantRequest[] = []
 const streamOpts: Array<{ githubToken?: string }> = []
 
 const executeProposal = vi.fn()
-const fetchProjects = vi.fn()
+const createIssue = vi.fn()
+const fetchRunner = vi.fn()
 
 vi.mock('../api', () => ({
   streamAssistant: (
@@ -20,7 +21,8 @@ vi.mock('../api', () => ({
     return script(req, opts.signal)
   },
   executeProposal: (...a: unknown[]) => executeProposal(...a),
-  fetchProjects: () => fetchProjects(),
+  createIssue: (...a: unknown[]) => createIssue(...a),
+  fetchRunner: () => fetchRunner(),
   fetchTasks: async () => [{ ref: 'acme/api#7', title: 'Algo', group: 'need', kind: 'merge' }],
 }))
 
@@ -49,7 +51,8 @@ describe('useAssistantChatStore', () => {
     streamOpts.length = 0
     script = say('respuesta')
     executeProposal.mockReset()
-    fetchProjects.mockReset().mockResolvedValue([])
+    createIssue.mockReset()
+    fetchRunner.mockReset().mockResolvedValue({ projects: [], agents: [] })
   })
 
   it('el texto llega en deltas y queda en un turno del asistente', async () => {
@@ -165,6 +168,7 @@ describe('useAssistantChatStore', () => {
       chat.resume({
         id: 'c9',
         scope: { kind: 'task', ref: 'acme/api#7' },
+        agent: 'assistant',
         title: '¿qué hago?',
         created_at: '2026-09-30T10:00:00Z',
         updated_at: '2026-09-30T10:01:00Z',
@@ -330,17 +334,23 @@ describe('useAssistantChatStore', () => {
   })
 
   it('con un solo proyecto arranca en él; con varios, en general — y trae las tareas para el #', async () => {
-    fetchProjects.mockResolvedValue([{ id: 'core', board: { owner: 'a', number: 1 } }])
+    fetchRunner.mockResolvedValue({
+      projects: [{ id: 'core', board: { owner: 'a', number: 1 } }],
+      agents: [],
+    })
     const one = useAssistantChatStore()
     await one.loadProjects()
     expect(one.scope).toEqual({ kind: 'project', project_id: 'core' })
     expect(one.tasks.map((t) => t.ref)).toEqual(['acme/api#7'])
 
     setActivePinia(createPinia())
-    fetchProjects.mockResolvedValue([
-      { id: 'core', board: { owner: 'a', number: 1 } },
-      { id: 'web', board: { owner: 'b', number: 2 } },
-    ])
+    fetchRunner.mockResolvedValue({
+      projects: [
+        { id: 'core', board: { owner: 'a', number: 1 } },
+        { id: 'web', board: { owner: 'b', number: 2 } },
+      ],
+      agents: [],
+    })
     const many = useAssistantChatStore()
     await many.loadProjects()
     expect(many.scope).toEqual({ kind: 'general' })
@@ -352,6 +362,77 @@ describe('useAssistantChatStore', () => {
     chat.setScope({ kind: 'task', ref: 'a/b#1' })
     expect(chat.suggestions).not.toEqual(general)
     expect(chat.suggestions[0]).toBe('¿Qué pasó con esta tarea?')
+  })
+
+  it('con otro agente, la pregunta lo nombra y es otra conversación; volver trae la anterior', async () => {
+    fetchRunner.mockResolvedValue({
+      projects: [],
+      agents: [
+        { id: 'assistant', label: 'Operación' },
+        { id: 'assistant.runner-improvements', label: 'Mejoras del runner' },
+      ],
+    })
+    const chat = useAssistantChatStore()
+    await chat.loadProjects()
+    await chat.send('hola')
+    expect(requests.at(-1)).not.toHaveProperty('agent')
+
+    chat.setAgent('assistant.runner-improvements')
+    expect(chat.turns).toHaveLength(0)
+    expect(chat.suggestions[0]).toBe('¿Qué falló en el proceso y cómo se evita?')
+    await chat.send('¿qué mejorarías?')
+    expect(requests.at(-1)).toMatchObject({ agent: 'assistant.runner-improvements' })
+
+    chat.setAgent('assistant')
+    expect(chat.turns.map((t) => (t.kind === 'user' ? t.text : t.kind))).toEqual([
+      'hola',
+      'assistant',
+    ])
+  })
+
+  it('un agente que el runner ya no ofrece vuelve al de siempre', async () => {
+    const chat = useAssistantChatStore()
+    chat.setAgent('assistant.runner-improvements')
+    await chat.loadProjects()
+    expect(chat.agent).toBe('assistant')
+  })
+
+  it('una propuesta de issue lo abre con el token del usuario y la nota lleva su link', async () => {
+    const issue: AssistantProposal = {
+      id: 'i1',
+      kind: 'issue',
+      repo: 'julianjab/ia-flow',
+      title: 'Cortar el loop',
+      body: 'cuerpo',
+      label: 'Abrir un issue en julianjab/ia-flow',
+      reason: 'se repite',
+    }
+    script = async function* () {
+      yield { type: 'proposal', proposal: issue }
+      yield { type: 'done', text: 'Te propuse un issue.' }
+    }
+    createIssue.mockResolvedValue({
+      ok: true,
+      message: 'julianjab/ia-flow#77 abierto',
+      url: 'https://github.com/julianjab/ia-flow/issues/77',
+    })
+    const chat = useAssistantChatStore()
+    await chat.send('¿qué mejorarías?')
+    const id = chat.turns.find((t) => t.kind === 'proposal')?.id as number
+
+    await chat.runProposal(id, 'gho_1')
+    expect(createIssue).toHaveBeenCalledWith(issue, 'gho_1')
+    expect(executeProposal).not.toHaveBeenCalled()
+    expect(chat.turns.find((t) => t.id === id)).toMatchObject({
+      status: 'done',
+      url: 'https://github.com/julianjab/ia-flow/issues/77',
+    })
+
+    script = say('ok')
+    await chat.send('gracias')
+    expect(requests.at(-1)?.messages.at(-1)?.content).toBe(
+      '[Nota: el usuario ejecutó "Abrir un issue en julianjab/ia-flow" sobre "Cortar el loop" → https://github.com/julianjab/ia-flow/issues/77]\ngracias',
+    )
   })
 })
 
