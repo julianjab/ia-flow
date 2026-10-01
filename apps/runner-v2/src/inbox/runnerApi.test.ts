@@ -14,6 +14,7 @@ import assistantActions from '../actions/builtin/assistant.js'
 import type { ActionContext } from '../actions/defineAction.js'
 import { Assistant } from '../assistant/Assistant.js'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
+import { type DeviceFlow, RefreshRejectedError } from '../github/deviceFlow.js'
 import { createWebhookServer } from '../http/server.js'
 import { SseHub } from '../http/sse.js'
 import { SqliteConversationStore } from '../storage/SqliteConversationStore.js'
@@ -126,7 +127,12 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.close()
 })
 
-async function start(token: string | null = TOKEN, push = true, mergeableState = 'clean') {
+async function start(
+  token: string | null = TOKEN,
+  push = true,
+  mergeableState = 'clean',
+  deviceFlow?: DeviceFlow,
+) {
   const github = fakeGithub(push, mergeableState)
   const hub = new SseHub<RunnerStreamEvent>()
   const conversations = new SqliteConversationStore(new Database(':memory:'))
@@ -155,6 +161,7 @@ async function start(token: string | null = TOKEN, push = true, mergeableState =
     }),
     assistant: assistantFor(inbox, conversations),
     conversations,
+    ...(deviceFlow ? { deviceFlow } : {}),
     ingress: new IngressService({
       log: { ingressEvents: () => [], ingressCount: () => ({ count: 0 }) },
       retentionDays: 14,
@@ -543,5 +550,30 @@ describe('runner API', () => {
   it('without github.clientId there is no device flow', async () => {
     const { call } = await start()
     expect((await call('/api/auth/github/device', { method: 'POST' })).status).toBe(501)
+    const refresh = { method: 'POST', body: JSON.stringify({ refresh_token: 'ghr_x' }) }
+    expect((await call('/api/auth/github/refresh', refresh)).status).toBe(501)
+  })
+
+  it('refresh renews the token, and a refresh token GitHub rejects is a 401', async () => {
+    const renewing = { refresh: async () => ({ access_token: 'ghu_new', login: 'julian' }) }
+    const rejecting = {
+      refresh: async () => {
+        throw new RefreshRejectedError('GitHub no renovó el token: expired')
+      },
+    }
+    const refresh = { method: 'POST', body: JSON.stringify({ refresh_token: 'ghr_x' }) }
+
+    const ok = await (await start(TOKEN, true, 'clean', renewing as never)).call(
+      '/api/auth/github/refresh',
+      refresh,
+    )
+    expect(await ok.json()).toEqual({ access_token: 'ghu_new', login: 'julian' })
+
+    const no = await (await start(TOKEN, true, 'clean', rejecting as never)).call(
+      '/api/auth/github/refresh',
+      refresh,
+    )
+    expect(no.status).toBe(401)
+    expect(await no.json()).toEqual({ error: 'GitHub no renovó el token: expired' })
   })
 })
