@@ -215,7 +215,24 @@ describe('CapabilityTextClassifier', () => {
     })
     await classifier.classify({ whenText: { text: 'x' }, subject: { body: 'a'.repeat(20_000) } })
     expect(event.length).toBeLessThan(13_000)
-    expect(event).toMatch(/…\(recortado\)$/)
+    expect(event).toContain('…(recortado)')
+  })
+
+  it('cuts each long text, not the tail: a comment body behind a huge description survives', async () => {
+    let event = ''
+    const classifier = classifierWith((ctx) => {
+      event = String((ctx.event.payload as { event: string }).event)
+      return { matches: false, reason: '' }
+    })
+    await classifier.classify({
+      whenText: { text: 'x' },
+      subject: {
+        task: { description: 'd'.repeat(30_000), comments: 'c'.repeat(30_000) },
+        body: 'Por qué no hiciste lo que te indiqué',
+      },
+    })
+    expect(event.length).toBeLessThan(13_000)
+    expect(event).toContain('Por qué no hiciste lo que te indiqué')
   })
 
   it('without anyone, with an error or with an answer off-contract, it cannot decide', async () => {
