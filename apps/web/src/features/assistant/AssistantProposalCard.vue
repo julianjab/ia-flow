@@ -1,17 +1,24 @@
 <script setup lang="ts">
-import type { AssistantProposal } from '@ia-flow/shared';
+import { type AssistantProposal, isIssueProposal } from '@ia-flow/shared';
+import { computed } from 'vue';
 import { useGithubSessionStore } from '@/stores/githubSession';
 
-// Una acción que el asistente PROPONE. No se ejecuta sola: el usuario la
-// confirma con un botón y queda firmada con su login de GitHub. Sin login no
-// sale ninguna request — se pide el login y la propuesta queda como estaba.
+// Una acción que el asistente PROPONE —sobre una tarea, o abrir un issue—. No se
+// ejecuta sola: el usuario la confirma con un botón y queda firmada con su login
+// de GitHub. Sin login no sale ninguna request — se pide el login y la propuesta
+// queda como estaba.
 
-defineProps<{
+const props = defineProps<{
   proposal: AssistantProposal;
   status: 'open' | 'running' | 'done' | 'dismissed' | 'past';
   message?: string;
+  /** Lo que se creó (el issue abierto). */
+  url?: string;
   error?: string;
 }>();
+
+const issue = computed(() => (isIssueProposal(props.proposal) ? props.proposal : null));
+const task = computed(() => (isIssueProposal(props.proposal) ? null : props.proposal));
 
 const emit = defineEmits<{ (e: 'run'): void; (e: 'dismiss'): void; (e: 'open', ref: string): void }>();
 
@@ -20,17 +27,29 @@ const session = useGithubSessionStore();
 
 <template>
   <div class="pc" :data-status="status">
-    <p class="uc-label pc__kind">acción propuesta</p>
-    <p class="pc__what">
-      <strong>{{ proposal.label }}</strong>
+    <p class="uc-label pc__kind">{{ issue ? 'issue propuesto' : 'acción propuesta' }}</p>
+    <p v-if="task" class="pc__what">
+      <strong>{{ task.label }}</strong>
       <!-- La tarea de la propuesta no se repite como card: su ref la abre en la bandeja. -->
-      <button type="button" class="pc__ref mono" :data-test="`open-${proposal.ref}`" @click="emit('open', proposal.ref)">
-        {{ proposal.ref }} →
+      <button type="button" class="pc__ref mono" :data-test="`open-${task.ref}`" @click="emit('open', task.ref)">
+        {{ task.ref }} →
       </button>
     </p>
+    <template v-else-if="issue">
+      <p class="pc__what">
+        <strong data-test="issue-title">{{ issue.title }}</strong>
+        <span class="pc__repo mono">{{ issue.repo }}</span>
+      </p>
+      <p v-if="issue.labels?.length" class="pc__labels mono">{{ issue.labels.join(' · ') }}</p>
+    </template>
     <!-- Lo dijo el modelo: `--fg-mute`, nunca un color de estado (R16). -->
     <p class="pc__why"><span class="pc__ai" aria-hidden="true">✦</span> {{ proposal.reason }}</p>
-    <blockquote v-if="proposal.comment" class="pc__comment">{{ proposal.comment }}</blockquote>
+    <blockquote v-if="task?.comment" class="pc__comment">{{ task.comment }}</blockquote>
+    <!-- El cuerpo del issue, tal como se va a abrir: plegado, para leerlo antes de confirmar. -->
+    <details v-if="issue" class="pc__body">
+      <summary>Ver el cuerpo</summary>
+      <blockquote class="pc__comment" data-test="issue-body">{{ issue.body }}</blockquote>
+    </details>
 
     <div v-if="status === 'open' || status === 'running'" class="pc__row">
       <button
@@ -41,7 +60,8 @@ const session = useGithubSessionStore();
         :disabled="status === 'running'"
         @click="emit('run')"
       >
-        {{ status === 'running' ? 'Ejecutando…' : 'Ejecutar' }}
+        <template v-if="issue">{{ status === 'running' ? 'Abriendo…' : 'Abrir issue' }}</template>
+        <template v-else>{{ status === 'running' ? 'Ejecutando…' : 'Ejecutar' }}</template>
       </button>
       <button v-else type="button" class="btn btn--primary" data-test="login" @click="session.requestLogin()">
         Iniciar sesión con GitHub
@@ -54,7 +74,10 @@ const session = useGithubSessionStore();
       → Para ejecutarla tenés que iniciar sesión: queda firmada con tu usuario de GitHub.
     </p>
 
-    <p v-if="status === 'done'" class="pc__done" role="status">✓ Ejecutada<template v-if="message"> · {{ message }}</template></p>
+    <p v-if="status === 'done' && issue" class="pc__done" role="status">
+      ✓ Abierto<template v-if="url"> · <a class="pc__link" :href="url" target="_blank" rel="noopener">{{ message ?? url }}</a></template>
+    </p>
+    <p v-else-if="status === 'done'" class="pc__done" role="status">✓ Ejecutada<template v-if="message"> · {{ message }}</template></p>
     <p v-else-if="status === 'dismissed'" class="pc__dim">Descartada.</p>
     <!-- De una conversación retomada: la tarea pudo cambiar desde entonces. Se actúa desde la bandeja. -->
     <p v-else-if="status === 'past'" class="pc__dim">De una conversación anterior: si todavía aplica, hacelo desde la bandeja.</p>
@@ -72,6 +95,10 @@ const session = useGithubSessionStore();
 /* Link de texto en la línea: el blanco táctil lo da el alto (R1), no una caja. */
 .pc__ref { min-height: var(--tap-h); padding: 0; border: 0; background: none; color: var(--info); font-size: var(--fs-body-sm); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .pc__ref:hover { text-decoration: underline; }
+.pc__repo { color: var(--fg-dim); font-size: var(--fs-micro); }
+.pc__labels { color: var(--fg-dim); font-size: var(--fs-micro); }
+.pc__body summary { display: list-item; line-height: var(--tap-h); color: var(--info); font-size: var(--fs-body-sm); cursor: pointer; }
+.pc__link { color: var(--accent); }
 .pc__why { color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.45; }
 .pc__ai { color: var(--ai); }
 .pc__comment { margin: 0; padding: 0.4rem 0.6rem; border-left: 2px solid var(--ai); background: var(--panel); color: var(--fg-mute); font-size: var(--fs-body-sm); white-space: pre-wrap; overflow-wrap: anywhere; }

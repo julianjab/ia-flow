@@ -1,4 +1,5 @@
 import {
+  type AssistantAgent,
   type AssistantConversation,
   AssistantConversationSchema,
   type AssistantConversationSummary,
@@ -7,6 +8,9 @@ import {
   type AssistantRequest,
   type AssistantScope,
   type AssistantStreamEvent,
+  type AssistantTaskProposal,
+  type CreateIssueResult,
+  CreateIssueResultSchema,
   type InboxItem,
   type InboxProject,
   InboxSchema,
@@ -95,7 +99,6 @@ function errorText(status: number, body: string): string {
   return `El runner respondió ${status}${body ? `: ${body.slice(0, 200)}` : ''}`
 }
 
-/** Los proyectos del runner, para los chips de contexto. Se pide acá y no a la bandeja: la feature no depende de otra. */
 /** Las tareas de la bandeja, para elegir de qué hablar (`#`). Se pide acá y no a la bandeja: la
  *  feature no depende de otra. */
 export async function fetchTasks(): Promise<InboxItem[]> {
@@ -103,9 +106,15 @@ export async function fetchTasks(): Promise<InboxItem[]> {
   return InboxSchema.parse(data).items
 }
 
-export async function fetchProjects(): Promise<InboxProject[]> {
+/** Los proyectos del runner (para los chips de contexto) y los agentes del asistente (para elegir
+ *  con quién hablar). Se pide acá y no a la bandeja: la feature no depende de otra. */
+export async function fetchRunner(): Promise<{
+  projects: InboxProject[]
+  agents: AssistantAgent[]
+}> {
   const { data } = await axios.get<unknown>('/api/runner')
-  return RunnerInfoSchema.parse(data).projects
+  const info = RunnerInfoSchema.parse(data)
+  return { projects: info.projects, agents: info.assistant_agents }
 }
 
 const REF_RE = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/
@@ -116,7 +125,7 @@ const REF_RE = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/
  * features y no se importan entre sí, así que cada una trae su llamada.
  */
 export async function executeProposal(
-  proposal: Pick<AssistantProposal, 'ref' | 'action' | 'comment'>,
+  proposal: Pick<AssistantTaskProposal, 'ref' | 'action' | 'comment'>,
   githubToken: string,
 ): Promise<TaskActionResult> {
   const m = REF_RE.exec(proposal.ref)
@@ -128,6 +137,29 @@ export async function executeProposal(
     { headers: { 'x-github-token': githubToken }, validateStatus: (s) => s < 500 },
   )
   const parsed = TaskActionResultSchema.safeParse(res.data)
+  if (parsed.success) return parsed.data
+  throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
+}
+
+/** Abre un issue que propuso el asistente, con el token de GitHub del USUARIO: queda a su nombre. */
+export async function createIssue(
+  proposal: Pick<
+    Extract<AssistantProposal, { kind: 'issue' }>,
+    'repo' | 'title' | 'body' | 'labels'
+  >,
+  githubToken: string,
+): Promise<CreateIssueResult> {
+  const res = await axios.post<unknown>(
+    '/api/issues',
+    {
+      repo: proposal.repo,
+      title: proposal.title,
+      body: proposal.body,
+      ...(proposal.labels?.length ? { labels: proposal.labels } : {}),
+    },
+    { headers: { 'x-github-token': githubToken }, validateStatus: (s) => s < 500 },
+  )
+  const parsed = CreateIssueResultSchema.safeParse(res.data)
   if (parsed.success) return parsed.data
   throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
 }

@@ -34,10 +34,10 @@ watch(
 
 onMounted(() => void chat.loadProjects());
 
-// Un contexto que se abre vacío retoma su última conversación guardada.
+// Un contexto que se abre vacío retoma su última conversación guardada (con ese agente).
 const history = useAssistantHistoryStore();
 watch(
-  () => [chat.scope, session.github] as const,
+  () => [chat.scope, chat.agent, session.github] as const,
   () => void history.resumeLatest(),
   { immediate: true },
 );
@@ -95,6 +95,7 @@ async function run(id: number) {
           :proposal="turn.proposal"
           :status="turn.status"
           :message="turn.message"
+          :url="turn.url"
           :error="turn.error"
           @run="run(turn.id)"
           @dismiss="chat.dismissProposal(turn.id)"

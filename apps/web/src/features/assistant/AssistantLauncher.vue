@@ -37,6 +37,11 @@ const title = computed(() => {
   return first?.kind === 'user' ? first.text : 'Nueva conversación';
 });
 
+/** El agente con el que se habla, si el runner ofrece más de uno. */
+const agentLabel = computed(() =>
+  chat.agents.length > 1 ? chat.agents.find((a) => a.id === chat.agent)?.label : undefined,
+);
+
 function toggle() {
   if (ui.isOpen) ui.close();
   else ui.open();
@@ -91,7 +96,7 @@ onUnmounted(() => setLock(false));
           <span class="cw__ai" aria-hidden="true">✦</span>
           <span class="cw__heading">
             <span class="cw__title" data-test="title">{{ title }}</span>
-            <span class="cw__sub">{{ scopeSentence(chat.scope) }} · propone, vos confirmás</span>
+            <span class="cw__sub"><template v-if="agentLabel">{{ agentLabel }} · </template>{{ scopeSentence(chat.scope) }} · propone, vos confirmás</span>
           </span>
           <button type="button" class="cw__close" aria-label="Cerrar el asistente" @click="ui.close()">✕</button>
         </header>

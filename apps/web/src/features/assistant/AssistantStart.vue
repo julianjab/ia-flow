@@ -5,9 +5,10 @@ import { KIND_LABEL } from '@/components/taskLabels';
 import ScopeTag from '@/features/assistant/ScopeTag.vue';
 import { sameScope, useAssistantChatStore } from '@/features/assistant/store';
 
-// Una conversación nueva: ¿de qué querés hablar? Todo el runner, un proyecto, o
-// una de las tareas que te necesitan — o escribí `#` / `@` en la caja. Abajo, las
-// preguntas típicas del contexto elegido, que la mandan de una.
+// Una conversación nueva: ¿con quién y de qué querés hablar? Si el runner ofrece
+// más de un agente del asistente, primero se elige con cuál. Después, todo el
+// runner, un proyecto, o una de las tareas que te necesitan — o escribí `#` / `@`
+// en la caja. Abajo, las preguntas típicas, que la mandan de una.
 
 const chat = useAssistantChatStore();
 
@@ -33,7 +34,25 @@ const options = computed<Array<{ scope: AssistantScope; title: string; hint: str
 
 <template>
   <div class="st">
-    <h2 class="st__hd">¿De qué querés hablar?</h2>
+    <template v-if="chat.agents.length > 1">
+      <h2 class="st__hd">¿Con quién?</h2>
+      <div class="st__pick" role="group" aria-label="Agente del asistente">
+        <button
+          v-for="a in chat.agents"
+          :key="a.id"
+          type="button"
+          class="st__opt"
+          :data-test="`agent-${a.id}`"
+          :aria-pressed="a.id === chat.agent"
+          @click="chat.setAgent(a.id)"
+        >
+          <span class="st__title">{{ a.label }}</span>
+          <span v-if="a.description" class="st__hint">{{ a.description }}</span>
+        </button>
+      </div>
+    </template>
+
+    <h2 class="st__hd" :class="{ 'st__hd--next': chat.agents.length > 1 }">¿De qué querés hablar?</h2>
     <p class="st__sub">O escribí en la caja: <span class="mono">#</span> una tarea, <span class="mono">@</span> un proyecto.</p>
     <div class="st__pick" role="group" aria-label="Contexto de la conversación">
       <button
@@ -50,8 +69,8 @@ const options = computed<Array<{ scope: AssistantScope; title: string; hint: str
       </button>
     </div>
 
-    <p class="uc-label st__lbl">para empezar</p>
-    <div class="st__ask">
+    <p v-if="chat.suggestions.length" class="uc-label st__lbl">para empezar</p>
+    <div v-if="chat.suggestions.length" class="st__ask">
       <button v-for="s in chat.suggestions" :key="s" type="button" class="st__q" @click="chat.send(s)">{{ s }}</button>
     </div>
   </div>
@@ -60,6 +79,7 @@ const options = computed<Array<{ scope: AssistantScope; title: string; hint: str
 <style scoped>
 .st { display: flex; flex-direction: column; gap: 0.6rem; margin: auto 0; padding: 1rem 0.9rem; }
 .st__hd { margin: 0; font-family: var(--font-body); font-size: var(--fs-body); font-weight: 600; text-align: center; text-transform: none; letter-spacing: 0; }
+.st__hd--next { margin-top: 0.6rem; }
 .st__sub { margin: 0 0 0.4rem; color: var(--fg-dim); font-size: var(--fs-body-sm); text-align: center; }
 .st__pick { display: grid; grid-template-columns: 1fr; gap: 0.45rem; }
 .st__opt {

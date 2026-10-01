@@ -60,15 +60,19 @@ export const useAssistantHistoryStore = defineStore('assistant-history', () => {
     }
   }
 
-  /** Un contexto que se abre vacío retoma su última conversación guardada (con login): lo que se
-   *  preguntó sobre esta tarea no se pierde al recargar o al volver a ella. */
+  /** Un contexto que se abre vacío retoma su última conversación guardada con el agente elegido
+   *  (con login): lo que se preguntó sobre esta tarea no se pierde al recargar o al volver a ella. */
   async function resumeLatest(): Promise<void> {
     if (!session.github || chat.turns.length || chat.streaming) return
     const scope = chat.scope
+    const agent = chat.agent
     try {
-      const [latest] = (await session.withToken((token) => listConversations(scope, token))) ?? []
-      // Mientras tanto se pudo cambiar de contexto o empezar a escribir: no se pisa nada.
-      if (latest && !chat.turns.length && chat.scope === scope) await open(latest.id)
+      const saved = (await session.withToken((token) => listConversations(scope, token))) ?? []
+      const latest = saved.find((conversation) => conversation.agent === agent)
+      // Mientras tanto se pudo cambiar de contexto o de agente, o empezar a escribir: no se pisa nada.
+      if (latest && !chat.turns.length && chat.scope === scope && chat.agent === agent) {
+        await open(latest.id)
+      }
     } catch {
       // Sin historial a mano, el chat arranca vacío como siempre.
     }

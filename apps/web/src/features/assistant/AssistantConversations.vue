@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AssistantConversationSummary } from '@ia-flow/shared';
+import { type AssistantConversationSummary, DEFAULT_ASSISTANT_AGENT } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
 import { scopeLabel } from '@/features/assistant/scope';
@@ -40,6 +40,12 @@ function time(iso: string): string {
   return groupOf(iso) === 'Hoy'
     ? d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString('es', { day: 'numeric', month: 'short' });
+}
+
+/** El agente de una conversación, si no es el de siempre: por su nombre en este runner. */
+function agentOf(c: AssistantConversationSummary): string | null {
+  if (c.agent === DEFAULT_ASSISTANT_AGENT) return null;
+  return chat.agents.find((a) => a.id === c.agent)?.label ?? c.agent;
 }
 
 const groups = computed(() => {
@@ -86,7 +92,7 @@ async function pick(id: string) {
           <div v-for="c in g.items" :key="c.id" class="cl__item" :aria-current="c.id === chat.conversationId">
             <button type="button" class="cl__row" :data-test="`conv-${c.id}`" @click="pick(c.id)">
               <span class="cl__title">{{ c.title }}</span>
-              <span class="cl__meta"><ScopeTag :scope="c.scope" /><span class="cl__time mono">{{ time(c.updated_at) }}</span></span>
+              <span class="cl__meta"><ScopeTag :scope="c.scope" /><span v-if="agentOf(c)" class="cl__agent" data-test="agent">{{ agentOf(c) }}</span><span class="cl__time mono">{{ time(c.updated_at) }}</span></span>
             </button>
             <!-- Borrar: sólo la abierta, y confirmando en la misma fila. -->
             <p v-if="c.id === chat.conversationId && confirming === c.id" class="cl__confirm">
@@ -146,6 +152,7 @@ async function pick(id: string) {
 .cl__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .cl__title { display: -webkit-box; overflow: hidden; color: var(--fg); font-size: var(--fs-body-sm); line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .cl__meta { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.cl__agent { min-width: 0; overflow: hidden; color: var(--fg-dim); font-size: var(--fs-micro); text-overflow: ellipsis; white-space: nowrap; }
 .cl__time { flex: none; margin-left: auto; color: var(--fg-dim); font-size: var(--fs-micro); }
 .cl__del { min-height: var(--tap-h-sm); margin: 0 0 0.3rem 0.75rem; padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: var(--fs-chrome); cursor: pointer; }
 .cl__del:hover { color: var(--danger); text-decoration: underline; }
