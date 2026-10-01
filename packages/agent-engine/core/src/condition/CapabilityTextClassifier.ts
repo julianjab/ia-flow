@@ -61,7 +61,26 @@ export class CapabilityTextClassifier implements TextClassifier {
   }
 }
 
+/** Topes por string, de mayor a menor: se baja hasta que el evento entra en `MAX_EVENT_CHARS`. */
+const STRING_CAPS = [4_000, 1_500, 600, 250, 100]
+
+/**
+ * El evento en JSON, recortado POR CAMPO: un corte desde el principio se llevaba lo que viene al
+ * final (el `body` del comentario, detrás de la descripción y el timeline del issue). Así toda la
+ * estructura sobrevive y sólo se acortan los textos largos.
+ */
 function eventJson(subject: Record<string, unknown>): string {
-  const json = JSON.stringify(subject, null, 2)
+  let json = JSON.stringify(subject, null, 2)
+  for (const cap of STRING_CAPS) {
+    if (json.length <= MAX_EVENT_CHARS) return json
+    json = JSON.stringify(
+      subject,
+      (_key, value) =>
+        typeof value === 'string' && value.length > cap
+          ? `${value.slice(0, cap)}…(recortado)`
+          : value,
+      2,
+    )
+  }
   return json.length > MAX_EVENT_CHARS ? `${json.slice(0, MAX_EVENT_CHARS)}\n…(recortado)` : json
 }
