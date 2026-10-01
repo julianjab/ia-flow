@@ -265,15 +265,16 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     abort = controller
 
     try {
-      const github = session.github
+      // Renovado si está por vencer: con un token vencido el runner contesta igual, pero no guarda.
+      const githubToken = await session.token()
       const events = streamAssistant(
         {
           scope: scope.value,
           messages: messages(),
           // Sin login no se guarda: una conversación guardada no se sigue sin su dueño.
-          ...(conversationId.value && github ? { conversation_id: conversationId.value } : {}),
+          ...(conversationId.value && githubToken ? { conversation_id: conversationId.value } : {}),
         },
-        { signal: controller.signal, ...(github ? { githubToken: github.token } : {}) },
+        { signal: controller.signal, ...(githubToken ? { githubToken } : {}) },
       )
       for await (const event of events) applyEvent(event, reply, gen)
     } finally {

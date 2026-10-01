@@ -53,7 +53,10 @@ async function start() {
       poll: pollDeviceFlow,
       signal: mine.signal,
     });
-    if (outcome.status === 'ok') await session.setGithub({ token: outcome.token, login: outcome.login });
+    if (outcome.status === 'ok') {
+      const { status: _, token, ...rest } = outcome;
+      await session.signIn({ ...rest, access_token: token });
+    }
     else if (outcome.status !== 'cancelled') fail(outcome);
   } catch (err) {
     if (mine.signal.aborted) return;

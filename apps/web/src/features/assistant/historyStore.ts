@@ -19,14 +19,14 @@ export const useAssistantHistoryStore = defineStore('assistant-history', () => {
   const error = ref<string | null>(null)
 
   async function load(): Promise<void> {
-    const github = session.github
-    if (!github) {
+    if (!session.github) {
       items.value = []
       return
     }
     loading.value = true
     try {
-      items.value = await listConversations(null, github.token)
+      // `null`: la sesión venció y no se pudo renovar — sin login no hay historial.
+      items.value = (await session.withToken((token) => listConversations(null, token))) ?? []
       error.value = null
     } catch (err) {
       error.value = extractErrorMessage(err)
@@ -36,10 +36,10 @@ export const useAssistantHistoryStore = defineStore('assistant-history', () => {
   }
 
   async function open(id: string): Promise<void> {
-    const github = session.github
-    if (!github) return
+    if (!session.github) return
     try {
-      chat.resume(await getConversation(id, github.token))
+      const conversation = await session.withToken((token) => getConversation(id, token))
+      if (conversation) chat.resume(conversation)
       error.value = null
     } catch (err) {
       error.value = extractErrorMessage(err)
@@ -47,10 +47,10 @@ export const useAssistantHistoryStore = defineStore('assistant-history', () => {
   }
 
   async function remove(id: string): Promise<void> {
-    const github = session.github
-    if (!github) return
+    if (!session.github) return
     try {
-      await deleteConversation(id, github.token)
+      const deleted = await session.withToken((token) => deleteConversation(id, token))
+      if (deleted === null) return
       items.value = items.value.filter((c) => c.id !== id)
       // Borrar la que está abierta la cierra: lo que sigue sería otra conversación.
       if (chat.conversationId === id) chat.newConversation()
@@ -63,11 +63,10 @@ export const useAssistantHistoryStore = defineStore('assistant-history', () => {
   /** Un contexto que se abre vacío retoma su última conversación guardada (con login): lo que se
    *  preguntó sobre esta tarea no se pierde al recargar o al volver a ella. */
   async function resumeLatest(): Promise<void> {
-    const github = session.github
-    if (!github || chat.turns.length || chat.streaming) return
+    if (!session.github || chat.turns.length || chat.streaming) return
     const scope = chat.scope
     try {
-      const [latest] = await listConversations(scope, github.token)
+      const [latest] = (await session.withToken((token) => listConversations(scope, token))) ?? []
       // Mientras tanto se pudo cambiar de contexto o empezar a escribir: no se pisa nada.
       if (latest && !chat.turns.length && chat.scope === scope) await open(latest.id)
     } catch {

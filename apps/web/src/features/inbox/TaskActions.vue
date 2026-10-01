@@ -53,11 +53,16 @@ function ask(action: TaskAction) {
 
 async function confirm() {
   const action = pending.value;
-  const github = session.github;
-  if (!action || !github) return;
+  if (!action || !session.github) return;
   pending.value = null;
+  // Renovado si está por vencer; si ya no se puede renovar, la sesión se cerró: pedir el login.
+  const token = await session.token();
+  if (!token) {
+    needLogin.value = true;
+    return;
+  }
   const text = action === 'answer_and_unblock' ? comment.value.trim() : undefined;
-  const result = await store.runAction(props.item.ref, action, github.token, text);
+  const result = await store.runAction(props.item.ref, action, token, text);
   if (result?.ok && action === 'answer_and_unblock') comment.value = '';
 }
 </script>

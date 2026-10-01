@@ -1,14 +1,19 @@
-import type { DevicePoll } from '@ia-flow/shared'
+import type { DevicePoll, GithubUserToken } from '@ia-flow/shared'
 
 // La lógica del device flow, sin Vue ni red: el componente le inyecta el sondeo
 // y el reloj, y los tests le inyectan los suyos.
+
+/** Cómo renovar el token, si GitHub lo hace vencer (ver `stores/githubSession`). */
+type Renewal = Partial<
+  Pick<GithubUserToken, 'expires_in' | 'refresh_token' | 'refresh_token_expires_in'>
+>
 
 /** GitHub pide sumar 5 s al intervalo cada vez que contesta `slow_down`. */
 export const SLOW_DOWN_STEP_S = 5
 const MAX_CONSECUTIVE_FAILURES = 3
 
 export type DeviceOutcome =
-  | { status: 'ok'; token: string; login: string }
+  | ({ status: 'ok'; token: string; login: string } & Renewal)
   | { status: 'denied' | 'expired' | 'cancelled' }
   | { status: 'error'; message: string }
 
@@ -76,13 +81,28 @@ function toOutcome(result: DevicePoll): DeviceOutcome | null {
   switch (result.status) {
     case 'ok':
       return result.access_token && result.login
-        ? { status: 'ok', token: result.access_token, login: result.login }
+        ? {
+            status: 'ok',
+            token: result.access_token,
+            login: result.login,
+            ...renewalOf(result),
+          }
         : { status: 'error', message: 'El runner confirmó el login sin token.' }
     case 'denied':
     case 'expired':
       return { status: result.status }
     default:
       return null
+  }
+}
+
+function renewalOf(result: DevicePoll): Renewal {
+  return {
+    ...(result.expires_in !== undefined ? { expires_in: result.expires_in } : {}),
+    ...(result.refresh_token ? { refresh_token: result.refresh_token } : {}),
+    ...(result.refresh_token_expires_in !== undefined
+      ? { refresh_token_expires_in: result.refresh_token_expires_in }
+      : {}),
   }
 }
 

@@ -7,6 +7,7 @@
 //
 // Se puede apuntar a otro origen porque el runner abre CORS para todos.
 
+import type { GithubUserToken } from '@ia-flow/shared'
 import axios from 'axios'
 import { normalizeBaseUrl, type ServerKind } from '@/features/servers/api'
 
@@ -15,10 +16,34 @@ import { normalizeBaseUrl, type ServerKind } from '@/features/servers/api'
  * el login que firma sus acciones. Es por server —un runner de trabajo y uno
  * personal pueden tener cuentas distintas— y viaja sólo al endpoint de acciones
  * (header `x-github-token`), nunca por el interceptor.
+ *
+ * Un token de GitHub App vence a las 8 h: `expires_at` (epoch ms) dice cuándo, y
+ * `refresh_token` lo renueva sin volver a loguearse (`stores/githubSession`)
+ * hasta `refresh_expires_at` (6 meses). Un token sin `expires_at` no vence.
  */
 export interface GithubSession {
   token: string
   login: string
+  expires_at?: number
+  refresh_token?: string
+  refresh_expires_at?: number
+}
+
+/** La sesión de un token recién emitido por GitHub: sus `*_expires_in` (segundos) pasan a fechas. */
+export function githubSessionOf(
+  token: GithubUserToken | { access_token: string; login: string },
+  now = Date.now(),
+): GithubSession {
+  const t = token as GithubUserToken
+  return {
+    token: t.access_token,
+    login: t.login,
+    ...(t.expires_in !== undefined ? { expires_at: now + t.expires_in * 1000 } : {}),
+    ...(t.refresh_token ? { refresh_token: t.refresh_token } : {}),
+    ...(t.refresh_token_expires_in !== undefined
+      ? { refresh_expires_at: now + t.refresh_token_expires_in * 1000 }
+      : {}),
+  }
 }
 
 const SELECTED_KEY = 'ia-flow:servers:selected'
@@ -263,10 +288,31 @@ export function parseGithub(raw: unknown): GithubSession | null {
     }
   }
   if (!value || typeof value !== 'object') return null
-  const { token, login } = value as Record<string, unknown>
-  return typeof token === 'string' && token && typeof login === 'string' && login
-    ? { token, login }
-    : null
+  const { token, login, expires_at, refresh_token, refresh_expires_at } = value as Record<
+    string,
+    unknown
+  >
+  if (!(typeof token === 'string' && token && typeof login === 'string' && login)) return null
+  return {
+    token,
+    login,
+    ...(typeof expires_at === 'number' ? { expires_at } : {}),
+    ...(typeof refresh_token === 'string' && refresh_token ? { refresh_token } : {}),
+    ...(typeof refresh_expires_at === 'number' ? { refresh_expires_at } : {}),
+  }
+}
+
+/**
+ * La sesión del elegido tal como está guardada AHORA, no la de esta pestaña: otra
+ * pestaña pudo renovarla, y GitHub rota el `refresh_token` en cada renovación —
+ * el que tiene esta pestaña ya no sirve—.
+ */
+export function readStoredGithub(): GithubSession | null {
+  try {
+    return parseGithub(localStorage.getItem(SELECTED_GITHUB_KEY))
+  } catch {
+    return null
+  }
 }
 
 /** El login de GitHub del server elegido. */

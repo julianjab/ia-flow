@@ -60,9 +60,9 @@ function openTask(ref: string) {
   taskFocus.focus(ref);
 }
 
-function run(id: number) {
-  const github = session.github;
-  if (github) void chat.runProposal(id, github.token);
+async function run(id: number) {
+  const token = await session.token();
+  if (token) void chat.runProposal(id, token);
   else session.requestLogin();
 }
 </script>
