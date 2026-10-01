@@ -95,3 +95,38 @@ describe('capabilities', () => {
     })
   })
 })
+
+describe('runner.yaml systemPrompts', () => {
+  function withPrompts(prompts: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-config-'))
+    writeFileSync(join(dir, 'runner.yaml'), prompts)
+    return dir
+  }
+
+  it('is the catalog the engine resolves by id', () => {
+    const cfg = loadRunnerConfig(
+      withPrompts('systemPrompts:\n  - { id: agentIdentity, text: You are Claude Code. }\n'),
+    )
+    expect(cfg.systemPrompts.resolve('agentIdentity')).toBe('You are Claude Code.')
+    expect(cfg.systemPrompts.resolve('nope')).toBeUndefined()
+  })
+
+  it('the runner capabilities name agentIdentity only when the config defines it', () => {
+    const agents = (dir: string) =>
+      (loadRunnerConfig(dir).source.spec().agents as Array<Record<string, unknown>>).filter(
+        (doc) => typeof doc === 'object' && doc.id === 'branch-namer',
+      )
+    const named = (dir: string) =>
+      JSON.stringify(agents(dir)[0]?.systemPrompts).includes('"id":"agentIdentity"')
+    expect(named(withPrompts('systemPrompts:\n  - { id: agentIdentity, text: x }\n'))).toBe(true)
+    expect(named(withPrompts('systemPrompts: []\n'))).toBe(false)
+  })
+
+  it('rejects two prompts with the same id', () => {
+    expect(() =>
+      loadRunnerConfig(
+        withPrompts('systemPrompts:\n  - { id: a, text: x }\n  - { id: a, text: y }\n'),
+      ),
+    ).toThrow(/mismo id/)
+  })
+})
