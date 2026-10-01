@@ -14,7 +14,10 @@ providerRegistry.register(
 ## Cómo corre una corrida
 
 - **Modos:** `print` (`claude -p`, headless) o `tmux` (sesión interactiva
-  `iaflow-<agente>-task-<n>`, se mira con `tmux attach`; `surface: true` la abre en iTerm).
+  `iaflow-<agente>-task-<n>`, se mira con `tmux attach`; `surface: true` la abre en iTerm). En
+  `tmux`, si el CLI abre con el diálogo de confianza del worktree ("Yes, I trust this folder"),
+  el launcher lo acepta solo (`sessions/trustDialog.ts`): `--dangerously-skip-permissions` no lo
+  saltea y cada task trae un worktree nuevo.
 - **Servidor local** (`RunServer`, `127.0.0.1`, puerto efímero, un token por corrida):
   - `POST /mcp/<token>` — el MCP `ia-flow`: `tools/list` y `tools/call` sobre el `Tool[]` de la
     corrida (sus actions + `submit_*`/`fail_turn`/`yield_turn`/`wait_for_event`). Se ejecutan en

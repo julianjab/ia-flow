@@ -7,6 +7,7 @@ import {
   type LaunchSpec,
   type SessionExit,
 } from './CliSession.js'
+import { acceptTrustDialog } from './trustDialog.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -55,13 +56,17 @@ export function sessionName(label: string): string {
 export interface TmuxLauncherOptions {
   /** Cada cuánto se mira si la sesión sigue viva. Default: 3 s. */
   pollMs?: number
+  /** Cuánto se mira el panel al arrancar por si aparece el diálogo de confianza del CLI
+   *  (`trustDialog.ts`). Default: 30 s; `0` no lo mira. */
+  trustWatchMs?: number
 }
 
 /**
  * La sesión interactiva del CLI en tmux (`iaflow-<agente>-task-<n>`): corre igual que `print`,
  * pero un humano puede mirarla (`tmux attach -t …`) o, con `surface`, verla en una pestaña de
  * iTerm. El prompt entra como argumento y el shell es de login (`$SHELL -lc`), con
- * `ANTHROPIC_API_KEY` borrada: el perfil del usuario suele volver a exportarla.
+ * `ANTHROPIC_API_KEY` borrada: el perfil del usuario suele volver a exportarla. Si el CLI abre con
+ * el diálogo de confianza del worktree (nuevo en cada task), se acepta solo (`trustDialog.ts`).
  */
 export class TmuxLauncher implements Launcher {
   constructor(private readonly options: TmuxLauncherOptions = {}) {}
@@ -77,6 +82,20 @@ export class TmuxLauncher implements Launcher {
       cliEnv(),
     )
     if (spec.surface) await surfaceInIterm(name)
+    const watching = new AbortController()
+    const trustWatchMs = this.options.trustWatchMs ?? 30_000
+    if (trustWatchMs > 0) {
+      const target = `=${name}:`
+      void acceptTrustDialog({
+        capture: async () =>
+          (await run('tmux', ['capture-pane', '-p', '-t', target])).stdout.toString(),
+        confirm: async () => {
+          await run('tmux', ['send-keys', '-t', target, 'Enter'])
+        },
+        timeoutMs: trustWatchMs,
+        signal: watching.signal,
+      })
+    }
     let stopped = false
     const exited = new Promise<SessionExit>((resolve) => {
       const poll = async () => {
@@ -92,6 +111,7 @@ export class TmuxLauncher implements Launcher {
       ref: { kind: 'tmux', name },
       close: async () => {
         stopped = true
+        watching.abort()
         await run('tmux', ['kill-session', '-t', `=${name}`]).catch(() => {})
       },
     }
