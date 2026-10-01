@@ -10,7 +10,7 @@ import type { BoardCard } from './classify.js'
 
 export interface BoardSpec {
   projectId: string
-  board: { owner: string; number: number }
+  board: { owner: string; number: number; ownerKind?: 'orgs' | 'users' }
   /** Qué cards son del proyecto (`project.yaml` → `when`): las demás no se muestran. */
   when?: ConditionRow[]
 }
@@ -42,12 +42,12 @@ export interface BoardMeta {
   statuses: string[]
 }
 
-/** La página de un Project v2 de org. */
+/** La página de un Project v2, de una org (`orgs`, por defecto) o de una cuenta personal (`users`). */
 export const projectUrl = (board: BoardSpec['board']) =>
-  `https://github.com/orgs/${board.owner}/projects/${board.number}`
+  `https://github.com/${board.ownerKind ?? 'orgs'}/${board.owner}/projects/${board.number}`
 
 interface MetaPage {
-  organization?: {
+  repositoryOwner?: {
     projectV2?: {
       url: string
       views: { nodes: Array<{ number: number; layout: string }> }
@@ -56,19 +56,22 @@ interface MetaPage {
   } | null
 }
 
+// `repositoryOwner` resuelve tanto una org como una cuenta personal: `ProjectV2Owner` los une.
 const metaQuery = `query($owner: String!, $number: Int!) {
-  organization(login: $owner) {
-    projectV2(number: $number) {
-      url
-      views(first: 20) { nodes { number layout } }
-      field(name: "Status") { ... on ProjectV2SingleSelectField { options { name } } }
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        url
+        views(first: 20) { nodes { number layout } }
+        field(name: "Status") { ... on ProjectV2SingleSelectField { options { name } } }
+      }
     }
   }
 }`
 
 /** Los links y columnas de un Project, de su respuesta de GraphQL. */
 export function toBoardMeta(data: MetaPage, board: BoardSpec['board']): BoardMeta {
-  const project = data.organization?.projectV2
+  const project = data.repositoryOwner?.projectV2
   const url = project?.url ?? projectUrl(board)
   const view = project?.views.nodes.find((node) => node.layout === 'BOARD_LAYOUT')
   return {
@@ -103,7 +106,7 @@ interface RawBoardItem {
 }
 
 interface ItemsPage {
-  organization?: {
+  repositoryOwner?: {
     projectV2?: {
       items: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawBoardItem[] }
     } | null
@@ -115,7 +118,8 @@ const ISSUE_REF = 'number state url repository { name owner { login } }'
 const itemsQuery = (
   withBlockers: boolean,
 ) => `query($owner: String!, $number: Int!, $after: String) {
-  organization(login: $owner) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
     projectV2(number: $number) {
       items(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
@@ -140,6 +144,7 @@ const itemsQuery = (
           }
         }
       }
+    }
     }
   }
 }`
@@ -217,7 +222,7 @@ export class BoardReader {
     let after: string | null = null
     for (let page = 0; page < MAX_PAGES; page++) {
       const data = await this.page(spec, after)
-      const items = data.organization?.projectV2?.items
+      const items = data.repositoryOwner?.projectV2?.items
       if (!items) {
         throw new Error(`board ${spec.board.owner}#${spec.board.number}: no existe o no hay acceso`)
       }

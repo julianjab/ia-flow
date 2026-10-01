@@ -99,8 +99,14 @@ export const SlackReviewSchema = z.object({
 
 /** Un proyecto (su `project.yaml`, o inline en `runner.yaml`). */
 export const ProjectFileSchema = z.strictObject({
-  /** El GitHub Project v2 del proyecto: `https://github.com/orgs/<org>/projects/<n>`. */
-  board: z.string().regex(/github\.com\/orgs\/[^/]+\/projects\/\d+/, 'un GitHub Project v2 de org'),
+  /** El GitHub Project v2 del proyecto: `https://github.com/orgs/<org>/projects/<n>`, o el de una
+   *  cuenta personal: `https://github.com/users/<login>/projects/<n>`. */
+  board: z
+    .string()
+    .regex(
+      /github\.com\/(?:orgs|users)\/[^/]+\/projects\/\d+/,
+      'un GitHub Project v2 (de org o de usuario)',
+    ),
   /** Con esto, `task.branch` = `<branchPrefix><número>`. Sin esto, como ia-flow: la rama
    *  vinculada al issue, o la que propone la capacidad `branchName` (`feat/<slug>`). */
   branchPrefix: z.string().min(1).optional(),
@@ -253,7 +259,8 @@ export interface ProjectConfig {
   id: string
   /** Contra qué se resuelven sus rutas: la carpeta de su `project.yaml`. */
   dir: string
-  board: { owner: string; number: number }
+  /** `ownerKind` es el segmento de la URL del board: `orgs` o `users`. */
+  board: { owner: string; number: number; ownerKind?: 'orgs' | 'users' }
   branchPrefix?: string
   /** Ver `when` en `project.yaml`: vacío, todas las cards del board. */
   when: ConditionRow[]
@@ -312,9 +319,13 @@ function parse<T>(path: string, schema: z.ZodType<T>): T {
   return parsed.data
 }
 
-function parseBoard(url: string): { owner: string; number: number } {
-  const match = url.match(/github\.com\/orgs\/([^/]+)\/projects\/(\d+)/) as RegExpMatchArray
-  return { owner: match[1] as string, number: Number(match[2]) }
+function parseBoard(url: string): ProjectConfig['board'] {
+  const match = url.match(/github\.com\/(orgs|users)\/([^/]+)\/projects\/(\d+)/) as RegExpMatchArray
+  return {
+    owner: match[2] as string,
+    number: Number(match[3]),
+    ownerKind: match[1] as 'orgs' | 'users',
+  }
 }
 
 const list = <T>(entries: T | T[] | undefined): T[] => [entries ?? []].flat() as T[]
