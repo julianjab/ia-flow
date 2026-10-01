@@ -9,7 +9,7 @@ no código de acá. El modelo completo (pipelines, intake, providers, MCP) está
 | Carpeta de `src/` | Qué hay | Va acá si… |
 | --- | --- | --- |
 | `main.ts`, `cli.ts`, `boot.ts` | arranque, argumentos, composición | cambia cómo se ensambla el runner |
-| `config/` | `runner.yaml` → `RunnerConfig`, `IA_FLOW_HOME` | agregás o cambiás una clave de la config |
+| `config/` | `runner.yaml` → `RunnerConfig` (con su catálogo de `systemPrompts`), `IA_FLOW_HOME` | agregás o cambiás una clave de la config |
 | `http/` | servidor, router, SSE — el borde, sin lógica | cambia cómo se recibe un request |
 | `intake/` | webhook o Slack → evento de task (`item.*`, `task.*`) | cambia qué ven las pipelines de un evento |
 | `actions/` | contrato, loader y catálogo built-in (`builtin/`) | registrás una acción estándar del runner |
@@ -23,7 +23,6 @@ no código de acá. El modelo completo (pipelines, intake, providers, MCP) está
 | `telemetry/` | OTLP, heartbeat | trazas, logs, métricas |
 | `workspace/` | clones y worktrees de las tasks | cambia dónde o cómo trabaja un agente en disco |
 | `capabilities/` | los agentes de las capacidades del runner (asistente, `whenText`, `fileFocus`, `branchName`) | cambia el prompt o el modelo de una capacidad, o el asistente |
-| `prompts/` | el catálogo de system prompts del runner (`system-prompts.yaml`), que cualquier agente nombra por id | agregás o cambiás un system prompt compartido |
 | `bundle/` | módulos virtuales para las acciones de una config | una config necesita importar otro paquete |
 
 Una tool genérica de GitHub o de Slack **no va acá**: va en `packages/github/tools` o

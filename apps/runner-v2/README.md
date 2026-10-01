@@ -257,11 +257,13 @@ agente embebido en el runner (y en el bundle). Un deploy no declara nada para te
 una, la pisa en `sources.capabilities` con un agente propio en `sources.agents` —con otro id: un
 agente propio con el id de uno del runner rompe el arranque—.
 
-**Los system prompts compartidos viven en el runner** (`src/prompts/system-prompts.yaml`): cualquier
-agente —una capacidad o uno de un deploy— los nombra por id en vez de copiarlos
-(`systemPrompts: [{ id: agentIdentity }, { text: … }]`). Un `{ id }` se resuelve contra los
-`systemPrompts` de la fuente del agente (con ese `id`) o contra este catálogo; uno que no existe
-rompe la carga, en vez de correr sin esas instrucciones.
+**Los system prompts compartidos los define la config**, en `systemPrompts` de `runner.yaml`
+(`[{ id: agentIdentity, text: … }]`): cualquier agente —uno del deploy o una capacidad del runner—
+los nombra por id en vez de copiarlos (`systemPrompts: [{ id: agentIdentity }, { text: … }]`). Un
+`{ id }` se resuelve contra los `systemPrompts` de la fuente del agente (con ese `id`) o contra este
+catálogo; uno que no existe rompe la carga, en vez de correr sin esas instrucciones. El runner no
+trae textos: sus capacidades abren con `{ id: agentIdentity }`, y en un deploy que no lo define
+corren sin él.
 
 **Las conversaciones se guardan por login de GitHub** (`assistant_conversation` y
 `assistant_message`, en la misma base): sólo cuando quien pregunta tiene sesión, cada una de UN

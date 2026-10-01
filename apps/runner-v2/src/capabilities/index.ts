@@ -11,6 +11,9 @@
  * Un deploy las pisa en `sources.capabilities` de su runner.yaml (`{ agent: <su id> }`), con un
  * agente propio en `sources.agents`. Un agente propio con el id de uno de éstos rompe el arranque:
  * se usa otro id y se apunta la capacidad a él.
+ *
+ * Abren con `{ id: agentIdentity }`: el texto lo pone la config (`systemPrompts` de runner.yaml),
+ * no el runner. Un deploy que no lo define las corre sin él (`builtinCapabilityAgents`).
  */
 import assistant from './assistant.yaml'
 import branchNamer from './branch-namer.yaml'
@@ -24,6 +27,19 @@ export const BUILTIN_CAPABILITY_AGENTS: Record<string, unknown>[] = [
   fileFocus,
   branchNamer,
 ]
+
+type SystemPromptRef = { id?: string; text?: string }
+
+/** Los agentes de las capacidades con los `{ id }` que la config declara (`declared`): uno que no
+ *  declara se omite, en vez de romper el arranque de un deploy que no lo necesita. */
+export function builtinCapabilityAgents(declared: ReadonlySet<string>): Record<string, unknown>[] {
+  return BUILTIN_CAPABILITY_AGENTS.map((doc) => ({
+    ...doc,
+    systemPrompts: ((doc.systemPrompts ?? []) as SystemPromptRef[]).filter(
+      (ref) => ref.text !== undefined || ref.id === undefined || declared.has(ref.id),
+    ),
+  }))
+}
 
 /** Quién cumple cada capacidad por default: lo que `sources.capabilities` no declara. */
 export const BUILTIN_CAPABILITIES: Record<string, Record<string, unknown>> = {

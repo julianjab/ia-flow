@@ -2,7 +2,8 @@
  * Lo que el runner lee de `.config/`: `runner.yaml` es el índice de todo y nada se descubre por
  * carpeta — cada cosa se declara.
  *
- *   runner.yaml      scope runner: settings, identidad de GitHub, providers, MCP, `engine:` (cómo
+ *   runner.yaml      scope runner: settings, identidad de GitHub, providers, MCP, `systemPrompts`
+ *                    (el catálogo que cualquier agente nombra por id), `engine:` (cómo
  *                    corre el engine: `engine/mountEngine.ts`) y `sources:` (qué corre: la fuente
  *                    global —`agents`, `pipelines`—, las `actions` globales y los `projects`,
  *                    cada uno la ruta a su `project.yaml` o el proyecto inline)
@@ -23,14 +24,14 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import type { ConditionRow } from '@ia-flow/agent-engine'
+import type { ConditionRow, SystemPromptCatalog } from '@ia-flow/agent-engine'
 import { expandPath, type YamlSourceSpec } from '@ia-flow/agent-engine-datasource-yaml'
 import { ConditionRows } from '@ia-flow/agent-engine-definitions'
 import { AcceptRow, HostName } from '@ia-flow/provider-remote'
 import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
-import { BUILTIN_CAPABILITIES, BUILTIN_CAPABILITY_AGENTS } from '../capabilities/index.js'
+import { BUILTIN_CAPABILITIES, builtinCapabilityAgents } from '../capabilities/index.js'
 import { EngineSection } from '../engine/mountEngine.js'
 import {
   DEFAULT_WORKING_MARKER,
@@ -195,6 +196,16 @@ export const RunnerFileSchema = z.strictObject({
       accepts: z.array(AcceptRow).optional(),
     })
     .optional(),
+  /** Los system prompts del deploy que cualquier agente —uno de la config o una capacidad del
+   *  runner— nombra por id (`systemPrompts: [{ id: agentIdentity }]`), en vez de copiar el texto.
+   *  Las capacidades del runner abren con `agentIdentity`: si no está acá, van sin él. */
+  systemPrompts: z
+    .array(z.strictObject({ id: z.string().min(1), text: z.string().min(1) }))
+    .refine((entries) => {
+      const ids = entries.map((entry) => entry.id)
+      return new Set(ids).size === ids.length
+    }, 'dos system prompts con el mismo id')
+    .default([]),
   mcp: z.array(McpEntrySchema).default([]),
   /** Los MCP que levanta el runner y publica en `/mcp/<id>` de su puerto (`mcp/mcpHost.ts`), por
    *  id. Sólo con `--serve`. Para que un agente los use, van también en `mcp` con `hosted: <id>`. */
@@ -262,6 +273,9 @@ export interface RunnerConfig {
   slack: { users: SlackUserDirectory }
   providers: Record<string, Record<string, unknown>>
   host: NonNullable<RunnerFile['host']>
+  /** `systemPrompts` de `runner.yaml`: el catálogo que el engine resuelve por id. Se relee con la
+   *  fuente global. */
+  systemPrompts: SystemPromptCatalog
   mcp: McpEntry[]
   mcpHost: Record<string, McpHostEntry>
   engine: EngineSection
@@ -431,6 +445,7 @@ export function loadRunnerConfig(path: string): RunnerConfig {
   const projects = Object.entries(file.sources.projects).map(([id, entry]) =>
     readProject(runnerPath, id, entry),
   )
+  let prompts = promptsById(file.systemPrompts)
   return {
     dir,
     runnerPath,
@@ -439,6 +454,7 @@ export function loadRunnerConfig(path: string): RunnerConfig {
     slack: { users: file.slack?.users ?? {} },
     providers: file.providers,
     host: file.host ?? {},
+    systemPrompts: { resolve: (id) => prompts.get(id) },
     mcp: file.mcp,
     mcpHost: file.mcpHost,
     engine: withExecutionsPath(file.engine, dir),
@@ -446,12 +462,14 @@ export function loadRunnerConfig(path: string): RunnerConfig {
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
       spec: () => {
-        const { agents, pipelines, capabilities } = parse(runnerPath, RunnerFileSchema).sources
+        const reread = parse(runnerPath, RunnerFileSchema)
+        const { agents, pipelines, capabilities } = reread.sources
+        prompts = promptsById(reread.systemPrompts)
         // Las capacidades del runner (`capabilities/`) van con la fuente global: sus agentes como
         // documentos inline, y lo que `sources.capabilities` no declara, cumplido por ellos.
         return sourceSpec(
           {
-            agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS],
+            agents: [...list(agents), ...builtinCapabilityAgents(new Set(prompts.keys()))],
             ...(pipelines !== undefined ? { pipelines } : {}),
             capabilities: { ...BUILTIN_CAPABILITIES, ...capabilities },
           },
@@ -464,6 +482,10 @@ export function loadRunnerConfig(path: string): RunnerConfig {
     projects,
     repos: projects.flatMap((project) => project.repos),
   }
+}
+
+function promptsById(entries: RunnerFile['systemPrompts']): Map<string, string> {
+  return new Map(entries.map((entry) => [entry.id, entry.text]))
 }
 
 const TELEMETRY_ENV: Record<string, string> = {
