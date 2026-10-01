@@ -14,6 +14,30 @@ function config(project: string): string {
   return dir
 }
 
+describe('project.yaml board', () => {
+  const withBoard = (url: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-config-'))
+    writeFileSync(join(dir, 'runner.yaml'), `sources:\n  projects:\n    p:\n      board: ${url}\n`)
+    return dir
+  }
+
+  it('takes the board of an org', () => {
+    const board = loadRunnerConfig(withBoard('https://github.com/orgs/o/projects/1')).projects[0]
+      ?.board
+    expect(board).toEqual({ owner: 'o', number: 1, ownerKind: 'orgs' })
+  })
+
+  it('takes the board of a personal account', () => {
+    const board = loadRunnerConfig(withBoard('https://github.com/users/julianjab/projects/2'))
+      .projects[0]?.board
+    expect(board).toEqual({ owner: 'julianjab', number: 2, ownerKind: 'users' })
+  })
+
+  it('rejects a url that is not a Project v2', () => {
+    expect(() => loadRunnerConfig(withBoard('https://github.com/julianjab/ia-flow'))).toThrow()
+  })
+})
+
 describe('project.yaml when', () => {
   it('without when, every card of the board is the project', () => {
     expect(loadRunnerConfig(config('')).projects[0]?.when).toEqual([])

@@ -114,7 +114,7 @@ describe('toBoardMeta', () => {
   it('the project page, its first board view and the Status columns in order', () => {
     const meta = toBoardMeta(
       {
-        organization: {
+        repositoryOwner: {
           projectV2: {
             url: 'https://github.com/orgs/la-haus/projects/119',
             views: {
@@ -142,6 +142,11 @@ describe('toBoardMeta', () => {
       boardUrl: 'https://github.com/orgs/la-haus/projects/119',
       statuses: [],
     })
+  })
+
+  it("a personal account's board falls back to its /users/ page", () => {
+    const meta = toBoardMeta({}, { owner: 'julianjab', number: 2, ownerKind: 'users' })
+    expect(meta.url).toBe('https://github.com/users/julianjab/projects/2')
   })
 })
 

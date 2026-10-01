@@ -82,7 +82,7 @@ describe('AddToProjectAction', () => {
   it('resolves the board id once and adds each issue to it', async () => {
     const graphql = vi.fn(async (query: string, _vars?: unknown) =>
       query.includes('projectV2(number')
-        ? { organization: { projectV2: { id: 'PVT_board' } } }
+        ? { repositoryOwner: { projectV2: { id: 'PVT_board' } } }
         : { addProjectV2ItemById: { item: { id: 'PVTI_new' } } },
     )
     const action = new AddToProjectAction(project({ graphql }))
@@ -96,7 +96,7 @@ describe('AddToProjectAction', () => {
   })
 
   it('fails when the board does not exist, and retries the lookup next time', async () => {
-    const graphql = vi.fn(async () => ({ organization: { projectV2: null } }))
+    const graphql = vi.fn(async () => ({ repositoryOwner: { projectV2: null } }))
     const action = new AddToProjectAction(project({ graphql }))
     await expect(action.run(ctx(), { issue_node_id: 'I_1' })).rejects.toThrow(
       /no se encontró el board/,
