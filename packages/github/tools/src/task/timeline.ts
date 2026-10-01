@@ -1,9 +1,7 @@
 /**
  * El contexto de una task que los prompts leen además del issue: `{{task.comments}}` (el timeline
- * del issue y de su PR) y `{{task.ci}}`. Mismas formas que las variables de ia-flow
- * (`apps/server/src/variables/task.ts`), para que los prompts no cambien — con una mejora: cada
- * review thread sin resolver lleva su `thread <id>` en la cabecera, que es lo que
- * `reply_pr_review_thread`/`resolve_pr_review_thread` necesitan.
+ * del issue y de su PR) y `{{task.ci}}`. Cada review thread sin resolver lleva su `thread <id>` en
+ * la cabecera, que es lo que `reply_pr_review_thread`/`resolve_pr_review_thread` necesitan.
  *
  * Puro: las respuestas de GitHub las lee el intake (`.config/.../intake/resolve-task.yaml`).
  */

@@ -5,7 +5,7 @@ lee `.config/`, registra las actions de cada scope, monta el engine y levanta el
 webhooks. No traduce ni arma eventos: eso lo hacen las pipelines y las actions de `.config/`. Es el `ai-development-flow` de los examples de ia-tools traído acá,
 con la definición del pipeline como datos y las ejecuciones en SQLite.
 
-## Qué cambia respecto del runner v1 (`apps/server`, ya purgado)
+## Cómo funciona
 
 - **La definición es un `runner.yaml`** (`--config <archivo|carpeta>`, `RUNNER_CONFIG`, o `.config/`
   local —no versionada—), en YAML (`@ia-flow/agent-engine-datasource-yaml` la traduce a
@@ -407,14 +407,10 @@ Cuando se mergea el PR del último prerrequisito, el intake (`intake-unblock`) b
 GitHub los issues que ése bloqueaba (`dependencies/blocking`) y emite `issue.unblocked` para cada
 uno que quedó sin bloqueadores abiertos. Las pipelines de
 reentrada de cada columna lo escuchan, así que la card vuelve al agente que le toca donde esté.
-Es el `unblock-dependents-on-merge` del runner v1, pero para PRs de cualquier repo del
-catálogo, no sólo de `claw-agents`.
+Vale para PRs de cualquier repo del catálogo.
 
 ## Lo que no se portó del ejemplo
 
 - Las tools `memory_*` del implementer: la memoria es el MCP oficial (`memory-mcp` en
   `runner.yaml`: en un deploy, `mcpHost.memory`; en local, `bun run memory-mcp`), no tools
   nativas.
-- Los `settings` del runner v1 (`apps/server`) que este runner no implementa (API, websocket,
-  polling): `runner.yaml` sólo acepta lo que se usa. Los hosts remotos sí se portaron (`--host` y
-  `remote:*`, arriba): se suscriben solos, sin la pantalla de v1.

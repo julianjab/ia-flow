@@ -1,14 +1,8 @@
 // El proceso principal de IA Flow.app — la app de visualización.
 //
-// Una sola app y un solo modo. Antes eran dos (`IA Flow` y `IA Flow AgentHost`),
-// porque la consola del agent-host era un bundle aparte de la web. Ya no lo es:
-// es la ruta `/agent-host` de la misma SPA, así que dos ventanas, dos .app y dos
-// íconos eran dos veces la misma cosa.
-//
-// Lo que la app hace es corto: sirve la SPA y la muestra. **No levanta ningún
-// proceso** — ni server ni agent-host. Esos se levantan con su bundle publicado
-// (ver "Imágenes" en el CLAUDE.md de la raíz) y la app se conecta al que elijas en su pantalla
-// de servers, con el token que le configures ahí.
+// Lo que la app hace es corto: sirve la SPA y la muestra. **No levanta el runner**
+// (`apps/runner-v2`): corre aparte, con su bundle publicado, y la app se conecta al
+// que elijas en su pantalla de servers, con el token que le configures ahí.
 //
 // | | dev (`app.isPackaged === false`) | empaquetado |
 // | --- | --- | --- |
@@ -85,11 +79,8 @@ const DEV_WEB = {
 }
 
 /**
- * Raíz de los archivos estáticos de la web.
- *
- * Empaquetado sale del bundle; en dev, del `dist` del repo — que es lo que ya
- * pedía la consola del agent-host, y ahora también la SPA cuando se la sirve
- * desde acá.
+ * Raíz de los archivos estáticos de la web: empaquetado sale del bundle; en dev,
+ * del `dist` del repo.
  */
 const WEB_ROOT = PACKAGED ? join(RESOURCES, 'web') : join(REPO_ROOT, 'apps', 'web', 'dist')
 
@@ -186,7 +177,7 @@ async function isOurs(port: number): Promise<boolean> {
     })
     if (!res.ok) return false
     const got = (await res.text()).trim()
-    // Comparación en tiempo constante, por lo mismo que el guard del agent-host.
+    // Comparación en tiempo constante: una que corta en el primer byte distinto filtra el HMAC.
     const a = Buffer.from(got)
     const b = Buffer.from(expected)
     return a.length === b.length && timingSafeEqual(a, b)
@@ -198,8 +189,8 @@ async function isOurs(port: number): Promise<boolean> {
 /**
  * Sirve el bundle de la web desde esta app, en loopback.
  *
- * Por qué un server y no un `file://`: la web le habla al server (o al
- * agent-host) por fetch cross-origin, y un origen `file://` (o `null`) no es
+ * Por qué un server y no un `file://`: la web le habla al runner por fetch
+ * cross-origin, y un origen `file://` (o `null`) no es
  * reflejable por CORS. Además el preload escribe el token en el localStorage
  * del origen, y `file://` no tiene uno estable.
  *
@@ -304,45 +295,35 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
  * Dónde guarda SUS cosas esta app.
  *
  * `app.getPath('userData')` —en macOS `~/Library/Application Support/IA Flow`—
- * y NO el config dir del server (`~/.config/ia-flow`), que es donde estaba
- * antes. Dos motivos:
- *
- *  - Son cosas distintas. Ahí viven el `ia-flow.sqlite`, el `agent-host.json` y
- *    los `repos/` del SERVER. La lista de servers es estado del cliente: a qué
- *    máquinas mira ESTA instalación. Mezclarlas hacía que borrar la config del
- *    server se llevara puesta la de la app, y al revés.
- *  - `IA_FLOW_CONFIG_DIR` es del server. Apuntarlo al volumen de un contenedor
- *    —que es exactamente para lo que existe— movía también la lista de la app,
- *    que no tiene nada que ver con ese deploy.
+ * y NO `~/.config/ia-flow`, que es donde estaba antes: ese directorio era del
+ * server v1 (su sqlite, sus repos), y la lista de servers es estado del cliente
+ * —a qué máquinas mira ESTA instalación—. Mezclarlas hacía que borrar una se
+ * llevara puesta la otra.
  */
 function appConfigDir(): string {
   return app.getPath('userData')
 }
 
 /**
- * El config dir del SERVER (`~/.config/ia-flow`). Sólo se mira para migrar lo
- * que una versión anterior de esta app dejó ahí — ver `migrateLegacyServers`.
+ * Donde una versión anterior de esta app guardaba la lista (`~/.config/ia-flow`,
+ * o `IA_FLOW_CONFIG_DIR`). Sólo se mira para migrarla — ver `migrateLegacyServers`.
  */
 function legacyConfigDir(): string {
   return process.env.IA_FLOW_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'ia-flow')
 }
 
 /**
- * Los servers que el usuario declaró, en el config dir de ia-flow.
+ * Los servers que el usuario declaró, en el directorio de datos de la app.
  *
  * Es un archivo y no el localStorage de la ventana porque es CONFIG: sobrevive
- * a limpiar datos del sitio, se puede editar a mano, y queda junto al resto de
- * la config en vez de adentro del perfil de Chromium.
- *
- * Al lado del `agent-host.json` del agent-host y del `ia-flow.sqlite` del server, con
- * la misma regla de `IA_FLOW_CONFIG_DIR`.
+ * a limpiar datos del sitio y se puede editar a mano.
  */
 function serversFile(): string {
   return join(appConfigDir(), 'servers.json')
 }
 
 /**
- * Trae la lista que una versión anterior dejó en el config dir del server.
+ * Trae la lista que una versión anterior dejó en `~/.config/ia-flow`.
  *
  * Una sola vez y sin pisar: si ya hay una lista en el lugar nuevo, la vieja se
  * ignora. No se borra el original — que un cambio de ubicación destruya el
@@ -675,7 +656,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit())
 
-// El hijo es nuestro: si se va la app sin matarlo queda un Vite (o un agent-host)
+// El hijo es nuestro: si se va la app sin matarlo queda un Vite
 // huérfano ocupando el puerto, y el próximo arranque se cuelga de un proceso
 // que ya nadie supervisa.
 //

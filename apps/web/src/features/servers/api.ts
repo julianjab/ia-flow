@@ -12,8 +12,7 @@ import axios from 'axios'
  * Qué contestó en esa URL.
  *
  * `runner` es un runner-v2 (`GET /api/runner` con `service: 'ia-flow-runner'`):
- * lo único que esta web sabe operar. Todo lo demás —el `apps/server` v1, un
- * agent-host, cualquier otra cosa— es `unknown`.
+ * lo único que esta web sabe operar. Cualquier otra cosa es `unknown`.
  */
 export type ServerKind = 'runner' | 'unknown'
 

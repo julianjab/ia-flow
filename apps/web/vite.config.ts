@@ -33,9 +33,9 @@ export default defineConfig(({ mode }) => {
   // lo que rompería un proxy/túnel apuntado a ese puerto.
   const web = readPort(env, ['IA_FLOW_WEB_PORT', 'VITE_WEB_PORT'], DEFAULT_WEB_PORT)
 
-  // Default: apps/server local (bun run dev:server, :3001), siguiendo el
-  // mismo IA_FLOW_SERVER_PORT/PORT que resuelve el server. Override total del
-  // destino (host incluido) con VITE_API_TARGET — e.g. un server en container
+  // Default: el runner local (apps/runner-v2 con --serve, :3001), siguiendo el
+  // mismo IA_FLOW_SERVER_PORT (o PORT) que resuelve el runner. Override total del
+  // destino (host incluido) con VITE_API_TARGET — e.g. un runner en container
   // que publica su API al host: VITE_API_TARGET=http://localhost:3011.
   const serverPort = readPort(env, ['IA_FLOW_SERVER_PORT', 'PORT'], DEFAULT_SERVER_PORT).port
   const apiTarget = env.VITE_API_TARGET || `http://localhost:${serverPort}`

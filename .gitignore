@@ -4,10 +4,6 @@ dist/
 .env.host
 *.local
 .DS_Store
-apps/server/logs/
-apps/server/src/logs/
-apps/server/config/providers.json
-apps/server/config/system-prompt.md
 .claude/worktrees/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

@@ -1,6 +1,6 @@
 # apps/web — Vue 3 SPA
 
-La web es la **bandeja de runner-v2**: `/` (inbox del board en cuatro grupos + asistente), `/config` (la config cargada, de sólo lectura), `/webhooks` y `/servers`, con un menú lateral (`views/AppShell.vue`: detrás de ☰ en un teléfono, fijo desde 768px). Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub); el `apps/server` v1 ya no existe. Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
+La web es la **bandeja de runner-v2**: `/` (inbox del board en cuatro grupos + asistente), `/config` (la config cargada, de sólo lectura), `/webhooks` y `/servers`, con un menú lateral (`views/AppShell.vue`: detrás de ☰ en un teléfono, fijo desde 768px). Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub). Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
 
 Vite + Vue Router + Pinia. Puerto **5173** por default, configurable con `IA_FLOW_WEB_PORT`.
 Proxy de `/api` al runner (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
