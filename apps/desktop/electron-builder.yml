@@ -1,13 +1,10 @@
 # Empaquetado de `IA Flow.app` — la app de visualización.
 #
 # Qué produce: un .app autocontenido (Electron adentro) que sirve la SPA desde
-# su propio bundle y se conecta al server ia-flow que elijas en su pantalla de
-# `/servers`. NO trae server: los servers son las imágenes de cada app.
+# su propio bundle y se conecta al runner que elijas en su pantalla de
+# `/servers`. NO trae runner: corre aparte, con su bundle publicado.
 #
 #   bun run --cwd apps/desktop dist
-#
-# Sólo el modo `web`. El modo `agent-host` sigue siendo dev-only — ver el comentario
-# de `MODES.agent-host.bin` en src/main.ts.
 appId: dev.julianjab.ia-flow.desktop
 productName: IA Flow
 copyright: © Julian Buitrago
