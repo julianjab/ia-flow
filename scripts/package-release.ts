@@ -93,8 +93,11 @@ WORKDIR /app
 ADD --chown=bun:bun --chmod=644 https://github.com/${repo}/releases/download/v${version}/${NAME}.js /app/runner.js
 COPY --chown=bun:bun config/ /app/config/
 
-ENV RUNNER_CONFIG_DIR=/app/config \\
-    WORKSPACE_DIR=/state/workspaces
+# IA_FLOW_HOME en el volumen: la base (ejecuciones, pausas, conversaciones del asistente) y los
+# workspaces de las tasks sobreviven a un reinicio. Sin esto quedan en ~/.local/state del
+# contenedor y se pierden.
+ENV RUNNER_CONFIG=/app/config \\
+    IA_FLOW_HOME=/state
 VOLUME ["/state"]
 RUN mkdir -p /state && chown -R bun:bun /state
 USER bun
