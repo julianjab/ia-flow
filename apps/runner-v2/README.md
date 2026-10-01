@@ -257,6 +257,12 @@ agente embebido en el runner (y en el bundle). Un deploy no declara nada para te
 una, la pisa en `sources.capabilities` con un agente propio en `sources.agents` —con otro id: un
 agente propio con el id de uno del runner rompe el arranque—.
 
+**Los system prompts compartidos viven en el runner** (`src/prompts/system-prompts.yaml`): cualquier
+agente —una capacidad o uno de un deploy— los nombra por id en vez de copiarlos
+(`systemPrompts: [{ id: claude-code }, { text: … }]`). Un `{ id }` se resuelve contra los
+`systemPrompts` de la fuente del agente (con ese `id`) o contra este catálogo; uno que no existe
+rompe la carga, en vez de correr sin esas instrucciones.
+
 **Las conversaciones se guardan por login de GitHub** (`assistant_conversation` y
 `assistant_message`, en la misma base): sólo cuando quien pregunta tiene sesión, cada una de UN
 contexto, y cada login ve y borra sólo las suyas. Sin sesión el chat funciona igual, pero no queda.

@@ -41,6 +41,7 @@ import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import type { McpHost } from './mcp/mcpHost.js'
+import { RUNNER_SYSTEM_PROMPTS } from './prompts/index.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
 import { bunSqliteStoreDriver } from './storage/bunSqliteStoreDriver.js'
 import { mountWorkspace } from './workspace/mountWorkspace.js'
@@ -170,7 +171,13 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)
-  const catalogs = { ...actions.catalogs, providers: providerRegistry, mcpServers }
+  // `systemPrompts`: los del runner (`prompts/`), que cualquier agente nombra por id.
+  const catalogs = {
+    ...actions.catalogs,
+    providers: providerRegistry,
+    mcpServers,
+    systemPrompts: RUNNER_SYSTEM_PROMPTS,
+  }
 
   const globalSource = new DefinitionPipelineSource(
     new YamlDefinitionSource({ id: GLOBAL_SOURCE, ...cfg.source }),

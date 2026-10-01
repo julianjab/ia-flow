@@ -11,7 +11,7 @@ la fuente global; los de un proyecto, su proyecto.
 
 | Campo | Qué |
 | --- | --- |
-| `systemPrompts` | `[{ text }]` o `[{ id }]`. Van DESPUÉS de los de la fuente (`project.yaml`), que son el prefijo compartido y cacheable. El método del agente va acá |
+| `systemPrompts` | `[{ text }]` o `[{ id }]`. Un `{ id }` es uno de la fuente (`project.yaml`, con ese `id`) o del catálogo del runner (`apps/runner-v2/src/prompts/system-prompts.yaml`: `claude-code`, `untrusted-data`); uno que no existe rompe la carga. Van DESPUÉS de los de la fuente, que son el prefijo compartido y cacheable. El método del agente va acá |
 | `prompt` | Lo que cambia por corrida: lo que lleva `{{...}}` (ver `variables.md`) |
 | `variables` | Constantes del agente: `{{variables.<k>}}` |
 | `input` | Lo que recibe cuando lo alcanza una ruta de otro agente: `{{input.<k>}}` |
