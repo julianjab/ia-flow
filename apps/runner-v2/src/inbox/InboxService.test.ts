@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { EventLogEntry, ExecutionSummary } from '@ia-flow/shared'
 import type { ActivityPort, StoredEvent } from './ActivityPort.js'
-import type { BoardMeta } from './BoardReader.js'
+import type { BoardMeta, BoardSpec } from './BoardReader.js'
 import type { BoardCard } from './classify.js'
 import { InboxSection } from './InboxSection.js'
 import { InboxService } from './InboxService.js'
@@ -45,10 +45,13 @@ function service(
   activity: ActivityPort,
   waiting: string[] = [],
   meta?: BoardMeta,
+  when?: BoardSpec['when'],
 ) {
   const explained: StoredEvent[] = []
   const inbox = new InboxService({
-    projects: [{ projectId: 'p', board: { owner: 'la-haus', number: 1 } }],
+    projects: [
+      { projectId: 'p', board: { owner: 'la-haus', number: 1 }, ...(when ? { when } : {}) },
+    ],
     board: { cards: async () => cards, ...(meta ? { meta: async () => meta } : {}) },
     activity,
     waitingKeys: () => waiting,
@@ -134,6 +137,23 @@ describe('InboxService', () => {
       ['Sin status', ['o/r#5']],
     ])
     expect((await inbox.inbox()).projects[0]).toMatchObject({ board_url: meta.boardUrl })
+  })
+
+  it('the project when decides which cards of the board are the project, in the inbox and the rest', async () => {
+    const { inbox } = service(
+      [
+        card('o/r#1', { status: 'Refined' }),
+        card('o/r#2', { status: 'Refined', labels: ['blocked'] }),
+        card('o/r#3', { status: 'Todo', labels: ['blocked'] }),
+      ],
+      fakeActivity(),
+      [],
+      undefined,
+      [{ field: 'item.labels', op: 'notContains', value: 'blocked' }],
+    )
+    expect((await inbox.inbox()).items.map((item) => item.ref)).toEqual(['o/r#1'])
+    expect(await inbox.item('o/r#2')).toBeUndefined()
+    expect((await inbox.rest()).columns.flatMap((c) => c.items.map((i) => i.ref))).toEqual([])
   })
 
   it('a task outside the inbox still has a detail, as idle', async () => {
