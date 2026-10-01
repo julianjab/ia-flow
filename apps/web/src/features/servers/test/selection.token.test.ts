@@ -9,8 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  *
  *  - el sondeo de la pantalla de servers le pega a CADA URL declarada —hosts
  *    arbitrarios que el usuario tipeó— y el default se mergeaba en todas.
- *  - `axios.create()` hereda los defaults, así que el cliente del agent-host
- *    mandaba también el token del server de ia-flow.
+ *  - `axios.create()` hereda los defaults: cualquier cliente propio llevaría
+ *    también el token del server elegido.
  */
 describe('el token sólo viaja al server elegido', () => {
   beforeEach(() => {
@@ -56,14 +56,11 @@ describe('el token sólo viaja al server elegido', () => {
     expect(h['x-ia-flow-token']).toBeUndefined()
   })
 
-  it('NO lo manda al agent-host, que tiene su propia credencial', async () => {
+  it('NO lo manda a otro origen del mismo host', async () => {
     const { selectServer } = await import('../selection')
     selectServer('http://localhost:3001', 'secreto')
 
-    // El cliente del agent-host apunta a otro origen con su propio Bearer. Antes
-    // llevaba los dos, y el guard del agent-host prefiere `x-ia-flow-token` — o
-    // sea que además de filtrar, daba 401 con la credencial correcta.
-    const h = await headersFor({ baseURL: 'http://localhost:3002', url: '/v1/provider' })
+    const h = await headersFor({ baseURL: 'http://localhost:3002', url: '/api/runner' })
 
     expect(h['x-ia-flow-token']).toBeUndefined()
   })

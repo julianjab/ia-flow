@@ -1,0 +1,26 @@
+{
+  "name": "@ia-flow/agent-engine-datasource-yaml",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Datasource de @ia-flow/agent-engine: una carpeta de YAML traducida a definiciones (fuente, agentes, pipelines)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/agent-engine-definitions": "workspace:*",
+    "yaml": "^2.6.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

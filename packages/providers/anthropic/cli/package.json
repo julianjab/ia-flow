@@ -1,0 +1,29 @@
+{
+  "name": "@ia-flow/provider-anthropic-cli",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Provider de agent-engine sobre el CLI `claude` (Claude Code): headless (`-p`) o en una sesión de tmux, con las tools del agente por MCP y el inbox y la traza por hooks",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/provider-shared": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

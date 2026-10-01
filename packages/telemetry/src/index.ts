@@ -1,0 +1,55 @@
+export type { ErrorDetail } from './errors.js'
+export { describeError, flattenError } from './errors.js'
+export type { ConsoleSinkOptions, Logger, LogLevel, LogRecord, LogSink } from './logging.js'
+export {
+  addLogSink,
+  consoleSink,
+  createLogger,
+  isLogLevelEnabled,
+  otelSink,
+  parseLogLevel,
+  setLogLevel,
+  setLogSinks,
+} from './logging.js'
+export type { OtlpLogsPayload, OtlpTracesPayload } from './otlpIngest.js'
+export { recordsFromOtlpLogs, recordsFromOtlpTraces } from './otlpIngest.js'
+export type {
+  OtlpResource,
+  RecordExporter,
+  RecordExporterOptions,
+} from './otlpRecords.js'
+export { otlpLogs, otlpTraces, recordExporter } from './otlpRecords.js'
+export { REDACTED, redactSecrets } from './redact.js'
+export type { RemoteTraceContext } from './remoteContext.js'
+export { exportTraceContext, withRemoteTraceContext } from './remoteContext.js'
+export type { TraceJournal, TraceRecord, TraceValue } from './traceRecord.js'
+export type { TraceRecorder, TraceRecorderOptions } from './traceRecorder.js'
+export { EXECUTION_ATTRIBUTE, traceRecorder } from './traceRecorder.js'
+export type {
+  Attributes,
+  Context,
+  Span,
+  SpanLink,
+  SpanOptions,
+  TagOptions,
+  TraceOptions,
+} from './tracing.js'
+export {
+  captureContext,
+  captureSpanLink,
+  errorAttributes,
+  INSTRUMENTATION_SCOPE,
+  inFreshContext,
+  inheritedAttributes,
+  MAX_ATTRIBUTE_LENGTH,
+  markError,
+  SpanKind,
+  scopeAttributes,
+  startSpan,
+  tagged,
+  taggedSync,
+  traced,
+  truncate,
+  withInheritedAttributes,
+  withSpan,
+} from './tracing.js'

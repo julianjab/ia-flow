@@ -10,8 +10,8 @@
       "!**/logs",
       "!**/*.sqlite",
       "!**/apps/web/src/**/*.vue",
-      "!**/handoff",
-      "!v2"
+      "!v2",
+      "!**/otel/grafana/dashboards"
     ]
   },
   "formatter": {
@@ -44,7 +44,18 @@
         "noUselessElse": "warn",
         "useNodejsImportProtocol": "off",
         "noUnusedTemplateLiteral": "off",
-        "useNumberNamespace": "off"
+        "useNumberNamespace": "off",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "patterns": [
+              {
+                "group": ["@ia-flow/*/src", "@ia-flow/*/src/**"],
+                "message": "Importá el paquete por su entrada pública (`@ia-flow/<paquete>`). Si lo que necesitás no está exportado, sumalo a su src/index.ts: lo interno de un paquete no se importa desde afuera."
+              }
+            ]
+          }
+        }
       },
       "correctness": {
         "noUnusedVariables": "off",

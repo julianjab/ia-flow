@@ -1,0 +1,20 @@
+{
+  "name": "@ia-flow/github-auth",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Auth de GitHub — login de usuario (PAT/OAuth token) o de GitHub App (PEM → installation token), intercambiables detrás de una interfaz — standalone, cero dependencias runtime",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

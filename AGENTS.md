@@ -1,74 +1,72 @@
-# ia-flow — Agents, commands & hooks
+# ia-flow
 
-Índice del toolkit de Claude Code de este repo. Ver [CLAUDE.md](./CLAUDE.md) para reglas del proyecto.
+Orquesta agentes de IA contra repos y GitHub Projects. Monorepo Bun: un runner headless
+(`apps/runner-v2`) sobre los paquetes del engine, más una SPA Vue y su visor Electron.
 
-## Subagents (`.claude/agents/`)
+Cada carpeta con código propio trae su `AGENTS.md` o `CLAUDE.md`: **el más cercano al archivo que
+tocás manda** sobre este. Leelo antes de cambiar algo ahí.
 
-### Verificadores (read-only, model: haiku)
-| Agent | Cuándo se dispara | Qué hace |
-|---|---|---|
-| `server-verifier` | Cambios en `apps/server/**` | Biome + `bun test` server + sanity en `index.ts` |
-| `web-verifier` | Cambios en `apps/web/**` | Biome + `vue-tsc --noEmit` + vitest |
+## Dónde va cada cambio
 
-### Ejecutores de código (model: sonnet)
-| Agent | Cuándo se dispara | Qué hace |
-|---|---|---|
-| `feature-implementer` | Feature end-to-end en server | Vertical hexagonal: schema Zod en `shared` → port en `domain` → impl en `infrastructure`/`adapters` → use-case en `application` → cableado en `container.ts` → router Hono → migración si aplica → tests colocados |
-| `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `.spec.ts`, dentro de su feature slice (`features/<dominio>/`) o `ui/` |
-| `migration-writer` | "Nueva migración", "add migration" | Migración SQLite consistente + registro en `runner.ts` |
-| `test-writer` | Código sin cobertura | Detecta runner (bun:test vs vitest) y genera tests AAA |
-| `debugger` | Bug reportado, stack trace, comportamiento inesperado | Diagnóstico root-cause + fix mínimo + test de regresión |
+| Querés… | Va en |
+| --- | --- |
+| Cambiar cómo corre un pipeline o un agente (ejecuciones, pausas, colas, salidas) | `packages/agent-engine/core` — contrato puro, sin I/O |
+| Validar o armar definiciones (schemas de agentes y pipelines) | `packages/agent-engine/definitions` |
+| Una tool o acción de GitHub para un agente | `packages/github/tools` |
+| Hablar con GitHub (REST/GraphQL, auth, webhooks) | `packages/github/{api,auth,webhook}` |
+| Slack, disco, shell, worktrees | `packages/slack/*`, `packages/local/*` |
+| Un modelo o CLI nuevo como provider | `packages/providers/*` |
+| El runner: servidor, intake, catálogo de acciones, bandeja, asistente | `apps/runner-v2/src` (ver su `AGENTS.md`) |
+| Un prompt, un pipeline o un agente de un deploy | la config de ese deploy (`runner.yaml` + `projects/`), no el código |
+| La web | `apps/web` — antes de tocar un `.vue` o `.css`, `apps/web/DESIGN_SYSTEM.md` |
+| Un tipo que cruza el wire hacia la web | `packages/shared` (Zod) |
 
-### Auditores (read-only, model: sonnet)
-| Agent | Cuándo se dispara | Qué hace |
-|---|---|---|
-| `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre capas | Audita la regla de dependencia (hexagonal en server, feature-sliced en web, contract-only en shared) y distingue deuda nueva de la preexistente |
-| `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica scope del contrato + compat de call-sites en server + web |
-| `engine-agent-author` | "Crear/mejorar un agente del engine", editar `agents/*/agents.*.yaml`, agente que no dispara o loopea | Diseña la `AgentDefinition`: activación → cierre de ciclo → tools mínimas → prompt. Carga el skill `ia-flow-agent-authoring` |
-| `code-reviewer` | Antes de commit/PR | Checklist OWASP + convenciones ia-flow, findings con severidad |
-| `pr-writer` | Al abrir PR o redactar commit grande | Conventional Commits + body con Summary/Changes/Test plan |
+## Comandos (desde la raíz)
 
-## Skills (`.claude/skills/`)
+```bash
+bun install
+bun run check                      # biome + fronteras + typecheck + tests — obligatorio antes de push
+bun run lint:boundaries            # sólo las fronteras (.dependency-cruiser.cjs)
+bun run test:<pkg>                 # un paquete: test:agent-engine, test:github-tools, test:runner-v2…
+bun run typecheck:<pkg>
+bun run runner                     # runner-v2: carga y valida la config, sin servir
+bun run runner:serve               # runner-v2: servidor de webhooks
+bun run dev                        # la web (5173)
+```
 
-| Skill | Cuándo se carga | Qué aporta |
-|---|---|---|
-| `ia-flow-agent-authoring` | Crear/editar/depurar agentes del **engine** (`AgentDefinition`), diseñar pipelines de labels o statuses, elegir tools/provider/MCP | `SKILL.md` con el modelo mental + checklist, y `references/` cargadas bajo demanda: `agent-definition`, `activation-and-outcomes`, `dispatch-gates`, `tools`, `providers-and-mcp`, `variables`, `patterns` |
+Un solo archivo de tests: `bun test --cwd apps/runner-v2 <archivo>` (runner) o
+`bun run --cwd <paquete> test -- <archivo>` (vitest). Corré el de lo que tocaste antes que la suite.
 
-> Ojo con la ambigüedad del término: los agentes de `.claude/agents/` son **subagentes de
-> Claude Code**; los del skill de arriba son **agentes del engine** (filas de `agents` /
-> `agents/*/agents.*.yaml`) que el daemon corre contra issues.
+## Invariantes
 
-## Slash commands (`.claude/commands/`)
+Las fronteras entre paquetes y carpetas NO se describen acá: las verifica `bun run lint:boundaries`
+y cada regla dice cómo arreglarla. Lo que no se puede verificar:
 
-| Command | Uso | Delega en |
-|---|---|---|
-| `/check [--all]` | Gate de calidad: biome + typecheck + tests de workspaces tocados | — |
-| `/migrate <nombre>` | Crear migración SQLite | `migration-writer` |
-| `/add-route <recurso>` | Scaffold de router Hono nuevo | — |
+- **Bun es el único package manager y Biome el único linter/formatter.** Nada de npm/pnpm/yarn,
+  ESLint ni Prettier.
+- **Los paquetes son source-only:** `exports` apunta a `src/index.ts`, sin build ni `dist/`. Un
+  cambio de API se ve al instante en los consumidores: corré también su `typecheck`.
+- **Se importa un paquete por su nombre (`@ia-flow/<paquete>`), nunca por ruta ni por `/src/…`.**
+  Lo que falte, se exporta desde su `src/index.ts`.
+- **Imports con extensión `.js`** (ESM, `NodeNext`). La web usa el alias `@/*`.
+- **Nada de `utils/`, `helpers/`, `common/`:** el código va en el dominio que lo usa.
+- **Nunca escribir estado dentro del repo.** El runner usa `IA_FLOW_HOME`
+  (`~/.local/state/ia-flow/runner`); los tests, el tmp del sistema.
+- **Bun lee `experimentalDecorators` del `tsconfig` del directorio desde el que corre**, no del de
+  cada archivo: `@memoize` sólo funciona si Bun corre con `--cwd` del paquete. Los scripts ya lo
+  hacen; no corras `bun test` desde la raíz apuntando a un archivo de otro paquete.
+- **Logs con `createLogger('scope')`** de `@ia-flow/telemetry`, no `console.log`.
+- **Nombres:** camelCase (TS), PascalCase (tipos, clases, componentes), SCREAMING_SNAKE_CASE (env),
+  snake_case (payloads, columnas, ids de tools).
 
-## Hooks (`.claude/hooks/` + `.claude/settings.json`)
+## Tests
 
-| Hook | Evento | Efecto |
-|---|---|---|
-| `block-branch.sh` | `PreToolUse` Bash | Bloquea `git checkout -b`, `git switch -c`, `git branch <name>` (ia-flow es main-only) |
-| `biome-check.sh` | `PostToolUse` Edit/Write/MultiEdit | Auto-format silencioso con Biome del archivo editado |
+- Paquetes: `src/**/tests/*.test.ts` (Vitest), nunca contra la red real (`fetchImpl` inyectable).
+- `apps/runner-v2`: `<módulo>.test.ts` al lado del módulo (`bun test`). Ningún test depende de una
+  config de deploy: la config local (`apps/runner-v2/.config/`) no está en git.
+- `apps/web`: `test/Foo.test.ts` junto al componente o módulo (Vitest).
 
-## Settings (`.claude/settings.json`)
+## Commits y ramas
 
-- **Default mode:** `acceptEdits`
-- **Allow:** Read/Grep/Glob, `bun *`, `bunx *`, `git status/diff/log/show/add/commit/stash`, `gh api/pr view/issue view`
-- **Ask:** `git push`, `gh pr create/comment`, `bun install`, `Write **/*.env*`
-- **Deny:** `Read **/.env*`, `rm -rf`, `gh pr merge`, `git push --force`, `git reset --hard`
-
-## Convenciones para autores de agents
-
-1. **Frontmatter obligatorio:** `name`, `description` (con trigger explícito "Use proactively/when..."), `tools`, `model`.
-2. **Un solo tema por agent.** Si haces dos cosas, son dos agents.
-3. **Máx ~200 líneas de cuerpo.** El agent devuelve resumen, no código pegado.
-4. **Reglas duras explícitas** en la sección "Reglas" (qué NO hacer).
-5. **Cita fuentes oficiales** al final si el agent implementa patrones.
-6. **Verificadores usan `haiku`**, ejecutores y auditores `sonnet`. Nadie usa `opus` por default.
-7. **Los ejecutores llaman al verificador correspondiente** al terminar, y a `architecture-guardian`
-   si el cambio agregó archivos, carpetas o cruces entre capas.
-8. **Los agents citan rutas reales.** Antes de escribir un path en un agent, verifícalo con `Glob`:
-   un agent que enseña una estructura que ya no existe produce código que viola la arquitectura.
+Conventional Commits. El código y sus tests van en commits separados (lo exige un hook). No se
+mergea a `main` sin `bun run check` en verde.

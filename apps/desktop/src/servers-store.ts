@@ -13,6 +13,16 @@ export interface StoredServer {
   baseUrl: string
   label?: string
   token?: string
+  /** El login de GitHub de quien usa la web contra ese runner: firma sus movimientos. */
+  github?: { token: string; login: string }
+}
+
+function githubOf(value: unknown): StoredServer['github'] | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const { token, login } = value as Record<string, unknown>
+  return typeof token === 'string' && token && typeof login === 'string' && login
+    ? { token, login }
+    : undefined
 }
 
 /**
@@ -32,12 +42,14 @@ function toServers(raw: unknown): StoredServer[] {
   const out: StoredServer[] = []
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object') continue
-    const { baseUrl, label, token } = entry as Record<string, unknown>
+    const { baseUrl, label, token, github } = entry as Record<string, unknown>
     if (typeof baseUrl !== 'string' || !baseUrl.trim()) continue
+    const login = githubOf(github)
     out.push({
       baseUrl: baseUrl.trim(),
       ...(typeof label === 'string' && label ? { label } : {}),
       ...(typeof token === 'string' && token ? { token } : {}),
+      ...(login ? { github: login } : {}),
     })
   }
   return out

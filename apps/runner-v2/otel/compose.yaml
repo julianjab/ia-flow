@@ -1,0 +1,28 @@
+# Backend OpenTelemetry local del runner: Grafana LGTM en un solo contenedor —
+# OTel Collector (recibe OTLP) + Tempo (trazas) + Loki (logs) + Prometheus (métricas) + Grafana,
+# con los dashboards de grafana/dashboards/ en la carpeta `ia-flow`.
+#
+#   bun run otel                     (desde apps/runner-v2; o: docker compose -f otel/compose.yaml up -d)
+#   Grafana: http://localhost:3000   (sin login)
+#   OTLP:    http://localhost:4318   (HTTP)  ·  localhost:4317 (gRPC) — `settings.telemetry` de runner.yaml
+#
+# Los datos viven en el volumen `otel-lgtm-data`: sobreviven a un restart, no a un `down -v`.
+# `name: otel` fija el proyecto, y con él el nombre del volumen (`otel_otel-lgtm-data`).
+name: otel
+services:
+  otel-lgtm:
+    image: docker.io/grafana/otel-lgtm:latest
+    container_name: ia-flow-otel-lgtm
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - otel-lgtm-data:/data
+      - ./grafana/dashboards:/otel-lgtm/ia-flow-dashboards:ro
+      - ./grafana/provisioning/ia-flow.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/ia-flow.yaml:ro
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+volumes:
+  otel-lgtm-data:

@@ -1,85 +1,131 @@
 #!/usr/bin/env bun
-// Arma los artefactos publicables de una release.
+// Arma el artefacto publicable del runner headless (`apps/runner-v2`) para una release.
 //
 //   bun run scripts/package-release.ts [version]
 //
-// Produce, en dist/artifacts/, para cada una de las tres apps:
+// Produce, en dist/artifacts/:
 //
-//   ia-flow-<app>.js              el bundle pelado — un `ADD` de una línea
-//   ia-flow-<app>-<version>.tar.gz  el bundle + metadata + Dockerfile de ejemplo
-//   SHA256SUMS                    para `ADD --checksum` y para verificar a mano
+//   ia-flow-runner.js                 el bundle pelado — un `ADD` de una línea
+//   ia-flow-runner-<version>.tar.gz   el bundle + VERSION + BUN_VERSION + Dockerfile.example
+//   SHA256SUMS                        para `ADD --checksum` y para verificar a mano
 //
-// ── Por qué un artefacto y no una imagen ─────────────────────────────────
+// ── Por qué un bundle y no una imagen ─────────────────────────────────────
 //
-// Publicar imágenes obliga a quien las consume a heredar la base que NOSOTROS
-// elegimos: nuestra versión de Debian, nuestros paquetes, nuestro usuario. Un
-// bundle se referencia desde el Dockerfile de cualquiera, sobre la base que ya
-// use, y pesa 2 MB.
+// Una imagen le impone al consumidor la base que elegimos nosotros; el bundle se referencia con
+// un `ADD` desde su Dockerfile, sobre la base que ya use (git, toolchains, los MCP que levante).
 //
-// ── Por qué los DOS formatos ─────────────────────────────────────────────
+// ── Las actions de la config ──────────────────────────────────────────────
 //
-// El `.js` pelado existe porque `ADD <url>` NO desempaqueta archivos remotos
-// (sólo los locales), así que con un tarball el consumidor necesita sí o sí un
-// `RUN tar -xzf`. Con el .js suelto su Dockerfile es literalmente un `ADD`.
-// El tarball existe para el caso contrario: trae el VERSION, el BUN_VERSION y
-// un Dockerfile de ejemplo, o sea que se puede leer sin volver a este repo.
+// La config (runner.yaml, pipelines, agentes) NO va en el bundle: la trae cada deploy. Sus
+// actions son `.ts` que importan `@ia-flow/*` y `zod`; el bundle se los sirve como módulos
+// virtuales (`apps/runner-v2/src/bundle/`), así que la carpeta de config puede vivir en cualquier
+// lado, sin `node_modules` al lado.
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-// Las apps y el generador del Dockerfile.example viven aparte porque los
-// comparte `write-dockerfile-examples.ts`, que escribe el mismo archivo dentro
-// del árbol. Ver el encabezado de ese módulo.
-import { APPS, BUN_VERSION, dockerfile, readme, repoSlug } from './release-apps'
+/** La versión de Bun con la que se construye y se prueba el bundle — la misma de `setup-bun` en
+ *  CI y release, y la que se anuncia adentro del artefacto. */
+export const BUN_VERSION = '1.4.2'
 
-const version = (process.argv[2] ?? Bun.env.VERSION ?? '0.0.0-dev').replace(/^v/, '')
-const REPO = repoSlug()
-const OUT = join(import.meta.dir, '..', 'dist', 'artifacts')
+const ROOT = join(import.meta.dir, '..')
+const APP_DIR = join(ROOT, 'apps', 'runner-v2')
+const OUT = join(ROOT, 'dist', 'artifacts')
+const NAME = 'ia-flow-runner'
+
+const version = (
+  process.argv[2] ??
+  Bun.env.VERSION ??
+  (await Bun.file(join(ROOT, 'version.txt')).text())
+)
+  .trim()
+  .replace(/^v/, '')
+const repo = Bun.env.GITHUB_REPOSITORY ?? 'julianjab/ia-flow'
+
+if (Bun.version !== BUN_VERSION) {
+  console.error(`✗ el bundle se arma con Bun ${BUN_VERSION}, no con ${Bun.version}`)
+  process.exit(1)
+}
 
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 
-const sums: string[] = []
-
-for (const app of APPS) {
-  const js = join(OUT, `ia-flow-${app.name}.js`)
-
-  const build = Bun.spawnSync(['bun', 'build', '--target=bun', app.entry, `--outfile=${js}`])
-  if (build.exitCode !== 0) {
-    console.error(`✗ ${app.name}: ${build.stderr.toString()}`)
-    process.exit(1)
-  }
-
-  // El tarball se arma desde un staging dir para que adentro quede una carpeta
-  // con nombre, y no un puñado de archivos sueltos que se desparraman al
-  // desempaquetar en el cwd de alguien.
-  const stage = join(OUT, `ia-flow-${app.name}-${version}`)
-  mkdirSync(stage, { recursive: true })
-  writeFileSync(join(stage, `${app.name}.js`), await Bun.file(js).arrayBuffer().then(Buffer.from))
-  writeFileSync(join(stage, 'Dockerfile.example'), dockerfile(app, version, REPO))
-  writeFileSync(join(stage, 'README.md'), readme(app, version, REPO))
-  writeFileSync(join(stage, 'VERSION'), `${version}\n`)
-  writeFileSync(join(stage, 'BUN_VERSION'), `${BUN_VERSION}\n`)
-
-  const tar = Bun.spawnSync(
-    ['tar', '-czf', `ia-flow-${app.name}-${version}.tar.gz`, `ia-flow-${app.name}-${version}`],
-    { cwd: OUT },
-  )
-  if (tar.exitCode !== 0) {
-    console.error(`✗ tar ${app.name}: ${tar.stderr.toString()}`)
-    process.exit(1)
-  }
-  rmSync(stage, { recursive: true, force: true })
-
-  for (const f of [`ia-flow-${app.name}.js`, `ia-flow-${app.name}-${version}.tar.gz`]) {
-    const hash = new Bun.CryptoHasher('sha256')
-    hash.update(new Uint8Array(await Bun.file(join(OUT, f)).arrayBuffer()))
-    sums.push(`${hash.digest('hex')}  ${f}`)
-  }
-
-  const kb = Math.round(Bun.file(js).size / 1024)
-  console.log(`✓ ia-flow-${app.name}  (${kb} KB de bundle + tarball)`)
+const js = join(OUT, `${NAME}.js`)
+// Desde apps/runner-v2: Bun toma `experimentalDecorators` (el de `@memoize`) del tsconfig del
+// directorio desde el que corre, no del de cada archivo.
+const build = Bun.spawnSync(
+  [
+    'bun',
+    'build',
+    '--target=bun',
+    'src/main.ts',
+    `--outfile=${js}`,
+    `--define=process.env.IA_FLOW_RUNNER_VERSION=${JSON.stringify(version)}`,
+  ],
+  { cwd: APP_DIR },
+)
+if (build.exitCode !== 0) {
+  console.error(`✗ bun build: ${build.stderr.toString()}`)
+  process.exit(1)
 }
 
+// Un decorator TC39 en vez del legacy deja a `@memoize` sin `descriptor` y la bandeja de la web
+// muere en el primer request — sin ningún error al construir.
+const bundled = await Bun.file(js).text()
+if (!bundled.includes('__legacyDecorateClassTS')) {
+  console.error('✗ el bundle no trae los decorators legacy: @memoize quedaría roto')
+  process.exit(1)
+}
+
+const dockerfile = `# ia-flow runner — v${version}
+#
+# Este Dockerfile NO necesita el repo de ia-flow: baja el bundle publicado y lo corre sobre la
+# config de este deploy (runner.yaml + pipelines + agentes + actions).
+FROM oven/bun:${BUN_VERSION}-slim
+
+# git + CAs: el workspace clona y pushea por https.
+RUN apt-get update \\
+ && apt-get install -y --no-install-recommends git ca-certificates \\
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+# \`ADD <url>\` baja el archivo como -rw------- root: sin --chown/--chmod, USER bun no lo lee.
+ADD --chown=bun:bun --chmod=644 https://github.com/${repo}/releases/download/v${version}/${NAME}.js /app/runner.js
+COPY --chown=bun:bun config/ /app/config/
+
+ENV RUNNER_CONFIG_DIR=/app/config \\
+    WORKSPACE_DIR=/state/workspaces
+VOLUME ["/state"]
+RUN mkdir -p /state && chown -R bun:bun /state
+USER bun
+
+EXPOSE 3001
+# GET /health contesta 200 mientras el proceso vive.
+ENTRYPOINT ["bun", "run", "/app/runner.js", "--serve"]
+`
+
+const stage = join(OUT, `${NAME}-${version}`)
+mkdirSync(stage, { recursive: true })
+writeFileSync(join(stage, 'runner.js'), bundled)
+writeFileSync(join(stage, 'Dockerfile.example'), dockerfile)
+writeFileSync(join(stage, 'VERSION'), `${version}\n`)
+writeFileSync(join(stage, 'BUN_VERSION'), `${BUN_VERSION}\n`)
+const tar = Bun.spawnSync(['tar', '-czf', `${NAME}-${version}.tar.gz`, `${NAME}-${version}`], {
+  cwd: OUT,
+})
+if (tar.exitCode !== 0) {
+  console.error(`✗ tar: ${tar.stderr.toString()}`)
+  process.exit(1)
+}
+rmSync(stage, { recursive: true, force: true })
+
+const sums: string[] = []
+for (const file of [`${NAME}.js`, `${NAME}-${version}.tar.gz`]) {
+  const hash = new Bun.CryptoHasher('sha256')
+  hash.update(new Uint8Array(await Bun.file(join(OUT, file)).arrayBuffer()))
+  sums.push(`${hash.digest('hex')}  ${file}`)
+}
 writeFileSync(join(OUT, 'SHA256SUMS'), `${sums.join('\n')}\n`)
-console.log(`\n→ dist/artifacts/  (v${version}, Bun ${BUN_VERSION})`)
+
+const kb = Math.round(Bun.file(js).size / 1024)
+console.log(`✓ ${NAME}.js (${kb} KB) + tarball → dist/artifacts/ (v${version}, Bun ${BUN_VERSION})`)

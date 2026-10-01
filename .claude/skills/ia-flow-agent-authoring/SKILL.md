@@ -1,241 +1,131 @@
 ---
 name: ia-flow-agent-authoring
-description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (los `projects/*/agents/*.yaml` de un deploy headless, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
+description: Autoría y revisión de agentes y pipelines del engine de ia-flow (los YAML de una config del runner — `runner.yaml`, `projects/<id>/{agents,pipelines,repos}`): disparo (on/when/whenText), salidas y rutas, actions, providers, MCP, variables de prompt. Úsalo cuando haya que crear, editar, depurar o auditar un agente o una pipeline, cuando un agente no se dispara / se re-dispara en loop, cuando le falta una action o un permiso de bash, o al diseñar el flujo de columnas/labels de un board. NO es para los subagentes de Claude Code de .claude/agents/.
 ---
 
 # Autoría de agentes del engine ia-flow
 
-Un **agente del engine** es una fila de `AgentDefinition` (SQLite `agents` o un YAML de
-`<deploy>/projects/<projectId>/agents/*.yaml`) que el daemon ejecuta contra issues de un source
-(GitHub Project, GitHub Issues, local). No confundir con los subagentes de Claude Code
-(`.claude/agents/*.md`), que son otra cosa.
+Un **agente del engine** es un YAML (`AgentDoc`) que `apps/runner-v2` corre contra las tasks de
+un board de GitHub; una **pipeline** (`PipelineDoc`) dice con qué evento corre y qué pasos da. No
+confundir con los subagentes de Claude Code (`.claude/agents/*.md`).
 
-## Modelo mental (leer siempre)
+Fuentes de verdad — leelas, no las copies:
 
-```
-① SourceDispatcher.shouldScan   pausa · rate limit · agentes cableados · health del source
-② por item (tryDispatch)        anchorLabel · filtro de proyecto · agentWorking · en vuelo · cap
-③ TaskDispatcher.dispatch       validate · health · projectId · config · selectAgent · blockers
-④ AgentOrchestrator + Workspace status fresco · repo registrado · lock · multi-repo · writePaths
-     └─ Agent.run               onProcess → prompt(+git context) → provider → onFinish/onError
-```
+| Qué | Dónde |
+| --- | --- |
+| Forma de agente, pipeline y fuente (zod) | `packages/agent-engine/definitions/src/schema.ts` |
+| Reglas de la definición (brief, `ref`, `{{vars}}`, `allowWrites`, `whenText`, `http`) | `packages/agent-engine/definitions/CLAUDE.md` |
+| Semántica de ejecución (salidas, cascada de rutas, `injects`, pausas, `ifRunning`, `ifQueued`, topes) | `packages/agent-engine/core/CLAUDE.md` |
+| Forma de `runner.yaml` / `project.yaml` | `apps/runner-v2/src/config/RunnerConfig.ts`, `apps/runner-v2/README.md` |
+| Config real de referencia (producción de La Haus) | `la-haus/claw-agents` → `agents/ai-development-flow/config/` |
 
-Un agente que "no corre" puede estar frenado en cualquiera de las cuatro capas — la lista
-completa de gates y el checklist de diagnóstico están en `references/dispatch-gates.md`.
+Si el código contradice este skill, gana el código.
 
-Cinco hechos que gobiernan todo diseño:
-
-1. **Un dispatch = UN agente.** No hay cadenas. El pipeline avanza porque el `onFinish`
-   del agente cambia el estado del issue (status o labels) y el siguiente scan
-   selecciona a otro agente contra ese estado nuevo.
-2. **El agente declara sus criterios**, no el status. `statusName` / `when` / `repoName` /
-   `projectId` viven en el agente. Vacío = sin restricción.
-3. **Un agente sin `statusName` NI `when` es rechazado** (filtro "scope"). Sin uno de los
-   dos, nada deja de cumplirse al terminar el run → loop infinito sobre el mismo issue.
-4. **El estado que el agente cambia al terminar tiene que ser el mismo que lo activa.**
-   Si activa por `when: labels = agent:build`, el `onProcess` debe quitar esa label
-   (`$set:Labels=-agent:build`). Si activa por `statusName`, la salida de éxito debe
-   mover el status.
-   Un run termina aplicando UNA transición, elegida de `exits`: `success` o `error`
-   según cómo terminó (los viejos `onFinish`/`onError`), o una salida con nombre que el
-   agente pide con `select_exit`. `onProcess` es aparte — es un hook, no un destino.
-   → `references/activation-and-outcomes.md`
-5. **Sin `tools[]` no hay tools.** No hay fallback a "todas". Las únicas que no se
-   declaran son las internas de ciclo de vida — y de esas, **sólo `fail_task` está en
-   todos lados**: `complete_task` es `providerKinds: ['async']`, así que a un provider
-   sync (`anthropic-api`) ni se le ofrece.
-6. **El prompt nunca afirma el kind del provider.** El cierre se describe por lo que el
-   modelo puede observar ("si `complete_task` está entre tus tools…"), no por mecánica del
-   engine. El kind de un `remote:` lo declara el agent-host en runtime — el YAML no lo sabe.
-   Y en sync **el silencio es éxito**: un `end_turn` aplica `onFinish`, así que un prompt
-   que no nombra `fail_task` no puede reportar un fallo.
-   → `references/providers-and-mcp.md` § "Cierre del run"
-
-## Flujo de trabajo para crear o mejorar un agente
-
-1. **Ubica dónde vive.** Deploy headless → `<deploy>/projects/<projectId>/agents/<NN>-<nombre>.yaml`,
-   o `<deploy>/agents/` si aplica a todos los proyectos (ver "Trabajar
-   en un deploy" abajo). Runtime normal → tabla `agents` vía la web / API.
-2. **Define la activación** antes que el prompt: proyecto, repo, status o label, y `position`.
-   Verifica el punto 3 y 4 de arriba. → `references/activation-and-outcomes.md`
-3. **Elige el provider y su config.** `anthropic-api` (sync, con sandbox de worktree y
-   tools propias) vs `tmux-claude`/`iterm-claude` (async, CLI de Claude en una terminal).
-   → `references/providers-and-mcp.md`
-4. **Elige las tools mínimas.** Cada tool de escritura (`fs_write`, `fs_edit`, `bash_run`)
-   materializa un worktree y dispara la creación de linked branch. Un agente read-only
-   no crea nada. → `references/tools.md`
-   Si el agente necesita ceder el turno hasta que pase algo afuera (un CI, un merge, una
-   review) en vez de sondear con `bash_run`, usa `wait_for_event`/`pause_until` con `on`
-   en formato `<evento>.<acción>` y sólo los campos que ese evento realmente trae —
-   y asegurate de que exista una regla sobre `wait.resumed` que lo reanude.
-   → `references/events-and-waits.md`
-5. **Escribe el prompt** con las variables reales del catálogo (`{{task.*}}`,
-   `{{project.*}}`, `{{variables.*}}`). Lo transversal al proyecto va en
-   `systemPrompts`, no repetido en cada prompt. **Solo en positivo**: describí lo
-   que el agente tiene y cómo lo usa (sus `tools[]`, el MCP catalogado), nunca lo
-   que no tiene o no debe usar — al agente le pasamos lo que puede usar, no tiene
-   contexto de lo que no puede. Una prohibición sobre algo fuera de su superficie
-   de tools es ruido; una sobre algo que sí está ahí (el provider terminal trae
-   Read/Write/Edit/Bash nativos que `tools[]` no gobierna) es una instrucción que
-   puede no respetar. Si algo no debe estar disponible, que no esté en
-   `tools[]`/`mcpCatalogIds` — no se lo pidas al modelo. → `references/variables.md`
-6. **Define los outcomes** (`onProcess` / `onFinish` / `onError`) cerrando el ciclo del
-   punto 4. Todo se escribe con `$set:` contra campos del source; los multi-valor
-   (`Labels`) usan tokens `+`/`-`. → `references/activation-and-outcomes.md`
-7. **Valida contra el checklist** de abajo. Si tocaste YAML de un deploy, cargalo de
-   verdad (ver "Trabajar en un deploy") y corré `bun run check`.
-
-## Trabajar en un deploy
-
-Un deploy headless carga su config con el entrypoint
-`apps/server/src/entry/runner.ts`, desde un `runner.yaml` más carpetas
-**agrupadas por proyecto**:
+## Modelo mental
 
 ```
-<raíz del deploy>/
-  runner.yaml                        settings, github, upstream, mcp
-  projects/
-    <id-del-proyecto>/
-      project.yaml                   el proyecto (sin `id`: lo pone la carpeta)
-      agents/10-refiner.yaml         un archivo por agente, sin `projectId`
-      agents/20-implementer.yaml
-      repos/<repo>.yaml
-  agents/00-triage.yaml              GLOBALES: aplican a todos los proyectos
+webhook github.<evento> ─► intake (resolve_task, en runner.yaml) ─► evento de task con payload
+      (issue.status_changed, issue_comment, pull_request_review, check_suite, …)
+  ─► cada pipeline: on → scope(projectId) → when → whenText ─► exclusive/position eligen
+  ─► do[]: pasos en orden (firstMatch: el primero cuyo when pasa)
+  ─► paso agent: onStart → prompt(brief + prompt) → provider → UNA salida (submit_<salida>)
+  ─► report (comentario) → destinos de la salida (update_issue, pause, …)
+  ─► el cambio que hizo la salida vuelve como webhook → otra pipeline
 ```
 
-**Este repo no tiene ningún deploy.** El roster vivo es
-`agents/ai-development-flow/config/` en el repo `claw-agents`, que hornea esa
-misma estructura dentro de su imagen.
+Hechos que gobiernan todo diseño:
 
-**Un agente = un archivo, dentro de la carpeta de su proyecto.** El
-`projectId` sale del nombre de la carpeta y no se repite adentro — es la clase
-de dato que se copia mal al duplicar un agente para otro proyecto, y el
-síntoma sería un agente que no dispara nunca o que dispara donde no debe.
+1. **El disparo vive en la pipeline, no en el agente.** `on` + `when` (+ `whenText`) de la
+   pipeline y el `when` de cada paso. El agente es reusable entre pipelines; lo específico del
+   momento va en el `brief` del paso.
+2. **Una pipeline por momento del flujo, no por variante.** `firstMatch: true` hace de `do` una
+   lista de alternativas (un agente por tipo o repo) y el orden es la prioridad. Un mismo agente
+   no puede ser dos pasos de una pipeline: dos momentos distintos son dos pipelines
+   (`20-build-arrival` / `21-build-reentry`).
+3. **Un agente termina eligiendo UNA salida** con `submit_<salida>` (sin `routes`, hay una
+   implícita: `done`), o `fail_turn` (→ `onError`), o `yield_turn` si lo interrumpieron
+   (→ `onInterrupt`). El `when` de cada salida es texto para el modelo: cuándo elegirla.
+4. **Las salidas cierran el ciclo.** El destino (típicamente `update_issue` con otro `status`)
+   saca a la task del `when` que la disparó. Si no, la próxima vuelta del webhook la vuelve a
+   disparar: loop. Encadenar agentes va en `routes.<agentId>` de la pipeline, nunca con ciclos;
+   un "review → build" pasa por un evento (el cambio de status).
+5. **Sin `actions` no hay actions.** El agente sólo ve lo que lista (más las tools de cierre y,
+   si declara `waits`, `wait_for_event`). Las que escriben necesitan `allowWrite: true` en su
+   entrada o `allowWrites: true` en el agente. Un provider CLI trae además sus tools nativas, que
+   `actions` no gobierna.
+6. **Una task corre un agente a la vez.** Un evento para una task ocupada: si el agente lo acepta
+   (`injects`), se le inyecta; si no, la pipeline decide con `ifRunning` (`wait`/`skip`/
+   `interrupt`) e `ifQueued` (`replace`/`keep`).
 
-**Un agente global vive en `agents/` al nivel de arriba** y aplica a todos los
-proyectos. Uno con el MISMO `id` dentro de un proyecto lo pisa
-(`YamlAgentRepository.visibleTo`): es como se especializa un agente para un
-proyecto sin duplicarlo entero. Los globales se cargan primero, y ese orden es
-lo que hace que la sobrescritura funcione.
+## Flujo de trabajo
 
-**El prefijo numérico no es cosmético.** Los archivos se leen en orden
-alfabético, y de ese orden depende cuál agente gana cuando ninguno declara
-`position` — `selectAgent` corre "el primero por `position`" y cae al orden de
-declaración. Agente nuevo entre dos existentes: numeralo en el hueco (`25-`),
-o declará `position` explícito.
+1. **Ubicá dónde vive.** Proyecto → `projects/<id>/agents/NN-<nombre>.yaml` y
+   `projects/<id>/pipelines/NN-<momento>.yaml` (el `NN-` ordena la lectura). Las capacidades
+   (`assistant`, `text-classifier`, `file-focus`, `branch-namer`) vienen con el runner
+   (`apps/runner-v2/src/capabilities/`); un deploy sólo las pisa con un agente propio, de otro id,
+   en `sources.agents` + `sources.capabilities`. Nada se
+   descubre por carpeta: `runner.yaml`/`project.yaml` declaran cada directorio.
+2. **Diseñá el disparo** en la pipeline: evento, `when` sobre `item.*`/`task_type`/campos del
+   evento, `scope`, `exclusive`/`position`, `ifRunning`. → `references/pipelines.md`
+3. **Elegí provider(s) y su config.** → `references/providers-and-mcp.md`
+4. **Elegí las actions mínimas** y sus `options` (`bash_run` con `allow`/`deny`).
+   → `references/agents.md` § Actions
+5. **Escribí el prompt** con variables reales del payload. El método va en `systemPrompts`
+   (cacheable); en `prompt`, sólo lo que tiene `{{`; lo del momento, en el `brief` del paso.
+   → `references/variables.md`
+6. **Declará las salidas** (`routes`), su `report`, y confirmá `onError`/`onInterrupt` (los del
+   proyecto aplican si el agente no los pisa). → `references/agents.md` § Salidas
+7. **Validá cargando** (abajo) y pasá el checklist.
 
-**Una carpeta dentro de `projects/` DEBE traer `project.yaml` (o `<id>.yaml`).**
-Si sólo querés agrupar agentes sin declarar un proyecto, van en `agents/`. El
-loader tira nombrando qué falta.
-
-**Al usar una carpeta nueva, agregá su mount al compose.** El mount de un
-archivo no trae sus carpetas hermanas: sin
-`- ./projects:/app/config/projects:ro` el contenedor ve un `runner.yaml` sin
-proyectos y no arranca.
-
-**Cuidado con los anchors YAML.** Si dos entradas comparten un bloque vía
-`&ancla` / `*ancla`, tienen que quedar en el MISMO archivo — un alias no cruza
-archivos, y tampoco sobrevive a que se borre la entrada que definía el anchor.
-Pasó de verdad: alguien borró un proyecto y el runner murió al bootear con
-"Unresolved alias". El error ahora nombra el archivo.
-
-**Validá cargando, no leyendo.** Antes de dar por bueno un cambio:
+## Validar
 
 ```bash
-bun -e 'const {loadRunnerConfig}=await import("./apps/server/src/runner/config.js");
-const c=loadRunnerConfig("<ruta-al-deploy>/runner.yaml");
-console.log(c.agents.map(a=>`${a.id}@${a.projectId ?? "global"}`).join("\n"))'
+bun run runner                                            # tu .config local: carga y valida
+bun run --cwd apps/runner-v2 start --config <runner.yaml|dir>         # otra config (un deploy)
 ```
 
-Eso corre el mismo parseo + Zod que hace el entrypoint al bootear, así que un
-error de schema, un `projectId` inesperado o un orden distinto del que
-suponías aparecen acá y no en el contenedor.
+Un error de schema sale con archivo y campo. Con el runner en `--serve`,
+`GET /api/explain?ref=<owner>/<repo>%23<n>&event=<tipo>` re-planea el último evento de esa task
+(o uno sintético de ese tipo) en seco: qué pipeline correría y por qué las demás no.
 
-**Los secretos nunca van en el YAML.** Se nombran (`${GITHUB_TOKEN}` en la sección
-`mcp`) y se resuelven en runtime — con GitHub App, ese nombre devuelve el installation
-token, no el env. La regla del repo: secreto → env o archivo montado; comportamiento →
-el YAML, que se commitea.
+## Prompts
 
-## Checklist de revisión (aplícalo a todo agente nuevo o editado)
+- **En positivo.** Describí lo que el agente tiene y cómo usarlo. Lo que no debe usar se saca de
+  `actions`/`mcpServers`; pedírselo al modelo es ruido o una instrucción que puede ignorar.
+- **Nombrá cada salida y `fail_turn`** con cuándo usarla. Una salida declarada que el prompt no
+  menciona casi nunca se elige.
+- **No le expliques mecánica del engine** (cascada de rutas, `ifRunning`, providers): no la
+  puede verificar ni la necesita.
+- **Si recibe inyecciones** (`injects`), un system prompt le dice qué forma tienen y que tienen
+  prioridad (ver `20-implementer.yaml`).
+- Lo transversal del proyecto va en `systemPrompts` de `project.yaml`, no copiado en cada agente.
 
-- [ ] Tiene `statusName` o `when` no vacío (si no, nunca se ejecuta: filtro `unscoped`).
-- [ ] La salida `success` **saca** al issue del criterio que lo activó (label quitada con
-      `$set:Labels=-...` o status movido). Si no, es un loop.
-- [ ] Toda salida con nombre propio (las que NO son `success`/`error`) está declarada en
-      `exits` Y nombrada en el prompt con `select_exit`. Declarada sin instrucción, el
-      agente nunca la usa; pedida en el prompt sin declarar, la tool la rechaza.
-- [ ] Todo lo que el agente escribe va por `$set:` contra un campo que el source realmente
-      define (`getFields()`); los multi-valor usan tokens con signo, nunca asignación.
-      Vale para cada salida de `exits`, no sólo para `success`/`error`.
-- [ ] La salida `error` deja el issue en un estado terminal o reintentar-able a
-      propósito (`blocked`), nunca en el mismo criterio activador. Si el agente tiene que
-      poder devolver el issue a un paso ANTERIOR por un motivo distinto, eso es una salida
-      con nombre — no reutilices `error` para dos destinos.
-- [ ] `tools[]` es el mínimo necesario. Si tiene `bash_run`, su `allow` está acotado por
-      comando y `deny` cubre lo destructivo.
-- [ ] Si escribe código sin tools locales (todo por MCP de GitHub) → `requiresBranch: true`,
-      si no `{{task.branch}}` viene vacío.
-- [ ] `providerConfig` sólo trae campos del schema **strict** de su provider (mezclar
-      campos de terminal en `anthropic-api` hace fallar el parseo → config ignorada/rechazada).
-      Si el prompt pide un comportamiento tipo "un parámetro de la API" (determinismo, parar en
-      un token, forzar una tool) que no está en esa lista, revisa
-      `references/anthropic-messages-api.md` antes de asumir que existe un knob para eso.
-- [ ] Toda variable `{{...}}` del prompt existe en el catálogo (una desconocida se deja
-      literal en el prompt, no falla — es un bug silencioso).
-- [ ] Reglas transversales al proyecto están en `systemPrompts` (proyecto o agente), no
-      copiadas en cada prompt.
-- [ ] `position` refleja la prioridad deseada dentro de su scope (los agentes de proyecto
-      siempre ganan a los globales, sin importar `position`).
-- [ ] El prompt **nombra `fail_task`** y dice cuándo llamarla (ambigüedad, bloqueo real).
-      Sin eso, en sync el run que se rindió cierra como éxito y aplica `onFinish` —
-      "terminá con un error" / "la task queda como está" no son instrucciones ejecutables.
-- [ ] El cierre exitoso está escrito como condicional sobre la tool ("si `complete_task`
-      está entre tus tools… si no, terminá con el resumen en texto"), NO como una
-      afirmación del kind ("este agente corre sync"). `complete_task` es async-only y el
-      kind de un `remote:` lo decide el agent-host en runtime.
-- [ ] El prompt no le explica al modelo mecánica interna del engine (`providerKinds`,
-      `resolveExecutableTool`, qué infiere del `stopReason`) — no puede verificarla ni la
-      necesita para decidir.
-- [ ] El prompt está escrito en positivo — describe qué tools usar y cómo, no
-      frases tipo "no uses X" / "no tenés Y" / "aunque esté disponible no lo uses".
-      Lo que no debe usar se resuelve sacándolo de `tools[]`/`mcpCatalogIds`, no
-      pidiéndoselo al modelo.
-- [ ] Si usa `wait_for_event`/`pause_until`: el `on` es `<evento>.<acción>` real (no el
-      nombre del webhook pelado) y el `when` sólo referencia campos que ese evento
-      realmente trae. Existe una regla sobre `wait.resumed` que lo reanuda.
-      → `references/events-and-waits.md`
+## Checklist (todo agente o pipeline nuevo o editado)
+
+- [ ] La pipeline tiene `on` real (un tipo que publica el intake o un evento derivado) y un
+      `when` que la salida de éxito deja de cumplir. El eco del cambio no la re-dispara.
+- [ ] El paso del agente filtra `item.blocked` salvo que deba correr bloqueado.
+- [ ] `exclusive`/`position`/`firstMatch` resuelven quién gana entre pipelines y pasos que
+      matchean el mismo evento; el orden de `do` es la prioridad con `firstMatch`.
+- [ ] `ifRunning` pensado: `interrupt` si el evento invalida lo que hace el agente (la card se
+      movió), `wait` si no. `ifQueued: keep` donde cada evento cuenta (comentarios).
+- [ ] Si acepta `injects`, su `when` también excluye lo que publica el propio engine
+      (`<!-- ia-flow:`): los injects son todo el filtro.
+- [ ] Cada salida de `routes` tiene `when` claro y destino (en el agente o en la pipeline), y
+      está nombrada en el prompt. Una `pause` va última en su lista y tiene `timeout`.
+- [ ] `actions` es el mínimo; las que escriben tienen `allowWrite`/`allowWrites`; `bash_run`
+      con `deny` de lo destructivo.
+- [ ] `providerConfig`/`providers[].config` sólo trae claves del schema de ese provider.
+- [ ] Toda `{{variable}}` existe en el payload del evento que lo dispara (una desconocida queda
+      literal, sin error). `{{vars.x}}` existe en la fuente (si no, no carga).
+- [ ] Secretos sólo nombrados (`${ENV}`), nunca en el YAML.
+- [ ] La config carga sin errores (`bun run runner` o `start --config <runner.yaml|dir>`).
 
 ## Referencias
 
-Cárgalas sólo cuando las necesites:
-
 | Archivo | Cuándo leerlo |
 | --- | --- |
-| `references/agent-definition.md` | Campo por campo del `AgentDefinition` + YAML canónico |
-| `references/activation-and-outcomes.md` | Filtros de selección, DSL `when`, DSL `$set:` (campos simples y multi-valor) |
-| `references/tools.md` | Catálogo de tools, aliases, política de `bash_run`, efectos sobre workspace |
-| `references/providers-and-mcp.md` | Providers, `providerConfig`, MCP catalog, worktree/branch/git context |
-| `references/anthropic-messages-api.md` | Parámetros reales de la Messages API vs lo que `anthropic-api` expone (qué es agente/deploy/no soportado), estado del conector MCP |
-| `references/variables.md` | Variables de prompt y system prompts |
-| `references/events-and-waits.md` | `wait_for_event`/`pause_until`, formato `<evento>.<acción>` del event-catalog de GitHub, campos reales por tipo, y la trampa de la espera sin regla que la reanude |
-| `references/dispatch-gates.md` | Todos los gates (scan → item → dispatch → run) + env knobs + diagnóstico de "no corre" |
-| `references/patterns.md` | Recetas completas (pipeline por labels, por status, MCP-only), anti-patrones |
-
-## Fuentes de verdad en el código
-
-- Schemas: `packages/shared/src/schemas.ts` (`AgentDefinitionSchema`, `AgentActivationSchema`,
-  `AgentOutcomesSchema`, `McpCatalogEntrySchema`).
-- Ops de campo multi-valor: `packages/issue-sources/src/dispatch/field-ops.ts`
-  (`applyMultiValueOps`, `MULTI_SELECT_DATA_TYPE`).
-- Gates de scan/dispatch: `packages/issue-sources/src/dispatch/` (`source-dispatcher.ts`,
-  `project-filter.ts`, `polling-pause.ts`, `divergence-reconciler.ts`).
-- Selección: `packages/agent-engine/src/agent-selection.ts`; DSL `when`:
-  `packages/issue-sources/src/dispatch/when.ts`; outcomes: `packages/agent-engine/src/outcomes.ts`.
-- Tools + policy: `packages/tools/src/` (`policy.ts`, `exec/pattern.ts`, `*/`).
-- Providers: `packages/ai-providers/src/`. Ciclo de vida: `packages/agent-engine/src/Agent.ts`.
-- Event-catalog (tipos `<evento>.<acción>` y sus campos reales): `packages/shared/src/event-catalog.ts`.
-  DSL `when` (10 operadores; el mismo evaluador que usa la selección de agentes, sólo cambia el
-  sujeto — `Task` vs payload de `EngineEvent`): `packages/rules/src/when.ts`. Tools de espera:
-  `packages/tools/src/wait/` (`wait.ts`, `pause-until.ts`).
-
-Ante cualquier duda, el código gana sobre este skill — verifica ahí antes de afirmar.
+| `references/pipelines.md` | Disparo: eventos, `when`/`whenText`, `scope`, prioridad, `firstMatch`, `ifRunning`/`ifQueued`/`ifPaused`, overrides de rutas |
+| `references/agents.md` | Campos del agente: actions, `injects`, `waits`, `onStart`, salidas (`routes`, `pause`), `report`/`onError`/`onInterrupt` |
+| `references/variables.md` | Qué hay en el payload (`item.*`, `task.*`, `event.payload.*`, `input.*`, `steps.*`, `vars.*`) |
+| `references/providers-and-mcp.md` | Providers de `runner.yaml`, candidatos en orden, `remote:*`, `providerConfig`, catálogo `mcp`, `mcpHost` |

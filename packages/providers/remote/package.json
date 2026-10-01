@@ -1,0 +1,29 @@
+{
+  "name": "@ia-flow/provider-remote",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Un Provider en otra máquina: el host se suscribe al runner y pide tareas; el runner le entrega cada corrida y la espera en su canal (las tools por MCP, los hooks) — como un CLI, pero contra una API",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/provider-shared": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

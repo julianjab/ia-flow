@@ -26,6 +26,7 @@
 // preguntarse dónde corre.
 
 import { normalizeBaseUrl } from '@/features/servers/api'
+import { type GithubSession, parseGithub } from '@/features/servers/selection'
 
 /** Un server declarado por el usuario. */
 export interface SavedServer {
@@ -42,6 +43,12 @@ export interface SavedServer {
    * para todos, y congelado adentro del .dmg publicado.
    */
   token?: string
+  /**
+   * El login de GitHub del usuario en ESTE server (device flow). Por server, no
+   * global, y persistido igual que el token: en el config dir de la app de
+   * escritorio o en localStorage.
+   */
+  github?: GithubSession
 }
 
 /** Lo que el preload de la app de escritorio expone, si estamos ahí. */
@@ -67,7 +74,7 @@ const KEY = 'ia-flow:servers:list'
  */
 function parseServerEntry(entry: unknown): SavedServer | null {
   if (!entry || typeof entry !== 'object') return null
-  const { baseUrl, label, token } = entry as Record<string, unknown>
+  const { baseUrl, label, token, github } = entry as Record<string, unknown>
   if (typeof baseUrl !== 'string' || !baseUrl.trim()) return null
   // `normalizeBaseUrl` y no un trim: es la MISMA función que usa `addServer`,
   // así que una entrada editada a mano como `192.168.1.9:3001` queda con su
@@ -80,7 +87,13 @@ function parseServerEntry(entry: unknown): SavedServer | null {
     baseUrl: normalized,
     ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
     ...(typeof token === 'string' && token ? { token } : {}),
+    ...githubField(github),
   }
+}
+
+function githubField(raw: unknown): { github?: GithubSession } {
+  const github = parseGithub(raw)
+  return github ? { github } : {}
 }
 
 export function parseServers(raw: unknown): SavedServer[] {
@@ -157,17 +170,18 @@ function unionServers(a: SavedServer[], b: SavedServer[]): SavedServer[] {
   const byUrl = new Map(a.map((s) => [s.baseUrl, s]))
   for (const s of b) {
     const existing = byUrl.get(s.baseUrl)
-    if (!existing) {
-      byUrl.set(s.baseUrl, s)
-      continue
-    }
-    byUrl.set(s.baseUrl, {
-      ...existing,
-      ...(existing.label ? {} : s.label ? { label: s.label } : {}),
-      ...(existing.token ? {} : s.token ? { token: s.token } : {}),
-    })
+    byUrl.set(s.baseUrl, existing ? fillMissing(existing, s) : s)
   }
   return [...byUrl.values()]
+}
+
+/** `existing` manda; lo que le falte (label, token, login de GitHub) se toma de `other`. */
+function fillMissing(existing: SavedServer, other: SavedServer): SavedServer {
+  const merged: SavedServer = { ...existing }
+  if (!merged.label && other.label) merged.label = other.label
+  if (!merged.token && other.token) merged.token = other.token
+  if (!merged.github && other.github) merged.github = other.github
+  return merged
 }
 
 /** Escribe la misma revisión en los dos lados. Ninguna falla es fatal. */
@@ -296,4 +310,24 @@ export async function saveServers(servers: SavedServer[]): Promise<void> {
     return
   }
   await writeBoth(b, payload)
+}
+
+/**
+ * Guarda (o borra, con `null`) el login de GitHub de UN server de la lista.
+ *
+ * Lee-modifica-escribe sobre la lista entera porque la lista se escribe siempre
+ * entera (ver `Stored`). Si el server no está declarado —el proxeado de Vite
+ * nunca pasó por el alta— no hay dónde colgarlo y no hace nada: el login vale
+ * igual para la sesión por la copia de `selection.ts`.
+ */
+export async function saveGithubFor(baseUrl: string, github: GithubSession | null): Promise<void> {
+  const servers = await loadServers()
+  if (!servers.some((s) => s.baseUrl === baseUrl)) return
+  await saveServers(
+    servers.map((s) => {
+      if (s.baseUrl !== baseUrl) return s
+      const { github: _old, ...rest } = s
+      return github ? { ...rest, github } : rest
+    }),
+  )
 }

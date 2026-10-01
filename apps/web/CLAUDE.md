@@ -1,7 +1,9 @@
 # apps/web — Vue 3 SPA
 
+La web es la **bandeja de runner-v2**: `/` (inbox del board en cuatro grupos + asistente), `/config` (la config cargada, de sólo lectura), `/webhooks` y `/servers`, con un menú lateral (`views/AppShell.vue`: detrás de ☰ en un teléfono, fijo desde 768px). Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub). Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
+
 Vite + Vue Router + Pinia. Puerto **5173** por default, configurable con `IA_FLOW_WEB_PORT`.
-Proxy de `/api` y `/ws` al server (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
+Proxy de `/api` al runner (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
 sobreescribe el destino completo). Ver la tabla de puertos en el [CLAUDE.md raíz](@CLAUDE.md).
 
 ## Arquitectura — Feature-sliced
@@ -15,7 +17,7 @@ src/
 ├── router/             Vue Router (SPA)
 ├── views/              Páginas del router. SOLO composición — sin fetch ni lógica de negocio.
 │
-├── features/<dominio>/ La unidad real de la app. Ej: agents, tasks, tunnel, providers, repos…
+├── features/<dominio>/ La unidad real de la app. Hoy: inbox (la bandeja), assistant, config, ingress (las entradas del runner: webhook de GitHub, Slack), github-login, servers
 │   ├── api.ts            Llamadas HTTP del dominio + `.parse()` de la respuesta
 │   ├── store.ts          Pinia composition store (sólo si el estado se comparte/sobrevive nav)
 │   └── *.vue             Componentes del dominio (+ subcarpetas: tabs/, sources/, providerForms/)
@@ -54,7 +56,7 @@ src/
 - **API calls:** siempre a través de `features/<dominio>/api.ts`, no axios inline en componentes.
 - **Tipos de red:** importa de `@ia-flow/shared` y valida con `.parse()` los responses críticos.
 - **Componentes grandes:** si un `.vue` supera ~300 líneas, extrae subcomponentes **dentro de su
-  feature** (patrón ya usado: `features/projects/tabs/`, `features/agents/providerForms/`).
+  feature** (patrón: `features/inbox/` parte la tarjeta en `InboxCard` / `TaskDetailPanel` / `TaskActions` / `TaskEvents`).
 - **Estilos:** scoped por componente, **usando variables de `theme.css`** (`var(--fg)`, `var(--panel)`, etc.). Sin CSS global nuevo salvo tokens en `theme.css`. Sin hex hardcoded.
 - **Sub-navegación:** vive en el sidebar (`SettingsSidebar.vue`, prop `children`). No agregues tab strips arriba del contenido.
 - **Tests:** `foo.vue` + `test/foo.test.ts` (subcarpeta `test/` junto al archivo, no colocado en el mismo nivel). Vitest + @vue/test-utils + happy-dom.

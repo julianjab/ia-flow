@@ -1,0 +1,1139 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+// Port de los tests de `@ia-flow/workspace` (bun:test → vitest), sin cambios de comportamiento.
+import { describe, expect, it } from 'vitest'
+import {
+  branchNameFor,
+  DEFAULT_WORKTREE_BASE,
+  worktreeNameFor,
+  worktreePathFor,
+} from '../layout.js'
+import type { ShellResult, ShellRunner } from '../shell.js'
+import { WorkspaceManager } from '../WorkspaceManager.js'
+
+// ─── Test doubles ────────────────────────────────────────────────────────
+
+type Handler = (args: string[], cwd: string) => ShellResult | Promise<ShellResult>
+
+function ok(stdout = ''): ShellResult {
+  return { stdout, stderr: '', exitCode: 0 }
+}
+function fail(stderr = 'boom', exitCode = 1): ShellResult {
+  return { stdout: '', stderr, exitCode }
+}
+function starts(args: string[], prefix: string[]): boolean {
+  if (args.length < prefix.length) return false
+  return prefix.every((p, i) => args[i] === p)
+}
+function exact(args: string[], expected: string[]): boolean {
+  return args.length === expected.length && expected.every((p, i) => args[i] === p)
+}
+
+type RuleMatch = string[] | ((args: string[]) => boolean)
+type RuleResult =
+  | ShellResult
+  | ((args: string[], cwd: string) => ShellResult | Promise<ShellResult>)
+type Rule = [RuleMatch, RuleResult]
+
+/**
+ * Arma un `Handler` de `StubShell` a partir de reglas prefijo/predicado →
+ * resultado, evaluadas en orden (gana la primera que matchea). Reemplaza las
+ * cadenas largas de `if (starts/exact(...)) return …` que un stub con muchos
+ * comandos distintos necesitaba — mismo comportamiento (incluido el "no
+ * matcheó nada" final), factorizado para no acumular complejidad ciclomática
+ * por test.
+ */
+function router(rules: Rule[]): Handler {
+  return async (args, cwd) => {
+    for (const [match, result] of rules) {
+      const hit = Array.isArray(match) ? starts(args, match) : match(args)
+      if (!hit) continue
+      return typeof result === 'function' ? result(args, cwd) : result
+    }
+    throw new Error(`unexpected call: ${args.join(' ')}`)
+  }
+}
+
+/** Predicado de match exacto, para usar como primer elemento de un `Rule`. */
+const exactly = (expected: string[]) => (args: string[]) => exact(args, expected)
+
+class StubShell implements ShellRunner {
+  calls: Array<{ args: string[]; cwd: string }> = []
+  constructor(private handler: Handler) {}
+  async run(args: string[], cwd: string): Promise<ShellResult> {
+    this.calls.push({ args: [...args], cwd })
+    return this.handler(args, cwd)
+  }
+  ran(prefix: string[]): boolean {
+    return this.calls.some((c) => starts(c.args, prefix))
+  }
+  find(prefix: string[]): { args: string[]; cwd: string } | undefined {
+    return this.calls.find((c) => starts(c.args, prefix))
+  }
+}
+
+const BASE = '/tmp/ia-flow-test'
+const REPO = '/repos/demo'
+const TASK = 'PVTI_lAHOtest001'
+// El directorio se nombra con la convención legible compartida
+// (`worktreeNameFor`), no con el id crudo del source.
+const WT = worktreePathFor(REPO, worktreeNameFor({ id: TASK }), BASE)
+const BR = branchNameFor(TASK) // task/<task>
+
+// ─── Pure helpers ────────────────────────────────────────────────────────
+
+describe('helpers', () => {
+  it('worktreePathFor composes <base>/<repo>/.worktrees/<name>', () => {
+    expect(worktreePathFor('/x/foo', 't1', '/tmp/ia-flow')).toBe('/tmp/ia-flow/foo/.worktrees/t1')
+  })
+
+  it('branchNameFor prefixes with task/', () => {
+    expect(branchNameFor('abc')).toBe('task/abc')
+  })
+
+  it('worktreeNameFor usa el número de issue cuando existe', () => {
+    expect(worktreeNameFor({ id: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk', issueNumber: 1238 })).toBe(
+      'task-1238',
+    )
+  })
+
+  it('worktreeNameFor cae al slug del título + sufijo del id sin issueNumber', () => {
+    expect(
+      worktreeNameFor({ id: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk', title: 'Agregar botón de stop' }),
+    ).toBe('task-agregar-boton-de-stop-g3fxxk')
+  })
+
+  it('worktreeNameFor sin título ni issue usa solo el sufijo del id', () => {
+    expect(worktreeNameFor({ id: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk' })).toBe('task-g3fxxk')
+  })
+
+  it('worktreeNameFor recorta títulos largos y no deja guiones colgando', () => {
+    const name = worktreeNameFor({ id: 'abc123', title: 'x'.repeat(80) })
+    expect(name.endsWith('-')).toBe(false)
+    expect(name.length).toBeLessThanOrEqual(60)
+  })
+
+  it('DEFAULT_WORKTREE_BASE is under /tmp/ia-tools (no ~/.config)', () => {
+    expect(DEFAULT_WORKTREE_BASE).toBe('/tmp/ia-tools')
+  })
+})
+
+// ─── getOrCreateWorktree ────────────────────────────────────────────────
+
+describe('getOrCreateWorktree — create path', () => {
+  it('fetches origin, sees no existing worktree/branch and creates from origin/main', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        // Only the main worktree exists.
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\nHEAD abc\nbranch refs/heads/main\n`),
+        ],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        // La task branch no existe en el remoto — el primer intento falla y la
+        // cadena cae a la base.
+        [
+          ['git', 'worktree', 'add'],
+          (args) => (args.at(-1) === `origin/${BR}` ? fail('invalid reference', 128) : ok()),
+        ],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    const { path, branch } = await mgr.getOrCreateWorktree(TASK, REPO)
+
+    expect(path).toBe(WT)
+    expect(branch).toBe(BR)
+    expect(shell.ran(['git', 'fetch', 'origin'])).toBe(true)
+    const adds = shell.calls.filter((c) => starts(c.args, ['git', 'worktree', 'add']))
+    expect(adds.at(-1)?.args).toEqual(['git', 'worktree', 'add', '-b', BR, WT, 'origin/main'])
+    // No reuse-side ops leaked.
+    expect(shell.ran(['git', 'status'])).toBe(false)
+    expect(shell.ran(['git', 'merge'])).toBe(false)
+  })
+
+  it('reattaches to existing branch when worktree is gone (edge case)', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)], // only main
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], ok()], // branch exists
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+    await mgr.getOrCreateWorktree(TASK, REPO)
+
+    const add = shell.find(['git', 'worktree', 'add'])
+    // Reattaches — no `-b`, no `origin/main`, just <path> <branch>.
+    expect(add?.args).toEqual(['git', 'worktree', 'add', WT, BR])
+  })
+})
+
+describe('getOrCreateWorktree — reuse paths', () => {
+  it('clean tree + fast-forwardable → applies ff, no autosalvage', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/${BR}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok('')], // clean
+        [['git', 'merge-base', '--is-ancestor'], ok()], // FF ok
+        [exactly(['git', 'merge', '--ff-only', 'origin/main']), ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await mgr.getOrCreateWorktree(TASK, REPO)
+
+    expect(shell.ran(['git', 'add', '-A'])).toBe(false)
+    expect(shell.ran(['git', 'commit'])).toBe(false)
+    expect(shell.ran(['git', 'merge', '--ff-only', 'origin/main'])).toBe(true)
+    // No create — worktree existed.
+    expect(shell.ran(['git', 'worktree', 'add'])).toBe(false)
+  })
+
+  it('dirty tree → autosalvage commit tagged with prevRunId, then ff', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok(' M foo.ts\n')],
+        [exactly(['git', 'add', '-A']), ok()],
+        [['git', 'commit'], ok()],
+        [['git', 'merge-base', '--is-ancestor'], ok()],
+        [exactly(['git', 'merge', '--ff-only', 'origin/main']), ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await mgr.getOrCreateWorktree(TASK, REPO, { prevRunId: 'run-42' })
+
+    const commit = shell.find(['git', 'commit'])
+    expect(commit).toBeDefined()
+    // -m must carry the exact autosalvage phrase with the prevRunId echo'd back.
+    const msgIdx = (commit?.args ?? []).indexOf('-m')
+    expect(msgIdx).toBeGreaterThan(-1)
+    expect(commit?.args[msgIdx + 1]).toBe('WIP autosalvage from run run-42')
+    expect(shell.ran(['git', 'add', '-A'])).toBe(true)
+  })
+
+  it('uses recorded runId when prevRunId is not passed explicitly', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok(' M foo.ts\n')],
+        [exactly(['git', 'add', '-A']), ok()],
+        [['git', 'commit'], ok()],
+        [['git', 'merge-base', '--is-ancestor'], fail('diverged', 1)],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+    mgr.recordRunId(TASK, 'run-prev-99')
+
+    await mgr.getOrCreateWorktree(TASK, REPO)
+
+    const commit = shell.find(['git', 'commit'])
+    const msgIdx = (commit?.args ?? []).indexOf('-m')
+    expect(commit?.args[msgIdx + 1]).toBe('WIP autosalvage from run run-prev-99')
+  })
+
+  it('divergence (not ff-able) → no merge, no rebase — just leaves tree alone', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\n`),
+        ],
+        [exactly(['git', 'status', '--porcelain']), ok('')],
+        [['git', 'merge-base', '--is-ancestor'], fail('nope', 1)],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    const { path } = await mgr.getOrCreateWorktree(TASK, REPO)
+
+    expect(path).toBe(WT)
+    // Never merges nor rebases on divergence.
+    expect(shell.ran(['git', 'merge'])).toBe(false)
+    expect(shell.ran(['git', 'rebase'])).toBe(false)
+    expect(shell.ran(['git', 'reset', '--hard'])).toBe(false)
+  })
+})
+
+// ─── removeWorktree ──────────────────────────────────────────────────────
+
+describe('removeWorktree', () => {
+  it('runs worktree remove --force + branch -D', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+      if (starts(args, ['git', 'branch', '-D'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+    await mgr.removeWorktree(TASK, REPO)
+
+    expect(shell.find(['git', 'worktree', 'remove'])?.args).toEqual([
+      'git',
+      'worktree',
+      'remove',
+      '--force',
+      WT,
+    ])
+    expect(shell.find(['git', 'branch', '-D'])?.args).toEqual(['git', 'branch', '-D', BR])
+  })
+})
+
+describe('resetWorktree', () => {
+  it('with the run task and branch: drops that branch and recreates it from its last push', async () => {
+    const shell = new StubShell(
+      router([
+        [['git', 'worktree', 'remove'], ok()],
+        [['git', 'branch', '-D'], ok()],
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+    const task = { id: TASK, issueNumber: 7 }
+    const path = await mgr.resetWorktree(TASK, REPO, { task, branch: 'ia-flow/7' })
+
+    expect(path).toBe(worktreePathFor(REPO, worktreeNameFor(task), BASE))
+    expect(shell.find(['git', 'branch', '-D'])?.args).toEqual(['git', 'branch', '-D', 'ia-flow/7'])
+    expect(shell.find(['git', 'worktree', 'add'])?.args).toEqual([
+      'git',
+      'worktree',
+      'add',
+      '-b',
+      'ia-flow/7',
+      path,
+      'origin/ia-flow/7',
+    ])
+  })
+})
+
+// ─── resolveScopes: all four combinations + multi-repo guard ────────────
+
+describe('resolveScopes', () => {
+  const mgr = new WorkspaceManager(new StubShell(() => ok()), { worktreeBase: BASE })
+  const task = { id: TASK, repos: [REPO] }
+
+  it('worktree exists + write agent → worktree in both scopes', () => {
+    const scopes = mgr.resolveScopes(task, true, {
+      repoBasePath: REPO,
+      worktreeExists: true,
+      worktreePath: WT,
+    })
+    expect(scopes).toEqual({ readPaths: [WT], writePaths: [WT] })
+  })
+
+  it('worktree exists + read-only agent → worktree read, empty writes', () => {
+    const scopes = mgr.resolveScopes(task, false, {
+      repoBasePath: REPO,
+      worktreeExists: true,
+      worktreePath: WT,
+    })
+    expect(scopes).toEqual({ readPaths: [WT], writePaths: [] })
+  })
+
+  it('no worktree + write agent → worktree path in both (caller will create)', () => {
+    const scopes = mgr.resolveScopes(task, true, { repoBasePath: REPO, worktreeExists: false })
+    expect(scopes).toEqual({ readPaths: [WT], writePaths: [WT] })
+  })
+
+  it('no worktree + read-only agent → repo base as read, empty writes', () => {
+    const scopes = mgr.resolveScopes(task, false, { repoBasePath: REPO, worktreeExists: false })
+    expect(scopes).toEqual({ readPaths: [REPO], writePaths: [] })
+  })
+
+  it('throws explicitly for multi-repo tasks BEFORE any git op', () => {
+    const multi = { id: TASK, repos: [REPO, '/repos/other'] }
+    expect(() =>
+      mgr.resolveScopes(multi, false, { repoBasePath: REPO, worktreeExists: false }),
+    ).toThrow(/2 repos/)
+  })
+})
+
+// ─── Mutex behaviour ─────────────────────────────────────────────────────
+
+describe('mutexes', () => {
+  it('withTaskLock rejects a concurrent call on the same taskId', async () => {
+    const mgr = new WorkspaceManager(new StubShell(() => ok()))
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+
+    const first = mgr.withTaskLock('t1', async () => {
+      await gate
+      return 'done'
+    })
+
+    await expect(mgr.withTaskLock('t1', async () => 'nope')).rejects.toThrow(
+      'task t1 ya está corriendo',
+    )
+
+    release()
+    await expect(first).resolves.toBe('done')
+
+    // Lock releases after fn resolves → next call succeeds.
+    await expect(mgr.withTaskLock('t1', async () => 'again')).resolves.toBe('again')
+  })
+
+  it('serializes concurrent getOrCreateWorktree on the same repoBasePath', async () => {
+    let running = 0
+    let peak = 0
+    const trackFetch = async (): Promise<ShellResult> => {
+      running++
+      peak = Math.max(peak, running)
+      await new Promise((r) => setTimeout(r, 5))
+      running--
+      return ok()
+    }
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), trackFetch],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [['git', 'rev-parse', '--verify'], fail('nope', 1)],
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await Promise.all([
+      mgr.getOrCreateWorktree('t-A', REPO),
+      mgr.getOrCreateWorktree('t-B', REPO),
+      mgr.getOrCreateWorktree('t-C', REPO),
+    ])
+
+    expect(peak).toBe(1) // never overlapped on the same repo
+  })
+})
+
+// ─── ensureLocalClone ────────────────────────────────────────────────────
+
+describe('ensureLocalClone', () => {
+  const REPOS_BASE = `/tmp/ia-flow-clone-test-${Date.now()}`
+
+  it('throws when reposBase is not configured', async () => {
+    const mgr = new WorkspaceManager(new StubShell(() => ok()))
+    await expect(
+      mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' }),
+    ).rejects.toThrow(/reposBase/)
+  })
+
+  it('throws when the repo has no githubOwner/githubRepo', async () => {
+    const mgr = new WorkspaceManager(new StubShell(() => ok()), { reposBase: REPOS_BASE })
+    await expect(mgr.ensureLocalClone({ name: 'demo' })).rejects.toThrow(/githubOwner/)
+  })
+
+  it('resuelve la credencial en CADA invocación, no una vez al construirse', async () => {
+    // El bug que este test cubre: un installation token de GitHub App vive una
+    // hora y el manager vive lo que vive el proceso. Con el token capturado en
+    // el constructor, el primer push después de los 60' daba 403 en silencio.
+    let minted = 0
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      githubToken: async () => `ghs_${++minted}`,
+    })
+
+    await mgr.ensureLocalClone({ name: 'a', githubOwner: 'acme', githubRepo: 'a' })
+    await mgr.ensureLocalClone({ name: 'b', githubOwner: 'acme', githubRepo: 'b' })
+
+    const clones = shell.calls.filter((c) => c.args.includes('clone'))
+    const headerOf = (n: number) =>
+      `http.https://github.com/.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:ghs_${n}`).toString('base64')}`
+    expect(clones[0]?.args).toContain(headerOf(1))
+    expect(clones[1]?.args).toContain(headerOf(2))
+  })
+
+  it('clones and sets local git identity when the repo is not cloned yet', async () => {
+    // Matchea por subcomando, no por prefijo: la credencial viaja como flags
+    // `-c` que se interponen entre `git` y el subcomando.
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      githubToken: 'tok123',
+      gitAuthorName: 'ia-flow-bot',
+      gitAuthorEmail: 'bot@ia-flow.local',
+    })
+
+    const dest = await mgr.ensureLocalClone({
+      name: 'demo',
+      githubOwner: 'acme',
+      githubRepo: 'demo',
+    })
+
+    expect(dest).toBe(join(REPOS_BASE, 'acme', 'demo'))
+    // El token va como `-c http.<github>.extraHeader` (con los hooks apagados), NO embebido en la URL: `git
+    // clone` persiste la URL en `.git/config`, y este clone es la base de los
+    // worktrees de los agentes — un PAT ahí sería legible con fs.read.
+    // `find` matchea por prefijo y los flags `-c` van antes del subcomando,
+    // así que ubicamos la llamada por el subcomando en sí.
+    const clone = shell.calls.find((c) => c.args.includes('clone'))
+    const basic = Buffer.from('x-access-token:tok123').toString('base64')
+    expect(clone?.args).toEqual([
+      'git',
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      `http.https://github.com/.extraHeader=Authorization: Basic ${basic}`,
+      'clone',
+      'https://github.com/acme/demo.git',
+      dest,
+    ])
+    expect(clone?.args.join(' ')).not.toContain('tok123')
+    expect(shell.find(['git', 'config', 'user.name'])?.args).toEqual([
+      'git',
+      'config',
+      'user.name',
+      'ia-flow-bot',
+    ])
+    expect(shell.find(['git', 'config', 'user.email'])?.args).toEqual([
+      'git',
+      'config',
+      'user.email',
+      'bot@ia-flow.local',
+    ])
+  })
+
+  it('configures SSH commit signing when gitSigningKeyPath is set', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+      exists: (p) => p === '/secrets/git-signing/id_ed25519',
+    })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    expect(shell.find(['git', 'config', 'gpg.format'])?.args).toEqual([
+      'git',
+      'config',
+      'gpg.format',
+      'ssh',
+    ])
+    expect(shell.find(['git', 'config', 'user.signingkey'])?.args).toEqual([
+      'git',
+      'config',
+      'user.signingkey',
+      '/secrets/git-signing/id_ed25519',
+    ])
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])?.args).toEqual([
+      'git',
+      'config',
+      'commit.gpgsign',
+      'true',
+    ])
+  })
+
+  it('never enables signing when gitSigningKeyPath is unset, but still reconciles it off', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+    // Reconciliación explícita, no sólo "no prender": si este clone ya tenía
+    // gpgsign=true de una corrida anterior con la key configurada, quedaría
+    // pegado (persiste en el .git/config de un repo persistente) sin este
+    // unset — y con eso, TODO `git commit` empezaría a fallar en silencio.
+    expect(shell.find(['git', 'config', '--unset-all', 'commit.gpgsign'])).toBeDefined()
+  })
+
+  it('configures signing on an already-cloned repo too — not just on the initial clone', async () => {
+    const dest = join(REPOS_BASE, 'acme', 'already-cloned')
+    mkdirSync(join(dest, '.git'), { recursive: true })
+    const shell = new StubShell(() => ok())
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+      exists: (p) => p === '/secrets/git-signing/id_ed25519',
+    })
+
+    await mgr.ensureLocalClone({
+      name: 'already-cloned',
+      githubOwner: 'acme',
+      githubRepo: 'already-cloned',
+    })
+
+    expect(shell.ran(['git', 'clone'])).toBe(false)
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])?.args).toEqual([
+      'git',
+      'config',
+      'commit.gpgsign',
+      'true',
+    ])
+  })
+
+  it('skips signing (does not set commit.gpgsign) when the key file is missing', async () => {
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      gitSigningKeyPath: '/secrets/git-signing/id_ed25519',
+      exists: () => false,
+    })
+
+    await mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' })
+
+    // La identidad se setea igual — sólo la firma se salta, no el resto del clone.
+    expect(shell.find(['git', 'config', 'user.name'])).toBeDefined()
+    expect(shell.find(['git', 'config', 'gpg.format'])).toBeUndefined()
+    expect(shell.find(['git', 'config', 'commit.gpgsign'])).toBeUndefined()
+    expect(shell.find(['git', 'config', '--unset-all', 'commit.gpgsign'])).toBeDefined()
+  })
+
+  it('is idempotent — skips clone when the destination is already a git repo', async () => {
+    const dest = join(REPOS_BASE, 'acme', 'already-cloned')
+    mkdirSync(join(dest, '.git'), { recursive: true })
+    const shell = new StubShell(() => ok())
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    const result = await mgr.ensureLocalClone({
+      name: 'already-cloned',
+      githubOwner: 'acme',
+      githubRepo: 'already-cloned',
+    })
+
+    expect(result).toBe(dest)
+    expect(shell.ran(['git', 'clone'])).toBe(false)
+  })
+
+  it('clones without a token embedded when no githubToken is configured', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'clone'])) return ok()
+      if (starts(args, ['git', 'config'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    await mgr.ensureLocalClone({ name: 'pub', githubOwner: 'acme', githubRepo: 'pub' })
+
+    const clone = shell.find(['git', 'clone'])
+    expect(clone?.args[2]).toBe('https://github.com/acme/pub.git')
+  })
+})
+
+// ─── cleanupTerminalWorktree ─────────────────────────────────────────────
+
+describe('cleanupTerminalWorktree', () => {
+  it('treats a git failure on the safety check as unsafe — skips remove', async () => {
+    const shell = new StubShell(() => fail('boom', 1))
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-cleanup-unsafe-${Date.now()}`,
+    })
+
+    await mgr.cleanupTerminalWorktree('t-missing', REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+  })
+
+  it('removes the worktree when it exists on disk and is safe to remove', async () => {
+    const base = `/tmp/ia-flow-cleanup-safe-${Date.now()}`
+    const taskId = 't-safe'
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+      if (starts(args, ['git', 'ls-remote', '--exit-code'])) return fail('absent', 2)
+      if (starts(args, ['git', 'log', '--oneline'])) return ok('')
+      if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+      if (starts(args, ['git', 'branch', '-D'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: base })
+
+    await mgr.cleanupTerminalWorktree(taskId, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+    expect(shell.ran(['git', 'branch', '-D'])).toBe(true)
+  })
+
+  it('leaves the worktree alone when it has unsafe (dirty) state', async () => {
+    const base = `/tmp/ia-flow-cleanup-dirty-${Date.now()}`
+    const taskId = 't-dirty'
+    const wtPath = worktreePathFor(REPO, taskId, base)
+    mkdirSync(wtPath, { recursive: true })
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('M file.ts\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: base })
+
+    await mgr.cleanupTerminalWorktree(taskId, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+    expect(existsSync(wtPath)).toBe(true)
+  })
+})
+
+// ─── cleanupTerminalWorktree — guard de co-uso ───────────────────────────
+
+/** Camino "worktree limpio": todo lo que el cleanup consulta responde OK. */
+function cleanShell(): StubShell {
+  return new StubShell(async (args) => {
+    if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+    if (starts(args, ['git', 'ls-remote', '--exit-code'])) return fail('absent', 2)
+    if (starts(args, ['git', 'log', '--oneline'])) return ok('')
+    if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+    if (starts(args, ['git', 'branch', '-D'])) return ok()
+    throw new Error(`unexpected: ${args.join(' ')}`)
+  })
+}
+
+describe('cleanupTerminalWorktree — co-uso', () => {
+  it('no borra el worktree si otro run vivo sigue sobre la misma task', async () => {
+    const shell = cleanShell()
+    const seen: Array<[string, string | undefined]> = []
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-busy-${Date.now()}`,
+      otherLiveRunsOnTask: (taskId, excludeRunId) => {
+        seen.push([taskId, excludeRunId])
+        return ['run-other']
+      },
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+    expect(seen).toEqual([['t-couse', 'run-mine']])
+  })
+
+  it('borra el worktree cuando el puerto no reporta otros runs vivos', async () => {
+    const shell = cleanShell()
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-free-${Date.now()}`,
+      otherLiveRunsOnTask: () => [],
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+  })
+
+  it('sin puerto inyectado se comporta como antes del guard', async () => {
+    const shell = cleanShell()
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-nowire-${Date.now()}`,
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+  })
+
+  it('fail-open: un puerto que explota no frena la limpieza', async () => {
+    const shell = cleanShell()
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-boom-${Date.now()}`,
+      otherLiveRunsOnTask: () => {
+        throw new Error('registry caído')
+      },
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+  })
+
+  it('el guard de trabajo-en-riesgo gana: ni siquiera consulta el co-uso', async () => {
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('M file.ts\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    let probed = false
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-dirty-${Date.now()}`,
+      otherLiveRunsOnTask: () => {
+        probed = true
+        return []
+      },
+    })
+
+    await mgr.cleanupTerminalWorktree('t-dirty', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+    expect(probed).toBe(false)
+  })
+})
+
+// ─── isBranchEmptyVsBase / borrado de la branch remota ───────────────────
+
+const SHA = 'a1b2c3d4e5f6'
+
+/**
+ * Stub para el camino "branch limpia": safety check OK + resolución de base.
+ * `overrides` decide qué responden `rev-list` y `diff` (lo que distingue una
+ * branch vacía de una con trabajo real).
+ */
+function emptyBranchShell(overrides: Handler): StubShell {
+  return new StubShell(
+    router([
+      [exactly(['git', 'status', '--porcelain']), ok('')],
+      [['git', 'symbolic-ref'], ok('origin/main\n')],
+      [['git', 'fetch'], ok()],
+      [['git', 'ls-remote'], ok(`${SHA}\trefs/heads/x`)],
+      [['git', 'rev-parse', '--verify'], ok(`${SHA}\n`)],
+      [['git', 'log', '--oneline'], ok('')],
+      [['git', 'worktree', 'remove'], ok()],
+      [['git', 'branch', '-D'], ok()],
+      [['git', 'push'], ok()],
+      [() => true, overrides],
+    ]),
+  )
+}
+
+describe('isBranchEmptyVsBase', () => {
+  it('es true cuando la branch remota no tiene commits sobre la base', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(true)
+    expect(shell.find(['git', 'rev-list', '--count'])?.args[3]).toBe(`origin/main..origin/${BR}`)
+  })
+
+  it('es true cuando tiene commits pero el árbol es idéntico a la base', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('2\n')
+      if (starts(args, ['git', 'diff', '--quiet'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(true)
+  })
+
+  it('es false cuando la branch cambia el árbol', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('2\n')
+      if (starts(args, ['git', 'diff', '--quiet'])) return fail('differs', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+  })
+
+  it('es false cuando la branch no existe en el remoto', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return ok()
+      if (starts(args, ['git', 'ls-remote'])) return fail('absent', 2)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+  })
+
+  it('es false si el fetch falla — no confía en refs rancias', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return fail('network down', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+    expect(shell.ran(['git', 'ls-remote'])).toBe(false)
+  })
+
+  it('es false si origin/<branch> local no coincide con el SHA del remoto', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return ok()
+      if (starts(args, ['git', 'ls-remote'])) return ok(`${SHA}\trefs/heads/x`)
+      // Ref local vieja: alguien pushó desde otra máquina después del fetch.
+      if (starts(args, ['git', 'rev-parse', '--verify'])) return ok('deadbeef\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+    expect(shell.ran(['git', 'rev-list'])).toBe(false)
+  })
+
+  it('nunca considera vacía a la base ni a main/master/develop', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/release\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, 'main')).toBe(false)
+    expect(await mgr.isBranchEmptyVsBase(WT, 'release')).toBe(false)
+    expect(shell.ran(['git', 'ls-remote'])).toBe(false)
+  })
+})
+
+describe('cleanupTerminalWorktree — borrado remoto', () => {
+  it('borra la branch del remoto cuando no difiere de la base', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: '/tmp/ia-flow-rm-remote' })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR)
+
+    expect(shell.ran(['git', 'branch', '-D'])).toBe(true)
+    const push = shell.find(['git', 'push'])
+    expect(push?.args).toEqual(['git', 'push', 'origin', '--delete', BR])
+    expect(push?.cwd).toBe(REPO)
+    // El chequeo debe correr ANTES del remove (el worktree aún existe).
+    const checkIdx = shell.calls.findIndex((c) => starts(c.args, ['git', 'rev-list']))
+    const removeIdx = shell.calls.findIndex((c) => starts(c.args, ['git', 'worktree', 'remove']))
+    expect(checkIdx).toBeLessThan(removeIdx)
+  })
+
+  it('no toca el remoto cuando la branch aporta cambios', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('1\n')
+      if (starts(args, ['git', 'diff', '--quiet'])) return fail('differs', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: '/tmp/ia-flow-keep-remote' })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+    expect(shell.ran(['git', 'push'])).toBe(false)
+  })
+
+  it('usa el path explícito del worktree en vez de derivarlo del taskId', async () => {
+    const explicit = '/tmp/otra-base/demo/.worktrees/task-1238'
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: '/tmp/ia-flow-explicit' })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR, explicit)
+
+    // El chequeo de seguridad corre DENTRO del worktree real...
+    expect(shell.find(['git', 'status', '--porcelain'])?.cwd).toBe(explicit)
+    // ...y el remove apunta a ese mismo path, no a `.worktrees/<taskId>`.
+    expect(shell.find(['git', 'worktree', 'remove'])?.args).toContain(explicit)
+  })
+
+  it('respeta el kill-switch deleteEmptyBranches:false', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: '/tmp/ia-flow-killswitch',
+      deleteEmptyBranches: false,
+    })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+    expect(shell.ran(['git', 'push'])).toBe(false)
+    expect(shell.ran(['git', 'rev-list'])).toBe(false)
+  })
+})
+
+// ─── Casos que antes vivían sólo en terminal-base ────────────────────────
+//
+// Cuando los providers de terminal tenían su propia copia de esta lógica,
+// estos escenarios estaban cubiertos allá (`ensureWorktree` /
+// `assertWorktreeBranchMatches`). Al unificar las dos implementaciones, la
+// cobertura viene con ellos.
+
+describe('getOrCreateWorktree — reconciliación de branch', () => {
+  it('recicla el worktree cuando quedó en otra branch y no hay trabajo en riesgo', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [['git', 'symbolic-ref'], ok('origin/main\n')],
+        [
+          exactly(['git', 'worktree', 'list', '--porcelain']),
+          ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/feat/legacy\n`),
+        ],
+        // Limpio y sin commits por delante → seguro de remover.
+        [exactly(['git', 'status', '--porcelain']), ok('')],
+        [['git', 'ls-remote'], ok('abc\trefs/heads/feat/legacy\n')],
+        [['git', 'log'], ok('')],
+        [['git', 'worktree', 'remove'], ok()],
+        [['git', 'branch', '-D'], ok()],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        [['git', 'worktree', 'add'], ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    const { path, branch } = await mgr.getOrCreateWorktree(TASK, REPO, { branch: 'feat/nueva' })
+
+    expect(path).toBe(WT)
+    expect(branch).toBe('feat/nueva')
+    // Removió el stale y creó el nuevo, en vez de reusar la branch vieja.
+    expect(shell.find(['git', 'worktree', 'remove'])?.args).toContain(WT)
+    expect(shell.ran(['git', 'worktree', 'add'])).toBe(true)
+  })
+
+  it('NO recicla —falla con un mensaje accionable— si el worktree stale tiene cambios sin commitear', async () => {
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/feat/legacy\n`)
+      }
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok(' M foo.ts\n')
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO, { branch: 'feat/nueva' })).rejects.toThrow(
+      /está en la branch "feat\/legacy".*"feat\/nueva"/s,
+    )
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+  })
+})
+
+describe('getOrCreateWorktree — terreno ocupado', () => {
+  it('la branch checkouteada en OTRO worktree falla nombrando al viejo', async () => {
+    const other = '/tmp/otro/.worktrees/task-legacy'
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${other}\nbranch refs/heads/${BR}\n`)
+      }
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(other)
+  })
+
+  it('el MISMO worktree listado por git con symlinks resueltos no se confunde con otro', async () => {
+    // git reporta los paths de `worktree list` YA resueltos, así que cuando la
+    // base cuelga de un symlink él la nombra distinto que nosotros. El caso
+    // real es macOS, donde `/tmp` es un symlink a `/private/tmp`.
+    //
+    // Se monta un symlink DE VERDAD en vez de simular ese par de paths: hasta
+    // que este test entró a CI (esta rama sumó `bun run test` completo al
+    // workflow) sólo corría en Mac, y hardcodear `/tmp` → `/private/tmp` lo
+    // hacía fallar siempre en Linux — donde `/private` no existe y los dos
+    // paths SON distintos. Con un symlink real prueba lo mismo en los dos.
+    const realBase = mkdtempSync(join(tmpdir(), 'ia-flow-wt-real-'))
+    const linkBase = `${realBase}-link`
+    symlinkSync(realBase, linkBase, 'dir')
+
+    try {
+      const name = worktreeNameFor({ id: TASK })
+      const viaLink = worktreePathFor(REPO, name, linkBase)
+      const asGitSeesIt = worktreePathFor(REPO, name, realBase)
+      expect(viaLink).not.toBe(asGitSeesIt) // si no, el test no probaría nada
+
+      const shell = new StubShell(async (args) => {
+        if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+        if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+        if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+          return ok(`worktree ${REPO}\n\nworktree ${asGitSeesIt}\nbranch refs/heads/${BR}\n`)
+        }
+        if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+        return ok()
+      })
+      const mgr = new WorkspaceManager(shell, { worktreeBase: linkBase })
+
+      // Lo reusa (no lanza "ya está checkouteada en otro worktree", ni crea uno nuevo).
+      const res = await mgr.getOrCreateWorktree(TASK, REPO)
+      expect(res.path).toBe(viaLink)
+      expect(shell.ran(['git', 'worktree', 'add'])).toBe(false)
+    } finally {
+      rmSync(linkBase, { force: true })
+      rmSync(realBase, { recursive: true, force: true })
+    }
+  })
+
+  it('dos worktrees top-level inexistentes que difieren en el primer carácter NO son el mismo', async () => {
+    // El canonizador va subiendo hasta el ancestro que existe en disco. Con
+    // paths cuyo único ancestro real es `/`, recortar el segmento por
+    // aritmética de índices se comía su primer carácter y `/xfoo` y `/yfoo`
+    // canonizaban igual — el guard de "otro worktree" no saltaba y el fallo
+    // aparecía más abajo, en el `worktree add`, con peor mensaje.
+    const myBase = '/yfoo-inexistente'
+    const other = worktreePathFor(REPO, worktreeNameFor({ id: TASK }), '/xfoo-inexistente')
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${other}\nbranch refs/heads/${BR}\n`)
+      }
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: myBase })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(other)
+  })
+
+  it('agota la cadena de fallbacks de `worktree add` y reporta cada intento', async () => {
+    const shell = new StubShell(
+      router([
+        [exactly(['git', 'fetch', 'origin']), ok()],
+        [exactly(['git', 'worktree', 'prune']), ok()],
+        [exactly(['git', 'worktree', 'list', '--porcelain']), ok(`worktree ${REPO}\n`)],
+        [['git', 'symbolic-ref'], fail('no HEAD', 1)],
+        [['git', 'rev-parse', '--verify'], fail('missing', 1)],
+        [['git', 'worktree', 'add'], fail('invalid reference', 128)],
+        [() => true, ok()],
+      ]),
+    )
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(/invalid reference/)
+    // 3 intentos: origin/<branch>, origin/<base>, <base>.
+    expect(shell.calls.filter((c) => starts(c.args, ['git', 'worktree', 'add'])).length).toBe(3)
+  })
+})

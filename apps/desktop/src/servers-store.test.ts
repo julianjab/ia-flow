@@ -21,6 +21,21 @@ describe('normalizeList', () => {
   // La regresión que motivó extraer este módulo: el renderer pasó a mandar
   // `{rev, servers}` y el handler seguía haciendo `Array.isArray(payload)`, así
   // que el primer guardado escribía `[]` sobre el único archivo con los tokens.
+  it('conserva el login de GitHub del server, y descarta uno incompleto', () => {
+    const github = { token: 'gho_x', login: 'julian' }
+    const raw = {
+      rev: 1,
+      servers: [
+        { baseUrl: 'http://a:3001', github },
+        { baseUrl: 'http://b:3001', github: { token: 'gho_y' } },
+      ],
+    }
+    expect(normalizeList(raw).servers).toEqual([
+      { baseUrl: 'http://a:3001', github },
+      { baseUrl: 'http://b:3001' },
+    ])
+  })
+
   it('NO descarta la lista cuando viene envuelta en un objeto', () => {
     const list = normalizeList({ rev: 7, servers: [{ baseUrl: 'http://a:3001' }] })
     expect(list.servers).toHaveLength(1)

@@ -1,0 +1,53 @@
+{
+  "name": "@ia-flow/runner-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "El runner headless de ia-flow sobre @ia-flow/agent-engine: la definición en .config (runner.yaml, actions/, pipelines/ y projects/) y las ejecuciones en SQLite",
+  "scripts": {
+    "memory-mcp": "bash scripts/memory-mcp.sh",
+    "start": "bun run src/main.ts",
+    "serve": "bun run src/main.ts --serve",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "host": "bun --env-file=.env.host run src/main.ts --host",
+    "host:serve": "bun --env-file=.env.host run src/main.ts --host",
+    "otel": "docker compose -f otel/compose.yaml up -d",
+    "otel:dashboards": "python3 otel/grafana/gen-issue-dashboard.py otel/grafana/dashboards/ia-issue.json && python3 otel/grafana/gen-agents-tools-dashboard.py otel/grafana/dashboards/ia-agents-tools.json && curl -s -u admin:admin -X POST http://localhost:3000/api/admin/provisioning/dashboards/reload"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/agent-engine-datasource-sqlite": "workspace:*",
+    "@ia-flow/agent-engine-datasource-yaml": "workspace:*",
+    "@ia-flow/agent-engine-definitions": "workspace:*",
+    "@ia-flow/github-api": "workspace:*",
+    "@ia-flow/github-auth": "workspace:*",
+    "@ia-flow/github-tools": "workspace:*",
+    "@ia-flow/github-webhook": "workspace:*",
+    "@ia-flow/provider-anthropic-api": "workspace:*",
+    "@ia-flow/provider-anthropic-cli": "workspace:*",
+    "@ia-flow/provider-remote": "workspace:*",
+    "@ia-flow/provider-shared": "workspace:*",
+    "@ia-flow/shared": "workspace:*",
+    "@ia-flow/slack-api": "workspace:*",
+    "@ia-flow/slack-socket": "workspace:*",
+    "@ia-flow/slack-tools": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*",
+    "@ia-flow/workspace": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.222.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.222.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "^0.222.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-logs": "^0.222.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.7.0"
+  }
+}

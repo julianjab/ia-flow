@@ -1,14 +1,8 @@
 // El proceso principal de IA Flow.app — la app de visualización.
 //
-// Una sola app y un solo modo. Antes eran dos (`IA Flow` y `IA Flow AgentHost`),
-// porque la consola del agent-host era un bundle aparte de la web. Ya no lo es:
-// es la ruta `/agent-host` de la misma SPA, así que dos ventanas, dos .app y dos
-// íconos eran dos veces la misma cosa.
-//
-// Lo que la app hace es corto: sirve la SPA y la muestra. **No levanta ningún
-// proceso** — ni server ni agent-host. Esos se levantan con su bundle publicado
-// (ver "Imágenes" en el CLAUDE.md de la raíz) y la app se conecta al que elijas en su pantalla
-// de servers, con el token que le configures ahí.
+// Lo que la app hace es corto: sirve la SPA y la muestra. **No levanta el runner**
+// (`apps/runner-v2`): corre aparte, con su bundle publicado, y la app se conecta al
+// que elijas en su pantalla de servers, con el token que le configures ahí.
 //
 // | | dev (`app.isPackaged === false`) | empaquetado |
 // | --- | --- | --- |
@@ -35,7 +29,6 @@ import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { start as devctlStart, stop as devctlStop, logsOf, statusAll, stopAll } from './devctl.js'
 import { normalizeList, type StoredList } from './servers-store.js'
 
 /** Lo que ve el renderer cuando no hay nada guardado, o cuando no es él quien pregunta. */
@@ -86,11 +79,8 @@ const DEV_WEB = {
 }
 
 /**
- * Raíz de los archivos estáticos de la web.
- *
- * Empaquetado sale del bundle; en dev, del `dist` del repo — que es lo que ya
- * pedía la consola del agent-host, y ahora también la SPA cuando se la sirve
- * desde acá.
+ * Raíz de los archivos estáticos de la web: empaquetado sale del bundle; en dev,
+ * del `dist` del repo.
  */
 const WEB_ROOT = PACKAGED ? join(RESOURCES, 'web') : join(REPO_ROOT, 'apps', 'web', 'dist')
 
@@ -187,7 +177,7 @@ async function isOurs(port: number): Promise<boolean> {
     })
     if (!res.ok) return false
     const got = (await res.text()).trim()
-    // Comparación en tiempo constante, por lo mismo que el guard del agent-host.
+    // Comparación en tiempo constante: una que corta en el primer byte distinto filtra el HMAC.
     const a = Buffer.from(got)
     const b = Buffer.from(expected)
     return a.length === b.length && timingSafeEqual(a, b)
@@ -199,8 +189,8 @@ async function isOurs(port: number): Promise<boolean> {
 /**
  * Sirve el bundle de la web desde esta app, en loopback.
  *
- * Por qué un server y no un `file://`: la web le habla al server (o al
- * agent-host) por fetch cross-origin, y un origen `file://` (o `null`) no es
+ * Por qué un server y no un `file://`: la web le habla al runner por fetch
+ * cross-origin, y un origen `file://` (o `null`) no es
  * reflejable por CORS. Además el preload escribe el token en el localStorage
  * del origen, y `file://` no tiene uno estable.
  *
@@ -305,45 +295,35 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
  * Dónde guarda SUS cosas esta app.
  *
  * `app.getPath('userData')` —en macOS `~/Library/Application Support/IA Flow`—
- * y NO el config dir del server (`~/.config/ia-flow`), que es donde estaba
- * antes. Dos motivos:
- *
- *  - Son cosas distintas. Ahí viven el `ia-flow.sqlite`, el `agent-host.json` y
- *    los `repos/` del SERVER. La lista de servers es estado del cliente: a qué
- *    máquinas mira ESTA instalación. Mezclarlas hacía que borrar la config del
- *    server se llevara puesta la de la app, y al revés.
- *  - `IA_FLOW_CONFIG_DIR` es del server. Apuntarlo al volumen de un contenedor
- *    —que es exactamente para lo que existe— movía también la lista de la app,
- *    que no tiene nada que ver con ese deploy.
+ * y NO `~/.config/ia-flow`, que es donde estaba antes: ese directorio era del
+ * server v1 (su sqlite, sus repos), y la lista de servers es estado del cliente
+ * —a qué máquinas mira ESTA instalación—. Mezclarlas hacía que borrar una se
+ * llevara puesta la otra.
  */
 function appConfigDir(): string {
   return app.getPath('userData')
 }
 
 /**
- * El config dir del SERVER (`~/.config/ia-flow`). Sólo se mira para migrar lo
- * que una versión anterior de esta app dejó ahí — ver `migrateLegacyServers`.
+ * Donde una versión anterior de esta app guardaba la lista (`~/.config/ia-flow`,
+ * o `IA_FLOW_CONFIG_DIR`). Sólo se mira para migrarla — ver `migrateLegacyServers`.
  */
 function legacyConfigDir(): string {
   return process.env.IA_FLOW_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'ia-flow')
 }
 
 /**
- * Los servers que el usuario declaró, en el config dir de ia-flow.
+ * Los servers que el usuario declaró, en el directorio de datos de la app.
  *
  * Es un archivo y no el localStorage de la ventana porque es CONFIG: sobrevive
- * a limpiar datos del sitio, se puede editar a mano, y queda junto al resto de
- * la config en vez de adentro del perfil de Chromium.
- *
- * Al lado del `agent-host.json` del agent-host y del `ia-flow.sqlite` del server, con
- * la misma regla de `IA_FLOW_CONFIG_DIR`.
+ * a limpiar datos del sitio y se puede editar a mano.
  */
 function serversFile(): string {
   return join(appConfigDir(), 'servers.json')
 }
 
 /**
- * Trae la lista que una versión anterior dejó en el config dir del server.
+ * Trae la lista que una versión anterior dejó en `~/.config/ia-flow`.
  *
  * Una sola vez y sin pisar: si ya hay una lista en el lugar nuevo, la vieja se
  * ignora. No se borra el original — que un cambio de ubicación destruya el
@@ -370,12 +350,8 @@ function migrateLegacyServers(): void {
  * Sólo contesta a una página del origen que servimos nosotros.
  *
  * Cinturón sobre el `will-navigate` de createWindow: si alguna vez se abre un
- * camino de navegación que ese guard no cubra, los tokens (o el permiso de
- * spawnear procesos, ver `registerDevctlIpc`) no se entregan igual. Dos
- * chequeos independientes para el mismo secreto es barato.
- *
- * Módulo, no local a `registerServersIpc`: `registerDevctlIpc` necesita el
- * mismo guard — es el mismo origen confiable, no uno nuevo por feature.
+ * camino de navegación que ese guard no cubra, los tokens no se entregan
+ * igual. Dos chequeos independientes para el mismo secreto es barato.
  */
 function fromOurPage(e: { senderFrame: { url: string } | null }): boolean {
   const url = e.senderFrame?.url
@@ -441,49 +417,6 @@ function registerServersIpc(): void {
       // cierre. Avisar es mejor que fallar en silencio.
       process.stderr.write(`[desktop] no pude guardar los servers: ${String(err)}\n`)
     }
-  })
-}
-
-/**
- * Panel de "Procesos locales" — server, web, y los dos agent-host del repo.
- *
- * Mismo guard `fromOurPage` que `servers:*`: spawnear procesos arbitrarios en
- * la máquina del operador es al menos tan sensible como leerle tokens, así
- * que una página que no sirvió esta app no ve el bridge (ver preload.ts).
- *
- * Sólo tiene sentido en dev (`!PACKAGED`): el bundle empaquetado no trae el
- * repo, así que no hay `apps/server`/`apps/web`/`apps/agent-host` que
- * spawnear — los handlers igual se registran (un `invoke` sin handler
- * rechaza feo) pero devuelven el error explícito.
- */
-function registerDevctlIpc(): void {
-  ipcMain.handle('devctl:status', async (e) => {
-    if (!fromOurPage(e as never)) return []
-    return statusAll()
-  })
-
-  ipcMain.handle('devctl:logs', (e, id: unknown) => {
-    if (!fromOurPage(e as never)) return []
-    return typeof id === 'string' ? logsOf(id) : []
-  })
-
-  ipcMain.handle('devctl:start', async (e, payload: unknown) => {
-    if (!fromOurPage(e as never)) return { ok: false, error: 'no autorizado' }
-    if (PACKAGED) {
-      return { ok: false, error: 'esta app empaquetada no tiene el repo — sólo funciona en dev' }
-    }
-    const { id, mode, port } = (payload ?? {}) as Record<string, unknown>
-    if (typeof id !== 'string' || typeof mode !== 'string' || typeof port !== 'number') {
-      return { ok: false, error: 'payload inválido' }
-    }
-    return devctlStart(REPO_ROOT, id, mode as 'dev' | 'run', port)
-  })
-
-  ipcMain.handle('devctl:stop', (e, payload: unknown) => {
-    if (!fromOurPage(e as never)) return { ok: false, error: 'no autorizado' }
-    const { id } = (payload ?? {}) as Record<string, unknown>
-    if (typeof id !== 'string') return { ok: false, error: 'payload inválido' }
-    return devctlStop(id)
   })
 }
 
@@ -718,29 +651,21 @@ async function boot(): Promise<void> {
 
 app.whenReady().then(() => {
   registerServersIpc()
-  registerDevctlIpc()
   return boot()
 })
 
 app.on('window-all-closed', () => app.quit())
 
-// El hijo es nuestro: si se va la app sin matarlo queda un Vite (o un agent-host)
+// El hijo es nuestro: si se va la app sin matarlo queda un Vite
 // huérfano ocupando el puerto, y el próximo arranque se cuelga de un proceso
 // que ya nadie supervisa.
 //
 // `before-quit` no alcanza: un `kill` al proceso de Electron (o un pkill) no
 // dispara ese evento, y ahí es justamente cuando queda el huérfano. Por eso se
 // atienden también las señales y el exit del proceso.
-//
-// `stopAll()` (devctl) va al lado de `killChild()`: son dos registries
-// separados —éste es el único hijo fijo de la app (la web en dev), aquél son
-// los 4 procesos que el operador levantó a mano desde el panel— pero el mismo
-// motivo de existir: sin esto, cerrar la app con procesos del panel corriendo
-// los deja huérfanos ocupando sus puertos.
 function killChild(): void {
   child?.kill()
   child = null
-  stopAll()
 }
 
 app.on('before-quit', killChild)

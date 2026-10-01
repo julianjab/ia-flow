@@ -1,28 +1,33 @@
 <script setup lang="ts">
-import ServerCard from '@/features/servers/ServerCard.vue';
-import type { ProbedServer } from '@/features/servers/api';
-import ConfirmDialog from '@/ui/ConfirmDialog.vue';
-import { PROXIED_BASE_URL, currentBaseUrl, selectServer } from '@/features/servers/selection';
-import { useServersStore } from '@/features/servers/store';
 import { computed, onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import ServerCard from '@/features/servers/ServerCard.vue';
+import {
+  chooseProxiedServer,
+  currentBaseUrl,
+  PROXIED_BASE_URL,
+  selectServer,
+} from '@/features/servers/selection';
+import { useServersStore } from '@/features/servers/store';
+import { useGithubSessionStore } from '@/stores/githubSession';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 
 const store = useServersStore();
+const session = useGithubSessionStore();
 const newUrl = ref('');
 const newToken = ref('');
 
 /**
  * El server que se está por quitar. `null` = el diálogo está cerrado.
  *
- * Se confirma porque quitar un server se lleva su TOKEN, y recuperarlo puede
- * significar ir a buscarlo a otra máquina. El resto de la pantalla es
- * reversible tipeando; esto no.
+ * Se confirma porque quitar un server se lleva su TOKEN y su login de GitHub, y
+ * recuperarlos puede significar ir a buscarlos a otra máquina. El resto de la
+ * pantalla es reversible tipeando; esto no.
  */
 const pendingRemove = ref<string | null>(null);
 
 const removeMessage = computed(() =>
   pendingRemove.value
-    ? `Se quita ${pendingRemove.value} de la lista, junto con el token que tengas guardado para él. El server sigue corriendo — esto es sólo tu lista.`
+    ? `Se quita ${pendingRemove.value} de la lista, junto con el token y el login de GitHub que tengas guardados para él. El server sigue corriendo — esto es sólo tu lista.`
     : '',
 );
 
@@ -35,20 +40,9 @@ async function confirmRemove() {
 const upCount = computed(() => store.reachable.length);
 
 /**
- * Entrar a la app mirando ese server. Se guarda para la próxima visita, así
- * el paso por acá es de una sola vez y no un peaje en cada arranque.
+ * Entrar a la app mirando ese server. Se guarda para la próxima visita, así el
+ * paso por acá es de una sola vez y no un peaje en cada arranque.
  */
-/**
- * A dónde entra cada tipo. Es lo único que la elección de server decide más
- * allá de la baseUrl, y vive acá y no en el router porque el router no sabe
- * (todavía) qué elegiste — la elección se aplica y recién después se navega.
- */
-const HOME: Record<ProbedServer['kind'], string> = {
-  server: '/dashboard',
-  'agent-host': '/agent-host',
-  unknown: '/dashboard',
-};
-
 function enter(baseUrl: string) {
   // `null` = "usá rutas relativas y que las proxee quien sirve esta página".
   // Eso vale SÓLO con el dev server de Vite, que tiene el proxy configurado.
@@ -57,15 +51,24 @@ function enter(baseUrl: string) {
   // devuelve index.html con 200, así que axios parsea HTML como JSON y la app
   // entera se rompe en silencio. Con el puente presente, siempre absoluta.
   const proxied = baseUrl === PROXIED_BASE_URL && !('iaFlowDesktop' in globalThis);
-  const kind = store.servers.find((s) => s.baseUrl === baseUrl)?.kind ?? 'server';
-  selectServer(proxied ? null : baseUrl, store.tokenFor(baseUrl), kind);
+  const kind = store.servers.find((s) => s.baseUrl === baseUrl)?.kind ?? 'runner';
+  selectServer(
+    proxied ? null : baseUrl,
+    store.tokenFor(baseUrl),
+    kind,
+    store.githubFor(baseUrl) ?? null,
+  );
+  if (proxied) chooseProxiedServer();
   // Recarga completa a propósito: los stores de Pinia ya tienen datos del
-  // server anterior cacheados y no hay un "reset all" — arrancar limpio es
-  // más honesto que invalidar quince stores a mano. Con dos tipos de proceso
-  // además es obligatorio: el shell elige su navegación una sola vez, al
-  // montar, y pasar de un server a un agent-host sin recargar dejaría el menú
-  // del anterior.
-  window.location.assign(HOME[kind]);
+  // server anterior cacheados y no hay un "reset all" — arrancar limpio es más
+  // honesto que invalidar cada store a mano.
+  window.location.assign('/');
+}
+
+/** Cerrar sesión de GitHub en UN server de la lista (no sólo en el elegido). */
+async function githubLogout(baseUrl: string) {
+  await store.updateServer(baseUrl, { github: undefined });
+  if (currentBaseUrl() === baseUrl) await session.logout();
 }
 
 async function add() {
@@ -86,9 +89,8 @@ onMounted(() => {
     <header class="picker__hd">
       <h1 class="picker__title">ia-flow</h1>
       <p class="picker__sub">
-        ¿Qué server querés ver? — {{ upCount }} respondiendo de
-        {{ store.servers.length }} configurados. Van los dos procesos: un server
-        (o runner) y un agent-host.
+        ¿Qué runner querés ver? — {{ upCount }} respondiendo de
+        {{ store.servers.length }} configurados.
       </p>
     </header>
 
@@ -99,6 +101,8 @@ onMounted(() => {
         :server="s"
         :current="s.baseUrl === currentBaseUrl()"
         :token="store.tokenFor(s.baseUrl)"
+        :github="store.githubFor(s.baseUrl)"
+        @github-logout="githubLogout"
         @enter="enter"
         @remove="pendingRemove = $event"
         @token="store.updateServer($event.baseUrl, { token: $event.token })"
@@ -107,8 +111,7 @@ onMounted(() => {
 
     <p v-else-if="!store.loaded || store.scanning" class="empty">· cargando…</p>
     <p v-else class="empty">
-      · todavía no agregaste nada — pegá abajo la URL de un server o de un
-      agent-host
+      · todavía no agregaste nada — pegá abajo la URL de un runner
     </p>
 
     <ConfirmDialog
@@ -125,18 +128,12 @@ onMounted(() => {
       <button class="btn" :disabled="store.scanning" @click="store.scan()">
         {{ store.scanning ? 'sondeando…' : 'refrescar' }}
       </button>
-      <!-- Antes de elegir a qué server entrar, a veces hay que levantarlo:
-           el panel de procesos locales sólo hace algo dentro de la app de
-           escritorio (ver features/devctl/api.ts), pero el link vive acá
-           para todos porque es el punto natural de entrada. -->
-      <RouterLink to="/devctl" class="btn btn--ghost">procesos locales</RouterLink>
-
       <form class="add" @submit.prevent="add">
         <input
           v-model="newUrl"
           class="ff-field add__input"
-          placeholder="URL — ej. localhost:3001 o un agent-host en :3012"
-          aria-label="URL del server"
+          placeholder="URL — ej. localhost:3001"
+          aria-label="URL del runner"
         />
         <input
           v-model="newToken"
@@ -157,16 +154,16 @@ onMounted(() => {
 .picker {
   max-width: 62rem;
   margin: 0 auto;
-  padding: 4rem 1.5rem 3rem;
+  padding: 2rem 1rem 3rem;
 }
 
-.picker__hd { margin-bottom: 2rem; }
+.picker__hd { margin-bottom: 1.5rem; }
 .picker__title { margin: 0; }
 .picker__sub { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr));
   gap: 0.8rem;
 }
 
@@ -180,12 +177,14 @@ onMounted(() => {
   border-top: 1px solid var(--border);
 }
 
-.add { display: flex; gap: 0.4rem; }
-.add__input {
-  min-width: 15rem;
-}
-
-.add__input--token { min-width: 10rem; }
+/* R2: nada de scroll horizontal — los campos ceden y la fila envuelve. */
+.add { display: flex; flex-wrap: wrap; gap: 0.4rem; flex: 1 1 24rem; }
+.add__input { flex: 1 1 12rem; min-width: 0; }
+.add__input--token { flex-basis: 9rem; }
 
 .empty { color: var(--fg-dim); font-size: var(--fs-body-sm); }
+
+@media (min-width: 768px) {
+  .picker { padding: 4rem 1.5rem 3rem; }
+}
 </style>

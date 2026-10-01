@@ -1,0 +1,25 @@
+{
+  "name": "@ia-flow/agent-engine-datasource-sqlite",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ExecutionRepository de @ia-flow/agent-engine sobre SQLite (node:sqlite o bun:sqlite): las ejecuciones pausadas sobreviven a un reinicio",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

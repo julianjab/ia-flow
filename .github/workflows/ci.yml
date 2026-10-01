@@ -19,10 +19,12 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          # Pineado: Bun 1.4.x cambió el transform de decorators legacy y rompe
-          # @memoize (packages/shared/src/cache.ts) + dos tests del logger.
-          # Actualizar requiere migrar @memoize primero — ver issue #80.
-          bun-version: "1.1.30"
+          # El MISMO pin que scripts/package-release.ts (BUN_VERSION): lo que pasa
+          # acá es lo que se publica. Bun toma `experimentalDecorators` (@memoize)
+          # del tsconfig del directorio desde el que corre — por eso cada suite
+          # corre con `--cwd` de su paquete (issue #80) —, y desde 1.3 instala
+          # con el linker isolated: bunfig.toml lo deja en hoisted.
+          bun-version: "1.4.2"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -33,17 +35,17 @@ jobs:
       - name: Format check
         run: bunx biome format .
 
-      # Cubre los 12 paquetes/apps del workspace, no sólo la web. Antes el
-      # typecheck del server corría como "informational" con
-      # `continue-on-error`, así que sus errores se acumulaban sin frenar nada:
-      # había 37 el día que se los ordenó. Un check que no puede fallar no es
-      # un check.
+      # Las fronteras entre paquetes y carpetas (.dependency-cruiser.cjs): cada
+      # regla es una ausencia verificada, con cómo arreglarla en su mensaje.
+      - name: Boundaries
+        run: bun run lint:boundaries
+
+      # Cubre todos los paquetes y apps del workspace. Un check que no puede
+      # fallar no es un check.
       - name: Typecheck (workspace)
         run: bun run typecheck
 
-      # `bun run test` corre TODAS las suites. Antes CI corría sólo server,
-      # shared y web — las de rules, agent-engine, issue-sources, tools,
-      # ai-providers, workspace, github-auth, figma-auth, agent-host y desktop
-      # no se ejecutaban en ningún lado salvo a mano.
+      # `bun run test` corre TODAS las suites (vitest en los paquetes del
+      # engine, bun test en runner-v2 y desktop, vitest en web).
       - name: Test (workspace)
         run: bun run test

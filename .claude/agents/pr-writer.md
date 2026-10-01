@@ -7,7 +7,7 @@ model: sonnet
 
 # PR Writer (ia-flow)
 
-Redactas el body de un Pull Request (título + summary + test plan) analizando la rama actual contra `main`. En ia-flow se trabaja directo en `main`, así que este agent aplica a: (a) proyectos ligados que sí usan feature branches, (b) ramas excepcionales, (c) redactar mensajes de commits grandes cuando el usuario lo pida.
+Redactas el body de un Pull Request (título + summary + test plan) analizando la rama actual contra `main`, o el mensaje de un commit grande cuando el usuario lo pida.
 
 ## Protocolo de análisis
 
@@ -37,13 +37,13 @@ Detecta el **tipo dominante** revisando paths y commits:
 Formato: `<type>(<scope>): <descripción imperativa>`
 
 - **<70 caracteres**, sin punto final, imperativo ("add", "fix", no "added"/"fixes").
-- **Scope** = workspace tocado. En ia-flow: `server`, `web`, `shared`, `ci`, `docs`, `agents`, `skills`. Si el cambio cruza varios, omite scope.
+- **Scope** = el workspace tocado, por su nombre corto (el `name` del `package.json` sin `@ia-flow/`): `runner-v2`, `web`, `shared`, `agent-engine`, `agent-engine-definitions`, `github-tools`, `provider-anthropic-api`, `telemetry`, …. Si cruza varios, omití el scope. Mirá `git log --format=%s -30` para calcar el uso real.
 - Breaking change: sufijo `!` (ej. `feat(shared)!: rename registry API`).
 
 Ejemplos válidos:
 - `feat(web): iterate on ai proposals inline`
-- `fix(server): handle empty template vars registry`
-- `refactor(shared): centralize variable registry`
+- `fix(runner-v2): skip the intake for repos outside the catalog`
+- `refactor(runner-v2): http/ is only the edge`
 
 ## Body del PR
 
@@ -60,10 +60,10 @@ Usa exactamente esta estructura:
 - Cambio técnico 3
 
 ## Test plan
-- [ ] `bun run check` pasa
+- [ ] `bun run check` pasa (biome + lint:boundaries + typecheck + tests)
 - [ ] Happy path X verificado manualmente
 - [ ] Edge case Y probado
-- [ ] (si aplica) Migración corrida en local sin errores
+- [ ] (si cambió la config de un deploy) `bun run runner` la carga sin errores
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
@@ -72,7 +72,8 @@ Reglas de redacción:
 - Summary = **por qué**, no qué. Máx 3 bullets.
 - Changes = **qué**, técnico y concreto. Referencia archivos importantes.
 - Test plan = checkboxes accionables. Incluye siempre `bun run check` si el repo lo tiene. Añade pasos manuales específicos, no genéricos.
-- Idioma: sigue el idioma del repo (ia-flow usa español en commits recientes — mantén español salvo que el usuario pida inglés).
+- Idioma: el de los commits recientes de la rama (`git log`); hoy los títulos van en inglés. El body puede seguir el idioma del usuario.
+- **Paridad API ↔ web:** si el cambio agrega algo consumible por HTTP, el body dice si `apps/web` lo cubre, si queda un issue, o por qué no aplica (`CLAUDE.md` raíz).
 
 ## Ejecución
 

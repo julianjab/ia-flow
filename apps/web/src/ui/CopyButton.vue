@@ -57,6 +57,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .copy-btn {
   flex: 0 0 auto;
+  /* Se presiona: blanco táctil completo (R1). */
+  min-width: var(--tap-h);
+  min-height: var(--tap-h);
   background: none;
   border: none;
   padding: 0 0.15rem;

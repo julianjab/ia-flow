@@ -38,12 +38,8 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          # `simple` y no un manifest de monorepo a propósito: los cuatro
-          # artefactos se publican SIEMPRE juntos y con la misma versión. El
-          # runner y el server son el mismo `apps/server` con otro entrypoint,
-          # y la app de escritorio habla con ellos por HTTP — versionarlos por
-          # separado obligaría a razonar sobre compatibilidad entre piezas que
-          # siempre salen del mismo commit.
+          # `simple` y no un manifest de monorepo a propósito: todo el repo
+          # sale con una sola versión, desde el mismo commit.
           release-type: simple
           package-name: ia-flow
 

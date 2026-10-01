@@ -1,0 +1,27 @@
+{
+  "name": "@ia-flow/workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Ciclo de vida del checkout donde corre un agente (clone + git worktree por task, locks, limpieza) — port de @ia-flow/workspace — más las Actions que lo enchufan a agent-engine",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/fs-tools": "workspace:*",
+    "@ia-flow/shell-tools": "workspace:*",
+    "yaml": "^2.6.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

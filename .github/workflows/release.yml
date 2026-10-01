@@ -1,27 +1,15 @@
-# Construye y publica los cuatro artefactos de una release.
+# Construye y publica los artefactos de una release.
 #
 # Lo dispara el tag que crea `release-please.yml` al mergear su Release PR.
-# `workflow_dispatch` está para rehacer una release sin tocar la versión (un
-# runner de CI que falló, un push a GHCR que se cortó).
+# `workflow_dispatch` está para rehacer una release sin tocar la versión.
 #
-#   ia-flow-server.js     apps/server, flavor `full`  — la API + WS
-#   ia-flow-runner.js     apps/server, flavor `runner` — engine headless
-#   ia-flow-agent-host.js    apps/agent-host
+#   ia-flow-runner.js              el runner headless (`apps/runner-v2`), un bundle
+#   ia-flow-runner-<v>.tar.gz      el bundle + Dockerfile.example + VERSION + BUN_VERSION
+#   SHA256SUMS                     para `ADD --checksum`
 #   IA Flow-<version>-<arch>.dmg   la app de escritorio
 #
-# Los tres bundles van también como `.tar.gz` con su Dockerfile de ejemplo, y
-# hay un SHA256SUMS para verificar. Todo se adjunta a la GitHub Release.
-#
-# **No se publican imágenes de contenedor.** Una imagen le impone al consumidor
-# la base que elegimos nosotros; un bundle de 2 MB se referencia con un `ADD`
-# desde el Dockerfile de quien lo usa, sobre la base que ya tenga. Los
-# Dockerfiles de cada app siguen existiendo para construir desde el árbol de
-# trabajo, que es otro caso de uso.
-#
-# Los cuatro salen del MISMO commit y llevan la MISMA versión: el server y el
-# runner son literalmente el mismo `apps/server` con otro entrypoint, y la app
-# habla con ellos por HTTP. Versionarlos por separado obligaría a razonar sobre
-# compatibilidad entre piezas que siempre salen juntas.
+# No se publican imágenes: el bundle se referencia con un `ADD` desde el
+# Dockerfile de cada deploy, sobre su base y con su config.
 name: Release
 
 on:
@@ -52,17 +40,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── Los tres bundles ────────────────────────────────────────────────────
-  #
-  # Se publican ARTEFACTOS, no imágenes. Una imagen obliga a quien la consume a
-  # heredar la base que nosotros elegimos —nuestra Debian, nuestros paquetes,
-  # nuestro usuario—; un bundle de 2 MB se referencia con un `ADD` desde el
-  # Dockerfile de cualquiera, sobre la base que ya esté usando.
-  #
-  # Son independientes de arquitectura (es JavaScript), así que no hay matriz de
-  # plataformas y esto corre en un solo job de minutos gratis.
-  artifacts:
-    name: Bundles (server, runner, agent-host)
+  runner:
+    name: Runner (ia-flow-runner.js)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -74,11 +53,9 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          # El MISMO pin que scripts/package-release.ts anuncia adentro de cada
-          # artefacto. Si estos dos se separan, publicaríamos un bundle
-          # construido con una versión distinta a la que le decimos al
-          # consumidor que use.
-          bun-version: "1.1.30"
+          # El MISMO pin que scripts/package-release.ts (BUN_VERSION), que
+          # además se niega a empaquetar con otro.
+          bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
 
@@ -98,34 +75,28 @@ jobs:
           append_body: true
           body: |
 
-            ### Server, runner y agent-host
+            ### Runner
 
-            No se publican imágenes: se publica el **bundle**, para que lo
-            referencies desde tu propio Dockerfile sobre la base que uses.
+            El runner headless (`apps/runner-v2`) es un solo archivo. Se baja
+            con un `ADD` desde el Dockerfile de cada deploy, junto a su config:
 
             ```dockerfile
-            FROM oven/bun:1.1.30-slim
-            ADD --chmod=644 https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-server.js /app/server.js
-            ENTRYPOINT ["bun", "run", "/app/server.js"]
+            FROM oven/bun:1.4.2-slim
+            ADD --chown=bun:bun --chmod=644 https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-runner.js /app/runner.js
+            COPY config/ /app/config/
+            ENV RUNNER_CONFIG_DIR=/app/config
+            ENTRYPOINT ["bun", "run", "/app/runner.js", "--serve"]
             ```
 
-            Cada `.tar.gz` trae el mismo bundle más un `Dockerfile.example`
-            completo (git, `/state`, non-root) y un `README.md`. Verificá la
-            descarga con `SHA256SUMS`.
+            Las actions `.ts` de la config importan `@ia-flow/*` y `zod`: el
+            bundle se los sirve, no hace falta `node_modules`. Verificá la
+            descarga con `SHA256SUMS`. Bun: **1.4.2**.
 
-            **La versión de Bun no es libre:** el bundle está probado con
-            `1.1.30`. Bun 1.4.x rompe `@memoize` —que está en el grafo de las
-            tres apps— y lo hace sin ningún error visible.
-
-  # ── La app de escritorio ─────────────────────────────────────────────────
   desktop:
+    # Después del runner: los dos adjuntan a la MISMA Release con
+    # `append_body`, que es un read-modify-write del body.
+    needs: runner
     name: IA Flow.app (dmg)
-    # `needs`, y no por dependencia de artefactos: los dos jobs adjuntan a la
-    # MISMA Release con `append_body: true`, que es un read-modify-write del
-    # body. En paralelo, el que termina segundo pisa el texto del primero — y
-    # si la Release todavía no existe, los dos intentan crearla y uno se lleva
-    # un 422. Serializarlos es más barato que coordinarlos.
-    needs: artifacts
     # macOS obligatorio: un .dmg se construye con `hdiutil`, que no existe en
     # Linux. Es también el único job que cuesta minutos de macOS runner.
     runs-on: macos-14
@@ -139,8 +110,8 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          # Mismo pin que ci.yml: Bun 1.4.x rompe @memoize (issue #80).
-          bun-version: "1.1.30"
+          # Mismo pin que ci.yml y scripts/package-release.ts.
+          bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
 
@@ -205,6 +176,4 @@ jobs:
             lenta al clickear que un browser normal.
 
             La app no trae server: se conecta al que elijas en su pantalla de
-            servers. Para levantar uno, usá el bundle `ia-flow-server.js` de
-            esta misma release — su `.tar.gz` trae un `Dockerfile.example`
-            listo para copiar.
+            servers.
