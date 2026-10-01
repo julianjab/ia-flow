@@ -657,6 +657,36 @@ describe('AnthropicProvider.run', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('provider-level systemPrompts go before the agent’s, and an agent’s providerConfig replaces them', async () => {
+    const systems: string[][] = []
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      systems.push((body.system as Array<{ text: string }>).map((block) => block.text))
+      return jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' })
+    })
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'm',
+      apiKey: 'sk',
+      stream: false,
+      systemPrompts: ['You are Claude Code.'],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    await provider.run(ctxFor({ systemPrompts: ['lo del agente'] }))
+    await provider.run(
+      ctxFor({ systemPrompts: ['lo del agente'], providerConfig: { systemPrompts: ['otro'] } }),
+    )
+
+    expect(systems).toEqual([
+      ['You are Claude Code.', 'lo del agente'],
+      ['otro', 'lo del agente'],
+    ])
+    expect(() => parseAnthropicAgentConfig({ systemPrompts: 'no es lista' })).toThrow(
+      /systemPrompts: valor inválido/,
+    )
+  })
+
   it('per-agent providerConfig overrides the provider-level model/maxTokens', async () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string)
