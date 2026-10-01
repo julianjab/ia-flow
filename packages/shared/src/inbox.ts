@@ -242,6 +242,19 @@ export const ConfigSummarySchema = z.object({
 })
 export type ConfigSummary = z.infer<typeof ConfigSummarySchema>
 
+/** Un agente del asistente: cada uno cumple su capacidad (`assistant`, `assistant.<id>`). */
+export const AssistantAgentSchema = z.object({
+  /** El nombre de su capacidad: `assistant` (el de siempre) o `assistant.<id>`. */
+  id: z.string(),
+  label: z.string(),
+  /** Para qué sirve, en una frase: la web lo muestra al elegirlo. */
+  description: z.string().optional(),
+})
+export type AssistantAgent = z.infer<typeof AssistantAgentSchema>
+
+/** El agente del asistente que contesta cuando el pedido no nombra otro. */
+export const DEFAULT_ASSISTANT_AGENT = 'assistant'
+
 /** `GET /api/runner`: con esto el selector de servidores reconoce a un runner-v2. */
 export const RunnerInfoSchema = z.object({
   service: z.literal('ia-flow-runner'),
@@ -249,6 +262,9 @@ export const RunnerInfoSchema = z.object({
   projects: z.array(InboxProjectSchema),
   github_login: z.object({ device_flow: z.boolean() }),
   assistant: z.boolean(),
+  /** Con quién se puede hablar en el asistente: el primero es el de siempre. Un runner viejo no
+   *  lo manda: la web asume sólo el de siempre. */
+  assistant_agents: z.array(AssistantAgentSchema).default([]),
 })
 export type RunnerInfo = z.infer<typeof RunnerInfoSchema>
 
@@ -320,14 +336,17 @@ export type AssistantMessage = z.infer<typeof AssistantMessageSchema>
 export const AssistantRequestSchema = z.object({
   scope: AssistantScopeSchema,
   messages: z.array(AssistantMessageSchema).min(1),
+  /** Con qué agente del asistente (`AssistantAgent.id`); sin esto, el de siempre. */
+  agent: z.string().optional(),
   /** La conversación guardada a la que sigue esta pregunta. Se guarda sólo con login de GitHub
    *  (`x-github-token`): sin él, el chat funciona pero no queda en ningún lado. */
   conversation_id: z.string().optional(),
 })
 export type AssistantRequest = z.infer<typeof AssistantRequestSchema>
 
-/** Una acción que el asistente propone: la ejecuta el usuario, con su login de GitHub. */
-export const AssistantProposalSchema = z.object({
+/** Una acción sobre una tarea que el asistente propone: la ejecuta el usuario, con su login de
+ *  GitHub. Sin `kind`: las guardadas antes de que hubiera otras propuestas no lo traen. */
+export const AssistantTaskProposalSchema = z.object({
   id: z.string(),
   ref: z.string(),
   action: TaskActionSchema,
@@ -335,7 +354,51 @@ export const AssistantProposalSchema = z.object({
   reason: z.string(),
   comment: z.string().optional(),
 })
+export type AssistantTaskProposal = z.infer<typeof AssistantTaskProposalSchema>
+
+/** Un issue nuevo que el asistente propone abrir: lo crea el usuario, con su login de GitHub. */
+export const AssistantIssueProposalSchema = z.object({
+  id: z.string(),
+  kind: z.literal('issue'),
+  /** `owner/repo` donde se abre. */
+  repo: z.string(),
+  title: z.string(),
+  body: z.string(),
+  labels: z.array(z.string()).optional(),
+  label: z.string(),
+  reason: z.string(),
+})
+export type AssistantIssueProposal = z.infer<typeof AssistantIssueProposalSchema>
+
+/** Lo que el asistente propone: una acción sobre una tarea, o abrir un issue. */
+export const AssistantProposalSchema = z.union([
+  AssistantIssueProposalSchema,
+  AssistantTaskProposalSchema,
+])
 export type AssistantProposal = z.infer<typeof AssistantProposalSchema>
+
+export function isIssueProposal(proposal: AssistantProposal): proposal is AssistantIssueProposal {
+  return 'kind' in proposal && proposal.kind === 'issue'
+}
+
+/** `POST /api/issues`: abre un issue propuesto, con el token de GitHub de quien lo confirma. */
+export const CreateIssueRequestSchema = z.object({
+  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'owner/repo'),
+  title: z.string().trim().min(1),
+  body: z.string(),
+  labels: z.array(z.string().min(1)).optional(),
+})
+export type CreateIssueRequest = z.infer<typeof CreateIssueRequestSchema>
+
+export const CreateIssueResultSchema = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+  /** El issue creado. */
+  url: z.string().optional(),
+  number: z.number().optional(),
+  github_login: z.string().optional(),
+})
+export type CreateIssueResult = z.infer<typeof CreateIssueResultSchema>
 
 /** Lo que manda `POST /api/assistant` por SSE, un evento por línea `data:`. */
 export const AssistantStreamEventSchema = z.discriminatedUnion('type', [
@@ -364,6 +427,8 @@ export type RunnerStreamEvent = z.infer<typeof RunnerStreamEventSchema>
 export const AssistantConversationSummarySchema = z.object({
   id: z.string(),
   scope: AssistantScopeSchema,
+  /** Con qué agente del asistente fue (`AssistantAgent.id`). */
+  agent: z.string().default(DEFAULT_ASSISTANT_AGENT),
   /** La primera pregunta, recortada. */
   title: z.string(),
   created_at: z.string(),
