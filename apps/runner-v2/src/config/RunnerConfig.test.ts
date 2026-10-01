@@ -67,3 +67,31 @@ describe('which runner.yaml', () => {
     expect(loadRunnerConfig(dir).projects[0]?.branchPrefix).toBeUndefined()
   })
 })
+
+describe('capabilities', () => {
+  it('without sources.capabilities, the runner fulfils all four with its own agents', () => {
+    const spec = loadRunnerConfig(config('')).source.spec()
+    expect(spec.source).toMatchObject({
+      capabilities: {
+        assistant: { agent: 'assistant' },
+        whenText: { agent: 'text-classifier' },
+        fileFocus: { agent: 'file-focus' },
+        branchName: { agent: 'branch-namer' },
+      },
+    })
+    const ids = [spec.agents].flat().map((doc) => (doc as { id?: string }).id)
+    expect(ids).toEqual(['assistant', 'text-classifier', 'file-focus', 'branch-namer'])
+  })
+
+  it('a capability the config declares wins over the default', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-caps-'))
+    writeFileSync(
+      join(dir, 'runner.yaml'),
+      'sources:\n  capabilities:\n    whenText: { agent: my-classifier }\n',
+    )
+    const spec = loadRunnerConfig(dir).source.spec()
+    expect(spec.source).toMatchObject({
+      capabilities: { whenText: { agent: 'my-classifier' }, assistant: { agent: 'assistant' } },
+    })
+  })
+})
