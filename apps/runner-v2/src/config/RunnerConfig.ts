@@ -31,7 +31,7 @@ import { AcceptRow, HostName } from '@ia-flow/provider-remote'
 import type { SlackReviewConfig, SlackUserDirectory } from '@ia-flow/slack-api'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
-import { BUILTIN_CAPABILITIES, builtinCapabilityAgents } from '../capabilities/index.js'
+import { BUILTIN_CAPABILITIES, BUILTIN_CAPABILITY_AGENTS } from '../capabilities/index.js'
 import { EngineSection } from '../engine/mountEngine.js'
 import {
   DEFAULT_WORKING_MARKER,
@@ -196,9 +196,10 @@ export const RunnerFileSchema = z.strictObject({
       accepts: z.array(AcceptRow).optional(),
     })
     .optional(),
-  /** Los system prompts del deploy que cualquier agente —uno de la config o una capacidad del
-   *  runner— nombra por id (`systemPrompts: [{ id: agentIdentity }]`), en vez de copiar el texto.
-   *  Las capacidades del runner abren con `agentIdentity`: si no está acá, van sin él. */
+  /** Los system prompts del deploy que cualquier agente nombra por id
+   *  (`systemPrompts: [{ id: reglas }]`), en vez de copiar el texto. Uno que no está: el engine
+   *  avisa y el agente corre sin él. Lo que un provider exige en todo request no va acá: va en
+   *  `providers.<id>.systemPrompts`. */
   systemPrompts: z
     .array(z.strictObject({ id: z.string().min(1), text: z.string().min(1) }))
     .refine((entries) => {
@@ -469,7 +470,7 @@ export function loadRunnerConfig(path: string): RunnerConfig {
         // documentos inline, y lo que `sources.capabilities` no declara, cumplido por ellos.
         return sourceSpec(
           {
-            agents: [...list(agents), ...builtinCapabilityAgents(new Set(prompts.keys()))],
+            agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS],
             ...(pipelines !== undefined ? { pipelines } : {}),
             capabilities: { ...BUILTIN_CAPABILITIES, ...capabilities },
           },

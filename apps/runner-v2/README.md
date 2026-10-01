@@ -258,12 +258,23 @@ una, la pisa en `sources.capabilities` con un agente propio en `sources.agents` 
 agente propio con el id de uno del runner rompe el arranque—.
 
 **Los system prompts compartidos los define la config**, en `systemPrompts` de `runner.yaml`
-(`[{ id: agentIdentity, text: … }]`): cualquier agente —uno del deploy o una capacidad del runner—
-los nombra por id en vez de copiarlos (`systemPrompts: [{ id: agentIdentity }, { text: … }]`). Un
-`{ id }` se resuelve contra los `systemPrompts` de la fuente del agente (con ese `id`) o contra este
-catálogo; uno que no existe rompe la carga, en vez de correr sin esas instrucciones. El runner no
-trae textos: sus capacidades abren con `{ id: agentIdentity }`, y en un deploy que no lo define
-corren sin él.
+(`[{ id: reglas, text: … }]`): cualquier agente los nombra por id en vez de copiarlos
+(`systemPrompts: [{ id: reglas }, { text: … }]`). Un `{ id }` se resuelve contra los
+`systemPrompts` de la fuente del agente (con ese `id`) o contra este catálogo; uno que no existe se
+omite con un aviso al cargar (como un MCP que no está) y el agente corre sin ese bloque.
+
+**Lo que un provider exige en todo request va en el provider**, no en los agentes: los
+`systemPrompts` de `providers.anthropic-api` van antes de los de cada agente que corre ahí —las
+capacidades del runner incluidas—, y no llegan a los que corren en otro provider (el CLI ya trae
+su identidad):
+
+```yaml
+providers:
+  anthropic-api:
+    systemPrompts: ["You are Claude Code, Anthropic's official CLI for Claude."]
+```
+
+El `providerConfig.systemPrompts` de un agente los reemplaza enteros.
 
 **Las conversaciones se guardan por login de GitHub** (`assistant_conversation` y
 `assistant_message`, en la misma base): sólo cuando quien pregunta tiene sesión, cada una de UN

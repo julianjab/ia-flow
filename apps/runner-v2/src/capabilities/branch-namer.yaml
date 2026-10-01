@@ -13,7 +13,6 @@ providerConfig:
   maxTokens: 256
   maxToolRounds: 2
 systemPrompts:
-  - id: agentIdentity
   - text: >-
       Generás nombres de branch git para tasks. Respondé SÓLO llamando a
       `submit_done` con el nombre en `result.branch`. El título y la descripción

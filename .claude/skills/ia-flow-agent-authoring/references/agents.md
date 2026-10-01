@@ -11,7 +11,7 @@ la fuente global; los de un proyecto, su proyecto.
 
 | Campo | Qué |
 | --- | --- |
-| `systemPrompts` | `[{ text }]` o `[{ id }]`. Un `{ id }` es uno de la fuente (`project.yaml`, con ese `id`) o del catálogo de la config (`systemPrompts` de `runner.yaml`, ej. `agentIdentity`); uno que no existe rompe la carga. Van DESPUÉS de los de la fuente, que son el prefijo compartido y cacheable. El método del agente va acá |
+| `systemPrompts` | `[{ text }]` o `[{ id }]`. Un `{ id }` es uno de la fuente (`project.yaml`, con ese `id`) o del catálogo de la config (`systemPrompts` de `runner.yaml`). Lo que un provider exige en todo request (la identidad de Claude Code en `anthropic-api`) no va acá: va en `providers.<id>.systemPrompts`; uno que no existe se omite con un aviso (el agente corre sin él). Van DESPUÉS de los de la fuente, que son el prefijo compartido y cacheable. El método del agente va acá |
 | `prompt` | Lo que cambia por corrida: lo que lleva `{{...}}` (ver `variables.md`) |
 | `variables` | Constantes del agente: `{{variables.<k>}}` |
 | `input` | Lo que recibe cuando lo alcanza una ruta de otro agente: `{{input.<k>}}` |

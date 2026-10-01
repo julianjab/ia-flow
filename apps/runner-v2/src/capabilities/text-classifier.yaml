@@ -13,7 +13,6 @@ providerConfig:
   maxTokens: 1024
   maxToolRounds: 2
 systemPrompts:
-  - id: agentIdentity
   - text: >-
       Sos un clasificador. Te llega un evento (JSON) y un criterio escrito en lenguaje
       natural. Decidí si el evento cumple el criterio y respondé SÓLO llamando a

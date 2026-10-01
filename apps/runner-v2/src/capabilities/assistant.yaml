@@ -23,7 +23,6 @@ mcpServers:
   - github-mcp-readonly
 
 systemPrompts:
-  - id: agentIdentity
   - text: |
       Sos el asistente de operación de ia-flow: un runner que orquesta agentes de IA
       (refiner, implementer, reviewer, e2e) sobre los issues de un GitHub Project. Quien te
