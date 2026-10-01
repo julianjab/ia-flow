@@ -65,6 +65,31 @@ describe('SqliteConversationStore', () => {
     expect(store.list('julian').map((c) => c.id)).toEqual([recent])
   })
 
+  it('a conversation is of one agent of the assistant', () => {
+    const store = storeAt(['2026-09-30T10:00:00Z'])
+    const id = store.create('julian', general, 'qué mejorar', 'assistant.runner-improvements')
+    expect(store.owns(id, 'julian')).toBe(true)
+    expect(store.owns(id, 'julian', 'assistant.runner-improvements')).toBe(true)
+    expect(store.owns(id, 'julian', 'assistant')).toBe(false)
+    expect(store.list('julian')).toMatchObject([{ id, agent: 'assistant.runner-improvements' }])
+  })
+
+  it('a database from before the agents keeps its conversations, as the default agent', () => {
+    const database = new Database(':memory:')
+    database.exec(`
+      CREATE TABLE assistant_conversation (
+        id TEXT PRIMARY KEY, github_login TEXT NOT NULL, scope_key TEXT NOT NULL,
+        scope_json TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO assistant_conversation
+        VALUES ('old', 'julian', 'general', '{"kind":"general"}', 'vieja', 'a', 'a');
+    `)
+    const store = new SqliteConversationStore(database)
+    expect(store.list('julian')).toMatchObject([{ id: 'old', agent: 'assistant' }])
+    expect(store.owns('old', 'julian', 'assistant')).toBe(true)
+  })
+
   it('the title is the first question, on one line and short', () => {
     expect(conversationTitle('  ¿qué\n pasó?  ')).toBe('¿qué pasó?')
     expect(conversationTitle('x'.repeat(200))).toHaveLength(80)
