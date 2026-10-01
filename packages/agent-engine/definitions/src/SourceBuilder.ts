@@ -376,15 +376,17 @@ export class SourceBuilder {
 
   /**
    * Un `whenText` del YAML, con sus system prompts resueltos a texto: por id, uno del
-   * `source.yaml` (con ese `id`) o del catálogo; inline, `{ text }`. Un id que no existe rompe la
-   * carga — un gate que corre sin las instrucciones que se le pidieron decidiría otra cosa.
+   * `source.yaml` (con ese `id`) o del catálogo; inline, `{ text }`. Un id que no existe se omite
+   * con un aviso: el gate corre sin él.
    */
   private whenText(node: WhenTextNode | undefined): { whenText?: WhenText } {
     if (node === undefined) return {}
     if (typeof node === 'string') return { whenText: { text: node } }
-    const systemPrompts = (node.systemPrompts ?? []).map((ref) =>
-      typeof ref === 'string' ? this.systemPrompt(ref) : ref.text,
-    )
+    const systemPrompts = (node.systemPrompts ?? []).flatMap((ref) => {
+      if (typeof ref !== 'string') return [ref.text]
+      const text = this.systemPrompt(ref, 'el whenText')
+      return text === undefined ? [] : [text]
+    })
     return {
       whenText: {
         text: node.text,
@@ -395,30 +397,29 @@ export class SourceBuilder {
 
   /**
    * Los system prompts de un agente, con los que nombra por `id` (sin `text`) ya resueltos: uno de
-   * la fuente con ese `id`, o del catálogo (ej. los que trae una app para todos sus agentes). Un id
-   * que no existe rompe la carga: el agente correría sin las instrucciones que se le pidieron.
+   * la fuente con ese `id`, o del catálogo (ej. los que define la config de una app). Un id que no
+   * existe se omite con un aviso, como un MCP que no está: el agente corre sin ese bloque.
    */
   private agentSystemPrompts(
     refs: NonNullable<SourceDoc['systemPrompts']>,
     agentId: string,
   ): NonNullable<SourceDoc['systemPrompts']> {
-    return refs.map((ref) => {
-      if (ref.text !== undefined || ref.id === undefined) return ref
-      try {
-        return { id: ref.id, text: this.systemPrompt(ref.id) }
-      } catch (err) {
-        throw new Error(`agente "${agentId}": ${(err as Error).message}`)
-      }
+    return refs.flatMap((ref) => {
+      if (ref.text !== undefined || ref.id === undefined) return [ref]
+      const text = this.systemPrompt(ref.id, `el agente "${agentId}"`)
+      return text === undefined ? [] : [{ id: ref.id, text }]
     })
   }
 
-  private systemPrompt(id: string): string {
+  /** El texto del system prompt `id`: de la fuente o del catálogo. Si no está, avisa (a nombre de
+   *  `who`) y devuelve undefined. */
+  private systemPrompt(id: string, who: string): string | undefined {
     const own = this.sourceSystemPrompts.find((ref) => ref.id === id)?.text
     const found = own ?? this.catalogs.systemPrompts?.resolve(id)
     if (found === undefined) {
       const declared = this.sourceSystemPrompts.flatMap((ref) => (ref.id ? [ref.id] : []))
-      throw new Error(
-        `no hay un system prompt "${id}"${declared.length > 0 ? ` — la fuente declara: ${declared.join(', ')}` : ''} (ni en el catálogo)`,
+      this.log.warn(
+        `fuente "${this.sourceId}": ${who} nombra el system prompt "${id}", que no está${declared.length > 0 ? ` (la fuente declara: ${declared.join(', ')})` : ''} ni en el catálogo — corre sin él`,
       )
     }
     return found
