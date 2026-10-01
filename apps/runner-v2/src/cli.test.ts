@@ -4,7 +4,11 @@ import { parseArgs, parseIssueTarget } from './cli.js'
 describe('parseArgs', () => {
   it('without a mode, it only boots and validates', () => {
     expect(parseArgs([])).toEqual({ serve: false, host: false })
-    expect(parseArgs(['--config', '/x'])).toEqual({ serve: false, host: false, configDir: '/x' })
+    expect(parseArgs(['--config', '/x/runner.local.yaml'])).toEqual({
+      serve: false,
+      host: false,
+      config: '/x/runner.local.yaml',
+    })
   })
 
   it('--host lends the local providers to other runners', () => {

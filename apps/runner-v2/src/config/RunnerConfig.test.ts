@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadRunnerConfig } from './RunnerConfig.js'
+import { loadRunnerConfig, runnerPathOf } from './RunnerConfig.js'
 
 /** Una config mínima en el tmp del sistema: un proyecto inline con `project`. */
 function config(project: string): string {
@@ -36,5 +36,34 @@ describe('project.yaml when', () => {
 
   it('label is not a project key any more', () => {
     expect(() => loadRunnerConfig(config('      label: blocked\n'))).toThrow(/inválido/)
+  })
+})
+
+describe('which runner.yaml', () => {
+  it('a folder means its runner.yaml; a file is used as is', () => {
+    const dir = config('')
+    expect(runnerPathOf(dir)).toBe(join(dir, 'runner.yaml'))
+    expect(runnerPathOf(join(dir, 'runner.yaml'))).toBe(join(dir, 'runner.yaml'))
+  })
+
+  it('a runner.local.yaml next to the real one: its relative paths are the same folder', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-local-'))
+    mkdirSync(join(dir, 'projects', 'p'), { recursive: true })
+    const project = 'board: https://github.com/orgs/o/projects/1\n'
+    writeFileSync(join(dir, 'projects', 'p', 'project.yaml'), project)
+    writeFileSync(join(dir, 'projects', 'p', 'project.local.yaml'), `${project}branchPrefix: x/\n`)
+    writeFileSync(
+      join(dir, 'runner.yaml'),
+      'sources:\n  projects:\n    p: ./projects/p/project.yaml\n',
+    )
+    writeFileSync(
+      join(dir, 'runner.local.yaml'),
+      'sources:\n  projects:\n    p: ./projects/p/project.local.yaml\n',
+    )
+    const local = loadRunnerConfig(join(dir, 'runner.local.yaml'))
+    expect(local.runnerPath).toBe(join(dir, 'runner.local.yaml'))
+    expect(local.dir).toBe(dir)
+    expect(local.projects[0]?.branchPrefix).toBe('x/')
+    expect(loadRunnerConfig(dir).projects[0]?.branchPrefix).toBeUndefined()
   })
 })
