@@ -48,7 +48,12 @@ const comment = createEvent('github.issue_comment', {
   comment: { id: 1, body: 'hola', user: { login: 'julian' } },
 })
 
-async function run(input: Record<string, unknown>, labels: string[], calls: string[] = []) {
+async function run(
+  input: Record<string, unknown>,
+  labels: string[],
+  calls: string[] = [],
+  event: DomainEvent<unknown> = comment,
+) {
   const bus = new EventBus()
   const published: DomainEvent<unknown>[] = []
   bus.subscribe('*', (event) => {
@@ -56,7 +61,7 @@ async function run(input: Record<string, unknown>, labels: string[], calls: stri
   })
   const branchNamer: string[] = []
   const ctx = {
-    event: comment,
+    event,
     bus,
     capabilities: {
       invoke: async () => {
@@ -106,5 +111,37 @@ describe('resolve_task when', () => {
   it('rejects a row that is not a condition', () => {
     const action = new ResolveTaskAction(() => [project], reader([]))
     expect(() => action.input.parse({ when: [{ field: 'x', op: 'isAwesome' }] })).toThrow()
+  })
+})
+
+describe('resolve_task issues', () => {
+  /** El label que alguien le puso a o/r#7: la señal de un board que no emite `projects_v2_item`. */
+  const labeled = createEvent('github.issues', {
+    action: 'labeled',
+    label: { name: 'build' },
+    issue: { number: 7, title: 't', labels: [{ name: 'build' }] },
+    repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+    sender: { login: 'julian' },
+  })
+
+  it('a label on an issue of the board publishes issue.labeled with the label at the root', async () => {
+    const { result, published } = await run({}, ['build'], [], labeled)
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.labeled'])
+    expect(published[0]?.payload).toMatchObject({
+      label: 'build',
+      sender: 'julian',
+      item: { status: 'Build', labels: ['build'] },
+    })
+  })
+
+  it('an action no pipeline listens to publishes nothing', async () => {
+    const closed = createEvent('github.issues', {
+      ...(labeled.payload as object),
+      action: 'closed',
+    })
+    const { result, published } = await run({}, ['build'], [], closed)
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: issues.closed' })
   })
 })
