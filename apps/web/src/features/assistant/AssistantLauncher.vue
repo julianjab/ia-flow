@@ -78,7 +78,7 @@ onUnmounted(() => setLock(false));
       class="cw"
       role="dialog"
       aria-label="Asistente"
-      @keydown.esc="ui.close()"
+      @keydown.esc.stop="ui.close()"
     >
       <div v-if="drawer" class="cw__shade" aria-hidden="true" @click="drawer = false" />
       <div class="cw__list" :data-open="drawer">
@@ -168,11 +168,12 @@ onUnmounted(() => setLock(false));
 }
 
 /* La ventana. Mobile primero (R8): pantalla completa, respetando las zonas seguras; las
-   conversaciones, un cajón sobre el chat. */
+   conversaciones, un cajón sobre el chat. Va sobre el detalle de una tarea (75): «Preguntarle al
+   asistente» se abre desde ahí. Bajo el sheet de login (80), que el chat puede pedir. */
 .cw {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: 78;
   display: flex;
   min-height: 0;
   padding-top: env(safe-area-inset-top, 0px);
