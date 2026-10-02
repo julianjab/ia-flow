@@ -6,6 +6,7 @@
 import { createEvent } from '@ia-flow/agent-engine'
 import type { RunnerStreamEvent } from '@ia-flow/shared'
 import { Assistant } from '../assistant/Assistant.js'
+import type { Boards } from '../board/Boards.js'
 import type { MountedRunner } from '../boot.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { DeviceFlow } from '../github/deviceFlow.js'
@@ -15,18 +16,17 @@ import { SseHub } from '../http/sse.js'
 import { dispatchRaw } from '../intake/dispatch.js'
 import type { ActivityStore } from '../storage/activityStore.js'
 import { taskOfKey } from './ActivityPort.js'
-import { BoardReader, type BoardSpec } from './BoardReader.js'
+import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
 import { runnerApi } from './runnerApi.js'
 import { toTraceEntry } from './SqliteActivity.js'
-import { statusChangeWebhook } from './statusChangeWebhook.js'
 import { TaskActions } from './TaskActions.js'
 
 export interface MountedInbox {
   api: ApiRouter
-  board: BoardReader
+  board: Boards
   close(): void
 }
 
@@ -44,10 +44,10 @@ export function mountInbox(
     board: project.board,
     when: project.when,
   }))
-  const board = new BoardReader(mounted.github)
+  const boards = mounted.boards
   const inbox = new InboxService({
     projects: specs,
-    board,
+    board: boards,
     activity: store.activity,
     waitingKeys: () => mounted.executions?.waitingKeys() ?? [],
     explain: async (event) => {
@@ -76,7 +76,7 @@ export function mountInbox(
 
   const actions = new TaskActions({
     inbox,
-    boards: new Map(specs.map((spec) => [spec.projectId, spec.board])),
+    boards,
     settings: cfg.inbox,
     redispatch: async (ref, by) => {
       const last = store.activity.lastDispatchedEvent(ref)
@@ -95,9 +95,9 @@ export function mountInbox(
     // el pipeline de review corre con sus condiciones de siempre (PR abierto, sin blockers).
     rerunReview: async (ref, by) => {
       const card = await inbox.card(ref)
-      if (!card?.itemId) throw new Error(`${ref} no está en el board`)
+      if (!card) throw new Error(`${ref} no está en el board`)
       const status = cfg.inbox.statuses.review
-      const delivery = statusChangeWebhook({ itemId: card.itemId, status, sender: by })
+      const delivery = boards.of(card.projectId).statusChange(card, status, by)
       dispatchRaw(mounted, delivery, options.log).catch((err: unknown) => {
         options.log(
           `re-ejecutar review ${ref}: ${err instanceof Error ? err.message : String(err)}`,
@@ -120,7 +120,7 @@ export function mountInbox(
       return 'le pedí al agente que termine su turno'
     },
     changed: (ref) => {
-      board.invalidate()
+      boards.invalidate()
       changed(ref)
     },
   })
@@ -202,7 +202,7 @@ export function mountInbox(
 
   return {
     api,
-    board,
+    board: boards,
     close: () => {
       clearInterval(pruning)
       for (const stop of unsubscribe) stop()

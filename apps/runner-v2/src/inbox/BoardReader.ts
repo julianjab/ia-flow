@@ -5,8 +5,8 @@
  */
 import { Condition, type ConditionRow } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
+import type { BoardCard, BoardMeta } from '@ia-flow/github-tools'
 import { invalidateMemoized, memoize } from '@ia-flow/shared'
-import type { BoardCard } from './classify.js'
 
 export interface BoardSpec {
   projectId: string
@@ -34,13 +34,7 @@ export function inProject(spec: Pick<BoardSpec, 'when'>, card: BoardCard): boole
   return Condition.evaluateAll(when, { item: cardItem(card) })
 }
 
-/** Lo que se sabe del Project en sí: sus links y el orden de sus columnas. */
-export interface BoardMeta {
-  url: string
-  boardUrl: string
-  /** Las opciones del campo Status, en el orden del board. */
-  statuses: string[]
-}
+export type { BoardMeta }
 
 /** La página de un Project v2, de una org (`orgs`, por defecto) o de una cuenta personal (`users`). */
 export const projectUrl = (board: BoardSpec['board']) =>

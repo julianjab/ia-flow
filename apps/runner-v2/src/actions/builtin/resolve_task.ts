@@ -4,9 +4,15 @@
  */
 
 import { GithubTaskReader } from '@ia-flow/github-tools'
+import type { Board } from '../../board/Board.js'
 import { ResolveTaskAction } from '../../intake/ResolveTaskAction.js'
 import { defineAction } from '../defineAction.js'
 import { repoRefs, reposText } from './project.js'
+
+/** Lo que el board del proyecto aporta al intake: cómo lee la card y cómo traduce sus webhooks. */
+function boardEvents(board: Board) {
+  return { ...(board.intake ? { intake: board.intake } : {}), locate: board.locate }
+}
 
 export default defineAction({
   id: 'resolve_task',
@@ -16,6 +22,7 @@ export default defineAction({
         ctx.projects().map((project) => ({
           id: project.id,
           board: project.board,
+          ...boardEvents(ctx.services.boards.of(project.id)),
           ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
           repos: repoRefs(project),
           reposText: reposText(project),

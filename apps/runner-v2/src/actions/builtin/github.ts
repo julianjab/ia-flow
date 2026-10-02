@@ -30,7 +30,12 @@ import { projectOf } from './project.js'
 /** El cliente, el board y el catálogo de repos del proyecto que la pide. */
 function projectContext(ctx: ActionContext, action: string): GithubProjectContext {
   const project = projectOf(ctx, action)
-  return { client: ctx.services.github, board: project.board, repos: project.repos }
+  return {
+    client: ctx.services.github,
+    board: project.board,
+    adder: ctx.services.boards.of(project.id),
+    repos: project.repos,
+  }
 }
 
 /** Una tool que sólo necesita el cliente. */
@@ -43,7 +48,7 @@ export default [
     create: (ctx) =>
       new UpdateIssueAction({
         client: ctx.services.github,
-        project: projectOf(ctx, 'update_issue').board,
+        board: ctx.services.boards.of(projectOf(ctx, 'update_issue').id),
       }),
   }),
   // Con el nombre del agente como encabezado: el reporte de cierre.

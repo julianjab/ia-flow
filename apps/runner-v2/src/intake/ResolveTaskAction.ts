@@ -6,7 +6,13 @@ import {
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
 import { ConditionRows } from '@ia-flow/agent-engine-definitions'
-import { type BoardRef, boardItem, type GithubTaskReader, issueRefs } from '@ia-flow/github-tools'
+import {
+  type BoardRef,
+  type GithubTaskReader,
+  type IntakeBoard,
+  issueRefs,
+  ProjectsV2Intake,
+} from '@ia-flow/github-tools'
 import { type EventFields, type Location, locate, mergedPullRequest } from '@ia-flow/github-webhook'
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
@@ -25,6 +31,12 @@ export interface ResolveTaskProject {
   repos: string[]
   /** `{{project.repos}}` de los prompts: el catálogo en texto. */
   reposText: string
+  /** Cómo lee el intake la card de un issue de este proyecto. Sin esto, la de un Project v2 sobre
+   *  `board` (que comparte el cache por webhook del `GithubTaskReader`). */
+  intake?: IntakeBoard
+  /** Cómo se traduce un webhook crudo a la task y al evento de este proyecto. Sin esto, el `locate`
+   *  de `@ia-flow/github-webhook`. */
+  locate?: (type: string, raw: Record<string, unknown>) => Location
 }
 
 const Input = z.strictObject({
@@ -121,10 +133,14 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
 
 /** Lo que `resolve_task` hace para UN proyecto. */
 class ProjectResolver {
+  private readonly intake: IntakeBoard
+
   constructor(
     private readonly project: ResolveTaskProject,
     private readonly reader: GithubTaskReader,
-  ) {}
+  ) {
+    this.intake = project.intake ?? new ProjectsV2Intake(reader, project.board)
+  }
 
   async resolve(
     input: z.infer<typeof Input>,
@@ -136,7 +152,7 @@ class ProjectResolver {
     const when = (input.when ?? []).map((row) => new Condition(row))
     if (input.unblockDependents) return this.unblocked(raw, ctx, when)
 
-    const location = located ?? locate(type, raw)
+    const location = located ?? (this.project.locate ?? locate)(type, raw)
     if ('skip' in location) return { skipped: location.skip }
     const task =
       'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
@@ -149,13 +165,8 @@ class ProjectResolver {
 
   /** El issue detrás de un item, si el item es del board de este proyecto. */
   private async itemTask(itemId: string): Promise<TaskRef | { skipped: string }> {
-    const found = await this.reader.issueOfItem(itemId)
-    if (!found) return { skipped: `no se pudo leer el item ${itemId}` }
-    const { board } = this.project
-    if (found.board.number !== board.number || !same(found.board.owner, board.owner)) {
-      return { skipped: `item del board ${found.board.owner}#${found.board.number}` }
-    }
-    return { owner: found.owner, repo: found.repo, number: found.number }
+    const found = await this.intake.issueOfItem(itemId)
+    return 'skipped' in found ? found : found.issue
   }
 
   private async issueTask(location: {
@@ -199,10 +210,7 @@ class ProjectResolver {
     options: { closedBlocker?: string; onlyIfUnblocked?: boolean; when?: Condition[] } = {},
   ): Promise<DomainEvent<unknown> | { skip: string }> {
     const ref = `${task.owner}/${task.repo}#${task.number}`
-    const card = boardItem(
-      await this.reader.itemsOfIssue(task.owner, task.repo, task.number),
-      this.project.board,
-    )
+    const card = await this.intake.cardOf(task)
     if (!card) return { skip: `${ref} no está en el board de ${this.project.id}` }
     const branches = new TaskBranches(this.reader, this.project.branchPrefix)
     const known = await branches.known(task)

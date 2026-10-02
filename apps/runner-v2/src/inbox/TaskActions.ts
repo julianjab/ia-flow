@@ -7,16 +7,17 @@
 import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
-import { UpdateIssueAction, type UpdateIssueInput } from '@ia-flow/github-tools'
+import { type BoardWriter, UpdateIssueAction, type UpdateIssueInput } from '@ia-flow/github-tools'
 import type { TaskAction, TaskActionRequest, TaskActionResult } from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
+import type { Boards } from '../board/Boards.js'
 import type { InboxSettings } from './InboxSection.js'
 import type { InboxService } from './InboxService.js'
 
 export interface TaskActionsOptions {
   inbox: Pick<InboxService, 'item'>
-  /** El board de cada proyecto: los cambios de Status son campos de ese Project v2. */
-  boards: Map<string, { owner: string; number: number }>
+  /** El board de cada proyecto: dónde se escribe el cambio de columna, con la identidad de la persona. */
+  boards: Pick<Boards, 'writerFor'>
   settings: Pick<InboxSettings, 'labels' | 'statuses' | 'mergeMethod'>
   /** Vuelve a despachar el último evento de la tarea (relanzar, reintentar). */
   redispatch(ref: string, by: string): Promise<string>
@@ -131,7 +132,7 @@ export class TaskActions {
       throw new TaskActionError('contestar necesita el comentario', 400)
     }
     await assertCanPush(client, parseRef(ref), github.login)
-    const board = this.options.boards.get(item.project_id)
+    const board = this.options.boards.writerFor(item.project_id, client)
     const message = await this.apply(request, ref, client, {
       board,
       pr: item.pr?.number,
@@ -155,7 +156,7 @@ export class TaskActions {
       pr,
       login,
     }: {
-      board: { owner: string; number: number } | undefined
+      board: BoardWriter | undefined
       pr: number | undefined
       login: string
     },
@@ -165,7 +166,7 @@ export class TaskActions {
     const update = (input: UpdateIssueInput) =>
       new UpdateIssueAction({
         client,
-        ...(board ? { project: board } : {}),
+        ...(board ? { board } : {}),
         issue: () => target,
       }).execute(input, NO_CTX)
     const unblock = () => update({ removeLabels: [labels.blocked] })

@@ -34,6 +34,8 @@ import { BUILTIN_ACTIONS } from './actions/builtin/index.js'
 import type { RunnerServices } from './actions/defineAction.js'
 import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
 import { AssistantDesk } from './assistant/AssistantDesk.js'
+import type { Boards } from './board/Boards.js'
+import { createBoards } from './board/createBoards.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { withScope } from './engine/withScope.js'
@@ -80,6 +82,8 @@ export interface MountedRunner {
   projects: ProjectConfig[]
   /** GitHub con la identidad del runner. */
   github: GithubClient
+  /** El board de cada proyecto. */
+  boards: Boards
   githubAuthMode: string
   mcpServers: string[]
   /** Qué actions registró cada scope. */
@@ -158,8 +162,10 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     log: opts.log,
   })
 
+  const boards = createBoards(cfg.projects, github)
   const services: RunnerServices = {
     github,
+    boards,
     workspace,
     session,
     // La credencial de los `git` de red de un `bash_run` con `githubAuth`: el agente publica su rama.
@@ -207,7 +213,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
   })
   // `Working = Yes` en la card mientras su ejecución corre (ver `project.yaml` → workingMarker).
   const stopWorking = mounted.executions
-    ? trackWorking(mounted.executions, cfg.projects, github, opts.log)
+    ? trackWorking(mounted.executions, cfg.projects, github, boards, opts.log)
     : () => {}
   const pipelines = () => sources.flatMap((entry) => entry.source.list())
   try {
@@ -234,6 +240,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     },
     projects: cfg.projects,
     github,
+    boards,
     githubAuthMode,
     mcpServers: Object.keys(mcpServers),
     actions: actions.registered,
