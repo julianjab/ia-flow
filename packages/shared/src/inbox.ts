@@ -12,7 +12,8 @@ export type InboxGroup = z.infer<typeof InboxGroupSchema>
 
 /**
  * El caso dentro de su grupo:
- * - need: `merge` (Review + reviewed), `prd` (Refined), `doubt` (blocked por una salida de error
+ * - need: `merge` (Review + reviewed), `prd` (Refined), `prerequisite` (blocked: al agente le falta
+ *   una pieza), `doubt` (blocked por una salida de error
  *   del agente), `stale` (Refine/Build sin ejecución ni cambios hace rato)
  * - fail: `crash` (la corrida falló por el runner o el provider)
  * - run: `agent` (ejecución corriendo), `ci` (pausada esperando el CI)
@@ -25,6 +26,9 @@ export const InboxKindSchema = z.enum([
   'review',
   'prd',
   'doubt',
+  /** blocked porque le falta una pieza (un issue que todavía no existe o no cerró): no es una
+   *  decisión de producto. */
+  'prerequisite',
   'stale',
   'crash',
   'agent',
@@ -66,6 +70,8 @@ export const ExecutionSummarySchema = z.object({
   agent_id: z.string().optional(),
   /** La salida por la que terminó el agente (`done`, `back_to_build`, `error`…). */
   exit: z.string().optional(),
+  /** Lo que el agente dijo al cerrar (su resumen): el texto de una salida que no es un fallo. */
+  summary: z.string().optional(),
   /** Por qué falló, si falló: el motivo del agente (`fail_turn`) o el error del runner. */
   failure: z.object({ by: z.enum(['agent', 'runtime']), message: z.string() }).optional(),
   pause: z.object({ pause_id: z.string(), expires_at: z.string().optional() }).optional(),

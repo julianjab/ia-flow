@@ -44,6 +44,17 @@ export interface InboxServiceOptions {
 const TRACE_LIMIT = 200
 const EVENTS_LIMIT = 30
 
+/** Lo último que dijo el agente: el motivo de su fallo, o —en una salida que no falla, como una
+ *  duda o una pieza que falta— lo que resumió al cerrar. */
+function agentSaid(found: Classification, activity: TaskActivity): string | undefined {
+  const closed = activity.lastClosed
+  if (found.group === 'need' || found.group === 'fail') {
+    if (closed?.failure) return closed.failure.message
+    if (found.kind === 'doubt' || found.kind === 'prerequisite') return closed?.summary
+  }
+  return undefined
+}
+
 export class InboxService {
   constructor(private readonly options: InboxServiceOptions) {}
 
@@ -163,7 +174,6 @@ export class InboxService {
 
   private toItem(card: BoardCard, activity: TaskActivity, found: Classification): InboxItem {
     const execution = activity.live ?? activity.lastClosed
-    const failure = activity.lastClosed?.failure
     return {
       ref: card.ref,
       project_id: card.projectId,
@@ -179,9 +189,7 @@ export class InboxService {
       ...(card.pr ? { pr: card.pr } : {}),
       ...(execution ? { execution } : {}),
       ...(card.blockedBy.length > 0 ? { blocked_by: card.blockedBy } : {}),
-      ...((found.group === 'need' || found.group === 'fail') && failure
-        ? { agent_said: failure.message }
-        : {}),
+      ...(agentSaid(found, activity) ? { agent_said: agentSaid(found, activity) } : {}),
       actions: found.actions,
     }
   }

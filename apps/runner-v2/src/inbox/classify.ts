@@ -151,11 +151,23 @@ function stuck(
   const failure = lastClosed?.failure
   const since = lastClosed?.closed_at ?? card.updatedAt
   const blockedLabel = card.labels.includes(settings.labels.blocked)
-  if (blockedLabel && failure?.by === 'agent') {
+  // La salida del agente manda sobre el texto de un fallo: `prerequisite` y `doubt` son rutas
+  // propias del agente (no un error), y `fail_turn` —que cierra como fallo del agente— sigue
+  // siendo una duda para los agentes que todavía no declaran esas salidas.
+  if (blockedLabel && lastClosed?.exit === 'prerequisite') {
+    return {
+      group: 'need',
+      kind: 'prerequisite',
+      why: `Le falta una pieza: ${excerpt(lastClosed.summary ?? failure?.message ?? '')}`,
+      since,
+      actions: ['answer_and_unblock'],
+    }
+  }
+  if (blockedLabel && (lastClosed?.exit === 'doubt' || failure?.by === 'agent')) {
     return {
       group: 'need',
       kind: 'doubt',
-      why: `El agente tiene una duda: ${excerpt(failure.message)}`,
+      why: `El agente tiene una duda: ${excerpt(failure?.message ?? lastClosed?.summary ?? '')}`,
       since,
       actions: ['answer_and_unblock'],
     }
@@ -214,7 +226,8 @@ const KIND_ORDER: Partial<Record<InboxKind, number>> = {
   review: 1,
   prd: 2,
   doubt: 3,
-  stale: 4,
+  prerequisite: 4,
+  stale: 5,
 }
 
 /** El orden de la bandeja: por grupo; en "te necesita", lo más cerca de Done primero; dentro de

@@ -84,6 +84,7 @@ export class SqliteActivity implements ActivityPort {
       ...(row.closeReason ? { close_reason: row.closeReason } : {}),
       ...(outcome?.agentId ? { agent_id: outcome.agentId } : {}),
       ...(outcome?.exit ? { exit: outcome.exit } : {}),
+      ...(outcome?.summary ? { summary: outcome.summary } : {}),
       ...(failure ? { failure } : {}),
       ...(row.status === 'paused' && row.pause
         ? {
