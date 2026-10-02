@@ -116,7 +116,7 @@ acciones sólo hablan con la interfaz `Board` (`src/board/`).
 # un board de issues: no hay Project, sirve el token de una GitHub App
 board:
   kind: issues
-  statuses: [Todo, Refine, Build, Tests, Done]   # opcional: el orden de las columnas
+  statuses: [Todo, Refine, Build, Tests, Done]   # obligatorio: las columnas, en orden de avance
   statusPrefix: "status:"                        # opcional (es el default)
 repos: ./repos                                   # cada repo con githubOwner y githubRepo
 ```
@@ -126,10 +126,15 @@ Con `kind: issues`:
   intake ya no descarta tasks por "no está en el board".
 - **Mover una columna es cambiar un label.** Se agrega el nuevo antes de sacar el viejo, así la card
   nunca queda sin columna; con dos a la vez (un cambio a medias) vale la más avanzada de `statuses`.
+  Si sacar el viejo falla se reintenta una vez y, si sigue fallando, se deshace. Por eso `statuses` es
+  obligatorio: un label guarda `In Progress` como `status:in-progress`, y sólo la lista sabe cómo se
+  escribe y en qué orden va.
   Los demás campos siguen el mismo esquema: `Task Type` = `task-type:<valor>`, la marca `Working` =
   `working:yes`.
 - **Un label `status:*` puesto llega como `issue.status_changed`** (con la columna en `to`), igual
-  que en un Project v2: las pipelines por columna sirven para los dos. Sacarlo no dispara nada (el
+  que en un Project v2: las pipelines por columna sirven para los dos. `from` es la columna anterior
+  cuando todavía está en el issue (siempre que mueve el runner; si una persona la sacó antes de poner
+  la nueva, no se dice). Sacarlo no dispara nada (el
   nuevo llega por su propio webhook). Cualquier otro label sigue siendo `issue.labeled`. Hace falta
   el webhook `issues` en la App o el repo.
 - **`item.labels` incluye los labels de campo** (`status:build`, `working:yes`): un `when` sobre

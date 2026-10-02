@@ -10,25 +10,38 @@ import { z } from 'zod'
  */
 export const IssuesBoardSchema = z.strictObject({
   kind: z.literal('issues'),
-  /** Las columnas, en orden de avance. Sin ellas, cualquier `<statusPrefix>…` es una columna. */
-  statuses: z.array(z.string().min(1)).min(1).optional(),
+  /** Las columnas, en orden de avance. Obligatorias: un label guarda la columna en minúsculas y con
+   *  guiones (`status:in-progress`), y sólo la lista sabe que es `In Progress`; además el orden
+   *  decide cuál vale si una card queda con dos. */
+  statuses: z.array(z.string().min(1)).min(1),
   /** El prefijo de los labels de columna. Default: `status:`. */
   statusPrefix: z.string().min(1).optional(),
 })
 export type IssuesBoardConfig = z.infer<typeof IssuesBoardSchema>
 
+const PROJECT_URL = /github\.com\/(?:orgs|users)\/[^/]+\/projects\/\d+/
+
 /** El board del proyecto: un GitHub Project v2 —`https://github.com/orgs/<org>/projects/<n>`, o el
  *  de una cuenta personal: `https://github.com/users/<login>/projects/<n>`— o los issues de sus
- *  repos (`{ kind: issues }`). */
-export const BoardSchema = z.union([
-  z
-    .string()
-    .regex(
-      /github\.com\/(?:orgs|users)\/[^/]+\/projects\/\d+/,
-      'un GitHub Project v2 (de org o de usuario) o { kind: issues }',
-    ),
-  IssuesBoardSchema,
-])
+ *  repos (`{ kind: issues }`). No es una `z.union`: una unión dice sólo "Invalid input" y esconde
+ *  qué campo del objeto falla (p. ej. que faltan las `statuses`). */
+export const BoardSchema = z.unknown().transform((value, ctx): string | IssuesBoardConfig => {
+  if (typeof value === 'string' && PROJECT_URL.test(value)) return value
+  if (typeof value === 'object' && value !== null) {
+    const parsed = IssuesBoardSchema.safeParse(value)
+    if (parsed.success) return parsed.data
+    for (const issue of parsed.error.issues) {
+      const where = issue.path.length > 0 ? `${issue.path.join('.')}: ` : ''
+      ctx.addIssue({ code: 'custom', message: `board.${where}${issue.message}` })
+    }
+    return z.NEVER
+  }
+  ctx.addIssue({
+    code: 'custom',
+    message: 'board: un GitHub Project v2 (de org o de usuario) o { kind: issues }',
+  })
+  return z.NEVER
+})
 export type BoardFile = z.infer<typeof BoardSchema>
 
 /** Lo que el runner sabe del board de un proyecto una vez leído. */
@@ -39,7 +52,7 @@ export interface ProjectBoard {
   /** De qué es el board: un Project v2 de GitHub o los issues de sus repos. */
   boardKind: 'projects-v2' | 'issues'
   /** Sólo con `boardKind: issues`: las columnas y el prefijo de sus labels. */
-  issuesBoard?: { statuses?: string[]; statusPrefix?: string }
+  issuesBoard?: { statuses: string[]; statusPrefix?: string }
 }
 
 /** Los repos del catálogo, en lo que un board de issues necesita de ellos. */
@@ -75,7 +88,7 @@ export function readBoard(board: BoardFile, repos: CatalogRepo[], where: string)
     board: { owner: first.githubOwner as string, number: 0 },
     boardKind: 'issues',
     issuesBoard: {
-      ...(board.statuses ? { statuses: board.statuses } : {}),
+      statuses: board.statuses,
       ...(board.statusPrefix ? { statusPrefix: board.statusPrefix } : {}),
     },
   }
