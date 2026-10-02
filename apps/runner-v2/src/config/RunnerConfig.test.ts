@@ -191,12 +191,13 @@ describe('project.yaml board: { kind: issues }', () => {
     return dir
   }
   const repo = '        - { name: ia-flow, githubOwner: julianjab, githubRepo: ia-flow }\n'
+  const columns = '        kind: issues\n        statuses: [Todo, Build, Done]\n'
 
   it('takes the issues of the catalog repos as the board, owned by the first repo', () => {
-    const project = loadRunnerConfig(withIssuesBoard('        kind: issues\n', repo)).projects[0]
+    const project = loadRunnerConfig(withIssuesBoard(columns, repo)).projects[0]
     expect(project?.boardKind).toBe('issues')
     expect(project?.board).toEqual({ owner: 'julianjab', number: 0 })
-    expect(project?.issuesBoard).toEqual({})
+    expect(project?.issuesBoard).toEqual({ statuses: ['Todo', 'Build', 'Done'] })
   })
 
   it('takes the declared columns and the label prefix', () => {
@@ -221,15 +222,27 @@ describe('project.yaml board: { kind: issues }', () => {
   })
 
   it('needs a repo to read the issues of', () => {
-    expect(() =>
-      loadRunnerConfig(withIssuesBoard('        kind: issues\n', '        []\n')),
-    ).toThrow(/necesita algún repo/)
+    expect(() => loadRunnerConfig(withIssuesBoard(columns, '        []\n'))).toThrow(
+      /necesita algún repo/,
+    )
   })
 
   it('needs the GitHub owner and repo of every catalog repo', () => {
     expect(() =>
-      loadRunnerConfig(withIssuesBoard('        kind: issues\n', '        - { name: ia-flow }\n')),
+      loadRunnerConfig(withIssuesBoard(columns, '        - { name: ia-flow }\n')),
     ).toThrow(/necesita githubOwner y githubRepo en cada repo \(falta en "ia-flow"\)/)
+  })
+
+  it('needs the declared columns: a label cannot say how a column is capitalized', () => {
+    // En un project.yaml aparte (lo habitual) el error dice qué falta; inline, la unión
+    // string | proyecto de runner.yaml lo reduce a "Invalid input".
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-config-'))
+    writeFileSync(join(dir, 'runner.yaml'), 'sources:\n  projects:\n    p: ./project.yaml\n')
+    writeFileSync(
+      join(dir, 'project.yaml'),
+      'board:\n  kind: issues\nrepos:\n  - { name: ia-flow, githubOwner: julianjab, githubRepo: ia-flow }\n',
+    )
+    expect(() => loadRunnerConfig(dir)).toThrow(/statuses/)
   })
 
   it('rejects a board kind it does not know', () => {

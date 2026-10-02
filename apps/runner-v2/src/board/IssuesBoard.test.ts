@@ -194,6 +194,22 @@ describe('IssuesBoard events', () => {
     })
   })
 
+  it('says where the card came from when the old column is still on the issue', () => {
+    // El runner agrega el label nuevo ANTES de sacar el viejo: en este webhook todavía están los dos.
+    const event = issuesEvent('labeled', 'status:build')
+    event.issue.labels = [{ name: 'bug' }, { name: 'status:refine' }, { name: 'status:build' }]
+    expect(board.locate('issues', event)).toMatchObject({
+      emit: 'issue.status_changed',
+      extra: { from: 'Refine', to: 'Build' },
+    })
+  })
+
+  it('leaves `from` out when a person already took the old column off', () => {
+    const event = issuesEvent('labeled', 'status:build')
+    const { extra } = board.locate('issues', event) as { extra: Record<string, unknown> }
+    expect('from' in extra).toBe(false)
+  })
+
   it('taking a Status label off is nothing: the new one arrives on its own', () => {
     expect(board.locate('issues', issuesEvent('unlabeled', 'status:refine'))).toEqual({
       skip: 'Status sin cambio (se sacó status:refine)',

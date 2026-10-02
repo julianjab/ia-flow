@@ -123,6 +123,8 @@ describe('IssueLabelFields when taking the old label off fails', () => {
       'GET /repos/julianjab/ia-flow/issues/255',
       'POST /repos/julianjab/ia-flow/issues/255/labels {"labels":["status:build"]}',
       'DELETE /repos/julianjab/ia-flow/issues/255/labels/status%3Adone',
+      // Un 5xx se reintenta una vez antes de deshacer.
+      'DELETE /repos/julianjab/ia-flow/issues/255/labels/status%3Adone',
       // El rollback: saca el que agregó.
       'DELETE /repos/julianjab/ia-flow/issues/255/labels/status%3Abuild',
     ])
@@ -147,5 +149,24 @@ describe('IssueLabelFields when taking the old label off fails', () => {
     ).rejects.toThrow(
       /no se pudo deshacer: la card puede tener status:build y status:done a la vez/,
     )
+  })
+
+  it('a transient 5xx is retried once and the move goes through, with nothing to undo', async () => {
+    const calls: string[] = []
+    let attempts = 0
+    const client = {
+      requestJson: async (path: string, init: RequestInit = {}) => {
+        calls.push(`${init.method ?? 'GET'} ${path}`)
+        return { labels: [{ name: 'status:done' }] }
+      },
+      request: async (path: string, init: RequestInit = {}) => {
+        calls.push(`${init.method} ${path}`)
+        attempts += 1
+        return { ok: attempts > 1, status: attempts > 1 ? 204 : 502 }
+      },
+    } as unknown as GithubClient
+    await new IssueLabelFields(client, scheme).setFields(issue, { Status: 'Build' })
+    expect(calls.filter((call) => call.startsWith('DELETE'))).toHaveLength(2)
+    expect(calls.at(-1)).toContain('status%3Adone')
   })
 })
