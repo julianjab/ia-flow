@@ -79,6 +79,7 @@ const outputs: Out[] = [
   copy('apps/runner-v2/README.md', 'references/engine/runner-readme.md'),
   copy('packages/agent-engine/definitions/src/schema.ts', 'references/engine/schema.ts', false),
   copy('apps/runner-v2/src/config/RunnerConfig.ts', 'references/engine/RunnerConfig.ts', false),
+  copy('apps/runner-v2/src/config/boardConfig.ts', 'references/engine/boardConfig.ts', false),
   copy('apps/runner-v2/src/actions/defineAction.ts', 'references/engine/defineAction.ts', false),
   { path: join(PLUGIN, 'references/engine/actions-catalog.md'), content: actionsCatalog() },
 ]
