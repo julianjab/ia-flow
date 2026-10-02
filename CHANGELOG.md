@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/julianjab/ia-flow/compare/v2.0.0...v2.1.0) (2026-10-02)
+
+
+### Features
+
+* **runner-v2:** boards de cuenta personal y eventos issues en el intake ([#259](https://github.com/julianjab/ia-flow/issues/259)) ([3630cd9](https://github.com/julianjab/ia-flow/commit/3630cd9decb2a4c9ef700ae39c297663f8fa0f09))
+* **runner-v2:** un Board por proyecto — Project v2 o issues con el estado en labels ([#267](https://github.com/julianjab/ia-flow/issues/267)) ([e5198ef](https://github.com/julianjab/ia-flow/commit/e5198efc6c78240eb600855558d750b449c755af))
+
 ## [2.0.0](https://github.com/julianjab/ia-flow/compare/v1.12.2...v2.0.0) (2026-10-01)
 
 
