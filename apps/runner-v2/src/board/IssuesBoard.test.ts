@@ -264,3 +264,28 @@ describe('IssuesBoard writes', () => {
     expect(() => new IssuesBoard('p', {} as GithubClient, { repos: [] })).toThrow(/algún repo/)
   })
 })
+
+describe('IssuesBoard events from the runner itself', () => {
+  const board = new IssuesBoard('p', github([]).client, {
+    repos: [repo],
+    statuses: scheme.statuses,
+    fields: ['Task Type', 'Working'],
+  })
+
+  it('the working marker going on and off wakes no pipeline', () => {
+    for (const action of ['labeled', 'unlabeled']) {
+      expect(board.locate('issues', issuesEvent(action, 'working:yes'))).toEqual({
+        skip: 'working:yes es un campo que escribe el runner',
+      })
+    }
+  })
+
+  it('neither does the task type, but a human label does', () => {
+    expect(board.locate('issues', issuesEvent('labeled', 'task-type:functional'))).toHaveProperty(
+      'skip',
+    )
+    expect(board.locate('issues', issuesEvent('labeled', 'refine'))).toMatchObject({
+      emit: 'issue.labeled',
+    })
+  })
+})

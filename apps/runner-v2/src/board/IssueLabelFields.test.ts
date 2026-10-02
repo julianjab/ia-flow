@@ -82,7 +82,7 @@ describe('IssueLabelFields.setFields', () => {
         { owner: '../orgs', repo: 'x', number: 1 },
         { Status: 'Build' },
       ),
-    ).rejects.toThrow(/inválidos/)
+    ).rejects.toThrow(/"owner" inválido/)
   })
 })
 
@@ -93,5 +93,59 @@ describe('IssueLabelFields.read', () => {
       labels: ['x'],
       isPullRequest: true,
     })
+  })
+})
+
+describe('IssueLabelFields when taking the old label off fails', () => {
+  /** El DELETE de `failing` responde 500; los demás, 204. Anota todo, en orden. */
+  function flaky(labels: string[], failing: string[]) {
+    const calls: string[] = []
+    const client = {
+      requestJson: async (path: string, init: RequestInit = {}) => {
+        calls.push(`${init.method ?? 'GET'} ${path} ${init.body ?? ''}`.trim())
+        return { labels: labels.map((name) => ({ name })) }
+      },
+      request: async (path: string, init: RequestInit = {}) => {
+        calls.push(`${init.method} ${path}`)
+        const hit = failing.some((label) => path.endsWith(`/labels/${encodeURIComponent(label)}`))
+        return { ok: !hit, status: hit ? 500 : 204 }
+      },
+    } as unknown as GithubClient
+    return { client, calls }
+  }
+
+  it('undoes the move, so a step back (Review → Build) is not read as still Review', async () => {
+    const { client, calls } = flaky(['status:done'], ['status:done'])
+    await expect(
+      new IssueLabelFields(client, scheme).setFields(issue, { Status: 'Build' }),
+    ).rejects.toThrow(/no se pudo sacar "status:done" → 500 \(cambio deshecho\)/)
+    expect(calls).toEqual([
+      'GET /repos/julianjab/ia-flow/issues/255',
+      'POST /repos/julianjab/ia-flow/issues/255/labels {"labels":["status:build"]}',
+      'DELETE /repos/julianjab/ia-flow/issues/255/labels/status%3Adone',
+      // El rollback: saca el que agregó.
+      'DELETE /repos/julianjab/ia-flow/issues/255/labels/status%3Abuild',
+    ])
+  })
+
+  it('puts back what it had already taken off', async () => {
+    const { client, calls } = flaky(['status:refine', 'working:yes'], ['working:yes'])
+    await expect(
+      new IssueLabelFields(client, scheme).setFields(issue, { Status: 'Build' }, ['Working']),
+    ).rejects.toThrow(/cambio deshecho/)
+    // sacó status:refine, falló working:yes → devuelve status:refine y saca status:build
+    expect(calls.slice(-2)).toEqual([
+      'POST /repos/julianjab/ia-flow/issues/255/labels {"labels":["status:refine"]}',
+      'DELETE /repos/julianjab/ia-flow/issues/255/labels/status%3Abuild',
+    ])
+  })
+
+  it('says so when it could not even undo', async () => {
+    const { client } = flaky(['status:done'], ['status:done', 'status:build'])
+    await expect(
+      new IssueLabelFields(client, scheme).setFields(issue, { Status: 'Build' }),
+    ).rejects.toThrow(
+      /no se pudo deshacer: la card puede tener status:build y status:done a la vez/,
+    )
   })
 })

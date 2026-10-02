@@ -69,3 +69,22 @@ describe('other fields', () => {
     ])
   })
 })
+
+describe('edge cases', () => {
+  it('collapses spaces in a column when slugging it', () => {
+    expect(statusLabel('In   Review', open)).toBe('status:in-review')
+    expect(statusOfLabel('status:in-review', { prefix: 'status:', statuses: ['In Review'] })).toBe(
+      'In Review',
+    )
+  })
+
+  it('without declared columns, everything after the prefix is the column', () => {
+    expect(statusOfLabel('status:foo:bar', open)).toBe('Foo:bar')
+  })
+
+  it('`Task` and `Task Type` do not step on each other', () => {
+    expect(fieldLabel('Task', 'x', scheme)).toBe('task:x')
+    expect(fieldLabel('Task Type', 'x', scheme)).toBe('task-type:x')
+    expect(labelsOfField(['task-type:x', 'task:y'], 'Task', scheme)).toEqual(['task:y'])
+  })
+})

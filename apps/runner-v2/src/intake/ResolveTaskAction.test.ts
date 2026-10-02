@@ -5,7 +5,9 @@ import {
   EventBus,
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
 import type { GithubTaskReader } from '@ia-flow/github-tools'
+import { IssuesBoard } from '../board/IssuesBoard.js'
 import { ResolveTaskAction } from './ResolveTaskAction.js'
 
 const project = {
@@ -53,6 +55,7 @@ async function run(
   labels: string[],
   calls: string[] = [],
   event: DomainEvent<unknown> = comment,
+  proyecto: typeof project = project,
 ) {
   const bus = new EventBus()
   const published: DomainEvent<unknown>[] = []
@@ -70,7 +73,7 @@ async function run(
       },
     },
   } as unknown as PipelineExecutionContext
-  const action = new ResolveTaskAction(() => [project], reader(labels, calls))
+  const action = new ResolveTaskAction(() => [proyecto], reader(labels, calls))
   const result = await action.execute(action.input.parse(input), ctx)
   return { result, published, branchNamer }
 }
@@ -143,5 +146,53 @@ describe('resolve_task issues', () => {
     const { result, published } = await run({}, ['build'], [], closed)
     expect(published).toEqual([])
     expect(result).toEqual({ skipped: 'p: issues.closed' })
+  })
+})
+
+describe('resolve_task on a board of issues', () => {
+  /** El board de issues de o/r: el estado de #7 está en sus labels, que GitHub devuelve por REST. */
+  const issuesBoard = new IssuesBoard(
+    'p',
+    {
+      requestJson: async () => ({ labels: [{ name: 'status:build' }] }),
+    } as unknown as GithubClient,
+    { repos: [{ owner: 'o', repo: 'r' }], statuses: ['Todo', 'Build', 'Review'] },
+  )
+  const proyecto = { ...project, intake: issuesBoard.intake, locate: issuesBoard.locate }
+
+  /** El label de columna que alguien puso en o/r#7. */
+  const moved = createEvent('github.issues', {
+    action: 'labeled',
+    label: { name: 'status:build' },
+    issue: { number: 7, title: 't', labels: [{ name: 'status:build' }] },
+    repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+    sender: { login: 'julian' },
+  })
+
+  it('publishes the same issue.status_changed a Project v2 would, with the column from the labels', async () => {
+    const { result, published } = await run({}, ['status:build'], [], moved, proyecto)
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.status_changed'])
+    expect(published[0]?.payload).toMatchObject({
+      to: 'Build',
+      sender: 'julian',
+      item: { status: 'Build' },
+    })
+  })
+
+  it('does not fall over for an issue that has no card on a Project: the issue itself is the card', async () => {
+    const { reader: _ignored, ...sinProject } = proyecto as typeof proyecto & { reader?: unknown }
+    const { result } = await run({}, ['status:build'], [], moved, sinProject)
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+  })
+
+  it('ignores an issue of a repo the board does not read', async () => {
+    const ajeno = createEvent('github.issues', {
+      ...(moved.payload as object),
+      repository: { name: 'otro', full_name: 'o/otro', owner: { login: 'o' } },
+    })
+    const { result, published } = await run({}, [], [], ajeno, proyecto)
+    expect(published).toEqual([])
+    expect('skipped' in result && result.skipped).toMatch(/no es del catálogo de p/)
   })
 })

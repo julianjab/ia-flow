@@ -233,4 +233,51 @@ describe('UpdateIssueAction', () => {
       'state',
     ])
   })
+
+  describe('with any board (not only a Project v2)', () => {
+    it('writes the column through the board BEFORE touching labels', async () => {
+      const { client, calls } = fakeGithub()
+      const order: string[] = []
+      const board = {
+        setFields: async (_issue: unknown, set: Record<string, string>, clear?: string[]) => {
+          order.push(`board ${JSON.stringify(set)} ${JSON.stringify(clear)}`)
+        },
+      }
+      const action = new UpdateIssueAction({ client, board })
+
+      const result = await action.run(ctxFor(), { status: 'Build', addLabels: ['x'] })
+
+      expect(order).toEqual(['board {"Status":"Build"} []'])
+      expect(result).toBe('la-haus/subscriptions#42: Status=Build, +x')
+      // El board se llamó primero: el POST de labels es lo único que le sigue.
+      expect(calls.map((call) => call.method)).toEqual(['POST'])
+    })
+
+    it('a board that fails stops everything: no label is touched', async () => {
+      const { client, calls } = fakeGithub()
+      const board = {
+        setFields: async () => {
+          throw new Error('el board no responde')
+        },
+      }
+      const action = new UpdateIssueAction({ client, board })
+
+      await expect(
+        action.run(ctxFor(), { status: 'Build', addLabels: ['x'], removeLabels: ['y'] }),
+      ).rejects.toThrow(/el board no responde/)
+      expect(calls).toEqual([])
+    })
+
+    it('without status or fields the board is not even asked', async () => {
+      const { client } = fakeGithub()
+      let asked = false
+      const board = {
+        setFields: async () => {
+          asked = true
+        },
+      }
+      await new UpdateIssueAction({ client, board }).run(ctxFor(), { addLabels: ['x'] })
+      expect(asked).toBe(false)
+    })
+  })
 })
