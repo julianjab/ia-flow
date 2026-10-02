@@ -292,6 +292,11 @@ export class InboxService {
       const facts = this.factsOf(card, activity, unlocks.get(card.ref) ?? 0)
       const defs = this.options.taskActions?.(card.projectId) ?? {}
       const ids = availableTaskActions(defs, facts)
+      // Transitorio: un proyecto que todavía no declara sus `taskActions` sigue ofreciendo las que
+      // el runner traía (las de `classify`), para que un cliente nuevo no se quede sin botones.
+      const builtin = (classify(card, activity, this.classifyOptions())?.actions ?? []).filter(
+        (id) => !(id in defs),
+      )
       return {
         ...facts,
         ref: card.ref,
@@ -302,7 +307,7 @@ export class InboxService {
         blocked_by_refs: card.blockedBy,
         ...(activity.live ? { live_run: activity.live } : {}),
         ...(activity.lastClosed ? { last_run: activity.lastClosed } : {}),
-        actions: ids,
+        actions: [...ids, ...builtin],
         action_defs: this.defsOf(card.projectId, ids),
       }
     })
