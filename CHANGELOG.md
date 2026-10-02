@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/julianjab/ia-flow/compare/v2.1.0...v2.2.0) (2026-10-02)
+
+
+### Features
+
+* dashboard por runner — el runner publica hechos y acciones, la web decide la bandeja ([#269](https://github.com/julianjab/ia-flow/issues/269)) ([411ff8b](https://github.com/julianjab/ia-flow/commit/411ff8b9ae3b45511e23d7a03027f746ea37bf3c))
+
 ## [2.1.0](https://github.com/julianjab/ia-flow/compare/v2.0.0...v2.1.0) (2026-10-02)
 
 
