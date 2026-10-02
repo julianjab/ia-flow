@@ -176,6 +176,41 @@ describe('runTaskAction', () => {
     expect(calls).toHaveLength(2)
   })
 
+  it("keeps the status of a step's own rejection (a PR that cannot be merged is a 409)", async () => {
+    const rejecting = new (class extends Action {
+      readonly description = 'x'
+      readonly input = z.looseObject({})
+      constructor() {
+        super({ id: 'check_pr_mergeable' })
+      }
+      execute(): never {
+        throw Object.assign(new Error('PR #12 no se puede mergear: tiene conflictos (dirty)'), {
+          status: 409,
+        })
+      }
+    })()
+    const merge = TaskActionsSchema.parse({
+      merge: {
+        label: 'Mergear',
+        steps: [{ action: 'check_pr_mergeable' }, { action: 'merge_pr' }],
+      },
+    })
+    const calls: string[] = []
+    await expect(
+      runTaskAction({
+        def: merge.merge as NonNullable<TaskActionDefs[string]>,
+        id: 'merge',
+        issue,
+        facts: { ...facts([]), pr: { number: 12 } },
+        input: {},
+        actor: 'julian',
+        instantiate: (name) => (name === 'merge_pr' ? recorder(calls, name) : rejecting),
+      }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('conflictos (dirty)') })
+    // The merge itself never ran.
+    expect(calls).toEqual([])
+  })
+
   it('skips a step whose when does not hold', async () => {
     const calls: string[] = []
     const withGuard = TaskActionsSchema.parse({

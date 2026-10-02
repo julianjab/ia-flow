@@ -100,6 +100,41 @@ describe('what the inbox offers', () => {
     expect(item.action_defs).toBeUndefined()
   })
 
+  it('offers nothing declared while an agent is running on the task', async () => {
+    const running = activity('prerequisite')
+    const live: ActivityPort = {
+      ...running,
+      executions: (query) =>
+        query.statuses?.includes('running')
+          ? [
+              {
+                id: 'e2',
+                key: 'k',
+                task_ref: 'o/r#1',
+                pipeline_id: 'refine',
+                status: 'running',
+                started_at: '2026-09-29T11:30:00Z',
+                agent_id: 'refiner',
+              },
+            ]
+          : running.executions(query),
+    }
+    const service = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
+      board: { cards: async () => [blocked] },
+      activity: live,
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+      taskActions: () => defs,
+      now: () => new Date('2026-09-29T12:00:00Z'),
+    })
+    const item = (await service.item('o/r#1')) as InboxItem
+    expect(item.group).toBe('run')
+    expect(item.actions).toEqual(['stop'])
+    expect(item.action_defs).toBeUndefined()
+  })
+
   it('without declarations the built-in actions stay as they were', async () => {
     const item = (await inbox({}).item('o/r#1')) as InboxItem
     expect(item.actions).toEqual(['answer_and_unblock'])
