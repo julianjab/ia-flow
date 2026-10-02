@@ -66,9 +66,7 @@ export class IssueLabelFields implements BoardWriter {
     if (add.length > 0) await this.addLabels(issue, add)
     const removed: string[] = []
     for (const label of new Set(remove)) {
-      const res = await this.client.request(pathOf(issue, `/labels/${encodeURIComponent(label)}`), {
-        method: 'DELETE',
-      })
+      const res = await this.deleteLabel(issue, label)
       // 404: ya no lo tenía — el estado final es el pedido.
       if (res.ok || res.status === 404) {
         removed.push(label)
@@ -82,6 +80,14 @@ export class IssueLabelFields implements BoardWriter {
             : ` (no se pudo deshacer: la card puede tener ${[...add, label].join(' y ')} a la vez)`),
       )
     }
+  }
+
+  /** Un 5xx suele ser transitorio: se reintenta una vez antes de deshacer, porque deshacer también
+   *  pasa por webhooks (el label que se vuelve a poner despierta a la pipeline de su columna). */
+  private async deleteLabel(issue: IssueRef, label: string): Promise<Response> {
+    const path = pathOf(issue, `/labels/${encodeURIComponent(label)}`)
+    const res = await this.client.request(path, { method: 'DELETE' })
+    return res.status >= 500 ? this.client.request(path, { method: 'DELETE' }) : res
   }
 
   private async addLabels(issue: IssueRef, labels: string[]): Promise<void> {

@@ -219,11 +219,12 @@ export class IssuesBoard implements Board {
       return { skip: `Status sin cambio (se sacó ${label})` }
     }
     if (location.emit !== 'issue.labeled') return location
+    const from = this.previousStatus(raw, status)
     return {
       ...location,
       emit: 'issue.status_changed',
       status,
-      extra: { ...location.extra, to: status },
+      extra: { ...location.extra, ...(from ? { from } : {}), to: status },
     }
   }
 
@@ -247,6 +248,25 @@ export class IssuesBoard implements Board {
         sender: { login: sender },
       },
     }
+  }
+
+  /**
+   * De qué columna venía la card: el runner agrega el label nuevo ANTES de sacar el viejo, así que
+   * en el webhook del nuevo el viejo todavía está en los labels del issue. Si una persona cambió
+   * la columna a mano (sacó uno y puso otro) el viejo ya no está, y `from` queda sin decir.
+   */
+  private previousStatus(raw: Record<string, unknown>, status: string): string | undefined {
+    const issue = raw.issue as { labels?: Array<{ name?: string }> } | undefined
+    const others = (issue?.labels ?? []).flatMap((label) => {
+      const found = label.name ? statusOfLabel(label.name, this.scheme) : undefined
+      return found && found.toLowerCase() !== status.toLowerCase() ? [found] : []
+    })
+    return others.length > 0
+      ? statusOfLabels(
+          others.map((name) => statusLabel(name, this.scheme)),
+          this.scheme,
+        )
+      : undefined
   }
 
   private isFieldLabel(label: string): boolean {
