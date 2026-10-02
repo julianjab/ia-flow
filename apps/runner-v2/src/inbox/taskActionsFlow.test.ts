@@ -268,6 +268,14 @@ describe('GET /api/tasks: the facts, unclassified', () => {
     })
     const result = await service.tasks()
     expect(result.capacity).toEqual({ running: 0, waiting: 0, paused: 0 })
-    expect(result.tasks[0]?.actions).toEqual([])
+    // Sin taskActions declaradas el proyecto sigue ofreciendo lo que el runner traía (classify).
+    expect(result.tasks[0]?.actions).toEqual(['answer_and_unblock'])
+    expect(result.tasks[0]?.action_defs).toEqual([])
+  })
+
+  it('a declared action replaces the built-in one with the same id, never duplicates it', async () => {
+    const { tasks } = await tasksService([blocked], defs).tasks()
+    expect(tasks[0]?.actions).toEqual(['answer_and_unblock'])
+    expect(tasks[0]?.action_defs).toHaveLength(1)
   })
 })
