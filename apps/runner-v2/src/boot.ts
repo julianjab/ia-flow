@@ -166,7 +166,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     log: opts.log,
   })
 
-  const boards = createBoards(cfg.projects, github)
+  const boards = createBoards(cfg.projects, github, cfg.inbox.labels.blocked)
   const services: RunnerServices = {
     github,
     boards,

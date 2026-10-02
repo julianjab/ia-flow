@@ -7,7 +7,12 @@ import { IssuesBoard } from './IssuesBoard.js'
 import { ProjectsV2Board } from './ProjectsV2Board.js'
 
 /** El board de cada proyecto, con la identidad del runner. */
-export function createBoards(projects: ProjectConfig[], github: GithubClient): Boards {
+export function createBoards(
+  projects: ProjectConfig[],
+  github: GithubClient,
+  /** `inbox.labels.blocked`: cómo se llama el label de "trabada". */
+  blockedLabel?: string,
+): Boards {
   // Un solo lector para todos: su cache es por board y el webhook de uno suelta el de todos.
   const reader = new BoardReader(github)
   const boards: Board[] = projects.map((project) =>
@@ -18,6 +23,7 @@ export function createBoards(projects: ProjectConfig[], github: GithubClient): B
             repo: repo.githubRepo as string,
           })),
           ...project.issuesBoard,
+          ...(blockedLabel ? { blockedLabel } : {}),
           // Lo que el runner escribe además de la columna: el tipo y la marca "en curso".
           fields: ['Task Type', ...(project.workingMarker ? [project.workingMarker.field] : [])],
         })
