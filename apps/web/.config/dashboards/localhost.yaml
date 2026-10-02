@@ -2,6 +2,10 @@
 # la etapa de review de ESTE board, que se llama Tests (ver `inbox.statuses` de runner.yaml): sin
 # esto las decisiones de merge y de review nunca harían match. Las `taskActions` que nombra están
 # en apps/runner-v2/.config/projects/ia-flow/project.yaml.
+#
+# El flujo corre solo hasta `reviewed` (Refine → Build → Tests, y el reviewer marca `reviewed`): no
+# hay etapa Refined ni PRD para aprobar. Una persona sólo actúa en lo que se trabó, para mergear o
+# para corregir el PR.
 server: [ http://localhost:3001, local ]
 version: 1
 
@@ -59,16 +63,6 @@ decisions:
       - { field: item.status, op: eq, value: Tests }
     why: 'Review sin reviewed{{fmt.pr}}'
     actions: [ rerun_review ]
-
-  - id: prd
-    group: need
-    kind: prd
-    weight: 80
-    when:
-      - { field: item.status, op: eq, value: Refined }
-    why: PRD listo para aprobar (status Refined)
-    actions: [ approve_prd, back_to_refine ]
-    primary: approve_prd
 
   # ── lo que se trabó ────────────────────────────────────────────────────────────────────────
   - id: blocked_by_issue
