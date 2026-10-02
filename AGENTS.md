@@ -20,6 +20,7 @@ tocás manda** sobre este. Leelo antes de cambiar algo ahí.
 | Un prompt, un pipeline o un agente de un deploy | la config de ese deploy (`runner.yaml` + `projects/`), no el código |
 | La web | `apps/web` — antes de tocar un `.vue` o `.css`, `apps/web/DESIGN_SYSTEM.md` |
 | Un tipo que cruza el wire hacia la web | `packages/shared` (Zod) |
+| Cómo se ve, se nombra y se ordena la bandeja de UN runner (decisiones, verbos, paneles) | `apps/web/.config/dashboards/<runner>.yaml` — config de la web, no del runner |
 | Una condición (`when`) o plantilla (`{{x}}`) que leen el engine y la web | `packages/rules` — puro, sin dependencias |
 
 ## Comandos (desde la raíz)

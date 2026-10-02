@@ -6,6 +6,27 @@ Vite + Vue Router + Pinia. Puerto **5173** por default, configurable con `IA_FLO
 Proxy de `/api` al runner (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
 sobreescribe el destino completo). Ver la tabla de puertos en el [CLAUDE.md raíz](@CLAUDE.md).
 
+## El dashboard de cada runner
+
+La bandeja no la clasifica el runner: el runner publica **hechos** (`GET /api/tasks`: la card, su última
+corrida y la viva, `idle_hours`, `unlocks`, qué acciones aplican) y esta web decide qué es una
+decisión, cómo se llama, en qué orden va y qué paneles se ven. Eso es el **dashboard** del runner
+seleccionado, un YAML con `decisions` (la primera cuyo `when` se cumple gana), `rank` y `panels`.
+
+- `apps/web/.config/dashboards/*.yaml` — los que trae la web, uno por runner (`server: <URL>`);
+  `default.yaml` es el de quien no tiene el suyo y replica la clasificación de siempre. Un runner
+  nuevo es un archivo nuevo ahí.
+- `features/inbox/view/` — `dashboard.ts` (el schema, **estricto**: una clave mal escrita falla en
+  vez de ignorarse), `decide.ts` (hechos + dashboard → bandeja, puro), `resolve.ts` (qué le toca a
+  la URL elegida: lo editado > el de su `server:` > `default`) y `storage.ts` (lo editado vive en
+  este navegador). La condición y la plantilla son las de `@ia-flow/rules`: el `when` significa lo
+  mismo que en el engine.
+- Se edita desde «Cómo se decide cada grupo» (`DashboardEditor.vue`); un documento inválido no se
+  guarda y dice dónde falla.
+- Un runner que todavía no publica `/api/tasks` (404) sigue por `/api/inbox`, ya clasificado.
+- El botón de una acción sólo sale si el **runner** la ofrece para esa tarea (`taskActions` de su
+  `project.yaml`); el dashboard elige cuáles mostrar y cuál destacar, no cuáles existen.
+
 ## Arquitectura — Feature-sliced
 
 El código se agrupa por **dominio de negocio**, no por tipo de archivo. Una feature es una
