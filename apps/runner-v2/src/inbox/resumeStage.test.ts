@@ -25,8 +25,8 @@ describe('resumeStage', () => {
       event('2', { to: 'Build' }, 'run-b'),
       event('1', { to: 'Refine' }, 'run-a'),
     ]
-    expect(resumeStage(events, 'run-a', statuses)).toBe('Refine')
-    expect(resumeStage(events, 'run-b', statuses)).toBe('Build')
+    expect(resumeStage(events, { id: 'run-a', pipeline_id: 'x' }, statuses)).toBe('Refine')
+    expect(resumeStage(events, { id: 'run-b', pipeline_id: 'x' }, statuses)).toBe('Build')
   })
 
   it('falls back to the latest stage move when a comment started the run', () => {
@@ -35,12 +35,22 @@ describe('resumeStage', () => {
       event('3', { to: 'Blocked' }),
       event('2', { to: 'Refine' }, 'run-a'),
     ]
-    expect(resumeStage(events, 'run-c', statuses)).toBe('Refine')
+    expect(resumeStage(events, { id: 'run-c', pipeline_id: 'x' }, statuses)).toBe('Refine')
   })
 
   it('never returns Blocked or a column the inbox does not know', () => {
     const events = [event('2', { to: 'Blocked' }), event('1', { to: 'Backlog' })]
-    expect(resumeStage(events, 'run-a', statuses)).toBeUndefined()
+    expect(resumeStage(events, { id: 'run-a', pipeline_id: 'x' }, statuses)).toBeUndefined()
+  })
+
+  it('falls back to the pipeline of the failed run when no event says the column', () => {
+    // An issues board can start a run with a bare label: the event carries no `to`.
+    const labeled = [event('1', { action: 'labeled' }, 'run-a')]
+    expect(resumeStage(labeled, { id: 'run-a', pipeline_id: 'refine' }, statuses)).toBe('Refine')
+    expect(resumeStage(labeled, { id: 'run-a', pipeline_id: 'Build' }, statuses)).toBe('Build')
+    expect(resumeStage(labeled, { id: 'run-a', pipeline_id: 'review' }, statuses)).toBe('Tests')
+    // A pipeline that is not a stage (a comment, the CI) says nothing.
+    expect(resumeStage(labeled, { id: 'run-a', pipeline_id: 'comment' }, statuses)).toBeUndefined()
   })
 
   it('knows nothing without events', () => {
