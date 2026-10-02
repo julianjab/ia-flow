@@ -45,6 +45,12 @@ export type {
 } from './ListSubIssuesBriefAction.js'
 export { ListSubIssuesBriefAction, ListSubIssuesBriefInput } from './ListSubIssuesBriefAction.js'
 export { MarkBlockedByAction } from './MarkBlockedByAction.js'
+export {
+  CheckPrMergeableAction,
+  MergePullRequestAction,
+  MergePullRequestInput,
+  PreconditionError,
+} from './MergePullRequestActions.js'
 export type { PostCommentActionOptions } from './PostCommentAction.js'
 export {
   CommentTarget,
