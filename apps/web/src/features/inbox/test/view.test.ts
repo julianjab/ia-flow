@@ -57,7 +57,11 @@ const blockedItem = {
 
 describe('dashboards that ship with the web', () => {
   it('are valid, and the default declares no server', () => {
-    expect(PRESETS.map((preset) => preset.name)).toEqual(['default', 'ia-flow.ss.lahaus.com'])
+    expect(PRESETS.map((preset) => preset.name)).toEqual([
+      'default',
+      'ia-flow.ss.lahaus.com',
+      'localhost',
+    ])
     expect(standard.server).toBeUndefined()
     expect(lahaus.server).toBe('https://ia-flow.ss.lahaus.com')
   })
@@ -65,8 +69,17 @@ describe('dashboards that ship with the web', () => {
   it("the runner's own dashboard is picked by its URL, and any other gets the default", () => {
     expect(resolveDashboard(serverKey('https://ia-flow.ss.lahaus.com/')).source).toBe('preset')
     expect(resolveDashboard(serverKey('https://IA-FLOW.ss.lahaus.com')).source).toBe('preset')
-    expect(resolveDashboard(serverKey('http://localhost:3001')).source).toBe('default')
+    expect(resolveDashboard(serverKey('http://otro-runner:3001')).source).toBe('default')
     expect(serverKey('')).toBe('local')
+  })
+
+  it('the local runner gets its own, for both the direct URL and the Vite proxy', () => {
+    expect(resolveDashboard(serverKey('http://localhost:3001')).source).toBe('preset')
+    expect(resolveDashboard(serverKey('')).source).toBe('preset')
+    const local = resolveDashboard('local').dashboard
+    // Its review column is called Tests, so the merge decision has to look for it.
+    const merge = local.decisions.find((decision) => decision.id === 'merge')
+    expect(merge?.when[0]).toMatchObject({ field: 'item.status', value: 'Tests' })
   })
 })
 
