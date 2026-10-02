@@ -18,6 +18,8 @@ export function createBoards(projects: ProjectConfig[], github: GithubClient): B
             repo: repo.githubRepo as string,
           })),
           ...project.issuesBoard,
+          // Lo que el runner escribe además de la columna: el tipo y la marca "en curso".
+          fields: ['Task Type', ...(project.workingMarker ? [project.workingMarker.field] : [])],
         })
       : new ProjectsV2Board(project.id, project.board, github, reader),
   )

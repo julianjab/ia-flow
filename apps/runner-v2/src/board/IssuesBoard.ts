@@ -10,10 +10,12 @@ import type {
 } from '@ia-flow/github-tools'
 import { locate } from '@ia-flow/github-webhook'
 import { invalidateMemoized, memoize } from '@ia-flow/shared'
+import { createLogger } from '@ia-flow/telemetry'
 import type { Board, BoardRef, EventLocator, RawDelivery } from './Board.js'
 import { IssueLabelFields } from './IssueLabelFields.js'
 import {
   DEFAULT_STATUS_PREFIX,
+  fieldPrefix,
   type LabelScheme,
   statusLabel,
   statusOfLabel,
@@ -28,6 +30,9 @@ export interface IssuesBoardOptions {
   statuses?: string[]
   /** Prefijo de los labels de Status (`status:`). */
   statusPrefix?: string
+  /** Los otros campos que el runner escribe como label (`Task Type`, la marca "en curso"): su
+   *  cambio es un efecto del propio runner y no despierta a ninguna pipeline. */
+  fields?: string[]
 }
 
 interface RawRef {
@@ -67,7 +72,7 @@ const issuesQuery = (
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url updatedAt
-        labels(first: 30) { nodes { name } }
+        labels(first: 100) { nodes { name } }
         closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { ${REF} } }
         ${withBlockers ? `blockedBy(first: 20) { nodes { ${REF} } }` : ''}
       }
@@ -136,6 +141,9 @@ export class IssuesBoard implements Board {
   private readonly scheme: LabelScheme
   private readonly fields: IssueLabelFields
   private readonly repos: Array<{ owner: string; repo: string }>
+  /** Los prefijos de los labels de los otros campos que escribe el runner (`task-type:`, `working:`). */
+  private readonly fieldPrefixes: string[]
+  private readonly log = createLogger('runner.issues-board')
   /** GitHub todavía no expone `blockedBy` en todos lados: si la query lo rechaza, sin él. */
   private withBlockers = true
 
@@ -153,6 +161,7 @@ export class IssuesBoard implements Board {
       statuses: options.statuses ?? [],
     }
     this.fields = new IssueLabelFields(client, this.scheme)
+    this.fieldPrefixes = (options.fields ?? []).map((field) => fieldPrefix(field, this.scheme))
     this.intake = {
       cardOf: (issue) => this.cardOf(issue),
       issueOfItem: async (itemId) => this.issueOfItem(itemId),
@@ -202,6 +211,9 @@ export class IssuesBoard implements Board {
     if (type !== 'issues' || 'skip' in location) return location
     const label = typeof location.extra.label === 'string' ? location.extra.label : undefined
     const status = label ? statusOfLabel(label, this.scheme) : undefined
+    if (label && !status && this.isFieldLabel(label)) {
+      return { skip: `${label} es un campo que escribe el runner` }
+    }
     if (!status) return location
     if (location.emit === 'issue.unlabeled') {
       return { skip: `Status sin cambio (se sacó ${label})` }
@@ -235,6 +247,10 @@ export class IssuesBoard implements Board {
         sender: { login: sender },
       },
     }
+  }
+
+  private isFieldLabel(label: string): boolean {
+    return this.fieldPrefixes.some((prefix) => label.toLowerCase().startsWith(prefix.toLowerCase()))
   }
 
   private inCatalog(issue: IssueRef): boolean {
@@ -274,6 +290,11 @@ export class IssuesBoard implements Board {
         for (const raw of issues.nodes)
           cards.push(toIssueCard(raw, repo, this.projectId, this.scheme))
         if (!issues.pageInfo.hasNextPage) break
+        if (page === MAX_PAGES - 1) {
+          this.log.warn(
+            `${repo.owner}/${repo.repo}: más de ${MAX_PAGES * 100} issues abiertos, la bandeja muestra los más recientes`,
+          )
+        }
         after = issues.pageInfo.endCursor
       }
     }

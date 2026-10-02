@@ -1,12 +1,6 @@
 import type { GithubClient } from '@ia-flow/github-api'
-import type { BoardWriter, IssueRef } from '@ia-flow/github-tools'
-import {
-  fieldLabel,
-  fieldPrefix,
-  isStatusField,
-  type LabelScheme,
-  labelsOfField,
-} from './labelScheme.js'
+import { type BoardWriter, type IssueRef, issuePath } from '@ia-flow/github-tools'
+import { fieldLabel, isStatusField, type LabelScheme, labelsOfField } from './labelScheme.js'
 
 interface RawIssue {
   labels?: Array<string | { name?: string }>
@@ -15,21 +9,16 @@ interface RawIssue {
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
-/** Los segmentos que llegan a una URL de la API: owner/repo salen de la config o de un webhook de
- *  un repo del catálogo, pero nunca se confía en que no traigan un `../`. */
-function issuePath(issue: IssueRef, suffix = ''): string {
-  const segment = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/
-  if (!segment.test(issue.owner) || !segment.test(issue.repo) || !Number.isInteger(issue.number)) {
-    throw new Error(`owner/repo/número inválidos: ${issue.owner}/${issue.repo}#${issue.number}`)
-  }
-  return `/repos/${issue.owner}/${issue.repo}/issues/${issue.number}${suffix}`
-}
+const pathOf = (issue: IssueRef, suffix = '') =>
+  issuePath(issue.owner, issue.repo, issue.number, suffix)
 
 /**
  * Escribe los campos de la card de un issue como labels (ver `labelScheme`). Poner un valor agrega
  * su label ANTES de sacar los otros del mismo campo: en el medio la card tiene dos valores, nunca
- * ninguno, y el estado que se lee es el más avanzado (`statusOfLabels`). Si el valor no es una
- * columna declarada tira antes de tocar nada, como un Project v2 con una opción que no existe.
+ * ninguno. Si sacar uno falla, deshace lo que hizo: dejar dos columnas puestas se lee como la más
+ * avanzada, y un movimiento hacia atrás (el reviewer devuelve a Build) quedaría en la vieja. Si el
+ * valor no es una columna declarada, tira antes de tocar nada, como un Project v2 con una opción
+ * que no existe.
  */
 export class IssueLabelFields implements BoardWriter {
   constructor(
@@ -39,7 +28,7 @@ export class IssueLabelFields implements BoardWriter {
 
   /** Los labels del issue, y si en realidad es un PR (la API de issues también los devuelve). */
   async read(issue: IssueRef): Promise<{ labels: string[]; isPullRequest: boolean }> {
-    const raw = await this.client.requestJson<RawIssue>(issuePath(issue))
+    const raw = await this.client.requestJson<RawIssue>(pathOf(issue))
     return {
       labels: (raw.labels ?? []).map((label) =>
         typeof label === 'string' ? label : (label.name ?? ''),
@@ -74,26 +63,49 @@ export class IssueLabelFields implements BoardWriter {
     }
     for (const field of clear) remove.push(...labelsOfField(labels, field, this.scheme))
 
-    if (add.length > 0) {
-      await this.client.requestJson(issuePath(issue, '/labels'), {
-        method: 'POST',
-        body: JSON.stringify({ labels: add }),
-      })
-    }
+    if (add.length > 0) await this.addLabels(issue, add)
+    const removed: string[] = []
     for (const label of new Set(remove)) {
-      const res = await this.client.request(
-        issuePath(issue, `/labels/${encodeURIComponent(label)}`),
-        { method: 'DELETE' },
-      )
+      const res = await this.client.request(pathOf(issue, `/labels/${encodeURIComponent(label)}`), {
+        method: 'DELETE',
+      })
       // 404: ya no lo tenía — el estado final es el pedido.
-      if (!res.ok && res.status !== 404) {
-        throw new Error(`update_issue: no se pudo sacar "${label}" → ${res.status}`)
+      if (res.ok || res.status === 404) {
+        removed.push(label)
+        continue
       }
+      const undone = await this.undo(issue, add, removed)
+      throw new Error(
+        `update_issue: no se pudo sacar "${label}" → ${res.status}` +
+          (undone
+            ? ' (cambio deshecho)'
+            : ` (no se pudo deshacer: la card puede tener ${[...add, label].join(' y ')} a la vez)`),
+      )
     }
   }
 
-  /** Dónde viven los labels de un campo (para quien arma un evento). */
-  prefixOf(field: string): string {
-    return fieldPrefix(field, this.scheme)
+  private async addLabels(issue: IssueRef, labels: string[]): Promise<void> {
+    await this.client.requestJson(pathOf(issue, '/labels'), {
+      method: 'POST',
+      body: JSON.stringify({ labels }),
+    })
+  }
+
+  /** Vuelve la card a como estaba: saca lo que agregó y devuelve lo que ya había sacado. */
+  private async undo(issue: IssueRef, added: string[], removed: string[]): Promise<boolean> {
+    try {
+      if (removed.length > 0) await this.addLabels(issue, removed)
+      for (const label of added) {
+        const res = await this.client.request(
+          pathOf(issue, `/labels/${encodeURIComponent(label)}`),
+          { method: 'DELETE' },
+        )
+        // `request` no tira ante un 5xx: sin mirar la respuesta, un rollback fallido pasaría por hecho.
+        if (!res.ok && res.status !== 404) return false
+      }
+      return true
+    } catch {
+      return false
+    }
   }
 }
