@@ -9,8 +9,9 @@ const Input = z.strictObject({
     .describe('Node id del issue (el `issueId` de create_github_issue)'),
 })
 
+// `repositoryOwner` resuelve una org o una cuenta personal (`ProjectV2Owner` las une).
 const PROJECT_ID = `query($owner: String!, $number: Int!) {
-  organization(login: $owner) { projectV2(number: $number) { id } }
+  repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $number) { id } } }
 }`
 
 const ADD_ITEM = `mutation($projectId: ID!, $contentId: ID!) {
@@ -42,12 +43,12 @@ export class AddToProjectAction extends Action<typeof Input> {
   /** El node id del Project v2 — se pide una vez y se cachea (no cambia). */
   private resolveProjectId(): Promise<string> {
     this.projectId ??= this.project.client
-      .graphql<{ organization?: { projectV2?: { id: string } } }>(PROJECT_ID, {
+      .graphql<{ repositoryOwner?: { projectV2?: { id: string } } }>(PROJECT_ID, {
         owner: this.project.board.owner,
         number: this.project.board.number,
       })
       .then((data) => {
-        const id = data.organization?.projectV2?.id
+        const id = data.repositoryOwner?.projectV2?.id
         if (!id)
           throw new Error(
             `no se encontró el board ${this.project.board.owner}#${this.project.board.number}`,

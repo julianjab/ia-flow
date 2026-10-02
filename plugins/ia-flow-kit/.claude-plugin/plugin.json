@@ -1,0 +1,7 @@
+{
+  "name": "ia-flow-kit",
+  "version": "1.0.0",
+  "description": "Conocimiento del engine y el runner de ia-flow para operar y mejorar la config de un deploy (agentes, pipelines, actions).",
+  "author": { "name": "Julian Buitrago", "email": "julianbuitrago@lahaus.com" },
+  "keywords": ["ia-flow", "agents", "pipelines", "runner"]
+}

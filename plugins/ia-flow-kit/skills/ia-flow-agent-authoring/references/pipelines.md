@@ -1,3 +1,5 @@
+<!-- GENERADO por scripts/sync-plugin-docs.ts desde .claude/skills/ia-flow-agent-authoring/references/pipelines.md. No editar: cambiá la fuente y corré `bun run plugin:sync`. -->
+
 # Pipelines — el disparo
 
 Schema: `PipelineDoc` en `packages/agent-engine/definitions/src/schema.ts`. Semántica:
