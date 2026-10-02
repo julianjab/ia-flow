@@ -54,7 +54,7 @@ function reportBoot(mounted: MountedRunner, env: ReturnType<typeof applyRunnerEn
   console.log(`→ mcp: ${mounted.mcpServers.join(', ') || '(ninguno conectado)'}`)
   for (const project of mounted.projects) {
     console.log(
-      `→ proyecto ${project.id}: board ${project.board.owner}#${project.board.number}, ${project.repos.length} repos`,
+      `→ proyecto ${project.id}: board ${mounted.boards.of(project.id).describe()}, ${project.repos.length} repos`,
     )
   }
   for (const { id, source } of mounted.sources) {

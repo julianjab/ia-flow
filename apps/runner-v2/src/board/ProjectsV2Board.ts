@@ -34,6 +34,10 @@ export class ProjectsV2Board implements Board {
     this.adder = new ProjectsV2Adder(client, ref)
   }
 
+  describe(): string {
+    return `${this.ref.owner}#${this.ref.number}`
+  }
+
   cards(): Promise<BoardCard[]> {
     return this.reader.cards({ projectId: this.projectId, board: this.ref })
   }

@@ -40,6 +40,8 @@ export interface Board extends BoardWriter, BoardAdder {
   readonly kind: BoardKind
   readonly projectId: string
   readonly ref: BoardRef
+  /** Cómo se nombra en un log o en un estado: `la-haus#119`, o `issues de julianjab`. */
+  describe(): string
 
   /** Las cards abiertas, ya con la forma de la bandeja (cache corto; `invalidate` lo suelta). */
   cards(): Promise<BoardCard[]>

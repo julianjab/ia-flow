@@ -144,7 +144,7 @@ export function mountInbox(
     activity: store.activity,
     config,
     status: () => ({
-      projects: specs.map((spec) => `${spec.projectId} (${spec.board.owner}#${spec.board.number})`),
+      projects: specs.map((spec) => `${spec.projectId} (${boards.of(spec.projectId).describe()})`),
       providers: Object.keys(cfg.providers),
       executions: mounted.executions?.stats,
       webhookSecret: Boolean(process.env.IA_FLOW_WEBHOOK_SECRET?.trim()),

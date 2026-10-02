@@ -77,7 +77,7 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
     status: () => ({
       projects: mounted.projects.map((p) => ({
         id: p.id,
-        board: `${p.board.owner}#${p.board.number}`,
+        board: mounted.boards.of(p.id).describe(),
       })),
       listening: [...listened()].sort(),
       executions: mounted.executions?.stats,
