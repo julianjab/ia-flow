@@ -30,6 +30,29 @@ describe('toIssueCard', () => {
     })
   })
 
+  it('blocked is the blocked label OR the Blocked column (status:blocked)', () => {
+    const stuck = raw({ labels: { nodes: [{ name: 'status:blocked' }] } })
+    expect(toIssueCard(stuck, repo, 'p', scheme).labels).toEqual(['status:blocked', 'blocked'])
+    // It does not depend on Blocked being one of the declared columns.
+    expect(
+      toIssueCard(stuck, repo, 'p', { prefix: 'status:', statuses: ['Todo'] }).labels,
+    ).toContain('blocked')
+    // The label is the one the project configures, and it is never added twice.
+    expect(toIssueCard(stuck, repo, 'p', scheme, 'trabada').labels).toEqual([
+      'status:blocked',
+      'trabada',
+    ])
+    const both = raw({ labels: { nodes: [{ name: 'status:blocked' }, { name: 'blocked' }] } })
+    expect(toIssueCard(both, repo, 'p', scheme).labels).toEqual(['status:blocked', 'blocked'])
+    // Only the label, in another column: still blocked.
+    const labelOnly = raw({ labels: { nodes: [{ name: 'status:build' }, { name: 'blocked' }] } })
+    expect(toIssueCard(labelOnly, repo, 'p', scheme).labels).toEqual(['status:build', 'blocked'])
+  })
+
+  it('a card in any other column without the label is not blocked', () => {
+    expect(toIssueCard(raw(), repo, 'p', scheme).labels).not.toContain('blocked')
+  })
+
   it('keeps the open blockers and the open PR that closes it', () => {
     const ref = (n: number, state: string) => ({
       number: n,
