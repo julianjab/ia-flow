@@ -125,6 +125,17 @@ export const InboxItemSchema = z.object({
   actions: z.array(TaskActionSchema),
   /** Cómo se llaman y qué piden las que declaró el proyecto (las otras las conoce el cliente). */
   action_defs: z.array(TaskActionDefSchema).optional(),
+  // ── presentación: la pone el dashboard de quien mira (la web), nunca el runner ──
+  /** El verbo de la decisión ("Decidir el merge"); sin él, el nombre del caso. */
+  verb: z.string().optional(),
+  /** La acción principal, la que se destaca entre `actions`. */
+  primary: z.string().optional(),
+  /** Una explicación más larga que `why`. */
+  context: z.string().optional(),
+  /** Datos sueltos que acompañan al título ("a un merge de Done"). */
+  chips: z
+    .array(z.object({ text: z.string(), tone: z.enum(['hot', 'warn', 'bad']).optional() }))
+    .optional(),
 })
 export type InboxItem = z.infer<typeof InboxItemSchema>
 

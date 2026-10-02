@@ -34,14 +34,17 @@ const needsComment = computed(() => props.item.actions.some(takesComment));
 const askText = (action: TaskAction) =>
   defOf(action)?.confirm ?? confirmText(action, props.item.ref);
 
+// La que destaca el dashboard de este runner; sin ella, la principal del caso.
+const primary = computed(() => props.item.primary ?? primaryAction(props.item.kind));
+
 const ordered = computed(() => {
-  const primary = primaryAction(props.item.kind);
+  const primary = props.item.primary ?? primaryAction(props.item.kind);
   const rank = (a: TaskAction) => (a === primary ? 1 : a === 'stop' ? 2 : 0);
   return [...props.item.actions].sort((a, b) => rank(a) - rank(b));
 });
 
 function variant(action: TaskAction): string {
-  if (action === primaryAction(props.item.kind)) return 'btn--primary';
+  if (action === primary.value) return 'btn--primary';
   return action === 'stop' ? 'btn--danger' : '';
 }
 

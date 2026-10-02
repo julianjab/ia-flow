@@ -30,7 +30,7 @@ const detailId = computed(() => `detail-${props.item.ref}`);
     >
       <span class="card__meta">
         <span v-if="running" class="live-dot" aria-hidden="true" />
-        <span class="card__kind">{{ KIND_LABEL[item.kind] }}</span>
+        <span class="card__kind">{{ item.verb ?? KIND_LABEL[item.kind] }}</span>
         <span class="card__ref mono">{{ item.ref }}</span>
         <span v-if="item.status" class="card__chip">{{ item.status }}</span>
         <span v-if="agent" class="card__agent mono">{{ agent }}</span>
@@ -38,6 +38,10 @@ const detailId = computed(() => `detail-${props.item.ref}`);
       <span class="card__age mono">{{ age }}</span>
       <span class="card__title">{{ item.title }}</span>
       <span class="card__why">{{ item.why }}</span>
+      <span v-if="item.chips?.length" class="card__tags">
+        <span v-for="chip in item.chips" :key="chip.text" class="card__tag" :data-tone="chip.tone">{{ chip.text }}</span>
+      </span>
+      <span v-if="item.context" class="card__ctx">{{ item.context }}</span>
       <span v-if="item.unlocks" class="card__unlocks">
         destraba {{ item.unlocks }} {{ item.unlocks === 1 ? 'tarea' : 'tareas' }}
       </span>
@@ -101,4 +105,19 @@ const detailId = computed(() => `detail-${props.item.ref}`);
 .card__title { grid-column: 1 / -1; color: var(--fg); font-weight: 600; overflow-wrap: anywhere; }
 .card__why { grid-column: 1 / -1; color: var(--fg-mute); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 .card__unlocks { grid-column: 1 / -1; color: var(--warn); font-size: var(--fs-body-sm); }
+/* Los datos que el dashboard le suma a la tarjeta: la misma caja que el chip de status, el tono lo da el color. */
+.card__tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.25rem 0.4rem; }
+.card__tag {
+  line-height: var(--row-h);
+  padding: 0 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel-hi);
+  color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+.card__tag[data-tone='hot'] { background: var(--green-bg); color: var(--accent); }
+.card__tag[data-tone='warn'] { background: var(--yellow-bg); color: var(--warn); }
+.card__tag[data-tone='bad'] { background: var(--red-bg); color: var(--danger); }
+.card__ctx { grid-column: 1 / -1; color: var(--fg-dim); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 </style>

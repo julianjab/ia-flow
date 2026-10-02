@@ -17,6 +17,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
+      "@ia-flow/rules": ["../../packages/rules/src/index.ts"],
       "@ia-flow/shared": ["../../packages/shared/src/index.ts"],
       "@ia-flow/shared/*": ["../../packages/shared/src/*"]
     }
