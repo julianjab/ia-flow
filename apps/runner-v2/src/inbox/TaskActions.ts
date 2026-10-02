@@ -4,41 +4,42 @@
  * re-ejecutar el review o pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
  * queda a su nombre en el board — y sólo si la bandeja dice que la acción aplica a la tarea.
  */
-import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { Action, PipelineExecutionContext } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
 import { type BoardWriter, UpdateIssueAction, type UpdateIssueInput } from '@ia-flow/github-tools'
-import type { TaskAction, TaskActionRequest, TaskActionResult } from '@ia-flow/shared'
+import type { BuiltinTaskAction, TaskActionRequest, TaskActionResult } from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
 import type { Boards } from '../board/Boards.js'
 import type { InboxSettings } from './InboxSection.js'
 import type { InboxService } from './InboxService.js'
+import type { TaskActionDef, TaskActionDefs } from './TaskActionDef.js'
+import { TaskActionError } from './TaskActionError.js'
+import { runTaskAction, type TaskFacts } from './TaskActionRunner.js'
 
 export interface TaskActionsOptions {
-  inbox: Pick<InboxService, 'item'>
+  inbox: Pick<InboxService, 'item' | 'taskFacts'>
   /** El board de cada proyecto: dónde se escribe el cambio de columna, con la identidad de la persona. */
   boards: Pick<Boards, 'writerFor'>
   settings: Pick<InboxSettings, 'labels' | 'statuses' | 'mergeMethod'>
+  /** Las `taskActions` declaradas por un proyecto: mandan sobre las que trae el runner. */
+  taskActions(projectId: string): TaskActionDefs
+  /** Arma una action del catálogo de un proyecto con la identidad de la persona. */
+  instantiate(projectId: string, name: string, client: GithubClient): Action
   /** Vuelve a despachar el último evento de la tarea (relanzar, reintentar). */
   redispatch(ref: string, by: string): Promise<string>
   /** Vuelve a correr el pipeline de Review, como si la card acabara de llegar ahí. */
   rerunReview(ref: string, by: string): Promise<string>
   /** Le pide al agente que corre para la tarea que termine (suave: lo lee en su próxima vuelta). */
   stop(ref: string, by: string): string
+  /** La columna a la que vuelve una tarea trabada (la de la ejecución que falló), si se sabe. */
+  resumeStage(ref: string): string | undefined
   /** Después de un cambio: que la bandeja relea el board. */
   changed(ref: string): void
   fetchImpl?: typeof fetch
 }
 
-/** Una acción que no se puede hacer, con el status HTTP que le corresponde. */
-export class TaskActionError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message)
-  }
-}
+export { TaskActionError }
 
 interface IssueTarget {
   owner: string
@@ -131,13 +132,21 @@ export class TaskActions {
     if (request.action === 'answer_and_unblock' && !request.comment?.trim()) {
       throw new TaskActionError('contestar necesita el comentario', 400)
     }
+    const declared = this.options.taskActions(item.project_id)[request.action]
+    if (declared?.input?.comment === 'required' && !request.comment?.trim()) {
+      throw new TaskActionError('esta acción necesita el comentario', 400)
+    }
     await assertCanPush(client, parseRef(ref), github.login)
-    const board = this.options.boards.writerFor(item.project_id, client)
-    const message = await this.apply(request, ref, client, {
-      board,
-      pr: item.pr?.number,
-      login: github.login,
-    })
+    const message = declared
+      ? await this.runDeclared(request.action, declared, ref, request, client, {
+          projectId: item.project_id,
+          login: github.login,
+        })
+      : await this.apply(request, ref, client, {
+          board: this.options.boards.writerFor(item.project_id, client),
+          pr: item.pr?.number,
+          login: github.login,
+        })
     this.log.info(`${github.login}: ${request.action} sobre ${ref} → ${message}`, {
       'ia.issue': ref,
       'ia.task_action': request.action,
@@ -170,7 +179,7 @@ export class TaskActions {
         issue: () => target,
       }).execute(input, NO_CTX)
     const unblock = () => update({ removeLabels: [labels.blocked] })
-    const action: TaskAction = request.action
+    const action = request.action as BuiltinTaskAction
     switch (action) {
       case 'merge': {
         if (pr === undefined) throw new TaskActionError(`${ref} no tiene un PR abierto`, 409)
@@ -186,13 +195,28 @@ export class TaskActions {
       case 'back_to_refine':
         return update({ status: statuses.refine })
       case 'answer_and_unblock': {
+        // Sin `redispatch`: devolver la tarea a su etapa con `blocked` ya quitado es un cambio de
+        // columna, y ese evento arranca el pipeline de la etapa, que lee la respuesta en
+        // `task.comments`. El orden es el que hace que funcione: el comentario PRIMERO (el intake
+        // descarta los eventos de un issue `blocked`: no dispara además el pipeline de
+        // comentarios), después el label y por último la columna. `update_issue` cambia la columna
+        // antes que los labels, así que en un solo update el evento de la columna llegaría con
+        // `blocked` puesto y el pipeline de la etapa lo ignoraría.
+        const stage = this.options.resumeStage(ref)
+        if (!stage) {
+          throw new TaskActionError(
+            `no sé a qué etapa devolver ${ref}: no encuentro la ejecución que falló`,
+            409,
+          )
+        }
         const comment = request.comment?.trim() ?? ''
         await client.requestJson(
           `/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`,
           { method: 'POST', body: JSON.stringify({ body: comment }) },
         )
         await unblock()
-        return `comentado y sin ${labels.blocked}`
+        await update({ status: stage })
+        return `comentado, sin ${labels.blocked} y de vuelta en ${stage}`
       }
       case 'relaunch':
         return this.options.redispatch(ref, login)
@@ -204,6 +228,36 @@ export class TaskActions {
         return this.options.stop(ref, login)
       case 'rerun_review':
         return this.options.rerunReview(ref, login)
+      default:
+        throw new TaskActionError(
+          `"${String(action)}" no es una acción que este runner conozca`,
+          400,
+        )
     }
+  }
+
+  /** Una acción que declaró el proyecto: su cadena de actions, con la identidad de la persona. */
+  private async runDeclared(
+    id: string,
+    def: TaskActionDef,
+    ref: string,
+    request: TaskActionRequest,
+    client: GithubClient,
+    who: { projectId: string; login: string },
+  ): Promise<string> {
+    const facts: TaskFacts | undefined = await this.options.inbox.taskFacts(ref)
+    if (!facts) throw new TaskActionError(`${ref} no está en ningún board de este runner`, 404)
+    const stage = this.options.resumeStage(ref)
+    const done = await runTaskAction({
+      def,
+      id,
+      issue: parseRef(ref),
+      facts,
+      input: { ...(request.comment?.trim() ? { comment: request.comment.trim() } : {}) },
+      actor: who.login,
+      ...(stage ? { resumeStage: stage } : {}),
+      instantiate: (name) => this.options.instantiate(who.projectId, name, client),
+    })
+    return `${def.label}: ${done.join(' · ')}`
   }
 }

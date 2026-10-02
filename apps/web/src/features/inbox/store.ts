@@ -7,15 +7,26 @@ import type {
   TaskAction,
   TaskActionResult,
   TaskDetail,
+  Tasks,
   TraceEntry,
 } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import { serverTarget } from '@/composables/useServerTarget'
-import { getBoardRest, getInbox, getTaskDetail, postTaskAction } from '@/features/inbox/api'
+import {
+  getBoardRest,
+  getInbox,
+  getTaskDetail,
+  getTasks,
+  postTaskAction,
+} from '@/features/inbox/api'
 import { GROUPS } from '@/features/inbox/labels'
 import { connectRunnerStream, type StreamState } from '@/features/inbox/stream'
+import { DashboardError, parseDashboard } from '@/features/inbox/view/dashboard'
+import { buildView, type DashboardView } from '@/features/inbox/view/decide'
+import { type ResolvedDashboard, resolveDashboard, serverKey } from '@/features/inbox/view/resolve'
+import { clearOverride, saveOverride } from '@/features/inbox/view/storage'
 
 export interface DetailState {
   loading: boolean
@@ -35,6 +46,11 @@ const REFRESH_DEBOUNCE_MS = 250
 
 export const useInboxStore = defineStore('inbox', () => {
   const inbox = ref<Inbox | null>(null)
+  /** El dashboard de este runner y lo que sale de aplicarlo (paneles); `null` con un runner viejo,
+   *  que clasifica él. */
+  const dashboard = ref<ResolvedDashboard | null>(null)
+  const view = ref<DashboardView | null>(null)
+  let lastTasks: Tasks | null = null
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -80,6 +96,44 @@ export const useInboxStore = defineStore('inbox', () => {
 
   // ── carga ────────────────────────────────────────────────────────────────
 
+  /** Lo que el runner publica (hechos) más el dashboard de este runner = la bandeja. */
+  function apply(tasks: Tasks): Inbox {
+    lastTasks = tasks
+    const resolved = resolveDashboard(serverKey(serverTarget().base))
+    dashboard.value = resolved
+    view.value = buildView(tasks, resolved.dashboard)
+    return { generated_at: tasks.generated_at, projects: tasks.projects, items: view.value.items }
+  }
+
+  /** Un runner sin `/api/tasks` clasifica él: se muestra tal cual, sin dashboard. */
+  async function legacyInbox(): Promise<Inbox> {
+    lastTasks = null
+    dashboard.value = null
+    view.value = null
+    return getInbox()
+  }
+
+  /**
+   * Guarda el dashboard editado para ESTE runner y lo aplica ya, sin pedir nada al runner. Un
+   * documento inválido no se guarda: devuelve por qué.
+   */
+  function saveDashboard(text: string): string | null {
+    try {
+      parseDashboard(text)
+    } catch (err) {
+      return err instanceof DashboardError ? err.message : String(err)
+    }
+    saveOverride(serverKey(serverTarget().base), text)
+    if (lastTasks && inbox.value) inbox.value = apply(lastTasks)
+    return null
+  }
+
+  /** Vuelve al dashboard que trae la web para este runner. */
+  function resetDashboard(): void {
+    clearOverride(serverKey(serverTarget().base))
+    if (lastTasks && inbox.value) inbox.value = apply(lastTasks)
+  }
+
   let refreshSeq = 0
   async function refresh(): Promise<void> {
     const seq = ++refreshSeq
@@ -87,7 +141,9 @@ export const useInboxStore = defineStore('inbox', () => {
     // debe hacer parpadear la bandeja.
     if (!inbox.value) loading.value = true
     try {
-      const next = await getInbox()
+      const tasks = await getTasks()
+      if (seq !== refreshSeq) return
+      const next = tasks ? apply(tasks) : await legacyInbox()
       if (seq !== refreshSeq) return
       inbox.value = next
       error.value = null
@@ -282,6 +338,10 @@ export const useInboxStore = defineStore('inbox', () => {
 
   return {
     inbox,
+    dashboard,
+    view,
+    saveDashboard,
+    resetDashboard,
     loading,
     error,
     project,

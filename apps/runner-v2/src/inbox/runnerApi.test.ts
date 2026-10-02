@@ -216,6 +216,11 @@ async function start(
       redispatch: async () => 'ok',
       rerunReview: async (ref) => `review de ${ref}`,
       stop: () => 'ok',
+      resumeStage: () => undefined,
+      taskActions: () => ({}),
+      instantiate: () => {
+        throw new Error('sin actions')
+      },
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),

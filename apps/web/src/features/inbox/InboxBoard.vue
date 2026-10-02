@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue';
+import DashboardPanels from '@/features/inbox/DashboardPanels.vue';
 import InboxSection from '@/features/inbox/InboxSection.vue';
 import InboxSummary from '@/features/inbox/InboxSummary.vue';
 import InboxToolbar from '@/features/inbox/InboxToolbar.vue';
@@ -44,6 +45,8 @@ watch(
       @project="store.project = $event"
       @refresh="store.refresh()"
     />
+
+    <DashboardPanels v-if="store.view" :view="store.view" />
 
     <InboxSummary :counts="store.counts" :active="store.groupFilter" @select="store.setGroupFilter($event)" />
 

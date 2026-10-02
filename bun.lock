@@ -60,10 +60,13 @@
       "name": "@ia-flow/web",
       "version": "1.0.0",
       "dependencies": {
+        "@ia-flow/rules": "workspace:*",
         "axios": "^1.7.7",
         "pinia": "^2.2.4",
         "vue": "^3.5.12",
         "vue-router": "^4.4.5",
+        "yaml": "^2.7.1",
+        "zod": "^3.23.8",
       },
       "devDependencies": {
         "@vitejs/plugin-vue": "^5.1.4",
@@ -79,6 +82,7 @@
       "name": "@ia-flow/agent-engine",
       "version": "0.1.0",
       "dependencies": {
+        "@ia-flow/rules": "workspace:*",
         "@ia-flow/telemetry": "workspace:*",
         "zod": "^4.3.6",
       },
@@ -297,6 +301,14 @@
         "vitest": "^4.1.4",
       },
     },
+    "packages/rules": {
+      "name": "@ia-flow/rules",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.7.0",
+        "vitest": "^4.1.4",
+      },
+    },
     "packages/shared": {
       "name": "@ia-flow/shared",
       "version": "1.0.0",
@@ -484,6 +496,8 @@
     "@ia-flow/provider-remote": ["@ia-flow/provider-remote@workspace:packages/providers/remote"],
 
     "@ia-flow/provider-shared": ["@ia-flow/provider-shared@workspace:packages/providers/shared"],
+
+    "@ia-flow/rules": ["@ia-flow/rules@workspace:packages/rules"],
 
     "@ia-flow/runner-v2": ["@ia-flow/runner-v2@workspace:apps/runner-v2"],
 
@@ -1550,6 +1564,8 @@
     "@ia-flow/shared/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@ia-flow/web/vitest": ["vitest@2.1.9", "", { "dependencies": { "@vitest/expect": "2.1.9", "@vitest/mocker": "2.1.9", "@vitest/pretty-format": "^2.1.9", "@vitest/runner": "2.1.9", "@vitest/snapshot": "2.1.9", "@vitest/spy": "2.1.9", "@vitest/utils": "2.1.9", "chai": "^5.1.2", "debug": "^4.3.7", "expect-type": "^1.1.0", "magic-string": "^0.30.12", "pathe": "^1.1.2", "std-env": "^3.8.0", "tinybench": "^2.9.0", "tinyexec": "^0.3.1", "tinypool": "^1.0.1", "tinyrainbow": "^1.2.0", "vite": "^5.0.0", "vite-node": "2.1.9", "why-is-node-running": "^2.3.0" }, "peerDependencies": { "@edge-runtime/vm": "*", "@types/node": "^18.0.0 || >=20.0.0", "@vitest/browser": "2.1.9", "@vitest/ui": "2.1.9", "happy-dom": "*", "jsdom": "*" }, "optionalPeers": ["@edge-runtime/vm", "@types/node", "@vitest/browser", "@vitest/ui", "happy-dom", "jsdom"], "bin": { "vitest": "vitest.mjs" } }, "sha512-MSmPM9REYqDGBI8439mA4mWhV5sKmDlBKWIYbA3lRb2PTHACE0mgKwA8yQ2xq9vxDTuk4iPrECBAEW2aoFXY0Q=="],
+
+    "@ia-flow/web/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@isaacs/cliui/string-width": ["string-width@5.1.2", "", { "dependencies": { "eastasianwidth": "^0.2.0", "emoji-regex": "^9.2.2", "strip-ansi": "^7.0.1" } }, "sha512-HnLOCR3vjcY8beoNLtcjZ5/nxn2afmME6lhrDrebokqMap+XbeW8n9TXpPDOqdGK5qcI3oT0GKTW6wC7EMiVqA=="],
 

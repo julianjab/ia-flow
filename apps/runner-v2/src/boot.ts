@@ -32,7 +32,7 @@ import type { GithubAuth } from '@ia-flow/github-auth'
 import { SlackClient } from '@ia-flow/slack-api'
 import { BUILTIN_ACTIONS } from './actions/builtin/index.js'
 import type { RunnerServices } from './actions/defineAction.js'
-import { GLOBAL_SOURCE, loadActions } from './actions/loader.js'
+import { GLOBAL_SOURCE, type LoadedActions, loadActions } from './actions/loader.js'
 import { AssistantDesk } from './assistant/AssistantDesk.js'
 import type { Boards } from './board/Boards.js'
 import { createBoards } from './board/createBoards.js'
@@ -41,6 +41,8 @@ import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { withScope } from './engine/withScope.js'
 import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
+import { assertTaskActionsRegistered } from './inbox/TaskActionRunner.js'
+import { TaskDesk } from './inbox/TaskDesk.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import type { McpHost } from './mcp/mcpHost.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
@@ -88,6 +90,8 @@ export interface MountedRunner {
   mcpServers: string[]
   /** Qué actions registró cada scope. */
   actions: Record<string, string[]>
+  /** Una action de un proyecto armada con otros servicios (la identidad de una persona). */
+  instantiateAction: LoadedActions['instantiate']
   warnings: string[]
   /** Lo que reciben las actions — y los providers que lo necesitan (el worktree). */
   services: RunnerServices
@@ -162,7 +166,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     log: opts.log,
   })
 
-  const boards = createBoards(cfg.projects, github)
+  const boards = createBoards(cfg.projects, github, cfg.inbox.labels.blocked)
   const services: RunnerServices = {
     github,
     boards,
@@ -173,9 +177,11 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
     slackUsers: cfg.slack.users,
     assistant: new AssistantDesk(),
+    tasks: new TaskDesk(),
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)
+  assertTaskActionsRegistered(cfg.projects, actions.registered, GLOBAL_SOURCE)
   // `systemPrompts`: los de la config (`runner.yaml`), que cualquier agente nombra por id.
   const catalogs = {
     ...actions.catalogs,
@@ -244,6 +250,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     githubAuthMode,
     mcpServers: Object.keys(mcpServers),
     actions: actions.registered,
+    instantiateAction: actions.instantiate,
     warnings,
     services,
     stop: () => {

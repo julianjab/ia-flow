@@ -24,6 +24,7 @@
     "vitest": "^4.1.4"
   },
   "dependencies": {
+    "@ia-flow/rules": "workspace:*",
     "@ia-flow/telemetry": "workspace:*",
     "zod": "^4.3.6"
   },

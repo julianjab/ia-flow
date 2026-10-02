@@ -33,6 +33,9 @@ export interface IssuesBoardOptions {
   /** Los otros campos que el runner escribe como label (`Task Type`, la marca "en curso"): su
    *  cambio es un efecto del propio runner y no despierta a ninguna pipeline. */
   fields?: string[]
+  /** El label que dice "trabada esperando a una persona" (`inbox.labels.blocked`): una card en la
+   *  columna `Blocked` lo trae aunque el issue sólo tenga `status:blocked`. Default `blocked`. */
+  blockedLabel?: string
 }
 
 interface RawRef {
@@ -83,6 +86,8 @@ const issuesQuery = (
 /** Tope de páginas por repo: 1000 issues abiertos. */
 const MAX_PAGES = 10
 
+const DEFAULT_BLOCKED_LABEL = 'blocked'
+
 const refString = (issue: IssueRef) => `${issue.owner}/${issue.repo}#${issue.number}`
 const sameRepo = (a: { owner: string; repo: string }, b: { owner: string; repo: string }) =>
   a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase()
@@ -93,9 +98,19 @@ export function toIssueCard(
   repo: { owner: string; repo: string },
   projectId: string,
   scheme: LabelScheme,
+  blockedLabel = DEFAULT_BLOCKED_LABEL,
 ): BoardCard {
-  const labels = (raw.labels?.nodes ?? []).map((label) => label.name)
-  const status = statusOfLabels(labels, scheme)
+  const own = (raw.labels?.nodes ?? []).map((label) => label.name)
+  const status = statusOfLabels(own, scheme)
+  // Un board de issues guarda la columna en un label: `status:blocked` ES "trabada". El label
+  // `blocked` que ponen el `onError` y un Project v2 se deriva, así quien lee la card (la bandeja,
+  // las guardas de una acción) no distingue de qué board viene.
+  // `blocked` = el label `blocked` O la columna Blocked (`status:blocked`), esté o no entre las
+  // columnas declaradas.
+  const inBlockedColumn =
+    status?.toLowerCase() === 'blocked' ||
+    own.some((label) => label.toLowerCase() === `${scheme.prefix}blocked`.toLowerCase())
+  const labels = inBlockedColumn && !own.includes(blockedLabel) ? [...own, blockedLabel] : own
   const taskType = valueOfField(labels, 'Task Type', scheme)
   const pr = raw.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN')
   const ref = refString({ ...repo, number: raw.number })
@@ -143,6 +158,7 @@ export class IssuesBoard implements Board {
   private readonly repos: Array<{ owner: string; repo: string }>
   /** Los prefijos de los labels de los otros campos que escribe el runner (`task-type:`, `working:`). */
   private readonly fieldPrefixes: string[]
+  private readonly blockedLabel: string
   private readonly log = createLogger('runner.issues-board')
   /** GitHub todavía no expone `blockedBy` en todos lados: si la query lo rechaza, sin él. */
   private withBlockers = true
@@ -161,6 +177,7 @@ export class IssuesBoard implements Board {
       statuses: options.statuses ?? [],
     }
     this.fields = new IssueLabelFields(client, this.scheme)
+    this.blockedLabel = options.blockedLabel ?? DEFAULT_BLOCKED_LABEL
     this.fieldPrefixes = (options.fields ?? []).map((field) => fieldPrefix(field, this.scheme))
     this.intake = {
       cardOf: (issue) => this.cardOf(issue),
@@ -308,7 +325,7 @@ export class IssuesBoard implements Board {
         const issues = data.repository?.issues
         if (!issues) throw new Error(`repo ${repo.owner}/${repo.repo}: no existe o no hay acceso`)
         for (const raw of issues.nodes)
-          cards.push(toIssueCard(raw, repo, this.projectId, this.scheme))
+          cards.push(toIssueCard(raw, repo, this.projectId, this.scheme, this.blockedLabel))
         if (!issues.pageInfo.hasNextPage) break
         if (page === MAX_PAGES - 1) {
           this.log.warn(

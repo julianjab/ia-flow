@@ -16,6 +16,7 @@ export const KIND_LABEL: Record<InboxKind, string> = {
   review: 'Review sin aprobar',
   prd: 'PRD para aprobar',
   doubt: 'El agente tiene una duda',
+  prerequisite: 'Le falta una pieza',
   stale: 'Sin movimiento',
   crash: 'Error del runner',
   ci: 'Esperando CI',

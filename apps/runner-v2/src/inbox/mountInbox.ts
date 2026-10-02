@@ -4,7 +4,7 @@
  * los webhooks. Composición: la lógica vive en cada pieza.
  */
 import { createEvent } from '@ia-flow/agent-engine'
-import type { RunnerStreamEvent } from '@ia-flow/shared'
+import type { RunnerCapacity, RunnerStreamEvent } from '@ia-flow/shared'
 import { Assistant } from '../assistant/Assistant.js'
 import type { Boards } from '../board/Boards.js'
 import type { MountedRunner } from '../boot.js'
@@ -16,10 +16,12 @@ import { SseHub } from '../http/sse.js'
 import { dispatchRaw } from '../intake/dispatch.js'
 import type { ActivityStore } from '../storage/activityStore.js'
 import { taskOfKey } from './ActivityPort.js'
+import { actingAs } from './actingAs.js'
 import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
+import { resumeStage } from './resumeStage.js'
 import { runnerApi } from './runnerApi.js'
 import { toTraceEntry } from './SqliteActivity.js'
 import { TaskActions } from './TaskActions.js'
@@ -29,6 +31,29 @@ export interface MountedInbox {
   board: Pick<Boards, 'invalidate'>
   close(): void
 }
+
+/** Las `taskActions` que declaró un proyecto; sin proyecto o sin declaraciones, ninguna. */
+const taskActionsOf = (cfg: RunnerConfig, projectId: string) =>
+  cfg.projects.find((project) => project.id === projectId)?.taskActions ?? {}
+
+/** Lo que tiene el runner para correr: sus corridas y los lugares que le quedan. */
+function capacityOf(
+  stats: { running: number; waiting: number; paused: number } | undefined,
+  maxConcurrent: number | undefined,
+): RunnerCapacity {
+  const { running, waiting, paused } = stats ?? { running: 0, waiting: 0, paused: 0 }
+  return {
+    running,
+    waiting,
+    paused,
+    ...(maxConcurrent !== undefined
+      ? { max_concurrent: maxConcurrent, free: Math.max(0, maxConcurrent - running) }
+      : {}),
+  }
+}
+
+/** Cuántos eventos de la task se miran para saber a qué etapa volver. */
+const RESUME_EVENTS = 50
 
 /** Cada cuánto se borra lo viejo de la base de actividad. */
 const PRUNE_EVERY_MS = 3_600_000
@@ -62,6 +87,8 @@ export function mountInbox(
       }))
     },
     settings: cfg.inbox,
+    taskActions: (projectId) => taskActionsOf(cfg, projectId),
+    capacity: () => capacityOf(mounted.executions?.stats, cfg.engine.executions?.maxConcurrent),
   })
 
   const hub = new SseHub<RunnerStreamEvent>()
@@ -74,11 +101,10 @@ export function mountInbox(
     mounted.executions?.observe((record) => changed(taskOfKey(record.key).taskRef)) ?? (() => {}),
   ]
 
-  const actions = new TaskActions({
-    inbox,
-    boards,
-    settings: cfg.inbox,
-    redispatch: async (ref, by) => {
+  // Lo que el runner sabe hacerle a una task: lo usan las acciones de la bandeja y, por
+  // `services.tasks`, las actions `redispatch_task` y `rerun_review` de una `taskActions`.
+  const taskDesk = {
+    redispatch: async (ref: string, by: string) => {
       const last = store.activity.lastDispatchedEvent(ref)
       if (!last) throw new Error(`${ref} no tiene un evento que volver a despachar`)
       const event = createEvent(last.type, last.payload, {
@@ -93,7 +119,7 @@ export function mountInbox(
     },
     // Como si la persona hubiera movido la card a Review: el intake lee la card y el PR frescos, y
     // el pipeline de review corre con sus condiciones de siempre (PR abierto, sin blockers).
-    rerunReview: async (ref, by) => {
+    rerunReview: async (ref: string, by: string) => {
       const card = await inbox.card(ref)
       if (!card) throw new Error(`${ref} no está en el board`)
       const status = cfg.inbox.statuses.review
@@ -105,7 +131,8 @@ export function mountInbox(
       })
       return `volví a correr ${status} para ${ref}`
     },
-    stop: (ref, by) => {
+
+    stop: (ref: string, by: string) => {
       const running = store.activity.executions({
         taskRef: ref,
         statuses: ['running'],
@@ -119,6 +146,25 @@ export function mountInbox(
       if (!asked) throw new Error(`${ref} no tiene un agente corriendo al que pedirle que pare`)
       return 'le pedí al agente que termine su turno'
     },
+  }
+  mounted.services.tasks.connect(taskDesk)
+
+  const actions = new TaskActions({
+    inbox,
+    boards,
+    settings: cfg.inbox,
+    taskActions: (projectId) => taskActionsOf(cfg, projectId),
+    instantiate: (projectId, name, client) =>
+      mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
+    redispatch: taskDesk.redispatch,
+    rerunReview: taskDesk.rerunReview,
+    stop: taskDesk.stop,
+    resumeStage: (ref) =>
+      resumeStage(
+        store.activity.eventsForTask(ref, RESUME_EVENTS),
+        store.activity.executions({ taskRef: ref, limit: 1 })[0],
+        cfg.inbox.statuses,
+      ),
     changed: (ref) => {
       boards.invalidate()
       changed(ref)

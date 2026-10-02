@@ -12,7 +12,8 @@ export type InboxGroup = z.infer<typeof InboxGroupSchema>
 
 /**
  * El caso dentro de su grupo:
- * - need: `merge` (Review + reviewed), `prd` (Refined), `doubt` (blocked por una salida de error
+ * - need: `merge` (Review + reviewed), `prd` (Refined), `prerequisite` (blocked: al agente le falta
+ *   una pieza), `doubt` (blocked por una salida de error
  *   del agente), `stale` (Refine/Build sin ejecución ni cambios hace rato)
  * - fail: `crash` (la corrida falló por el runner o el provider)
  * - run: `agent` (ejecución corriendo), `ci` (pausada esperando el CI)
@@ -25,6 +26,9 @@ export const InboxKindSchema = z.enum([
   'review',
   'prd',
   'doubt',
+  /** blocked porque le falta una pieza (un issue que todavía no existe o no cerró): no es una
+   *  decisión de producto. */
+  'prerequisite',
   'stale',
   'crash',
   'agent',
@@ -35,8 +39,9 @@ export const InboxKindSchema = z.enum([
 ])
 export type InboxKind = z.infer<typeof InboxKindSchema>
 
-/** Lo que se puede hacer sobre una tarea desde la bandeja (y proponer el asistente). */
-export const TaskActionSchema = z.enum([
+/** Las acciones que trae el runner. Un proyecto declara las suyas en `taskActions` (`project.yaml`)
+ *  con otros ids: por eso lo que viaja por el wire es un string. */
+export const BuiltinTaskActionSchema = z.enum([
   'merge',
   'approve_prd',
   'back_to_refine',
@@ -47,7 +52,24 @@ export const TaskActionSchema = z.enum([
   /** Vuelve a correr el reviewer, como si la card acabara de llegar a Review. */
   'rerun_review',
 ])
+export type BuiltinTaskAction = z.infer<typeof BuiltinTaskActionSchema>
+
+/** El id de una acción de la bandeja: una de las del runner o una declarada por el proyecto (el
+ *  mismo formato que las claves de `taskActions`). Que la tarea la ofrezca ahora lo decide el
+ *  runner: pedirle una que no ofrece es un 409. */
+export const TaskActionSchema = z.string().regex(/^[a-z][a-z0-9_]*$/, 'id de acción inválido')
 export type TaskAction = z.infer<typeof TaskActionSchema>
+
+/** Una acción declarada por el proyecto (`taskActions`) tal como la ofrece a una tarea. */
+export const TaskActionDefSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  /** Pide un comentario a la persona. */
+  comment: z.enum(['required', 'optional']).optional(),
+  /** La pregunta de confirmación; sin ella, la web usa una genérica. */
+  confirm: z.string().optional(),
+})
+export type TaskActionDef = z.infer<typeof TaskActionDefSchema>
 
 export const ExecutionUsageSchema = z.object({
   input_tokens: z.number(),
@@ -66,6 +88,8 @@ export const ExecutionSummarySchema = z.object({
   agent_id: z.string().optional(),
   /** La salida por la que terminó el agente (`done`, `back_to_build`, `error`…). */
   exit: z.string().optional(),
+  /** Lo que el agente dijo al cerrar (su resumen): el texto de una salida que no es un fallo. */
+  summary: z.string().optional(),
   /** Por qué falló, si falló: el motivo del agente (`fail_turn`) o el error del runner. */
   failure: z.object({ by: z.enum(['agent', 'runtime']), message: z.string() }).optional(),
   pause: z.object({ pause_id: z.string(), expires_at: z.string().optional() }).optional(),
@@ -99,6 +123,19 @@ export const InboxItemSchema = z.object({
   /** Lo último que dijo el agente (su reporte o el motivo de su `fail_turn`). */
   agent_said: z.string().optional(),
   actions: z.array(TaskActionSchema),
+  /** Cómo se llaman y qué piden las que declaró el proyecto (las otras las conoce el cliente). */
+  action_defs: z.array(TaskActionDefSchema).optional(),
+  // ── presentación: la pone el dashboard de quien mira (la web), nunca el runner ──
+  /** El verbo de la decisión ("Decidir el merge"); sin él, el nombre del caso. */
+  verb: z.string().optional(),
+  /** La acción principal, la que se destaca entre `actions`. */
+  primary: z.string().optional(),
+  /** Una explicación más larga que `why`. */
+  context: z.string().optional(),
+  /** Datos sueltos que acompañan al título ("a un merge de Done"). */
+  chips: z
+    .array(z.object({ text: z.string(), tone: z.enum(['hot', 'warn', 'bad']).optional() }))
+    .optional(),
 })
 export type InboxItem = z.infer<typeof InboxItemSchema>
 

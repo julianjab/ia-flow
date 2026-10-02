@@ -45,6 +45,12 @@ export type {
 } from './ListSubIssuesBriefAction.js'
 export { ListSubIssuesBriefAction, ListSubIssuesBriefInput } from './ListSubIssuesBriefAction.js'
 export { MarkBlockedByAction } from './MarkBlockedByAction.js'
+export {
+  CheckPrMergeableAction,
+  MergePullRequestAction,
+  MergePullRequestInput,
+  PreconditionError,
+} from './MergePullRequestActions.js'
 export type { PostCommentActionOptions } from './PostCommentAction.js'
 export {
   CommentTarget,
@@ -52,6 +58,8 @@ export {
   PostCommentInput,
   REPORT_MARKER,
 } from './PostCommentAction.js'
+export type { PostUserCommentActionOptions } from './PostUserCommentAction.js'
+export { PostUserCommentAction, PostUserCommentInput } from './PostUserCommentAction.js'
 export { PrChecksAction } from './PrChecksAction.js'
 export { ReactToCommentAction } from './ReactToCommentAction.js'
 export { ReviewPullRequestAction } from './ReviewPullRequestAction.js'

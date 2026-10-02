@@ -10,6 +10,8 @@ import {
   TaskActionResultSchema,
   type TaskDetail,
   TaskDetailSchema,
+  type Tasks,
+  TasksSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -27,6 +29,21 @@ export async function getInbox(project?: string): Promise<Inbox> {
     params: project ? { project } : undefined,
   })
   return InboxSchema.parse(data)
+}
+
+/**
+ * Los hechos de cada tarea, sin clasificar: qué es una decisión lo dice el dashboard de este
+ * runner (`view/`). Un runner que todavía no los publica (404) devuelve `null`: la bandeja cae a
+ * `/api/inbox`, ya clasificado por el runner.
+ */
+export async function getTasks(project?: string): Promise<Tasks | null> {
+  const res = await axios.get<unknown>('/api/tasks', {
+    params: project ? { project } : undefined,
+    validateStatus: (status) => status < 500,
+  })
+  if (res.status === 404) return null
+  if (res.status >= 400) throw new Error(`El runner respondió ${res.status} en /api/tasks`)
+  return TasksSchema.parse(res.data)
 }
 
 /** Lo que la bandeja no muestra, por columna: se pide al abrir «Resto del board». */

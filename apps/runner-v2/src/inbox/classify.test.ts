@@ -143,6 +143,34 @@ describe('classify', () => {
     expect(crash).toMatchObject({ group: 'fail', kind: 'crash', actions: ['retry'] })
   })
 
+  it('the agent exit decides: prerequisite is a missing piece, doubt is a decision', () => {
+    const blocked = card({ labels: ['blocked'] })
+    const closedBy = (exit: string, summary: string) => ({
+      waiting: false,
+      lastClosed: run({ status: 'done', closed_at: '2026-09-29T11:30:00Z', exit, summary }),
+    })
+    const missing = classify(blocked, closedBy('prerequisite', 'falta #1578'), options)
+    expect(missing).toMatchObject({
+      group: 'need',
+      kind: 'prerequisite',
+      actions: ['answer_and_unblock'],
+    })
+    expect(missing?.why).toBe('Le falta una pieza: falta #1578')
+
+    const asked = classify(blocked, closedBy('doubt', '¿90 días o para siempre?'), options)
+    expect(asked).toMatchObject({ group: 'need', kind: 'doubt' })
+    expect(asked?.why).toContain('¿90 días o para siempre?')
+  })
+
+  it('a clean exit with blocked set but no doubt/prerequisite exit is not an agent question', () => {
+    const done = classify(
+      card({ labels: ['blocked'] }),
+      { waiting: false, lastClosed: run({ status: 'done', exit: 'done' }) },
+      options,
+    )
+    expect(done).toMatchObject({ group: 'fail', kind: 'crash' })
+  })
+
   it('Refine or Build with no movement for staleHours is stale', () => {
     const stale = classify(card({ updatedAt: '2026-09-28T10:00:00Z' }), idle, options)
     expect(stale).toMatchObject({ group: 'need', kind: 'stale', actions: ['relaunch'] })

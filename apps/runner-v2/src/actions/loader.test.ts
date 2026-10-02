@@ -9,6 +9,7 @@ import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/wo
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { Boards } from '../board/Boards.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
+import { TaskDesk } from '../inbox/TaskDesk.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
 import { BUILTIN_ACTIONS } from './builtin/index.js'
 import type { RunnerServices } from './defineAction.js'
@@ -51,6 +52,7 @@ const services: RunnerServices = {
   slackUsers: {},
   boards: new Boards([]),
   assistant: new AssistantDesk(),
+  tasks: new TaskDesk(),
   log: () => {},
 }
 

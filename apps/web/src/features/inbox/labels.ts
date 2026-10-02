@@ -17,7 +17,7 @@ export const GROUP_HINT: Record<InboxGroup, string> = {
   idle: 'está en el board, no espera nada de nadie',
 }
 
-export const ACTION_LABEL: Record<TaskAction, string> = {
+export const ACTION_LABEL: Record<string, string> = {
   merge: 'Mergear PR',
   approve_prd: 'Aprobar y pasar a Build',
   back_to_refine: 'Devolver a Refine',
@@ -47,6 +47,8 @@ export function confirmText(action: TaskAction, ref: string): string {
       return `¿Detener la ejecución de ${ref}?`
     case 'rerun_review':
       return `¿Volver a correr el reviewer sobre el PR de ${ref}?`
+    default:
+      return `¿${ACTION_LABEL[action] ?? action} en ${ref}?`
   }
 }
 
@@ -56,6 +58,7 @@ const PRIMARY_BY_KIND: Partial<Record<InboxKind, TaskAction>> = {
   review: 'rerun_review',
   prd: 'approve_prd',
   doubt: 'answer_and_unblock',
+  prerequisite: 'answer_and_unblock',
   stale: 'relaunch',
   crash: 'retry',
 }
@@ -72,7 +75,8 @@ export const LEGEND: readonly { group: InboxGroup; rules: string[]; order?: stri
       'Listo para mergear: status Review + label reviewed.',
       'Review sin aprobar: status Review sin reviewed — pase lo que pase con la tarea (salvo mientras el reviewer corre). Se puede re-ejecutar el review.',
       'PRD para aprobar: status Refined.',
-      'El agente tiene una duda: blocked y la ejecución salió por la salida de error del agente.',
+      'El agente tiene una duda: blocked y el agente cerró por su salida `doubt` (o por la de error).',
+      'Le falta una pieza: blocked y el agente cerró por su salida `prerequisite` — algo que no existe o no cerró todavía.',
       'Sin movimiento: Refine o Build, sin blocked, sin ejecución corriendo ni en cola, más de 24 h sin cambios.',
     ],
     order: 'Orden: lo más cerca de Done primero; dentro de cada caso, lo más viejo arriba.',

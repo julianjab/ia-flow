@@ -29,7 +29,8 @@ export interface AssistantBackend {
   status: () => Record<string, unknown>
 }
 
-export const ACTION_LABELS: Record<TaskAction, string> = {
+/** Las acciones que trae el runner; un proyecto suma las suyas (`taskActions`) en `item.action_defs`. */
+export const ACTION_LABELS: Record<string, string> = {
   merge: 'Mergear el PR',
   approve_prd: 'Aprobar el PRD y pasar a Build',
   back_to_refine: 'Devolver a Refine',
@@ -222,16 +223,20 @@ export class AssistantSession {
   /** Muestra una propuesta para que la persona la confirme. No ejecuta nada. */
   async propose(input: { ref?: unknown; action?: unknown; reason?: unknown; comment?: unknown }) {
     const item = await this.task(input.ref)
-    const action = String(input.action) as TaskAction
-    if (!(action in ACTION_LABELS)) throw new Error(`Acción desconocida: ${String(input.action)}`)
+    const action: TaskAction = String(input.action)
+    // Sólo las que la tarea ofrece ahora: las del runner o las que declaró su proyecto.
+    const def = item.action_defs?.find((candidate) => candidate.id === action)
+    const label = def?.label ?? ACTION_LABELS[action]
+    if (!label) throw new Error(`Acción desconocida: ${String(input.action)}`)
     if (!item.actions.includes(action)) {
       throw new Error(
-        `${ACTION_LABELS[action]} no aplica a ${item.ref} ahora (${item.why}). Aplica: ${item.actions.join(', ') || 'nada'}`,
+        `${label} no aplica a ${item.ref} ahora (${item.why}). Aplica: ${item.actions.join(', ') || 'nada'}`,
       )
     }
     const comment = typeof input.comment === 'string' ? input.comment.trim() : ''
-    if (action === 'answer_and_unblock' && !comment) {
-      throw new Error('answer_and_unblock necesita el comentario')
+    const needsComment = def ? def.comment === 'required' : action === 'answer_and_unblock'
+    if (needsComment && !comment) {
+      throw new Error(`${action} necesita el comentario`)
     }
     this.emit({
       type: 'proposal',
@@ -239,7 +244,7 @@ export class AssistantSession {
         id: globalThis.crypto.randomUUID(),
         ref: item.ref,
         action,
-        label: ACTION_LABELS[action],
+        label,
         reason: String(input.reason ?? ''),
         ...(comment ? { comment } : {}),
       },

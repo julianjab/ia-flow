@@ -60,9 +60,17 @@ describe('parseAssistantEvent', () => {
     expect(parseAssistantEvent('{"type":"text"}')).toBeNull()
     expect(
       parseAssistantEvent(
-        '{"type":"proposal","proposal":{"id":"p","ref":"r","action":"borrar_todo","label":"l","reason":"r"}}',
+        '{"type":"proposal","proposal":{"id":"p","ref":"r","action":"Borrar todo!","label":"l","reason":"r"}}',
       ),
     ).toBeNull()
+  })
+
+  it('acepta una acción que declaró el proyecto: si la tarea no la ofrece, lo dice el runner', () => {
+    expect(
+      parseAssistantEvent(
+        '{"type":"proposal","proposal":{"id":"p","ref":"r","action":"chain_behind","label":"Encadenarla","reason":"r"}}',
+      ),
+    ).toMatchObject({ type: 'proposal' })
   })
 })
 

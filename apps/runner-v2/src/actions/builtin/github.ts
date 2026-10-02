@@ -9,13 +9,16 @@ import type { Action } from '@ia-flow/agent-engine'
 import {
   AddSubIssueAction,
   AddToProjectAction,
+  CheckPrMergeableAction,
   CreateGithubIssueAction,
   EnsurePullRequestAction,
   type GithubProjectContext,
   LinkBranchAction,
   ListSubIssuesBriefAction,
   MarkBlockedByAction,
+  MergePullRequestAction,
   PostCommentAction,
+  PostUserCommentAction,
   PrChecksAction,
   ReactToCommentAction,
   ReplyPrReviewThreadAction,
@@ -66,6 +69,18 @@ export default [
     'post_notice',
     (ctx) => new PostCommentAction({ client: ctx.services.github, id: 'post_notice' }),
   ),
+  // El comentario de una persona (la bandeja: responder y destrabar), a su nombre y sin la marca
+  // del engine: cuenta como un comentario humano.
+  withClient(
+    'post_user_comment',
+    (ctx) => new PostUserCommentAction({ client: ctx.services.github }),
+  ),
+  // Mergear el PR de la tarea (la bandeja): primero se verifica con GitHub que se puede.
+  withClient(
+    'check_pr_mergeable',
+    (ctx) => new CheckPrMergeableAction({ client: ctx.services.github }),
+  ),
+  withClient('merge_pr', (ctx) => new MergePullRequestAction({ client: ctx.services.github })),
   withClient('react_to_comment', (ctx) => new ReactToCommentAction(ctx.services.github)),
   withClient(
     'update_issue_body',

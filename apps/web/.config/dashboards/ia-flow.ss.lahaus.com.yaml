@@ -1,0 +1,190 @@
+# El dashboard del runner de claw-agents (deployment `ai-development-flow`, board la-haus#119).
+# Las decisiones y el orden salen de «Bandeja de prioridades»: lo más cerca de Done primero; lo que
+# destraba otras tareas sube; lo que rompió el runner va antes que lo que decidió el agente; a
+# igual peso, lo que más lleva esperando. No entra lo que corre ni lo que nadie necesita tocar.
+#
+# El runner sólo publica hechos y acciones (`GET /api/tasks`): acá se decide qué es cada cosa. Las
+# acciones que se nombran son las `taskActions` del `project.yaml` de ese deploy; si el runner no
+# ofrece una para una tarea, el botón no sale.
+server: https://ia-flow.ss.lahaus.com
+version: 1
+
+decisions:
+  # Lo que corre o espera no es una decisión: se ve en el panel del pipeline.
+  - id: agent_running
+    group: run
+    kind: agent
+    when:
+      - { field: live.status, op: eq, value: running }
+    why: '{{fmt.who}} corriendo{{fmt.tokens}}'
+    since: '{{live_run.started_at}}'
+    actions: [ stop ]
+
+  - id: waiting_ci
+    group: run
+    kind: ci
+    when:
+      - { field: live.status, op: eq, value: paused }
+      - { field: live.ci, op: eq, value: 'true', logic: and }
+    why: 'Esperando el CI ({{fmt.pause}}){{fmt.expires}}'
+    since: '{{live_run.started_at}}'
+
+  - id: agent_paused
+    group: run
+    kind: agent
+    when:
+      - { field: live.status, op: eq, value: paused }
+    why: 'Pausada en {{fmt.pause}}{{fmt.expires}}'
+    since: '{{live_run.started_at}}'
+
+  - id: waiting_turn
+    group: queue
+    kind: turn
+    when:
+      - { field: queue.waiting, op: eq, value: true }
+    why: Espera su turno
+
+  # ── las decisiones, de la más cercana a Done a la más lejana ──────────────────────────────
+  - id: merge
+    group: need
+    kind: merge
+    weight: 100
+    when:
+      - { field: item.status, op: eq, value: Review }
+      - { field: item.labels, op: contains, value: reviewed, logic: and }
+    verb: Decidir el merge
+    why: 'Review + reviewed{{fmt.pr}}'
+    chips:
+      - { text: a un merge de Done, tone: hot }
+      - { text: 'destraba {{task.unlocks}}', tone: hot, when: [ { field: task.unlocks, op: gt, value: 0 } ] }
+      - text: blocked y reviewed a la vez
+        tone: warn
+        when: [ { field: item.labels, op: contains, value: blocked } ]
+    context: El reviewer la marcó reviewed. Si el PR está bien, mergealo; si tiene blocked, el label deja de importar.
+    said: '{{run.summary}}'
+    actions: [ merge, rerun_review ]
+    primary: merge
+
+  - id: review
+    group: need
+    kind: review
+    weight: 90
+    when:
+      - { field: item.status, op: eq, value: Review }
+    verb: Revisar por qué no se aprobó
+    why: 'Review sin reviewed{{fmt.pr}}'
+    actions: [ rerun_review ]
+
+  - id: prd
+    group: need
+    kind: prd
+    weight: 80
+    when:
+      - { field: item.status, op: eq, value: Refined }
+    verb: Aprobar el PRD
+    why: PRD listo para aprobar (status Refined)
+    chips:
+      - { text: sin bloqueos, when: [ { field: task.blocked_by, op: eq, value: 0 } ] }
+      - { text: 'destraba {{task.unlocks}}', tone: hot, when: [ { field: task.unlocks, op: gt, value: 0 } ] }
+    said: '{{run.summary}}'
+    actions: [ approve_prd, back_to_refine ]
+    primary: approve_prd
+
+  # Esperar a otro issue no es una decisión: se ve en la cola, pero un PR listo para mergear
+  # o un PRD para aprobar siguen siendo decisiones aunque algo los bloquee.
+  - id: blocked_by_issue
+    group: queue
+    kind: dep
+    when:
+      - { field: task.blocked_by, op: gt, value: 0 }
+    why: 'Bloqueada por {{fmt.blocked_by}}'
+
+  # Falló el runner, no el agente: se relanza sin pensar mucho, por eso pesa más que una duda.
+  - id: runner_failed
+    group: need
+    kind: crash
+    weight: 75
+    when:
+      - { field: run.failure_by, op: eq, value: runtime }
+      - { field: run.status, op: eq, value: failed, logic: or }
+    verb: Relanzar el {{run.agent}}
+    why: 'Falló: {{fmt.summary}}'
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    chips:
+      - { text: 'falló el runner, no el agente', tone: bad }
+    context: La corrida murió por un error de infraestructura. Al relanzar se limpian blocked y Working y vuelve a su etapa.
+    actions: [ retry ]
+
+  - id: doubt
+    group: need
+    kind: doubt
+    weight: 70
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+      - { field: run.exit, op: eq, value: doubt, logic: and }
+      - { field: run.failure_by, op: eq, value: agent, logic: or }
+    verb: Tomar una decisión de producto
+    why: 'El agente tiene una duda: {{fmt.summary}}'
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    said: '{{run.summary}}'
+    actions: [ answer_and_unblock ]
+
+  # No es una duda: le falta una pieza. Se resuelve encadenándola detrás de lo que falta.
+  - id: prerequisite
+    group: need
+    kind: prerequisite
+    weight: 60
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+      - { field: run.exit, op: eq, value: prerequisite, logic: and }
+    verb: Encadenarla detrás de lo que le falta
+    why: 'Le falta una pieza: {{fmt.summary}}'
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    said: '{{run.summary}}'
+    context: No es una duda de producto. Respondé con el issue del que depende (o el que hay que crear) y la tarea vuelve a su etapa.
+    actions: [ answer_and_unblock ]
+
+  # blocked sin ninguna corrida que diga por qué: nadie dejó un motivo.
+  - id: blocked_without_reason
+    group: need
+    kind: stale
+    weight: 55
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+    verb: Anotar por qué está bloqueada
+    why: Bloqueada (blocked) sin una corrida que diga por qué
+    chips:
+      - { text: blocked sin ninguna corrida, tone: warn }
+    context: No hay comentario de un agente ni un issue que la bloquee. Dejá el motivo o quitá blocked.
+    actions: [ answer_and_unblock, retry ]
+
+  - id: stale
+    group: need
+    kind: stale
+    weight: 50
+    when:
+      - { field: item.status, op: in, value: [ Refine, Build ] }
+      - { field: task.idle_hours, op: gte, value: 24, logic: and }
+    verb: Relanzar la tarea
+    why: '{{item.status}} sin movimiento hace {{task.idle_hours}} h'
+    actions: [ relaunch ]
+
+# Lo que destraba otras tareas sube dentro de su peso; a igual peso, lo que más lleva esperando.
+rank: [ group, weight, unlocks, waiting ]
+
+panels:
+  pipeline: true
+  # Qué le das al pipeline cuando tiene lugares libres: lo de Todo que puede arrancar ya.
+  feed:
+    title: Qué le das al pipeline
+    when:
+      - { field: item.status, op: eq, value: Todo }
+      - { field: task.blocked_by, op: eq, value: 0, logic: and }
+      - { field: item.labels, op: notContains, value: blocked, logic: and }
+    action: start_refine
+    limit: 5
+  hygiene:
+    - text: '{{count}} abiertas con blocked pero sin ninguna corrida'
+      when:
+        - { field: item.labels, op: contains, value: blocked }
+        - { field: run.status, op: notExists, logic: and }

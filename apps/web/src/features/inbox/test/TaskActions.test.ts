@@ -9,6 +9,7 @@ const getInbox = vi.fn()
 vi.mock('@/features/inbox/api', () => ({
   postTaskAction: (...a: unknown[]) => postTaskAction(...a),
   getInbox: (...a: unknown[]) => getInbox(...a),
+  getTasks: vi.fn().mockResolvedValue(null),
   getTaskDetail: vi.fn(),
 }))
 
@@ -118,5 +119,43 @@ describe('TaskActions', () => {
     await wrapper.find('[data-test="confirm"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toContain('✕ La tarea cambió')
+  })
+  it('una acción que declaró el proyecto trae su etiqueta, su comentario y su confirmación', async () => {
+    postTaskAction.mockResolvedValue({ ok: true, message: 'listo', github_login: 'ada' })
+    const declared = item({
+      ref: 'acme/api#7',
+      kind: 'prerequisite',
+      group: 'need',
+      actions: ['chain_behind', 'approve_prd'],
+      action_defs: [
+        {
+          id: 'chain_behind',
+          label: 'Encadenarla detrás de otra',
+          comment: 'required',
+          confirm: '¿Bloquearla por la que indicaste?',
+        },
+      ],
+    })
+    const { wrapper } = mountActions(declared)
+
+    // La declarada se nombra como dice el proyecto; la del runner, como siempre.
+    expect(wrapper.find('[data-action="chain_behind"]').text()).toBe('Encadenarla detrás de otra')
+    expect(wrapper.find('[data-action="approve_prd"]').text()).toBe('Aprobar y pasar a Build')
+
+    // Pide comentario sólo para la que lo declara.
+    expect(wrapper.find('[data-action="chain_behind"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-action="approve_prd"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.find('textarea').setValue('#1578')
+    await wrapper.find('[data-action="chain_behind"]').trigger('click')
+    expect(wrapper.find('.ta__ask').text()).toBe('¿Bloquearla por la que indicaste?')
+    await wrapper.find('[data-test="confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(postTaskAction).toHaveBeenCalledWith(
+      'acme/api#7',
+      { action: 'chain_behind', comment: '#1578' },
+      'gho_1',
+    )
   })
 })

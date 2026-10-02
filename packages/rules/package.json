@@ -1,0 +1,19 @@
+{
+  "name": "@ia-flow/rules",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Condiciones (`when`) y plantillas (`{{path}}`) puras: las comparten el engine y la web",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

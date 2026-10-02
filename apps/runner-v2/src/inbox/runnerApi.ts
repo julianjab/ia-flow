@@ -144,6 +144,9 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
 
   router.get('/api/inbox', (req) => inbox.inbox(req.query.get('project') ?? undefined))
 
+  // Los hechos de cada tarea, sin clasificar: qué es una decisión lo dice el dashboard de quien mira.
+  router.get('/api/tasks', (req) => inbox.tasks(req.query.get('project') ?? undefined))
+
   // Lo que la bandeja no muestra: se pide aparte (la web, sólo al abrir esa sección).
   router.get('/api/board', (req) => inbox.rest(req.query.get('project') ?? undefined))
 

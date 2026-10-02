@@ -342,6 +342,65 @@ El `providerConfig.systemPrompts` de un agente los reemplaza enteros.
 contexto, y cada login ve y borra sólo las suyas. Sin sesión el chat funciona igual, pero no queda.
 La pregunta y su respuesta se guardan juntas y sólo si hubo respuesta.
 
+### Las acciones de una tarea (`taskActions:` de `project.yaml`)
+
+Lo que una persona puede pedirle a una tarea desde la bandeja o el asistente: cada acción es una
+**cadena de actions del catálogo** —las mismas que usa un pipeline— con una guarda de cuándo
+aplica. Se corren con el token de la persona que las pide (queda a su nombre y con sus permisos),
+fuera de los pipelines: un rechazo no pasa por `onError`, así que no deja la tarea `blocked`.
+
+```yaml
+taskActions:
+  answer_and_unblock:
+    label: Responder y destrabar            # el botón
+    available:                              # cuándo se ofrece: filas como el `when` de un pipeline
+      - { field: run.exit, op: in, value: [ doubt, prerequisite ] }   #   sobre `item.*` (la card)
+      - { field: run.failure_by, op: eq, value: agent, logic: or }    #   y `run.*` (su última corrida:
+      - { field: item.labels, op: contains, value: blocked, logic: and } # exit, status, failure_by, agent)
+    input: { comment: required }            # lo que pide a la persona (hoy, un comentario)
+    confirm: ¿Publicar tu respuesta y devolverla a su etapa?
+    steps:                                  # en orden; `when` por paso es opcional
+      - { action: post_user_comment, with: { body: '{{input.comment}}' } }
+      - { action: update_issue, with: { removeLabels: [ blocked ] } }
+      - { action: update_issue, with: { status: '{{task.resume_stage}}' } }
+```
+
+- **Mandan sobre las del runner.** Una acción declarada con el mismo id que una de las del runner
+  (`merge`, `approve_prd`, `answer_and_unblock`…) la reemplaza, y su `available` decide cuándo se
+  ofrece. Las que un proyecto no declara siguen como antes: sin `taskActions`, nada cambia.
+- **El `with` de un paso** se resuelve contra `input.comment`, `task.resume_stage` (la columna de la
+  ejecución que falló), `item.*`, `run.*` y `actor` (el login).
+- **El orden de los pasos es parte del diseño: no hay rollback.** Si un paso falla se corta y el
+  error dice cuántos ya corrieron. En el ejemplo, el comentario va primero (el intake descarta los
+  eventos de un issue `blocked`, así no dispara además el pipeline de comentarios), después se quita
+  `blocked` y por último se mueve la columna: `update_issue` cambia la columna **antes** que los
+  labels, así que en un solo paso el evento llegaría todavía `blocked` y el pipeline de la etapa lo
+  ignoraría.
+- **`task.resume_stage` sin etapa conocida** rechaza la acción (409) antes de tocar nada.
+- **Un typo rompe el arranque**: cada `action:` tiene que estar registrada (`post_user_comment`,
+  `update_issue`, las del proyecto…). Validalo con `bun run runner`.
+- **Acciones del runner para los pasos**: `post_user_comment` (comentar a nombre de la persona),
+  `check_pr_mergeable` y `merge_pr` (el PR de la tarea, de `pr.number`; un PR que no se puede
+  mergear rechaza con 409 y no toca nada), `redispatch_task`, `rerun_review` y `stop_agent` (le piden al
+  runner volver a despachar el último evento, volver a correr el review o pedirle al agente que
+  pare; sólo con `--serve`).
+- **Qué miran `available`, `when` y `with`** —los mismos hechos que publica `GET /api/tasks`—:
+  `item.*` (`status`, `labels`, `type`, `repos`, `blocked`), `run.*` (la última corrida cerrada:
+  `exit`, `status`, `failure_by`, `agent`, `summary`), `live.*` (la corrida viva: `status`,
+  `agent`, `pause_id`, `ci`), `queue.waiting`, `task.*` (`idle_hours`, `waiting_hours`, `unlocks`,
+  `blocked_by`) y `pr.number`. **Cada guarda dice por sí sola cuándo aplica**, también que no haya
+  una corrida viva (`live.status notExists`): el runner no filtra después.
+- **`GET /api/tasks`** publica, por cada card abierta del board —también Backlog y Todo—, esos
+  hechos sin clasificar, qué acciones aplican ahora y la capacidad del runner (`running`,
+  `waiting`, `paused`, `max_concurrent`, `free`). Qué es una decisión, en qué orden va y cómo se
+  llama lo decide el dashboard de quien mira (la web); un runner sin web publica lo mismo.
+  `GET /api/inbox` (ya clasificado) queda para el asistente y para clientes viejos.
+- La web y el asistente leen el nombre, el campo de comentario y la confirmación de lo que el
+  runner ofrece (`action_defs` de cada tarea); no los repiten.
+- `add_to_project` y `mark_blocked_by` siguen escribiendo con la identidad del runner: sólo lo que
+  pasa por el cliente de GitHub y el board (`update_issue`, `post_user_comment`) va a nombre de la
+  persona.
+
 ## Providers en otra máquina (`--host` y `remote:*`)
 
 Un runner puede correr un agente en OTRA máquina —una con el CLI `claude` logueado, más RAM, otra
