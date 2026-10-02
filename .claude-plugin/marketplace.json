@@ -1,0 +1,17 @@
+{
+  "name": "ia-flow",
+  "owner": { "name": "Julian Buitrago", "email": "julianbuitrago@lahaus.com" },
+  "metadata": {
+    "description": "Plugins de Claude Code para operar y mejorar runners de ia-flow desde cualquier repo.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "ia-flow-kit",
+      "source": "./plugins/ia-flow-kit",
+      "description": "Conoce el engine y el runner de ia-flow: explica una config (runner.yaml + projects/), crea y mejora agentes, pipelines y actions, y guía cómo mejorar un runner. Se instala global y trabaja sobre el repo donde estés (p. ej. claw-agents).",
+      "category": "workflow",
+      "keywords": ["ia-flow", "agents", "pipelines", "runner", "engine", "config"]
+    }
+  ]
+}
