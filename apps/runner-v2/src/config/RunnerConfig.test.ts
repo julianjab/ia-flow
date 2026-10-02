@@ -180,3 +180,59 @@ describe('runner.yaml systemPrompts', () => {
     ).toThrow(/mismo id/)
   })
 })
+
+describe('project.yaml board: { kind: issues }', () => {
+  const withIssuesBoard = (board: string, repos: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-config-'))
+    writeFileSync(
+      join(dir, 'runner.yaml'),
+      `sources:\n  projects:\n    p:\n      board:\n${board}      repos:\n${repos}`,
+    )
+    return dir
+  }
+  const repo = '        - { name: ia-flow, githubOwner: julianjab, githubRepo: ia-flow }\n'
+
+  it('takes the issues of the catalog repos as the board, owned by the first repo', () => {
+    const project = loadRunnerConfig(withIssuesBoard('        kind: issues\n', repo)).projects[0]
+    expect(project?.boardKind).toBe('issues')
+    expect(project?.board).toEqual({ owner: 'julianjab', number: 0 })
+    expect(project?.issuesBoard).toEqual({})
+  })
+
+  it('takes the declared columns and the label prefix', () => {
+    const board =
+      '        kind: issues\n        statuses: [Todo, Build, Done]\n        statusPrefix: "estado:"\n'
+    const project = loadRunnerConfig(withIssuesBoard(board, repo)).projects[0]
+    expect(project?.issuesBoard).toEqual({
+      statuses: ['Todo', 'Build', 'Done'],
+      statusPrefix: 'estado:',
+    })
+  })
+
+  it('a Project v2 url stays a Project v2', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-config-'))
+    writeFileSync(
+      join(dir, 'runner.yaml'),
+      'sources:\n  projects:\n    p:\n      board: https://github.com/orgs/o/projects/1\n',
+    )
+    const project = loadRunnerConfig(dir).projects[0]
+    expect(project?.boardKind).toBe('projects-v2')
+    expect(project?.issuesBoard).toBeUndefined()
+  })
+
+  it('needs a repo to read the issues of', () => {
+    expect(() =>
+      loadRunnerConfig(withIssuesBoard('        kind: issues\n', '        []\n')),
+    ).toThrow(/necesita algún repo/)
+  })
+
+  it('needs the GitHub owner and repo of every catalog repo', () => {
+    expect(() =>
+      loadRunnerConfig(withIssuesBoard('        kind: issues\n', '        - { name: ia-flow }\n')),
+    ).toThrow(/necesita githubOwner y githubRepo en cada repo \(falta en "ia-flow"\)/)
+  })
+
+  it('rejects a board kind it does not know', () => {
+    expect(() => loadRunnerConfig(withIssuesBoard('        kind: trello\n', repo))).toThrow()
+  })
+})
