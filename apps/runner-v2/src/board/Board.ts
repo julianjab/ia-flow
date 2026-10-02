@@ -36,19 +36,17 @@ export interface RawDelivery {
   payload: Record<string, unknown>
 }
 
-export interface Board extends BoardWriter, BoardAdder {
-  readonly kind: BoardKind
-  readonly projectId: string
-  readonly ref: BoardRef
-  /** Cómo se nombra en un log o en un estado: `la-haus#119`, o `issues de julianjab`. */
-  describe(): string
-
+/** Lo que la bandeja lee de un board. */
+export interface BoardView {
   /** Las cards abiertas, ya con la forma de la bandeja (cache corto; `invalidate` lo suelta). */
   cards(): Promise<BoardCard[]>
   /** Sus links y el orden de sus columnas. */
   meta(): Promise<BoardMeta>
   invalidate(): void
+}
 
+/** Cómo un board se entera de lo que pasa en GitHub, y cómo lo simula. */
+export interface BoardRouting {
   /** Cómo lee el intake la card de un issue. Sin esto, como un Project v2 (el default del intake,
    *  que comparte el cache por webhook de su `GithubTaskReader`). */
   readonly intake?: IntakeBoard
@@ -58,6 +56,14 @@ export interface Board extends BoardWriter, BoardAdder {
   /** El webhook que simula "la card llegó a `status`", hecho por `sender` (re-ejecutar un review).
    *  Tira si la card no se puede mover así. */
   statusChange(card: BoardCard, status: string, sender: string): RawDelivery
+}
+
+export interface Board extends BoardView, BoardRouting, BoardWriter, BoardAdder {
+  readonly kind: BoardKind
+  readonly projectId: string
+  readonly ref: BoardRef
+  /** Cómo se nombra en un log o en un estado: `la-haus#119`, o `issues de julianjab`. */
+  describe(): string
   /** Escribir con otra identidad: las acciones de la bandeja actúan con el token de la persona. */
   writerFor(client: GithubClient): BoardWriter
 }

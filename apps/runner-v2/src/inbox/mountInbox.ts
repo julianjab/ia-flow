@@ -26,7 +26,7 @@ import { TaskActions } from './TaskActions.js'
 
 export interface MountedInbox {
   api: ApiRouter
-  board: Boards
+  board: Pick<Boards, 'invalidate'>
   close(): void
 }
 

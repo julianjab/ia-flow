@@ -46,6 +46,7 @@ import {
 } from '../engine/workingMarker.js'
 import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
 import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
+import { BoardSchema, type ProjectBoard, readBoard } from './boardConfig.js'
 import { defaultDatabasePath, runnerHome } from './runnerHome.js'
 
 const McpEntrySchema = z.strictObject({
@@ -97,33 +98,10 @@ export const SlackReviewSchema = z.object({
     .optional(),
 })
 
-/**
- * Un board que son los issues de los repos del catálogo del proyecto (`repos/`): el estado de cada
- * uno vive en sus labels (`status:build`). Sin Project v2: funciona con el token de una GitHub App.
- */
-export const IssuesBoardSchema = z.strictObject({
-  kind: z.literal('issues'),
-  /** Las columnas, en orden de avance. Sin ellas, cualquier `<statusPrefix>…` es una columna. */
-  statuses: z.array(z.string().min(1)).min(1).optional(),
-  /** El prefijo de los labels de columna. Default: `status:`. */
-  statusPrefix: z.string().min(1).optional(),
-})
-export type IssuesBoardConfig = z.infer<typeof IssuesBoardSchema>
-
 /** Un proyecto (su `project.yaml`, o inline en `runner.yaml`). */
 export const ProjectFileSchema = z.strictObject({
-  /** El board del proyecto: un GitHub Project v2 —`https://github.com/orgs/<org>/projects/<n>`, o el
-   *  de una cuenta personal: `https://github.com/users/<login>/projects/<n>`— o los issues de sus
-   *  repos (`{ kind: issues }`). */
-  board: z.union([
-    z
-      .string()
-      .regex(
-        /github\.com\/(?:orgs|users)\/[^/]+\/projects\/\d+/,
-        'un GitHub Project v2 (de org o de usuario) o { kind: issues }',
-      ),
-    IssuesBoardSchema,
-  ]),
+  /** El board del proyecto: un Project v2 de GitHub o los issues de sus repos (ver `boardConfig`). */
+  board: BoardSchema,
   /** Con esto, `task.branch` = `<branchPrefix><número>`. Sin esto, como ia-flow: la rama
    *  vinculada al issue, o la que propone la capacidad `branchName` (`feat/<slug>`). */
   branchPrefix: z.string().min(1).optional(),
@@ -272,17 +250,10 @@ export const RepoDefSchema = z.looseObject({
 export type RepoDef = z.infer<typeof RepoDefSchema> & { projectId: string }
 
 /** Un proyecto: lo que el runner sabe de él, sus actions y cómo leer su fuente. */
-export interface ProjectConfig {
+export interface ProjectConfig extends ProjectBoard {
   id: string
   /** Contra qué se resuelven sus rutas: la carpeta de su `project.yaml`. */
   dir: string
-  /** Cómo se identifica el board. Un Project v2: su dueño y número (`ownerKind`, el segmento de la
-   *  URL: `orgs` o `users`). Uno de issues no tiene número (0) y su dueño es el del primer repo. */
-  board: { owner: string; number: number; ownerKind?: 'orgs' | 'users' }
-  /** De qué es el board: un Project v2 de GitHub o los issues de sus repos. */
-  boardKind: 'projects-v2' | 'issues'
-  /** Sólo con `boardKind: issues`: las columnas y el prefijo de sus labels. */
-  issuesBoard?: { statuses?: string[]; statusPrefix?: string }
   branchPrefix?: string
   /** Ver `when` en `project.yaml`: vacío, todas las cards del board. */
   when: ConditionRow[]
@@ -339,40 +310,6 @@ function parse<T>(path: string, schema: z.ZodType<T>): T {
   const parsed = schema.safeParse(readYaml(path))
   if (!parsed.success) throw new Error(`${path}: inválido\n${z.prettifyError(parsed.error)}`)
   return parsed.data
-}
-
-function parseBoard(url: string): ProjectConfig['board'] {
-  const match = url.match(/github\.com\/(orgs|users)\/([^/]+)\/projects\/(\d+)/) as RegExpMatchArray
-  return {
-    owner: match[2] as string,
-    number: Number(match[3]),
-    ownerKind: match[1] as 'orgs' | 'users',
-  }
-}
-
-/** El board de un proyecto: el Project v2 de su URL, o —`kind: issues`— los repos del catálogo. */
-function readBoard(
-  board: ProjectFile['board'],
-  repos: RepoDef[],
-  where: string,
-): Pick<ProjectConfig, 'board' | 'boardKind' | 'issuesBoard'> {
-  if (typeof board === 'string') return { board: parseBoard(board), boardKind: 'projects-v2' }
-  const missing = repos.find((repo) => !repo.githubOwner || !repo.githubRepo)
-  const first = repos[0]
-  if (!first) throw new Error(`${where}: board: { kind: issues } necesita algún repo en \`repos\``)
-  if (missing) {
-    throw new Error(
-      `${where}: board: { kind: issues } necesita githubOwner y githubRepo en cada repo (falta en "${missing.name}")`,
-    )
-  }
-  return {
-    board: { owner: first.githubOwner as string, number: 0 },
-    boardKind: 'issues',
-    issuesBoard: {
-      ...(board.statuses ? { statuses: board.statuses } : {}),
-      ...(board.statusPrefix ? { statusPrefix: board.statusPrefix } : {}),
-    },
-  }
 }
 
 const list = <T>(entries: T | T[] | undefined): T[] => [entries ?? []].flat() as T[]
