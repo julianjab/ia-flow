@@ -15,7 +15,7 @@ import type {
   TaskDetail,
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
-import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
+import { type BoardMeta, type BoardSpec, cardItem, inProject, projectUrl } from './BoardReader.js'
 import {
   type BoardCard,
   type Classification,
@@ -24,6 +24,8 @@ import {
   type TaskActivity,
 } from './classify.js'
 import type { InboxSettings } from './InboxSection.js'
+import type { TaskActionDefs } from './TaskActionDef.js'
+import { availableTaskActions, runFacts, type TaskFacts } from './TaskActionRunner.js'
 
 export interface InboxServiceOptions {
   projects: BoardSpec[]
@@ -38,6 +40,9 @@ export interface InboxServiceOptions {
   waitingKeys: () => string[]
   explain: ExplainPort
   settings: InboxSettings
+  /** Las `taskActions` de cada proyecto (`project.yaml`): las que declara mandan sobre las que
+   *  trae `classify`. Sin esto, sólo las del runner. */
+  taskActions?: (projectId: string) => TaskActionDefs
   now?: () => Date
 }
 
@@ -172,8 +177,33 @@ export class InboxService {
     return new Set(refs.filter((ref): ref is string => ref !== undefined))
   }
 
+  /** Los hechos de una tarea que miran las guardas de sus `taskActions`. */
+  private factsOf(card: BoardCard, activity: TaskActivity): TaskFacts {
+    return { item: cardItem(card), run: runFacts(activity.lastClosed) }
+  }
+
+  /** Lo que se ofrece: las acciones que declaró el proyecto mandan —su `available` decide— y las
+   *  del runner (`classify`) siguen para las que no declaró. */
+  private offered(card: BoardCard, activity: TaskActivity, found: Classification) {
+    const defs = this.options.taskActions?.(card.projectId) ?? {}
+    const declared = availableTaskActions(defs, this.factsOf(card, activity))
+    return {
+      actions: [...found.actions.filter((id) => !(id in defs)), ...declared],
+      defs: declared.map((id) => {
+        const def = defs[id] as NonNullable<(typeof defs)[string]>
+        return {
+          id,
+          label: def.label,
+          ...(def.input?.comment ? { comment: def.input.comment } : {}),
+          ...(def.confirm ? { confirm: def.confirm } : {}),
+        }
+      }),
+    }
+  }
+
   private toItem(card: BoardCard, activity: TaskActivity, found: Classification): InboxItem {
     const execution = activity.live ?? activity.lastClosed
+    const offered = this.offered(card, activity, found)
     return {
       ref: card.ref,
       project_id: card.projectId,
@@ -190,7 +220,8 @@ export class InboxService {
       ...(execution ? { execution } : {}),
       ...(card.blockedBy.length > 0 ? { blocked_by: card.blockedBy } : {}),
       ...(agentSaid(found, activity) ? { agent_said: agentSaid(found, activity) } : {}),
-      actions: found.actions,
+      actions: offered.actions,
+      ...(offered.defs.length > 0 ? { action_defs: offered.defs } : {}),
     }
   }
 
@@ -224,6 +255,13 @@ export class InboxService {
       projects: await this.projects(projectId),
       items: items.sort(inboxOrder),
     }
+  }
+
+  /** Lo que miran las guardas y los pasos de una acción sobre esta tarea. */
+  async taskFacts(ref: string): Promise<TaskFacts | undefined> {
+    const card = await this.card(ref)
+    if (!card) return undefined
+    return this.factsOf(card, this.activityOf(ref, this.liveByTask(), this.waitingTasks()))
   }
 
   /** La tarea, clasificada aunque no esté en la bandeja (`idle`). */

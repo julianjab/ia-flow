@@ -138,16 +138,19 @@ function tools(desk: AssistantDesk): Action[] {
     ),
     new AssistantTool(
       'assistant_propose_action',
-      `Propone una acción sobre una tarea. NO la ejecuta: la persona la confirma con un botón y queda firmada con su usuario de GitHub. Sólo las que la tarea tiene en "actions". Acciones: ${Object.entries(
+      `Propone una acción sobre una tarea. NO la ejecuta: la persona la confirma con un botón y queda firmada con su usuario de GitHub. Sólo las que la tarea tiene en "actions" (las del proyecto traen su nombre en "action_defs"). Acciones del runner: ${Object.entries(
         ACTION_LABELS,
       )
         .map(([id, label]) => `${id} (${label})`)
         .join(', ')}.`,
       z.strictObject({
         ref,
-        action: z.enum(Object.keys(ACTION_LABELS) as [string, ...string[]]),
+        action: z.string().min(1),
         reason: z.string().describe('Una frase: por qué conviene'),
-        comment: z.string().optional().describe('El comentario, para answer_and_unblock'),
+        comment: z
+          .string()
+          .optional()
+          .describe('El comentario, para las acciones que lo piden (answer_and_unblock)'),
       }),
       desk,
       (session, input) => session.propose(input),

@@ -39,8 +39,9 @@ export const InboxKindSchema = z.enum([
 ])
 export type InboxKind = z.infer<typeof InboxKindSchema>
 
-/** Lo que se puede hacer sobre una tarea desde la bandeja (y proponer el asistente). */
-export const TaskActionSchema = z.enum([
+/** Las acciones que trae el runner. Un proyecto declara las suyas en `taskActions` (`project.yaml`)
+ *  con otros ids: por eso lo que viaja por el wire es un string. */
+export const BuiltinTaskActionSchema = z.enum([
   'merge',
   'approve_prd',
   'back_to_refine',
@@ -51,7 +52,22 @@ export const TaskActionSchema = z.enum([
   /** Vuelve a correr el reviewer, como si la card acabara de llegar a Review. */
   'rerun_review',
 ])
+export type BuiltinTaskAction = z.infer<typeof BuiltinTaskActionSchema>
+
+/** El id de una acción de la bandeja: una de las del runner o una declarada por el proyecto. */
+export const TaskActionSchema = z.string().min(1)
 export type TaskAction = z.infer<typeof TaskActionSchema>
+
+/** Una acción declarada por el proyecto (`taskActions`) tal como la ofrece a una tarea. */
+export const TaskActionDefSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  /** Pide un comentario a la persona. */
+  comment: z.enum(['required', 'optional']).optional(),
+  /** La pregunta de confirmación; sin ella, la web usa una genérica. */
+  confirm: z.string().optional(),
+})
+export type TaskActionDef = z.infer<typeof TaskActionDefSchema>
 
 export const ExecutionUsageSchema = z.object({
   input_tokens: z.number(),
@@ -105,6 +121,8 @@ export const InboxItemSchema = z.object({
   /** Lo último que dijo el agente (su reporte o el motivo de su `fail_turn`). */
   agent_said: z.string().optional(),
   actions: z.array(TaskActionSchema),
+  /** Cómo se llaman y qué piden las que declaró el proyecto (las otras las conoce el cliente). */
+  action_defs: z.array(TaskActionDefSchema).optional(),
 })
 export type InboxItem = z.infer<typeof InboxItemSchema>
 

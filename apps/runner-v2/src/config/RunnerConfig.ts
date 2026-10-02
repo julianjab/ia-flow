@@ -45,6 +45,7 @@ import {
   WorkingMarkerSchema,
 } from '../engine/workingMarker.js'
 import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
+import { type TaskActionDefs, TaskActionsSchema } from '../inbox/TaskActionDef.js'
 import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
 import { BoardSchema, type ProjectBoard, readBoard } from './boardConfig.js'
 import { defaultDatabasePath, runnerHome } from './runnerHome.js'
@@ -120,6 +121,9 @@ export const ProjectFileSchema = z.strictObject({
   ).optional(),
   /** Cuántas corridas de sus tasks a la vez (debajo de `engine.executions.maxConcurrent`). */
   maxConcurrent: z.number().int().positive().optional(),
+  /** Lo que una persona puede pedirle a una tarea de este proyecto (ver `TaskActionDef`). Sin
+   *  esto, la bandeja ofrece sólo las acciones que trae el runner. */
+  taskActions: TaskActionsSchema.optional(),
   /** La marca "en curso" de una task en el board mientras su ejecución corre (el `Working = Yes`
    *  de ia-flow). Ausente: `{ field: Working, on: Yes }` (apagar = vaciar); `null`: sin marca. */
   workingMarker: WorkingMarkerSchema.nullable().optional(),
@@ -261,6 +265,8 @@ export interface ProjectConfig extends ProjectBoard {
   workingMarker: WorkingMarker | null
   /** Ver `maxConcurrent` en `project.yaml`. */
   maxConcurrent?: number
+  /** Ver `taskActions` en `project.yaml`. */
+  taskActions: TaskActionDefs
   /** Ver `slackReview*` en `project.yaml`. */
   slackReview: SlackReviewConfig
   repos: RepoDef[]
@@ -401,6 +407,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     workingMarker:
       project.workingMarker === undefined ? DEFAULT_WORKING_MARKER : project.workingMarker,
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
+    taskActions: project.taskActions ?? {},
     slackReview: {
       ...(project.slackReviewChannel ? { slackReviewChannel: project.slackReviewChannel } : {}),
       ...(project.slackReviewers ? { slackReviewers: project.slackReviewers } : {}),

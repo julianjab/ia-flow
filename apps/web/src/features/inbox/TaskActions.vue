@@ -23,7 +23,16 @@ const needLogin = ref(false);
 
 const state = computed(() => store.actions[props.item.ref]);
 const busy = computed(() => state.value?.pending === true);
-const needsComment = computed(() => props.item.actions.includes('answer_and_unblock'));
+
+// Las que declaró el proyecto (`taskActions`) traen su etiqueta, si piden un comentario y su
+// confirmación; las del runner las conoce esta página.
+const defOf = (action: TaskAction) => props.item.action_defs?.find((def) => def.id === action);
+const label = (action: TaskAction) => defOf(action)?.label ?? ACTION_LABEL[action] ?? action;
+const takesComment = (action: TaskAction) =>
+  defOf(action)?.comment !== undefined || (!defOf(action) && action === 'answer_and_unblock');
+const needsComment = computed(() => props.item.actions.some(takesComment));
+const askText = (action: TaskAction) =>
+  defOf(action)?.confirm ?? confirmText(action, props.item.ref);
 
 const ordered = computed(() => {
   const primary = primaryAction(props.item.kind);
@@ -37,7 +46,8 @@ function variant(action: TaskAction): string {
 }
 
 function blocked(action: TaskAction): boolean {
-  return busy.value || (action === 'answer_and_unblock' && !comment.value.trim());
+  const optional = defOf(action)?.comment === 'optional';
+  return busy.value || (takesComment(action) && !optional && !comment.value.trim());
 }
 
 function ask(action: TaskAction) {
@@ -61,9 +71,9 @@ async function confirm() {
     needLogin.value = true;
     return;
   }
-  const text = action === 'answer_and_unblock' ? comment.value.trim() : undefined;
+  const text = takesComment(action) ? comment.value.trim() || undefined : undefined;
   const result = await store.runAction(props.item.ref, action, token, text);
-  if (result?.ok && action === 'answer_and_unblock') comment.value = '';
+  if (result?.ok && takesComment(action)) comment.value = '';
 }
 </script>
 
@@ -92,12 +102,12 @@ async function confirm() {
         :data-action="action"
         @click="ask(action)"
       >
-        {{ ACTION_LABEL[action] }}
+        {{ label(action) }}
       </button>
     </div>
 
-    <div v-if="pending" class="ta__confirm" role="alertdialog" :aria-label="confirmText(pending, item.ref)">
-      <p class="ta__ask">{{ confirmText(pending, item.ref) }}</p>
+    <div v-if="pending" class="ta__confirm" role="alertdialog" :aria-label="askText(pending)">
+      <p class="ta__ask">{{ askText(pending) }}</p>
       <div class="ta__row">
         <button type="button" class="btn" @click="pending = null">Cancelar</button>
         <button type="button" class="btn btn--primary" data-test="confirm" @click="confirm">

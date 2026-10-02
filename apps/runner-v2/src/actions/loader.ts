@@ -27,6 +27,12 @@ export interface LoadedActions {
   catalogs: Pick<Catalogs, 'actions' | 'mappers'>
   /** Qué registró cada scope: `runner` y el id de cada proyecto. */
   registered: Record<string, string[]>
+  /**
+   * Una action del catálogo de un proyecto, armada con OTROS servicios: así corre con la identidad
+   * de una persona (`actingAs`) y no con la del runner. Para lo que no pasa por un agente ni una
+   * pipeline: las acciones de la bandeja. Tira si la action no existe o arma más de una.
+   */
+  instantiate(name: string, sourceId: string, services: RunnerServices): Action
 }
 
 function isDefinition(value: unknown): value is Definition {
@@ -80,23 +86,29 @@ export async function loadActions(
   const own = new Map<string, Scope>()
   for (const project of projects) own.set(project.id, await loadScope(project.actions))
 
+  const create = (
+    name: string,
+    request: ActionRequest,
+    withServices: RunnerServices,
+  ): Action | Action[] => {
+    const project = projects.find((candidate) => candidate.id === request.sourceId)
+    const found = (project && own.get(project.id)?.actions.get(name)) ?? global.actions.get(name)
+    if (!found) {
+      throw new Error(`la action "${name}" no está en ${request.sourceId} ni entre las globales`)
+    }
+    return found.definition.create({
+      sourceId: request.sourceId,
+      ...(request.agentId ? { agentId: request.agentId } : {}),
+      options: request.options,
+      ...(project ? { project } : {}),
+      projects: () => projects,
+      services: withServices,
+    })
+  }
   const provider =
     (name: string): ActionProvider =>
-    (request: ActionRequest): Action | Action[] => {
-      const project = projects.find((candidate) => candidate.id === request.sourceId)
-      const found = (project && own.get(project.id)?.actions.get(name)) ?? global.actions.get(name)
-      if (!found) {
-        throw new Error(`la action "${name}" no está en ${request.sourceId} ni entre las globales`)
-      }
-      return found.definition.create({
-        sourceId: request.sourceId,
-        ...(request.agentId ? { agentId: request.agentId } : {}),
-        options: request.options,
-        ...(project ? { project } : {}),
-        projects: () => projects,
-        services,
-      })
-    }
+    (request: ActionRequest): Action | Action[] =>
+      create(name, request, services)
 
   const names = new Set([
     ...global.actions.keys(),
@@ -115,6 +127,13 @@ export async function loadActions(
     catalogs: {
       actions: Object.fromEntries([...names].map((name) => [name, provider(name)])),
       mappers,
+    },
+    instantiate: (name, sourceId, withServices) => {
+      const made = create(name, { sourceId, options: {} }, withServices)
+      if (Array.isArray(made)) {
+        throw new Error(`"${name}" arma varias actions: no se puede pedir una sola`)
+      }
+      return made
     },
     registered: {
       [GLOBAL_SOURCE]: [...global.actions.keys(), ...global.mappers.keys()].sort(),

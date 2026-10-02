@@ -17,7 +17,7 @@ export const GROUP_HINT: Record<InboxGroup, string> = {
   idle: 'está en el board, no espera nada de nadie',
 }
 
-export const ACTION_LABEL: Record<TaskAction, string> = {
+export const ACTION_LABEL: Record<string, string> = {
   merge: 'Mergear PR',
   approve_prd: 'Aprobar y pasar a Build',
   back_to_refine: 'Devolver a Refine',
@@ -47,6 +47,8 @@ export function confirmText(action: TaskAction, ref: string): string {
       return `¿Detener la ejecución de ${ref}?`
     case 'rerun_review':
       return `¿Volver a correr el reviewer sobre el PR de ${ref}?`
+    default:
+      return `¿${ACTION_LABEL[action] ?? action} en ${ref}?`
   }
 }
 

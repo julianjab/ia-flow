@@ -16,6 +16,7 @@ import { SseHub } from '../http/sse.js'
 import { dispatchRaw } from '../intake/dispatch.js'
 import type { ActivityStore } from '../storage/activityStore.js'
 import { taskOfKey } from './ActivityPort.js'
+import { actingAs } from './actingAs.js'
 import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
@@ -30,6 +31,10 @@ export interface MountedInbox {
   board: Pick<Boards, 'invalidate'>
   close(): void
 }
+
+/** Las `taskActions` que declaró un proyecto; sin proyecto o sin declaraciones, ninguna. */
+const taskActionsOf = (cfg: RunnerConfig, projectId: string) =>
+  cfg.projects.find((project) => project.id === projectId)?.taskActions ?? {}
 
 /** Cuántos eventos de la task se miran para saber a qué etapa volver. */
 const RESUME_EVENTS = 50
@@ -66,6 +71,7 @@ export function mountInbox(
       }))
     },
     settings: cfg.inbox,
+    taskActions: (projectId) => taskActionsOf(cfg, projectId),
   })
 
   const hub = new SseHub<RunnerStreamEvent>()
@@ -82,6 +88,9 @@ export function mountInbox(
     inbox,
     boards,
     settings: cfg.inbox,
+    taskActions: (projectId) => taskActionsOf(cfg, projectId),
+    instantiate: (projectId, name, client) =>
+      mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
     redispatch: async (ref, by) => {
       const last = store.activity.lastDispatchedEvent(ref)
       if (!last) throw new Error(`${ref} no tiene un evento que volver a despachar`)

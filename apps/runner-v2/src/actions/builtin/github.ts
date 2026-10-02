@@ -16,6 +16,7 @@ import {
   ListSubIssuesBriefAction,
   MarkBlockedByAction,
   PostCommentAction,
+  PostUserCommentAction,
   PrChecksAction,
   ReactToCommentAction,
   ReplyPrReviewThreadAction,
@@ -65,6 +66,12 @@ export default [
   withClient(
     'post_notice',
     (ctx) => new PostCommentAction({ client: ctx.services.github, id: 'post_notice' }),
+  ),
+  // El comentario de una persona (la bandeja: responder y destrabar), a su nombre y sin la marca
+  // del engine: cuenta como un comentario humano.
+  withClient(
+    'post_user_comment',
+    (ctx) => new PostUserCommentAction({ client: ctx.services.github }),
   ),
   withClient('react_to_comment', (ctx) => new ReactToCommentAction(ctx.services.github)),
   withClient(
