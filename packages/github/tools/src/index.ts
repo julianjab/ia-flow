@@ -1,4 +1,5 @@
 export * from './actions/index.js'
+export * from './board/index.js'
 export { GithubTool } from './GithubTool.js'
 export { GithubToolRegistry } from './GithubToolRegistry.js'
 export * from './task/index.js'
