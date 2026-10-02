@@ -5,10 +5,15 @@
  * uno que se le ocurra.
  */
 import type { GithubClient } from '@ia-flow/github-api'
+import type { BoardAdder } from '../board/types.js'
 
 export interface GithubProjectContext {
   client: GithubClient
+  /** El dueño del board es el dueño por defecto de los repos del catálogo que no declaran otro.
+   *  En un board de issues es el del primer repo: uno de otro dueño tiene que declarar `githubOwner`. */
   board: { owner: string; number: number }
+  /** Cómo entra un issue al board; sin esto, el de un Project v2 (`board`). */
+  adder?: BoardAdder
   repos: Array<{ name: string; githubOwner?: string; githubRepo?: string }>
 }
 

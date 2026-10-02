@@ -6,27 +6,11 @@
  * El orden importa: lo que corre gana sobre lo que dice el board (una card en Review cuyo reviewer
  * todavía trabaja está "corriendo", no "para mergear").
  */
+import type { BoardCard } from '@ia-flow/github-tools'
 import type { ExecutionSummary, InboxGroup, InboxKind, TaskAction } from '@ia-flow/shared'
 import type { InboxSettings } from './InboxSection.js'
 
-/** Lo que la bandeja necesita de una card del board. */
-export interface BoardCard {
-  /** `owner/repo#n` */
-  ref: string
-  /** El id del item en el board (`PVTI_…`): con él se simula un cambio de Status. */
-  itemId?: string
-  projectId: string
-  title: string
-  url: string
-  status?: string
-  taskType?: string
-  labels: string[]
-  /** La última vez que la card cambió (ISO). */
-  updatedAt: string
-  /** Los issues abiertos que la bloquean (`owner/repo#n`). */
-  blockedBy: string[]
-  pr?: { number: number; url: string }
-}
+export type { BoardCard }
 
 /** Lo que el runner sabe de la task de una card. */
 export interface TaskActivity {

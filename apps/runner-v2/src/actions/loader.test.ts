@@ -7,6 +7,7 @@ import { GithubClient } from '@ia-flow/github-api'
 import { SlackClient } from '@ia-flow/slack-api'
 import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
+import { Boards } from '../board/Boards.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
 import { BUILTIN_ACTIONS } from './builtin/index.js'
@@ -48,6 +49,7 @@ const services: RunnerServices = {
   gitCredential: async () => undefined,
   slack: new SlackClient({ token: 'test' }),
   slackUsers: {},
+  boards: new Boards([]),
   assistant: new AssistantDesk(),
   log: () => {},
 }

@@ -168,7 +168,7 @@ describe('TaskActions', () => {
           actions: ['answer_and_unblock'],
         }),
       },
-      boards: new Map(),
+      boards: { writerFor: () => undefined },
       settings: InboxSection.parse({}),
       redispatch: async () => 'ok',
       rerunReview: async () => 'ok',

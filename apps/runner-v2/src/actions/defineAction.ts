@@ -20,6 +20,7 @@ import type { GithubClient } from '@ia-flow/github-api'
 import type { SlackClient, SlackUserDirectory } from '@ia-flow/slack-api'
 import type { WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { AssistantDesk } from '../assistant/AssistantDesk.js'
+import type { Boards } from '../board/Boards.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 
 export type { AssistantDesk } from '../assistant/AssistantDesk.js'
@@ -38,6 +39,8 @@ export { SlackReviewSchema } from '../config/RunnerConfig.js'
 export interface RunnerServices {
   /** GitHub con la identidad del runner. */
   github: GithubClient
+  /** El board de cada proyecto: donde se escribe la columna de una card y se agregan issues. */
+  boards: Boards
   /** Los clones y worktrees de las tasks. */
   workspace: WorkspaceManager
   /** El worktree de CADA corrida, a demanda (`workspaceTargetFor`): lo comparten las tools de

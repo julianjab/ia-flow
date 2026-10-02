@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { createEvent, InMemoryExecutionStore, scopeExecutionKey } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
+import { createBoards } from '../board/createBoards.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 import { DEFAULT_WORKING_MARKER, taskOfKey, trackWorking } from './workingMarker.js'
 
@@ -64,7 +65,8 @@ describe('workingMarker', () => {
     const store = new InMemoryExecutionStore()
     const { client, writes } = github()
     const lines: string[] = []
-    trackWorking(store, [project(DEFAULT_WORKING_MARKER)], client, (line) => lines.push(line))
+    const p1 = project(DEFAULT_WORKING_MARKER)
+    trackWorking(store, [p1], client, createBoards([p1], client), (line) => lines.push(line))
 
     const execution = await store.start({ key: KEY, pipelineId: 'build' })
     await execution.run(async () => undefined)
@@ -80,7 +82,8 @@ describe('workingMarker', () => {
   it('does nothing when the project turns the marker off (workingMarker: null)', async () => {
     const store = new InMemoryExecutionStore()
     const { client, writes } = github()
-    trackWorking(store, [project(null)], client, () => {})
+    const p1 = project(null)
+    trackWorking(store, [p1], client, createBoards([p1], client), () => {})
     const execution = await store.start({ key: KEY, pipelineId: 'build' })
     await execution.run(async () => undefined)
     await tick()
@@ -95,7 +98,8 @@ describe('workingMarker', () => {
         throw new Error('401')
       },
     } as unknown as GithubClient
-    trackWorking(store, [project(DEFAULT_WORKING_MARKER)], failing, (line) => lines.push(line))
+    const p1 = project(DEFAULT_WORKING_MARKER)
+    trackWorking(store, [p1], failing, createBoards([p1], failing), (line) => lines.push(line))
     const execution = await store.start({ key: KEY, pipelineId: 'build' })
     await execution.run(async () => undefined)
     await tick()

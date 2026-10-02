@@ -1,5 +1,7 @@
 import { Action } from '@ia-flow/agent-engine'
 import { z } from 'zod'
+import { ProjectsV2Adder } from '../board/ProjectsV2Adder.js'
+import type { BoardAdder } from '../board/types.js'
 import type { GithubProjectContext } from './repoCatalog.js'
 
 const Input = z.strictObject({
@@ -9,55 +11,20 @@ const Input = z.strictObject({
     .describe('Node id del issue (el `issueId` de create_github_issue)'),
 })
 
-// `repositoryOwner` resuelve una org o una cuenta personal (`ProjectV2Owner` las une).
-const PROJECT_ID = `query($owner: String!, $number: Int!) {
-  repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $number) { id } } }
-}`
-
-const ADD_ITEM = `mutation($projectId: ID!, $contentId: ID!) {
-  addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } }
-}`
-
 /** `add_to_project` de ia-flow: agrega un issue existente al board del proyecto. Queda sin
  *  Status — moverlo es decisión humana (ver el functional-refiner). */
 export class AddToProjectAction extends Action<typeof Input> {
   readonly description =
     'Agrega un issue existente (por su node id) al board del proyecto. Devuelve el itemId.'
   readonly input = Input
-  private projectId?: Promise<string>
+  private readonly adder: BoardAdder
 
-  constructor(private readonly project: GithubProjectContext) {
+  constructor(project: GithubProjectContext) {
     super({ id: 'add_to_project' })
+    this.adder = project.adder ?? new ProjectsV2Adder(project.client, project.board)
   }
 
   async execute(input: z.infer<typeof Input>) {
-    const data = await this.project.client.graphql<{
-      addProjectV2ItemById?: { item?: { id: string } }
-    }>(ADD_ITEM, {
-      projectId: await this.resolveProjectId(),
-      contentId: input.issue_node_id,
-    })
-    return JSON.stringify({ itemId: data.addProjectV2ItemById?.item?.id })
-  }
-
-  /** El node id del Project v2 — se pide una vez y se cachea (no cambia). */
-  private resolveProjectId(): Promise<string> {
-    this.projectId ??= this.project.client
-      .graphql<{ repositoryOwner?: { projectV2?: { id: string } } }>(PROJECT_ID, {
-        owner: this.project.board.owner,
-        number: this.project.board.number,
-      })
-      .then((data) => {
-        const id = data.repositoryOwner?.projectV2?.id
-        if (!id)
-          throw new Error(
-            `no se encontró el board ${this.project.board.owner}#${this.project.board.number}`,
-          )
-        return id
-      })
-    this.projectId.catch(() => {
-      this.projectId = undefined
-    })
-    return this.projectId
+    return JSON.stringify(await this.adder.addIssue(input.issue_node_id))
   }
 }

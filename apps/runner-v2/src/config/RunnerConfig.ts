@@ -46,6 +46,7 @@ import {
 } from '../engine/workingMarker.js'
 import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
 import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
+import { BoardSchema, type ProjectBoard, readBoard } from './boardConfig.js'
 import { defaultDatabasePath, runnerHome } from './runnerHome.js'
 
 const McpEntrySchema = z.strictObject({
@@ -99,14 +100,8 @@ export const SlackReviewSchema = z.object({
 
 /** Un proyecto (su `project.yaml`, o inline en `runner.yaml`). */
 export const ProjectFileSchema = z.strictObject({
-  /** El GitHub Project v2 del proyecto: `https://github.com/orgs/<org>/projects/<n>`, o el de una
-   *  cuenta personal: `https://github.com/users/<login>/projects/<n>`. */
-  board: z
-    .string()
-    .regex(
-      /github\.com\/(?:orgs|users)\/[^/]+\/projects\/\d+/,
-      'un GitHub Project v2 (de org o de usuario)',
-    ),
+  /** El board del proyecto: un Project v2 de GitHub o los issues de sus repos (ver `boardConfig`). */
+  board: BoardSchema,
   /** Con esto, `task.branch` = `<branchPrefix><número>`. Sin esto, como ia-flow: la rama
    *  vinculada al issue, o la que propone la capacidad `branchName` (`feat/<slug>`). */
   branchPrefix: z.string().min(1).optional(),
@@ -255,12 +250,10 @@ export const RepoDefSchema = z.looseObject({
 export type RepoDef = z.infer<typeof RepoDefSchema> & { projectId: string }
 
 /** Un proyecto: lo que el runner sabe de él, sus actions y cómo leer su fuente. */
-export interface ProjectConfig {
+export interface ProjectConfig extends ProjectBoard {
   id: string
   /** Contra qué se resuelven sus rutas: la carpeta de su `project.yaml`. */
   dir: string
-  /** `ownerKind` es el segmento de la URL del board: `orgs` o `users`. */
-  board: { owner: string; number: number; ownerKind?: 'orgs' | 'users' }
   branchPrefix?: string
   /** Ver `when` en `project.yaml`: vacío, todas las cards del board. */
   when: ConditionRow[]
@@ -317,15 +310,6 @@ function parse<T>(path: string, schema: z.ZodType<T>): T {
   const parsed = schema.safeParse(readYaml(path))
   if (!parsed.success) throw new Error(`${path}: inválido\n${z.prettifyError(parsed.error)}`)
   return parsed.data
-}
-
-function parseBoard(url: string): ProjectConfig['board'] {
-  const match = url.match(/github\.com\/(orgs|users)\/([^/]+)\/projects\/(\d+)/) as RegExpMatchArray
-  return {
-    owner: match[2] as string,
-    number: Number(match[3]),
-    ownerKind: match[1] as 'orgs' | 'users',
-  }
 }
 
 const list = <T>(entries: T | T[] | undefined): T[] => [entries ?? []].flat() as T[]
@@ -406,10 +390,12 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     return project
   }
   const project = read()
+  const repos = readRepos(project, at.base, at.origin, id)
+  const board = readBoard(project.board, repos, at.origin)
   return {
     id,
     dir: at.base,
-    board: parseBoard(project.board),
+    ...board,
     ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
     when: project.when ?? [],
     workingMarker:
@@ -420,7 +406,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
       ...(project.slackReviewers ? { slackReviewers: project.slackReviewers } : {}),
       ...(project.slackReviewMessage ? { slackReviewMessage: project.slackReviewMessage } : {}),
     },
-    repos: readRepos(project, at.base, at.origin, id),
+    repos,
     actions: actionFiles(project.actions, at.base, at.origin),
     source: { spec: () => sourceSpec(read(), at.base, at.origin), watch: [at.file] },
   }

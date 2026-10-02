@@ -14,6 +14,7 @@ import {
 import type { GithubClient } from '@ia-flow/github-api'
 import { UpdateIssueAction, type UpdateIssueInput } from '@ia-flow/github-tools'
 import { z } from 'zod'
+import type { Boards } from '../board/Boards.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 
 /** El campo single-select de la marca y sus valores. Sin `off`, apagarla es vaciar el campo. */
@@ -59,6 +60,7 @@ export function trackWorking(
   executions: ExecutionStore,
   projects: ProjectConfig[],
   github: GithubClient,
+  boards: Pick<Boards, 'writerFor'>,
   log: (line: string) => void,
 ): () => void {
   const queues = new Map<string, Promise<void>>()
@@ -73,9 +75,10 @@ export function trackWorking(
       : marker.off
         ? { fields: { [marker.field]: marker.off } }
         : { clearFields: [marker.field] }
+    const writer = boards.writerFor(project.id, github)
     const action = new UpdateIssueAction({
       client: github,
-      project: project.board,
+      ...(writer ? { board: writer } : {}),
       issue: () => task,
       id: 'working_marker',
     })

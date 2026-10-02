@@ -97,6 +97,49 @@ sirve como módulos virtuales (`src/bundle/`), así que la carpeta de la definic
 cualquier lado (`--config` o `RUNNER_CONFIG`): en el bundle, en los tests (el tmp del sistema)
 y en un deploy.
 
+### El board (`board:` de `project.yaml`)
+
+El board de un proyecto es dónde vive el estado de sus tasks —la columna, el tipo, la marca "en
+curso"— y cómo se entera el runner de que cambió. Lo elige `project.yaml`; el engine no sabe que
+existe (ve `item.status`, `item.labels`… ya armados por el intake), y la bandeja, el intake y las
+acciones sólo hablan con la interfaz `Board` (`src/board/`).
+
+| `board:` | Qué es | El estado vive en |
+| --- | --- | --- |
+| `https://github.com/orgs/<org>/projects/<n>` | Project v2 de una organización | el campo `Status` de la card; GitHub avisa cada cambio (`projects_v2_item` → `issue.status_changed`) |
+| `https://github.com/users/<login>/projects/<n>` | Project v2 de una cuenta personal | igual, pero GitHub **no** emite `projects_v2_item` para un Project personal: un cambio de columna no llega, y el token de una GitHub App no ve el Project (hace falta un token de usuario: `gh-cli`) |
+| `{ kind: issues }` | los issues de los repos de `repos/` | labels del propio issue (`status:build`) |
+
+```yaml
+# un board de issues: no hay Project, sirve el token de una GitHub App
+board:
+  kind: issues
+  statuses: [Todo, Refine, Build, Tests, Done]   # obligatorio: las columnas, en orden de avance
+  statusPrefix: "status:"                        # opcional (es el default)
+repos: ./repos                                   # cada repo con githubOwner y githubRepo
+```
+
+Con `kind: issues`:
+- **Un issue está en el board por existir**: no hay "agregarlo" (`add_to_project` no hace nada) y el
+  intake ya no descarta tasks por "no está en el board".
+- **Mover una columna es cambiar un label.** Se agrega el nuevo antes de sacar el viejo, así la card
+  nunca queda sin columna; con dos a la vez (un cambio a medias) vale la más avanzada de `statuses`.
+  Si sacar el viejo falla se reintenta una vez y, si sigue fallando, se deshace. Por eso `statuses` es
+  obligatorio: un label guarda `In Progress` como `status:in-progress`, y sólo la lista sabe cómo se
+  escribe y en qué orden va.
+  Los demás campos siguen el mismo esquema: `Task Type` = `task-type:<valor>`, la marca `Working` =
+  `working:yes`.
+- **Un label `status:*` puesto llega como `issue.status_changed`** (con la columna en `to`), igual
+  que en un Project v2: las pipelines por columna sirven para los dos. `from` es la columna anterior
+  cuando todavía está en el issue (siempre que mueve el runner; si una persona la sacó antes de poner
+  la nueva, no se dice). Sacarlo no dispara nada (el
+  nuevo llega por su propio webhook). Cualquier otro label sigue siendo `issue.labeled`. Hace falta
+  el webhook `issues` en la App o el repo.
+- **`item.labels` incluye los labels de campo** (`status:build`, `working:yes`): un `when` sobre
+  `item.labels` los ve.
+- La web identifica el board como `{ owner, number: 0 }` y su link es la página de issues del
+  repo.
+
 ### Las pipelines (`pipelines/`)
 
 Una por momento del flujo, no por variante: `refine`, `build-arrival`, `build-reentry`, `review`,

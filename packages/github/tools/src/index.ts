@@ -1,6 +1,8 @@
 export * from './actions/index.js'
+export * from './board/index.js'
 export { GithubTool } from './GithubTool.js'
 export { GithubToolRegistry } from './GithubToolRegistry.js'
+export { issuePath } from './shared.js'
 export * from './task/index.js'
 export type { AddLabelsInput } from './tools/AddLabelsTool.js'
 export { AddLabelsTool } from './tools/AddLabelsTool.js'
