@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { detail, execution, inbox, item, trace } from './fixtures'
 
 const getInbox = vi.fn()
+const getTasks = vi.fn()
 const getTaskDetail = vi.fn()
 const postTaskAction = vi.fn()
 
 vi.mock('@/features/inbox/api', () => ({
   getInbox: (...a: unknown[]) => getInbox(...a),
+  getTasks: (...a: unknown[]) => getTasks(...a),
   getTaskDetail: (...a: unknown[]) => getTaskDetail(...a),
   postTaskAction: (...a: unknown[]) => postTaskAction(...a),
 }))
@@ -57,6 +59,8 @@ describe('useInboxStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
+    // Por defecto, un runner viejo: sin /api/tasks, la bandeja viene clasificada.
+    getTasks.mockReset().mockResolvedValue(null)
     getInbox.mockReset().mockResolvedValue(inbox([need, fail, run], projects))
     getTaskDetail.mockReset().mockImplementation(async (ref: string) => detail(item({ ref })))
     postTaskAction.mockReset()
@@ -235,7 +239,72 @@ describe('useInboxStore', () => {
       await vi.advanceTimersByTimeAsync(0)
       getInbox.mockClear()
       poll()
+      // El runner viejo se descubre con /api/tasks (404) y recién ahí se pide /api/inbox.
+      await vi.advanceTimersByTimeAsync(0)
       expect(getInbox).toHaveBeenCalledTimes(1)
+    })
+  })
+  describe('con un runner que publica los hechos', () => {
+    const facts = (ref: string, status: string, labels: string[] = []) => ({
+      ref,
+      project_id: 'p',
+      title: ref,
+      url: 'u',
+      updated_at: '2026-09-29T08:00:00Z',
+      item: { status, type: 'technical', repos: ['r'], labels, blocked: false },
+      run: {},
+      live: {},
+      queue: { waiting: false },
+      task: { idle_hours: 1, waiting_hours: 1, unlocks: 0, blocked_by: 0 },
+      blocked_by_refs: [],
+      actions: ['merge'],
+      action_defs: [],
+    })
+    const published = {
+      generated_at: 'x',
+      projects: [],
+      tasks: [facts('acme/api#1', 'Review', ['reviewed']), facts('acme/api#2', 'Backlog')],
+      capacity: { running: 0, waiting: 0, paused: 0, max_concurrent: 2, free: 2 },
+    }
+
+    beforeEach(() => localStorage.clear())
+
+    it('la bandeja sale de aplicar el dashboard a los hechos, no de /api/inbox', async () => {
+      getTasks.mockResolvedValue(published)
+      const store = useInboxStore()
+      await store.refresh()
+      expect(getInbox).not.toHaveBeenCalled()
+      expect(store.inbox?.items.map((i) => [i.ref, i.kind, i.actions])).toEqual([
+        ['acme/api#1', 'merge', ['merge']],
+      ])
+      expect(store.dashboard?.source).toBe('default')
+      expect(store.view?.capacity).toMatchObject({ free: 2 })
+    })
+
+    it('guardar un dashboard lo aplica ya, sin volver a pedir nada al runner', async () => {
+      getTasks.mockResolvedValue(published)
+      const store = useInboxStore()
+      await store.refresh()
+      const text = store.dashboard?.text ?? ''
+      const edited = text.replace(
+        'kind: merge\n    weight: 100',
+        'kind: merge\n    verb: Mergear ya\n    weight: 100',
+      )
+      expect(store.saveDashboard(edited)).toBeNull()
+      expect(getTasks).toHaveBeenCalledTimes(1)
+      expect(store.dashboard?.source).toBe('override')
+      expect(store.inbox?.items[0]?.verb).toBe('Mergear ya')
+      store.resetDashboard()
+      expect(store.dashboard?.source).toBe('default')
+      expect(store.inbox?.items[0]?.verb).toBeUndefined()
+    })
+
+    it('un dashboard inválido no se guarda y dice por qué', async () => {
+      getTasks.mockResolvedValue(published)
+      const store = useInboxStore()
+      await store.refresh()
+      expect(store.saveDashboard('decisions: []')).toContain('no cumple el formato')
+      expect(store.dashboard?.source).toBe('default')
     })
   })
 })

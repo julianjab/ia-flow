@@ -9,6 +9,7 @@ const getInbox = vi.fn()
 vi.mock('@/features/inbox/api', () => ({
   postTaskAction: (...a: unknown[]) => postTaskAction(...a),
   getInbox: (...a: unknown[]) => getInbox(...a),
+  getTasks: vi.fn().mockResolvedValue(null),
   getTaskDetail: vi.fn(),
 }))
 

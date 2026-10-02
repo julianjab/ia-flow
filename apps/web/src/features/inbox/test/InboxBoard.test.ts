@@ -8,6 +8,8 @@ const getTaskDetail = vi.fn()
 
 vi.mock('@/features/inbox/api', () => ({
   getInbox: (...a: unknown[]) => getInbox(...a),
+  // Un runner viejo: sin /api/tasks, la bandeja viene clasificada.
+  getTasks: () => Promise.resolve(null),
   getTaskDetail: (...a: unknown[]) => getTaskDetail(...a),
   postTaskAction: vi.fn(),
   explainTask: vi.fn(),
