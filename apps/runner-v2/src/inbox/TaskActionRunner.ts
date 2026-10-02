@@ -11,32 +11,11 @@ import {
   EventBus,
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
-import type { ExecutionSummary } from '@ia-flow/shared'
-import type { cardItem } from './BoardReader.js'
+import type { TaskFacts } from '@ia-flow/shared'
 import type { TaskActionDef, TaskActionDefs } from './TaskActionDef.js'
 import { TaskActionError } from './TaskActionError.js'
 
-/** Lo que una guarda (`available`, `when` de un paso) y un `with` pueden leer de la tarea. */
-export interface TaskFacts {
-  /** La card, como la ve el `when` de un proyecto (`item.status`, `item.labels`…). */
-  item: ReturnType<typeof cardItem>
-  /** Su última ejecución cerrada: `exit`, `status`, `failure_by`, `agent`. */
-  run: Record<string, string>
-  /** Su PR abierto, si tiene (lo leen `check_pr_mergeable` y `merge_pr` de `pr.number`). */
-  pr?: { number: number }
-}
-
-/** `run.*` a partir de la última ejecución cerrada de la task; sin ella, vacío. */
-export function runFacts(lastClosed: ExecutionSummary | undefined): Record<string, string> {
-  if (!lastClosed) return {}
-  const entries: Array<[string, string | undefined]> = [
-    ['exit', lastClosed.exit],
-    ['status', lastClosed.status],
-    ['failure_by', lastClosed.failure?.by],
-    ['agent', lastClosed.agent_id],
-  ]
-  return Object.fromEntries(entries.filter((entry): entry is [string, string] => !!entry[1]))
-}
+export type { TaskFacts }
 
 const holds = (rows: TaskActionDef['available'] | undefined, facts: unknown) =>
   Condition.evaluateAll(
@@ -107,10 +86,11 @@ export async function runTaskAction(args: RunTaskActionArgs): Promise<string[]> 
   }
   const payload = {
     ...args.issue,
-    input: args.input,
-    task: { resume_stage: args.resumeStage },
-    actor: args.actor,
     ...facts,
+    input: args.input,
+    // `task.resume_stage` se suma a lo que ya dicen los hechos de la tarea (`task.idle_hours`…).
+    task: { ...facts.task, resume_stage: args.resumeStage },
+    actor: args.actor,
   }
   const ctx: PipelineExecutionContext = {
     event: createEvent(`human.${id}`, payload),

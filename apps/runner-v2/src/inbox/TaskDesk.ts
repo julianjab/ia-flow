@@ -1,7 +1,7 @@
 /**
  * Lo que el runner sabe hacerle a una task fuera de GitHub: volver a despachar su último evento,
- * volver a correr su review. Lo conecta `mountInbox` (tiene el engine y la base de actividad); las
- * actions `redispatch_task` y `rerun_review` lo piden por `services.tasks`. Mismo patrón que
+ * volver a correr su review, pedirle al agente que pare. Lo conecta `mountInbox` (tiene el engine y la base de actividad); las
+ * actions `redispatch_task`, `rerun_review` y `stop_agent` lo piden por `services.tasks`. Mismo patrón que
  * `AssistantDesk`: los servicios se arman antes que el engine, y esto se enchufa después.
  */
 export interface TaskDeskPort {
@@ -9,6 +9,8 @@ export interface TaskDeskPort {
   redispatch(ref: string, by: string): Promise<string>
   /** Vuelve a correr el pipeline de Review, como si la card acabara de llegar ahí. */
   rerunReview(ref: string, by: string): Promise<string>
+  /** Le pide al agente que corre para la task que termine su turno. */
+  stop(ref: string, by: string): string
 }
 
 export class TaskDesk {
@@ -29,5 +31,9 @@ export class TaskDesk {
 
   rerunReview(ref: string, by: string): Promise<string> {
     return this.connected().rerunReview(ref, by)
+  }
+
+  stop(ref: string, by: string): string {
+    return this.connected().stop(ref, by)
   }
 }

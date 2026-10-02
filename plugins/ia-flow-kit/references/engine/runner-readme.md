@@ -381,10 +381,20 @@ taskActions:
   `update_issue`, las del proyecto…). Validalo con `bun run runner`.
 - **Acciones del runner para los pasos**: `post_user_comment` (comentar a nombre de la persona),
   `check_pr_mergeable` y `merge_pr` (el PR de la tarea, de `pr.number`; un PR que no se puede
-  mergear rechaza con 409 y no toca nada), `redispatch_task` y `rerun_review` (le piden al runner
-  volver a despachar el último evento o volver a correr el review; sólo con `--serve`).
-- **Sólo se ofrecen cuando la tarea necesita a una persona** (los grupos `need` y `fail` de la
-  bandeja): una tarea que corre o espera turno no ofrece acciones declaradas.
+  mergear rechaza con 409 y no toca nada), `redispatch_task`, `rerun_review` y `stop_agent` (le piden al
+  runner volver a despachar el último evento, volver a correr el review o pedirle al agente que
+  pare; sólo con `--serve`).
+- **Qué miran `available`, `when` y `with`** —los mismos hechos que publica `GET /api/tasks`—:
+  `item.*` (`status`, `labels`, `type`, `repos`, `blocked`), `run.*` (la última corrida cerrada:
+  `exit`, `status`, `failure_by`, `agent`, `summary`), `live.*` (la corrida viva: `status`,
+  `agent`, `pause_id`, `ci`), `queue.waiting`, `task.*` (`idle_hours`, `waiting_hours`, `unlocks`,
+  `blocked_by`) y `pr.number`. **Cada guarda dice por sí sola cuándo aplica**, también que no haya
+  una corrida viva (`live.status notExists`): el runner no filtra después.
+- **`GET /api/tasks`** publica, por cada card abierta del board —también Backlog y Todo—, esos
+  hechos sin clasificar, qué acciones aplican ahora y la capacidad del runner (`running`,
+  `waiting`, `paused`, `max_concurrent`, `free`). Qué es una decisión, en qué orden va y cómo se
+  llama lo decide el dashboard de quien mira (la web); un runner sin web publica lo mismo.
+  `GET /api/inbox` (ya clasificado) queda para el asistente y para clientes viejos.
 - La web y el asistente leen el nombre, el campo de comentario y la confirmación de lo que el
   runner ofrece (`action_defs` de cada tarea); no los repiten.
 - `add_to_project` y `mark_blocked_by` siguen escribiendo con la identidad del runner: sólo lo que

@@ -12,10 +12,14 @@ import type {
   Inbox,
   InboxItem,
   InboxProject,
+  RunnerCapacity,
   TaskDetail,
+  TaskFact,
+  TaskFacts,
+  Tasks,
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
-import { type BoardMeta, type BoardSpec, cardItem, inProject, projectUrl } from './BoardReader.js'
+import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
 import {
   type BoardCard,
   type Classification,
@@ -25,7 +29,8 @@ import {
 } from './classify.js'
 import type { InboxSettings } from './InboxSection.js'
 import type { TaskActionDefs } from './TaskActionDef.js'
-import { availableTaskActions, runFacts, type TaskFacts } from './TaskActionRunner.js'
+import { availableTaskActions } from './TaskActionRunner.js'
+import { buildTaskFacts, unlocksOf } from './taskFacts.js'
 
 export interface InboxServiceOptions {
   projects: BoardSpec[]
@@ -43,6 +48,8 @@ export interface InboxServiceOptions {
   /** Las `taskActions` de cada proyecto (`project.yaml`): las que declara mandan sobre las que
    *  trae `classify`. Sin esto, sólo las del runner. */
   taskActions?: (projectId: string) => TaskActionDefs
+  /** Cuánto tiene el runner para correr (`GET /api/tasks`). Sin esto, todo en cero. */
+  capacity?: () => RunnerCapacity
   now?: () => Date
 }
 
@@ -177,40 +184,49 @@ export class InboxService {
     return new Set(refs.filter((ref): ref is string => ref !== undefined))
   }
 
-  /** Los hechos de una tarea que miran las guardas de sus `taskActions`. */
-  private factsOf(card: BoardCard, activity: TaskActivity): TaskFacts {
-    return {
-      item: cardItem(card),
-      run: runFacts(activity.lastClosed),
-      ...(card.pr ? { pr: { number: card.pr.number } } : {}),
-    }
+  /** Los hechos de una tarea: la raíz de las guardas de sus `taskActions` y de un dashboard. */
+  private factsOf(card: BoardCard, activity: TaskActivity, unlocks: number): TaskFacts {
+    return buildTaskFacts(card, activity, { unlocks, now: this.now() })
+  }
+
+  /** Cómo se ofrecen al cliente las acciones declaradas con estos ids. */
+  private defsOf(projectId: string, ids: string[]) {
+    const defs = this.options.taskActions?.(projectId) ?? {}
+    return ids.map((id) => {
+      const def = defs[id] as NonNullable<(typeof defs)[string]>
+      return {
+        id,
+        label: def.label,
+        ...(def.input?.comment ? { comment: def.input.comment } : {}),
+        ...(def.confirm ? { confirm: def.confirm } : {}),
+      }
+    })
   }
 
   /** Lo que se ofrece: las acciones que declaró el proyecto mandan —su `available` decide— y las
    *  del runner (`classify`) siguen para las que no declaró. */
-  private offered(card: BoardCard, activity: TaskActivity, found: Classification) {
+  private offered(card: BoardCard, activity: TaskActivity, found: Classification, unlocks: number) {
     const defs = this.options.taskActions?.(card.projectId) ?? {}
     // Sólo cuando la tarea necesita a una persona: lo que corre, lo que espera turno y lo que no
     // pide nada no ofrece acciones declaradas (un `retry` con el agente trabajando no tiene sentido).
     const needsPerson = found.group === 'need' || found.group === 'fail'
-    const declared = needsPerson ? availableTaskActions(defs, this.factsOf(card, activity)) : []
+    const declared = needsPerson
+      ? availableTaskActions(defs, this.factsOf(card, activity, unlocks))
+      : []
     return {
       actions: [...found.actions.filter((id) => !(id in defs)), ...declared],
-      defs: declared.map((id) => {
-        const def = defs[id] as NonNullable<(typeof defs)[string]>
-        return {
-          id,
-          label: def.label,
-          ...(def.input?.comment ? { comment: def.input.comment } : {}),
-          ...(def.confirm ? { confirm: def.confirm } : {}),
-        }
-      }),
+      defs: this.defsOf(card.projectId, declared),
     }
   }
 
-  private toItem(card: BoardCard, activity: TaskActivity, found: Classification): InboxItem {
+  private toItem(
+    card: BoardCard,
+    activity: TaskActivity,
+    found: Classification,
+    unlocks: number,
+  ): InboxItem {
     const execution = activity.live ?? activity.lastClosed
-    const offered = this.offered(card, activity, found)
+    const offered = this.offered(card, activity, found, unlocks)
     return {
       ref: card.ref,
       project_id: card.projectId,
@@ -243,19 +259,16 @@ export class InboxService {
     const cards = await this.cards(projectId)
     const live = this.liveByTask()
     const waiting = this.waitingTasks()
+    const unlocks = unlocksOf(cards)
     const items: InboxItem[] = []
     for (const card of cards) {
       const activity = this.activityOf(card.ref, live, waiting)
       const found = classify(card, activity, this.classifyOptions())
-      if (found) items.push(this.toItem(card, activity, found))
-    }
-    const unlocks = new Map<string, number>()
-    for (const card of cards) {
-      for (const blocker of card.blockedBy) unlocks.set(blocker, (unlocks.get(blocker) ?? 0) + 1)
-    }
-    for (const item of items) {
-      const count = unlocks.get(item.ref)
+      if (!found) continue
+      const item = this.toItem(card, activity, found, unlocks.get(card.ref) ?? 0)
+      const count = unlocks.get(card.ref)
       if (count) item.unlocks = count
+      items.push(item)
     }
     return {
       generated_at: this.now().toISOString(),
@@ -264,16 +277,56 @@ export class InboxService {
     }
   }
 
+  /**
+   * Los HECHOS de todas las cards abiertas, sin clasificar (`GET /api/tasks`): qué es una decisión,
+   * en qué orden va y cómo se llama lo decide el dashboard de quien mira. Cada tarea trae qué
+   * acciones del runner (`taskActions`) aplican ahora, sin más filtro que su `available`.
+   */
+  async tasks(projectId?: string): Promise<Tasks> {
+    const cards = await this.cards(projectId)
+    const live = this.liveByTask()
+    const waiting = this.waitingTasks()
+    const unlocks = unlocksOf(cards)
+    const tasks: TaskFact[] = cards.map((card) => {
+      const activity = this.activityOf(card.ref, live, waiting)
+      const facts = this.factsOf(card, activity, unlocks.get(card.ref) ?? 0)
+      const defs = this.options.taskActions?.(card.projectId) ?? {}
+      const ids = availableTaskActions(defs, facts)
+      return {
+        ...facts,
+        ref: card.ref,
+        project_id: card.projectId,
+        title: card.title,
+        url: card.url,
+        updated_at: card.updatedAt,
+        blocked_by_refs: card.blockedBy,
+        ...(activity.live ? { live_run: activity.live } : {}),
+        ...(activity.lastClosed ? { last_run: activity.lastClosed } : {}),
+        actions: ids,
+        action_defs: this.defsOf(card.projectId, ids),
+      }
+    })
+    return {
+      generated_at: this.now().toISOString(),
+      projects: await this.projects(projectId),
+      tasks,
+      capacity: this.options.capacity?.() ?? { running: 0, waiting: 0, paused: 0 },
+    }
+  }
+
   /** Lo que miran las guardas y los pasos de una acción sobre esta tarea. */
   async taskFacts(ref: string): Promise<TaskFacts | undefined> {
-    const card = await this.card(ref)
+    const cards = await this.cards()
+    const card = cards.find((candidate) => candidate.ref === ref)
     if (!card) return undefined
-    return this.factsOf(card, this.activityOf(ref, this.liveByTask(), this.waitingTasks()))
+    const activity = this.activityOf(ref, this.liveByTask(), this.waitingTasks())
+    return this.factsOf(card, activity, unlocksOf(cards).get(ref) ?? 0)
   }
 
   /** La tarea, clasificada aunque no esté en la bandeja (`idle`). */
   async item(ref: string): Promise<InboxItem | undefined> {
-    const card = await this.card(ref)
+    const cards = await this.cards()
+    const card = cards.find((candidate) => candidate.ref === ref)
     if (!card) return undefined
     const activity = this.activityOf(ref, this.liveByTask(), this.waitingTasks())
     const found = classify(card, activity, this.classifyOptions()) ?? {
@@ -283,7 +336,7 @@ export class InboxService {
       since: card.updatedAt,
       actions: [],
     }
-    return this.toItem(card, activity, found)
+    return this.toItem(card, activity, found, unlocksOf(cards).get(ref) ?? 0)
   }
 
   async detail(ref: string, executionId?: string): Promise<TaskDetail | undefined> {

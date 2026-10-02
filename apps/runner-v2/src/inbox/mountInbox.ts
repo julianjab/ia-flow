@@ -4,7 +4,7 @@
  * los webhooks. Composición: la lógica vive en cada pieza.
  */
 import { createEvent } from '@ia-flow/agent-engine'
-import type { RunnerStreamEvent } from '@ia-flow/shared'
+import type { RunnerCapacity, RunnerStreamEvent } from '@ia-flow/shared'
 import { Assistant } from '../assistant/Assistant.js'
 import type { Boards } from '../board/Boards.js'
 import type { MountedRunner } from '../boot.js'
@@ -35,6 +35,22 @@ export interface MountedInbox {
 /** Las `taskActions` que declaró un proyecto; sin proyecto o sin declaraciones, ninguna. */
 const taskActionsOf = (cfg: RunnerConfig, projectId: string) =>
   cfg.projects.find((project) => project.id === projectId)?.taskActions ?? {}
+
+/** Lo que tiene el runner para correr: sus corridas y los lugares que le quedan. */
+function capacityOf(
+  stats: { running: number; waiting: number; paused: number } | undefined,
+  maxConcurrent: number | undefined,
+): RunnerCapacity {
+  const { running, waiting, paused } = stats ?? { running: 0, waiting: 0, paused: 0 }
+  return {
+    running,
+    waiting,
+    paused,
+    ...(maxConcurrent !== undefined
+      ? { max_concurrent: maxConcurrent, free: Math.max(0, maxConcurrent - running) }
+      : {}),
+  }
+}
 
 /** Cuántos eventos de la task se miran para saber a qué etapa volver. */
 const RESUME_EVENTS = 50
@@ -72,6 +88,7 @@ export function mountInbox(
     },
     settings: cfg.inbox,
     taskActions: (projectId) => taskActionsOf(cfg, projectId),
+    capacity: () => capacityOf(mounted.executions?.stats, cfg.engine.executions?.maxConcurrent),
   })
 
   const hub = new SseHub<RunnerStreamEvent>()
@@ -114,19 +131,8 @@ export function mountInbox(
       })
       return `volví a correr ${status} para ${ref}`
     },
-  }
-  mounted.services.tasks.connect(taskDesk)
 
-  const actions = new TaskActions({
-    inbox,
-    boards,
-    settings: cfg.inbox,
-    taskActions: (projectId) => taskActionsOf(cfg, projectId),
-    instantiate: (projectId, name, client) =>
-      mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
-    redispatch: taskDesk.redispatch,
-    rerunReview: taskDesk.rerunReview,
-    stop: (ref, by) => {
+    stop: (ref: string, by: string) => {
       const running = store.activity.executions({
         taskRef: ref,
         statuses: ['running'],
@@ -140,6 +146,19 @@ export function mountInbox(
       if (!asked) throw new Error(`${ref} no tiene un agente corriendo al que pedirle que pare`)
       return 'le pedí al agente que termine su turno'
     },
+  }
+  mounted.services.tasks.connect(taskDesk)
+
+  const actions = new TaskActions({
+    inbox,
+    boards,
+    settings: cfg.inbox,
+    taskActions: (projectId) => taskActionsOf(cfg, projectId),
+    instantiate: (projectId, name, client) =>
+      mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
+    redispatch: taskDesk.redispatch,
+    rerunReview: taskDesk.rerunReview,
+    stop: taskDesk.stop,
     resumeStage: (ref) =>
       resumeStage(
         store.activity.eventsForTask(ref, RESUME_EVENTS),

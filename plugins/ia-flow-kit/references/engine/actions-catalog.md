@@ -41,6 +41,7 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `slack_post_message` | `packages/slack/tools/src/actions/SlackPostMessageAction.ts` |
 | `slack_read_thread` | `apps/runner-v2/src/actions/builtin/slack.ts` |
 | `slack_read_thread` | `packages/slack/tools/src/actions/SlackReadThreadAction.ts` |
+| `stop_agent` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
 | `update_issue` | `apps/runner-v2/src/actions/builtin/github.ts` |
 | `workspace_reset` | `apps/runner-v2/src/actions/builtin/workspace.ts` |
 | `workspace_reset` | `packages/local/workspace/src/actions/ResetWorkspaceAction.ts` |
