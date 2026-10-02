@@ -179,14 +179,21 @@ export class InboxService {
 
   /** Los hechos de una tarea que miran las guardas de sus `taskActions`. */
   private factsOf(card: BoardCard, activity: TaskActivity): TaskFacts {
-    return { item: cardItem(card), run: runFacts(activity.lastClosed) }
+    return {
+      item: cardItem(card),
+      run: runFacts(activity.lastClosed),
+      ...(card.pr ? { pr: { number: card.pr.number } } : {}),
+    }
   }
 
   /** Lo que se ofrece: las acciones que declaró el proyecto mandan —su `available` decide— y las
    *  del runner (`classify`) siguen para las que no declaró. */
   private offered(card: BoardCard, activity: TaskActivity, found: Classification) {
     const defs = this.options.taskActions?.(card.projectId) ?? {}
-    const declared = availableTaskActions(defs, this.factsOf(card, activity))
+    // Sólo cuando la tarea necesita a una persona: lo que corre, lo que espera turno y lo que no
+    // pide nada no ofrece acciones declaradas (un `retry` con el agente trabajando no tiene sentido).
+    const needsPerson = found.group === 'need' || found.group === 'fail'
+    const declared = needsPerson ? availableTaskActions(defs, this.factsOf(card, activity)) : []
     return {
       actions: [...found.actions.filter((id) => !(id in defs)), ...declared],
       defs: declared.map((id) => {

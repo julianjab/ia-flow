@@ -42,6 +42,7 @@ import { withScope } from './engine/withScope.js'
 import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { assertTaskActionsRegistered } from './inbox/TaskActionRunner.js'
+import { TaskDesk } from './inbox/TaskDesk.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import type { McpHost } from './mcp/mcpHost.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
@@ -176,6 +177,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     slack: new SlackClient({ token: () => process.env.SLACK_BOT_TOKEN }),
     slackUsers: cfg.slack.users,
     assistant: new AssistantDesk(),
+    tasks: new TaskDesk(),
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)

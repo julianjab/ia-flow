@@ -22,6 +22,8 @@ export interface TaskFacts {
   item: ReturnType<typeof cardItem>
   /** Su última ejecución cerrada: `exit`, `status`, `failure_by`, `agent`. */
   run: Record<string, string>
+  /** Su PR abierto, si tiene (lo leen `check_pr_mergeable` y `merge_pr` de `pr.number`). */
+  pr?: { number: number }
 }
 
 /** `run.*` a partir de la última ejecución cerrada de la task; sin ella, vacío. */
@@ -128,9 +130,11 @@ export async function runTaskAction(args: RunTaskActionArgs): Promise<string[]> 
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       const ran = done.length > 0 ? `; ya corrieron: ${done.length} paso(s)` : ''
+      // Un rechazo de las condiciones (un PR que no se puede mergear) trae su propio status (409).
+      const status = (err as { status?: unknown }).status
       throw new TaskActionError(
         `${id}: falló el paso ${index + 1} (${step.action}): ${reason}${ran}`,
-        502,
+        typeof status === 'number' ? status : 502,
       )
     }
   }

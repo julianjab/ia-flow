@@ -377,6 +377,12 @@ taskActions:
 - **`task.resume_stage` sin etapa conocida** rechaza la acción (409) antes de tocar nada.
 - **Un typo rompe el arranque**: cada `action:` tiene que estar registrada (`post_user_comment`,
   `update_issue`, las del proyecto…). Validalo con `bun run runner`.
+- **Acciones del runner para los pasos**: `post_user_comment` (comentar a nombre de la persona),
+  `check_pr_mergeable` y `merge_pr` (el PR de la tarea, de `pr.number`; un PR que no se puede
+  mergear rechaza con 409 y no toca nada), `redispatch_task` y `rerun_review` (le piden al runner
+  volver a despachar el último evento o volver a correr el review; sólo con `--serve`).
+- **Sólo se ofrecen cuando la tarea necesita a una persona** (los grupos `need` y `fail` de la
+  bandeja): una tarea que corre o espera turno no ofrece acciones declaradas.
 - La web y el asistente leen el nombre, el campo de comentario y la confirmación de lo que el
   runner ofrece (`action_defs` de cada tarea); no los repiten.
 - `add_to_project` y `mark_blocked_by` siguen escribiendo con la identidad del runner: sólo lo que

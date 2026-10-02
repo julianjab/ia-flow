@@ -84,14 +84,10 @@ export function mountInbox(
     mounted.executions?.observe((record) => changed(taskOfKey(record.key).taskRef)) ?? (() => {}),
   ]
 
-  const actions = new TaskActions({
-    inbox,
-    boards,
-    settings: cfg.inbox,
-    taskActions: (projectId) => taskActionsOf(cfg, projectId),
-    instantiate: (projectId, name, client) =>
-      mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
-    redispatch: async (ref, by) => {
+  // Lo que el runner sabe hacerle a una task: lo usan las acciones de la bandeja y, por
+  // `services.tasks`, las actions `redispatch_task` y `rerun_review` de una `taskActions`.
+  const taskDesk = {
+    redispatch: async (ref: string, by: string) => {
       const last = store.activity.lastDispatchedEvent(ref)
       if (!last) throw new Error(`${ref} no tiene un evento que volver a despachar`)
       const event = createEvent(last.type, last.payload, {
@@ -106,7 +102,7 @@ export function mountInbox(
     },
     // Como si la persona hubiera movido la card a Review: el intake lee la card y el PR frescos, y
     // el pipeline de review corre con sus condiciones de siempre (PR abierto, sin blockers).
-    rerunReview: async (ref, by) => {
+    rerunReview: async (ref: string, by: string) => {
       const card = await inbox.card(ref)
       if (!card) throw new Error(`${ref} no está en el board`)
       const status = cfg.inbox.statuses.review
@@ -118,6 +114,18 @@ export function mountInbox(
       })
       return `volví a correr ${status} para ${ref}`
     },
+  }
+  mounted.services.tasks.connect(taskDesk)
+
+  const actions = new TaskActions({
+    inbox,
+    boards,
+    settings: cfg.inbox,
+    taskActions: (projectId) => taskActionsOf(cfg, projectId),
+    instantiate: (projectId, name, client) =>
+      mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
+    redispatch: taskDesk.redispatch,
+    rerunReview: taskDesk.rerunReview,
     stop: (ref, by) => {
       const running = store.activity.executions({
         taskRef: ref,

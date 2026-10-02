@@ -9,12 +9,14 @@ import type { Action } from '@ia-flow/agent-engine'
 import {
   AddSubIssueAction,
   AddToProjectAction,
+  CheckPrMergeableAction,
   CreateGithubIssueAction,
   EnsurePullRequestAction,
   type GithubProjectContext,
   LinkBranchAction,
   ListSubIssuesBriefAction,
   MarkBlockedByAction,
+  MergePullRequestAction,
   PostCommentAction,
   PostUserCommentAction,
   PrChecksAction,
@@ -73,6 +75,12 @@ export default [
     'post_user_comment',
     (ctx) => new PostUserCommentAction({ client: ctx.services.github }),
   ),
+  // Mergear el PR de la tarea (la bandeja): primero se verifica con GitHub que se puede.
+  withClient(
+    'check_pr_mergeable',
+    (ctx) => new CheckPrMergeableAction({ client: ctx.services.github }),
+  ),
+  withClient('merge_pr', (ctx) => new MergePullRequestAction({ client: ctx.services.github })),
   withClient('react_to_comment', (ctx) => new ReactToCommentAction(ctx.services.github)),
   withClient(
     'update_issue_body',

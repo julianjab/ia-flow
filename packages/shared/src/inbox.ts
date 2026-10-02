@@ -54,8 +54,10 @@ export const BuiltinTaskActionSchema = z.enum([
 ])
 export type BuiltinTaskAction = z.infer<typeof BuiltinTaskActionSchema>
 
-/** El id de una acción de la bandeja: una de las del runner o una declarada por el proyecto. */
-export const TaskActionSchema = z.string().min(1)
+/** El id de una acción de la bandeja: una de las del runner o una declarada por el proyecto (el
+ *  mismo formato que las claves de `taskActions`). Que la tarea la ofrezca ahora lo decide el
+ *  runner: pedirle una que no ofrece es un 409. */
+export const TaskActionSchema = z.string().regex(/^[a-z][a-z0-9_]*$/, 'id de acción inválido')
 export type TaskAction = z.infer<typeof TaskActionSchema>
 
 /** Una acción declarada por el proyecto (`taskActions`) tal como la ofrece a una tarea. */

@@ -22,6 +22,7 @@ import type { WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { AssistantDesk } from '../assistant/AssistantDesk.js'
 import type { Boards } from '../board/Boards.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
+import type { TaskDesk } from '../inbox/TaskDesk.js'
 
 export type { AssistantDesk } from '../assistant/AssistantDesk.js'
 export type { AssistantSession } from '../assistant/AssistantSession.js'
@@ -54,6 +55,8 @@ export interface RunnerServices {
   slackUsers: SlackUserDirectory
   /** Los pedidos abiertos al asistente de la web: las actions `assistant_*` encuentran el suyo. */
   assistant: AssistantDesk
+  /** Lo que el runner hace sobre una task fuera de GitHub (relanzar, re-ejecutar el review). */
+  tasks: TaskDesk
   log: (line: string) => void
 }
 
