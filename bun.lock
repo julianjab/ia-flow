@@ -79,6 +79,7 @@
       "name": "@ia-flow/agent-engine",
       "version": "0.1.0",
       "dependencies": {
+        "@ia-flow/rules": "workspace:*",
         "@ia-flow/telemetry": "workspace:*",
         "zod": "^4.3.6",
       },
@@ -297,6 +298,14 @@
         "vitest": "^4.1.4",
       },
     },
+    "packages/rules": {
+      "name": "@ia-flow/rules",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.7.0",
+        "vitest": "^4.1.4",
+      },
+    },
     "packages/shared": {
       "name": "@ia-flow/shared",
       "version": "1.0.0",
@@ -484,6 +493,8 @@
     "@ia-flow/provider-remote": ["@ia-flow/provider-remote@workspace:packages/providers/remote"],
 
     "@ia-flow/provider-shared": ["@ia-flow/provider-shared@workspace:packages/providers/shared"],
+
+    "@ia-flow/rules": ["@ia-flow/rules@workspace:packages/rules"],
 
     "@ia-flow/runner-v2": ["@ia-flow/runner-v2@workspace:apps/runner-v2"],
 

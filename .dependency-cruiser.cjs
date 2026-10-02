@@ -63,6 +63,7 @@ const STANDALONE = [
   'packages/slack/socket',
   'packages/telemetry',
   'packages/shared',
+  'packages/rules',
 ]
 
 module.exports = {
@@ -104,9 +105,9 @@ module.exports = {
       name: 'engine-core-has-no-infra',
       severity: 'error',
       comment:
-        'agent-engine (core) es el contrato puro: no depende de ningún paquete de infra, sólo de telemetry. La flecha va de la infra (provider, GitHub, disco) hacia el contrato.',
+        'agent-engine (core) es el contrato puro: no depende de ningún paquete de infra, sólo de telemetry y de rules (condiciones y plantillas puras). La flecha va de la infra (provider, GitHub, disco) hacia el contrato.',
       from: { path: '^packages/agent-engine/core/src/' },
-      to: { path: '^packages/', pathNot: '^packages/(agent-engine/core|telemetry)/' },
+      to: { path: '^packages/', pathNot: '^packages/(agent-engine/core|telemetry|rules)/' },
     },
     {
       name: 'nothing-imports-main',
