@@ -162,7 +162,7 @@ export function mountInbox(
     resumeStage: (ref) =>
       resumeStage(
         store.activity.eventsForTask(ref, RESUME_EVENTS),
-        store.activity.executions({ taskRef: ref, limit: 1 })[0]?.id,
+        store.activity.executions({ taskRef: ref, limit: 1 })[0],
         cfg.inbox.statuses,
       ),
     changed: (ref) => {

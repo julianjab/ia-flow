@@ -14,10 +14,12 @@ import type { InboxSettings } from './InboxSection.js'
  * 1. El evento que arrancó esa ejecución, si fue un cambio de columna (`to` = la etapa).
  * 2. Si la arrancó otra cosa (un comentario, el CI), el último cambio de columna anterior a una de
  *    las etapas con agente — nunca `Blocked` ni una columna que la bandeja no conoce.
+ * 3. Si ningún evento dice la columna (un board de issues puede arrancar una corrida con un label
+ *    suelto), el pipeline de esa corrida: `refine`, `build` y `review` se llaman como su etapa.
  */
 export function resumeStage(
   events: EventLogEntry[],
-  executionId: string | undefined,
+  execution: { id: string; pipeline_id: string } | undefined,
   statuses: Pick<InboxSettings['statuses'], 'refine' | 'build' | 'review'>,
 ): string | undefined {
   const stages = new Set([statuses.refine, statuses.build, statuses.review])
@@ -25,9 +27,20 @@ export function resumeStage(
     const to = entry.summary.to
     return typeof to === 'string' && stages.has(to) ? to : undefined
   }
-  const started = executionId
-    ? events.find((entry) => entry.execution_id === executionId && stageOf(entry))
+  const started = execution
+    ? events.find((entry) => entry.execution_id === execution.id && stageOf(entry))
     : undefined
   if (started) return stageOf(started)
-  return events.map(stageOf).find((stage) => stage !== undefined)
+  const earlier = events.map(stageOf).find((stage) => stage !== undefined)
+  if (earlier) return earlier
+  return execution ? byPipeline(statuses)[execution.pipeline_id.toLowerCase()] : undefined
 }
+
+/** Los pipelines que se llaman como la etapa en la que trabajan. */
+const byPipeline = (
+  statuses: Pick<InboxSettings['statuses'], 'refine' | 'build' | 'review'>,
+): Record<string, string> => ({
+  refine: statuses.refine,
+  build: statuses.build,
+  review: statuses.review,
+})
