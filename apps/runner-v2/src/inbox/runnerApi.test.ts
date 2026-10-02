@@ -9,11 +9,14 @@ import {
   type Provider,
   ProviderRegistry,
 } from '@ia-flow/agent-engine'
+import type { GithubClient } from '@ia-flow/github-api'
 import type { RunnerStreamEvent } from '@ia-flow/shared'
 import assistantActions from '../actions/builtin/assistant.js'
 import type { ActionContext } from '../actions/defineAction.js'
 import { Assistant } from '../assistant/Assistant.js'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
+import { createBoards } from '../board/createBoards.js'
+import type { ProjectConfig } from '../config/RunnerConfig.js'
 import { type DeviceFlow, RefreshRejectedError } from '../github/deviceFlow.js'
 import { createWebhookServer } from '../http/server.js'
 import { SseHub } from '../http/sse.js'
@@ -205,7 +208,10 @@ async function start(
     inbox,
     actions: new TaskActions({
       inbox,
-      boards: new Map([['p', { owner: 'o', number: 1 }]]),
+      boards: createBoards(
+        [{ id: 'p', board: { owner: 'o', number: 1 } } as ProjectConfig],
+        {} as GithubClient,
+      ),
       settings,
       redispatch: async () => 'ok',
       rerunReview: async (ref) => `review de ${ref}`,
