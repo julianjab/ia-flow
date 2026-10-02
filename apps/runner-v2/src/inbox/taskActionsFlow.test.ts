@@ -204,3 +204,70 @@ describe('running a declared action as the person', () => {
     expect(calls).toEqual([])
   })
 })
+
+describe('GET /api/tasks: the facts, unclassified', () => {
+  const stopWhenRunning = TaskActionsSchema.parse({
+    ...defs,
+    stop: {
+      label: 'Detener',
+      available: [{ field: 'live.status', op: 'eq', value: 'running' }],
+      steps: [{ action: 'stop_agent' }],
+    },
+  })
+  const todo: BoardCard = { ...blocked, ref: 'o/r#2', status: 'Todo', labels: [], title: 'otra' }
+
+  function tasksService(cards: BoardCard[], taskActions: TaskActionDefs, exit = 'prerequisite') {
+    return new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
+      board: { cards: async () => cards },
+      activity: activity(exit),
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+      taskActions: () => taskActions,
+      capacity: () => ({ running: 1, waiting: 0, paused: 0, max_concurrent: 2, free: 1 }),
+      now: () => new Date('2026-09-29T12:00:00Z'),
+    })
+  }
+
+  it('lists every open card, with the facts a when can read and what the runner offers', async () => {
+    const { tasks, capacity } = await tasksService([blocked, todo], stopWhenRunning).tasks()
+    expect(tasks.map((task) => task.ref)).toEqual(['o/r#1', 'o/r#2'])
+    expect(tasks[0]).toMatchObject({
+      project_id: 'p',
+      item: { status: 'Blocked', labels: ['blocked'] },
+      run: { exit: 'prerequisite', agent: 'refiner', summary: 'falta #1578' },
+      live: {},
+      queue: { waiting: false },
+      task: { idle_hours: 1, waiting_hours: 1, unlocks: 0, blocked_by: 0 },
+      actions: ['answer_and_unblock'],
+      action_defs: [{ id: 'answer_and_unblock', comment: 'required' }],
+    })
+    expect(tasks[0]?.last_run?.exit).toBe('prerequisite')
+    // A card nobody has touched is still there — whether it is a decision is the dashboard's call.
+    expect(tasks[1]).toMatchObject({ item: { status: 'Todo' }, run: {}, actions: [] })
+    expect(capacity).toEqual({ running: 1, waiting: 0, paused: 0, max_concurrent: 2, free: 1 })
+  })
+
+  it('counts what each issue unlocks', async () => {
+    const waiting: BoardCard = { ...todo, blockedBy: ['o/r#1'] }
+    const { tasks } = await tasksService([blocked, waiting], {}).tasks()
+    expect(tasks[0]?.task.unlocks).toBe(1)
+    expect(tasks[1]?.task.blocked_by).toBe(1)
+    expect(tasks[1]?.blocked_by_refs).toEqual(['o/r#1'])
+  })
+
+  it('without capacity or declarations it still answers', async () => {
+    const service = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
+      board: { cards: async () => [blocked] },
+      activity: activity('doubt'),
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+    })
+    const result = await service.tasks()
+    expect(result.capacity).toEqual({ running: 0, waiting: 0, paused: 0 })
+    expect(result.tasks[0]?.actions).toEqual([])
+  })
+})

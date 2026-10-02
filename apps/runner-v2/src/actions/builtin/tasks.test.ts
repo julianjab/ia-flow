@@ -20,7 +20,11 @@ function actionsFor(desk: TaskDesk) {
       run(ctx: PipelineExecutionContext): Promise<string>
     }
   }
-  return { redispatch: create('redispatch_task'), rerunReview: create('rerun_review') }
+  return {
+    redispatch: create('redispatch_task'),
+    rerunReview: create('rerun_review'),
+    stop: create('stop_agent'),
+  }
 }
 
 describe('redispatch_task / rerun_review', () => {
@@ -30,12 +34,14 @@ describe('redispatch_task / rerun_review', () => {
     desk.connect({
       redispatch: async (ref, by) => `${calls.push(`redispatch ${ref} ${by}`)}`,
       rerunReview: async (ref, by) => `${calls.push(`rerun ${ref} ${by}`)}`,
+      stop: (ref, by) => `${calls.push(`stop ${ref} ${by}`)}`,
     })
-    const { redispatch, rerunReview } = actionsFor(desk)
+    const { redispatch, rerunReview, stop } = actionsFor(desk)
     const ctx = ctxFor({ owner: 'o', repo: 'r', number: 7, actor: 'julian' })
     await redispatch.run(ctx)
     await rerunReview.run(ctx)
-    expect(calls).toEqual(['redispatch o/r#7 julian', 'rerun o/r#7 julian'])
+    await stop.run(ctx)
+    expect(calls).toEqual(['redispatch o/r#7 julian', 'rerun o/r#7 julian', 'stop o/r#7 julian'])
   })
 
   it('refuse to run outside a task or when the runner is not serving the inbox', async () => {

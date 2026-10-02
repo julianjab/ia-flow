@@ -5,7 +5,6 @@ import { type TaskActionDefs, TaskActionsSchema } from './TaskActionDef.js'
 import {
   assertTaskActionsRegistered,
   availableTaskActions,
-  runFacts,
   runTaskAction,
   type TaskFacts,
 } from './TaskActionRunner.js'
@@ -35,6 +34,9 @@ const facts = (
 ): TaskFacts => ({
   item: { status, type: 'technical', repos: ['r'], labels, blocked: false },
   run,
+  live: {},
+  queue: { waiting: false },
+  task: { idle_hours: 0, waiting_hours: 0, unlocks: 0, blocked_by: 0 },
 })
 
 /** Una action que anota lo que recibió, para ver orden e inputs. */
@@ -74,23 +76,6 @@ describe('availableTaskActions', () => {
       'reply',
     ])
     expect(availableTaskActions(onlyAfterDoubt, facts([], 'Build', { exit: 'done' }))).toEqual([])
-  })
-})
-
-describe('runFacts', () => {
-  it('keeps only what the last run says', () => {
-    expect(runFacts(undefined)).toEqual({})
-    expect(
-      runFacts({
-        id: 'e',
-        pipeline_id: 'refine',
-        status: 'done',
-        started_at: '',
-        exit: 'prerequisite',
-        agent_id: 'refiner',
-        failure: { by: 'agent', message: 'x' },
-      }),
-    ).toEqual({ exit: 'prerequisite', status: 'done', failure_by: 'agent', agent: 'refiner' })
   })
 })
 
@@ -201,7 +186,7 @@ describe('runTaskAction', () => {
         def: merge.merge as NonNullable<TaskActionDefs[string]>,
         id: 'merge',
         issue,
-        facts: { ...facts([]), pr: { number: 12 } },
+        facts: { ...facts([]), pr: { number: 12, url: 'u' } },
         input: {},
         actor: 'julian',
         instantiate: (name) => (name === 'merge_pr' ? recorder(calls, name) : rejecting),
