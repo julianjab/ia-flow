@@ -76,7 +76,7 @@ async function confirm() {
         v-model="comment"
         class="ta__text"
         rows="3"
-        placeholder="Se publica como comentario en el issue y se quita blocked"
+        placeholder="Se publica como comentario, se quita blocked y la tarea vuelve a su etapa"
         :disabled="busy"
       />
     </div>

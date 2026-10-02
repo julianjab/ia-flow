@@ -25,6 +25,8 @@ export interface TaskActionsOptions {
   rerunReview(ref: string, by: string): Promise<string>
   /** Le pide al agente que corre para la tarea que termine (suave: lo lee en su próxima vuelta). */
   stop(ref: string, by: string): string
+  /** La columna a la que vuelve una tarea trabada (la de la ejecución que falló), si se sabe. */
+  resumeStage(ref: string): string | undefined
   /** Después de un cambio: que la bandeja relea el board. */
   changed(ref: string): void
   fetchImpl?: typeof fetch
@@ -186,13 +188,28 @@ export class TaskActions {
       case 'back_to_refine':
         return update({ status: statuses.refine })
       case 'answer_and_unblock': {
+        // Sin `redispatch`: devolver la tarea a su etapa con `blocked` ya quitado es un cambio de
+        // columna, y ese evento arranca el pipeline de la etapa, que lee la respuesta en
+        // `task.comments`. El orden es el que hace que funcione: el comentario PRIMERO (el intake
+        // descarta los eventos de un issue `blocked`: no dispara además el pipeline de
+        // comentarios), después el label y por último la columna. `update_issue` cambia la columna
+        // antes que los labels, así que en un solo update el evento de la columna llegaría con
+        // `blocked` puesto y el pipeline de la etapa lo ignoraría.
+        const stage = this.options.resumeStage(ref)
+        if (!stage) {
+          throw new TaskActionError(
+            `no sé a qué etapa devolver ${ref}: no encuentro la ejecución que falló`,
+            409,
+          )
+        }
         const comment = request.comment?.trim() ?? ''
         await client.requestJson(
           `/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`,
           { method: 'POST', body: JSON.stringify({ body: comment }) },
         )
         await unblock()
-        return `comentado y sin ${labels.blocked}`
+        await update({ status: stage })
+        return `comentado, sin ${labels.blocked} y de vuelta en ${stage}`
       }
       case 'relaunch':
         return this.options.redispatch(ref, login)

@@ -20,6 +20,7 @@ import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
+import { resumeStage } from './resumeStage.js'
 import { runnerApi } from './runnerApi.js'
 import { toTraceEntry } from './SqliteActivity.js'
 import { TaskActions } from './TaskActions.js'
@@ -29,6 +30,9 @@ export interface MountedInbox {
   board: Pick<Boards, 'invalidate'>
   close(): void
 }
+
+/** Cuántos eventos de la task se miran para saber a qué etapa volver. */
+const RESUME_EVENTS = 50
 
 /** Cada cuánto se borra lo viejo de la base de actividad. */
 const PRUNE_EVERY_MS = 3_600_000
@@ -119,6 +123,12 @@ export function mountInbox(
       if (!asked) throw new Error(`${ref} no tiene un agente corriendo al que pedirle que pare`)
       return 'le pedí al agente que termine su turno'
     },
+    resumeStage: (ref) =>
+      resumeStage(
+        store.activity.eventsForTask(ref, RESUME_EVENTS),
+        store.activity.executions({ taskRef: ref, limit: 1 })[0]?.id,
+        cfg.inbox.statuses,
+      ),
     changed: (ref) => {
       boards.invalidate()
       changed(ref)
