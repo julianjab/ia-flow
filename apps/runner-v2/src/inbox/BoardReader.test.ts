@@ -155,6 +155,7 @@ describe('TaskActions', () => {
     const calls: string[] = []
     const actions = new TaskActions({
       inbox: {
+        taskFacts: async () => undefined,
         item: async () => ({
           ref: 'o/r#1',
           project_id: 'p',
@@ -180,6 +181,10 @@ describe('TaskActions', () => {
       rerunReview: async () => 'ok',
       stop: () => 'ok',
       resumeStage: () => 'Refine',
+      taskActions: () => ({}),
+      instantiate: () => {
+        throw new Error('sin actions')
+      },
       changed: () => {},
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
         calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
@@ -209,6 +214,7 @@ describe('TaskActions', () => {
     const calls: string[] = []
     const actions = new TaskActions({
       inbox: {
+        taskFacts: async () => undefined,
         item: async () => ({
           ref: 'o/r#1',
           project_id: 'p',
@@ -228,6 +234,10 @@ describe('TaskActions', () => {
       rerunReview: async () => 'ok',
       stop: () => 'ok',
       resumeStage: () => undefined,
+      taskActions: () => ({}),
+      instantiate: () => {
+        throw new Error('sin actions')
+      },
       changed: () => {},
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
         calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
