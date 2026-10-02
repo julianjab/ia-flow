@@ -151,7 +151,7 @@ describe('toBoardMeta', () => {
 })
 
 describe('TaskActions', () => {
-  it('answer and unblock comments as the user and takes the blocked label off', async () => {
+  it('answer and unblock comments, takes blocked off and only then moves the card back', async () => {
     const calls: string[] = []
     const actions = new TaskActions({
       inbox: {
@@ -168,11 +168,18 @@ describe('TaskActions', () => {
           actions: ['answer_and_unblock'],
         }),
       },
-      boards: { writerFor: () => undefined },
+      boards: {
+        writerFor: () => ({
+          setFields: async (_issue, set) => {
+            calls.push(`BOARD ${JSON.stringify(set)}`)
+          },
+        }),
+      },
       settings: InboxSection.parse({}),
       redispatch: async () => 'ok',
       rerunReview: async () => 'ok',
       stop: () => 'ok',
+      resumeStage: () => 'Refine',
       changed: () => {},
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
         calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
@@ -194,6 +201,46 @@ describe('TaskActions', () => {
       'GET https://api.github.com/repos/o/r',
       'POST https://api.github.com/repos/o/r/issues/1/comments',
       'DELETE https://api.github.com/repos/o/r/issues/1/labels/blocked',
+      'BOARD {"Status":"Refine"}',
     ])
+  })
+
+  it('answer and unblock refuses, without touching GitHub, when it cannot tell the stage', async () => {
+    const calls: string[] = []
+    const actions = new TaskActions({
+      inbox: {
+        item: async () => ({
+          ref: 'o/r#1',
+          project_id: 'p',
+          title: 't',
+          url: 'u',
+          group: 'need',
+          kind: 'doubt',
+          labels: ['blocked'],
+          why: 'duda',
+          since: '',
+          actions: ['answer_and_unblock'],
+        }),
+      },
+      boards: { writerFor: () => undefined },
+      settings: InboxSection.parse({}),
+      redispatch: async () => 'ok',
+      rerunReview: async () => 'ok',
+      stop: () => 'ok',
+      resumeStage: () => undefined,
+      changed: () => {},
+      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+        return Response.json({ permissions: { push: true } })
+      }) as typeof fetch,
+    })
+    await expect(
+      actions.run(
+        'o/r#1',
+        { action: 'answer_and_unblock', comment: 'Sólo upgrades.' },
+        { token: 't', login: 'julian' },
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(calls.filter((call) => call.startsWith('POST'))).toEqual([])
   })
 })

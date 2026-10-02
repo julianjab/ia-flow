@@ -216,6 +216,7 @@ async function start(
       redispatch: async () => 'ok',
       rerunReview: async (ref) => `review de ${ref}`,
       stop: () => 'ok',
+      resumeStage: () => undefined,
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),
