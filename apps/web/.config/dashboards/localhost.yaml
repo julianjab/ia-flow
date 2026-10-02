@@ -1,0 +1,144 @@
+# El dashboard del runner local (http://localhost:3001, o el que proxea Vite). Es el de defecto con
+# la etapa de review de ESTE board, que se llama Tests (ver `inbox.statuses` de runner.yaml): sin
+# esto las decisiones de merge y de review nunca harían match. Las `taskActions` que nombra están
+# en apps/runner-v2/.config/projects/ia-flow/project.yaml.
+server: [ http://localhost:3001, local ]
+version: 1
+
+decisions:
+  # ── lo que corre o espera: gana sobre lo que dice el board ─────────────────────────────────
+  - id: agent_running
+    group: run
+    kind: agent
+    when:
+      - { field: live.status, op: eq, value: running }
+    why: '{{fmt.who}} corriendo{{fmt.tokens}}'
+    since: '{{live_run.started_at}}'
+    actions: [ stop ]
+
+  - id: waiting_ci
+    group: run
+    kind: ci
+    when:
+      - { field: live.status, op: eq, value: paused }
+      - { field: live.ci, op: eq, value: 'true', logic: and }
+    why: 'Esperando el CI ({{fmt.pause}}){{fmt.expires}}'
+    since: '{{live_run.started_at}}'
+
+  - id: agent_paused
+    group: run
+    kind: agent
+    when:
+      - { field: live.status, op: eq, value: paused }
+    why: 'Pausada en {{fmt.pause}}{{fmt.expires}}'
+    since: '{{live_run.started_at}}'
+
+  - id: waiting_turn
+    group: queue
+    kind: turn
+    when:
+      - { field: queue.waiting, op: eq, value: true }
+    why: Espera su turno
+
+  # ── lo que el pipeline dejó en manos de una persona ────────────────────────────────────────
+  - id: merge
+    group: need
+    kind: merge
+    weight: 100
+    when:
+      - { field: item.status, op: eq, value: Tests }
+      - { field: item.labels, op: contains, value: reviewed, logic: and }
+    why: 'Review + reviewed{{fmt.pr}}'
+    actions: [ merge ]
+
+  - id: review
+    group: need
+    kind: review
+    weight: 90
+    when:
+      - { field: item.status, op: eq, value: Tests }
+    why: 'Review sin reviewed{{fmt.pr}}'
+    actions: [ rerun_review ]
+
+  - id: prd
+    group: need
+    kind: prd
+    weight: 80
+    when:
+      - { field: item.status, op: eq, value: Refined }
+    why: PRD listo para aprobar (status Refined)
+    actions: [ approve_prd, back_to_refine ]
+    primary: approve_prd
+
+  # ── lo que se trabó ────────────────────────────────────────────────────────────────────────
+  - id: blocked_by_issue
+    group: queue
+    kind: dep
+    when:
+      - { field: task.blocked_by, op: gt, value: 0 }
+    why: 'Bloqueada por {{fmt.blocked_by}}'
+
+  - id: prerequisite
+    group: need
+    kind: prerequisite
+    weight: 60
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+      - { field: run.exit, op: eq, value: prerequisite, logic: and }
+    why: 'Le falta una pieza: {{fmt.summary}}'
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    said: '{{run.summary}}'
+    actions: [ answer_and_unblock ]
+
+  - id: doubt
+    group: need
+    kind: doubt
+    weight: 70
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+      - { field: run.exit, op: eq, value: doubt, logic: and }
+      - { field: run.failure_by, op: eq, value: agent, logic: or }
+    why: 'El agente tiene una duda: {{fmt.summary}}'
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    said: '{{run.summary}}'
+    actions: [ answer_and_unblock ]
+
+  - id: crash
+    group: fail
+    kind: crash
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+      - { field: run.status, op: eq, value: failed, logic: or }
+      - { field: run.failure_by, op: eq, value: runtime, logic: or }
+      - { field: run.summary, op: exists, logic: and }
+    why: 'Falló: {{fmt.summary}}'
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    said: '{{run.summary}}'
+    actions: [ retry ]
+
+  - id: crash_without_reason
+    group: fail
+    kind: crash
+    when:
+      - { field: item.labels, op: contains, value: blocked }
+      - { field: run.status, op: eq, value: failed, logic: or }
+      - { field: run.failure_by, op: eq, value: runtime, logic: or }
+    why: Bloqueada (blocked) sin una corrida que diga por qué
+    since: [ '{{last_run.closed_at}}', '{{updated_at}}' ]
+    actions: [ retry ]
+
+  - id: stale
+    group: need
+    kind: stale
+    weight: 50
+    when:
+      - { field: item.status, op: in, value: [ Refine, Build ] }
+      - { field: task.idle_hours, op: gte, value: 24, logic: and }
+    why: '{{item.status}} sin movimiento hace {{task.idle_hours}} h'
+    actions: [ relaunch ]
+
+# Dentro de un grupo: lo más cerca de Done primero (el `weight`), y a igual peso lo más viejo.
+rank: [ group, weight, waiting ]
+
+panels:
+  pipeline: true

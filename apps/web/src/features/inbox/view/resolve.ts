@@ -28,7 +28,7 @@ function presetFor(key: string): string | undefined {
     if (preset.name === DEFAULT_PRESET) return false
     try {
       const server = parseDashboard(preset.text).server
-      return server !== undefined && serverKey(server) === key
+      return [server ?? []].flat().some((candidate) => serverKey(candidate) === key)
     } catch {
       return false
     }

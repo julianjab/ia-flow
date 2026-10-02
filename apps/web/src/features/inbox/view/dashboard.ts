@@ -105,8 +105,9 @@ const HygieneSchema = z.object({ text: z.string().min(1), when: Rows }).strict()
 export const DashboardSchema = z
   .object({
     version: z.literal(1).default(1),
-    /** A qué runner pertenece (su URL base); informativo, la clave real es dónde está guardado. */
-    server: z.string().optional(),
+    /** A qué runner(s) pertenece: su URL base —`local` es el que proxea Vite—. Con ella se elige el
+     *  dashboard de un archivo de `.config/dashboards/`. */
+    server: z.union([z.string(), z.array(z.string())]).optional(),
     decisions: z.array(DecisionSchema).min(1),
     /** Cómo se desempata dentro de un grupo. */
     rank: z
