@@ -5,6 +5,7 @@ import {
   readSection,
   sectionMarkers,
   setChecked,
+  splitManaged,
   wrapSection,
   writeSection,
 } from '../issueSection.js'
@@ -111,6 +112,29 @@ describe('carryChecks', () => {
 
     expect(carryChecks(previous, next)).toBe(
       '- [x] `a.ts` — uno\n- [ ] `b.ts` — dos, reescrito\n- [ ] `c.ts` — tres\n- [ ] `d.ts` — nuevo',
+    )
+  })
+})
+
+describe('splitManaged', () => {
+  const prd = wrapSection('prd', `## Objetivo\n${wrapSection('prd.zona', '- [ ] a')}`)
+  const slack = wrapSection('slack', 'hilo')
+
+  it('separates the top-level blocks from the text outside them, keeping nested ones inside', () => {
+    const body = `Descripción.\n\n${prd}\n\nMás texto.\n\n${slack}\n`
+    const { blocks, outside } = splitManaged(body)
+    expect(blocks).toEqual([prd, slack])
+    expect(outside).toBe('Descripción.\n\nMás texto.')
+  })
+
+  it('a body with no blocks is all outside; one with only blocks has nothing outside', () => {
+    expect(splitManaged('solo texto')).toEqual({ blocks: [], outside: 'solo texto' })
+    expect(splitManaged(`${prd}\n\n${slack}\n`).outside).toBe('')
+  })
+
+  it('refuses a block that opens and never closes instead of cutting content that is not ours', () => {
+    expect(() => splitManaged('texto <!-- ia-flow:prd --> sin cierre')).toThrow(
+      /abre pero no cierra/,
     )
   })
 })
