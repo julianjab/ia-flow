@@ -86,7 +86,15 @@ export function splitManaged(body: string): { blocks: string[]; outside: string 
     match = OPEN_MARKER.exec(body)
   }
   rest.push(body.slice(cursor))
-  return { blocks, outside: rest.join('\n').trim() }
+  // Al sacar un bloque quedan líneas en blanco de más: se colapsan para que la descripción que se
+  // guarda como comentario salga limpia.
+  return {
+    blocks,
+    outside: rest
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim(),
+  }
 }
 
 const CHECKBOX = /^(\s*[-*]\s+\[)([ xX])(\]\s+)(.*)$/
