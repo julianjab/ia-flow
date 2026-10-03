@@ -92,7 +92,7 @@ export class IssueSectionAction<S extends ToolInputSchema> extends Action<S, str
     const issue = this.resolveIssue(ctx)
     const path = issuePath(issue.owner, issue.repo, issue.number)
     let current = await readBody(this.client, path)
-    if (this.original === 'absorb') current = await this.absorb(current, issue, path)
+    if (this.original === 'absorb') current = await this.absorb(current, path)
     const previous = readSection(current, this.section.id)
     const rendered = this.section.render(input)
     const markdown = previous ? carryChecks(previous, rendered) : rendered
@@ -105,11 +105,7 @@ export class IssueSectionAction<S extends ToolInputSchema> extends Action<S, str
    * Guarda lo que hay fuera de los bloques como un comentario y devuelve el body sólo con los
    * bloques. El comentario va PRIMERO: si falla, el body queda como estaba y no se pierde nada.
    */
-  private async absorb(
-    body: string,
-    issue: { owner: string; repo: string; number: number },
-    path: string,
-  ): Promise<string> {
+  private async absorb(body: string, path: string): Promise<string> {
     const { blocks, outside } = splitManaged(body)
     if (!outside) return body
     await this.client.requestJson(`${path}/comments`, {
