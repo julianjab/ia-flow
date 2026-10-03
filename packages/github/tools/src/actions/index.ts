@@ -14,7 +14,7 @@ export type {
   IssueSectionActionOptions,
   IssueSectionDefinition,
 } from './IssueSectionAction.js'
-export { IssueSectionAction } from './IssueSectionAction.js'
+export { IssueSectionAction, ORIGINAL_BODY_MARKER } from './IssueSectionAction.js'
 export type {
   BranchResolver,
   IssueRef,
@@ -34,6 +34,7 @@ export {
   readSection,
   sectionMarkers,
   setChecked,
+  splitManaged,
   wrapSection,
   writeSection,
 } from './issueSection.js'

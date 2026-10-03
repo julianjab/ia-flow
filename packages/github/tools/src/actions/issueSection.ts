@@ -56,6 +56,39 @@ export function writeSection(body: string, id: string, markdown: string): string
   return head ? `${head}\n\n${block}\n` : `${block}\n`
 }
 
+const OPEN_MARKER = /<!-- ia-flow:([a-z0-9][a-z0-9._-]{0,63}) -->/g
+
+/**
+ * El body partido en lo que tiene dueño y lo que no: `blocks` son los bloques de primer nivel
+ * (con sus marcadores, en orden) y `outside` todo lo demás —la descripción que escribió una
+ * persona—, sin los bloques. Un bloque anidado va dentro de su padre. Un bloque que abre y no
+ * cierra tira: quitarlo a ciegas se llevaría contenido que no es nuestro.
+ */
+export function splitManaged(body: string): { blocks: string[]; outside: string } {
+  const blocks: string[] = []
+  const rest: string[] = []
+  let cursor = 0
+  OPEN_MARKER.lastIndex = 0
+  let match = OPEN_MARKER.exec(body)
+  while (match) {
+    const id = match[1] as string
+    const start = match.index
+    const { close } = sectionMarkers(id)
+    const end = body.indexOf(close, start + match[0].length)
+    if (end === -1) {
+      throw new Error(`issueSection: el bloque "${id}" abre pero no cierra — editado a mano?`)
+    }
+    const stop = end + close.length
+    rest.push(body.slice(cursor, start))
+    blocks.push(body.slice(start, stop))
+    cursor = stop
+    OPEN_MARKER.lastIndex = stop
+    match = OPEN_MARKER.exec(body)
+  }
+  rest.push(body.slice(cursor))
+  return { blocks, outside: rest.join('\n').trim() }
+}
+
 const CHECKBOX = /^(\s*[-*]\s+\[)([ xX])(\]\s+)(.*)$/
 
 export interface ChecklistItem {
