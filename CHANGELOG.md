@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/julianjab/ia-flow/compare/v2.2.0...v2.3.0) (2026-10-03)
+
+
+### Features
+
+* **github-tools:** el refiner puede absorber la descripción original en su PRD ([#272](https://github.com/julianjab/ia-flow/issues/272)) ([46891ab](https://github.com/julianjab/ia-flow/commit/46891ab84b14a025e8f2af606f8e0daf23064e08))
+
 ## [2.2.0](https://github.com/julianjab/ia-flow/compare/v2.1.0...v2.2.0) (2026-10-02)
 
 
