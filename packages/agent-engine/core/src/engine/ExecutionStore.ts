@@ -9,6 +9,8 @@ import {
 } from './Execution.js'
 import type { ExecutionRepository } from './ExecutionRepository.js'
 import { type ExecutionGroups, ExecutionScheduler } from './ExecutionScheduler.js'
+import { InMemoryRunCounter } from './InMemoryRunCounter.js'
+import type { RunCounter } from './RunCounter.js'
 
 export interface StartExecution {
   key: string
@@ -40,6 +42,15 @@ export interface ExecutionStoreOptions {
   /** Retomar tras un reinicio la que corría con un paso que guardaba su progreso (un agente y
    *  su conversación). Default: hasta 10 veces seguidas, y si se guardó hace menos de 24 h. */
   resume?: { maxAttempts?: number; maxAgeMs?: number }
+  /** Dónde se cuentan las corridas de `maxRuns`. Default: en memoria (se pierde al reiniciar). */
+  runs?: RunCounter
+}
+
+/** El tope de corridas que pide una pipeline (`MaxRuns`), visto desde el store. */
+export interface RunBudget {
+  counter: string
+  max: number
+  windowMs?: number
 }
 
 const RESUME_MAX_ATTEMPTS = 10
@@ -86,6 +97,7 @@ export class ExecutionStore {
   private recovering = false
   /** El repositorio, más el aviso a los que escuchan. Es el journal de cada ejecución. */
   private readonly journal: ExecutionJournal
+  private readonly runs: RunCounter
 
   constructor(options: ExecutionStoreOptions) {
     const max = options.maxConcurrent ?? Number.POSITIVE_INFINITY
@@ -99,6 +111,7 @@ export class ExecutionStore {
       read: (id) => this.repository.read(id),
     }
     this.scheduler = new ExecutionScheduler(max, options.groups)
+    this.runs = options.runs ?? new InMemoryRunCounter()
     this.newId = options.newId ?? (() => globalThis.crypto.randomUUID())
     this.resumeLimits = {
       maxAttempts: options.resume?.maxAttempts ?? RESUME_MAX_ATTEMPTS,
@@ -112,6 +125,28 @@ export class ExecutionStore {
   /** La de esta task, corriendo o pausada, si hay. */
   current(key: string): Execution | undefined {
     return this.byKey.get(key)
+  }
+
+  /**
+   * Si a la task le queda lugar bajo el tope `budget` y, si le queda, cuenta esta corrida. Una
+   * cuenta vieja (`windowMs`) arranca de cero. Síncrono: lo llama el coordinador con la corrida ya
+   * con su turno, así dos corridas de la misma task no se cuentan en paralelo.
+   */
+  admitRun(key: string, budget: RunBudget, now = Date.now()): { allowed: boolean; count: number } {
+    const current = this.runs.get(key, budget.counter)
+    const stale =
+      budget.windowMs !== undefined &&
+      current.lastAt !== undefined &&
+      now - current.lastAt > budget.windowMs
+    if (stale) this.runs.reset(key, budget.counter)
+    const count = stale ? 0 : current.count
+    if (count >= budget.max) return { allowed: false, count }
+    return { allowed: true, count: this.runs.hit(key, budget.counter, now) }
+  }
+
+  /** Pone en cero el contador `counter` de la task (sin `counter`, todos los suyos). */
+  resetRuns(key: string, counter?: string): void {
+    this.runs.reset(key, counter)
   }
 
   /** Si la task tiene una ejecución corriendo O esperando turno — una pausada no la ocupa. Se

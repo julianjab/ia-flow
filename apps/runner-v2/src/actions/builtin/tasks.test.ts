@@ -24,6 +24,7 @@ function actionsFor(desk: TaskDesk) {
     redispatch: create('redispatch_task'),
     rerunReview: create('rerun_review'),
     stop: create('stop_agent'),
+    resetRuns: create('reset_runs'),
   }
 }
 
@@ -50,5 +51,30 @@ describe('redispatch_task / rerun_review', () => {
     await expect(
       redispatch.run(ctxFor({ owner: 'o', repo: 'r', number: 7, actor: 'julian' })),
     ).rejects.toThrow(/--serve/)
+  })
+})
+
+describe('reset_runs', () => {
+  it('le pide al runner que ponga en cero los topes de la task, a nombre de quien lo pidió', async () => {
+    const calls: string[] = []
+    const desk = new TaskDesk()
+    desk.connect({
+      redispatch: async () => '',
+      rerunReview: async () => '',
+      stop: () => '',
+      resetRuns: (ref, by) => `${calls.push(`reset ${ref} ${by}`)}`,
+    })
+    await actionsFor(desk).resetRuns.run(
+      ctxFor({ owner: 'o', repo: 'r', number: 7, actor: 'julian' }),
+    )
+    expect(calls).toEqual(['reset o/r#7 julian'])
+  })
+
+  it('falla claro si el runner no lleva topes', async () => {
+    const desk = new TaskDesk()
+    desk.connect({ redispatch: async () => '', rerunReview: async () => '', stop: () => '' })
+    await expect(
+      actionsFor(desk).resetRuns.run(ctxFor({ owner: 'o', repo: 'r', number: 7, actor: 'j' })),
+    ).rejects.toThrow(/topes de corridas/)
   })
 })

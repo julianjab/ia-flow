@@ -1,6 +1,6 @@
 /**
  * Las actions que le piden algo al runner sobre una task, no a GitHub: relanzarla, volver a correr
- * su review o pedirle al agente que pare. Sólo las usa una `taskActions` de `project.yaml` (una persona las pide desde la
+ * su review, pedirle al agente que pare o darle una ronda nueva de corridas (`reset_runs`). Sólo las usa una `taskActions` de `project.yaml` (una persona las pide desde la
  * bandeja); el issue sale del evento y `actor` es quien las pidió.
  */
 import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
@@ -52,6 +52,16 @@ export default [
         'stop_agent',
         'Le pide al agente que corre para la task que termine su turno con lo que tenga.',
         async (desk, ref, by) => desk.stop(ref, by),
+        ctx.services.tasks,
+      ),
+  }),
+  defineAction({
+    id: 'reset_runs',
+    create: (ctx) =>
+      new TaskDeskAction(
+        'reset_runs',
+        'Pone en cero los topes de corridas (`maxRuns`) de la task: le da una ronda nueva.',
+        async (desk, ref, by) => desk.resetRuns(ref, by),
         ctx.services.tasks,
       ),
   }),

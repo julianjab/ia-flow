@@ -106,6 +106,25 @@ se rechazan al cargar: un "vuelve a build" es un cambio de status que dispara ot
 
 ## Loops — la trampa de siempre
 
+Un loop entre agentes (review → build → review) pasa por eventos: nada en el grafo lo corta, y el
+tope de profundidad tampoco (el eco del webhook vuelve con `depth` 0). Ponele `maxRuns` a la
+pipeline que lo cierra:
+
+```yaml
+maxRuns:
+  max: 3
+  counter: review-loop                 # opcional; lo comparten las pipelines que lo nombran
+  counts:                              # sólo lo que hace el bot cuenta
+    - { on: [ issue.status_changed ], when: [ { field: sender, op: matches, value: '\[bot\]$' } ] }
+  resetOn:                             # una persona interviene → ronda nueva
+    - { on: [ issue_comment ] }
+  onExhausted:                         # acciones; corren EN VEZ de la pipeline
+    - { action: post_notice, with: { summary: … } }
+    - { action: update_issue, with: { addLabels: [ blocked, runs-cap ] } }
+```
+
+Para destrabar a mano, la acción `reset_runs` (en una `taskActions`) pone la cuenta en cero.
+
 Una pipeline sobre `issue.status_changed` con `to: Build` cuyo agente termina moviendo la card
 a `Build` se re-dispara con su propio eco. Revisá, para cada salida: ¿el estado en que deja la
 task todavía pasa el `when`? `engine.interrupt.ownSenders` (runner.yaml) evita que el eco

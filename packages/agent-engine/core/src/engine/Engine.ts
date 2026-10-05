@@ -201,6 +201,12 @@ export class Engine {
       const injected = this.coordinator.inject(event)
       if (injected) this.redelivery.rememberOrigin(event)
       plan = await this.planner.decide(event)
+      // Antes de lanzar nada: un evento que resetea un `maxRuns` (un comentario humano) tiene que
+      // dejar el contador en cero ANTES de que la corrida que él mismo dispara cuente.
+      this.coordinator.resetRuns(
+        event,
+        plan.candidates.map((candidate) => candidate.pipeline),
+      )
       // Si está pausada y el evento la despierta, se reanuda — recién acá, pegado a lanzar la
       // corrida: despertarla antes de `decide` dejaría una ejecución despierta sin quién la corra
       // si `decide` falla.

@@ -1,6 +1,7 @@
 import { type ExecutionGroups, ExecutionStore } from '@ia-flow/agent-engine'
 import type { SqliteDatabase } from './SqliteDatabase.js'
 import { SqliteExecutionRepository } from './SqliteExecutionRepository.js'
+import { SqliteRunCounter } from './SqliteRunCounter.js'
 
 export interface SqliteExecutionStoreOptions {
   /** La base ya abierta por el runtime (`openNodeSqlite` de `./node`, o `bun:sqlite`). */
@@ -24,6 +25,8 @@ export class SqliteExecutionStore extends ExecutionStore {
     const repository = new SqliteExecutionRepository({ database: options.database })
     super({
       repository,
+      // El tope de corridas (`maxRuns`), en la misma base: sobrevive al reinicio.
+      runs: new SqliteRunCounter(options.database),
       ...(options.maxConcurrent !== undefined ? { maxConcurrent: options.maxConcurrent } : {}),
       ...(options.groups ? { groups: options.groups } : {}),
     })

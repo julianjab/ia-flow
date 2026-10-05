@@ -1,6 +1,7 @@
 import type { ExecutionGroups } from './ExecutionScheduler.js'
 import { ExecutionStore } from './ExecutionStore.js'
 import { InMemoryExecutionRepository } from './InMemoryExecutionRepository.js'
+import type { RunCounter } from './RunCounter.js'
 
 export interface InMemoryExecutionStoreOptions {
   /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
@@ -9,6 +10,8 @@ export interface InMemoryExecutionStoreOptions {
   groups?: ExecutionGroups
   /** Ver `ExecutionStoreOptions.newId`. */
   newId?: () => string
+  /** Ver `ExecutionStoreOptions.runs`. */
+  runs?: RunCounter
 }
 
 /** Store en memoria: alcanza para un proceso. Un reinicio pierde todo — también las pausas. */

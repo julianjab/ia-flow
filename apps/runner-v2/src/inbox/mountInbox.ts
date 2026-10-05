@@ -146,6 +146,16 @@ export function mountInbox(
       if (!asked) throw new Error(`${ref} no tiene un agente corriendo al que pedirle que pare`)
       return 'le pedí al agente que termine su turno'
     },
+
+    // Los contadores de `maxRuns` son por clave de ejecución (el scope de la task): la de su
+    // última ejecución. Sin ninguna, no hay nada contado.
+    resetRuns: (ref: string, by: string) => {
+      const last = store.activity.executions({ taskRef: ref, limit: 1 })[0]
+      if (!last) return `${ref} no tenía corridas contadas`
+      mounted.executions?.resetRuns(last.key)
+      options.log(`${ref}: ${by} reinició sus topes de corridas`)
+      return 'reinicié los topes de corridas de la task'
+    },
   }
   mounted.services.tasks.connect(taskDesk)
 
