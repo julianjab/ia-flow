@@ -8,6 +8,7 @@ import {
   type ExitDefaults,
   type ExitRoute,
   type InterruptRoute,
+  type MaxRunsProps,
   type McpServerRef,
   Pipeline,
   type RouteTarget,
@@ -24,14 +25,15 @@ import { type Catalogs, lookup, type ToolLookup } from './Catalogs.js'
 import { located } from './located.js'
 import type { AgentVariant, StepBuildContext } from './StepFactory.js'
 import { StepFactoryRegistry } from './StepFactoryRegistry.js'
-import type {
-  AgentDoc,
-  ErrorRouteNode,
-  ExitRouteNode,
-  InterruptRouteNode,
-  PipelineDoc,
-  SourceDoc,
-  WhenTextNode,
+import {
+  type AgentDoc,
+  durationMs,
+  type ErrorRouteNode,
+  type ExitRouteNode,
+  type InterruptRouteNode,
+  type PipelineDoc,
+  type SourceDoc,
+  type WhenTextNode,
 } from './schema.js'
 
 /** Un documento con el archivo del que salió. */
@@ -221,6 +223,7 @@ export class SourceBuilder {
             : {}),
           ifPaused: doc.ifPaused,
           ifQueued: doc.ifQueued,
+          ...(doc.maxRuns ? { maxRuns: this.maxRuns(doc.maxRuns, context, path) } : {}),
           when: Condition.fromRows(doc.when),
           ...located(`${path}: whenText`, () => this.whenText(doc.whenText)),
           do: steps,
@@ -228,6 +231,27 @@ export class SourceBuilder {
           ...this.defaults(doc, context, path),
         }),
     )
+  }
+
+  /** El `maxRuns` de una pipeline: sus filtros como los de `interruptOn`, y `onExhausted` armado
+   *  como cualquier paso. */
+  private maxRuns(
+    node: NonNullable<PipelineDoc['maxRuns']>,
+    context: StepBuildContext,
+    path: string,
+  ): MaxRunsProps {
+    const filters = (nodes: typeof node.counts) =>
+      (nodes ?? []).map((filter) => ({ on: filter.on, when: Condition.fromRows(filter.when) }))
+    return {
+      max: node.max,
+      ...(node.counter !== undefined ? { counter: node.counter } : {}),
+      counts: filters(node.counts),
+      resetOn: filters(node.resetOn),
+      ...(node.window !== undefined ? { windowMs: durationMs(node.window) } : {}),
+      onExhausted: node.onExhausted.map((step, i) =>
+        context.step(step, `${path}: maxRuns.onExhausted[${i}]`),
+      ),
+    }
   }
 
   private context(path: string, local: Map<string, Runnable>, agentId?: string): StepBuildContext {

@@ -209,6 +209,21 @@ export const AgentDoc = z.strictObject({
 })
 export type AgentDoc = z.infer<typeof AgentDoc>
 
+/**
+ * El tope de corridas por task (`MaxRuns` del core). `counts`/`resetOn` son filtros de evento,
+ * como `interruptOn`; `onExhausted`, los pasos (acciones) que corren en vez de la pipeline.
+ */
+const MaxRunsNode = z.strictObject({
+  max: z.number().int().min(1),
+  /** Default: el id de la pipeline. Dos pipelines con el mismo nombre comparten la cuenta. */
+  counter: z.string().min(1).optional(),
+  counts: z.array(EventFilterNode).optional(),
+  resetOn: z.array(EventFilterNode).optional(),
+  /** Una cuenta cuya última corrida es más vieja que esto arranca de cero (`24h`). */
+  window: Duration.optional(),
+  onExhausted: z.array(StepNode).min(1),
+})
+
 export const PipelineDoc = z.strictObject({
   id: z.string().min(1),
   /** Para leerla: no cambia nada. */
@@ -225,6 +240,8 @@ export const PipelineDoc = z.strictObject({
   interruptOn: z.array(EventFilterNode).optional(),
   ifPaused: z.enum(['supersede', 'wait']).optional(),
   ifQueued: z.enum(['replace', 'keep']).optional(),
+  /** Tope de corridas por task: pasado `max`, corre `onExhausted` en vez de la pipeline. */
+  maxRuns: MaxRunsNode.optional(),
   when: ConditionRows.optional(),
   /** Después del `when`: un modelo decide si la pipeline corre (ver `WhenTextNode`). */
   whenText: WhenTextNode.optional(),

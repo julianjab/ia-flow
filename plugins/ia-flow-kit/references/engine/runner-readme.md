@@ -381,9 +381,10 @@ taskActions:
   `update_issue`, las del proyecto…). Validalo con `bun run runner`.
 - **Acciones del runner para los pasos**: `post_user_comment` (comentar a nombre de la persona),
   `check_pr_mergeable` y `merge_pr` (el PR de la tarea, de `pr.number`; un PR que no se puede
-  mergear rechaza con 409 y no toca nada), `redispatch_task`, `rerun_review` y `stop_agent` (le piden al
-  runner volver a despachar el último evento, volver a correr el review o pedirle al agente que
-  pare; sólo con `--serve`).
+  mergear rechaza con 409 y no toca nada), `redispatch_task`, `rerun_review`, `stop_agent` y
+  `reset_runs` (le piden al runner volver a despachar el último evento, volver a correr el review,
+  pedirle al agente que pare o poner en cero los `maxRuns` de la task — lo que una persona usa al
+  destrabarla; sólo con `--serve`).
 - **Qué miran `available`, `when` y `with`** —los mismos hechos que publica `GET /api/tasks`—:
   `item.*` (`status`, `labels`, `type`, `repos`, `blocked`), `run.*` (la última corrida cerrada:
   `exit`, `status`, `failure_by`, `agent`, `summary`), `live.*` (la corrida viva: `status`,

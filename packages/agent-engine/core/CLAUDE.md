@@ -57,6 +57,7 @@ src/
 │   ├── Checkpoints.ts       guardar/retomar por dónde sigue una pausa
 │   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[] (+ StepOutcome, Resumable)
 │   ├── ParallelGroup.ts     varios pasos a la vez + veredicto combinado (`passed`/`failed`)
+│   ├── MaxRuns.ts           el tope de corridas por task (`counts`, `resetOn`, `onExhausted`)
 │   ├── tracing.ts           qué deja la Pipeline en la traza (opciones de @traced)
 │   ├── tests/
 │   └── actions/
@@ -82,6 +83,7 @@ src/
 │   ├── ExecutionStore.ts    una por task + tope + ifPaused + recuperación, sobre un repositorio
 │   ├── ExecutionScheduler.ts, KeyedQueue.ts, Semaphore.ts   turno por task + tope global
 │   ├── ExecutionRepository.ts   el puerto de persistencia (síncrono)
+│   ├── RunCounter.ts, InMemoryRunCounter.ts   dónde se cuentan las corridas de `maxRuns`
 │   ├── InMemoryExecutionRepository.ts, InMemoryExecutionStore.ts
 │   ├── PipelineSource.ts    la fuente del roster (interfaz) y StaticPipelineSource
 │   ├── tracing.ts           qué deja el despacho en la traza (opciones de @traced/@tagged)
@@ -254,7 +256,8 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
 - **Proyecto y pipeline sólo definen `onError`/`report`** (`ExitDefaults`): no conocen a los
   agentes, no pueden inventarles salidas.
 - **Los loops no van por rutas.** `Pipeline` rechaza ciclos entre agentes; un "review → build"
-  pasa por un evento (el cambio de status), con el tope de profundidad del `Engine`.
+  pasa por un evento (el cambio de status). El tope de profundidad del `Engine` NO lo frena: el eco
+  de un webhook vuelve con `depth` 0. Lo que lo acota es `maxRuns` (ver "Ejecuciones").
 
 `PipelineGraph` valida todo el cableado al construir la pipeline, llamando a `resolveRoutes` sin
 el nivel proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
@@ -493,6 +496,24 @@ Reglas que no son obvias al leer el código:
     reglas, y con `replace` dos comentarios re-despachados a la misma pipeline se colapsan.
   - **El default del store es `keep`**: `ExecutionStore.start` sin `ifQueued` encola como
     siempre; el que pide `replace` es el coordinador, con el de la pipeline.
+- **`maxRuns`: el tope de corridas de una pipeline por task** (`MaxRuns`). Lo cuenta el engine en
+  el `ExecutionStore` (`admitRun`), por clave de ejecución y contador (`counter`, default el id de la
+  pipeline; dos pipelines con el mismo nombre comparten la cuenta). Pasado `max`, corre
+  `onExhausted` (sólo acciones) en vez de la pipeline. Reglas no obvias:
+  - **Se cuenta al arrancar, con el turno tomado** (`ExecutionCoordinator`, después de
+    `executions.start`): una corrida reemplazada (`ifQueued`), salteada (`ifRunning: skip`) o una
+    reanudación de una pausa no cuenta.
+  - **Lo humano se declara, no se adivina.** En el evento no hay una señal uniforme de actor
+    (`sender`, `author`, `reviewer` según el tipo; los de CI no traen ninguno), así que `counts`
+    (`{ on, when }`) dice qué disparos cuentan — ej. `sender` que termina en `[bot]`.
+  - **`resetOn` pone la cuenta en cero** con eventos de la task (un comentario, una review humana).
+    `Engine.dispatch` lo aplica contra TODAS las pipelines de las fuentes (`plan.candidates`)
+    antes de lanzar: un comentario resetea el loop aunque su pipeline no corra por él, y la
+    corrida que ese mismo evento dispara ya cuenta desde cero.
+  - **`windowMs`**: una cuenta cuya última corrida es más vieja arranca de cero.
+  - **`RunCounter` es un puerto síncrono** (`InMemoryRunCounter` por default;
+    `SqliteRunCounter` en el datasource, que sobrevive al reinicio). `resetRuns(key)` lo expone el
+    store para una app (la acción `reset_runs` del runner, al destrabar una task).
 - **Suites de contrato.** Un store o una fuente nueva prueba que sustituye a la de memoria con
   `executionStoreContract` / `pipelineSourceContract` (`@ia-flow/agent-engine/testing`).
 - **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un

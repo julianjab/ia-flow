@@ -30,6 +30,7 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `reply_pr_review_thread` | `packages/github/tools/src/actions/ReviewThreadActions.ts` |
 | `request_slack_review` | `apps/runner-v2/src/actions/builtin/slack.ts` |
 | `rerun_review` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
+| `reset_runs` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
 | `resolve_pr_review_thread` | `packages/github/tools/src/actions/ReviewThreadActions.ts` |
 | `resolve_task` | `apps/runner-v2/src/actions/builtin/resolve_task.ts` |
 | `review_pull_request` | `packages/github/tools/src/actions/ReviewPullRequestAction.ts` |

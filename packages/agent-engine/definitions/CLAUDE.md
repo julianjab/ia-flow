@@ -88,6 +88,9 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
   report? }`. El `id` es obligatorio. `advisory` nombra miembros consultivos: reportan pero no
   votan ni hacen fallar al grupo. Su `onError`/`onInterrupt` son los de la cascada (pipeline > proyecto) — el YAML del
   grupo no los declara. Ver "grupo `parallel`" en el CLAUDE.md del core.
+- **`maxRuns`** en una pipeline: `{ max, counter?, counts?: [{ on, when }], resetOn?: [{ on, when }],
+  window?: 24h, onExhausted: [pasos] }`. Los filtros se arman como `interruptOn`; `onExhausted`, como
+  cualquier paso (acciones: un agente no carga). Ver `maxRuns` en el CLAUDE.md del core.
 - **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
   después del `when`. `whenText: <texto>` o `{ text, systemPrompts }`; cada system prompt
   por id (uno del `source.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline
