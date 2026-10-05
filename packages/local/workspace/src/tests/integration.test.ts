@@ -125,6 +125,40 @@ describe('WorkspaceManager + NodeShellRunner against real git', () => {
   })
 })
 
+describe('WorkspaceManager — worktree por carril (grupo parallel)', () => {
+  it('cada carril tiene su worktree, en --detach sobre la branch de la task, y se va con ella', async () => {
+    const remote = fakeRemote()
+    const wm = manager(remote.bare)
+    const clone = await wm.ensureLocalClone(repo)
+
+    const reviewer = await wm.getOrCreateLaneWorktree(task, clone, 'reviewer', {
+      branch: 'ia-flow/7',
+    })
+    const e2e = await wm.getOrCreateLaneWorktree(task, clone, 'e2e', { branch: 'ia-flow/7' })
+    const { path: main } = await wm.getOrCreateWorktree(task, clone, { branch: 'ia-flow/7' })
+
+    expect(reviewer.path).toBe(`${main}--reviewer`)
+    expect(e2e.path).not.toBe(reviewer.path)
+    expect(readFileSync(join(reviewer.path, 'feature.txt'), 'utf8')).toBe('v1\n')
+    // Detached en el mismo commit que la branch de la task.
+    expect(git(reviewer.path, 'rev-parse', 'HEAD')).toBe(git(main, 'rev-parse', 'HEAD'))
+    expect(git(reviewer.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
+
+    // Lo que un carril ensucia no le llega al otro, y refrescarlo lo descarta.
+    writeFileSync(join(reviewer.path, 'feature.txt'), 'tocado\n')
+    expect(readFileSync(join(e2e.path, 'feature.txt'), 'utf8')).toBe('v1\n')
+    pushV2(remote.seed)
+    const again = await wm.getOrCreateLaneWorktree(task, clone, 'reviewer', { branch: 'ia-flow/7' })
+    expect(again.path).toBe(reviewer.path)
+    expect(git(again.path, 'rev-parse', 'HEAD')).toBe(git(main, 'rev-parse', 'HEAD'))
+
+    await wm.removeWorktree(task, clone, 'ia-flow/7')
+    const listed = git(clone, 'worktree', 'list', '--porcelain')
+    expect(listed).not.toContain('--reviewer')
+    expect(listed).not.toContain('--e2e')
+  })
+})
+
 describe('NodeShellRunner', () => {
   it('returns the exit code instead of throwing, and runs without a shell', async () => {
     const shell = new NodeShellRunner()

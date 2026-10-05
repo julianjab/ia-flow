@@ -33,6 +33,10 @@ function fakeManager() {
   return {
     ensureLocalClone: vi.fn(async () => '/repos/o/r'),
     getOrCreateWorktree: vi.fn(async () => ({ path: dir, branch: 'ia-flow/7' })),
+    getOrCreateLaneWorktree: vi.fn(async (_task: unknown, _repo: string, lane: string) => ({
+      path: `${dir}--${lane}`,
+      branch: 'ia-flow/7',
+    })),
     cleanupTerminalWorktree: vi.fn(async () => {}),
     resetWorktree: vi.fn(async () => dir),
   }
@@ -72,6 +76,22 @@ describe('WorkspaceSession', () => {
     const { session: s } = session(manager)
     const ctx = run()
     await expect(s.dirFor(ctx)).rejects.toThrow('red caída')
+    expect(await s.dirFor(ctx)).toBe(dir)
+  })
+
+  it('cada carril de un grupo parallel tiene su worktree; el mismo carril lo reusa', async () => {
+    const { manager, session: s } = session()
+    const ctx = run()
+    const reviewer = { ...ctx, lane: 'reviewer' }
+    const e2e = { ...ctx, lane: 'e2e' }
+    expect(await s.dirFor(reviewer)).toBe(`${dir}--reviewer`)
+    expect(await s.dirFor(e2e)).toBe(`${dir}--e2e`)
+    await s.dirFor(reviewer)
+    expect(manager.getOrCreateLaneWorktree).toHaveBeenCalledTimes(2)
+    expect(manager.getOrCreateLaneWorktree).toHaveBeenCalledWith(target.task, '/repos/o/r', 'e2e', {
+      branch: 'ia-flow/7',
+    })
+    // Sin carril, el de la task: un paso fuera del grupo no se mezcla con los carriles.
     expect(await s.dirFor(ctx)).toBe(dir)
   })
 })
