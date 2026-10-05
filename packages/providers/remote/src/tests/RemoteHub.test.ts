@@ -143,6 +143,33 @@ describe('una corrida', () => {
     await until(() => host.running.length === 0)
   })
 
+  it('el carril de un miembro de un grupo `parallel` viaja al host (su propio worktree allá)', async () => {
+    const { hub, registry } = makeHub()
+    const seen: HostTask[] = []
+    started(
+      makeHost(hub, async (task, runner, signal) => {
+        seen.push(task)
+        await callTool(hub, `${runner.base}${task.endpoints.mcp}`, 'submit_done', {})
+        await aborted(signal)
+        return undefined
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    const provider = registry.resolve('remote:laptop') as Provider
+    const base = runContext()
+    await provider.run(
+      runContext({
+        tools: [tool('submit_done', () => 'ok', { terminal: true })],
+        ctx: { ...base.ctx, lane: 'e2e-visual-qa' },
+      }),
+    )
+    expect(seen[0]?.lane).toBe('e2e-visual-qa')
+
+    // Sin carril (un paso suelto), el campo no viaja.
+    await provider.run(runContext({ tools: [tool('submit_done', () => 'ok', { terminal: true })] }))
+    expect(seen[1]).not.toHaveProperty('lane')
+  })
+
   it('retoma la sesión que ya tenía, con lo que pasó mientras esperaba', async () => {
     const { hub, registry } = makeHub()
     const seen: HostTask[] = []

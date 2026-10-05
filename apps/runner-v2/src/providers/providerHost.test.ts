@@ -207,6 +207,57 @@ describe('cliTaskRunner', () => {
     expect(await ended).toBeUndefined()
     expect(fake.closed()).toBe(true)
   })
+
+  it('asks the workspace for the lane worktree, and marks it in use while the session runs', async () => {
+    const fake = fakeLaunch()
+    const lanes: (string | undefined)[] = []
+    const marks: string[] = []
+    const run = cliTaskRunner({
+      session: {
+        dirFor: async (ctx) => {
+          lanes.push(ctx.lane)
+          return `/work/eks-7--${ctx.lane}`
+        },
+      },
+      provider,
+      log: () => {},
+      launch: fake.launch,
+      close: async () => false,
+      worktrees: {
+        begin: (path) => marks.push(`begin ${path}`),
+        end: (path) => marks.push(`end ${path}`),
+      },
+    })
+    const ended = run(
+      task({ lane: 'e2e' }),
+      { base: 'https://runner' },
+      new AbortController().signal,
+    )
+    await Bun.sleep(5)
+    expect(marks).toEqual(['begin /work/eks-7--e2e'])
+    fake.exit({ code: 0, output: '' })
+    await ended
+    expect(lanes).toEqual(['e2e'])
+    expect(marks).toEqual(['begin /work/eks-7--e2e', 'end /work/eks-7--e2e'])
+  })
+
+  it('a launch that fails still releases the worktree', async () => {
+    const marks: string[] = []
+    const run = cliTaskRunner({
+      session: { dirFor: async () => '/work' },
+      provider,
+      log: () => {},
+      launch: async () => {
+        throw new Error('sin claude')
+      },
+      close: async () => false,
+      worktrees: { begin: (p) => marks.push(`begin ${p}`), end: (p) => marks.push(`end ${p}`) },
+    })
+    await expect(
+      run(task(), { base: 'https://runner' }, new AbortController().signal),
+    ).rejects.toThrow('sin claude')
+    expect(marks).toEqual(['begin /work', 'end /work'])
+  })
 })
 
 describe('the runner hosts API over the webhook server (node http)', () => {
