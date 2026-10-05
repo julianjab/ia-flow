@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.3.0](https://github.com/julianjab/ia-flow/compare/v2.2.0...v2.3.0) (2026-10-05)
+
+
+### Features
+
+* **agent-engine:** grupos parallel — varios agentes a la vez con veredicto combinado ([#275](https://github.com/julianjab/ia-flow/issues/275)) ([653ad0d](https://github.com/julianjab/ia-flow/commit/653ad0ddd86547ea27ac4657df2a309ded8e3375))
+* **agent-engine:** maxRuns — tope de corridas por task, contado por el engine ([#276](https://github.com/julianjab/ia-flow/issues/276)) ([911888e](https://github.com/julianjab/ia-flow/commit/911888e38ecb04eedd4771c4ce3ead84540684f7))
+* **github-tools:** el refiner puede absorber la descripción original en su PRD ([#272](https://github.com/julianjab/ia-flow/issues/272)) ([46891ab](https://github.com/julianjab/ia-flow/commit/46891ab84b14a025e8f2af606f8e0daf23064e08))
+* **runner-v2:** el host trabaja en el carril y borra el worktree al terminar la corrida ([#278](https://github.com/julianjab/ia-flow/issues/278)) ([acdd5c8](https://github.com/julianjab/ia-flow/commit/acdd5c87652b20a896b87dbccf45202416447641))
+* **workspace:** un worktree por carril para los miembros de un grupo parallel ([#277](https://github.com/julianjab/ia-flow/issues/277)) ([556c114](https://github.com/julianjab/ia-flow/commit/556c11460dfdede0f66d8b30752a3bdd63bb5dbc))
+
 ## [2.2.0](https://github.com/julianjab/ia-flow/compare/v2.1.0...v2.2.0) (2026-10-02)
 
 
