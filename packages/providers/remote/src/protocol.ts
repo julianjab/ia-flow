@@ -99,6 +99,9 @@ export const HostTask = z.strictObject({
     scope: z.record(z.string(), z.unknown()).optional(),
     occurredAt: z.string(),
   }),
+  /** El carril (`ctx.lane`): el miembro de un grupo `parallel`. El host lo usa para darle su propio
+   *  worktree, como el runner — sin él, dos miembros en el mismo host compartirían el de la task. */
+  lane: z.string().optional(),
   /** La sesión del CLI: una nueva con ese id, o retomar la que tiene ese id. */
   session: z.strictObject({ id: z.string(), resume: z.boolean() }),
   /** Paths en el runner (relativos a su base): el MCP, los hooks, la transcripción y el reporte

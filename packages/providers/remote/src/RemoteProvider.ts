@@ -116,6 +116,7 @@ export class RemoteProvider implements Provider {
         ...(ctx.ctx.event.scope ? { scope: ctx.ctx.event.scope } : {}),
         occurredAt: ctx.ctx.event.occurredAt,
       },
+      ...(ctx.ctx.lane ? { lane: ctx.ctx.lane } : {}),
       session: { id: sessionId, resume: resumedSession !== undefined },
       endpoints: {
         mcp: `${base}/mcp`,

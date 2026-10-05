@@ -425,6 +425,7 @@ host:
   accepts:                                 # qué toma: como el `when` de las pipelines
     - { field: repo, op: in, value: [ subscriptions, eks ] }
     - { field: agentId, op: neq, value: reviewer }
+  worktreeTtlHours: 72                     # borra los worktrees sin uso (0: nunca)
 ```
 
 **El runner** no declara hosts: con `IA_FLOW_HOST_TOKEN` en su ambiente (el mismo que presenta el
@@ -446,6 +447,14 @@ por `POST /v1/runs/<token>/transcript`, y el runner la registra como spans `chat
 tokens del dashboard). El host sólo lanza `claude` en SU worktree apuntando
 ahí, y lo corta cuando el runner cierra la corrida. Un solo checkout, el del host: las tools de
 workspace del agente no le llegan, y el `git push` sale con las credenciales de esa máquina.
+Un miembro de un grupo `parallel` lleva su carril en la tarea (`lane`), así que en el host también
+trabaja en su propio worktree (`<worktree>--<carril>`).
+
+**Los worktrees del host se limpian solos.** El host no ve las pipelines ni sabe cuándo termina una
+task, así que anota el último uso de cada worktree (`<WORKSPACE_DIR>/host-worktrees.json`) y cada
+hora borra los que pasaron `host.worktreeTtlHours` (default 72) sin uso: nunca uno en uso, nunca uno
+con cambios o commits sin pushear (`git worktree remove` sin `--force`), y nunca uno que no anotó.
+La branch local queda.
 
 **La telemetría del host es la del runner.** Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, el host exporta
 sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de
