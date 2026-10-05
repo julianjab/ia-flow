@@ -320,6 +320,11 @@ Reglas que no son obvias al leer el código:
 - **Sólo el paso EN SU LOOP con el modelo puede aceptar.** `Agent` marca `enter`/`leave` alrededor
   del provider. Entre pasos, o antes/después de un agente, no hay quién lo lea: el evento sigue
   por las reglas.
+- **Puede haber varios pasos activos a la vez** (un grupo `parallel`). Un evento se entrega UNA
+  vez a todos los que lo aceptan, y cada uno lee lo suyo (`drain(reader)`): con una sola bandeja,
+  el primero que la vaciara se llevaría lo de los demás. Lo que leyó uno no vuelve por las reglas
+  aunque otro no lo haya leído. Una interrupción le avisa a cada agente activo. `active` es el
+  primero que entró; `activeSteps`, todos.
 - **Nada inyectado se pierde.** Lo que llegó después de la última vuelta del agente queda sin leer
   (`Execution.takeUnread()`, que los consume); al cerrar —o pausar— la ejecución el engine lo vuelve a despachar contra las reglas
   CON agentes (las reacciones ya corrieron la primera vez) y, ya sin nada corriendo, arranca
