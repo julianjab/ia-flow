@@ -144,5 +144,17 @@ describe('Execution.run', () => {
       expect(execution.drain(reviewer)).toEqual(['pará'])
       expect(execution.drain(e2e)).toEqual(['pará'])
     })
+
+    it('un agente que entra DESPUÉS de la interrupción también lee el aviso', async () => {
+      const store = new InMemoryExecutionStore()
+      const execution = await store.start({ key: 'task-4', pipelineId: 'review' })
+      execution.enter(reviewer)
+      const interruption = { by: 'build', event: 'status_changed', reason: 'pasó a Build' }
+      expect(execution.interrupt(interruption, 'pará')).toBe(true)
+      // El e2e todavía preparaba su worktree: entra recién ahora.
+      execution.enter(e2e)
+      expect(execution.drain(e2e)).toEqual(['pará'])
+      expect(execution.drain(reviewer)).toEqual(['pará'])
+    })
   })
 })
