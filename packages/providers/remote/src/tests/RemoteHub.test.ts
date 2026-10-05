@@ -195,7 +195,7 @@ describe('una corrida', () => {
     expect(reasons).toEqual(['done', 'failed'])
   })
 
-  it('a un host viejo (no anunció `endings`) nunca le manda el campo: lo rechazaría y perdería sus tareas', async () => {
+  it('a un host viejo (no anunció features) nunca le manda `endings` ni `lane`: los rechazaría y perdería sus tareas', async () => {
     const { hub, registry } = makeHub()
     const polls: Record<string, unknown>[] = []
     // El fetch de un host viejo: sin el header de features, y valida la respuesta del poll.
@@ -226,8 +226,18 @@ describe('una corrida', () => {
     )
     await until(() => registry.resolve('remote:laptop') !== undefined)
     const provider = registry.resolve('remote:laptop') as Provider
-    await provider.run(runContext({ tools: [tool('submit_done', () => 'ok', { terminal: true })] }))
+    // Un miembro de un grupo `parallel`: la tarea tendría `lane`.
+    const member = runContext()
+    await provider.run(
+      runContext({
+        tools: [tool('submit_done', () => 'ok', { terminal: true })],
+        ctx: { ...member.ctx, lane: 'e2e' },
+      }),
+    )
     await until(() => ran.length === 1)
+    const tasks = polls.flatMap((reply) => reply.tasks as Record<string, unknown>[])
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).not.toHaveProperty('lane')
     expect(polls.some((reply) => Array.isArray(reply.closed) && reply.closed.length > 0)).toBe(true)
     expect(polls.every((reply) => !('endings' in reply))).toBe(true)
   })
