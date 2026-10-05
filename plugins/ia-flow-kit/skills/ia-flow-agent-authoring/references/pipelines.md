@@ -71,6 +71,31 @@ pipeline con agentes arranca por él.
 | pausa | `{ pause: <id>, branches: { <nombre>: { on, when?, to? } }, timeout: { after: 30m, to? } }` |
 | otros | `emit`, `http`, `function` — ver `packages/agent-engine/definitions/src/factories/` |
 | reuso | `{ ref: <id> }` — un paso declarado antes en el mismo `do` |
+| grupo | `{ parallel: [<pasos>], id, until: { all\|any: <salida(s)> }, advisory?: [<ids>], routes: { passed?: { to }, failed?: { to } } }` — ver abajo |
+
+### Grupo `parallel` — varios agentes a la vez
+
+```yaml
+- parallel:
+    - { agent: reviewer, brief: … }
+    - { agent: e2e-visual-qa, when: [ { field: item.repos, op: contains, value: lh-seller-v2-frontend } ] }
+  id: gate
+  until: { all: [ approved, passed ] }   # todos los que corrieron eligieron una de ésas
+  routes:
+    passed: { to: [ … ] }
+    failed: { to: { action: update_issue, with: { status: Build } } }
+```
+
+- Los miembros corren a la vez en la misma ejecución; cada uno con su `when` y su reporte.
+- **Las salidas de un miembro no tienen destino**: son veredicto y reporte. Sus `to` (los del
+  agente) no corren dentro del grupo, y `routes.<miembro>` con `to` no carga. La transición es del
+  grupo (`passed` / `failed`).
+- Un miembro saltado por su `when` no cuenta. Uno que falla, o termina sin salida, hace fallar al
+  grupo: corre el `onError` de la pipeline/proyecto UNA vez.
+- `advisory: [<ids>]` marca miembros **consultivos**: corren y publican su reporte, pero no votan
+  ni hacen fallar al grupo (un e2e contra un entorno compartido, que todavía no es gate
+  confiable). `until` nombra salidas de los que votan, y al menos uno tiene que votar.
+- Un miembro no puede pausar (ni `waits`). Cada miembro lee sólo lo que SUS `injects` aceptan.
 
 ## Rutas por pipeline
 

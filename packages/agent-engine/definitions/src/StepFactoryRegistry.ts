@@ -5,6 +5,7 @@ import { AgentStepFactory } from './factories/AgentStepFactory.js'
 import { EmitStepFactory } from './factories/EmitStepFactory.js'
 import { FunctionStepFactory } from './factories/FunctionStepFactory.js'
 import { HttpStepFactory } from './factories/HttpStepFactory.js'
+import { ParallelStepFactory } from './factories/ParallelStepFactory.js'
 import { PauseStepFactory } from './factories/PauseStepFactory.js'
 import { located } from './located.js'
 import type { StepBuildContext, StepFactory } from './StepFactory.js'
@@ -23,6 +24,7 @@ export class StepFactoryRegistry {
       new EmitStepFactory(),
       new HttpStepFactory(),
       new PauseStepFactory(),
+      new ParallelStepFactory(),
       new FunctionStepFactory(),
       ...extra,
     ]) {

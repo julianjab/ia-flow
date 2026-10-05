@@ -24,6 +24,7 @@ import {
   type ResolvedRoutes,
   type Runnable,
   type TextClassifier,
+  withMembers,
 } from '@ia-flow/agent-engine'
 import { YamlDefinitionSource } from '@ia-flow/agent-engine-datasource-yaml'
 import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
@@ -107,7 +108,10 @@ function validateProviderConfigs(
   validatorFor: ReturnType<typeof agentConfigValidator>,
 ): void {
   const steps = [
-    ...pipelines.flatMap((pipeline) => pipeline.do.map((step) => ({ step, where: pipeline.id }))),
+    // `withMembers`: los agentes de un grupo `parallel` también tienen su config.
+    ...pipelines.flatMap((pipeline) =>
+      pipeline.do.flatMap(withMembers).map((step) => ({ step, where: pipeline.id })),
+    ),
     ...Object.entries(capabilities).map(([name, step]) => ({ step, where: `capacidad ${name}` })),
   ]
   for (const { step, where } of steps) {

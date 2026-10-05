@@ -56,6 +56,7 @@ src/
 │   ├── StepRunner.ts        corre un paso, su salida (report + destinos) y su onError
 │   ├── Checkpoints.ts       guardar/retomar por dónde sigue una pausa
 │   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[] (+ StepOutcome, Resumable)
+│   ├── ParallelGroup.ts     varios pasos a la vez + veredicto combinado (`passed`/`failed`)
 │   ├── tracing.ts           qué deja la Pipeline en la traza (opciones de @traced)
 │   ├── tests/
 │   └── actions/
@@ -257,6 +258,30 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
 
 `PipelineGraph` valida todo el cableado al construir la pipeline, llamando a `resolveRoutes` sin
 el nivel proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
+
+**Un grupo `parallel` (`ParallelGroup`) corre varios pasos A LA VEZ** dentro de la misma ejecución
+y combina su veredicto (`until: { all | any: [salidas] }`) en una de dos salidas propias, `passed`
+o `failed`. Lo corre `StepRunner.runGroup` (`step.members` es la señal). Reglas no obvias:
+
+- **Las salidas de un miembro son veredicto y reporte, nunca transición.** `PipelineGraph` las
+  resuelve todas a `END` (`memberLayer`) aunque el agente declare destinos, y rechaza un
+  `routes.<miembro>` con `to`: dos miembros moverían la tarjeta en sentidos opuestos. Cada miembro
+  publica SU reporte; la transición es la del grupo.
+- **Cuentan sólo los miembros que corrieron.** Uno salteado por su `when` no vota; si no corrió
+  ninguno, no hay veredicto y no corre ninguna salida.
+- **Un miembro que tira o termina sin salida** (`truncated`/`cancelled`) hace tirar al grupo, una
+  vez: corre el `onError` de la cascada del grupo, no el de cada miembro. Se espera a todos antes:
+  los que terminaron ya publicaron.
+- **Interrumpido**, cada agente activo lee el aviso y cede; el grupo corre su `onInterrupt` UNA vez
+  con `progress` = en qué quedó cada miembro.
+- **Miembros consultivos** (`advisory: [ids]`): corren y publican su reporte, pero no votan
+  (`verdict` los saltea) y si tiran o terminan sin salida sólo se loguea un warn. Para un
+  verificador que todavía no es confiable como gate (un e2e contra un entorno compartido). Al menos
+  uno tiene que votar, y `until` tiene que nombrar salidas de los que votan.
+- **Un miembro no puede pausar** (`waits` incluido): el grupo no sabría por dónde seguir.
+- **`ctx.lane`** = el id del miembro: la app lo usa para no darle a dos miembros el mismo terreno
+  (un worktree que se prepara por evento).
+- El loop sigue pasando por un evento: `failed` mueve la tarjeta, no apunta a otro agente.
 
 **`onStart` de un agente corre como paso de la pipeline** (`ctx.runStep`, que pone
 `Pipeline.execute`): respeta su `when` y abre su span, pero NO aplica ningún `onError` — si tira,

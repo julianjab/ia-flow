@@ -116,6 +116,13 @@ export { Pause, TIMEOUT_BRANCH } from './pipeline/actions/Pause.js'
 export type { PauseActionProps, PauseBranchProps } from './pipeline/actions/PauseAction.js'
 export { PauseAction } from './pipeline/actions/PauseAction.js'
 export type {
+  GroupResult,
+  GroupUntil,
+  MemberVerdict,
+  ParallelGroupProps,
+} from './pipeline/ParallelGroup.js'
+export { GROUP_FAILED, GROUP_PASSED, ParallelGroup } from './pipeline/ParallelGroup.js'
+export type {
   Checkpoint,
   IfPaused,
   IfQueued,
@@ -137,7 +144,7 @@ export type {
   StepOutcome,
   StepResume,
 } from './pipeline/Runnable.js'
-export { INTERRUPTION_STEP, Runnable } from './pipeline/Runnable.js'
+export { INTERRUPTION_STEP, Runnable, withMembers } from './pipeline/Runnable.js'
 export type {
   ErrorRoute,
   ExitDefaults,
