@@ -28,7 +28,7 @@ src/
 ├── schema.ts                la forma de cada definición (zod): source, agent, pipeline, pasos
 ├── StepFactory.ts           el contrato de un tipo de paso (keyword + schema + create)
 ├── StepFactoryRegistry.ts   qué factory arma cada nodo (la primera clave registrada)
-├── factories/               una por tipo incluido: agent, action, emit, http, pause, function
+├── factories/               una por tipo incluido: agent, action, emit, http, pause, parallel, function
 ├── Catalogs.ts              lo que una definición nombra y la app registra en código
 ├── located.ts               anteponer dónde (archivo, fila…) y ruta a un error
 └── tests/                   con un datasource en memoria (`tests/memory.ts`)
@@ -83,6 +83,10 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
 - **`firstMatch: true`** en una pipeline: sus pasos son alternativas (ej. un agente por columna o
   repo), corre el primero cuyo `when` pasa. Es lo que permite una pipeline por momento del flujo
   en vez de una por variante.
+- **`parallel`** (`ParallelStepFactory`): `{ parallel: [pasos], id, until: { all|any: salida o
+  [salidas] }, routes: { passed?: { to, report? }, failed?: { to, report? } }, report? }`. El `id` es
+  obligatorio. Su `onError`/`onInterrupt` son los de la cascada (pipeline > proyecto) — el YAML del
+  grupo no los declara. Ver "grupo `parallel`" en el CLAUDE.md del core.
 - **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
   después del `when`. `whenText: <texto>` o `{ text, systemPrompts }`; cada system prompt
   por id (uno del `source.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline

@@ -9,6 +9,7 @@ import {
   type Pipeline,
   type ResolvedRoutes,
   type Runnable,
+  withMembers,
 } from '@ia-flow/agent-engine'
 import type { ConfigSummary, InboxProject } from '@ia-flow/shared'
 
@@ -73,7 +74,8 @@ function mcpHost(url: string | undefined): string {
 export function configSummary(source: ConfigSource): ConfigSummary {
   const agents = new Map<string, ConfigSummary['agents'][number]>()
   const pipelines = source.pipelines().map(({ pipeline, sourceId }) => {
-    const steps = pipeline.do
+    // Los miembros de un grupo `parallel` son agentes de la pipeline como cualquier otro.
+    const steps = pipeline.do.flatMap(withMembers)
     for (const step of steps.filter(isAgent)) {
       const id = stepId(step)
       if (agents.has(id)) continue

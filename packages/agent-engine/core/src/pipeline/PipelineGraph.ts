@@ -1,4 +1,5 @@
 import {
+  END,
   type ExitDefaults,
   type ExitRoutes,
   type ResolvedRoutes,
@@ -36,6 +37,9 @@ export class PipelineGraph {
   private readonly pauses: Map<string, Resumable>
   /** Los pasos que sólo corren como destino de una ruta: `do[]` los saltea. */
   readonly routed: Set<Runnable>
+  /** Los miembros de cada grupo `parallel`, con su grupo. Se llena en `findAgents`, antes de
+   *  resolver nada: `resolve` lo necesita. */
+  private readonly groupOf = new Map<Runnable, Runnable>()
 
   constructor(props: PipelineGraphProps) {
     this.pipelineId = props.pipelineId
@@ -59,8 +63,27 @@ export class PipelineGraph {
     return resolveRoutes(step.id as string, step.exitRoutes ?? {}, {
       project,
       pipeline: this.defaults,
-      step: this.stepRoutes[step.id as string],
+      step: this.groupOf.has(step) ? this.memberLayer(step) : this.stepRoutes[step.id as string],
     })
+  }
+
+  /**
+   * Las rutas de un miembro de un grupo: sus salidas son VEREDICTO y reporte, nunca transición —
+   * todas llevan a `END`, aunque el agente declare destinos. Si dos miembros movieran la tarjeta
+   * en sentidos opuestos, ganaría el último en terminar; la transición es del grupo.
+   */
+  private memberLayer(step: Runnable): ExitRoutes {
+    const override = this.stepRoutes[step.id as string]
+    const vocabulary = Object.keys(step.exitRoutes?.routes ?? {})
+    return {
+      ...override,
+      routes: Object.fromEntries(
+        vocabulary.map((name) => {
+          const route = override?.routes?.[name]
+          return [name, route === null ? null : { ...route, to: END }]
+        }),
+      ),
+    }
   }
 
   /** Las rutas efectivas del agente `agentId` en esta pipeline. */
@@ -92,6 +115,10 @@ export class PipelineGraph {
   private findAgents(): Map<string, Runnable> {
     const agents = new Map<string, Runnable>()
     const visit = (step: Runnable) => {
+      for (const member of step.members ?? []) {
+        this.groupOf.set(member, step)
+        visit(member)
+      }
       if (step.exitRoutes === undefined) return
       const existing = agents.get(step.id as string)
       if (existing === step) return
@@ -161,6 +188,7 @@ export class PipelineGraph {
     }
     for (const target of routeTargets(this.defaults.onError?.to)) routed.add(target)
     this.assertNoCycles(next)
+    this.assertGroups()
     this.assertPausesResumable()
     return routed
   }
@@ -227,6 +255,42 @@ export class PipelineGraph {
     for (const pause of checked) {
       for (const branch of pause.branchNames) {
         assertLast(pause.targetsOf(branch), `${pause.id}.${branch}`)
+      }
+    }
+  }
+
+  /** Lo que un miembro de un grupo no puede hacer, y lo que el grupo tiene que poder evaluar. */
+  private assertGroups(): void {
+    const groups = new Set(this.groupOf.values())
+    for (const [member, group] of this.groupOf) {
+      const where = `Pipeline(${this.pipelineId}): el grupo "${group.id}"`
+      if (member.id === group.id) {
+        throw new Error(`${where} tiene un miembro con su mismo id`)
+      }
+      if (member.asResumable() !== undefined) {
+        throw new Error(
+          `${where}: "${member.id}" puede pausar, y un miembro no puede — su grupo no sabría por dónde seguir`,
+        )
+      }
+      const withTargets = Object.entries(this.stepRoutes[member.id as string]?.routes ?? {})
+        .filter(([, route]) => route?.to !== undefined)
+        .map(([name]) => name)
+      if (withTargets.length > 0) {
+        throw new Error(
+          `${where}: routes.${member.id} le pone destino a ${withTargets.join(', ')} — en un grupo la transición es del grupo (sus routes.passed/failed)`,
+        )
+      }
+    }
+    for (const group of groups) {
+      const wanted = (group as { passingExits?: string[] }).passingExits ?? []
+      const declared = new Set(
+        (group.members ?? []).flatMap((m) => this.resolve(m).exits.map((exit) => exit.name)),
+      )
+      const unknown = wanted.filter((exit) => !declared.has(exit))
+      if (unknown.length > 0) {
+        throw new Error(
+          `Pipeline(${this.pipelineId}): el grupo "${group.id}" espera ${unknown.join(', ')}, que ningún miembro declara — declaradas: ${[...declared].join(', ')}`,
+        )
       }
     }
   }

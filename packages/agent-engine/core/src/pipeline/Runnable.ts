@@ -49,6 +49,10 @@ export interface PipelineExecutionContext {
   /** El texto del modelo a medida que se escribe (`ProviderRunContext.onText`): quien corre un
    *  agente fuera de una pipeline (una capacidad pedida por la web) lo muestra en vivo. */
   onText?: (delta: string) => void
+  /** El carril de un paso que corre dentro de un grupo `parallel`: el id del miembro. Dos
+   *  miembros comparten el evento, así que una app que prepara terreno por evento (un worktree)
+   *  lo usa para no darles el mismo. Ausente fuera de un grupo. */
+  lane?: string
 }
 
 /** Un paso que se retoma donde quedó: su `id`, por qué rama y con qué evento despertó, y lo que
@@ -64,8 +68,9 @@ export interface StepResume {
   attempts?: number
 }
 
-/** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). El resto, `action`. */
-export type StepKind = 'agent' | 'action'
+/** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). `group`: varios pasos que
+ *  corren a la vez (`ParallelGroup`). El resto, `action`. */
+export type StepKind = 'agent' | 'action' | 'group'
 
 /** Cómo la `Pipeline` lee lo que devolvió un paso (`Runnable.outcome`). */
 export type StepOutcome =
@@ -211,6 +216,11 @@ export abstract class Runnable extends Conditional {
     return undefined
   }
 
+  /** Los pasos que corren a la vez adentro de éste, si es un grupo (`ParallelGroup`). */
+  get members(): Runnable[] | undefined {
+    return undefined
+  }
+
   /** Cómo la pipeline lee lo que devolvió `run`: por default, un output a secas. */
   outcome(output: unknown): StepOutcome {
     return { kind: 'output', output }
@@ -243,4 +253,10 @@ export abstract class Runnable extends Conditional {
   /** `input` sólo llega cuando el paso lo ejecuta una ruta (ver `Pipeline`); un paso lineal de
    *  `do[]` lo recibe `undefined`. Los pasos que no aceptan input lo ignoran. */
   abstract run(ctx: PipelineExecutionContext, input?: unknown): Promise<unknown>
+}
+
+/** `step` y, si es un grupo, sus miembros — lo que corre de verdad. Para quien recorre los pasos de
+ *  una pipeline buscando agentes (validar su config, listarlos). */
+export function withMembers(step: Runnable): Runnable[] {
+  return step.members ? [step, ...step.members] : [step]
 }

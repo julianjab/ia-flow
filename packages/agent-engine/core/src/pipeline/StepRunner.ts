@@ -2,6 +2,7 @@ import { createLogger, traced } from '@ia-flow/telemetry'
 import type { AgentRunResult } from '../agent/Agent.js'
 import { type ErrorRoute, type ExitDefaults, routeTargets } from '../routing/ExitRoutes.js'
 import type { Pause } from './actions/Pause.js'
+import type { GroupResult, MemberVerdict, ParallelGroup } from './ParallelGroup.js'
 import type { StepRun, StepVia } from './Pipeline.js'
 import type { PipelineGraph } from './PipelineGraph.js'
 import {
@@ -75,7 +76,9 @@ export class StepRunner {
   ): Promise<StepRun> {
     let out: unknown
     try {
-      out = await step.run(ctx, input)
+      out = step.members
+        ? await this.runGroup(step as ParallelGroup, ctx)
+        : await step.run(ctx, input)
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
       // Interrumpido: lo que haya hecho al parar (incluso fallar) ya no decide nada.
@@ -91,8 +94,7 @@ export class StepRunner {
     }
     if (this.interruptedIn(step, ctx)) {
       if (step.id) ctx.steps[step.id] = out
-      const { output, progress } = out as AgentRunResult
-      const report = await this.interrupt(step, progress ?? output.summary ?? '', ctx)
+      const report = await this.interrupt(step, progressOf(step, out), ctx)
       return { output: out, interrupted: report }
     }
     const outcome = step.outcome(out)
@@ -122,11 +124,109 @@ export class StepRunner {
     return { output: out, exit: { exit, payload }, ...(paused ? { paused } : {}) }
   }
 
+  /**
+   * Corre los miembros de un grupo A LA VEZ y combina su veredicto (`ParallelGroup.until`).
+   *
+   * Cada miembro corre como un paso más (su `when`/`whenText`, su span) y, si eligió una salida,
+   * publica SU reporte — nunca sus destinos: en un grupo la transición es del grupo. Se espera a
+   * todos aunque uno falle: los que terminaron ya publicaron, y cortar a los demás a mitad dejaría
+   * su trabajo sin reportar.
+   *
+   * Tira (una vez, para el grupo entero) si un miembro tiró o terminó sin salida (`truncated`,
+   * `cancelled`): eso es un error, no un "no pasó" — un corte del provider no puede mandar la
+   * tarjeta de vuelta a Build. Interrumpido, devuelve lo que haya y `runDue` corre el
+   * `onInterrupt` del grupo una sola vez.
+   */
+  private async runGroup(
+    group: ParallelGroup,
+    ctx: PipelineExecutionContext,
+  ): Promise<GroupResult> {
+    const settled = await Promise.allSettled(
+      group.members.map((member) => this.runMember(member, group, { ...ctx, lane: member.id })),
+    )
+    const members: Record<string, MemberVerdict> = {}
+    const progress: Record<string, string> = {}
+    const failures: string[] = []
+    settled.forEach((result, index) => {
+      const id = group.members[index]?.id ?? `#${index}`
+      if (result.status === 'rejected') {
+        failures.push(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
+      } else if (result.value.ran) {
+        if (result.value.verdict) members[id] = result.value.verdict
+        if (result.value.progress) progress[id] = result.value.progress
+        if (!result.value.verdict && !ctx.execution?.interruption) {
+          failures.push(`${id}: terminó sin elegir salida`)
+        }
+      }
+    })
+    if (failures.length > 0 && !ctx.execution?.interruption) {
+      throw new Error(`grupo "${group.id}": ${failures.join('; ')}`)
+    }
+    const passed = ctx.execution?.interruption ? undefined : group.verdict(members)
+    if (passed === undefined && !ctx.execution?.interruption) {
+      this.log.warn(`${this.pipelineId}: el grupo "${group.id}" no corrió ningún miembro`)
+    }
+    return {
+      ...(passed === undefined ? {} : { passed }),
+      members,
+      ...(Object.keys(progress).length > 0 ? { progress } : {}),
+    }
+  }
+
+  /** Un miembro: si su `when` lo deja, corre con su span y publica el reporte de la salida que
+   *  eligió. `verdict` ausente = corrió pero no eligió salida. */
+  private async runMember(
+    member: Runnable,
+    group: ParallelGroup,
+    ctx: PipelineExecutionContext,
+  ): Promise<{ ran: boolean; verdict?: MemberVerdict; progress?: string }> {
+    if (!member.shouldRun(ctx)) return { ran: false }
+    const payload = ctx.event.payload
+    const subject = typeof payload === 'object' && payload !== null ? payload : {}
+    const textMismatch = await member.explainText(subject, ctx.classifier, ctx.event)
+    if (textMismatch) {
+      this.log.info(`${this.pipelineId}: ${member.id ?? 'paso'} no corre — ${textMismatch}`)
+      return { ran: false }
+    }
+    const run = await this.runMemberDue(member, undefined, ctx, `group:${group.id}`)
+    if ('error' in run) throw run.error
+    const result = run.output as AgentRunResult | undefined
+    const summary = result?.output?.summary
+    if (ctx.execution?.interruption) {
+      const left = result?.progress ?? summary
+      return { ran: true, ...(left ? { progress: left } : {}) }
+    }
+    if (!run.exit) return { ran: true }
+    return { ran: true, verdict: { exit: run.exit.exit.name, ...(summary ? { summary } : {}) } }
+  }
+
+  @traced(stepTrace)
+  private async runMemberDue(
+    member: Runnable,
+    _input: unknown,
+    ctx: PipelineExecutionContext,
+    _via: StepVia,
+  ): Promise<StepRun> {
+    const out = await member.run(ctx)
+    if (member.id) ctx.steps[member.id] = out
+    const outcome = member.outcome(out)
+    if (outcome.kind === 'pause') {
+      throw new Error(`${member.id}: un miembro de un grupo no puede pausar`)
+    }
+    if (outcome.kind === 'output' || ctx.execution?.interruption) return { output: out }
+    const exit = this.graph.resolve(member, ctx.defaults).exits.find((e) => e.name === outcome.exit)
+    if (!exit) return { output: out }
+    if (exit.report) {
+      await this.run(exit.report, outcome.payload.report, ctx, `report:${exit.name}`)
+    }
+    return { output: out, exit: { exit, payload: outcome.payload } }
+  }
+
   /** Si a `step` lo interrumpieron mientras corría: sólo se interrumpe a un agente en su loop, y
    *  una vez — la que ya dejó su `InterruptionReport` fue la de otro paso. */
   private interruptedIn(step: Runnable, ctx: PipelineExecutionContext): boolean {
     return (
-      step.kind === 'agent' &&
+      (step.kind === 'agent' || step.kind === 'group') &&
       ctx.execution?.interruption !== undefined &&
       ctx.steps[INTERRUPTION_STEP] === undefined
     )
@@ -201,4 +301,23 @@ function firstSet<T>(...values: Array<T | null | undefined>): T | null {
     if (value !== undefined) return value
   }
   return null
+}
+
+/** En qué quedó un paso interrumpido: lo que entregó un agente en `yield_turn` (o su resumen), o
+ *  lo de cada miembro de un grupo. */
+function progressOf(step: Runnable, out: unknown): string {
+  if (step.members) {
+    const group = out as GroupResult | undefined
+    const left = {
+      ...Object.fromEntries(
+        Object.entries(group?.members ?? {}).map(([id, v]) => [id, v.summary ?? v.exit]),
+      ),
+      ...group?.progress,
+    }
+    return Object.entries(left)
+      .map(([id, text]) => `${id}: ${text}`)
+      .join('\n')
+  }
+  const { output, progress } = out as AgentRunResult
+  return progress ?? output.summary ?? ''
 }
