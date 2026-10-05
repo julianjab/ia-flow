@@ -4,12 +4,17 @@ import { HostWorktrees } from './HostWorktrees.js'
 
 const ok = (stdout = ''): ShellResult => ({ exitCode: 0, stdout, stderr: '' })
 
-/** Un git de mentira: cada worktree con su branch (o `HEAD` separado) y si está sucio. */
+/** Un git de mentira: cada worktree con su branch (o `HEAD` separado) y si está sucio. Todos
+ *  cuelgan del clone `/repos/eks`. */
 function fakeGit(trees: Record<string, { branch: string; dirty?: boolean; refuse?: boolean }>) {
   const removed: string[] = []
   const shell: ShellRunner = {
     run: async (argv, cwd) => {
       const cmd = argv.join(' ')
+      if (cmd === 'git worktree list --porcelain' && cwd === '/repos/eks') {
+        const listed = ['/repos/eks', ...Object.keys(trees).filter((p) => !removed.includes(p))]
+        return ok(listed.map((path) => `worktree ${path}\nHEAD abc\n`).join('\n'))
+      }
       const tree = cwd ? trees[cwd] : undefined
       if (cmd === 'git rev-parse --path-format=absolute --git-common-dir') {
         return tree ? ok('/repos/eks/.git\n') : { exitCode: 128, stdout: '', stderr: 'not a git' }
@@ -48,6 +53,7 @@ function worktrees(
       warn: (line) => lines.push(`warn ${line}`),
       error: (line) => lines.push(`error ${line}`),
     },
+    clones: () => ['/repos/eks'],
   })
   return { w, lines, checked }
 }
@@ -131,7 +137,7 @@ describe('HostWorktrees', () => {
     expect(await w.end('/wt/a', 'done')).toBe('removed')
   })
 
-  it('una corrida que pide el worktree mientras otra lo borra espera y lo vuelve a armar', async () => {
+  it('una corrida que pide el worktree mientras se chequea si se puede borrar: no se borra', async () => {
     const git = fakeGit({ '/wt/a': { branch: 'task/1' } })
     let release!: () => void
     const checking = new Promise<void>((resolve) => {
@@ -142,16 +148,85 @@ describe('HostWorktrees', () => {
     const ending = w.end('/wt/a', 'done')
 
     // Mientras se chequea, la task vuelve a correr y pide el mismo worktree (todavía existe).
-    let prepared = 0
-    const begun = w.begin(async () => {
-      prepared++
-      return '/wt/a'
-    })
+    const begun = w.begin(async () => '/wt/a')
     release()
 
-    // O no se borró (lo tomó a tiempo), o se borró y la corrida lo volvió a armar.
-    const fate = await ending
+    // Mientras la otra corrida arma el suyo, no se borra nada.
+    expect(await ending).toBe('kept-in-use')
     expect(await begun).toBe('/wt/a')
-    expect(fate === 'kept-in-use' || prepared === 2).toBe(true)
+    expect(git.removed).toEqual([])
+  })
+
+  it('una corrida que empieza mientras un borrado ya está ejecutándose lo espera antes de armar', async () => {
+    const git = fakeGit({ '/wt/a': { branch: 'HEAD' } })
+    let release!: () => void
+    const removing = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    // `git worktree remove` tarda: la corrida nueva llega en el medio.
+    const slow: ShellRunner = {
+      run: async (argv, cwd) => {
+        if (argv[1] === 'worktree' && argv[2] === 'remove') await removing
+        return git.shell.run(argv, cwd)
+      },
+    }
+    const order: string[] = []
+    const w = new HostWorktrees({
+      shell: slow,
+      workspace: { isWorktreeSafeToRemove: async () => true },
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      clones: () => ['/repos/eks'],
+    })
+    await w.begin(async () => '/wt/a')
+    const ending = w.end('/wt/a', 'done').then((fate) => {
+      order.push('removed')
+      return fate
+    })
+    await Bun.sleep(5)
+    const begun = w.begin(async () => {
+      order.push('prepare')
+      return '/wt/a'
+    })
+    await Bun.sleep(5)
+    release()
+    expect(await ending).toBe('removed')
+    await begun
+    // Armó DESPUÉS del borrado: `prepare` lo vuelve a crear.
+    expect(order).toEqual(['removed', 'prepare'])
+  })
+})
+
+describe('HostWorktrees.sweep — el respaldo', () => {
+  it('borra lo que quedó limpio y pusheado (una pausa que no volvió, un host que se cayó); lo sucio queda', async () => {
+    const git = fakeGit({
+      '/wt/paused': { branch: 'task/1' },
+      '/wt/orphan-lane': { branch: 'HEAD' },
+      '/wt/unpushed': { branch: 'task/3' },
+    })
+    const { w, lines } = worktrees(git, (path) => path !== '/wt/unpushed')
+    // Una corrida se pausó y nunca se retomó.
+    await w.begin(async () => '/wt/paused')
+    await w.end('/wt/paused', 'paused')
+
+    expect(await w.sweep()).toEqual(['/wt/paused', '/wt/orphan-lane'])
+    expect(lines.some((line) => line.startsWith('warn ') && line.includes('/wt/unpushed'))).toBe(
+      true,
+    )
+  })
+
+  it('nunca uno en uso, ni nada mientras una corrida arma su worktree', async () => {
+    const git = fakeGit({ '/wt/a': { branch: 'task/1' }, '/wt/b': { branch: 'task/2' } })
+    const { w } = worktrees(git)
+    await w.begin(async () => '/wt/a')
+    expect(await w.sweep()).toEqual(['/wt/b'])
+
+    let release!: () => void
+    const preparing = new Promise<string>((resolve) => {
+      release = () => resolve('/wt/c')
+    })
+    const begun = w.begin(() => preparing)
+    expect(await w.sweep()).toEqual([])
+    release()
+    await begun
   })
 })
