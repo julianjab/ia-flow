@@ -82,7 +82,9 @@ export class Execution {
   status: ExecutionStatus = 'running'
   private readonly inbox = new Inbox()
   private readonly journal?: ExecutionJournal
-  private step: Runnable | undefined
+  /** Los pasos que están AHORA en su loop con el modelo. Casi siempre uno; varios en un grupo
+   *  `parallel`, que corre sus agentes a la vez dentro de la misma ejecución. */
+  private readonly steps = new Set<Runnable>()
   private interrupted: Interruption | undefined
   private paused: { pause: Pause; checkpoint: Checkpoint } | undefined
   /** Por dónde va el paso activo mientras corre (ver `progress`). */
@@ -133,10 +135,16 @@ export class Execution {
     )
   }
 
-  /** El paso que está AHORA en su loop con el modelo — el único que puede leer el inbox. Entre
-   *  pasos, o antes/después de un agente, no hay ninguno. */
+  /** El paso que está AHORA en su loop con el modelo — los únicos que pueden leer el inbox. Entre
+   *  pasos, o antes/después de un agente, no hay ninguno. Con varios (un grupo `parallel`), el
+   *  primero que entró: es el que se informa como `stepId` de una oferta. */
   get active(): Runnable | undefined {
-    return this.step
+    return this.steps.values().next().value
+  }
+
+  /** Todos los pasos activos, en el orden en que entraron. */
+  get activeSteps(): Runnable[] {
+    return [...this.steps]
   }
 
   /** Si la interrumpieron (ver `interrupt`). */
@@ -149,13 +157,15 @@ export class Execution {
     return this.status === 'paused' ? this.paused?.pause : undefined
   }
 
-  /** Lo llama el agente al entrar y salir de su loop con el provider. */
+  /** Lo llama el agente al entrar y salir de su loop con el provider. `leave()` sin paso saca a
+   *  todos. */
   enter(step: Runnable): void {
-    this.step = step
+    this.steps.add(step)
   }
 
-  leave(): void {
-    this.step = undefined
+  leave(step?: Runnable): void {
+    if (step) this.steps.delete(step)
+    else this.steps.clear()
   }
 
   /** Si `event` nació adentro de esta ejecución (lo emitió un paso suyo): no tiene que esperarla,
@@ -165,17 +175,18 @@ export class Execution {
   }
 
   /**
-   * Le ofrece `event` al paso activo: si lo acepta (`Runnable.accepts`), `message` le llega en su
-   * próxima vuelta y devuelve `true`. Si no hay paso activo o no lo acepta, `false` — el evento
-   * sigue su camino por las reglas, y queda recordado por si su pausa lo espera.
+   * Le ofrece `event` a los pasos activos: a cada uno que lo acepta (`Runnable.accepts`), `message`
+   * le llega en su próxima vuelta, y devuelve `true`. Si no hay paso activo o ninguno lo acepta,
+   * `false` — el evento sigue su camino por las reglas, y queda recordado por si su pausa lo espera.
    */
   inject(message: string, event: DomainEvent<any>): boolean {
     if (this.status !== 'running') return false
-    if (!this.step?.accepts(event)) {
+    const accepting = this.activeSteps.filter((step) => step.accepts(event))
+    if (accepting.length === 0) {
       this.inbox.miss(event)
       return false
     }
-    this.inbox.deliver(message, event)
+    this.inbox.deliver(message, event, accepting)
     this.journal?.delivered(this.id, event)
     return true
   }
@@ -189,9 +200,11 @@ export class Execution {
    */
   interrupt(interruption: Interruption, message: string): boolean {
     if (this.status !== 'running' || this.interrupted) return false
-    if (this.step?.kind !== 'agent') return false
+    const agents = this.activeSteps.filter((step) => step.kind === 'agent')
+    if (agents.length === 0) return false
     this.interrupted = interruption
-    this.inbox.notify(message)
+    // Cada agente activo lee el aviso: todos tienen que ceder su turno.
+    this.inbox.notify(message, agents)
     this.log.info(`${this.id} se interrumpe: ${interruption.reason}`, {
       'ia.execution.id': this.id,
       'ia.pipeline.id': interruption.by,
@@ -207,9 +220,10 @@ export class Execution {
     return pause ? missed.find((event) => pause.match(event) !== undefined) : undefined
   }
 
-  /** Lo que llegó desde la última vez, en orden — y lo marca leído. */
-  drain(): string[] {
-    return this.markRead(this.inbox.drain())
+  /** Lo que llegó para `reader` desde la última vez, en orden — y lo marca leído. Sin `reader`,
+   *  todo lo que llegó. */
+  drain(reader?: Runnable): string[] {
+    return this.markRead(this.inbox.drain(reader))
   }
 
   /** Los eventos inyectados que ningún agente leyó — y los consume: se toman una sola vez, así
@@ -234,7 +248,7 @@ export class Execution {
       throw new Error(`${this.id}: no se puede pausar una ejecución ${this.status}`)
     }
     this.status = 'paused'
-    this.step = undefined
+    this.steps.clear()
     this.progressed = undefined
     this.paused = { pause, checkpoint }
     this.journal?.save(this.toRecord())
@@ -289,7 +303,7 @@ export class Execution {
   close(status: ClosedStatus, reason?: string): void {
     if (this.status !== 'running' && this.status !== 'paused') return
     this.status = status
-    this.step = undefined
+    this.steps.clear()
     this.paused = undefined
     this.progressed = undefined
     this.inbox.takeMissed()

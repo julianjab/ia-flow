@@ -200,7 +200,7 @@ export class Agent extends Runnable {
           : {}),
       })
       .finally(() => {
-        execution?.leave()
+        execution?.leave(this)
         selected.release()
         ctx.saveProgress?.(this, undefined)
       })
@@ -246,7 +246,7 @@ export class Agent extends Runnable {
    *  lo leyó (`inboxTag`). */
   @taggedSync(inboxTag)
   private readInbox(execution: ExecutionHandle): string[] {
-    return execution.drain()
+    return execution.drain(this)
   }
 
   /** Encadenar agentes lo decide la pipeline, donde se ve el grafo completo: una ruta BASE que
