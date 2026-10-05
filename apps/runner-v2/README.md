@@ -463,10 +463,15 @@ en éste u otro host. Al cerrar la corrida, el runner le dice al host cómo cerr
 Nunca borra uno que otra corrida está usando, y `git worktree remove` va sin `--force`. La branch
 local queda.
 
-**El respaldo:** al arrancar y cada 6 h el host barre los worktrees de sus clones. Borra todo el que
-nadie usa y está limpio y pusheado: una pausa que nunca se retomó (al retomarse se vuelve a armar
-en el mismo path) o lo de un host que se cayó a mitad de una corrida. Lo que tiene trabajo sin
-pushear nunca se borra solo: queda en el log para rescatarlo.
+"Trabajo sin pushear" incluye un HEAD separado (un carril, o un rebase a medias) que ninguna
+branch remota contiene. Y el host sólo borra worktrees que armó él: los anota en
+`<WORKSPACE_DIR>/host-worktrees.json`, así que si un runner comparte el mismo disco, los suyos no
+se tocan.
+
+**El respaldo:** al arrancar y cada 6 h el host barre lo que anotó. Borra todo lo que nadie usa y
+está limpio y pusheado: una pausa que nunca se retomó (al retomarse se vuelve a armar en el mismo
+path) o lo de un host que se cayó a mitad de una corrida. Lo que tiene trabajo sin pushear nunca se
+borra solo: queda en el log para rescatarlo.
 
 **La telemetría del host es la del runner.** Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, el host exporta
 sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de

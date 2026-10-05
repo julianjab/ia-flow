@@ -34,7 +34,7 @@ import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { defaultWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
-import { clonesUnder, HostWorktrees } from '../workspace/HostWorktrees.js'
+import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
 import { CLAUDE_CLI_TYPE } from './providers.js'
 import { forwardTranscript, type TranscriptForwarder } from './transcriptForwarder.js'
@@ -128,7 +128,8 @@ export async function mountHost(
     shell: new NodeShellRunner(),
     workspace,
     log: createLogger('ia-flow-runner-v2.host'),
-    clones: clonesUnder(join(opts.workspaceDir ?? defaultWorkspaceRoot(), 'repos')),
+    // Lo que armó el host: sólo eso se borra (un runner en el mismo disco tiene los suyos).
+    ledgerPath: join(opts.workspaceDir ?? defaultWorkspaceRoot(), 'host-worktrees.json'),
   })
   const client = new HostClient({
     runnerUrl: settings.runner,
