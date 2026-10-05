@@ -10,7 +10,9 @@
  *
  * - **Sólo los que anotó.** Un worktree que el host no conoce (de otra versión, o creado a mano)
  *   no se toca.
- * - **Nunca uno en uso** (entre `begin` y `end`): una corrida larga no pierde su terreno.
+ * - **Nunca uno en uso** (entre `begin` y `end`): una corrida larga no pierde su terreno. Y nada
+ *   mientras una corrida arma el suyo: `begin` espera el sweep en curso, y el sweep no borra
+ *   mientras alguien prepara (vuelve a mirar justo antes de borrar).
  * - **Nunca con trabajo sin pushear**: en uno con branch, `isWorktreeSafeToRemove` (sin cambios
  *   y sin commits que no estén en `origin/<branch>`); en uno de carril (HEAD separado), sin
  *   cambios. Y `git worktree remove` va SIN `--force`: si quedó algo, git mismo se niega.
@@ -41,6 +43,10 @@ export class WorktreeSweeper {
   readonly #lastUse: Map<string, number>
   /** Corridas en curso por worktree: dos miembros de un grupo pueden compartir uno. */
   readonly #inUse = new Map<string, number>()
+  /** Corridas que todavía están armando su worktree: no se sabe cuál van a pedir. */
+  #preparing = 0
+  /** El sweep en curso: una corrida que empieza lo espera antes de pedir su worktree. */
+  #sweeping: Promise<unknown> = Promise.resolve()
 
   constructor(opts: WorktreeSweeperOptions) {
     this.#opts = opts
@@ -49,10 +55,22 @@ export class WorktreeSweeper {
     this.#lastUse = new Map(Object.entries(this.#read()))
   }
 
-  /** Una corrida empieza en `path`: queda en uso y anotada. */
-  begin(path: string): void {
-    this.#inUse.set(path, (this.#inUse.get(path) ?? 0) + 1)
-    this.#touch(path)
+  /**
+   * Una corrida empieza: espera el sweep en curso, arma su worktree (`prepare`) y lo deja en uso.
+   * Mientras prepara, ningún sweep borra nada — todavía no se sabe qué worktree va a pedir, y uno
+   * vencido que retoma no puede desaparecer entre que lo pide y que arranca en él.
+   */
+  async begin(prepare: () => Promise<string>): Promise<string> {
+    this.#preparing++
+    try {
+      await this.#sweeping.catch(() => {})
+      const path = await prepare()
+      this.#inUse.set(path, (this.#inUse.get(path) ?? 0) + 1)
+      this.#touch(path)
+      return path
+    } finally {
+      this.#preparing--
+    }
   }
 
   /** La corrida terminó: su último uso es ahora. */
@@ -65,16 +83,20 @@ export class WorktreeSweeper {
 
   /** Borra los worktrees anotados que pasaron el TTL y no están en uso. Devuelve los borrados. */
   async sweep(): Promise<string[]> {
+    const run = this.#sweep()
+    this.#sweeping = run
+    return run
+  }
+
+  async #sweep(): Promise<string[]> {
     const cutoff = this.#now() - this.#opts.ttlMs
     const removed: string[] = []
     for (const [path, at] of [...this.#lastUse]) {
-      if (at > cutoff || this.#inUse.has(path)) continue
+      if (at > cutoff || !this.#idle(path)) continue
       if (!this.#exists(path)) {
         this.#lastUse.delete(path)
         continue
       }
-      // Una corrida puede empezar mientras se chequea: `git worktree remove` sin `--force` igual
-      // se niega a borrar uno con cambios, y la corrida lo recrea al pedirlo.
       if (await this.#remove(path)) {
         this.#lastUse.delete(path)
         removed.push(path)
@@ -82,6 +104,11 @@ export class WorktreeSweeper {
     }
     this.#write()
     return removed
+  }
+
+  /** Nadie lo usa, ni hay una corrida armando el suyo (que podría ser éste). */
+  #idle(path: string): boolean {
+    return this.#preparing === 0 && !this.#inUse.has(path)
   }
 
   #touch(path: string): void {
@@ -106,6 +133,8 @@ export class WorktreeSweeper {
       log(`[workspace] no se limpia ${path}: tiene trabajo sin commitear o sin pushear`)
       return false
     }
+    // Los chequeos de arriba tardan: una corrida pudo empezar en el medio.
+    if (!this.#idle(path)) return false
     const r = await shell.run(['git', 'worktree', 'remove', path], repo)
     if (r.exitCode !== 0) {
       log(`[workspace] no se pudo limpiar ${path}: ${(r.stderr || r.stdout).trim()}`)

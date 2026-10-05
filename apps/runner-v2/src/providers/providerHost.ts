@@ -177,8 +177,8 @@ export function cliTaskRunner(opts: {
       opts.provider.defaults,
       parseClaudeCliConfig(task.providerConfig),
     )
-    const cwd = await opts.session.dirFor(contextOf(task))
-    opts.worktrees?.begin(cwd)
+    const prepare = () => opts.session.dirFor(contextOf(task))
+    const cwd = opts.worktrees ? await opts.worktrees.begin(prepare) : await prepare()
     try {
       return await runIn(cwd, task, runner, signal, config)
     } finally {
