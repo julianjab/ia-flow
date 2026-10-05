@@ -144,33 +144,16 @@ export class StepRunner {
     const settled = await Promise.allSettled(
       group.members.map((member) => this.runMember(member, group, { ...ctx, lane: member.id })),
     )
-    const members: Record<string, MemberVerdict> = {}
-    const progress: Record<string, string> = {}
-    const failures: string[] = []
-    settled.forEach((result, index) => {
-      const id = group.members[index]?.id ?? `#${index}`
-      if (result.status === 'rejected') {
-        failures.push(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
-      } else if (result.value.ran) {
-        if (result.value.verdict) members[id] = result.value.verdict
-        if (result.value.progress) progress[id] = result.value.progress
-        if (!result.value.verdict && !ctx.execution?.interruption) {
-          failures.push(`${id}: terminó sin elegir salida`)
-        }
-      }
-    })
-    if (failures.length > 0 && !ctx.execution?.interruption) {
-      throw new Error(`grupo "${group.id}": ${failures.join('; ')}`)
-    }
-    const passed = ctx.execution?.interruption ? undefined : group.verdict(members)
-    if (passed === undefined && !ctx.execution?.interruption) {
+    const interrupted = ctx.execution?.interruption !== undefined
+    const { members, progress, failures } = collectMembers(group, settled, interrupted)
+    if (interrupted) return { members, ...(progress ? { progress } : {}) }
+    if (failures.length > 0) throw new Error(`grupo "${group.id}": ${failures.join('; ')}`)
+    const passed = group.verdict(members)
+    if (passed === undefined) {
       this.log.warn(`${this.pipelineId}: el grupo "${group.id}" no corrió ningún miembro`)
+      return { members }
     }
-    return {
-      ...(passed === undefined ? {} : { passed }),
-      members,
-      ...(Object.keys(progress).length > 0 ? { progress } : {}),
-    }
+    return { passed, members }
   }
 
   /** Un miembro: si su `when` lo deja, corre con su span y publica el reporte de la salida que
@@ -179,7 +162,7 @@ export class StepRunner {
     member: Runnable,
     group: ParallelGroup,
     ctx: PipelineExecutionContext,
-  ): Promise<{ ran: boolean; verdict?: MemberVerdict; progress?: string }> {
+  ): Promise<MemberRun> {
     if (!member.shouldRun(ctx)) return { ran: false }
     const payload = ctx.event.payload
     const subject = typeof payload === 'object' && payload !== null ? payload : {}
@@ -301,6 +284,37 @@ function firstSet<T>(...values: Array<T | null | undefined>): T | null {
     if (value !== undefined) return value
   }
   return null
+}
+
+type MemberRun = { ran: boolean; verdict?: MemberVerdict; progress?: string }
+
+/** Lo que dejó cada miembro: su veredicto, en qué quedó si cedió, y qué falló. Sin salida cuenta
+ *  como falla — salvo interrumpido, donde ceder sin salida es lo esperado. */
+function collectMembers(
+  group: ParallelGroup,
+  settled: PromiseSettledResult<MemberRun>[],
+  interrupted: boolean,
+): {
+  members: Record<string, MemberVerdict>
+  progress?: Record<string, string>
+  failures: string[]
+} {
+  const members: Record<string, MemberVerdict> = {}
+  const progress: Record<string, string> = {}
+  const failures: string[] = []
+  settled.forEach((result, index) => {
+    const id = group.members[index]?.id ?? `#${index}`
+    if (result.status === 'rejected') {
+      failures.push(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
+      return
+    }
+    const { ran, verdict, progress: left } = result.value
+    if (!ran) return
+    if (verdict) members[id] = verdict
+    if (left) progress[id] = left
+    if (!verdict && !interrupted) failures.push(`${id}: terminó sin elegir salida`)
+  })
+  return { members, ...(Object.keys(progress).length > 0 ? { progress } : {}), failures }
 }
 
 /** En qué quedó un paso interrumpido: lo que entregó un agente en `yield_turn` (o su resumen), o
