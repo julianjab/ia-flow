@@ -2,6 +2,8 @@ import type { RunEnding } from '@ia-flow/provider-shared'
 import { createLogger, withRemoteTraceContext, withSpan } from '@ia-flow/telemetry'
 import {
   type AcceptRow,
+  FEATURE_ENDINGS,
+  HOST_FEATURES_HEADER,
   type HostTask,
   PollResponse,
   PROTOCOL_PREFIX,
@@ -165,6 +167,8 @@ export class HostClient {
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${this.options.token}`,
+        // Lo que este host entiende del cable: el runner sólo le manda eso (ver `protocol.ts`).
+        [HOST_FEATURES_HEADER]: FEATURE_ENDINGS,
       },
       body: JSON.stringify(body),
     })

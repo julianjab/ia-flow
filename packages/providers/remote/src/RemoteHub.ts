@@ -5,6 +5,8 @@ import { createLogger } from '@ia-flow/telemetry'
 import { z } from 'zod'
 import {
   type AcceptRow,
+  FEATURE_ENDINGS,
+  HOST_FEATURES_HEADER,
   type HostTask,
   PollRequest,
   type PollResponse,
@@ -89,6 +91,8 @@ class HostState {
   queue: HostTask[] = []
   closed: string[] = []
   endings: Record<string, RunEnding> = {}
+  /** Lo que el host dijo que entiende al suscribirse (`HOST_FEATURES_HEADER`). */
+  features = new Set<string>()
   readonly runs = new Map<string, RemoteRunState>()
   private waiter: (() => void) | undefined
   conditions: Condition[] = []
@@ -271,6 +275,12 @@ export class RemoteHub {
     const subscription = parse(SubscribeRequest, await body(req))
     const existing = this.hosts.get(subscription.name)
     const host = existing ?? new HostState(subscription, this.now())
+    host.features = new Set(
+      (req.headers.get(HOST_FEATURES_HEADER) ?? '')
+        .split(',')
+        .map((feature) => feature.trim())
+        .filter(Boolean),
+    )
     if (existing) {
       // El mismo host que vuelve (se reinició, se cortó la red): sesión nueva, sus corridas siguen.
       existing.accept(subscription)
@@ -302,7 +312,10 @@ export class RemoteHub {
     const response: PollResponse = {
       tasks: host.queue.splice(0),
       closed: host.closed.splice(0),
-      ...(Object.keys(host.endings).length > 0 ? { endings: host.endings } : {}),
+      // Sólo a quien dijo que lo entiende: un host viejo rechazaría la respuesta entera.
+      ...(host.features.has(FEATURE_ENDINGS) && Object.keys(host.endings).length > 0
+        ? { endings: host.endings }
+        : {}),
     }
     host.endings = {}
     for (const task of response.tasks) {
