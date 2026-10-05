@@ -201,3 +201,20 @@ describe('SqliteExecutionStore across a restart', () => {
     after.close()
   })
 })
+
+describe('SqliteExecutionStore — maxRuns', () => {
+  it('la cuenta de corridas sobrevive a un reinicio', () => {
+    const file = dbFile()
+    const budget = { counter: 'review-loop', max: 2 }
+    const first = new SqliteExecutionStore({ database: openNodeSqlite(file) })
+    first.admitRun(KEY, budget, 1000)
+    first.admitRun(KEY, budget, 2000)
+    first.close()
+
+    const second = new SqliteExecutionStore({ database: openNodeSqlite(file) })
+    expect(second.admitRun(KEY, budget, 3000)).toEqual({ allowed: false, count: 2 })
+    second.resetRuns(KEY)
+    expect(second.admitRun(KEY, budget, 3000)).toEqual({ allowed: true, count: 1 })
+    second.close()
+  })
+})
