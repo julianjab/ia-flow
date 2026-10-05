@@ -35,4 +35,47 @@ describe('Inbox', () => {
     inbox.deliver('comentario', comment)
     expect(inbox.takeUnread()).toEqual([comment])
   })
+
+  describe('con varios lectores (un grupo `parallel`)', () => {
+    const reviewer = { id: 'reviewer' }
+    const e2e = { id: 'e2e' }
+
+    it('cada lector lee sólo lo suyo, y lo sin destinatario lo lee cualquiera', () => {
+      const inbox = new Inbox()
+      inbox.deliver('para el reviewer', createEvent('comment', {}), [reviewer])
+      inbox.notify('aviso para el e2e', [e2e])
+      inbox.notify('aviso para todos')
+
+      expect(inbox.drain(reviewer)).toEqual(['para el reviewer', 'aviso para todos'])
+      expect(inbox.drain(reviewer)).toEqual([])
+      expect(inbox.drain(e2e)).toEqual(['aviso para el e2e', 'aviso para todos'])
+    })
+
+    it('una entrega para dos: lo que uno leyó lo sigue viendo el otro, y no vuelve', () => {
+      const inbox = new Inbox()
+      const comment = createEvent('comment', {})
+      inbox.deliver('uno', comment, [reviewer, e2e])
+
+      expect(inbox.drain(reviewer)).toEqual(['uno'])
+      expect(inbox.drain(e2e)).toEqual(['uno'])
+      expect(inbox.takeUnread()).toEqual([])
+    })
+
+    it('una entrega que ninguno leyó vuelve una sola vez, aunque fuera para dos', () => {
+      const inbox = new Inbox()
+      const comment = createEvent('comment', {})
+      inbox.deliver('tarde', comment, [reviewer, e2e])
+      expect(inbox.takeUnread()).toEqual([comment])
+      expect(inbox.takeUnread()).toEqual([])
+    })
+
+    it('el mismo evento entregado dos veces son dos entregas', () => {
+      const inbox = new Inbox()
+      const comment = createEvent('comment', {})
+      inbox.deliver('primero', comment, [reviewer])
+      expect(inbox.drain(reviewer)).toEqual(['primero'])
+      inbox.deliver('otra vez', comment, [reviewer])
+      expect(inbox.takeUnread()).toEqual([comment])
+    })
+  })
 })
