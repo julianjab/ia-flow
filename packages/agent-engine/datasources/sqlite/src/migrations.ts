@@ -82,6 +82,17 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX execution_trace_execution ON execution_trace (execution_id, seq);
   `,
+  // 3 — el tope de corridas por task (`maxRuns`): cuántas lleva cada contador de cada task
+  // (`SqliteRunCounter`). Tabla aparte de `executions`: no depende de su CHECK de `status`.
+  `
+  CREATE TABLE run_counts (
+    key     TEXT NOT NULL,
+    counter TEXT NOT NULL,
+    count   INTEGER NOT NULL,
+    last_at INTEGER,
+    PRIMARY KEY (key, counter)
+  );
+  `,
 ]
 
 /** Lleva la base a la última versión del esquema (`PRAGMA user_version`). */

@@ -12,6 +12,7 @@ import type {
 } from '../routing/ExitRoutes.js'
 import type { Pause } from './actions/Pause.js'
 import { Checkpoints } from './Checkpoints.js'
+import { MaxRuns, type MaxRunsProps } from './MaxRuns.js'
 import { PipelineGraph } from './PipelineGraph.js'
 import { PipelineTrigger } from './PipelineTrigger.js'
 import type { InterruptionReport, PipelineExecutionContext, Runnable } from './Runnable.js'
@@ -148,6 +149,12 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
    * Nunca crear una salida que el agente no declara.
    */
   routes?: Record<string, ExitRoutes>
+  /**
+   * Tope de corridas por task (ver `MaxRuns`): pasado `max`, en vez de la pipeline corre
+   * `onExhausted`. Lo cuenta el engine al arrancar cada corrida — un loop entre agentes pasa por
+   * eventos, y ningún grafo lo puede acotar.
+   */
+  maxRuns?: MaxRunsProps
 }
 
 /**
@@ -176,6 +183,7 @@ export class Pipeline {
   readonly ifQueued: IfQueued
   readonly do: Runnable[]
   readonly defaults: ExitDefaults
+  readonly maxRuns?: MaxRuns
   private readonly graph: PipelineGraph
   private readonly runner: StepRunner
   private readonly checkpoints: Checkpoints
@@ -209,6 +217,7 @@ export class Pipeline {
       stepRoutes: props.routes ?? {},
     })
     this.runner = new StepRunner(this.id, this.graph, this.defaults)
+    if (props.maxRuns) this.maxRuns = new MaxRuns(this.id, props.maxRuns)
     this.checkpoints = new Checkpoints(this.id, this.do, this.graph)
   }
 
@@ -227,6 +236,19 @@ export class Pipeline {
   interrupts(event: DomainEvent<any>): boolean {
     if (this.ifRunning !== 'interrupt') return false
     return this.interruptFilters?.some((filter) => filter.matches(event)) ?? true
+  }
+
+  /**
+   * Lo que corre en vez de la pipeline cuando su `maxRuns` se agotó para la task: los pasos de
+   * `onExhausted`, en orden (acciones: avisar, bloquear). Devuelve `ctx.steps`, como `execute`.
+   */
+  async exhaust(ctx: PipelineExecutionContext): Promise<Record<string, unknown>> {
+    for (const step of this.maxRuns?.onExhausted ?? []) {
+      if (await this.runner.run(step, undefined, ctx, 'onExhausted')) {
+        throw new Error(`Pipeline(${this.id}): un paso de \`onExhausted\` no puede pausar`)
+      }
+    }
+    return ctx.steps
   }
 
   /** Tipos de DomainEvent que escucha. */

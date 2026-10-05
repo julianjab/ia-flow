@@ -306,5 +306,33 @@ export function executionStoreContract(name: string, makeStore: ExecutionStoreFa
       await tick()
       expect(store.current(key)).toBeUndefined()
     })
+
+    it('counts runs against a budget (maxRuns): admits up to max, then refuses', async () => {
+      const store = await makeStore({})
+      const budget = { counter: 'review-loop', max: 2 }
+      expect(store.admitRun('task-a', budget, 1000)).toEqual({ allowed: true, count: 1 })
+      expect(store.admitRun('task-a', budget, 2000)).toEqual({ allowed: true, count: 2 })
+      expect(store.admitRun('task-a', budget, 3000)).toEqual({ allowed: false, count: 2 })
+      // Otra task, y otro contador de la misma, cuentan aparte.
+      expect(store.admitRun('task-b', budget, 3000)).toEqual({ allowed: true, count: 1 })
+      expect(store.admitRun('task-a', { counter: 'ci-red', max: 1 }, 3000).allowed).toBe(true)
+    })
+
+    it('resets a counter (or all of a task), and a stale count starts over', async () => {
+      const store = await makeStore({})
+      const budget = { counter: 'loop', max: 1 }
+      store.admitRun('task-a', budget, 1000)
+      expect(store.admitRun('task-a', budget, 1000).allowed).toBe(false)
+      store.resetRuns('task-a', 'loop')
+      expect(store.admitRun('task-a', budget, 1000).allowed).toBe(true)
+      store.resetRuns('task-a')
+      expect(store.admitRun('task-a', budget, 1000).allowed).toBe(true)
+
+      const windowed = { counter: 'w', max: 1, windowMs: 500 }
+      store.admitRun('task-c', windowed, 1000)
+      expect(store.admitRun('task-c', windowed, 1400).allowed).toBe(false)
+      // Pasada la ventana desde la última contada, arranca de cero.
+      expect(store.admitRun('task-c', windowed, 1600)).toEqual({ allowed: true, count: 1 })
+    })
   })
 }

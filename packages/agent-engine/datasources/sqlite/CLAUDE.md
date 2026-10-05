@@ -13,6 +13,7 @@ src/
 ├── SqliteDatabase.ts             el puerto: la base síncrona que comparten node:sqlite y bun:sqlite
 ├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread
 ├── SqliteExecutionStore.ts       ExecutionStore sobre ese repositorio (+ close)
+├── SqliteRunCounter.ts           `run_counts`: el RunCounter de `maxRuns` (sobrevive al reinicio)
 ├── SqliteDispatchJournal.ts      `event_log`: el DispatchJournal del Engine + `append` (lo que la app ignora)
 ├── SqliteTraceJournal.ts         `execution_trace`: el TraceJournal de `traceRecorder` (+ `onWrite`)
 ├── SqliteActivityReader.ts       el lado de lectura: eventos, traza, ejecuciones por task, usage, agentOutcome, prune
@@ -43,6 +44,9 @@ src/
   filtra las ejecuciones por task con JSON1 sobre la `key` (pares `[clave, valor]` de
   `scopeExecutionKey`); una key que no es JSON no rompe la consulta, sólo no matchea. `agentOutcome`
   lee el último span `ia.step.kind = agent` (las tools heredan `ia.agent.id`: no alcanza con eso).
+- **El tope de corridas** (migración 3, `run_counts`): una fila por (task, contador) con la cuenta y
+  la última corrida contada. Tabla propia y no columnas de `executions`: su CHECK de `status` no
+  se puede alterar sin reconstruir la tabla, y la cuenta no es de una ejecución sino de la task.
 - `node:sqlite` imprime un `ExperimentalWarning` al cargarse.
 
 ## Antes de commitear

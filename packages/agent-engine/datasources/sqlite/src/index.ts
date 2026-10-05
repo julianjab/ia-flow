@@ -21,5 +21,6 @@ export type { SqliteExecutionRepositoryOptions } from './SqliteExecutionReposito
 export { SqliteExecutionRepository } from './SqliteExecutionRepository.js'
 export type { SqliteExecutionStoreOptions } from './SqliteExecutionStore.js'
 export { SqliteExecutionStore } from './SqliteExecutionStore.js'
+export { SqliteRunCounter } from './SqliteRunCounter.js'
 export type { SqliteTraceJournalOptions } from './SqliteTraceJournal.js'
 export { SqliteTraceJournal } from './SqliteTraceJournal.js'

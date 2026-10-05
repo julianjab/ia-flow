@@ -84,14 +84,17 @@ export type {
   ExecutionListener,
   ExecutionStoreOptions,
   OrphanedEvents,
+  RunBudget,
   StartExecution,
 } from './engine/ExecutionStore.js'
 export { ExecutionStore, RESTART_NOTE } from './engine/ExecutionStore.js'
 export { InMemoryExecutionRepository } from './engine/InMemoryExecutionRepository.js'
 export type { InMemoryExecutionStoreOptions } from './engine/InMemoryExecutionStore.js'
 export { InMemoryExecutionStore } from './engine/InMemoryExecutionStore.js'
+export { InMemoryRunCounter } from './engine/InMemoryRunCounter.js'
 export type { PipelineSource, StaticPipelineSourceOptions } from './engine/PipelineSource.js'
 export { StaticPipelineSource } from './engine/PipelineSource.js'
+export type { RunCount, RunCounter } from './engine/RunCounter.js'
 export type { DispatchOutcome } from './engine/RunLauncher.js'
 export type { CreateEventOptions, DomainEvent } from './events/DomainEvent.js'
 export { createEvent, deriveEvent } from './events/DomainEvent.js'
@@ -115,6 +118,8 @@ export type { PauseJSON } from './pipeline/actions/Pause.js'
 export { Pause, TIMEOUT_BRANCH } from './pipeline/actions/Pause.js'
 export type { PauseActionProps, PauseBranchProps } from './pipeline/actions/PauseAction.js'
 export { PauseAction } from './pipeline/actions/PauseAction.js'
+export type { MaxRunsProps } from './pipeline/MaxRuns.js'
+export { MaxRuns } from './pipeline/MaxRuns.js'
 export type {
   GroupResult,
   GroupUntil,

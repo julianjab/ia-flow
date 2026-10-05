@@ -5,7 +5,11 @@ import type { TextClassifier } from '../condition/TextClassifier.js'
 import { createEvent, type DomainEvent } from '../events/DomainEvent.js'
 import type { EventBus } from '../events/EventBus.js'
 import type { Pipeline, Resumption } from '../pipeline/Pipeline.js'
-import type { ExecutionHandle, Interruption } from '../pipeline/Runnable.js'
+import type {
+  ExecutionHandle,
+  Interruption,
+  PipelineExecutionContext,
+} from '../pipeline/Runnable.js'
 import type { ConcurrencyLimits } from './ConcurrencyLimits.js'
 import type { Candidate, DispatchPlanner } from './DispatchPlanner.js'
 import type { Execution, Wake } from './Execution.js'
@@ -234,6 +238,11 @@ export class ExecutionCoordinator {
       // Otra corrida de la misma pipeline llegó mientras ésta esperaba y la reemplazó.
       if (!execution) return undefined
       this.noteOpened(event, execution.id)
+      // El tope se cuenta recién acá, con el turno tomado: lo anterior de la task ya terminó, y
+      // una corrida reemplazada o salteada no cuenta.
+      if (this.exhausted(pipeline, key, event, executions)) {
+        return this.runAsExecution(execution, () => this.runExhausted(candidate, event, execution))
+      }
       return this.runAsExecution(execution, () => this.runPipeline(candidate, event, execution))
     }
     return {
@@ -242,6 +251,45 @@ export class ExecutionCoordinator {
       // Nacido dentro de OTRA ejecución (hacia esta task): no se espera, ver `RunLauncher.detach`.
       detach: event.executionId !== undefined,
       ...(executionId ? { executionId } : {}),
+    }
+  }
+
+  /** Si `pipeline` ya agotó su `maxRuns` para la task (y, si no, cuenta esta corrida). Sólo cuentan
+   *  los disparos que pasan su `counts`. */
+  private exhausted(
+    pipeline: Pipeline,
+    key: string,
+    event: DomainEvent<any>,
+    executions: ExecutionStore,
+  ): boolean {
+    const budget = pipeline.maxRuns
+    if (!budget?.counts(event)) return false
+    const { allowed, count } = executions.admitRun(key, budget)
+    if (allowed) return false
+    this.log.warn(
+      `${pipeline.id}: la task agotó su tope de corridas (${count}/${budget.max}, contador "${budget.counter}") — corre onExhausted`,
+      {
+        'ia.pipeline.id': pipeline.id,
+        'ia.pipeline.runs': count,
+        'ia.pipeline.max_runs': budget.max,
+      },
+    )
+    return true
+  }
+
+  /**
+   * Los contadores de `maxRuns` que `event` pone en cero (`resetOn`), para su task. Lo llama el
+   * `Engine` con TODAS las pipelines de las fuentes (`plan.candidates`): un comentario humano
+   * resetea el contador del loop aunque su pipeline no corra por ese evento.
+   */
+  resetRuns(event: DomainEvent<any>, pipelines: Pipeline[]): void {
+    const key = this.executions ? this.executionKey(event) : undefined
+    if (key === undefined) return
+    for (const pipeline of pipelines) {
+      const budget = pipeline.maxRuns
+      if (!budget?.resets(event)) continue
+      this.executions?.resetRuns(key, budget.counter)
+      this.log.info(`${pipeline.id}: "${event.type}" pone en cero el contador "${budget.counter}"`)
     }
   }
 
@@ -359,25 +407,39 @@ export class ExecutionCoordinator {
   /** Corre la pipeline de `candidate` para `event` — como `execution` si hay, y desde su
    *  checkpoint si se está reanudando. */
   private runPipeline(
-    { pipeline, source }: Candidate,
+    candidate: Candidate,
     event: DomainEvent<any>,
     execution?: ExecutionHandle,
     from?: Resumption,
   ): Promise<Record<string, unknown>> {
-    return pipeline.execute(
-      {
-        event,
-        steps: {},
-        bus: this.bus,
-        pipelineId: pipeline.id,
-        defaults: source.defaults,
-        ...(source.id !== undefined ? { sourceId: source.id } : {}),
-        ...(this.classifier ? { classifier: this.classifier } : {}),
-        ...(this.capabilities ? { capabilities: this.capabilities } : {}),
-        ...(this.limits ? { limits: this.limits } : {}),
-        ...(execution ? { execution } : {}),
-      },
-      from,
-    )
+    return candidate.pipeline.execute(this.contextFor(candidate, event, execution), from)
+  }
+
+  /** En vez de la pipeline, su `onExhausted` (ver `MaxRuns`). */
+  private runExhausted(
+    candidate: Candidate,
+    event: DomainEvent<any>,
+    execution: ExecutionHandle,
+  ): Promise<Record<string, unknown>> {
+    return candidate.pipeline.exhaust(this.contextFor(candidate, event, execution))
+  }
+
+  private contextFor(
+    { pipeline, source }: Candidate,
+    event: DomainEvent<any>,
+    execution?: ExecutionHandle,
+  ): PipelineExecutionContext {
+    return {
+      event,
+      steps: {},
+      bus: this.bus,
+      pipelineId: pipeline.id,
+      defaults: source.defaults,
+      ...(source.id !== undefined ? { sourceId: source.id } : {}),
+      ...(this.classifier ? { classifier: this.classifier } : {}),
+      ...(this.capabilities ? { capabilities: this.capabilities } : {}),
+      ...(this.limits ? { limits: this.limits } : {}),
+      ...(execution ? { execution } : {}),
+    }
   }
 }
