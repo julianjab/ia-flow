@@ -11,7 +11,7 @@ src/
 ├── shell.ts              ShellRunner (interfaz) + NodeShellRunner
 ├── logger.ts             WorkspaceLogger + noopLogger
 ├── actions/              lo que se enchufa a agent-engine
-│   ├── WorkspaceSession.ts        worktree por corrida (clave: el evento)
+│   ├── WorkspaceSession.ts        worktree por corrida (clave: el evento + el carril `ctx.lane`)
 │   ├── WorkspaceToolAction.ts     fs_* / bash_run como Action + workspaceAction()
 │   └── CleanupWorkspaceAction.ts  paso cleanup_workspace
 └── tests/

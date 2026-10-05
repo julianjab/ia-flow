@@ -26,7 +26,7 @@ export interface PreparedWorkspace {
 }
 
 /**
- * El checkout de CADA corrida, a demanda: la primera tool de disco que el agente llama en una
+ * El checkout de CADA corrida (y de cada carril de un grupo `parallel`), a demanda: la primera tool de disco que el agente llama en una
  * corrida clona (si hace falta) y crea o reusa el worktree con el `WorkspaceManager`; el resto de
  * sus llamadas en esa corrida reusan el mismo resultado (la clave es el evento que la disparó).
  * Un agente que nunca toca disco no paga ni el fetch.
@@ -37,7 +37,9 @@ export interface PreparedWorkspace {
  * task).
  */
 export class WorkspaceSession {
-  private readonly byEvent = new WeakMap<DomainEvent, Promise<PreparedWorkspace>>()
+  /** Por evento y, dentro de él, por carril (`ctx.lane`; `''` = sin carril). Los miembros de un
+   *  grupo `parallel` comparten el evento: sin el carril se llevarían el mismo worktree. */
+  private readonly byEvent = new WeakMap<DomainEvent, Map<string, Promise<PreparedWorkspace>>>()
 
   constructor(
     readonly manager: WorkspaceManager,
@@ -45,19 +47,26 @@ export class WorkspaceSession {
   ) {}
 
   prepare(ctx: PipelineExecutionContext): Promise<PreparedWorkspace> {
-    let prepared = this.byEvent.get(ctx.event)
+    let lanes = this.byEvent.get(ctx.event)
+    if (!lanes) {
+      lanes = new Map()
+      this.byEvent.set(ctx.event, lanes)
+    }
+    const lane = ctx.lane ?? ''
+    let prepared = lanes.get(lane)
     if (!prepared) {
       prepared = this.create(ctx)
-      this.byEvent.set(ctx.event, prepared)
+      lanes.set(lane, prepared)
       // Un fallo no queda cacheado: la próxima tool de la corrida lo reintenta.
-      prepared.catch(() => this.byEvent.delete(ctx.event))
+      const cache = lanes
+      prepared.catch(() => cache.delete(lane))
     }
     return prepared
   }
 
-  /** El workspace que esta corrida ya preparó, si alguna tool lo pidió. */
+  /** El workspace que esta corrida (y este carril) ya preparó, si alguna tool lo pidió. */
   prepared(ctx: PipelineExecutionContext): Promise<PreparedWorkspace> | undefined {
-    return this.byEvent.get(ctx.event)
+    return this.byEvent.get(ctx.event)?.get(ctx.lane ?? '')
   }
 
   async dirFor(ctx: PipelineExecutionContext): Promise<string> {
@@ -67,9 +76,12 @@ export class WorkspaceSession {
   private async create(ctx: PipelineExecutionContext): Promise<PreparedWorkspace> {
     const target = this.resolveTarget(ctx)
     const repoBasePath = await this.manager.ensureLocalClone(target.repo)
-    const { path, branch } = await this.manager.getOrCreateWorktree(target.task, repoBasePath, {
-      branch: target.branch,
-    })
+    const opts = { branch: target.branch }
+    // Un miembro de un grupo `parallel` trabaja en su propio worktree (de lectura): ver
+    // `WorkspaceManager.getOrCreateLaneWorktree`.
+    const { path, branch } = ctx.lane
+      ? await this.manager.getOrCreateLaneWorktree(target.task, repoBasePath, ctx.lane, opts)
+      : await this.manager.getOrCreateWorktree(target.task, repoBasePath, opts)
     return { target, path, branch, repoBasePath }
   }
 }
