@@ -229,7 +229,10 @@ describe('cliTaskRunner', () => {
           marks.push(`begin ${path}`)
           return path
         },
-        end: (path) => marks.push(`end ${path}`),
+        end: async (path, ending) => {
+          marks.push(`end ${path} ${ending}`)
+          return 'removed'
+        },
       },
     })
     const ended = run(
@@ -239,10 +242,39 @@ describe('cliTaskRunner', () => {
     )
     await Bun.sleep(5)
     expect(marks).toEqual(['begin /work/eks-7--e2e'])
+    // La sesión terminó sola (sin que el runner cerrara la corrida): no hubo cierre del modelo.
     fake.exit({ code: 0, output: '' })
     await ended
     expect(lanes).toEqual(['e2e'])
-    expect(marks).toEqual(['begin /work/eks-7--e2e', 'end /work/eks-7--e2e'])
+    expect(marks).toEqual(['begin /work/eks-7--e2e', 'end /work/eks-7--e2e undefined'])
+  })
+
+  it('tells the worktree how the model closed the run (the reason the runner closed it with)', async () => {
+    for (const reason of ['done', 'paused', 'failed', 'closed'] as const) {
+      const fake = fakeLaunch()
+      const endings: unknown[] = []
+      const controller = new AbortController()
+      const run = cliTaskRunner({
+        session: { dirFor: async () => '/work' },
+        provider,
+        log: () => {},
+        launch: fake.launch,
+        close: async () => false,
+        worktrees: {
+          begin: (prepare) => prepare(),
+          end: async (_path, ending) => {
+            endings.push(ending)
+            return 'removed'
+          },
+        },
+      })
+      const ended = run(task(), { base: 'https://runner' }, controller.signal)
+      await Bun.sleep(5)
+      controller.abort(reason)
+      await ended
+      // `closed`: un runner viejo que no dice cómo cerró.
+      expect(endings).toEqual([reason === 'closed' ? undefined : reason])
+    }
   })
 
   it('a launch that fails still releases the worktree', async () => {
@@ -261,7 +293,10 @@ describe('cliTaskRunner', () => {
           marks.push(`begin ${p}`)
           return p
         },
-        end: (p) => marks.push(`end ${p}`),
+        end: async (p) => {
+          marks.push(`end ${p}`)
+          return 'removed'
+        },
       },
     })
     await expect(

@@ -2,7 +2,7 @@ import type { Tool } from '@ia-flow/agent-engine'
 import { captureContext } from '@ia-flow/telemetry'
 import { describe, expect, it } from 'vitest'
 import { handleMcp } from '../McpProtocol.js'
-import { RunChannel } from '../RunChannel.js'
+import { endingOf, RunChannel } from '../RunChannel.js'
 
 const tool = (name: string, extra: Partial<Tool> = {}): Tool => ({
   name,
@@ -125,6 +125,26 @@ describe('RunChannel hooks', () => {
     expect(run.hook('PostToolUse', { tool_use_id: 'x', tool_response: 'ok' })).toEqual({})
     expect(run.hook('PostToolUse', { tool_use_id: 'nunca-empezó' })).toEqual({})
     expect(run.hook('SessionStart', {})).toEqual({})
+    run.close()
+  })
+})
+
+describe('cómo cerró el turno (RunEnding)', () => {
+  it('una salida es `done`; fail_turn y yield_turn `failed`; wait_for_event `paused`', () => {
+    expect(endingOf({ name: 'submit_done' })).toBe('done')
+    expect(endingOf({ name: 'fail_turn', failure: true })).toBe('failed')
+    expect(endingOf({ name: 'yield_turn', failure: true })).toBe('failed')
+    expect(endingOf({ name: 'wait_for_event', failure: true })).toBe('paused')
+  })
+
+  it('el canal recuerda la primera tool terminal que llamó el modelo', async () => {
+    const run = channel()
+    expect(run.ending).toBeUndefined()
+    await run.call('fs_read', {})
+    expect(run.ending).toBeUndefined()
+    await run.call('submit_done', {})
+    await run.call('fail_turn', {})
+    expect(run.ending).toBe('done')
     run.close()
   })
 })

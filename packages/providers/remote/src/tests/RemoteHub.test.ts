@@ -1,6 +1,6 @@
 import type { Provider } from '@ia-flow/agent-engine'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HostClient } from '../HostClient.js'
+import { endingOfSignal, type HostClient } from '../HostClient.js'
 import type { HostTask } from '../protocol.js'
 import {
   callTool,
@@ -168,6 +168,31 @@ describe('una corrida', () => {
     // Sin carril (un paso suelto), el campo no viaja.
     await provider.run(runContext({ tools: [tool('submit_done', () => 'ok', { terminal: true })] }))
     expect(seen[1]).not.toHaveProperty('lane')
+  })
+
+  it('al cerrar la corrida, el host se entera de cómo cerró el modelo (el reason del abort)', async () => {
+    const { hub, registry } = makeHub()
+    const reasons: unknown[] = []
+    started(
+      makeHost(hub, async (task, runner, signal) => {
+        const exit = reasons.length === 0 ? 'submit_done' : 'fail_turn'
+        await callTool(hub, `${runner.base}${task.endpoints.mcp}`, exit, {})
+        await aborted(signal)
+        reasons.push(endingOfSignal(signal))
+        return undefined
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    const provider = registry.resolve('remote:laptop') as Provider
+    const tools = [
+      tool('submit_done', () => 'ok', { terminal: true }),
+      tool('fail_turn', () => 'x', { terminal: true, failure: true }),
+    ]
+    await provider.run(runContext({ tools }))
+    await until(() => reasons.length === 1)
+    await provider.run(runContext({ tools }))
+    await until(() => reasons.length === 2)
+    expect(reasons).toEqual(['done', 'failed'])
   })
 
   it('retoma la sesión que ya tenía, con lo que pasó mientras esperaba', async () => {
