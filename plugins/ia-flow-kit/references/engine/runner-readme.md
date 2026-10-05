@@ -218,6 +218,8 @@ cd apps/runner-v2
 bun run start                                     # verifica GitHub, carga y valida la definición
 bun run src/main.ts --event github.issue_comment ./delivery.json   # un webhook crudo, por el intake
 bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real, como `opened`
+bun run src/main.ts --issue la-haus/subscriptions#1625 --status Review    # su card "llegó" a Review
+bun run src/main.ts --issue la-haus/subscriptions#1625 --label e2e-test   # "le pusieron" el label
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks
 bun run host:serve                               # le presta su CLI `claude` a un runner (se suscribe),
                                                  # con su propio .env.host (ver .env.host.example)
@@ -485,8 +487,29 @@ del agente, así que el worktree, la sesión y los logs del host quedan en la mi
 ejecución (`host.run <agente>`). Al host sólo le hace falta `logLevel`. Si no llega al runner,
 queda su consola; con `OTEL_EXPORTER_OTLP_ENDPOINT` propio, exporta directo a ese collector.
 
-Un `--event` también monta la API de hosts (con `IA_FLOW_HOST_TOKEN`), así un evento suelto puede
-correr un agente `remote:*` — para probar un host sin levantar `--serve`.
+Un `--event` (y `--replay-pr`, `--issue`) también monta la API de hosts (con `IA_FLOW_HOST_TOKEN`),
+así un evento suelto puede correr un agente `remote:*` — para probar un host sin levantar `--serve`.
+
+**Correr el flujo de un issue a mano (`--issue`).** Simula algo sobre un issue REAL y lo despacha
+como el webhook que GitHub mandaría, por el intake: corre exactamente lo que correría en producción,
+con la card, el PR y los labels reales.
+
+- `--status <columna>`: su card llegó a esa columna (el mismo webhook que "re-ejecutar review" de la
+  bandeja). La card tiene que estar en un board del runner.
+- `--label <nombre>`: le pusieron ese label (`issues` `labeled`). **No** lo pone en GitHub.
+- `--as <login>`: quién figura como autor (`sender`). Default `ia-flow-cli`.
+
+Ojo: simular no toca GitHub, pero lo que hagan después los agentes sí es real (comentan, mueven la
+card, piden review en Slack). No hay modo "en seco": los agentes escriben por su MCP de GitHub y sus
+tools nativas, y un `--dry` que sólo frenara las acciones del engine mentiría.
+
+Ejemplo, el e2e de un issue contra un host local (`IA_FLOW_HOST_TOKEN` igual en los dos):
+
+```bash
+bun run host:serve                      # o la imagen del e2e-host apuntando a este runner
+bun run src/main.ts --config <runner.local.yaml> \
+  --issue la-haus/subscriptions#1625 --label e2e-test   # card en Review: corre el e2e a pedido
+```
 
 ## MCP propios (`mcpHost:`)
 
