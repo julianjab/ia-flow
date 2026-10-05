@@ -95,4 +95,66 @@ describe('Execution.run', () => {
     expect(execution.status).toBe('failed')
     expect(execution.toRecord().closeReason).toBe('el provider se cayó')
   })
+
+  describe('con varios pasos activos (un grupo `parallel`)', () => {
+    const comment = createEvent('issue_comment', {})
+    const reviewer = new Agent({
+      id: 'reviewer',
+      provider: 'fake',
+      prompt: 'p',
+      injects: [{ on: ['issue_comment'] }],
+    })
+    const e2e = new Agent({ id: 'e2e', provider: 'fake', prompt: 'p' })
+
+    it('entrega a cada paso que lo acepta, y cada uno lee sólo lo suyo', async () => {
+      const store = new InMemoryExecutionStore()
+      const execution = await store.start({ key: 'task-1', pipelineId: 'review' })
+      execution.enter(reviewer)
+      execution.enter(e2e)
+      expect(execution.activeSteps).toEqual([reviewer, e2e])
+      // El primero que entró es el que se informa como paso activo.
+      expect(execution.active).toBe(reviewer)
+
+      expect(execution.inject('ojo con el null', comment)).toBe(true)
+      expect(execution.drain(e2e)).toEqual([])
+      expect(execution.drain(reviewer)).toEqual(['ojo con el null'])
+    })
+
+    it('salir de uno deja a los demás activos; sin paso, salen todos', async () => {
+      const store = new InMemoryExecutionStore()
+      const execution = await store.start({ key: 'task-2', pipelineId: 'review' })
+      execution.enter(reviewer)
+      execution.enter(e2e)
+      execution.leave(reviewer)
+      expect(execution.activeSteps).toEqual([e2e])
+      // El reviewer ya no está en su loop: nadie más acepta el comentario.
+      expect(execution.inject('tarde', comment)).toBe(false)
+      execution.enter(reviewer)
+      execution.leave()
+      expect(execution.activeSteps).toEqual([])
+    })
+
+    it('una interrupción le avisa a cada agente activo', async () => {
+      const store = new InMemoryExecutionStore()
+      const execution = await store.start({ key: 'task-3', pipelineId: 'review' })
+      execution.enter(reviewer)
+      execution.enter(e2e)
+      const interruption = { by: 'build', event: 'status_changed', reason: 'pasó a Build' }
+      expect(execution.interrupt(interruption, 'pará')).toBe(true)
+      expect(execution.drain(reviewer)).toEqual(['pará'])
+      expect(execution.drain(e2e)).toEqual(['pará'])
+    })
+
+    it('un agente que entra DESPUÉS de la interrupción también lee el aviso', async () => {
+      const store = new InMemoryExecutionStore()
+      const execution = await store.start({ key: 'task-4', pipelineId: 'review' })
+      execution.enter(reviewer)
+      const interruption = { by: 'build', event: 'status_changed', reason: 'pasó a Build' }
+      expect(execution.interrupt(interruption, 'pará')).toBe(true)
+      // El e2e todavía preparaba su worktree: entra recién ahora.
+      execution.enter(e2e)
+      expect(execution.drain(e2e)).toEqual(['pará'])
+      expect(execution.drain(reviewer)).toEqual(['pará'])
+    })
+  })
 })

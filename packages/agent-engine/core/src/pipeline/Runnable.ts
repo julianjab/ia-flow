@@ -119,8 +119,10 @@ export interface ExecutionHandle {
   /** Si la interrumpieron: la pipeline corta después del paso activo y corre su `onInterrupt`. */
   readonly interruption?: Interruption
   enter(step: Runnable): void
-  leave(): void
-  drain(): string[]
+  /** Sale `step` de su loop; sin paso, salen todos. */
+  leave(step?: Runnable): void
+  /** Lo que llegó para `reader` (un paso activo); sin lector, todo. */
+  drain(reader?: Runnable): string[]
   /** La pipeline se cortó en una `PauseAction`: la ejecución espera hasta que la despierte un
    *  evento (o venza), y guarda por dónde seguir. */
   pause(pause: Pause, checkpoint: Checkpoint): void
