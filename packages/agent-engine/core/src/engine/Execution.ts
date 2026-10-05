@@ -86,6 +86,8 @@ export class Execution {
    *  `parallel`, que corre sus agentes a la vez dentro de la misma ejecución. */
   private readonly steps = new Set<Runnable>()
   private interrupted: Interruption | undefined
+  /** El aviso de la interrupción, para el agente que entre a su loop DESPUÉS de ella. */
+  private interruptMessage: string | undefined
   private paused: { pause: Pause; checkpoint: Checkpoint } | undefined
   /** Por dónde va el paso activo mientras corre (ver `progress`). */
   private progressed: Checkpoint | undefined
@@ -161,6 +163,11 @@ export class Execution {
    *  todos. */
   enter(step: Runnable): void {
     this.steps.add(step)
+    // Interrumpida antes de que este agente entrara (un miembro de un grupo que todavía preparaba
+    // su terreno): también tiene que ceder, así que lee el mismo aviso apenas entra.
+    if (this.interrupted && this.interruptMessage !== undefined && step.kind === 'agent') {
+      this.inbox.notify(this.interruptMessage, [step])
+    }
   }
 
   leave(step?: Runnable): void {
@@ -203,6 +210,7 @@ export class Execution {
     const agents = this.activeSteps.filter((step) => step.kind === 'agent')
     if (agents.length === 0) return false
     this.interrupted = interruption
+    this.interruptMessage = message
     // Cada agente activo lee el aviso: todos tienen que ceder su turno.
     this.inbox.notify(message, agents)
     this.log.info(`${this.id} se interrumpe: ${interruption.reason}`, {

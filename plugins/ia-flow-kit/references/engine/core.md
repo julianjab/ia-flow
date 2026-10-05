@@ -323,7 +323,8 @@ Reglas que no son obvias al leer el código:
 - **Puede haber varios pasos activos a la vez** (un grupo `parallel`). Un evento se entrega UNA
   vez a todos los que lo aceptan, y cada uno lee lo suyo (`drain(reader)`): con una sola bandeja,
   el primero que la vaciara se llevaría lo de los demás. Lo que leyó uno no vuelve por las reglas
-  aunque otro no lo haya leído. Una interrupción le avisa a cada agente activo. `active` es el
+  aunque otro no lo haya leído. Una interrupción le avisa a cada agente activo, y también al que
+  entre a su loop después (un miembro que todavía preparaba su terreno): todos ceden. `active` es el
   primero que entró; `activeSteps`, todos.
 - **Nada inyectado se pierde.** Lo que llegó después de la última vuelta del agente queda sin leer
   (`Execution.takeUnread()`, que los consume); al cerrar —o pausar— la ejecución el engine lo vuelve a despachar contra las reglas
