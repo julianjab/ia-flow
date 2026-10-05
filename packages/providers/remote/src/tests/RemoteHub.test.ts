@@ -1,7 +1,7 @@
 import type { Provider } from '@ia-flow/agent-engine'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { endingOfSignal, type HostClient } from '../HostClient.js'
-import type { HostTask } from '../protocol.js'
+import { endingOfSignal, HostClient } from '../HostClient.js'
+import { HOST_FEATURES_HEADER, type HostTask } from '../protocol.js'
 import {
   callTool,
   makeHost,
@@ -193,6 +193,43 @@ describe('una corrida', () => {
     await provider.run(runContext({ tools }))
     await until(() => reasons.length === 2)
     expect(reasons).toEqual(['done', 'failed'])
+  })
+
+  it('a un host viejo (no anunció `endings`) nunca le manda el campo: lo rechazaría y perdería sus tareas', async () => {
+    const { hub, registry } = makeHub()
+    const polls: Record<string, unknown>[] = []
+    // El fetch de un host viejo: sin el header de features, y valida la respuesta del poll.
+    const base = wire(hub)
+    const oldFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const headers = { ...(init?.headers as Record<string, string>) }
+      delete headers[HOST_FEATURES_HEADER]
+      const res = await base(input, { ...init, headers })
+      if (String(input).endsWith('/poll') && res.ok) polls.push(await res.clone().json())
+      return res
+    }) as typeof fetch
+    const ran: string[] = []
+    started(
+      new HostClient({
+        runnerUrl: RUNNER,
+        token: TOKEN,
+        name: 'laptop',
+        maxConcurrent: 1,
+        accepts: [],
+        fetchImpl: oldFetch,
+        run: async (task, runner, signal) => {
+          await callTool(hub, `${runner.base}${task.endpoints.mcp}`, 'submit_done', {})
+          await aborted(signal)
+          ran.push(task.runId)
+          return undefined
+        },
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    const provider = registry.resolve('remote:laptop') as Provider
+    await provider.run(runContext({ tools: [tool('submit_done', () => 'ok', { terminal: true })] }))
+    await until(() => ran.length === 1)
+    expect(polls.some((reply) => Array.isArray(reply.closed) && reply.closed.length > 0)).toBe(true)
+    expect(polls.every((reply) => !('endings' in reply))).toBe(true)
   })
 
   it('retoma la sesión que ya tenía, con lo que pasó mientras esperaba', async () => {
