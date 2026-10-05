@@ -44,7 +44,10 @@ describe('WorktreeSweeper', () => {
 
   function sweeper(
     git: ReturnType<typeof fakeGit>,
-    over: { safe?: (path: string) => boolean; exists?: (path: string) => boolean } = {},
+    over: {
+      safe?: (path: string) => boolean | Promise<boolean>
+      exists?: (path: string) => boolean
+    } = {},
   ) {
     const checked: string[] = []
     const s = new WorktreeSweeper({
@@ -67,10 +70,10 @@ describe('WorktreeSweeper', () => {
   it('borra sólo lo que pasó el TTL sin uso; lo reciente queda', async () => {
     const git = fakeGit({ '/wt/old': { branch: 'task/1' }, '/wt/new': { branch: 'task/2' } })
     const { s, checked } = sweeper(git)
-    s.begin('/wt/old')
+    await s.begin(async () => '/wt/old')
     s.end('/wt/old')
     now += 70 * HOUR
-    s.begin('/wt/new')
+    await s.begin(async () => '/wt/new')
     s.end('/wt/new')
     now += 3 * HOUR
 
@@ -83,8 +86,8 @@ describe('WorktreeSweeper', () => {
   it('nunca borra uno en uso, aunque haya pasado el TTL', async () => {
     const git = fakeGit({ '/wt/a': { branch: 'task/1' } })
     const { s } = sweeper(git)
-    s.begin('/wt/a')
-    s.begin('/wt/a')
+    await s.begin(async () => '/wt/a')
+    await s.begin(async () => '/wt/a')
     now += 100 * HOUR
     expect(await s.sweep()).toEqual([])
     // Dos corridas en el mismo: sigue en uso hasta que terminen las dos.
@@ -104,7 +107,7 @@ describe('WorktreeSweeper', () => {
     })
     const { s } = sweeper(git, { safe: (path) => path !== '/wt/unpushed' })
     for (const path of ['/wt/unpushed', '/wt/lane', '/wt/refused']) {
-      s.begin(path)
+      await s.begin(async () => path)
       s.end(path)
     }
     now += 100 * HOUR
@@ -115,7 +118,7 @@ describe('WorktreeSweeper', () => {
   it('un carril limpio (HEAD separado) se borra sin preguntar por su branch', async () => {
     const git = fakeGit({ '/wt/eks-7--e2e': { branch: 'HEAD' } })
     const { s, checked } = sweeper(git)
-    s.begin('/wt/eks-7--e2e')
+    await s.begin(async () => '/wt/eks-7--e2e')
     s.end('/wt/eks-7--e2e')
     now += 100 * HOUR
     expect(await s.sweep()).toEqual(['/wt/eks-7--e2e'])
@@ -125,9 +128,9 @@ describe('WorktreeSweeper', () => {
   it('recuerda entre reinicios, y olvida lo que ya no existe en disco', async () => {
     const git = fakeGit({ '/wt/a': { branch: 'task/1' } })
     const first = sweeper(git).s
-    first.begin('/wt/a')
+    await first.begin(async () => '/wt/a')
     first.end('/wt/a')
-    first.begin('/wt/gone')
+    await first.begin(async () => '/wt/gone')
     first.end('/wt/gone')
     now += 100 * HOUR
 
@@ -135,6 +138,34 @@ describe('WorktreeSweeper', () => {
     const second = sweeper(git, { exists: (path) => path !== '/wt/gone' }).s
     expect(await second.sweep()).toEqual(['/wt/a'])
     expect(JSON.parse(await readFile(join(dir, 'host-worktrees.json'), 'utf8'))).toEqual({})
+  })
+
+  it('una corrida que retoma un worktree vencido mientras el sweep lo chequea: no se borra', async () => {
+    const git = fakeGit({ '/wt/a': { branch: 'task/1' } })
+    let release!: () => void
+    const checking = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { s } = sweeper(git, { safe: () => checking.then(() => true) })
+    await s.begin(async () => '/wt/a')
+    s.end('/wt/a')
+    now += 100 * HOUR
+
+    // El sweep pasó el chequeo de uso y está esperando a git…
+    const swept = s.sweep()
+    // …y justo ahí la task vuelve a correr y pide el mismo worktree.
+    const order: string[] = []
+    const begun = s.begin(async () => {
+      order.push('prepare')
+      return '/wt/a'
+    })
+    release()
+
+    expect(await swept).toEqual([])
+    expect(await begun).toBe('/wt/a')
+    expect(git.removed).toEqual([])
+    // La corrida esperó a que el sweep terminara antes de armar su worktree.
+    expect(order).toEqual(['prepare'])
   })
 
   it('lo que no anotó no lo toca', async () => {

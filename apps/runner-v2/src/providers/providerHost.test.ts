@@ -224,7 +224,11 @@ describe('cliTaskRunner', () => {
       launch: fake.launch,
       close: async () => false,
       worktrees: {
-        begin: (path) => marks.push(`begin ${path}`),
+        begin: async (prepare) => {
+          const path = await prepare()
+          marks.push(`begin ${path}`)
+          return path
+        },
         end: (path) => marks.push(`end ${path}`),
       },
     })
@@ -251,7 +255,14 @@ describe('cliTaskRunner', () => {
         throw new Error('sin claude')
       },
       close: async () => false,
-      worktrees: { begin: (p) => marks.push(`begin ${p}`), end: (p) => marks.push(`end ${p}`) },
+      worktrees: {
+        begin: async (prepare) => {
+          const p = await prepare()
+          marks.push(`begin ${p}`)
+          return p
+        },
+        end: (p) => marks.push(`end ${p}`),
+      },
     })
     await expect(
       run(task(), { base: 'https://runner' }, new AbortController().signal),
