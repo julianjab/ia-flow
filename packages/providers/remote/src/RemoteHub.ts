@@ -1,10 +1,13 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { Condition, type ProviderRegistry } from '@ia-flow/agent-engine'
-import { ChannelRouter, type RunChannel } from '@ia-flow/provider-shared'
+import { ChannelRouter, type RunChannel, type RunEnding } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { z } from 'zod'
 import {
   type AcceptRow,
+  FEATURE_ENDINGS,
+  FEATURE_LANE,
+  HOST_FEATURES_HEADER,
   type HostTask,
   PollRequest,
   type PollResponse,
@@ -88,6 +91,9 @@ class HostState {
   lastSeen: number
   queue: HostTask[] = []
   closed: string[] = []
+  endings: Record<string, RunEnding> = {}
+  /** Lo que el host dijo que entiende al suscribirse (`HOST_FEATURES_HEADER`). */
+  features = new Set<string>()
   readonly runs = new Map<string, RemoteRunState>()
   private waiter: (() => void) | undefined
   conditions: Condition[] = []
@@ -270,6 +276,12 @@ export class RemoteHub {
     const subscription = parse(SubscribeRequest, await body(req))
     const existing = this.hosts.get(subscription.name)
     const host = existing ?? new HostState(subscription, this.now())
+    host.features = new Set(
+      (req.headers.get(HOST_FEATURES_HEADER) ?? '')
+        .split(',')
+        .map((feature) => feature.trim())
+        .filter(Boolean),
+    )
     if (existing) {
       // El mismo host que vuelve (se reinició, se cortó la red): sesión nueva, sus corridas siguen.
       existing.accept(subscription)
@@ -298,7 +310,19 @@ export class RemoteHub {
     this.checkRunning(host, new Set(running))
     await host.wait(this.options.longPollMs ?? DEFAULT_LONG_POLL_MS)
     host.lastSeen = this.now()
-    const response: PollResponse = { tasks: host.queue.splice(0), closed: host.closed.splice(0) }
+    const response: PollResponse = {
+      // `lane` sólo a quien dijo que lo entiende (como `endings`): un host viejo valida la tarea
+      // estricta y rechazaría la respuesta entera. Sin él, trabaja en el worktree de la task.
+      tasks: host.queue
+        .splice(0)
+        .map((task) => (host.features.has(FEATURE_LANE) ? task : withoutLane(task))),
+      closed: host.closed.splice(0),
+      // Sólo a quien dijo que lo entiende: un host viejo rechazaría la respuesta entera.
+      ...(host.features.has(FEATURE_ENDINGS) && Object.keys(host.endings).length > 0
+        ? { endings: host.endings }
+        : {}),
+    }
+    host.endings = {}
     for (const task of response.tasks) {
       const run = host.runs.get(task.runId)
       if (run) run.delivered = true
@@ -351,6 +375,8 @@ export class RemoteHub {
     host.queue = host.queue.filter((task) => task.runId !== run.task.runId)
     if (run.delivered) {
       host.closed.push(run.task.runId)
+      const ending = run.channel.ending
+      if (ending) host.endings[run.task.runId] = ending
       host.wake()
     }
   }
@@ -376,6 +402,12 @@ export class RemoteHub {
 }
 
 class BadRequest extends Error {}
+
+/** La tarea sin `lane`, para un host que no lo entiende. */
+function withoutLane(task: HostTask): HostTask {
+  const { lane: _lane, ...rest } = task
+  return rest
+}
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value)

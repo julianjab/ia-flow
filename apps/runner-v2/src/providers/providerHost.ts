@@ -11,6 +11,8 @@
  * Un host no despacha: monta sólo su identidad de GitHub (para clonar), su workspace y el CLI. Ni
  * engine, ni fuentes, ni base de ejecuciones, ni la marca Working.
  */
+
+import { join } from 'node:path'
 import { EventBus, type McpServerRef, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import {
   type ClaudeCliConfig,
@@ -21,14 +23,18 @@ import {
   sessionName,
 } from '@ia-flow/provider-anthropic-cli'
 import {
+  endingOfSignal,
   HostClient,
   type HostTask,
   type RunReport,
   type TaskRunner,
 } from '@ia-flow/provider-remote'
-import type { WorkspaceSession } from '@ia-flow/workspace'
+import { createLogger } from '@ia-flow/telemetry'
+import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
+import { defaultHostWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
+import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
 import { CLAUDE_CLI_TYPE } from './providers.js'
 import { forwardTranscript, type TranscriptForwarder } from './transcriptForwarder.js'
@@ -98,7 +104,12 @@ export interface MountedHost {
   client: HostClient
   settings: HostSettings
   githubAuthMode: string
+  /** El worktree de cada corrida, y el respaldo que barre lo que quedó (`sweep`). */
+  worktrees: HostWorktrees
 }
+
+/** Cada cuánto barre los worktrees que quedaron en disco (además de al arrancar). */
+export const SWEEP_INTERVAL_MS = 6 * 60 * 60_000
 
 /** Lo que un host necesita, y nada más (ver arriba). */
 export async function mountHost(
@@ -108,10 +119,20 @@ export async function mountHost(
   const settings = hostSettings(cfg)
   const github = await resolveGithubAuth()
   await verifyGithubAuth(github)
-  const { session } = mountWorkspace({
-    ...(opts.workspaceDir ? { root: opts.workspaceDir } : {}),
+  // Una raíz propia (no la del runner): en una máquina con los dos, la misma task tendría el mismo
+  // path y el host podría borrarle al runner un worktree en uso.
+  const root = opts.workspaceDir ?? defaultHostWorkspaceRoot()
+  const { session, workspace } = mountWorkspace({
+    root,
     githubToken: () => github.auth.getToken(),
     log: opts.log,
+  })
+  const worktrees = new HostWorktrees({
+    shell: new NodeShellRunner(),
+    workspace,
+    log: createLogger('ia-flow-runner-v2.host'),
+    // Lo que armó el host: sólo eso se borra.
+    ledgerPath: join(root, 'host-worktrees.json'),
   })
   const client = new HostClient({
     runnerUrl: settings.runner,
@@ -119,9 +140,14 @@ export async function mountHost(
     name: settings.name,
     maxConcurrent: settings.maxConcurrent,
     accepts: settings.accepts,
-    run: cliTaskRunner({ session, provider: settings.provider, log: opts.log }),
+    run: cliTaskRunner({
+      session,
+      provider: settings.provider,
+      log: opts.log,
+      worktrees,
+    }),
   })
-  return { client, settings, githubAuthMode: github.mode }
+  return { client, settings, githubAuthMode: github.mode, worktrees }
 }
 
 /**
@@ -136,6 +162,9 @@ export function cliTaskRunner(opts: {
   log: (line: string) => void
   launch?: typeof launchCli
   close?: typeof closeOrphan
+  /** Quién arma el worktree de cada corrida y lo borra al terminar (`HostWorktrees`). Sin él, el
+   *  worktree queda en disco. */
+  worktrees?: Pick<HostWorktrees, 'begin' | 'end'>
   /** Dónde está la transcripción del CLI (default `~/.claude/projects`) y cómo se le habla al
    *  runner: los tests los inyectan. */
   transcriptsDir?: string
@@ -148,7 +177,23 @@ export function cliTaskRunner(opts: {
       opts.provider.defaults,
       parseClaudeCliConfig(task.providerConfig),
     )
-    const cwd = await opts.session.dirFor(contextOf(task))
+    const prepare = () => opts.session.dirFor(contextOf(task))
+    const cwd = opts.worktrees ? await opts.worktrees.begin(prepare) : await prepare()
+    try {
+      return await runIn(cwd, task, runner, signal, config)
+    } finally {
+      // Cómo cerró el modelo, si el runner cerró la corrida; si la sesión terminó sola, no cerró.
+      await opts.worktrees?.end(cwd, signal.aborted ? endingOfSignal(signal) : undefined)
+    }
+  }
+
+  async function runIn(
+    cwd: string,
+    task: HostTask,
+    runner: { base: string },
+    signal: AbortSignal,
+    config: ClaudeCliConfig,
+  ): Promise<RunReport | undefined> {
     // Una sesión que quedó viva de antes (el host se reinició a mitad de camino) se cierra antes
     // de retomar su conversación en una nueva.
     if (config.mode === 'tmux') await close({ kind: 'tmux', name: sessionName(task.label) })
@@ -226,6 +271,7 @@ function contextOf(task: HostTask): PipelineExecutionContext {
     steps: {},
     bus: new EventBus(),
     pipelineId: 'remote',
+    ...(task.lane ? { lane: task.lane } : {}),
   }
 }
 

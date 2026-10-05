@@ -99,6 +99,9 @@ export const HostTask = z.strictObject({
     scope: z.record(z.string(), z.unknown()).optional(),
     occurredAt: z.string(),
   }),
+  /** El carril (`ctx.lane`): el miembro de un grupo `parallel`. El host lo usa para darle su propio
+   *  worktree, como el runner — sin él, dos miembros en el mismo host compartirían el de la task. */
+  lane: z.string().optional(),
   /** La sesión del CLI: una nueva con ese id, o retomar la que tiene ese id. */
   session: z.strictObject({ id: z.string(), resume: z.boolean() }),
   /** Paths en el runner (relativos a su base): el MCP, los hooks, la transcripción y el reporte
@@ -121,10 +124,29 @@ export const HostTask = z.strictObject({
 })
 export type HostTask = z.infer<typeof HostTask>
 
+/**
+ * Lo que el host entiende del cable más allá de la versión base, como header de la suscripción
+ * (`x-ia-flow-host-features: endings`). Va en un header y no en el body a propósito: un runner
+ * viejo valida el body estricto y rechazaría el campo, pero ignora un header. El runner sólo manda
+ * un campo nuevo a quien dijo que lo entiende: un host viejo también valida estricto, y una
+ * respuesta que rechaza pierde las tareas que traía.
+ */
+export const HOST_FEATURES_HEADER = 'x-ia-flow-host-features'
+/** `PollResponse.endings`. */
+export const FEATURE_ENDINGS = 'endings'
+/** `HostTask.lane`. */
+export const FEATURE_LANE = 'lane'
+/** Todo lo que entiende un host de esta versión, como valor del header. */
+export const HOST_FEATURES = [FEATURE_ENDINGS, FEATURE_LANE].join(',')
+
 export const PollResponse = z.strictObject({
   tasks: z.array(HostTask),
   /** Corridas que el runner ya dio por terminadas: el host corta sus sesiones. */
   closed: z.array(z.string()),
+  /** Cómo cerró el modelo cada una de `closed` (`RunEnding`): el host decide con eso qué hace
+   *  con su worktree. Sólo a un host que anunció `FEATURE_ENDINGS`; ausente en un runner viejo, o
+   *  si cerró sin que el modelo eligiera. */
+  endings: z.record(z.string(), z.enum(['done', 'paused', 'failed'])).optional(),
 })
 export type PollResponse = z.infer<typeof PollResponse>
 

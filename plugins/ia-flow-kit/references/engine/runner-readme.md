@@ -236,7 +236,7 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `FIGMA_MCP_TOKEN` | el token del MCP de Figma (`runner.yaml` lo nombra como `${FIGMA_MCP_TOKEN}`) |
 | `RUNNER_CONFIG` | el `runner.yaml` a correr, o su carpeta (default: `.config`, local y no versionada; alias `RUNNER_CONFIG_DIR`) |
 | `IA_FLOW_HOME` | el estado de esta máquina, fuera del repo: `runner.sqlite`, `workspaces/`, `memory.json` (default: `~/.local/state/ia-flow/runner`) |
-| `WORKSPACE_DIR` | dónde van clones y worktrees (default: `<IA_FLOW_HOME>/workspaces`) |
+| `WORKSPACE_DIR` | dónde van clones y worktrees (default: `<IA_FLOW_HOME>/workspaces`; con `--host`, `<IA_FLOW_HOME>/host-workspaces`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | trazas y logs por OTLP — `bun run otel` levanta el Grafana local con los dashboards ([otel/](otel/README.md)) |
 | `LOG_LEVEL` | nivel mínimo de los logs (pisa `settings.telemetry.logLevel` de `runner.yaml`): `debug`, `info` (default), `warn`, `error`. En `debug` el provider `anthropic-api` vuelca cada request y respuesta de la API, con las credenciales tapadas |
 | `CLAUDE_CODE_OAUTH_TOKEN` | la credencial del provider `claude-cli` (el CLI `claude`) |
@@ -448,6 +448,34 @@ por `POST /v1/runs/<token>/transcript`, y el runner la registra como spans `chat
 tokens del dashboard). El host sólo lanza `claude` en SU worktree apuntando
 ahí, y lo corta cuando el runner cierra la corrida. Un solo checkout, el del host: las tools de
 workspace del agente no le llegan, y el `git push` sale con las credenciales de esa máquina.
+Un miembro de un grupo `parallel` lleva su carril en la tarea (`lane`), así que en el host también
+trabaja en su propio worktree (`<worktree>--<carril>`).
+
+**El worktree de una corrida en el host vive lo que vive la corrida.** El contrato con el agente: si
+termina bien, deja todo en el remoto (commiteado y pusheado); el siguiente agente arranca de ahí,
+en éste u otro host. Al cerrar la corrida, el runner le dice al host cómo cerró el modelo
+(`PollResponse.endings`), y el host (`HostWorktrees`):
+
+| Cerró con | El worktree |
+| --- | --- |
+| una salida (`submit_*`) | se borra. Si dejó algo sin commitear o sin pushear, queda en disco y se loguea como **error**: el agente no cumplió el contrato |
+| `wait_for_event` | queda: la conversación sigue en ese mismo directorio |
+| `fail_turn`, `yield_turn`, o la sesión terminó sola | se borra si está limpio; con trabajo sin pushear queda para la próxima corrida |
+
+Nunca borra uno que otra corrida está usando, y `git worktree remove` va sin `--force`. La branch
+local queda.
+
+"Trabajo sin pushear" incluye un HEAD separado (un carril, o un rebase a medias) que ninguna
+branch remota contiene. Y el host sólo borra worktrees que armó él (los anota en
+`<WORKSPACE_DIR>/host-worktrees.json`), en una raíz propia: sin `WORKSPACE_DIR`, el host usa
+`<IA_FLOW_HOME>/host-workspaces` y no la del runner. Si los dos corren en la misma máquina, la misma
+task tendría el mismo path en las dos raíces compartidas, y el host podría borrarle al runner un
+worktree en uso — no le des a los dos el mismo `WORKSPACE_DIR`.
+
+**El respaldo:** al arrancar y cada 6 h el host barre lo que anotó. Borra todo lo que nadie usa y
+está limpio y pusheado: una pausa que nunca se retomó (al retomarse se vuelve a armar en el mismo
+path) o lo de un host que se cayó a mitad de una corrida. Lo que tiene trabajo sin pushear nunca se
+borra solo: queda en el log para rescatarlo.
 
 **La telemetría del host es la del runner.** Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, el host exporta
 sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de

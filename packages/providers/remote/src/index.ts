@@ -1,5 +1,5 @@
 export type { HostClientOptions, TaskRunner } from './HostClient.js'
-export { HostClient } from './HostClient.js'
+export { CLOSED_WITHOUT_ENDING, endingOfSignal, HostClient } from './HostClient.js'
 export {
   AcceptRow,
   HostName,

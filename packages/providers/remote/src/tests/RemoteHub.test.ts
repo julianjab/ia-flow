@@ -1,7 +1,7 @@
 import type { Provider } from '@ia-flow/agent-engine'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HostClient } from '../HostClient.js'
-import type { HostTask } from '../protocol.js'
+import { endingOfSignal, HostClient } from '../HostClient.js'
+import { HOST_FEATURES_HEADER, type HostTask } from '../protocol.js'
 import {
   callTool,
   makeHost,
@@ -141,6 +141,105 @@ describe('una corrida', () => {
     })
     // El runner la cerró: el host cortó la sesión.
     await until(() => host.running.length === 0)
+  })
+
+  it('el carril de un miembro de un grupo `parallel` viaja al host (su propio worktree allá)', async () => {
+    const { hub, registry } = makeHub()
+    const seen: HostTask[] = []
+    started(
+      makeHost(hub, async (task, runner, signal) => {
+        seen.push(task)
+        await callTool(hub, `${runner.base}${task.endpoints.mcp}`, 'submit_done', {})
+        await aborted(signal)
+        return undefined
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    const provider = registry.resolve('remote:laptop') as Provider
+    const base = runContext()
+    await provider.run(
+      runContext({
+        tools: [tool('submit_done', () => 'ok', { terminal: true })],
+        ctx: { ...base.ctx, lane: 'e2e-visual-qa' },
+      }),
+    )
+    expect(seen[0]?.lane).toBe('e2e-visual-qa')
+
+    // Sin carril (un paso suelto), el campo no viaja.
+    await provider.run(runContext({ tools: [tool('submit_done', () => 'ok', { terminal: true })] }))
+    expect(seen[1]).not.toHaveProperty('lane')
+  })
+
+  it('al cerrar la corrida, el host se entera de cómo cerró el modelo (el reason del abort)', async () => {
+    const { hub, registry } = makeHub()
+    const reasons: unknown[] = []
+    started(
+      makeHost(hub, async (task, runner, signal) => {
+        const exit = reasons.length === 0 ? 'submit_done' : 'fail_turn'
+        await callTool(hub, `${runner.base}${task.endpoints.mcp}`, exit, {})
+        await aborted(signal)
+        reasons.push(endingOfSignal(signal))
+        return undefined
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    const provider = registry.resolve('remote:laptop') as Provider
+    const tools = [
+      tool('submit_done', () => 'ok', { terminal: true }),
+      tool('fail_turn', () => 'x', { terminal: true, failure: true }),
+    ]
+    await provider.run(runContext({ tools }))
+    await until(() => reasons.length === 1)
+    await provider.run(runContext({ tools }))
+    await until(() => reasons.length === 2)
+    expect(reasons).toEqual(['done', 'failed'])
+  })
+
+  it('a un host viejo (no anunció features) nunca le manda `endings` ni `lane`: los rechazaría y perdería sus tareas', async () => {
+    const { hub, registry } = makeHub()
+    const polls: Record<string, unknown>[] = []
+    // El fetch de un host viejo: sin el header de features, y valida la respuesta del poll.
+    const base = wire(hub)
+    const oldFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const headers = { ...(init?.headers as Record<string, string>) }
+      delete headers[HOST_FEATURES_HEADER]
+      const res = await base(input, { ...init, headers })
+      if (String(input).endsWith('/poll') && res.ok) polls.push(await res.clone().json())
+      return res
+    }) as typeof fetch
+    const ran: string[] = []
+    started(
+      new HostClient({
+        runnerUrl: RUNNER,
+        token: TOKEN,
+        name: 'laptop',
+        maxConcurrent: 1,
+        accepts: [],
+        fetchImpl: oldFetch,
+        run: async (task, runner, signal) => {
+          await callTool(hub, `${runner.base}${task.endpoints.mcp}`, 'submit_done', {})
+          await aborted(signal)
+          ran.push(task.runId)
+          return undefined
+        },
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    const provider = registry.resolve('remote:laptop') as Provider
+    // Un miembro de un grupo `parallel`: la tarea tendría `lane`.
+    const member = runContext()
+    await provider.run(
+      runContext({
+        tools: [tool('submit_done', () => 'ok', { terminal: true })],
+        ctx: { ...member.ctx, lane: 'e2e' },
+      }),
+    )
+    await until(() => ran.length === 1)
+    const tasks = polls.flatMap((reply) => reply.tasks as Record<string, unknown>[])
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).not.toHaveProperty('lane')
+    expect(polls.some((reply) => Array.isArray(reply.closed) && reply.closed.length > 0)).toBe(true)
+    expect(polls.every((reply) => !('endings' in reply))).toBe(true)
   })
 
   it('retoma la sesión que ya tenía, con lo que pasó mientras esperaba', async () => {

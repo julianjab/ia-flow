@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Tool } from '@ia-flow/agent-engine'
+import { type Tool, WAIT_TOOL_NAME } from '@ia-flow/agent-engine'
 import {
   type Context,
   createLogger,
@@ -18,6 +18,18 @@ import { TranscriptTail } from './transcript/TranscriptTail.js'
  *  como `mcp__ia-flow__<tool>`. */
 export const MCP_SERVER_NAME = 'ia-flow'
 export const mcpToolName = (tool: string) => `mcp__${MCP_SERVER_NAME}__${tool}`
+
+/**
+ * Cómo cerró el modelo su turno: `done` eligió una salida (`submit_*`), `paused` espera un evento
+ * (`wait_for_event`: sigue en esta misma conversación y en este mismo directorio), `failed` lo
+ * cerró como falla o cedió (`fail_turn`, `yield_turn`).
+ */
+export type RunEnding = 'done' | 'paused' | 'failed'
+
+export function endingOf(tool: Pick<Tool, 'name' | 'failure'>): RunEnding {
+  if (tool.name === WAIT_TOOL_NAME) return 'paused'
+  return tool.failure ? 'failed' : 'done'
+}
 
 const SCOPE = '@ia-flow/provider-anthropic-cli'
 
@@ -58,6 +70,7 @@ export class RunChannel {
   readonly done: Promise<void>
   private finishDone!: () => void
   private finishedFlag = false
+  private endingValue: RunEnding | undefined
   private nudges = 0
   private readonly spans = new Map<string, Span>()
   private readonly transcript: TranscriptTail
@@ -74,6 +87,11 @@ export class RunChannel {
 
   get finished(): boolean {
     return this.finishedFlag
+  }
+
+  /** Cómo cerró el turno, si lo cerró (la primera tool terminal que llamó). */
+  get ending(): RunEnding | undefined {
+    return this.endingValue
   }
 
   /** Lo que lista el MCP (`tools/list`). */
@@ -103,7 +121,10 @@ export class RunChannel {
     try {
       const text = await tool.handler(args ?? {})
       span.setAttribute('ia.tool.result', truncate(text))
-      if (tool.terminal) this.finish()
+      if (tool.terminal) {
+        this.endingValue ??= endingOf(tool)
+        this.finish()
+      }
       return { text, isError: false }
     } catch (error) {
       markError(span, error)

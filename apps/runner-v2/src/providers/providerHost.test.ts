@@ -207,6 +207,103 @@ describe('cliTaskRunner', () => {
     expect(await ended).toBeUndefined()
     expect(fake.closed()).toBe(true)
   })
+
+  it('asks the workspace for the lane worktree, and marks it in use while the session runs', async () => {
+    const fake = fakeLaunch()
+    const lanes: (string | undefined)[] = []
+    const marks: string[] = []
+    const run = cliTaskRunner({
+      session: {
+        dirFor: async (ctx) => {
+          lanes.push(ctx.lane)
+          return `/work/eks-7--${ctx.lane}`
+        },
+      },
+      provider,
+      log: () => {},
+      launch: fake.launch,
+      close: async () => false,
+      worktrees: {
+        begin: async (prepare) => {
+          const path = await prepare()
+          marks.push(`begin ${path}`)
+          return path
+        },
+        end: async (path, ending) => {
+          marks.push(`end ${path} ${ending}`)
+          return 'removed'
+        },
+      },
+    })
+    const ended = run(
+      task({ lane: 'e2e' }),
+      { base: 'https://runner' },
+      new AbortController().signal,
+    )
+    await Bun.sleep(5)
+    expect(marks).toEqual(['begin /work/eks-7--e2e'])
+    // La sesión terminó sola (sin que el runner cerrara la corrida): no hubo cierre del modelo.
+    fake.exit({ code: 0, output: '' })
+    await ended
+    expect(lanes).toEqual(['e2e'])
+    expect(marks).toEqual(['begin /work/eks-7--e2e', 'end /work/eks-7--e2e undefined'])
+  })
+
+  it('tells the worktree how the model closed the run (the reason the runner closed it with)', async () => {
+    for (const reason of ['done', 'paused', 'failed', 'closed'] as const) {
+      const fake = fakeLaunch()
+      const endings: unknown[] = []
+      const controller = new AbortController()
+      const run = cliTaskRunner({
+        session: { dirFor: async () => '/work' },
+        provider,
+        log: () => {},
+        launch: fake.launch,
+        close: async () => false,
+        worktrees: {
+          begin: (prepare) => prepare(),
+          end: async (_path, ending) => {
+            endings.push(ending)
+            return 'removed'
+          },
+        },
+      })
+      const ended = run(task(), { base: 'https://runner' }, controller.signal)
+      await Bun.sleep(5)
+      controller.abort(reason)
+      await ended
+      // `closed`: un runner viejo que no dice cómo cerró.
+      expect(endings).toEqual([reason === 'closed' ? undefined : reason])
+    }
+  })
+
+  it('a launch that fails still releases the worktree', async () => {
+    const marks: string[] = []
+    const run = cliTaskRunner({
+      session: { dirFor: async () => '/work' },
+      provider,
+      log: () => {},
+      launch: async () => {
+        throw new Error('sin claude')
+      },
+      close: async () => false,
+      worktrees: {
+        begin: async (prepare) => {
+          const p = await prepare()
+          marks.push(`begin ${p}`)
+          return p
+        },
+        end: async (p) => {
+          marks.push(`end ${p}`)
+          return 'removed'
+        },
+      },
+    })
+    await expect(
+      run(task(), { base: 'https://runner' }, new AbortController().signal),
+    ).rejects.toThrow('sin claude')
+    expect(marks).toEqual(['begin /work', 'end /work'])
+  })
 })
 
 describe('the runner hosts API over the webhook server (node http)', () => {
