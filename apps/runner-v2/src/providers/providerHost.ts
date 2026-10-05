@@ -12,6 +12,7 @@
  * engine, ni fuentes, ni base de ejecuciones, ni la marca Working.
  */
 
+import { join } from 'node:path'
 import { EventBus, type McpServerRef, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import {
   type ClaudeCliConfig,
@@ -31,8 +32,9 @@ import {
 import { createLogger } from '@ia-flow/telemetry'
 import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
+import { defaultWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
-import { HostWorktrees } from '../workspace/HostWorktrees.js'
+import { clonesUnder, HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
 import { CLAUDE_CLI_TYPE } from './providers.js'
 import { forwardTranscript, type TranscriptForwarder } from './transcriptForwarder.js'
@@ -102,7 +104,12 @@ export interface MountedHost {
   client: HostClient
   settings: HostSettings
   githubAuthMode: string
+  /** El worktree de cada corrida, y el respaldo que barre lo que quedó (`sweep`). */
+  worktrees: HostWorktrees
 }
+
+/** Cada cuánto barre los worktrees que quedaron en disco (además de al arrancar). */
+export const SWEEP_INTERVAL_MS = 6 * 60 * 60_000
 
 /** Lo que un host necesita, y nada más (ver arriba). */
 export async function mountHost(
@@ -121,6 +128,7 @@ export async function mountHost(
     shell: new NodeShellRunner(),
     workspace,
     log: createLogger('ia-flow-runner-v2.host'),
+    clones: clonesUnder(join(opts.workspaceDir ?? defaultWorkspaceRoot(), 'repos')),
   })
   const client = new HostClient({
     runnerUrl: settings.runner,
@@ -135,7 +143,7 @@ export async function mountHost(
       worktrees,
     }),
   })
-  return { client, settings, githubAuthMode: github.mode }
+  return { client, settings, githubAuthMode: github.mode, worktrees }
 }
 
 /**
