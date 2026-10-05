@@ -68,6 +68,12 @@ esa corrida lo reusan. Un agente sin tools de disco no clona nada.
   fast-forward. En ia-flow el único que escribe la branch es el engine; si la branch la pushea
   otro (un humano, otra máquina), sin esto un reviewer revisaría el commit viejo.
 - **`cloneUrl`** — de dónde clonar (default GitHub).
+- **Worktree por carril** (`getOrCreateLaneWorktree`): los miembros de un grupo `parallel` del
+  engine (ej. reviewer y e2e a la vez) comparten el evento, y `WorkspaceSession` los separa por
+  `ctx.lane` en `<worktree de la task>--<carril>`, en `--detach` sobre la branch de la task (git no
+  deja la misma branch en dos worktrees). Son de lectura: para verificar, no para pushear. Se
+  refrescan con `checkout --force` (lo ignorado, como `node_modules`, sobrevive) y se borran con el
+  worktree de la task.
 - No se portó `provisioners.ts`: depende de los tipos del engine de ia-flow (`WorkspacePlan`);
   su rol acá lo cumplen `WorkspaceSession` + `workspaceAction`.
 

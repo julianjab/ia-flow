@@ -7,6 +7,8 @@
 //     ia-flow sólo la adelanta contra la base, porque ahí el único que escribe la branch es el
 //     propio engine; acá un PR puede venir de otra máquina o de un humano.
 //   • `cloneUrl`: de dónde clonar (default GitHub) — los tests apuntan a un repo local.
+//   • `getOrCreateLaneWorktree`: un worktree `--detach` por carril de un grupo `parallel`
+//     (`<worktree>--<carril>`), que `#doRemove` borra con el de la task.
 //   • Defaults de identidad de ia-tools.
 //
 // Responsibilities:
@@ -411,6 +413,35 @@ export class WorkspaceManager {
   ): Promise<{ path: string; branch: string }> {
     const source = typeof task === 'string' ? { id: task } : task
     return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(source, repoBasePath, opts))
+  }
+
+  /**
+   * El worktree de un CARRIL: un miembro de un grupo `parallel` (ej. el reviewer y el e2e, a la
+   * vez sobre la misma task). Compartir el de la task los haría pisarse — `yarn install` a la vez,
+   * artefactos, puertos —, así que cada carril tiene el suyo: `<worktree de la task>--<carril>`.
+   *
+   * Primero asegura el de la task (la branch creada y al día con el remoto), y después crea o
+   * refresca el del carril sobre esa branch en `--detach`: git no deja la misma branch en dos
+   * worktrees. Por eso es de LECTURA — sirve para verificar, no para commitear y pushear. Al
+   * refrescarlo se descartan los cambios trackeados (`checkout --force`), pero no lo ignorado: un
+   * `node_modules` sobrevive entre rondas.
+   */
+  async getOrCreateLaneWorktree(
+    task: WorktreeNameSource | string,
+    repoBasePath: string,
+    lane: string,
+    opts: GetOrCreateOptions = {},
+  ): Promise<{ path: string; branch: string }> {
+    const source = typeof task === 'string' ? { id: task } : task
+    const { branch } = await this.getOrCreateWorktree(source, repoBasePath, opts)
+    return this.#withRepoLock(repoBasePath, () =>
+      this.#doLaneWorktree(source, repoBasePath, lane, branch),
+    )
+  }
+
+  /** `<worktree de la task>--<carril>`. */
+  laneWorktreePath(task: WorktreeNameSource | string, repoBasePath: string, lane: string): string {
+    return `${this.worktreePath(task, repoBasePath)}--${lane.replace(/[^A-Za-z0-9._-]/g, '-')}`
   }
 
   /**
@@ -1043,6 +1074,49 @@ export class WorkspaceManager {
     await this.#shell.run(['git', 'config', '--unset-all', 'commit.gpgsign'], dest)
   }
 
+  async #doLaneWorktree(
+    task: WorktreeNameSource,
+    repoBasePath: string,
+    lane: string,
+    branch: string,
+  ): Promise<{ path: string; branch: string }> {
+    const path = this.laneWorktreePath(task, repoBasePath, lane)
+    const exists = await this.#worktreeExists(repoBasePath, path)
+    const r = exists
+      ? await this.#shell.run(['git', 'checkout', '--detach', '--force', branch], path)
+      : await this.#shell.run(['git', 'worktree', 'add', '--detach', path, branch], repoBasePath)
+    if (r.exitCode !== 0) {
+      throw new Error(
+        `worktree del carril "${lane}" en "${path}": ${(r.stderr || r.stdout).trim()}`,
+      )
+    }
+    this.#log.info(
+      { taskId: task.id, worktree: path, lane, branch, reused: exists },
+      'lane worktree',
+    )
+    return { path, branch }
+  }
+
+  /** Los worktrees de carril de `worktree` (`<worktree>--<carril>`), registrados en el repo. */
+  async #laneWorktrees(repoBasePath: string, worktree: string): Promise<string[]> {
+    // Best-effort: si no se puede listar, no se limpian los carriles — pero el borrado de la task
+    // (su worktree y su branch) sigue igual.
+    const r = await this.#shell
+      .run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
+      .catch(() => undefined)
+    if (r?.exitCode !== 0) return []
+    // `git worktree list` da paths canónicos (en macOS, `/private/var/…` por `/var/…`): se compara
+    // contra la forma canónica, igual que `samePath`.
+    const prefixes = [`${worktree}--`, `${canonicalPath(worktree)}--`]
+    return r.stdout
+      .split('\n')
+      .map((line) => line.trim().match(/^worktree (.+)$/)?.[1])
+      .filter(
+        (p): p is string =>
+          p !== undefined && prefixes.some((prefix) => canonicalPath(p).startsWith(prefix)),
+      )
+  }
+
   async #doRemove(
     task: WorktreeNameSource,
     repoBasePath: string,
@@ -1064,6 +1138,19 @@ export class WorkspaceManager {
         { taskId, worktree, stderr: rmWt.stderr },
         'worktree remove failed — continuing to branch delete',
       )
+    }
+    // Los de carril son copias de lectura de esta misma task: se van con ella.
+    for (const lane of await this.#laneWorktrees(repoBasePath, worktree)) {
+      const rmLane = await this.#shell.run(
+        ['git', 'worktree', 'remove', '--force', lane],
+        repoBasePath,
+      )
+      if (rmLane.exitCode !== 0) {
+        this.#log.warn(
+          { taskId, worktree: lane, stderr: rmLane.stderr },
+          'lane worktree remove failed',
+        )
+      }
     }
     const rmBr = await this.#shell.run(['git', 'branch', '-D', branch], repoBasePath)
     if (rmBr.exitCode !== 0) {
