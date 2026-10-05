@@ -234,7 +234,7 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `FIGMA_MCP_TOKEN` | el token del MCP de Figma (`runner.yaml` lo nombra como `${FIGMA_MCP_TOKEN}`) |
 | `RUNNER_CONFIG` | el `runner.yaml` a correr, o su carpeta (default: `.config`, local y no versionada; alias `RUNNER_CONFIG_DIR`) |
 | `IA_FLOW_HOME` | el estado de esta máquina, fuera del repo: `runner.sqlite`, `workspaces/`, `memory.json` (default: `~/.local/state/ia-flow/runner`) |
-| `WORKSPACE_DIR` | dónde van clones y worktrees (default: `<IA_FLOW_HOME>/workspaces`) |
+| `WORKSPACE_DIR` | dónde van clones y worktrees (default: `<IA_FLOW_HOME>/workspaces`; con `--host`, `<IA_FLOW_HOME>/host-workspaces`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | trazas y logs por OTLP — `bun run otel` levanta el Grafana local con los dashboards ([otel/](otel/README.md)) |
 | `LOG_LEVEL` | nivel mínimo de los logs (pisa `settings.telemetry.logLevel` de `runner.yaml`): `debug`, `info` (default), `warn`, `error`. En `debug` el provider `anthropic-api` vuelca cada request y respuesta de la API, con las credenciales tapadas |
 | `CLAUDE_CODE_OAUTH_TOKEN` | la credencial del provider `claude-cli` (el CLI `claude`) |
@@ -464,9 +464,11 @@ Nunca borra uno que otra corrida está usando, y `git worktree remove` va sin `-
 local queda.
 
 "Trabajo sin pushear" incluye un HEAD separado (un carril, o un rebase a medias) que ninguna
-branch remota contiene. Y el host sólo borra worktrees que armó él: los anota en
-`<WORKSPACE_DIR>/host-worktrees.json`, así que si un runner comparte el mismo disco, los suyos no
-se tocan.
+branch remota contiene. Y el host sólo borra worktrees que armó él (los anota en
+`<WORKSPACE_DIR>/host-worktrees.json`), en una raíz propia: sin `WORKSPACE_DIR`, el host usa
+`<IA_FLOW_HOME>/host-workspaces` y no la del runner. Si los dos corren en la misma máquina, la misma
+task tendría el mismo path en las dos raíces compartidas, y el host podría borrarle al runner un
+worktree en uso — no le des a los dos el mismo `WORKSPACE_DIR`.
 
 **El respaldo:** al arrancar y cada 6 h el host barre lo que anotó. Borra todo lo que nadie usa y
 está limpio y pusheado: una pausa que nunca se retomó (al retomarse se vuelve a armar en el mismo

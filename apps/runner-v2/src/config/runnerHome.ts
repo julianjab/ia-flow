@@ -29,3 +29,8 @@ export const defaultDatabasePath = (home = runnerHome()) => join(home, 'runner.s
 
 /** Los clones y worktrees si el env no fija `WORKSPACE_DIR`. */
 export const defaultWorkspaceRoot = (home = runnerHome()) => join(home, 'workspaces')
+
+/** Los de un host (`--host`) si el env no fija `WORKSPACE_DIR`: una raíz aparte de la del runner.
+ *  El host borra los worktrees que arma; si compartiera la raíz con un runner en la misma máquina,
+ *  la misma task tendría el mismo path en los dos y el host podría borrarle uno en uso. */
+export const defaultHostWorkspaceRoot = (home = runnerHome()) => join(home, 'host-workspaces')

@@ -32,7 +32,7 @@ import {
 import { createLogger } from '@ia-flow/telemetry'
 import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
-import { defaultWorkspaceRoot } from '../config/runnerHome.js'
+import { defaultHostWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
 import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
@@ -119,8 +119,11 @@ export async function mountHost(
   const settings = hostSettings(cfg)
   const github = await resolveGithubAuth()
   await verifyGithubAuth(github)
+  // Una raíz propia (no la del runner): en una máquina con los dos, la misma task tendría el mismo
+  // path y el host podría borrarle al runner un worktree en uso.
+  const root = opts.workspaceDir ?? defaultHostWorkspaceRoot()
   const { session, workspace } = mountWorkspace({
-    ...(opts.workspaceDir ? { root: opts.workspaceDir } : {}),
+    root,
     githubToken: () => github.auth.getToken(),
     log: opts.log,
   })
@@ -128,8 +131,8 @@ export async function mountHost(
     shell: new NodeShellRunner(),
     workspace,
     log: createLogger('ia-flow-runner-v2.host'),
-    // Lo que armó el host: sólo eso se borra (un runner en el mismo disco tiene los suyos).
-    ledgerPath: join(opts.workspaceDir ?? defaultWorkspaceRoot(), 'host-worktrees.json'),
+    // Lo que armó el host: sólo eso se borra.
+    ledgerPath: join(root, 'host-worktrees.json'),
   })
   const client = new HostClient({
     runnerUrl: settings.runner,
