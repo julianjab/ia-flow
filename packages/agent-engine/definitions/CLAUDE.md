@@ -84,8 +84,9 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
   repo), corre el primero cuyo `when` pasa. Es lo que permite una pipeline por momento del flujo
   en vez de una por variante.
 - **`parallel`** (`ParallelStepFactory`): `{ parallel: [pasos], id, until: { all|any: salida o
-  [salidas] }, routes: { passed?: { to, report? }, failed?: { to, report? } }, report? }`. El `id` es
-  obligatorio. Su `onError`/`onInterrupt` son los de la cascada (pipeline > proyecto) — el YAML del
+  [salidas] }, advisory?: [ids], routes: { passed?: { to, report? }, failed?: { to, report? } },
+  report? }`. El `id` es obligatorio. `advisory` nombra miembros consultivos: reportan pero no
+  votan ni hacen fallar al grupo. Su `onError`/`onInterrupt` son los de la cascada (pipeline > proyecto) — el YAML del
   grupo no los declara. Ver "grupo `parallel`" en el CLAUDE.md del core.
 - **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
   después del `when`. `whenText: <texto>` o `{ text, systemPrompts }`; cada system prompt

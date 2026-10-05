@@ -21,6 +21,8 @@ const Node = z.strictObject({
    *  salidas. Una lista, porque los vocabularios difieren (`approved` del reviewer, `passed` del
    *  e2e). */
   until: z.union([z.strictObject({ all: Exits }), z.strictObject({ any: Exits })]),
+  /** Ids de miembros CONSULTIVOS: corren y reportan, pero no votan ni hacen fallar al grupo. */
+  advisory: z.array(z.string().min(1)).optional(),
   /** A dónde lleva cada veredicto. Sin `to`, termina ahí. */
   routes: z
     .strictObject({ passed: GroupRouteNode.optional(), failed: GroupRouteNode.optional() })
@@ -67,6 +69,7 @@ export class ParallelStepFactory implements StepFactory<z.infer<typeof Node>> {
       id: node.id,
       members,
       until: 'all' in node.until ? { all: list(node.until.all) } : { any: list(node.until.any) },
+      ...(node.advisory ? { advisory: node.advisory } : {}),
       routes: { ...(passed ? { passed } : {}), ...(failed ? { failed } : {}) },
       ...(node.report === null
         ? { report: null }

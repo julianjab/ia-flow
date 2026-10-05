@@ -274,6 +274,10 @@ o `failed`. Lo corre `StepRunner.runGroup` (`step.members` es la señal). Reglas
   los que terminaron ya publicaron.
 - **Interrumpido**, cada agente activo lee el aviso y cede; el grupo corre su `onInterrupt` UNA vez
   con `progress` = en qué quedó cada miembro.
+- **Miembros consultivos** (`advisory: [ids]`): corren y publican su reporte, pero no votan
+  (`verdict` los saltea) y si tiran o terminan sin salida sólo se loguea un warn. Para un
+  verificador que todavía no es confiable como gate (un e2e contra un entorno compartido). Al menos
+  uno tiene que votar, y `until` tiene que nombrar salidas de los que votan.
 - **Un miembro no puede pausar** (`waits` incluido): el grupo no sabría por dónde seguir.
 - **`ctx.lane`** = el id del miembro: la app lo usa para no darle a dos miembros el mismo terreno
   (un worktree que se prepara por evento).

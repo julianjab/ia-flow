@@ -145,7 +145,14 @@ export class StepRunner {
       group.members.map((member) => this.runMember(member, group, { ...ctx, lane: member.id })),
     )
     const interrupted = ctx.execution?.interruption !== undefined
-    const { members, progress, failures } = collectMembers(group, settled, interrupted)
+    const { members, progress, failures, advisoryFailures } = collectMembers(
+      group,
+      settled,
+      interrupted,
+    )
+    for (const why of advisoryFailures) {
+      this.log.warn(`${this.pipelineId}: el grupo "${group.id}" sigue sin un consultivo — ${why}`)
+    }
     if (interrupted) return { members, ...(progress ? { progress } : {}) }
     if (failures.length > 0) throw new Error(`grupo "${group.id}": ${failures.join('; ')}`)
     const passed = group.verdict(members)
@@ -289,7 +296,8 @@ function firstSet<T>(...values: Array<T | null | undefined>): T | null {
 type MemberRun = { ran: boolean; verdict?: MemberVerdict; progress?: string }
 
 /** Lo que dejó cada miembro: su veredicto, en qué quedó si cedió, y qué falló. Sin salida cuenta
- *  como falla — salvo interrumpido, donde ceder sin salida es lo esperado. */
+ *  como falla — salvo interrumpido, donde ceder sin salida es lo esperado. La falla de un
+ *  consultivo (`ParallelGroup.advisory`) va aparte: no hace fallar al grupo. */
 function collectMembers(
   group: ParallelGroup,
   settled: PromiseSettledResult<MemberRun>[],
@@ -298,23 +306,31 @@ function collectMembers(
   members: Record<string, MemberVerdict>
   progress?: Record<string, string>
   failures: string[]
+  advisoryFailures: string[]
 } {
   const members: Record<string, MemberVerdict> = {}
   const progress: Record<string, string> = {}
   const failures: string[] = []
+  const advisoryFailures: string[] = []
   settled.forEach((result, index) => {
     const id = group.members[index]?.id ?? `#${index}`
+    const fail = (why: string) => (group.isAdvisory(id) ? advisoryFailures : failures).push(why)
     if (result.status === 'rejected') {
-      failures.push(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
+      fail(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
       return
     }
     const { ran, verdict, progress: left } = result.value
     if (!ran) return
     if (verdict) members[id] = verdict
     if (left) progress[id] = left
-    if (!verdict && !interrupted) failures.push(`${id}: terminó sin elegir salida`)
+    if (!verdict && !interrupted) fail(`${id}: terminó sin elegir salida`)
   })
-  return { members, ...(Object.keys(progress).length > 0 ? { progress } : {}), failures }
+  return {
+    members,
+    ...(Object.keys(progress).length > 0 ? { progress } : {}),
+    failures,
+    advisoryFailures,
+  }
 }
 
 /** En qué quedó un paso interrumpido: lo que entregó un agente en `yield_turn` (o su resumen), o

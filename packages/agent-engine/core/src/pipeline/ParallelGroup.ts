@@ -22,6 +22,13 @@ export interface ParallelGroupProps extends RunnableProps {
    *  nunca transición (ver `PipelineGraph`). */
   members: Runnable[]
   until: GroupUntil
+  /**
+   * Miembros CONSULTIVOS (por id): corren y publican su reporte, pero no votan ni hacen fallar al
+   * grupo — si tiran o terminan sin salida, se loguea y el grupo sigue. Para un verificador que
+   * todavía no es confiable como gate (ej. un e2e contra un entorno que no tiene la branch del PR):
+   * su hallazgo queda a la vista del humano sin poder trabar la tarjeta.
+   */
+  advisory?: string[]
   /** A dónde lleva cada veredicto. Sin `to`, el grupo termina ahí. */
   routes?: { passed?: ExitRoute; failed?: ExitRoute }
   /** El reporte de cierre del GRUPO. Default: ninguno — cada miembro ya publica el suyo. */
@@ -41,6 +48,7 @@ export interface MemberVerdict {
 /** Lo que deja un grupo en `ctx.steps[<id>]`. `passed` ausente = no corrió ningún miembro. */
 export interface GroupResult {
   passed?: boolean
+  /** Lo que eligió cada miembro que corrió — también los consultivos, que no votan. */
   members: Record<string, MemberVerdict>
   /** Interrumpido: en qué quedó cada miembro que cedió su turno (lo que entregó en `yield_turn`,
    *  o su resumen). Es lo que lee el `onInterrupt` del grupo en `steps.interruption.progress`. */
@@ -62,6 +70,7 @@ export class ParallelGroup extends Runnable {
   override readonly id: string
   private readonly memberSteps: Runnable[]
   readonly until: GroupUntil
+  private readonly advisoryIds: Set<string>
   private readonly props: ParallelGroupProps
 
   constructor(props: ParallelGroupProps) {
@@ -73,10 +82,28 @@ export class ParallelGroup extends Runnable {
     if (wanted.length === 0) {
       throw new Error(`ParallelGroup(${props.id}): \`until\` tiene que nombrar al menos una salida`)
     }
+    const ids = new Set(props.members.map((member) => member.id))
+    const unknown = (props.advisory ?? []).filter((id) => !ids.has(id))
+    if (unknown.length > 0) {
+      throw new Error(
+        `ParallelGroup(${props.id}): \`advisory\` nombra a ${unknown.join(', ')}, que no son miembros`,
+      )
+    }
+    if ((props.advisory ?? []).length >= props.members.length) {
+      throw new Error(
+        `ParallelGroup(${props.id}): todos los miembros son consultivos — nadie decide el veredicto`,
+      )
+    }
     this.id = props.id
     this.memberSteps = props.members
     this.until = props.until
+    this.advisoryIds = new Set(props.advisory ?? [])
     this.props = props
+  }
+
+  /** Si el miembro `id` es consultivo: corre y reporta, pero no vota ni hace fallar al grupo. */
+  isAdvisory(id: string | undefined): boolean {
+    return id !== undefined && this.advisoryIds.has(id)
   }
 
   override get kind(): StepKind {
@@ -109,10 +136,12 @@ export class ParallelGroup extends Runnable {
     }
   }
 
-  /** El veredicto: cuentan sólo los miembros que corrieron (`verdicts`). Sin ninguno, no hay
-   *  veredicto — un `all` sobre el vacío no puede dar "pasó". */
+  /** El veredicto: cuentan sólo los miembros que corrieron (`verdicts`) y no son consultivos. Sin
+   *  ninguno, no hay veredicto — un `all` sobre el vacío no puede dar "pasó". */
   verdict(verdicts: Record<string, MemberVerdict>): boolean | undefined {
-    const exits = Object.values(verdicts).map((v) => v.exit)
+    const exits = Object.entries(verdicts)
+      .filter(([id]) => !this.isAdvisory(id))
+      .map(([, v]) => v.exit)
     if (exits.length === 0) return undefined
     const passing = new Set(this.passingExits)
     return 'all' in this.until

@@ -282,14 +282,21 @@ export class PipelineGraph {
       }
     }
     for (const group of groups) {
-      const wanted = (group as { passingExits?: string[] }).passingExits ?? []
+      const { passingExits, isAdvisory } = group as {
+        passingExits?: string[]
+        isAdvisory?: (id: string | undefined) => boolean
+      }
+      const wanted = passingExits ?? []
+      // Sólo vota quien no es consultivo: una salida que sólo declara un consultivo nunca cuenta.
       const declared = new Set(
-        (group.members ?? []).flatMap((m) => this.resolve(m).exits.map((exit) => exit.name)),
+        (group.members ?? [])
+          .filter((m) => !isAdvisory?.call(group, m.id))
+          .flatMap((m) => this.resolve(m).exits.map((exit) => exit.name)),
       )
       const unknown = wanted.filter((exit) => !declared.has(exit))
       if (unknown.length > 0) {
         throw new Error(
-          `Pipeline(${this.pipelineId}): el grupo "${group.id}" espera ${unknown.join(', ')}, que ningún miembro declara — declaradas: ${[...declared].join(', ')}`,
+          `Pipeline(${this.pipelineId}): el grupo "${group.id}" espera ${unknown.join(', ')}, que ningún miembro que vota declara — declaradas: ${[...declared].join(', ')}`,
         )
       }
     }

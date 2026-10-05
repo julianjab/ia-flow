@@ -71,7 +71,7 @@ pipeline con agentes arranca por él.
 | pausa | `{ pause: <id>, branches: { <nombre>: { on, when?, to? } }, timeout: { after: 30m, to? } }` |
 | otros | `emit`, `http`, `function` — ver `packages/agent-engine/definitions/src/factories/` |
 | reuso | `{ ref: <id> }` — un paso declarado antes en el mismo `do` |
-| grupo | `{ parallel: [<pasos>], id, until: { all\|any: <salida(s)> }, routes: { passed?: { to }, failed?: { to } } }` — ver abajo |
+| grupo | `{ parallel: [<pasos>], id, until: { all\|any: <salida(s)> }, advisory?: [<ids>], routes: { passed?: { to }, failed?: { to } } }` — ver abajo |
 
 ### Grupo `parallel` — varios agentes a la vez
 
@@ -92,6 +92,9 @@ pipeline con agentes arranca por él.
   grupo (`passed` / `failed`).
 - Un miembro saltado por su `when` no cuenta. Uno que falla, o termina sin salida, hace fallar al
   grupo: corre el `onError` de la pipeline/proyecto UNA vez.
+- `advisory: [<ids>]` marca miembros **consultivos**: corren y publican su reporte, pero no votan
+  ni hacen fallar al grupo (un e2e contra un entorno compartido, que todavía no es gate
+  confiable). `until` nombra salidas de los que votan, y al menos uno tiene que votar.
 - Un miembro no puede pausar (ni `waits`). Cada miembro lee sólo lo que SUS `injects` aceptan.
 
 ## Rutas por pipeline
