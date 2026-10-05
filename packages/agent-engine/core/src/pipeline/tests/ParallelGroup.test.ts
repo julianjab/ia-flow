@@ -320,6 +320,121 @@ describe('ParallelGroup — validación al construir', () => {
             }),
           ],
         }),
-    ).toThrow('ningún miembro declara')
+    ).toThrow('ningún miembro que vota declara')
+  })
+})
+
+describe('ParallelGroup — miembros consultivos (`advisory`)', () => {
+  /** reviewer vota; e2e es consultivo. */
+  function advisoryGate(script: Script, log: string[]) {
+    const registry = scriptedRegistry(script)
+    const report = recorder('report', log, z.strictObject({ summary: z.string() }))
+    return new ParallelGroup({
+      id: 'gate',
+      members: [
+        new Agent(
+          {
+            id: 'reviewer',
+            provider: 'fake',
+            prompt: 'p',
+            report,
+            routes: { approved: {}, back_to_build: {} },
+          },
+          registry,
+        ),
+        new Agent(
+          { id: 'e2e', provider: 'fake', prompt: 'p', report, routes: { passed: {}, failed: {} } },
+          registry,
+        ),
+      ],
+      until: { all: ['approved'] },
+      advisory: ['e2e'],
+      routes: {
+        passed: { to: recorder('slack-review', log) },
+        failed: { to: recorder('to-build', log) },
+      },
+    })
+  }
+
+  it('un consultivo que no aprueba no traba el gate, pero publica su reporte y queda en `members`', async () => {
+    const log: string[] = []
+    const gate = advisoryGate(
+      {
+        reviewer: { submit: 'submit_approved', payload: { report: { summary: 'ok' } } },
+        e2e: { submit: 'submit_failed', payload: { report: { summary: 'rojo' } } },
+      },
+      log,
+    )
+    const steps = await new Pipeline({ id: 'p', on: ['e'], do: [gate] }).execute(ctx())
+    expect(log).toContain('report {"summary":"rojo"}')
+    expect(log.at(-1)).toBe('slack-review')
+    expect((steps.gate as { members: Record<string, unknown> }).members.e2e).toEqual({
+      exit: 'failed',
+      summary: undefined,
+    })
+  })
+
+  it('un consultivo que tira o termina sin salida no hace fallar al grupo', async () => {
+    for (const e2e of [{ fail: 'staging caído' }, { none: true as const }]) {
+      const log: string[] = []
+      const gate = advisoryGate(
+        { reviewer: { submit: 'submit_approved', payload: { report: { summary: 'ok' } } }, e2e },
+        log,
+      )
+      await new Pipeline({ id: 'p', on: ['e'], do: [gate] }).execute(ctx())
+      expect(log.at(-1)).toBe('slack-review')
+    }
+  })
+
+  it('el que vota decide: si el reviewer no aprueba, va por `failed` aunque el consultivo pase', async () => {
+    const log: string[] = []
+    const gate = advisoryGate(
+      {
+        reviewer: { submit: 'submit_back_to_build', payload: { report: { summary: 'no' } } },
+        e2e: { submit: 'submit_passed', payload: { report: { summary: 'anda' } } },
+      },
+      log,
+    )
+    await new Pipeline({ id: 'p', on: ['e'], do: [gate] }).execute(ctx())
+    expect(log.at(-1)).toBe('to-build')
+  })
+
+  it('valida `advisory`: sólo miembros, alguno tiene que votar, y `until` mira a los que votan', () => {
+    const registry = scriptedRegistry({})
+    const agent = (id: string, exit: string) =>
+      new Agent({ id, provider: 'fake', prompt: 'p', routes: { [exit]: {} } }, registry)
+    expect(
+      () =>
+        new ParallelGroup({
+          id: 'g',
+          members: [agent('a', 'ok'), agent('b', 'ok')],
+          until: { all: ['ok'] },
+          advisory: ['x'],
+        }),
+    ).toThrow('que no son miembros')
+    expect(
+      () =>
+        new ParallelGroup({
+          id: 'g',
+          members: [agent('a', 'ok'), agent('b', 'ok')],
+          until: { all: ['ok'] },
+          advisory: ['a', 'b'],
+        }),
+    ).toThrow('nadie decide')
+    expect(
+      () =>
+        new Pipeline({
+          id: 'p',
+          on: ['e'],
+          do: [
+            new ParallelGroup({
+              id: 'g',
+              members: [agent('a', 'ok'), agent('b', 'passed')],
+              until: { all: ['passed'] },
+              advisory: ['b'],
+            }),
+          ],
+        }),
+    ).toThrow('ningún miembro que vota declara')
   })
 })

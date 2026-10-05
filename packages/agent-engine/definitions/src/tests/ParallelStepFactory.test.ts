@@ -20,7 +20,11 @@ const agentDoc = (id: string, routes: Record<string, unknown>) => ({
 })
 
 /** El gate de Review como se escribe en un deploy: reviewer y e2e a la vez, y el grupo decide. */
-function reviewSource(choices: Record<string, string>, log: string[]) {
+function reviewSource(
+  choices: Record<string, string>,
+  log: string[],
+  group: Record<string, unknown> = {},
+) {
   return new DefinitionPipelineSource(
     new MemorySource({
       id: 's',
@@ -51,6 +55,7 @@ function reviewSource(choices: Record<string, string>, log: string[]) {
                 passed: { to: { function: 'slack-review' } },
                 failed: { to: { function: 'to-build' } },
               },
+              ...group,
             },
           ],
         }),
@@ -97,6 +102,16 @@ describe('parallel (YAML)', () => {
     const log: string[] = []
     const source = reviewSource({ reviewer: 'approved', e2e: 'back_to_build' }, log)
     await run(source, { repo: 'backend' })
+    expect(log).toEqual(['slack-review'])
+  })
+
+  it('`advisory`: el e2e consultivo no traba el gate', async () => {
+    const log: string[] = []
+    const source = reviewSource({ reviewer: 'approved', e2e: 'back_to_build' }, log, {
+      until: { all: 'approved' },
+      advisory: ['e2e'],
+    })
+    await run(source, { repo: 'frontend' })
     expect(log).toEqual(['slack-review'])
   })
 
