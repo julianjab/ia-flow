@@ -134,6 +134,10 @@ export type HostTask = z.infer<typeof HostTask>
 export const HOST_FEATURES_HEADER = 'x-ia-flow-host-features'
 /** `PollResponse.endings`. */
 export const FEATURE_ENDINGS = 'endings'
+/** `HostTask.lane`. */
+export const FEATURE_LANE = 'lane'
+/** Todo lo que entiende un host de esta versión, como valor del header. */
+export const HOST_FEATURES = [FEATURE_ENDINGS, FEATURE_LANE].join(',')
 
 export const PollResponse = z.strictObject({
   tasks: z.array(HostTask),

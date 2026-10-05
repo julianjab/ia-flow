@@ -6,6 +6,7 @@ import { z } from 'zod'
 import {
   type AcceptRow,
   FEATURE_ENDINGS,
+  FEATURE_LANE,
   HOST_FEATURES_HEADER,
   type HostTask,
   PollRequest,
@@ -310,7 +311,11 @@ export class RemoteHub {
     await host.wait(this.options.longPollMs ?? DEFAULT_LONG_POLL_MS)
     host.lastSeen = this.now()
     const response: PollResponse = {
-      tasks: host.queue.splice(0),
+      // `lane` sólo a quien dijo que lo entiende (como `endings`): un host viejo valida la tarea
+      // estricta y rechazaría la respuesta entera. Sin él, trabaja en el worktree de la task.
+      tasks: host.queue
+        .splice(0)
+        .map((task) => (host.features.has(FEATURE_LANE) ? task : withoutLane(task))),
       closed: host.closed.splice(0),
       // Sólo a quien dijo que lo entiende: un host viejo rechazaría la respuesta entera.
       ...(host.features.has(FEATURE_ENDINGS) && Object.keys(host.endings).length > 0
@@ -397,6 +402,12 @@ export class RemoteHub {
 }
 
 class BadRequest extends Error {}
+
+/** La tarea sin `lane`, para un host que no lo entiende. */
+function withoutLane(task: HostTask): HostTask {
+  const { lane: _lane, ...rest } = task
+  return rest
+}
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value)
