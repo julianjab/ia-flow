@@ -25,7 +25,7 @@ export function mountWorkspace(opts: {
   root?: string
   githubToken: () => Promise<string>
   log: (line: string) => void
-}): { workspace: WorkspaceManager; session: WorkspaceSession; root: string } {
+}): { workspace: WorkspaceManager; session: WorkspaceSession } {
   // Sin `WORKSPACE_DIR`: <IA_FLOW_HOME>/workspaces.
   const root = opts.root ?? defaultWorkspaceRoot()
   const workspace = new WorkspaceManager(new NodeShellRunner(), {
@@ -37,5 +37,5 @@ export function mountWorkspace(opts: {
     syncBranchWithRemote: true,
     log: workspaceLogger(opts.log),
   })
-  return { workspace, session: new WorkspaceSession(workspace, workspaceTargetFor), root }
+  return { workspace, session: new WorkspaceSession(workspace, workspaceTargetFor) }
 }

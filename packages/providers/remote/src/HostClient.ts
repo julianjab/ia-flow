@@ -1,3 +1,4 @@
+import type { RunEnding } from '@ia-flow/provider-shared'
 import { createLogger, withRemoteTraceContext, withSpan } from '@ia-flow/telemetry'
 import {
   type AcceptRow,
@@ -10,6 +11,15 @@ import {
 
 /** Lo que hace el host con una tarea: lanza la sesión y termina cuando ésta termina, o cuando
  *  `signal` se aborta (el runner ya cerró la corrida). */
+/** El `reason` del abort cuando el runner cerró la corrida sin decir cómo (un runner viejo). */
+export const CLOSED_WITHOUT_ENDING = 'closed'
+
+/** Cómo cerró el modelo una corrida que el runner cerró, leído del `reason` de su signal. */
+export function endingOfSignal(signal: AbortSignal): RunEnding | undefined {
+  const reason = signal.reason
+  return reason === 'done' || reason === 'paused' || reason === 'failed' ? reason : undefined
+}
+
 export type TaskRunner = (
   task: HostTask,
   runner: { base: string },
@@ -77,7 +87,11 @@ export class HostClient {
           this.session = undefined
           continue
         }
-        for (const runId of reply.closed) this.active.get(runId)?.abort()
+        // El `reason` del abort es cómo cerró el modelo (`RunEnding`), si el runner lo dice: con
+        // eso el `TaskRunner` decide qué hace con su worktree.
+        for (const runId of reply.closed) {
+          this.active.get(runId)?.abort(reply.endings?.[runId] ?? CLOSED_WITHOUT_ENDING)
+        }
         for (const task of reply.tasks) this.take(task)
       } catch (error) {
         if (this.stopped) return

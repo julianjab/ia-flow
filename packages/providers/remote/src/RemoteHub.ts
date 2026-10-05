@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { Condition, type ProviderRegistry } from '@ia-flow/agent-engine'
-import { ChannelRouter, type RunChannel } from '@ia-flow/provider-shared'
+import { ChannelRouter, type RunChannel, type RunEnding } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { z } from 'zod'
 import {
@@ -88,6 +88,7 @@ class HostState {
   lastSeen: number
   queue: HostTask[] = []
   closed: string[] = []
+  endings: Record<string, RunEnding> = {}
   readonly runs = new Map<string, RemoteRunState>()
   private waiter: (() => void) | undefined
   conditions: Condition[] = []
@@ -298,7 +299,12 @@ export class RemoteHub {
     this.checkRunning(host, new Set(running))
     await host.wait(this.options.longPollMs ?? DEFAULT_LONG_POLL_MS)
     host.lastSeen = this.now()
-    const response: PollResponse = { tasks: host.queue.splice(0), closed: host.closed.splice(0) }
+    const response: PollResponse = {
+      tasks: host.queue.splice(0),
+      closed: host.closed.splice(0),
+      ...(Object.keys(host.endings).length > 0 ? { endings: host.endings } : {}),
+    }
+    host.endings = {}
     for (const task of response.tasks) {
       const run = host.runs.get(task.runId)
       if (run) run.delivered = true
@@ -351,6 +357,8 @@ export class RemoteHub {
     host.queue = host.queue.filter((task) => task.runId !== run.task.runId)
     if (run.delivered) {
       host.closed.push(run.task.runId)
+      const ending = run.channel.ending
+      if (ending) host.endings[run.task.runId] = ending
       host.wake()
     }
   }

@@ -128,6 +128,9 @@ export const PollResponse = z.strictObject({
   tasks: z.array(HostTask),
   /** Corridas que el runner ya dio por terminadas: el host corta sus sesiones. */
   closed: z.array(z.string()),
+  /** Cómo cerró el modelo cada una de `closed` (`RunEnding`): el host decide con eso qué hace
+   *  con su worktree. Ausente en un runner viejo, o si cerró sin que el modelo eligiera. */
+  endings: z.record(z.string(), z.enum(['done', 'paused', 'failed'])).optional(),
 })
 export type PollResponse = z.infer<typeof PollResponse>
 

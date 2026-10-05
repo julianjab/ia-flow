@@ -12,7 +12,6 @@
  * engine, ni fuentes, ni base de ejecuciones, ni la marca Working.
  */
 
-import { join } from 'node:path'
 import { EventBus, type McpServerRef, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import {
   type ClaudeCliConfig,
@@ -23,16 +22,18 @@ import {
   sessionName,
 } from '@ia-flow/provider-anthropic-cli'
 import {
+  endingOfSignal,
   HostClient,
   type HostTask,
   type RunReport,
   type TaskRunner,
 } from '@ia-flow/provider-remote'
+import { createLogger } from '@ia-flow/telemetry'
 import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
+import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
-import { DEFAULT_WORKTREE_TTL_HOURS, WorktreeSweeper } from '../workspace/WorktreeSweeper.js'
 import { CLAUDE_CLI_TYPE } from './providers.js'
 import { forwardTranscript, type TranscriptForwarder } from './transcriptForwarder.js'
 
@@ -47,8 +48,6 @@ export interface HostSettings {
   token: string
   maxConcurrent: number
   accepts: NonNullable<RunnerConfig['host']['accepts']>
-  /** Horas sin uso tras las que borra un worktree (`0`: nunca). */
-  worktreeTtlHours: number
   /** El provider que presta y sus defaults. */
   provider: { id: string; defaults: ClaudeCliConfig; bin?: string }
 }
@@ -70,7 +69,6 @@ export function hostSettings(cfg: RunnerConfig, env = process.env): HostSettings
     token: token as string,
     maxConcurrent: cfg.host.maxConcurrent ?? 1,
     accepts: cfg.host.accepts ?? [],
-    worktreeTtlHours: cfg.host.worktreeTtlHours ?? DEFAULT_WORKTREE_TTL_HOURS,
     provider: lentProvider(cfg),
   }
 }
@@ -104,12 +102,7 @@ export interface MountedHost {
   client: HostClient
   settings: HostSettings
   githubAuthMode: string
-  /** La limpieza de worktrees sin uso; sin ella (`worktreeTtlHours: 0`), no se limpian. */
-  sweeper?: WorktreeSweeper
 }
-
-/** Cada cuánto busca worktrees vencidos. */
-export const SWEEP_INTERVAL_MS = 60 * 60_000
 
 /** Lo que un host necesita, y nada más (ver arriba). */
 export async function mountHost(
@@ -119,21 +112,16 @@ export async function mountHost(
   const settings = hostSettings(cfg)
   const github = await resolveGithubAuth()
   await verifyGithubAuth(github)
-  const { session, workspace, root } = mountWorkspace({
+  const { session, workspace } = mountWorkspace({
     ...(opts.workspaceDir ? { root: opts.workspaceDir } : {}),
     githubToken: () => github.auth.getToken(),
     log: opts.log,
   })
-  const sweeper =
-    settings.worktreeTtlHours > 0
-      ? new WorktreeSweeper({
-          shell: new NodeShellRunner(),
-          workspace,
-          ledgerPath: join(root, 'host-worktrees.json'),
-          ttlMs: settings.worktreeTtlHours * 3_600_000,
-          log: opts.log,
-        })
-      : undefined
+  const worktrees = new HostWorktrees({
+    shell: new NodeShellRunner(),
+    workspace,
+    log: createLogger('ia-flow-runner-v2.host'),
+  })
   const client = new HostClient({
     runnerUrl: settings.runner,
     token: settings.token,
@@ -144,10 +132,10 @@ export async function mountHost(
       session,
       provider: settings.provider,
       log: opts.log,
-      ...(sweeper ? { worktrees: sweeper } : {}),
+      worktrees,
     }),
   })
-  return { client, settings, githubAuthMode: github.mode, ...(sweeper ? { sweeper } : {}) }
+  return { client, settings, githubAuthMode: github.mode }
 }
 
 /**
@@ -162,9 +150,9 @@ export function cliTaskRunner(opts: {
   log: (line: string) => void
   launch?: typeof launchCli
   close?: typeof closeOrphan
-  /** Quién anota el uso de cada worktree, para limpiar los que quedan sin uso. */
-  worktrees?: Pick<WorktreeSweeper, 'begin' | 'end'>
-
+  /** Quién arma el worktree de cada corrida y lo borra al terminar (`HostWorktrees`). Sin él, el
+   *  worktree queda en disco. */
+  worktrees?: Pick<HostWorktrees, 'begin' | 'end'>
   /** Dónde está la transcripción del CLI (default `~/.claude/projects`) y cómo se le habla al
    *  runner: los tests los inyectan. */
   transcriptsDir?: string
@@ -182,7 +170,8 @@ export function cliTaskRunner(opts: {
     try {
       return await runIn(cwd, task, runner, signal, config)
     } finally {
-      opts.worktrees?.end(cwd)
+      // Cómo cerró el modelo, si el runner cerró la corrida; si la sesión terminó sola, no cerró.
+      await opts.worktrees?.end(cwd, signal.aborted ? endingOfSignal(signal) : undefined)
     }
   }
 

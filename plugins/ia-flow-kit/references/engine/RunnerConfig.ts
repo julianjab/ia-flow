@@ -205,10 +205,6 @@ export const RunnerFileSchema = z.strictObject({
        *  evento más `agentId` y `eventType` (ej. `{ field: repo, op: in, value: [eks] }`). Sin
        *  condiciones, todo. Las evalúa el runner, antes de darle la tarea. */
       accepts: z.array(AcceptRow).optional(),
-      /** Horas sin uso tras las que borra el worktree de una task (si no tiene trabajo sin
-       *  pushear). El host no sabe cuándo termina una task: sin esto se acumulan. `0`: nunca.
-       *  Default: 72. */
-      worktreeTtlHours: z.number().min(0).optional(),
     })
     .optional(),
   /** Los system prompts del deploy que cualquier agente nombra por id

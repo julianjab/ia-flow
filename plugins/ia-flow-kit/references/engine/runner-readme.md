@@ -427,7 +427,6 @@ host:
   accepts:                                 # qué toma: como el `when` de las pipelines
     - { field: repo, op: in, value: [ subscriptions, eks ] }
     - { field: agentId, op: neq, value: reviewer }
-  worktreeTtlHours: 72                     # borra los worktrees sin uso (0: nunca)
 ```
 
 **El runner** no declara hosts: con `IA_FLOW_HOST_TOKEN` en su ambiente (el mismo que presenta el
@@ -452,11 +451,19 @@ workspace del agente no le llegan, y el `git push` sale con las credenciales de 
 Un miembro de un grupo `parallel` lleva su carril en la tarea (`lane`), así que en el host también
 trabaja en su propio worktree (`<worktree>--<carril>`).
 
-**Los worktrees del host se limpian solos.** El host no ve las pipelines ni sabe cuándo termina una
-task, así que anota el último uso de cada worktree (`<WORKSPACE_DIR>/host-worktrees.json`) y cada
-hora borra los que pasaron `host.worktreeTtlHours` (default 72) sin uso: nunca uno en uso, nunca uno
-con cambios o commits sin pushear (`git worktree remove` sin `--force`), y nunca uno que no anotó.
-La branch local queda.
+**El worktree de una corrida en el host vive lo que vive la corrida.** El contrato con el agente: si
+termina bien, deja todo en el remoto (commiteado y pusheado); el siguiente agente arranca de ahí,
+en éste u otro host. Al cerrar la corrida, el runner le dice al host cómo cerró el modelo
+(`PollResponse.endings`), y el host (`HostWorktrees`):
+
+| Cerró con | El worktree |
+| --- | --- |
+| una salida (`submit_*`) | se borra. Si dejó algo sin commitear o sin pushear, queda en disco y se loguea como **error**: el agente no cumplió el contrato |
+| `wait_for_event` | queda: la conversación sigue en ese mismo directorio |
+| `fail_turn`, `yield_turn`, o la sesión terminó sola | se borra si está limpio; con trabajo sin pushear queda para la próxima corrida |
+
+Nunca borra uno que otra corrida está usando, y `git worktree remove` va sin `--force`. La branch
+local queda.
 
 **La telemetría del host es la del runner.** Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, el host exporta
 sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de

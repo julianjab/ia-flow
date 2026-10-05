@@ -29,12 +29,7 @@ import { mountInbox } from './inbox/mountInbox.js'
 import { dispatchRaw, replayPullRequest } from './intake/dispatch.js'
 import { type McpHost, startMcpHost } from './mcp/mcpHost.js'
 import { hostTelemetryIngest } from './providers/hostTelemetry.js'
-import {
-  hostSettings,
-  type MountedHost,
-  mountHost,
-  SWEEP_INTERVAL_MS,
-} from './providers/providerHost.js'
+import { hostSettings, type MountedHost, mountHost } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
 import { listenHosts, mountRemoteHosts, nodeHandler } from './providers/remoteHosts.js'
 import { type ActivityStore, openActivityStore } from './storage/activityStore.js'
@@ -164,21 +159,13 @@ async function startServing(
 
 /** El host: se suscribe al runner y toma tareas hasta que lo apaguen. Sin servidor propio. */
 function startHosting(
-  { client, settings, githubAuthMode, sweeper }: MountedHost,
+  { client, settings, githubAuthMode }: MountedHost,
   telemetry: Telemetry,
 ): void {
   console.log(`→ github: ${githubAuthMode}`)
   console.log(
     `→ host ${settings.name}: presta ${settings.provider.id} a ${settings.runner} (hasta ${settings.maxConcurrent} a la vez${settings.accepts.length > 0 ? `, ${settings.accepts.length} condiciones` : ''})`,
   )
-  if (sweeper) {
-    console.log(`→ worktrees: se borran tras ${settings.worktreeTtlHours} h sin uso`)
-    const sweep = () => {
-      sweeper.sweep().catch((err: unknown) => runnerLog.warn(`limpieza de worktrees: ${err}`))
-    }
-    sweep()
-    setInterval(sweep, SWEEP_INTERVAL_MS).unref()
-  }
   client.start()
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
