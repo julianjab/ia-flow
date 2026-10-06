@@ -9,6 +9,22 @@ import type { Provider, ProviderRunContext } from '../Provider.js'
 import { ProviderRegistry } from '../Provider.js'
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Hasta que `done` dé true (o 1 s, y el test falla en su expect). */
+async function until(done: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !done(); i++) await sleep(10)
+}
+
+/** Una conversación que se retoma en `providerId`. */
+function resumeIn(providerId: string) {
+  return {
+    step: 'implementer',
+    branch: 'event' as const,
+    event: createEvent('ci', {}),
+    state: { provider: providerId, conversation: { sessionId: 's' } },
+  }
+}
 
 /** Un provider que cierra con `submit_done` cuando el test lo suelta (o enseguida). */
 function provider(id: string, extra: Partial<Provider> = {}, gate?: Promise<void>) {
@@ -211,6 +227,133 @@ describe('Agent with several provider candidates', () => {
       const result = await agent(registry, [{ id: 'remote:*' }]).run(ctx())
       expect(result.provider).toBe('remote:here')
       expect(registry.list().map((p) => p.id)).toEqual(['remote:here'])
+    })
+  })
+
+  describe('a named dynamic provider (remote:e2e)', () => {
+    it('alone and not registered yet, waits until its host registers', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:')
+      let chosen: string | undefined
+      void agent(registry, [{ id: 'remote:e2e' }])
+        .run(ctx())
+        .then((result) => {
+          chosen = result.provider
+        })
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:other').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:e2e').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBe('remote:e2e')
+    })
+
+    it('a resumed conversation waits for its host instead of failing', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:')
+      let chosen: string | undefined
+      void agent(registry, [{ id: 'remote:e2e' }])
+        .run({
+          ...ctx(),
+          resume: {
+            step: 'implementer',
+            branch: 'event',
+            event: createEvent('ci', {}),
+            state: { provider: 'remote:e2e', conversation: { sessionId: 's' } },
+          },
+        })
+        .then((result) => {
+          chosen = result.provider
+        })
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:e2e').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBe('remote:e2e')
+    })
+
+    it('a resumed conversation waits for its host even with a fallback candidate (it would start over)', async () => {
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry().expectDynamic('remote:').register(api.provider)
+      let chosen: string | undefined
+      void agent(registry, [{ id: 'remote:e2e' }, { id: 'anthropic-api' }])
+        .run({ ...ctx(), resume: resumeIn('remote:e2e') })
+        .then((result) => {
+          chosen = result.provider
+        })
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      const e2e = provider('remote:e2e')
+      registry.register(e2e.provider)
+      await until(() => chosen !== undefined)
+      expect(chosen).toBe('remote:e2e')
+      expect(e2e.runs[0]?.resume?.conversation).toEqual({ sessionId: 's' })
+      expect(api.runs).toEqual([])
+    })
+
+    it('a resumed conversation whose host never returns goes on in the next candidate after the limit', async () => {
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry().expectDynamic('remote:', 20).register(api.provider)
+      const result = await agent(registry, [{ id: 'remote:e2e' }, { id: 'anthropic-api' }]).run({
+        ...ctx(),
+        resume: resumeIn('remote:e2e'),
+      })
+      expect(result.provider).toBe('anthropic-api')
+    })
+
+    it('the limit counts from when the host went away, not from when the agent started waiting', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:', 50)
+      const busy = provider('remote:e2e', {
+        canAccept: async () => ({ accept: false, reason: 'lleno', retryAfterMs: 5 }),
+      })
+      registry.register(busy.provider)
+      let outcome: string | undefined
+      void agent(registry, [{ id: 'remote:e2e' }])
+        .run(ctx())
+        .then(
+          (result) => {
+            outcome = result.provider
+          },
+          (error: Error) => {
+            outcome = error.message
+          },
+        )
+      await sleep(120)
+      registry.unregister('remote:e2e')
+      await sleep(10)
+      registry.register(provider('remote:e2e').provider)
+      await until(() => outcome !== undefined)
+      expect(outcome).toBe('remote:e2e')
+    })
+
+    it('not registered, falls to the next candidate', async () => {
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry().expectDynamic('remote:').register(api.provider)
+      const result = await agent(registry, [{ id: 'remote:e2e' }, { id: 'anthropic-api' }]).run(
+        ctx(),
+      )
+      expect(result.provider).toBe('anthropic-api')
+    })
+
+    it('one that never registers (a typo, a host that is gone) fails after the wait limit, saying so', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:', 20)
+      await expect(agent(registry, [{ id: 'remote:e2' }]).run(ctx())).rejects.toThrow(
+        /remote:e2 no se registró/,
+      )
+    })
+
+    it('an unknown id outside the dynamic prefixes is still an error', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:')
+      await expect(agent(registry, [{ id: 'claude-typo' }]).run(ctx())).rejects.toThrow(
+        /provider desconocido "claude-typo"/,
+      )
     })
   })
 })

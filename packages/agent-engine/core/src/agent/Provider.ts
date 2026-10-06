@@ -88,9 +88,36 @@ export type Admission = { accept: true } | { accept: false; reason: string; retr
 
 /** Registry por id — un Provider se registra una vez y cualquier `AgentDefinitionProps` lo
  *  referencia por `provider: 'ese-id'`. Mismo patrón que `Provider.resolve(id)` en ia-flow. */
+/** Cuánto espera un agente a un provider dinámico con nombre que no llega (ver `expectDynamic`). */
+export const DEFAULT_DYNAMIC_WAIT_MS = 10 * 60_000
+
 export class ProviderRegistry {
   private readonly providers = new Map<string, Provider>()
+  /** Prefijo dinámico → cuánto se espera a un id con nombre de ese prefijo. */
+  private readonly dynamicPrefixes = new Map<string, number>()
   private waiters: Array<() => void> = []
+
+  /** Declara que los ids con este prefijo van y vienen (`remote:`, los hosts que se suscriben):
+   *  un agente que nombra uno que todavía no está — o que se fue — lo espera hasta `maxWaitMs`
+   *  (default 10 min), en vez de fallar al toque como con un id que nadie va a registrar. Pasado
+   *  ese tope, falla diciendo que no llegó (un typo, un host que ya no existe). */
+  expectDynamic(prefix: string, maxWaitMs = DEFAULT_DYNAMIC_WAIT_MS): this {
+    this.dynamicPrefixes.set(prefix, maxWaitMs)
+    return this
+  }
+
+  /** Si `id` es de los que van y vienen (ver `expectDynamic`). */
+  isDynamic(id: string): boolean {
+    return this.dynamicWaitMs(id) !== undefined
+  }
+
+  /** Cuánto se espera a `id` si es dinámico; `undefined` si no lo es. */
+  dynamicWaitMs(id: string): number | undefined {
+    for (const [prefix, maxWaitMs] of this.dynamicPrefixes) {
+      if (id.startsWith(prefix)) return maxWaitMs
+    }
+    return undefined
+  }
 
   register(provider: Provider): this {
     this.providers.set(provider.id, provider)

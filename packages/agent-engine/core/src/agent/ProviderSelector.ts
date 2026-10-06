@@ -25,6 +25,10 @@ export interface SelectedProvider {
  * Un candidato comodín (`remote:*`) se resuelve en cada vuelta contra lo registrado en ese momento:
  * los providers que van y vienen (hosts remotos que se suscriben) entran y salen solos. Sin ninguno
  * registrado, el agente espera a que llegue uno — o sigue con el candidato siguiente, si hay.
+ *
+ * Lo mismo un candidato con nombre de los que van y vienen (`remote:e2e`, ver
+ * `ProviderRegistry.expectDynamic`): mientras su host no esté suscrito — el runner recién
+ * arrancado, el host reiniciándose — cuenta como ausente, no como un id desconocido.
  */
 export class ProviderSelector {
   constructor(
@@ -37,16 +41,33 @@ export class ProviderSelector {
 
   /** `prefer`: el provider de una conversación que se retoma — sólo ése, si sigue declarado. */
   async select(ctx: PipelineExecutionContext, prefer?: string): Promise<SelectedProvider> {
-    const dynamic = this.candidates.some((candidate) => candidate.wildcard)
+    const dynamic = this.candidates.some(
+      (candidate) => candidate.wildcard || this.registry.isDynamic(candidate.id),
+    )
+    // Desde cuándo falta lo que se espera: se reinicia cada vez que vuelve a estar.
+    let absentSince = Date.now()
+    // La conversación que se retoma en un provider que va y viene: se lo espera (hasta su tope)
+    // antes de seguir en otro candidato, que la empezaría de cero.
+    let awaitPrefer =
+      prefer !== undefined &&
+      this.registry.isDynamic(prefer) &&
+      this.candidates.some((candidate) => candidate.covers(prefer))
     for (;;) {
       const concrete = this.concrete()
-      if (concrete.length === 0) {
-        this.log.info(
-          `${this.agentId}: ningún provider registrado para ${this.candidates.map((c) => c.id).join(', ')} — espera a que llegue uno`,
+      if (awaitPrefer && prefer && !concrete.some((c) => c.id === prefer)) {
+        if (await this.waitFor(prefer, this.registry.dynamicWaitMs(prefer) ?? 0, absentSince)) {
+          continue
+        }
+        this.log.warn(
+          `${this.agentId}: ${prefer} no volvió — sigue en otro candidato, sin la conversación`,
         )
-        await this.registryChange()
+        awaitPrefer = false
+      }
+      if (concrete.length === 0) {
+        await this.waitForAny(absentSince)
         continue
       }
+      absentSince = Date.now()
       const preferred = prefer ? concrete.filter((c) => c.id === prefer) : []
       const { eligible, skipped } =
         preferred.length > 0
@@ -68,7 +89,8 @@ export class ProviderSelector {
   }
 
   /** Los candidatos, con cada comodín resuelto contra lo registrado ahora: un id que otro
-   *  candidato nombra explícito no se repite, y uno que ya salió no vuelve a salir. */
+   *  candidato nombra explícito no se repite, y uno que ya salió no vuelve a salir. Uno con
+   *  nombre de los que van y vienen, sin registrar ahora, no sale. */
   private concrete(): ProviderCandidate[] {
     const named = new Set(this.candidates.filter((c) => !c.wildcard).map((c) => c.id))
     const seen = new Set<string>()
@@ -79,7 +101,9 @@ export class ProviderSelector {
             .list()
             .map((provider) => provider.id)
             .filter((id) => candidate.covers(id) && !named.has(id))
-        : [candidate.id]
+        : this.registry.isDynamic(candidate.id) && !this.registry.resolve(candidate.id)
+          ? []
+          : [candidate.id]
       for (const id of ids) {
         if (seen.has(id)) continue
         seen.add(id)
@@ -89,9 +113,54 @@ export class ProviderSelector {
     return out
   }
 
-  /** Hasta que cambie lo registrado, o pase el `DEFAULT_RETRY_AFTER_MS`. */
-  private registryChange(): Promise<void> {
-    return Promise.race([this.registry.changed(), delay(DEFAULT_RETRY_AFTER_MS)])
+  /** Hasta que cambie lo registrado, o pase el `DEFAULT_RETRY_AFTER_MS` (o `atMostMs`, si es
+   *  menos). */
+  private registryChange(atMostMs = DEFAULT_RETRY_AFTER_MS): Promise<void> {
+    return Promise.race([
+      this.registry.changed(),
+      delay(Math.min(atMostMs, DEFAULT_RETRY_AFTER_MS)),
+    ])
+  }
+
+  /** Sin ningún candidato registrado: espera a que llegue uno — sin tope con un comodín; con el
+   *  de los dinámicos con nombre, y pasado ese tope es un error que dice qué no llegó. */
+  private async waitForAny(absentSince: number): Promise<void> {
+    const ids = this.candidates.map((c) => c.id).join(', ')
+    const maxWaitMs = this.namedDynamicWaitMs()
+    if (maxWaitMs === undefined) {
+      this.log.info(
+        `${this.agentId}: ningún provider registrado para ${ids} — espera a que llegue uno`,
+      )
+      await this.registryChange()
+      return
+    }
+    if (!(await this.waitFor(ids, maxWaitMs, absentSince))) {
+      throw new Error(
+        `Agent(${this.agentId}): ${ids} no se registró en ${Math.round(maxWaitMs / 60_000)} min — ¿está corriendo y suscrito su host? (¿el nombre está bien escrito?)`,
+      )
+    }
+  }
+
+  /** Espera a que cambie lo registrado, sin pasarse del tope contado desde `since`: `false` si
+   *  ya venció. */
+  private async waitFor(ids: string, maxWaitMs: number, since: number): Promise<boolean> {
+    const left = maxWaitMs - (Date.now() - since)
+    if (left <= 0) return false
+    this.log.warn(
+      `${this.agentId}: ${ids} todavía no está registrado — lo espera ${Math.ceil(left / 1000)} s más`,
+    )
+    await this.registryChange(left)
+    return true
+  }
+
+  /** Cuánto esperar cuando no hay ningún candidato registrado: el tope más largo de los
+   *  dinámicos con nombre — o `undefined` (sin tope) si hay un comodín, que espera como siempre. */
+  private namedDynamicWaitMs(): number | undefined {
+    if (this.candidates.some((candidate) => candidate.wildcard)) return undefined
+    const waits = this.candidates
+      .map((candidate) => this.registry.dynamicWaitMs(candidate.id))
+      .filter((ms): ms is number => ms !== undefined)
+    return waits.length > 0 ? Math.max(...waits) : undefined
   }
 
   /** Una vuelta por los elegibles: el primero con lugar que acepta. */
