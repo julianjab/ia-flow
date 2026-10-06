@@ -23,7 +23,7 @@ no código de acá. El modelo completo (pipelines, intake, providers, MCP) está
 | `storage/` | SQLite: actividad, conversaciones, ejecuciones | cambia qué se persiste |
 | `telemetry/` | OTLP, heartbeat | trazas, logs, métricas |
 | `workspace/` | clones y worktrees de las tasks | cambia dónde o cómo trabaja un agente en disco |
-| `capabilities/` | los agentes de las capacidades del runner (asistente, `whenText`, `fileFocus`, `branchName`) | cambia el prompt o el modelo de una capacidad, o el asistente |
+| `capabilities/` | los agentes que trae el runner: sus capacidades (asistente, `whenText`, `fileFocus`, `branchName`) y la retrospectiva (agente + pipeline) | cambia el prompt o el modelo de una capacidad, el asistente o la retrospectiva |
 | `bundle/` | módulos virtuales para las acciones de una config | una config necesita importar otro paquete |
 
 Una tool genérica de GitHub o de Slack **no va acá**: va en `packages/github/tools` o
