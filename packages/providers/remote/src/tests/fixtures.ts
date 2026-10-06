@@ -6,8 +6,9 @@ import {
   type Tool,
 } from '@ia-flow/agent-engine'
 import { HostClient, type TaskRunner } from '../HostClient.js'
-import type { AcceptRow } from '../protocol.js'
+import type { AcceptRow, HostTask, RunResult } from '../protocol.js'
 import { RemoteHub } from '../RemoteHub.js'
+import { RunnerLink } from '../RunnerLink.js'
 
 export const TOKEN = 'secreto-de-hosts'
 export const RUNNER = 'http://runner.test'
@@ -48,27 +49,34 @@ export function makeHost(
   })
 }
 
-/** Lo que haría la sesión del CLI allá: llamar una tool por el MCP de la corrida en el runner. */
+/** Lo que hace el provider del host al llamar una tool del engine: `/tools` de la corrida. */
 export async function callTool(
   hub: RemoteHub,
-  url: string,
+  task: HostTask,
   name: string,
-  args: unknown = {},
-): Promise<{ text: string; isError?: boolean }> {
-  const res = await wire(hub)(url, {
+  input: unknown = {},
+): Promise<{ text: string; isError: boolean }> {
+  const res = await post(hub, `${RUNNER}${task.endpoints.tools}`, { name, input })
+  return (await res.json()) as { text: string; isError: boolean }
+}
+
+/** Un POST a una ruta del hub, sin red. */
+export function post(hub: RemoteHub, url: string, body: unknown): Promise<Response> {
+  return wire(hub)(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'tools/call',
-      params: { name, arguments: args },
-    }),
+    body: JSON.stringify(body),
   })
-  const body = (await res.json()) as {
-    result: { content: Array<{ text: string }>; isError?: boolean }
-  }
-  return { text: body.result.content[0]?.text ?? '', isError: body.result.isError }
+}
+
+/** Un resultado como el que devuelve el provider del host. */
+export function output(outcome = 'success', extra: Record<string, unknown> = {}): RunResult {
+  return { status: 'output', output: { outcome, ...extra } }
+}
+
+/** El `RunnerLink` de una tarea, contra el hub sin red. */
+export function link(hub: RemoteHub, task: HostTask, inboxEveryMs = 5): RunnerLink {
+  return new RunnerLink({ task, base: RUNNER, fetchImpl: wire(hub), inboxEveryMs, textEveryMs: 5 })
 }
 
 export function tool(name: string, handler: Tool['handler'], extra: Partial<Tool> = {}): Tool {
