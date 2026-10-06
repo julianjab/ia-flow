@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { McpServerRef } from '@ia-flow/agent-engine'
-import type { ClaudeCliConfig, ClaudeCliMode } from './config.js'
+import { type ClaudeCliConfig, type ClaudeCliMode, disallowedToolsOf } from './config.js'
 import type { RunEndpoints } from './RunServer.js'
 import { writeSessionFiles } from './SessionFiles.js'
 import type { CliSession, Launcher } from './sessions/CliSession.js'
@@ -53,6 +53,7 @@ export async function launchCli(spec: CliLaunchSpec): Promise<LaunchedCli> {
     mcpServers: spec.mcpServers,
     env: credentialEnv(spec.config.env ?? {}),
     ...(spec.config.model ? { model: spec.config.model } : {}),
+    disallowedTools: disallowedToolsOf(spec.config),
     args: spec.config.args ?? [],
     session: spec.session,
   })
