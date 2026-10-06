@@ -5,7 +5,9 @@ export { launchCli } from './CliLauncher.js'
 export {
   ClaudeCliConfig,
   ClaudeCliMode,
+  disallowedToolsOf,
   mergeClaudeCliConfig,
+  PRINT_DISALLOWED_TOOLS,
   parseClaudeCliConfig,
 } from './config.js'
 export type { RunEndpoints } from './RunServer.js'

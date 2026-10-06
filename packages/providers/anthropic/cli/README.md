@@ -57,4 +57,10 @@ providerRegistry.register(
 
 Por provider (`runner.yaml`, `providers.<id>` con `type: claude-cli`) y por agente
 (`providerConfig`, gana clave por clave): `mode`, `model`, `args`, `env`, `surface`,
-`timeoutMinutes`, `maxStopNudges`. Estricta: una clave de otro provider es un error al montar.
+`timeoutMinutes`, `maxStopNudges`, `disallowedTools`. Estricta: una clave de otro provider es un
+error al montar.
+
+`disallowedTools` va a `--disallowedTools`. Sin fijarlo, depende del modo: `print` esconde las
+tools de background (`Monitor`, `ScheduleWakeup`, `Cron*`) —devuelven al instante, nadie despierta
+al modelo y las vuelve a armar en loop—; `tmux` no esconde ninguna. Fijarlo reemplaza ese default
+(`[]` las habilita todas).

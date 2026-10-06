@@ -28,6 +28,8 @@ export interface SessionSpec {
   /** Van al `env` del `--settings`. */
   env: Record<string, string>
   model?: string
+  /** `--disallowedTools`; vacío = sin el flag. */
+  disallowedTools: string[]
   args: string[]
   /** La sesión del CLI: una nueva con ese id, o retomar la que tiene ese id. */
   session: { id: string; resume: boolean }
@@ -75,6 +77,10 @@ export async function writeSessionFiles(spec: SessionSpec): Promise<SessionFiles
     sysprompt,
     '--dangerously-skip-permissions',
     ...(spec.model ? ['--model', spec.model] : []),
+    // Un solo argumento separado por comas: el flag es variádico y se comería lo que venga atrás.
+    ...(spec.disallowedTools.length > 0
+      ? ['--disallowedTools', spec.disallowedTools.join(',')]
+      : []),
     ...spec.args,
   ]
   return { argv, dir, cleanup: () => rm(dir, { recursive: true, force: true }) }

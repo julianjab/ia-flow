@@ -25,8 +25,30 @@ export const ClaudeCliConfig = z.strictObject({
   /** Cuántas veces se le insiste al modelo que cierre con `submit_*` cuando intenta terminar sin
    *  hacerlo. Default: 2. */
   maxStopNudges: z.number().int().min(0).optional(),
+  /** `--disallowedTools`: tools del CLI que la sesión no ve. Reemplaza el default del modo
+   *  (`PRINT_DISALLOWED_TOOLS` en `print`, ninguna en `tmux`); `[]` las habilita todas. */
+  disallowedTools: z.array(z.string().min(1)).optional(),
 })
 export type ClaudeCliConfig = z.infer<typeof ClaudeCliConfig>
+
+/**
+ * Las tools que corren en background y vuelven al modelo más tarde. En `print` no hay nadie que
+ * lo despierte: la tool devuelve al instante y el modelo la vuelve a armar en loop, releyendo todo
+ * el contexto en cada vuelta. En `tmux` la sesión sigue viva y sí sirven.
+ */
+export const PRINT_DISALLOWED_TOOLS = [
+  'Monitor',
+  'ScheduleWakeup',
+  'CronCreate',
+  'CronDelete',
+  'CronList',
+] as const
+
+/** Las tools que la sesión no ve: las de la config, o el default de su modo. */
+export function disallowedToolsOf(config: ClaudeCliConfig): string[] {
+  if (config.disallowedTools) return config.disallowedTools
+  return (config.mode ?? 'print') === 'print' ? [...PRINT_DISALLOWED_TOOLS] : []
+}
 
 /** Tira con el detalle si `raw` no es una config válida. */
 export function parseClaudeCliConfig(raw: unknown): ClaudeCliConfig {
