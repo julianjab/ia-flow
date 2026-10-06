@@ -75,8 +75,8 @@ export function output(outcome = 'success', extra: Record<string, unknown> = {})
 }
 
 /** El `RunnerLink` de una tarea, contra el hub sin red. */
-export function link(hub: RemoteHub, task: HostTask, inboxEveryMs = 5): RunnerLink {
-  return new RunnerLink({ task, base: RUNNER, fetchImpl: wire(hub), inboxEveryMs, textEveryMs: 5 })
+export function link(hub: RemoteHub, task: HostTask): RunnerLink {
+  return new RunnerLink({ task, base: RUNNER, fetchImpl: wire(hub), textEveryMs: 5 })
 }
 
 export function tool(name: string, handler: Tool['handler'], extra: Partial<Tool> = {}): Tool {

@@ -180,7 +180,7 @@ describe('Engine dispatch journal', () => {
       run: async (ctx: ProviderRunContext) => {
         started()
         await gate
-        ctx.inbox?.()
+        await ctx.inbox?.()
         return { outcome: 'success' }
       },
     })

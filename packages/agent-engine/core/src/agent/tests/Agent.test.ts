@@ -557,7 +557,7 @@ describe('Agent', () => {
   it('hands its provider the execution inbox, and none outside an execution', async () => {
     const seen: Array<string[] | undefined> = []
     const registry = registerFakeProvider('fake', async (ctx) => {
-      seen.push(ctx.inbox?.())
+      seen.push(await ctx.inbox?.())
       return { outcome: 'success' }
     })
     const agent = new Agent({ id: 'implementer', provider: 'fake', prompt: 'p' }, registry)

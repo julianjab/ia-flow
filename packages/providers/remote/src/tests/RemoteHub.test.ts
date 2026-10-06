@@ -221,13 +221,14 @@ describe('una corrida', () => {
   it('la bandeja, la conversación y el texto del host llegan al contexto del runner', async () => {
     const { hub, registry } = makeHub()
     const inbox = ['el humano comentó']
+    const read: string[][] = []
     const saved: unknown[] = []
     const texts: string[] = []
     started(
       makeHost(hub, async (task) => {
         const runner = link(hub, task)
         runner.start()
-        await until(() => runner.inbox().length > 0 || inbox.length === 0)
+        read.push(await runner.inbox())
         runner.saveConversation({ step: 1 })
         runner.saveConversation({ step: 2 })
         runner.onText('hola ')
@@ -244,9 +245,35 @@ describe('una corrida', () => {
         onText: (delta) => texts.push(delta),
       }),
     )
+    expect(read).toEqual([['el humano comentó']])
     expect(inbox).toEqual([])
     expect(saved).toEqual([{ step: 1 }, { step: 2 }])
     expect(texts.join('')).toBe('hola mundo')
+  })
+
+  it('la bandeja se lee recién cuando el provider del host la pide: lo que no leyó queda sin leer en el runner', async () => {
+    const { hub, registry } = makeHub()
+    let reads = 0
+    started(
+      makeHost(hub, async (task) => {
+        // Un provider que termina sin leer la bandeja.
+        const runner = link(hub, task)
+        runner.start()
+        await runner.stop()
+        return output()
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    await (registry.resolve('remote:laptop') as Provider).run(
+      runContext({
+        inbox: () => {
+          reads++
+          return ['el CI pasó']
+        },
+      }),
+    )
+    // Nadie la vació: el engine re-despacha lo que quedó sin leer al cerrar la ejecución.
+    expect(reads).toBe(0)
   })
 
   it('las tools del engine por RunnerLink: un error vuelve al modelo, y una terminal marca cómo cerró', async () => {
