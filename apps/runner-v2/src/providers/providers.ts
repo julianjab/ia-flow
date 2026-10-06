@@ -5,7 +5,8 @@
  * `maxConcurrent` (del provider, no de la corrida).
  *
  * Los de otras máquinas no se declaran acá: un host se suscribe solo y aparece como
- * `remote:<name>` (ver `remoteHosts.ts`); los agentes lo nombran, o `remote:*`.
+ * `remote:<name>` (ver `remoteHosts.ts`); los agentes lo nombran, o `remote:*`. El host arma el
+ * suyo con lo mismo (`createProvider`), desde los `providers:` de SU runner.yaml.
  */
 import {
   type PipelineExecutionContext,
@@ -40,6 +41,30 @@ export function registerProviders(
   }
   for (const provider of registered) providerRegistry.register(provider)
   return registered
+}
+
+/** Los ids de provider que declara `providers:`: `anthropic-api` siempre, y cada entrada
+ *  `type: claude-cli`. */
+export function providerIds(providers: ProvidersConfig): string[] {
+  return [
+    ANTHROPIC_PROVIDER,
+    ...Object.entries(providers)
+      .filter(([, config]) => config.type === CLAUDE_CLI_TYPE)
+      .map(([id]) => id),
+  ]
+}
+
+/** Un provider de `providers:`, armado como lo arma el runner — lo usa el host para correr el
+ *  suyo. */
+export function createProvider(
+  id: string,
+  providers: ProvidersConfig,
+  options: RegisterProvidersOptions,
+): Provider {
+  if (id === ANTHROPIC_PROVIDER) return registerAnthropic(providers[id] ?? {}, options.log)
+  const config = providers[id]
+  if (config?.type === CLAUDE_CLI_TYPE) return claudeCli(id, config, options)
+  throw new Error(`provider "${id}" desconocido (hay: ${providerIds(providers).join(', ')})`)
 }
 
 /** Cómo se valida el `providerConfig` de un agente, según su provider — al montar, para que un

@@ -196,8 +196,9 @@ export const RunnerFileSchema = z.strictObject({
       /** La base pública del runner (`https://ia-flow.example.com`). Env: IA_FLOW_HOST_RUNNER_URL
        *  (gana). */
       runner: z.url().optional(),
-      /** Qué provider presta: una entrada `type: claude-cli` de `providers`, con sus defaults
-       *  (modo, modelo, tope de minutos). Default: la única que haya. */
+      /** Con qué provider corre las tareas que toma: un id de `providers` (`anthropic-api`, o una
+       *  entrada `type: claude-cli`), con sus defaults. Default: la única entrada `type:
+       *  claude-cli`, si hay una sola. */
       provider: z.string().min(1).optional(),
       /** Cuántas corridas a la vez toma. Default: 1. */
       maxConcurrent: z.number().int().positive().optional(),

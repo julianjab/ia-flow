@@ -21,7 +21,7 @@ import {
   workspaceAction,
 } from '@ia-flow/workspace'
 import { z } from 'zod'
-import { type ActionContext, defineAction } from '../defineAction.js'
+import { type ActionContext, defineAction, type RunnerServices } from '../defineAction.js'
 
 const Duration = z.string().regex(/^\d+(s|m|h)$/, 'una duración: `30s`, `45m`, `2h`')
 const DURATION_MS = { s: 1_000, m: 60_000, h: 3_600_000 } as const
@@ -40,16 +40,37 @@ const DiskToolOptions = z.strictObject({
   maxTimeout: Duration.optional(),
 })
 
-function diskTool(name: string, ctx: ActionContext): Action {
-  const parsed = DiskToolOptions.safeParse(ctx.options)
+/** Lo que una tool de workspace necesita de quien la arma: el worktree de cada corrida y la
+ *  credencial de los `git` de red. El runner le da los suyos; un host remoto, los de su máquina. */
+export type WorkspaceToolDeps = Pick<RunnerServices, 'session' | 'gitCredential'>
+
+/** Las tools de workspace que un host remoto puede rearmar sobre su worktree (ver
+ *  `Tool.origin`). `run_agent` no: delega en un provider del runner. */
+export const HOST_WORKSPACE_TOOLS: ReadonlySet<string> = new Set([
+  ...WORKSPACE_TOOLS,
+  'workspace_reset',
+])
+
+/** Una tool de workspace con sus `options` del YAML, armada sobre `deps`. */
+export function workspaceTool(
+  name: string,
+  options: Record<string, unknown>,
+  deps: WorkspaceToolDeps,
+): Action {
+  if (name === 'workspace_reset') return new ResetWorkspaceAction(deps.session)
+  if (!WORKSPACE_TOOLS.has(name)) throw new Error(`${name}: no es una tool de workspace`)
+  return diskTool(name, options, deps)
+}
+
+function diskTool(name: string, options: Record<string, unknown>, deps: WorkspaceToolDeps): Action {
+  const parsed = DiskToolOptions.safeParse(options)
   if (!parsed.success)
     throw new Error(`${name}: options inválidas\n${z.prettifyError(parsed.error)}`)
   const { allow, deny, githubAuth, timeout, maxTimeout } = parsed.data
-  const { gitCredential } = ctx.services
-  const publish = githubAuth ? gitCredential : undefined
+  const publish = githubAuth ? deps.gitCredential : undefined
   return workspaceAction(
     name,
-    ctx.services.session,
+    deps.session,
     { ...(allow ? { allow } : {}), deny: deny ?? [] },
     {
       ...(publish ? { gitCredential: publish } : {}),
@@ -89,7 +110,7 @@ function runAgent(ctx: ActionContext): Action {
 
 export default [
   ...[...WORKSPACE_TOOLS].map((name) =>
-    defineAction({ id: name, create: (ctx) => diskTool(name, ctx) }),
+    defineAction({ id: name, create: (ctx) => diskTool(name, ctx.options, ctx.services) }),
   ),
   defineAction({ id: 'run_agent', create: runAgent }),
   // El agente descarta su worktree y arranca de nuevo (escribe: necesita `allowWrite`).

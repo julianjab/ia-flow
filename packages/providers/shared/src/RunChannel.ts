@@ -50,9 +50,6 @@ export interface RunChannelOptions {
   /** Cuándo arrancó la corrida: lo anterior de la transcripción (una sesión retomada) no se
    *  vuelve a emitir. */
   since?: Date
-  /** Leer la transcripción de la sesión (`transcript_path` de los hooks). Default: sí. Una sesión
-   *  en otra máquina (un host remoto) la escribe en SU disco: el path no es de éste. */
-  transcript?: boolean
   /** Cada señal de vida de la sesión (una tool, un hook): quien la espera de lejos mide el
    *  silencio con esto. */
   onActivity?: () => void
@@ -168,14 +165,13 @@ export class RunChannel {
    *  de escribir, así que el último mensaje también sale. */
   private readTranscript(event: string, input: Record<string, unknown>): void {
     const path = input.transcript_path
-    if (this.options.transcript === false || typeof path !== 'string' || !path) return
+    if (typeof path !== 'string' || !path) return
     void this.transcript.read(path, { flush: event === 'Stop' })
   }
 
   /** Un request al modelo, como un span GenAI colgado del agente (como `chat <model>` del
-   *  provider de la API), y su texto a `onText`. Lo llama la lectura de la transcripción, o —si la
-   *  sesión corre en otra máquina— quien se la reenvía. */
-  recordMessage(message: TranscriptMessage): void {
+   *  provider de la API), y su texto a `onText`. Lo llama la lectura de la transcripción. */
+  private recordMessage(message: TranscriptMessage): void {
     const model = message.model ?? 'unknown'
     const span = startSpan(
       `chat ${model}`,

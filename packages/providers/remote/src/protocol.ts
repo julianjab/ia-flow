@@ -2,19 +2,20 @@
  * El cable entre un runner y sus hosts, en zod: lo validan los dos lados. Todas las conexiones las
  * abre el HOST — sólo necesita salida; el runner ya es público (recibe los webhooks de GitHub):
  *
- *   POST /v1/hosts/subscribe            (bearer de hosts) me llamo X, tomo esto, hasta N a la vez
- *   POST /v1/hosts/<session>/poll       (bearer de hosts) long-poll: tareas nuevas y corridas cerradas
- *   POST /v1/runs/<token>/mcp           el MCP de la corrida (las tools del agente)       ┐ el token de
- *   POST /v1/runs/<token>/hooks/<Ev>    los hooks de Claude Code (traza, inbox, cierre)   │ la corrida, en
- *   POST /v1/runs/<token>/transcript    los requests al modelo (uso) que el host lee de    │ el path
- *                                       la transcripción de su sesión                      │
- *   POST /v1/runs/<token>/report        cómo terminó la sesión del lado del host          ┘
- *   POST /v1/hosts/telemetry/traces     (bearer de hosts) OTLP/HTTP JSON estándar: las trazas
- *   POST /v1/hosts/telemetry/logs       y los logs del host, que el runner guarda y reexporta
+ *   POST /v1/hosts/subscribe              (bearer de hosts) me llamo X, tomo esto, hasta N a la vez
+ *   POST /v1/hosts/<session>/poll         (bearer de hosts) long-poll: tareas nuevas y corridas cerradas
+ *   POST /v1/runs/<token>/tools           una tool del engine (`submit_*`, GitHub…)   ┐ el token de la
+ *   POST /v1/runs/<token>/inbox           lo que llegó a la ejecución (sus `injects`) │ corrida, en el
+ *   POST /v1/runs/<token>/conversation    la conversación en curso, para retomarla    │ path
+ *   POST /v1/runs/<token>/text            el texto del modelo, en vivo                │
+ *   POST /v1/runs/<token>/result          cómo terminó: el `ProviderRunOutput`        ┘
+ *   POST /v1/hosts/telemetry/traces       (bearer de hosts) OTLP/HTTP JSON estándar: las trazas
+ *   POST /v1/hosts/telemetry/logs         y los logs del host, que el runner guarda y reexporta
  *
- * El runner no conduce nada: le entrega la tarea al host y espera en el canal de la corrida (el de
- * `@ia-flow/provider-shared`, el mismo que usa el CLI local) a que el modelo llame una tool
- * terminal — como un `claude` corriendo en su máquina, pero contra una API.
+ * Una tarea es la corrida de un agente, no la de un CLI: el host la corre con SU provider (el de
+ * su runner.yaml — el CLI `claude`, la Messages API…) igual que el runner corre el suyo, sobre su
+ * worktree. Las tools de workspace (`fs_*`, `bash_run`) viajan como `origin` y el host las rearma
+ * ahí; las del engine se quedan en el runner y se llaman por `/tools`.
  */
 import { z } from 'zod'
 
@@ -75,22 +76,56 @@ export const PollRequest = z.strictObject({
 })
 export type PollRequest = z.infer<typeof PollRequest>
 
-/** Una corrida para el host: lo que necesita para lanzar la sesión, y dónde hablarle al runner. */
+/** Una tool del engine, como la ve el modelo del host: se corre en el runner (`/tools`). */
+export const ToolSpec = z.strictObject({
+  name: z.string(),
+  description: z.string(),
+  inputSchema: z.record(z.string(), z.unknown()),
+  /** Cierra el turno (`submit_*`, `wait_for_event`, `fail_turn`…). */
+  terminal: z.boolean().optional(),
+  /** Lo cierra como falla (`fail_turn`). */
+  failure: z.boolean().optional(),
+})
+export type ToolSpec = z.infer<typeof ToolSpec>
+
+/** Una tool de workspace (`fs_*`, `bash_run`…): el host la rearma sobre su worktree con esto. */
+export const WorkspaceToolSpec = z.strictObject({
+  name: z.string(),
+  origin: z.strictObject({
+    action: z.string(),
+    options: z.record(z.string(), z.unknown()),
+  }),
+})
+export type WorkspaceToolSpec = z.infer<typeof WorkspaceToolSpec>
+
+const AgentVariable = z.union([
+  z.string(),
+  z.strictObject({
+    value: z.string(),
+    full: z.string().optional(),
+    description: z.string().optional(),
+  }),
+])
+
+/** Una corrida para el host: el `ProviderRunContext` del agente, en JSON, y dónde hablarle al
+ *  runner. */
 export const HostTask = z.strictObject({
   runId: z.string(),
   agentId: z.string(),
-  /** `<agente>-task-<n>`: el nombre de la sesión. */
-  label: z.string(),
   prompt: z.string(),
   systemPrompts: z.array(z.string()),
-  /** Las tools que cierran el turno (para la nota de sesión desatendida). */
-  exits: z.array(z.string()),
+  variables: z.record(z.string(), AgentVariable),
   /** Los MCP externos del agente, con sus credenciales ya resueltas. */
   mcpServers: z.array(
     z.strictObject({ id: z.string(), config: z.record(z.string(), z.unknown()) }),
   ),
-  /** Su `providerConfig`: lo valida el host, que es el que sabe qué acepta. */
+  /** Su `providerConfig`: lo valida el provider del host, que es el que sabe qué acepta. */
   providerConfig: z.record(z.string(), z.unknown()),
+  tools: z.array(ToolSpec),
+  workspaceTools: z.array(WorkspaceToolSpec),
+  /** Retomar una conversación (opaca: la armó el provider del host y la guardó por
+   *  `/conversation`) con lo que pasó mientras tanto. */
+  resume: z.strictObject({ conversation: z.unknown(), message: z.string() }).optional(),
   /** El evento de la corrida: de él sale el worktree, como en el runner. */
   event: z.strictObject({
     id: z.string(),
@@ -102,15 +137,13 @@ export const HostTask = z.strictObject({
   /** El carril (`ctx.lane`): el miembro de un grupo `parallel`. El host lo usa para darle su propio
    *  worktree, como el runner — sin él, dos miembros en el mismo host compartirían el de la task. */
   lane: z.string().optional(),
-  /** La sesión del CLI: una nueva con ese id, o retomar la que tiene ese id. */
-  session: z.strictObject({ id: z.string(), resume: z.boolean() }),
-  /** Paths en el runner (relativos a su base): el MCP, los hooks, la transcripción y el reporte
-   *  de la corrida. Sin `transcript` (un runner viejo), el host no reenvía el uso. */
+  /** Paths en el runner (relativos a su base) de la corrida. */
   endpoints: z.strictObject({
-    mcp: z.string(),
-    hooks: z.string(),
-    transcript: z.string().optional(),
-    report: z.string(),
+    tools: z.string(),
+    inbox: z.string(),
+    conversation: z.string(),
+    text: z.string(),
+    result: z.string(),
   }),
   /** El span del agente en el runner (W3C `traceparent`) y sus atributos heredados
    *  (`ia.execution.id`, `ia.issue`…): lo que el host traza y loguea cuelga de ahí, igual que en
@@ -124,59 +157,43 @@ export const HostTask = z.strictObject({
 })
 export type HostTask = z.infer<typeof HostTask>
 
-/**
- * Lo que el host entiende del cable más allá de la versión base, como header de la suscripción
- * (`x-ia-flow-host-features: endings`). Va en un header y no en el body a propósito: un runner
- * viejo valida el body estricto y rechazaría el campo, pero ignora un header. El runner sólo manda
- * un campo nuevo a quien dijo que lo entiende: un host viejo también valida estricto, y una
- * respuesta que rechaza pierde las tareas que traía.
- */
-export const HOST_FEATURES_HEADER = 'x-ia-flow-host-features'
-/** `PollResponse.endings`. */
-export const FEATURE_ENDINGS = 'endings'
-/** `HostTask.lane`. */
-export const FEATURE_LANE = 'lane'
-/** Todo lo que entiende un host de esta versión, como valor del header. */
-export const HOST_FEATURES = [FEATURE_ENDINGS, FEATURE_LANE].join(',')
-
 export const PollResponse = z.strictObject({
   tasks: z.array(HostTask),
-  /** Corridas que el runner ya dio por terminadas: el host corta sus sesiones. */
+  /** Corridas que el runner ya dio por terminadas (venció, se perdió): el host las corta. */
   closed: z.array(z.string()),
-  /** Cómo cerró el modelo cada una de `closed` (`RunEnding`): el host decide con eso qué hace
-   *  con su worktree. Sólo a un host que anunció `FEATURE_ENDINGS`; ausente en un runner viejo, o
-   *  si cerró sin que el modelo eligiera. */
-  endings: z.record(z.string(), z.enum(['done', 'paused', 'failed'])).optional(),
 })
 export type PollResponse = z.infer<typeof PollResponse>
 
-/** Cómo terminó la sesión del lado del host (o que no pudo arrancar). */
-export const RunReport = z.strictObject({
-  status: z.enum(['exited', 'failed']),
-  /** `exited`: el código del proceso, si se sabe. */
-  code: z.number().nullable().optional(),
-  /** Qué pasó, para el resumen de la corrida. */
-  message: z.string().optional(),
-})
-export type RunReport = z.infer<typeof RunReport>
+/** `POST /tools`: una tool del engine. */
+export const ToolCall = z.strictObject({ name: z.string(), input: z.unknown().optional() })
+export type ToolCall = z.infer<typeof ToolCall>
+/** Su resultado; un error vuelve como texto con `isError`, para que el modelo lo lea. */
+export const ToolResult = z.strictObject({ text: z.string(), isError: z.boolean() })
+export type ToolResult = z.infer<typeof ToolResult>
 
-/** Los requests al modelo de una sesión, como los arma `TranscriptTail` en el host: cada uno con su
- *  uso y su texto. El runner los registra como spans `chat <model>` de la corrida. */
-export const TranscriptPost = z.strictObject({
-  messages: z.array(
-    z.strictObject({
-      id: z.string(),
-      model: z.string().optional(),
-      usage: z.strictObject({
-        inputTokens: z.number(),
-        outputTokens: z.number(),
-        cacheReadTokens: z.number(),
-        cacheCreationTokens: z.number(),
-      }),
-      texts: z.array(z.string()),
-      timestamp: z.string().optional(),
-      sidechain: z.boolean(),
+/** `POST /inbox`: lo que llegó desde la última vez (y el runner lo saca de la bandeja). */
+export const InboxResponse = z.strictObject({ messages: z.array(z.string()) })
+export type InboxResponse = z.infer<typeof InboxResponse>
+
+/** `POST /conversation`: la conversación en curso (opaca), para retomarla si algo se corta. */
+export const ConversationPost = z.strictObject({ conversation: z.unknown() })
+export type ConversationPost = z.infer<typeof ConversationPost>
+
+/** `POST /text`: el texto del modelo a medida que se escribe, en orden. */
+export const TextPost = z.strictObject({ deltas: z.array(z.string()) })
+export type TextPost = z.infer<typeof TextPost>
+
+/** `POST /result`: lo que devolvió el provider del host, o que no pudo correrla. */
+export const RunResult = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('output'),
+    output: z.strictObject({
+      outcome: z.string(),
+      summary: z.string().optional(),
+      structuredOutput: z.record(z.string(), z.unknown()).optional(),
+      conversation: z.unknown().optional(),
     }),
-  ),
-})
-export type TranscriptPost = z.infer<typeof TranscriptPost>
+  }),
+  z.strictObject({ status: z.literal('failed'), message: z.string() }),
+])
+export type RunResult = z.infer<typeof RunResult>

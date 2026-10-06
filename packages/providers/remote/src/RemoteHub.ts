@@ -1,24 +1,24 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { Condition, type ProviderRegistry } from '@ia-flow/agent-engine'
-import { ChannelRouter, type RunChannel, type RunEnding } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { z } from 'zod'
 import {
   type AcceptRow,
-  FEATURE_ENDINGS,
-  FEATURE_LANE,
-  HOST_FEATURES_HEADER,
+  ConversationPost,
   type HostTask,
+  type InboxResponse,
   PollRequest,
   type PollResponse,
   PROTOCOL_PREFIX,
-  RunReport,
+  RunResult,
   SubscribeRequest,
   type SubscribeResponse,
-  TranscriptPost,
+  TextPost,
+  ToolCall,
 } from './protocol.js'
 import { providerId } from './providerId.js'
 import { RemoteProvider } from './RemoteProvider.js'
+import type { RemoteRun } from './RemoteRun.js'
 
 export interface RemoteHubOptions {
   /** Donde aparecen los hosts suscritos, como `remote:<name>`. */
@@ -52,8 +52,7 @@ export interface HostInfo {
 
 /** Cómo terminó la espera de una corrida remota. */
 export type RemoteRunEnd =
-  | { kind: 'done' }
-  | { kind: 'report'; report: RunReport }
+  | { kind: 'result'; result: RunResult }
   | { kind: 'lost'; reason: string }
   | { kind: 'timeout'; minutes: number }
 
@@ -67,18 +66,23 @@ class RemoteRunState {
   readonly ended: Promise<RemoteRunEnd>
   private finish!: (end: RemoteRunEnd) => void
   /** Polls del host que ya la vieron entregada: si la deja de listar como en curso sin
-   *  reportarla, se perdió. */
+   *  devolver su resultado, se perdió. */
   polls = 0
   delivered = false
+  /** El host ya devolvió el resultado: sabe que terminó, no hace falta avisarle. */
+  settled = false
 
   constructor(
     readonly task: HostTask,
-    readonly channel: RunChannel,
+    readonly run: RemoteRun,
   ) {
     this.ended = new Promise((resolve) => {
       this.finish = resolve
     })
-    void channel.done.then(() => this.end({ kind: 'done' }))
+    void run.result.then((result) => {
+      this.settled = true
+      this.end({ kind: 'result', result })
+    })
   }
 
   end(end: RemoteRunEnd): void {
@@ -91,9 +95,6 @@ class HostState {
   lastSeen: number
   queue: HostTask[] = []
   closed: string[] = []
-  endings: Record<string, RunEnding> = {}
-  /** Lo que el host dijo que entiende al suscribirse (`HOST_FEATURES_HEADER`). */
-  features = new Set<string>()
   readonly runs = new Map<string, RemoteRunState>()
   private waiter: (() => void) | undefined
   conditions: Condition[] = []
@@ -141,10 +142,11 @@ class HostState {
 
 /**
  * Del lado del runner, los hosts remotos: se suscriben (`remote:<name>` aparece en el registry de
- * providers), piden tareas por long-poll, y cada corrida que toman se espera en su canal — el mismo
- * de `@ia-flow/provider-shared` que usa el CLI local, montado acá en la API pública del runner. Un
- * host que deja de pedir tareas más de `leaseMs` se da por ido: sale del registry y sus corridas
- * terminan como perdidas (el engine las retoma como cualquier corrida cortada).
+ * providers), piden tareas por long-poll, y cada corrida que toman se espera acá (`RemoteRun`):
+ * el host llama las tools del engine, lee la bandeja, guarda la conversación y devuelve el
+ * resultado por las rutas de la corrida, montadas en la API pública del runner. Un host que deja
+ * de pedir tareas más de `leaseMs` se da por ido: sale del registry y sus corridas terminan como
+ * perdidas (el engine las retoma como cualquier corrida cortada).
  *
  * Es un handler de `fetch`: el servidor del runner le pasa lo que empieza con `/v1/hosts` o
  * `/v1/runs`, y devuelve `undefined` para lo que no es suyo.
@@ -152,7 +154,7 @@ class HostState {
 export class RemoteHub {
   readonly log = createLogger('provider-remote')
   private readonly hosts = new Map<string, HostState>()
-  private readonly router = new ChannelRouter()
+  /** Por token de corrida. */
   private readonly runs = new Map<string, RemoteRunState>()
   private readonly now: () => number
   private readonly timer: ReturnType<typeof setInterval> | undefined
@@ -192,20 +194,19 @@ export class RemoteHub {
   }
 
   /**
-   * @internal Le entrega la corrida al host y la espera: hasta que el modelo cierre el turno en el
-   * canal, el host reporte cómo terminó su sesión, el host se vaya, o pase `timeoutMinutes`.
+   * @internal Le entrega la corrida al host y la espera: hasta que el host devuelva lo que dio su
+   * provider, el host se vaya, o pase `timeoutMinutes`.
    */
   async dispatch(
     name: string,
     task: HostTask,
-    channel: RunChannel,
+    remote: RemoteRun,
     timeoutMinutes: number,
   ): Promise<RemoteRunEnd> {
     const host = this.hosts.get(name)
     if (!host) return { kind: 'lost', reason: `el host ${name} no está suscrito` }
-    const run = new RemoteRunState(task, channel)
-    this.router.open(channel)
-    this.runs.set(channel.token, run)
+    const run = new RemoteRunState(task, remote)
+    this.runs.set(remote.token, run)
     host.runs.set(task.runId, run)
     host.queue.push(task)
     host.wake()
@@ -280,12 +281,6 @@ export class RemoteHub {
     const subscription = parse(SubscribeRequest, await body(req))
     const existing = this.hosts.get(subscription.name)
     const host = existing ?? new HostState(subscription, this.now())
-    host.features = new Set(
-      (req.headers.get(HOST_FEATURES_HEADER) ?? '')
-        .split(',')
-        .map((feature) => feature.trim())
-        .filter(Boolean),
-    )
     if (existing) {
       // El mismo host que vuelve (se reinició, se cortó la red): sesión nueva, sus corridas siguen.
       existing.accept(subscription)
@@ -315,18 +310,9 @@ export class RemoteHub {
     await host.wait(this.options.longPollMs ?? DEFAULT_LONG_POLL_MS)
     host.lastSeen = this.now()
     const response: PollResponse = {
-      // `lane` sólo a quien dijo que lo entiende (como `endings`): un host viejo valida la tarea
-      // estricta y rechazaría la respuesta entera. Sin él, trabaja en el worktree de la task.
-      tasks: host.queue
-        .splice(0)
-        .map((task) => (host.features.has(FEATURE_LANE) ? task : withoutLane(task))),
+      tasks: host.queue.splice(0),
       closed: host.closed.splice(0),
-      // Sólo a quien dijo que lo entiende: un host viejo rechazaría la respuesta entera.
-      ...(host.features.has(FEATURE_ENDINGS) && Object.keys(host.endings).length > 0
-        ? { endings: host.endings }
-        : {}),
     }
-    host.endings = {}
     for (const task of response.tasks) {
       const run = host.runs.get(task.runId)
       if (run) run.delivered = true
@@ -334,9 +320,9 @@ export class RemoteHub {
     return json(200, response)
   }
 
-  /** Una corrida entregada que el host dejó de listar en curso sin reportarla: se perdió allá
-   *  (el host se reinició a mitad de camino). Se le da un poll de gracia por si el reporte viene
-   *  en camino. */
+  /** Una corrida entregada que el host dejó de listar en curso sin devolver su resultado: se
+   *  perdió allá (el host se reinició a mitad de camino). Se le da un poll de gracia por si el
+   *  resultado viene en camino. */
   private checkRunning(host: HostState, running: Set<string>): void {
     for (const [runId, run] of host.runs) {
       if (!run.delivered || running.has(runId)) {
@@ -349,38 +335,42 @@ export class RemoteHub {
     }
   }
 
+  /** Las rutas de una corrida: su token en el path es la credencial. */
   private async onRun(parts: string[], req: Request): Promise<Response> {
-    const [, token, kind, event] = parts
-    if (!token || !kind) return json(404, { error: 'corrida desconocida' })
-    if (kind === 'report') {
-      const run = this.runs.get(token)
-      if (!run) return json(404, { error: 'corrida desconocida' })
-      run.end({ kind: 'report', report: parse(RunReport, await body(req)) })
-      return json(200, {})
+    const [, token, kind] = parts
+    const state = token ? this.runs.get(token) : undefined
+    if (!state) return json(404, { error: 'corrida desconocida' })
+    const { run } = state
+    switch (kind) {
+      case 'tools': {
+        const { name, input } = parse(ToolCall, await body(req))
+        return json(200, await run.call(name, input))
+      }
+      case 'inbox': {
+        const response: InboxResponse = { messages: run.inbox() }
+        return json(200, response)
+      }
+      case 'conversation':
+        run.saveConversation(parse(ConversationPost, await body(req)).conversation)
+        return json(200, {})
+      case 'text':
+        run.text(parse(TextPost, await body(req)).deltas)
+        return json(200, {})
+      case 'result':
+        run.finish(parse(RunResult, await body(req)))
+        return json(200, {})
+      default:
+        return json(404, { error: 'ruta desconocida' })
     }
-    if (kind === 'transcript') {
-      const run = this.runs.get(token)
-      if (!run) return json(404, { error: 'corrida desconocida' })
-      const { messages } = parse(TranscriptPost, await body(req))
-      for (const message of messages) run.channel.recordMessage(message)
-      return json(200, {})
-    }
-    const reply = await this.router.handle(kind, token, event, await body(req))
-    return reply.body === null
-      ? new Response(null, { status: reply.status })
-      : json(reply.status, reply.body)
   }
 
-  private release(host: HostState, run: RemoteRunState): void {
-    this.router.close(run.channel)
-    this.runs.delete(run.channel.token)
-    host.runs.delete(run.task.runId)
-    // Que no la tome si todavía no la había pedido, y que corte su sesión si la tiene.
-    host.queue = host.queue.filter((task) => task.runId !== run.task.runId)
-    if (run.delivered) {
-      host.closed.push(run.task.runId)
-      const ending = run.channel.ending
-      if (ending) host.endings[run.task.runId] = ending
+  private release(host: HostState, state: RemoteRunState): void {
+    this.runs.delete(state.run.token)
+    host.runs.delete(state.task.runId)
+    // Que no la tome si todavía no la había pedido, y que la corte si la tiene y no terminó.
+    host.queue = host.queue.filter((task) => task.runId !== state.task.runId)
+    if (state.delivered && !state.settled) {
+      host.closed.push(state.task.runId)
       host.wake()
     }
   }
@@ -406,12 +396,6 @@ export class RemoteHub {
 }
 
 class BadRequest extends Error {}
-
-/** La tarea sin `lane`, para un host que no lo entiende. */
-function withoutLane(task: HostTask): HostTask {
-  const { lane: _lane, ...rest } = task
-  return rest
-}
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value)
