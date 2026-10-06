@@ -159,8 +159,9 @@ export class RemoteHub {
 
   constructor(private readonly options: RemoteHubOptions) {
     // Un agente que nombra `remote:<name>` espera a que su host se suscriba (el runner recién
-    // arrancado retoma lo pausado antes de que vuelvan los hosts), en vez de fallar.
-    options.registry.expectDynamic(providerId(''))
+    // arrancado retoma lo pausado antes de que vuelvan los hosts), en vez de fallar. Sin token
+    // ningún host se puede suscribir: ahí no hay nada que esperar, y falla como siempre.
+    if (options.token) options.registry.expectDynamic(providerId(''))
     this.now = options.now ?? Date.now
     const every = options.sweepIntervalMs ?? DEFAULT_SWEEP_MS
     if (every > 0) {

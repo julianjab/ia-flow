@@ -44,13 +44,29 @@ export class ProviderSelector {
     const dynamic = this.candidates.some(
       (candidate) => candidate.wildcard || this.registry.isDynamic(candidate.id),
     )
+    const since = Date.now()
     for (;;) {
       const concrete = this.concrete()
       if (concrete.length === 0) {
-        this.log.info(
-          `${this.agentId}: ningún provider registrado para ${this.candidates.map((c) => c.id).join(', ')} — espera a que llegue uno`,
+        const ids = this.candidates.map((c) => c.id).join(', ')
+        const maxWaitMs = this.namedDynamicWaitMs()
+        if (maxWaitMs === undefined) {
+          this.log.info(
+            `${this.agentId}: ningún provider registrado para ${ids} — espera a que llegue uno`,
+          )
+          await this.registryChange()
+          continue
+        }
+        const left = maxWaitMs - (Date.now() - since)
+        if (left <= 0) {
+          throw new Error(
+            `Agent(${this.agentId}): ${ids} no se registró en ${Math.round(maxWaitMs / 60_000)} min — ¿está corriendo y suscrito su host? (¿el nombre está bien escrito?)`,
+          )
+        }
+        this.log.warn(
+          `${this.agentId}: ${ids} todavía no está registrado — lo espera ${Math.ceil(left / 1000)} s más`,
         )
-        await this.registryChange()
+        await this.registryChange(left)
         continue
       }
       const preferred = prefer ? concrete.filter((c) => c.id === prefer) : []
@@ -98,9 +114,23 @@ export class ProviderSelector {
     return out
   }
 
-  /** Hasta que cambie lo registrado, o pase el `DEFAULT_RETRY_AFTER_MS`. */
-  private registryChange(): Promise<void> {
-    return Promise.race([this.registry.changed(), delay(DEFAULT_RETRY_AFTER_MS)])
+  /** Hasta que cambie lo registrado, o pase el `DEFAULT_RETRY_AFTER_MS` (o `atMostMs`, si es
+   *  menos). */
+  private registryChange(atMostMs = DEFAULT_RETRY_AFTER_MS): Promise<void> {
+    return Promise.race([
+      this.registry.changed(),
+      delay(Math.min(atMostMs, DEFAULT_RETRY_AFTER_MS)),
+    ])
+  }
+
+  /** Cuánto esperar cuando no hay ningún candidato registrado: el tope más largo de los
+   *  dinámicos con nombre — o `undefined` (sin tope) si hay un comodín, que espera como siempre. */
+  private namedDynamicWaitMs(): number | undefined {
+    if (this.candidates.some((candidate) => candidate.wildcard)) return undefined
+    const waits = this.candidates
+      .map((candidate) => this.registry.dynamicWaitMs(candidate.id))
+      .filter((ms): ms is number => ms !== undefined)
+    return waits.length > 0 ? Math.max(...waits) : undefined
   }
 
   /** Una vuelta por los elegibles: el primero con lugar que acepta. */
