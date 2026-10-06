@@ -107,8 +107,42 @@ describe('the assistant tools in the pipeline of a task', () => {
     )
     expect(again).toContain('Ya hay una propuesta igual')
     expect(improvements.list()).toHaveLength(1)
-    expect(JSON.parse(String(await tool('list_improvements').execute({}, run)))).toEqual([
-      expect.objectContaining({ task_ref: 'o/r#1', target: 'docs', repo: 'o/r' }),
+    expect(JSON.parse(String(await tool('list_improvements').execute({}, run)))).toEqual({
+      pending: [expect.objectContaining({ task_ref: 'o/r#1', target: 'docs', repo: 'o/r' })],
+      decided: [],
+    })
+  })
+
+  it('shows what people already opened or dismissed, newest first, with who decided', async () => {
+    const { improvements, tool } = mount()
+    const base = {
+      task_ref: 'o/r#7',
+      agent: 'retrospective',
+      target: 'docs' as const,
+      repo: 'o/r',
+      body: 'b',
+      reason: 'r',
+    }
+    const dismissed = improvements.add({ ...base, title: 'Documentar el formato' })
+    improvements.decide(dismissed.id, { status: 'dismissed', by: 'julian' })
+    const opened = improvements.add({ ...base, target: 'engine', repo: 'o/engine', title: 'X' })
+    improvements.decide(opened.id, {
+      status: 'opened',
+      by: 'ana',
+      issue_url: 'https://github.com/o/engine/issues/3',
+    })
+    improvements.add({ ...base, title: 'Pendiente' })
+
+    const history = JSON.parse(String(await tool('list_improvements').execute({}, run)))
+    expect(history.pending.map((p: { title: string }) => p.title)).toEqual(['Pendiente'])
+    expect(history.decided).toEqual([
+      expect.objectContaining({
+        id: opened.id,
+        status: 'opened',
+        decided_by: 'ana',
+        issue_url: 'https://github.com/o/engine/issues/3',
+      }),
+      expect.objectContaining({ id: dismissed.id, status: 'dismissed', decided_by: 'julian' }),
     ])
   })
 
