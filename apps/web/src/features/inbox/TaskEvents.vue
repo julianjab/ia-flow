@@ -13,9 +13,21 @@ import { explainTask } from '@/features/inbox/api';
 // pantalla de entradas).
 
 // `limit`: cuántos se muestran (el panel grande los muestra todos).
-const props = withDefaults(defineProps<{ taskRef: string; events: EventLogEntry[]; limit?: number }>(), {
-  limit: 6,
-});
+const props = withDefaults(
+  defineProps<{
+    taskRef: string;
+    events: EventLogEntry[];
+    limit?: number;
+    /** Las ejecuciones que se pueden abrir desde un evento (las de la lista de arriba). */
+    executionIds?: readonly string[];
+  }>(),
+  { limit: 6, executionIds: () => [] },
+);
+const emit = defineEmits<{ (e: 'open-execution', id: string): void }>();
+
+/** La ejecución que arrancó el evento, si está en la lista para abrirla. */
+const runOf = (event: EventLogEntry) =>
+  event.execution_id && props.executionIds.includes(event.execution_id) ? event.execution_id : undefined;
 
 // Llegan de lo más nuevo a lo más viejo (`TaskDetail.events`).
 const recent = computed(() => props.events.slice(0, props.limit));
@@ -72,7 +84,19 @@ async function why() {
     <ul v-if="recent.length" class="ev__list">
       <!-- Cada evento, colapsado: qué llegó y qué hizo cada pipeline en una línea; abierto, por qué. -->
       <li v-for="e in recent" :key="e.id">
-        <EventRow :event="e" :hide="HIDE" />
+        <EventRow :event="e" :hide="HIDE">
+          <template v-if="runOf(e)" #aside>
+            <button
+              type="button"
+              class="ev__run mono"
+              :title="`Abrir la ejecución ${runOf(e)}`"
+              :data-test="`open-execution-${runOf(e)}`"
+              @click.prevent.stop="emit('open-execution', runOf(e) as string)"
+            >
+              → {{ (runOf(e) as string).slice(0, 8) }}
+            </button>
+          </template>
+        </EventRow>
       </li>
     </ul>
   </section>
@@ -82,6 +106,9 @@ async function why() {
 .ev { display: flex; flex-direction: column; gap: 0.4rem; }
 .ev__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .ev__why { padding: 0 0.5rem; }
+/* El link a la ejecución: un chip que se toca entero (R1), dentro de la fila del evento. */
+.ev__run { min-height: var(--tap-h); padding: 0 0.5rem; border: 1px solid var(--border-hi); border-radius: var(--radius-sm); background: none; color: var(--info); font-size: var(--fs-micro); cursor: pointer; }
+.ev__run:hover { background: var(--panel-hi); }
 .ev__list, .ev__decisions { list-style: none; margin: 0; padding: 0; }
 .ev__decisions { display: flex; flex-direction: column; gap: 0.4rem; }
 /* Las decisiones del «¿por qué no corrió?» siguen en una línea cada una. */
