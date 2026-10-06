@@ -131,7 +131,10 @@ describe('InboxBoard', () => {
   it('en la tarjeta el detalle es compacto; «Ver detalle completo» lo abre en grande con la traza', async () => {
     getInbox.mockResolvedValue(inbox([run]))
     getTaskDetail.mockResolvedValue(
-      detail(run, { trace: [trace({ name: 'fs_read app/models/ability.rb' })] }),
+      detail(run, {
+        executions: [execution({ id: 'ex1', status: 'running' })],
+        trace: [trace({ name: 'fs_read app/models/ability.rb' })],
+      }),
     )
     const { wrapper } = await mountBoard()
     await wrapper.find('.card__row').trigger('click')
