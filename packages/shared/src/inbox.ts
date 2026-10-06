@@ -457,6 +457,8 @@ export const RunnerStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inbox'), refs: z.array(z.string()) }),
   z.object({ type: z.literal('trace'), entry: TraceEntrySchema }),
   z.object({ type: z.literal('event'), entry: EventLogEntrySchema }),
+  /** Cambiaron las mejoras propuestas (`GET /api/improvements`): una nueva, abierta o descartada. */
+  z.object({ type: z.literal('improvements') }),
 ])
 export type RunnerStreamEvent = z.infer<typeof RunnerStreamEventSchema>
 

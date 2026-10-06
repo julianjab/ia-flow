@@ -7,6 +7,8 @@
 - `src/inbox.ts` — el contrato entre `apps/runner-v2` y `apps/web`: la bandeja, el detalle de una
   tarea, las acciones, el device flow, el asistente y sus conversaciones, el stream. Cada Zod
   schema junto a su tipo (`z.infer`, el nombre sin sufijo `Schema`).
+- `src/improvements.ts` — las mejoras que propone un agente fuera de una conversación (la
+  retrospectiva) y esperan en la bandeja: `GET /api/improvements`, abrirlas o descartarlas.
 - `src/cache.ts` — decorator `@memoize` (cache genérico por método/instancia). Ver más abajo.
 - `src/index.ts` — Re-export barrel.
 
