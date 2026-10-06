@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.5.0](https://github.com/julianjab/ia-flow/compare/v2.4.0...v2.5.0) (2026-10-06)
+
+
+### Features
+
+* **provider-anthropic-cli:** disallowedTools por provider, con default por modo ([#282](https://github.com/julianjab/ia-flow/issues/282)) ([79e4680](https://github.com/julianjab/ia-flow/commit/79e4680fb5dd232dc2d2b29afe63cac3d6ce6889))
+* **provider-remote:** el host corre la corrida con su propio provider ([#283](https://github.com/julianjab/ia-flow/issues/283)) ([9424534](https://github.com/julianjab/ia-flow/commit/9424534955c8f3a9170200286cb6977971999bff))
+* **runner-v2:** retrospectiva builtin al mergear el PR de una tarea ([#285](https://github.com/julianjab/ia-flow/issues/285)) ([68e22c9](https://github.com/julianjab/ia-flow/commit/68e22c95924848b85aac67be93b976f14ab0f4bd))
+
 ## [2.4.0](https://github.com/julianjab/ia-flow/compare/v2.3.0...v2.4.0) (2026-10-06)
 
 
