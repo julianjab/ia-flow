@@ -442,6 +442,47 @@ describe('AnthropicProvider.run', () => {
       ])
     })
 
+    it('keeps the local tool_use last when the model called an MCP tool after it (subscriptions#1763)', async () => {
+      const lookup: Tool = {
+        name: 'list_sub_issues_brief',
+        description: 'd',
+        inputSchema: {},
+        handler: () => 'sin sub-issues',
+      }
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            stop_reason: 'tool_use',
+            content: [
+              { type: 'thinking', thinking: 'miro', signature: 's' },
+              { type: 'tool_use', id: 't1', name: 'list_sub_issues_brief', input: {} },
+              { type: 'mcp_tool_use', id: 'm1', name: 'issue_read', server_name: 'github-mcp' },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' }),
+        )
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [lookup] }))
+
+      const [assistant, user] = (bodiesOf(fetchImpl)[1]?.messages.slice(1) ?? []) as Array<{
+        role: string
+        content: Array<{ type: string; id?: string; tool_use_id?: string }>
+      }>
+      expect(assistant?.content.map((block) => block.type)).toEqual([
+        'thinking',
+        'mcp_tool_use',
+        'mcp_tool_result',
+        'tool_use',
+      ])
+      expect(assistant?.content[2]).toMatchObject({ tool_use_id: 'm1', is_error: true })
+      expect(user?.content).toEqual([
+        expect.objectContaining({ type: 'tool_result', tool_use_id: 't1' }),
+      ])
+    })
+
     it('pairs an unanswered MCP call left in a resumed conversation', async () => {
       const fetchImpl = vi
         .fn()
