@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1](https://github.com/julianjab/ia-flow/compare/v2.5.0...v2.5.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **provider-anthropic-api:** llamadas MCP pendientes y pause_turn según la doc de server tools ([#286](https://github.com/julianjab/ia-flow/issues/286)) ([9d6697b](https://github.com/julianjab/ia-flow/commit/9d6697b6e348e1e95aae74d424d189eb99395201))
+
 ## [2.5.0](https://github.com/julianjab/ia-flow/compare/v2.4.0...v2.5.0) (2026-10-06)
 
 
