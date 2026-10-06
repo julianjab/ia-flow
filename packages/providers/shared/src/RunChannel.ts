@@ -39,8 +39,9 @@ export type HookOutput = Record<string, unknown>
 export interface RunChannelOptions {
   agentId: string
   tools: Tool[]
-  /** El inbox de la ejecución: lo que llegó desde la última vez, y lo saca. */
-  inbox?: () => string[]
+  /** El inbox de la ejecución: lo que llegó desde la última vez, y lo saca. Se lee recién cuando
+   *  un hook lo va a entregar (ver `ProviderRunContext.inbox`). */
+  inbox?: () => string[] | Promise<string[]>
   /** El span del agente: de él cuelgan los de cada tool. */
   parent: Context
   /** Cuántas veces insistir en que cierre con `submit_*`. */
@@ -50,9 +51,6 @@ export interface RunChannelOptions {
   /** Cuándo arrancó la corrida: lo anterior de la transcripción (una sesión retomada) no se
    *  vuelve a emitir. */
   since?: Date
-  /** Leer la transcripción de la sesión (`transcript_path` de los hooks). Default: sí. Una sesión
-   *  en otra máquina (un host remoto) la escribe en SU disco: el path no es de éste. */
-  transcript?: boolean
   /** Cada señal de vida de la sesión (una tool, un hook): quien la espera de lejos mide el
    *  silencio con esto. */
   onActivity?: () => void
@@ -136,7 +134,7 @@ export class RunChannel {
 
   /** Un hook de Claude Code: traza sus tools nativas, entrega el inbox y no lo deja terminar sin
    *  cerrar el turno. */
-  hook(event: string, input: Record<string, unknown>): HookOutput {
+  async hook(event: string, input: Record<string, unknown>): Promise<HookOutput> {
     this.options.onActivity?.()
     this.logHook(event, input)
     this.readTranscript(event, input)
@@ -168,14 +166,13 @@ export class RunChannel {
    *  de escribir, así que el último mensaje también sale. */
   private readTranscript(event: string, input: Record<string, unknown>): void {
     const path = input.transcript_path
-    if (this.options.transcript === false || typeof path !== 'string' || !path) return
+    if (typeof path !== 'string' || !path) return
     void this.transcript.read(path, { flush: event === 'Stop' })
   }
 
   /** Un request al modelo, como un span GenAI colgado del agente (como `chat <model>` del
-   *  provider de la API), y su texto a `onText`. Lo llama la lectura de la transcripción, o —si la
-   *  sesión corre en otra máquina— quien se la reenvía. */
-  recordMessage(message: TranscriptMessage): void {
+   *  provider de la API), y su texto a `onText`. Lo llama la lectura de la transcripción. */
+  private recordMessage(message: TranscriptMessage): void {
     const model = message.model ?? 'unknown'
     const span = startSpan(
       `chat ${model}`,
@@ -206,8 +203,8 @@ export class RunChannel {
   }
 
   /** Lo que llegó al inbox, como contexto extra del próximo paso del modelo. */
-  private deliver(hookEventName: string): HookOutput {
-    const messages = this.options.inbox?.() ?? []
+  private async deliver(hookEventName: string): Promise<HookOutput> {
+    const messages = await this.readInbox()
     if (messages.length === 0) return {}
     return {
       hookSpecificOutput: { hookEventName, additionalContext: received(messages) },
@@ -216,14 +213,25 @@ export class RunChannel {
 
   /** El modelo quiere terminar: si no cerró el turno se le insiste (unas veces), y si llegó algo
    *  mientras tanto se lo entrega antes de dejarlo ir. */
-  private onStop(): HookOutput {
-    const messages = this.options.inbox?.() ?? []
+  private async onStop(): Promise<HookOutput> {
+    const messages = await this.readInbox()
     const reasons = messages.length > 0 ? [received(messages)] : []
     if (!this.finishedFlag && this.nudges < this.options.maxStopNudges) {
       this.nudges++
       reasons.push(this.nudge())
     }
     return reasons.length > 0 ? { decision: 'block', reason: reasons.join('\n\n') } : {}
+  }
+
+  /** La bandeja, si hay. Un hook nunca tiene que romper la sesión: si no se pudo leer (el runner de
+   *  un host remoto no contesta), no entrega nada y lo que había queda sin leer para después. */
+  private async readInbox(): Promise<string[]> {
+    try {
+      return (await this.options.inbox?.()) ?? []
+    } catch (error) {
+      this.log.warn(`${this.options.agentId}: no pude leer la bandeja: ${(error as Error).message}`)
+      return []
+    }
   }
 
   private nudge(): string {

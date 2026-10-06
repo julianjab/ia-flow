@@ -114,7 +114,12 @@ describe('loadActions', () => {
       'projects/a/actions/shared.ts': action('shared', 'a'),
       'projects/a/actions/only_a.ts': action('only_a', 'a'),
     })
-    expect(build('shared', 'a')).toEqual({ id: 'shared', scope: 'a', sourceId: 'a', project: 'a' })
+    expect(build('shared', 'a')).toMatchObject({
+      id: 'shared',
+      scope: 'a',
+      sourceId: 'a',
+      project: 'a',
+    })
     expect(build('shared', 'b')).toMatchObject({ scope: 'global', project: 'b' })
     expect(build('shared', 'runner')).toMatchObject({ scope: 'global', sourceId: 'runner' })
     expect(build('only_global', 'a')).toMatchObject({ scope: 'global', project: 'a' })
@@ -126,6 +131,16 @@ describe('loadActions', () => {
       a: ['only_a', 'shared'],
       b: [],
     })
+  })
+
+  it('notes what each action was built with: a remote host rebuilds it from that', async () => {
+    const files = { 'actions/shared.ts': action('shared', 'global') }
+    const dir = config({ 'runner.yaml': index(files, ['a'], './actions'), ...files })
+    const cfg = loadRunnerConfig(dir)
+    const loaded = await loadActions(cfg.actions, cfg.projects, services)
+    const provider = loaded.catalogs.actions?.shared as (r: unknown) => Action
+    const built = provider({ sourceId: 'a', options: { deny: ['rm -rf'] } })
+    expect(built.origin).toEqual({ action: 'shared', options: { deny: ['rm -rf'] } })
   })
 
   it('skips _lib/ and tests', async () => {

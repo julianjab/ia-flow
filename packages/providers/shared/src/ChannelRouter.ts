@@ -43,7 +43,7 @@ export class ChannelRouter {
     const channel = this.channels.get(token)
     if (kind === 'hooks') {
       // Un hook nunca tiene que romper la sesión: sin corrida (ya cerró), no hay nada que decir.
-      return { status: 200, body: channel ? channel.hook(event ?? '', asObject(body)) : {} }
+      return { status: 200, body: channel ? await channel.hook(event ?? '', asObject(body)) : {} }
     }
     if (kind !== 'mcp' || !channel) return { status: 404, body: { error: 'corrida desconocida' } }
     return handleMcp(channel, body)

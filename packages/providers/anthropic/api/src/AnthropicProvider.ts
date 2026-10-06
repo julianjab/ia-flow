@@ -302,13 +302,13 @@ function buildOutputConfig(
  * usuario que está por mandarse — después de los `tool_result`, que la API exige primero (o
  * del "Continuá." de un `pause_turn`). Sólo si el último mensaje es del usuario.
  */
-function withInjectedMessages(
+async function withInjectedMessages(
   messages: AnthropicMessage[],
-  inbox: (() => string[]) | undefined,
-): AnthropicMessage[] {
+  inbox: ProviderRunContext['inbox'],
+): Promise<AnthropicMessage[]> {
   const last = messages.at(-1)
   if (!inbox || last?.role !== 'user') return messages
-  const injected = inbox()
+  const injected = await inbox()
   if (injected.length === 0) return messages
   const blocks = injected.map((text) => ({
     type: 'text',
@@ -437,7 +437,12 @@ export class AnthropicProvider implements Provider {
     let toolRounds = 0
     let pauses = 0
     for (let round = 0; ; round++) {
-      messages = withInjectedMessages(messages, ctx.inbox)
+      // Cortada desde afuera (quien la delegó la dio por terminada): no arranca otra vuelta.
+      if (ctx.signal?.aborted) {
+        const reason = typeof ctx.signal.reason === 'string' ? `: ${ctx.signal.reason}` : ''
+        return { outcome: 'error', summary: `la corrida se cortó desde afuera${reason}` }
+      }
+      messages = await withInjectedMessages(messages, ctx.inbox)
       await opts.onCheckpoint?.(messages, ctx)
 
       const sendOnce = async (effectiveMaxTokens: number): Promise<AnthropicMessagesResponse> => {

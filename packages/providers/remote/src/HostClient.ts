@@ -1,32 +1,24 @@
-import type { RunEnding } from '@ia-flow/provider-shared'
 import { createLogger, withRemoteTraceContext, withSpan } from '@ia-flow/telemetry'
 import {
   type AcceptRow,
-  HOST_FEATURES,
-  HOST_FEATURES_HEADER,
   type HostTask,
   PollResponse,
   PROTOCOL_PREFIX,
-  type RunReport,
+  type RunResult,
   SubscribeResponse,
 } from './protocol.js'
 
-/** Lo que hace el host con una tarea: lanza la sesión y termina cuando ésta termina, o cuando
- *  `signal` se aborta (el runner ya cerró la corrida). */
-/** El `reason` del abort cuando el runner cerró la corrida sin decir cómo (un runner viejo). */
-export const CLOSED_WITHOUT_ENDING = 'closed'
-
-/** Cómo cerró el modelo una corrida que el runner cerró, leído del `reason` de su signal. */
-export function endingOfSignal(signal: AbortSignal): RunEnding | undefined {
-  const reason = signal.reason
-  return reason === 'done' || reason === 'paused' || reason === 'failed' ? reason : undefined
-}
-
+/** Lo que hace el host con una tarea: la corre con su provider y devuelve lo que dio. Si `signal`
+ *  se aborta, el runner ya la dio por terminada (venció, se perdió): se corta, y lo que devuelva
+ *  no se manda. */
 export type TaskRunner = (
   task: HostTask,
   runner: { base: string },
   signal: AbortSignal,
-) => Promise<RunReport | undefined>
+) => Promise<RunResult>
+
+/** El `reason` del abort cuando el runner cerró la corrida (vencida o perdida de su lado). */
+export const CLOSED_BY_RUNNER = 'el runner cerró la corrida'
 
 export interface HostClientOptions {
   /** La base del runner (`https://ia-flow.example.com`), sin `/v1`. */
@@ -45,9 +37,9 @@ export interface HostClientOptions {
 /**
  * Del lado del host: se suscribe al runner y le pide tareas por long-poll — todas las conexiones
  * salen de acá, así que el host no necesita URL pública. Cada tarea la corre `run` (el runner-v2
- * lanza ahí un `claude` apuntando al canal de la corrida en el runner) y, cuando la sesión termina,
- * se lo reporta. Las corridas que el runner cierra (el modelo ya eligió su salida) le llegan en el
- * poll y se cortan. Si el runner no lo conoce más (se reinició), se vuelve a suscribir solo.
+ * la corre con el provider de su runner.yaml) y su resultado vuelve al runner. Las corridas que el
+ * runner cierra le llegan en el poll y se cortan. Si el runner no lo conoce más (se reinició), se
+ * vuelve a suscribir solo.
  */
 export class HostClient {
   readonly log = createLogger('provider-remote.host')
@@ -72,10 +64,10 @@ export class HostClient {
     this.loop ??= this.run()
   }
 
-  /** Deja de pedir tareas y corta las sesiones en curso. */
+  /** Deja de pedir tareas y corta las corridas en curso. */
   async stop(): Promise<void> {
     this.stopped = true
-    for (const controller of this.active.values()) controller.abort()
+    for (const controller of this.active.values()) controller.abort('el host se apaga')
     await this.loop?.catch(() => {})
   }
 
@@ -89,11 +81,7 @@ export class HostClient {
           this.session = undefined
           continue
         }
-        // El `reason` del abort es cómo cerró el modelo (`RunEnding`), si el runner lo dice: con
-        // eso el `TaskRunner` decide qué hace con su worktree.
-        for (const runId of reply.closed) {
-          this.active.get(runId)?.abort(reply.endings?.[runId] ?? CLOSED_WITHOUT_ENDING)
-        }
+        for (const runId of reply.closed) this.active.get(runId)?.abort(CLOSED_BY_RUNNER)
         for (const task of reply.tasks) this.take(task)
       } catch (error) {
         if (this.stopped) return
@@ -131,33 +119,34 @@ export class HostClient {
     // Todo lo de la corrida cuelga del span del agente en el runner, con sus atributos: los logs y
     // spans del host se ven en la misma traza y en la misma ejecución que los del runner.
     void withRemoteTraceContext(task.trace, async () => {
-      this.log.info(`${task.agentId}: corrida ${task.runId} (${task.label})`)
-      let report: RunReport | undefined
+      this.log.info(`${task.agentId}: corrida ${task.runId}`)
+      let result: RunResult
       try {
-        report = await withSpan(
+        result = await withSpan(
           `host.run ${task.agentId}`,
           { 'ia.host.name': this.options.name, 'ia.host.run_id': task.runId },
           () => this.options.run(task, { base: this.base }, controller.signal),
         )
       } catch (error) {
-        report = { status: 'failed', message: (error as Error).message }
+        result = { status: 'failed', message: (error as Error).message }
       } finally {
         this.active.delete(task.runId)
       }
-      // Cortada por el runner: ya sabe cómo terminó.
-      if (report && !controller.signal.aborted) await this.report(task, report)
+      // Cortada por el runner: ya la dio por terminada.
+      if (!controller.signal.aborted) await this.finish(task, result)
     })
   }
 
-  private async report(task: HostTask, report: RunReport): Promise<void> {
+  private async finish(task: HostTask, result: RunResult): Promise<void> {
     try {
-      await this.fetchImpl(`${this.base}${task.endpoints.report}`, {
+      const res = await this.fetchImpl(`${this.base}${task.endpoints.result}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(report),
+        body: JSON.stringify(result),
       })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (error) {
-      this.log.warn(`no pude reportar la corrida ${task.runId}: ${(error as Error).message}`)
+      this.log.warn(`no pude devolver la corrida ${task.runId}: ${(error as Error).message}`)
     }
   }
 
@@ -167,8 +156,6 @@ export class HostClient {
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${this.options.token}`,
-        // Lo que este host entiende del cable: el runner sólo le manda eso (ver `protocol.ts`).
-        [HOST_FEATURES_HEADER]: HOST_FEATURES,
       },
       body: JSON.stringify(body),
     })

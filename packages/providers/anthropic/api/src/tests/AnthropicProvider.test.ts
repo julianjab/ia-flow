@@ -54,6 +54,41 @@ describe('AnthropicProvider.run', () => {
     expect(result).toEqual({ outcome: 'success', summary: 'listo' })
   })
 
+  it('a run cut from outside (its signal) starts no other round and says why', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    const fetchImpl = vi.fn(async () => {
+      calls++
+      // Mientras el modelo pide una tool, quien la delegó la corta.
+      controller.abort('el runner cerró la corrida')
+      return jsonResponse({
+        content: [{ type: 'tool_use', id: 't1', name: 'echo', input: {} }],
+        stop_reason: 'tool_use',
+      })
+    })
+    const provider = new AnthropicProvider({
+      id: 'anthropic-api',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    const echo: Tool = {
+      name: 'echo',
+      description: 'e',
+      inputSchema: { type: 'object' },
+      handler: () => 'ok',
+    }
+
+    const result = await provider.run(ctxFor({ tools: [echo], signal: controller.signal }))
+
+    expect(calls).toBe(1)
+    expect(result).toEqual({
+      outcome: 'error',
+      summary: 'la corrida se cortó desde afuera: el runner cerró la corrida',
+    })
+  })
+
   it('resolveOutcome overrides the default success outcome', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({ content: [{ type: 'text', text: 'actionable' }], stop_reason: 'end_turn' }),

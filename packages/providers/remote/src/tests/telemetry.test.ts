@@ -15,6 +15,7 @@ import {
   callTool,
   makeHost,
   makeHub,
+  output,
   RUNNER,
   runContext,
   TOKEN,
@@ -48,15 +49,12 @@ describe('la traza de una corrida remota', () => {
   it('lo que el host corre cuelga del span del agente, con los atributos de la ejecución', async () => {
     const { hub, registry } = makeHub()
     const seen: HostTask[] = []
-    const host = makeHost(hub, async (task, runner, signal) => {
+    const host = makeHost(hub, async (task) => {
       seen.push(task)
-      // Lo que hace el host (el worktree, la sesión) se traza como en el runner.
+      // Lo que hace el host (el worktree, el provider) se traza como en el runner.
       await withSpan('workspace.prepare', {}, async () => {})
-      await callTool(hub, `${runner.base}${task.endpoints.mcp}`, 'submit_done')
-      if (!signal.aborted) {
-        await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }))
-      }
-      return undefined
+      await callTool(hub, task, 'submit_done')
+      return output()
     })
     hosts.push(host)
     host.start()

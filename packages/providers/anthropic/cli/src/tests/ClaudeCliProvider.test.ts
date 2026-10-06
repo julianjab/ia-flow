@@ -208,6 +208,21 @@ describe('ClaudeCliProvider', () => {
     expect(output.summary).toContain('Invalid API key')
   })
 
+  it('a run cut from outside (its signal) closes the session and says why', async () => {
+    const cli = new FakeCli(async () => undefined)
+    const controller = new AbortController()
+    const running = provider(cli).run(runContext({ signal: controller.signal }))
+    for (let i = 0; i < 100 && cli.launched.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    controller.abort('el runner cerró la corrida')
+    const output = await running
+    expect(output).toMatchObject({
+      outcome: 'error',
+      summary: 'la sesión del CLI se cortó desde afuera: el runner cerró la corrida',
+    })
+  })
+
   it('rejects a providerConfig with keys of another provider', async () => {
     const cli = new FakeCli(async () => undefined)
     await expect(

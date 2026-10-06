@@ -1,48 +1,49 @@
 /**
- * `--host`: esta máquina le presta su CLI `claude` a un runner (`@ia-flow/provider-remote`). Se
- * suscribe a él y le pide tareas por long-poll — todas las conexiones salen de acá, así que no
- * necesita puerto ni URL pública. Del otro lado aparece como `remote:<name>`.
+ * `--host`: esta máquina corre agentes para un runner (`@ia-flow/provider-remote`). Se suscribe a
+ * él y le pide tareas por long-poll — todas las conexiones salen de acá, así que no necesita puerto
+ * ni URL pública. Del otro lado aparece como `remote:<name>`.
  *
- * Cada tarea es una sesión de `claude` en el worktree de ESTA máquina (su `WORKSPACE_DIR`, armado
- * desde el evento que viaja con la tarea) apuntando al canal de la corrida en el runner: las tools
- * del agente y los hooks van contra la API del runner, que es el que espera el resultado. El host
- * no conduce nada: lanza, y corta la sesión cuando el runner cierra la corrida.
+ * Cada tarea es la corrida de un agente, y se corre con el provider de ESTE runner.yaml
+ * (`host.provider`: el CLI `claude`, la Messages API…) exactamente como el runner corre el suyo:
+ * `provider.run(ctx)` sobre el worktree de esta máquina (armado desde el evento que viaja con la
+ * tarea). Del runner vienen las tools del engine (`submit_*`, GitHub…: se llaman allá), la bandeja,
+ * la conversación a retomar; acá se rearman las de workspace (`fs_*`, `bash_run`), si el provider
+ * las usa. El resultado vuelve al runner.
  *
- * Un host no despacha: monta sólo su identidad de GitHub (para clonar), su workspace y el CLI. Ni
- * engine, ni fuentes, ni base de ejecuciones, ni la marca Working.
+ * Un host no despacha: monta sólo su identidad de GitHub (para clonar), su workspace y su
+ * provider. Ni engine, ni fuentes, ni base de ejecuciones, ni la marca Working.
  */
 
 import { join } from 'node:path'
-import { EventBus, type McpServerRef, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import {
-  type ClaudeCliConfig,
-  closeOrphan,
-  launchCli,
-  mergeClaudeCliConfig,
-  parseClaudeCliConfig,
-  sessionName,
-} from '@ia-flow/provider-anthropic-cli'
+  EventBus,
+  type McpServerRef,
+  type PipelineExecutionContext,
+  type Provider,
+  type Tool,
+} from '@ia-flow/agent-engine'
 import {
-  endingOfSignal,
+  CLOSED_BY_RUNNER,
   HostClient,
   type HostTask,
-  type RunReport,
+  RunnerLink,
+  type RunResult,
   type TaskRunner,
+  type WorkspaceToolSpec,
 } from '@ia-flow/provider-remote'
 import { createLogger } from '@ia-flow/telemetry'
 import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
+import {
+  HOST_WORKSPACE_TOOLS,
+  type WorkspaceToolDeps,
+  workspaceTool,
+} from '../actions/builtin/workspace.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { defaultHostWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
 import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
-import { CLAUDE_CLI_TYPE } from './providers.js'
-import { forwardTranscript, type TranscriptForwarder } from './transcriptForwarder.js'
-
-const DEFAULT_TIMEOUT_MINUTES = 120
-/** Lo que se deja pasar entre que el runner cierra la corrida y se corta la sesión: que la
- *  respuesta de la tool terminal le llegue al CLI. */
-const CLOSE_GRACE_MS = 500
+import { CLAUDE_CLI_TYPE, createProvider, providerIds } from './providers.js'
 
 export interface HostSettings {
   name: string
@@ -50,8 +51,8 @@ export interface HostSettings {
   token: string
   maxConcurrent: number
   accepts: NonNullable<RunnerConfig['host']['accepts']>
-  /** El provider que presta y sus defaults. */
-  provider: { id: string; defaults: ClaudeCliConfig; bin?: string }
+  /** El id del provider con que corre las tareas (de `providers`). */
+  provider: string
 }
 
 /** Qué presta y a quién, de `host:` y `providers:` de su runner.yaml, más el ambiente (gana). */
@@ -71,33 +72,27 @@ export function hostSettings(cfg: RunnerConfig, env = process.env): HostSettings
     token: token as string,
     maxConcurrent: cfg.host.maxConcurrent ?? 1,
     accepts: cfg.host.accepts ?? [],
-    provider: lentProvider(cfg),
+    provider: hostProvider(cfg),
   }
 }
 
-/** La entrada `type: claude-cli` que presta: la que nombra `host.provider`, o la única. */
-function lentProvider(cfg: RunnerConfig): HostSettings['provider'] {
+/** El provider del host: el que nombra `host.provider`, o la única entrada `type: claude-cli`. */
+function hostProvider(cfg: RunnerConfig): string {
+  const known = providerIds(cfg.providers)
+  if (cfg.host.provider) {
+    if (!known.includes(cfg.host.provider)) {
+      throw new Error(
+        `host.provider: "${cfg.host.provider}" no está en providers (hay: ${known.join(', ')})`,
+      )
+    }
+    return cfg.host.provider
+  }
   const clis = Object.entries(cfg.providers).filter(([, config]) => config.type === CLAUDE_CLI_TYPE)
-  const chosen = cfg.host.provider
-    ? clis.find(([id]) => id === cfg.host.provider)
-    : clis.length === 1
-      ? clis[0]
-      : undefined
-  if (!chosen) {
-    const known = clis.map(([id]) => id).join(', ') || 'ninguna'
-    throw new Error(
-      cfg.host.provider
-        ? `host.provider: "${cfg.host.provider}" no es una entrada type: claude-cli de providers (hay: ${known})`
-        : `--host presta un CLI: nombrá cuál en host.provider (entradas type: claude-cli: ${known})`,
-    )
-  }
-  const [id, config] = chosen
-  const { type: _type, maxConcurrent: _max, bin, ...defaults } = config
-  return {
-    id,
-    defaults: parseClaudeCliConfig(defaults),
-    ...(typeof bin === 'string' ? { bin } : {}),
-  }
+  const [only] = clis
+  if (clis.length === 1 && only) return only[0]
+  throw new Error(
+    `--host: nombrá con qué provider corre en host.provider (hay: ${known.join(', ')})`,
+  )
 }
 
 export interface MountedHost {
@@ -134,15 +129,20 @@ export async function mountHost(
     // Lo que armó el host: sólo eso se borra.
     ledgerPath: join(root, 'host-worktrees.json'),
   })
+  const provider = createProvider(settings.provider, cfg.providers, {
+    cwd: (ctx) => session.dirFor(ctx),
+    log: opts.log,
+  })
   const client = new HostClient({
     runnerUrl: settings.runner,
     token: settings.token,
     name: settings.name,
     maxConcurrent: settings.maxConcurrent,
     accepts: settings.accepts,
-    run: cliTaskRunner({
+    run: providerTaskRunner({
+      provider,
       session,
-      provider: settings.provider,
+      gitCredential: () => github.auth.getToken(),
       log: opts.log,
       worktrees,
     }),
@@ -151,110 +151,95 @@ export async function mountHost(
 }
 
 /**
- * Una tarea del runner como sesión del CLI: el worktree de la task en este disco, y `claude`
- * apuntando al canal de la corrida en el runner. Termina cuando la sesión termina (se lo reporta
- * al runner), cuando el runner cierra la corrida (el modelo ya eligió su salida: se corta sin
- * reportar), o al tope de minutos del provider.
+ * Una tarea del runner, corrida con `provider` como la correría el runner: su `ProviderRunContext`
+ * armado con lo que viajó, el worktree de la task en este disco, las tools del engine contra el
+ * runner y las de workspace rearmadas acá (si el provider no trae las suyas). Devuelve lo que dio
+ * el provider; si el runner la cierra (`signal`), el provider se corta.
  */
-export function cliTaskRunner(opts: {
-  session: Pick<WorkspaceSession, 'dirFor'>
-  provider: HostSettings['provider']
+export function providerTaskRunner(opts: {
+  provider: Provider
+  session: WorkspaceSession
+  gitCredential: WorkspaceToolDeps['gitCredential']
   log: (line: string) => void
-  launch?: typeof launchCli
-  close?: typeof closeOrphan
   /** Quién arma el worktree de cada corrida y lo borra al terminar (`HostWorktrees`). Sin él, el
    *  worktree queda en disco. */
   worktrees?: Pick<HostWorktrees, 'begin' | 'end'>
-  /** Dónde está la transcripción del CLI (default `~/.claude/projects`) y cómo se le habla al
-   *  runner: los tests los inyectan. */
-  transcriptsDir?: string
   fetchImpl?: typeof fetch
 }): TaskRunner {
-  const launch = opts.launch ?? launchCli
-  const close = opts.close ?? closeOrphan
-  return async (task, runner, signal) => {
-    const config = mergeClaudeCliConfig(
-      opts.provider.defaults,
-      parseClaudeCliConfig(task.providerConfig),
-    )
-    const prepare = () => opts.session.dirFor(contextOf(task))
+  return async (task, runner, signal): Promise<RunResult> => {
+    const ctx = contextOf(task)
+    const prepare = () => opts.session.dirFor(ctx)
     const cwd = opts.worktrees ? await opts.worktrees.begin(prepare) : await prepare()
-    try {
-      return await runIn(cwd, task, runner, signal, config)
-    } finally {
-      // Cómo cerró el modelo, si el runner cerró la corrida; si la sesión terminó sola, no cerró.
-      await opts.worktrees?.end(cwd, signal.aborted ? endingOfSignal(signal) : undefined)
-    }
-  }
-
-  async function runIn(
-    cwd: string,
-    task: HostTask,
-    runner: { base: string },
-    signal: AbortSignal,
-    config: ClaudeCliConfig,
-  ): Promise<RunReport | undefined> {
-    // Una sesión que quedó viva de antes (el host se reinició a mitad de camino) se cierra antes
-    // de retomar su conversación en una nueva.
-    if (config.mode === 'tmux') await close({ kind: 'tmux', name: sessionName(task.label) })
-    const launched = await launch({
-      endpoints: {
-        mcp: `${runner.base}${task.endpoints.mcp}`,
-        hooks: `${runner.base}${task.endpoints.hooks}`,
-      },
-      cwd,
-      label: task.label,
-      prompt: task.prompt,
-      systemPrompts: task.systemPrompts,
-      exits: task.exits,
-      mcpServers: task.mcpServers as McpServerRef[],
-      config,
-      session: task.session,
-      ...(opts.provider.bin ? { bin: opts.provider.bin } : {}),
+    const link = new RunnerLink({
+      task,
+      base: runner.base,
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     })
-    opts.log(`${task.agentId}: sesión ${config.mode ?? 'print'} ${launched.session.describe}`)
-    // El uso de cada request vive en la transcripción de ESTE disco: se lo manda al runner.
-    const transcript = startTranscript(task, runner, opts)
-    const minutes = config.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES
-    let timer: ReturnType<typeof setTimeout> | undefined
+    link.start()
     try {
-      const ended = await Promise.race([
-        launched.session.exited.then((exit) => ({ kind: 'exited' as const, exit })),
-        aborted(signal).then(() => ({ kind: 'closed' as const })),
-        new Promise<{ kind: 'timeout' }>((resolve) => {
-          timer = setTimeout(() => resolve({ kind: 'timeout' }), minutes * 60_000)
-          timer.unref?.()
-        }),
-      ])
-      if (ended.kind === 'closed') return undefined
-      if (ended.kind === 'timeout') {
-        return { status: 'exited', code: null, message: `la sesión superó ${minutes} min` }
-      }
-      return report(ended.exit)
+      const tools = [
+        ...link.tools(),
+        ...(opts.provider.workspace === 'native'
+          ? []
+          : workspaceTools(task.workspaceTools, ctx, {
+              session: opts.session,
+              gitCredential: opts.gitCredential,
+            })),
+      ]
+      const output = await opts.provider.run({
+        agentId: task.agentId,
+        prompt: task.prompt,
+        systemPrompts: task.systemPrompts,
+        variables: task.variables,
+        providerConfig: task.providerConfig,
+        mcpServers: task.mcpServers as McpServerRef[],
+        tools,
+        ctx,
+        inbox: () => link.inbox(),
+        saveConversation: (conversation) => link.saveConversation(conversation),
+        onText: (delta) => link.onText(delta),
+        ...(task.resume ? { resume: task.resume } : {}),
+        signal,
+      })
+      opts.log(`${task.agentId}: ${opts.provider.id} terminó (${output.outcome})`)
+      return { status: 'output', output }
     } finally {
-      if (timer) clearTimeout(timer)
-      await delay(CLOSE_GRACE_MS)
-      await transcript?.stop()
-      await launched.session.close().catch(() => {})
-      await launched.cleanup().catch(() => {})
+      await link.stop()
+      // Cómo cerró el modelo, si llamó una tool terminal; cortada por el runner, no cerró.
+      await opts.worktrees?.end(cwd, signal.reason === CLOSED_BY_RUNNER ? undefined : link.ending)
     }
   }
 }
 
-/** El reenvío del uso al runner, si éste lo pide (`endpoints.transcript`: un runner viejo no). */
-function startTranscript(
-  task: HostTask,
-  runner: { base: string },
-  opts: { transcriptsDir?: string; fetchImpl?: typeof fetch },
-): TranscriptForwarder | undefined {
-  if (!task.endpoints.transcript) return undefined
-  return forwardTranscript({
-    url: `${runner.base}${task.endpoints.transcript}`,
-    sessionId: task.session.id,
-    since: new Date(),
-    ...(opts.transcriptsDir ? { projectsDir: opts.transcriptsDir } : {}),
-    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+/** Las tools de workspace del agente, rearmadas sobre el worktree de esta máquina. Una que el host
+ *  no sabe rearmar (`run_agent`, una propia de un deploy) le contesta al modelo por qué no está. */
+function workspaceTools(
+  specs: WorkspaceToolSpec[],
+  ctx: PipelineExecutionContext,
+  deps: WorkspaceToolDeps,
+): Tool[] {
+  return specs.map(({ name, origin }) => {
+    if (HOST_WORKSPACE_TOOLS.has(origin.action)) {
+      const action = workspaceTool(origin.action, origin.options, deps)
+      return action.asTool(ctx)
+    }
+    return unavailable(
+      name,
+      `${name} no corre en un host remoto (sólo ${[...HOST_WORKSPACE_TOOLS].join(', ')})`,
+    )
   })
+}
+
+function unavailable(name: string, why: string): Tool {
+  return {
+    name,
+    description: why,
+    inputSchema: { type: 'object', properties: {} },
+    workspace: true,
+    handler: () => {
+      throw new Error(why)
+    },
+  }
 }
 
 /** Lo que el workspace necesita de la corrida: su evento (de él sale el worktree). */
@@ -273,20 +258,4 @@ function contextOf(task: HostTask): PipelineExecutionContext {
     pipelineId: 'remote',
     ...(task.lane ? { lane: task.lane } : {}),
   }
-}
-
-function report(exit: { code: number | null; output: string }): RunReport {
-  const text = exit.output.trim()
-  return { status: 'exited', code: exit.code, ...(text ? { message: text.slice(-800) } : {}) }
-}
-
-function aborted(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) resolve()
-    else signal.addEventListener('abort', () => resolve(), { once: true })
-  })
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }

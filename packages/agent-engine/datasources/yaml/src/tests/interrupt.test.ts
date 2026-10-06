@@ -30,7 +30,7 @@ function heldProvider() {
       run: async (ctx) => {
         started()
         await gate
-        const read = ctx.inbox?.() ?? []
+        const read = (await ctx.inbox?.()) ?? []
         const yieldTool = ctx.tools.find((tool) => tool.name === YIELD_TOOL_NAME)
         if (read.length > 0 && yieldTool) {
           await yieldTool.handler({ progress: 'migración escrita; falta el endpoint' })

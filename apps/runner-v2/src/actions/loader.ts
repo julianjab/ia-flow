@@ -96,7 +96,7 @@ export async function loadActions(
     if (!found) {
       throw new Error(`la action "${name}" no está en ${request.sourceId} ni entre las globales`)
     }
-    return found.definition.create({
+    const made = found.definition.create({
       sourceId: request.sourceId,
       ...(request.agentId ? { agentId: request.agentId } : {}),
       options: request.options,
@@ -104,6 +104,11 @@ export async function loadActions(
       projects: () => projects,
       services: withServices,
     })
+    // Con qué se armó: un host remoto rearma así las tools de workspace sobre su worktree.
+    for (const action of [made].flat()) {
+      action.origin ??= { action: name, options: request.options }
+    }
+    return made
   }
   const provider =
     (name: string): ActionProvider =>

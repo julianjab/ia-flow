@@ -39,7 +39,7 @@ function heldAgent(id: string, exit: string, injects?: EventFilterProps[]) {
     run: async (ctx: ProviderRunContext) => {
       started()
       await gate
-      const read = ctx.inbox?.() ?? []
+      const read = (await ctx.inbox?.()) ?? []
       inbox.push(read)
       const yieldTool = ctx.tools.find((tool) => tool.name === YIELD_TOOL_NAME)
       if (read.some((m) => m.includes('Interrupción')) && yieldTool) {

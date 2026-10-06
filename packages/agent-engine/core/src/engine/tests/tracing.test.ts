@@ -253,7 +253,7 @@ describe('Engine tracing — executions', () => {
       run: async (ctx) => {
         entered()
         await gate
-        if (drains) ctx.inbox?.()
+        if (drains) await ctx.inbox?.()
         return { outcome: 'success' }
       },
     })

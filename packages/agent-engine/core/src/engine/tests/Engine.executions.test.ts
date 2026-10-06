@@ -38,7 +38,7 @@ function heldImplementer(options: { drains?: boolean; injects?: EventFilterProps
       runs.push(ctx.ctx.pipelineId)
       started()
       await gate
-      if (options.drains !== false) inbox.push(ctx.inbox?.() ?? [])
+      if (options.drains !== false) inbox.push((await ctx.inbox?.()) ?? [])
       return { outcome: 'success' }
     },
   })
@@ -105,7 +105,7 @@ describe('Engine with executions', () => {
         run: async (ctx) => {
           started()
           await gate
-          reviewerInbox.push(ctx.inbox?.() ?? [])
+          reviewerInbox.push((await ctx.inbox?.()) ?? [])
           return { outcome: 'success' }
         },
       }),

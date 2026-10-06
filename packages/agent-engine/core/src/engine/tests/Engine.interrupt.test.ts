@@ -56,7 +56,7 @@ function heldImplementer(
     run: async (ctx: ProviderRunContext) => {
       started()
       await gate
-      const read = ctx.inbox?.() ?? []
+      const read = (await ctx.inbox?.()) ?? []
       inbox.push(read)
       const yieldTool = ctx.tools.find((tool) => tool.name === YIELD_TOOL_NAME)
       if (options.obeys !== false && read.some((m) => m.includes('Interrupción')) && yieldTool) {

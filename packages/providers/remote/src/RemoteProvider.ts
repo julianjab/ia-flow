@@ -7,20 +7,20 @@ import {
   type Provider,
   type ProviderRunContext,
   type ProviderRunOutput,
+  type Tool,
 } from '@ia-flow/agent-engine'
-import {
-  type CliConversation,
-  cliSessionOf,
-  exitsOf,
-  labelOf,
-  RunChannel,
-  runParent,
-  turnPrompt,
-} from '@ia-flow/provider-shared'
+import { runParent } from '@ia-flow/provider-shared'
 import { createLogger, exportTraceContext } from '@ia-flow/telemetry'
-import { type HostTask, PROTOCOL_PREFIX } from './protocol.js'
+import {
+  type HostTask,
+  PROTOCOL_PREFIX,
+  type RunResult,
+  type ToolSpec,
+  type WorkspaceToolSpec,
+} from './protocol.js'
 import { providerId } from './providerId.js'
 import type { RemoteHub } from './RemoteHub.js'
+import { RemoteRun } from './RemoteRun.js'
 
 export interface RemoteProviderOptions {
   hub: RemoteHub
@@ -30,21 +30,25 @@ export interface RemoteProviderOptions {
 
 /** Cuánto espera el runner si el host está lleno o se fue, antes de volver a preguntar. */
 const BUSY_RETRY_MS = 10_000
+/** El tope de una corrida si su `providerConfig` no trae `timeoutMinutes`. */
 const DEFAULT_TIMEOUT_MINUTES = 120
-/** Lo que se le suma al tope del host: que su propio corte llegue antes que el del runner. */
+/** Lo que se le suma al tope: que el corte del provider del host llegue antes que el del runner. */
 const TIMEOUT_GRACE_MINUTES = 2
-const DEFAULT_STOP_NUDGES = 2
 
 /**
- * Un host suscrito, como provider: `remote:<name>`. Para el engine es uno más, con workspace
- * nativo (el host trabaja SU worktree con las tools de su CLI, así que las tools de workspace del
- * agente no le llegan). `run` no conduce nada: abre el canal de la corrida en la API del runner,
- * le entrega la tarea al host, y espera a que el modelo — allá — cierre el turno llamando una tool
- * terminal por el MCP de acá.
+ * Un host suscrito, como provider: `remote:<name>`. No conduce nada: le entrega la corrida al
+ * host, que la corre con SU provider (el de su runner.yaml) sobre su worktree, y espera lo que
+ * devuelve. Del `ProviderRunContext` del agente viaja todo lo que es JSON; las tools se parten en
+ * dos — las de workspace (`fs_*`, `bash_run`) van como `origin` y el host las rearma allá, las del
+ * engine se quedan acá y el host las llama por `/tools`.
+ *
+ * Recibe todas las tools (`workspace: 'runner'`): las de workspace no se corren acá, pero hace
+ * falta verlas para mandar su `origin`. El host decide si su provider las usa (la Messages API) o
+ * trae las suyas (el CLI).
  */
 export class RemoteProvider implements Provider {
   readonly id: string
-  readonly workspace = 'native' as const
+  readonly workspace = 'runner' as const
   readonly log = createLogger('provider-remote')
 
   constructor(private readonly options: RemoteProviderOptions) {
@@ -80,35 +84,32 @@ export class RemoteProvider implements Provider {
   }
 
   async run(ctx: ProviderRunContext): Promise<ProviderRunOutput> {
-    const config = ctx.providerConfig
-    const resumedSession = cliSessionOf(ctx.resume?.conversation)
-    const sessionId = resumedSession ?? randomUUID()
-    const conversation: CliConversation = { sessionId }
-    // Desde ya: si el runner muere a mitad de la corrida, se retoma esta sesión.
-    ctx.saveConversation?.(conversation)
-
-    const channel = new RunChannel({
+    const { engine, workspace, skipped } = splitTools(ctx.tools)
+    for (const name of skipped) {
+      this.log.warn(
+        `${ctx.agentId}: la tool de workspace ${name} no dice con qué se armó: no viaja`,
+      )
+    }
+    const run = new RemoteRun({
       agentId: ctx.agentId,
-      tools: ctx.tools,
-      ...(ctx.inbox ? { inbox: ctx.inbox } : {}),
+      tools: engine,
       parent: runParent(ctx),
-      maxStopNudges: numberOr(config.maxStopNudges, DEFAULT_STOP_NUDGES),
+      ...(ctx.inbox ? { inbox: ctx.inbox } : {}),
+      ...(ctx.saveConversation ? { saveConversation: ctx.saveConversation } : {}),
       ...(ctx.onText ? { onText: ctx.onText } : {}),
-      since: new Date(),
-      // La sesión escribe su transcripción en el disco del host: es éste quien la lee y la manda
-      // por `/transcript` (el uso de cada request).
-      transcript: false,
     })
-    const base = `${PROTOCOL_PREFIX}/runs/${channel.token}`
+    const base = `${PROTOCOL_PREFIX}/runs/${run.token}`
     const task: HostTask = {
       runId: randomUUID(),
       agentId: ctx.agentId,
-      label: labelOf(ctx),
-      prompt: turnPrompt(ctx, resumedSession !== undefined),
+      prompt: ctx.prompt,
       systemPrompts: ctx.systemPrompts,
-      exits: exitsOf(ctx),
+      variables: ctx.variables,
       mcpServers: await resolveMcpServers(ctx.mcpServers),
-      providerConfig: config,
+      providerConfig: ctx.providerConfig,
+      tools: engine.map(toSpec),
+      workspaceTools: workspace,
+      ...(ctx.resume ? { resume: ctx.resume } : {}),
       event: {
         id: ctx.ctx.event.id,
         type: ctx.ctx.event.type,
@@ -117,38 +118,61 @@ export class RemoteProvider implements Provider {
         occurredAt: ctx.ctx.event.occurredAt,
       },
       ...(ctx.ctx.lane ? { lane: ctx.ctx.lane } : {}),
-      session: { id: sessionId, resume: resumedSession !== undefined },
       endpoints: {
-        mcp: `${base}/mcp`,
-        hooks: `${base}/hooks`,
-        transcript: `${base}/transcript`,
-        report: `${base}/report`,
+        tools: `${base}/tools`,
+        inbox: `${base}/inbox`,
+        conversation: `${base}/conversation`,
+        text: `${base}/text`,
+        result: `${base}/result`,
       },
     }
     const trace = exportTraceContext()
     if (trace) task.trace = trace
-    const minutes = numberOr(config.timeoutMinutes, DEFAULT_TIMEOUT_MINUTES) + TIMEOUT_GRACE_MINUTES
+    const minutes =
+      numberOr(ctx.providerConfig.timeoutMinutes, DEFAULT_TIMEOUT_MINUTES) + TIMEOUT_GRACE_MINUTES
     this.log.info(`${ctx.agentId}: corrida ${task.runId} a ${this.id}`)
-    try {
-      const end = await this.options.hub.dispatch(this.options.host, task, channel, minutes)
-      // Un reporte que llega justo después de cerrar el turno cuenta como cerrado.
-      if (end.kind === 'done' || channel.finished) return { outcome: 'success', conversation }
-      if (end.kind === 'timeout') {
-        return { outcome: 'error', summary: `${this.id}: la corrida superó ${end.minutes} min` }
-      }
-      if (end.kind === 'lost') return { outcome: 'error', summary: end.reason }
-      const { report } = end
-      return {
-        outcome: 'error',
-        summary:
-          report.status === 'failed'
-            ? `${this.id} no pudo correrla: ${report.message ?? 'sin detalle'}`
-            : `la sesión en ${this.id} terminó sin cerrar el turno (código ${report.code ?? '?'})${report.message ? `: ${report.message}` : ''}`,
-      }
-    } finally {
-      await channel.close().catch(() => {})
+    const end = await this.options.hub.dispatch(this.options.host, task, run, minutes)
+    if (end.kind === 'result') return outputOf(this.id, end.result)
+    if (end.kind === 'timeout') {
+      return { outcome: 'error', summary: `${this.id}: la corrida superó ${end.minutes} min` }
     }
+    return { outcome: 'error', summary: end.reason }
   }
+}
+
+/** Las del engine (se corren acá) y las de workspace (viajan para rearmarse en el host). Una de
+ *  workspace sin `origin` no se puede rearmar: no viaja. */
+function splitTools(tools: Tool[]): {
+  engine: Tool[]
+  workspace: WorkspaceToolSpec[]
+  skipped: string[]
+} {
+  const engine: Tool[] = []
+  const workspace: WorkspaceToolSpec[] = []
+  const skipped: string[] = []
+  for (const tool of tools) {
+    if (!tool.workspace) engine.push(tool)
+    else if (tool.origin) workspace.push({ name: tool.name, origin: tool.origin })
+    else skipped.push(tool.name)
+  }
+  return { engine, workspace, skipped }
+}
+
+function toSpec(tool: Tool): ToolSpec {
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    ...(tool.terminal ? { terminal: true } : {}),
+    ...(tool.failure ? { failure: true } : {}),
+  }
+}
+
+function outputOf(id: string, result: RunResult): ProviderRunOutput {
+  if (result.status === 'failed') {
+    return { outcome: 'error', summary: `${id} no pudo correrla: ${result.message}` }
+  }
+  return result.output
 }
 
 /** Contra qué se evalúan las condiciones del host: el payload del evento, más quién y qué. */

@@ -15,8 +15,11 @@ export interface ProviderRunContext {
   ctx: PipelineExecutionContext
   /** Mensajes que llegaron mientras el agente corre (sus `injects`), en orden — y los saca
    *  de la bandeja. Un provider con loop lo consulta antes de cada vuelta y los suma al próximo
-   *  turno del usuario; uno sin loop puede ignorarlo. */
-  inbox?: () => string[]
+   *  turno del usuario; uno sin loop puede ignorarlo. Puede ser una promesa: leerla puede ser ir
+   *  a buscarla a otra máquina (un host remoto pregunta al runner). Se llama en el momento en que
+   *  el provider los va a usar, nunca antes: lo que se lee se da por leído, y lo que el agente no
+   *  alcanzó a leer el engine lo re-despacha al cerrar la ejecución. */
+  inbox?: () => string[] | Promise<string[]>
   /**
    * Retomar una conversación en vez de empezar del prompt: la que el provider devolvió al
    * esperar (`ProviderRunOutput.conversation`) o guardó mientras corría (`saveConversation`), y
@@ -30,6 +33,10 @@ export interface ProviderRunContext {
   /** El texto del modelo a medida que se escribe, un pedazo por llamada — para mostrarlo en vivo
    *  (el asistente de la web). Un provider que no puede streamear no lo llama nunca. */
   onText?: (delta: string) => void
+  /** Cortar la corrida desde afuera (quien la delegó la dio por terminada: venció, se perdió).
+   *  Un provider lo respeta en cuanto puede —entre vueltas, o matando su proceso— y devuelve un
+   *  `outcome: 'error'` que dice por qué. */
+  signal?: AbortSignal
 }
 
 /** Lo que un Provider reporta al terminar. `outcome` es el nombre que `matchExit` busca en

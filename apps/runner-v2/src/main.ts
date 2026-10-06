@@ -170,7 +170,7 @@ function startHosting(
 ): void {
   console.log(`→ github: ${githubAuthMode}`)
   console.log(
-    `→ host ${settings.name}: presta ${settings.provider.id} a ${settings.runner} (hasta ${settings.maxConcurrent} a la vez${settings.accepts.length > 0 ? `, ${settings.accepts.length} condiciones` : ''})`,
+    `→ host ${settings.name}: corre con ${settings.provider} para ${settings.runner} (hasta ${settings.maxConcurrent} a la vez${settings.accepts.length > 0 ? `, ${settings.accepts.length} condiciones` : ''})`,
   )
   // El respaldo de lo que `end` dejó en disco (y lo de un host que se cayó): al arrancar y cada
   // tanto.
