@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.4.0](https://github.com/julianjab/ia-flow/compare/v2.3.0...v2.4.0) (2026-10-06)
+
+
+### Features
+
+* **runner-v2:** --issue corre el flujo de un issue real desde la CLI ([#279](https://github.com/julianjab/ia-flow/issues/279)) ([d3e5639](https://github.com/julianjab/ia-flow/commit/d3e5639bb53d25e79564f42167e301360b894457))
+
+
+### Bug Fixes
+
+* **agent-engine:** un agente espera a su host remoto en vez de fallar ([#280](https://github.com/julianjab/ia-flow/issues/280)) ([e9d1109](https://github.com/julianjab/ia-flow/commit/e9d110997328deaf7828ee0316e6d8389fceb7e2))
+
 ## [2.3.0](https://github.com/julianjab/ia-flow/compare/v2.2.0...v2.3.0) (2026-10-05)
 
 
