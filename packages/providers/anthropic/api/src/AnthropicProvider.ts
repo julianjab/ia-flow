@@ -16,8 +16,9 @@ import {
   type AnthropicSendOptions,
 } from './AnthropicClient.js'
 import {
-  PAUSE_TURN_CONTINUE,
+  awaitsServerCalls,
   pairOrphanedMcpToolUse,
+  withAssistant,
   withAssistantThenUser,
 } from './conversation.js'
 import { chatTrace, describeBlocks, logRejectedRequest, toolTrace } from './tracing.js'
@@ -299,15 +300,17 @@ function buildOutputConfig(
  *  que pide datos. Con una sola `submit_done` sin campos requeridos, `Agent` la toma sin submit. */
 /**
  * Lo que llegó mientras el agente corre (`ctx.inbox`, `ifRunning: inject`) entra al turno del
- * usuario que está por mandarse — después de los `tool_result`, que la API exige primero (o
- * del "Continuá." de un `pause_turn`). Sólo si el último mensaje es del usuario.
+ * usuario que está por mandarse — después de los `tool_result`, que la API exige primero. Sólo si
+ * el último mensaje es del usuario (tras un `pause_turn` es del asistente) y el turno no tiene
+ * llamadas MCP pendientes: un texto lo cerraría y la API rechaza la llamada sin result. Lo que no
+ * entra queda en la bandeja para la vuelta siguiente.
  */
 async function withInjectedMessages(
   messages: AnthropicMessage[],
   inbox: ProviderRunContext['inbox'],
 ): Promise<AnthropicMessage[]> {
   const last = messages.at(-1)
-  if (!inbox || last?.role !== 'user') return messages
+  if (!inbox || last?.role !== 'user' || awaitsServerCalls(messages)) return messages
   const injected = await inbox()
   if (injected.length === 0) return messages
   const blocks = injected.map((text) => ({
@@ -518,9 +521,9 @@ export class AnthropicProvider implements Provider {
         // El modelo se pausó a MITAD de turno — no es una pausa entre turnos (eso sería
         // `end_turn`/`tool_use` normal), es el mecanismo que usa la API para runs largos con
         // tools server-side (MCP remoto, extended thinking): el turno sigue, así que se
-        // reenvía la conversación con el contenido parcial agregado (sus llamadas MCP colgadas
-        // pareadas con un error, sin thinking al final) y un "Continuá.", y el modelo sigue
-        // desde donde quedó. Tiene su propio tope
+        // reenvía la respuesta TAL CUAL, sin nada detrás (la doc de server tools: un texto
+        // cerraría el turno). Una llamada MCP que quedó sin result la corre la API al retomar;
+        // una segunda pausa se suma al mismo turno. Tiene su propio tope
         // (`maxPauseTurnRetries`): una pausa no es una vuelta de tools, pero tampoco puede
         // repetirse sin fin.
         if (pauses >= cfg.maxPauseTurnRetries) {
@@ -534,9 +537,7 @@ export class AnthropicProvider implements Provider {
           'ia.pauses': pauses,
           'ia.response.blocks': describeBlocks(data.content),
         })
-        // Con un "Continuá." explícito detrás: un asistente al final es un prefill, y con thinking
-        // la API lo rechaza (ver conversation.ts).
-        messages = withAssistantThenUser(messages, data.content, PAUSE_TURN_CONTINUE)
+        messages = withAssistant(messages, data.content)
         continue
       }
 
@@ -564,8 +565,7 @@ export class AnthropicProvider implements Provider {
         // La conversación con los resultados de esta vuelta: la que se retoma si la terminal
         // fue una espera (`wait_for_event`).
         const conversation: AnthropicMessage[] = [
-          ...messages,
-          { role: 'assistant', content: data.content },
+          ...withAssistant(messages, data.content),
           { role: 'user', content: toolResults },
         ]
         return { outcome: 'success', summary: text, conversation }
@@ -579,11 +579,9 @@ export class AnthropicProvider implements Provider {
           `AnthropicProvider(${opts.id}): superó maxToolRounds (${maxToolRounds}) sin converger`,
         )
       }
-      messages = [
-        ...messages,
-        { role: 'assistant', content: data.content },
-        { role: 'user', content: toolResults },
-      ]
+      // El turno tal cual —una llamada MCP sin result la corre la API al recibir esto— y detrás
+      // SÓLO los `tool_result`.
+      messages = [...withAssistant(messages, data.content), { role: 'user', content: toolResults }]
       // Si el proceso muere acá, se retoma desde esta vuelta.
       ctx.saveConversation?.(messages)
     }

@@ -282,7 +282,7 @@ describe('AnthropicProvider.run', () => {
     await expect(provider.run(ctxFor())).rejects.toThrow('null')
   })
 
-  it('continues a pause_turn with the partial turn and an explicit "Continuá." (never a prefill)', async () => {
+  it('continues a pause_turn by resending the partial turn as is, with nothing after it', async () => {
     let calls = 0
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       calls++
@@ -294,8 +294,8 @@ describe('AnthropicProvider.run', () => {
       }
       const body = JSON.parse(init.body as string)
       expect(body.messages.slice(-2)).toEqual([
+        { role: 'user', content: 'hola' },
         { role: 'assistant', content: [{ type: 'text', text: 'a mitad' }] },
-        { role: 'user', content: 'Continuá.' },
       ])
       return jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' })
     })
@@ -327,23 +327,34 @@ describe('AnthropicProvider.run', () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
       })
 
-    it('pairs a pause_turn that stopped on an unanswered MCP call, instead of dropping it and leaving thinking last', async () => {
+    it('resends a pause_turn that stopped on pending MCP calls as is: the API runs them', async () => {
+      const paused = [
+        { type: 'thinking', thinking: 'busco', signature: 's' },
+        { type: 'mcp_tool_use', id: 'm1', name: 'search_code', server_name: 'github-mcp' },
+        { type: 'mcp_tool_use', id: 'm2', name: 'get_file_contents', server_name: 'github-mcp' },
+      ]
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ stop_reason: 'pause_turn', content: paused }))
+        .mockResolvedValueOnce(
+          jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' }),
+        )
+
+      await providerWith(fetchImpl).run(ctxFor())
+
+      expect(bodiesOf(fetchImpl)[1]?.messages.slice(1)).toEqual([
+        { role: 'assistant', content: paused },
+      ])
+    })
+
+    it('a second pause_turn joins the same assistant turn', async () => {
       const fetchImpl = vi
         .fn()
         .mockResolvedValueOnce(
-          jsonResponse({
-            stop_reason: 'pause_turn',
-            content: [
-              { type: 'thinking', thinking: 'busco', signature: 's' },
-              { type: 'mcp_tool_use', id: 'm1', name: 'search_code', server_name: 'github-mcp' },
-              {
-                type: 'mcp_tool_use',
-                id: 'm2',
-                name: 'get_file_contents',
-                server_name: 'github-mcp',
-              },
-            ],
-          }),
+          jsonResponse({ stop_reason: 'pause_turn', content: [{ type: 'text', text: 'uno' }] }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ stop_reason: 'pause_turn', content: [{ type: 'text', text: 'dos' }] }),
         )
         .mockResolvedValueOnce(
           jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' }),
@@ -351,33 +362,18 @@ describe('AnthropicProvider.run', () => {
 
       await providerWith(fetchImpl).run(ctxFor())
 
-      const unanswered = (id: string) => ({
-        type: 'mcp_tool_result',
-        tool_use_id: id,
-        is_error: true,
-        content: [{ type: 'text', text: expect.stringContaining('quedó sin respuesta') }],
-      })
-      expect(bodiesOf(fetchImpl)[1]?.messages.slice(1)).toEqual([
+      expect(bodiesOf(fetchImpl)[2]?.messages.slice(1)).toEqual([
         {
           role: 'assistant',
           content: [
-            { type: 'thinking', thinking: 'busco', signature: 's' },
-            { type: 'mcp_tool_use', id: 'm1', name: 'search_code', server_name: 'github-mcp' },
-            unanswered('m1'),
-            {
-              type: 'mcp_tool_use',
-              id: 'm2',
-              name: 'get_file_contents',
-              server_name: 'github-mcp',
-            },
-            unanswered('m2'),
+            { type: 'text', text: 'uno' },
+            { type: 'text', text: 'dos' },
           ],
         },
-        { role: 'user', content: 'Continuá.' },
       ])
     })
 
-    it('never leaves thinking as the last block of a paused turn', async () => {
+    it('keeps a paused turn as is, thinking included', async () => {
       const fetchImpl = vi
         .fn()
         .mockResolvedValueOnce(
@@ -397,7 +393,10 @@ describe('AnthropicProvider.run', () => {
 
       expect(bodiesOf(fetchImpl)[1]?.messages[1]).toEqual({
         role: 'assistant',
-        content: [{ type: 'text', text: 'a mitad' }],
+        content: [
+          { type: 'text', text: 'a mitad' },
+          { type: 'thinking', thinking: 'sigo', signature: 's' },
+        ],
       })
     })
 
@@ -439,6 +438,45 @@ describe('AnthropicProvider.run', () => {
             },
           ],
         },
+      ])
+    })
+
+    it('leaves an MCP call made with a local tool_use pending, followed only by the tool results (subscriptions#1763)', async () => {
+      const lookup: Tool = {
+        name: 'list_sub_issues_brief',
+        description: 'd',
+        inputSchema: {},
+        handler: () => 'sin sub-issues',
+      }
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            stop_reason: 'tool_use',
+            content: [
+              { type: 'thinking', thinking: 'miro', signature: 's' },
+              { type: 'tool_use', id: 't1', name: 'list_sub_issues_brief', input: {} },
+              { type: 'mcp_tool_use', id: 'm1', name: 'issue_read', server_name: 'github-mcp' },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' }),
+        )
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [lookup] }))
+
+      const [assistant, user] = (bodiesOf(fetchImpl)[1]?.messages.slice(1) ?? []) as Array<{
+        role: string
+        content: Array<{ type: string; id?: string; tool_use_id?: string }>
+      }>
+      expect(assistant?.content.map((block) => block.type)).toEqual([
+        'thinking',
+        'tool_use',
+        'mcp_tool_use',
+      ])
+      expect(user?.content).toEqual([
+        expect.objectContaining({ type: 'tool_result', tool_use_id: 't1' }),
       ])
     })
 
@@ -946,18 +984,43 @@ describe('AnthropicProvider.run', () => {
       ])
     })
 
-    it('adds what arrived during a pause_turn to its "Continuá."', async () => {
+    it('keeps what arrives during a pause_turn for a turn of the user: text would close it', async () => {
       const paused = { content: [{ type: 'text', text: 'a mitad' }], stop_reason: 'pause_turn' }
-      const inbox = [[], ['llegó durante la pausa']]
-      await provider([paused, done]).run(ctxFor({ inbox: () => inbox.shift() ?? [] }))
+      const asked: number[] = []
+      await provider([paused, toolUse, done]).run(
+        ctxFor({
+          tools: [noop],
+          inbox: () => {
+            asked.push(bodies.length)
+            return asked.length === 2 ? ['llegó durante la pausa'] : []
+          },
+        }),
+      )
 
-      expect(bodies[1]?.messages.at(-1)).toEqual({
-        role: 'user',
+      // Antes del request que retoma la pausa no se lee la bandeja: el turno va tal cual.
+      expect(bodies[1]?.messages.at(-1)?.role).toBe('assistant')
+      expect(bodies[2]?.messages.at(-1)?.content).toEqual([
+        { type: 'tool_result', tool_use_id: 'tu_1', content: 'x' },
+        { type: 'text', text: '[Mensaje recibido mientras trabajabas]\nllegó durante la pausa' },
+      ])
+    })
+
+    it('does not add text after the tool results while an MCP call is pending', async () => {
+      const mixed = {
         content: [
-          { type: 'text', text: 'Continuá.' },
-          { type: 'text', text: '[Mensaje recibido mientras trabajabas]\nllegó durante la pausa' },
+          { type: 'tool_use', id: 'tu_1', name: 'noop', input: {} },
+          { type: 'mcp_tool_use', id: 'm1', name: 'issue_read', server_name: 'gh' },
         ],
-      })
+        stop_reason: 'tool_use',
+      }
+      const inbox = [[], ['esperá']]
+      await provider([mixed, done]).run(ctxFor({ tools: [noop], inbox: () => inbox.shift() ?? [] }))
+
+      expect(bodies[1]?.messages.at(-1)?.content).toEqual([
+        { type: 'tool_result', tool_use_id: 'tu_1', content: 'x' },
+      ])
+      // Nadie la leyó: queda en la bandeja para la vuelta siguiente.
+      expect(inbox).toEqual([['esperá']])
     })
   })
 
