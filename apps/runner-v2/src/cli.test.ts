@@ -29,12 +29,40 @@ describe('parseArgs', () => {
   it('does not build events: no event names without github., no event flags', () => {
     expect(() => parseArgs(['--event', 'issue.created', './d.json'])).toThrow(/github\.<evento>/)
     expect(() => parseArgs(['issue.created', 'la-haus/x#3'])).toThrow(/argumento desconocido/)
-    expect(() => parseArgs(['--status', 'Build'])).toThrow(/argumento desconocido/)
+    // `--status`/`--label` sólo simulan sobre un issue real (`--issue`): el webhook crudo.
+    expect(() => parseArgs(['--status', 'Build'])).toThrow(/van con --issue/)
+    expect(() => parseArgs(['--label', 'e2e-test'])).toThrow(/van con --issue/)
+  })
+
+  it('--issue simulates a column or a label on a real issue, as someone', () => {
+    expect(parseArgs(['--issue', 'la-haus/x#3', '--status', 'Review']).issue).toEqual({
+      ref: 'la-haus/x#3',
+      change: { status: 'Review' },
+      as: 'ia-flow-cli',
+    })
+    expect(
+      parseArgs(['--issue', 'la-haus/x#3', '--label', 'e2e-test', '--as', 'julian']).issue,
+    ).toEqual({ ref: 'la-haus/x#3', change: { label: 'e2e-test' }, as: 'julian' })
+    // Sin `--issue`, la clave ni aparece.
+    expect(parseArgs([])).not.toHaveProperty('issue')
+  })
+
+  it('--issue needs a valid ref and exactly one of --status / --label', () => {
+    expect(() => parseArgs(['--issue', 'no-es-un-ref', '--status', 'Review'])).toThrow(
+      /no es <owner>\/<repo>#<n>/,
+    )
+    expect(() => parseArgs(['--issue', 'la-haus/x#3'])).toThrow(/uno de los dos/)
+    expect(() =>
+      parseArgs(['--issue', 'la-haus/x#3', '--status', 'Review', '--label', 'e2e-test']),
+    ).toThrow(/uno de los dos/)
   })
 
   it('one mode at a time', () => {
     expect(() => parseArgs(['--serve', '--replay-pr', 'a/b#1'])).toThrow(/van de a uno/)
     expect(() => parseArgs(['--serve', '--host'])).toThrow(/van de a uno/)
+    expect(() => parseArgs(['--serve', '--issue', 'a/b#1', '--status', 'Review'])).toThrow(
+      /van de a uno/,
+    )
   })
 })
 

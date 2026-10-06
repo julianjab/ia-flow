@@ -9,7 +9,8 @@
  *               las actions escriben en GitHub y los agentes llaman a la Messages API.
  *   --serve     servidor de webhooks.
  *   --host      le presta su CLI `claude` a un runner: se suscribe y pide tareas (`remote:<name>`).
- *   --event     un webhook crudo desde un archivo; --replay-pr, un PR real como `opened`.
+ *   --event     un webhook crudo desde un archivo; --replay-pr, un PR real como `opened`;
+ *   --issue     un issue real con algo simulado (su card llegó a una columna, o un label).
  *
  *   bun run src/main.ts
  *   IA_FLOW_WEBHOOK_SECRET=... bun run src/main.ts --serve
@@ -26,7 +27,7 @@ import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
 import { serve } from './http/serve.js'
 import { mountInbox } from './inbox/mountInbox.js'
-import { dispatchRaw, replayPullRequest } from './intake/dispatch.js'
+import { dispatchRaw, replayPullRequest, simulateIssue } from './intake/dispatch.js'
 import { type McpHost, startMcpHost } from './mcp/mcpHost.js'
 import { hostTelemetryIngest } from './providers/hostTelemetry.js'
 import {
@@ -189,7 +190,8 @@ function startHosting(
   }
 }
 
-/** Un webhook crudo: `--event` (desde un archivo) o `--replay-pr` (un PR real, como `opened`). */
+/** Un webhook crudo: `--event` (desde un archivo), `--replay-pr` (un PR real, como `opened`) o
+ *  `--issue` (un issue real con algo simulado). */
 async function dispatchOne(
   mounted: MountedRunner,
   cfg: RunnerConfig,
@@ -211,6 +213,11 @@ async function dispatchOne(
       if (!target)
         throw new Error(`--replay-pr: "${args.replayPr}" no es <owner>/<repo>#<n>\n\n${USAGE}`)
       await replayPullRequest(mounted, target, log)
+    } else if (args.issue) {
+      // `parseArgs` ya validó la forma: acá sólo se separa.
+      const target = parseIssueTarget(args.issue.ref)
+      if (!target) throw new Error(`--issue: "${args.issue.ref}" no es <owner>/<repo>#<n>`)
+      await simulateIssue(mounted, target, args.issue.change, args.issue.as, log)
     } else if (args.event) {
       const payload = JSON.parse(readFileSync(args.event.payloadPath, 'utf8')) as Record<
         string,
@@ -302,7 +309,8 @@ async function main(): Promise<'serving' | 'done'> {
     return 'serving'
   }
   try {
-    if (args.replayPr || args.event) await dispatchOne(mounted, cfg, args, started, log)
+    if (args.replayPr || args.event || args.issue)
+      await dispatchOne(mounted, cfg, args, started, log)
     return 'done'
   } finally {
     mounted.stop()
