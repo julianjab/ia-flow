@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadRunnerConfig, runnerPathOf } from './RunnerConfig.js'
+import { loadRunnerConfig, type RunnerConfig, runnerPathOf } from './RunnerConfig.js'
 
 /** Una config mínima en el tmp del sistema: un proyecto inline con `project`. */
 function config(project: string): string {
@@ -111,6 +111,7 @@ describe('capabilities', () => {
       'text-classifier',
       'file-focus',
       'branch-namer',
+      'retrospective',
     ])
   })
 
@@ -154,6 +155,69 @@ describe('capabilities', () => {
     expect(spec.source).toMatchObject({
       capabilities: { whenText: { agent: 'my-classifier' }, assistant: { agent: 'assistant' } },
     })
+  })
+})
+
+describe('retrospective', () => {
+  const pipelinesOf = (spec: ReturnType<RunnerConfig['source']['spec']>) =>
+    [spec.pipelines ?? []].flat() as Array<{ id: string; on: string[]; do: unknown[] }>
+  const agentOf = (spec: ReturnType<RunnerConfig['source']['spec']>) =>
+    ([spec.agents].flat() as Array<{ id?: string; actions?: unknown[] }>).find(
+      (doc) => doc.id === 'retrospective',
+    )
+
+  it('comes on: a global pipeline on a merged PR, its agent proposing to ia-flow', () => {
+    const spec = loadRunnerConfig(config('')).source.spec()
+    expect(pipelinesOf(spec)).toEqual([
+      expect.objectContaining({
+        id: 'retrospective',
+        on: ['pull_request'],
+        when: [
+          { field: 'action', op: 'eq', value: 'closed' },
+          { field: 'pr.merged', op: 'eq', value: true },
+        ],
+        do: [{ agent: 'retrospective' }],
+      }),
+    ])
+    expect(agentOf(spec)?.actions).toEqual([
+      'assistant',
+      { action: 'propose_improvement', options: { engine: 'julianjab/ia-flow' } },
+    ])
+  })
+
+  it('takes the repos of each target and keeps the pipelines of the config', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-retro-'))
+    writeFileSync(
+      join(dir, 'runner.yaml'),
+      [
+        'retrospective:',
+        '  repos: { engine: o/engine, config: o/deploy }',
+        'sources:',
+        '  pipelines:',
+        '    - { id: intake, on: [github.issues], do: [{ action: resolve_task }] }',
+        '',
+      ].join('\n'),
+    )
+    const spec = loadRunnerConfig(dir).source.spec()
+    expect(pipelinesOf(spec).map((pipeline) => pipeline.id)).toEqual(['intake', 'retrospective'])
+    expect(agentOf(spec)?.actions).toContainEqual({
+      action: 'propose_improvement',
+      options: { engine: 'o/engine', config: 'o/deploy' },
+    })
+  })
+
+  it('a deploy turns it off', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-retro-'))
+    writeFileSync(join(dir, 'runner.yaml'), 'retrospective: { enabled: false }\n')
+    const spec = loadRunnerConfig(dir).source.spec()
+    expect(pipelinesOf(spec)).toEqual([])
+    expect(agentOf(spec)).toBeUndefined()
+  })
+
+  it('rejects a repo that is not owner/repo', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ia-flow-runner-retro-'))
+    writeFileSync(join(dir, 'runner.yaml'), 'retrospective: { repos: { config: deploy } }\n')
+    expect(() => loadRunnerConfig(dir)).toThrow(/owner\/repo/)
   })
 })
 

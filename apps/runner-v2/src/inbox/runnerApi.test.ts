@@ -15,12 +15,14 @@ import assistantActions from '../actions/builtin/assistant.js'
 import type { ActionContext } from '../actions/defineAction.js'
 import { Assistant } from '../assistant/Assistant.js'
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
+import type { NewImprovement } from '../assistant/ImprovementStore.js'
 import { createBoards } from '../board/createBoards.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 import { type DeviceFlow, RefreshRejectedError } from '../github/deviceFlow.js'
 import { createWebhookServer } from '../http/server.js'
 import { SseHub } from '../http/sse.js'
 import { SqliteConversationStore } from '../storage/SqliteConversationStore.js'
+import { SqliteImprovementStore } from '../storage/SqliteImprovementStore.js'
 import type { ActivityPort } from './ActivityPort.js'
 import type { BoardCard } from './classify.js'
 import { InboxSection } from './InboxSection.js'
@@ -92,6 +94,18 @@ function fakeGithub(push = true, mergeableState = 'clean') {
   return { calls, fetchImpl }
 }
 
+/** Una mejora como la deja la retrospectiva. */
+const improvement = (over: Partial<NewImprovement> = {}): NewImprovement => ({
+  task_ref: 'o/r#1',
+  agent: 'retrospective',
+  target: 'engine',
+  repo: 'julianjab/ia-flow',
+  title: 'Cortar el loop del reviewer',
+  body: '## Problema\nSe re-dispara.',
+  reason: 'falló tres veces igual',
+  ...over,
+})
+
 const tool = (ctx: Parameters<Provider['run']>[0], name: string) => {
   const found = ctx.tools.find((candidate) => candidate.name === name)
   if (!found) throw new Error(`el agente no tiene la tool ${name}`)
@@ -134,13 +148,18 @@ const improverProvider: Provider = {
 
 /** La capacidad `assistant` como en el runner: el agente con las actions de
  *  `src/actions/builtin/assistant.ts`, leyendo de la bandeja por el desk. */
-function assistantFor(inbox: InboxService, conversations: SqliteConversationStore): Assistant {
+function assistantFor(
+  inbox: InboxService,
+  conversations: SqliteConversationStore,
+  improvements: SqliteImprovementStore,
+): Assistant {
   const desk = new AssistantDesk()
   desk.connect({
     inbox,
     activity,
     config: () => ({ projects: [], pipelines: [], agents: [], providers: [], mcp: [] }),
     status: () => ({}),
+    improvements,
   })
   const [definition, proposeIssue] = [assistantActions].flat()
   if (!definition || !proposeIssue) throw new Error('faltan las actions del asistente')
@@ -193,6 +212,7 @@ async function start(
   const github = fakeGithub(push, mergeableState)
   const hub = new SseHub<RunnerStreamEvent>()
   const conversations = new SqliteConversationStore(new Database(':memory:'))
+  const improvements = new SqliteImprovementStore(new Database(':memory:'))
   const inbox = new InboxService({
     projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
     board: { cards: async () => cards },
@@ -224,8 +244,9 @@ async function start(
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),
-    assistant: assistantFor(inbox, conversations),
+    assistant: assistantFor(inbox, conversations, improvements),
     conversations,
+    improvements,
     ...(deviceFlow ? { deviceFlow } : {}),
     ingress: new IngressService({
       log: { ingressEvents: () => [], ingressCount: () => ({ count: 0 }) },
@@ -255,7 +276,7 @@ async function start(
   const base = `http://localhost:${(server.address() as AddressInfo).port}`
   const call = (path: string, init: RequestInit & { headers?: Record<string, string> } = {}) =>
     fetch(`${base}${path}`, { ...init, headers: { 'x-ia-flow-token': TOKEN, ...init.headers } })
-  return { base, call, github, hub }
+  return { base, call, github, hub, improvements }
 }
 
 describe('runner API', () => {
@@ -453,6 +474,76 @@ describe('runner API', () => {
     expect(await refused.json()).toMatchObject({
       ok: false,
       message: expect.stringContaining('otra/cosa'),
+    })
+  })
+
+  it('lists the improvements an agent proposed, open by default', async () => {
+    const { call, improvements } = await start()
+    const open = improvements.add(improvement())
+    const dismissed = improvements.add(improvement({ title: 'Otra' }))
+    improvements.decide(dismissed.id, { status: 'dismissed', by: 'julian' })
+
+    const list = async (query = '') => await (await call(`/api/improvements${query}`)).json()
+    expect((await list()).items.map((p: { id: string }) => p.id)).toEqual([open.id])
+    expect((await list('?status=dismissed')).items.map((p: { id: string }) => p.id)).toEqual([
+      dismissed.id,
+    ])
+    expect((await list('?status=all')).items).toHaveLength(2)
+    expect((await call('/api/improvements?status=nope')).status).toBe(400)
+  })
+
+  it('opens an improvement as an issue with the GitHub login of whoever confirms it, once', async () => {
+    const { call, github, improvements } = await start()
+    const proposal = improvements.add(improvement({ labels: ['runner'] }))
+    const decide = (decision: string, headers: Record<string, string> = {}, id = proposal.id) =>
+      call(`/api/improvements/${id}/${decision}`, { method: 'POST', headers })
+
+    expect((await decide('open')).status).toBe(401)
+    expect((await decide('open', { 'x-github-token': 'gho_x' }, 'no-existe')).status).toBe(404)
+    expect((await decide('merge', { 'x-github-token': 'gho_x' })).status).toBe(404)
+
+    const opened = await decide('open', { 'x-github-token': 'gho_x' })
+    expect(await opened.json()).toMatchObject({
+      ok: true,
+      message: 'julianjab/ia-flow#77 abierto',
+      proposal: {
+        status: 'opened',
+        decided_by: 'julian',
+        issue_url: 'https://github.com/julianjab/ia-flow/issues/77',
+      },
+    })
+    expect(github.calls.find((request) => request.method === 'POST')).toEqual({
+      method: 'POST',
+      url: 'https://api.github.com/repos/julianjab/ia-flow/issues',
+      body: { title: proposal.title, body: proposal.body, labels: ['runner'] },
+    })
+
+    const again = await decide('dismiss', { 'x-github-token': 'gho_x' })
+    expect(again.status).toBe(409)
+    expect(await again.json()).toMatchObject({ ok: false })
+  })
+
+  it('a dismissed improvement is signed, and one GitHub refuses stays open', async () => {
+    const { call, improvements } = await start()
+    const refused = improvements.add(improvement({ repo: 'otra/cosa', title: 'En otro repo' }))
+    const dismissed = improvements.add(improvement())
+    const decide = (id: string, decision: string) =>
+      call(`/api/improvements/${id}/${decision}`, {
+        method: 'POST',
+        headers: { 'x-github-token': 'gho_x' },
+      })
+
+    const rejected = await decide(refused.id, 'open')
+    expect(rejected.status).toBe(403)
+    expect(await rejected.json()).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('otra/cosa'),
+    })
+    expect(improvements.get(refused.id)?.status).toBe('open')
+
+    expect(await (await decide(dismissed.id, 'dismiss')).json()).toMatchObject({
+      ok: true,
+      proposal: { status: 'dismissed', decided_by: 'julian' },
     })
   })
 
