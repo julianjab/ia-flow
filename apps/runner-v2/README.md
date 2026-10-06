@@ -219,7 +219,7 @@ bun run src/main.ts --replay-pr la-haus/subscriptions#45           # un PR real,
 bun run src/main.ts --issue la-haus/subscriptions#1625 --status Review    # su card "llegó" a Review
 bun run src/main.ts --issue la-haus/subscriptions#1625 --label e2e-test   # "le pusieron" el label
 IA_FLOW_WEBHOOK_SECRET=... bun run serve         # servidor de webhooks
-bun run host:serve                               # le presta su CLI `claude` a un runner (se suscribe),
+bun run host:serve                               # corre agentes para un runner con su provider (se suscribe),
                                                  # con su propio .env.host (ver .env.host.example)
 bun test
 bun run typecheck
@@ -404,25 +404,31 @@ taskActions:
 
 ## Providers en otra máquina (`--host` y `remote:*`)
 
-Un runner puede correr un agente en OTRA máquina —una con el CLI `claude` logueado, más RAM, otra
-red— como si fuera un CLI local, pero contra una API: el host se suscribe al runner y pide tareas;
-el runner le entrega cada corrida y la espera. Es el `agent-host` de v1 sobre el engine nuevo, en
+Un runner puede correr un agente en OTRA máquina —una con el stack de los repos, más RAM, otra
+red—: el host se suscribe al runner y pide tareas; el runner le entrega cada corrida y espera su
+resultado. Es el `agent-host` de v1 sobre el engine nuevo, en
 [`@ia-flow/provider-remote`](../../packages/providers/remote) (ahí, el detalle).
 
 **El host** es este mismo runner con `--host` (`bun run host:serve`, con su `.env.host`) y su propia
 `.config`. No despacha nada: monta su identidad de GitHub (para clonar), su workspace
-(`WORKSPACE_DIR`) y el CLI que presta — ni engine, ni fuentes, ni base de ejecuciones, ni servidor.
+(`WORKSPACE_DIR`) y **su provider** — ni engine, ni fuentes, ni base de ejecuciones, ni servidor.
 Todas las conexiones salen de él: no necesita URL pública.
+
+**Corre cada tarea con su provider, como el runner corre el suyo:** `host.provider` es un id de los
+`providers:` de SU runner.yaml (`anthropic-api`, o una entrada `type: claude-cli`), armado con el
+mismo código que el runner, y cada tarea es un `provider.run(ctx)` sobre el worktree de esta
+máquina. El runner no sabe ni le importa con qué corre.
 
 ```yaml
 # runner.yaml de la máquina que presta
 github: { … }                              # para clonar
 providers:
   claude-tmux: { type: claude-cli, mode: tmux, timeoutMinutes: 120 }
+  anthropic-api: { model: claude-sonnet-5 }   # o con la Messages API
 host:
   name: julian-laptop                      # → remote:julian-laptop (env: IA_FLOW_HOST_NAME)
   runner: https://ia-flow.example.com      # la base del runner (env: IA_FLOW_HOST_RUNNER_URL)
-  provider: claude-tmux                    # default: la única entrada claude-cli
+  provider: claude-tmux                    # con cuál corre; default: la única entrada claude-cli
   maxConcurrent: 1
   accepts:                                 # qué toma: como el `when` de las pipelines
     - { field: repo, op: in, value: [ subscriptions, eks ] }
@@ -440,27 +446,36 @@ providers:
   - id: claude-tmux         # el respaldo si no hay ninguno (sin respaldo, espera a que llegue uno)
 ```
 
-El canal de la corrida es el mismo que el del CLI local, montado en la API del runner: las tools del
-agente (su MCP), los hooks (la traza de las tools nativas, el inbox, no terminar sin cerrar el turno)
-y el cierre cuando el modelo llama `submit_*`. El uso de cada request al modelo sale de la
-transcripción de la sesión, que `claude` escribe en el disco del host: el host la sigue y la manda
-por `POST /v1/runs/<token>/transcript`, y el runner la registra como spans `chat <model>` (los
-tokens del dashboard). El host sólo lanza `claude` en SU worktree apuntando
-ahí, y lo corta cuando el runner cierra la corrida. Un solo checkout, el del host: las tools de
-workspace del agente no le llegan, y el `git push` sale con las credenciales de esa máquina.
-Un miembro de un grupo `parallel` lleva su carril en la tarea (`lane`), así que en el host también
-trabaja en su propio worktree (`<worktree>--<carril>`).
+**Qué corre dónde.** La tarea es el `ProviderRunContext` del agente en JSON: prompt, system
+prompts, variables, `providerConfig`, los MCP externos (con su credencial resuelta), la conversación
+a retomar y el evento (de él sale el worktree). Las tools se parten en dos:
+
+- **Las del engine** (`submit_*`, `post_comment`, GitHub…) se quedan en el runner: el provider del
+  host las llama por `POST /v1/runs/<token>/tools`, y cada una es un span del agente acá.
+- **Las de workspace** (`fs_*`, `bash_run`, `workspace_reset`) viajan con su origen (la acción y sus
+  `options` del YAML) y el host las rearma sobre SU worktree — si su provider las usa (la Messages
+  API). El CLI trae las suyas (`Bash`, `Read`, `Edit`) y no las recibe. `run_agent` no corre en un
+  host.
+
+La bandeja (`/inbox`), la conversación en curso (`/conversation`, para retomarla si algo se corta) y
+el texto en vivo (`/text`) van por la corrida; el resultado del provider vuelve tal cual por
+`/result`. Lo de adentro del provider —la sesión del CLI, sus hooks, su transcripción, el loop de la
+API— pasa todo en el host y se ve en la traza por su telemetría (abajo). Un solo checkout, el del
+host: el `git push` sale con las credenciales de esa máquina. Un miembro de un grupo `parallel`
+lleva su carril en la tarea (`lane`), así que en el host también trabaja en su propio worktree
+(`<worktree>--<carril>`). Si el runner da la corrida por terminada (venció, se perdió), se la saca
+al host en el poll y el provider se corta (`ProviderRunContext.signal`).
 
 **El worktree de una corrida en el host vive lo que vive la corrida.** El contrato con el agente: si
 termina bien, deja todo en el remoto (commiteado y pusheado); el siguiente agente arranca de ahí,
-en éste u otro host. Al cerrar la corrida, el runner le dice al host cómo cerró el modelo
-(`PollResponse.endings`), y el host (`HostWorktrees`):
+en éste u otro host. El host sabe cómo cerró el modelo (la tool terminal que llamó pasa por él), y
+con eso (`HostWorktrees`):
 
 | Cerró con | El worktree |
 | --- | --- |
 | una salida (`submit_*`) | se borra. Si dejó algo sin commitear o sin pushear, queda en disco y se loguea como **error**: el agente no cumplió el contrato |
 | `wait_for_event` | queda: la conversación sigue en ese mismo directorio |
-| `fail_turn`, `yield_turn`, o la sesión terminó sola | se borra si está limpio; con trabajo sin pushear queda para la próxima corrida |
+| `fail_turn`, `yield_turn`, la corrida terminó sin cerrar el turno o el runner la cortó | se borra si está limpio; con trabajo sin pushear queda para la próxima corrida |
 
 Nunca borra uno que otra corrida está usando, y `git worktree remove` va sin `--force`. La branch
 local queda.
@@ -481,8 +496,9 @@ borra solo: queda en el log para rescatarlo.
 sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de
 hosts); el runner los anota en su base (la bandeja los muestra con el nombre del host) y los
 reexporta a su collector con sus `OTEL_EXPORTER_OTLP_HEADERS`. Cada tarea lleva el contexto de traza
-del agente, así que el worktree, la sesión y los logs del host quedan en la misma traza y la misma
-ejecución (`host.run <agente>`). Al host sólo le hace falta `logLevel`. Si no llega al runner,
+del agente, así que el worktree, lo que hace el provider (las requests al modelo, las tools
+nativas del CLI, los hooks) y los logs del host quedan en la misma traza y la misma ejecución
+(`host.run <agente>`). Al host sólo le hace falta `logLevel`. Si no llega al runner,
 queda su consola; con `OTEL_EXPORTER_OTLP_ENDPOINT` propio, exporta directo a ese collector.
 
 Un `--event` (y `--replay-pr`, `--issue`) también monta la API de hosts (con `IA_FLOW_HOST_TOKEN`),
