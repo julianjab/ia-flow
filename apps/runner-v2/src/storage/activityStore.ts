@@ -1,7 +1,7 @@
 /**
  * Lo que pasó en el runner, en SQLite: cada evento con lo que decidió cada pipeline (`event_log`),
- * cada span y log de cada ejecución (`execution_trace`) y las conversaciones guardadas del asistente
- * (`assistant_conversation`). Es la memoria del asistente y de la
+ * cada span y log de cada ejecución (`execution_trace`), las conversaciones guardadas del asistente
+ * (`assistant_conversation`) y las mejoras que propuso un agente (`improvement_proposal`). Es la memoria del asistente y de la
  * bandeja; OTLP (si hay endpoint) es la otra copia, para mirar a fondo en Grafana o Datadog.
  *
  * Usa el MISMO archivo que las ejecuciones (`engine.executions.path`) por una segunda conexión — en
@@ -21,10 +21,12 @@ import {
 import type { TraceRecord } from '@ia-flow/telemetry'
 import { trace } from '@opentelemetry/api'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
+import type { ImprovementStore } from '../assistant/ImprovementStore.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { summarizeEvent } from '../inbox/eventSummary.js'
 import { SqliteActivity } from '../inbox/SqliteActivity.js'
 import { SqliteConversationStore } from './SqliteConversationStore.js'
+import { SqliteImprovementStore } from './SqliteImprovementStore.js'
 
 const DAY_MS = 86_400_000
 
@@ -32,6 +34,8 @@ export interface ActivityStore {
   activity: SqliteActivity
   /** Las conversaciones del asistente, por login de GitHub. */
   conversations: ConversationStore
+  /** Las mejoras que propuso un agente, esperando a una persona. */
+  improvements: ImprovementStore
   /** El journal del engine: anota y avisa. */
   dispatchJournal: DispatchJournal
   /** Anota un span o log de una ejecución, y avisa. */
@@ -41,7 +45,8 @@ export interface ActivityStore {
   /** Cada evento anotado y cada registro de traza, en el momento. */
   onDispatch(listener: (entry: DispatchRecord) => void): () => void
   onTrace(listener: (record: TraceRecord) => void): () => void
-  /** Borra lo que tiene más de `retentionDays` (las conversaciones, `conversationRetentionDays`). */
+  /** Borra lo que tiene más de `retentionDays` (las conversaciones, `conversationRetentionDays`;
+   *  de las mejoras, sólo las ya decididas). */
   prune(): void
   close(): void
 }
@@ -82,10 +87,12 @@ export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): 
   })
 
   const conversations = new SqliteConversationStore(database)
+  const improvements = new SqliteImprovementStore(database)
 
   return {
     activity: new SqliteActivity(new SqliteActivityReader(database)),
     conversations,
+    improvements,
     dispatchJournal: {
       record: (entry) => {
         events.record(entry)
@@ -105,6 +112,7 @@ export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): 
     prune: () => {
       const cutoff = new Date(Date.now() - cfg.inbox.retentionDays * DAY_MS).toISOString()
       new SqliteActivityReader(database).prune(cutoff)
+      improvements.prune(cutoff)
       conversations.prune(
         new Date(Date.now() - cfg.inbox.conversationRetentionDays * DAY_MS).toISOString(),
       )

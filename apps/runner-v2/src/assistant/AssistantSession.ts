@@ -3,16 +3,23 @@
  * un proyecto, sus tareas; en el general, todo el runner. Es lo que las actions del agente
  * (`actions/builtin/assistant.ts`) llaman: el contexto lo impone el runner, no el modelo. Lee
  * —bandeja, tarea, eventos, traza, config— y PROPONE acciones: ejecutarlas es de la persona.
+ *
+ * Con `origin`, la sesión es la de un agente que corre en la pipeline de una tarea (la
+ * retrospectiva, al mergear su PR): nadie mira, así que un issue propuesto queda en la bandeja
+ * (`ImprovementStore`) en vez de mostrarse, y la tarea se lee aunque ya no esté en el board (su
+ * issue se cierra con el merge).
  */
 import type {
   AssistantScope,
   AssistantStreamEvent,
   ConfigSummary,
+  ImprovementTarget,
   InboxItem,
   TaskAction,
 } from '@ia-flow/shared'
 import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { InboxService } from '../inbox/InboxService.js'
+import type { ImprovementStore } from './ImprovementStore.js'
 import {
   DEFAULT_TRACE_FIELDS,
   projectTraceEntry,
@@ -23,10 +30,20 @@ import {
 /** Lo que el asistente lee del runner. */
 export interface AssistantBackend {
   inbox: Pick<InboxService, 'inbox' | 'item' | 'detail' | 'explain'>
-  activity: Pick<ActivityPort, 'executions' | 'recentEvents' | 'trace'>
+  activity: Pick<ActivityPort, 'executions' | 'recentEvents' | 'trace' | 'eventsForTask'>
   config: () => ConfigSummary
   /** El estado del runner: providers, ejecuciones, webhooks. */
   status: () => Record<string, unknown>
+  /** Donde esperan las mejoras que propone un agente de una pipeline. */
+  improvements: Pick<ImprovementStore, 'add' | 'findOpen' | 'list'>
+}
+
+/** De dónde viene una sesión que no es un pedido de la web: el agente de una pipeline. */
+export interface SessionOrigin {
+  agent: string
+  execution_id?: string
+  /** El PR que la disparó. */
+  pr_url?: string
 }
 
 /** Las acciones que trae el runner; un proyecto suma las suyas (`taskActions`) en `item.action_defs`. */
@@ -55,6 +72,10 @@ export function asToolResult(value: unknown, options: { capped?: boolean } = {})
 /** Cuántas entradas del final de la traza trae `get_task`: un vistazo, sin payloads. */
 const TASK_TRACE_TAIL = 40
 
+/** Lo que trae `get_task` de una tarea que ya no está en el board. */
+const CLOSED_EXECUTIONS = 20
+const CLOSED_EVENTS = 50
+
 /** Un item sin lo que el modelo no necesita para razonar. */
 function brief(item: InboxItem) {
   return {
@@ -79,6 +100,7 @@ export class AssistantSession {
     readonly scope: AssistantScope,
     private readonly backend: AssistantBackend,
     private readonly emit: (event: AssistantStreamEvent) => void,
+    readonly origin?: SessionOrigin,
   ) {}
 
   private get projectId(): string | undefined {
@@ -123,11 +145,24 @@ export class AssistantSession {
     return (await this.backend.inbox.inbox(this.projectId)).items.map(brief)
   }
 
+  /**
+   * La ref de una tarea del contexto. En la sesión de una pipeline la tarea la fijó el runner y
+   * puede no estar ya en el board (se cerró con el merge): basta con que sea la del contexto.
+   */
+  private async taskRef(ref: unknown): Promise<string> {
+    if (!this.origin) return (await this.task(ref)).ref
+    const wanted = String(ref ?? '').trim()
+    if (this.scope.kind === 'task' && wanted !== this.scope.ref) {
+      throw new Error(`Fuera de contexto: esta corrida es sobre ${this.scope.ref}`)
+    }
+    return wanted
+  }
+
   async taskDetail(ref: unknown) {
-    const item = await this.task(ref)
-    this.activity('get_task', `leyendo ${item.ref}`)
-    const detail = await this.backend.inbox.detail(item.ref)
-    if (!detail) throw new Error(`${item.ref} ya no está en la bandeja`)
+    const taskRef = await this.taskRef(ref)
+    this.activity('get_task', `leyendo ${taskRef}`)
+    const detail = (await this.backend.inbox.detail(taskRef)) ?? this.closedDetail(taskRef)
+    if (!detail) throw new Error(`${taskRef} ya no está en la bandeja`)
     // La cola de la traza, sin payloads: el detalle (y el resto) se pide con assistant_get_trace.
     const from = Math.max(detail.trace.length - TASK_TRACE_TAIL, 0)
     return {
@@ -140,22 +175,35 @@ export class AssistantSession {
     }
   }
 
+  /** Lo que se sabe de una tarea fuera del board —sólo en la sesión de una pipeline—: sus
+   *  ejecuciones, sus eventos y la traza de la última, sin la card. */
+  private closedDetail(ref: string) {
+    if (!this.origin) return undefined
+    const { activity } = this.backend
+    const executions = activity.executions({ taskRef: ref, limit: CLOSED_EXECUTIONS })
+    const last = executions.at(0)?.id
+    return {
+      item: { ref, note: 'La tarea ya no está en el board (su issue se cerró).' },
+      executions,
+      events: activity.eventsForTask(ref, CLOSED_EVENTS),
+      trace: last ? activity.trace(last) : [],
+    }
+  }
+
   async explain(ref: unknown, eventType?: string) {
-    const item = await this.task(ref)
-    this.activity('explain_trigger', `evaluando reglas para ${item.ref}`)
+    const taskRef = await this.taskRef(ref)
+    this.activity('explain_trigger', `evaluando reglas para ${taskRef}`)
     return (
-      (await this.backend.inbox.explain(item.ref, eventType)) ??
-      `${item.ref} no tiene eventos registrados todavía`
+      (await this.backend.inbox.explain(taskRef, eventType)) ??
+      `${taskRef} no tiene eventos registrados todavía`
     )
   }
 
   async trace(ref: unknown, executionId: unknown, query: TracePageQuery = {}) {
-    const item = await this.task(ref)
+    const taskRef = await this.taskRef(ref)
     const id = String(executionId ?? '')
-    const owns = this.backend.activity
-      .executions({ taskRef: item.ref })
-      .some((row) => row.id === id)
-    if (!owns) throw new Error(`La ejecución ${id} no es de ${item.ref}`)
+    const owns = this.backend.activity.executions({ taskRef }).some((row) => row.id === id)
+    if (!owns) throw new Error(`La ejecución ${id} no es de ${taskRef}`)
     this.activity('get_trace', `leyendo la traza de ${id}`)
     return traceWindow(id, this.backend.activity.trace(id), query)
   }
@@ -188,13 +236,15 @@ export class AssistantSession {
   }
 
   /** Muestra la propuesta de abrir un issue en `repo` para que la persona la confirme con su
-   *  login de GitHub. No crea nada. */
+   *  login de GitHub —o, en la sesión de una pipeline, la deja en la bandeja—. No crea nada. */
   proposeIssue(input: {
     repo?: unknown
     title?: unknown
     body?: unknown
     labels?: unknown
     reason?: unknown
+    /** Dónde se arregla (lo dice `propose_improvement`); sin esto, el runner (`engine`). */
+    target?: ImprovementTarget
   }) {
     const repo = String(input.repo ?? '').trim()
     if (!REPO_RE.test(repo)) throw new Error(`El repo tiene que ser owner/repo, no "${repo}"`)
@@ -204,6 +254,8 @@ export class AssistantSession {
     const labels = Array.isArray(input.labels)
       ? input.labels.map((label) => String(label).trim()).filter(Boolean)
       : []
+    const reason = String(input.reason ?? '')
+    if (this.origin) return this.storeIssue({ repo, title, body, labels, reason }, input.target)
     this.emit({
       type: 'proposal',
       proposal: {
@@ -220,8 +272,50 @@ export class AssistantSession {
     return 'Propuesta mostrada. El issue NO está creado: la persona decide.'
   }
 
+  /** La propuesta de una pipeline, a la bandeja: una igual pendiente en el mismo repo no se repite. */
+  private storeIssue(
+    issue: { repo: string; title: string; body: string; labels: string[]; reason: string },
+    target: ImprovementTarget = 'engine',
+  ) {
+    const origin = this.origin as SessionOrigin
+    if (this.scope.kind !== 'task') {
+      throw new Error('Una propuesta fuera de una conversación tiene que ser de una tarea')
+    }
+    const pending = this.backend.improvements.findOpen(issue.repo, issue.title)
+    if (pending) {
+      return `Ya hay una propuesta igual pendiente en la bandeja (${pending.id}, de ${pending.task_ref}): no la repito.`
+    }
+    const { labels, ...rest } = issue
+    const stored = this.backend.improvements.add({
+      task_ref: this.scope.ref,
+      ...(origin.pr_url ? { pr_url: origin.pr_url } : {}),
+      agent: origin.agent,
+      ...(origin.execution_id ? { execution_id: origin.execution_id } : {}),
+      target,
+      ...rest,
+      ...(labels.length ? { labels } : {}),
+    })
+    return `Propuesta ${stored.id} guardada en la bandeja. El issue NO está creado: una persona decide.`
+  }
+
+  /** Las mejoras pendientes en la bandeja (de cualquier tarea), para no proponer otra igual. */
+  pendingImprovements() {
+    this.activity('list_improvements', 'leyendo las mejoras pendientes')
+    return this.backend.improvements.list('open').map((proposal) => ({
+      id: proposal.id,
+      task_ref: proposal.task_ref,
+      target: proposal.target,
+      repo: proposal.repo,
+      title: proposal.title,
+      created_at: proposal.created_at,
+    }))
+  }
+
   /** Muestra una propuesta para que la persona la confirme. No ejecuta nada. */
   async propose(input: { ref?: unknown; action?: unknown; reason?: unknown; comment?: unknown }) {
+    if (this.origin) {
+      throw new Error('Fuera de una conversación no se proponen acciones sobre una tarea')
+    }
     const item = await this.task(input.ref)
     const action: TaskAction = String(input.action)
     // Sólo las que la tarea ofrece ahora: las del runner o las que declaró su proyecto.
