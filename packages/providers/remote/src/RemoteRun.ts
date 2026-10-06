@@ -12,7 +12,7 @@ export interface RemoteRunOptions {
   tools: Tool[]
   /** El span del agente: de él cuelgan los de cada tool. */
   parent: Context
-  inbox?: () => string[]
+  inbox?: () => string[] | Promise<string[]>
   saveConversation?: (conversation: unknown) => void
   onText?: (delta: string) => void
 }
@@ -68,9 +68,9 @@ export class RemoteRun {
     }
   }
 
-  /** Lo que llegó a la ejecución desde la última vez. */
-  inbox(): string[] {
-    return this.options.inbox?.() ?? []
+  /** Lo que llegó a la ejecución desde la última vez (y lo da por leído). */
+  async inbox(): Promise<string[]> {
+    return (await this.options.inbox?.()) ?? []
   }
 
   saveConversation(conversation: unknown): void {

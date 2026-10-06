@@ -165,8 +165,6 @@ export function providerTaskRunner(opts: {
    *  worktree queda en disco. */
   worktrees?: Pick<HostWorktrees, 'begin' | 'end'>
   fetchImpl?: typeof fetch
-  /** Cada cuánto trae la bandeja (tests). */
-  inboxEveryMs?: number
 }): TaskRunner {
   return async (task, runner, signal): Promise<RunResult> => {
     const ctx = contextOf(task)
@@ -176,7 +174,6 @@ export function providerTaskRunner(opts: {
       task,
       base: runner.base,
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-      ...(opts.inboxEveryMs ? { inboxEveryMs: opts.inboxEveryMs } : {}),
     })
     link.start()
     try {

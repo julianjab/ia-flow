@@ -347,7 +347,7 @@ export class RemoteHub {
         return json(200, await run.call(name, input))
       }
       case 'inbox': {
-        const response: InboxResponse = { messages: run.inbox() }
+        const response: InboxResponse = { messages: await run.inbox() }
         return json(200, response)
       }
       case 'conversation':

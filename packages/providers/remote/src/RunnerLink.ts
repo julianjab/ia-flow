@@ -3,7 +3,6 @@ import { endingOf, type RunEnding } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { type HostTask, InboxResponse, ToolResult } from './protocol.js'
 
-const DEFAULT_INBOX_EVERY_MS = 3_000
 const DEFAULT_TEXT_EVERY_MS = 1_000
 
 export interface RunnerLinkOptions {
@@ -11,8 +10,6 @@ export interface RunnerLinkOptions {
   /** La base del runner, sin `/v1`. */
   base: string
   fetchImpl?: typeof fetch
-  /** Cada cuánto trae la bandeja. Default: 3 s. */
-  inboxEveryMs?: number
   /** Cada cuánto manda el texto acumulado. Default: 1 s. */
   textEveryMs?: number
 }
@@ -22,8 +19,8 @@ export interface RunnerLinkOptions {
  * runner, sobre las rutas de la corrida.
  *
  * - `tools`: las del engine, como proxies de `/tools` (corren allá, con su span).
- * - `inbox`: el provider la lee sin esperar (es síncrona), así que se trae de fondo cada
- *   `inboxEveryMs` y se entrega lo acumulado.
+ * - `inbox`: se le pide al runner recién cuando el provider la va a usar — como en el runner: lo
+ *   que el agente no alcanzó a leer queda sin leer, y el engine lo re-despacha al cerrar.
  * - `saveConversation`: en orden, la última gana.
  * - `onText`: se junta y se manda cada `textEveryMs`.
  * - `ending`: cómo cerró el modelo su turno, si llamó una tool terminal — con eso el host decide
@@ -32,7 +29,6 @@ export interface RunnerLinkOptions {
 export class RunnerLink {
   readonly log = createLogger('provider-remote.host')
   private readonly fetchImpl: typeof fetch
-  private readonly pending: string[] = []
   private deltas: string[] = []
   private endingValue: RunEnding | undefined
   private saving: Promise<void> = Promise.resolve()
@@ -47,9 +43,8 @@ export class RunnerLink {
     return this.endingValue
   }
 
-  /** Arranca lo que corre de fondo (la bandeja, el texto). */
+  /** Arranca lo que corre de fondo (el texto en vivo). */
   start(): void {
-    this.every(this.options.inboxEveryMs ?? DEFAULT_INBOX_EVERY_MS, () => this.pullInbox())
     this.every(this.options.textEveryMs ?? DEFAULT_TEXT_EVERY_MS, () => this.pushText())
   }
 
@@ -77,8 +72,16 @@ export class RunnerLink {
     }))
   }
 
-  inbox(): string[] {
-    return this.pending.splice(0)
+  /** Lo que llegó a la ejecución desde la última vez (y el runner lo da por leído). Si el runner no
+   *  contesta, nada: lo que hubiera sigue allá sin leer, para la próxima o para re-despacharse. */
+  async inbox(): Promise<string[]> {
+    try {
+      const res = await this.post(this.options.task.endpoints.inbox, {})
+      return InboxResponse.parse(await res.json()).messages
+    } catch (error) {
+      this.log.warn(`no pude leer la bandeja: ${(error as Error).message}`)
+      return []
+    }
   }
 
   saveConversation(conversation: unknown): void {
@@ -97,15 +100,6 @@ export class RunnerLink {
   private async callTool(name: string, input: unknown): Promise<ToolResult> {
     const res = await this.post(this.options.task.endpoints.tools, { name, input: input ?? {} })
     return ToolResult.parse(await res.json())
-  }
-
-  private async pullInbox(): Promise<void> {
-    try {
-      const res = await this.post(this.options.task.endpoints.inbox, {})
-      this.pending.push(...InboxResponse.parse(await res.json()).messages)
-    } catch (error) {
-      if (!this.stopped) this.log.warn(`no pude leer la bandeja: ${(error as Error).message}`)
-    }
   }
 
   private async pushText(): Promise<void> {

@@ -39,8 +39,9 @@ export type HookOutput = Record<string, unknown>
 export interface RunChannelOptions {
   agentId: string
   tools: Tool[]
-  /** El inbox de la ejecución: lo que llegó desde la última vez, y lo saca. */
-  inbox?: () => string[]
+  /** El inbox de la ejecución: lo que llegó desde la última vez, y lo saca. Se lee recién cuando
+   *  un hook lo va a entregar (ver `ProviderRunContext.inbox`). */
+  inbox?: () => string[] | Promise<string[]>
   /** El span del agente: de él cuelgan los de cada tool. */
   parent: Context
   /** Cuántas veces insistir en que cierre con `submit_*`. */
@@ -133,7 +134,7 @@ export class RunChannel {
 
   /** Un hook de Claude Code: traza sus tools nativas, entrega el inbox y no lo deja terminar sin
    *  cerrar el turno. */
-  hook(event: string, input: Record<string, unknown>): HookOutput {
+  async hook(event: string, input: Record<string, unknown>): Promise<HookOutput> {
     this.options.onActivity?.()
     this.logHook(event, input)
     this.readTranscript(event, input)
@@ -202,8 +203,8 @@ export class RunChannel {
   }
 
   /** Lo que llegó al inbox, como contexto extra del próximo paso del modelo. */
-  private deliver(hookEventName: string): HookOutput {
-    const messages = this.options.inbox?.() ?? []
+  private async deliver(hookEventName: string): Promise<HookOutput> {
+    const messages = await this.readInbox()
     if (messages.length === 0) return {}
     return {
       hookSpecificOutput: { hookEventName, additionalContext: received(messages) },
@@ -212,14 +213,25 @@ export class RunChannel {
 
   /** El modelo quiere terminar: si no cerró el turno se le insiste (unas veces), y si llegó algo
    *  mientras tanto se lo entrega antes de dejarlo ir. */
-  private onStop(): HookOutput {
-    const messages = this.options.inbox?.() ?? []
+  private async onStop(): Promise<HookOutput> {
+    const messages = await this.readInbox()
     const reasons = messages.length > 0 ? [received(messages)] : []
     if (!this.finishedFlag && this.nudges < this.options.maxStopNudges) {
       this.nudges++
       reasons.push(this.nudge())
     }
     return reasons.length > 0 ? { decision: 'block', reason: reasons.join('\n\n') } : {}
+  }
+
+  /** La bandeja, si hay. Un hook nunca tiene que romper la sesión: si no se pudo leer (el runner de
+   *  un host remoto no contesta), no entrega nada y lo que había queda sin leer para después. */
+  private async readInbox(): Promise<string[]> {
+    try {
+      return (await this.options.inbox?.()) ?? []
+    } catch (error) {
+      this.log.warn(`${this.options.agentId}: no pude leer la bandeja: ${(error as Error).message}`)
+      return []
+    }
   }
 
   private nudge(): string {
