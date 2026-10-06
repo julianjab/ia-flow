@@ -271,6 +271,13 @@ describe('Agent with several provider candidates', () => {
       expect(result.provider).toBe('anthropic-api')
     })
 
+    it('one that never registers (a typo, a host that is gone) fails after the wait limit, saying so', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:', 20)
+      await expect(agent(registry, [{ id: 'remote:e2' }]).run(ctx())).rejects.toThrow(
+        /remote:e2 no se registró/,
+      )
+    })
+
     it('an unknown id outside the dynamic prefixes is still an error', async () => {
       const registry = new ProviderRegistry().expectDynamic('remote:')
       await expect(agent(registry, [{ id: 'claude-typo' }]).run(ctx())).rejects.toThrow(

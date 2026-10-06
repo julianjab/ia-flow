@@ -45,6 +45,11 @@ describe('suscripción', () => {
     expect(registry.isDynamic('claude-cli')).toBe(false)
   })
 
+  it('sin token ningún host se puede suscribir: un remote:<name> no se espera, falla como siempre', () => {
+    const { registry } = makeHub({ token: undefined })
+    expect(registry.isDynamic('remote:e2e')).toBe(false)
+  })
+
   it('sin token configurado, la API de hosts responde 503 (nunca queda abierta)', async () => {
     const { hub } = makeHub({ token: undefined })
     const res = await wire(hub)(`${RUNNER}/v1/hosts/subscribe`, {
