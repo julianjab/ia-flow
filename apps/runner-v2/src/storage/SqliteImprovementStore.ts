@@ -125,12 +125,12 @@ export class SqliteImprovementStore implements ImprovementStore {
     const rows = status
       ? this.database
           .query<Row, [string, number]>(
-            'SELECT * FROM improvement_proposal WHERE status = ? ORDER BY created_at DESC LIMIT ?',
+            'SELECT * FROM improvement_proposal WHERE status = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
           )
           .all(status, limit)
       : this.database
           .query<Row, [number]>(
-            'SELECT * FROM improvement_proposal ORDER BY created_at DESC LIMIT ?',
+            'SELECT * FROM improvement_proposal ORDER BY created_at DESC, rowid DESC LIMIT ?',
           )
           .all(limit)
     return rows.map(proposal)

@@ -200,7 +200,8 @@ const ImprovementRepos = z.object({
 /**
  * Proponer una mejora por DÓNDE se arregla, no por repo: `docs` va al repo de la tarea, `config`
  * y `engine` a los de `options: { config, engine }`. Así el modelo no elige dónde abrir, y un destino
- * que el deploy no declaró se rechaza. Con `list_improvements`, para no repetir lo pendiente.
+ * que el deploy no declaró se rechaza. Con `list_improvements`, para no repetir lo pendiente ni lo
+ * que una persona ya descartó.
  */
 function proposeImprovement(
   desk: AssistantDesk,
@@ -238,11 +239,11 @@ function proposeImprovement(
     ),
     new AssistantTool(
       'list_improvements',
-      'Las mejoras ya propuestas que siguen pendientes en la bandeja (de cualquier tarea): antes de proponer, mirá que no esté.',
+      'Las mejoras ya propuestas (de cualquier tarea): `pending`, las que esperan en la bandeja, y `decided`, las últimas que una persona abrió como issue (`opened`) o descartó (`dismissed`), con quién y cuándo. Antes de proponer, mirá que no esté pendiente ni descartada.',
       z.strictObject({}),
       desk,
       agent,
-      (session) => session.pendingImprovements(),
+      (session) => session.improvementHistory(),
     ),
   ]
 }

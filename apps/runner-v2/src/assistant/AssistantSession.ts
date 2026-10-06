@@ -13,6 +13,7 @@ import type {
   AssistantScope,
   AssistantStreamEvent,
   ConfigSummary,
+  ImprovementProposal,
   ImprovementTarget,
   InboxItem,
   TaskAction,
@@ -75,6 +76,10 @@ const TASK_TRACE_TAIL = 40
 /** Lo que trae `get_task` de una tarea que ya no está en el board. */
 const CLOSED_EXECUTIONS = 20
 const CLOSED_EVENTS = 50
+
+/** Cuántas decididas trae `list_improvements`, de entre las últimas `DECIDED_SCAN` propuestas. */
+const DECIDED_LIMIT = 30
+const DECIDED_SCAN = 200
 
 /** Un item sin lo que el modelo no necesita para razonar. */
 function brief(item: InboxItem) {
@@ -298,17 +303,35 @@ export class AssistantSession {
     return `Propuesta ${stored.id} guardada en la bandeja. El issue NO está creado: una persona decide.`
   }
 
-  /** Las mejoras pendientes en la bandeja (de cualquier tarea), para no proponer otra igual. */
-  pendingImprovements() {
-    this.activity('list_improvements', 'leyendo las mejoras pendientes')
-    return this.backend.improvements.list('open').map((proposal) => ({
+  /** Las mejoras de la bandeja (de cualquier tarea): las pendientes, para no proponer otra igual,
+   *  y las últimas que una persona abrió o descartó, para no insistir con lo rechazado y ver si
+   *  el criterio de quien propone falla. */
+  improvementHistory() {
+    this.activity('list_improvements', 'leyendo las mejoras propuestas')
+    const { improvements } = this.backend
+    const brief = (proposal: ImprovementProposal) => ({
       id: proposal.id,
       task_ref: proposal.task_ref,
       target: proposal.target,
       repo: proposal.repo,
       title: proposal.title,
       created_at: proposal.created_at,
-    }))
+    })
+    return {
+      pending: improvements.list('open').map(brief),
+      decided: improvements
+        .list(undefined, DECIDED_SCAN)
+        .filter((proposal) => proposal.status !== 'open')
+        .slice(0, DECIDED_LIMIT)
+        .map((proposal) => ({
+          ...brief(proposal),
+          status: proposal.status,
+          reason: proposal.reason,
+          ...(proposal.issue_url ? { issue_url: proposal.issue_url } : {}),
+          ...(proposal.decided_by ? { decided_by: proposal.decided_by } : {}),
+          ...(proposal.decided_at ? { decided_at: proposal.decided_at } : {}),
+        })),
+    }
   }
 
   /** Muestra una propuesta para que la persona la confirme. No ejecuta nada. */
