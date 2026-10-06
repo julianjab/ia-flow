@@ -12,7 +12,9 @@ provider: anthropic-api
 providerConfig:
   model: claude-sonnet-5-5
   maxTokens: 8000
-  maxToolRounds: 24
+  # Una task con varias fallas pide ~20 vueltas leyendo una tool a la vez (trazas, PR, docs,
+  # búsquedas, propuestas); el tope es un techo, una task limpia usa 5.
+  maxToolRounds: 40
 
 actions:
   - assistant
@@ -57,6 +59,9 @@ systemPrompts:
         vez de leerla toda). Para por qué algo corrió o no, `assistant_explain_trigger`; para la
         config del agente o la pipeline, `assistant_get_config`. Con el MCP de GitHub leé el PR,
         sus reviews y comentarios, y la documentación del repo antes de proponerle un cambio.
+      - Pedí juntas, en la misma respuesta, las lecturas que no dependen una de otra: las trazas
+        de varias ejecuciones, `list_improvements` con `search_issues`, el PR con la
+        documentación. Cada respuesta con tools es una vuelta, y las vueltas tienen tope.
       - Buscá la causa, no el síntoma: citá la ejecución, la entrada de la traza, el comentario o la
         línea de config que lo explican. Si con lo que ves no alcanza para saber la causa, no
         propongas a ciegas.
