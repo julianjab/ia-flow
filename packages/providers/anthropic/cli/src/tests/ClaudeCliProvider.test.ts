@@ -223,6 +223,49 @@ describe('ClaudeCliProvider', () => {
     })
   })
 
+  describe('disallowedTools', () => {
+    const closing = () =>
+      new FakeCli(async (url) => {
+        await rpc(url, 'tools/call', { name: 'submit_done', arguments: {} })
+        return undefined
+      })
+    const launchedWith = async (
+      providerExtra: Record<string, unknown>,
+      providerConfig: Record<string, unknown> = {},
+    ) => {
+      const cli = closing()
+      await provider(cli, providerExtra).run(runContext({ providerConfig }))
+      return cli.launched[0]?.argv ?? []
+    }
+
+    it('print hides the background tools, which nobody wakes the model up from', async () => {
+      const argv = await launchedWith({ mode: 'print' })
+      expect(flag(argv, '--disallowedTools')).toBe(
+        'Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList',
+      )
+    })
+
+    it('tmux keeps every tool: the session stays alive to be woken up', async () => {
+      const argv = await launchedWith({ mode: 'tmux' })
+      expect(argv).not.toContain('--disallowedTools')
+    })
+
+    it('the provider config replaces the mode default, and the agent replaces the provider', async () => {
+      expect(
+        flag(await launchedWith({ disallowedTools: ['WebSearch'] }), '--disallowedTools'),
+      ).toBe('WebSearch')
+      expect(
+        flag(
+          await launchedWith({ disallowedTools: ['WebSearch'] }, { disallowedTools: ['Task'] }),
+          '--disallowedTools',
+        ),
+      ).toBe('Task')
+      expect(await launchedWith({ mode: 'print' }, { disallowedTools: [] })).not.toContain(
+        '--disallowedTools',
+      )
+    })
+  })
+
   it('rejects a providerConfig with keys of another provider', async () => {
     const cli = new FakeCli(async () => undefined)
     await expect(
