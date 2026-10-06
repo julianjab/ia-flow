@@ -213,4 +213,69 @@ describe('Agent with several provider candidates', () => {
       expect(registry.list().map((p) => p.id)).toEqual(['remote:here'])
     })
   })
+
+  describe('a named dynamic provider (remote:e2e)', () => {
+    it('alone and not registered yet, waits until its host registers', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:')
+      let chosen: string | undefined
+      void agent(registry, [{ id: 'remote:e2e' }])
+        .run(ctx())
+        .then((result) => {
+          chosen = result.provider
+        })
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:other').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:e2e').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBe('remote:e2e')
+    })
+
+    it('a resumed conversation waits for its host instead of failing', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:')
+      let chosen: string | undefined
+      void agent(registry, [{ id: 'remote:e2e' }])
+        .run({
+          ...ctx(),
+          resume: {
+            step: 'implementer',
+            branch: 'event',
+            event: createEvent('ci', {}),
+            state: { provider: 'remote:e2e', conversation: { sessionId: 's' } },
+          },
+        })
+        .then((result) => {
+          chosen = result.provider
+        })
+      await tick()
+      expect(chosen).toBeUndefined()
+
+      registry.register(provider('remote:e2e').provider)
+      await tick()
+      await tick()
+      expect(chosen).toBe('remote:e2e')
+    })
+
+    it('not registered, falls to the next candidate', async () => {
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry().expectDynamic('remote:').register(api.provider)
+      const result = await agent(registry, [{ id: 'remote:e2e' }, { id: 'anthropic-api' }]).run(
+        ctx(),
+      )
+      expect(result.provider).toBe('anthropic-api')
+    })
+
+    it('an unknown id outside the dynamic prefixes is still an error', async () => {
+      const registry = new ProviderRegistry().expectDynamic('remote:')
+      await expect(agent(registry, [{ id: 'claude-typo' }]).run(ctx())).rejects.toThrow(
+        /provider desconocido "claude-typo"/,
+      )
+    })
+  })
 })
