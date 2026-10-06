@@ -8,6 +8,11 @@
  *     último bloque — el 400 de subscriptions#1637 ("The final block in an assistant message cannot
  *     be `thinking`"). El result no miente: el modelo ve que esa llamada quedó sin respuesta y
  *     decide si la repite.
+ *     Si el turno además llama tools locales (`tool_use`), el par va ANTES del primer `tool_use`:
+ *     la API exige que cada `tool_use` sea lo último del turno, con su `tool_result` en el mensaje
+ *     siguiente, y un `mcp_tool_use` que el modelo emitió después (la API corta en el `tool_use` y
+ *     nunca lo corre) lo dejaba en el medio — el 400 "tool_use ids were found without tool_result
+ *     blocks immediately after" de subscriptions#1763.
  *   - Un turno del asistente nunca termina en `thinking`: se recortan los bloques de thinking del
  *     final (un `end_turn` que sólo pensó, una pausa justo después de pensar).
  *   - La conversación siempre termina en un turno del usuario: con thinking, un asistente al final
@@ -32,7 +37,21 @@ function isThinking(block: AnthropicContentBlock): boolean {
   return block.type === 'thinking' || block.type === 'redacted_thinking'
 }
 
-/** Cada `mcp_tool_use` sin result, seguido de un `mcp_tool_result` de error. */
+/** El `mcp_tool_use` sin result, seguido de su `mcp_tool_result` de error. */
+function withUnanswered(block: AnthropicContentBlock): AnthropicContentBlock[] {
+  return [
+    block,
+    {
+      type: 'mcp_tool_result',
+      tool_use_id: block.id,
+      is_error: true,
+      content: [{ type: 'text', text: UNANSWERED_MCP_CALL }],
+    },
+  ]
+}
+
+/** Cada `mcp_tool_use` sin result, seguido de un `mcp_tool_result` de error; los que quedaron
+ *  después de un `tool_use` local, movidos antes del primero (ver arriba). */
 function pairContent(content: AnthropicContentBlock[]): {
   content: AnthropicContentBlock[]
   paired: AnthropicContentBlock[]
@@ -42,19 +61,13 @@ function pairContent(content: AnthropicContentBlock[]): {
   )
   const paired = content.filter((b) => b.type === 'mcp_tool_use' && !answered.has(b.id))
   if (paired.length === 0) return { content, paired }
-  const next = content.flatMap((block) =>
-    paired.includes(block)
-      ? [
-          block,
-          {
-            type: 'mcp_tool_result',
-            tool_use_id: block.id,
-            is_error: true,
-            content: [{ type: 'text', text: UNANSWERED_MCP_CALL }],
-          },
-        ]
-      : [block],
-  )
+  const firstLocal = content.findIndex((b) => b.type === 'tool_use')
+  const late = firstLocal < 0 ? [] : paired.filter((b) => content.indexOf(b) > firstLocal)
+  const next = content.flatMap((block, index) => {
+    if (late.includes(block)) return []
+    const own = paired.includes(block) ? withUnanswered(block) : [block]
+    return index === firstLocal ? [...late.flatMap(withUnanswered), ...own] : own
+  })
   return { content: next, paired }
 }
 
