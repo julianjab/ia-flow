@@ -30,6 +30,10 @@ export interface ProviderRunContext {
   /** El texto del modelo a medida que se escribe, un pedazo por llamada — para mostrarlo en vivo
    *  (el asistente de la web). Un provider que no puede streamear no lo llama nunca. */
   onText?: (delta: string) => void
+  /** Cortar la corrida desde afuera (quien la delegó la dio por terminada: venció, se perdió).
+   *  Un provider lo respeta en cuanto puede —entre vueltas, o matando su proceso— y devuelve un
+   *  `outcome: 'error'` que dice por qué. */
+  signal?: AbortSignal
 }
 
 /** Lo que un Provider reporta al terminar. `outcome` es el nombre que `matchExit` busca en

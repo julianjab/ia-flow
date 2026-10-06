@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Tool } from '../../agent/AgentDefinition.js'
+import type { Tool, ToolOrigin } from '../../agent/AgentDefinition.js'
 import type { ToolInputSchema } from '../../agent/SchemaTool.js'
 import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js'
 import { ActionTool } from './ActionTool.js'
@@ -39,6 +39,9 @@ export abstract class Action<
   /** Opera sobre el worktree de la task: como tool, no se le ofrece a un provider con workspace
    *  nativo (ver `Tool.workspace`). */
   readonly workspace: boolean = false
+  /** Con qué se armó (la definición y sus `options` del YAML), si quien la armó lo dejó anotado:
+   *  lo que necesita otro proceso para rearmarla igual sobre SU worktree (ver `Tool.origin`). */
+  origin?: ToolOrigin
 
   constructor(props: ActionProps) {
     super(props)

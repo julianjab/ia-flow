@@ -1,3 +1,4 @@
+import type { ToolOrigin } from '../../agent/AgentDefinition.js'
 import { SchemaTool, type ToolInputSchema } from '../../agent/SchemaTool.js'
 import type { PipelineExecutionContext } from '../Runnable.js'
 import type { Action } from './Action.js'
@@ -9,6 +10,7 @@ export class ActionTool extends SchemaTool<ToolInputSchema> {
   readonly description: string
   readonly input: ToolInputSchema
   readonly workspace?: boolean
+  readonly origin?: ToolOrigin
 
   constructor(
     private readonly action: Action,
@@ -19,6 +21,7 @@ export class ActionTool extends SchemaTool<ToolInputSchema> {
     this.description = action.description
     this.input = action.input
     if (action.workspace) this.workspace = true
+    if (action.origin) this.origin = action.origin
   }
 
   protected async execute(input: Record<string, unknown>): Promise<string> {

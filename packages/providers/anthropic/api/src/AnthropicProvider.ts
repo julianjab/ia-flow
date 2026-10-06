@@ -437,6 +437,11 @@ export class AnthropicProvider implements Provider {
     let toolRounds = 0
     let pauses = 0
     for (let round = 0; ; round++) {
+      // Cortada desde afuera (quien la delegó la dio por terminada): no arranca otra vuelta.
+      if (ctx.signal?.aborted) {
+        const reason = typeof ctx.signal.reason === 'string' ? `: ${ctx.signal.reason}` : ''
+        return { outcome: 'error', summary: `la corrida se cortó desde afuera${reason}` }
+      }
       messages = withInjectedMessages(messages, ctx.inbox)
       await opts.onCheckpoint?.(messages, ctx)
 

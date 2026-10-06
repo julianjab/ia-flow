@@ -8,6 +8,7 @@ export type {
   McpServerRef,
   SystemPromptRef,
   Tool,
+  ToolOrigin,
 } from './agent/AgentDefinition.js'
 export { FAIL_TOOL_NAME, FailTool } from './agent/FailTool.js'
 export type { RenderedPrompt, SystemPromptCatalog } from './agent/PromptRenderer.js'

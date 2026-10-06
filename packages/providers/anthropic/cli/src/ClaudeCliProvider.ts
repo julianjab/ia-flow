@@ -137,10 +137,21 @@ export class ClaudeCliProvider implements Provider {
         conversation = { sessionId, session: session.ref }
         ctx.saveConversation?.(conversation)
       }
-      const ended = await this.race(channel, session, cfg.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES)
+      const ended = await this.race(
+        channel,
+        session,
+        cfg.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES,
+        ctx.signal,
+      )
       if (ended.kind === 'done') return { outcome: 'success', conversation }
       if (ended.kind === 'timeout') {
         return { outcome: 'error', summary: `la sesión del CLI superó ${ended.minutes} min` }
+      }
+      if (ended.kind === 'aborted') {
+        return {
+          outcome: 'error',
+          summary: `la sesión del CLI se cortó desde afuera${ended.reason}`,
+        }
       }
       return {
         outcome: 'error',
@@ -161,8 +172,12 @@ export class ClaudeCliProvider implements Provider {
     channel: RunChannel,
     session: CliSession,
     minutes: number,
+    signal: AbortSignal | undefined,
   ): Promise<
-    { kind: 'done' } | { kind: 'exited'; exit: SessionExit } | { kind: 'timeout'; minutes: number }
+    | { kind: 'done' }
+    | { kind: 'exited'; exit: SessionExit }
+    | { kind: 'timeout'; minutes: number }
+    | { kind: 'aborted'; reason: string }
   > {
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<{ kind: 'timeout'; minutes: number }>((resolve) => {
@@ -177,6 +192,7 @@ export class ClaudeCliProvider implements Provider {
           channel.finished ? { kind: 'done' as const } : { kind: 'exited' as const, exit },
         ),
         timeout,
+        ...(signal ? [abortedBy(signal)] : []),
       ])
     } finally {
       if (timer) clearTimeout(timer)
@@ -207,6 +223,18 @@ function isSessionRef(value: unknown): value is SessionRef {
 
 function describeRef(ref: SessionRef): string {
   return ref.kind === 'tmux' ? `tmux ${ref.name}` : `pid ${ref.pid}`
+}
+
+/** Cuando `signal` se aborta, con su `reason` (si es texto) para el resumen. */
+function abortedBy(signal: AbortSignal): Promise<{ kind: 'aborted'; reason: string }> {
+  const ended = () => ({
+    kind: 'aborted' as const,
+    reason: typeof signal.reason === 'string' && signal.reason ? `: ${signal.reason}` : '',
+  })
+  if (signal.aborted) return Promise.resolve(ended())
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => resolve(ended()), { once: true })
+  })
 }
 
 function tail(output: string): string {

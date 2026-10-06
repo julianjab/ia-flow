@@ -61,6 +61,15 @@ export interface Tool<TInput = any> {
   /** Opera sobre el worktree de la task (`fs_*`, `bash_run`, …). No se le ofrece a un provider
    *  con workspace nativo (`Provider.workspace`): ése trabaja el worktree con sus propias tools. */
   workspace?: boolean
+  /** Con qué se armó, si es una acción que quien la armó anotó: un provider que corre en otra
+   *  máquina (un host remoto) la rearma ahí con esto, sobre SU worktree, en vez de llamarla acá. */
+  origin?: ToolOrigin
+}
+
+/** La definición de una acción y las `options` con que se armó (las del YAML). Sólo JSON. */
+export interface ToolOrigin {
+  action: string
+  options: Record<string, unknown>
 }
 
 export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
