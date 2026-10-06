@@ -90,7 +90,22 @@ export type Admission = { accept: true } | { accept: false; reason: string; retr
  *  referencia por `provider: 'ese-id'`. Mismo patrón que `Provider.resolve(id)` en ia-flow. */
 export class ProviderRegistry {
   private readonly providers = new Map<string, Provider>()
+  private readonly dynamicPrefixes = new Set<string>()
   private waiters: Array<() => void> = []
+
+  /** Declara que los ids con este prefijo van y vienen (`remote:`, los hosts que se suscriben):
+   *  un agente que nombra uno que todavía no está — o que se fue — lo espera, en vez de fallar
+   *  como con un id que nadie va a registrar. */
+  expectDynamic(prefix: string): this {
+    this.dynamicPrefixes.add(prefix)
+    return this
+  }
+
+  /** Si `id` es de los que van y vienen (ver `expectDynamic`). */
+  isDynamic(id: string): boolean {
+    for (const prefix of this.dynamicPrefixes) if (id.startsWith(prefix)) return true
+    return false
+  }
 
   register(provider: Provider): this {
     this.providers.set(provider.id, provider)

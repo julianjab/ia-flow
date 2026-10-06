@@ -25,6 +25,10 @@ export interface SelectedProvider {
  * Un candidato comodín (`remote:*`) se resuelve en cada vuelta contra lo registrado en ese momento:
  * los providers que van y vienen (hosts remotos que se suscriben) entran y salen solos. Sin ninguno
  * registrado, el agente espera a que llegue uno — o sigue con el candidato siguiente, si hay.
+ *
+ * Lo mismo un candidato con nombre de los que van y vienen (`remote:e2e`, ver
+ * `ProviderRegistry.expectDynamic`): mientras su host no esté suscrito — el runner recién
+ * arrancado, el host reiniciándose — cuenta como ausente, no como un id desconocido.
  */
 export class ProviderSelector {
   constructor(
@@ -37,7 +41,9 @@ export class ProviderSelector {
 
   /** `prefer`: el provider de una conversación que se retoma — sólo ése, si sigue declarado. */
   async select(ctx: PipelineExecutionContext, prefer?: string): Promise<SelectedProvider> {
-    const dynamic = this.candidates.some((candidate) => candidate.wildcard)
+    const dynamic = this.candidates.some(
+      (candidate) => candidate.wildcard || this.registry.isDynamic(candidate.id),
+    )
     for (;;) {
       const concrete = this.concrete()
       if (concrete.length === 0) {
@@ -68,7 +74,8 @@ export class ProviderSelector {
   }
 
   /** Los candidatos, con cada comodín resuelto contra lo registrado ahora: un id que otro
-   *  candidato nombra explícito no se repite, y uno que ya salió no vuelve a salir. */
+   *  candidato nombra explícito no se repite, y uno que ya salió no vuelve a salir. Uno con
+   *  nombre de los que van y vienen, sin registrar ahora, no sale. */
   private concrete(): ProviderCandidate[] {
     const named = new Set(this.candidates.filter((c) => !c.wildcard).map((c) => c.id))
     const seen = new Set<string>()
@@ -79,7 +86,9 @@ export class ProviderSelector {
             .list()
             .map((provider) => provider.id)
             .filter((id) => candidate.covers(id) && !named.has(id))
-        : [candidate.id]
+        : this.registry.isDynamic(candidate.id) && !this.registry.resolve(candidate.id)
+          ? []
+          : [candidate.id]
       for (const id of ids) {
         if (seen.has(id)) continue
         seen.add(id)
