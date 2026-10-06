@@ -155,8 +155,7 @@ describe('AnthropicProvider diagnostics', () => {
       'anthropic.request_id': 'req_bad',
       'error.type': 'invalid_request_error',
       'http.response.status_code': 400,
-      'ia.request.shape':
-        '0:user[text] 1:assistant[thinking,mcp_tool_use,mcp_tool_result] 2:user[text]',
+      'ia.request.shape': '0:user[text] 1:assistant[thinking,mcp_tool_use]',
     })
   })
 
