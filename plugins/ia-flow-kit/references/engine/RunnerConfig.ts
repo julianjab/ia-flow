@@ -38,6 +38,7 @@ import {
   BUILTIN_CAPABILITY_AGENTS,
   isAssistantCapability,
 } from '../capabilities/index.js'
+import { type RetrospectiveSettings, retrospectiveSource } from '../capabilities/retrospective.js'
 import { EngineSection } from '../engine/mountEngine.js'
 import {
   DEFAULT_WORKING_MARKER,
@@ -70,6 +71,7 @@ export type McpEntry = z.infer<typeof McpEntrySchema>
 const Entry = z.union([z.string().min(1), z.record(z.string(), z.unknown())])
 /** Una entrada sola o una lista. */
 const Entries = z.union([Entry, z.array(Entry)])
+const OWNER_REPO = /^[\w.-]+\/[\w.-]+$/
 /** Sólo rutas: lo que es código (las actions) no va inline. */
 const Paths = z.union([z.string().min(1), z.array(z.string().min(1))])
 
@@ -227,6 +229,21 @@ export const RunnerFileSchema = z.strictObject({
   engine: EngineSection.default({}),
   /** La bandeja de la web (`inbox/InboxSection.ts`). */
   inbox: InboxSection.prefault({}),
+  /** La retrospectiva (`capabilities/retrospective.ts`): al mergear el PR de una tarea, un agente
+   *  revisa cómo corrió y deja mejoras propuestas en la bandeja. Viene encendida. */
+  retrospective: z
+    .strictObject({
+      enabled: z.boolean().default(true),
+      /** Dónde se abre cada destino que no es el repo de la tarea (`docs`). Sin `config`, el
+       *  agente no propone cambios a la config del deploy. */
+      repos: z
+        .strictObject({
+          engine: z.string().regex(OWNER_REPO, 'owner/repo').default('julianjab/ia-flow'),
+          config: z.string().regex(OWNER_REPO, 'owner/repo').optional(),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   /** Qué corre: la composición del runner, que el engine sólo ve como fuentes ya armadas. */
   sources: z
     .strictObject({
@@ -483,12 +500,17 @@ export function loadRunnerConfig(path: string): RunnerConfig {
         prompts = promptsById(reread.systemPrompts)
         const global = globalCapabilities(capabilities)
         assistants = global.agents
-        // Las capacidades del runner (`capabilities/`) van con la fuente global: sus agentes como
-        // documentos inline, y lo que `sources.capabilities` no declara, cumplido por ellos.
+        // Lo que trae el runner (`capabilities/`) va con la fuente global: los agentes de sus
+        // capacidades como documentos inline (y lo que `sources.capabilities` no declara, cumplido
+        // por ellos), y la retrospectiva con su pipeline.
+        const retrospective = retrospectiveSource(reread.retrospective as RetrospectiveSettings)
+        const ownPipelines = list(pipelines)
         return sourceSpec(
           {
-            agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS],
-            ...(pipelines !== undefined ? { pipelines } : {}),
+            agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS, ...retrospective.agents],
+            ...(ownPipelines.length || retrospective.pipelines.length
+              ? { pipelines: [...ownPipelines, ...retrospective.pipelines] }
+              : {}),
             capabilities: global.capabilities,
           },
           dir,

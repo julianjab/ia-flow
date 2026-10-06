@@ -99,6 +99,7 @@ export function mountInbox(
     store.onTrace((record) => hub.publish({ type: 'trace', entry: toTraceEntry(record) })),
     store.onDispatch((entry) => changed(entry.event.scope?.issue as string | undefined)),
     mounted.executions?.observe((record) => changed(taskOfKey(record.key).taskRef)) ?? (() => {}),
+    store.improvements.onChange(() => hub.publish({ type: 'improvements' })),
   ]
 
   // Lo que el runner sabe hacerle a una task: lo usan las acciones de la bandeja y, por
@@ -199,6 +200,7 @@ export function mountInbox(
     inbox,
     activity: store.activity,
     config,
+    improvements: store.improvements,
     status: () => ({
       projects: specs.map((spec) => `${spec.projectId} (${boards.of(spec.projectId).describe()})`),
       providers: Object.keys(cfg.providers),
@@ -223,6 +225,7 @@ export function mountInbox(
     actions,
     assistant,
     conversations: store.conversations,
+    improvements: store.improvements,
     ingress: new IngressService({
       log: store.activity,
       retentionDays: cfg.inbox.retentionDays,

@@ -305,6 +305,32 @@ lee ejecuciones y trazas buscando fallas del proceso y, con `assistant_propose_i
 fija su YAML con `with: { repo: julianjab/ia-flow }`), propone abrir un issue en ia-flow; la persona
 lo confirma en la web y `POST /api/issues` lo abre con SU token de GitHub.
 
+**La retrospectiva viene con el runner** (`src/capabilities/retrospective.{ts,yaml}`): una pipeline
+de la fuente global que escucha el `pull_request` de una tarea cuando queda mergeado
+(`action: closed`, `pr.merged: true`) y corre el agente `retrospective`. Ese agente lee la tarea con
+las mismas tools del asistente —ejecuciones, trazas, eventos, "¿por qué?", config—, aunque su issue
+ya se haya cerrado, y con `propose_improvement` deja cada mejora **pendiente en la bandeja**
+(`improvement_proposal`, en la misma base). No crea nada: en la web una persona la abre como issue
+con SU token de GitHub (`POST /api/improvements/:id/open`) o la descarta (`…/dismiss`); `GET
+/api/improvements?status=` las lista y el stream avisa con `{ type: 'improvements' }`.
+
+Cada mejora tiene un destino, y el repo lo pone el runner, no el modelo: `docs` (la documentación
+del repo de la tarea), `config` (la config del deploy) y `engine` (ia-flow). Las propuestas
+necesitan la bandeja (`--serve`): en un `--event` suelto sus tools fallan y el agente cierra sin
+proponer. Una tarea que quedó `blocked` no llega
+(el `when` del intake la descarta).
+
+```yaml
+# runner.yaml — todo opcional, estos son los defaults
+retrospective:
+  enabled: true                      # false la apaga (la pipeline y su agente)
+  repos:
+    engine: julianjab/ia-flow
+    # config: la-haus/claw-agents    # sin esto, no propone cambios a la config
+```
+
+Un deploy que quiere otro agente la apaga y declara su propia pipeline, con otro id.
+
 ```yaml
 sources:
   capabilities:

@@ -1,7 +1,8 @@
 /**
  * Las rutas de la web (`packages/shared/src/inbox.ts` es su contrato): la bandeja, el detalle de
  * una tarea, el "¿por qué?", la config, el stream de cambios, las acciones firmadas con el login de
- * GitHub de quien las hace, el device flow para ese login, y el asistente.
+ * GitHub de quien las hace, el device flow para ese login, el asistente, y las mejoras que
+ * propuso un agente esperando a una persona.
  */
 
 import { GithubClient } from '@ia-flow/github-api'
@@ -20,6 +21,9 @@ import {
   GithubRefreshRequestSchema,
   type GithubUserToken,
   GithubUserTokenSchema,
+  type ImprovementDecisionResult,
+  type ImprovementList,
+  ImprovementStatusSchema,
   type InboxProject,
   type RunnerInfo,
   type RunnerStreamEvent,
@@ -28,6 +32,7 @@ import {
 import { z } from 'zod'
 import type { Assistant } from '../assistant/Assistant.js'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
+import type { ImprovementStore } from '../assistant/ImprovementStore.js'
 import { type DeviceFlow, githubLogin, RefreshRejectedError } from '../github/deviceFlow.js'
 import { ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
 import { openSse, type SseHub, writeSse } from '../http/sse.js'
@@ -47,6 +52,8 @@ export interface RunnerApiOptions {
   ingress?: IngressService
   /** Las conversaciones guardadas del asistente, de cada login. Sin esto, no hay historial. */
   conversations?: ConversationStore
+  /** Las mejoras propuestas por un agente (la retrospectiva). Sin esto, no hay. */
+  improvements?: ImprovementStore
   /** Sin `github.clientId` no hay login desde la web. */
   deviceFlow?: DeviceFlow
   config: () => ConfigSummary
@@ -199,6 +206,70 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
         number: created.number,
         github_login: login,
       } satisfies CreateIssueResult
+    } catch (err) {
+      if (err instanceof HttpError) return reject(err.status, err.message)
+      if (err instanceof IssueRejectedError) return reject(err.status, err.message)
+      throw err
+    }
+  })
+
+  const improvementsStore = () => {
+    if (!options.improvements) throw new HttpError(501, 'Este runner no guarda mejoras propuestas')
+    return options.improvements
+  }
+
+  // Las mejoras que propuso un agente: `?status=open` (default), `opened`, `dismissed` o `all`.
+  router.get('/api/improvements', async (req): Promise<ImprovementList> => {
+    const raw = req.query.get('status') ?? 'open'
+    const status = raw === 'all' ? undefined : parseBody(ImprovementStatusSchema, raw)
+    return { items: improvementsStore().list(status) }
+  })
+
+  // Abrir una es crear su issue con el token de quien la confirma (como `POST /api/issues`);
+  // descartarla también queda a su nombre. Una ya decidida no se vuelve a decidir: 409.
+  router.post('/api/improvements/:id/:decision', async (req, res) => {
+    const reject = (status: number, message: string) => {
+      sendJson(res, status, { ok: false, message } satisfies ImprovementDecisionResult)
+      return undefined
+    }
+    const decision = req.params.decision
+    if (decision !== 'open' && decision !== 'dismiss') {
+      return reject(404, `${decision} no es una decisión: open o dismiss`)
+    }
+    const token = req.header('x-github-token')
+    if (!token) return reject(401, 'Iniciá sesión con GitHub para decidir la mejora')
+    const store = improvementsStore()
+    const proposal = store.get(req.params.id as string)
+    if (!proposal) return reject(404, 'Esa mejora no existe')
+    if (proposal.status !== 'open') return reject(409, `Esa mejora ya está ${proposal.status}`)
+    try {
+      const login = await loginOf(token)
+      if (decision === 'dismiss') {
+        const decided = store.decide(proposal.id, { status: 'dismissed', by: login })
+        if (!decided) return reject(409, 'Esa mejora ya fue decidida')
+        return {
+          ok: true,
+          message: 'Descartada',
+          proposal: decided,
+        } satisfies ImprovementDecisionResult
+      }
+      const { repo, title, body, labels } = proposal
+      const created = await createIssue(
+        { repo, title, body, ...(labels ? { labels } : {}) },
+        token,
+        options.fetchImpl,
+      )
+      const decided = store.decide(proposal.id, {
+        status: 'opened',
+        by: login,
+        issue_url: created.html_url,
+      })
+      options.log(`${login}: abrió ${repo}#${created.number} (mejora de ${proposal.task_ref})`)
+      return {
+        ok: true,
+        message: `${repo}#${created.number} abierto`,
+        ...(decided ? { proposal: decided } : {}),
+      } satisfies ImprovementDecisionResult
     } catch (err) {
       if (err instanceof HttpError) return reject(err.status, err.message)
       if (err instanceof IssueRejectedError) return reject(err.status, err.message)

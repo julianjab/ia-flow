@@ -27,6 +27,7 @@ import { DashboardError, parseDashboard } from '@/features/inbox/view/dashboard'
 import { buildView, type DashboardView } from '@/features/inbox/view/decide'
 import { type ResolvedDashboard, resolveDashboard, serverKey } from '@/features/inbox/view/resolve'
 import { clearOverride, saveOverride } from '@/features/inbox/view/storage'
+import { useImprovementsSignalStore } from '@/stores/improvementsSignal'
 
 export interface DetailState {
   loading: boolean
@@ -45,6 +46,7 @@ const TRACE_CAP = 500
 const REFRESH_DEBOUNCE_MS = 250
 
 export const useInboxStore = defineStore('inbox', () => {
+  const signal = useImprovementsSignalStore()
   const inbox = ref<Inbox | null>(null)
   /** El dashboard de este runner y lo que sale de aplicarlo (paneles); `null` con un runner viejo,
    *  que clasifica él. */
@@ -316,14 +318,18 @@ export const useInboxStore = defineStore('inbox', () => {
       onState: (s) => {
         streamState.value = s
       },
-      onPoll: () => void refresh(),
+      onPoll: () => {
+        void refresh()
+        signal.bump()
+      },
       onEvent: (event) => {
         if (event.type === 'inbox') {
           scheduleRefresh()
           if (openRef.value && event.refs.includes(openRef.value)) {
             void loadDetail(openRef.value, { silent: true })
           }
-        } else if (event.type === 'trace') appendTrace(event.entry)
+        } else if (event.type === 'improvements') signal.bump()
+        else if (event.type === 'trace') appendTrace(event.entry)
         else appendEvent(event.entry)
       },
     })

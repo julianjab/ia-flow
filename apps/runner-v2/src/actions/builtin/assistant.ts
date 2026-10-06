@@ -1,14 +1,16 @@
 /**
  * Las tools del agente `assistant` (el asistente de la web): leer la bandeja, una tarea, por qué
  * corrió o no algo, la traza, la config, los eventos recientes y el estado del runner, y PROPONER
- * una acción —o abrir un issue (`assistant_propose_issue`)— que la persona confirma. Ninguna
- * escribe: `sideEffects: 'none'`.
+ * una acción —o abrir un issue (`assistant_propose_issue`, `propose_improvement`)— que la persona
+ * confirma. Ninguna escribe en GitHub: `sideEffects: 'none'`.
  *
  * Cada una atiende el pedido que la está usando (`AssistantDesk`, por el `session` del payload de
  * la capacidad), y es ese pedido el que impone el contexto: en el de una tarea, otra ref se
- * rechaza. Fuera de un pedido al asistente, fallan diciendo por qué.
+ * rechaza. En la pipeline de una tarea (la retrospectiva) el contexto es esa tarea, y un issue
+ * propuesto queda en la bandeja. Fuera de los dos, fallan diciendo por qué.
  */
 import { Action, type PipelineExecutionContext, type ToolInputSchema } from '@ia-flow/agent-engine'
+import { ImprovementTargetSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import {
   ACTION_LABELS,
@@ -33,6 +35,8 @@ class AssistantTool<S extends ToolInputSchema> extends Action<S, string> {
     readonly description: string,
     readonly input: S,
     private readonly desk: AssistantDesk,
+    /** El agente que la tiene: firma lo que propone en una pipeline. */
+    private readonly agent: string | undefined,
     private readonly read: (session: AssistantSession, input: z.infer<S>) => unknown,
     /** `false` para una lectura que ya se acota sola (paginada): cortarla perdería lo que sigue. */
     private readonly capped = true,
@@ -41,18 +45,19 @@ class AssistantTool<S extends ToolInputSchema> extends Action<S, string> {
   }
 
   async execute(input: z.infer<S>, ctx: PipelineExecutionContext): Promise<string> {
-    const value = await this.read(this.desk.sessionOf(ctx.event.payload), input)
+    const value = await this.read(this.desk.sessionFor(ctx, this.agent), input)
     return asToolResult(value, { capped: this.capped })
   }
 }
 
-function tools(desk: AssistantDesk): Action[] {
+function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
   return [
     new AssistantTool(
       'assistant_list_tasks',
       'La bandeja del contexto: cada tarea con su grupo (need=te necesita, fail=falló, run=corriendo, queue=en cola), caso, por qué está ahí y qué acciones aplican.',
       z.strictObject({}),
       desk,
+      agent,
       (session) => session.listTasks(),
     ),
     new AssistantTool(
@@ -60,6 +65,7 @@ function tools(desk: AssistantDesk): Action[] {
       'Una tarea: su estado en el board, sus ejecuciones (cómo terminó cada una, tokens, por qué falló), los eventos que le llegaron con qué decidió cada pipeline, y la traza de la última ejecución.',
       z.strictObject({ ref }),
       desk,
+      agent,
       (session, input) => session.taskDetail(input.ref),
     ),
     new AssistantTool(
@@ -73,6 +79,7 @@ function tools(desk: AssistantDesk): Action[] {
           .describe('Opcional: p.ej. issue.status_changed, issue.unblocked'),
       }),
       desk,
+      agent,
       (session, input) => session.explain(input.ref, input.event_type),
     ),
     new AssistantTool(
@@ -112,6 +119,7 @@ function tools(desk: AssistantDesk): Action[] {
           ),
       }),
       desk,
+      agent,
       (session, { ref: task, execution_id, ...query }) => session.trace(task, execution_id, query),
       false,
     ),
@@ -120,6 +128,7 @@ function tools(desk: AssistantDesk): Action[] {
       'La config cargada: qué eventos escucha cada pipeline, sus condiciones, qué agentes y acciones corre, y a dónde lleva cada salida de cada agente.',
       z.strictObject({}),
       desk,
+      agent,
       (session) => session.config(),
     ),
     new AssistantTool(
@@ -127,6 +136,7 @@ function tools(desk: AssistantDesk): Action[] {
       'Lo último que llegó al runner (webhooks y eventos derivados) con qué decidió cada pipeline — para "qué pasó hoy" o "por qué no reaccionó a X". No en el contexto de una tarea.',
       z.strictObject({ limit: z.number().int().min(1).max(100).optional() }),
       desk,
+      agent,
       (session, input) => session.recentEvents(input.limit),
     ),
     new AssistantTool(
@@ -134,6 +144,7 @@ function tools(desk: AssistantDesk): Action[] {
       'El estado del runner: proyectos, providers, ejecuciones en curso y webhooks. Sólo en el contexto general.',
       z.strictObject({}),
       desk,
+      agent,
       (session) => session.status(),
     ),
     new AssistantTool(
@@ -153,6 +164,7 @@ function tools(desk: AssistantDesk): Action[] {
           .describe('El comentario, para las acciones que lo piden (answer_and_unblock)'),
       }),
       desk,
+      agent,
       (session, input) => session.propose(input),
     ),
   ]
@@ -160,7 +172,7 @@ function tools(desk: AssistantDesk): Action[] {
 
 /** Abrir un issue, aparte de las otras: sólo la tiene el agente que la lista (y el repo lo fija
  *  su YAML con `with: { repo }`, así el modelo no elige dónde). */
-function proposeIssue(desk: AssistantDesk): Action {
+function proposeIssue(desk: AssistantDesk, agent: string | undefined): Action {
   return new AssistantTool(
     'assistant_propose_issue',
     'Propone abrir un issue en GitHub. NO lo crea: la persona lo confirma con un botón y queda abierto con su usuario de GitHub. Antes, buscá si ya hay uno igual.',
@@ -174,17 +186,79 @@ function proposeIssue(desk: AssistantDesk): Action {
       reason: z.string().describe('Una frase: por qué conviene abrirlo'),
     }),
     desk,
+    agent,
     (session, input) => session.proposeIssue(input),
   )
+}
+
+/** Los repos de cada destino que no son el de la tarea: los fija el YAML del agente (`options`). */
+const ImprovementRepos = z.object({
+  engine: z.string().optional(),
+  config: z.string().optional(),
+})
+
+/**
+ * Proponer una mejora por DÓNDE se arregla, no por repo: `docs` va al repo de la tarea, `config`
+ * y `engine` a los de `options: { config, engine }`. Así el modelo no elige dónde abrir, y un destino
+ * que el deploy no declaró se rechaza. Con `list_improvements`, para no repetir lo pendiente ni lo
+ * que una persona ya descartó.
+ */
+function proposeImprovement(
+  desk: AssistantDesk,
+  agent: string | undefined,
+  options: Record<string, unknown>,
+): Action[] {
+  const repos = ImprovementRepos.parse(options)
+  const repoOf = (session: AssistantSession, target: z.infer<typeof ImprovementTargetSchema>) => {
+    if (target === 'docs') {
+      if (session.scope.kind !== 'task') throw new Error('docs es el repo de una tarea')
+      return session.scope.ref.split('#')[0] as string
+    }
+    const repo = repos[target]
+    if (!repo)
+      throw new Error(`Este runner no declaró el repo de \`${target}\`: proponé otro destino`)
+    return repo
+  }
+  return [
+    new AssistantTool(
+      'propose_improvement',
+      `Propone abrir un issue con una mejora, según DÓNDE se arregla: docs (la documentación del repo de la tarea: AGENTS.md, CLAUDE.md, README)${repos.config ? `, config (la config del runner: agentes, prompts, pipelines — ${repos.config})` : ''}${repos.engine ? `, engine (el runner o el engine — ${repos.engine})` : ''}. NO lo crea: queda pendiente y una persona lo abre con su usuario de GitHub. Una mejora por llamada.`,
+      z.strictObject({
+        target: ImprovementTargetSchema.describe('Dónde se arregla'),
+        title: z.string().describe('Corto, en imperativo: qué hay que cambiar'),
+        body: z
+          .string()
+          .describe('Markdown: ## Problema, ## Evidencia, ## Propuesta, ## Cómo verificarlo'),
+        labels: z.array(z.string()).optional().describe('Labels que ya existen en el repo'),
+        reason: z.string().describe('Una frase: por qué conviene'),
+      }),
+      desk,
+      agent,
+      (session, { target, ...input }) =>
+        session.proposeIssue({ ...input, repo: repoOf(session, target), target }),
+    ),
+    new AssistantTool(
+      'list_improvements',
+      'Las mejoras ya propuestas (de cualquier tarea): `pending`, las que esperan en la bandeja, y `decided`, las últimas que una persona abrió como issue (`opened`) o descartó (`dismissed`), con quién y cuándo. Antes de proponer, mirá que no esté pendiente ni descartada.',
+      z.strictObject({}),
+      desk,
+      agent,
+      (session) => session.improvementHistory(),
+    ),
+  ]
 }
 
 export default [
   defineAction({
     id: 'assistant',
-    create: (ctx) => tools(ctx.services.assistant),
+    create: (ctx) => tools(ctx.services.assistant, ctx.agentId),
   }),
   defineAction({
     id: 'assistant_propose_issue',
-    create: (ctx) => proposeIssue(ctx.services.assistant),
+    create: (ctx) => proposeIssue(ctx.services.assistant, ctx.agentId),
+  }),
+  defineAction({
+    id: 'propose_improvement',
+    create: (ctx) => proposeImprovement(ctx.services.assistant, ctx.agentId, ctx.options),
   }),
 ]

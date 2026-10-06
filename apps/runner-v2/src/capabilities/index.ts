@@ -11,6 +11,9 @@
  *   fileFocus   `file-focus`: las partes de un archivo grande que pide `fs_read` + `focus`
  *   branchName  `branch-namer`: el nombre de la rama de una task sin `branchPrefix`
  *
+ * La retrospectiva (`retrospective.ts`) también viene acá, pero no es una capacidad: es un agente
+ * con su pipeline, que la fuente global suma salvo `retrospective: { enabled: false }`.
+ *
  * Un deploy las pisa en `sources.capabilities` de su runner.yaml (`{ agent: <su id> }`), con un
  * agente propio en `sources.agents`. Cada capacidad `assistant` o `assistant.<id>` es un agente del
  * asistente de la web: su entrada lleva además `label` (y `description`) para el selector, que el
