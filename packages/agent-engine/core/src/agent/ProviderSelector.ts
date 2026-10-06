@@ -44,31 +44,30 @@ export class ProviderSelector {
     const dynamic = this.candidates.some(
       (candidate) => candidate.wildcard || this.registry.isDynamic(candidate.id),
     )
-    const since = Date.now()
+    // Desde cuándo falta lo que se espera: se reinicia cada vez que vuelve a estar.
+    let absentSince = Date.now()
+    // La conversación que se retoma en un provider que va y viene: se lo espera (hasta su tope)
+    // antes de seguir en otro candidato, que la empezaría de cero.
+    let awaitPrefer =
+      prefer !== undefined &&
+      this.registry.isDynamic(prefer) &&
+      this.candidates.some((candidate) => candidate.covers(prefer))
     for (;;) {
       const concrete = this.concrete()
-      if (concrete.length === 0) {
-        const ids = this.candidates.map((c) => c.id).join(', ')
-        const maxWaitMs = this.namedDynamicWaitMs()
-        if (maxWaitMs === undefined) {
-          this.log.info(
-            `${this.agentId}: ningún provider registrado para ${ids} — espera a que llegue uno`,
-          )
-          await this.registryChange()
+      if (awaitPrefer && prefer && !concrete.some((c) => c.id === prefer)) {
+        if (await this.waitFor(prefer, this.registry.dynamicWaitMs(prefer) ?? 0, absentSince)) {
           continue
         }
-        const left = maxWaitMs - (Date.now() - since)
-        if (left <= 0) {
-          throw new Error(
-            `Agent(${this.agentId}): ${ids} no se registró en ${Math.round(maxWaitMs / 60_000)} min — ¿está corriendo y suscrito su host? (¿el nombre está bien escrito?)`,
-          )
-        }
         this.log.warn(
-          `${this.agentId}: ${ids} todavía no está registrado — lo espera ${Math.ceil(left / 1000)} s más`,
+          `${this.agentId}: ${prefer} no volvió — sigue en otro candidato, sin la conversación`,
         )
-        await this.registryChange(left)
+        awaitPrefer = false
+      }
+      if (concrete.length === 0) {
+        await this.waitForAny(absentSince)
         continue
       }
+      absentSince = Date.now()
       const preferred = prefer ? concrete.filter((c) => c.id === prefer) : []
       const { eligible, skipped } =
         preferred.length > 0
@@ -121,6 +120,37 @@ export class ProviderSelector {
       this.registry.changed(),
       delay(Math.min(atMostMs, DEFAULT_RETRY_AFTER_MS)),
     ])
+  }
+
+  /** Sin ningún candidato registrado: espera a que llegue uno — sin tope con un comodín; con el
+   *  de los dinámicos con nombre, y pasado ese tope es un error que dice qué no llegó. */
+  private async waitForAny(absentSince: number): Promise<void> {
+    const ids = this.candidates.map((c) => c.id).join(', ')
+    const maxWaitMs = this.namedDynamicWaitMs()
+    if (maxWaitMs === undefined) {
+      this.log.info(
+        `${this.agentId}: ningún provider registrado para ${ids} — espera a que llegue uno`,
+      )
+      await this.registryChange()
+      return
+    }
+    if (!(await this.waitFor(ids, maxWaitMs, absentSince))) {
+      throw new Error(
+        `Agent(${this.agentId}): ${ids} no se registró en ${Math.round(maxWaitMs / 60_000)} min — ¿está corriendo y suscrito su host? (¿el nombre está bien escrito?)`,
+      )
+    }
+  }
+
+  /** Espera a que cambie lo registrado, sin pasarse del tope contado desde `since`: `false` si
+   *  ya venció. */
+  private async waitFor(ids: string, maxWaitMs: number, since: number): Promise<boolean> {
+    const left = maxWaitMs - (Date.now() - since)
+    if (left <= 0) return false
+    this.log.warn(
+      `${this.agentId}: ${ids} todavía no está registrado — lo espera ${Math.ceil(left / 1000)} s más`,
+    )
+    await this.registryChange(left)
+    return true
   }
 
   /** Cuánto esperar cuando no hay ningún candidato registrado: el tope más largo de los
