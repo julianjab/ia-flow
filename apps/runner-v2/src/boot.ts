@@ -39,6 +39,7 @@ import type { Boards } from './board/Boards.js'
 import { createBoards } from './board/createBoards.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
+import { revalidateTask } from './engine/revalidateTask.js'
 import { withScope } from './engine/withScope.js'
 import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
@@ -220,6 +221,8 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     capabilities: (name) => globalSource.capabilities[name],
     ...(opts.textClassifier ? { textClassifier: opts.textClassifier } : {}),
     ...(opts.dispatchJournal ? { dispatchJournal: opts.dispatchJournal } : {}),
+    // Una pipeline que esperó detrás de otra ejecución vuelve a mirar la card antes de correr.
+    revalidate: revalidateTask(boards),
   })
   // `Working = Yes` en la card mientras su ejecución corre (ver `project.yaml` → workingMarker).
   const stopWorking = mounted.executions

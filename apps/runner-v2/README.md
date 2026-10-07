@@ -12,6 +12,12 @@ con la definición del pipeline como datos y las ejecuciones en SQLite.
   definiciones y `@ia-flow/agent-engine-definitions` las arma)
   (agentes y pipelines del engine), y se recarga en caliente: editar un YAML aplica en el
   próximo evento, sin reiniciar. Una versión inválida se loguea y sigue la última buena.
+- **Una pipeline que esperó su turno vuelve a mirar la card antes de correr.** Si la task estaba
+  ocupada (`ifRunning: wait`/`interrupt`), al tomar el turno el runner relee la card del board
+  (`engine/revalidateTask.ts`: columna, labels, bloqueada, tipo) y el engine vuelve a pasar el
+  `when` de la pipeline: si lo que hizo la ejecución anterior lo dejó sin efecto, no corre y su
+  ejecución cierra `superseded` con el motivo. Una task que ya no está en el board corre con el
+  evento original.
 - **Las ejecuciones persisten en SQLite** (`bun:sqlite`, `<IA_FLOW_HOME>/runner.sqlite`): una task
   nunca corre dos agentes a la vez, y una pausa —esperar el CI después de abrir el PR— sobrevive
   a un reinicio. Una corrida que el reinicio cortó queda `failed` (`interrupted`) y lo que no

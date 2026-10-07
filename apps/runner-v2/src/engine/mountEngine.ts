@@ -10,6 +10,7 @@ import {
   type DispatchJournal,
   type DomainEvent,
   Engine,
+  type EngineOptions,
   EventBus,
   type ExecutionGroups,
   type ExecutionStore,
@@ -77,6 +78,8 @@ export interface MountEngineOptions {
   textClassifier?: TextClassifier
   /** Dónde queda cada evento con lo que decidió cada pipeline (la base de actividad). */
   dispatchJournal?: DispatchJournal
+  /** Los hechos de ahora para una pipeline que esperó su turno (ver `EngineOptions.revalidate`). */
+  revalidate?: EngineOptions['revalidate']
 }
 
 export interface MountedEngine {
@@ -169,6 +172,7 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     ...(reason ? { interruptReason: reason } : {}),
     ...(selfOriginated ? { selfOriginated } : {}),
     ...(opts.dispatchJournal ? { dispatchJournal: opts.dispatchJournal } : {}),
+    ...(opts.revalidate ? { revalidate: opts.revalidate } : {}),
   })
   const unsubscribe = engine.start()
   const ticker = config.tick ? setInterval(() => engine.tick(), config.tick.everyMs) : undefined
