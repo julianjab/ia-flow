@@ -1,3 +1,4 @@
+import { consoleSink, setLogSinks } from '@ia-flow/telemetry'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import { restoreSelectedServer } from '@/features/servers/selection'
@@ -15,6 +16,10 @@ import './styles/theme.css'
 // que la pantalla de servers sondea. Ahora vive por server y lo aplica un
 // interceptor acotado por origen (features/servers/selection.ts).
 restoreSelectedServer()
+
+// Los logs de la web (`createLogger` de @ia-flow/telemetry) van a la consola del navegador: sin
+// SDK de OpenTelemetry, el sink por defecto no los muestra en ningún lado.
+setLogSinks([consoleSink({ level: 'warn' })])
 
 const app = createApp(App)
 app.use(createPinia())
