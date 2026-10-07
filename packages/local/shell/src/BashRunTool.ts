@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { SchemaTool } from '@ia-flow/agent-engine'
 import { z } from 'zod'
 import { type BashPolicy, isAllowed, isDenied } from './BashPolicy.js'
+import { ghEnv, ghReadOnlyRisk } from './ghReadOnly.js'
 import { tokenize } from './tokenize.js'
 
 export const BashRunInput = z.strictObject({
@@ -45,6 +46,10 @@ export interface BashRunToolOptions {
    *
    * Con esto seteado, además, se rechazan las formas de git que podrían leerla o desviarla (ver
    * `gitCredentialRisk`). Sin esto, `git` corre como siempre, sin credencial.
+   *
+   * La misma credencial la usa `gh` en sus formas de LECTURA (`gh run view --log-failed`, ver
+   * `ghReadOnlyRisk`): va por `GH_TOKEN` en el env de ESE hijo, nunca en el del resto de los
+   * comandos, y cualquier otro `gh` se rechaza antes de spawnear.
    */
   gitCredential?: () => Promise<string | undefined>
 }
@@ -196,6 +201,19 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
     ]
   }
 
+  /** El env del hijo: el base, más `GH_TOKEN` si es un `gh` de lectura permitido. */
+  private async withGhCredential(
+    policyArgv: string[],
+    command: string,
+  ): Promise<Record<string, string>> {
+    const base = this.options.env ?? buildSafeEnv()
+    if (policyArgv[0] !== 'gh' || !this.options.gitCredential) return base
+    const risk = ghReadOnlyRisk(policyArgv)
+    if (risk) throw new Error(`bash_run: gh con credencial no admite ${risk}: "${command}"`)
+    const token = await this.options.gitCredential().catch(() => undefined)
+    return token ? ghEnv(base, token) : base
+  }
+
   protected async execute(input: BashRunInput): Promise<string> {
     const argv = tokenize(input.command)
     if (argv.length === 0) {
@@ -229,6 +247,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
     }
 
     const spawnArgv = await this.withGitCredential(argv, input.command)
+    const env = await this.withGhCredential(policyArgv, input.command)
     const timeoutMs = this.timeoutFor(input.timeoutMs)
     const { max: maxTimeoutMs } = timeoutLimits(this.options)
     const maxOutputBytes = this.options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
@@ -243,7 +262,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         cwd: this.options.baseDir,
         shell: false,
         detached: process.platform !== 'win32',
-        env: this.options.env ?? buildSafeEnv(),
+        env,
         // Sin esto, stdin queda como un pipe abierto que nadie escribe ni cierra — cualquier
         // comando que lea de stdin (`git commit` sin `-m`, que abre un editor; `cat`/`tee`/`grep`
         // sin archivo; un prompt interactivo) se cuelga hasta `timeoutMs`, y el modelo sólo ve
