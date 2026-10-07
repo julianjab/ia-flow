@@ -5,7 +5,8 @@ import { clock, eventSummary, GLYPH, reasons, tally, VERDICT } from '@/component
 
 // Un evento del log, plegado: cuándo, qué, cómo terminó, qué corrió y sus datos
 // en una línea; abierto, cada pipeline con su veredicto y cada condición que la
-// cortó en su renglón. Uno con error arranca abierto.
+// cortó en su renglón. Uno con error arranca abierto. El slot `aside` va a la
+// derecha de la fila (el link a la ejecución que arrancó, en el detalle de una tarea).
 
 const props = withDefaults(
   defineProps<{
@@ -37,6 +38,7 @@ const line = computed(() => eventSummary(props.event.summary, props.hide));
         <span v-if="showTask && event.task_ref" class="er__task mono">{{ event.task_ref }}</span>
         <span v-if="line" class="er__dim mono er__sum">{{ line }}</span>
       </span>
+      <span v-if="$slots.aside" class="er__aside"><slot name="aside" /></span>
     </summary>
     <div class="er__body">
       <p v-if="event.error" class="er__err">✕ {{ event.error }}</p>
@@ -64,7 +66,8 @@ const line = computed(() => eventSummary(props.event.summary, props.hide));
 .er__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .er__chev { flex: none; color: var(--fg-dim); font-size: var(--fs-micro); line-height: 1.7; transition: transform 120ms ease; }
 .er[open] .er__chev { transform: rotate(90deg); }
-.er__main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.er__main { display: flex; flex: 1; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.er__aside { flex: none; }
 .er__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem; font-size: var(--fs-body-sm); }
 .er__ran { color: var(--accent); font-size: var(--fs-body-sm); }
 .er__task { color: var(--fg); font-size: var(--fs-chrome); overflow-wrap: anywhere; }
