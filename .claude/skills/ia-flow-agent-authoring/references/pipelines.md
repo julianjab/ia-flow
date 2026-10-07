@@ -53,7 +53,7 @@ ausente vale `undefined`: `eq` falla, pero `neq`/`notIn`/`notContains` pasan.
 
 | Clave | Default | Úsala |
 | --- | --- | --- |
-| `ifRunning` | `wait` | `interrupt` cuando el evento invalida lo que hace el agente (la card cambió de columna); `skip` para lo que no vale la pena encolar. `interruptOn` (`[{ on, when }]`) limita qué eventos interrumpen |
+| `ifRunning` | `wait` | `interrupt` cuando el evento invalida lo que hace el agente (la card cambió de columna); `skip` para lo que no vale la pena encolar. `interruptOn` (`[{ on, when }]`) limita qué eventos interrumpen. Con `wait`/`interrupt`, al tomar su turno el runner relee la card y la regla vuelve a pasar su `when`: si la ejecución anterior la movió (ej. el review la devolvió a Build), no corre |
 | `ifQueued` | `replace` | `keep` donde cada evento cuenta (comentarios): con `replace`, el segundo borra al primero |
 | `ifPaused` | `supersede` | `wait` para reglas que pueden no hacer nada (un triage): no se lleva puesta la espera del CI |
 

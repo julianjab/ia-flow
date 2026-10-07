@@ -14,6 +14,7 @@ import type { ConcurrencyLimits } from './ConcurrencyLimits.js'
 import type { Candidate, DispatchPlanner } from './DispatchPlanner.js'
 import type { Execution, Wake } from './Execution.js'
 import type { ExecutionStore } from './ExecutionStore.js'
+import { type Revalidate, stillApplies } from './Revalidation.js'
 import type { DispatchOutcome, RunLauncher } from './RunLauncher.js'
 import { expireTrace, ifRunningTag, offerTag } from './tracing.js'
 
@@ -79,6 +80,8 @@ export interface ExecutionCoordinatorOptions {
   selfOriginated?: (event: DomainEvent<any>) => boolean
   /** Qué pasó, para leer, cuando `pipeline` interrumpe por `event` (ver `EngineOptions`). */
   interruptReason?: (event: DomainEvent<any>, pipeline: Pipeline) => string
+  /** El evento con los hechos de AHORA, para una pipeline que esperó su turno (ver `EngineOptions`). */
+  revalidate?: Revalidate
 }
 
 function defaultInterruptReason(event: DomainEvent<any>, pipeline: Pipeline): string {
@@ -107,6 +110,7 @@ export class ExecutionCoordinator {
   private readonly capabilities?: CapabilityInvoker
   private readonly limits?: ConcurrencyLimits
   private readonly launcher: RunLauncher
+  private readonly revalidate?: Revalidate
   readonly executions?: ExecutionStore
   private readonly executionKey: (event: DomainEvent<any>) => string | undefined
   private readonly formatMessage: (event: DomainEvent<any>) => string
@@ -135,6 +139,7 @@ export class ExecutionCoordinator {
     this.limits = opts.limits
     this.selfOriginated = opts.selfOriginated ?? (() => false)
     this.interruptReason = opts.interruptReason ?? defaultInterruptReason
+    this.revalidate = opts.revalidate
   }
 
   /**
@@ -238,12 +243,21 @@ export class ExecutionCoordinator {
       // Otra corrida de la misma pipeline llegó mientras ésta esperaba y la reemplazó.
       if (!execution) return undefined
       this.noteOpened(event, execution.id)
+      // Esperó detrás de otra ejecución: lo que ésa hizo (mover la card, sacarle un label) puede
+      // haber dejado sin efecto lo que decidió el `when` cuando llegó el evento.
+      const now = busy ? await stillApplies(candidate, event, this.revalidate, this.log) : { event }
+      if ('stale' in now) {
+        execution.close('superseded', now.stale)
+        return undefined
+      }
       // El tope se cuenta recién acá, con el turno tomado: lo anterior de la task ya terminó, y
       // una corrida reemplazada o salteada no cuenta.
-      if (this.exhausted(pipeline, key, event, executions)) {
-        return this.runAsExecution(execution, () => this.runExhausted(candidate, event, execution))
+      if (this.exhausted(pipeline, key, now.event, executions)) {
+        return this.runAsExecution(execution, () =>
+          this.runExhausted(candidate, now.event, execution),
+        )
       }
-      return this.runAsExecution(execution, () => this.runPipeline(candidate, event, execution))
+      return this.runAsExecution(execution, () => this.runPipeline(candidate, now.event, execution))
     }
     return {
       decision: interrupted ? 'interrupts' : busy ? 'waits' : 'starts',
