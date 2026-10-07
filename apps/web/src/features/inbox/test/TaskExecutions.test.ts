@@ -1,13 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { detail, execution, item, trace } from './fixtures'
+import { detail, execution, item, trace } from '@/features/inbox/test/fixtures'
 
 const getTaskDetail = vi.fn()
 vi.mock('@/features/inbox/api', () => ({
   getTaskDetail: (...args: unknown[]) => getTaskDetail(...args),
 }))
 
-import TaskExecutions from '../TaskExecutions.vue'
+import TaskDetailPanel from '@/features/inbox/TaskDetailPanel.vue'
+import TaskExecutions from '@/features/inbox/TaskExecutions.vue'
 
 const failed = (id: string, started_at: string) =>
   execution({
@@ -44,8 +46,9 @@ describe('TaskExecutions', () => {
     expect(row(w, 'ex1').text()).toContain('en curso')
     expect(w.text()).toContain('fs_read app/ability.rb')
     expect(row(w, 'ex0').attributes('aria-expanded')).toBe('false')
-    // Plegada, la falla se lee en la fila.
-    expect(row(w, 'ex0').text()).toContain('400: tool_use sin tool_result')
+    // Plegada, la fila dice quién la cortó; el error crudo no (va una vez, en «Detalle técnico»).
+    expect(row(w, 'ex0').text()).toContain('falló el runner')
+    expect(row(w, 'ex0').text()).not.toContain('400: tool_use sin tool_result')
     expect(getTaskDetail).not.toHaveBeenCalled()
   })
 
@@ -69,7 +72,9 @@ describe('TaskExecutions', () => {
     expect(row(w, 'ex2').attributes('aria-expanded')).toBe('true')
     expect(getTaskDetail).toHaveBeenCalledWith('o/r#1', 'ex2')
     expect(w.text()).toContain('chat claude · round 1')
-    expect(w.get('[role="alert"]').text()).toContain('el runner')
+    // El error crudo, UNA vez: plegado en «Detalle técnico» de la abierta.
+    expect(w.get('[data-test="tech"]').text()).toContain('400: tool_use sin tool_result')
+    expect(w.text().split('400: tool_use sin tool_result')).toHaveLength(2)
   })
 
   it('una plegada pide su traza al abrirla, una sola vez', async () => {
@@ -122,7 +127,7 @@ describe('TaskExecutions', () => {
     await row(w, 'ex1').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('El runner respondió 502')
-    await w.get('.xr__fail .btn').trigger('click')
+    await w.get('[data-test="action-error"] .btn').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('ya está')
   })
@@ -168,5 +173,40 @@ describe('TaskExecutions', () => {
   it('sin ejecuciones no dibuja nada', () => {
     const w = mount(TaskExecutions, { props: { taskRef: 'o/r#1', executions: [], liveTrace: [] } })
     expect(w.find('section').exists()).toBe(false)
+  })
+})
+
+describe('TaskDetailPanel', () => {
+  it('si lo que dijo el agente es el error crudo, el error sale una sola vez (en «Detalle técnico»)', async () => {
+    const message = 'Anthropic API → 400: tool_use sin tool_result'
+    const ex = failed('ex0', '2026-01-01T09:00:00.000Z')
+    const it = item({ agent_said: message, execution: ex })
+    getTaskDetail.mockResolvedValue(detail(it, { executions: [ex] }))
+    const w = mount(TaskDetailPanel, {
+      props: {
+        item: it,
+        detail: { loading: false, error: null, data: detail(it, { executions: [ex] }) },
+      },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+    expect(w.find('.td__quote').exists()).toBe(false)
+    expect(w.text().split(message).length - 1).toBe(1)
+  })
+
+  it('lo que dijo el agente, si no es el error, se cita con ✦', async () => {
+    const ex = failed('ex0', '2026-01-01T09:00:00.000Z')
+    const it = item({ agent_said: 'No encontré el endpoint de pagos.', execution: ex })
+    getTaskDetail.mockResolvedValue(detail(it, { executions: [ex] }))
+    const w = mount(TaskDetailPanel, {
+      props: {
+        item: it,
+        detail: { loading: false, error: null, data: detail(it, { executions: [ex] }) },
+      },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+    expect(w.get('.td__quote').text()).toContain('✦')
+    expect(w.get('.td__quote').text()).toContain('No encontré el endpoint de pagos.')
   })
 })

@@ -1,7 +1,13 @@
 import axios from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { explainTask, getInbox, getTaskDetail, postTaskAction, taskPath } from '../api'
-import { detail, inbox, item } from './fixtures'
+import {
+  explainTask,
+  getInbox,
+  getTaskDetail,
+  postTaskAction,
+  taskPath,
+} from '@/features/inbox/api'
+import { detail, inbox, item } from '@/features/inbox/test/fixtures'
 
 const get = vi.spyOn(axios, 'get')
 const post = vi.spyOn(axios, 'post')

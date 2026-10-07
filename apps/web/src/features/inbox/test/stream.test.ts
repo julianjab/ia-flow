@@ -6,7 +6,7 @@ import {
   FALLBACK_AFTER,
   parseStreamEvent,
   type StreamState,
-} from '../stream'
+} from '@/features/inbox/stream'
 
 class FakeSource implements EventSourceLike {
   static all: FakeSource[] = []

@@ -141,6 +141,25 @@ describe('the default dashboard classifies like the inbox always did', () => {
     expect(paused({})?.why).toBe('Pausada en wait-ci')
   })
 
+  it('carries the epic of the task (its parent issue and its progress); without one, none', () => {
+    const epic = {
+      ref: 'la-haus/subscriptions#100',
+      title: 'Filtros del listado',
+      done: 3,
+      total: 5,
+    }
+    const review = (extra: Partial<TaskFact>) =>
+      classify(
+        fact({
+          item: { status: 'Review', type: 't', repos: [], labels: ['reviewed'], blocked: false },
+          actions: ['merge'],
+          ...extra,
+        }),
+      )
+    expect(review({ epic })?.epic).toEqual(epic)
+    expect(review({})).not.toHaveProperty('epic')
+  })
+
   it('waiting its turn is queued', () => {
     expect(classify(fact({ queue: { waiting: true } }))).toMatchObject({
       group: 'queue',

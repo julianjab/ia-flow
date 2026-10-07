@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/features/inbox/api', () => ({ explainTask: vi.fn() }))
 
-import TaskEvents from '../TaskEvents.vue'
+import TaskEvents from '@/features/inbox/TaskEvents.vue'
 
 const event = (over: Partial<EventLogEntry>): EventLogEntry => ({
   id: 'e1',
