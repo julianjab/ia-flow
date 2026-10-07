@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.6.0](https://github.com/julianjab/ia-flow/compare/v2.5.1...v2.6.0) (2026-10-07)
+
+
+### Features
+
+* **agent-engine:** una pipeline que esperó su turno vuelve a pasar su when contra la card actual ([#289](https://github.com/julianjab/ia-flow/issues/289)) ([c922f46](https://github.com/julianjab/ia-flow/commit/c922f4603bc3a9652a308da8c50645818fa2c540))
+* **shell-tools:** gh de sólo lectura con credencial en bash_run ([#291](https://github.com/julianjab/ia-flow/issues/291)) ([b9b7d97](https://github.com/julianjab/ia-flow/commit/b9b7d97bc45e2e7f3c7b6a195b66ee4e0b830575))
+* **web:** las ejecuciones de una tarea, cada una con su traza, y los eventos enlazados ([#288](https://github.com/julianjab/ia-flow/issues/288)) ([bea585e](https://github.com/julianjab/ia-flow/commit/bea585ed80c3797e8fee62a9c50c9b1ab8c97bfc))
+
 ## [2.5.1](https://github.com/julianjab/ia-flow/compare/v2.5.0...v2.5.1) (2026-10-06)
 
 
