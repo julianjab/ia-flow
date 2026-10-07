@@ -61,6 +61,20 @@ function firstOf(templates: string[], root: Record<string, unknown>): string | u
   return undefined
 }
 
+/** Lo que la tarea trae tal cual, sin pasar por el dashboard: PR, corrida, bloqueos, épica. */
+function factsOf(
+  task: TaskFact,
+): Pick<InboxItem, 'pr' | 'execution' | 'blocked_by' | 'unlocks' | 'epic'> {
+  const execution = task.live_run ?? task.last_run
+  return {
+    ...(task.pr ? { pr: task.pr } : {}),
+    ...(execution ? { execution } : {}),
+    ...(task.blocked_by_refs.length > 0 ? { blocked_by: task.blocked_by_refs } : {}),
+    ...(task.task.unlocks > 0 ? { unlocks: task.task.unlocks } : {}),
+    ...(task.epic ? { epic: { ...task.epic } } : {}),
+  }
+}
+
 function itemOf(task: TaskFact, decision: Decision): InboxItem {
   const root = rootOf(task)
   const offered = task.actions
@@ -72,7 +86,6 @@ function itemOf(task: TaskFact, decision: Decision): InboxItem {
     .filter((chip) => holds(chip.when, root))
     .map((chip) => ({ text: text(chip.text, root), ...(chip.tone ? { tone: chip.tone } : {}) }))
     .filter((chip) => chip.text)
-  const execution = task.live_run ?? task.last_run
   const defs = task.action_defs.filter((def) => shown.includes(def.id))
   return {
     ref: task.ref,
@@ -85,10 +98,7 @@ function itemOf(task: TaskFact, decision: Decision): InboxItem {
     labels: task.item.labels,
     why: text(decision.why, root),
     since,
-    ...(task.pr ? { pr: task.pr } : {}),
-    ...(execution ? { execution } : {}),
-    ...(task.blocked_by_refs.length > 0 ? { blocked_by: task.blocked_by_refs } : {}),
-    ...(task.task.unlocks > 0 ? { unlocks: task.task.unlocks } : {}),
+    ...factsOf(task),
     ...(said ? { agent_said: said } : {}),
     actions: shown,
     ...(defs.length > 0 ? { action_defs: defs } : {}),

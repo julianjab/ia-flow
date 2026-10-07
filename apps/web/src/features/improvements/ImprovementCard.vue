@@ -53,14 +53,14 @@ const done = computed(() => props.proposal.status === 'opened' || props.state?.s
       <button
         v-if="session.github"
         type="button"
-        class="btn btn--primary"
+        class="btn"
         data-test="run"
         :disabled="running"
         @click="emit('run')"
       >
         {{ running ? 'Abriendo…' : 'Abrir issue' }}
       </button>
-      <button v-else type="button" class="btn btn--primary" data-test="login" @click="session.requestLogin()">
+      <button v-else type="button" class="btn" data-test="login" @click="session.requestLogin()">
         Iniciar sesión con GitHub
       </button>
       <button type="button" class="btn" data-test="dismiss" :disabled="running" @click="emit('dismiss')">

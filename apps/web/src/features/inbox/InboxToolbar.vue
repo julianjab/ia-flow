@@ -33,14 +33,14 @@ const linked = computed(() =>
 <template>
   <div class="tb">
     <div v-if="projects.length > 1" class="tb__chips" role="group" aria-label="Proyecto">
-      <button type="button" class="tb__chip" :aria-pressed="project === null" @click="emit('project', null)">
+      <button type="button" class="filter-chip" :aria-pressed="project === null" @click="emit('project', null)">
         Todos
       </button>
       <button
         v-for="p in projects"
         :key="p.id"
         type="button"
-        class="tb__chip mono"
+        class="filter-chip mono"
         :aria-pressed="project === p.id"
         @click="emit('project', p.id)"
       >
@@ -71,18 +71,6 @@ const linked = computed(() =>
 <style scoped>
 .tb { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; min-height: var(--tap-h); }
 .tb__chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-/* Chip de filtro: `--tap-h-sm`, van varios en fila (DESIGN_SYSTEM «Grilla vs. blanco táctil»). */
-.tb__chip {
-  min-height: var(--tap-h-sm);
-  padding: 0 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-size: var(--fs-body-sm);
-}
-.tb__chip:hover { background: var(--panel-hi); color: var(--fg); }
-.tb__chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 .tb__links { display: flex; flex-wrap: wrap; gap: 0 1rem; }
 .tb__proj { display: inline-flex; align-items: center; gap: 0 0.75rem; }
 .tb__id { color: var(--fg-dim); font-size: var(--fs-chrome); }

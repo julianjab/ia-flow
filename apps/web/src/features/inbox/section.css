@@ -1,0 +1,11 @@
+/* El encabezado de una sección de la bandeja («Después», «El pipeline», «Board de GitHub», el
+ * feed…): versalitas con el tracking del sistema, al mismo tamaño que el cuerpo (DESIGN_SYSTEM
+ * «Tipografía»). Se importa con `<style scoped src="@/features/inbox/section.css">` en cada componente que lo
+ * dibuja: una sola definición, no una copia por sección. */
+.sec-hd {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-hd);
+}

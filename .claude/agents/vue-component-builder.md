@@ -118,7 +118,7 @@ El código se agrupa por **dominio de negocio**, no por tipo de archivo:
 6. **Local state → `ref`/`reactive` + `computed`.** No mutar props: derivar con `computed` o emitir `update:modelValue` (patrón `v-model`).
 7. **Estilos `<style scoped>`.** Nada de CSS global nuevo. Reutiliza los tokens visuales del componente hermano que clonaste.
 8. **Accesibilidad.** `<label :for>` en todo input, `aria-label` en botones-icono, `role`/`aria-*` en modales, foco visible, `type="button"` en botones no-submit.
-9. **Tamaño.** Si el componente pasa de ~300 líneas, divide en subcomponentes **dentro de su propia feature** antes de terminar (patrón ya usado: `features/inbox/` parte la tarjeta en `InboxCard` / `TaskDetailPanel` / `TaskActions` / `TaskEvents`).
+9. **Tamaño.** Si el componente pasa de ~300 líneas, divide en subcomponentes **dentro de su propia feature** antes de terminar (patrón ya usado: `features/inbox/` parte la cola en `decisions/` / `queue/` / `pipeline/` + `TaskDetailPanel` / `TaskActions` / `TaskEvents`).
 10. **Convención de nombres.** `PascalCase.vue`, un componente por archivo, test en subcarpeta `test/PascalCase.test.ts`.
 
 ## 2. Test obligatorio

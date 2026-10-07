@@ -3,10 +3,14 @@ import type { ExecutionSummary, TraceEntry } from '@ia-flow/shared';
 import { computed, nextTick, ref, watch } from 'vue';
 import { formatRelative } from '@/composables/formatRelative';
 import { duration, executionStatus, traceLine, usageLine } from '@/features/inbox/format';
+import ActionError from '@/features/inbox/decisions/ActionError.vue';
+import Disclosure from '@/features/inbox/Disclosure.vue';
+import { loadFailure } from '@/features/inbox/queue/advice';
 import LogLine from '@/ui/LogLine.vue';
 
 // Una ejecución de la tarea. Plegada, una línea: quién corrió, cómo terminó y
-// cuándo; abierta, sus datos, la falla entera y la traza. La traza la trae
+// cuándo (si falló, quién la cortó, sin el error); abierta, sus datos, el error crudo UNA vez
+// —plegado en «Detalle técnico»— y la traza. La traza la trae
 // quien la usa (`TaskExecutions`): la de la ejecución viva llega por el stream.
 
 const props = defineProps<{
@@ -29,6 +33,8 @@ const GLYPH: Record<ExecutionSummary['status'], string> = {
 };
 
 const live = computed(() => props.execution.status === 'running');
+const traceFailure = computed(() => (props.error ? loadFailure('cargar la traza', props.error) : null));
+const failedBy = computed(() => (props.execution.failure?.by === 'agent' ? 'la cortó el agente' : 'falló el runner'));
 const took = computed(() => {
   const { started_at, closed_at } = props.execution;
   if (!closed_at) return null;
@@ -64,10 +70,10 @@ watch(
           <span class="xr__agent">{{ execution.agent_id ?? execution.pipeline_id }}</span>
           <span v-if="execution.agent_id" class="xr__dim mono">{{ execution.pipeline_id }}</span>
           <span class="xr__dim mono">{{ execution.id.slice(0, 8) }}</span>
-          <span v-if="live" class="xr__live">en curso</span>
+          <span v-if="live" class="xr__live"><span class="live-dot" aria-hidden="true" />en curso</span>
           <span v-else class="xr__status">{{ executionStatus(execution.status) }}</span>
         </span>
-        <span v-if="execution.failure" class="xr__err mono">{{ execution.failure.message }}</span>
+        <span v-if="execution.failure" class="xr__err">✕ {{ failedBy }}</span>
         <span v-else-if="execution.exit" class="xr__dim">salida <span class="mono">{{ execution.exit }}</span></span>
       </span>
       <span class="xr__side">
@@ -85,15 +91,11 @@ watch(
           ><template v-if="execution.pause.expires_at"> · vence {{ formatRelative(execution.pause.expires_at) }}</template>
         </span>
       </p>
-      <p v-if="execution.failure" class="xr__fail" role="alert">
-        ✕ <span class="xr__dim">{{ execution.failure.by === 'agent' ? 'el agente' : 'el runner' }}:</span>
-        {{ execution.failure.message }}
-      </p>
+      <Disclosure v-if="execution.failure" title="Detalle técnico" tag="span" data-test="tech">
+        <pre class="xr__pre mono">{{ execution.failure.message }}</pre>
+      </Disclosure>
       <p v-if="loading" class="xr__dim">· cargando la traza…</p>
-      <div v-else-if="error" class="xr__fail" role="alert">
-        <p>✕ {{ error }}</p>
-        <button type="button" class="btn" @click="emit('retry')">Reintentar</button>
-      </div>
+      <ActionError v-else-if="traceFailure" :failure="traceFailure" @retry="emit('retry')" />
       <div v-else-if="trace.length" ref="log" class="xr__log" role="log" :aria-label="`Traza de ${execution.id}`">
         <LogLine v-for="(entry, i) in trace" :key="`${entry.span_id}-${entry.kind}-${entry.phase ?? ''}-${i}`" v-bind="traceLine(entry)" />
       </div>
@@ -133,10 +135,9 @@ watch(
 .xr__agent { color: var(--fg); font-weight: 600; }
 .xr__status { color: var(--fg-dim); font-size: var(--fs-micro); }
 .xr__live { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-micro); }
-.xr__live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: xr-pulse 1.4s ease-in-out infinite; }
-@keyframes xr-pulse { 50% { opacity: 0.3; } }
-/* Plegada, el error en una línea; abierta, entero abajo. */
-.xr__err { overflow: hidden; color: var(--danger); font-size: var(--fs-micro); text-overflow: ellipsis; white-space: nowrap; }
+/* Plegada, sólo quién la cortó; el error crudo va una vez, abajo, en «Detalle técnico». */
+.xr__err { color: var(--danger); font-size: var(--fs-micro); }
+.xr__pre { margin: 0; padding: 0 0.75rem 0.75rem; color: var(--fg-mute); font-size: var(--fs-micro); line-height: 1.55; white-space: pre-wrap; word-break: break-all; max-height: 20rem; overflow-y: auto; }
 .xr__dim { color: var(--fg-dim); font-size: var(--fs-body-sm); }
 .xr__side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.1rem; color: var(--fg-dim); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .xr__chev { display: inline-block; transition: transform 120ms ease; }
@@ -144,12 +145,10 @@ watch(
 .xr__body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0 0.75rem 0.75rem 2.45rem; }
 .xr__body p { margin: 0; }
 .xr__facts { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; color: var(--fg-dim); font-size: var(--fs-micro); }
-.xr__fail { color: var(--danger); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
-.xr__fail p { margin: 0 0 0.5rem; }
 /* Sin scroll horizontal (R2): la línea de log ya se trunca sola. */
 .xr__log { max-height: 28rem; overflow-x: hidden; overflow-y: auto; padding: 0.25rem 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
-  .xr[data-flash], .xr__live::before { animation: none; }
+  .xr[data-flash], .xr__live .live-dot { animation: none; }
   .xr__chev { transition: none; }
 }
 </style>
