@@ -65,6 +65,12 @@
   --fs-body: 0.875rem;
   --fs-body-sm: 0.8125rem;
   --fs-micro: 0.6875rem;
+  /* Display: lo que se lee de un vistazo y no es prosa. `--fs-display` es el
+     titular de una pantalla y el verbo de la decisión que la encabeza;
+     `--fs-num`, un número suelto que es el dato (una celda de contador) y el
+     verbo grande en el teléfono. Fuera de eso, la escala de arriba. */
+  --fs-display: 1.4rem;
+  --fs-num: 1.225rem;
   --row-h: 1.375rem;
   /* Blanco táctil — la otra mitad de `--row-h`.
      `--row-h` es la GRILLA: el ritmo de una fila de tabla, el `line-height` de
@@ -97,6 +103,9 @@
      (ej. el drawer de ejecuciones) necesitan el mismo número para su
      `top`; hardcodearlo en dos lados es como se rompió antes. */
   --chrome-h: 2.25rem;
+  /* El fondo detrás de un overlay modal (sheet, panel de detalle): oscurece y
+     cierra al tocarlo. Un solo valor para todos. */
+  --scrim: rgba(0, 0, 0, 0.6);
   --tracking-hd: 0.14em;
   --tracking-lbl: 0.08em;
 
@@ -352,6 +361,36 @@ a:hover {
 .btn--destructive:hover {
   background: var(--red-hi);
   border-color: var(--red-hi);
+}
+/* Chip de filtro (proyecto, tipo de decisión): `--tap-h-sm` porque van varios en fila, radio
+   chico, y la selección en video inverso (`aria-pressed`), nunca un contorno de color. Un
+   contador adentro (`<span>`) hereda el color al quedar seleccionado. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--fg-mute);
+}
+.filter-chip:hover {
+  background: var(--panel-hi);
+  color: var(--fg);
+}
+.filter-chip:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.filter-chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+}
+.filter-chip[aria-pressed="true"] > * {
+  color: inherit;
 }
 .hairline {
   background: var(--border);

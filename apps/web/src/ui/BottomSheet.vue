@@ -74,7 +74,7 @@ onUnmounted(() => setLock(false));
 .bs-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   z-index: 80;
   display: flex;
   align-items: flex-end;

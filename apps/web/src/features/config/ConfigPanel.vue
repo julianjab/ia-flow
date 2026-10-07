@@ -36,12 +36,12 @@ const projects = computed(() => config.value?.projects ?? []);
   <div class="cfg">
     <div class="cfg__bar">
       <div v-if="projects.length > 1" class="cfg__chips" role="group" aria-label="Proyecto">
-        <button type="button" class="cfg__chip" :aria-pressed="source === null" @click="source = null">Todos</button>
+        <button type="button" class="filter-chip cfg__chip" :aria-pressed="source === null" @click="source = null">Todos</button>
         <button
           v-for="p in projects"
           :key="p.id"
           type="button"
-          class="cfg__chip mono"
+          class="filter-chip cfg__chip mono"
           :aria-pressed="source === p.id"
           @click="source = p.id"
         >
@@ -71,8 +71,6 @@ const projects = computed(() => config.value?.projects ?? []);
 .cfg { display: flex; flex-direction: column; gap: 1.25rem; }
 .cfg__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; min-height: var(--tap-h); }
 .cfg__chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.cfg__chip { min-height: var(--tap-h-sm); padding: 0 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--fg-mute); font-size: var(--fs-body-sm); }
-.cfg__chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 .cfg__note { flex: 1 1 12rem; margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 .cfg__err { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem; border: 1px solid var(--danger); border-radius: var(--radius); background: var(--red-bg); }
 .cfg__err p { margin: 0; color: var(--danger); overflow-wrap: anywhere; }

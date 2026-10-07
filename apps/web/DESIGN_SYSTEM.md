@@ -30,6 +30,7 @@ Si estás mirando un componente con `border-radius: 0`, hex hardcodeados o `'SF 
 | `--border` | Hairlines entre celdas y bordes de card |
 | `--border-hi` | Bordes de foco / énfasis |
 | `--border-mute` | Separadores dentro de una lista |
+| `--scrim` | El fondo detrás de un overlay modal (sheet, panel de detalle): oscurece y cierra al tocarlo. Un solo valor para todos (`BottomSheet`, `TaskDetailDrawer`) |
 
 ### Texto
 
@@ -65,7 +66,7 @@ Regla: cada estado usa **una** ranura. No hay dos "ok".
 
 La regla práctica: **mono es para lo que el usuario podría copiar y pegar**. Un título de tarea es prosa → Sans. `#1240`, `fix/sms-add-sid`, `PVTI_lADO…` → Mono.
 
-Escala: `--fs-micro` · `--fs-chrome` · `--fs-body-sm` · `--fs-body`. Siempre el token, nunca `0.85rem` escrito a mano — la raíz vive en `html { font-size: 18px }` y esa es la única perilla para agrandar la interfaz entera.
+Escala: `--fs-micro` · `--fs-chrome` · `--fs-body-sm` · `--fs-body`, más dos de display: `--fs-num` (un número que es el dato, el verbo grande en el teléfono) y `--fs-display` (el titular de una pantalla, el verbo de la decisión que la encabeza). Siempre el token, nunca `0.85rem` escrito a mano — la raíz vive en `html { font-size: 18px }` y esa es la única perilla para agrandar la interfaz entera.
 
 ### Grilla vs. blanco táctil — dos números, no uno
 
@@ -84,7 +85,9 @@ de iOS al enfocarlo—, así que el blanco táctil tiene tokens propios:
 | `--fs-input` | `16px` | Piso del texto de `input`/`textarea`. **px absolutos a propósito**: es lo único que evita el zoom de iOS, y un `rem` se escala con la raíz. |
 
 Los que ya los usan: `.ec-btn` (`EditableCard`), `.ff-add` / `.ff-drop` / `.ff-field`
-(`form-fields.css`), `.cs-header` (`CollapsibleSection`), `.select-row` (`theme.css`, y con él
+(`form-fields.css`), `.cs-header` (el header de sección plegable; el componente
+`CollapsibleSection` que lo usaba ya no está en `src/` —el plegable vivo es `Disclosure`, ver
+«Primitivas»—), `.dz__sum` (`Disclosure`), `.select-row` (`theme.css`, y con él
 `ComboBox` y todo popover). **Un control nuevo arranca en `--tap-h`; si querés menos, justificá
 por qué no se toca.**
 
@@ -154,6 +157,28 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
 - `.hairline` — separador de 1px.
 - `.select-row` / `.select-row--active` — fila de menú con video inverso.
+- `.filter-chip` — **el chip de filtro presionable** (proyecto en la toolbar de la bandeja y en
+  Config, tipo de decisión en «Después»): `--tap-h-sm`, `--radius-sm`, borde `--border` y, con
+  `aria-pressed="true"`, video inverso (el contador de adentro hereda el color). Había tres copias
+  (`.tb__chip`, `.dq__chip`, `.cfg__chip`) con radios distintos: **no la vuelvas a declarar.**
+- **El kit de la bandeja** (`features/inbox/`, de dominio: no vive en `ui/`). Cada pieza se usa en
+  tres lugares o más; antes de escribir otra forma de lo mismo, usá esta:
+  - `Disclosure.vue` — **el plegable**: un `<details>` con su línea de resumen a `--tap-h`
+    (chevron `▸` que gira, el título y, al lado, lo que se ve plegado), foco visible. `tag` dice si
+    el título es encabezado (`h2`/`h3`) o no (`span`); el encabezado va **fuera** del `<summary>`
+    (para lectores de pantalla) porque adentro VoiceOver lo aplana. Lo usan el feed, el pipeline
+    en una línea, el board de GitHub y sus columnas, la leyenda y el «Detalle técnico».
+  - `decisions/InlineConfirm.vue` — **la confirmación en línea**: reemplaza al botón en la misma
+    card, dice qué se firma, dónde y con tu usuario de GitHub, y ofrece Cancelar / «<Verbo>
+    ahora». Nunca `window.confirm` ni un modal. El botón que la abre lleva `…`.
+  - `decisions/ActionError.vue` + `queue/advice.ts` (`actionFailure`, `loadFailure`) — **el error
+    pegado al botón que falló** (o a lo que no cargó): `role="alert"`, `✕ qué pasó` en `--danger`,
+    `→ qué hacer` en `--info` y Reintentar. Es la forma de «Errores» (abajo) para la bandeja.
+  - `decisions/RefLink.vue` + `queue/shortRef.ts` — **el link corto a GitHub** `seller#4302 ↗`
+    (`shortRef`, `prShortOf`), a `--tap-h`, `target="_blank" rel="noopener"`.
+  - `decisions/AgeStamp.vue` + `queue/age.ts` — **la antigüedad**: mono, cifras tabulares, en
+    `--warn` desde las 24 h. Toda card o fila con fecha la usa.
+  - `section.css` (`.sec-hd`) — el encabezado de sección de la bandeja, importado `scoped`.
 - `ui/BottomSheet.vue` — **el overlay de la capa táctil.** Bajo `--bp-shell` un popover anclado a su
   disparador queda fuera de pantalla en cuanto sube el teclado virtual (R6), así que todo overlay
   es este sheet: `translateY` en 150ms, backdrop al 60% que cierra al tocar, radio superior de
@@ -387,14 +412,39 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 - **Tabla:** grid con `grid-template-columns` en `ch`, filas de `--row-h`, hairline `--border-mute` entre filas.
 - **Card de lista:** borde `--border`, hover que cambia superficie a `--panel-hi` y marca el borde izquierdo con la ranura del dominio (`--info` para algo navegable). El foco lo pone `[data-kbd-item]`.
 - **Chip / tag:** una sola caja para todos los tipos — `line-height: var(--row-h)`, mono, `--radius-sm`, borde hairline. Lo que varía entre tipos es **el color del glifo**, no la caja: así una fila de tags heterogéneos se lee como una unidad.
+  **Excepción — el chip de razón de la bandeja** (`decisions/ReasonChips.vue`): el porqué de una
+  decisión («desbloquea 2», «espera seller#12», «falló 2 veces») no es un tag de tipo sino un
+  estado, y el mockup lo pinta con **fondo de estado sin borde**: neutro en `--panel-hi`, `hot`
+  en `--green-bg`/`--accent`, `warn` en `--yellow-bg`/`--warn`, `bad` en `--red-bg`/`--danger`.
+  Misma altura (`--row-h`), mono y `--radius-sm` que el chip; no es presionable. Se usa sólo para
+  razones (máx. 3 en «Lo primero», 2 por fila); un tag de tipo sigue siendo la caja única.
 - **Truncado:** truncá lo mínimo. Dentro de un chip, sólo el texto variable (el glifo y el estado quedan siempre visibles). Un título de lista **envuelve**, no trunca: esconder el final de un título esconde justo lo que distingue una fila de otra.
 - **Ausencia:** decila, no la calles — `sin rama`, `sin PR` en `--fg-dimmer`. Pero sólo cuando *sabés* que no hay; si el dato no llegó, no muestres nada (un "no sé" dibujado como "no hay" es peor que el silencio).
 - **Selección:** video inverso (`background: var(--accent); color: var(--panel)`); nunca outlines de color.
 
 ## Glifos
 
-`●` proceso vivo / abierto · `○` detenido / draft · `◐` en curso · `✓` completado / mergeado · `✕` fallo / cerrado · `⛔` bloqueado · `⎇` rama · `▸` cursor de fila · `→` acción sugerida · `↗` abre afuera · `➜` prompt · `✦` salida de IA · `◆` bot / integración (Slack, agentes) · `·` detalle secundario.
+`●` proceso vivo / abierto · `○` detenido / draft · `◐` en curso (en la bandeja, también trabada / para relanzar) · `↻` volver a correr (re-review, rerun) · `✓` completado / mergeado · `✕` fallo / cerrado · `⛔` bloqueado · `⎇` rama · `▸` cursor de fila · `→` acción sugerida · `↗` abre afuera · `➜` prompt · `✦` salida de IA · `◆` bot / integración (Slack, agentes) · `·` detalle secundario.
 Preferí Unicode sobre íconos SVG.
+
+### Tono por tipo (bandeja)
+
+En la cola de decisiones el color lo da el **tipo** de la decisión, no el grupo del runner: glifo
+y verbo van en el tono; el título y el resto de la fila, en neutros. La tabla vive en código en
+`features/inbox/queue/kinds.ts` (`TYPE_META`).
+
+| Tipo | Glifo | Tono |
+| --- | --- | --- |
+| merge | `✓` | `--accent` |
+| prd (aprobar) | `○` | `--info` |
+| review / rerun | `↻` | `--accent` |
+| answer (responder, destrabar) | `⛔` | `--warn` |
+| relaunch (trabada) | `◐` | `--warn` |
+| fail (crash, falla) | `✕` | `--danger` |
+| otra | `→` | `--fg-mute` |
+
+`◐` en la bandeja también quiere decir «trabada / para relanzar»: es una corrida que estaba en
+curso y dejó de avanzar.
 
 `✦` y `◆` estaban mezclados: el tag de Slack, el botón de review, el bot del selector de miembros
 y la fila «Agentes» de `Más` usaban `✦`, que esta tabla ya reservaba para salida de IA. Se
@@ -416,7 +466,7 @@ exactamente así.
 **El procedimiento, en tres pasos:**
 
 1. **Buscá si ya existe con otro nombre.** Es el caso más frecuente. `.btn` y sus variantes,
-   `.select-row`, `.drag-handle`, `EditableCard`, `ScopeGroup`, `CollapsibleSection`,
+   `.select-row`, `.drag-handle`, `EditableCard`, `ScopeGroup`, `Disclosure` (el plegable),
    `ConditionRowsEditor`, `ComboBox`, `BottomSheet`, `form-fields.css`. Si estás por escribir un
    `border: 1px solid var(--border-hi)` sobre un `height`, casi seguro estás reescribiendo uno.
 2. **Si no existe, pedilo — y decí dónde MÁS sirve.** Un control que sólo sirve en una pantalla
