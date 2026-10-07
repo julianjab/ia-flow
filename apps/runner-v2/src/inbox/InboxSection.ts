@@ -17,6 +17,9 @@ export const InboxSection = z.strictObject({
   /** Los nombres de las columnas del board que la bandeja entiende. */
   statuses: z
     .strictObject({
+      /** Lo que espera a que alguien lo arranque: lo que la bandeja ofrece para alimentar el
+       *  pipeline (`feed`). */
+      todo: z.string().min(1).default('Todo'),
       refine: z.string().min(1).default('Refine'),
       refined: z.string().min(1).default('Refined'),
       build: z.string().min(1).default('Build'),

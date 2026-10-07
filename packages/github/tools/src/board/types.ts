@@ -37,6 +37,19 @@ export interface BoardCard {
   /** Los issues abiertos que la bloquean (`owner/repo#n`). */
   blockedBy: string[]
   pr?: { number: number; url: string }
+  /** La épica: el issue padre y cuántos de sus sub-issues cerraron. Sin padre (o un board que no
+   *  sabe leerlo), ausente. */
+  epic?: BoardEpic
+}
+
+/** El issue padre de una card y su avance. */
+export interface BoardEpic {
+  /** `owner/repo#n` */
+  ref: string
+  title: string
+  /** Sub-issues cerrados. */
+  done: number
+  total: number
 }
 
 /** Lo que se sabe del board en sí: sus links y el orden de sus columnas. */

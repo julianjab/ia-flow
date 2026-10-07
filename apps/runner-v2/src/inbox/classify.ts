@@ -221,24 +221,12 @@ export function classify(
 }
 
 const GROUP_ORDER: Record<InboxGroup, number> = { need: 0, fail: 1, run: 2, queue: 3, idle: 4 }
-const KIND_ORDER: Partial<Record<InboxKind, number>> = {
-  merge: 0,
-  review: 1,
-  prd: 2,
-  doubt: 3,
-  prerequisite: 4,
-  stale: 5,
-}
 
-/** El orden de la bandeja: por grupo; en "te necesita", lo más cerca de Done primero; dentro de
- *  cada caso, lo más viejo arriba. */
+/** El orden de lo que no es una decisión (corre, espera turno): por grupo y, dentro de cada uno, lo
+ *  más viejo arriba. Las decisiones las ordena `prioritize` por palanca. */
 export function inboxOrder(
-  a: { group: InboxGroup; kind: InboxKind; since: string },
-  b: { group: InboxGroup; kind: InboxKind; since: string },
+  a: { group: InboxGroup; since: string },
+  b: { group: InboxGroup; since: string },
 ): number {
-  return (
-    GROUP_ORDER[a.group] - GROUP_ORDER[b.group] ||
-    (KIND_ORDER[a.kind] ?? 0) - (KIND_ORDER[b.kind] ?? 0) ||
-    a.since.localeCompare(b.since)
-  )
+  return GROUP_ORDER[a.group] - GROUP_ORDER[b.group] || a.since.localeCompare(b.since)
 }

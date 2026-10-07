@@ -98,6 +98,17 @@ export const ExecutionSummarySchema = z.object({
 })
 export type ExecutionSummary = z.infer<typeof ExecutionSummarySchema>
 
+/** La épica de una tarea: su issue padre y cuántos de sus sub-issues cerraron. */
+export const TaskEpicSchema = z.object({
+  /** `owner/repo#n` */
+  ref: z.string(),
+  title: z.string(),
+  /** Sub-issues cerrados. */
+  done: z.number(),
+  total: z.number(),
+})
+export type TaskEpic = z.infer<typeof TaskEpicSchema>
+
 export const InboxItemSchema = z.object({
   /** `owner/repo#n` */
   ref: z.string(),
@@ -120,11 +131,19 @@ export const InboxItemSchema = z.object({
   blocked_by: z.array(z.string()).optional(),
   /** Cuántas tareas destraba si se cierra. */
   unlocks: z.number().optional(),
+  /** Su épica (el issue padre) y su avance; sin padre, ausente. */
+  epic: TaskEpicSchema.optional(),
   /** Lo último que dijo el agente (su reporte o el motivo de su `fail_turn`). */
   agent_said: z.string().optional(),
   actions: z.array(TaskActionSchema),
   /** Cómo se llaman y qué piden las que declaró el proyecto (las otras las conoce el cliente). */
   action_defs: z.array(TaskActionDefSchema).optional(),
+  /** Su lugar entre las decisiones (`need` + `fail`) de `GET /api/inbox`: 1 = la primera. Lo que
+   *  corre, espera turno o se pide suelto (una tarea por su ref) no lo trae. */
+  priority: z.number().optional(),
+  /** Por qué está en ese lugar, en lenguaje de producto ("a un merge de Done", "destraba 2
+   *  tareas"): al menos una cuando hay `priority`. */
+  reasons: z.array(z.string()).optional(),
   // ── presentación: la pone el dashboard de quien mira (la web), nunca el runner ──
   /** El verbo de la decisión ("Decidir el merge"); sin él, el nombre del caso. */
   verb: z.string().optional(),
@@ -149,10 +168,56 @@ export const InboxProjectSchema = z.object({
 })
 export type InboxProject = z.infer<typeof InboxProjectSchema>
 
+/** Una card del board que no está en la bandeja: sin pendientes. */
+export const BoardRestItemSchema = z.object({
+  ref: z.string(),
+  project_id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  status: z.string().optional(),
+  labels: z.array(z.string()),
+  updated_at: z.string(),
+  pr: z.object({ number: z.number(), url: z.string() }).optional(),
+})
+export type BoardRestItem = z.infer<typeof BoardRestItemSchema>
+
+/** Lo que el runner tiene corriendo y cuánto le cabe: con esto se decide con qué alimentarlo. */
+export const InboxPipelineSchema = z.object({
+  /** Corridas con un agente trabajando ahora. */
+  running: z.number(),
+  /** Corridas esperando turno (detrás de otra o del tope). */
+  queued: z.number(),
+  /** Corridas pausadas (esperando el CI): no ocupan un lugar, pero siguen vivas. */
+  paused: z.number(),
+  /** El tope global (`engine.executions.maxConcurrent`); sin tope, ausente. */
+  capacity: z.number().optional(),
+  /** Lugares libres: `capacity - running`; sin tope, ausente. */
+  free: z.number().optional(),
+})
+export type InboxPipeline = z.infer<typeof InboxPipelineSchema>
+
+/** Una card de Todo que todavía no arrancó. */
+export const InboxFeedItemSchema = BoardRestItemSchema.extend({
+  /** Los issues abiertos que la bloquean (`owner/repo#n`): sólo en `waiting`. */
+  blocked_by: z.array(z.string()).optional(),
+})
+export type InboxFeedItem = z.infer<typeof InboxFeedItemSchema>
+
+/** Las cards de Todo, en el orden del board: las que pueden arrancar ya y las que esperan a otra. */
+export const InboxFeedSchema = z.object({
+  ready: z.array(InboxFeedItemSchema),
+  waiting: z.array(InboxFeedItemSchema),
+})
+export type InboxFeed = z.infer<typeof InboxFeedSchema>
+
 export const InboxSchema = z.object({
   generated_at: z.string(),
   projects: z.array(InboxProjectSchema),
   items: z.array(InboxItemSchema),
+  /** Ocupación del runner. Un runner viejo no lo manda. */
+  pipeline: InboxPipelineSchema.optional(),
+  /** Las cards de Todo, listas o esperando. Un runner viejo no lo manda. */
+  feed: InboxFeedSchema.optional(),
 })
 export type Inbox = z.infer<typeof InboxSchema>
 
@@ -491,19 +556,6 @@ export const AssistantConversationSchema = AssistantConversationSummarySchema.ex
   thread: z.array(AssistantStoredMessageSchema),
 })
 export type AssistantConversation = z.infer<typeof AssistantConversationSchema>
-
-/** Una card del board que no está en la bandeja: sin pendientes. */
-export const BoardRestItemSchema = z.object({
-  ref: z.string(),
-  project_id: z.string(),
-  title: z.string(),
-  url: z.string(),
-  status: z.string().optional(),
-  labels: z.array(z.string()),
-  updated_at: z.string(),
-  pr: z.object({ number: z.number(), url: z.string() }).optional(),
-})
-export type BoardRestItem = z.infer<typeof BoardRestItemSchema>
 
 /** `GET /api/board`: lo que la bandeja no muestra, por columna y en el orden del board. */
 export const BoardRestSchema = z.object({

@@ -6,6 +6,7 @@ export { ProjectsV2Intake } from './ProjectsV2Intake.js'
 export type {
   BoardAdder,
   BoardCard,
+  BoardEpic,
   BoardMeta,
   BoardWriter,
   IntakeBoard,

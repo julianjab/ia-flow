@@ -7,7 +7,12 @@
  * existe una pantalla; un runner sin web publica lo mismo.
  */
 import { z } from 'zod'
-import { ExecutionSummarySchema, InboxProjectSchema, TaskActionDefSchema } from './inbox.js'
+import {
+  ExecutionSummarySchema,
+  InboxProjectSchema,
+  TaskActionDefSchema,
+  TaskEpicSchema,
+} from './inbox.js'
 
 /** La raíz sobre la que se evalúa un `when` (de una acción del runner o de un dashboard) y se
  *  resuelve una plantilla: estas claves, en este orden de prioridad de significado. */
@@ -50,6 +55,8 @@ export const TaskFactSchema = TaskFactsSchema.extend({
   updated_at: z.string(),
   /** Los issues que la bloquean (`owner/repo#n`). */
   blocked_by_refs: z.array(z.string()),
+  /** Su épica (el issue padre) y su avance; sin padre, ausente. */
+  epic: TaskEpicSchema.optional(),
   /** La corrida viva y la última cerrada, completas: tokens, fechas, el motivo de un fallo. */
   live_run: ExecutionSummarySchema.optional(),
   last_run: ExecutionSummarySchema.optional(),
