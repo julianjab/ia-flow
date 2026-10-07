@@ -190,22 +190,18 @@ describe('classify', () => {
 })
 
 describe('inboxOrder', () => {
-  it('groups by urgency, merge before an unapproved review before prd, oldest first', () => {
+  it('what is not a decision: by group, oldest first', () => {
     const items = [
-      { group: 'queue' as const, kind: 'dep' as const, since: '1' },
-      { group: 'need' as const, kind: 'prd' as const, since: '1' },
-      { group: 'need' as const, kind: 'merge' as const, since: '3' },
-      { group: 'need' as const, kind: 'merge' as const, since: '2' },
-      { group: 'fail' as const, kind: 'crash' as const, since: '1' },
-      { group: 'need' as const, kind: 'review' as const, since: '1' },
+      { group: 'queue' as const, since: '1' },
+      { group: 'run' as const, since: '3' },
+      { group: 'run' as const, since: '2' },
+      { group: 'queue' as const, since: '0' },
     ]
-    expect(items.sort(inboxOrder).map((item) => `${item.kind}:${item.since}`)).toEqual([
-      'merge:2',
-      'merge:3',
-      'review:1',
-      'prd:1',
-      'crash:1',
-      'dep:1',
+    expect(items.sort(inboxOrder).map((item) => `${item.group}:${item.since}`)).toEqual([
+      'run:2',
+      'run:3',
+      'queue:0',
+      'queue:1',
     ])
   })
 })

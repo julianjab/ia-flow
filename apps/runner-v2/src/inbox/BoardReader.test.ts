@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { createEvent } from '@ia-flow/agent-engine'
-import { toBoardCard, toBoardMeta } from './BoardReader.js'
+import type { GithubClient } from '@ia-flow/github-api'
+import { BoardReader, toBoardCard, toBoardMeta } from './BoardReader.js'
 import { summarizeEvent } from './eventSummary.js'
 import { InboxSection } from './InboxSection.js'
 import { TaskActions } from './TaskActions.js'
@@ -78,6 +79,99 @@ describe('toBoardCard', () => {
     expect(toBoardCard(item({ state: 'CLOSED' }), spec)).toBeUndefined()
     expect(toBoardCard(item({}, { isArchived: true }), spec)).toBeUndefined()
     expect(toBoardCard(item({}), spec)).toMatchObject({ ref: expect.any(String) })
+  })
+})
+
+describe('toBoardCard — epic', () => {
+  const spec = { projectId: 'p', board: { owner: 'la-haus', number: 119 } }
+
+  it('a sub-issue carries its parent as the epic, with how many sub-issues closed', () => {
+    const card = toBoardCard(
+      item({
+        parent: {
+          number: 255,
+          title: 'Rediseño de la bandeja',
+          repository: { name: 'ia-flow', owner: { login: 'julianjab' } },
+          subIssuesSummary: { completed: 3, total: 8 },
+        },
+      }),
+      spec,
+    )
+    expect(card?.epic).toEqual({
+      ref: 'julianjab/ia-flow#255',
+      title: 'Rediseño de la bandeja',
+      done: 3,
+      total: 8,
+    })
+  })
+
+  it('a task without a parent has no epic', () => {
+    expect(toBoardCard(item({ parent: null }), spec)).not.toHaveProperty('epic')
+    expect(toBoardCard(item({}), spec)).not.toHaveProperty('epic')
+  })
+})
+
+describe('BoardReader', () => {
+  const spec = { projectId: 'p', board: { owner: 'la-haus', number: 119 } }
+  const page = (content: Record<string, unknown>) => ({
+    repositoryOwner: {
+      projectV2: {
+        items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [item(content)] },
+      },
+    },
+  })
+  const parent = {
+    number: 9,
+    title: 'Épica',
+    repository: { name: 'subs', owner: { login: 'la-haus' } },
+    subIssuesSummary: { completed: 1, total: 2 },
+  }
+
+  it('asks for the parent and maps it to the epic', async () => {
+    const queries: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        queries.push(query)
+        return page({ parent })
+      },
+    } as unknown as GithubClient
+    const [card] = await new BoardReader(client).cards(spec)
+    expect(queries[0]).toContain('subIssuesSummary { completed total }')
+    expect(card?.epic).toEqual({ ref: 'la-haus/subs#9', title: 'Épica', done: 1, total: 2 })
+  })
+
+  it('if GitHub rejects parent, it reads the board without epics (and keeps the blockers)', async () => {
+    const queries: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        queries.push(query)
+        if (query.includes('subIssuesSummary')) {
+          throw new Error("Field 'subIssuesSummary' doesn't exist on type 'Issue'")
+        }
+        return page({})
+      },
+    } as unknown as GithubClient
+    const reader = new BoardReader(client)
+    const [card] = await reader.cards(spec)
+    expect(card).toMatchObject({ ref: 'la-haus/subs#7' })
+    expect(card).not.toHaveProperty('epic')
+    expect(queries).toHaveLength(2)
+    expect(queries[1]).toContain('blockedBy')
+    expect(queries[1]).not.toContain('parent')
+    // Lo aprendió: la próxima lectura ya no lo pide.
+    reader.invalidate()
+    await reader.cards(spec)
+    expect(queries).toHaveLength(3)
+    expect(queries[2]).not.toContain('parent')
+  })
+
+  it('an error that is not about an optional field still fails', async () => {
+    const client = {
+      graphql: async () => {
+        throw new Error('Bad credentials')
+      },
+    } as unknown as GithubClient
+    await expect(new BoardReader(client).cards(spec)).rejects.toThrow('Bad credentials')
   })
 })
 
