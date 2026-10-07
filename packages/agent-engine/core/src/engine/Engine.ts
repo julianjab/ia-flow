@@ -49,6 +49,14 @@ export interface EngineOptions {
   /** Cómo se lee un evento inyectado en la conversación del agente. Default: tipo + payload. */
   formatMessage?: (event: DomainEvent<any>) => string
   /**
+   * El evento con los hechos de AHORA (la card como está, sus labels), para una pipeline que
+   * esperó su turno detrás de otra ejecución de la task (`ifRunning: wait`/`interrupt`): al
+   * tomarlo, vuelve a pasar su `when` contra lo que devuelve, y si ya no aplica no corre (la
+   * ejecución cierra `superseded` con el motivo). `undefined` = no se sabe: corre con el original.
+   * Sin esto, como siempre: corre con lo que se decidió cuando llegó el evento.
+   */
+  revalidate?: (event: DomainEvent<any>) => Promise<DomainEvent<any> | undefined>
+  /**
    * Quién cumple cada `Capability` por nombre (`whenText`, `fileFocus`, …): un `Runnable` —
    * típicamente un `Agent` con un modelo chico —, fijo o resuelto en cada pedido. Una capacidad
    * sin nadie está apagada y quien la pide degrada (un `whenText` no corre, `fs_read` ignora
@@ -144,6 +152,7 @@ export class Engine {
       ...(opts.limits === false ? {} : { limits: new ConcurrencyLimits() }),
       ...(opts.selfOriginated ? { selfOriginated: opts.selfOriginated } : {}),
       ...(opts.interruptReason ? { interruptReason: opts.interruptReason } : {}),
+      ...(opts.revalidate ? { revalidate: opts.revalidate } : {}),
     })
     this.redelivery = new Redelivery({
       planner: this.planner,

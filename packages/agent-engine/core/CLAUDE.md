@@ -76,6 +76,7 @@ src/
 │   ├── Engine.ts            fachada: start, dispatch, tick, select
 │   ├── DispatchPlanner.ts   qué pipelines corren para un evento (y la de un checkpoint)
 │   ├── ExecutionCoordinator.ts  el evento frente a la ejecución de su task (inject, wake, ifRunning, vencer)
+│   ├── Revalidation.ts      al tomar su turno, una regla que esperó vuelve a pasar su `when` (revalidate)
 │   ├── RunLauncher.ts       lanzar corridas (esperadas con AggregateError, o desacopladas)
 │   ├── Redelivery.ts        re-despachar lo inyectado que nadie leyó
 │   ├── Execution.ts         UNA ejecución: ciclo de vida + ExecutionRecord + ExecutionJournal
@@ -327,6 +328,12 @@ ejecuciones en paralelo. Un evento para una task con una ejecución en curso sig
 2. **Si no lo acepta** (no hay paso en su loop, o no es un evento suyo), sigue la cascada normal
    y cada regla que matchea decide con su `ifRunning`: `wait` (default, corre después), `skip`, o
    `interrupt` (corre después, y además le avisa al agente que corre que ceda su turno).
+3. **Una regla que esperó, al tomar su turno, vuelve a mirar** (con `EngineOptions.revalidate`):
+   la app devuelve el evento con los hechos de ahora (el runner: la card como está) y la regla
+   vuelve a pasar el filtro de su fuente y su `when` (no el `whenText`, que cuesta un modelo). Si
+   ya no aplica —la ejecución anterior movió la card, le sacó un label— no corre: su ejecución
+   cierra `superseded` con el motivo. `undefined` o un error: corre con el evento original. Sin
+   `revalidate`, corre con lo que se decidió cuando llegó el evento.
 
 Reglas que no son obvias al leer el código:
 
