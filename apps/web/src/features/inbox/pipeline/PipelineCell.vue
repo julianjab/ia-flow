@@ -15,8 +15,12 @@ const emit = defineEmits<{ (e: 'toggle'): void }>();
     :aria-controls="controls"
     @click="emit('toggle')"
   >
-    <span class="pc__n mono" :class="{ 'pc__n--free': free }">{{ n }}</span>
-    <span>{{ label }} {{ open ? '▴' : '▾' }}</span>
+    <!-- El chevron va en la línea del número: pegado a la etiqueta, en 1100–1280 se partía solo. -->
+    <span class="pc__top">
+      <span class="pc__n mono" :class="{ 'pc__n--free': free }">{{ n }}</span>
+      <span class="pc__chev" aria-hidden="true">{{ open ? '▴' : '▾' }}</span>
+    </span>
+    <span>{{ label }}</span>
   </button>
   <div v-else class="pc__cell">
     <span class="pc__n mono" :class="{ 'pc__n--free': free }">{{ n }}</span>
@@ -45,6 +49,8 @@ button.pc__cell:focus-visible { outline: 1px solid var(--accent); outline-offset
 /* La celda abierta es la seleccionada: video inverso (DESIGN_SYSTEM «Selección»), no un contorno. */
 button.pc__cell[aria-expanded='true'],
 .pc__cell[aria-expanded='true'] .pc__n { background: var(--accent); color: var(--panel); }
+.pc__top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.4rem; align-self: stretch; }
+.pc__chev { flex: none; }
 .pc__n { color: var(--fg); font-size: var(--fs-num); font-weight: 700; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .pc__n--free { color: var(--accent); }
 </style>

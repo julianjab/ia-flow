@@ -78,6 +78,9 @@ function reset() {
   width: 100%;
   min-height: 12rem;
   resize: vertical;
+  /* YAML: la indentación es la estructura. Sin soft-wrap; una línea larga scrollea. */
+  white-space: pre;
+  overflow-x: auto;
   font-size: var(--fs-body-sm);
   line-height: 1.45;
 }

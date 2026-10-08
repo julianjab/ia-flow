@@ -74,7 +74,13 @@ const failure = computed(() => (store.restError ? loadFailure('leer el board', s
 .br__n { color: var(--fg-dim); font-size: var(--fs-chrome); }
 .br__list { display: flex; flex-direction: column; margin: 0; padding: 0 0 0.5rem 1.4rem; list-style: none; }
 /* El botón abre el detalle; el link, GitHub. Un <a> no puede ir dentro de un <button>. */
-.br__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 0.5rem; }
+/* Bajo 640 la columna es angosta: la ref va debajo del título, no comiéndole el ancho. */
+.br__item { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 0 0.5rem; }
+.br__item > .ref { justify-self: start; margin-left: 0.4rem; }
+@media (min-width: 640px) {
+  .br__item { grid-template-columns: minmax(0, 1fr) auto; }
+  .br__item > .ref { margin-left: 0; }
+}
 /* Una fila densa (R11): se lee a `--row-h`, se toca entera a `--tap-h`. */
 .br__row {
   display: flex;

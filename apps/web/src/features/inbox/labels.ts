@@ -56,3 +56,11 @@ export const LEGEND: readonly { group: InboxGroup; rules: string[]; order?: stri
 
 export const LEGEND_HIDDEN =
   'No se muestra: Backlog, Todo, Done y lo que nadie tocó todavía. Para eso está el board.'
+
+/**
+ * Un texto del dashboard (verbo o porqué) para la leyenda, que no tiene una tarea contra la cual
+ * resolver sus `{{…}}`: cada plantilla se vuelve «…» para que no se vean llaves crudas.
+ */
+export function withoutTemplates(text: string): string {
+  return text.replace(/\{\{[^}]*\}\}/g, '…').replace(/…{2,}/g, '…')
+}
