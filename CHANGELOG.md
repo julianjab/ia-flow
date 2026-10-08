@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/julianjab/ia-flow/compare/v2.6.0...v2.7.0) (2026-10-08)
+
+
+### Features
+
+* la bandeja como cola de decisiones ordenada por palanca ([#292](https://github.com/julianjab/ia-flow/issues/292)) ([c93ccd2](https://github.com/julianjab/ia-flow/commit/c93ccd24ff3d51f192f137efbbb40b31aa88b233))
+
 ## [2.6.0](https://github.com/julianjab/ia-flow/compare/v2.5.1...v2.6.0) (2026-10-07)
 
 
