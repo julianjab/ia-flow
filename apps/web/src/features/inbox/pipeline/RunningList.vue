@@ -19,9 +19,9 @@ defineProps<{ running: RunningEntry[]; waiting?: boolean }>();
         <span class="rl__title">{{ r.title }}</span>
         <span class="rl__meta">
           <RefLink :short="r.short" :url="r.url" />
+          <!-- El separador va pegado a su dato: si falta el agente o la antigüedad, no cuelga un «·». -->
           <span v-if="r.agent" class="mono">· {{ r.agent }}</span>
-          <span aria-hidden="true">·</span>
-          <AgeStamp :age="r.age" />
+          <template v-if="r.age.text"><span aria-hidden="true">·</span><AgeStamp :age="r.age" /></template>
         </span>
       </div>
       <ActionButton v-if="r.stop" ghost :action="r.stop" :item="{ ref: r.ref }" />

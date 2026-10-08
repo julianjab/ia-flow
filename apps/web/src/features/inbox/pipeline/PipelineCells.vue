@@ -1,16 +1,29 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import BlockedList from '@/features/inbox/pipeline/BlockedList.vue';
+import FreeSlots from '@/features/inbox/pipeline/FreeSlots.vue';
 import PipelineCell from '@/features/inbox/pipeline/PipelineCell.vue';
 import RunningList from '@/features/inbox/pipeline/RunningList.vue';
-import type { PipelineSummary, RunningEntry } from '@/features/inbox/queue/build';
+import type { FeedSummary, PipelineSummary, RunningEntry } from '@/features/inbox/queue/build';
+import type { BlockedEntry } from '@/features/inbox/queue/runnerFeed';
 
 // «El pipeline», al costado desde 1100 px: tres números (corriendo · en cola · libres de max).
 // Una celda con algo adentro se abre —«corriendo» lista lo que corre, «en cola» lo que espera,
-// «libres» explica quién toma el lugar—, de a una por vez; una celda vacía es sólo número.
+// «libres» muestra qué del feed podría ocuparlo—, de a una por vez; una celda vacía es sólo
+// número. «en cola» son ejecuciones esperando turno; lo que espera a OTRA tarea va aparte, en
+// «N esperan a otra tarea», para que el número y la lista digan lo mismo.
 
 type Cell = 'running' | 'waiting' | 'free';
 
-const props = defineProps<{ pipeline: PipelineSummary; running: RunningEntry[]; queued?: RunningEntry[] }>();
+const props = defineProps<{
+  pipeline: PipelineSummary;
+  running: RunningEntry[];
+  queued?: RunningEntry[];
+  blocked?: readonly BlockedEntry[];
+  feed?: FeedSummary | null;
+  /** El id de la sección del feed, para «y N más en…». */
+  feedAnchor?: string;
+}>();
 const waiting = computed(() => props.queued ?? []);
 const hasFree = computed(() => props.pipeline.free !== undefined);
 const can = computed<Record<Cell, boolean>>(() => ({
@@ -75,9 +88,10 @@ const note = computed(() =>
     <div v-show="isOpen('waiting')" id="pipe-waiting" class="pc__list">
       <RunningList v-if="can.waiting" :running="waiting" waiting />
     </div>
-    <p v-show="isOpen('free')" id="pipe-free" class="pc__list pc__explain">
-      Lo toma lo primero que pase a Refine o a Build; aprobar un PRD también lo ocupa.
-    </p>
+    <div v-show="isOpen('free')" id="pipe-free" class="pc__list">
+      <FreeSlots :feed="feed ?? null" :anchor="feedAnchor" />
+    </div>
+    <BlockedList :blocked="blocked ?? []" />
     <p class="pc__note">{{ note }}</p>
   </section>
 </template>
@@ -88,6 +102,5 @@ const note = computed(() =>
 .pc__hd { display: flex; align-items: center; gap: 0.5rem; }
 .pc__cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; }
 .pc__list { margin: 0; border-top: 1px solid var(--border-mute); }
-.pc__explain { padding-top: 0.5rem; color: var(--fg-mute); font-size: var(--fs-chrome); line-height: 1.45; }
 .pc__note { margin: 0; color: var(--fg-dim); font-size: var(--fs-micro); line-height: 1.45; }
 </style>

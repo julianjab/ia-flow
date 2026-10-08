@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import Disclosure from '@/features/inbox/Disclosure.vue';
+import BlockedList from '@/features/inbox/pipeline/BlockedList.vue';
 import RunningList from '@/features/inbox/pipeline/RunningList.vue';
 import type { PipelineSummary, RunningEntry } from '@/features/inbox/queue/build';
+import type { BlockedEntry } from '@/features/inbox/queue/runnerFeed';
 
 // «El pipeline» bajo 1100 px: una línea bajo el titular que se despliega con lo que corre. Arranca
 // abierta si algo corre (como el mockup móvil: «Detener…» a la vista) y plegada si no. Los mismos
 // números que el costado; nunca los dos a la vez. El chevron del plegable dice si está abierto.
 
-defineProps<{ pipeline: PipelineSummary; running: RunningEntry[] }>();
+defineProps<{ pipeline: PipelineSummary; running: RunningEntry[]; blocked?: readonly BlockedEntry[] }>();
 </script>
 
 <template>
@@ -22,6 +24,7 @@ defineProps<{ pipeline: PipelineSummary; running: RunningEntry[] }>();
     </template>
     <div class="pl__body">
       <RunningList v-if="running.length" :running="running" />
+      <BlockedList :blocked="blocked ?? []" />
       <p class="pl__note">
         {{ pipeline.source === 'capacity' ? 'Cuenta ejecuciones, no tarjetas.' : 'Cuenta tarjetas: este runner no publica su capacidad.' }}
       </p>

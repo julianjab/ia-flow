@@ -2,7 +2,7 @@
 // manda un runner viejo) a lo que se dibuja — el titular, «Lo primero», «Después» numerado y
 // agrupado, el filtro por tipo, el pipeline, lo que corre y lo que le das. Puro: `now` se inyecta.
 
-import type { InboxItem, RunnerCapacity } from '@ia-flow/shared'
+import type { InboxFeed, InboxItem, InboxPipeline, RunnerCapacity } from '@ia-flow/shared'
 import { type Age, ageOf } from '@/features/inbox/queue/age'
 import {
   entryOf,
@@ -20,6 +20,15 @@ import {
   TYPE_META,
   TYPE_ORDER,
 } from '@/features/inbox/queue/kinds'
+import {
+  type BlockedEntry,
+  type Blocker,
+  blockedOf,
+  capacityOf,
+  isQueuedRun,
+  pickFeed,
+  type RunnerFeedEntry,
+} from '@/features/inbox/queue/runnerFeed'
 import { shortRef } from '@/features/inbox/queue/shortRef'
 import type { DashboardView, HygieneLine } from '@/features/inbox/view/decide'
 
@@ -71,6 +80,8 @@ export interface FeedLine {
   url: string
   title: string
   action?: { id: string; label: string }
+  /** Espera a otra tarea («○ espera subs#1579»): todavía no puede arrancar. */
+  waitingOn?: Blocker
 }
 
 export interface FeedSummary {
@@ -92,7 +103,10 @@ export interface InboxQueue {
   filter: QueueType | null
   pipeline: PipelineSummary
   running: RunningEntry[]
+  /** Ejecuciones esperando turno: lo que lista «en cola». */
   queued: RunningEntry[]
+  /** Tarjetas que esperan a otra tarea (`dep`): no son «en cola». */
+  blocked: BlockedEntry[]
   feed: FeedSummary | null
   hygiene: HygieneLine[]
   /** «Dónde se traba cada épica»: vacío si ninguna decisión trae épica. */
@@ -104,6 +118,8 @@ export interface QueueInput {
   items: readonly InboxItem[]
   capacity?: RunnerCapacity | null
   feed?: DashboardView['feed']
+  /** Lo que manda el runner con `/api/inbox`: se usa cuando el dashboard no define el panel. */
+  runner?: { feed?: InboxFeed; pipeline?: InboxPipeline } | null
   hygiene?: readonly HygieneLine[]
   filter?: QueueType | null
   now: number
@@ -158,14 +174,14 @@ export function pipelineOf(
     }
   return {
     running: items.filter((i) => i.group === 'run').length,
-    waiting: items.filter((i) => i.group === 'queue').length,
+    waiting: items.filter(isQueuedRun).length,
     source: 'items',
   }
 }
 
 function liveOf(items: readonly InboxItem[], group: 'run' | 'queue', now: number): RunningEntry[] {
   return items
-    .filter((item) => item.group === group)
+    .filter((item) => (group === 'run' ? item.group === 'run' : isQueuedRun(item)))
     .map((item) => {
       const run = item.execution
       return {
@@ -185,13 +201,14 @@ export function runningOf(items: readonly InboxItem[], now: number): RunningEntr
   return liveOf(items, 'run', now)
 }
 
-/** Lo que espera su turno (los items `queue`): lo que lista la celda «en cola». */
+/** Lo que espera su turno de ejecución (los items `queue` que no esperan a otra tarea): lo que
+ *  lista la celda «en cola». */
 export function queuedOf(items: readonly InboxItem[], now: number): RunningEntry[] {
   return liveOf(items, 'queue', now)
 }
 
 export function feedOf(
-  feed: DashboardView['feed'] | undefined,
+  feed: { title: string; entries: readonly RunnerFeedEntry[] } | null | undefined,
   capacity: RunnerCapacity | null | undefined,
 ): FeedSummary | null {
   if (!feed) return null
@@ -204,13 +221,16 @@ export function feedOf(
       url: e.url,
       title: e.title,
       ...(e.action ? { action: { ...e.action } } : {}),
+      ...(e.waitingOn ? { waitingOn: { ...e.waitingOn } } : {}),
     })),
   }
 }
 
-/** La cola entera. Tolera un runner viejo: sin capacity, feed ni hygiene. */
+/** La cola entera. Tolera un runner viejo: sin capacity, feed ni hygiene. Lo que el dashboard no
+ *  define (feed, capacidad) sale de lo que manda el runner (`runner`), si llegó. */
 export function buildQueue(input: QueueInput): InboxQueue {
   const { items, now } = input
+  const capacity = input.capacity ?? capacityOf(input.runner?.pipeline)
   const decisions = items.filter(isDecision)
   const [head, ...tail] = decisions
   const first = head ? entryOf(head, 1, now, FIRST_REASONS) : null
@@ -229,10 +249,11 @@ export function buildQueue(input: QueueInput): InboxQueue {
     restTotal: all.length,
     filters: filters?.map((f) => ({ ...f, pressed: f.type === filter })) ?? null,
     filter,
-    pipeline: pipelineOf(items, input.capacity),
+    pipeline: pipelineOf(items, capacity),
     running: runningOf(items, now),
     queued: queuedOf(items, now),
-    feed: feedOf(input.feed, input.capacity),
+    blocked: blockedOf(items),
+    feed: feedOf(pickFeed(input.feed, input.runner?.feed), capacity),
     hygiene: [...(input.hygiene ?? [])],
     epics: epicsOf(decisions),
   }
