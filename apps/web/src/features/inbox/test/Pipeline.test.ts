@@ -202,3 +202,133 @@ describe('Qué le das al pipeline', () => {
     expect(w.find('.fl__row').exists()).toBe(false)
   })
 })
+
+describe('el pipeline con los datos del :3011', () => {
+  const dep = (n: number, blocker: number) =>
+    item({
+      ref: `la-haus/subscriptions#${n}`,
+      url: `https://github.com/la-haus/subscriptions/issues/${n}`,
+      title: `Espera a #${blocker}`,
+      group: 'queue',
+      kind: 'dep',
+      blocked_by: [`la-haus/subscriptions#${blocker}`],
+    })
+  const idle = { running: 0, waiting: 0, paused: 0, max_concurrent: 5, free: 5 }
+  const ready = (n: number) => ({
+    ref: `la-haus/subscriptions#${n}`,
+    title: `Lista ${n}`,
+    url: `https://github.com/la-haus/subscriptions/issues/${n}`,
+  })
+
+  it('«en cola» dice 0 y no lista las que esperan a otra tarea: van en su propia línea', () => {
+    const pinia = setup()
+    const q = buildQueue({ items: [dep(1580, 1579), dep(1776, 1775)], capacity: idle, now: NOW })
+    const w = mount(PipelineCells, {
+      props: { pipeline: q.pipeline, running: q.running, queued: q.queued, blocked: q.blocked },
+      global: { plugins: [pinia] },
+    })
+    const waiting = w.get('[data-test="cell-waiting"]')
+    expect(waiting.text()).toContain('0')
+    expect(waiting.element.tagName).toBe('DIV')
+    const blocked = w.get('[data-test="blocked"]')
+    expect(blocked.get('summary').text()).toContain('2 esperan a otra tarea')
+    expect(blocked.get('details').attributes('open')).toBeUndefined()
+    const rows = blocked.findAll('.bl__row')
+    expect(rows[0]?.text()).toContain('○ espera')
+    expect(rows[0]?.findAll('a.ref').map((a) => [a.text(), a.attributes('href')])).toEqual([
+      ['subs#1580 ↗', 'https://github.com/la-haus/subscriptions/issues/1580'],
+      ['subs#1579 ↗', 'https://github.com/la-haus/subscriptions/issues/1579'],
+    ])
+  })
+
+  it('sin tarjetas que esperan a otra, la línea no se dibuja', () => {
+    const pinia = setup()
+    const q = buildQueue({ items: [running], capacity, now: NOW })
+    const w = mount(PipelineLine, {
+      props: { pipeline: q.pipeline, running: q.running, blocked: q.blocked },
+      global: { plugins: [pinia] },
+    })
+    expect(w.find('[data-test="blocked"]').exists()).toBe(false)
+  })
+
+  it('«libres» abierto muestra las 3 primeras listas del feed y «y N más» lleva a la sección', async () => {
+    const pinia = setup()
+    const own = { title: 'Qué le das al pipeline', entries: [1, 2, 3, 4, 5].map(ready) }
+    const q = buildQueue({ items: [], capacity: idle, feed: own, now: NOW })
+    const w = mount(PipelineCells, {
+      props: {
+        pipeline: q.pipeline,
+        running: q.running,
+        feed: q.feed,
+        feedAnchor: 'pipeline-feed',
+      },
+      global: { plugins: [pinia] },
+    })
+    await w.get('[data-test="cell-free"]').trigger('click')
+    const free = w.get('[data-test="free-slots"]')
+    expect(free.findAll('a.ref').map((a) => a.text())).toEqual(['subs#1 ↗', 'subs#2 ↗', 'subs#3 ↗'])
+    const more = free.get('[data-test="free-more"]')
+    expect(more.text()).toBe('y 2 más en Qué le das al pipeline')
+    expect(more.attributes('href')).toBe('#pipeline-feed')
+  })
+
+  it('«libres» sin feed explica quién toma el lugar', async () => {
+    const pinia = setup()
+    const q = buildQueue({ items: [], capacity: idle, now: NOW })
+    const w = mount(PipelineCells, {
+      props: { pipeline: q.pipeline, running: q.running, feed: q.feed },
+      global: { plugins: [pinia] },
+    })
+    await w.get('[data-test="cell-free"]').trigger('click')
+    expect(w.get('[data-test="free-slots"]').text()).toContain('Lo toma lo primero que pase')
+  })
+
+  it('una fila sin agente ni antigüedad no deja un «·» colgando', () => {
+    const pinia = setup()
+    const bare = item({
+      ref: 'la-haus/subscriptions#1580',
+      group: 'queue',
+      kind: 'turn',
+      since: 'sin fecha',
+      actions: [],
+    })
+    const q = buildQueue({ items: [bare], now: NOW })
+    const w = mount(PipelineCells, {
+      props: { pipeline: q.pipeline, running: q.running, queued: q.queued },
+      global: { plugins: [pinia] },
+    })
+    const meta = w.get('#pipe-waiting .rl__meta').text().trim()
+    expect(meta).toBe('subs#1580 ↗')
+  })
+
+  it('el feed del runner: las que esperan a otra dicen «○ espera» con el link al bloqueante', () => {
+    const pinia = setup()
+    const q = buildQueue({
+      items: [],
+      now: NOW,
+      runner: {
+        feed: {
+          ready: [],
+          waiting: [
+            {
+              ...ready(1580),
+              project_id: 'p',
+              labels: [],
+              updated_at: 'x',
+              blocked_by: ['la-haus/subscriptions#1579'],
+            },
+          ],
+        },
+      },
+    })
+    const w = mount(FeedList, {
+      props: { feed: q.feed as NonNullable<typeof q.feed> },
+      global: { plugins: [pinia] },
+    })
+    expect(w.get('summary').text()).toContain('nada listo para correr')
+    expect(w.get('summary').text()).toContain('1 espera a otra')
+    const row = w.get('.fl__row')
+    expect(row.attributes('data-state')).toBe('waiting')
+    expect(row.get('.fl__state').text()).toBe('○ espera subs#1579 ↗')
+  })
+})
