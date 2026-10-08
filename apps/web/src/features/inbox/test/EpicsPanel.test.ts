@@ -27,6 +27,10 @@ describe('EpicsPanel', () => {
     expect(link.attributes('href')).toBe('https://github.com/la-haus/subscriptions/issues/1100')
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toContain('noopener')
+    // `.link`: el hover no es el video inverso global (que dejaba un bloque verde sin texto), y
+    // el título completo va en el `title` porque el nombre se recorta a dos líneas.
+    expect(link.classes()).toContain('link')
+    expect(link.attributes('title')).toBe('Calidad de leads')
     expect(items[0]!.get('.mono').text()).toBe('2/6')
     const bar = items[0]!.get('[aria-hidden="true"]')
     expect(bar.get('div').attributes('style')).toContain('width: 33%')

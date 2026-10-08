@@ -73,7 +73,11 @@ describe('el pipeline', () => {
     // Sin nada en cola, «en cola» es sólo número.
     expect(w.get('[data-test="cell-waiting"]').element.tagName).toBe('DIV')
     expect(w.get('[data-test="cell-waiting"]').attributes('aria-expanded')).toBeUndefined()
-    expect(w.get('[data-test="cell-free"]').text()).toContain('1libre de 3')
+    // El chevron va en la línea del número, no pegado a la etiqueta (se partía a otra línea).
+    const free = w.get('[data-test="cell-free"]')
+    expect(free.get('.pc__top').text()).toBe('1▾')
+    expect(free.text()).toContain('libre de 3')
+    expect(free.text()).not.toContain('libre de 3 ▾')
     expect(w.get('[data-test="running"]').text()).toContain('subs#1195')
     expect(w.get('[data-test="running"]').text()).toContain('implementer')
     expect(w.text()).toContain('Cuenta ejecuciones, no tarjetas')

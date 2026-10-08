@@ -347,6 +347,7 @@ describe('InboxBoard', () => {
       ['Proyecto ↗', url],
       ['Board ↗', `${url}/views/3`],
     ])
+    for (const l of links) expect(l.classes()).toContain('link')
   })
 
   it('al final, plegados, el board de GitHub y «Cómo se ordenan las decisiones»', async () => {

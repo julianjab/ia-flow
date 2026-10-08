@@ -194,4 +194,15 @@ describe('el dashboard en la pantalla', () => {
     expect(names.indexOf('Decidir el merge')).toBeLessThan(names.indexOf('Aprobar el PRD'))
     expect(names.at(-1)).toBe('Orden')
   })
+
+  it('la leyenda no muestra plantillas sin resolver: cada {{…}} se lee «…»', async () => {
+    const { pinia, store } = setup()
+    await store.refresh()
+    const wrapper = mount(RulesLegend, { global: { plugins: [pinia] } })
+    const text = wrapper.get('.lg__body').text()
+    expect(store.dashboard?.text).toContain('{{')
+    expect(text).not.toContain('{{')
+    expect(text).not.toContain('}}')
+    expect(text).toContain('Review + reviewed…')
+  })
 })
