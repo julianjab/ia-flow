@@ -1,7 +1,14 @@
 import type { InboxItem } from '@ia-flow/shared'
 import { describe, expect, it } from 'vitest'
 import { buildQueue } from '@/features/inbox/queue/build'
-import { epicReason, epicsOf, neckOf, withEpic } from '@/features/inbox/queue/epics'
+import {
+  clip,
+  EPIC_CHIP_CHARS,
+  epicReason,
+  epicsOf,
+  neckOf,
+  withEpic,
+} from '@/features/inbox/queue/epics'
 import { item } from '@/features/inbox/test/fixtures'
 
 const NOW = Date.parse('2026-01-02T10:00:00.000Z')
@@ -66,7 +73,10 @@ describe('epicsOf — dónde se traba cada épica', () => {
 describe('el chip de la épica', () => {
   it('va al final y sólo si queda lugar', () => {
     const chip = epicReason(filtros)
-    expect(chip).toEqual({ text: 'épica Filtros del listado 3/5' })
+    expect(chip).toEqual({
+      text: 'épica Filtros del listado 3/5',
+      full: 'épica Filtros del listado 3/5',
+    })
     expect(withEpic([{ text: 'a' }], [filtros], 2)).toEqual([{ text: 'a' }, chip])
     expect(withEpic([{ text: 'a' }, { text: 'b' }], [filtros], 2)).toEqual([
       { text: 'a' },
@@ -74,6 +84,21 @@ describe('el chip de la épica', () => {
     ])
     expect(withEpic([{ text: 'a' }, { text: 'b' }, { text: 'c' }], [filtros], 2)).toHaveLength(2)
     expect(withEpic([], [undefined], 2)).toEqual([])
+  })
+
+  it('un título largo se recorta a EPIC_CHIP_CHARS con «…»; el entero va en `full`', () => {
+    const long = {
+      ...filtros,
+      title:
+        'feat(360): funnel configurable por empresa — layer con etapas personalizadas, gateado por permiso IMS',
+      done: 18,
+      total: 24,
+    }
+    const chip = epicReason(long)
+    expect(chip.text).toBe('épica feat(360): funnel configurable… 18/24')
+    expect(chip.text.length).toBeLessThanOrEqual('épica  18/24'.length + EPIC_CHIP_CHARS)
+    expect(chip.full).toBe(`épica ${long.title} 18/24`)
+    expect(clip('  a   b  ', 10)).toBe('a b')
   })
 
   it('en la cola: 3 chips en «Lo primero» y 2 en «Después», la épica sólo con lugar', () => {
