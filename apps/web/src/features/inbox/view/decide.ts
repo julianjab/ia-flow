@@ -79,7 +79,7 @@ function itemOf(task: TaskFact, decision: Decision): InboxItem {
   const root = rootOf(task)
   const offered = task.actions
   const shown = decision.actions ? decision.actions.filter((id) => offered.includes(id)) : offered
-  const since = firstOf(decision.since, root) ?? task.updated_at
+  const since = firstOf([decision.since].flat(), root) ?? task.updated_at
   const said = decision.said ? text(decision.said, root) : ''
   const context = decision.context ? text(decision.context, root) : ''
   const chips = decision.chips
