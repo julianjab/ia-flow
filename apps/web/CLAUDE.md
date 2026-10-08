@@ -24,6 +24,9 @@ seleccionado, un YAML con `decisions` (la primera cuyo `when` se cumple gana), `
 - Se edita desde «Cómo se ordenan las decisiones» (`DashboardEditor.vue`); un documento inválido no se
   guarda y dice dónde falla.
 - Un runner que todavía no publica `/api/tasks` (404) sigue por `/api/inbox`, ya clasificado.
+- Lo que el dashboard no define —el panel `feed`, la capacidad del `pipeline`— lo pone el runner:
+  `/api/inbox` se pide **en paralelo** con `/api/tasks` (`state/load.ts`) y cada sección pinta en
+  cuanto llega su dato (`state/sections.ts`), con su esqueleto mientras tanto.
 - El botón de una acción sólo sale si el **runner** la ofrece para esa tarea (`taskActions` de su
   `project.yaml`); el dashboard elige cuáles mostrar y cuál destacar, no cuáles existen.
 

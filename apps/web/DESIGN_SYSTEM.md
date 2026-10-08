@@ -161,6 +161,17 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   Config, tipo de decisión en «Después»): `--tap-h-sm`, `--radius-sm`, borde `--border` y, con
   `aria-pressed="true"`, video inverso (el contador de adentro hereda el color). Había tres copias
   (`.tb__chip`, `.dq__chip`, `.cfg__chip`) con radios distintos: **no la vuelvas a declarar.**
+- `.skeleton` / `.reveal` / `.sr-only` — **cargando, y lo que llega.** Mientras una sección espera
+  SU dato se dibuja su esqueleto: bloques `.skeleton` (en `--panel-hi`, con un brillo sutil que
+  cruza; quietos con `prefers-reduced-motion`; nunca `--ai`) con la forma y el alto aproximado de lo
+  que va a pintar, para que el layout no salte. Los bloques son `aria-hidden`; la sección que los
+  contiene lleva `aria-busy="true"` y un «cargando …» en `.sr-only` (una sola vez por dato: si dos
+  esqueletos esperan lo mismo, se anuncia uno). Al llegar, `.reveal` (fade + 4px, 180 ms,
+  escalonado con `--reveal-i`, sin animación con `prefers-reduced-motion`) y **sólo en la primera
+  carga**: un refresco mantiene lo pintado, sin volver al esqueleto. El orden en que aparecen es el
+  orden real en que llegan los datos; no se finge progreso. En la bandeja,
+  `features/inbox/loading/SectionSkeleton.vue` arma las formas (titular, «Lo primero», filas de
+  «Después», celdas del pipeline, épicas, feed). Reemplaza al texto «· cargando…».
 - **El kit de la bandeja** (`features/inbox/`, de dominio: no vive en `ui/`). Cada pieza se usa en
   tres lugares o más; antes de escribir otra forma de lo mismo, usá esta:
   - `Disclosure.vue` — **el plegable**: un `<details>` con su línea de resumen a `--tap-h`

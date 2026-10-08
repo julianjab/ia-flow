@@ -21,13 +21,14 @@ export function createQueue(load: BoardLoad) {
 
   /** El filtro por tipo de la cola (`null` = todas). */
   const queueFilter = ref<QueueType | null>(null)
-  /** La cola. Un runner viejo: sin capacity ni feed. */
+  /** La cola. Lo que el dashboard no define (feed, capacidad) lo pone el runner (`/api/inbox`). */
   const queue = computed<InboxQueue>(() => {
     const view = load.view.value
     return buildQueue({
       items: scoped.value,
       capacity: view?.capacity ?? null,
       feed: view?.feed ?? null,
+      runner: load.runner.value,
       hygiene: view?.hygiene ?? [],
       filter: queueFilter.value,
       now: load.now.value,

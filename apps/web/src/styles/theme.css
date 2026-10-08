@@ -689,3 +689,68 @@ a:hover {
     font-size: var(--fs-input);
   }
 }
+
+/* ── Cargando: el esqueleto de una sección y su aparición ───────────────────
+   `.skeleton` es un bloque gris con la forma de lo que va a llegar (un título,
+   una card, una fila): mismo alto aproximado que el contenido real para que el
+   layout no salte cuando llega. Va en `--panel-hi` con un brillo que cruza,
+   sutil; con `prefers-reduced-motion`, quieto. Nunca en `--ai`: no es salida de
+   modelo. Los bloques son decorativos (`aria-hidden`); la SECCIÓN que los
+   contiene lleva `aria-busy="true"` y un texto «cargando…» en `.sr-only`.
+
+   `.reveal` es la aparición de lo que llegó: un fade con un desplazamiento
+   corto (≤200 ms), escalonado con `--reveal-i` (0, 1, 2…). Se pone sólo en la
+   primera carga —un refresco no vuelve a animar— y el orden lo da la llegada
+   real de cada dato, nunca un retraso inventado. */
+.skeleton {
+  display: block;
+  height: var(--row-h);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(90deg, var(--panel-hi) 0%, var(--border) 50%, var(--panel-hi) 100%) 0 0 / 200%
+    100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+.reveal {
+  animation: reveal-in 180ms ease-out both;
+  animation-delay: calc(var(--reveal-i, 0) * 40ms);
+}
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--panel-hi);
+  }
+  .reveal {
+    animation: none;
+  }
+}
+/* Texto sólo para lectores de pantalla: fuera de la vista, no fuera del árbol. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

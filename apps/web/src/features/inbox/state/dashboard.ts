@@ -25,6 +25,13 @@ export function createDashboardOverride(inbox: Ref<Inbox | null>) {
     return { generated_at: tasks.generated_at, projects: tasks.projects, items: view.value.items }
   }
 
+  /** Qué paneles define el dashboard que le toca a este runner: lo que no define, lo pone el
+   *  runner (`/api/inbox`). Se sabe antes de pedir nada: decide qué se pide en paralelo. */
+  function panels(): DashboardPanels {
+    const { dashboard: chosen } = resolveDashboard(serverKey(serverTarget().base))
+    return { feed: chosen.panels.feed !== undefined, pipeline: chosen.panels.pipeline }
+  }
+
   /** Un runner sin `/api/tasks` clasifica él: sin dashboard. */
   function clear(): void {
     lastTasks = null
@@ -54,7 +61,13 @@ export function createDashboardOverride(inbox: Ref<Inbox | null>) {
     reapply()
   }
 
-  return { dashboard, view, apply, clear, saveDashboard, resetDashboard }
+  return { dashboard, view, apply, clear, panels, saveDashboard, resetDashboard }
 }
 
 export type DashboardOverride = ReturnType<typeof createDashboardOverride>
+
+/** Los paneles que trae el dashboard: sin ellos, el feed y el pipeline los pone el runner. */
+export interface DashboardPanels {
+  feed: boolean
+  pipeline: boolean
+}
