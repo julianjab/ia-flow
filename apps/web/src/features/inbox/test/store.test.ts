@@ -1,7 +1,7 @@
 import type { RunnerStreamEvent } from '@ia-flow/shared'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { detail, execution, inbox, item, trace } from './fixtures'
+import { detail, execution, inbox, item, trace } from '@/features/inbox/test/fixtures'
 
 const getInbox = vi.fn()
 const getTasks = vi.fn()
@@ -37,7 +37,7 @@ vi.mock('@/composables/useServerTarget', () => ({
   }),
 }))
 
-import { useInboxStore } from '../store'
+import { useInboxStore } from '@/features/inbox/store'
 
 const need = item({ ref: 'acme/api#1', group: 'need', kind: 'merge' })
 const fail = item({ ref: 'acme/api#2', group: 'fail', kind: 'crash', actions: ['retry'] })
@@ -68,19 +68,21 @@ describe('useInboxStore', () => {
   })
   afterEach(() => vi.useRealTimers())
 
-  it('carga la bandeja y cuenta por grupo (sólo los cuatro que se dibujan)', async () => {
+  it('carga la bandeja como cola: decisiones (need y fail) y lo que corre como número', async () => {
     const store = useInboxStore()
     await store.refresh()
-    expect(store.counts).toEqual({ need: 1, fail: 1, run: 1, queue: 0 })
-    expect(store.sections.map((s) => s.group)).toEqual(['need', 'fail', 'run', 'queue'])
+    expect(store.queue.headline).toEqual({ decisions: 2, tasks: 2, failed: 1 })
+    expect(store.queue.first?.ref).toBe(need.ref)
+    expect(store.queue.pipeline).toMatchObject({ running: 1, waiting: 0, source: 'items' })
     expect(store.loading).toBe(false)
   })
 
-  it('el filtro de proyecto acota contadores y secciones sin volver a pedir', async () => {
+  it('el filtro de proyecto acota la cola sin volver a pedir', async () => {
     const store = useInboxStore()
     await store.refresh()
     store.project = 'web'
-    expect(store.counts).toEqual({ need: 0, fail: 0, run: 1, queue: 0 })
+    expect(store.queue.headline.decisions).toBe(0)
+    expect(store.queue.pipeline.running).toBe(1)
     expect(store.total).toBe(1)
     expect(getInbox).toHaveBeenCalledTimes(1)
   })
@@ -92,15 +94,6 @@ describe('useInboxStore', () => {
     getInbox.mockResolvedValue(inbox([need], [projects[0] as (typeof projects)[0]]))
     await store.refresh()
     expect(store.project).toBeNull()
-  })
-
-  it('el filtro de grupo se activa y se suelta con el mismo toque', async () => {
-    const store = useInboxStore()
-    await store.refresh()
-    store.setGroupFilter('fail')
-    expect(store.sections.map((s) => s.group)).toEqual(['fail'])
-    store.setGroupFilter('fail')
-    expect(store.groupFilter).toBeNull()
   })
 
   it('un error conserva lo que ya se veía y lo reporta', async () => {
@@ -126,9 +119,9 @@ describe('useInboxStore', () => {
     const store = useInboxStore()
     await store.refresh()
     store.project = 'core'
-    store.setGroupFilter('need')
+    store.setQueueFilter('merge')
     store.focus('other/web#3')
-    expect(store.groupFilter).toBeNull()
+    expect(store.queueFilter).toBeNull()
     expect(store.project).toBeNull()
     expect(store.openRef).toBe('other/web#3')
     expect(getTaskDetail).toHaveBeenCalledWith('other/web#3')
@@ -185,6 +178,29 @@ describe('useInboxStore', () => {
     )
     expect(store.actions[need.ref]?.result?.ok).toBe(false)
     expect(getInbox).not.toHaveBeenCalled()
+  })
+
+  it('la cola sale del inbox viejo: sin capacity cuenta las tarjetas que corren', async () => {
+    const store = useInboxStore()
+    await store.refresh()
+    expect(store.queue.first?.ref).toBe(need.ref)
+    expect(store.queue.headline).toEqual({ decisions: 2, tasks: 2, failed: 1 })
+    expect(store.queue.pipeline).toEqual({ running: 1, waiting: 0, source: 'items' })
+    expect(store.queue.feed).toBeNull()
+    store.project = 'web'
+    expect(store.queue.first).toBeNull()
+  })
+
+  it('runActionSeries corre la acción de un grupo en serie y corta en la primera que falla', async () => {
+    postTaskAction
+      .mockResolvedValueOnce({ ok: true, message: 'ok' })
+      .mockResolvedValueOnce({ ok: false, message: 'Sin permisos' })
+    const store = useInboxStore()
+    await store.refresh()
+    const ok = await store.runActionSeries(['a/b#1', 'a/b#2', 'a/b#3'], 'merge', 't')
+    expect(ok).toBe(false)
+    expect(postTaskAction.mock.calls.map((c) => c[0])).toEqual(['a/b#1', 'a/b#2'])
+    expect(store.actions['a/b#2']?.result?.message).toBe('Sin permisos')
   })
 
   it('un fallo de red en la acción queda como error de esa tarjeta', async () => {
@@ -269,16 +285,25 @@ describe('useInboxStore', () => {
 
     beforeEach(() => localStorage.clear())
 
-    it('la bandeja sale de aplicar el dashboard a los hechos, no de /api/inbox', async () => {
+    it('la bandeja sale de aplicar el dashboard a los hechos; /api/inbox sólo trae el feed', async () => {
       getTasks.mockResolvedValue(published)
       const store = useInboxStore()
       await store.refresh()
-      expect(getInbox).not.toHaveBeenCalled()
+      // El dashboard por defecto no define el feed: lo pone el runner, pedido en paralelo.
+      expect(getInbox).toHaveBeenCalledTimes(1)
       expect(store.inbox?.items.map((i) => [i.ref, i.kind, i.actions])).toEqual([
         ['acme/api#1', 'merge', ['merge']],
       ])
       expect(store.dashboard?.source).toBe('default')
       expect(store.view?.capacity).toMatchObject({ free: 2 })
+      expect(store.queue.pipeline).toEqual({
+        running: 0,
+        waiting: 0,
+        free: 2,
+        max: 2,
+        source: 'capacity',
+      })
+      expect(store.queue.first?.short).toBe('api#1')
     })
 
     it('guardar un dashboard lo aplica ya, sin volver a pedir nada al runner', async () => {

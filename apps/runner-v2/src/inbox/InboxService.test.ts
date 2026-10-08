@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import type { EventLogEntry, ExecutionSummary } from '@ia-flow/shared'
+import {
+  type EventLogEntry,
+  type ExecutionSummary,
+  InboxSchema,
+  type RunnerCapacity,
+  TasksSchema,
+} from '@ia-flow/shared'
 import type { ActivityPort, StoredEvent } from './ActivityPort.js'
 import type { BoardMeta, BoardSpec } from './BoardReader.js'
 import type { BoardCard } from './classify.js'
@@ -46,6 +52,7 @@ function service(
   waiting: string[] = [],
   meta?: BoardMeta,
   when?: BoardSpec['when'],
+  capacity?: () => RunnerCapacity,
 ) {
   const explained: StoredEvent[] = []
   const inbox = new InboxService({
@@ -67,6 +74,7 @@ function service(
       ]
     },
     settings: InboxSection.parse({}),
+    ...(capacity ? { capacity } : {}),
     now: () => now,
   })
   return { inbox, explained }
@@ -102,13 +110,42 @@ describe('InboxService', () => {
       'o/r#2:dep',
       'o/r#5:turn',
     ])
-    expect(result.items[0]?.unlocks).toBe(1)
+    expect(result.items[0]).toMatchObject({
+      unlocks: 1,
+      priority: 1,
+      reasons: ['a un merge de Done', 'destraba 1 tarea'],
+    })
+    expect(result.items.slice(1).map((item) => item.priority)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ])
     expect(result.items[1]?.execution?.id).toBe('e1')
     // Sin `meta`, el link del Project se arma solo y el del board cae a él.
     const url = 'https://github.com/orgs/la-haus/projects/1'
     expect(result.projects).toEqual([
       { id: 'p', board: { owner: 'la-haus', number: 1 }, url, board_url: url },
     ])
+  })
+
+  it('ranks the decisions by leverage: at the same case, what unblocks more goes first', async () => {
+    const { inbox } = service(
+      [
+        card('o/r#1', { status: 'Refined', updatedAt: '2026-09-28T00:00:00Z' }),
+        card('o/r#2', { status: 'Refined' }),
+        card('o/r#3', { status: 'Todo', blockedBy: ['o/r#2'] }),
+      ],
+      fakeActivity(),
+    )
+
+    const { items } = await inbox.inbox()
+
+    expect(items.map((item) => [item.ref, item.priority])).toEqual([
+      ['o/r#2', 1],
+      ['o/r#1', 2],
+      ['o/r#3', undefined],
+    ])
+    expect(items[0]?.reasons).toContain('destraba 1 tarea')
   })
 
   it('the rest of the board: what the inbox does not show, by column in board order, newest first', async () => {
@@ -198,5 +235,60 @@ describe('InboxService', () => {
       type: 'issue.unblocked',
       payload: { fieldName: 'Working' },
     })
+  })
+
+  it('says how busy the runner is: running, queued and paused, with the global cap', async () => {
+    const stats = { running: 2, waiting: 1, paused: 3, max_concurrent: 4, free: 2 }
+    const { inbox } = service([], fakeActivity(), [], undefined, undefined, () => stats)
+
+    const result = await inbox.inbox()
+
+    expect(result.pipeline).toEqual({ running: 2, queued: 1, paused: 3, capacity: 4, free: 2 })
+    expect(InboxSchema.parse(result).pipeline).toEqual(result.pipeline)
+  })
+
+  it('without a capacity port the inbox has no pipeline (and still parses)', async () => {
+    const result = await service([], fakeActivity()).inbox.inbox()
+    expect(result.pipeline).toBeUndefined()
+    expect(() => InboxSchema.parse(result)).not.toThrow()
+  })
+
+  it('the feed: Todo cards ready to start and the ones waiting on another, minus what already started', async () => {
+    const { inbox } = service(
+      [
+        card('o/r#1', { status: 'Todo' }),
+        card('o/r#2', { status: 'Todo', blockedBy: ['o/r#5'] }),
+        card('o/r#3', { status: 'Todo' }),
+        card('o/r#5', { status: 'Build' }),
+      ],
+      fakeActivity(),
+      ['[["issue","o/r#3"],["projectId","p"]]'],
+    )
+
+    const { feed } = await inbox.inbox()
+
+    expect(feed?.ready.map((item) => item.ref)).toEqual(['o/r#1'])
+    expect(feed?.waiting.map((item) => [item.ref, item.blocked_by])).toEqual([['o/r#2', ['o/r#5']]])
+  })
+
+  it('a sub-issue carries its epic and progress in the inbox and in the tasks; without a parent, none', async () => {
+    const epic = { ref: 'o/r#9', title: 'Bandeja', done: 2, total: 5 }
+    const { inbox } = service(
+      [card('o/r#1', { status: 'Refined', epic }), card('o/r#2', { status: 'Refined' })],
+      fakeActivity(),
+    )
+
+    const result = await inbox.inbox()
+    const byRef = new Map(result.items.map((item) => [item.ref, item]))
+    expect(byRef.get('o/r#1')?.epic).toEqual(epic)
+    expect(byRef.get('o/r#2')).not.toHaveProperty('epic')
+    expect(InboxSchema.parse(result).items.find((item) => item.ref === 'o/r#1')?.epic).toEqual(epic)
+    expect((await inbox.item('o/r#1'))?.epic).toEqual(epic)
+
+    const tasks = await inbox.tasks()
+    const facts = new Map(tasks.tasks.map((task) => [task.ref, task]))
+    expect(facts.get('o/r#1')?.epic).toEqual(epic)
+    expect(facts.get('o/r#2')).not.toHaveProperty('epic')
+    expect(TasksSchema.parse(tasks).tasks.find((task) => task.ref === 'o/r#1')?.epic).toEqual(epic)
   })
 })

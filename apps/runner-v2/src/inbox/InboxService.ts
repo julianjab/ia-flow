@@ -20,14 +20,10 @@ import type {
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
 import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
-import {
-  type BoardCard,
-  type Classification,
-  classify,
-  inboxOrder,
-  type TaskActivity,
-} from './classify.js'
+import { type BoardCard, type Classification, classify, type TaskActivity } from './classify.js'
+import { feedOf, pipelineOf } from './feed.js'
 import type { InboxSettings } from './InboxSection.js'
+import { prioritize } from './prioritize.js'
 import type { TaskActionDefs } from './TaskActionDef.js'
 import { availableTaskActions } from './TaskActionRunner.js'
 import { buildTaskFacts, unlocksOf } from './taskFacts.js'
@@ -48,7 +44,8 @@ export interface InboxServiceOptions {
   /** Las `taskActions` de cada proyecto (`project.yaml`): las que declara mandan sobre las que
    *  trae `classify`. Sin esto, sólo las del runner. */
   taskActions?: (projectId: string) => TaskActionDefs
-  /** Cuánto tiene el runner para correr (`GET /api/tasks`). Sin esto, todo en cero. */
+  /** Cuánto tiene el runner para correr (`GET /api/tasks` y `pipeline` de la bandeja). Sin esto,
+   *  todo en cero en las tareas y la bandeja sin `pipeline`. */
   capacity?: () => RunnerCapacity
   now?: () => Date
 }
@@ -242,6 +239,7 @@ export class InboxService {
       ...(card.pr ? { pr: card.pr } : {}),
       ...(execution ? { execution } : {}),
       ...(card.blockedBy.length > 0 ? { blocked_by: card.blockedBy } : {}),
+      ...(card.epic ? { epic: card.epic } : {}),
       ...(agentSaid(found, activity) ? { agent_said: agentSaid(found, activity) } : {}),
       actions: offered.actions,
       ...(offered.defs.length > 0 ? { action_defs: offered.defs } : {}),
@@ -270,10 +268,14 @@ export class InboxService {
       if (count) item.unlocks = count
       items.push(item)
     }
+    const capacity = this.options.capacity?.()
+    const started = (ref: string) => live.has(ref) || waiting.has(ref)
     return {
       generated_at: this.now().toISOString(),
       projects: await this.projects(projectId),
-      items: items.sort(inboxOrder),
+      items: prioritize(items),
+      ...(capacity ? { pipeline: pipelineOf(capacity) } : {}),
+      feed: feedOf(cards, this.options.settings.statuses.todo, started),
     }
   }
 
@@ -305,6 +307,7 @@ export class InboxService {
         url: card.url,
         updated_at: card.updatedAt,
         blocked_by_refs: card.blockedBy,
+        ...(card.epic ? { epic: card.epic } : {}),
         ...(activity.live ? { live_run: activity.live } : {}),
         ...(activity.lastClosed ? { last_run: activity.lastClosed } : {}),
         actions: [...ids, ...builtin],

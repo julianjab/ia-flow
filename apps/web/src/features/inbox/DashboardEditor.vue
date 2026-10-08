@@ -65,7 +65,8 @@ function reset() {
       <button v-if="resolved.source === 'override'" type="button" class="btn" @click="reset">
         Volver al de la web
       </button>
-      <button type="button" class="btn btn--primary" :disabled="!dirty" @click="save">Guardar</button>
+      <!-- Neutro: el primario de la pantalla es el de «Lo primero», y éste vive en la misma. -->
+      <button type="button" class="btn" data-test="save" :disabled="!dirty" @click="save">Guardar</button>
     </div>
   </div>
 </template>
@@ -77,6 +78,9 @@ function reset() {
   width: 100%;
   min-height: 12rem;
   resize: vertical;
+  /* YAML: la indentación es la estructura. Sin soft-wrap; una línea larga scrollea. */
+  white-space: pre;
+  overflow-x: auto;
   font-size: var(--fs-body-sm);
   line-height: 1.45;
 }

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { clock, duration, executionStatus, tokens, traceLine, usageLine } from '../format'
-import { confirmText, KIND_LABEL, primaryAction } from '../labels'
-import { trace } from './fixtures'
+import {
+  clock,
+  duration,
+  executionStatus,
+  tokens,
+  traceLine,
+  usageLine,
+} from '@/features/inbox/format'
+import { KIND_LABEL, primaryAction } from '@/features/inbox/labels'
+import { actionOf, confirmCopy } from '@/features/inbox/queue/kinds'
+import { trace } from '@/features/inbox/test/fixtures'
 
 describe('formato', () => {
   it('duration: segundos, minutos y horas', () => {
@@ -65,8 +73,19 @@ describe('labels', () => {
     expect(primaryAction('dep')).toBeUndefined()
   })
 
-  it('la confirmación nombra la tarea', () => {
-    expect(confirmText('stop', 'a/b#1')).toContain('a/b#1')
-    expect(confirmText('rerun_review', 'a/b#1')).toContain('a/b#1')
+  it('la confirmación dice qué se firma, dónde y con tu usuario de GitHub', () => {
+    const stop = confirmCopy(actionOf('stop'), [{ ref: 'acme/api#1' }], 'ada')
+    expect(stop.text).toContain('api#1')
+    expect(stop.text).toContain('@ada')
+    expect(stop.label).toBe('Detener ahora')
+    const custom = confirmCopy(
+      actionOf('archive', [{ id: 'archive', label: 'Archivar', confirm: 'x' }]),
+      [{ ref: 'acme/api#1' }, { ref: 'acme/api#2' }],
+      'ada',
+    )
+    expect(custom.text).toBe(
+      'Se ejecuta «Archivar» en api#1 y api#2 con tu usuario de GitHub (@ada).',
+    )
+    expect(custom.label).toBe('Archivar ahora')
   })
 })

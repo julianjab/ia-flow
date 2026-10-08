@@ -54,7 +54,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
   return [
     new AssistantTool(
       'assistant_list_tasks',
-      'La bandeja del contexto: cada tarea con su grupo (need=te necesita, fail=falló, run=corriendo, queue=en cola), caso, por qué está ahí y qué acciones aplican.',
+      'La bandeja del contexto, en el orden a seguir: primero las decisiones (need=te necesita, fail=falló), cada una con `priority` (1 = lo primero que conviene hacer) y `reasons` (por qué va en ese lugar: cercanía a Done, cuántas tareas destraba —`unlocks`—, quién falló); después lo que corre (run) o espera turno (queue), sin `priority`. Cada tarea trae su caso, por qué está ahí y qué acciones aplican.',
       z.strictObject({}),
       desk,
       agent,

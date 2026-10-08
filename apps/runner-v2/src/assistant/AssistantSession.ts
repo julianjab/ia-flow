@@ -95,6 +95,10 @@ function brief(item: InboxItem) {
     since: item.since,
     pr: item.pr?.number,
     blocked_by: item.blocked_by,
+    unlocks: item.unlocks,
+    epic: item.epic,
+    priority: item.priority,
+    reasons: item.reasons,
     agent_said: item.agent_said,
     actions: item.actions,
   }

@@ -12,8 +12,8 @@ vi.mock('@/features/inbox/api', () => ({
   postTaskAction: vi.fn(),
 }))
 
-import BoardRest from '../BoardRest.vue'
-import { useInboxStore } from '../store'
+import BoardRest from '@/features/inbox/BoardRest.vue'
+import { useInboxStore } from '@/features/inbox/store'
 
 const row = (ref: string, status: string) => ({
   ref,
@@ -38,9 +38,9 @@ function render() {
 }
 
 async function openIt(w: ReturnType<typeof render>) {
-  const details = w.get('details.br').element as HTMLDetailsElement
+  const details = w.get('details').element as HTMLDetailsElement
   details.open = true
-  await w.get('details.br').trigger('toggle')
+  await w.get('details').trigger('toggle')
   await flushPromises()
 }
 
@@ -50,18 +50,39 @@ describe('BoardRest', () => {
     getTaskDetail.mockReset().mockResolvedValue({ item: {}, executions: [], events: [], trace: [] })
   })
 
-  it('no le pide nada al runner hasta que se abre', async () => {
+  it('plegado, la línea de resumen ya dice la cuenta por columna (se pide al montar)', async () => {
     const w = render()
-    expect(getBoardRest).not.toHaveBeenCalled()
-    await openIt(w)
+    await flushPromises()
     expect(getBoardRest).toHaveBeenCalledOnce()
+    expect(w.get('details').attributes('open')).toBeUndefined()
+    const sum = w.get('summary')
+    expect(w.get('h2').text()).toBe('Board de GitHub')
+    expect(sum.find('h2').exists()).toBe(false)
+    expect(sum.text()).toContain('Board de GitHub')
+    expect(sum.text()).toContain('3 cards · Backlog 1 · Todo 2')
   })
 
-  it('abierto, cuenta por columna todas las cards del board', async () => {
+  it('cada fila abre el detalle y lleva su link corto a GitHub, fuera del botón', async () => {
     const w = render()
     await openIt(w)
-    expect(w.get('summary').text()).toContain('3 cards · Backlog 1 · Todo 2')
-    expect(w.text()).toContain('o/r#3')
+    const link = w.get('a[href="https://github.com/o/r#3"]')
+    expect(link.text()).toBe('r#3 ↗')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.element.closest('button')).toBeNull()
+  })
+
+  it('si el board no llega, lo dice con qué hacer y deja reintentar', async () => {
+    getBoardRest.mockReset().mockRejectedValueOnce(new Error('El runner respondió 502'))
+    getBoardRest.mockResolvedValueOnce(rest)
+    const w = render()
+    await openIt(w)
+    const alert = w.get('[role="alert"]')
+    expect(alert.text()).toContain('✕ No se pudo leer el board: El runner respondió 502')
+    expect(alert.text()).toContain('→')
+    await alert.get('button').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+    expect(w.get('summary').text()).toContain('3 cards')
   })
 
   it('una card se abre en grande', async () => {

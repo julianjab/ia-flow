@@ -75,7 +75,7 @@ const session = useGithubSessionStore();
     </p>
 
     <p v-if="status === 'done' && issue" class="pc__done" role="status">
-      ✓ Abierto<template v-if="url"> · <a class="pc__link" :href="url" target="_blank" rel="noopener">{{ message ?? url }}</a></template>
+      ✓ Abierto<template v-if="url"> · <a class="pc__link link" :href="url" target="_blank" rel="noopener">{{ message ?? url }}</a></template>
     </p>
     <p v-else-if="status === 'done'" class="pc__done" role="status">✓ Ejecutada<template v-if="message"> · {{ message }}</template></p>
     <p v-else-if="status === 'dismissed'" class="pc__dim">Descartada.</p>
@@ -98,7 +98,7 @@ const session = useGithubSessionStore();
 .pc__repo { color: var(--fg-dim); font-size: var(--fs-micro); }
 .pc__labels { color: var(--fg-dim); font-size: var(--fs-micro); }
 .pc__body summary { display: list-item; line-height: var(--tap-h); color: var(--info); font-size: var(--fs-body-sm); cursor: pointer; }
-.pc__link { color: var(--accent); }
+.pc__link { overflow-wrap: anywhere; }
 .pc__why { color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.45; }
 .pc__ai { color: var(--ai); }
 .pc__comment { margin: 0; padding: 0.4rem 0.6rem; border-left: 2px solid var(--ai); background: var(--panel); color: var(--fg-mute); font-size: var(--fs-body-sm); white-space: pre-wrap; overflow-wrap: anywhere; }

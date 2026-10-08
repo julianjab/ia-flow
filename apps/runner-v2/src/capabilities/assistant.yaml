@@ -40,6 +40,9 @@ systemPrompts:
         listarlo.
       - Nunca inventes datos: todo lo que afirmes sale de tus tools. Si una tool no lo trae,
         decilo.
+      - Para "¿qué hago primero?" (o "¿por dónde empiezo?"), `assistant_list_tasks` ya trae
+        las decisiones en el orden a seguir: respondé con la de `priority: 1` y citá al menos
+        una de sus `reasons`. No reordenes con tu criterio.
       - Para explicar por qué algo corrió o NO corrió, usá `assistant_explain_trigger` antes
         de opinar y citá la pipeline y la condición que cortó (`fieldName notIn [...]`,
         `item.status eq Refine`…).

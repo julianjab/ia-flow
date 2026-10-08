@@ -1,6 +1,6 @@
 # apps/web — Vue 3 SPA
 
-La web es la **bandeja de runner-v2**: `/` (inbox del board en cuatro grupos + asistente), `/config` (la config cargada, de sólo lectura), `/webhooks` y `/servers`, con un menú lateral (`views/AppShell.vue`: detrás de ☰ en un teléfono, fijo desde 768px). Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub). Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
+La web es la **bandeja de runner-v2**: `/` (la bandeja como cola de decisiones —«Lo primero», «Después» numerado, el pipeline al costado— + asistente), `/config` (la config cargada, de sólo lectura), `/webhooks` y `/servers`, con un menú lateral (`views/AppShell.vue`: detrás de ☰ en un teléfono, fijo desde 768px). Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub). Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
 
 Vite + Vue Router + Pinia. Puerto **5173** por default, configurable con `IA_FLOW_WEB_PORT`.
 Proxy de `/api` al runner (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
@@ -21,9 +21,12 @@ seleccionado, un YAML con `decisions` (la primera cuyo `when` se cumple gana), `
   la URL elegida: lo editado > el de su `server:` > `default`) y `storage.ts` (lo editado vive en
   este navegador). La condición y la plantilla son las de `@ia-flow/rules`: el `when` significa lo
   mismo que en el engine.
-- Se edita desde «Cómo se decide cada grupo» (`DashboardEditor.vue`); un documento inválido no se
+- Se edita desde «Cómo se ordenan las decisiones» (`DashboardEditor.vue`); un documento inválido no se
   guarda y dice dónde falla.
 - Un runner que todavía no publica `/api/tasks` (404) sigue por `/api/inbox`, ya clasificado.
+- Lo que el dashboard no define —el panel `feed`, la capacidad del `pipeline`— lo pone el runner:
+  `/api/inbox` se pide **en paralelo** con `/api/tasks` (`state/load.ts`) y cada sección pinta en
+  cuanto llega su dato (`state/sections.ts`), con su esqueleto mientras tanto.
 - El botón de una acción sólo sale si el **runner** la ofrece para esa tarea (`taskActions` de su
   `project.yaml`); el dashboard elige cuáles mostrar y cuál destacar, no cuáles existen.
 
@@ -77,7 +80,7 @@ src/
 - **API calls:** siempre a través de `features/<dominio>/api.ts`, no axios inline en componentes.
 - **Tipos de red:** importa de `@ia-flow/shared` y valida con `.parse()` los responses críticos.
 - **Componentes grandes:** si un `.vue` supera ~300 líneas, extrae subcomponentes **dentro de su
-  feature** (patrón: `features/inbox/` parte la tarjeta en `InboxCard` / `TaskDetailPanel` / `TaskActions` / `TaskEvents`).
+  feature** (patrón: `features/inbox/` parte la cola en `decisions/` —`FirstDecision`, `DecisionRow`, `DecisionDetail`, `InlineConfirm`, `ActionError`— y `pipeline/`, con la lógica pura en `queue/`, el store partido en `state/` y un solo plegable, `Disclosure.vue`).
 - **Estilos:** scoped por componente, **usando variables de `theme.css`** (`var(--fg)`, `var(--panel)`, etc.). Sin CSS global nuevo salvo tokens en `theme.css`. Sin hex hardcoded.
 - **Sub-navegación:** vive en el sidebar (`SettingsSidebar.vue`, prop `children`). No agregues tab strips arriba del contenido.
 - **Tests:** `foo.vue` + `test/foo.test.ts` (subcarpeta `test/` junto al archivo, no colocado en el mismo nivel). Vitest + @vue/test-utils + happy-dom.

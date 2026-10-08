@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { item } from './fixtures'
+import { ref } from 'vue'
+import { item } from '@/features/inbox/test/fixtures'
 
 const postTaskAction = vi.fn()
 const getTasks = vi.fn()
@@ -10,19 +11,27 @@ vi.mock('@/features/inbox/api', () => ({
   getInbox: vi.fn(),
   getTasks: (...a: unknown[]) => getTasks(...a),
   getTaskDetail: vi.fn(),
+  getBoardRest: vi.fn().mockResolvedValue({ columns: [] }),
   postTaskAction: (...a: unknown[]) => postTaskAction(...a),
+}))
+vi.mock('@/features/inbox/stream', () => ({ connectRunnerStream: () => ({ close: vi.fn() }) }))
+vi.mock('@/composables/useIsMobile', () => ({
+  useIsSplit: () => ({ isSplit: ref(true) }),
+  useIsMobile: () => ({ isMobile: ref(false) }),
 }))
 vi.mock('@/composables/useServerTarget', () => ({
   serverTarget: () => ({ base: 'https://ia-flow.ss.lahaus.com', url: (p: string) => p }),
 }))
 
+import DashboardEditor from '@/features/inbox/DashboardEditor.vue'
+import DecisionRow from '@/features/inbox/decisions/DecisionRow.vue'
+import InboxBoard from '@/features/inbox/InboxBoard.vue'
+import FeedList from '@/features/inbox/pipeline/FeedList.vue'
+import { buildQueue } from '@/features/inbox/queue/build'
+import RulesLegend from '@/features/inbox/RulesLegend.vue'
+import { useInboxStore } from '@/features/inbox/store'
+import TaskActions from '@/features/inbox/TaskActions.vue'
 import { useGithubSessionStore } from '@/stores/githubSession'
-import DashboardEditor from '../DashboardEditor.vue'
-import DashboardPanels from '../DashboardPanels.vue'
-import InboxCard from '../InboxCard.vue'
-import RulesLegend from '../RulesLegend.vue'
-import { useInboxStore } from '../store'
-import TaskActions from '../TaskActions.vue'
 
 const fact = (ref: string, status: string, patch: Record<string, unknown> = {}) => ({
   ref,
@@ -74,40 +83,34 @@ describe('el dashboard en la pantalla', () => {
     getTasks.mockReset().mockResolvedValue(published)
   })
 
-  it('la tarjeta lleva el verbo del dashboard, sus chips con tono y el contexto', () => {
+  it('la fila lleva el verbo del dashboard y sus chips como razones, con tono', () => {
     const { pinia } = setup()
-    const wrapper = mount(InboxCard, {
-      props: {
-        open: false,
-        item: item({
+    const queue = buildQueue({
+      items: [
+        item({ ref: 'o/r#0', kind: 'prd', actions: ['approve_prd'] }),
+        item({
           kind: 'merge',
           verb: 'Decidir el merge',
           chips: [{ text: 'a un merge de Done', tone: 'hot' }, { text: 'sin tono' }],
           context: 'Si el PR está bien, mergealo.',
         }),
-      },
+      ],
+      now: Date.parse('2026-01-02T00:00:00Z'),
+    })
+    const wrapper = mount(DecisionRow, {
+      props: { row: queue.rest[0] as (typeof queue.rest)[0] },
       global: { plugins: [pinia] },
     })
-    expect(wrapper.find('.card__kind').text()).toBe('Decidir el merge')
-    expect(
-      wrapper.findAll('.card__tag').map((tag) => [tag.text(), tag.attributes('data-tone')]),
-    ).toEqual([
-      ['a un merge de Done', 'hot'],
-      ['sin tono', undefined],
-    ])
-    expect(wrapper.find('.card__ctx').text()).toBe('Si el PR está bien, mergealo.')
+    expect(wrapper.get('.dr__verb').text()).toBe('✓Decidir el merge')
+    expect(wrapper.findAll('.why').map((tag) => [tag.text(), tag.attributes('data-tone')])).toEqual(
+      [
+        ['a un merge de Done', 'hot'],
+        ['sin tono', undefined],
+      ],
+    )
   })
 
-  it('sin verbo, la tarjeta usa el nombre del caso de siempre', () => {
-    const { pinia } = setup()
-    const wrapper = mount(InboxCard, {
-      props: { open: false, item: item({ kind: 'merge' }) },
-      global: { plugins: [pinia] },
-    })
-    expect(wrapper.find('.card__kind').text()).toBe('Listo para mergear')
-  })
-
-  it('la acción que destaca el dashboard es la primaria, aunque el caso diga otra', () => {
+  it('la acción que destaca el dashboard va primera, aunque el caso diga otra', () => {
     const { pinia } = setup()
     const wrapper = mount(TaskActions, {
       props: {
@@ -115,23 +118,32 @@ describe('el dashboard en la pantalla', () => {
       },
       global: { plugins: [pinia] },
     })
-    expect(wrapper.find('[data-action="rerun_review"]').classes()).toContain('btn--primary')
-    expect(wrapper.find('[data-action="merge"]').classes()).not.toContain('btn--primary')
+    const ids = wrapper.findAll('[data-action]').map((b) => b.attributes('data-action'))
+    expect(ids).toEqual(['rerun_review', 'merge'])
   })
 
-  it('los paneles muestran el pipeline y lo que podría arrancar, y mover una card va con tu usuario', async () => {
+  it('desde 1100 px, el pipeline tiene su celda de libres y el feed dice cuántos lugares hay para llenar', async () => {
+    const { pinia } = setup()
+    const wrapper = mount(InboxBoard, { global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="cell-free"]').text()).toContain('3')
+    const feed = wrapper.get('[data-test="feed"] summary').text()
+    expect(feed).toContain('3 lugares libres')
+    expect(feed).toContain('1 lista para correr')
+    wrapper.unmount()
+  })
+
+  it('la cola trae el pipeline y lo que podría arrancar, y mover una card va con tu usuario', async () => {
     postTaskAction.mockResolvedValue({ ok: true, message: 'listo', github_login: 'ada' })
     const { pinia, store } = setup()
     await store.refresh()
-    const wrapper = mount(DashboardPanels, {
-      props: { view: store.view as NonNullable<typeof store.view> },
-      global: { plugins: [pinia] },
-    })
-    expect(wrapper.text()).toContain('1 corriendo')
-    expect(wrapper.text()).toContain('3 libres')
+    expect(store.queue.pipeline).toMatchObject({ running: 1, waiting: 0, free: 3, max: 4 })
+    const feed = store.queue.feed as NonNullable<typeof store.queue.feed>
+    const wrapper = mount(FeedList, { props: { feed }, global: { plugins: [pinia] } })
+    expect(wrapper.get('summary').text()).toContain('1 lista')
     expect(wrapper.text()).toContain('Tarea o/r#2')
 
-    await wrapper.find('[data-feed-action="start_refine"]').trigger('click')
+    await wrapper.get('[data-action="start_refine"] button').trigger('click')
     await flushPromises()
     expect(postTaskAction).toHaveBeenCalledWith('o/r#2', { action: 'start_refine' }, 'gho_1')
   })
@@ -140,11 +152,9 @@ describe('el dashboard en la pantalla', () => {
     const { pinia, store, session } = setup()
     session.github = null
     await store.refresh()
-    const wrapper = mount(DashboardPanels, {
-      props: { view: store.view as NonNullable<typeof store.view> },
-      global: { plugins: [pinia] },
-    })
-    await wrapper.find('[data-feed-action="start_refine"]').trigger('click')
+    const feed = store.queue.feed as NonNullable<typeof store.queue.feed>
+    const wrapper = mount(FeedList, { props: { feed }, global: { plugins: [pinia] } })
+    await wrapper.get('[data-action="start_refine"] button').trigger('click')
     await flushPromises()
     expect(postTaskAction).not.toHaveBeenCalled()
   })
@@ -158,12 +168,12 @@ describe('el dashboard en la pantalla', () => {
 
     const textarea = wrapper.find('textarea')
     await textarea.setValue('decisions: []')
-    await wrapper.find('.btn--primary').trigger('click')
+    await wrapper.find('[data-test="save"]').trigger('click')
     expect(wrapper.find('[role="alert"]').text()).toContain('no cumple el formato')
     expect(store.dashboard?.source).toBe('preset')
 
     await textarea.setValue(store.dashboard?.text.replace('Decidir el merge', 'Mergear ya') ?? '')
-    await wrapper.find('.btn--primary').trigger('click')
+    await wrapper.find('[data-test="save"]').trigger('click')
     expect(wrapper.find('[role="status"]').text()).toContain('Guardado')
     expect(store.dashboard?.source).toBe('override')
     expect(store.inbox?.items[0]?.verb).toBe('Mergear ya')
@@ -183,5 +193,16 @@ describe('el dashboard en la pantalla', () => {
     const names = wrapper.findAll('.lg__group').map((el) => el.text())
     expect(names.indexOf('Decidir el merge')).toBeLessThan(names.indexOf('Aprobar el PRD'))
     expect(names.at(-1)).toBe('Orden')
+  })
+
+  it('la leyenda no muestra plantillas sin resolver: cada {{…}} se lee «…»', async () => {
+    const { pinia, store } = setup()
+    await store.refresh()
+    const wrapper = mount(RulesLegend, { global: { plugins: [pinia] } })
+    const text = wrapper.get('.lg__body').text()
+    expect(store.dashboard?.text).toContain('{{')
+    expect(text).not.toContain('{{')
+    expect(text).not.toContain('}}')
+    expect(text).toContain('Review + reviewed…')
   })
 })

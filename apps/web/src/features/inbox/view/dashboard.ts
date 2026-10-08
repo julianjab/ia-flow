@@ -74,8 +74,10 @@ export const DecisionSchema = z
     verb: z.string().optional(),
     /** Una línea: por qué está acá. */
     why: z.string().min(1),
-    /** Desde cuándo está así (ISO): el primero de la lista que no queda vacío. */
-    since: Texts.default('{{updated_at}}'),
+    /** Desde cuándo está así (ISO): el primero de la lista que no queda vacío. El default ya es
+     *  la lista: con Zod 4 (el que empaqueta Vite) un `.default()` no pasa por el `transform`, y un
+     *  string suelto se recorría letra por letra (`"{"`, una fecha que no parsea: sin antigüedad). */
+    since: Texts.default(['{{updated_at}}']),
     /** Lo que dijo el agente. */
     said: z.string().optional(),
     context: z.string().optional(),
