@@ -19,7 +19,7 @@ const props = defineProps<{ entry: QueueEntry; total: number }>();
 const act = useDecisionAction({ action: () => props.entry.action, targets: () => [props.entry.item] });
 const detail = ref<InstanceType<typeof DecisionDetail> | null>(null);
 const tone = computed(() => ({ '--tone': `var(--${props.entry.tone})` }));
-/** El porqué abierto en el teléfono; desde 640 px se ve siempre. */
+/** El porqué abierto en una columna angosta; desde 36rem de columna se ve siempre. */
 const whyOpen = ref(false);
 
 async function press() {
@@ -32,66 +32,70 @@ async function press() {
 </script>
 
 <template>
-  <article :id="`card-${entry.ref}`" class="fd" :style="tone" aria-labelledby="first-verb" data-test="first">
-    <div class="fd__top">
-      <h2 class="uc-label fd__kicker">Lo primero · 1 de {{ total }}</h2>
-      <AgeStamp :age="entry.age" prefix="esperando" />
-    </div>
-
-    <div class="fd__main">
-      <div class="fd__what">
-        <h3 id="first-verb" class="fd__verb">
-          <span class="fd__glyph" aria-hidden="true">{{ entry.glyph }}</span>{{ entry.verb }}
-        </h3>
-        <p class="fd__title">{{ entry.title }}</p>
+  <!-- El contenedor que mide: la card cambia de forma según el ancho de su columna, no de la ventana. -->
+  <div class="fd-c" data-test="first">
+    <article :id="`card-${entry.ref}`" class="fd" :style="tone" aria-labelledby="first-verb">
+      <div class="fd__top">
+        <h2 class="uc-label fd__kicker">Lo primero · 1 de {{ total }}</h2>
+        <AgeStamp :age="entry.age" prefix="esperando" />
       </div>
+
+      <div class="fd__main">
+        <div class="fd__what">
+          <h3 id="first-verb" class="fd__verb">
+            <span class="fd__glyph" aria-hidden="true">{{ entry.glyph }}</span>{{ entry.verb }}
+          </h3>
+          <p class="fd__title">{{ entry.title }}</p>
+        </div>
+        <button
+          v-if="entry.action && !act.confirming.value"
+          type="button"
+          class="btn btn--primary fd__act"
+          :data-action="entry.action.id"
+          :disabled="act.busy.value"
+          @click="press"
+        >
+          {{ act.busy.value ? '· ejecutando' : entry.action.label }}
+        </button>
+      </div>
+
+      <InlineConfirm
+        v-if="act.confirming.value && act.copy.value"
+        class="fd__in"
+        primary
+        :text="act.copy.value.text"
+        :label="act.copy.value.label"
+        :busy="act.busy.value"
+        @cancel="act.cancel()"
+        @confirm="act.confirm()"
+      />
+      <ActionError v-if="act.failure.value" class="fd__in" :failure="act.failure.value" :busy="act.busy.value" @retry="act.retry()" />
+      <p v-else-if="act.done.value" class="fd__in fd__ok" role="status">✓ {{ act.done.value.message }}</p>
+
+      <div class="fd__why">
+        <RefLink :short="entry.short" :url="entry.url" />
+        <ReasonChips :reasons="entry.reasons" />
+      </div>
+
       <button
-        v-if="entry.action && !act.confirming.value"
         type="button"
-        class="btn btn--primary fd__act"
-        :data-action="entry.action.id"
-        :disabled="act.busy.value"
-        @click="press"
+        class="btn btn--ghost fd__more"
+        :aria-expanded="whyOpen"
+        aria-controls="first-detail"
+        data-test="first-why"
+        @click="whyOpen = !whyOpen"
       >
-        {{ act.busy.value ? '· ejecutando' : entry.action.label }}
+        Por qué {{ whyOpen ? '▴' : '▾' }}
       </button>
-    </div>
-
-    <InlineConfirm
-      v-if="act.confirming.value && act.copy.value"
-      class="fd__in"
-      primary
-      :text="act.copy.value.text"
-      :label="act.copy.value.label"
-      :busy="act.busy.value"
-      @cancel="act.cancel()"
-      @confirm="act.confirm()"
-    />
-    <ActionError v-if="act.failure.value" class="fd__in" :failure="act.failure.value" :busy="act.busy.value" @retry="act.retry()" />
-    <p v-else-if="act.done.value" class="fd__in fd__ok" role="status">✓ {{ act.done.value.message }}</p>
-
-    <div class="fd__why">
-      <RefLink :short="entry.short" :url="entry.url" />
-      <ReasonChips :reasons="entry.reasons" />
-    </div>
-
-    <button
-      type="button"
-      class="btn btn--ghost fd__more"
-      :aria-expanded="whyOpen"
-      aria-controls="first-detail"
-      data-test="first-why"
-      @click="whyOpen = !whyOpen"
-    >
-      Por qué {{ whyOpen ? '▴' : '▾' }}
-    </button>
-    <div id="first-detail" class="fd__detail" :class="{ 'fd__detail--open': whyOpen }">
-      <DecisionDetail ref="detail" v-model:comment="act.comment.value" :entry="entry" />
-    </div>
-  </article>
+      <div id="first-detail" class="fd__detail" :class="{ 'fd__detail--open': whyOpen }">
+        <DecisionDetail ref="detail" v-model:comment="act.comment.value" :entry="entry" />
+      </div>
+    </article>
+  </div>
 </template>
 
 <style scoped>
+.fd-c { container: first / inline-size; min-width: 0; }
 .fd {
   display: flex;
   flex-direction: column;
@@ -134,7 +138,8 @@ async function press() {
 .fd__in { margin-left: 0; }
 .fd__why { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; }
 .fd__ok { margin: 0; color: var(--accent); font-size: var(--fs-body-sm); }
-@media (min-width: 640px) {
+/* Mismo corte que las filas de «Después» (DecisionRow): 36rem de columna, no 640 de ventana. */
+@container first (min-width: 36rem) {
   .fd { padding: 1rem 1.1rem; }
   .fd__main { order: 1; display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
   .fd__in { order: 2; }

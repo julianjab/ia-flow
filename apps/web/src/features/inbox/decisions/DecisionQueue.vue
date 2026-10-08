@@ -43,7 +43,9 @@ const keyOf = (row: QueueRow) => (row.kind === 'group' ? row.key : row.ref);
 
 <style scoped src="@/features/inbox/section.css" />
 <style scoped>
-.dq { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); min-width: 0; }
+/* Contenedor de las filas: «Después» vive en una columna (con el aside o el menú lateral), así que
+   la fila cambia de forma según el ancho de la lista, no el de la ventana (DecisionRow). */
+.dq { container: decisions / inline-size; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); min-width: 0; }
 .dq__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; padding: 0.65rem 0.75rem; }
 .dq__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.6rem 0.75rem; border-top: 1px solid var(--border-mute); }
 .dq__n { color: var(--fg); font-weight: 700; }

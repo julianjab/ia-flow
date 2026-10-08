@@ -133,7 +133,11 @@ async function confirm() {
 .dr__in { margin-left: 1.9rem; }
 .dr__ok { margin: 0 0 0 1.9rem; color: var(--accent); font-size: var(--fs-body-sm); }
 .dr__kids { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-mute); border-radius: var(--radius); }
-@media (min-width: 640px) {
+/* Pregunta por la lista (`.dq`), no por la ventana: a 768 la lista mide ~490px y a 1100–1280
+   ~470–640 (con el aside al lado), y en una línea al título le quedaban 170–240px. 36rem es lo
+   que la fila necesita en una línea: edad, toggle y botón ocupan hasta ~13rem y al título le
+   quedan ≥ ~17rem. */
+@container decisions (min-width: 36rem) {
   .dr { padding: 0.75rem 1rem; }
   .dr__head { gap: 0.5rem 1rem; }
   .dr__side { display: flex; grid-column: 3; grid-row: 1; align-items: center; gap: 0.4rem; }
