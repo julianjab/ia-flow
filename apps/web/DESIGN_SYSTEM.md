@@ -120,6 +120,7 @@ Escribir el número suelto está bien. Inventar un cuarto ancho, no.
 Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son globales:
 
 - `.panel` / `.panel__header` (`--dim`) — card con header en caja alta.
+- `.link` — **el link de texto dentro de una fila, card o panel**: `--info`, al hover `--fg` subrayado sin fondo, foco con contorno. El `<a>` sin clase (texto corrido) usa el video inverso global; ver «Trampas conocidas».
 - `.settings-section` + `.section-header` / `.section-head-text` / `.section-head-actions` / `.section-desc` — **la caja de una pantalla de configuración.** Es la que usan Tareas, Board, Agentes, Pipeline, Acciones, Tools, System Prompts y Repos, y por eso las ocho tienen el mismo alto de caja, el mismo `h2` y el mismo espacio hasta la primera fila. Vivía copiada `scoped` en nueve componentes hasta que las copias derivaron (radios de 8/10px que el reset pisa, dos tamaños de `h2`, tres márgenes de descripción distintos): **no la vuelvas a declarar en un componente.**
 - `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
 - `ui/EditableCard.vue` — **la caja de una fila editable**, para toda lista que se puede abrir a un
@@ -241,7 +242,7 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   detalle son dos anchos que el `@media` no ve: a 1600px de ventana, con el
   detalle abierto, la lista mide 794. Por eso `RunRow` pregunta por su
   contenedor (`@container`, con `container: <nombre> / inline-size` en el
-  wrapper) — es la excepción a los tres breakpoints, y la única que hay.
+  wrapper) — es la excepción a los tres breakpoints (ver «Patrones de vista»).
 - `components/KbdBar.vue` — **la barra de atajos** al pie de una lista navegable. Anuncia sólo lo
   que `useKeyboardNav` bindea; no se renderiza bajo `--bp-shell` (`v-if`, no `display: none`).
 - `components/FinishedTodayPanel.vue` — lo que terminó hoy, con lo que falló primero.
@@ -412,7 +413,7 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 
 ## Trampas conocidas
 
-- **`a:hover` global pinta el fondo.** `theme.css` define `a { color: var(--accent) }` y `a:hover { background: var(--accent); color: var(--panel) }`. Si tu componente tiene un `<a>` que no debe comportarse como link de texto (un chip, un tag, una fila clickeable), **redefiní `background` explícitamente en tu `:hover`** — pisar sólo `color` deja el fondo verde.
+- **Links.** El video inverso de `a:hover` (`theme.css`: `a:not([class]):hover`) sólo aplica a un `<a>` sin clase (texto corrido). Un link dentro de una fila, card o panel lleva `.link` (`--info`; al hover `--fg` subrayado, sin fondo; foco con contorno `--accent`). Un `<a>` con otra clase (`.btn`, una fila clickeable, un chip) define su propio `:hover` completo (background y color). Nunca pises sólo color: con el `a:hover` viejo eso dejaba un bloque verde sin texto.
 - **Los inputs traen `color: … !important`.** Es para que el CSS legacy con `background: #fff` siga legible. No pelees contra eso; sacá el `#fff`.
 - **`h1`–`h6` ya son `--font-display` y `font-weight: 700`.** No los vuelvas a declarar.
 
@@ -431,6 +432,7 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
   razones (máx. 3 en «Lo primero», 2 por fila); un tag de tipo sigue siendo la caja única.
 - **Truncado:** truncá lo mínimo. Dentro de un chip, sólo el texto variable (el glifo y el estado quedan siempre visibles). Un título de lista **envuelve**, no trunca: esconder el final de un título esconde justo lo que distingue una fila de otra.
 - **Ausencia:** decila, no la calles — `sin rama`, `sin PR` en `--fg-dimmer`. Pero sólo cuando *sabés* que no hay; si el dato no llegó, no muestres nada (un "no sé" dibujado como "no hay" es peor que el silencio).
+- **Ancho del contenedor, no de la ventana.** Un componente que vive en una columna (la bandeja con el aside o el menú lateral) cambia de forma según el ancho de su contenedor (`@container`, con `container: <nombre> / inline-size` en el wrapper), no del viewport: a 1100–1280 la ventana pasa 640 pero la columna de «Después» no tiene ancho para la fila en una línea. Los tres breakpoints (640/768/1100) siguen siendo los únicos anchos de **ventana**; el corte de un `@container` es el ancho que la pieza necesita, y se justifica en un comentario junto a la regla. Hoy: `DecisionRow` (contenedor `decisions`, en `DecisionQueue`) y `FirstDecision` (contenedor `first`) a **36rem** — edad, toggle y botón ocupan hasta ~13rem y al título le quedan ≥ ~17rem en la misma línea; debajo, apilada.
 - **Selección:** video inverso (`background: var(--accent); color: var(--panel)`); nunca outlines de color.
 
 ## Glifos
