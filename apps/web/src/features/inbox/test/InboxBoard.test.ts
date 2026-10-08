@@ -306,13 +306,24 @@ describe('InboxBoard', () => {
     expect(alert.get('button').text()).toBe('Reintentar')
   })
 
-  it('carga: mientras espera la primera respuesta lo dice', async () => {
+  it('carga: mientras espera la primera respuesta, cada sección muestra su esqueleto', async () => {
     getInbox.mockReturnValue(new Promise(() => {}))
     const pinia = createPinia()
     setActivePinia(pinia)
     const wrapper = mount(InboxBoard, { global: { plugins: [pinia] } })
     await flushPromises()
-    expect(wrapper.text()).toContain('cargando la bandeja')
+    const busy = wrapper.findAll('[aria-busy="true"]')
+    expect(busy.map((b) => b.attributes('data-test'))).toEqual([
+      'skeleton-pipeline-line',
+      'skeleton-queue',
+      'skeleton-feed',
+    ])
+    expect(wrapper.get('[data-test="skeleton-queue"] [role="status"]').text()).toBe(
+      'cargando las decisiones…',
+    )
+    // El titular es parte de las decisiones: no se anuncia dos veces.
+    expect(wrapper.get('[data-test="skeleton-headline"]').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.text()).not.toContain('cargando la bandeja')
   })
 
   it('al desmontar corta el stream', async () => {

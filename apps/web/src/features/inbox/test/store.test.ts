@@ -285,11 +285,12 @@ describe('useInboxStore', () => {
 
     beforeEach(() => localStorage.clear())
 
-    it('la bandeja sale de aplicar el dashboard a los hechos, no de /api/inbox', async () => {
+    it('la bandeja sale de aplicar el dashboard a los hechos; /api/inbox sólo trae el feed', async () => {
       getTasks.mockResolvedValue(published)
       const store = useInboxStore()
       await store.refresh()
-      expect(getInbox).not.toHaveBeenCalled()
+      // El dashboard por defecto no define el feed: lo pone el runner, pedido en paralelo.
+      expect(getInbox).toHaveBeenCalledTimes(1)
       expect(store.inbox?.items.map((i) => [i.ref, i.kind, i.actions])).toEqual([
         ['acme/api#1', 'merge', ['merge']],
       ])
