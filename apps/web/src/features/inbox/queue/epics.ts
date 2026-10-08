@@ -76,9 +76,23 @@ export function epicsOf(items: readonly InboxItem[]): EpicLine[] {
   return out
 }
 
-/** El chip de la épica de una tarea: «épica Filtros del listado 3/5». */
+/** Cuánto del título de una épica entra en su chip: el resto va en el `title` (tooltip). */
+export const EPIC_CHIP_CHARS = 32
+
+/** Recorta un texto a `max` caracteres con «…», sin dejar un espacio colgando antes. */
+export function clip(text: string, max: number): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line
+}
+
+/** El chip de la épica de una tarea: «épica Filtros del listado 3/5», con el título recortado
+ *  (en una línea) y entero en `full`. */
 export function epicReason(epic: TaskEpic): Reason {
-  return { text: `épica ${epic.title} ${epic.done}/${epic.total}` }
+  const count = `${epic.done}/${epic.total}`
+  return {
+    text: `épica ${clip(epic.title, EPIC_CHIP_CHARS)} ${count}`,
+    full: `épica ${epic.title} ${count}`,
+  }
 }
 
 /** Agrega el chip de la épica al final, sólo si queda lugar y no está repetido. */

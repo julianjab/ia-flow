@@ -4,6 +4,7 @@
 import type { InboxItem } from '@ia-flow/shared'
 import { type Age, ageOf } from '@/features/inbox/queue/age'
 import { withEpic } from '@/features/inbox/queue/epics'
+import { groupSummary, oldestAge } from '@/features/inbox/queue/groupTitle'
 import {
   actionOf,
   primaryOf,
@@ -23,6 +24,8 @@ export const ROW_REASONS = 2
 export interface Reason {
   text: string
   tone?: 'hot' | 'warn' | 'bad'
+  /** El texto entero cuando `text` va recortado (el título de una épica): su `title`. */
+  full?: string
 }
 
 /** Lo que se ve al expandir: el porqué, una sola vez cada cosa. */
@@ -158,21 +161,23 @@ export function entryOf(
 }
 
 /** Los tipos que se agrupan con ≥2 y la acción que corre el grupo. */
-const GROUPABLE: Partial<Record<QueueType, { action: string; verb: (n: number) => string }>> = {
-  merge: { action: 'merge', verb: (n) => `Mergear ${n} PRs` },
-  prd: { action: 'approve_prd', verb: (n) => `Aprobar ${n} PRDs` },
-}
+const GROUPABLE: Partial<Record<'merge' | 'prd', { action: string; verb: (n: number) => string }>> =
+  {
+    merge: { action: 'merge', verb: (n) => `Mergear ${n} PRs` },
+    prd: { action: 'approve_prd', verb: (n) => `Aprobar ${n} PRDs` },
+  }
 
 const GROUP_LABEL: Record<string, (n: number) => string> = {
   merge: (n) => `Mergear los ${n}…`,
   approve_prd: (n) => `Aprobar los ${n}…`,
 }
 
-function groupOf(type: QueueType, children: QueueEntry[]): QueueGroup {
+const isGroupable = (type: QueueType): type is 'merge' | 'prd' => type in GROUPABLE
+
+function groupOf(type: 'merge' | 'prd', children: QueueEntry[]): QueueGroup {
   const spec = GROUPABLE[type]!
   const meta = TYPE_META[type]
   const n = children.length
-  const oldest = children.reduce((a, b) => (b.item.since < a.item.since ? b : a))
   const seen = new Set<string>()
   const reasons = children
     .flatMap((c) => reasonsOf(c.item))
@@ -185,13 +190,16 @@ function groupOf(type: QueueType, children: QueueEntry[]): QueueGroup {
     glyph: meta.glyph,
     tone: meta.tone,
     verb: spec.verb(n),
-    title: children.map((c) => c.title).join(' · '),
+    title: groupSummary(
+      type,
+      children.map((c) => c.item),
+    ),
     reasons: withEpic(
       reasons,
       children.map((c) => c.item.epic),
       ROW_REASONS,
     ),
-    age: oldest.age,
+    age: oldestAge(children.map((c) => c.age)),
     action: { id: spec.action, label: GROUP_LABEL[spec.action]!(n), confirms: true },
     children,
   }
@@ -205,14 +213,14 @@ function groupOf(type: QueueType, children: QueueEntry[]): QueueGroup {
 export function groupRows(entries: readonly QueueEntry[], firstRank: number): QueueRow[] {
   const members = new Map<QueueType, QueueEntry[]>()
   for (const entry of entries) {
-    const spec = GROUPABLE[entry.type]
-    if (!spec || entry.action?.id !== spec.action) continue
+    if (!isGroupable(entry.type) || entry.action?.id !== GROUPABLE[entry.type]?.action) continue
     members.set(entry.type, [...(members.get(entry.type) ?? []), entry])
   }
   const rows: QueueRow[] = []
   for (const entry of entries) {
     const group = members.get(entry.type)
-    if (!group || group.length < 2 || !group.includes(entry)) rows.push(entry)
+    if (!group || group.length < 2 || !group.includes(entry) || !isGroupable(entry.type))
+      rows.push(entry)
     else if (group[0] === entry) rows.push(groupOf(entry.type, group))
   }
   return rows.map((row, i) => ({ ...row, rank: firstRank + i }))

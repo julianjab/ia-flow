@@ -4,12 +4,13 @@ import type { Reason } from '@/features/inbox/queue/entries';
 // Por qué una decisión está en su lugar: los chips del dashboard (o los que se deducen con un
 // runner viejo). No son presionables: miden `--row-h`, y el tono (hot/warn/bad) va en el texto y
 // en un fondo de estado sin borde — la excepción documentada en DESIGN_SYSTEM «Chip / tag».
+// Un chip nunca rompe en dos líneas: si no entra, se corta con «…» y el texto entero va en `title`.
 
 defineProps<{ reasons: readonly Reason[] }>();
 </script>
 
 <template>
-  <span v-for="r in reasons" :key="r.text" class="why mono" :data-tone="r.tone">{{ r.text }}</span>
+  <span v-for="r in reasons" :key="r.text" class="why mono" :data-tone="r.tone" :title="r.full ?? r.text">{{ r.text }}</span>
 </template>
 
 <style scoped>
@@ -20,7 +21,12 @@ defineProps<{ reasons: readonly Reason[] }>();
   background: var(--panel-hi);
   color: var(--fg-mute);
   font-size: var(--fs-micro);
-  overflow-wrap: anywhere;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 .why[data-tone='hot'] { background: var(--green-bg); color: var(--accent); }
 .why[data-tone='warn'] { background: var(--yellow-bg); color: var(--warn); }
