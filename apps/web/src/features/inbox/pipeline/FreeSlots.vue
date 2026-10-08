@@ -25,7 +25,7 @@ const more = computed(() => ready.value.length - shown.value.length);
           <span class="fs__title" :title="e.title">{{ e.title }}</span>
         </li>
       </ul>
-      <a v-if="more > 0 && anchor" class="fs__more" :href="`#${anchor}`" data-test="free-more">
+      <a v-if="more > 0 && anchor" class="fs__more link" :href="`#${anchor}`" data-test="free-more">
         y {{ more }} más en {{ feed?.title }}
       </a>
       <p v-else-if="more > 0" class="fs__lead">y {{ more }} más en {{ feed?.title }}</p>
@@ -40,7 +40,5 @@ const more = computed(() => ready.value.length - shown.value.length);
 .fs__list { list-style: none; margin: 0; padding: 0; }
 .fs__row { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .fs__title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-mute); font-size: var(--fs-chrome); }
-.fs__more { display: inline-flex; align-items: center; align-self: flex-start; min-height: var(--tap-h); color: var(--info); font-size: var(--fs-chrome); }
-.fs__more:hover { background: none; color: var(--fg); text-decoration: underline; }
-.fs__more:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.fs__more { display: inline-flex; align-items: center; align-self: flex-start; min-height: var(--tap-h); font-size: var(--fs-chrome); }
 </style>

@@ -226,15 +226,29 @@ pre {
   color: var(--panel);
 }
 
-/* Links inherit the accent rule. */
+/* Links. El video inverso es del link de texto corrido: un <a> SIN clase. Un link dentro de una
+   fila, card o panel lleva `.link`; un <a> con otra clase (`.btn`, una fila clickeable) define su
+   propio :hover completo — background y color, nunca sólo color. */
 a {
   color: var(--accent);
   text-decoration: none;
 }
-a:hover {
+a:not([class]):hover {
   background: var(--accent);
   color: var(--panel);
   text-decoration: none;
+}
+.link {
+  color: var(--info);
+}
+.link:hover {
+  background: transparent;
+  color: var(--fg);
+  text-decoration: underline;
+}
+.link:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Scrollbar in the same key. */

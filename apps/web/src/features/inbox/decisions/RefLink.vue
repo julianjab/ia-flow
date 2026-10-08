@@ -6,21 +6,30 @@ defineProps<{ short: string; url: string; label?: string }>();
 </script>
 
 <template>
-  <a class="ref mono" :href="url" target="_blank" rel="noopener noreferrer" :aria-label="label ?? `Abrir ${short} en GitHub`"
+  <a
+    class="ref link mono"
+    :href="url"
+    :title="short"
+    target="_blank"
+    rel="noopener noreferrer"
+    :aria-label="label ?? `Abrir ${short} en GitHub`"
     >{{ short }} ↗</a
   >
 </template>
 
 <style scoped>
 .ref {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap-h);
-  color: var(--info);
+  /* inline-block y no inline-flex: el ellipsis no se aplica al texto de un flex container. El
+     alto táctil lo da el line-height. Una ref larga se recorta (el `title` la tiene entera) en vez
+     de abrir un scroll horizontal en todo el documento. */
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  line-height: var(--tap-h);
   font-size: var(--fs-micro);
   white-space: nowrap;
 }
-/* `a:hover` global pinta el fondo: acá es un link de texto. */
-.ref:hover { background: none; color: var(--info); text-decoration: underline; }
-.ref:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 </style>
