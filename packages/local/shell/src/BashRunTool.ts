@@ -3,6 +3,7 @@ import { SchemaTool } from '@ia-flow/agent-engine'
 import { z } from 'zod'
 import { type BashPolicy, isAllowed, isDenied } from './BashPolicy.js'
 import { ghEnv, ghReadOnlyRisk } from './ghReadOnly.js'
+import { type GroupMemorySampler, watchGroupMemory } from './memoryGuard.js'
 import { tokenize } from './tokenize.js'
 
 export const BashRunInput = z.strictObject({
@@ -29,6 +30,12 @@ export interface BashRunToolOptions {
   maxTimeoutMs?: number
   /** Tope de stdout/stderr combinado antes de truncar Y matar el proceso. Default 64KB. */
   maxOutputBytes?: number
+  /** Tope de memoria (RSS) del comando y de todo lo que lance, antes de matarlo. Default 2 GiB.
+   *  Existe para que un `vitest`/`tsc` desbocado muera él y no se lleve al proceso que lo corre
+   *  (en un pod, el kernel mata al contenedor entero). No aplica en Windows. */
+  maxMemoryBytes?: number
+  /** Cómo se mide la memoria del grupo de procesos — inyectable para los tests. */
+  memorySampler?: GroupMemorySampler
   /** Env del proceso hijo. Default: un subset mínimo de `process.env` (ver
    *  `DEFAULT_SAFE_ENV_KEYS`) — NUNCA el entorno completo. Pasá esto explícito si el comando
    *  necesita algo puntual del entorno (una API key, un flag de build). */
@@ -104,7 +111,15 @@ export function timeoutNote(options: TimeoutOptions): string {
     ? `Un comando se corta a los ${seconds(base)}; para algo largo (una suite de tests entera) pedí más con \`timeoutMs\`, hasta ${seconds(max)}.`
     : `Un comando se corta a los ${seconds(base)}.`
 }
+/** Lo que el modelo lee sobre la memoria: el tope por comando. */
+export function memoryNote(options: Pick<BashRunToolOptions, 'maxMemoryBytes'>): string {
+  return `Un comando se corta si pasa de ${megabytes(options.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES)} de memoria; si pasa, corré una parte más chica (un solo archivo de tests, menos workers).`
+}
+
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024
+const DEFAULT_MAX_MEMORY_BYTES = 2 * 1024 ** 3
+
+const megabytes = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MB`
 
 /** Lo mínimo para que un binario común (git, node, un linter) arranque sin romperse — nunca
  *  tokens/keys. Heredar `process.env` ENTERO (el default de `child_process.spawn`) le pasaría
@@ -167,7 +182,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
 
   constructor(private readonly options: BashRunToolOptions) {
     super()
-    this.description = `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) dentro de ${options.baseDir} — usa comillas para args con espacios. ${timeoutNote(options)}`
+    this.description = `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) dentro de ${options.baseDir} — usa comillas para args con espacios. ${timeoutNote(options)} ${memoryNote(options)}`
   }
 
   /** Cuánto dejar correr ESTE comando: lo que pidió el agente, sin pasar el máximo. */
@@ -275,6 +290,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
       const stderr = new BoundedCollector()
       let settled = false
       let timedOut = false
+      let memoryExceeded: number | undefined
 
       const killGroup = () => {
         if (child.pid == null) return
@@ -295,6 +311,20 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         killGroup()
       }, timeoutMs)
 
+      const maxMemoryBytes = this.options.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES
+      const stopMemoryWatch =
+        process.platform === 'win32' || child.pid == null
+          ? () => {}
+          : watchGroupMemory({
+              pgid: child.pid,
+              maxBytes: maxMemoryBytes,
+              ...(this.options.memorySampler ? { sample: this.options.memorySampler } : {}),
+              onExceeded: (used) => {
+                memoryExceeded = used
+                killGroup()
+              },
+            })
+
       child.stdout.on('data', (chunk: Buffer) => {
         stdout.push(chunk, maxOutputBytes)
         if (stdout.truncated) killGroup()
@@ -307,19 +337,23 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         if (settled) return
         settled = true
         clearTimeout(timeoutTimer)
+        stopMemoryWatch()
         reject(err)
       })
       child.on('close', (code, signal) => {
         if (settled) return
         settled = true
         clearTimeout(timeoutTimer)
+        stopMemoryWatch()
         // Un corte por tiempo dice que fue por tiempo — sin esto el modelo sólo veía "señal
         // SIGKILL" y no sabía si reintentar, achicar el comando o pedir más tiempo.
-        const status = timedOut
-          ? `timeout: se cortó a los ${seconds(timeoutMs)}${timeoutMs < maxTimeoutMs ? ` (podés pedir hasta ${seconds(maxTimeoutMs)} con timeoutMs)` : ' (es el máximo: corré una parte más chica)'}`
-          : signal
-            ? `señal ${signal}`
-            : `exit ${code}`
+        const status = memoryExceeded
+          ? `memoria: se cortó al pasar de ${megabytes(maxMemoryBytes)} (usaba ${megabytes(memoryExceeded)}); corré una parte más chica`
+          : timedOut
+            ? `timeout: se cortó a los ${seconds(timeoutMs)}${timeoutMs < maxTimeoutMs ? ` (podés pedir hasta ${seconds(maxTimeoutMs)} con timeoutMs)` : ' (es el máximo: corré una parte más chica)'}`
+            : signal
+              ? `señal ${signal}`
+              : `exit ${code}`
         resolve(JSON.stringify({ status, stdout: stdout.toString(), stderr: stderr.toString() }))
       })
     })
