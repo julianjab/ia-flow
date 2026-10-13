@@ -52,3 +52,7 @@ const server = Bun.serve({
 log.info(
   `escuchando en http://${server.hostname}:${server.port} — modelos: ${config.models.join(', ')}`,
 )
+
+log.info(
+  `opciones: system prompt=${config.systemPrompt ? `${config.systemPrompt.length} caracteres` : 'NO'} · drop sampling=${config.dropSampling} · log body=${config.logBody}`,
+)
