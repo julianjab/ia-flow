@@ -11,7 +11,7 @@ bun run gateway                              # http://127.0.0.1:4141
 | Variable | Default | |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | — (requerida) | key de Anthropic |
-| `LLM_GATEWAY_TOKEN` | — (requerida, ≥16 chars) | bearer que exige el gateway |
+| `LLM_GATEWAY_TOKEN` | — (requerida, ≥16 chars) | bearer que exige el gateway (también se acepta como `x-api-key`) |
 | `LLM_GATEWAY_HOST` / `LLM_GATEWAY_PORT` | `127.0.0.1` / `4141` | dónde escucha |
 | `LLM_GATEWAY_MODELS` | `claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5` | lo que lista `/v1/models` |
 | `LLM_GATEWAY_DEFAULT_MODEL` | el primero de la lista | si el request no trae `model` |

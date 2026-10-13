@@ -60,10 +60,16 @@ function tokenMatches(received: string, expected: string): boolean {
   return timingSafeEqual(digest(received), digest(expected))
 }
 
+/** El token del gateway puede venir como `Authorization: Bearer` (OpenAI) o `x-api-key` (Anthropic).
+ *  Ninguno de los dos se reenvía: a Anthropic siempre sale la credencial del gateway. */
 function isAuthorized(request: Request, token: string): boolean {
   const header = request.headers.get('authorization') ?? ''
-  const match = /^Bearer\s+(.+)$/i.exec(header)
-  return match?.[1] !== undefined && tokenMatches(match[1].trim(), token)
+  const bearer = /^Bearer\s+(.+)$/i.exec(header)?.[1]
+  const apiKey = request.headers.get('x-api-key')
+  return [bearer, apiKey].some(
+    (candidate) =>
+      candidate !== undefined && candidate !== null && tokenMatches(candidate.trim(), token),
+  )
 }
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
