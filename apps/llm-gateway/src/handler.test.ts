@@ -160,3 +160,35 @@ describe('POST /v1/chat/completions', () => {
     )
   })
 })
+
+describe('logBody', () => {
+  const lines: string[] = []
+  const log = { info: (m: string) => lines.push(m), warn() {}, error() {} }
+  const withBody = (logBody: boolean) =>
+    createHandler({ config: { ...config, logBody }, send: async () => reply, log })
+
+  test('con logBody imprime el body crudo, incluso si no es JSON', async () => {
+    lines.length = 0
+    const handler = withBody(true)
+    await call(
+      handler,
+      '/v1/chat/completions',
+      post({ messages: [{ role: 'user', content: 'x' }] }),
+    )
+    await call(handler, '/v1/chat/completions', { method: 'POST', body: 'no-json' })
+    const bodies = lines.filter((line) => line.startsWith('body: '))
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0]).toContain('"content":"x"')
+    expect(bodies[1]).toBe('body: no-json')
+  })
+
+  test('sin logBody no imprime nada del body', async () => {
+    lines.length = 0
+    await call(
+      withBody(false),
+      '/v1/chat/completions',
+      post({ messages: [{ role: 'user', content: 'secreto' }] }),
+    )
+    expect(lines.some((line) => line.includes('secreto'))).toBe(false)
+  })
+})

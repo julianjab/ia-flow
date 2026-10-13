@@ -19,6 +19,11 @@ describe('parseConfig', () => {
     )
   })
 
+  test('logBody sólo con 1 o true', () => {
+    expect(parseConfig(valid).logBody).toBe(false)
+    expect(parseConfig({ ...valid, LLM_GATEWAY_LOG_BODY: '1' }).logBody).toBe(true)
+  })
+
   test('dropSampling sólo con 1 o true', () => {
     expect(parseConfig(valid).dropSampling).toBe(false)
     expect(parseConfig({ ...valid, LLM_GATEWAY_DROP_SAMPLING: 'TRUE' }).dropSampling).toBe(true)
