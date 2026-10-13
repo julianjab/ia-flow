@@ -68,6 +68,16 @@ function isAuthorized(request: Request, token: string): boolean {
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
+/** Qué llegó, sin valores sensibles: nombres de headers y esquema/largo de las credenciales. */
+function describeRequest(request: Request, pathname: string): string {
+  const auth = request.headers.get('authorization')
+  const [scheme, ...rest] = auth?.trim().split(/\s+/) ?? []
+  const credential = auth ? `${scheme} (${rest.join(' ').length} chars)` : 'ausente'
+  const apiKey = request.headers.get('x-api-key')
+  const names = [...request.headers.keys()].sort().join(',')
+  return `← ${request.method} ${pathname} authorization=${credential} x-api-key=${apiKey ? `${apiKey.length} chars` : 'ausente'} content-type=${request.headers.get('content-type') ?? 'ausente'} headers=[${names}]`
+}
+
 async function readChatRequest(request: Request): Promise<ChatCompletionRequest> {
   try {
     return (await request.json()) as ChatCompletionRequest
@@ -179,6 +189,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
   return async (request) => {
     const { pathname } = new URL(request.url)
     if (pathname === '/health') return json({ status: 'ok' })
+    log.info(describeRequest(request, pathname))
     if (!isAuthorized(request, config.token)) {
       log.warn(`token inválido en ${request.method} ${pathname}`)
       return json(
