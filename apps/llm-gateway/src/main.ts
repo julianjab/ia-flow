@@ -1,9 +1,20 @@
 import { AnthropicClient } from '@ia-flow/provider-anthropic-api'
-import { createLogger } from '@ia-flow/telemetry'
+import {
+  addLogSink,
+  consoleSink,
+  createLogger,
+  parseLogLevel,
+  setLogLevel,
+} from '@ia-flow/telemetry'
 import { parseConfig } from './config.js'
 import { createHandler } from './handler.js'
 
 /** El composition root: lee el entorno, arma el cliente de Anthropic y levanta el servidor. */
+
+// El telemetry arranca sin sink de consola: sin esto el gateway no imprime nada.
+const logLevel = parseLogLevel(process.env.LOG_LEVEL) ?? 'info'
+setLogLevel(logLevel)
+addLogSink(consoleSink({ level: logLevel }))
 
 const log = createLogger('llm-gateway')
 const config = parseConfig(process.env)
