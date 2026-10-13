@@ -167,7 +167,7 @@ describe('logBody', () => {
   const withBody = (logBody: boolean) =>
     createHandler({ config: { ...config, logBody }, send: async () => reply, log })
 
-  test('con logBody imprime el body crudo, incluso si no es JSON', async () => {
+  test('con logBody imprime headers y body crudo, incluso sin auth o con body no JSON', async () => {
     lines.length = 0
     const handler = withBody(true)
     await call(
@@ -176,10 +176,13 @@ describe('logBody', () => {
       post({ messages: [{ role: 'user', content: 'x' }] }),
     )
     await call(handler, '/v1/chat/completions', { method: 'POST', body: 'no-json' })
-    const bodies = lines.filter((line) => line.startsWith('body: '))
-    expect(bodies).toHaveLength(2)
-    expect(bodies[0]).toContain('"content":"x"')
-    expect(bodies[1]).toBe('body: no-json')
+    await call(handler, '/v1/chat/completions', { method: 'POST', body: 'sin-auth' }, false)
+    const dumps = lines.filter((line) => line.startsWith('request completo'))
+    expect(dumps).toHaveLength(3)
+    expect(dumps[0]).toContain(`authorization: Bearer ${TOKEN}`)
+    expect(dumps[0]).toContain('"content":"x"')
+    expect(dumps[1]).toContain('body: no-json')
+    expect(dumps[2]).toContain('body: sin-auth')
   })
 
   test('sin logBody no imprime nada del body', async () => {
