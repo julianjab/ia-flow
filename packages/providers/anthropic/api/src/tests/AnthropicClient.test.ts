@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AnthropicApiError, AnthropicClient, backoffMs } from '../AnthropicClient.js'
+import {
+  AnthropicApiError,
+  AnthropicClient,
+  backoffMs,
+  isMcpConnectionError,
+  mcpBackoffMs,
+} from '../AnthropicClient.js'
 
 function jsonResponse(
   body: unknown,
@@ -229,6 +235,84 @@ describe('AnthropicClient.send', () => {
     expect(result.stop_reason).toBe('end_turn')
     expect(calls).toBe(2)
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  describe('400 de un MCP que no respondió', () => {
+    const mcpDown = {
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message:
+          "mcp_servers[1] 'memory-mcp': Connection error while communicating with MCP server",
+      },
+    }
+
+    it('lo reintenta con el backoff de MCP y sigue cuando el MCP vuelve', async () => {
+      vi.useFakeTimers()
+      try {
+        let calls = 0
+        const fetchImpl = vi.fn(async () => {
+          calls++
+          if (calls === 1) return jsonResponse(mcpDown, { status: 400 })
+          return jsonResponse({ content: [], stop_reason: 'end_turn' })
+        })
+        const onRetry = vi.fn()
+        const client = new AnthropicClient({
+          apiKey: 'sk',
+          maxRetries: 1,
+          onRetry,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        })
+
+        const pending = client.send({}, { stream: false })
+        await vi.advanceTimersByTimeAsync(mcpBackoffMs(0))
+        const result = await pending
+
+        expect(result.stop_reason).toBe('end_turn')
+        expect(calls).toBe(2)
+        expect(onRetry).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 400, delayMs: mcpBackoffMs(0) }),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('agotados los reintentos tira con el body del 400', async () => {
+      const fetchImpl = vi.fn(async () => jsonResponse(mcpDown, { status: 400 }))
+      const client = new AnthropicClient({
+        apiKey: 'sk',
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      })
+
+      await expect(client.send({}, { stream: false })).rejects.toThrow('memory-mcp')
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+    })
+
+    it('otro 400 no se reintenta', async () => {
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({ error: { message: 'max_tokens: too large' } }, { status: 400 }),
+      )
+      const client = new AnthropicClient({
+        apiKey: 'sk',
+        maxRetries: 3,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      })
+
+      await expect(client.send({}, { stream: false })).rejects.toThrow('400')
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+    })
+
+    it('isMcpConnectionError reconoce el mensaje de la API', () => {
+      expect(isMcpConnectionError(JSON.stringify(mcpDown))).toBe(true)
+      expect(isMcpConnectionError('{"error":{"message":"invalid model"}}')).toBe(false)
+    })
+
+    it('mcpBackoffMs crece y se topa en 30s', () => {
+      expect(mcpBackoffMs(0)).toBe(5000)
+      expect(mcpBackoffMs(1)).toBe(10_000)
+      expect(mcpBackoffMs(5)).toBe(30_000)
+    })
   })
 
   it('returns the last error response once retries are exhausted', async () => {
