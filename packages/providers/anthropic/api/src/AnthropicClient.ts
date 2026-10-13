@@ -140,8 +140,26 @@ export interface AnthropicSendOptions {
 }
 
 /** HTTP statuses que vale la pena reintentar: rate limiting y fallas transitorias upstream.
- *  400/401/403/404 son bugs de config/auth — reintentarlos sólo demora el diagnóstico. */
+ *  400/401/403/404 son bugs de config/auth — reintentarlos sólo demora el diagnóstico. La
+ *  excepción es el 400 de un MCP que no respondió (`isMcpConnectionError`). */
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 529])
+
+/** El 400 que da la API cuando no llega a un `mcp_servers[]`: no es un error del request, es un
+ *  MCP que no respondió (caído, o el runner que lo hospeda reiniciando). Ej.: `mcp_servers[1]
+ *  'memory-mcp': Connection error while communicating with MCP server`. */
+const MCP_CONNECTION_ERROR = /Connection error while communicating with MCP server/
+
+/** Si `body` (el de un 400) es un MCP que no respondió. */
+export function isMcpConnectionError(body: string): boolean {
+  return MCP_CONNECTION_ERROR.test(body)
+}
+
+/** Backoff de un MCP que no respondió: más largo que el de un 429 — un MCP que reinicia tarda
+ *  segundos en volver a estar detrás del ingress, no milisegundos. 5s, 10s, 20s, … hasta 30s: con
+ *  los 3 reintentos por default del provider, ~35s de margen. */
+export function mcpBackoffMs(attempt: number): number {
+  return Math.min(5000 * 2 ** attempt, 30_000)
+}
 
 /** Tope duro para un `retry-after` — un 429 de una org saturada puede pedir minutos de espera,
  *  y honrarlo tal cual retendría el run entero por todo ese tiempo. */
@@ -274,8 +292,12 @@ export class AnthropicClient {
         attempt++
         continue
       }
-      if (res.ok || !RETRYABLE_STATUSES.has(res.status) || attempt >= maxRetries) return res
-      const delayMs = backoffMs(attempt, res.headers.get('retry-after'))
+      if (res.ok || attempt >= maxRetries) return res
+      const mcpDown = res.status === 400 && isMcpConnectionError(await res.clone().text())
+      if (!mcpDown && !RETRYABLE_STATUSES.has(res.status)) return res
+      const delayMs = mcpDown
+        ? mcpBackoffMs(attempt)
+        : backoffMs(attempt, res.headers.get('retry-after'))
       this.options.onRetry?.({ attempt: attempt + 2, maxRetries, delayMs, status: res.status })
       // Nadie va a leer este body — liberá la conexión antes de esperar.
       await res.body?.cancel().catch(() => {})
