@@ -111,6 +111,7 @@ function toAnthropicMessage(message: ChatMessage): AnthropicMessage | undefined 
 
 function toToolChoice(choice: ToolChoice | undefined): AnthropicBlock | undefined {
   if (choice === undefined || choice === 'auto') return undefined
+  if (choice === 'none') return { type: 'none' }
   if (choice === 'required') return { type: 'any' }
   if (typeof choice === 'object') return { type: 'tool', name: choice.function.name }
   return undefined
@@ -127,7 +128,7 @@ function toAnthropicMessages(request: ChatCompletionRequest): AnthropicMessage[]
 }
 
 function toolFields(request: ChatCompletionRequest): Record<string, unknown> {
-  if (request.tool_choice === 'none' || !request.tools || request.tools.length === 0) return {}
+  if (!request.tools || request.tools.length === 0) return {}
   const tools = request.tools.map((tool) => ({
     name: tool.function.name,
     ...(tool.function.description ? { description: tool.function.description } : {}),
