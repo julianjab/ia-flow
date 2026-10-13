@@ -19,6 +19,12 @@ describe('parseConfig', () => {
     )
   })
 
+  test('dropSampling sólo con 1 o true', () => {
+    expect(parseConfig(valid).dropSampling).toBe(false)
+    expect(parseConfig({ ...valid, LLM_GATEWAY_DROP_SAMPLING: 'TRUE' }).dropSampling).toBe(true)
+    expect(parseConfig({ ...valid, LLM_GATEWAY_DROP_SAMPLING: '0' }).dropSampling).toBe(false)
+  })
+
   test('toma modelos y puerto del entorno', () => {
     const config = parseConfig({
       ...valid,

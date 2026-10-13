@@ -59,6 +59,16 @@ describe('toAnthropicRequest', () => {
     expect(onlyTopP.top_p).toBe(0.9)
   })
 
+  test('dropSampling descarta temperature y top_p pero conserva stop', () => {
+    const body = toAnthropicRequest(
+      { messages: [{ role: 'user', content: 'x' }], temperature: 0.2, top_p: 0.9, stop: 'fin' },
+      { ...defaults, dropSampling: true },
+    )
+    expect(body.temperature).toBeUndefined()
+    expect(body.top_p).toBeUndefined()
+    expect(body.stop_sequences).toEqual(['fin'])
+  })
+
   test('los opcionales en null se omiten y temperature se recorta a 1', () => {
     const nulls = translate({
       messages: [{ role: 'user', content: 'x' }],
