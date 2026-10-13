@@ -125,9 +125,10 @@ describe('toAnthropicRequest', () => {
       translate({ messages, tools, tool_choice: { type: 'function', function: { name: 'f' } } })
         .tool_choice,
     ).toEqual({ type: 'tool', name: 'f' })
+    // 'none' conserva las tools: el historial puede traer tool_use y Anthropic exige su definición.
     const none = translate({ messages, tools, tool_choice: 'none' })
-    expect(none.tools).toBeUndefined()
-    expect(none.tool_choice).toBeUndefined()
+    expect(none.tools).toHaveLength(1)
+    expect(none.tool_choice).toEqual({ type: 'none' })
   })
 
   test('rechaza lo que no puede traducir', () => {
