@@ -43,6 +43,22 @@ describe('toAnthropicRequest', () => {
     expect(onlyTopP.top_p).toBe(0.9)
   })
 
+  test('los opcionales en null se omiten y temperature se recorta a 1', () => {
+    const nulls = translate({
+      messages: [{ role: 'user', content: 'x' }],
+      temperature: null,
+      top_p: null,
+      tool_choice: null,
+      stop: null,
+      tools: null,
+    } as unknown as ChatCompletionRequest)
+    for (const key of ['temperature', 'top_p', 'tool_choice', 'stop_sequences', 'tools']) {
+      expect(key in nulls).toBe(false)
+    }
+    const hot = translate({ messages: [{ role: 'user', content: 'x' }], temperature: 1.5 })
+    expect(hot.temperature).toBe(1)
+  })
+
   test('traduce imágenes: data URL a base64 y URL tal cual', () => {
     const body = translate({
       messages: [
