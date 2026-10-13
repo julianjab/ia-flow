@@ -19,6 +19,7 @@ const client = new AnthropicClient({
 
 const handler = createHandler({
   config,
+  log,
   send: (body, options) => client.send(body, options),
 })
 

@@ -26,9 +26,19 @@ export type SendToAnthropic = (
   options: { stream: boolean; onDelta?: AnthropicDeltaHandler },
 ) => Promise<AnthropicMessagesResponse>
 
+/** El logger que el handler necesita: sin contenido de mensajes, sólo metadatos de la llamada. */
+export interface GatewayLog {
+  info(message: string, attributes?: Record<string, string | number | boolean>): void
+  warn(message: string, attributes?: Record<string, string | number | boolean>): void
+  error(message: string, attributes?: Record<string, string | number | boolean>): void
+}
+
+const NOOP_LOG: GatewayLog = { info() {}, warn() {}, error() {} }
+
 export interface GatewayDeps {
   config: Pick<GatewayConfig, 'token' | 'models' | 'defaultModel' | 'defaultMaxTokens'>
   send: SendToAnthropic
+  log?: GatewayLog
   now?: () => number
   newId?: () => string
 }
@@ -55,6 +65,8 @@ function isAuthorized(request: Request, token: string): boolean {
   return match?.[1] !== undefined && tokenMatches(match[1].trim(), token)
 }
 
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
 async function readChatRequest(request: Request): Promise<ChatCompletionRequest> {
   try {
     return (await request.json()) as ChatCompletionRequest
@@ -67,6 +79,7 @@ async function readChatRequest(request: Request): Promise<ChatCompletionRequest>
  *  monta (`main.ts`) le pasa la config y el puerto hacia Anthropic. */
 export function createHandler(deps: GatewayDeps): (request: Request) => Promise<Response> {
   const { config, send } = deps
+  const log = deps.log ?? NOOP_LOG
   const now = deps.now ?? (() => Date.now())
   const newId = deps.newId ?? (() => crypto.randomUUID().replaceAll('-', ''))
 
@@ -91,9 +104,26 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
       model: String(body.model),
       created: Math.floor(now() / 1000),
     }
+    const startedAt = now()
+    const tools = Array.isArray(body.tools) ? body.tools.length : 0
+    log.info(
+      `${meta.id} → ${meta.model} (${chat.stream ? 'stream' : 'sin stream'}, ${chat.messages?.length ?? 0} mensajes, ${tools} tools)`,
+    )
     if (chat.stream) return stream(body, meta, chat.stream_options?.include_usage === true)
     const response = await send(body, { stream: false })
+    logDone(meta, response, startedAt)
     return json(toChatCompletion(response, meta))
+  }
+
+  const logDone = (
+    meta: CompletionMeta,
+    response: AnthropicMessagesResponse,
+    startedAt: number,
+  ) => {
+    const usage = usageOf(response)
+    log.info(
+      `${meta.id} listo: ${response.stop_reason ?? 'sin stop_reason'}, ${usage.prompt_tokens}+${usage.completion_tokens} tokens (${now() - startedAt}ms)`,
+    )
   }
 
   const stream = (
@@ -102,6 +132,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     includeUsage: boolean,
   ): Response => {
     const encoder = new TextEncoder()
+    const startedAt = now()
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
         const write = (payload: unknown) =>
@@ -118,12 +149,15 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
               if (delta.type === 'text' && delta.delta) write(contentChunk(meta, delta.delta))
             },
           })
+          logDone(meta, response, startedAt)
           const calls = toolCallsOfBlocks(response.content)
           if (calls.length > 0) write(toolCallsChunk(meta, calls))
           write(finalChunk(meta, finishReason(response.stop_reason)))
           if (includeUsage) write(usageChunk(meta, usageOf(response)))
         } catch (err) {
-          write(toErrorResponse(err).body)
+          const { status, body: errorBody } = toErrorResponse(err)
+          log.error(`${meta.id} falló en el stream (${status}): ${errorMessage(err)}`)
+          write(errorBody)
         }
         write('[DONE]')
         controller.close()
@@ -132,10 +166,19 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     return new Response(readable, { headers: SSE_HEADERS })
   }
 
+  const failure = (err: unknown, route: string): Response => {
+    const { status, body } = toErrorResponse(err)
+    const text = `${route} falló (${status}): ${errorMessage(err)}`
+    if (status >= 500) log.error(text)
+    else log.warn(text)
+    return json(body, status)
+  }
+
   return async (request) => {
     const { pathname } = new URL(request.url)
     if (pathname === '/health') return json({ status: 'ok' })
     if (!isAuthorized(request, config.token)) {
+      log.warn(`token inválido en ${request.method} ${pathname}`)
       return json(
         { error: { message: 'token inválido', type: 'authentication_error', code: null } },
         401,
@@ -157,8 +200,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
         404,
       )
     } catch (err) {
-      const { status, body } = toErrorResponse(err)
-      return json(body, status)
+      return failure(err, `${request.method} ${pathname}`)
     }
   }
 }
