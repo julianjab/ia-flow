@@ -185,6 +185,30 @@ describe('logBody', () => {
     expect(dumps[2]).toContain('body: sin-auth')
   })
 
+  test('con logBody imprime también el body traducido, con el system prompt del gateway', async () => {
+    lines.length = 0
+    const handler = createHandler({
+      config: { ...config, logBody: true, systemPrompt: 'prompt del gateway' },
+      send: async () => reply,
+      log,
+    })
+    await call(
+      handler,
+      '/v1/chat/completions',
+      post({
+        messages: [
+          { role: 'system', content: 'de iterm' },
+          { role: 'user', content: 'x' },
+        ],
+      }),
+    )
+    const out = lines.find((line) => line.startsWith('body hacia Anthropic: '))
+    expect(out).toBeDefined()
+    expect(JSON.parse(String(out).replace('body hacia Anthropic: ', '')).system).toBe(
+      'prompt del gateway\n\nde iterm',
+    )
+  })
+
   test('sin logBody no imprime nada del body', async () => {
     lines.length = 0
     await call(
