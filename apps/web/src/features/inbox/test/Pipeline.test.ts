@@ -21,6 +21,7 @@ import FeedList from '@/features/inbox/pipeline/FeedList.vue'
 import PipelineCells from '@/features/inbox/pipeline/PipelineCells.vue'
 import PipelineLine from '@/features/inbox/pipeline/PipelineLine.vue'
 import { buildQueue } from '@/features/inbox/queue/build'
+import { useInboxStore } from '@/features/inbox/store'
 import { useGithubSessionStore } from '@/stores/githubSession'
 
 const NOW = Date.parse('2026-01-01T10:12:00.000Z')
@@ -122,6 +123,19 @@ describe('el pipeline', () => {
     await w.get('[data-test="confirm"]').trigger('click')
     await flushPromises()
     expect(postTaskAction).toHaveBeenCalledWith(running.ref, { action: 'stop' }, 'gho_1')
+  })
+
+  it('el título de lo que corre abre su detalle', async () => {
+    const pinia = setup()
+    const q = buildQueue({ items: [running], capacity, now: NOW })
+    const w = mount(PipelineCells, {
+      props: { pipeline: q.pipeline, running: q.running },
+      global: { plugins: [pinia] },
+    })
+    await w.get(`[data-test="open-${running.ref}"]`).trigger('click')
+    const store = useInboxStore()
+    expect(store.openRef).toBe(running.ref)
+    expect(store.expanded).toBe(true)
   })
 
   it('con un runner viejo (sin capacity) cuenta las tarjetas y no inventa libres', () => {
@@ -243,6 +257,18 @@ describe('el pipeline con los datos del :3011', () => {
       ['subs#1580 ↗', 'https://github.com/la-haus/subscriptions/issues/1580'],
       ['subs#1579 ↗', 'https://github.com/la-haus/subscriptions/issues/1579'],
     ])
+  })
+
+  it('el título de una que espera a otra abre su detalle', async () => {
+    const pinia = setup()
+    const q = buildQueue({ items: [dep(1776, 1775)], capacity: idle, now: NOW })
+    const w = mount(PipelineCells, {
+      props: { pipeline: q.pipeline, running: q.running, queued: q.queued, blocked: q.blocked },
+      global: { plugins: [pinia] },
+    })
+    await w.get('[data-test="open-la-haus/subscriptions#1776"]').trigger('click')
+    expect(useInboxStore().openRef).toBe('la-haus/subscriptions#1776')
+    expect(useInboxStore().expanded).toBe(true)
   })
 
   it('sin tarjetas que esperan a otra, la línea no se dibuja', () => {
