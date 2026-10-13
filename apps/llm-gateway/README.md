@@ -16,6 +16,7 @@ bun run gateway                              # http://127.0.0.1:4141
 | `LLM_GATEWAY_MODELS` | `claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5` | lo que lista `/v1/models` |
 | `LLM_GATEWAY_DEFAULT_MODEL` | el primero de la lista | si el request no trae `model` |
 | `LLM_GATEWAY_MAX_TOKENS` | `4096` | Anthropic exige `max_tokens`; OpenAI no |
+| `LLM_GATEWAY_DROP_SAMPLING` | `false` | `1`/`true` descarta `temperature` y `top_p` (modelos que los rechazan) |
 | `LLM_GATEWAY_SYSTEM_PROMPT` | — (opcional) | se antepone al `system` del cliente; vacío = nada |
 
 ## Endpoints

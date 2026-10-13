@@ -13,6 +13,8 @@ export interface TranslationDefaults {
   maxTokens: number
   /** Va primero en `system`, antes de los system del cliente. */
   systemPrompt?: string
+  /** No reenvía `temperature` ni `top_p`. */
+  dropSampling?: boolean
 }
 
 type AnthropicBlock = Record<string, unknown>
@@ -177,7 +179,9 @@ export function toAnthropicRequest(
     max_tokens: request.max_completion_tokens ?? request.max_tokens ?? defaults.maxTokens,
     messages: toAnthropicMessages(request),
     ...(system ? { system } : {}),
-    ...samplingFields(request),
+    ...(defaults.dropSampling
+      ? samplingFields({ ...request, temperature: undefined, top_p: undefined })
+      : samplingFields(request)),
     ...toolFields(request),
   }
 }

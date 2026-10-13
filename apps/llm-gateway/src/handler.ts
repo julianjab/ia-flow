@@ -37,7 +37,7 @@ const NOOP_LOG: GatewayLog = { info() {}, warn() {}, error() {} }
 
 export interface GatewayDeps {
   config: Pick<GatewayConfig, 'token' | 'models' | 'defaultModel' | 'defaultMaxTokens'> &
-    Partial<Pick<GatewayConfig, 'systemPrompt'>>
+    Partial<Pick<GatewayConfig, 'systemPrompt' | 'dropSampling'>>
   send: SendToAnthropic
   log?: GatewayLog
   now?: () => number
@@ -110,6 +110,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
       model: config.defaultModel,
       maxTokens: config.defaultMaxTokens,
       systemPrompt: config.systemPrompt,
+      dropSampling: config.dropSampling,
     })
     const meta: CompletionMeta = {
       id: `chatcmpl-${newId()}`,
