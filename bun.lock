@@ -17,6 +17,18 @@
         "electron-builder": "^25.1.8",
       },
     },
+    "apps/llm-gateway": {
+      "name": "@ia-flow/llm-gateway",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ia-flow/provider-anthropic-api": "workspace:*",
+        "@ia-flow/telemetry": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^5.7.0",
+      },
+    },
     "apps/runner-v2": {
       "name": "@ia-flow/runner-v2",
       "version": "0.1.0",
@@ -488,6 +500,8 @@
     "@ia-flow/github-tools": ["@ia-flow/github-tools@workspace:packages/github/tools"],
 
     "@ia-flow/github-webhook": ["@ia-flow/github-webhook@workspace:packages/github/webhook"],
+
+    "@ia-flow/llm-gateway": ["@ia-flow/llm-gateway@workspace:apps/llm-gateway"],
 
     "@ia-flow/provider-anthropic-api": ["@ia-flow/provider-anthropic-api@workspace:packages/providers/anthropic/api"],
 

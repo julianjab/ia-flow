@@ -1,0 +1,20 @@
+{
+  "name": "@ia-flow/llm-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Gateway local compatible con la API de OpenAI (chat completions) que responde con los providers de ia-flow: apunta cualquier cliente OpenAI-compatible (iTerm2, editores, scripts) a Claude",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ia-flow/provider-anthropic-api": "workspace:*",
+    "@ia-flow/telemetry": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.7.0"
+  }
+}

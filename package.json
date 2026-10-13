@@ -22,6 +22,7 @@
     "runner": "bun run --cwd apps/runner-v2 start",
     "runner:serve": "bun run --cwd apps/runner-v2 serve",
     "runner:host": "bun run --cwd apps/runner-v2 host:serve",
+    "gateway": "bun run --cwd apps/llm-gateway start",
     "release:package": "bun run scripts/package-release.ts",
     "build": "bun run --cwd packages/shared build && bun run --cwd apps/web build",
     "install:all": "bun install",
@@ -78,11 +79,13 @@
     "test:web": "bun run --cwd apps/web test",
     "typecheck:desktop": "bun run --cwd apps/desktop typecheck",
     "test:desktop": "bun test apps/desktop",
-    "typecheck": "bun run typecheck:shared && bun run typecheck:rules && bun run typecheck:agent-engine && bun run typecheck:agent-engine-definitions && bun run typecheck:datasource-sqlite && bun run typecheck:datasource-yaml && bun run typecheck:provider-shared && bun run typecheck:provider-anthropic-api && bun run typecheck:provider-anthropic-cli && bun run typecheck:provider-remote && bun run typecheck:telemetry && bun run typecheck:github-auth && bun run typecheck:github-api && bun run typecheck:github-webhook && bun run typecheck:github-tools && bun run typecheck:slack-api && bun run typecheck:slack-tools && bun run typecheck:slack-socket && bun run typecheck:fs && bun run typecheck:shell && bun run typecheck:workspace && bun run typecheck:runner-v2 && bun run typecheck:web && bun run typecheck:desktop",
-    "test": "bun run test:shared && bun run test:rules && bun run test:agent-engine && bun run test:agent-engine-definitions && bun run test:datasource-sqlite && bun run test:datasource-yaml && bun run test:provider-shared && bun run test:provider-anthropic-api && bun run test:provider-anthropic-cli && bun run test:provider-remote && bun run test:telemetry && bun run test:github-auth && bun run test:github-api && bun run test:github-webhook && bun run test:github-tools && bun run test:slack-api && bun run test:slack-tools && bun run test:slack-socket && bun run test:fs && bun run test:shell && bun run test:workspace && bun run test:runner-v2 && bun run test:web && bun run test:desktop",
+    "typecheck": "bun run typecheck:shared && bun run typecheck:rules && bun run typecheck:agent-engine && bun run typecheck:agent-engine-definitions && bun run typecheck:datasource-sqlite && bun run typecheck:datasource-yaml && bun run typecheck:provider-shared && bun run typecheck:provider-anthropic-api && bun run typecheck:provider-anthropic-cli && bun run typecheck:provider-remote && bun run typecheck:telemetry && bun run typecheck:github-auth && bun run typecheck:github-api && bun run typecheck:github-webhook && bun run typecheck:github-tools && bun run typecheck:slack-api && bun run typecheck:slack-tools && bun run typecheck:slack-socket && bun run typecheck:fs && bun run typecheck:shell && bun run typecheck:workspace && bun run typecheck:runner-v2 && bun run typecheck:llm-gateway && bun run typecheck:web && bun run typecheck:desktop",
+    "test": "bun run test:shared && bun run test:rules && bun run test:agent-engine && bun run test:agent-engine-definitions && bun run test:datasource-sqlite && bun run test:datasource-yaml && bun run test:provider-shared && bun run test:provider-anthropic-api && bun run test:provider-anthropic-cli && bun run test:provider-remote && bun run test:telemetry && bun run test:github-auth && bun run test:github-api && bun run test:github-webhook && bun run test:github-tools && bun run test:slack-api && bun run test:slack-tools && bun run test:slack-socket && bun run test:fs && bun run test:shell && bun run test:workspace && bun run test:runner-v2 && bun run test:llm-gateway && bun run test:web && bun run test:desktop",
     "check": "biome check . && bun run plugin:check && bun run lint:boundaries && bun run typecheck && bun run test",
     "plugin:sync": "bun run scripts/sync-plugin-docs.ts",
-    "plugin:check": "bun run scripts/sync-plugin-docs.ts --check"
+    "plugin:check": "bun run scripts/sync-plugin-docs.ts --check",
+    "typecheck:llm-gateway": "bun run --cwd apps/llm-gateway typecheck",
+    "test:llm-gateway": "bun run --cwd apps/llm-gateway test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
