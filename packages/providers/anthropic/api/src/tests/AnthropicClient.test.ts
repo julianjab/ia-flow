@@ -355,3 +355,28 @@ describe('AnthropicClient.forward', () => {
     })
   })
 })
+
+describe('AnthropicClient.onRequest', () => {
+  it('recibe url, headers y body de cada intento, y un error suyo no rompe el envío', async () => {
+    const seen: { url: string; headers: Record<string, string>; body: unknown }[] = []
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) =>
+      jsonResponse({ content: [], stop_reason: 'end_turn' }),
+    )
+    const client = new AnthropicClient({
+      apiKey: 'sk-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      onRequest: (request) => {
+        seen.push(request)
+        throw new Error('callback roto')
+      },
+    })
+
+    await client.send({ model: 'claude-x', messages: [] }, { stream: false })
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.url).toBe('https://api.anthropic.com/v1/messages')
+    expect(seen[0]?.headers['x-api-key']).toBe('sk-test')
+    expect(seen[0]?.body).toMatchObject({ model: 'claude-x', stream: false })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
