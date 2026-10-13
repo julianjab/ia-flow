@@ -161,6 +161,42 @@ describe('POST /v1/chat/completions', () => {
   })
 })
 
+describe('systemPrompt', () => {
+  const sent: Record<string, unknown>[] = []
+  const handler = createHandler({
+    config: { ...config, systemPrompt: 'prompt del gateway' },
+    send: async (body) => {
+      sent.push(body)
+      return reply
+    },
+  })
+
+  test('va como primer system, antes del que manda el cliente', async () => {
+    sent.length = 0
+    await call(
+      handler,
+      '/v1/chat/completions',
+      post({
+        messages: [
+          { role: 'system', content: 'de iterm' },
+          { role: 'user', content: 'hola' },
+        ],
+      }),
+    )
+    expect(sent[0]?.system).toBe('prompt del gateway\n\nde iterm')
+  })
+
+  test('sin system del cliente, es el único', async () => {
+    sent.length = 0
+    await call(
+      handler,
+      '/v1/chat/completions',
+      post({ messages: [{ role: 'user', content: 'hola' }] }),
+    )
+    expect(sent[0]?.system).toBe('prompt del gateway')
+  })
+})
+
 describe('logBody', () => {
   const lines: string[] = []
   const log = { info: (m: string) => lines.push(m), warn() {}, error() {} }
