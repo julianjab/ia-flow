@@ -218,6 +218,19 @@ export class AnthropicClient {
     return data
   }
 
+  /** Reenvía el body TAL CUAL, con la credencial y los headers de ESTE cliente, y devuelve la
+   *  `Response` cruda (ok o no) sin parsear ni reensamblar: para un proxy que le devuelve el SSE
+   *  a su propio cliente. Reintenta igual que `send`; no fuerza `stream`. */
+  async forward(
+    body: Record<string, unknown>,
+    opts: Pick<AnthropicSendOptions, 'extraBetas' | 'maxRetries'> = {},
+  ): Promise<Response> {
+    const headers = this.buildHeaders(opts.extraBetas ?? [])
+    const fetchImpl = this.options.fetchImpl ?? fetch
+    const maxRetries = opts.maxRetries ?? this.options.maxRetries ?? 0
+    return this.requestWithRetry(body, headers, fetchImpl, maxRetries)
+  }
+
   private async requestWithRetry(
     body: unknown,
     headers: Record<string, string>,
