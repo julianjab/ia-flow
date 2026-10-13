@@ -110,7 +110,7 @@ function toAnthropicMessage(message: ChatMessage): AnthropicMessage | undefined 
 }
 
 function toToolChoice(choice: ToolChoice | undefined): AnthropicBlock | undefined {
-  if (choice === undefined || choice === 'auto') return undefined
+  if (choice == null || choice === 'auto') return undefined
   if (choice === 'none') return { type: 'none' }
   if (choice === 'required') return { type: 'any' }
   if (typeof choice === 'object') return { type: 'tool', name: choice.function.name }
@@ -138,14 +138,17 @@ function toolFields(request: ChatCompletionRequest): Record<string, unknown> {
   return { tools, ...(toolChoice ? { tool_choice: toolChoice } : {}) }
 }
 
+/** OpenAI acepta temperature de 0 a 2; Anthropic, de 0 a 1. */
+const clampTemperature = (value: number) => Math.min(Math.max(value, 0), 1)
+
 function samplingFields(request: ChatCompletionRequest): Record<string, unknown> {
   const stop = typeof request.stop === 'string' ? [request.stop] : request.stop
+  // Hay clientes que mandan los opcionales como `null` en vez de omitirlos: `!= null`, no `!== undefined`.
+  const hasTemperature = request.temperature != null
   return {
-    ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+    ...(hasTemperature ? { temperature: clampTemperature(request.temperature as number) } : {}),
     // Los modelos recientes rechazan temperature y top_p juntos: gana temperature.
-    ...(request.top_p !== undefined && request.temperature === undefined
-      ? { top_p: request.top_p }
-      : {}),
+    ...(request.top_p != null && !hasTemperature ? { top_p: request.top_p } : {}),
     ...(stop && stop.length > 0 ? { stop_sequences: stop } : {}),
   }
 }

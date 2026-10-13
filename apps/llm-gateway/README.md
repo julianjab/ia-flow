@@ -29,5 +29,6 @@ Chat Completions. Como API key, el `LLM_GATEWAY_TOKEN`.
 
 ## Límites
 
+- `temperature` se recorta a 1 (OpenAI acepta hasta 2, Anthropic hasta 1).
 - Sin embeddings, audio ni `response_format`; las imágenes van como `data:` URL o URL.
 - Cortar la conexión no cancela el request a Anthropic: el cliente no soporta abort todavía.
