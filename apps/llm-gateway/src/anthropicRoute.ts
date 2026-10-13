@@ -33,10 +33,17 @@ export function toAnthropicErrorResponse(err: unknown) {
   return { status, body: anthropicError(body.error.message, body.error.type) }
 }
 
+/** Nuestro prompt y el del cliente van como DOS bloques `system`, no mezclados en un texto: el
+ *  nuestro queda solo y primero. Sin `system` del cliente (ausente o vacío), sale sólo el nuestro. */
 function withSystem(system: unknown, prompt: string): unknown {
   if (!prompt) return system
   if (system == null || system === '') return prompt
-  if (typeof system === 'string') return `${prompt}\n\n${system}`
+  if (typeof system === 'string') {
+    return [
+      { type: 'text', text: prompt },
+      { type: 'text', text: system },
+    ]
+  }
   if (Array.isArray(system)) return [{ type: 'text', text: prompt }, ...system]
   return system
 }
