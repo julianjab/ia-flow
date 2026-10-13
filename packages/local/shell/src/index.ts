@@ -1,5 +1,6 @@
 export type { BashPolicy } from './BashPolicy.js'
 export { DEFAULT_DENY_PATTERNS, isAllowed, isDenied, matchesPattern } from './BashPolicy.js'
 export type { BashRunInput, BashRunToolOptions } from './BashRunTool.js'
-export { BashRunTool, timeoutNote } from './BashRunTool.js'
+export { BashRunTool, memoryNote, timeoutNote } from './BashRunTool.js'
+export type { GroupMemorySampler } from './memoryGuard.js'
 export { tokenize } from './tokenize.js'

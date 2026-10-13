@@ -1,7 +1,7 @@
 /**
  * `fs_*` y `bash_run`: las tools de disco, sobre el worktree de la corrida (el de la task del
  * evento: `src/workspace/workspaceTarget.ts`, la `session` de los servicios). `bash_run` lleva sus OPCIONES del YAML: allow/deny,
- * githubAuth, timeout, maxTimeout.
+ * githubAuth, timeout, maxTimeout, maxMemoryMb.
  *
  * `workspace_reset`: el agente descarta su worktree y lo recrea limpio. `cleanup_workspace`: paso
  * de pipeline que suelta el worktree si no tiene trabajo en riesgo.
@@ -38,6 +38,8 @@ const DiskToolOptions = z.strictObject({
   timeout: Duration.optional(),
   /** Sólo `bash_run`: lo máximo que el agente puede pedir por comando. */
   maxTimeout: Duration.optional(),
+  // Tope de memoria por comando de `bash_run`, en MB. Sin esto, 2048.
+  maxMemoryMb: z.number().int().positive().optional(),
 })
 
 /** Lo que una tool de workspace necesita de quien la arma: el worktree de cada corrida y la
@@ -66,7 +68,7 @@ function diskTool(name: string, options: Record<string, unknown>, deps: Workspac
   const parsed = DiskToolOptions.safeParse(options)
   if (!parsed.success)
     throw new Error(`${name}: options inválidas\n${z.prettifyError(parsed.error)}`)
-  const { allow, deny, githubAuth, timeout, maxTimeout } = parsed.data
+  const { allow, deny, githubAuth, timeout, maxTimeout, maxMemoryMb } = parsed.data
   const publish = githubAuth ? deps.gitCredential : undefined
   return workspaceAction(
     name,
@@ -76,6 +78,7 @@ function diskTool(name: string, options: Record<string, unknown>, deps: Workspac
       ...(publish ? { gitCredential: publish } : {}),
       ...(timeout ? { timeoutMs: durationMs(timeout) } : {}),
       ...(maxTimeout ? { maxTimeoutMs: durationMs(maxTimeout) } : {}),
+      ...(maxMemoryMb ? { maxMemoryBytes: maxMemoryMb * 1024 ** 2 } : {}),
     },
   )
 }
@@ -91,8 +94,18 @@ function runAgent(ctx: ActionContext): Action {
   const parsed = RunAgentOptions.safeParse(ctx.options)
   if (!parsed.success)
     throw new Error(`run_agent: options inválidas\n${z.prettifyError(parsed.error)}`)
-  const { provider, write, models, providerConfig, allow, deny, githubAuth, timeout, maxTimeout } =
-    parsed.data
+  const {
+    provider,
+    write,
+    models,
+    providerConfig,
+    allow,
+    deny,
+    githubAuth,
+    timeout,
+    maxTimeout,
+    maxMemoryMb,
+  } = parsed.data
   const publish = githubAuth ? ctx.services.gitCredential : undefined
   return new RunAgentAction(ctx.services.session, {
     provider,
@@ -104,6 +117,7 @@ function runAgent(ctx: ActionContext): Action {
       ...(publish ? { gitCredential: publish } : {}),
       ...(timeout ? { timeoutMs: durationMs(timeout) } : {}),
       ...(maxTimeout ? { maxTimeoutMs: durationMs(maxTimeout) } : {}),
+      ...(maxMemoryMb ? { maxMemoryBytes: maxMemoryMb * 1024 ** 2 } : {}),
     },
   })
 }

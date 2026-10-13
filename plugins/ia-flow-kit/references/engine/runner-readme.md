@@ -206,7 +206,7 @@ Lo que el YAML nombra (del runner, salvo las marcadas como del proyecto):
 | `update_issue`, `post_comment` | transiciones del board y el comentario de cierre (firmado por el agente) |
 | `post_notice` | un comentario sin firma de agente: el aviso del `onInterrupt` del proyecto (quién paró y en qué quedó) |
 | `react_to_comment`, `review_pull_request`, `pr_checks`, `create_github_issue`, … | las tools de GitHub del proyecto |
-| `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`) |
+| `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`, `maxMemoryMb`) |
 | `issue_body` | del proyecto: las tools del body del issue que el agente puede tocar (`options: { write, check }`) |
 | `blockedReport` | del proyecto: el reporte de una corrida que falló (el `onError` del proyecto) |
 | `resolve_task` | el intake: de un webhook crudo al evento de su task (`unblockDependents` para el unblock) |

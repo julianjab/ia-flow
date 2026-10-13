@@ -6,7 +6,7 @@ import {
   type ToolInputSchema,
 } from '@ia-flow/agent-engine'
 import { capabilityFocuser, FsReadTool, FsToolRegistry } from '@ia-flow/fs-tools'
-import { type BashPolicy, BashRunTool, timeoutNote } from '@ia-flow/shell-tools'
+import { type BashPolicy, BashRunTool, memoryNote, timeoutNote } from '@ia-flow/shell-tools'
 import type { WorkspaceSession } from './WorkspaceSession.js'
 
 /**
@@ -60,6 +60,8 @@ export interface WorkspaceActionOptions {
   timeoutMs?: number
   /** Lo máximo que el agente puede pedir por comando. Sin esto no puede estirarlo. */
   maxTimeoutMs?: number
+  /** Tope de memoria de cada comando de `bash_run` (ver `BashRunToolOptions`). Default 2 GiB. */
+  maxMemoryBytes?: number
 }
 
 /** La Action de `name` sobre el worktree de cada corrida. `policy` y `options` sólo aplican a
@@ -71,17 +73,18 @@ export function workspaceAction(
   options: WorkspaceActionOptions = {},
 ): WorkspaceToolAction<ToolInputSchema> {
   if (name === 'bash_run') {
-    const { gitCredential, timeoutMs, maxTimeoutMs } = options
+    const { gitCredential, timeoutMs, maxTimeoutMs, maxMemoryBytes } = options
     const limits = {
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(maxTimeoutMs !== undefined ? { maxTimeoutMs } : {}),
+      ...(maxMemoryBytes !== undefined ? { maxMemoryBytes } : {}),
     }
     return new WorkspaceToolAction(
       session,
       new BashRunTool({ baseDir: '.', policy, ...limits }),
       (dir) => new BashRunTool({ baseDir: dir, policy, gitCredential, ...limits }),
       'write',
-      `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) en el worktree de la task — usa comillas para args con espacios. ${timeoutNote(limits)}`,
+      `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) en el worktree de la task — usa comillas para args con espacios. ${timeoutNote(limits)} ${memoryNote(limits)}`,
     ) as unknown as WorkspaceToolAction<ToolInputSchema>
   }
   if (!WORKSPACE_TOOLS.has(name)) throw new Error(`workspace: "${name}" no es una tool de disco`)
