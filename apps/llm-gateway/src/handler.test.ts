@@ -59,6 +59,20 @@ describe('auth y rutas', () => {
   })
 })
 
+describe('x-api-key', () => {
+  const handler = setup(async () => reply)
+  const withKey = (key: string) =>
+    handler(new Request('http://gateway.test/v1/models', { headers: { 'x-api-key': key } }))
+
+  test('acepta el token del gateway como x-api-key', async () => {
+    expect((await withKey(TOKEN)).status).toBe(200)
+  })
+
+  test('rechaza un x-api-key que no es el token', async () => {
+    expect((await withKey('otro')).status).toBe(401)
+  })
+})
+
 describe('POST /v1/chat/completions', () => {
   test('sin stream: traduce el request, llama a Anthropic y devuelve un chat.completion', async () => {
     let sent: Record<string, unknown> | undefined
