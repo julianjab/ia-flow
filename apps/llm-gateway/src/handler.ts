@@ -37,7 +37,7 @@ const NOOP_LOG: GatewayLog = { info() {}, warn() {}, error() {} }
 
 export interface GatewayDeps {
   config: Pick<GatewayConfig, 'token' | 'models' | 'defaultModel' | 'defaultMaxTokens'> &
-    Partial<Pick<GatewayConfig, 'systemPrompt' | 'dropSampling'>>
+    Partial<Pick<GatewayConfig, 'systemPrompt' | 'dropSampling' | 'logBody'>>
   send: SendToAnthropic
   log?: GatewayLog
   now?: () => number
@@ -78,9 +78,14 @@ function describeRequest(request: Request, pathname: string): string {
   return `← ${request.method} ${pathname} authorization=${credential} x-api-key=${apiKey ? `${apiKey.length} chars` : 'ausente'} content-type=${request.headers.get('content-type') ?? 'ausente'} headers=[${names}]`
 }
 
-async function readChatRequest(request: Request): Promise<ChatCompletionRequest> {
+async function readChatRequest(
+  request: Request,
+  onRawBody?: (raw: string) => void,
+): Promise<ChatCompletionRequest> {
+  const raw = await request.text()
+  onRawBody?.(raw)
   try {
-    return (await request.json()) as ChatCompletionRequest
+    return JSON.parse(raw) as ChatCompletionRequest
   } catch {
     throw new BadRequestError('el body no es JSON válido')
   }
@@ -201,7 +206,11 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     try {
       if (request.method === 'GET' && pathname === '/v1/models') return listModels()
       if (request.method === 'POST' && pathname === '/v1/chat/completions') {
-        return await complete(await readChatRequest(request))
+        const chat = await readChatRequest(
+          request,
+          config.logBody ? (raw) => log.info(`body: ${raw}`) : undefined,
+        )
+        return await complete(chat)
       }
       return json(
         {

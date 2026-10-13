@@ -12,6 +12,8 @@ export interface GatewayConfig {
   systemPrompt: string
   /** Descarta `temperature` y `top_p`: hay modelos que los rechazan como deprecados. */
   dropSampling: boolean
+  /** Imprime el body crudo de cada chat completion: para depurar un cliente, no para dejarlo. */
+  logBody: boolean
 }
 
 const DEFAULT_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5']
@@ -58,6 +60,7 @@ export function parseConfig(env: Record<string, string | undefined>): GatewayCon
     defaultModel,
     defaultMaxTokens: parsePositiveInt(env.LLM_GATEWAY_MAX_TOKENS, 'LLM_GATEWAY_MAX_TOKENS', 4096),
     systemPrompt: env.LLM_GATEWAY_SYSTEM_PROMPT?.trim() ?? '',
+    logBody: ['1', 'true'].includes(env.LLM_GATEWAY_LOG_BODY?.trim().toLowerCase() ?? ''),
     dropSampling: ['1', 'true'].includes(env.LLM_GATEWAY_DROP_SAMPLING?.trim().toLowerCase() ?? ''),
   }
 }

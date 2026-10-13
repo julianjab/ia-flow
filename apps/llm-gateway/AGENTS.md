@@ -19,5 +19,6 @@ OpenAI-compatibles (el chat de iTerm2, editores, scripts) a Claude con una key p
   las dos sin una razón explícita: el gateway gasta la key de quien lo corre.
 - **La key de Anthropic va explícita al cliente**, nunca por el fallback del entorno (que prefiere
   `CLAUDE_CODE_OAUTH_TOKEN`).
-- No se loguea el contenido de los mensajes, sólo método, ruta, status y duración.
+- No se loguea el contenido de los mensajes, sólo método, ruta, status y duración. Única excepción:
+  `LLM_GATEWAY_LOG_BODY=true`, opt-in explícito para depurar un cliente.
 - Tests al lado del módulo (`<módulo>.test.ts`, `bun test`), con un `send` falso: nunca la red real.
