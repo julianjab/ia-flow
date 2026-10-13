@@ -269,3 +269,82 @@ describe('logBody', () => {
     expect(lines.some((line) => line.includes('secreto'))).toBe(false)
   })
 })
+
+describe('protocolo de Anthropic', () => {
+  const ANTHROPIC_HEADERS = { 'x-api-key': TOKEN, 'anthropic-version': '2023-06-01' }
+  const sse = 'event: message_start\ndata: {"type":"message_start"}\n\n'
+  const forwarded: Record<string, unknown>[] = []
+  const build = (upstream: () => Response, withForward = true) =>
+    createHandler({
+      config: { ...config, systemPrompt: 'del gateway' },
+      send: async () => reply,
+      forward: withForward
+        ? async (body) => {
+            forwarded.push(body)
+            return upstream()
+          }
+        : undefined,
+    })
+  const anthropicCall = (
+    handler: ReturnType<typeof build>,
+    headers: Record<string, string> = ANTHROPIC_HEADERS,
+  ) =>
+    handler(
+      new Request('http://gateway.test/v1/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: 'claude-x',
+          stream: true,
+          system: 'de iterm',
+          messages: [{ role: 'user', content: 'hola' }],
+        }),
+      }),
+    )
+
+  test('reenvía el body con el system del gateway primero y devuelve el SSE tal cual', async () => {
+    forwarded.length = 0
+    const handler = build(
+      () => new Response(sse, { headers: { 'content-type': 'text/event-stream' } }),
+    )
+    const res = await anthropicCall(handler)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/event-stream')
+    expect(await res.text()).toBe(sse)
+    expect(forwarded[0]).toMatchObject({ model: 'claude-x', system: 'del gateway\n\nde iterm' })
+    expect(JSON.stringify(forwarded[0])).not.toContain(TOKEN)
+  })
+
+  test('un token inválido responde con la forma de error de Anthropic', async () => {
+    const res = await anthropicCall(
+      build(() => new Response('')),
+      { 'x-api-key': 'otro', 'anthropic-version': '2023-06-01' },
+    )
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({
+      type: 'error',
+      error: { type: 'authentication_error', message: 'token inválido' },
+    })
+  })
+
+  test('un 401 de Anthropic no se le muestra al cliente como suyo: sale 502', async () => {
+    const upstream = { type: 'error', error: { type: 'authentication_error', message: 'x' } }
+    const res = await anthropicCall(
+      build(
+        () =>
+          new Response(JSON.stringify(upstream), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    )
+    expect(res.status).toBe(502)
+    expect(await res.json()).toEqual(upstream)
+  })
+
+  test('sin puerto de reenvío falla con 502 en formato Anthropic', async () => {
+    const res = await anthropicCall(build(() => new Response(''), false))
+    expect(res.status).toBe(502)
+    expect(((await res.json()) as { type: string }).type).toBe('error')
+  })
+})
