@@ -112,11 +112,20 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
       })),
     })
 
-  const complete = async (chat: ChatCompletionRequest): Promise<Response> => {
+  /** `LLM_GATEWAY_SYSTEM_PROMPT` entra como el PRIMER mensaje `system` de lo que manda el cliente. */
+  const withSystemPrompt = (chat: ChatCompletionRequest): ChatCompletionRequest => {
+    if (!config.systemPrompt || !Array.isArray(chat.messages)) return chat
+    return {
+      ...chat,
+      messages: [{ role: 'system', content: config.systemPrompt }, ...chat.messages],
+    }
+  }
+
+  const complete = async (incoming: ChatCompletionRequest): Promise<Response> => {
+    const chat = withSystemPrompt(incoming)
     const body = toAnthropicRequest(chat, {
       model: config.defaultModel,
       maxTokens: config.defaultMaxTokens,
-      systemPrompt: config.systemPrompt,
       dropSampling: config.dropSampling,
     })
     const meta: CompletionMeta = {

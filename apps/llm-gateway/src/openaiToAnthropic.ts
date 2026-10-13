@@ -11,8 +11,6 @@ export class BadRequestError extends Error {
 export interface TranslationDefaults {
   model: string
   maxTokens: number
-  /** Va primero en `system`, antes de los system del cliente. */
-  systemPrompt?: string
   /** No reenvía `temperature` ni `top_p`. */
   dropSampling?: boolean
 }
@@ -165,12 +163,9 @@ export function toAnthropicRequest(
   if (!Array.isArray(request.messages) || request.messages.length === 0) {
     throw new BadRequestError('`messages` debe ser un arreglo no vacío')
   }
-  const system = [
-    defaults.systemPrompt ?? '',
-    ...request.messages
-      .filter((m) => m.role === 'system' || m.role === 'developer')
-      .map((m) => textOf(m.content)),
-  ]
+  const system = request.messages
+    .filter((m) => m.role === 'system' || m.role === 'developer')
+    .map((m) => textOf(m.content))
     .filter(Boolean)
     .join('\n\n')
 
