@@ -23,6 +23,11 @@ bun run gateway                              # http://127.0.0.1:4141
 ## Endpoints
 
 - `GET /health` (sin auth) · `GET /v1/models` · `POST /v1/chat/completions` (con `stream` y tools).
+- **Protocolo nativo de Anthropic:** `POST /v1/messages`, o `POST /v1/chat/completions` con el header
+  `anthropic-version` (así lo manda iTerm2 con `API: Anthropic`). El body y el SSE de respuesta se
+  reenvían tal cual; el gateway sólo antepone `LLM_GATEWAY_SYSTEM_PROMPT`, aplica los defaults de
+  modelo y `max_tokens` y descarta `temperature`/`top_p` si `LLM_GATEWAY_DROP_SAMPLING`. El token del
+  gateway va en `x-api-key`; a Anthropic siempre sale la credencial del gateway.
 
 ## iTerm2
 

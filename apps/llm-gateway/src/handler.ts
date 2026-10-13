@@ -4,6 +4,13 @@ import type {
   AnthropicMessagesResponse,
 } from '@ia-flow/provider-anthropic-api'
 import {
+  anthropicError,
+  createAnthropicRoute,
+  type ForwardToAnthropic,
+  isAnthropicRequest,
+  toAnthropicErrorResponse,
+} from './anthropicRoute.js'
+import {
   type CompletionMeta,
   contentChunk,
   finalChunk,
@@ -17,6 +24,7 @@ import {
   usageOf,
 } from './anthropicToOpenai.js'
 import type { GatewayConfig } from './config.js'
+import { type GatewayLog, NOOP_LOG } from './gatewayLog.js'
 import { BadRequestError, toAnthropicRequest } from './openaiToAnthropic.js'
 import type { ChatCompletionRequest } from './openaiTypes.js'
 
@@ -26,19 +34,12 @@ export type SendToAnthropic = (
   options: { stream: boolean; onDelta?: AnthropicDeltaHandler },
 ) => Promise<AnthropicMessagesResponse>
 
-/** El logger que el handler necesita: sin contenido de mensajes, sólo metadatos de la llamada. */
-export interface GatewayLog {
-  info(message: string, attributes?: Record<string, string | number | boolean>): void
-  warn(message: string, attributes?: Record<string, string | number | boolean>): void
-  error(message: string, attributes?: Record<string, string | number | boolean>): void
-}
-
-const NOOP_LOG: GatewayLog = { info() {}, warn() {}, error() {} }
-
 export interface GatewayDeps {
   config: Pick<GatewayConfig, 'token' | 'models' | 'defaultModel' | 'defaultMaxTokens'> &
     Partial<Pick<GatewayConfig, 'systemPrompt' | 'dropSampling' | 'logBody'>>
   send: SendToAnthropic
+  /** El reenvío del protocolo nativo de Anthropic; sin él esas rutas fallan con 502. */
+  forward?: ForwardToAnthropic
   log?: GatewayLog
   now?: () => number
   newId?: () => string
@@ -202,12 +203,43 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     return new Response(readable, { headers: SSE_HEADERS })
   }
 
-  const failure = (err: unknown, route: string): Response => {
-    const { status, body } = toErrorResponse(err)
+  const anthropicRoute = createAnthropicRoute({ config, forward: deps.forward, log })
+
+  const failure = (err: unknown, route: string, anthropic: boolean): Response => {
+    const { status, body } = anthropic ? toAnthropicErrorResponse(err) : toErrorResponse(err)
     const text = `${route} falló (${status}): ${errorMessage(err)}`
     if (status >= 500) log.error(text)
     else log.warn(text)
     return json(body, status)
+  }
+
+  const unauthorized = (anthropic: boolean) =>
+    json(
+      anthropic
+        ? anthropicError('token inválido', 'authentication_error')
+        : { error: { message: 'token inválido', type: 'authentication_error', code: null } },
+      401,
+    )
+
+  const notFound = (request: Request, pathname: string) =>
+    json(
+      {
+        error: {
+          message: `no existe ${request.method} ${pathname}`,
+          type: 'not_found',
+          code: null,
+        },
+      },
+      404,
+    )
+
+  const dispatch = async (request: Request, pathname: string, anthropic: boolean) => {
+    if (anthropic && request.method === 'POST') return anthropicRoute(request)
+    if (request.method === 'GET' && pathname === '/v1/models') return listModels()
+    if (request.method === 'POST' && pathname === '/v1/chat/completions') {
+      return complete(await readChatRequest(request))
+    }
+    return notFound(request, pathname)
   }
 
   return async (request) => {
@@ -215,30 +247,15 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     if (pathname === '/health') return json({ status: 'ok' })
     log.info(describeRequest(request, pathname))
     if (config.logBody) log.info(await dumpRequest(request))
+    const anthropic = isAnthropicRequest(request, pathname)
     if (!isAuthorized(request, config.token)) {
       log.warn(`token inválido en ${request.method} ${pathname}`)
-      return json(
-        { error: { message: 'token inválido', type: 'authentication_error', code: null } },
-        401,
-      )
+      return unauthorized(anthropic)
     }
     try {
-      if (request.method === 'GET' && pathname === '/v1/models') return listModels()
-      if (request.method === 'POST' && pathname === '/v1/chat/completions') {
-        return await complete(await readChatRequest(request))
-      }
-      return json(
-        {
-          error: {
-            message: `no existe ${request.method} ${pathname}`,
-            type: 'not_found',
-            code: null,
-          },
-        },
-        404,
-      )
+      return await dispatch(request, pathname, anthropic)
     } catch (err) {
-      return failure(err, `${request.method} ${pathname}`)
+      return failure(err, `${request.method} ${pathname}`, anthropic)
     }
   }
 }
