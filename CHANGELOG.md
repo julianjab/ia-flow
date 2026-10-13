@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.9.0](https://github.com/julianjab/ia-flow/compare/v2.8.0...v2.9.0) (2026-10-13)
+
+
+### Features
+
+* **llm-gateway:** acepta el token también como x-api-key ([42a39e2](https://github.com/julianjab/ia-flow/commit/42a39e2d314fa17089f5059e4a442340b03bbf58))
+* **llm-gateway:** el arranque informa qué opciones están activas ([ba290da](https://github.com/julianjab/ia-flow/commit/ba290da817268cb203d53f9d1add1d48728518c7))
+* **llm-gateway:** el system del cliente Anthropic y el nuestro salen como dos bloques ([808f91e](https://github.com/julianjab/ia-flow/commit/808f91eb17618903d8a10bb08bb277b0cb822f93))
+* **llm-gateway:** LLM_GATEWAY_DROP_SAMPLING descarta temperature y top_p ([2672c36](https://github.com/julianjab/ia-flow/commit/2672c360d9adf7780c27d9f8afaf2617108dd944))
+* **llm-gateway:** LLM_GATEWAY_LOG_BODY imprime el body crudo de cada chat completion ([e1fbb52](https://github.com/julianjab/ia-flow/commit/e1fbb5241b5ca9ec4bcab95be78df8a2c635066f))
+* **llm-gateway:** LLM_GATEWAY_LOG_BODY imprime el request completo antes de la auth ([57678ce](https://github.com/julianjab/ia-flow/commit/57678ce8dba58af1298aa4dcc9b1eab01912fe76))
+* **llm-gateway:** LLM_GATEWAY_LOG_BODY imprime el request real hacia Anthropic ([06f3a53](https://github.com/julianjab/ia-flow/commit/06f3a538107915cc8873e166068690ec439150d0))
+* **llm-gateway:** LLM_GATEWAY_LOG_BODY imprime también el body traducido hacia Anthropic ([9b30863](https://github.com/julianjab/ia-flow/commit/9b308638b367bc972291ea278a94bd3317d2d5f7))
+* **llm-gateway:** loguea cada chat completion, sus errores y los tokens inválidos ([95de649](https://github.com/julianjab/ia-flow/commit/95de649132ad1f500950c912b5594cf7d93c8388))
+* **llm-gateway:** loguea qué headers y credenciales llegan en cada request ([981803b](https://github.com/julianjab/ia-flow/commit/981803b13334e824252782d9fe8d32590f8d9488))
+* **llm-gateway:** protocolo nativo de Anthropic con x-api-key y SSE reenviado ([3930dc7](https://github.com/julianjab/ia-flow/commit/3930dc71f49be54f0f64afaac24a4086980fc96c))
+* **llm-gateway:** system prompt opcional desde LLM_GATEWAY_SYSTEM_PROMPT ([73df5a3](https://github.com/julianjab/ia-flow/commit/73df5a3a858a691bb58dec2814624740a69e265e))
+* **provider-anthropic-api:** AnthropicClient.forward devuelve la Response cruda ([0f3f63c](https://github.com/julianjab/ia-flow/commit/0f3f63c01be4ef900869f2683ea8132d9c6ef539))
+* **provider-anthropic-api:** onRequest informa url, headers y body de cada intento ([e411ec8](https://github.com/julianjab/ia-flow/commit/e411ec8efdb3f8d47388c8e76611ee42b42fe429))
+
+
+### Bug Fixes
+
+* **llm-gateway:** agrega el sink de consola, sin él no se imprimía ningún log ([4d3fd66](https://github.com/julianjab/ia-flow/commit/4d3fd662fde5418cbd131cd8e8aaec3cdba69ca4))
+* **provider-anthropic-api:** reintentar el 400 de un MCP que no respondió ([9676013](https://github.com/julianjab/ia-flow/commit/9676013ee60c264bf164fdb9c05cbc86c78a929c))
+* **runner-v2:** retomar lo interrumpido recién con el servidor escuchando ([2a32d34](https://github.com/julianjab/ia-flow/commit/2a32d34327a99b0ebf7adf5997e6bd5aad8ac0b9))
+
 ## [2.8.0](https://github.com/julianjab/ia-flow/compare/v2.7.0...v2.8.0) (2026-10-13)
 
 
