@@ -19,9 +19,11 @@ describe('prepareAnthropicBody', () => {
 
   test('el system prompt del gateway va primero, sea string, bloques o ausente', () => {
     const withPrompt = { ...defaults, systemPrompt: 'del gateway' }
-    expect(prepareAnthropicBody({ messages, system: 'de iterm' }, withPrompt).system).toBe(
-      'del gateway\n\nde iterm',
-    )
+    expect(prepareAnthropicBody({ messages, system: 'de iterm' }, withPrompt).system).toEqual([
+      { type: 'text', text: 'del gateway' },
+      { type: 'text', text: 'de iterm' },
+    ])
+    expect(prepareAnthropicBody({ messages, system: '' }, withPrompt).system).toBe('del gateway')
     expect(
       prepareAnthropicBody({ messages, system: [{ type: 'text', text: 'bloque' }] }, withPrompt)
         .system,

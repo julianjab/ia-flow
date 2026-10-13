@@ -311,7 +311,13 @@ describe('protocolo de Anthropic', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
     expect(await res.text()).toBe(sse)
-    expect(forwarded[0]).toMatchObject({ model: 'claude-x', system: 'del gateway\n\nde iterm' })
+    expect(forwarded[0]).toMatchObject({
+      model: 'claude-x',
+      system: [
+        { type: 'text', text: 'del gateway' },
+        { type: 'text', text: 'de iterm' },
+      ],
+    })
     expect(JSON.stringify(forwarded[0])).not.toContain(TOKEN)
   })
 
