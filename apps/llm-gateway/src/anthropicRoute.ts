@@ -117,7 +117,6 @@ export function createAnthropicRoute(deps: AnthropicRouteDeps) {
       systemPrompt: config.systemPrompt,
       dropSampling: config.dropSampling,
     })
-    if (config.logBody) log.info(`body hacia Anthropic: ${JSON.stringify(body)}`)
     log.info(`→ ${String(body.model)} (formato Anthropic, stream=${body.stream === true})`)
     return relay(await forward(body), log)
   }

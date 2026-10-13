@@ -7,6 +7,7 @@ import {
   setLogLevel,
 } from '@ia-flow/telemetry'
 import { parseConfig } from './config.js'
+import { formatAnthropicRequest } from './gatewayLog.js'
 import { createHandler } from './handler.js'
 
 /** El composition root: lee el entorno, arma el cliente de Anthropic y levanta el servidor. */
@@ -24,6 +25,7 @@ const config = parseConfig(process.env)
 const client = new AnthropicClient({
   apiKey: config.apiKey,
   maxRetries: 2,
+  onRequest: config.logBody ? (request) => log.info(formatAnthropicRequest(request)) : undefined,
   onRetry: (info) =>
     log.warn(`reintento ${info.attempt}/${info.maxRetries + 1} (${info.status ?? 'red'})`),
 })
