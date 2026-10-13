@@ -36,7 +36,8 @@ export interface GatewayLog {
 const NOOP_LOG: GatewayLog = { info() {}, warn() {}, error() {} }
 
 export interface GatewayDeps {
-  config: Pick<GatewayConfig, 'token' | 'models' | 'defaultModel' | 'defaultMaxTokens'>
+  config: Pick<GatewayConfig, 'token' | 'models' | 'defaultModel' | 'defaultMaxTokens'> &
+    Partial<Pick<GatewayConfig, 'systemPrompt'>>
   send: SendToAnthropic
   log?: GatewayLog
   now?: () => number
@@ -98,6 +99,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     const body = toAnthropicRequest(chat, {
       model: config.defaultModel,
       maxTokens: config.defaultMaxTokens,
+      systemPrompt: config.systemPrompt,
     })
     const meta: CompletionMeta = {
       id: `chatcmpl-${newId()}`,

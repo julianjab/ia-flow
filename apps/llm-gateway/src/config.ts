@@ -8,6 +8,8 @@ export interface GatewayConfig {
   models: string[]
   defaultModel: string
   defaultMaxTokens: number
+  /** Se antepone al `system` que mande el cliente. Vacío = no se agrega nada. */
+  systemPrompt: string
 }
 
 const DEFAULT_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5']
@@ -53,5 +55,6 @@ export function parseConfig(env: Record<string, string | undefined>): GatewayCon
     models,
     defaultModel,
     defaultMaxTokens: parsePositiveInt(env.LLM_GATEWAY_MAX_TOKENS, 'LLM_GATEWAY_MAX_TOKENS', 4096),
+    systemPrompt: env.LLM_GATEWAY_SYSTEM_PROMPT?.trim() ?? '',
   }
 }
