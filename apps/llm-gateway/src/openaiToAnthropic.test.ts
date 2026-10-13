@@ -6,6 +6,22 @@ const defaults = { model: 'claude-default', maxTokens: 4096 }
 const translate = (request: ChatCompletionRequest) => toAnthropicRequest(request, defaults)
 
 describe('toAnthropicRequest', () => {
+  test('antepone el system prompt del gateway al del cliente', () => {
+    const request: ChatCompletionRequest = {
+      messages: [
+        { role: 'system', content: 'sé breve' },
+        { role: 'user', content: 'hola' },
+      ],
+    }
+    const body = toAnthropicRequest(request, { ...defaults, systemPrompt: 'eres el asistente X' })
+    expect(body.system).toBe('eres el asistente X\n\nsé breve')
+    const solo = toAnthropicRequest(
+      { messages: [{ role: 'user', content: 'hola' }] },
+      { ...defaults, systemPrompt: 'eres el asistente X' },
+    )
+    expect(solo.system).toBe('eres el asistente X')
+  })
+
   test('saca los system a `system` y aplica los defaults de modelo y max_tokens', () => {
     const body = translate({
       messages: [

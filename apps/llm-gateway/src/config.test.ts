@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { parseConfig } from './config.js'
 
-const valid = { LLM_GATEWAY_TOKEN: 'a'.repeat(24), ANTHROPIC_API_KEY: 'sk-ant-test' }
+const valid = { LLM_GATEWAY_TOKEN: 'a'.repeat(24), CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-test' }
 
 describe('parseConfig', () => {
   test('aplica los defaults: sólo loopback y puerto 4141', () => {
@@ -10,6 +10,13 @@ describe('parseConfig', () => {
     expect(config.port).toBe(4141)
     expect(config.defaultModel).toBe(config.models[0])
     expect(config.defaultMaxTokens).toBe(4096)
+  })
+
+  test('lee el system prompt opcional del entorno', () => {
+    expect(parseConfig(valid).systemPrompt).toBe('')
+    expect(parseConfig({ ...valid, LLM_GATEWAY_SYSTEM_PROMPT: ' sé breve ' }).systemPrompt).toBe(
+      'sé breve',
+    )
   })
 
   test('toma modelos y puerto del entorno', () => {
@@ -25,10 +32,10 @@ describe('parseConfig', () => {
   })
 
   test('falla sin token, con token corto o sin key de Anthropic', () => {
-    expect(() => parseConfig({ ANTHROPIC_API_KEY: 'k' })).toThrow('LLM_GATEWAY_TOKEN')
+    expect(() => parseConfig({ CLAUDE_CODE_OAUTH_TOKEN: 'k' })).toThrow('LLM_GATEWAY_TOKEN')
     expect(() => parseConfig({ ...valid, LLM_GATEWAY_TOKEN: 'corto' })).toThrow('al menos')
     expect(() => parseConfig({ LLM_GATEWAY_TOKEN: valid.LLM_GATEWAY_TOKEN })).toThrow(
-      'ANTHROPIC_API_KEY',
+      'CLAUDE_CODE_OAUTH_TOKEN',
     )
   })
 
