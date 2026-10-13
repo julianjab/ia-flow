@@ -78,14 +78,16 @@ function describeRequest(request: Request, pathname: string): string {
   return `← ${request.method} ${pathname} authorization=${credential} x-api-key=${apiKey ? `${apiKey.length} chars` : 'ausente'} content-type=${request.headers.get('content-type') ?? 'ausente'} headers=[${names}]`
 }
 
-async function readChatRequest(
-  request: Request,
-  onRawBody?: (raw: string) => void,
-): Promise<ChatCompletionRequest> {
-  const raw = await request.text()
-  onRawBody?.(raw)
+/** El request entero, con valores (incluido `Authorization`): sólo para `LLM_GATEWAY_LOG_BODY`. */
+async function dumpRequest(request: Request): Promise<string> {
+  const headers = [...request.headers].map(([name, value]) => `  ${name}: ${value}`).join('\n')
+  const body = await request.clone().text()
+  return `request completo\n${request.method} ${request.url}\n${headers}\nbody: ${body}`
+}
+
+async function readChatRequest(request: Request): Promise<ChatCompletionRequest> {
   try {
-    return JSON.parse(raw) as ChatCompletionRequest
+    return (await request.json()) as ChatCompletionRequest
   } catch {
     throw new BadRequestError('el body no es JSON válido')
   }
@@ -196,6 +198,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     const { pathname } = new URL(request.url)
     if (pathname === '/health') return json({ status: 'ok' })
     log.info(describeRequest(request, pathname))
+    if (config.logBody) log.info(await dumpRequest(request))
     if (!isAuthorized(request, config.token)) {
       log.warn(`token inválido en ${request.method} ${pathname}`)
       return json(
@@ -206,11 +209,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
     try {
       if (request.method === 'GET' && pathname === '/v1/models') return listModels()
       if (request.method === 'POST' && pathname === '/v1/chat/completions') {
-        const chat = await readChatRequest(
-          request,
-          config.logBody ? (raw) => log.info(`body: ${raw}`) : undefined,
-        )
-        return await complete(chat)
+        return await complete(await readChatRequest(request))
       }
       return json(
         {
