@@ -124,6 +124,7 @@ export function createHandler(deps: GatewayDeps): (request: Request) => Promise<
       model: String(body.model),
       created: Math.floor(now() / 1000),
     }
+    if (config.logBody) log.info(`body hacia Anthropic: ${JSON.stringify(body)}`)
     const startedAt = now()
     const tools = Array.isArray(body.tools) ? body.tools.length : 0
     log.info(
