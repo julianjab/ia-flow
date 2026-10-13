@@ -113,9 +113,6 @@ async function startServing(
   // telemetría, que se anota y reexporta como la del runner.
   const hosts = mountRemoteHosts(hostIngest({ write: (record) => store.writeTrace(record) }))
   const hostsApi = nodeHandler((req) => hosts.fetch(req))
-  // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
-  // — no en el primer tick, y nunca en una validación o un evento suelto.
-  mounted.engine.tick()
   const stopHeartbeat = startHeartbeat(
     () => mounted.engine.executions?.stats ?? { running: 0, waiting: 0, paused: 0 },
   )
@@ -144,6 +141,11 @@ async function startServing(
     onDelivery: () => inbox.board.invalidate(),
     onIgnored: (event, reason) => store.ignored(event, reason),
   })
+  // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
+  // — no en el primer tick, y nunca en una validación o un evento suelto. Recién con el servidor
+  // escuchando: un MCP `hosted` lo sirve este proceso, y Anthropic llega a él por la URL pública;
+  // antes de `serve`, la primera vuelta del agente retomado daba 400 (subscriptions#1774).
+  mounted.engine.tick()
   if (!process.env.IA_FLOW_API_TOKEN?.trim()) {
     console.log('→ aviso: sin IA_FLOW_API_TOKEN la API de la web responde 503')
   }
