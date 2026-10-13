@@ -97,6 +97,13 @@ function parseErrorBody(body: string): { type?: string; message?: string; reques
   }
 }
 
+/** Lo que sale hacia Anthropic en un intento: URL, headers (con la credencial) y body. */
+export interface AnthropicOutgoingRequest {
+  url: string
+  headers: Record<string, string>
+  body: unknown
+}
+
 export interface AnthropicClientOptions {
   apiKey?: string
   oauthToken?: string
@@ -107,6 +114,10 @@ export interface AnthropicClientOptions {
   /** Reintentos DESPUÉS del primer intento. Default 0 — sin retry, salvo que `send` pase el suyo. */
   maxRetries?: number
   onRetry?: (info: AnthropicRetryInfo) => void
+  /** Se llama con cada request ANTES de enviarlo (reintentos incluidos): para depurar qué sale.
+   *  Recibe la credencial en claro — quien lo usa para loguear debe enmascararla. No puede
+   *  romper el envío: un error suyo se ignora. */
+  onRequest?: (request: AnthropicOutgoingRequest) => void
 }
 
 export interface AnthropicSendOptions {
@@ -231,6 +242,14 @@ export class AnthropicClient {
     return this.requestWithRetry(body, headers, fetchImpl, maxRetries)
   }
 
+  private notifyRequest(headers: Record<string, string>, body: unknown): void {
+    try {
+      this.options.onRequest?.({ url: ANTHROPIC_API_URL, headers, body })
+    } catch {
+      // un callback de depuración nunca debe tumbar el request
+    }
+  }
+
   private async requestWithRetry(
     body: unknown,
     headers: Record<string, string>,
@@ -241,6 +260,7 @@ export class AnthropicClient {
     while (true) {
       let res: Response
       try {
+        this.notifyRequest(headers, body)
         res = await fetchImpl(ANTHROPIC_API_URL, {
           method: 'POST',
           headers,
