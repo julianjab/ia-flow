@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.8.0](https://github.com/julianjab/ia-flow/compare/v2.7.0...v2.8.0) (2026-10-13)
+
+
+### Features
+
+* **llm-gateway:** gateway local compatible con OpenAI que responde con Claude ([02d6b92](https://github.com/julianjab/ia-flow/commit/02d6b9276d7e15b1bf07bd83a098766e05c77c49))
+
+
+### Bug Fixes
+
+* **llm-gateway:** ignora opcionales en null y recorta temperature a 1 ([095dfd0](https://github.com/julianjab/ia-flow/commit/095dfd052e84d6894331d3002c380de19be97c69))
+* **llm-gateway:** tool_choice none conserva las tools y manda tool_choice none ([0bd58dd](https://github.com/julianjab/ia-flow/commit/0bd58dd204d8c47457bf9c33925bd8003fb7578c))
+* **shell-tools:** tope de memoria por comando de bash_run ([#294](https://github.com/julianjab/ia-flow/issues/294)) ([ad4e9df](https://github.com/julianjab/ia-flow/commit/ad4e9dfa39f99c5741fc041880f7d07898641e0e))
+
 ## [2.7.0](https://github.com/julianjab/ia-flow/compare/v2.6.0...v2.7.0) (2026-10-08)
 
 
