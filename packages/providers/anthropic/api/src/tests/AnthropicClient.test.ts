@@ -329,3 +329,29 @@ describe('backoffMs', () => {
     expect(delay).toBeLessThan(500)
   })
 })
+
+describe('AnthropicClient.forward', () => {
+  it('manda el body tal cual con SU credencial y devuelve la Response cruda, también si no es ok', async () => {
+    let receivedInit: RequestInit | undefined
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      receivedInit = init
+      return jsonResponse({ type: 'error' }, { status: 400, headers: { 'request-id': 'req_1' } })
+    })
+    const client = new AnthropicClient({
+      apiKey: 'sk-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    const res = await client.forward({ model: 'claude-x', messages: [], stream: true })
+
+    expect(res.status).toBe(400)
+    expect(res.headers.get('request-id')).toBe('req_1')
+    const headers = receivedInit?.headers as Record<string, string>
+    expect(headers['x-api-key']).toBe('sk-test')
+    expect(JSON.parse(receivedInit?.body as string)).toEqual({
+      model: 'claude-x',
+      messages: [],
+      stream: true,
+    })
+  })
+})
