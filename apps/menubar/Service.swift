@@ -70,6 +70,10 @@ final class Service {
     /// Un proceso del servicio que no lanzó esta instancia (p. ej. tras reabrir la app) se adopta como
     /// «corriendo» para poder verlo y detenerlo; si ya no está, vuelve a «detenido».
     private func syncAdopted() {
+        // Aislada (IA_FLOW_MENUBAR_HOME) no adopta: los huérfanos se buscan por comando, no por carpeta, y una
+        // instancia de prueba terminaría deteniendo los procesos reales. Se pide con IA_FLOW_MENUBAR_ADOPT=1.
+        let env = ProcessInfo.processInfo.environment
+        if env["IA_FLOW_MENUBAR_HOME"] != nil, env["IA_FLOW_MENUBAR_ADOPT"] != "1" { return }
         guard let pattern = matchPattern, process == nil, state == .stopped || adoptedPID != nil,
               state != .stopping else { return }
         let p = Process()

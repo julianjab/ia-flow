@@ -45,7 +45,8 @@ apps/menubar/build.sh --login    # --install + LaunchAgent: arranca con la sesi�
   huérfanos: al reabrir, la app los reconoce (padre = launchd, líder de su grupo, mismo comando) y
   los muestra corriendo para poder detenerlos; un proceso lanzado a mano desde una terminal no se adopta.
 - `IAFlowMenu --status` imprime el estado de cada servicio y sale; `IA_FLOW_MENUBAR_HOME=<dir>` aísla
-  la config, los logs y los túneles en otra carpeta (para probar sin tocar los reales).
+  la config, los logs y los túneles en otra carpeta (para probar sin tocar los reales). Aislada **no adopta** procesos huérfanos
+  (se buscan por comando, no por carpeta, y detendría los reales); `IA_FLOW_MENUBAR_ADOPT=1` lo permite.
 - "Ver log" abre `tail -f` en una ventana de iTerm (sin iTerm, el archivo en el editor).
 - No es un workspace de bun (sin `package.json`); no pasa por `bun run check`.
 - **Arranque con la sesión (`--login`):** crea `~/Library/LaunchAgents/link.julianjab.ia-flow-menu.plist`
