@@ -255,9 +255,6 @@ final class Service {
     var onChange: (() -> Void)?
     /// Se corre una vez cuando el proceso termina (borrar un túnel espera a que cierre).
     var afterStop: (() -> Void)?
-    /// Se corre cuando el proceso cierra porque se lo pidió «Detener» (no en un reinicio ni un crash).
-    var onStopped: (() -> Void)?
-    private var stopRequested = false
 
     init(spec: ServiceSpec) { self.spec = spec }
 
@@ -363,7 +360,6 @@ final class Service {
             return
         }
         guard state == .running, let p = process else { return }
-        stopRequested = true
         state = .stopping
         kill(-p.processIdentifier, SIGTERM)
         // Si no cae en 5 s, SIGKILL al grupo.
@@ -396,9 +392,6 @@ final class Service {
     private func didExit() {
         process = nil
         state = .stopped
-        let requested = stopRequested
-        stopRequested = false
-        if requested, !restartAfterStop { onStopped?() }
         if let afterStop {
             self.afterStop = nil
             afterStop()
@@ -421,18 +414,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         services.forEach { $0.onChange = { [weak self] in self?.refreshIcon() } }
-        services.forEach(wireTunnelCleanup)
         services.forEach { $0.syncFromPort() }
         refreshIcon()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        let runningTunnels = services.filter { $0.spec.deleteCommand != nil && $0.state == .running }
         services.filter { !$0.isDetached }.forEach { $0.stop() }
-        // Los túneles son efímeros: su DNS se va con ellos (síncrono, la app ya está saliendo).
-        for tunnel in runningTunnels {
-            appendLog(removeTunnelDNS(sub: tunnelSub(tunnel)), to: tunnel.logPath)
-        }
         // Dar un respiro a los SIGTERM antes de salir.
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
@@ -543,16 +530,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? p.run()
     }
 
-    /// «Detener» un túnel borra también su registro DNS (en segundo plano; el resultado va a su log).
-    private func wireTunnelCleanup(_ service: Service) {
-        guard service.spec.deleteCommand != nil else { return }
-        service.onStopped = {
-            DispatchQueue.global().async {
-                appendLog(removeTunnelDNS(sub: tunnelSub(service)), to: service.logPath)
-            }
-        }
-    }
-
     private func persistTunnels() {
         save(services.map(\.spec).filter { $0.deleteCommand != nil }, to: tunnelsPath)
     }
@@ -617,7 +594,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let service = Service(spec: tunnelSpec(sub: name, port: number, overwriteDNS: overwriteDNS))
         service.onChange = { [weak self] in self?.refreshIcon() }
-        wireTunnelCleanup(service)
         services.append(service)
         persistTunnels()
         service.start()
