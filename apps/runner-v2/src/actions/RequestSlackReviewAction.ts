@@ -1,6 +1,12 @@
 import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
-import { latestCheckRuns, readSection, writeSection } from '@ia-flow/github-tools'
+import {
+  isCancelledCheck,
+  isRedCheck,
+  latestCheckRuns,
+  readSection,
+  writeSection,
+} from '@ia-flow/github-tools'
 import {
   buildSlackReviewMessage,
   mapAssigneesToSlack,
@@ -20,7 +26,7 @@ const Input = z.strictObject({
   allowFailedCi: z
     .boolean()
     .optional()
-    .describe('Pedir review aunque el CI haya terminado en rojo. Default: no.'),
+    .describe('Pedir review aunque el CI haya terminado en rojo o quedado cancelado. Default: no.'),
 })
 
 export interface RequestSlackReviewOptions {
@@ -61,7 +67,7 @@ interface PullRequest {
  */
 export class RequestSlackReviewAction extends Action<typeof Input, string> {
   readonly description =
-    'Pide review del PR de la task en Slack: taguea a los asignados del issue (según `slack.users` de runner.yaml) y a los reviewers del repo, en el canal del repo; o contesta en el hilo del pedido anterior si ya hubo uno. Falla si no hay un PR abierto o si su CI no terminó (o terminó en rojo, salvo `allowFailedCi`).'
+    'Pide review del PR de la task en Slack: taguea a los asignados del issue (según `slack.users` de runner.yaml) y a los reviewers del repo, en el canal del repo; o contesta en el hilo del pedido anterior si ya hubo uno. Falla si no hay un PR abierto o si su CI no terminó (o terminó en rojo o quedó cancelado, salvo `allowFailedCi`).'
   readonly input = Input
 
   constructor(private readonly options: RequestSlackReviewOptions) {
@@ -158,12 +164,18 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
         `El CI del PR #${pr.number} todavía corre: ${running.map((run) => run.name).join(', ')}`,
       )
     }
-    const red = check_runs.filter((run) =>
-      ['failure', 'timed_out', 'cancelled', 'action_required'].includes(run.conclusion ?? ''),
-    )
-    if (red.length > 0 && !allowFailed) {
+    if (allowFailed) return
+    const red = check_runs.filter(isRedCheck)
+    if (red.length > 0) {
       throw new Error(
         `El CI del PR #${pr.number} terminó en rojo (${red.map((run) => run.name).join(', ')}) — pasá allowFailedCi para pedir review igual`,
+      )
+    }
+    // Un cancelado no es un rojo del código, pero el commit quedó sin verificar: se relanza.
+    const cancelled = check_runs.filter(isCancelledCheck)
+    if (cancelled.length > 0) {
+      throw new Error(
+        `El CI del PR #${pr.number} quedó cancelado (${cancelled.map((run) => run.name).join(', ')}): relanzalo desde GitHub y volvé a pedir el review — o pasá allowFailedCi para pedirlo igual`,
       )
     }
   }

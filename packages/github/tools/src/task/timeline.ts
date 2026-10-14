@@ -67,9 +67,26 @@ export function latestCheckRuns<T extends { id?: number; name?: string }>(runs: 
   )
 }
 
+/** Las conclusiones de un check que son un rojo. `cancelled` no está: un check cancelado no
+ *  dice nada del código —alguien o algo lo cortó— y se arregla relanzándolo, no con un cambio.
+ *  Para el CI es una corrida sin terminar (`isCancelledCheck`). */
+export const RED_CHECK_CONCLUSIONS = [
+  'failure',
+  'timed_out',
+  'action_required',
+  'startup_failure',
+] as const
+
+export const isRedCheck = (run: { conclusion: string | null }): boolean =>
+  (RED_CHECK_CONCLUSIONS as readonly string[]).includes(run.conclusion ?? '')
+
+export const isCancelledCheck = (run: { status: string; conclusion: string | null }): boolean =>
+  run.status === 'completed' && run.conclusion === 'cancelled'
+
 /** Checks + statuses del commit → un solo estado, con el criterio de un `statusCheckRollup`:
  *  cualquier rojo gana, después cualquier pendiente; sin nada, vacío. De cada check cuenta sólo
- *  su última corrida (`latestCheckRuns`).
+ *  su última corrida (`latestCheckRuns`), y una cancelada cuenta como pendiente: el CI no
+ *  terminó de verificar el commit hasta que alguien la relance.
  *
  *  Los workflow runs sólo suman pendientes: uno en cola (esperando runner, o un `needs`) todavía
  *  no creó sus check-runs, y sin él el rollup daba verde con los checks rápidos ya terminados.
@@ -81,11 +98,9 @@ export function rollupCi(
 ): string {
   const states = [
     ...latestCheckRuns(checkRuns).map((run) =>
-      run.status !== 'completed'
+      run.status !== 'completed' || isCancelledCheck(run)
         ? 'pending'
-        : ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure'].includes(
-              run.conclusion ?? '',
-            )
+        : isRedCheck(run)
           ? 'failure'
           : 'success',
     ),
