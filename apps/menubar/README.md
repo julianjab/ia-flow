@@ -1,7 +1,22 @@
 # apps/menubar
 
-App nativa de barra de menú (macOS, Swift/AppKit, sin Dock ni ventanas) para levantar, reiniciar y
-detener web, gateway y runner. ~25 MB de RAM y 0 % de CPU en reposo.
+App nativa de barra de menú (macOS, Swift/AppKit + SwiftUI, sin Electron ni Dock) para levantar, reiniciar y
+detener web, gateway, runner, Grafana y túneles de julianjab.link. El clic en el ícono abre un **popover**
+(SwiftUI, claro/oscuro) con los servicios agrupados en tarjetas, un switch por servicio, chips de puerto que abren
+la URL y un menú ⋯ (reiniciar, abrir, log en iTerm, borrar túnel). Clic derecho o ⌥-clic: menú corto
+(actualizar, editar servicios, salir). La interfaz SwiftUI sólo existe con el popover abierto: en reposo ~17 MB y 0 % de CPU.
+
+![lista](screenshot-list-dark.png)
+
+«Nuevo túnel» es un formulario dentro del popover (subdominio, puerto elegible entre los que están en escucha,
+avisos y confirmaciones en línea):
+
+![formulario](screenshot-form-light.png)
+
+Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
+`Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo), `main.swift`
+(barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
+(`IA_FLOW_MENUBAR_HOME=<dir vacío>` para no tocar la config real).
 
 ```bash
 apps/menubar/build.sh            # compila a apps/menubar/dist/IAFlowMenu.app
