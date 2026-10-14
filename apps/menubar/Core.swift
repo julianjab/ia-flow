@@ -56,6 +56,12 @@ func loadServices() -> [ServiceSpec] {
     let root = (Bundle.main.object(forInfoDictionaryKey: "IAFlowRoot") as? String)
         ?? FileManager.default.currentDirectoryPath
     let path = "\(configDir)/services.json"
+    // El archivo existe pero no se puede leer (una coma de más, un tipo equivocado): NO se pisa con los defaults,
+    // que es lo que borraría los servicios propios. Se usan en memoria y el error queda en el log de la app.
+    if let data = FileManager.default.contents(atPath: path), (try? JSONDecoder().decode([ServiceSpec].self, from: data)) == nil {
+        FileHandle.standardError.write(Data("[menubar] \(path) no es un JSON válido: uso los servicios por defecto sin guardarlos\n".utf8))
+        return defaultServices(root: root)
+    }
     if let data = FileManager.default.contents(atPath: path),
        var specs = try? JSONDecoder().decode([ServiceSpec].self, from: data) {
         // Los defaults que aparecieron después de crear el archivo se agregan una sola vez: los ids
