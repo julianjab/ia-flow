@@ -98,6 +98,30 @@ func tunnelSpec(sub: String, port: Int, overwriteDNS: Bool = false) -> ServiceSp
         deleteCommand: "cloudflared tunnel cleanup \(name); cloudflared tunnel delete \(name)")
 }
 
+/// Puertos TCP en escucha en esta máquina (`lsof -Fcn`: líneas `c<comando>` y `n<dirección>:<puerto>`),
+/// sin repetir y de menor a mayor. Es lo que se ofrece al elegir qué exponer.
+func listeningPorts() -> [(port: Int, command: String)] {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+    p.arguments = ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fcn"]
+    let out = Pipe()
+    p.standardOutput = out
+    p.standardError = FileHandle.nullDevice
+    guard (try? p.run()) != nil else { return [] }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    var command = ""
+    var found: [Int: String] = [:]
+    for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+        switch line.first {
+        case "c": command = String(line.dropFirst())
+        case "n":
+            if let port = line.split(separator: ":").last.flatMap({ Int($0) }), found[port] == nil { found[port] = command }
+        default: break
+        }
+    }
+    return found.sorted { $0.key < $1.key }.map { (port: $0.key, command: $0.value) }
+}
+
 /// ¿Ese hostname ya resuelve? (Cloudflare aplana el CNAME: se mira cualquier registro.)
 func dnsRecordExists(_ host: String) -> Bool {
     let p = Process()
@@ -439,8 +463,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func newTunnel() {
         let sub = NSTextField(frame: NSRect(x: 0, y: 32, width: 260, height: 24))
         sub.placeholderString = "subdominio (ej. demo)"
-        let port = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        port.placeholderString = "puerto local (ej. 5173)"
+        // Combo editable: elegís uno de los puertos en escucha o escribís el número.
+        let port = NSComboBox(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        port.placeholderString = "puerto local (elige o escribe)"
+        port.completes = false
+        port.numberOfVisibleItems = 12
+        port.addItems(withObjectValues: listeningPorts().map { "\($0.port)  ·  \($0.command)" })
         let form = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 56))
         form.addSubview(sub)
         form.addSubview(port)
@@ -457,7 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard name.range(of: "^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$", options: .regularExpression) != nil else {
             return alert("Subdominio inválido", "Sólo letras minúsculas, números y guiones.")
         }
-        guard let number = Int(port.stringValue.trimmingCharacters(in: .whitespaces)), (1...65535).contains(number) else {
+        guard let number = Int(port.stringValue.trimmingCharacters(in: .whitespaces).prefix { $0.isNumber }), (1...65535).contains(number) else {
             return alert("Puerto inválido", "Un número entre 1 y 65535.")
         }
         guard !services.contains(where: { $0.spec.id == "tunnel-\(name)" }), !hostnameInUse("\(name).julianjab.link") else {
