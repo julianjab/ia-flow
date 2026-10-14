@@ -27,7 +27,9 @@ let logDir = "\(home)/.local/state/ia-flow/menubar"
 
 func defaultServices(root: String) -> [ServiceSpec] {
     [
-        ServiceSpec(id: "web", name: "Web", command: "bun run --cwd apps/web vite build && bun run --cwd apps/web preview", cwd: root, port: 5173, url: "http://localhost:5173", env: nil, stopCommand: nil),
+        // IA_FLOW_ALLOWED_HOSTS: sin él vite sólo acepta localhost y un túnel de julianjab.link da 403.
+        ServiceSpec(id: "web", name: "Web", command: "bun run --cwd apps/web vite build && bun run --cwd apps/web preview", cwd: root, port: 5173, url: "http://localhost:5173",
+            env: ["IA_FLOW_ALLOWED_HOSTS": ".julianjab.link"], stopCommand: nil),
         ServiceSpec(id: "gateway", name: "Gateway", command: "bun run gateway", cwd: root, port: 4141, url: nil, env: nil, stopCommand: nil),
         ServiceSpec(id: "runner", name: "Runner", command: "bun run runner:serve", cwd: root, port: 3001, url: nil, env: nil, stopCommand: nil),
         // Grafana + OTel (otel-lgtm) en podman: levanta la VM si está caída y el compose del runner.
