@@ -13,5 +13,8 @@ apps/menubar/build.sh --install  # además la copia a ~/Applications
 - Logs: `~/.local/state/ia-flow/menubar/<id>.log` (fuera del repo).
 - Cada servicio corre en su propio grupo de procesos: detener baja también a vite/bun hijos.
 - Un puerto ocupado por algo que no lanzó la app aparece amarillo "(externo)" y no se puede iniciar.
-- Salir de la app detiene los servicios que ella levantó.
+- Grafana (OTel, vía `podman compose`) y el proxy OTLP (LaunchAgent, vía `launchctl`) son servicios
+  "detached" (`stopCommand` en el JSON): su estado sale del puerto y siguen vivos al salir de la app.
+- Salir de la app detiene sólo los procesos que ella levantó (web, gateway, runner).
+- "Ver log" abre `tail -f` en una ventana de iTerm (sin iTerm, el archivo en el editor).
 - No es un workspace de bun (sin `package.json`); no pasa por `bun run check`.
