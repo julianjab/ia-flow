@@ -24,6 +24,11 @@ apps/menubar/build.sh --install  # además la copia a ~/Applications
   reapuntarlo. Exponen el puerto SIN autenticación.
 - Grafana (OTel, vía `podman compose`) y el proxy OTLP (LaunchAgent, vía `launchctl`) son servicios
   "detached" (`stopCommand` en el JSON): su estado sale del puerto y siguen vivos al salir de la app.
-- Salir de la app detiene sólo los procesos que ella levantó (web, gateway, runner).
+- Salir de la app (menú, `pkill`, `kill`, cerrar sesión: SIGTERM/SIGINT/SIGHUP) detiene sólo los procesos
+  que ella levantó (web, gateway, runner, túneles). Un SIGKILL o un crash no pasa por ahí y los deja
+  huérfanos: al reabrir, la app los reconoce (padre = launchd, líder de su grupo, mismo comando) y
+  los muestra corriendo para poder detenerlos; un proceso lanzado a mano desde una terminal no se adopta.
+- `IAFlowMenu --status` imprime el estado de cada servicio y sale; `IA_FLOW_MENUBAR_HOME=<dir>` aísla
+  la config, los logs y los túneles en otra carpeta (para probar sin tocar los reales).
 - "Ver log" abre `tail -f` en una ventana de iTerm (sin iTerm, el archivo en el editor).
 - No es un workspace de bun (sin `package.json`); no pasa por `bun run check`.

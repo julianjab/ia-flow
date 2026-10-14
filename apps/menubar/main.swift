@@ -24,7 +24,8 @@ struct ServiceSpec: Codable {
     var processPattern: String?
 }
 
-let home = FileManager.default.homeDirectoryForCurrentUser.path
+// IA_FLOW_MENUBAR_HOME aísla la config, los logs y los túneles en otra carpeta (pruebas); no cambia el HOME real.
+let home = ProcessInfo.processInfo.environment["IA_FLOW_MENUBAR_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
 let configDir = "\(home)/.config/ia-flow-menubar"
 let logDir = "\(home)/.local/state/ia-flow/menubar"
 
@@ -262,6 +263,16 @@ func portIsOpen(_ port: Int) -> Bool {
     return connects(family: AF_INET6, address: &v6, size: MemoryLayout<sockaddr_in6>.size)
 }
 
+/// Escapa los metacaracteres de una regex extendida (pgrep -f) para buscar un texto literal.
+func escapedForERE(_ text: String) -> String {
+    var out = ""
+    for ch in text {
+        if "\\.[]{}()*+?|^$".contains(ch) { out.append("\\") }
+        out.append(ch)
+    }
+    return out
+}
+
 final class Service {
     enum State { case stopped, running, stopping, starting }
 
@@ -289,10 +300,34 @@ final class Service {
         return portIsOpen(port)
     }
 
+    /// Cómo se reconoce el proceso del servicio: el `processPattern` de la spec o, si no, su comando
+    /// (con o sin el `zsh -lc` que lo envuelve, según si zsh lo reemplazó por `exec`).
+    private var matchPattern: String? {
+        if let pattern = spec.processPattern { return pattern }
+        if isDetached { return nil }
+        return "(^|/bin/zsh -lc )\(escapedForERE(spec.command))$"
+    }
+
+    /// Sólo se adopta lo huérfano (padre = launchd, pid 1) y líder de su grupo: es lo que dejó una
+    /// instancia anterior de la app. Un proceso lanzado a mano desde una terminal tiene a su shell de padre.
+    private func isOrphanGroupLeader(_ pid: pid_t) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-o", "ppid=,pgid=", "-p", "\(pid)"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let fields = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        return fields.count == 2 && fields[0] == 1 && fields[1] == Int(pid)
+    }
+
     /// Un proceso del servicio que no lanzó esta instancia (p. ej. tras reabrir la app) se adopta como
     /// «corriendo» para poder verlo y detenerlo; si ya no está, vuelve a «detenido».
     private func syncAdopted() {
-        guard let pattern = spec.processPattern, process == nil, state == .stopped || adoptedPID != nil,
+        guard let pattern = matchPattern, process == nil, state == .stopped || adoptedPID != nil,
               state != .stopping else { return }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
@@ -303,7 +338,8 @@ final class Service {
         guard (try? p.run()) != nil else { return }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        let pid = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { pid_t($0) }.min()
+        let pid = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { pid_t($0) }
+            .filter(isOrphanGroupLeader).min()
         if let pid {
             adoptedPID = pid
             state = .running
@@ -476,10 +512,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var services = (loadServices() + loadTunnels()).map(Service.init)
     private let menu = NSMenu()
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu.delegate = self
         statusItem.menu = menu
+        // pkill, kill, cerrar sesión: pasan por el mismo cierre que «Salir» y detienen lo que levantó la app.
+        for sig in [SIGTERM, SIGINT, SIGHUP] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { NSApp.terminate(nil) }
+            source.resume()
+            signalSources.append(source)
+        }
         services.forEach { $0.onChange = { [weak self] in self?.refreshIcon() } }
         services.forEach { $0.syncFromPort() }
         refreshIcon()
@@ -706,6 +751,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 extension NSMutableAttributedString {
     func then(_ body: (NSMutableAttributedString) -> Void) -> NSMutableAttributedString { body(self); return self }
+}
+
+// `--status`: imprime el estado de cada servicio y sale (para comprobar sin abrir el menú).
+if CommandLine.arguments.contains("--status") {
+    for spec in loadServices() + loadTunnels() {
+        let service = Service(spec: spec)
+        service.syncFromPort()
+        print("\(spec.id)\t\(service.state)\(service.isExternal ? " (externo)" : "")")
+    }
+    exit(0)
 }
 
 let app = NSApplication.shared
