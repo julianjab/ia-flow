@@ -47,6 +47,9 @@ export interface TaskInput {
    *  cerrado — el webhook del merge puede llegar antes que el cierre. */
   closedBlocker?: string
   card: Card
+  /** La task ES un PR que no cierra ningún issue (`resolve_task` → `pullRequestsWithoutIssue`):
+   *  sin card en el board, `number` es el del PR y su "issue" es el PR leído por REST. */
+  pullRequestOnly?: boolean
   issue: {
     title: string
     body?: string | null
@@ -109,7 +112,8 @@ export function taskPayload(input: TaskInput) {
       blockers: blockers.map((b) => `#${b.number} ${b.title} (${b.html_url})`).join('\n'),
     },
     // Lo que filtra el gate de las pipelines (`item.blocked`): hay prerrequisitos abiertos.
-    itemExtra: { blocked: blockers.length > 0 },
+    // `item.kind`: `pr` para una task que es sólo un PR (sin card ni PRD), `issue` para el resto.
+    itemExtra: { blocked: blockers.length > 0, kind: input.pullRequestOnly ? 'pr' : 'issue' },
   }
   const issue = {
     title: input.issue.title,
@@ -126,6 +130,12 @@ export function taskPayload(input: TaskInput) {
       branch: input.branch,
     }),
     // `repo`/`issue` además del proyecto: la telemetría los hereda a todo lo que corre debajo.
-    scope: { projectId: input.projectId, repo: `${input.owner}/${input.repo}`, issue: task },
+    // `kind: pr` en una task sin card: lo que mira el board (la marca "en curso") la salta.
+    scope: {
+      projectId: input.projectId,
+      repo: `${input.owner}/${input.repo}`,
+      issue: task,
+      ...(input.pullRequestOnly ? { kind: 'pr' } : {}),
+    },
   }
 }

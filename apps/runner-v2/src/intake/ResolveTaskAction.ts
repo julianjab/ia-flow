@@ -51,6 +51,15 @@ const Input = z.strictObject({
    * proponer la rama (que puede costar un modelo): `task.branch` es la ya conocida, o vacía.
    */
   when: ConditionRows.optional(),
+  /**
+   * Qué eventos de un PR que NO cierra ningún issue publican igual, con el PR como task: filas
+   * como `when`, contra el evento ya armado (`eventType`, `action`, `label`, `item.labels` —los del
+   * PR—…). La task no tiene card ni PRD: `item.kind` es `pr`, `item.status` vacío, `number` el del
+   * PR, `task.description` su body y `task.branch` su head. Sin esto —o si el evento no cumple—, un
+   * PR sin issue se salta, como siempre: abrirlo a cualquier evento (un CI rojo, un comentario)
+   * dispararía las pipelines de una task sobre un PR que nadie le pidió a este runner.
+   */
+  pullRequestsWithoutIssue: ConditionRows.optional(),
 })
 
 /** Lo que hizo con un webhook, para la traza y el log. */
@@ -62,6 +71,8 @@ interface TaskRef {
   repo: string
   number: number
   pr?: number
+  /** La task es el PR mismo (no cierra ningún issue): ver `pullRequestsWithoutIssue`. */
+  pullRequestOnly?: boolean
 }
 
 const UNBLOCKED = 'issue.unblocked'
@@ -154,10 +165,14 @@ class ProjectResolver {
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
     if ('skip' in location) return { skipped: location.skip }
+    const prOnly = input.pullRequestsWithoutIssue?.map((row) => new Condition(row))
     const task =
-      'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
+      'item' in location
+        ? await this.itemTask(location.item)
+        : await this.issueTask(location, (prOnly?.length ?? 0) > 0)
     if ('skipped' in task) return task
-    const published = await this.publish(ctx, task, location, { when })
+    const rows = task.pullRequestOnly ? [...when, ...(prOnly ?? [])] : when
+    const published = await this.publish(ctx, task, location, { when: rows })
     return 'skip' in published
       ? { skipped: published.skip }
       : { emitted: [String(published.scope?.issue)] }
@@ -169,13 +184,17 @@ class ProjectResolver {
     return 'skipped' in found ? found : found.issue
   }
 
-  private async issueTask(location: {
-    owner: string
-    repo: string
-    number?: number
-    pr?: number
-    inspect?: number
-  }): Promise<TaskRef | { skipped: string }> {
+  private async issueTask(
+    location: {
+      owner: string
+      repo: string
+      number?: number
+      pr?: number
+      inspect?: number
+    },
+    /** Un PR sin issue puede ser su propia task (`pullRequestsWithoutIssue`). */
+    pullRequestOnly = false,
+  ): Promise<TaskRef | { skipped: string }> {
     const { owner, repo } = location
     // Antes de leer nada: un repo que el catálogo no declara no es de este proyecto.
     if (!this.inCatalog(owner, repo)) {
@@ -189,9 +208,13 @@ class ProjectResolver {
     const closing = (await this.reader.closingIssues(owner, repo, location.inspect)).find((issue) =>
       this.inCatalog(issue.owner, issue.repo),
     )
-    // Un PR sin issue no es una task: su número no resuelve como `Issue`.
-    if (!closing) return { skipped: `PR #${location.inspect} no cierra ningún issue` }
-    return { ...closing, ...pr }
+    if (closing) return { ...closing, ...pr }
+    // Un PR sin issue no es una task —su número no resuelve como `Issue`—, salvo que el proyecto
+    // lo pida para este evento: entonces la task es el PR mismo, y `publish` filtra el evento.
+    if (pullRequestOnly && location.pr !== undefined) {
+      return { owner, repo, number: location.pr, pr: location.pr, pullRequestOnly: true }
+    }
+    return { skipped: `PR #${location.inspect} no cierra ningún issue` }
   }
 
   private inCatalog(owner: string, repo: string): boolean {
@@ -210,6 +233,7 @@ class ProjectResolver {
     options: { closedBlocker?: string; onlyIfUnblocked?: boolean; when?: Condition[] } = {},
   ): Promise<DomainEvent<unknown> | { skip: string }> {
     const ref = `${task.owner}/${task.repo}#${task.number}`
+    if (task.pullRequestOnly) return this.publishPullRequest(ctx, task, fields, options.when ?? [])
     const card = await this.intake.cardOf(task)
     if (!card) return { skip: `${ref} no está en el board de ${this.project.id}` }
     const branches = new TaskBranches(this.reader, this.project.branchPrefix)
@@ -233,6 +257,40 @@ class ProjectResolver {
       known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx)),
     )
     if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }
+    const payload = { ...built.payload, message: eventMessage(built.type, built.payload) }
+    const event = deriveEvent(ctx.event, built.type, payload, {
+      scope: built.scope,
+      ...(ctx.execution ? { executionId: ctx.execution.id } : {}),
+    })
+    await ctx.bus.publish(event)
+    return event
+  }
+
+  /**
+   * El evento de una task que es sólo un PR: sin card (ni status, ni marca en el board) y con la
+   * rama del PR —no se propone ni se vincula ninguna—. Publica sólo si el evento cumple `when`
+   * (el del intake más `pullRequestsWithoutIssue`) y el PR sigue abierto.
+   */
+  private async publishPullRequest(
+    ctx: PipelineExecutionContext,
+    task: TaskRef,
+    fields: EventFields,
+    when: Condition[],
+  ): Promise<DomainEvent<unknown> | { skip: string }> {
+    const ref = `${task.owner}/${task.repo}#${task.number}`
+    const context = await this.reader.context(task)
+    if (!context.openPr) return { skip: `el PR ${ref} no está abierto` }
+    const built = taskPayload({
+      ...task,
+      ...fields,
+      ...context,
+      card: { itemId: '', type: 'technical' },
+      projectId: this.project.id,
+      branch: context.openPr.headRef,
+      repos: this.project.reposText,
+    })
+    const failed = unmet(when, built.payload)
+    if (failed) return { skip: `${ref} (un PR sin issue) no cumple el when del intake: ${failed}` }
     const payload = { ...built.payload, message: eventMessage(built.type, built.payload) }
     const event = deriveEvent(ctx.event, built.type, payload, {
       scope: built.scope,

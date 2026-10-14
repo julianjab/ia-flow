@@ -44,6 +44,8 @@ export function taskOfKey(key: string): TaskOfExecution | undefined {
     return undefined
   }
   const scope = Object.fromEntries(entries)
+  // Una task que es sólo un PR (`kind: pr`) no tiene card: no hay marca que poner.
+  if (scope.kind === 'pr') return undefined
   const match =
     typeof scope.issue === 'string' ? /^([^/]+)\/([^#]+)#(\d+)$/.exec(scope.issue) : null
   if (typeof scope.projectId !== 'string' || !match) return undefined
