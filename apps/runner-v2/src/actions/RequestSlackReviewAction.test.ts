@@ -141,6 +141,32 @@ describe('request_slack_review', () => {
     expect(sl.posted).toHaveLength(1)
   })
 
+  it('a cancelled latest run asks to rerun it instead of calling it red, unless allowed', async () => {
+    const sl = slack()
+    const gh = github({
+      checks: [
+        { id: 1, name: 'Lint', status: 'completed', conclusion: 'success' },
+        { id: 2, name: 'Tests', status: 'completed', conclusion: 'cancelled' },
+      ],
+    })
+    const run = action(gh, sl).run(ctx(), {})
+    await expect(run).rejects.toThrow(/quedó cancelado \(Tests\): relanzalo/)
+    await expect(run).rejects.not.toThrow(/rojo/)
+    expect(sl.posted).toEqual([])
+    await action(gh, sl).run(ctx(), { allowFailedCi: true })
+    expect(sl.posted).toHaveLength(1)
+  })
+
+  it('a real red wins over a cancelled run', async () => {
+    const gh = github({
+      checks: [
+        { id: 1, name: 'Lint', status: 'completed', conclusion: 'failure' },
+        { id: 2, name: 'Tests', status: 'completed', conclusion: 'cancelled' },
+      ],
+    })
+    await expect(action(gh, slack()).run(ctx(), {})).rejects.toThrow(/terminó en rojo \(Lint\)/)
+  })
+
   it('without a channel or reviewers, or without Slack, it says why', async () => {
     const gh = github({})
     const noChannel = new RequestSlackReviewAction({

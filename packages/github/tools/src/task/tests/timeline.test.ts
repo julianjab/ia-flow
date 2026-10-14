@@ -77,6 +77,25 @@ describe('rollupCi', () => {
       ),
     ).toBe('failure')
   })
+
+  it('a cancelled latest run leaves the CI pending, and a real red still wins over it', () => {
+    const cancelled = { id: 2, name: 'Tests', status: 'completed', conclusion: 'cancelled' }
+    const lint = { id: 1, name: 'Lint', status: 'completed', conclusion: 'success' }
+    expect(rollupCi([lint, cancelled], [])).toBe('pending')
+    expect(
+      rollupCi(
+        [cancelled, { id: 3, name: 'Lint', status: 'completed', conclusion: 'failure' }],
+        [],
+      ),
+    ).toBe('failure')
+    // Relanzado: la corrida nueva lo reemplaza.
+    expect(
+      rollupCi(
+        [cancelled, { id: 4, name: 'Tests', status: 'completed', conclusion: 'success' }],
+        [],
+      ),
+    ).toBe('success')
+  })
 })
 
 describe('latestCheckRuns', () => {
