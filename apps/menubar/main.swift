@@ -619,9 +619,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async { service.runDelete() }
             }
         }
-        if service.state == .running {
+        // Si ya se está deteniendo (`.stopping`) también se espera: borrar con cloudflared aún conectado falla.
+        if service.state == .running || service.state == .stopping {
             service.afterStop = finish
-            service.stop()
+            if service.state == .running { service.stop() }
         } else {
             finish()
         }
