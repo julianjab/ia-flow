@@ -82,7 +82,7 @@ struct ListScreen: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(nsImage: brandIcon(size: 30, running: model.activeCount > 0))
+            Image(nsImage: appIcon(size: 30, running: model.activeCount > 0))
             VStack(alignment: .leading, spacing: 1) {
                 Text("ia-flow").font(.lh(17, .bold))
                 Text(subtitle).font(.lh(12)).foregroundStyle(.secondary)

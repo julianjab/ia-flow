@@ -72,8 +72,9 @@ redefina en silencio qué hace el artefacto.
 ## Íconos
 
 `AppIcon` — el `.icns` para el Finder y el Dock del bundle, y el `.png` de 1024
-que la app se pone en runtime con `app.dock.setIcon`.
+que la app se pone en runtime con `app.dock.setIcon`. Salen de `AppIcon.svg`, el mismo dibujo que
+`apps/web/public/favicon.svg` (tres chevrones, refine › build › review):
 
 ```bash
-iconutil -c icns apps/desktop/icons/AppIcon.iconset -o apps/desktop/icons/AppIcon.icns
+apps/desktop/icons/render-icons.sh AppIcon
 ```

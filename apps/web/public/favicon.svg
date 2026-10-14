@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ia-flow: refine › build › review. Chevrones a 45° del sistema de marca jabsolutions; la última etapa en lima. -->
+  <rect width="512" height="512" rx="112" fill="#0B0B0F"/>
+  <polygon points="71,146 131,146 241,256 131,366 71,366 181,256" fill="#F4F5F0" fill-opacity=".35"/>
+  <polygon points="171,146 231,146 341,256 231,366 171,366 281,256" fill="#F4F5F0" fill-opacity=".7"/>
+  <polygon points="271,146 331,146 441,256 331,366 271,366 381,256" fill="#C6FF3D"/>
+</svg>

@@ -165,9 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc private func quitAction() { model.quit() }
 }
 
-// `--icon <px> <ruta>`: escribe el ícono de app de la marca como PNG (build.sh arma el .icns con esto).
+// `--icon <px> <ruta>`: escribe el ícono de app como PNG (build.sh arma el .icns con esto).
 if let i = args.firstIndex(of: "--icon"), let pixels = args.dropFirst(i + 1).first.flatMap(Int.init),
-   let path = args.dropFirst(i + 2).first, let data = brandPNG(pixels: pixels) {
+   let path = args.dropFirst(i + 2).first, let data = appIconPNG(pixels: pixels) {
     try? data.write(to: URL(fileURLWithPath: path))
     exit(0)
 }
