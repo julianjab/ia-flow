@@ -19,6 +19,9 @@ struct ServiceSpec: Codable {
     var group: String?
     /// Si lo trae, el servicio se puede borrar del menú: corre esto (ej. borrar el túnel) y se olvida.
     var deleteCommand: String?
+    /// Regex (pgrep -f) con la que se reconoce el proceso del servicio aunque lo haya lanzado otra
+    /// instancia de la app (un túnel no abre puerto local: sin esto un huérfano se vería detenido).
+    var processPattern: String?
 }
 
 let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -77,8 +80,18 @@ let tunnelsPath = "\(configDir)/tunnels.json"
 
 /// Los túneles creados desde el menú (los que ya no se ven en `services.json`).
 func loadTunnels() -> [ServiceSpec] {
-    FileManager.default.contents(atPath: tunnelsPath)
+    let saved = FileManager.default.contents(atPath: tunnelsPath)
         .flatMap { try? JSONDecoder().decode([ServiceSpec].self, from: $0) } ?? []
+    // Los túneles guardados antes de `processPattern` lo derivan de su id (`tunnel-<sub>`).
+    return saved.map { spec in
+        var spec = spec
+        if spec.processPattern == nil { spec.processPattern = tunnelProcessPattern(name: "menubar-\(spec.id.dropFirst("tunnel-".count))") }
+        return spec
+    }
+}
+
+func tunnelProcessPattern(name: String) -> String {
+    "cloudflared tunnel --config .* run --url http://localhost:[0-9]+ \(name)$"
 }
 
 /// Un túnel con nombre de cloudflared a `puerto`, bajo `<sub>.julianjab.link`. Idempotente: al
@@ -98,7 +111,8 @@ func tunnelSpec(sub: String, port: Int) -> ServiceSpec {
             + "exec cloudflared tunnel --config '\(config)' run --url http://localhost:\(port) \(name)",
         cwd: home, port: nil, url: "https://\(host)", env: nil, stopCommand: nil,
         group: "Túneles",
-        deleteCommand: "cloudflared tunnel cleanup \(name); cloudflared tunnel delete \(name)")
+        deleteCommand: "cloudflared tunnel cleanup \(name); cloudflared tunnel delete \(name)",
+        processPattern: tunnelProcessPattern(name: name))
 }
 
 /// Puertos TCP en escucha en esta máquina (`lsof -Fcn`: líneas `c<comando>` y `n<dirección>:<puerto>`),
@@ -254,6 +268,8 @@ final class Service {
     let spec: ServiceSpec
     private(set) var state: State = .stopped
     private var process: Process?
+    /// pid de un proceso del servicio lanzado por otra instancia de la app (ver `processPattern`).
+    private var adoptedPID: pid_t?
     private var restartAfterStop = false
     var onChange: (() -> Void)?
     /// Se corre una vez cuando el proceso termina (borrar un túnel espera a que cierre).
@@ -273,8 +289,51 @@ final class Service {
         return portIsOpen(port)
     }
 
+    /// Un proceso del servicio que no lanzó esta instancia (p. ej. tras reabrir la app) se adopta como
+    /// «corriendo» para poder verlo y detenerlo; si ya no está, vuelve a «detenido».
+    private func syncAdopted() {
+        guard let pattern = spec.processPattern, process == nil, state == .stopped || adoptedPID != nil,
+              state != .stopping else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", pattern]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let pid = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { pid_t($0) }.min()
+        if let pid {
+            adoptedPID = pid
+            state = .running
+        } else if adoptedPID != nil {
+            adoptedPID = nil
+            state = .stopped
+        }
+    }
+
+    /// Detiene un proceso adoptado: SIGTERM a su grupo y, si no cae en 5 s, SIGKILL.
+    private func stopAdopted(_ pid: pid_t) {
+        state = .stopping
+        kill(-pid, SIGTERM)
+        kill(pid, SIGTERM)
+        onChange?()
+        func wait(_ attempts: Int) {
+            if kill(pid, 0) != 0 || attempts == 0 {
+                if kill(pid, 0) == 0 { kill(-pid, SIGKILL); kill(pid, SIGKILL) }
+                adoptedPID = nil
+                didExit()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { wait(attempts - 1) }
+        }
+        wait(10)
+    }
+
     /// Servicios detached: el estado es lo que diga el puerto (salvo mientras corre un comando).
     func syncFromPort() {
+        if !isDetached { return syncAdopted() }
         guard isDetached, state != .starting, state != .stopping, let port = spec.port else { return }
         state = portIsOpen(port) ? .running : .stopped
     }
@@ -366,6 +425,7 @@ final class Service {
             if state == .running { runDetached(stopCommand, becoming: .stopped) }
             return
         }
+        if state == .running, process == nil, let pid = adoptedPID { return stopAdopted(pid) }
         guard state == .running, let p = process else { return }
         state = .stopping
         kill(-p.processIdentifier, SIGTERM)
