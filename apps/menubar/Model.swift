@@ -51,7 +51,7 @@ final class AppModel: ObservableObject {
 
     init(services: [Service]? = nil) {
         isFixture = services != nil
-        self.services = services ?? (loadServices() + loadTunnels()).map { Service(spec: $0) }
+        self.services = services ?? loadAllSpecs().map { Service(spec: $0) }
         self.services.forEach(wire)
         refresh()
     }
@@ -136,7 +136,8 @@ final class AppModel: ObservableObject {
     // MARK: túneles
 
     private func persistTunnels() {
-        save(services.map(\.spec).filter { $0.deleteCommand != nil }, to: tunnelsPath)
+        // Sólo los túneles creados desde el menú; un servicio de services.json con deleteCommand no va aquí.
+        save(services.map(\.spec).filter { $0.id.hasPrefix("tunnel-") && $0.deleteCommand != nil }, to: tunnelsPath)
     }
 
     func requestDelete(_ service: Service) {

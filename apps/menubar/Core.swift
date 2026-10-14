@@ -85,6 +85,14 @@ func loadServices() -> [ServiceSpec] {
 
 let tunnelsPath = "\(configDir)/tunnels.json"
 
+/// services.json y tunnels.json juntos; si un id está en los dos gana services.json (no se carga dos veces).
+/// Lo usan la interfaz y `--status`, para que no puedan divergir.
+func loadAllSpecs() -> [ServiceSpec] {
+    let own = loadServices()
+    let ids = Set(own.map(\.id))
+    return own + loadTunnels().filter { !ids.contains($0.id) }
+}
+
 /// Los túneles creados desde el menú (los que ya no se ven en `services.json`).
 func loadTunnels() -> [ServiceSpec] {
     let saved = FileManager.default.contents(atPath: tunnelsPath)

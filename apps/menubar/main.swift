@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
 // `--status`: imprime el estado de cada servicio y sale (para comprobar sin abrir el menú).
 if args.contains("--status") {
-    for spec in loadServices() + loadTunnels() {
+    for spec in loadAllSpecs() {
         let service = Service(spec: spec)
         service.syncFromPort()
         print("\(spec.id)\t\(service.state)\(service.isExternal ? " (externo)" : "")")
