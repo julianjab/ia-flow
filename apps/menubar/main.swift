@@ -23,7 +23,7 @@ let logDir = "\(home)/.local/state/ia-flow/menubar"
 
 func defaultServices(root: String) -> [ServiceSpec] {
     [
-        ServiceSpec(id: "web", name: "Web", command: "bun run dev", cwd: root, port: 5173, url: "http://localhost:5173", env: nil, stopCommand: nil),
+        ServiceSpec(id: "web", name: "Web", command: "bun run --cwd apps/web vite build && bun run --cwd apps/web preview", cwd: root, port: 5173, url: "http://localhost:5173", env: nil, stopCommand: nil),
         ServiceSpec(id: "gateway", name: "Gateway", command: "bun run gateway", cwd: root, port: 4141, url: nil, env: nil, stopCommand: nil),
         ServiceSpec(id: "runner", name: "Runner", command: "bun run runner:serve", cwd: root, port: 3001, url: nil, env: nil, stopCommand: nil),
         // Grafana + OTel (otel-lgtm) en podman: levanta la VM si está caída y el compose del runner.
@@ -74,19 +74,24 @@ func save(_ specs: [ServiceSpec], to path: String) {
     if let data = try? encoder.encode(specs) { FileManager.default.createFile(atPath: path, contents: data) }
 }
 
-/// ¿Hay algo escuchando en localhost:port? (connect no bloqueante sobre loopback: instantáneo)
+/// ¿Hay algo escuchando en localhost:port? Prueba IPv4 y IPv6: vite y otros escuchan sólo en `::1`.
 func portIsOpen(_ port: Int) -> Bool {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
-    guard fd >= 0 else { return false }
-    defer { close(fd) }
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = in_port_t(port).bigEndian
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1")
-    let result = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    func connects(family: Int32, address: UnsafeRawPointer, size: Int) -> Bool {
+        let fd = socket(family, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        return connect(fd, address.assumingMemoryBound(to: sockaddr.self), socklen_t(size)) == 0
     }
-    return result == 0
+    var v4 = sockaddr_in()
+    v4.sin_family = sa_family_t(AF_INET)
+    v4.sin_port = in_port_t(port).bigEndian
+    v4.sin_addr.s_addr = inet_addr("127.0.0.1")
+    if connects(family: AF_INET, address: &v4, size: MemoryLayout<sockaddr_in>.size) { return true }
+    var v6 = sockaddr_in6()
+    v6.sin6_family = sa_family_t(AF_INET6)
+    v6.sin6_port = in_port_t(port).bigEndian
+    v6.sin6_addr = in6addr_loopback
+    return connects(family: AF_INET6, address: &v6, size: MemoryLayout<sockaddr_in6>.size)
 }
 
 final class Service {
@@ -182,7 +187,7 @@ final class Service {
         FileManager.default.createFile(atPath: logPath, contents: nil)
         let log = FileHandle(forWritingAtPath: logPath)
 
-        let p = shellProcess("exec \(spec.command)", log: log)
+        let p = shellProcess(spec.command, log: log)
         p.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async { self?.didExit() }
         }

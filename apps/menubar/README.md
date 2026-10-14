@@ -8,6 +8,7 @@ apps/menubar/build.sh            # compila a apps/menubar/dist/IAFlowMenu.app
 apps/menubar/build.sh --install  # además la copia a ~/Applications
 ```
 
+- La web corre en modo normal (`vite build` + `vite preview`), sin watch ni HMR; gateway y runner no hacen watch.
 - Servicios: `~/.config/ia-flow-menubar/services.json` (se crea con defaults; "Editar servicios…"
   lo abre). Cada uno: `command`, `cwd`, `port`, `url`, `env` opcional. Cambios → reabrir la app.
 - Logs: `~/.local/state/ia-flow/menubar/<id>.log` (fuera del repo).
