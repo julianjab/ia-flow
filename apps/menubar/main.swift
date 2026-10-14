@@ -122,6 +122,86 @@ func listeningPorts() -> [(port: Int, command: String)] {
     return found.sorted { $0.key < $1.key }.map { (port: $0.key, command: $0.value) }
 }
 
+/// Zona y token de la API de Cloudflare (archivos propios de la app, el token con permisos 0600).
+func cloudflareAuth() -> (zone: String, token: String)? {
+    func read(_ name: String) -> String? {
+        (try? String(contentsOfFile: "\(configDir)/\(name)", encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    guard let zone = read("cloudflare-zone-id"), let token = read("cloudflare-token"),
+          !zone.isEmpty, !token.isEmpty else { return nil }
+    return (zone, token)
+}
+
+/// Llamada síncrona a la API de Cloudflare; el JSON de la respuesta o nil si falla.
+func cloudflareRequest(_ method: String, _ path: String, token: String) -> [String: Any]? {
+    guard let url = URL(string: "https://api.cloudflare.com/client/v4\(path)") else { return nil }
+    var request = URLRequest(url: url, timeoutInterval: 10)
+    request.httpMethod = method
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    var result: [String: Any]?
+    let done = DispatchSemaphore(value: 0)
+    URLSession.shared.dataTask(with: request) { data, _, _ in
+        result = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        done.signal()
+    }.resume()
+    _ = done.wait(timeout: .now() + 12)
+    return result
+}
+
+/// El id del túnel de cloudflared con ese nombre (`tunnel list -n … -o json`).
+func cloudflaredTunnelID(_ name: String) -> String? {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    p.arguments = ["-lc", "cloudflared tunnel list -n \(name) -o json 2>/dev/null"]
+    let out = Pipe()
+    p.standardOutput = out
+    p.standardError = FileHandle.nullDevice
+    var env = ProcessInfo.processInfo.environment
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
+    p.environment = env
+    guard (try? p.run()) != nil else { return nil }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]])?.first?["id"] as? String
+}
+
+/// Borra el CNAME de `<sub>.julianjab.link` SÓLO si apunta al túnel `menubar-<sub>`
+/// (`<id>.cfargotunnel.com`): un registro de otro túnel o servicio no se toca. Devuelve qué pasó.
+func removeTunnelDNS(sub: String) -> String {
+    guard let auth = cloudflareAuth() else {
+        return "[menubar] sin token de Cloudflare: el registro DNS de \(sub).julianjab.link queda"
+    }
+    guard let id = cloudflaredTunnelID("menubar-\(sub)") else {
+        return "[menubar] no encontré el túnel menubar-\(sub): no sé qué registro borrar"
+    }
+    let host = "\(sub).julianjab.link"
+    let query = "/zones/\(auth.zone)/dns_records?type=CNAME&name=\(host)"
+    guard let listed = cloudflareRequest("GET", query, token: auth.token),
+          listed["success"] as? Bool == true, let records = listed["result"] as? [[String: Any]] else {
+        return "[menubar] no pude consultar el DNS de \(host) (¿token sin permiso DNS:Edit en la zona?)"
+    }
+    let own = records.filter { ($0["content"] as? String) == "\(id).cfargotunnel.com" }
+    guard !own.isEmpty else { return "[menubar] \(host) no tiene un registro de este túnel: no borré nada" }
+    var deleted = 0
+    for record in own {
+        guard let recordID = record["id"] as? String,
+              let response = cloudflareRequest("DELETE", "/zones/\(auth.zone)/dns_records/\(recordID)", token: auth.token),
+              response["success"] as? Bool == true else { continue }
+        deleted += 1
+    }
+    return "[menubar] DNS de \(host) borrado (\(deleted)/\(own.count))"
+}
+
+func appendLog(_ message: String, to path: String) {
+    guard let handle = FileHandle(forWritingAtPath: path) else { return }
+    handle.seekToEndOfFile()
+    handle.write(Data("\n\(message)\n".utf8))
+    try? handle.close()
+}
+
+/// El subdominio de un túnel creado desde el menú (su id es `tunnel-<sub>`).
+func tunnelSub(_ service: Service) -> String { String(service.spec.id.dropFirst("tunnel-".count)) }
+
 /// ¿Ese hostname ya resuelve? (Cloudflare aplana el CNAME: se mira cualquier registro.)
 func dnsRecordExists(_ host: String) -> Bool {
     let p = Process()
@@ -172,6 +252,9 @@ final class Service {
     var onChange: (() -> Void)?
     /// Se corre una vez cuando el proceso termina (borrar un túnel espera a que cierre).
     var afterStop: (() -> Void)?
+    /// Se corre cuando el proceso cierra porque se lo pidió «Detener» (no en un reinicio ni un crash).
+    var onStopped: (() -> Void)?
+    private var stopRequested = false
 
     init(spec: ServiceSpec) { self.spec = spec }
 
@@ -277,6 +360,7 @@ final class Service {
             return
         }
         guard state == .running, let p = process else { return }
+        stopRequested = true
         state = .stopping
         kill(-p.processIdentifier, SIGTERM)
         // Si no cae en 5 s, SIGKILL al grupo.
@@ -309,6 +393,9 @@ final class Service {
     private func didExit() {
         process = nil
         state = .stopped
+        let requested = stopRequested
+        stopRequested = false
+        if requested, !restartAfterStop { onStopped?() }
         if let afterStop {
             self.afterStop = nil
             afterStop()
@@ -331,12 +418,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         services.forEach { $0.onChange = { [weak self] in self?.refreshIcon() } }
+        services.forEach(wireTunnelCleanup)
         services.forEach { $0.syncFromPort() }
         refreshIcon()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        let runningTunnels = services.filter { $0.spec.deleteCommand != nil && $0.state == .running }
         services.filter { !$0.isDetached }.forEach { $0.stop() }
+        // Los túneles son efímeros: su DNS se va con ellos (síncrono, la app ya está saliendo).
+        for tunnel in runningTunnels {
+            appendLog(removeTunnelDNS(sub: tunnelSub(tunnel)), to: tunnel.logPath)
+        }
         // Dar un respiro a los SIGTERM antes de salir.
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
@@ -447,6 +540,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? p.run()
     }
 
+    /// «Detener» un túnel borra también su registro DNS (en segundo plano; el resultado va a su log).
+    private func wireTunnelCleanup(_ service: Service) {
+        guard service.spec.deleteCommand != nil else { return }
+        service.onStopped = {
+            DispatchQueue.global().async {
+                appendLog(removeTunnelDNS(sub: tunnelSub(service)), to: service.logPath)
+            }
+        }
+    }
+
     private func persistTunnels() {
         save(services.map(\.spec).filter { $0.deleteCommand != nil }, to: tunnelsPath)
     }
@@ -511,6 +614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let service = Service(spec: tunnelSpec(sub: name, port: number, overwriteDNS: overwriteDNS))
         service.onChange = { [weak self] in self?.refreshIcon() }
+        wireTunnelCleanup(service)
         services.append(service)
         persistTunnels()
         service.start()
@@ -528,9 +632,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Detiene el túnel, borra el túnel de cloudflared y lo saca del menú. El CNAME en Cloudflare queda.
     private func deleteTunnel(_ service: Service) {
         let finish = { [weak self] in
-            service.runDelete()
             self?.services.removeAll { $0 === service }
             self?.persistTunnels()
+            // El DNS se borra antes que el túnel: se encuentra por el id del túnel.
+            DispatchQueue.global().async {
+                appendLog(removeTunnelDNS(sub: tunnelSub(service)), to: service.logPath)
+                DispatchQueue.main.async { service.runDelete() }
+            }
         }
         if service.state == .running {
             service.afterStop = finish
