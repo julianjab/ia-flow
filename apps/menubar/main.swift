@@ -512,11 +512,55 @@ final class Service {
     }
 }
 
+// Glifo de la barra de menú: un pipeline de tres nodos (refine → build → review) unidos por un conector
+// en S. Reposo: nodos huecos; algo corriendo: nodos llenos. Template: macOS lo tiñe según el tema.
+private func flowIcon(running: Bool) -> NSImage {
+    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+        let nodes = [NSPoint(x: 3, y: 3), NSPoint(x: 9, y: 9), NSPoint(x: 15, y: 15)]
+        let radius: CGFloat = 2.5
+        let line: CGFloat = 1.3
+        let circles = nodes.map { NSBezierPath(ovalIn: NSRect(x: $0.x - radius, y: $0.y - radius, width: radius * 2, height: radius * 2)) }
+
+        let link = NSBezierPath()
+        link.move(to: nodes[0])
+        link.curve(to: nodes[1], controlPoint1: NSPoint(x: 8, y: 3), controlPoint2: NSPoint(x: 9, y: 4.5))
+        link.curve(to: nodes[2], controlPoint1: NSPoint(x: 9, y: 13.5), controlPoint2: NSPoint(x: 10, y: 15))
+        link.lineWidth = line
+        link.lineCapStyle = .round
+
+        NSColor.black.set()
+        NSGraphicsContext.saveGraphicsState()
+        // El conector no entra en los nodos: se recorta un poco dentro de cada aro para que no quede costura.
+        let clip = NSBezierPath(rect: NSRect(x: 0, y: 0, width: 18, height: 18))
+        circles.forEach { clip.append(NSBezierPath(ovalIn: $0.bounds.insetBy(dx: line / 2, dy: line / 2))) }
+        clip.windingRule = .evenOdd
+        clip.addClip()
+        link.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+
+        for circle in circles {
+            if running {
+                circle.fill()
+            } else {
+                let ring = NSBezierPath(ovalIn: circle.bounds.insetBy(dx: line / 2, dy: line / 2))
+                ring.lineWidth = line
+                ring.stroke()
+            }
+        }
+        return true
+    }
+    image.isTemplate = true
+    image.accessibilityDescription = "ia-flow"
+    return image
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var services = (loadServices() + loadTunnels()).map(Service.init)
     private let menu = NSMenu()
     private var signalSources: [DispatchSourceSignal] = []
+    private static let idleIcon = flowIcon(running: false)
+    private static let runningIcon = flowIcon(running: true)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu.delegate = self
@@ -542,10 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refreshIcon() {
         let anyRunning = services.contains { $0.state != .stopped }
-        let symbol = anyRunning ? "bolt.circle.fill" : "bolt.circle"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "ia-flow")
-        image?.isTemplate = true
-        statusItem.button?.image = image
+        statusItem.button?.image = anyRunning ? Self.runningIcon : Self.idleIcon
     }
 
     // El menú se reconstruye al abrirlo: así el estado (y el sondeo de puertos) está fresco.
