@@ -141,7 +141,7 @@ describe('request_slack_review', () => {
     expect(sl.posted).toHaveLength(1)
   })
 
-  it('a cancelled latest run asks to rerun it instead of calling it red, unless allowed', async () => {
+  it('a cancelled latest run does not stop the request: the message warns to rerun it', async () => {
     const sl = slack()
     const gh = github({
       checks: [
@@ -149,12 +149,22 @@ describe('request_slack_review', () => {
         { id: 2, name: 'Tests', status: 'completed', conclusion: 'cancelled' },
       ],
     })
-    const run = action(gh, sl).run(ctx(), {})
-    await expect(run).rejects.toThrow(/quedó cancelado \(Tests\): relanzalo/)
-    await expect(run).rejects.not.toThrow(/rojo/)
-    expect(sl.posted).toEqual([])
-    await action(gh, sl).run(ctx(), { allowFailedCi: true })
+
+    const result = await action(gh, sl).run(ctx(), {})
+
     expect(sl.posted).toHaveLength(1)
+    const text = String(sl.posted[0]?.text)
+    expect(text).toContain('https://github.com/pr/12')
+    expect(text).toContain('⚠️ El CI quedó cancelado (Tests)')
+    expect(text).toContain('Relanzalo desde el PR antes de mergear')
+    expect(result).toContain(`Review pedido en Slack: ${THREAD}`)
+    expect(result).toContain('quedó cancelado (Tests)')
+  })
+
+  it('a green CI adds no warning', async () => {
+    const sl = slack()
+    await action(github({}), sl).run(ctx(), {})
+    expect(String(sl.posted[0]?.text)).not.toContain('⚠️')
   })
 
   it('a real red wins over a cancelled run', async () => {
