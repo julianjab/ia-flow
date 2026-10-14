@@ -18,7 +18,7 @@ const ctx = (payload: Record<string, unknown> = TASK): PipelineExecutionContext 
 function github(opts: {
   body?: string
   assignees?: string[]
-  checks?: Array<{ status: string; conclusion: string | null }>
+  checks?: Array<{ id?: number; name?: string; status: string; conclusion: string | null }>
 }) {
   const patched: string[] = []
   const requestJson = vi.fn(async (path: string, init?: { method?: string; body?: string }) => {
@@ -124,6 +124,20 @@ describe('request_slack_review', () => {
     await expect(action(red, sl).run(ctx(), {})).rejects.toThrow(/rojo/)
     expect(sl.posted).toEqual([])
     await action(red, sl).run(ctx(), { allowFailedCi: true })
+    expect(sl.posted).toHaveLength(1)
+  })
+
+  it('a cancelled run superseded by a later success of the same check is not red CI', async () => {
+    // lh-seller-v2-frontend#4377: el duplicado de "Semantic Pull Requests" que cancela
+    // `concurrency` quedaba en el commit y bloqueaba la card después del approved.
+    const sl = slack()
+    const gh = github({
+      checks: [
+        { id: 2, name: 'Semantic Pull Requests', status: 'completed', conclusion: 'success' },
+        { id: 1, name: 'Semantic Pull Requests', status: 'completed', conclusion: 'cancelled' },
+      ],
+    })
+    await action(gh, sl).run(ctx(), {})
     expect(sl.posted).toHaveLength(1)
   })
 

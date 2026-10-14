@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatComments, rollupCi, taskTimeline } from '../timeline.js'
+import { formatComments, latestCheckRuns, rollupCi, taskTimeline } from '../timeline.js'
 
 describe('formatComments', () => {
   it('orders by date and heads each block with date · origin · author, like ia-flow', () => {
@@ -46,6 +46,54 @@ describe('rollupCi', () => {
     expect(rollupCi(fast, [], [{ status: 'completed' }, { status: 'queued' }])).toBe('pending')
     expect(rollupCi(fast, [], [{ status: 'completed' }])).toBe('success')
     expect(rollupCi([], [], [{ status: 'waiting' }])).toBe('pending')
+  })
+
+  it('a check counts only by its latest run: a cancelled duplicate superseded by a success is green', () => {
+    // El caso de lh-seller-v2-frontend#4377: dos "Semantic Pull Requests" en el mismo commit.
+    const runs = [
+      {
+        id: 115992292789,
+        name: 'Semantic Pull Requests',
+        status: 'completed',
+        conclusion: 'success',
+      },
+      { id: 115991759046, name: 'Lint', status: 'completed', conclusion: 'success' },
+      {
+        id: 115991758407,
+        name: 'Semantic Pull Requests',
+        status: 'completed',
+        conclusion: 'cancelled',
+      },
+    ]
+    expect(rollupCi(runs, [])).toBe('success')
+    // Al revés —el último es el rojo—, sigue rojo.
+    expect(
+      rollupCi(
+        [
+          { id: 1, name: 'Lint', status: 'completed', conclusion: 'success' },
+          { id: 2, name: 'Lint', status: 'completed', conclusion: 'failure' },
+        ],
+        [],
+      ),
+    ).toBe('failure')
+  })
+})
+
+describe('latestCheckRuns', () => {
+  it('keeps the highest id per name, in order, and every run without name or id', () => {
+    const runs = [
+      { id: 3, name: 'Lint' },
+      { id: 1, name: 'Tests' },
+      { id: 5, name: 'Tests' },
+      { name: 'legacy' },
+      { name: 'legacy' },
+    ]
+    expect(latestCheckRuns(runs)).toEqual([
+      { id: 3, name: 'Lint' },
+      { id: 5, name: 'Tests' },
+      { name: 'legacy' },
+      { name: 'legacy' },
+    ])
   })
 })
 
