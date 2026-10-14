@@ -248,6 +248,7 @@ struct TunnelFormView: View {
                     HStack(spacing: 2) {
                         TextField("demo", text: Binding(get: { form.sub }, set: { v in edit { $0.sub = v; $0.error = nil; $0.notice = nil } }))
                             .onSubmit { model.submitForm() }
+                            .disabled(form.checking)
                         Text(".julianjab.link").font(.lh(13)).foregroundStyle(.secondary)
                     }
                 }
@@ -263,6 +264,7 @@ struct TunnelFormView: View {
                 FieldBox(invalid: form.error?.hasPrefix("Puerto") == true) {
                     TextField("5173", text: Binding(get: { form.portText }, set: { v in edit { $0.portText = v; $0.error = nil; $0.notice = nil } }))
                         .onSubmit { model.submitForm() }
+                        .disabled(form.checking)
                 }
                 if !form.ports.isEmpty {
                     FlowLayout {
@@ -270,6 +272,7 @@ struct TunnelFormView: View {
                             SelectChip(label: ":\(item.port) · \(item.command)", selected: form.port == item.port) {
                                 edit { $0.portText = String(item.port); $0.error = nil; $0.notice = nil }
                             }
+                            .disabled(form.checking)
                         }
                     }
                 }

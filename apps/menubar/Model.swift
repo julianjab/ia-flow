@@ -213,6 +213,11 @@ final class AppModel: ObservableObject {
     private func finishSubmit(sub: String, port: Int, dnsExists: Bool) {
         guard var f = form else { return }
         f.checking = false
+        // Si el formulario ya no es el que se consultó (o se canceló), el resultado no vale: no se crea nada.
+        guard f.cleanSub == sub, f.port == port else {
+            form = f
+            return
+        }
         if dnsExists, f.okOverwriteHost != "\(sub).julianjab.link" {
             f.notice = .overwriteDNS("\(sub).julianjab.link")
             form = f
