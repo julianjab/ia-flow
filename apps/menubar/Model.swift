@@ -121,7 +121,8 @@ final class AppModel: ObservableObject {
     }
 
     func startAll() { services.forEach { if !$0.isExternal { $0.start() } } }
-    func restartAll() { services.forEach { $0.restart() } }
+    /// Sólo reinicia lo que está corriendo: no enciende lo que se apagó a propósito (un túnel expone un puerto a internet).
+    func restartAll() { services.filter { $0.state == .running }.forEach { $0.restart() } }
     func stopAll() { services.forEach { $0.stop() } }
     func editConfig() { NSWorkspace.shared.open(URL(fileURLWithPath: "\(configDir)/services.json")) }
     func quit() { NSApp.terminate(nil) }
