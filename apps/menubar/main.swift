@@ -305,7 +305,11 @@ final class Service {
     private var matchPattern: String? {
         if let pattern = spec.processPattern { return pattern }
         if isDetached { return nil }
-        return "(^|/bin/zsh -lc )\(escapedForERE(spec.command))$"
+        // zsh -c reemplaza el shell por el ÚLTIMO comando de una cadena `a && b`: el proceso líder puede
+        // verse sólo como `b`. Se acepta el comando completo o su último tramo.
+        let last = spec.command.components(separatedBy: "&&").last?.trimmingCharacters(in: .whitespaces) ?? spec.command
+        let options = Set([spec.command, last]).map(escapedForERE).joined(separator: "|")
+        return "(^|/bin/zsh -lc )(\(options))$"
     }
 
     /// Sólo se adopta lo huérfano (padre = launchd, pid 1) y líder de su grupo: es lo que dejó una
