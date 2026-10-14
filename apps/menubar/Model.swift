@@ -21,8 +21,9 @@ struct TunnelForm {
     var ports: [(port: Int, command: String)] = []
     var error: String?
     var notice: Notice?
-    var okExpose = false
-    var okOverwrite = false
+    /// Lo confirmado es un puerto y un host concretos: cambiar el subdominio o el puerto invalida la confirmación.
+    var okExposePort: Int?
+    var okOverwriteHost: String?
     var checking = false
 
     /// El puerto escrito o elegido (acepta «5173» y también «5173  ·  node»).
@@ -195,7 +196,7 @@ final class AppModel: ObservableObject {
             form = f
             return
         }
-        if [3001, 4141].contains(port), !f.okExpose {
+        if [3001, 4141].contains(port), f.okExposePort != port {
             f.notice = .expose(port)
             form = f
             return
@@ -212,7 +213,7 @@ final class AppModel: ObservableObject {
     private func finishSubmit(sub: String, port: Int, dnsExists: Bool) {
         guard var f = form else { return }
         f.checking = false
-        if dnsExists, !f.okOverwrite {
+        if dnsExists, f.okOverwriteHost != "\(sub).julianjab.link" {
             f.notice = .overwriteDNS("\(sub).julianjab.link")
             form = f
             return

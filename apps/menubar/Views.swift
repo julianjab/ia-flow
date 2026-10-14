@@ -246,7 +246,7 @@ struct TunnelFormView: View {
             VStack(alignment: .leading, spacing: 8) {
                 FieldBox(invalid: form.error?.hasPrefix("Subdominio") == true) {
                     HStack(spacing: 2) {
-                        TextField("demo", text: Binding(get: { form.sub }, set: { v in edit { $0.sub = v; $0.error = nil } }))
+                        TextField("demo", text: Binding(get: { form.sub }, set: { v in edit { $0.sub = v; $0.error = nil; $0.notice = nil } }))
                             .onSubmit { model.submitForm() }
                         Text(".julianjab.link").font(.lh(13)).foregroundStyle(.secondary)
                     }
@@ -261,14 +261,14 @@ struct TunnelFormView: View {
             SectionTitle(text: "Puerto local", trailing: form.ports.isEmpty ? nil : "\(form.ports.count) en escucha")
             VStack(alignment: .leading, spacing: 10) {
                 FieldBox(invalid: form.error?.hasPrefix("Puerto") == true) {
-                    TextField("5173", text: Binding(get: { form.portText }, set: { v in edit { $0.portText = v; $0.error = nil } }))
+                    TextField("5173", text: Binding(get: { form.portText }, set: { v in edit { $0.portText = v; $0.error = nil; $0.notice = nil } }))
                         .onSubmit { model.submitForm() }
                 }
                 if !form.ports.isEmpty {
                     FlowLayout {
                         ForEach(form.ports, id: \.port) { item in
                             SelectChip(label: ":\(item.port) · \(item.command)", selected: form.port == item.port) {
-                                edit { $0.portText = String(item.port); $0.error = nil }
+                                edit { $0.portText = String(item.port); $0.error = nil; $0.notice = nil }
                             }
                         }
                     }
@@ -283,12 +283,12 @@ struct TunnelFormView: View {
         switch notice {
         case .expose(let port):
             Banner(text: "El puerto \(port) es el del runner o el gateway: quedaría abierto a internet sin autenticación.", tone: .bad) {
-                Button("Exponer igual") { edit { $0.okExpose = true; $0.notice = nil }; model.submitForm() }
+                Button("Exponer igual") { edit { $0.okExposePort = port; $0.notice = nil }; model.submitForm() }
                     .buttonStyle(PillButtonStyle(prominent: true, tint: .red))
             }
         case .overwriteDNS(let host):
             Banner(text: "\(host) ya tiene un registro DNS. Si lo reapuntas a este túnel, lo de antes deja de responder ahí.") {
-                Button("Reapuntar") { edit { $0.okOverwrite = true; $0.notice = nil }; model.submitForm() }
+                Button("Reapuntar") { edit { $0.okOverwriteHost = host; $0.notice = nil }; model.submitForm() }
                     .buttonStyle(PillButtonStyle(prominent: true, tint: .orange))
             }
         }
