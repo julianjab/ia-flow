@@ -82,7 +82,8 @@ func loadTunnels() -> [ServiceSpec] {
 /// Un túnel con nombre de cloudflared a `puerto`, bajo `<sub>.julianjab.link`. Idempotente: al
 /// iniciar crea el túnel y el DNS si faltan (`tunnel info` sale 0 aunque no exista: se usa `list`).
 /// `overwriteDNS` (confirmado por la persona) agrega `-f` a `route dns`; sin él un registro ajeno
-/// no se pisa. `--config` propio ignora el `config.yml` global de ~/.cloudflared.
+/// no se pisa. `--config` propio (también en `route dns`) ignora el `tunnel:` del `config.yml` global de ~/.cloudflared,
+/// que si no hace que el CNAME apunte al túnel viejo en vez de al nuevo.
 func tunnelSpec(sub: String, port: Int, overwriteDNS: Bool = false) -> ServiceSpec {
     let name = "menubar-\(sub)"
     let host = "\(sub).julianjab.link"
@@ -91,7 +92,7 @@ func tunnelSpec(sub: String, port: Int, overwriteDNS: Bool = false) -> ServiceSp
         id: "tunnel-\(sub)", name: "\(host) → :\(port)",
         command: "echo 'no-autoupdate: true' > '\(config)'; "
             + "cloudflared tunnel list -n \(name) -o json 2>/dev/null | grep -q '\"name\"' || cloudflared tunnel create \(name) || exit 1; "
-            + "cloudflared tunnel route dns\(overwriteDNS ? " -f" : "") \(name) \(host) 2>&1 | tail -1; "
+            + "cloudflared tunnel --config '\(config)' route dns\(overwriteDNS ? " -f" : "") \(name) \(host) 2>&1 | tail -1; "
             + "exec cloudflared tunnel --config '\(config)' run --url http://localhost:\(port) \(name)",
         cwd: home, port: nil, url: "https://\(host)", env: nil, stopCommand: nil,
         group: "Túneles",
