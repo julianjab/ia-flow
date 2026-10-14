@@ -15,22 +15,10 @@ struct ServiceSpec: Codable {
     /// Con `stopCommand` el servicio es "detached": `command` lo deja corriendo por su cuenta
     /// (launchd, un contenedor) y el estado sale del puerto, no de un proceso hijo.
     var stopCommand: String?
-    /// Un servicio detached sin puerto local (un túnel) dice si corre con el código de salida de esto.
-    var statusCommand: String?
     /// Los servicios de un mismo grupo van juntos, separados de los demás en el menú.
     var group: String?
-}
-
-/// Un LaunchAgent de launchd como servicio detached: se maneja con launchctl y corre si su estado es `running`.
-func launchAgent(id: String, name: String, label: String, port: Int? = nil, url: String? = nil, group: String? = nil) -> ServiceSpec {
-    let domain = "gui/$(id -u)"
-    return ServiceSpec(
-        id: id, name: name,
-        command: "launchctl bootstrap \(domain) ~/Library/LaunchAgents/\(label).plist 2>/dev/null; launchctl kickstart -k \(domain)/\(label)",
-        cwd: home, port: port, url: url, env: nil,
-        stopCommand: "launchctl bootout \(domain)/\(label)",
-        statusCommand: "launchctl print \(domain)/\(label) 2>/dev/null | grep -q 'state = running'",
-        group: group)
+    /// Si lo trae, el servicio se puede borrar del menú: corre esto (ej. borrar el túnel) y se olvida.
+    var deleteCommand: String?
 }
 
 let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -54,13 +42,6 @@ func defaultServices(root: String) -> [ServiceSpec] {
             command: "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/link.julianjab.otlp-proxy.plist 2>/dev/null; launchctl kickstart -k gui/$(id -u)/link.julianjab.otlp-proxy",
             cwd: home, port: 4319, url: nil, env: nil,
             stopCommand: "launchctl bootout gui/$(id -u)/link.julianjab.otlp-proxy"),
-        // Túneles de Cloudflare (LaunchAgents): el estado sale de launchd, no de un puerto local.
-        launchAgent(id: "tunnel-flow-api", name: "Túnel flow-api (:8000)", label: "link.julianjab.tunnel.flow-api",
-                    url: "https://flow-api.julianjab.link", group: "Túneles"),
-        launchAgent(id: "tunnel-flow-front", name: "Túnel flow-front (:3030)", label: "link.julianjab.tunnel.flow-front",
-                    url: "https://flow-front.julianjab.link", group: "Túneles"),
-        launchAgent(id: "tunnel-flow-ims", name: "Túnel flow-ims (:3010)", label: "link.julianjab.tunnel.flow-ims",
-                    url: "https://flow-ims.julianjab.link", group: "Túneles"),
     ]
 }
 
@@ -88,6 +69,31 @@ func loadServices() -> [ServiceSpec] {
     let ids = specs.map(\.id).sorted()
     if let data = try? JSONEncoder().encode(ids) { FileManager.default.createFile(atPath: "\(configDir)/known-ids.json", contents: data) }
     return specs
+}
+
+let tunnelsPath = "\(configDir)/tunnels.json"
+
+/// Los túneles creados desde el menú (los que ya no se ven en `services.json`).
+func loadTunnels() -> [ServiceSpec] {
+    FileManager.default.contents(atPath: tunnelsPath)
+        .flatMap { try? JSONDecoder().decode([ServiceSpec].self, from: $0) } ?? []
+}
+
+/// Un túnel con nombre de cloudflared a `puerto`, bajo `<sub>.julianjab.link`. Idempotente: al
+/// iniciar crea el túnel y el DNS si faltan. Sin `-f` en `route dns`: si el hostname ya es de otro
+/// túnel no lo pisa. `--config` vacío ignora el `config.yml` global de ~/.cloudflared.
+func tunnelSpec(sub: String, port: Int) -> ServiceSpec {
+    let name = "menubar-\(sub)"
+    let host = "\(sub).julianjab.link"
+    let empty = "\(configDir)/empty.yml"
+    return ServiceSpec(
+        id: "tunnel-\(sub)", name: "\(host) → :\(port)",
+        command: "echo '# vacío a propósito' > '\(empty)'; cloudflared tunnel info \(name) >/dev/null 2>&1 || cloudflared tunnel create \(name); "
+            + "cloudflared tunnel route dns \(name) \(host) 2>&1 | tail -1; "
+            + "exec cloudflared tunnel --no-autoupdate --config '\(empty)' run --url http://localhost:\(port) \(name)",
+        cwd: home, port: nil, url: "https://\(host)", env: nil, stopCommand: nil,
+        group: "Túneles",
+        deleteCommand: "cloudflared tunnel cleanup \(name); cloudflared tunnel delete \(name)")
 }
 
 func save(_ specs: [ServiceSpec], to path: String) {
@@ -125,6 +131,8 @@ final class Service {
     private var process: Process?
     private var restartAfterStop = false
     var onChange: (() -> Void)?
+    /// Se corre una vez cuando el proceso termina (borrar un túnel espera a que cierre).
+    var afterStop: (() -> Void)?
 
     init(spec: ServiceSpec) { self.spec = spec }
 
@@ -140,23 +148,8 @@ final class Service {
 
     /// Servicios detached: el estado es lo que diga el puerto (salvo mientras corre un comando).
     func syncFromPort() {
-        guard isDetached, state != .starting, state != .stopping, let up = isUp() else { return }
-        state = up ? .running : .stopped
-    }
-
-    /// ¿Corre? Por `statusCommand` (exit 0) si lo hay, si no por el puerto; nil si no hay con qué saberlo.
-    private func isUp() -> Bool? {
-        if let statusCommand = spec.statusCommand {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            p.arguments = ["-c", statusCommand]
-            p.standardOutput = FileHandle.nullDevice
-            p.standardError = FileHandle.nullDevice
-            do { try p.run() } catch { return nil }
-            p.waitUntilExit()
-            return p.terminationStatus == 0
-        }
-        return spec.port.map(portIsOpen)
+        guard isDetached, state != .starting, state != .stopping, let port = spec.port else { return }
+        state = portIsOpen(port) ? .running : .stopped
     }
 
     /// Corre `command` hasta que termine, y sondea el puerto hasta que llegue al estado esperado.
@@ -190,9 +183,9 @@ final class Service {
     }
 
     private func pollPort(until target: State, attemptsLeft: Int, restartAfter: Bool) {
-        let up = isUp() ?? (target == .running)
-        if up == (target == .running) || attemptsLeft == 0 {
-            state = up ? .running : .stopped
+        let isUp = spec.port.map(portIsOpen) ?? (target == .running)
+        if isUp == (target == .running) || attemptsLeft == 0 {
+            state = isUp ? .running : .stopped
             onChange?()
             if restartAfter { runDetached(spec.command, becoming: .running) }
             return
@@ -255,6 +248,13 @@ final class Service {
         onChange?()
     }
 
+    /// Corre `deleteCommand` (suelto: su salida va al log del servicio).
+    func runDelete() {
+        guard let command = spec.deleteCommand else { return }
+        let log = FileHandle(forWritingAtPath: logPath)
+        try? shellProcess(command, log: log).run()
+    }
+
     func restart() {
         if isDetached, state == .running, let stopCommand = spec.stopCommand {
             return runDetached(stopCommand, becoming: .stopped, restartAfter: true)
@@ -270,7 +270,11 @@ final class Service {
     private func didExit() {
         process = nil
         state = .stopped
-        if restartAfterStop {
+        if let afterStop {
+            self.afterStop = nil
+            afterStop()
+            onChange?()
+        } else if restartAfterStop {
             restartAfterStop = false
             start()
         } else {
@@ -281,7 +285,7 @@ final class Service {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    private let services = loadServices().map(Service.init)
+    private var services = (loadServices() + loadTunnels()).map(Service.init)
     private let menu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -318,6 +322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item(for: service))
         }
         menu.addItem(.separator())
+        menu.addItem(action("Nuevo túnel…", #selector(newTunnel)))
+        menu.addItem(.separator())
         menu.addItem(action("Iniciar todo", #selector(startAll)))
         menu.addItem(action("Reiniciar todo", #selector(restartAll)))
         menu.addItem(action("Detener todo", #selector(stopAll)))
@@ -350,6 +356,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(action("Abrir en el navegador", #selector(serviceAction(_:)), service: service, verb: "open"))
         }
         sub.addItem(action("Ver log", #selector(serviceAction(_:)), service: service, verb: "log"))
+        if service.spec.deleteCommand != nil {
+            sub.addItem(.separator())
+            sub.addItem(action("Borrar túnel", #selector(serviceAction(_:)), service: service, verb: "delete"))
+        }
         parent.submenu = sub
         return parent
     }
@@ -371,6 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "restart": service.restart()
         case "open": if let url = service.spec.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
         case "log": openLogInITerm(service)
+        case "delete": deleteTunnel(service)
         default: break
         }
     }
@@ -395,6 +406,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         p.arguments = ["-e", script]
         try? p.run()
+    }
+
+    private func persistTunnels() {
+        save(services.map(\.spec).filter { $0.deleteCommand != nil }, to: tunnelsPath)
+    }
+
+    private func alert(_ title: String, _ detail: String) {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = detail
+        NSApp.activate(ignoringOtherApps: true)
+        a.runModal()
+    }
+
+    /// Pide subdominio y puerto, crea el túnel (efímero: muere al salir de la app) y lo inicia.
+    @objc private func newTunnel() {
+        let sub = NSTextField(frame: NSRect(x: 0, y: 32, width: 260, height: 24))
+        sub.placeholderString = "subdominio (ej. demo)"
+        let port = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        port.placeholderString = "puerto local (ej. 5173)"
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 56))
+        form.addSubview(sub)
+        form.addSubview(port)
+        let ask = NSAlert()
+        ask.messageText = "Nuevo túnel"
+        ask.informativeText = "Expone un puerto local en https://<subdominio>.julianjab.link, SIN autenticación."
+        ask.accessoryView = form
+        ask.addButton(withTitle: "Crear y abrir")
+        ask.addButton(withTitle: "Cancelar")
+        NSApp.activate(ignoringOtherApps: true)
+        guard ask.runModal() == .alertFirstButtonReturn else { return }
+
+        let name = sub.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
+        guard name.range(of: "^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$", options: .regularExpression) != nil else {
+            return alert("Subdominio inválido", "Sólo letras minúsculas, números y guiones.")
+        }
+        guard let number = Int(port.stringValue.trimmingCharacters(in: .whitespaces)), (1...65535).contains(number) else {
+            return alert("Puerto inválido", "Un número entre 1 y 65535.")
+        }
+        guard !services.contains(where: { $0.spec.id == "tunnel-\(name)" }), !hostnameInUse("\(name).julianjab.link") else {
+            return alert("Ese subdominio ya existe", "\(name).julianjab.link ya lo usa otro túnel.")
+        }
+        if [3001, 4141].contains(number) {
+            let sure = NSAlert()
+            sure.messageText = "¿Exponer el puerto \(number)?"
+            sure.informativeText = "Es el runner o el gateway: quedan abiertos a internet sin autenticación."
+            sure.addButton(withTitle: "Cancelar")
+            sure.addButton(withTitle: "Exponer igual")
+            guard sure.runModal() == .alertSecondButtonReturn else { return }
+        }
+        let service = Service(spec: tunnelSpec(sub: name, port: number))
+        service.onChange = { [weak self] in self?.refreshIcon() }
+        services.append(service)
+        persistTunnels()
+        service.start()
+    }
+
+    /// ¿Algún túnel de ~/.cloudflared (los de siempre) ya sirve ese hostname?
+    private func hostnameInUse(_ host: String) -> Bool {
+        let dir = "\(home)/.cloudflared"
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+        return files.filter { $0.hasSuffix(".yml") }.contains {
+            (try? String(contentsOfFile: "\(dir)/\($0)", encoding: .utf8))?.contains("hostname: \(host)") == true
+        }
+    }
+
+    /// Detiene el túnel, borra el túnel de cloudflared y lo saca del menú. El CNAME en Cloudflare queda.
+    private func deleteTunnel(_ service: Service) {
+        let finish = { [weak self] in
+            service.runDelete()
+            self?.services.removeAll { $0 === service }
+            self?.persistTunnels()
+        }
+        if service.state == .running {
+            service.afterStop = finish
+            service.stop()
+        } else {
+            finish()
+        }
     }
 
     @objc private func startAll() { services.forEach { if !$0.isExternal { $0.start() } } }
