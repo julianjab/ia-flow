@@ -1,6 +1,6 @@
 import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
-import { readSection, writeSection } from '@ia-flow/github-tools'
+import { latestCheckRuns, readSection, writeSection } from '@ia-flow/github-tools'
 import {
   buildSlackReviewMessage,
   mapAssigneesToSlack,
@@ -147,9 +147,11 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
   }
 
   private async assertCi(task: Task, pr: PullRequest, allowFailed: boolean): Promise<void> {
-    const { check_runs } = await this.options.github.requestJson<{
-      check_runs: Array<{ name: string; status: string; conclusion: string | null }>
+    const { check_runs: all } = await this.options.github.requestJson<{
+      check_runs: Array<{ id: number; name: string; status: string; conclusion: string | null }>
     }>(`/repos/${task.owner}/${task.repo}/commits/${pr.head.sha}/check-runs?per_page=100`)
+    // Sólo la última corrida de cada check: un duplicado cancelado y reemplazado no es un rojo.
+    const check_runs = latestCheckRuns(all)
     const running = check_runs.filter((run) => run.status !== 'completed')
     if (running.length > 0) {
       throw new Error(

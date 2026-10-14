@@ -90,7 +90,7 @@ export interface RawTaskContext {
   prComments?: RawComment[]
   threads?: RawThread[]
   reviews?: RawReview[]
-  checks?: Array<{ status: string; conclusion: string | null }>
+  checks?: Array<{ id?: number; name?: string; status: string; conclusion: string | null }>
   statuses?: Array<{ state: string }>
   /** Los workflow runs de Actions del commit: uno en cola todavía no tiene check-runs. */
   workflowRuns?: Array<{ status: string }>
