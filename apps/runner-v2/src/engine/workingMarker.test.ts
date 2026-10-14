@@ -61,6 +61,16 @@ describe('workingMarker', () => {
     expect(taskOfKey('no-json')).toBeUndefined()
   })
 
+  it('a task that is only a PR has no card to mark', () => {
+    const pr = JSON.stringify([
+      ['projectId', 'p1'],
+      ['repo', 'la-haus/subscriptions'],
+      ['issue', 'la-haus/subscriptions#12'],
+      ['kind', 'pr'],
+    ])
+    expect(taskOfKey(pr)).toBeUndefined()
+  })
+
   it('marks the card while the execution runs and clears it when it closes, in order', async () => {
     const store = new InMemoryExecutionStore()
     const { client, writes } = github()
