@@ -56,7 +56,21 @@ if [[ "${1:-}" == "--login" ]]; then
 </dict>
 </plist>
 PLIST
+  # bootout manda SIGTERM a la app, que tarda en cerrar (detiene lo que levantó): se espera a que launchd
+  # la desregistre antes de volver a cargarla, y se reintenta el bootstrap por si aún no terminó.
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist"
+  for _ in $(seq 1 30); do
+    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  loaded=0
+  for _ in 1 2 3 4 5; do
+    if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null; then loaded=1; break; fi
+    sleep 1
+  done
+  if [[ "$loaded" != 1 ]]; then
+    echo "no se pudo cargar el LaunchAgent: launchctl bootstrap gui/$(id -u) $plist" >&2
+    exit 1
+  fi
   echo "LaunchAgent $label cargado (arranca con la sesión)"
 fi
