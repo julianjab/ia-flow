@@ -26,7 +26,7 @@ const Input = z.strictObject({
   allowFailedCi: z
     .boolean()
     .optional()
-    .describe('Pedir review aunque el CI haya terminado en rojo o quedado cancelado. Default: no.'),
+    .describe('Pedir review aunque el CI haya terminado en rojo. Default: no.'),
 })
 
 export interface RequestSlackReviewOptions {
@@ -67,7 +67,7 @@ interface PullRequest {
  */
 export class RequestSlackReviewAction extends Action<typeof Input, string> {
   readonly description =
-    'Pide review del PR de la task en Slack: taguea a los asignados del issue (según `slack.users` de runner.yaml) y a los reviewers del repo, en el canal del repo; o contesta en el hilo del pedido anterior si ya hubo uno. Falla si no hay un PR abierto o si su CI no terminó (o terminó en rojo o quedó cancelado, salvo `allowFailedCi`).'
+    'Pide review del PR de la task en Slack: taguea a los asignados del issue (según `slack.users` de runner.yaml) y a los reviewers del repo, en el canal del repo; o contesta en el hilo del pedido anterior si ya hubo uno. Falla si no hay un PR abierto o si su CI no terminó (o terminó en rojo, salvo `allowFailedCi`); un CI cancelado no lo frena, pero el pedido lo avisa.'
   readonly input = Input
 
   constructor(private readonly options: RequestSlackReviewOptions) {
@@ -79,7 +79,7 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
     if (!slack.enabled) throw new Error('Slack no está configurado (SLACK_BOT_TOKEN)')
     const task = taskFrom(ctx)
     const pr = await this.pullRequest(task)
-    await this.assertCi(task, pr, input.allowFailedCi ?? false)
+    const warning = cancelledCiWarning(await this.assertCi(task, pr, input.allowFailedCi ?? false))
     // Se lee el issue ANTES de validar el destino: sus asignados deciden a quién se taguea.
     const issuePath = `/repos/${task.owner}/${task.repo}/issues/${task.number}`
     const issue = await github.requestJson<{
@@ -108,13 +108,19 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
 
     const thread = readSection(body, SLACK_SECTION)?.match(/https?:\/\/\S+/)?.[0]
     const kind = thread ? 're-review' : 'first'
-    const message = buildSlackReviewMessage({
-      kind,
-      reviewers: target.reviewers,
-      prUrl: pr.html_url,
-      prTitle: pr.title,
-      messages: target.messages,
-    })
+    const message = [
+      buildSlackReviewMessage({
+        kind,
+        reviewers: target.reviewers,
+        prUrl: pr.html_url,
+        prTitle: pr.title,
+        messages: target.messages,
+      }),
+      warning,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    const note = warning ? ` (${warning})` : ''
     const posted = await slack.postMessage({
       channel: target.channel,
       // El mensaje que abre el hilo lleva SIEMPRE el issue y el PR: con ellos una respuesta en el
@@ -125,7 +131,7 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
         : withThreadRefs(message, `${task.owner}/${task.repo}#${task.number}`, pr.html_url),
       ...(thread ? { threadTs: threadTsOf(thread) } : {}),
     })
-    if (thread) return `Re-review pedido en el hilo: ${thread}`
+    if (thread) return `Re-review pedido en el hilo: ${thread}${note}`
 
     // ── El pedido ya salió: lo que sigue no lo deshace ────────────────────
     try {
@@ -134,7 +140,7 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
         method: 'PATCH',
         body: JSON.stringify({ body: writeSection(body, SLACK_SECTION, `## Slack\n\n${link}`) }),
       })
-      return `Review pedido en Slack: ${link}`
+      return `Review pedido en Slack: ${link}${note}`
     } catch (error) {
       return `Review pedido en Slack, pero no se pudo guardar el link del hilo en el issue (${(error as Error).message}): el próximo pedido va a abrir un hilo nuevo.`
     }
@@ -152,7 +158,10 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
     return open
   }
 
-  private async assertCi(task: Task, pr: PullRequest, allowFailed: boolean): Promise<void> {
+  /** Falla si el CI corre o terminó en rojo (salvo `allowFailed`). Devuelve los checks que
+   *  quedaron cancelados: no frenan el pedido —no son un rojo del código— pero el commit quedó sin
+   *  verificar, y el pedido lo avisa (`cancelledCiWarning`). */
+  private async assertCi(task: Task, pr: PullRequest, allowFailed: boolean): Promise<string[]> {
     const { check_runs: all } = await this.options.github.requestJson<{
       check_runs: Array<{ id: number; name: string; status: string; conclusion: string | null }>
     }>(`/repos/${task.owner}/${task.repo}/commits/${pr.head.sha}/check-runs?per_page=100`)
@@ -164,21 +173,22 @@ export class RequestSlackReviewAction extends Action<typeof Input, string> {
         `El CI del PR #${pr.number} todavía corre: ${running.map((run) => run.name).join(', ')}`,
       )
     }
-    if (allowFailed) return
+    const cancelled = check_runs.filter(isCancelledCheck).map((run) => run.name)
+    if (allowFailed) return cancelled
     const red = check_runs.filter(isRedCheck)
     if (red.length > 0) {
       throw new Error(
         `El CI del PR #${pr.number} terminó en rojo (${red.map((run) => run.name).join(', ')}) — pasá allowFailedCi para pedir review igual`,
       )
     }
-    // Un cancelado no es un rojo del código, pero el commit quedó sin verificar: se relanza.
-    const cancelled = check_runs.filter(isCancelledCheck)
-    if (cancelled.length > 0) {
-      throw new Error(
-        `El CI del PR #${pr.number} quedó cancelado (${cancelled.map((run) => run.name).join(', ')}): relanzalo desde GitHub y volvé a pedir el review — o pasá allowFailedCi para pedirlo igual`,
-      )
-    }
+    return cancelled
   }
+}
+
+/** La línea que el pedido suma cuando el CI quedó cancelado: quien revisa es quien lo relanza. */
+export function cancelledCiWarning(cancelled: string[]): string | undefined {
+  if (cancelled.length === 0) return undefined
+  return `⚠️ El CI quedó cancelado (${cancelled.join(', ')}): este commit no está verificado. Relanzalo desde el PR antes de mergear.`
 }
 
 /** El texto con el issue (`owner/repo#N`) y la URL del PR al final, si la plantilla no los trae. */
