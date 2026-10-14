@@ -48,14 +48,22 @@ func loadServices() -> [ServiceSpec] {
     let path = "\(configDir)/services.json"
     if let data = FileManager.default.contents(atPath: path),
        var specs = try? JSONDecoder().decode([ServiceSpec].self, from: data) {
-        // Un services.json viejo no conoce los servicios nuevos: se agregan al final.
-        let known = Set(specs.map(\.id))
-        let missing = defaultServices(root: root).filter { !known.contains($0.id) }
+        // Los defaults que aparecieron después de crear el archivo se agregan una sola vez: los ids
+        // ya conocidos van a `known-ids.json`, así borrar un servicio a propósito no lo resucita.
+        let knownPath = "\(configDir)/known-ids.json"
+        let known = Set((FileManager.default.contents(atPath: knownPath)
+            .flatMap { try? JSONDecoder().decode([String].self, from: $0) }) ?? specs.map(\.id))
+        let defaults = defaultServices(root: root)
+        let missing = defaults.filter { !known.contains($0.id) }
         if !missing.isEmpty { specs += missing; save(specs, to: path) }
+        let allKnown = known.union(defaults.map(\.id)).sorted()
+        if let data = try? JSONEncoder().encode(allKnown) { FileManager.default.createFile(atPath: knownPath, contents: data) }
         return specs
     }
     let specs = defaultServices(root: root)
     save(specs, to: path)
+    let ids = specs.map(\.id).sorted()
+    if let data = try? JSONEncoder().encode(ids) { FileManager.default.createFile(atPath: "\(configDir)/known-ids.json", contents: data) }
     return specs
 }
 
@@ -116,8 +124,20 @@ final class Service {
         FileManager.default.createFile(atPath: logPath, contents: nil)
         let log = FileHandle(forWritingAtPath: logPath)
         let p = shellProcess(command, log: log)
-        p.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async { self?.pollPort(until: target, attemptsLeft: 90, restartAfter: restartAfter) }
+        p.terminationHandler = { [weak self] finished in
+            let status = finished.terminationStatus
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if status != 0 {
+                    // El comando falló: no se espera al puerto ni se relanza; el estado es el real.
+                    log?.write(Data("\n[menubar] el comando salió con código \(status)\n".utf8))
+                    self.state = .stopped
+                    self.syncFromPort()
+                    self.onChange?()
+                    return
+                }
+                self.pollPort(until: target, attemptsLeft: 90, restartAfter: restartAfter)
+            }
         }
         do { try p.run() } catch {
             log?.write(Data("no arrancó: \(error)\n".utf8))
