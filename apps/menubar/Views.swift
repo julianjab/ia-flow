@@ -82,8 +82,7 @@ struct ListScreen: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(nsImage: flowIcon(running: model.activeCount > 0)).renderingMode(.template)
-                .resizable().frame(width: 30, height: 30).foregroundStyle(Color.accentColor)
+            Image(nsImage: brandIcon(size: 30, running: model.activeCount > 0))
             VStack(alignment: .leading, spacing: 1) {
                 Text("ia-flow").font(.lh(17, .bold))
                 Text(subtitle).font(.lh(12)).foregroundStyle(.secondary)

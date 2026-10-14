@@ -57,8 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = AppModel()
     private var openTimer: Timer?
     private var signalSources: [DispatchSourceSignal] = []
-    private static let idleIcon = flowIcon(running: false)
-    private static let runningIcon = flowIcon(running: true)
+    private static let idleIcon = menuBarIcon(running: false)
+    private static let runningIcon = menuBarIcon(running: true)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let base = flagValue("--screenshot") { return screenshots(base) }
@@ -163,6 +163,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc private func refreshAction() { model.refresh() }
     @objc private func editAction() { model.editConfig() }
     @objc private func quitAction() { model.quit() }
+}
+
+// `--icon <px> <ruta>`: escribe el ícono de app de la marca como PNG (build.sh arma el .icns con esto).
+if let i = args.firstIndex(of: "--icon"), let pixels = args.dropFirst(i + 1).first.flatMap(Int.init),
+   let path = args.dropFirst(i + 2).first, let data = brandPNG(pixels: pixels) {
+    try? data.write(to: URL(fileURLWithPath: path))
+    exit(0)
 }
 
 // `--status`: imprime el estado de cada servicio y sale (para comprobar sin abrir el menú).

@@ -12,6 +12,16 @@ app="$here/dist/IAFlowMenu.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS"
 swiftc -O -o "$app/Contents/MacOS/IAFlowMenu" "$here"/*.swift
+
+# Ícono de app de la marca: el mismo binario dibuja los PNG (--icon <px> <ruta>) y iconutil arma el .icns.
+mkdir -p "$app/Contents/Resources"
+iconset="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$iconset"
+for s in 16 32 128 256 512; do
+  "$app/Contents/MacOS/IAFlowMenu" --icon "$s" "$iconset/icon_${s}x${s}.png"
+  "$app/Contents/MacOS/IAFlowMenu" --icon "$((s * 2))" "$iconset/icon_${s}x${s}@2x.png"
+done
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19,6 +29,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>IAFlowMenu</string>
   <key>CFBundleIdentifier</key><string>dev.julianjab.ia-flow-menu</string>
   <key>CFBundleExecutable</key><string>IAFlowMenu</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
   <key>IAFlowRoot</key><string>$root</string>
