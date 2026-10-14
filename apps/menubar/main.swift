@@ -83,10 +83,10 @@ func loadTunnels() -> [ServiceSpec] {
 
 /// Un túnel con nombre de cloudflared a `puerto`, bajo `<sub>.julianjab.link`. Idempotente: al
 /// iniciar crea el túnel y el DNS si faltan (`tunnel info` sale 0 aunque no exista: se usa `list`).
-/// `overwriteDNS` (confirmado por la persona) agrega `-f` a `route dns`; sin él un registro ajeno
-/// no se pisa. `--config` propio (también en `route dns`) ignora el `tunnel:` del `config.yml` global de ~/.cloudflared,
+/// Sin `-f`: un registro ajeno no se pisa. Pisarlo (confirmado por la persona) es sólo del primer
+/// inicio, con `Service.nextStartEnv`, para que no quede grabado en `tunnels.json`. `--config` propio (también en `route dns`) ignora el `tunnel:` del `config.yml` global de ~/.cloudflared,
 /// que si no hace que el CNAME apunte al túnel viejo en vez de al nuevo.
-func tunnelSpec(sub: String, port: Int, overwriteDNS: Bool = false) -> ServiceSpec {
+func tunnelSpec(sub: String, port: Int) -> ServiceSpec {
     let name = "menubar-\(sub)"
     let host = "\(sub).julianjab.link"
     let config = "\(configDir)/tunnel.yml"
@@ -94,7 +94,7 @@ func tunnelSpec(sub: String, port: Int, overwriteDNS: Bool = false) -> ServiceSp
         id: "tunnel-\(sub)", name: "\(host) → :\(port)",
         command: "echo 'no-autoupdate: true' > '\(config)'; "
             + "cloudflared tunnel list -n \(name) -o json 2>/dev/null | grep -q '\"name\"' || cloudflared tunnel create \(name) || exit 1; "
-            + "cloudflared tunnel --config '\(config)' route dns\(overwriteDNS ? " -f" : "") \(name) \(host) 2>&1 | tail -1; "
+            + "cloudflared tunnel --config '\(config)' route dns \(name) \(host) 2>&1 | tail -1; "
             + "exec cloudflared tunnel --config '\(config)' run --url http://localhost:\(port) \(name)",
         cwd: home, port: nil, url: "https://\(host)", env: nil, stopCommand: nil,
         group: "Túneles",
@@ -215,7 +215,10 @@ func dnsRecordExists(_ host: String) -> Bool {
     p.standardError = FileHandle.nullDevice
     guard (try? p.run()) != nil else { return false }
     let data = out.fileHandleForReading.readDataToEndOfFile()
-    return !data.isEmpty
+    p.waitUntilExit()
+    // Un timeout hace que dig imprima `;; …` y salga distinto de 0: eso no es un registro.
+    guard p.terminationStatus == 0 else { return false }
+    return String(decoding: data, as: UTF8.self).split(separator: "\n").contains { !$0.hasPrefix(";;") && !$0.isEmpty }
 }
 
 func save(_ specs: [ServiceSpec], to path: String) {
@@ -255,6 +258,8 @@ final class Service {
     var onChange: (() -> Void)?
     /// Se corre una vez cuando el proceso termina (borrar un túnel espera a que cierre).
     var afterStop: (() -> Void)?
+    /// Variables de entorno extra para el PRÓXIMO inicio y nada más (no se persisten).
+    var nextStartEnv: [String: String] = [:]
 
     init(spec: ServiceSpec) { self.spec = spec }
 
@@ -318,7 +323,7 @@ final class Service {
     }
 
     /// `zsh -lc` con el PATH del usuario; `setsid` para que `kill(-pid)` baje a todo el grupo.
-    private func shellProcess(_ command: String, log: FileHandle?) -> Process {
+    private func shellProcess(_ command: String, log: FileHandle?, extraEnv: [String: String] = [:]) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         p.arguments = ["-e", "use POSIX; setsid(); exec @ARGV", "/bin/zsh", "-lc", command]
@@ -326,6 +331,7 @@ final class Service {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "\(home)/.bun/bin:/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
         spec.env?.forEach { env[$0.key] = $0.value }
+        extraEnv.forEach { env[$0.key] = $0.value }
         p.environment = env
         p.standardOutput = log
         p.standardError = log
@@ -340,7 +346,8 @@ final class Service {
         FileManager.default.createFile(atPath: logPath, contents: nil)
         let log = FileHandle(forWritingAtPath: logPath)
 
-        let p = shellProcess(spec.command, log: log)
+        let p = shellProcess(spec.command, log: log, extraEnv: nextStartEnv)
+        nextStartEnv = [:]
         p.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async { self?.didExit() }
         }
@@ -592,7 +599,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard conflict.runModal() == .alertSecondButtonReturn else { return }
             overwriteDNS = true
         }
-        let service = Service(spec: tunnelSpec(sub: name, port: number, overwriteDNS: overwriteDNS))
+        let service = Service(spec: tunnelSpec(sub: name, port: number))
+        // TUNNEL_FORCE_PROVISIONING_DNS es el `-f` de `route dns`; vale sólo para este primer inicio.
+        if overwriteDNS { service.nextStartEnv = ["TUNNEL_FORCE_PROVISIONING_DNS": "true"] }
         service.onChange = { [weak self] in self?.refreshIcon() }
         services.append(service)
         persistTunnels()
