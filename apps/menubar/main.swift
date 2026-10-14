@@ -35,7 +35,7 @@ func defaultServices(root: String) -> [ServiceSpec] {
         // El proxy OTLP con token (:4319 → otel-lgtm :4318) ya vive como LaunchAgent: se maneja con launchctl.
         ServiceSpec(
             id: "otlp-proxy", name: "OTLP proxy",
-            command: "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/link.julianjab.otlp-proxy.plist",
+            command: "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/link.julianjab.otlp-proxy.plist 2>/dev/null; launchctl kickstart -k gui/$(id -u)/link.julianjab.otlp-proxy",
             cwd: home, port: 4319, url: nil, env: nil,
             stopCommand: "launchctl bootout gui/$(id -u)/link.julianjab.otlp-proxy"),
     ]
