@@ -17,7 +17,7 @@ apps/menubar/build.sh --install  # además la copia a ~/Applications
 - **Túneles bajo julianjab.link:** «Nuevo túnel…» pide subdominio y puerto, crea un túnel de cloudflared
   (`menubar-<sub>`), su DNS y lo inicia. Son efímeros: mueren al salir de la app y quedan en
   `~/.config/ia-flow-menubar/tunnels.json` para volver a iniciarlos. «Borrar túnel» lo detiene y lo
-  elimina de cloudflared (el CNAME en Cloudflare queda). Exponen el puerto SIN autenticación.
+  elimina de cloudflared (el CNAME en Cloudflare queda). Si el subdominio ya tiene un registro DNS pregunta antes de reapuntarlo. Exponen el puerto SIN autenticación.
 - Grafana (OTel, vía `podman compose`) y el proxy OTLP (LaunchAgent, vía `launchctl`) son servicios
   "detached" (`stopCommand` en el JSON): su estado sale del puerto y siguen vivos al salir de la app.
 - Salir de la app detiene sólo los procesos que ella levantó (web, gateway, runner).

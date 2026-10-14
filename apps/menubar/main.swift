@@ -80,20 +80,35 @@ func loadTunnels() -> [ServiceSpec] {
 }
 
 /// Un túnel con nombre de cloudflared a `puerto`, bajo `<sub>.julianjab.link`. Idempotente: al
-/// iniciar crea el túnel y el DNS si faltan. Sin `-f` en `route dns`: si el hostname ya es de otro
-/// túnel no lo pisa. `--config` vacío ignora el `config.yml` global de ~/.cloudflared.
-func tunnelSpec(sub: String, port: Int) -> ServiceSpec {
+/// iniciar crea el túnel y el DNS si faltan (`tunnel info` sale 0 aunque no exista: se usa `list`).
+/// `overwriteDNS` (confirmado por la persona) agrega `-f` a `route dns`; sin él un registro ajeno
+/// no se pisa. `--config` propio ignora el `config.yml` global de ~/.cloudflared.
+func tunnelSpec(sub: String, port: Int, overwriteDNS: Bool = false) -> ServiceSpec {
     let name = "menubar-\(sub)"
     let host = "\(sub).julianjab.link"
-    let empty = "\(configDir)/empty.yml"
+    let config = "\(configDir)/tunnel.yml"
     return ServiceSpec(
         id: "tunnel-\(sub)", name: "\(host) → :\(port)",
-        command: "echo '# vacío a propósito' > '\(empty)'; cloudflared tunnel info \(name) >/dev/null 2>&1 || cloudflared tunnel create \(name); "
-            + "cloudflared tunnel route dns \(name) \(host) 2>&1 | tail -1; "
-            + "exec cloudflared tunnel --no-autoupdate --config '\(empty)' run --url http://localhost:\(port) \(name)",
+        command: "echo 'no-autoupdate: true' > '\(config)'; "
+            + "cloudflared tunnel list -n \(name) -o json 2>/dev/null | grep -q '\"name\"' || cloudflared tunnel create \(name) || exit 1; "
+            + "cloudflared tunnel route dns\(overwriteDNS ? " -f" : "") \(name) \(host) 2>&1 | tail -1; "
+            + "exec cloudflared tunnel --config '\(config)' run --url http://localhost:\(port) \(name)",
         cwd: home, port: nil, url: "https://\(host)", env: nil, stopCommand: nil,
         group: "Túneles",
         deleteCommand: "cloudflared tunnel cleanup \(name); cloudflared tunnel delete \(name)")
+}
+
+/// ¿Ese hostname ya resuelve? (Cloudflare aplana el CNAME: se mira cualquier registro.)
+func dnsRecordExists(_ host: String) -> Bool {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/dig")
+    p.arguments = ["+short", "+time=3", "+tries=1", host]
+    let out = Pipe()
+    p.standardOutput = out
+    p.standardError = FileHandle.nullDevice
+    guard (try? p.run()) != nil else { return false }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    return !data.isEmpty
 }
 
 func save(_ specs: [ServiceSpec], to path: String) {
@@ -456,7 +471,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sure.addButton(withTitle: "Exponer igual")
             guard sure.runModal() == .alertSecondButtonReturn else { return }
         }
-        let service = Service(spec: tunnelSpec(sub: name, port: number))
+        var overwriteDNS = false
+        if dnsRecordExists("\(name).julianjab.link") {
+            let conflict = NSAlert()
+            conflict.messageText = "\(name).julianjab.link ya tiene un registro DNS"
+            conflict.informativeText = "Apunta a otro túnel o servicio. Si lo reapuntas a este túnel nuevo, lo de antes deja de responder ahí."
+            conflict.addButton(withTitle: "Cancelar")
+            conflict.addButton(withTitle: "Reapuntar")
+            guard conflict.runModal() == .alertSecondButtonReturn else { return }
+            overwriteDNS = true
+        }
+        let service = Service(spec: tunnelSpec(sub: name, port: number, overwriteDNS: overwriteDNS))
         service.onChange = { [weak self] in self?.refreshIcon() }
         services.append(service)
         persistTunnels()
