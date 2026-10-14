@@ -767,6 +767,13 @@ if CommandLine.arguments.contains("--status") {
     exit(0)
 }
 
+// Una sola instancia: launchd lanza el binario directo (sin LaunchServices) y podrían quedar dos íconos.
+// Con IA_FLOW_MENUBAR_HOME (pruebas aisladas) no aplica.
+if ProcessInfo.processInfo.environment["IA_FLOW_MENUBAR_HOME"] == nil, let id = Bundle.main.bundleIdentifier,
+   NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0.processIdentifier != getpid() }) {
+    exit(0)
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()

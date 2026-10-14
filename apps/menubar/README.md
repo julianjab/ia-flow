@@ -6,6 +6,7 @@ detener web, gateway y runner. ~25 MB de RAM y 0 % de CPU en reposo.
 ```bash
 apps/menubar/build.sh            # compila a apps/menubar/dist/IAFlowMenu.app
 apps/menubar/build.sh --install  # además la copia a ~/Applications
+apps/menubar/build.sh --login    # --install + LaunchAgent: arranca con la sesión
 ```
 
 - La web corre en modo normal (`vite build` + `vite preview`), sin watch ni HMR; gateway y runner no hacen watch.
@@ -32,3 +33,9 @@ apps/menubar/build.sh --install  # además la copia a ~/Applications
   la config, los logs y los túneles en otra carpeta (para probar sin tocar los reales).
 - "Ver log" abre `tail -f` en una ventana de iTerm (sin iTerm, el archivo en el editor).
 - No es un workspace de bun (sin `package.json`); no pasa por `bun run check`.
+- **Arranque con la sesión (`--login`):** crea `~/Library/LaunchAgents/link.julianjab.ia-flow-menu.plist`
+  (`RunAtLoad`, y `KeepAlive` sólo si no salió con éxito: se relanza tras un crash o `SIGKILL`, no tras
+  «Salir»). Log en `~/Library/Logs/ia-flow/menubar.log`. Para quitarlo:
+  `launchctl bootout gui/$(id -u)/link.julianjab.ia-flow-menu` y borrar el plist. Una guarda de instancia
+  única evita dos íconos si se abre a mano mientras launchd ya la corre. Cierre cualquier instancia abierta
+  a mano antes de `--login` (con `SIGKILL` si no quiere detener lo que lanzó).
