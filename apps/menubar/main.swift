@@ -15,6 +15,22 @@ struct ServiceSpec: Codable {
     /// Con `stopCommand` el servicio es "detached": `command` lo deja corriendo por su cuenta
     /// (launchd, un contenedor) y el estado sale del puerto, no de un proceso hijo.
     var stopCommand: String?
+    /// Un servicio detached sin puerto local (un túnel) dice si corre con el código de salida de esto.
+    var statusCommand: String?
+    /// Los servicios de un mismo grupo van juntos, separados de los demás en el menú.
+    var group: String?
+}
+
+/// Un LaunchAgent de launchd como servicio detached: se maneja con launchctl y corre si su estado es `running`.
+func launchAgent(id: String, name: String, label: String, port: Int? = nil, url: String? = nil, group: String? = nil) -> ServiceSpec {
+    let domain = "gui/$(id -u)"
+    return ServiceSpec(
+        id: id, name: name,
+        command: "launchctl bootstrap \(domain) ~/Library/LaunchAgents/\(label).plist 2>/dev/null; launchctl kickstart -k \(domain)/\(label)",
+        cwd: home, port: port, url: url, env: nil,
+        stopCommand: "launchctl bootout \(domain)/\(label)",
+        statusCommand: "launchctl print \(domain)/\(label) 2>/dev/null | grep -q 'state = running'",
+        group: group)
 }
 
 let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -38,6 +54,13 @@ func defaultServices(root: String) -> [ServiceSpec] {
             command: "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/link.julianjab.otlp-proxy.plist 2>/dev/null; launchctl kickstart -k gui/$(id -u)/link.julianjab.otlp-proxy",
             cwd: home, port: 4319, url: nil, env: nil,
             stopCommand: "launchctl bootout gui/$(id -u)/link.julianjab.otlp-proxy"),
+        // Túneles de Cloudflare (LaunchAgents): el estado sale de launchd, no de un puerto local.
+        launchAgent(id: "tunnel-flow-api", name: "Túnel flow-api (:8000)", label: "link.julianjab.tunnel.flow-api",
+                    url: "https://flow-api.julianjab.link", group: "Túneles"),
+        launchAgent(id: "tunnel-flow-front", name: "Túnel flow-front (:3030)", label: "link.julianjab.tunnel.flow-front",
+                    url: "https://flow-front.julianjab.link", group: "Túneles"),
+        launchAgent(id: "tunnel-flow-ims", name: "Túnel flow-ims (:3010)", label: "link.julianjab.tunnel.flow-ims",
+                    url: "https://flow-ims.julianjab.link", group: "Túneles"),
     ]
 }
 
@@ -117,8 +140,23 @@ final class Service {
 
     /// Servicios detached: el estado es lo que diga el puerto (salvo mientras corre un comando).
     func syncFromPort() {
-        guard isDetached, state != .starting, state != .stopping, let port = spec.port else { return }
-        state = portIsOpen(port) ? .running : .stopped
+        guard isDetached, state != .starting, state != .stopping, let up = isUp() else { return }
+        state = up ? .running : .stopped
+    }
+
+    /// ¿Corre? Por `statusCommand` (exit 0) si lo hay, si no por el puerto; nil si no hay con qué saberlo.
+    private func isUp() -> Bool? {
+        if let statusCommand = spec.statusCommand {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            p.arguments = ["-c", statusCommand]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            do { try p.run() } catch { return nil }
+            p.waitUntilExit()
+            return p.terminationStatus == 0
+        }
+        return spec.port.map(portIsOpen)
     }
 
     /// Corre `command` hasta que termine, y sondea el puerto hasta que llegue al estado esperado.
@@ -152,9 +190,9 @@ final class Service {
     }
 
     private func pollPort(until target: State, attemptsLeft: Int, restartAfter: Bool) {
-        let isUp = spec.port.map(portIsOpen) ?? (target == .running)
-        if isUp == (target == .running) || attemptsLeft == 0 {
-            state = isUp ? .running : .stopped
+        let up = isUp() ?? (target == .running)
+        if up == (target == .running) || attemptsLeft == 0 {
+            state = up ? .running : .stopped
             onChange?()
             if restartAfter { runDetached(spec.command, becoming: .running) }
             return
@@ -273,7 +311,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         services.forEach { $0.syncFromPort() }
         refreshIcon()
-        for service in services { menu.addItem(item(for: service)) }
+        var previousGroup: String?
+        for service in services {
+            if service.spec.group != previousGroup { menu.addItem(.separator()) }
+            previousGroup = service.spec.group
+            menu.addItem(item(for: service))
+        }
         menu.addItem(.separator())
         menu.addItem(action("Iniciar todo", #selector(startAll)))
         menu.addItem(action("Reiniciar todo", #selector(restartAll)))

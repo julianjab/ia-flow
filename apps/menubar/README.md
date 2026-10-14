@@ -14,6 +14,7 @@ apps/menubar/build.sh --install  # además la copia a ~/Applications
 - Logs: `~/.local/state/ia-flow/menubar/<id>.log` (fuera del repo).
 - Cada servicio corre en su propio grupo de procesos: detener baja también a vite/bun hijos.
 - Un puerto ocupado por algo que no lanzó la app aparece amarillo "(externo)" y no se puede iniciar.
+- Los túneles de Cloudflare (`link.julianjab.tunnel.*`) son LaunchAgents: estado por `launchctl print`, iniciar con `bootstrap` + `kickstart`, detener con `bootout`. El `statusCommand` del JSON sustituye al puerto.
 - Grafana (OTel, vía `podman compose`) y el proxy OTLP (LaunchAgent, vía `launchctl`) son servicios
   "detached" (`stopCommand` en el JSON): su estado sale del puerto y siguen vivos al salir de la app.
 - Salir de la app detiene sólo los procesos que ella levantó (web, gateway, runner).
