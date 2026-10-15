@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { isAnthropicRequest, prepareAnthropicBody } from './anthropicRoute.js'
+import {
+  clientBetas,
+  createAnthropicRoute,
+  isAnthropicRequest,
+  prepareAnthropicBody,
+} from './anthropicRoute.js'
+import { NOOP_LOG } from './gatewayLog.js'
 import { BadRequestError } from './openaiToAnthropic.js'
 
 const defaults = { model: 'claude-default', maxTokens: 4096 }
@@ -52,6 +58,34 @@ describe('prepareAnthropicBody', () => {
   test('rechaza un body que no es objeto o no trae messages', () => {
     expect(() => prepareAnthropicBody('x', defaults)).toThrow(BadRequestError)
     expect(() => prepareAnthropicBody({ messages: [] }, defaults)).toThrow(BadRequestError)
+  })
+})
+
+describe('betas del cliente', () => {
+  const withBetas = (value?: string) =>
+    new Request('http://gateway.test/v1/messages', {
+      method: 'POST',
+      headers: value === undefined ? {} : { 'anthropic-beta': value },
+      body: JSON.stringify({ messages }),
+    })
+
+  test('clientBetas separa por coma y descarta vacíos', () => {
+    expect(clientBetas(withBetas(' a-1, b-2 ,,'))).toEqual(['a-1', 'b-2'])
+    expect(clientBetas(withBetas())).toEqual([])
+  })
+
+  test('la ruta nativa las reenvía junto con el body', async () => {
+    let sentBetas: string[] | undefined
+    const route = createAnthropicRoute({
+      config: { defaultModel: 'claude-default', defaultMaxTokens: 10 },
+      log: NOOP_LOG,
+      forward: async (_body, options) => {
+        sentBetas = options?.extraBetas
+        return new Response('{}')
+      },
+    })
+    await route(withBetas('context-management-2025-06-27'))
+    expect(sentBetas).toEqual(['context-management-2025-06-27'])
   })
 })
 
