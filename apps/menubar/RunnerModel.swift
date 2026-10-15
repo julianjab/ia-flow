@@ -114,6 +114,10 @@ final class RunnerModel: ObservableObject {
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
     @Published private(set) var busy: Set<String> = []
 
+    /// Las secciones colapsadas de la bandeja, por título. «En cola» arranca colapsada.
+    @Published private(set) var collapsed: Set<String> =
+        Set(UserDefaults.standard.stringArray(forKey: "runnerCollapsed") ?? ["En cola"])
+
     @Published fileprivate(set) var logLines: [RunnerLogLine] = []
     @Published var logLevel: String = "info" { didSet { resetLogs() } }
     @Published private(set) var logError: String?
@@ -164,6 +168,13 @@ final class RunnerModel: ObservableObject {
     var github: GithubSession? { sessions[selected.baseUrl] }
 
     var boardURL: URL? { (inbox?.projects.first?.board_url ?? inbox?.projects.first?.url).flatMap(URL.init(string:)) }
+
+    func isCollapsed(_ section: String) -> Bool { collapsed.contains(section) }
+
+    func toggleSection(_ section: String) {
+        if collapsed.contains(section) { collapsed.remove(section) } else { collapsed.insert(section) }
+        if !isFixture { UserDefaults.standard.set(Array(collapsed), forKey: "runnerCollapsed") }
+    }
 
     // MARK: servers
 

@@ -132,14 +132,27 @@ struct RunnerInboxScreen: View {
         }
     }
 
+    /// Una sección que se colapsa con un clic en su título (lo recuerda entre aperturas del popover).
     private func section<Content: View>(_ title: String, count: Int, empty: String? = nil, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: title, trailing: count > 0 ? "\(count)" : nil)
-            VStack(alignment: .leading, spacing: 0) {
-                if count == 0, let empty { Text(empty).font(.lh(12)).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .leading) }
-                content()
+        let collapsed = runner.isCollapsed(title)
+        return VStack(alignment: .leading, spacing: 8) {
+            Button { withAnimation(.easeOut(duration: 0.15)) { runner.toggleSection(title) } } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                    SectionTitle(text: title, trailing: count > 0 ? "\(count)" : nil)
+                }
+                .contentShape(Rectangle())
             }
-            .card()
+            .buttonStyle(.plain)
+            .help(collapsed ? "Mostrar" : "Ocultar")
+            if !collapsed {
+                VStack(alignment: .leading, spacing: 0) {
+                    if count == 0, let empty { Text(empty).font(.lh(12)).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .leading) }
+                    content()
+                }
+                .card()
+            }
         }
     }
 
