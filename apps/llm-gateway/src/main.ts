@@ -34,7 +34,7 @@ const handler = createHandler({
   config,
   log,
   send: (body, options) => client.send(body, options),
-  forward: (body) => client.forward(body),
+  forward: (body, options) => client.forward(body, options),
 })
 
 const server = Bun.serve({

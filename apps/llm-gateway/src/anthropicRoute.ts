@@ -3,8 +3,12 @@ import type { GatewayConfig } from './config.js'
 import type { GatewayLog } from './gatewayLog.js'
 import { BadRequestError } from './openaiToAnthropic.js'
 
-/** El puerto hacia Anthropic para el formato nativo: el body ya listo → la `Response` cruda. */
-export type ForwardToAnthropic = (body: Record<string, unknown>) => Promise<Response>
+/** El puerto hacia Anthropic para el formato nativo: el body ya listo → la `Response` cruda.
+ *  `extraBetas` son las del cliente, que se suman a las del gateway. */
+export type ForwardToAnthropic = (
+  body: Record<string, unknown>,
+  options?: { extraBetas?: string[] },
+) => Promise<Response>
 
 export interface AnthropicRouteDeps {
   config: Pick<GatewayConfig, 'defaultModel' | 'defaultMaxTokens'> &
@@ -105,8 +109,18 @@ async function relay(upstream: Response, log: GatewayLog): Promise<Response> {
   })
 }
 
+/** Las betas del header `anthropic-beta` del cliente. Un cliente como Claude Code manda en el body
+ *  campos que sólo valen con sus betas (`context_management`, `output_config` por mensaje…): sin
+ *  reenviarlas, Anthropic los rechaza con "Extra inputs are not permitted". */
+export function clientBetas(request: Request): string[] {
+  return (request.headers.get('anthropic-beta') ?? '')
+    .split(',')
+    .map((beta) => beta.trim())
+    .filter(Boolean)
+}
+
 /** `(Request) → Response` para el protocolo nativo de Anthropic: reenvía con la credencial del
- *  gateway, nunca la del cliente. */
+ *  gateway, nunca la del cliente; sus betas sí van. */
 export function createAnthropicRoute(deps: AnthropicRouteDeps) {
   const { config, forward, log } = deps
   return async (request: Request): Promise<Response> => {
@@ -117,7 +131,10 @@ export function createAnthropicRoute(deps: AnthropicRouteDeps) {
       systemPrompt: config.systemPrompt,
       dropSampling: config.dropSampling,
     })
-    log.info(`→ ${String(body.model)} (formato Anthropic, stream=${body.stream === true})`)
-    return relay(await forward(body), log)
+    const extraBetas = clientBetas(request)
+    log.info(
+      `→ ${String(body.model)} (formato Anthropic, stream=${body.stream === true}, betas del cliente: ${extraBetas.join(',') || 'ninguna'})`,
+    )
+    return relay(await forward(body, { extraBetas }), log)
   }
 }
