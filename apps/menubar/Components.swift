@@ -266,16 +266,43 @@ struct HeightKey: PreferenceKey {
 /// Tope del scroll del popover; las capturas (`--screenshot`) lo suben para ver todo el contenido.
 var popoverMaxScroll: CGFloat = 520
 
-/// ScrollView que se ajusta a su contenido hasta `popoverMaxScroll` (el popover no debe quedar con huecos).
+/// En una ventana (no en el popover): las listas ocupan el alto que haya en vez de un tope fijo.
+private struct WindowedKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var windowed: Bool {
+        get { self[WindowedKey.self] }
+        set { self[WindowedKey.self] = newValue }
+    }
+}
+
+/// Un scroll de alto fijo en el popover; en la ventana, todo el alto disponible.
+private struct ScrollHeight: ViewModifier {
+    @Environment(\.windowed) private var windowed
+    let fixed: CGFloat
+
+    func body(content: Content) -> some View {
+        if windowed { content.frame(minHeight: 120, maxHeight: .infinity) } else { content.frame(height: fixed) }
+    }
+}
+
+extension View {
+    func scrollHeight(_ fixed: CGFloat) -> some View { modifier(ScrollHeight(fixed: fixed)) }
+}
+
+/// ScrollView que se ajusta a su contenido hasta `popoverMaxScroll` (el popover no debe quedar con huecos); en la
+/// ventana ocupa el alto que haya.
 struct FittingScroll<Content: View>: View {
     @ViewBuilder let content: Content
     @State private var height: CGFloat = 160
+    @Environment(\.windowed) private var windowed
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             content.background(GeometryReader { g in Color.clear.preference(key: HeightKey.self, value: g.size.height) })
         }
         .onPreferenceChange(HeightKey.self) { height = $0 }
-        .frame(height: min(max(height, 60), popoverMaxScroll))
+        .frame(minHeight: windowed ? 60 : min(max(height, 60), popoverMaxScroll),
+               maxHeight: windowed ? .infinity : min(max(height, 60), popoverMaxScroll), alignment: .top)
     }
 }

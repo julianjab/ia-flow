@@ -10,6 +10,7 @@ struct RunnerScreen: View {
         switch runner.screen {
         case .inbox: RunnerInboxScreen(runner: runner)
         case .logs: RunnerLogsScreen(runner: runner)
+        case .health: RunnerHealthScreen(runner: runner)
         case .run:
             if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { RunnerInboxScreen(runner: runner) }
         }
@@ -51,6 +52,7 @@ struct RunnerInboxScreen: View {
                     }
                 }
                 Divider()
+                Button("Estado del runner…") { runner.showHealth() }
                 Button("Editar servidores…") { runner.openServersFile() }
             } label: {
                 HStack(spacing: 5) {
@@ -214,6 +216,7 @@ struct RunnerInboxScreen: View {
             Spacer()
             if runner.boardURL != nil { IconButton(symbol: "rectangle.split.3x1", help: "Abrir el board en GitHub") { runner.openBoard() } }
             IconButton(symbol: "server.rack", help: "Editar servidores") { runner.openServersFile() }
+            IconButton(symbol: "heart.text.square", help: "Estado del runner") { runner.showHealth() }
         }
     }
 }
@@ -622,7 +625,7 @@ struct RunnerLogsScreen: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: popoverMaxScroll)
+                .scrollHeight(popoverMaxScroll)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.045)))
                 .padding(.horizontal, 14).padding(.bottom, 12)
                 .onChange(of: runner.logLines.last?.seq) { _, seq in

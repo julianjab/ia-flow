@@ -7,11 +7,23 @@ let popoverWidth: CGFloat = 420
 
 struct RootView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.windowed) private var windowed
 
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                if model.form == nil { TabBar(model: model, runner: model.runner).padding(.horizontal, 14).padding(.top, 12) }
+                if model.form == nil {
+                    HStack(spacing: 6) {
+                        TabBar(model: model, runner: model.runner)
+                        if windowed {
+                            IconButton(symbol: model.floating ? "pin.fill" : "pin", help: model.floating ? "Dejar de mostrar siempre encima" : "Siempre encima de las otras ventanas",
+                                       tint: model.floating ? .accentColor : .secondary) { model.floating.toggle() }
+                        } else {
+                            IconButton(symbol: "macwindow.badge.plus", help: "Abrir en una ventana") { model.onDetach?() }
+                        }
+                    }
+                    .padding(.horizontal, 14).padding(.top, 12)
+                }
                 if model.form != nil { TunnelFormView(model: model) }
                 else if model.tab == .runner { RunnerScreen(runner: model.runner) }
                 else if model.tab == .assistant { AssistantScreen(chat: model.assistant, runner: model.runner) }
@@ -27,7 +39,8 @@ struct RootView: View {
                 ToastView(text: text).padding(.bottom, 62).transition(.opacity)
             }
         }
-        .frame(width: popoverWidth)
+        .frame(minWidth: popoverWidth, idealWidth: popoverWidth, maxWidth: windowed ? .infinity : popoverWidth,
+               maxHeight: windowed ? .infinity : nil, alignment: .top)
         .animation(.easeOut(duration: 0.15), value: model.confirm == nil)
         .font(.lh(13))
     }

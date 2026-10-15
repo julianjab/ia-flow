@@ -54,6 +54,13 @@ final class AppModel: ObservableObject {
     @Published var toast: String?
     /// Avisa al ícono de la barra de menú (corriendo / en reposo).
     var onChange: (() -> Void)?
+    /// «Abrir en una ventana» (lo resuelve la app: cierra el popover y abre la ventana).
+    var onDetach: (() -> Void)?
+    /// La ventana queda encima de las demás.
+    @Published var floating = UserDefaults.standard.bool(forKey: "windowFloating") {
+        didSet { UserDefaults.standard.set(floating, forKey: "windowFloating"); onFloating?(floating) }
+    }
+    var onFloating: ((Bool) -> Void)?
     let isFixture: Bool
 
     init(services: [Service]? = nil, runner: RunnerModel? = nil) {

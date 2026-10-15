@@ -112,7 +112,7 @@ struct RunTraceScreen: View {
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: popoverMaxScroll - 60)
+            .scrollHeight(popoverMaxScroll - 60)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.045)))
             .padding(.horizontal, 14).padding(.bottom, 10)
             .onChange(of: watch.visibleSteps.count) { _, _ in

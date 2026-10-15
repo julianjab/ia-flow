@@ -83,7 +83,7 @@ struct AssistantScreen: View {
                 }
                 .padding(.horizontal, 14).padding(.vertical, 8)
             }
-            .frame(height: popoverMaxScroll - 40)
+            .scrollHeight(popoverMaxScroll - 40)
             .onChange(of: chat.turns.last?.text) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: chat.turns.count) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }

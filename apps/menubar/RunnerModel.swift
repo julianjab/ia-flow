@@ -101,7 +101,7 @@ struct DeviceLogin {
 }
 
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run }
+    enum Screen { case inbox, logs, run, health }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
@@ -111,6 +111,9 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var error: RunnerError?
     @Published private(set) var loading = false
     @Published var screen: Screen = .inbox
+    /// El estado del server (la pantalla «Estado del runner»).
+    @Published var health: RunnerHealth?
+    private var checkingHealth = false
     /// La ejecución que se mira en «En vivo».
     @Published private(set) var watching: RunWatch?
     @Published var comment: CommentRequest?
@@ -501,6 +504,26 @@ final class RunnerModel: ObservableObject {
         sessions[selected.baseUrl] = nil
         saveGithubSessions(sessions)
         objectWillChange.send()
+    }
+
+    // MARK: estado del runner
+
+    func showHealth() {
+        if health?.info == nil || health.map({ Date().timeIntervalSince($0.checkedAt) > 10 }) == true { health = nil }
+        screen = .health
+        checkHealth()
+    }
+
+    func checkHealth() {
+        guard !isFixture, !checkingHealth else { return }
+        checkingHealth = true
+        let server = selected
+        Task { @MainActor in
+            let fresh = await RunnerClient(server: server).health()
+            checkingHealth = false
+            guard server == selected else { return }
+            health = fresh
+        }
     }
 
     // MARK: en vivo

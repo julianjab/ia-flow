@@ -88,8 +88,10 @@ struct AssistantConversation: Codable {
 }
 
 struct RunnerInfo: Codable {
+    struct Agent: Codable, Hashable { let id: String; let label: String }
     let version: String
     let assistant: Bool
+    var assistant_agents: [Agent]? = nil
 }
 
 struct CreateIssueResult: Codable {
