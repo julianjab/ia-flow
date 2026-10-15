@@ -1,5 +1,50 @@
 # Changelog
 
+## [2.10.0](https://github.com/julianjab/ia-flow/compare/v2.9.0...v2.10.0) (2026-10-15)
+
+
+### Features
+
+* ícono propio de ia-flow (refine › build › review) en la web, el menubar y la app de escritorio ([dab6882](https://github.com/julianjab/ia-flow/commit/dab688279c7012de9a55c700c320bde4a5c1864e))
+* **menubar:** app de barra de menú para levantar web, gateway y runner ([2ae5fa6](https://github.com/julianjab/ia-flow/commit/2ae5fa62f238dead7ea582102e3cb4c58e81b8fb))
+* **menubar:** cerrar con señales limpia los procesos y se adoptan los huérfanos de todos los servicios ([5cf45da](https://github.com/julianjab/ia-flow/commit/5cf45da16834732de77eaca952359c0e48e22d1f))
+* **menubar:** crear túneles de julianjab.link desde el menú en vez de tenerlos fijos ([2c511fa](https://github.com/julianjab/ia-flow/commit/2c511fa4a29fc644d68d3d11de60d7ede4995384))
+* **menubar:** detener o borrar un túnel borra también su registro DNS ([e98a63a](https://github.com/julianjab/ia-flow/commit/e98a63ae8e99d3e2d2a1f2a587b974cf9a8b668e))
+* **menubar:** detener un túnel ya no borra su DNS; sólo «Borrar túnel» lo hace ([58af04f](https://github.com/julianjab/ia-flow/commit/58af04f2b2080ea3f260d8c9e03f6054d0501874))
+* **menubar:** elegir el puerto del túnel entre los puertos en escucha ([f1d4d94](https://github.com/julianjab/ia-flow/commit/f1d4d94783b9bd6d071acc2fa502da4b88857e34))
+* **menubar:** ícono de la marca jabsolutions en la barra de menú, el popover y el .app ([2f43092](https://github.com/julianjab/ia-flow/commit/2f430929ce1156b7dff7b0dd7778808052423fe3))
+* **menubar:** ícono de rama git que termina en un destello de IA ([3557187](https://github.com/julianjab/ia-flow/commit/3557187840307e970c26cb110e3f72babc114b36))
+* **menubar:** ícono propio de pipeline en la barra de menú ([7dde9c6](https://github.com/julianjab/ia-flow/commit/7dde9c6051586ed82a794f0ad04be9e65b3167b2))
+* **menubar:** la web corre en modo normal (build + preview) y el sondeo de puertos cubre IPv6 ([9fa3758](https://github.com/julianjab/ia-flow/commit/9fa37583ce555d18d15de32b8643179c45f391ee))
+* **menubar:** LaunchAgent para que la app arranque con la sesión ([d6e8f49](https://github.com/julianjab/ia-flow/commit/d6e8f49a4a83d86b50f57dec97a3bada7de1d3f3))
+* **menubar:** popover SwiftUI con tarjetas, switches y formulario de túnel (estilo toolbox) ([e90eb02](https://github.com/julianjab/ia-flow/commit/e90eb020ea54c773be842692d40ee33a3c826233))
+* **menubar:** servicios detached (Grafana/OTel, proxy OTLP) y logs en iTerm ([d988d96](https://github.com/julianjab/ia-flow/commit/d988d9696f8ac80475ba386b16a7d2e2a0de6b5e))
+* **menubar:** túneles de Cloudflare como servicios de launchd ([5ce851e](https://github.com/julianjab/ia-flow/commit/5ce851e8d0f86a59e4daacc368ceca5a454f4743))
+* **runner-v2:** un PR sin issue puede ser su propia task (e2e sobre cualquier PR) ([#299](https://github.com/julianjab/ia-flow/issues/299)) ([8b30cdb](https://github.com/julianjab/ia-flow/commit/8b30cdb90c464cc7fe72c5d0a654b61ad655f16d))
+
+
+### Bug Fixes
+
+* **github-tools:** el CI cuenta la última corrida de cada check y un cancelado no es rojo ([#298](https://github.com/julianjab/ia-flow/issues/298)) ([3c7cf87](https://github.com/julianjab/ia-flow/commit/3c7cf87ec214de88a139ff3f6c4bded00d5c6898))
+* **menubar:** --icon siempre termina el proceso y sale con 1 si no pudo escribir el PNG ([3aabd60](https://github.com/julianjab/ia-flow/commit/3aabd602ecacb0f10c2286c15d28e39fe246d925))
+* **menubar:** «Reiniciar todo» sólo reinicia lo que está corriendo ([a94ba0b](https://github.com/julianjab/ia-flow/commit/a94ba0b9f7e96a98b80e4f4efdd13d49b3fe6f83))
+* **menubar:** borrar un túnel que se está deteniendo espera a que cierre ([ca0ea48](https://github.com/julianjab/ia-flow/commit/ca0ea4808e08da102cc0cefabe4e873c309efbbc))
+* **menubar:** build.sh --login espera a que launchd desregistre la app antes de recargarla ([36dd77b](https://github.com/julianjab/ia-flow/commit/36dd77b727bc0a0e97ce2eaa6559694aefca67c7))
+* **menubar:** crear el túnel de verdad y no pisar un DNS existente sin preguntar ([2dc8abf](https://github.com/julianjab/ia-flow/commit/2dc8abfd4d29ef1244ad26e70aba8661694ba706))
+* **menubar:** iniciar el proxy OTLP aunque el LaunchAgent ya esté cargado ([b9e11b2](https://github.com/julianjab/ia-flow/commit/b9e11b24bee0b32f0f903a0004a7a9114b7a2d79))
+* **menubar:** la confirmación de reapuntar o exponer vale sólo para el host o puerto confirmado ([fa487a0](https://github.com/julianjab/ia-flow/commit/fa487a0e9bcda177ce3e61d64c74cde81a332cc7))
+* **menubar:** la web acepta los subdominios de julianjab.link para que un túnel no dé 403 ([38a71d9](https://github.com/julianjab/ia-flow/commit/38a71d961edb8bb23307402a5f41342d32f796b7))
+* **menubar:** no editar el formulario de túnel mientras se consulta el DNS ([f23eaab](https://github.com/julianjab/ia-flow/commit/f23eaab1d0c3f1d8b9e52a76cf3d896c8f45e099))
+* **menubar:** no resucitar servicios borrados y respetar el código de salida del comando detached ([754f703](https://github.com/julianjab/ia-flow/commit/754f7030f7d39124ebc25b8e2b4d580640818d15))
+* **menubar:** reapuntar el DNS sólo en el primer inicio y no contar un timeout de dig como registro ([058867b](https://github.com/julianjab/ia-flow/commit/058867bc34c3caab99114c750548e0735230d6ac))
+* **menubar:** reconocer el huérfano de un comando encadenado con && ([38175e3](https://github.com/julianjab/ia-flow/commit/38175e35a75687e4cf1ad9be4398cafde13ca4c7))
+* **menubar:** reconocer los túneles que lanzó otra instancia de la app ([74e7ff4](https://github.com/julianjab/ia-flow/commit/74e7ff4b39e40fc93c60ed2a0debaeb47913311b))
+* **menubar:** route dns con config propio para que el CNAME apunte al túnel nuevo ([269350a](https://github.com/julianjab/ia-flow/commit/269350a4829813d0a68589214070fe0a791875c5))
+* **menubar:** un services.json mal escrito no se pisa con los defaults ([f797c52](https://github.com/julianjab/ia-flow/commit/f797c52e41ef45cacb1e84bc40c59600f5caf943))
+* **menubar:** un servicio con deleteCommand en services.json no se carga dos veces ([8b47968](https://github.com/julianjab/ia-flow/commit/8b47968ede3fce8b6160ebe984e9993ca9caa9bc))
+* **menubar:** una instancia aislada no adopta ni detiene procesos reales ([9ead7b2](https://github.com/julianjab/ia-flow/commit/9ead7b2d7935134040cafa4468efc08684593f25))
+* **web:** el título de lo que corre o espera a otra tarea abre su detalle ([b56cdae](https://github.com/julianjab/ia-flow/commit/b56cdaed7d6fd7ed307207572012459c403104d0))
+
 ## [2.9.0](https://github.com/julianjab/ia-flow/compare/v2.8.0...v2.9.0) (2026-10-13)
 
 
