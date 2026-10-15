@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.1](https://github.com/julianjab/ia-flow/compare/v2.10.0...v2.10.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **provider-anthropic-api:** MCP por cliente propio (mcpTransport: client) + retrospectiva ([#300](https://github.com/julianjab/ia-flow/issues/300)) ([2752707](https://github.com/julianjab/ia-flow/commit/2752707d149c7dabd9684bd726b85a26ab03e88f))
+
 ## [2.10.0](https://github.com/julianjab/ia-flow/compare/v2.9.0...v2.10.0) (2026-10-15)
 
 
