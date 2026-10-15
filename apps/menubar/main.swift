@@ -119,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func screenshots(_ base: String) {
         popoverMaxScroll = 2000  // ver todo el contenido, sin el scroll del popover
         let model = AppModel.fixture()
+        model.tab = .services
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-list-\(dark ? "dark" : "light").png") }
         model.beginForm()
         model.form?.sub = "demo"
@@ -135,6 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.runner.repoFilter = "subscriptions"
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-repo-\(dark ? "dark" : "light").png") }
         model.runner.repoFilter = nil
+        model.tab = .assistant
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-assistant-\(dark ? "dark" : "light").png") }
+        model.tab = .runner
         model.runner.screen = .logs
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-logs-\(dark ? "dark" : "light").png") }
         if let tiff = menuBarIcon(running: true, badge: 3).tiffRepresentation,

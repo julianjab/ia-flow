@@ -14,6 +14,7 @@ struct RootView: View {
                 if model.form == nil { TabBar(model: model, runner: model.runner).padding(.horizontal, 14).padding(.top, 12) }
                 if model.form != nil { TunnelFormView(model: model) }
                 else if model.tab == .runner { RunnerScreen(runner: model.runner) }
+                else if model.tab == .assistant { AssistantScreen(chat: model.assistant, runner: model.runner) }
                 else { ListScreen(model: model) }
             }
             if model.runner.comment != nil {
@@ -65,15 +66,16 @@ struct ToastView: View {
     }
 }
 
-/// Servicios | Runner, con el número de tareas que te esperan en el server elegido.
+/// Runner | Asistente | Servicios, con el número de tareas que te esperan en el server elegido.
 struct TabBar: View {
     @ObservedObject var model: AppModel
     @ObservedObject var runner: RunnerModel
 
     var body: some View {
         HStack(spacing: 4) {
-            tab("Servicios", icon: "switch.2", .services, badge: nil)
             tab("Runner", icon: "list.bullet.rectangle", .runner, badge: runner.pendingCount)
+            tab("Asistente", icon: "bubble.left.and.text.bubble.right", .assistant, badge: nil)
+            tab("Servicios", icon: "switch.2", .services, badge: nil)
         }
         .padding(3)
         .background(Capsule().fill(Color.primary.opacity(0.06)))

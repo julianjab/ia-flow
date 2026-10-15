@@ -244,7 +244,7 @@ struct RunnerError: LocalizedError {
 struct RunnerClient {
     let server: RunnerServer
 
-    private func request(_ path: String, method: String = "GET", body: Encodable? = nil, github: String? = nil) async throws -> Data {
+    func request(_ path: String, method: String = "GET", body: Encodable? = nil, github: String? = nil) async throws -> Data {
         guard let url = URL(string: server.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + path) else {
             throw RunnerError(status: 0, message: "URL inválida: \(server.baseUrl)")
         }
@@ -270,7 +270,7 @@ struct RunnerClient {
         return data
     }
 
-    private func get<T: Decodable>(_ path: String) async throws -> T {
+    func get<T: Decodable>(_ path: String) async throws -> T {
         try JSONDecoder().decode(T.self, from: try await request(path))
     }
 
@@ -285,9 +285,13 @@ struct RunnerClient {
 
     /// El runner contesta las rechazadas (409, 403…) con el mismo `{ok, message}`: el mensaje es lo que se muestra.
     func act(_ item: InboxItem, action: String, comment: String?, github: String) async throws -> TaskActionResult {
+        try await act(ref: item.ref, action: action, comment: comment, github: github)
+    }
+
+    func act(ref: String, action: String, comment: String?, github: String) async throws -> TaskActionResult {
         struct Body: Encodable { let action: String; let comment: String? }
-        let parts = item.ref.split(whereSeparator: { $0 == "/" || $0 == "#" }).map(String.init)
-        guard parts.count == 3 else { throw RunnerError(status: 0, message: "ref inválida: \(item.ref)") }
+        let parts = ref.split(whereSeparator: { $0 == "/" || $0 == "#" }).map(String.init)
+        guard parts.count == 3 else { throw RunnerError(status: 0, message: "ref inválida: \(ref)") }
         do {
             let data = try await request("/api/tasks/\(parts[0])/\(parts[1])/\(parts[2])/actions", method: "POST",
                                          body: Body(action: action, comment: comment), github: github)

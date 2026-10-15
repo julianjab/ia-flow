@@ -41,12 +41,14 @@ struct ServiceGroup: Identifiable {
 }
 
 final class AppModel: ObservableObject {
-    enum Tab { case services, runner }
+    enum Tab { case services, runner, assistant }
 
     @Published private(set) var services: [Service]
-    @Published var tab: Tab = .services
+    @Published var tab: Tab = .runner
     /// La pestaña «Runner»: la bandeja del server elegido, sus épicas y su log.
     let runner: RunnerModel
+    /// La pestaña «Asistente»: el chat del runner elegido, general o sobre una tarea.
+    let assistant: AssistantModel
     @Published var form: TunnelForm?
     @Published var confirm: ConfirmRequest?
     @Published var toast: String?
@@ -58,7 +60,14 @@ final class AppModel: ObservableObject {
         isFixture = services != nil
         self.services = services ?? loadAllSpecs().map { Service(spec: $0) }
         self.runner = runner ?? RunnerModel()
+        assistant = isFixture ? AssistantModel.fixture(runner: self.runner) : AssistantModel(runner: self.runner)
         self.services.forEach(wire)
+        self.runner.onAsk = { [weak self] item in self?.ask(about: item) }
+        assistant.showTask = { [weak self] ref in
+            self?.runner.query = ref
+            self?.runner.screen = .inbox
+            self?.tab = .runner
+        }
         self.runner.toast = { [weak self] in self?.showToast($0) }
         self.runner.confirm = { [weak self] in self?.confirm = $0 }
         refresh()
@@ -106,6 +115,14 @@ final class AppModel: ObservableObject {
     func selectTab(_ tab: Tab) {
         self.tab = tab
         if tab == .runner { runner.refresh() }
+        if tab == .assistant { assistant.appear() }
+    }
+
+    /// «Preguntar sobre esta tarea»: la pestaña Asistente con la tarea como tema.
+    func ask(about item: InboxItem) {
+        tab = .assistant
+        assistant.appear()
+        assistant.ask(about: item)
     }
 
     func openURL(_ service: Service) {

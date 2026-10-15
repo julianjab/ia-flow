@@ -268,6 +268,8 @@ struct TaskRow: View {
                         }
                     }
                     if actions.count > 1 { Divider() }
+                    Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
+                    Divider()
                     Button("Abrir issue en GitHub") { runner.open(item) }
                     if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }
                     if let epic = item.epic { Button("Abrir épica") { runner.openEpic(epic) } }

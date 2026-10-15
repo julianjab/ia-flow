@@ -19,6 +19,8 @@ avisos y confirmaciones en línea):
 las tres atenuadas en reposo; no es template, el lima es de la marca) y `build.sh` genera
 `AppIcon.icns` con `IAFlowMenu --icon <px> <ruta>` + `iconutil`, sin PNG nuevos en el repo.
 
+**Pestañas:** Runner (la que abre por defecto) · Asistente · Servicios.
+
 **Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web
 (`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
@@ -32,6 +34,12 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 
 ![runner](screenshot-runner-dark.png)
 
+**Pestaña «Asistente»:** el chat del asistente del runner (`POST /api/assistant`, streaming), sobre todo el runner
+o sobre una tarea («Preguntar sobre esta tarea…» en el ⋯ de cada fila). Lo que propone (una acción sobre una tarea,
+abrir un issue) se ejecuta con confirmación y tu login; las tareas que menciona abren la pestaña Runner filtrada.
+Con login, la conversación queda guardada en el server y se retoma desde el reloj del encabezado. La respuesta
+sigue llegando aunque se cierre el popover.
+
 - **Servidores:** los de la app de escritorio (`~/Library/Application Support/IA Flow/servers.json`, con su
   `token` = `IA_FLOW_API_TOKEN`); un `~/.config/ia-flow-menubar/runners.json` con la misma forma
   (`{"servers": [{"baseUrl", "label", "token"}]}`) los reemplaza. Se elige en el encabezado de la pestaña.
@@ -43,7 +51,7 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
 `Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo y badge),
 `RunnerAPI.swift` (cliente HTTP del runner y su contrato), `RunnerModel.swift` (estado de la pestaña Runner),
-`RunnerViews.swift` (sus pantallas), `RunnerSearch.swift` (qué se busca y qué coincide), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
+`RunnerViews.swift` (sus pantallas), `RunnerSearch.swift` (qué se busca y qué coincide), `AssistantAPI.swift`, `AssistantModel.swift` y `AssistantViews.swift` (el chat), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
 (`IA_FLOW_MENUBAR_HOME=<dir vacío>` para no tocar la config real).
 
 ```bash

@@ -141,6 +141,8 @@ final class RunnerModel: ObservableObject {
     /// Avisa al ícono (el badge) y a quien muestre los toasts.
     var onBadge: ((Int) -> Void)?
     var toast: ((String) -> Void)?
+    /// «Preguntar sobre esta tarea» (lo resuelve la app: cambia a la pestaña Asistente).
+    var onAsk: ((InboxItem) -> Void)?
     var confirm: ((ConfirmRequest) -> Void)?
     let isFixture: Bool
 
@@ -436,7 +438,7 @@ final class RunnerModel: ObservableObject {
     // MARK: login de GitHub (device flow, por server)
 
     /// La sesión del server, renovada si venció; sin sesión o sin poder renovarla, nil.
-    @MainActor private func validSession() async -> GithubSession? {
+    @MainActor func validSession() async -> GithubSession? {
         guard var session = sessions[selected.baseUrl] else { return nil }
         guard session.expired else { return session }
         guard let refresh = session.refreshToken, let fresh = try? await client.refresh(refresh), let token = fresh.access_token else {
