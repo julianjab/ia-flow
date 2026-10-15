@@ -146,8 +146,9 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 529])
 
 /** El 400 que da la API cuando no llega a un `mcp_servers[]`: no es un error del request, es un
  *  MCP que no respondió (caído, o el runner que lo hospeda reiniciando). Ej.: `mcp_servers[1]
- *  'memory-mcp': Connection error while communicating with MCP server`. */
-const MCP_CONNECTION_ERROR = /Connection error while communicating with MCP server/
+ *  'memory-mcp': Connection error while communicating with MCP server`, o `mcp_servers[0]
+ *  'github-mcp': Error while communicating with MCP server.` (el MCP respondió, pero mal). */
+const MCP_CONNECTION_ERROR = /[Ee]rror while communicating with MCP server/
 
 /** Si `body` (el de un 400) es un MCP que no respondió. */
 export function isMcpConnectionError(body: string): boolean {

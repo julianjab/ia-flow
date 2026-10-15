@@ -1,10 +1,4 @@
-import type {
-  McpServerRef,
-  Provider,
-  ProviderRunContext,
-  ProviderRunOutput,
-  Tool,
-} from '@ia-flow/agent-engine'
+import type { Provider, ProviderRunContext, ProviderRunOutput, Tool } from '@ia-flow/agent-engine'
 import { createLogger, traced } from '@ia-flow/telemetry'
 import {
   AnthropicClient,
@@ -21,9 +15,11 @@ import {
   withAssistant,
   withAssistantThenUser,
 } from './conversation.js'
+import { loadMcpTools, type McpEndpoint, mcpEndpoints } from './mcpTools.js'
 import { chatTrace, describeBlocks, logRejectedRequest, toolTrace } from './tracing.js'
 
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type McpTransport = 'connector' | 'client'
 export type AnthropicThinkingConfig =
   | { type: 'adaptive' }
   | { type: 'enabled'; budgetTokens: number }
@@ -57,6 +53,10 @@ export interface AnthropicRunConfig {
   /** Por default las tools de cada MCP van diferidas (`defer_loading` + una tool de búsqueda
    *  regex). `true` carga todo el catálogo desde el primer request. */
   eagerMcpTools?: boolean
+  /** Cómo llegan los MCP del agente al modelo. `connector` (default): `mcp_servers`, y Anthropic
+   *  se conecta. `client`: el provider se conecta él mismo y pasa sus tools como tools normales
+   *  — el conector rechaza el OAuth de una suscripción de Claude Code desde 2026-10-15. */
+  mcpTransport?: McpTransport
   /** Un corte por `max_tokens` reintenta UNA vez con el doble de presupuesto (tope 128000)
    *  antes de reportar `'truncated'`. Default true. */
   bumpMaxTokensOnTruncation?: boolean
@@ -85,6 +85,8 @@ export interface AnthropicProviderOptions extends AnthropicClientOptions, Anthro
    *  persistir un checkpoint reanudable. Este paquete no tiene storage propio; ver
    *  `AnthropicAgentProviderConfig.resumeMessages` para retomarlo. */
   onCheckpoint?: (messages: unknown[], ctx: ProviderRunContext) => void | Promise<void>
+  /** El `fetch` hacia los MCP con `mcpTransport: client` (tests). */
+  mcpFetchImpl?: typeof fetch
 }
 
 /** El `providerConfig` de un agente: la misma `AnthropicRunConfig` que el provider, más lo que
@@ -122,6 +124,7 @@ export const RUN_CONFIG_DEFAULTS = {
   maxRetries: 3,
   stream: true,
   eagerMcpTools: false,
+  mcpTransport: 'connector',
   bumpMaxTokensOnTruncation: true,
 } as const satisfies AnthropicRunConfig
 
@@ -150,6 +153,7 @@ const RUN_CONFIG_CHECKS: Record<keyof AnthropicRunConfig, (value: unknown) => bo
   effort: (value) => EFFORTS.includes(value as AnthropicEffort),
   taskBudgetTokens: isPositiveInt,
   eagerMcpTools: isBoolean,
+  mcpTransport: (value) => value === 'connector' || value === 'client',
   bumpMaxTokensOnTruncation: isBoolean,
   systemPrompts: (value) =>
     Array.isArray(value) && value.every((text) => typeof text === 'string' && text.length > 0),
@@ -216,41 +220,27 @@ function resolveRunConfig(
  */
 export type McpAuthorizationToken = string | (() => string | Promise<string>)
 
-interface ApiMcpServer {
-  name: string
-  url: string
-  token?: McpAuthorizationToken
-}
-
-/** Mapea `McpServerRef` (id + config libre) → los `mcp_servers[]` de la API, sin el token (se
- *  resuelve por request, ver `withTokens`). Sólo entradas con `config.url` — el conector MCP
- *  remoto de Anthropic es la única modalidad soportada acá (stdio no cruza la red). */
-function toApiMcpServers(servers: McpServerRef[]): ApiMcpServer[] | undefined {
-  const out: ApiMcpServer[] = []
-  for (const server of servers) {
-    const config = server.config as {
-      url?: string
-      authorizationToken?: McpAuthorizationToken
-      headers?: Record<string, string>
-    }
-    if (!config.url) continue
-    const bearer = config.headers?.Authorization?.startsWith('Bearer ')
-      ? config.headers.Authorization.slice('Bearer '.length)
-      : undefined
-    const token = config.authorizationToken ?? bearer
-    out.push({ name: server.id, url: config.url, ...(token ? { token } : {}) })
-  }
-  return out.length > 0 ? out : undefined
-}
-
-/** Los `mcp_servers[]` de UN request, con el token vigente de cada uno. */
-async function withTokens(servers: ApiMcpServer[]): Promise<Array<Record<string, unknown>>> {
+/** Los `mcp_servers[]` de UN request para el conector, con el token vigente de cada uno (se
+ *  resuelve por request: el de una GitHub App vence a la hora). */
+async function withTokens(servers: McpEndpoint[]): Promise<Array<Record<string, unknown>>> {
   return Promise.all(
-    servers.map(async ({ name, url, token }) => {
+    servers.map(async ({ id, url, token }) => {
       const value = typeof token === 'function' ? await token() : token
-      return { name, type: 'url', url, ...(value ? { authorization_token: value } : {}) }
+      return { name: id, type: 'url', url, ...(value ? { authorization_token: value } : {}) }
     }),
   )
+}
+
+const TOOL_SEARCH = { type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' }
+
+/** Las tools de UNA corrida, ya en la forma de la API, y quién las ejecuta. */
+interface RunTools {
+  /** Las del agente más las de sus MCP (con `mcpTransport: client`): las que se ejecutan acá. */
+  tools: Tool[]
+  /** El `tools` del body: la búsqueda, las de arriba y los toolsets del conector. */
+  apiTools: Array<Record<string, unknown>>
+  /** Los servidores para `mcp_servers` (sólo con el conector). */
+  connector?: McpEndpoint[]
 }
 
 /** Un solo breakpoint de cache, en el ÚLTIMO bloque de system — el caching de la API es prefix
@@ -396,11 +386,9 @@ export class AnthropicProvider implements Provider {
     const maxRetries = cfg.maxRetries
     const maxToolRounds = cfg.maxToolRounds
     const useStream = cfg.stream
-    const eagerMcpTools = cfg.eagerMcpTools
     const bumpOnTruncation = cfg.bumpMaxTokensOnTruncation
 
-    const apiMcpServers = toApiMcpServers(ctx.mcpServers)
-    const deferMcpTools = apiMcpServers !== undefined && !eagerMcpTools
+    const { tools, apiTools: allTools, connector: apiMcpServers } = await this.runTools(ctx, cfg)
 
     const extraBetas: string[] = []
     const taskBudgetTokens = cfg.taskBudgetTokens
@@ -408,20 +396,6 @@ export class AnthropicProvider implements Provider {
     if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
 
     const systemBlocks = buildSystemBlocks([...(cfg.systemPrompts ?? []), ...ctx.systemPrompts])
-    const toolDefs = ctx.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema,
-    }))
-    const toolSearch = deferMcpTools
-      ? [{ type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' }]
-      : []
-    const mcpToolsets = apiMcpServers?.map((s) => ({
-      type: 'mcp_toolset',
-      mcp_server_name: s.name,
-      ...(deferMcpTools ? { default_config: { defer_loading: true } } : {}),
-    }))
-    const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])]
 
     let messages: AnthropicMessage[] = resumedConversation(ctx) ??
       pc.resumeMessages ?? [{ role: 'user', content: ctx.prompt }]
@@ -551,7 +525,7 @@ export class AnthropicProvider implements Provider {
 
       const toolUseBlocks = data.content.filter((block) => block.type === 'tool_use')
       const toolResults = await Promise.all(
-        toolUseBlocks.map((block) => this.executeTool(block, ctx.tools)),
+        toolUseBlocks.map((block) => this.executeTool(block, tools)),
       )
       // Una tool terminal que devolvió OK (`submit_<salida>` validado) cierra el turno ahí: no
       // hace falta otra vuelta a la API para que el modelo diga "listo".
@@ -584,6 +558,56 @@ export class AnthropicProvider implements Provider {
       messages = [...withAssistant(messages, data.content), { role: 'user', content: toolResults }]
       // Si el proceso muere acá, se retoma desde esta vuelta.
       ctx.saveConversation?.(messages)
+    }
+  }
+
+  /**
+   * Las tools de la corrida. Las de los MCP van diferidas (`defer_loading` + la búsqueda regex)
+   * salvo `eagerMcpTools`: el catálogo de GitHub solo son decenas de tools. Con `connector` las
+   * declara Anthropic (`mcp_toolset`); con `client` se listan acá y se ejecutan como las del
+   * agente. Un MCP que no responde se loguea y el agente corre sin él.
+   */
+  private async runTools(ctx: ProviderRunContext, cfg: ResolvedRunConfig): Promise<RunTools> {
+    const endpoints = mcpEndpoints(ctx.mcpServers)
+    const defer = endpoints.length > 0 && !cfg.eagerMcpTools
+    const asApi = (tool: Tool, deferred = false) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema,
+      ...(deferred ? { defer_loading: true } : {}),
+    })
+    const own = ctx.tools.map((tool) => asApi(tool))
+    const search = defer ? [TOOL_SEARCH] : []
+
+    if (endpoints.length === 0 || cfg.mcpTransport === 'connector') {
+      const toolsets = endpoints.map((endpoint) => ({
+        type: 'mcp_toolset',
+        mcp_server_name: endpoint.id,
+        ...(defer ? { default_config: { defer_loading: true } } : {}),
+      }))
+      return {
+        tools: ctx.tools,
+        apiTools: [...search, ...own, ...toolsets],
+        ...(endpoints.length > 0 ? { connector: endpoints } : {}),
+      }
+    }
+
+    const fetchImpl = this.options.mcpFetchImpl
+    const loaded = await loadMcpTools(endpoints, fetchImpl ? { fetchImpl } : {})
+    for (const failure of loaded.failures) {
+      this.log.warn(`mcp "${failure.server}" no respondió: el agente corre sin él`, {
+        'ia.mcp.server': failure.server,
+        'ia.mcp.error': failure.error,
+      })
+    }
+    const searchable = defer && loaded.tools.length > 0
+    return {
+      tools: [...ctx.tools, ...loaded.tools],
+      apiTools: [
+        ...(searchable ? [TOOL_SEARCH] : []),
+        ...own,
+        ...loaded.tools.map((tool) => asApi(tool, searchable)),
+      ],
     }
   }
 

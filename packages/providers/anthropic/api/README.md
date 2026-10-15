@@ -70,6 +70,7 @@ default del paquete (`RUN_CONFIG_DEFAULTS`).
 | `thinkingBudgetTokens` | Atajo de ia-flow para `thinking: { type: 'enabled', budgetTokens }` (gana sobre `thinking`) | — |
 | `effort` / `taskBudgetTokens` | `output_config` — nivel de esfuerzo / presupuesto total de tokens | apagado |
 | `eagerMcpTools` | Carga el catálogo MCP entero de una, en vez de diferido con búsqueda | `false` |
+| `mcpTransport` | `connector` (Anthropic se conecta a los MCP) o `client` (este paquete se conecta y pasa sus tools como tools normales) — ver "MCP remoto" | `connector` |
 
 Los defaults del paquete sirven para el caso simple. Un agente que trabaja sobre un repo (leer,
 editar, correr tests, publicar) necesita bastante más: registrá el provider con sus propios
@@ -143,6 +144,16 @@ new Agent({
   mcpServers: [{ id: 'gh', config: { url: 'https://mcp.example/gh', authorizationToken: 'tok' } }],
 });
 ```
+
+**`mcpTransport: 'client'`** — este paquete se conecta a cada MCP él mismo (`McpHttpClient`:
+Streamable HTTP, `initialize` + `tools/list` + `tools/call`) y pasa sus tools como tools normales
+(`<servidor>__<tool>`), diferidas con la búsqueda regex salvo `eagerMcpTools`. No manda
+`mcp_servers` ni la beta `mcp-client-*`. Existe porque el conector rechaza el OAuth de una
+suscripción de Claude Code (`CLAUDE_CODE_OAUTH_TOKEN`) desde 2026-10-15 — con cualquier servidor,
+un `400 "mcp_servers[0] '…': Error while communicating with MCP server."` sin llegar a
+contactarlo —, y con una API key sigue andando. Un servidor que no responde se loguea y el agente
+corre sin sus tools (el conector, en cambio, tumba el request entero). Cada llamada queda como un
+span `execute_tool` de este proceso, en vez de ocurrir del lado de Anthropic.
 
 ## Checkpointing y reanudación
 

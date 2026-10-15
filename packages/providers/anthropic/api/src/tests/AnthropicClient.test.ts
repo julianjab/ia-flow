@@ -303,8 +303,19 @@ describe('AnthropicClient.send', () => {
       expect(fetchImpl).toHaveBeenCalledTimes(1)
     })
 
-    it('isMcpConnectionError reconoce el mensaje de la API', () => {
+    it('isMcpConnectionError reconoce los mensajes de la API', () => {
       expect(isMcpConnectionError(JSON.stringify(mcpDown))).toBe(true)
+      expect(
+        isMcpConnectionError(
+          JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: "mcp_servers[0] 'github-mcp': Error while communicating with MCP server.",
+            },
+          }),
+        ),
+      ).toBe(true)
       expect(isMcpConnectionError('{"error":{"message":"invalid model"}}')).toBe(false)
     })
 

@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
 import type { Action, PipelineExecutionContext } from '@ia-flow/agent-engine'
+import { z } from 'zod'
 import { AssistantDesk } from '../../assistant/AssistantDesk.js'
 import type { ActivityPort } from '../../inbox/ActivityPort.js'
 import type { InboxService } from '../../inbox/InboxService.js'
@@ -42,7 +43,7 @@ function mount(options: Record<string, unknown> = { engine: 'julianjab/ia-flow' 
     if (!found) throw new Error(`falta ${name}`)
     return found
   }
-  return { improvements, tool }
+  return { improvements, tools, tool }
 }
 
 /** El evento de la pipeline: el `pull_request` mergeado de la tarea. */
@@ -61,6 +62,12 @@ const proposal = {
 }
 
 describe('the assistant tools in the pipeline of a task', () => {
+  it('every input converts to the JSON Schema the model sees', () => {
+    for (const action of mount().tools) {
+      expect(() => z.toJSONSchema(action.input), action.id).not.toThrow()
+    }
+  })
+
   it('a docs improvement goes to the repo of the task, pending in the inbox', async () => {
     const { improvements, tool } = mount()
     const said = await tool('propose_improvement').execute({ target: 'docs', ...proposal }, run)
