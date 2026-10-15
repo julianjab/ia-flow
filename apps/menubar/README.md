@@ -25,7 +25,7 @@ principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issu
 con su acción), las **mejoras propuestas** por la retrospectiva (abrirlas como issue o descartarlas), lo que
 **corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
 **Buscador:** acepta `1775`, `#1775`, `subscriptions#1775`, `la-haus/subscriptions#1775`, el link del issue o del
-PR, o texto del título; filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
+PR, o texto del título (aproximado: sin tildes, palabras en cualquier orden, prefijos y typos); filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
 del board (`/api/board`): las primeras coincidencias se traen con sus acciones (`/api/tasks/:owner/:repo/:n`). «Logs del server» muestra el log del proceso del
 runner (`GET /api/logs`, con filtro de nivel, se actualiza cada 3 s). El ícono lleva un **badge rojo** con las
 tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con el popover cerrado).
