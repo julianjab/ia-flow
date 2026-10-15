@@ -45,3 +45,38 @@ describe('locate — issues', () => {
     expect(locate('issues', payload)).toEqual({ skip: 'issues.labeled de un PR' })
   })
 })
+
+describe('locate — pull_request', () => {
+  const prPayload = (action: string, extra: Record<string, unknown> = {}) => ({
+    action,
+    pull_request: {
+      number: 30,
+      title: 'Arregla X',
+      body: '',
+      state: 'open',
+      user: { login: 'julianjab' },
+      head: { ref: 'fix/x', sha: 'abc' },
+      base: { ref: 'main' },
+      html_url: 'https://github.com/julianjab/ia-flow/pull/30',
+    },
+    repository: { name: 'ia-flow', owner: { login: 'julianjab' } },
+    sender: { login: 'julianjab' },
+    ...extra,
+  })
+
+  it('labeled carries the label at the root, as in issues', () => {
+    expect(
+      locate('pull_request', prPayload('labeled', { label: { name: 'e2e-test' } })),
+    ).toMatchObject({
+      pr: 30,
+      inspect: 30,
+      emit: 'pull_request',
+      extra: { action: 'labeled', label: 'e2e-test', pr: { head: { ref: 'fix/x' } } },
+    })
+  })
+
+  it('an action without a label has no label', () => {
+    const located = locate('pull_request', prPayload('opened'))
+    expect('extra' in located && located.extra).not.toHaveProperty('label')
+  })
+})

@@ -196,3 +196,169 @@ describe('resolve_task on a board of issues', () => {
     expect('skipped' in result && result.skipped).toMatch(/no es del catálogo de p/)
   })
 })
+
+describe('resolve_task on a pull request', () => {
+  /** `e2e-test` puesto en el PR o/r#30 (rama `fix/x`), como lo manda GitHub. */
+  const prLabeled = (label = 'e2e-test', state = 'open') =>
+    createEvent('github.pull_request', {
+      action: 'labeled',
+      label: { name: label },
+      pull_request: {
+        number: 30,
+        title: 'Arregla X',
+        body: 'Lo que cambia',
+        state,
+        user: { login: 'julian' },
+        head: { ref: 'fix/x', sha: 'abc' },
+        base: { ref: 'main' },
+        html_url: 'https://github.com/o/r/pull/30',
+      },
+      repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+      sender: { login: 'julian' },
+    })
+
+  /** GitHub de mentira para un PR: cierra `closing` (o ninguno), y su contexto. */
+  function prReader(closing: number[], contexts: Array<Record<string, unknown>> = []) {
+    const base = reader(['e2e-test']) as unknown as Record<string, unknown>
+    const fake = {
+      ...base,
+      withItemCache: () => fake,
+      closingIssues: async () => closing.map((number) => ({ owner: 'o', repo: 'r', number })),
+      context: async (task: Record<string, unknown>) => {
+        contexts.push(task)
+        const pr = {
+          number: 30,
+          url: 'https://github.com/o/r/pull/30',
+          headSha: 'abc',
+          title: 'Arregla X',
+          author: 'julian',
+          headRef: 'fix/x',
+          baseRef: 'main',
+        }
+        return task.pullRequestOnly
+          ? {
+              issue: {
+                title: 'Arregla X',
+                body: 'Lo que cambia',
+                html_url: 'https://github.com/o/r/pull/30',
+                labels: ['e2e-test'],
+              },
+              blockers: [],
+              issueComments: [],
+              openPr: pr,
+            }
+          : {
+              issue: {
+                title: 't',
+                body: 'El PRD',
+                html_url: 'https://github.com/o/r/issues/7',
+                labels: [],
+              },
+              blockers: [],
+              issueComments: [],
+              openPr: pr,
+            }
+      },
+    }
+    return fake as unknown as GithubTaskReader
+  }
+
+  async function runPr(
+    input: Record<string, unknown>,
+    event: DomainEvent<unknown>,
+    github: GithubTaskReader,
+  ) {
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (e) => {
+      published.push(e)
+    })
+    const ctx = {
+      event,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project], github)
+    const result = await action.execute(action.input.parse(input), ctx)
+    return { result, published }
+  }
+
+  const E2E_ROWS = [
+    { field: 'eventType', op: 'eq', value: 'pull_request' },
+    { field: 'action', op: 'eq', value: 'labeled' },
+    { field: 'label', op: 'eq', value: 'e2e-test' },
+  ]
+
+  it('a label on a PR that closes an issue is the event of that issue, with its PRD', async () => {
+    const { result, published } = await runPr({}, prLabeled(), prReader([7]))
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published[0]?.payload).toMatchObject({
+      number: 7,
+      label: 'e2e-test',
+      item: { status: 'Build', kind: 'issue' },
+      task: { description: 'El PRD', pr: { number: 30 } },
+    })
+    expect(published[0]?.scope).not.toHaveProperty('kind')
+  })
+
+  it('a PR without an issue is skipped unless the project asks for it', async () => {
+    const { result, published } = await runPr({}, prLabeled(), prReader([]))
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: PR #30 no cierra ningún issue' })
+  })
+
+  it('with pullRequestsWithoutIssue, the PR itself is the task: its body, its branch, no card', async () => {
+    const contexts: Array<Record<string, unknown>> = []
+    const { result, published } = await runPr(
+      { pullRequestsWithoutIssue: E2E_ROWS },
+      prLabeled(),
+      prReader([], contexts),
+    )
+    expect(result).toEqual({ emitted: ['o/r#30'] })
+    expect(contexts[0]).toMatchObject({ number: 30, pr: 30, pullRequestOnly: true })
+    const payload = published[0]?.payload as Record<string, Record<string, unknown>>
+    expect(published[0]?.type).toBe('pull_request')
+    expect(payload).toMatchObject({
+      number: 30,
+      label: 'e2e-test',
+      item: { kind: 'pr', labels: ['e2e-test'], blocked: false },
+      task: {
+        id: 'o/r#30',
+        description: 'Lo que cambia',
+        issueUrl: 'https://github.com/o/r/pull/30',
+        branch: 'fix/x',
+        pr: { number: 30 },
+      },
+    })
+    expect(payload.item?.status).toBeUndefined()
+    expect(published[0]?.scope).toMatchObject({ issue: 'o/r#30', kind: 'pr' })
+  })
+
+  it('any other event of a PR without an issue is still skipped', async () => {
+    const { result, published } = await runPr(
+      { pullRequestsWithoutIssue: E2E_ROWS },
+      prLabeled('bug'),
+      prReader([]),
+    )
+    expect(published).toEqual([])
+    expect('skipped' in result && result.skipped).toMatch(/un PR sin issue\) no cumple el when/)
+  })
+
+  it('the when of the intake also applies to a PR without an issue', async () => {
+    const { result, published } = await runPr(
+      {
+        when: [{ field: 'item.labels', op: 'notContains', value: 'e2e-test' }],
+        pullRequestsWithoutIssue: E2E_ROWS,
+      },
+      prLabeled(),
+      prReader([]),
+    )
+    expect(published).toEqual([])
+    expect('skipped' in result && result.skipped).toMatch(/item\.labels/)
+  })
+
+  it('an empty pullRequestsWithoutIssue opens nothing', async () => {
+    const { result } = await runPr({ pullRequestsWithoutIssue: [] }, prLabeled(), prReader([]))
+    expect(result).toEqual({ skipped: 'p: PR #30 no cierra ningún issue' })
+  })
+})

@@ -137,6 +137,9 @@ function pullRequest(type: string, raw: Raw): Location {
   const review =
     type === 'pull_request_review' ? parseGithubPullRequestReviewPayload(raw) : undefined
   const pr = review ?? parseGithubPullRequestPayload(raw)
+  // `labeled`/`unlabeled` de un PR: el label en la raíz, como en `issues` (el `e2e-test` puesto
+  // en el PR en vez de en el issue).
+  const label = (raw.label as { name?: unknown } | undefined)?.name
   return {
     owner: pr.owner,
     repo: pr.repo,
@@ -145,6 +148,7 @@ function pullRequest(type: string, raw: Raw): Location {
     emit: type,
     extra: {
       action: raw.action,
+      ...(typeof label === 'string' ? { label } : {}),
       pr: {
         number: pr.number,
         title: pr.title,

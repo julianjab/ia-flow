@@ -210,20 +210,32 @@ export class GithubTaskReader {
   }
 
   /** El issue, sus blockers y su timeline; con PR abierto (el del evento, o el que GitHub dice que
-   *  cierra el issue), el timeline del PR y su CI. */
+   *  cierra el issue), el timeline del PR y su CI.
+   *
+   *  Con `pullRequestOnly`, la task ES el PR (`number` = `pr`, un PR sin issue): por REST un PR
+   *  también es un issue —título, body, labels—, pero no tiene blockers, y sus comentarios ya
+   *  vienen como los del PR. */
   async context(task: {
     owner: string
     repo: string
     number: number
     pr?: number
+    pullRequestOnly?: boolean
   }): Promise<RawTaskContext> {
     const base = `/repos/${task.owner}/${task.repo}`
+    const only = task.pullRequestOnly === true
     const [issue, blockers, issueComments, pr] = await Promise.all([
       this.client.requestJson<RawTaskContext['issue']>(`${base}/issues/${task.number}`),
-      this.client.requestJson<RawTaskContext['blockers']>(
-        `${base}/issues/${task.number}/dependencies/blocked_by`,
-      ),
-      this.client.requestJson<RawComment[]>(`${base}/issues/${task.number}/comments?per_page=100`),
+      only
+        ? []
+        : this.client.requestJson<RawTaskContext['blockers']>(
+            `${base}/issues/${task.number}/dependencies/blocked_by`,
+          ),
+      only
+        ? []
+        : this.client.requestJson<RawComment[]>(
+            `${base}/issues/${task.number}/comments?per_page=100`,
+          ),
       this.openPr(task),
     ])
     if (!pr) return { issue, blockers, issueComments }
