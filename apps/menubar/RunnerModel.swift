@@ -116,6 +116,18 @@ final class RunnerModel: ObservableObject {
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
     @Published private(set) var busy: Set<String> = []
 
+    /// Lo que se escribe en el buscador: filtra todas las secciones y busca en el resto del board.
+    @Published var query = "" { didSet { if query != oldValue { searchChanged() } } }
+    /// Las cards del board fuera de la bandeja que coinciden.
+    @Published private(set) var boardResults: [BoardItem] = []
+    /// Las tareas buscadas fuera de la bandeja, ya con sus acciones (las primeras del board, o la ref exacta).
+    @Published private(set) var lookups: [InboxItem] = []
+    @Published private(set) var searching = false
+    /// La ref exacta que se buscó y no está en ningún board del runner.
+    @Published private(set) var lookupMiss: String?
+    private var boardCache: (items: [BoardItem], at: Date)?
+    private var searchTask: Task<Void, Never>?
+
     /// Las secciones colapsadas de la bandeja, por título. «En cola» arranca colapsada.
     @Published private(set) var collapsed: Set<String> =
         Set(UserDefaults.standard.stringArray(forKey: "runnerCollapsed") ?? ["En cola"])
@@ -167,6 +179,79 @@ final class RunnerModel: ObservableObject {
         return views.sorted { rank($0) < rank($1) }
     }
 
+    // MARK: buscador
+
+    var search: RunnerSearch? { RunnerSearch(query) }
+
+    /// Coincide la tarea, o su épica (buscar una épica trae sus tareas).
+    func keep(_ item: InboxItem) -> Bool {
+        guard let search else { return true }
+        return search.matches(ref: item.ref, title: item.title, pr: item.pr?.number)
+            || item.epic.map { search.matches(ref: $0.ref, title: $0.title) } == true
+    }
+
+    var shownDecisions: [InboxItem] { decisions.filter(keep) }
+    var shownRunning: [InboxItem] { running.filter(keep) }
+    var shownQueued: [InboxItem] { queued.filter(keep) }
+    var shownImprovements: [Improvement] {
+        guard let search else { return improvements }
+        return improvements.filter { search.matches(ref: $0.task_ref, title: $0.title) }
+    }
+    /// Una épica se muestra si la buscada es ella (su número) o alguna de sus tareas.
+    var shownEpics: [EpicView] {
+        guard let search else { return epics }
+        return epics.filter { search.matches(ref: $0.epic.ref, title: $0.epic.title) || $0.items.contains(where: keep) }
+    }
+    var resultCount: Int {
+        shownDecisions.count + shownRunning.count + shownQueued.count + shownImprovements.count + shownEpics.count + lookups.count
+            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count
+    }
+
+    func clearSearch() { query = "" }
+
+    /// Espera a que se deje de escribir y busca afuera de la bandeja: el board (cacheado 1 min) y el detalle de las
+    /// primeras coincidencias, que es lo que trae sus acciones.
+    private func searchChanged() {
+        searchTask?.cancel()
+        guard let search, !isFixture else {
+            boardResults = []; lookups = []; lookupMiss = nil; searching = false
+            return
+        }
+        let server = selected
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            searching = true
+            defer { if !Task.isCancelled { searching = false } }
+            let client = RunnerClient(server: server)
+            if boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 {
+                if let items = try? await client.board() { boardCache = (items, Date()) }
+            }
+            guard !Task.isCancelled, server == selected else { return }
+            let inBox = Set((inbox?.items ?? []).map(\.ref))
+            let board = (boardCache?.items ?? []).filter { !inBox.contains($0.ref) && search.matches(ref: $0.ref, title: $0.title, pr: $0.pr?.number) }
+            var wanted = board.prefix(3).map(\.ref)
+            // La ref exacta (o `repo#n` con un owner conocido) que no aparece en ningún lado: se pide igual.
+            let exact = search.fullRef ?? search.number.flatMap { n in search.repo.flatMap { ownerOf(repo: $0).map { "\($0)/\(search.repo!)#\(n)" } } }
+            if let exact, !inBox.contains(exact), !board.contains(where: { $0.ref == exact }) { wanted.append(exact) }
+            var found: [InboxItem] = []
+            var miss: String?
+            for ref in wanted {
+                if let item = try? await client.task(ref) { found.append(item) } else if ref == exact { miss = ref }
+            }
+            guard !Task.isCancelled, server == selected else { return }
+            boardResults = board
+            lookups = found
+            lookupMiss = miss
+        }
+    }
+
+    /// El owner de un repo según las refs que ya se conocen (la bandeja y el board).
+    private func ownerOf(repo: String) -> String? {
+        let refs = (inbox?.items ?? []).map(\.ref) + (boardCache?.items ?? []).map(\.ref)
+        return refs.lazy.compactMap(RunnerSearch.split).first { $0.repo.lowercased() == repo.lowercased() }?.owner
+    }
+
     var github: GithubSession? { sessions[selected.baseUrl] }
 
     var boardURL: URL? { (inbox?.projects.first?.board_url ?? inbox?.projects.first?.url).flatMap(URL.init(string:)) }
@@ -186,6 +271,8 @@ final class RunnerModel: ObservableObject {
         UserDefaults.standard.set(server.baseUrl, forKey: "runnerServer")
         inbox = nil
         improvements = []
+        boardCache = nil
+        query = ""
         error = nil
         login = nil
         comment = nil

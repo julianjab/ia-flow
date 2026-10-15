@@ -129,6 +129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.cancelForm()
         model.tab = .runner
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-runner-\(dark ? "dark" : "light").png") }
+        model.runner.query = "funnel"
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-\(dark ? "dark" : "light").png") }
+        model.runner.query = ""
         model.runner.screen = .logs
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-logs-\(dark ? "dark" : "light").png") }
         if let tiff = menuBarIcon(running: true, badge: 3).tiffRepresentation,

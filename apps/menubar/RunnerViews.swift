@@ -21,13 +21,14 @@ struct RunnerInboxScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header.padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 10)
+            header.padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 8)
+            SearchField(runner: runner).padding(.horizontal, 14).padding(.bottom, 10)
             FittingScroll {
                 VStack(alignment: .leading, spacing: 14) {
                     if let error = runner.error { errorBanner(error) }
                     if let login = runner.login { DeviceLoginCard(runner: runner, login: login) }
                     else if runner.github == nil, runner.error == nil, runner.inbox != nil { loginBanner }
-                    if let pipeline = runner.inbox?.pipeline { capacity(pipeline) }
+                    if let pipeline = runner.inbox?.pipeline, runner.search == nil { capacity(pipeline) }
                     if runner.inbox != nil { sections }
                     else if runner.error == nil { loadingCard }
                 }
@@ -101,16 +102,22 @@ struct RunnerInboxScreen: View {
 
     @ViewBuilder
     private var sections: some View {
-        let decisions = runner.decisions, running = runner.running, epics = runner.epics, queued = runner.queued
-        section("Te necesita", count: decisions.count, empty: "Nada esperando una decisión tuya.") {
-            ForEach(Array(decisions.enumerated()), id: \.element.ref) { i, item in
-                if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
-                TaskRow(runner: runner, item: item, primary: i == 0)
+        // Buscando: sólo lo que coincide, sin secciones vacías ni colapsadas.
+        let searching = runner.search != nil
+        let decisions = runner.shownDecisions, running = runner.shownRunning, epics = runner.shownEpics
+        let queued = runner.shownQueued, improvements = runner.shownImprovements
+        if !searching || !decisions.isEmpty {
+            section("Te necesita", count: decisions.count, empty: "Nada esperando una decisión tuya.") {
+                ForEach(Array(decisions.enumerated()), id: \.element.ref) { i, item in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
+                    TaskRow(runner: runner, item: item, primary: i == 0)
+                }
             }
         }
-        if !runner.improvements.isEmpty {
-            section("Mejoras propuestas", count: runner.improvements.count) {
-                ForEach(Array(runner.improvements.enumerated()), id: \.element.id) { i, improvement in
+        if searching { boardSection }
+        if !improvements.isEmpty {
+            section("Mejoras propuestas", count: improvements.count) {
+                ForEach(Array(improvements.enumerated()), id: \.element.id) { i, improvement in
                     if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
                     ImprovementRow(runner: runner, improvement: improvement)
                 }
@@ -124,25 +131,57 @@ struct RunnerInboxScreen: View {
                 }
             }
         }
-        section("Corriendo", count: running.count, empty: "Ningún agente trabajando ahora.") {
-            ForEach(Array(running.enumerated()), id: \.element.ref) { i, item in
-                if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
-                TaskRow(runner: runner, item: item)
+        if !searching || !running.isEmpty {
+            section("Corriendo", count: running.count, empty: "Ningún agente trabajando ahora.") {
+                ForEach(Array(running.enumerated()), id: \.element.ref) { i, item in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
+                    TaskRow(runner: runner, item: item)
+                }
             }
         }
         if !queued.isEmpty {
             section("En cola", count: queued.count) {
-                ForEach(Array(queued.prefix(6).enumerated()), id: \.element.ref) { i, item in
+                ForEach(Array(queued.prefix(searching ? 50 : 6).enumerated()), id: \.element.ref) { i, item in
                     if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
                     CompactRow(runner: runner, item: item)
                 }
             }
         }
+        if searching, runner.resultCount == 0, !runner.searching { noResults }
+    }
+
+    /// Lo que coincide fuera de la bandeja: las primeras con sus acciones, el resto como fila corta.
+    @ViewBuilder
+    private var boardSection: some View {
+        let detailed = Set(runner.lookups.map(\.ref))
+        let rest = runner.boardResults.filter { !detailed.contains($0.ref) }
+        if !runner.lookups.isEmpty || !rest.isEmpty {
+            section("En el board", count: runner.lookups.count + rest.count) {
+                ForEach(Array(runner.lookups.enumerated()), id: \.element.ref) { i, item in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
+                    TaskRow(runner: runner, item: item)
+                }
+                ForEach(Array(rest.prefix(20).enumerated()), id: \.element.ref) { i, item in
+                    if i > 0 || !runner.lookups.isEmpty { Divider().opacity(0.4).padding(.vertical, 6) }
+                    BoardRow(runner: runner, item: item)
+                }
+            }
+        }
+        if let miss = runner.lookupMiss {
+            Banner(text: "\(miss) no está en ningún board de este runner.", tone: .neutral, icon: "magnifyingglass") {
+                Button("Abrir en GitHub") { runner.openTask(miss) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+            }
+        }
+    }
+
+    private var noResults: some View {
+        Text("Nada coincide con «\(runner.query)» en la bandeja ni en el board.")
+            .font(.lh(12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).card()
     }
 
     /// Una sección que se colapsa con un clic en su título (lo recuerda entre aperturas del popover).
     private func section<Content: View>(_ title: String, count: Int, empty: String? = nil, @ViewBuilder content: () -> Content) -> some View {
-        let collapsed = runner.isCollapsed(title)
+        let collapsed = runner.search == nil && runner.isCollapsed(title)
         return VStack(alignment: .leading, spacing: 8) {
             Button { withAnimation(.easeOut(duration: 0.15)) { runner.toggleSection(title) } } label: {
                 HStack(spacing: 5) {
@@ -315,6 +354,51 @@ struct ImprovementRow: View {
         case "engine": return "ia-flow"
         default: return improvement.target
         }
+    }
+}
+
+/// El campo del buscador: número, `repo#n`, `owner/repo#n`, link de GitHub o texto del título. Esc lo limpia.
+struct SearchField: View {
+    @ObservedObject var runner: RunnerModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        FieldBox {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                TextField("#1775, subscriptions#1775, link del issue o texto", text: $runner.query)
+                    .focused($focused)
+                    .onExitCommand { runner.clearSearch() }
+                if runner.searching { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 14, height: 14) }
+                if runner.search != nil {
+                    Text("\(runner.resultCount)").font(.lh(11, .semibold)).foregroundStyle(.secondary)
+                    Button { runner.clearSearch() } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain).help("Limpiar (esc)")
+                }
+            }
+        }
+    }
+}
+
+/// Una card del board fuera de la bandeja: su columna y el título; clic la abre en GitHub.
+struct BoardRow: View {
+    @ObservedObject var runner: RunnerModel
+    let item: BoardItem
+
+    var body: some View {
+        Button { runner.openTask(item.ref) } label: {
+            HStack(spacing: 6) {
+                if let status = item.status { Chip(text: status).fixedSize() }
+                Text(cleanTitle(item.title)).font(.lh(12)).lineLimit(1)
+                Spacer(minLength: 4)
+                Text(item.ref.split(separator: "/").last.map(String.init) ?? item.ref).font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(item.title)
     }
 }
 

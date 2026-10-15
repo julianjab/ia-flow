@@ -23,7 +23,10 @@ las tres atenuadas en reposo; no es template, el lima es de la marca) y `build.s
 (`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
 con su acción), las **mejoras propuestas** por la retrospectiva (abrirlas como issue o descartarlas), lo que
-**corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título. «Logs del server» muestra el log del proceso del
+**corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
+**Buscador:** acepta `1775`, `#1775`, `subscriptions#1775`, `la-haus/subscriptions#1775`, el link del issue o del
+PR, o texto del título; filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
+del board (`/api/board`): las primeras coincidencias se traen con sus acciones (`/api/tasks/:owner/:repo/:n`). «Logs del server» muestra el log del proceso del
 runner (`GET /api/logs`, con filtro de nivel, se actualiza cada 3 s). El ícono lleva un **badge rojo** con las
 tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con el popover cerrado).
 
@@ -40,7 +43,7 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
 `Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo y badge),
 `RunnerAPI.swift` (cliente HTTP del runner y su contrato), `RunnerModel.swift` (estado de la pestaña Runner),
-`RunnerViews.swift` (sus pantallas), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
+`RunnerViews.swift` (sus pantallas), `RunnerSearch.swift` (qué se busca y qué coincide), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
 (`IA_FLOW_MENUBAR_HOME=<dir vacío>` para no tocar la config real).
 
 ```bash

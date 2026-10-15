@@ -133,6 +133,23 @@ struct FeedItem: Codable, Hashable, Identifiable {
     var id: String { ref }
 }
 
+/// Una card del board que no está en la bandeja (`GET /api/board`).
+struct BoardItem: Codable, Hashable, Identifiable {
+    let ref: String
+    let title: String
+    let url: String
+    let status: String?
+    let pr: PullRef?
+    var id: String { ref }
+}
+
+private struct BoardRest: Codable {
+    struct Column: Codable { let status: String; let items: [BoardItem] }
+    let columns: [Column]
+}
+
+private struct TaskDetail: Codable { let item: InboxItem }
+
 struct InboxFeed: Codable, Hashable {
     let ready: [FeedItem]
     let waiting: [FeedItem]
@@ -277,6 +294,23 @@ struct RunnerClient {
             return try JSONDecoder().decode(TaskActionResult.self, from: data)
         } catch let error as RunnerError {
             return TaskActionResult(ok: false, message: error.message)
+        }
+    }
+
+    /// Las cards que no están en la bandeja, de todas las columnas.
+    func board() async throws -> [BoardItem] {
+        let rest: BoardRest = try await get("/api/board")
+        return rest.columns.flatMap(\.items)
+    }
+
+    /// Una tarea por su ref, esté o no en la bandeja (con sus acciones); nil si no está en ningún board.
+    func task(_ ref: String) async throws -> InboxItem? {
+        guard let parts = RunnerSearch.split(ref) else { return nil }
+        do {
+            let detail: TaskDetail = try await get("/api/tasks/\(parts.owner)/\(parts.repo)/\(parts.number)")
+            return detail.item
+        } catch let error as RunnerError where error.status == 404 {
+            return nil
         }
     }
 
