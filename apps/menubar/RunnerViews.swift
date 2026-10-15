@@ -255,9 +255,13 @@ struct TaskRow: View {
                     .disabled(busy)
                 }
                 if item.group == "run" {
-                    Button { runner.watch(item) } label: { Label("En vivo", systemImage: "dot.radiowaves.left.and.right") }
-                        .buttonStyle(PillButtonStyle(tint: .green, compact: true)).fixedSize()
-                        .help("Ver qué está haciendo el agente, paso a paso")
+                    // «corriendo» incluye lo que espera el CI (en pausa): ahí no hay nada en vivo, sólo lo que hizo
+                    let live = item.execution?.status == "running"
+                    Button { runner.watch(item) } label: {
+                        Label(live ? "En vivo" : "Ejecución", systemImage: live ? "dot.radiowaves.left.and.right" : "list.bullet.rectangle")
+                    }
+                    .buttonStyle(PillButtonStyle(tint: live ? .green : .secondary, compact: true)).fixedSize()
+                    .help(live ? "Ver qué está haciendo el agente, paso a paso" : "Ver lo que hizo el agente en su última ejecución")
                 }
                 if let pr = item.pr {
                     Button { runner.openPR(item) } label: { Chip(text: "PR #\(pr.number)", tone: .info, icon: "arrow.up.right") }
@@ -276,7 +280,7 @@ struct TaskRow: View {
                     }
                     if actions.count > 1 { Divider() }
                     Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
-                    Button(item.group == "run" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
+                    Button(item.execution?.status == "running" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
                     Divider()
                     Button("Abrir issue en GitHub") { runner.open(item) }
                     if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }

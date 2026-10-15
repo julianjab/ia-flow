@@ -85,6 +85,8 @@ struct RunStep: Identifiable, Equatable {
     var origin: String?
     /// El nombre crudo de la tool (`Bash`, `mcp__github__get_issue`).
     var tool: String?
+    /// Cuándo empezó (ISO), para ordenar.
+    var at = ""
 
     var expandable: Bool { (input?.isEmpty == false) || (result?.isEmpty == false) }
 }
@@ -98,22 +100,36 @@ enum RunTrace {
     static func steps(_ trace: [TraceEntry], running: Bool) -> [RunStep] {
         var steps: [RunStep] = []
         var index: [String: Int] = [:]
+        // Una tool de un MCP del runner deja hasta tres registros: el span del runner y el del host, sin id de llamada,
+        // y los logs del hook, con id. Sin id se juntan por nombre con la última de ese nombre que todavía no lo tiene.
+        var anonymous: [String: Int] = [:]
+        var current = ""
 
         func upsert(_ key: String, _ make: () -> RunStep, _ update: (inout RunStep) -> Void) {
             if let i = index[key] { update(&steps[i]); return }
             var step = make()
             update(&step)
+            step.at = current
             index[key] = steps.count
             steps.append(step)
         }
 
+        func append(_ step: RunStep) {
+            var step = step
+            step.at = current
+            steps.append(step)
+        }
+
         for e in trace {
+            current = e.start_time
             let time = clock(e.start_time)
             let failed = e.status == "error"
             switch (e.kind, e.name) {
             case ("span", _) where e.attr("gen_ai.operation.name") == "execute_tool" || e.name == "execute_tool":
-                let key = e.attr("gen_ai.tool.call.id") ?? e.span_id
-                upsert(key, { tool(key, e.attr("gen_ai.tool.name") ?? "tool", time) }) { step in
+                let name = e.attr("gen_ai.tool.name") ?? "tool"
+                let key = e.attr("gen_ai.tool.call.id") ?? anonymous[bareTool(name)].map { steps[$0].id } ?? e.span_id
+                if e.attr("gen_ai.tool.call.id") == nil, index[key] == nil { anonymous[bareTool(name)] = steps.count }
+                upsert(key, { tool(key, name, time) }) { step in
                     step.input = step.input ?? e.attr("ia.tool.input")
                     step.result = e.attr("ia.tool.result") ?? step.result
                     if e.phase == "end" {
@@ -125,7 +141,7 @@ enum RunTrace {
             case ("span", "chat"), ("span", _) where e.attr("gen_ai.operation.name") == "chat":
                 guard e.phase == "end" else { continue }
                 let out = e.attr("gen_ai.usage.output_tokens").flatMap(Int.init)
-                steps.append(RunStep(id: e.span_id + "-chat", kind: .model, state: failed ? .failed : .info,
+                append(RunStep(id: e.span_id + "-chat", kind: .model, state: failed ? .failed : .info,
                                      title: "Modelo" + (out.map { " · \($0) tokens" } ?? ""),
                                      subtitle: failed ? e.status_message : e.attr("gen_ai.response.model"),
                                      time: time, durationMs: e.duration_ms))
@@ -138,33 +154,35 @@ enum RunTrace {
                     if let output = e.attr("ia.step.output") { step.result = output }
                 }
             case ("log", let name) where tools.contains(name):
+                let tool = e.attr("gen_ai.tool.name") ?? "tool"
                 let key = e.attr("ia.tool.use_id") ?? e.span_id + name
-                upsert(key, { tool(key, e.attr("gen_ai.tool.name") ?? "tool", time) }) { step in
+                if index[key] == nil, let i = anonymous.removeValue(forKey: bareTool(tool)) { index[key] = i }
+                upsert(key, { self.tool(key, tool, time) }) { step in
                     if let input = e.attr("ia.tool.input") { step.input = input }
                     if let result = e.attr("ia.tool.result") { step.result = result }
                     if e.attr("ia.tool.is_error") == "true" { step.state = .failed }
                     else if name == "tool.result", step.state == .running { step.state = .ok }
                 }
             case ("log", "subagent.start"):
-                steps.append(RunStep(id: e.span_id + "-sub-\(steps.count)", kind: .tool, state: .info,
+                append(RunStep(id: e.span_id + "-sub-\(steps.count)", kind: .tool, state: .info,
                                      title: "Subagente" + (e.attr("ia.subagent.type").map { " · \($0)" } ?? ""),
                                      subtitle: e.attr("ia.subagent.description"), result: e.attr("ia.subagent.prompt"),
                                      time: time, origin: e.origin))
             case ("log", "agent.prompt"):
-                steps.append(RunStep(id: e.span_id + "-prompt-\(steps.count)", kind: .prompt, state: .info, title: "Prompt del agente",
+                append(RunStep(id: e.span_id + "-prompt-\(steps.count)", kind: .prompt, state: .info, title: "Prompt del agente",
                                      subtitle: firstLine(e.attr("ia.prompt")), result: e.attr("ia.prompt"), time: time, origin: e.origin))
             case ("log", "agent.session_start"):
-                steps.append(note(e, "Sesión del agente iniciada", time, index: steps.count))
+                append(note(e, "Sesión del agente iniciada", time, index: steps.count))
             case ("log", "agent.stop"), ("log", "subagent.stop"):
                 var step = note(e, e.name == "agent.stop" ? "El agente terminó" : "El subagente terminó", time, index: steps.count)
                 step.subtitle = e.attr("ia.stop.reason")
-                steps.append(step)
+                append(step)
             case ("log", _):
                 // `[workspace] fetch {"taskId":…}`: el JSON del final va al detalle, no al título
                 let text = message(e.name)
                 var step = note(e, text, time, index: steps.count)
                 if let m = text.firstMatch(#"^(.*?)\s+(\{.*\})\s*$"#) { step.title = m[0]; step.result = m[1] }
-                steps.append(step)
+                append(step)
             default:
                 continue
             }
@@ -172,7 +190,11 @@ enum RunTrace {
         if !running {
             for i in steps.indices where steps[i].state == .running { steps[i].state = .ok }
         }
-        return steps
+        // en orden de inicio: el host manda algunos spans recién al terminar la corrida (un Bash del minuto 1 llega
+        // al final); a igual hora, el orden en que llegaron
+        return steps.enumerated().sorted { a, b in
+            a.element.at == b.element.at ? a.offset < b.offset : a.element.at < b.element.at
+        }.map(\.element)
     }
 
     private static func tool(_ key: String, _ name: String, _ time: String) -> RunStep {
@@ -180,13 +202,13 @@ enum RunTrace {
     }
 
     private static func stage(_ e: TraceEntry, _ time: String) -> RunStep {
-        RunStep(id: e.span_id, kind: .stage, state: .running, title: stageTitle(e.name), subtitle: e.attr("ia.step.kind"),
-                time: time, origin: e.origin)
+        RunStep(id: e.span_id, kind: .stage, state: .running, title: stageTitle(e.name), time: time, origin: e.origin)
     }
 
     /// `agent frontend-implementer` → `Agente frontend-implementer`.
     static func stageTitle(_ name: String) -> String {
-        let labels = ["pipeline": "Pipeline", "agent": "Agente", "action": "Acción", "step": "Paso", "pause": "Pausa"]
+        let labels = ["pipeline": "Pipeline", "agent": "Agente", "action": "Acción", "step": "Paso", "pause": "Pausa",
+                      "host.run": "Corrida en el host:"]
         guard let space = name.firstIndex(of: " "), let label = labels[String(name[..<space])] else { return name }
         return label + name[space...]
     }
@@ -200,6 +222,11 @@ enum RunTrace {
     static func message(_ name: String) -> String {
         if let m = name.firstMatch(#"^[0-9a-f]{8}-[0-9a-f-]{27}\s+(.*)$"#) { return m[0] }
         return name
+    }
+
+    /// `mcp__ia-flow__submit_done` → `submit_done`: el mismo nombre que ve el runner.
+    static func bareTool(_ name: String) -> String {
+        name.hasPrefix("mcp__") ? (name.components(separatedBy: "__").last ?? name) : name
     }
 
     /// `mcp__github__get_issue` → `github · get_issue`.
@@ -231,8 +258,10 @@ enum RunTrace {
                 let number = fields["issue_number"] ?? fields["pull_number"] ?? fields["number"]
                 return "\(owner)/\(repo)" + (number.map { "#\($0)" } ?? "") + (fields["method"].map { " · \($0)" } ?? "")
             }
-            let preferred = ["description", "title", "query", "q", "path", "file_path", "url", "name", "pattern", "ref"]
-            return preferred.lazy.compactMap { fields[$0] }.first { !$0.isEmpty }
+            // un input largo llega cortado (no es JSON): `field` lo saca igual con regex, también anidado
+            let preferred = ["description", "title", "query", "q", "path", "file_path", "url", "name", "pattern", "ref",
+                             "summary", "entityName", "message"]
+            return preferred.lazy.compactMap { field($0) }.map { firstLine($0) ?? $0 }.first { !$0.isEmpty }
                 ?? fields.keys.sorted().lazy.compactMap { fields[$0] }.first { !$0.isEmpty && $0.count < 200 }
         }
     }
