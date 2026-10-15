@@ -28,6 +28,7 @@ import type { BoardCard } from './classify.js'
 import { InboxSection } from './InboxSection.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
+import { RunnerLogs } from './RunnerLogs.js'
 import { runnerApi } from './runnerApi.js'
 import { TaskActions } from './TaskActions.js'
 
@@ -213,6 +214,7 @@ async function start(
   const hub = new SseHub<RunnerStreamEvent>()
   const conversations = new SqliteConversationStore(new Database(':memory:'))
   const improvements = new SqliteImprovementStore(new Database(':memory:'))
+  const logs = new RunnerLogs(10)
   const inbox = new InboxService({
     projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
     board: { cards: async () => cards },
@@ -247,6 +249,7 @@ async function start(
     assistant: assistantFor(inbox, conversations, improvements),
     conversations,
     improvements,
+    logs,
     ...(deviceFlow ? { deviceFlow } : {}),
     ingress: new IngressService({
       log: { ingressEvents: () => [], ingressCount: () => ({ count: 0 }) },
@@ -276,7 +279,7 @@ async function start(
   const base = `http://localhost:${(server.address() as AddressInfo).port}`
   const call = (path: string, init: RequestInit & { headers?: Record<string, string> } = {}) =>
     fetch(`${base}${path}`, { ...init, headers: { 'x-ia-flow-token': TOKEN, ...init.headers } })
-  return { base, call, github, hub, improvements }
+  return { base, call, github, hub, improvements, logs }
 }
 
 describe('runner API', () => {
@@ -798,6 +801,30 @@ describe('runner API', () => {
     expect(ingress).toMatchObject({ sources: [{ id: 'github', count_24h: 0 }], retention_days: 14 })
     expect(await (await call('/api/ingress/github/events')).json()).toEqual([])
     expect((await call('/api/ingress/jira/events')).status).toBe(404)
+  })
+
+  it('GET /api/logs pages the process log after a seq, by level and text', async () => {
+    const { call, logs } = await start()
+    const log = (level: 'info' | 'warn', message: string) =>
+      logs.sink({ time: new Date(), level, scope: 'test', message, attributes: {} })
+    log('info', 'arrancó')
+    log('warn', 'GitHub lento')
+    log('info', 'despaché o/r#1')
+
+    const all = await (await call('/api/logs')).json()
+    expect(all.lines.map((line: { message: string }) => line.message)).toEqual([
+      'arrancó',
+      'GitHub lento',
+      'despaché o/r#1',
+    ])
+    expect(all).toMatchObject({ last_seq: 3, capacity: 10 })
+    const newer = await (await call('/api/logs?after=2')).json()
+    expect(newer.lines.map((line: { seq: number }) => line.seq)).toEqual([3])
+    const warns = await (await call('/api/logs?level=warn')).json()
+    expect(warns.lines).toHaveLength(1)
+    const found = await (await call('/api/logs?q=O%2FR%231')).json()
+    expect(found.lines.map((line: { seq: number }) => line.seq)).toEqual([3])
+    expect((await call('/api/logs', { headers: { 'x-ia-flow-token': 'nope' } })).status).toBe(401)
   })
 
   it('without github.clientId there is no device flow', async () => {
