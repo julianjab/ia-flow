@@ -4,7 +4,7 @@
  * los webhooks. Composición: la lógica vive en cada pieza.
  */
 import { createEvent } from '@ia-flow/agent-engine'
-import type { RunnerCapacity, RunnerStreamEvent } from '@ia-flow/shared'
+import type { RunnerCapacity, RunnerResources, RunnerStreamEvent } from '@ia-flow/shared'
 import { addLogSink } from '@ia-flow/telemetry'
 import { Assistant } from '../assistant/Assistant.js'
 import type { Boards } from '../board/Boards.js'
@@ -64,7 +64,12 @@ export function mountInbox(
   mounted: MountedRunner,
   cfg: RunnerConfig,
   store: ActivityStore,
-  options: { version: string; log: (line: string) => void },
+  options: {
+    version: string
+    log: (line: string) => void
+    /** `GET /api/resources` (lo arma `main.ts`: necesita los hosts). */
+    resources?: () => RunnerResources
+  },
 ): MountedInbox {
   const specs: BoardSpec[] = cfg.projects.map((project) => ({
     projectId: project.id,
@@ -231,6 +236,7 @@ export function mountInbox(
     conversations: store.conversations,
     improvements: store.improvements,
     logs,
+    ...(options.resources ? { resources: options.resources } : {}),
     ingress: new IngressService({
       log: store.activity,
       retentionDays: cfg.inbox.retentionDays,

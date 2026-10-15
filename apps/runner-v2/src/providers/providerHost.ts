@@ -41,6 +41,7 @@ import {
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { defaultHostWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
+import { machineResources } from '../telemetry/resources.js'
 import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
 import { CLAUDE_CLI_TYPE, createProvider, providerIds } from './providers.js'
@@ -139,6 +140,8 @@ export async function mountHost(
     name: settings.name,
     maxConcurrent: settings.maxConcurrent,
     accepts: settings.accepts,
+    // La memoria, el disco de sus worktrees y cuántos hay: el runner los muestra con este host.
+    stats: () => machineResources({ diskPath: root, worktreesRoot: root }),
     run: providerTaskRunner({
       provider,
       session,

@@ -6,7 +6,8 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { providerRegistry } from '@ia-flow/agent-engine'
-import { RemoteHub, type RemoteHubOptions } from '@ia-flow/provider-remote'
+import { type HostInfo, RemoteHub, type RemoteHubOptions } from '@ia-flow/provider-remote'
+import { type HostResources, MachineResourcesSchema } from '@ia-flow/shared'
 
 /** `onTelemetry`: lo que exportan los hosts (ver `hostTelemetry.ts`). */
 export function mountRemoteHosts(
@@ -17,6 +18,22 @@ export function mountRemoteHosts(
     registry: providerRegistry,
     token: token || undefined,
     ...(onTelemetry ? { onTelemetry } : {}),
+  })
+}
+
+/** Los hosts suscritos para `GET /api/resources`: sus lugares y lo último que mandaron de sus
+ *  recursos (si no cumple el contrato —otra versión—, sin recursos). */
+export function hostResources(hosts: HostInfo[]): HostResources[] {
+  return hosts.map((host) => {
+    const resources = MachineResourcesSchema.safeParse(host.stats)
+    return {
+      name: host.name,
+      provider: host.provider,
+      max_concurrent: host.maxConcurrent,
+      running: host.running,
+      last_seen: host.lastSeen,
+      ...(host.stats && resources.success ? { resources: resources.data } : {}),
+    }
   })
 }
 

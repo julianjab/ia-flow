@@ -25,6 +25,7 @@ import { type MountedRunner, mountRunner } from './boot.js'
 import { registerVirtualModules } from './bundle/register.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
 import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/RunnerConfig.js'
+import { defaultWorkspaceRoot, runnerHome } from './config/runnerHome.js'
 import { serve } from './http/serve.js'
 import { mountInbox } from './inbox/mountInbox.js'
 import { dispatchRaw, replayPullRequest, simulateIssue } from './intake/dispatch.js'
@@ -37,9 +38,15 @@ import {
   SWEEP_INTERVAL_MS,
 } from './providers/providerHost.js'
 import { registerProviders } from './providers/providers.js'
-import { listenHosts, mountRemoteHosts, nodeHandler } from './providers/remoteHosts.js'
+import {
+  hostResources,
+  listenHosts,
+  mountRemoteHosts,
+  nodeHandler,
+} from './providers/remoteHosts.js'
 import { type ActivityStore, openActivityStore } from './storage/activityStore.js'
 import { startHeartbeat } from './telemetry/heartbeat.js'
+import { machineResources } from './telemetry/resources.js'
 import { startTelemetry, type Telemetry, TraceRoute } from './telemetry/telemetry.js'
 
 /** Lo que el runner imprime también sale como log OTLP, con la traza activa y el scope del evento. */
@@ -108,10 +115,20 @@ async function startServing(
   log: (line: string) => void,
 ): Promise<void> {
   registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
-  const inbox = mountInbox(mounted, cfg, store, { version: VERSION, log })
   // Los hosts que se suscriben (`remote:<name>`), en el mismo puerto que los webhooks — y su
   // telemetría, que se anota y reexporta como la del runner.
   const hosts = mountRemoteHosts(hostIngest({ write: (record) => store.writeTrace(record) }))
+  const inbox = mountInbox(mounted, cfg, store, {
+    version: VERSION,
+    log,
+    resources: () => ({
+      runner: machineResources({
+        diskPath: runnerHome(),
+        worktreesRoot: process.env.WORKSPACE_DIR || defaultWorkspaceRoot(),
+      }),
+      hosts: hostResources(hosts.list()),
+    }),
+  })
   const hostsApi = nodeHandler((req) => hosts.fetch(req))
   const stopHeartbeat = startHeartbeat(
     () => mounted.engine.executions?.stats ?? { running: 0, waiting: 0, paused: 0 },

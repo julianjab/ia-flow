@@ -26,6 +26,7 @@ import {
   ImprovementStatusSchema,
   type InboxProject,
   type RunnerInfo,
+  type RunnerResources,
   type RunnerStreamEvent,
   TaskActionRequestSchema,
 } from '@ia-flow/shared'
@@ -54,6 +55,9 @@ export interface RunnerApiOptions {
   ingress?: IngressService
   /** Las últimas líneas del log del proceso (`GET /api/logs`). Sin esto, 501. */
   logs?: RunnerLogs
+  /** La memoria, el disco y los worktrees del runner y de sus hosts (`GET /api/resources`). Sin
+   *  esto, 501. */
+  resources?: () => RunnerResources
   /** Las conversaciones guardadas del asistente, de cada login. Sin esto, no hay historial. */
   conversations?: ConversationStore
   /** Las mejoras propuestas por un agente (la retrospectiva). Sin esto, no hay. */
@@ -317,6 +321,11 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
       ...(level ? { level } : {}),
       ...(req.query.get('q') ? { text: req.query.get('q') as string } : {}),
     })
+  })
+
+  router.get('/api/resources', async (): Promise<RunnerResources> => {
+    if (!options.resources) throw new HttpError(501, 'Este runner no expone sus recursos')
+    return options.resources()
   })
 
   router.get('/api/stream', async (_req, res) => {
