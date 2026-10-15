@@ -5,4 +5,12 @@ export { GithubTaskReader } from './GithubTaskReader.js'
 export type { Card, OpenPr, RawIssueRef, RawItem, RawPr } from './shapes.js'
 export { boardItem, issueRefs, openPr } from './shapes.js'
 export type { RawComment, RawReview, RawThread } from './timeline.js'
-export { formatComments, rollupCi, taskTimeline } from './timeline.js'
+export {
+  formatComments,
+  isCancelledCheck,
+  isRedCheck,
+  latestCheckRuns,
+  RED_CHECK_CONCLUSIONS,
+  rollupCi,
+  taskTimeline,
+} from './timeline.js'

@@ -3,14 +3,14 @@
 Un servidor local con la API de chat completions de OpenAI que contesta con Claude.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...          # la key real, sólo vive en este proceso
+export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...  # el token real, sólo vive en este proceso
 export LLM_GATEWAY_TOKEN=$(openssl rand -hex 24)  # lo que el cliente usa como "API key"
 bun run gateway                              # http://127.0.0.1:4141
 ```
 
 | Variable | Default | |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | — (requerida) | key de Anthropic |
+| `CLAUDE_CODE_OAUTH_TOKEN` | — (requerida) | token OAuth de Claude (`claude setup-token`) |
 | `LLM_GATEWAY_TOKEN` | — (requerida, ≥16 chars) | bearer que exige el gateway (también se acepta como `x-api-key`) |
 | `LLM_GATEWAY_HOST` / `LLM_GATEWAY_PORT` | `127.0.0.1` / `4141` | dónde escucha |
 | `LLM_GATEWAY_MODELS` | `claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5` | lo que lista `/v1/models` |

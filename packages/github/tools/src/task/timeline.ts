@@ -50,24 +50,57 @@ export function formatComments(comments: Comment[]): string {
     .join('\n\n')
 }
 
+/** Una corrida por check: el commit conserva las corridas reemplazadas de un mismo check (un
+ *  workflow re-disparado, o el duplicado que `concurrency` cancela) en otra check suite y con el
+ *  mismo nombre. Vale la última —la de `id` mayor—, como en la vista de checks de GitHub; un
+ *  `cancelled` reemplazado por un `success` no es un rojo. Las corridas sin nombre o sin `id`
+ *  quedan todas. */
+export function latestCheckRuns<T extends { id?: number; name?: string }>(runs: T[]): T[] {
+  const latest = new Map<string, T>()
+  for (const run of runs) {
+    if (run.name === undefined || run.id === undefined) continue
+    const seen = latest.get(run.name)
+    if (!seen || (seen.id ?? 0) < run.id) latest.set(run.name, run)
+  }
+  return runs.filter(
+    (run) => run.name === undefined || run.id === undefined || latest.get(run.name) === run,
+  )
+}
+
+/** Las conclusiones de un check que son un rojo. `cancelled` no está: un check cancelado no
+ *  dice nada del código —alguien o algo lo cortó— y se arregla relanzándolo, no con un cambio.
+ *  Para el CI es una corrida sin terminar (`isCancelledCheck`). */
+export const RED_CHECK_CONCLUSIONS = [
+  'failure',
+  'timed_out',
+  'action_required',
+  'startup_failure',
+] as const
+
+export const isRedCheck = (run: { conclusion: string | null }): boolean =>
+  (RED_CHECK_CONCLUSIONS as readonly string[]).includes(run.conclusion ?? '')
+
+export const isCancelledCheck = (run: { status: string; conclusion: string | null }): boolean =>
+  run.status === 'completed' && run.conclusion === 'cancelled'
+
 /** Checks + statuses del commit → un solo estado, con el criterio de un `statusCheckRollup`:
- *  cualquier rojo gana, después cualquier pendiente; sin nada, vacío.
+ *  cualquier rojo gana, después cualquier pendiente; sin nada, vacío. De cada check cuenta sólo
+ *  su última corrida (`latestCheckRuns`), y una cancelada cuenta como pendiente: el CI no
+ *  terminó de verificar el commit hasta que alguien la relance.
  *
  *  Los workflow runs sólo suman pendientes: uno en cola (esperando runner, o un `needs`) todavía
  *  no creó sus check-runs, y sin él el rollup daba verde con los checks rápidos ya terminados.
  *  Uno terminado ya está en sus check-runs, con su conclusión. */
 export function rollupCi(
-  checkRuns: Array<{ status: string; conclusion: string | null }>,
+  checkRuns: Array<{ id?: number; name?: string; status: string; conclusion: string | null }>,
   statuses: string[],
   workflowRuns: Array<{ status: string }> = [],
 ): string {
   const states = [
-    ...checkRuns.map((run) =>
-      run.status !== 'completed'
+    ...latestCheckRuns(checkRuns).map((run) =>
+      run.status !== 'completed' || isCancelledCheck(run)
         ? 'pending'
-        : ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure'].includes(
-              run.conclusion ?? '',
-            )
+        : isRedCheck(run)
           ? 'failure'
           : 'success',
     ),

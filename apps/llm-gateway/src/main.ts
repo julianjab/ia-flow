@@ -20,10 +20,10 @@ addLogSink(consoleSink({ level: logLevel }))
 const log = createLogger('llm-gateway')
 const config = parseConfig(process.env)
 
-// La key va EXPLÍCITA: sin ella el cliente cae al `CLAUDE_CODE_OAUTH_TOKEN` del entorno, y este
-// gateway sirve a otras apps — el token de una suscripción no es para eso.
+// El token va EXPLÍCITO, el mismo que validó `parseConfig`: el cliente no lo resuelve por su
+// cuenta del entorno, donde podría encontrar otra credencial.
 const client = new AnthropicClient({
-  apiKey: config.apiKey,
+  oauthToken: config.oauthToken,
   maxRetries: 2,
   onRequest: config.logBody ? (request) => log.info(formatAnthropicRequest(request)) : undefined,
   onRetry: (info) =>

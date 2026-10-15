@@ -19,9 +19,9 @@ OpenAI-compatibles (el chat de iTerm2, editores, scripts) a Claude con una key p
 ## Reglas
 
 - **Escucha sólo en `127.0.0.1` por default y exige `LLM_GATEWAY_TOKEN`.** No quites ninguna de
-  las dos sin una razón explícita: el gateway gasta la key de quien lo corre.
-- **La key de Anthropic va explícita al cliente**, nunca por el fallback del entorno (que prefiere
-  `CLAUDE_CODE_OAUTH_TOKEN`).
+  las dos sin una razón explícita: el gateway gasta la suscripción de quien lo corre.
+- **El token (`CLAUDE_CODE_OAUTH_TOKEN`) va explícito al cliente**, el que validó `parseConfig`;
+  nunca por el fallback del entorno del cliente.
 - No se loguea el contenido de los mensajes, sólo método, ruta, status y duración. Única excepción:
   `LLM_GATEWAY_LOG_BODY=true`, opt-in explícito para depurar un cliente: imprime headers (con el
   token) y body.

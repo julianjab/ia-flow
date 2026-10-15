@@ -18,7 +18,7 @@ const ctx = (payload: Record<string, unknown> = TASK): PipelineExecutionContext 
 function github(opts: {
   body?: string
   assignees?: string[]
-  checks?: Array<{ status: string; conclusion: string | null }>
+  checks?: Array<{ id?: number; name?: string; status: string; conclusion: string | null }>
 }) {
   const patched: string[] = []
   const requestJson = vi.fn(async (path: string, init?: { method?: string; body?: string }) => {
@@ -125,6 +125,56 @@ describe('request_slack_review', () => {
     expect(sl.posted).toEqual([])
     await action(red, sl).run(ctx(), { allowFailedCi: true })
     expect(sl.posted).toHaveLength(1)
+  })
+
+  it('a cancelled run superseded by a later success of the same check is not red CI', async () => {
+    // lh-seller-v2-frontend#4377: el duplicado de "Semantic Pull Requests" que cancela
+    // `concurrency` quedaba en el commit y bloqueaba la card después del approved.
+    const sl = slack()
+    const gh = github({
+      checks: [
+        { id: 2, name: 'Semantic Pull Requests', status: 'completed', conclusion: 'success' },
+        { id: 1, name: 'Semantic Pull Requests', status: 'completed', conclusion: 'cancelled' },
+      ],
+    })
+    await action(gh, sl).run(ctx(), {})
+    expect(sl.posted).toHaveLength(1)
+  })
+
+  it('a cancelled latest run does not stop the request: the message warns to rerun it', async () => {
+    const sl = slack()
+    const gh = github({
+      checks: [
+        { id: 1, name: 'Lint', status: 'completed', conclusion: 'success' },
+        { id: 2, name: 'Tests', status: 'completed', conclusion: 'cancelled' },
+      ],
+    })
+
+    const result = await action(gh, sl).run(ctx(), {})
+
+    expect(sl.posted).toHaveLength(1)
+    const text = String(sl.posted[0]?.text)
+    expect(text).toContain('https://github.com/pr/12')
+    expect(text).toContain('⚠️ El CI quedó cancelado (Tests)')
+    expect(text).toContain('Relanzalo desde el PR antes de mergear')
+    expect(result).toContain(`Review pedido en Slack: ${THREAD}`)
+    expect(result).toContain('quedó cancelado (Tests)')
+  })
+
+  it('a green CI adds no warning', async () => {
+    const sl = slack()
+    await action(github({}), sl).run(ctx(), {})
+    expect(String(sl.posted[0]?.text)).not.toContain('⚠️')
+  })
+
+  it('a real red wins over a cancelled run', async () => {
+    const gh = github({
+      checks: [
+        { id: 1, name: 'Lint', status: 'completed', conclusion: 'failure' },
+        { id: 2, name: 'Tests', status: 'completed', conclusion: 'cancelled' },
+      ],
+    })
+    await expect(action(gh, slack()).run(ctx(), {})).rejects.toThrow(/terminó en rojo \(Lint\)/)
   })
 
   it('without a channel or reviewers, or without Slack, it says why', async () => {

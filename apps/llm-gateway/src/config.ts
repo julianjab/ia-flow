@@ -3,8 +3,8 @@ export interface GatewayConfig {
   port: number
   /** El bearer que el cliente (iTerm2…) manda como "API key" del gateway. */
   token: string
-  /** La key REAL de Anthropic: nunca sale de este proceso. */
-  apiKey: string
+  /** El token OAuth de Claude (`CLAUDE_CODE_OAUTH_TOKEN`): nunca sale de este proceso. */
+  oauthToken: string
   models: string[]
   defaultModel: string
   defaultMaxTokens: number
@@ -43,7 +43,7 @@ export function parseConfig(env: Record<string, string | undefined>): GatewayCon
       `llm-gateway: LLM_GATEWAY_TOKEN debe tener al menos ${MIN_TOKEN_LENGTH} caracteres`,
     )
   }
-  const apiKey = requireVar(env, 'ANTHROPIC_API_KEY')
+  const oauthToken = requireVar(env, 'CLAUDE_CODE_OAUTH_TOKEN')
   const configured = (env.LLM_GATEWAY_MODELS ?? '')
     .split(',')
     .map((model) => model.trim())
@@ -55,7 +55,7 @@ export function parseConfig(env: Record<string, string | undefined>): GatewayCon
     host: env.LLM_GATEWAY_HOST?.trim() || '127.0.0.1',
     port: parsePositiveInt(env.LLM_GATEWAY_PORT, 'LLM_GATEWAY_PORT', 4141),
     token,
-    apiKey,
+    oauthToken,
     models,
     defaultModel,
     defaultMaxTokens: parsePositiveInt(env.LLM_GATEWAY_MAX_TOKENS, 'LLM_GATEWAY_MAX_TOKENS', 4096),

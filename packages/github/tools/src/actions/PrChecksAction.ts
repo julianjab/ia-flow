@@ -1,6 +1,7 @@
 import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
 import { z } from 'zod'
+import { latestCheckRuns } from '../task/timeline.js'
 import { prFrom } from './pr-ref.js'
 
 const NoInput = z.strictObject({})
@@ -19,8 +20,9 @@ export class PrChecksAction extends Action<typeof NoInput> {
 
   async execute(_input: z.infer<typeof NoInput>, ctx: PipelineExecutionContext) {
     const pr = prFrom(ctx)
-    const { check_runs } = await this.client.requestJson<{
+    const { check_runs: all } = await this.client.requestJson<{
       check_runs: Array<{
+        id: number
         name: string
         status: string
         conclusion: string | null
@@ -28,6 +30,8 @@ export class PrChecksAction extends Action<typeof NoInput> {
         output?: { title?: string | null; summary?: string | null }
       }>
     }>(`/repos/${pr.owner}/${pr.repo}/commits/${pr.sha}/check-runs?per_page=100`)
+    // La última corrida de cada check, la que cuenta para el CI (`latestCheckRuns`).
+    const check_runs = latestCheckRuns(all)
     if (check_runs.length === 0) return `El commit ${pr.sha.slice(0, 7)} no tiene checks.`
     return check_runs
       .map((run) => {
