@@ -165,10 +165,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc private func quitAction() { model.quit() }
 }
 
-// `--icon <px> <ruta>`: escribe el ícono de app como PNG (build.sh arma el .icns con esto).
-if let i = args.firstIndex(of: "--icon"), let pixels = args.dropFirst(i + 1).first.flatMap(Int.init),
-   let path = args.dropFirst(i + 2).first, let data = appIconPNG(pixels: pixels) {
-    try? data.write(to: URL(fileURLWithPath: path))
+// `--icon <px> <ruta>`: escribe el ícono de app como PNG (build.sh arma el .icns con esto). Con el flag el proceso
+// termina siempre: si algo falla sale con 1, nunca sigue de largo a abrir la app.
+if let i = args.firstIndex(of: "--icon") {
+    guard let pixels = args.dropFirst(i + 1).first.flatMap(Int.init), let path = args.dropFirst(i + 2).first else {
+        FileHandle.standardError.write(Data("uso: --icon <px> <ruta>\n".utf8))
+        exit(1)
+    }
+    guard let data = appIconPNG(pixels: pixels) else {
+        FileHandle.standardError.write(Data("--icon: no se pudo dibujar el ícono a \(pixels) px\n".utf8))
+        exit(1)
+    }
+    do {
+        try data.write(to: URL(fileURLWithPath: path))
+    } catch {
+        FileHandle.standardError.write(Data("--icon: no se pudo escribir \(path): \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
     exit(0)
 }
 
