@@ -101,7 +101,7 @@ struct DeviceLogin {
 }
 
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs }
+    enum Screen { case inbox, logs, run }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
@@ -111,6 +111,8 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var error: RunnerError?
     @Published private(set) var loading = false
     @Published var screen: Screen = .inbox
+    /// La ejecución que se mira en «En vivo».
+    @Published private(set) var watching: RunWatch?
     @Published var comment: CommentRequest?
     @Published var login: DeviceLogin?
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
@@ -499,6 +501,21 @@ final class RunnerModel: ObservableObject {
         sessions[selected.baseUrl] = nil
         saveGithubSessions(sessions)
         objectWillChange.send()
+    }
+
+    // MARK: en vivo
+
+    /// Abre la traza de la tarea: lo que hace el agente ahora, o su última ejecución.
+    func watch(_ item: InboxItem) {
+        let next = isFixture ? RunWatch.fixture(item: item, server: selected) : RunWatch(item: item, server: selected)
+        watching = next
+        screen = .run
+        next.poll()
+    }
+
+    func closeRun() {
+        screen = .inbox
+        watching = nil
     }
 
     // MARK: log del server

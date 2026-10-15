@@ -10,6 +10,8 @@ struct RunnerScreen: View {
         switch runner.screen {
         case .inbox: RunnerInboxScreen(runner: runner)
         case .logs: RunnerLogsScreen(runner: runner)
+        case .run:
+            if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { RunnerInboxScreen(runner: runner) }
         }
     }
 }
@@ -252,6 +254,11 @@ struct TaskRow: View {
                     .fixedSize()
                     .disabled(busy)
                 }
+                if item.group == "run" {
+                    Button { runner.watch(item) } label: { Label("En vivo", systemImage: "dot.radiowaves.left.and.right") }
+                        .buttonStyle(PillButtonStyle(tint: .green, compact: true)).fixedSize()
+                        .help("Ver qué está haciendo el agente, paso a paso")
+                }
                 if let pr = item.pr {
                     Button { runner.openPR(item) } label: { Chip(text: "PR #\(pr.number)", tone: .info, icon: "arrow.up.right") }
                         .buttonStyle(.plain).fixedSize()
@@ -269,6 +276,7 @@ struct TaskRow: View {
                     }
                     if actions.count > 1 { Divider() }
                     Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
+                    Button(item.group == "run" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
                     Divider()
                     Button("Abrir issue en GitHub") { runner.open(item) }
                     if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }

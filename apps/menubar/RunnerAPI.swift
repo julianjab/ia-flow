@@ -78,6 +78,11 @@ struct ExecutionSummary: Codable, Hashable {
     let status: String
     let started_at: String
     let agent_id: String?
+    var closed_at: String? = nil
+    /// Lo que dijo el agente al cerrar (su resumen).
+    var summary: String? = nil
+    var failure: ExecutionFailure? = nil
+    var usage: ExecutionUsage? = nil
 }
 
 struct TaskActionDef: Codable, Hashable {

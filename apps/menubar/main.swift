@@ -141,6 +141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.tab = .runner
         model.runner.screen = .logs
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-logs-\(dark ? "dark" : "light").png") }
+        if let running = model.runner.running.first {
+            model.runner.watch(running)
+            model.runner.watching?.expanded = ["7"]
+            popoverMaxScroll = 520  // la traza tiene su propio scroll: con el tope real
+            for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-run-\(dark ? "dark" : "light").png") }
+            model.runner.closeRun()
+            popoverMaxScroll = 2000
+        }
         if let tiff = menuBarIcon(running: true, badge: 3).tiffRepresentation,
            let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: "\(base)-badge.png"))
@@ -173,7 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.refresh()
         model.runner.refresh()
         if model.tab == .runner, model.runner.screen == .logs { model.runner.pollLogs() }
-        // cada 3 s: servicios siempre; el log del server si está abierto; la bandeja cada 6 s si se mira el runner
+        if model.tab == .runner, model.runner.screen == .run { model.runner.watching?.reload() }
+        // cada 3 s: servicios siempre; el log del server o la traza en vivo si están abiertos; la bandeja cada 6 s si
+        // se mira el runner
         var tick = 0
         openTimer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -181,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.model.refresh()
             guard self.model.tab == .runner else { return }
             if self.model.runner.screen == .logs { self.model.runner.pollLogs() }
+            else if self.model.runner.screen == .run { self.model.runner.watching?.poll() }
             else if tick % 2 == 0 { self.model.runner.refresh() }
         }
         RunLoop.main.add(openTimer!, forMode: .common)
