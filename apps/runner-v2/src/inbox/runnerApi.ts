@@ -29,6 +29,7 @@ import {
   type RunnerStreamEvent,
   TaskActionRequestSchema,
 } from '@ia-flow/shared'
+import { parseLogLevel } from '@ia-flow/telemetry'
 import { z } from 'zod'
 import type { Assistant } from '../assistant/Assistant.js'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
@@ -38,6 +39,7 @@ import { ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
 import { openSse, type SseHub, writeSse } from '../http/sse.js'
 import type { InboxService } from './InboxService.js'
 import type { IngressService } from './IngressService.js'
+import type { RunnerLogs } from './RunnerLogs.js'
 import { TaskActionError, type TaskActions } from './TaskActions.js'
 
 export interface RunnerApiOptions {
@@ -50,6 +52,8 @@ export interface RunnerApiOptions {
   assistant: Assistant
   /** Las entradas del runner (webhook de GitHub, Slack) y lo que les llegó. */
   ingress?: IngressService
+  /** Las últimas líneas del log del proceso (`GET /api/logs`). Sin esto, 501. */
+  logs?: RunnerLogs
   /** Las conversaciones guardadas del asistente, de cada login. Sin esto, no hay historial. */
   conversations?: ConversationStore
   /** Las mejoras propuestas por un agente (la retrospectiva). Sin esto, no hay. */
@@ -300,6 +304,19 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     )
     if (!events) throw new HttpError(404, `${req.params.id} no es una entrada de este runner`)
     return events
+  })
+
+  router.get('/api/logs', async (req) => {
+    if (!options.logs) throw new HttpError(501, 'Este runner no expone su log')
+    const level = parseLogLevel(req.query.get('level') ?? undefined)
+    const after = Number(req.query.get('after'))
+    const limit = Number(req.query.get('limit'))
+    return options.logs.page({
+      ...(Number.isFinite(after) && after > 0 ? { after } : {}),
+      ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+      ...(level ? { level } : {}),
+      ...(req.query.get('q') ? { text: req.query.get('q') as string } : {}),
+    })
   })
 
   router.get('/api/stream', async (_req, res) => {

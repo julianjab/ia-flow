@@ -5,6 +5,7 @@
  */
 import { createEvent } from '@ia-flow/agent-engine'
 import type { RunnerCapacity, RunnerStreamEvent } from '@ia-flow/shared'
+import { addLogSink } from '@ia-flow/telemetry'
 import { Assistant } from '../assistant/Assistant.js'
 import type { Boards } from '../board/Boards.js'
 import type { MountedRunner } from '../boot.js'
@@ -21,6 +22,7 @@ import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
+import { RunnerLogs } from './RunnerLogs.js'
 import { resumeStage } from './resumeStage.js'
 import { runnerApi } from './runnerApi.js'
 import { toTraceEntry } from './SqliteActivity.js'
@@ -92,6 +94,7 @@ export function mountInbox(
   })
 
   const hub = new SseHub<RunnerStreamEvent>()
+  const logs = new RunnerLogs()
   const changed = (ref: string | undefined) => {
     if (ref) hub.publish({ type: 'inbox', refs: [ref] })
   }
@@ -100,6 +103,7 @@ export function mountInbox(
     store.onDispatch((entry) => changed(entry.event.scope?.issue as string | undefined)),
     mounted.executions?.observe((record) => changed(taskOfKey(record.key).taskRef)) ?? (() => {}),
     store.improvements.onChange(() => hub.publish({ type: 'improvements' })),
+    addLogSink(logs.sink),
   ]
 
   // Lo que el runner sabe hacerle a una task: lo usan las acciones de la bandeja y, por
@@ -226,6 +230,7 @@ export function mountInbox(
     assistant,
     conversations: store.conversations,
     improvements: store.improvements,
+    logs,
     ingress: new IngressService({
       log: store.activity,
       retentionDays: cfg.inbox.retentionDays,

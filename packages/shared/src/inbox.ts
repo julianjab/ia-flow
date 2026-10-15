@@ -517,6 +517,30 @@ export const AssistantStreamEventSchema = z.discriminatedUnion('type', [
 ])
 export type AssistantStreamEvent = z.infer<typeof AssistantStreamEventSchema>
 
+/** Una línea del log del proceso del runner (`createLogger`), en el buffer que sirve `GET /api/logs`. */
+export const RunnerLogLineSchema = z.object({
+  /** Creciente desde que arrancó el proceso: `?after=<seq>` pide sólo las nuevas. */
+  seq: z.number(),
+  time: z.string(),
+  level: z.enum(['debug', 'info', 'warn', 'error']),
+  scope: z.string(),
+  /** Con los secretos tapados. */
+  message: z.string(),
+  /** Los atributos del log, ya como texto (`clave=valor`), tapados igual. */
+  fields: z.string().optional(),
+  trace_id: z.string().optional(),
+})
+export type RunnerLogLine = z.infer<typeof RunnerLogLineSchema>
+
+export const RunnerLogsSchema = z.object({
+  lines: z.array(RunnerLogLineSchema),
+  /** El último `seq` emitido (aunque el filtro no lo devuelva): el `after` del próximo pedido. */
+  last_seq: z.number(),
+  /** Cuántas líneas guarda el runner: lo más viejo se pierde. */
+  capacity: z.number(),
+})
+export type RunnerLogs = z.infer<typeof RunnerLogsSchema>
+
 /** Lo que manda `GET /api/stream` por SSE: algo cambió y qué. */
 export const RunnerStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inbox'), refs: z.array(z.string()) }),
