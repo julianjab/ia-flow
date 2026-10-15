@@ -106,6 +106,8 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
     @Published private(set) var inbox: Inbox?
+    /// Las mejoras propuestas abiertas del server.
+    @Published fileprivate(set) var improvements: [Improvement] = []
     @Published private(set) var error: RunnerError?
     @Published private(set) var loading = false
     @Published var screen: Screen = .inbox
@@ -148,8 +150,8 @@ final class RunnerModel: ObservableObject {
     }
     var running: [InboxItem] { (inbox?.items ?? []).filter { $0.group == "run" } }
     var queued: [InboxItem] { (inbox?.items ?? []).filter { $0.group == "queue" } }
-    /// El badge: lo que te espera a vos.
-    var pendingCount: Int { decisions.count }
+    /// El badge: lo que te espera a vos (decisiones y mejoras por decidir).
+    var pendingCount: Int { decisions.count + improvements.count }
 
     var epics: [EpicView] {
         var order: [String] = []
@@ -183,6 +185,7 @@ final class RunnerModel: ObservableObject {
         selected = server
         UserDefaults.standard.set(server.baseUrl, forKey: "runnerServer")
         inbox = nil
+        improvements = []
         error = nil
         login = nil
         comment = nil
@@ -205,9 +208,13 @@ final class RunnerModel: ObservableObject {
         Task { @MainActor in
             defer { loading = false }
             do {
-                let fresh = try await RunnerClient(server: server).inbox()
+                let client = RunnerClient(server: server)
+                async let freshInbox = client.inbox()
+                async let freshImprovements = client.improvements()
+                let (fresh, proposals) = try await (freshInbox, freshImprovements)
                 guard server == selected else { return }
                 inbox = fresh
+                improvements = proposals
                 error = nil
             } catch let e as RunnerError {
                 guard server == selected else { return }
@@ -269,6 +276,36 @@ final class RunnerModel: ObservableObject {
             refresh()
         }
     }
+
+    // MARK: mejoras
+
+    /// Abrir crea un issue en otro repo con tu login: se confirma. Descartar no se deshace: también.
+    func decide(_ improvement: Improvement, open: Bool) {
+        confirm?(ConfirmRequest(
+            title: open ? "¿Abrir el issue en \(improvement.repo)?" : "¿Descartar la mejora?",
+            detail: "\(improvement.title)\n\n" + (open ? "Se abre con tu login de GitHub\(github.map { " (\($0.login))" } ?? "")."
+                                                   : "Deja de proponerse; no se abre nada."),
+            confirmLabel: open ? "Abrir issue" : "Descartar", destructive: !open
+        ) { [weak self] in self?.sendDecision(improvement, open: open) })
+    }
+
+    private func sendDecision(_ improvement: Improvement, open: Bool) {
+        let server = selected
+        Task { @MainActor in
+            guard let session = await validSession() else {
+                toast?("Inicia sesión con GitHub para decidir la mejora")
+                return beginLogin()
+            }
+            busy.insert(improvement.id)
+            let result = await RunnerClient(server: server).decide(improvement, open: open, github: session.token)
+            busy.remove(improvement.id)
+            toast?(result.ok ? result.message : "No se pudo: \(result.message)")
+            if result.ok { improvements.removeAll { $0.id == improvement.id }; onBadge?(pendingCount) }
+            refresh()
+        }
+    }
+
+    func openTask(_ ref: String) { NSWorkspace.shared.open(githubURL(ref)) }
 
     // MARK: login de GitHub (device flow, por server)
 
@@ -399,6 +436,16 @@ extension RunnerModel {
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),
         ], pipeline: InboxPipeline(running: 1, queued: 1, paused: 0, capacity: 3, free: 2), feed: nil)
         let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x")], inbox: inbox)
+        model.improvements = [
+            Improvement(id: "1", created_at: "2026-10-15T09:00:00Z", task_ref: "la-haus/subscriptions#4281", pr_url: "https://github.com",
+                        agent: "retrospective", target: "docs", repo: "la-haus/subscriptions",
+                        title: "AGENTS.md: documentar cómo correr los tests de integración del CRM",
+                        body: "…", reason: "El implementer tardó 3 vueltas en encontrar el comando de tests de integración.", status: "open"),
+            Improvement(id: "2", created_at: "2026-10-15T08:00:00Z", task_ref: "la-haus/subscriptions#4290", pr_url: nil,
+                        agent: "retrospective", target: "config", repo: "la-haus/claw-agents",
+                        title: "Refiner: pedir el contrato del evento antes de cerrar el PRD",
+                        body: "…", reason: "El PRD no decía qué id lleva el evento y el build se bloqueó por eso.", status: "open"),
+        ]
         model.logLines = [
             RunnerLogLine(seq: 1, time: "2026-10-15T12:00:01.000Z", level: "info", scope: "ia-flow-runner-v2", message: "webhook projects_v2_item → la-haus/subscriptions#4295", fields: nil, trace_id: nil),
             RunnerLogLine(seq: 2, time: "2026-10-15T12:00:02.000Z", level: "info", scope: "engine", message: "dispatch build", fields: "agent=aiflow-implementer task=#4295", trace_id: nil),

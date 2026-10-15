@@ -108,6 +108,14 @@ struct RunnerInboxScreen: View {
                 TaskRow(runner: runner, item: item, primary: i == 0)
             }
         }
+        if !runner.improvements.isEmpty {
+            section("Mejoras propuestas", count: runner.improvements.count) {
+                ForEach(Array(runner.improvements.enumerated()), id: \.element.id) { i, improvement in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
+                    ImprovementRow(runner: runner, improvement: improvement)
+                }
+            }
+        }
         if !epics.isEmpty {
             section("Épicas", count: epics.count) {
                 ForEach(Array(epics.enumerated()), id: \.element.id) { i, epic in
@@ -253,6 +261,60 @@ struct TaskRow: View {
             }
         }()
         return Chip(text: text, tone: tone).fixedSize()
+    }
+}
+
+/// Una mejora propuesta por un agente: dónde se arregla, qué y por qué; abrirla como issue o descartarla.
+struct ImprovementRow: View {
+    @ObservedObject var runner: RunnerModel
+    let improvement: Improvement
+
+    var body: some View {
+        let busy = runner.busy.contains(improvement.id)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Chip(text: target, tone: .info).fixedSize()
+                Text(improvement.repo.split(separator: "/").last.map(String.init) ?? improvement.repo)
+                    .font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
+                Text([ago(improvement.created_at), "de \(improvement.task_ref.split(separator: "/").last.map { String($0) } ?? improvement.task_ref)"]
+                        .compactMap { $0 }.joined(separator: " · "))
+                    .font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            Text(improvement.title).font(.lh(13, .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Text(improvement.reason).font(.lh(11.5)).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Button { runner.decide(improvement, open: true) } label: {
+                    if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) } else { Text("Abrir issue…") }
+                }
+                .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(busy)
+                Button("Descartar…") { runner.decide(improvement, open: false) }
+                    .buttonStyle(PillButtonStyle(tint: .secondary, compact: true)).fixedSize().disabled(busy)
+                Spacer(minLength: 0)
+                Menu {
+                    Button("Abrir la tarea \(improvement.task_ref)") { runner.openTask(improvement.task_ref) }
+                    if let pr = improvement.pr_url, let url = URL(string: pr) { Button("Abrir el PR") { NSWorkspace.shared.open(url) } }
+                    Button("Copiar el cuerpo del issue") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(improvement.body, forType: .string)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 20).contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+        }
+        .help(improvement.body)
+    }
+
+    private var target: String {
+        switch improvement.target {
+        case "docs": return "docs"
+        case "config": return "config del runner"
+        case "engine": return "ia-flow"
+        default: return improvement.target
+        }
     }
 }
 

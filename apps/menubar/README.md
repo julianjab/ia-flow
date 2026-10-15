@@ -22,9 +22,10 @@ las tres atenuadas en reposo; no es template, el lima es de la marca) y `build.s
 **Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web
 (`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
-con su acción), lo que **corre** (con «Detener…») y la **cola**. «Logs del server» muestra el log del proceso del
+con su acción), las **mejoras propuestas** por la retrospectiva (abrirlas como issue o descartarlas), lo que
+**corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título. «Logs del server» muestra el log del proceso del
 runner (`GET /api/logs`, con filtro de nivel, se actualiza cada 3 s). El ícono lleva un **badge rojo** con las
-tareas que te esperan en el runner elegido (se relee cada minuto con el popover cerrado).
+tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con el popover cerrado).
 
 ![runner](screenshot-runner-dark.png)
 

@@ -169,6 +169,25 @@ struct RunnerLogs: Codable {
     let capacity: Int
 }
 
+/// Una mejora que propuso un agente (la retrospectiva) y espera a una persona: abrirla como issue o descartarla.
+struct Improvement: Codable, Identifiable, Hashable {
+    let id: String
+    let created_at: String
+    let task_ref: String
+    let pr_url: String?
+    let agent: String
+    /// `docs`, `config` o `engine`: dónde se arregla.
+    let target: String
+    /// `owner/repo` donde se abre el issue.
+    let repo: String
+    let title: String
+    let body: String
+    let reason: String
+    let status: String
+}
+
+private struct ImprovementList: Codable { let items: [Improvement] }
+
 struct TaskActionResult: Codable {
     let ok: Bool
     let message: String
@@ -258,6 +277,28 @@ struct RunnerClient {
             return try JSONDecoder().decode(TaskActionResult.self, from: data)
         } catch let error as RunnerError {
             return TaskActionResult(ok: false, message: error.message)
+        }
+    }
+
+    /// Las abiertas. Un runner sin mejoras (501) o viejo (404) da una lista vacía.
+    func improvements() async throws -> [Improvement] {
+        do {
+            let list: ImprovementList = try await get("/api/improvements?status=open")
+            return list.items
+        } catch let error as RunnerError where error.status == 501 || error.status == 404 {
+            return []
+        }
+    }
+
+    /// `open` abre el issue con el login de la persona; `dismiss` la descarta. Rechazos con `{ok, message}`.
+    func decide(_ improvement: Improvement, open: Bool, github: String) async -> TaskActionResult {
+        do {
+            let data = try await request("/api/improvements/\(improvement.id)/\(open ? "open" : "dismiss")", method: "POST", github: github)
+            return try JSONDecoder().decode(TaskActionResult.self, from: data)
+        } catch let error as RunnerError {
+            return TaskActionResult(ok: false, message: error.message)
+        } catch {
+            return TaskActionResult(ok: false, message: error.localizedDescription)
         }
     }
 
