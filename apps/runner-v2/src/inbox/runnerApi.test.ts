@@ -204,6 +204,23 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.close()
 })
 
+const RESOURCES = {
+  runner: {
+    at: '2026-10-15T12:00:00.000Z',
+    memory: { used_bytes: 600, total_bytes: 1000, source: 'cgroup' as const },
+    worktrees: 2,
+  },
+  hosts: [
+    {
+      name: 'front',
+      provider: 'remote:front',
+      max_concurrent: 2,
+      running: 2,
+      last_seen: '2026-10-15T12:00:00.000Z',
+    },
+  ],
+}
+
 async function start(
   token: string | null = TOKEN,
   push = true,
@@ -250,6 +267,7 @@ async function start(
     conversations,
     improvements,
     logs,
+    resources: () => RESOURCES,
     ...(deviceFlow ? { deviceFlow } : {}),
     ingress: new IngressService({
       log: { ingressEvents: () => [], ingressCount: () => ({ count: 0 }) },
@@ -825,6 +843,13 @@ describe('runner API', () => {
     const found = await (await call('/api/logs?q=O%2FR%231')).json()
     expect(found.lines.map((line: { seq: number }) => line.seq)).toEqual([3])
     expect((await call('/api/logs', { headers: { 'x-ia-flow-token': 'nope' } })).status).toBe(401)
+  })
+
+  it('GET /api/resources returns the runner and its hosts, behind the runner token', async () => {
+    const { call } = await start()
+    expect(await (await call('/api/resources')).json()).toEqual(RESOURCES)
+    const denied = await call('/api/resources', { headers: { 'x-ia-flow-token': 'nope' } })
+    expect(denied.status).toBe(401)
   })
 
   it('without github.clientId there is no device flow', async () => {
