@@ -128,8 +128,12 @@ final class RunnerModel: ObservableObject {
     /// Las tareas buscadas fuera de la bandeja, ya con sus acciones (las primeras del board, o la ref exacta).
     @Published private(set) var lookups: [InboxItem] = []
     @Published private(set) var searching = false
-    /// La ref exacta que se buscó y no está en ningún board del runner.
+    /// La ref exacta que se buscó y no está en ningún board del runner (ni se encontró en GitHub).
     @Published private(set) var lookupMiss: String?
+    /// Lo que coincide en GitHub fuera del runner (toda la organización): sólo para abrirlo.
+    @Published private(set) var githubResults: [GithubIssue] = []
+    /// Por qué no se buscó en GitHub (sin login, un error de la API).
+    @Published private(set) var githubNote: String?
     private var boardCache: (items: [BoardItem], at: Date)?
     private var searchTask: Task<Void, Never>?
 
@@ -247,7 +251,7 @@ final class RunnerModel: ObservableObject {
     }
     var resultCount: Int {
         shownDecisions.count + shownRunning.count + shownQueued.count + shownImprovements.count + shownEpics.count + lookups.count
-            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count
+            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count + githubResults.count
     }
 
     func clearSearch() { query = "" }
@@ -257,7 +261,7 @@ final class RunnerModel: ObservableObject {
     private func searchChanged() {
         searchTask?.cancel()
         guard let search, !isFixture else {
-            boardResults = []; lookups = []; lookupMiss = nil; searching = false
+            boardResults = []; lookups = []; lookupMiss = nil; githubResults = []; githubNote = nil; searching = false
             return
         }
         let server = selected
@@ -288,8 +292,43 @@ final class RunnerModel: ObservableObject {
             boardResults = board
             lookups = found
             lookupMiss = miss
+            // GitHub: lo que no es del runner, en toda la organización —sólo lectura, con tu login—.
+            let shown = inBox.union(board.map(\.ref)).union(found.map(\.ref))
+            let (issues, note) = await searchGithub(search, miss: miss, hiding: shown)
+            guard !Task.isCancelled, server == selected else { return }
+            githubResults = issues
+            githubNote = note
+            if let miss, issues.contains(where: { $0.ref == miss }) { lookupMiss = nil }
         }
     }
+
+    /// La organización del runner: el owner de sus tareas.
+    var organization: String? {
+        let refs = (inbox?.items ?? []).map(\.ref) + (boardCache?.items ?? []).map(\.ref)
+        return refs.lazy.compactMap(RunnerSearch.split).first?.owner
+    }
+
+    /// Una ref exacta que el runner no tiene se pide directo; un texto (desde 3 letras), por título en la organización.
+    private func searchGithub(_ search: RunnerSearch, miss: String?, hiding shown: Set<String>) async -> ([GithubIssue], String?) {
+        guard let org = organization ?? search.owner else { return ([], nil) }
+        let wantsText = (search.text?.count ?? 0) >= 3
+        guard miss != nil || wantsText else { return ([], nil) }
+        guard let session = await validSession() else {
+            return ([], "Inicia sesión con GitHub para buscar también en todos los repos de \(org).")
+        }
+        let github = GithubSearch(token: session.token)
+        do {
+            if let miss { return ((try await github.issue(miss)).map { [$0] } ?? [], nil) }
+            let found = try await github.search(search.text ?? "", org: org, repo: repoFilter)
+            return (found.filter { !shown.contains($0.ref) }, nil)
+        } catch let error as RunnerError {
+            return ([], "GitHub no respondió la búsqueda: \(error.message)")
+        } catch {
+            return ([], nil)
+        }
+    }
+
+    func openIssue(_ issue: GithubIssue) { _ = URL(string: issue.url).map { NSWorkspace.shared.open($0) } }
 
     /// El owner de un repo según las refs que ya se conocen (la bandeja y el board).
     private func ownerOf(repo: String) -> String? {

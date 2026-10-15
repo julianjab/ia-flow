@@ -171,6 +171,18 @@ struct RunnerInboxScreen: View {
                 }
             }
         }
+        if !runner.githubResults.isEmpty {
+            section("En GitHub · \(runner.organization ?? "")", count: runner.githubResults.count) {
+                ForEach(Array(runner.githubResults.enumerated()), id: \.element.ref) { i, issue in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
+                    GithubRow(runner: runner, issue: issue)
+                }
+            }
+        }
+        if let note = runner.githubNote {
+            Label(note, systemImage: "magnifyingglass").font(.lh(11.5)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         if let miss = runner.lookupMiss {
             Banner(text: "\(miss) no está en ningún board de este runner.", tone: .neutral, icon: "magnifyingglass") {
                 Button("Abrir en GitHub") { runner.openTask(miss) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
@@ -456,6 +468,31 @@ struct BoardRow: View {
         }
         .buttonStyle(.plain)
         .help(item.title)
+    }
+}
+
+/// Un issue o PR de GitHub que no es del runner: abierto o cerrado, el título y su repo; clic lo abre en el navegador
+/// (desde acá no se puede mover: no está en el board).
+struct GithubRow: View {
+    @ObservedObject var runner: RunnerModel
+    let issue: GithubIssue
+
+    var body: some View {
+        Button { runner.openIssue(issue) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: issue.isPR ? "arrow.triangle.pull" : issue.open ? "circle.circle" : "checkmark.circle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(issue.open ? Color.green : Color.purple)
+                    .help(issue.open ? "Abierto" : "Cerrado")
+                Text(issue.title).font(.lh(12)).lineLimit(1)
+                Spacer(minLength: 4)
+                if let when = ago(issue.updatedAt) { Text(when).font(.lh(10.5)).foregroundStyle(.tertiary).fixedSize() }
+                refTag(issue.ref)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(issue.title)\nAbrir en GitHub")
     }
 }
 
