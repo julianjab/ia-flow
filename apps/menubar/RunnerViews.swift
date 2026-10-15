@@ -28,7 +28,7 @@ struct RunnerInboxScreen: View {
                     if let error = runner.error { errorBanner(error) }
                     if let login = runner.login { DeviceLoginCard(runner: runner, login: login) }
                     else if runner.github == nil, runner.error == nil, runner.inbox != nil { loginBanner }
-                    if let pipeline = runner.inbox?.pipeline, runner.search == nil { capacity(pipeline) }
+                    if let pipeline = runner.inbox?.pipeline, !runner.filtering { capacity(pipeline) }
                     if runner.inbox != nil { sections }
                     else if runner.error == nil { loadingCard }
                 }
@@ -57,7 +57,7 @@ struct RunnerInboxScreen: View {
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                 }
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             Spacer()
             if runner.loading { ProgressView().controlSize(.small).scaleEffect(0.6) }
             if let session = runner.github {
@@ -103,7 +103,7 @@ struct RunnerInboxScreen: View {
     @ViewBuilder
     private var sections: some View {
         // Buscando: sólo lo que coincide, sin secciones vacías ni colapsadas.
-        let searching = runner.search != nil
+        let searching = runner.filtering
         let decisions = runner.shownDecisions, running = runner.shownRunning, epics = runner.shownEpics
         let queued = runner.shownQueued, improvements = runner.shownImprovements
         if !searching || !decisions.isEmpty {
@@ -114,7 +114,7 @@ struct RunnerInboxScreen: View {
                 }
             }
         }
-        if searching { boardSection }
+        if runner.search != nil { boardSection }
         if !improvements.isEmpty {
             section("Mejoras propuestas", count: improvements.count) {
                 ForEach(Array(improvements.enumerated()), id: \.element.id) { i, improvement in
@@ -175,13 +175,15 @@ struct RunnerInboxScreen: View {
     }
 
     private var noResults: some View {
-        Text("Nada coincide con «\(runner.query)» en la bandeja ni en el board.")
+        Text(runner.search == nil
+             ? "Nada de \(runner.repoFilter ?? "") en la bandeja."
+             : "Nada coincide con «\(runner.query)»\(runner.repoFilter.map { " en \($0)" } ?? "") en la bandeja ni en el board.")
             .font(.lh(12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).card()
     }
 
     /// Una sección que se colapsa con un clic en su título (lo recuerda entre aperturas del popover).
     private func section<Content: View>(_ title: String, count: Int, empty: String? = nil, @ViewBuilder content: () -> Content) -> some View {
-        let collapsed = runner.search == nil && runner.isCollapsed(title)
+        let collapsed = !runner.filtering && runner.isCollapsed(title)
         return VStack(alignment: .leading, spacing: 8) {
             Button { withAnimation(.easeOut(duration: 0.15)) { runner.toggleSection(title) } } label: {
                 HStack(spacing: 5) {
@@ -229,7 +231,7 @@ struct TaskRow: View {
                 kindChip
                 Text(meta).font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 4)
-                Button { runner.open(item) } label: { Text(item.shortRef).font(.lh(11.5, .semibold)).foregroundStyle(.tertiary) }
+                Button { runner.open(item) } label: { refTag(item.ref) }
                     .buttonStyle(.plain).help("Abrir \(item.ref) en GitHub")
             }
             Button { runner.open(item) } label: {
@@ -313,8 +315,8 @@ struct ImprovementRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Chip(text: target, tone: .info).fixedSize()
-                Text(improvement.repo.split(separator: "/").last.map(String.init) ?? improvement.repo)
-                    .font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
+                RepoTag(repo: improvement.repo.split(separator: "/").last.map(String.init) ?? improvement.repo)
+                    .help("El issue se abre en \(improvement.repo)")
                 Text([ago(improvement.created_at), "de \(improvement.task_ref.split(separator: "/").last.map { String($0) } ?? improvement.task_ref)"]
                         .compactMap { $0 }.joined(separator: " · "))
                     .font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
@@ -366,20 +368,58 @@ struct SearchField: View {
         FieldBox {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                TextField("#1775, subscriptions#1775, link del issue o texto", text: $runner.query)
+                repoMenu
+                TextField("Número, link o texto", text: $runner.query)
                     .focused($focused)
                     .onExitCommand { runner.clearSearch() }
                 if runner.searching { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 14, height: 14) }
-                if runner.search != nil {
+                if runner.filtering {
                     Text("\(runner.resultCount)").font(.lh(11, .semibold)).foregroundStyle(.secondary)
-                    Button { runner.clearSearch() } label: {
+                    Button { runner.clearSearch(); runner.repoFilter = nil } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                     }
-                    .buttonStyle(.plain).help("Limpiar (esc)")
+                    .buttonStyle(.plain).help("Limpiar búsqueda y repo")
                 }
             }
         }
     }
+
+    /// El selector de repo: un tag al inicio del campo («Todos» o el repo, con su color).
+    private var repoMenu: some View {
+        Menu {
+            Button { runner.repoFilter = nil } label: {
+                if runner.repoFilter == nil { Label("Todos los repos", systemImage: "checkmark") } else { Text("Todos los repos") }
+            }
+            Divider()
+            ForEach(runner.repos, id: \.name) { repo in
+                Button { runner.repoFilter = repo.name } label: {
+                    let title = repo.count > 0 ? "\(repo.name)  ·  \(repo.count)" : repo.name
+                    if runner.repoFilter == repo.name { Label(title, systemImage: "checkmark") } else { Text(title) }
+                }
+            }
+        } label: {
+            if let repo = runner.repoFilter {
+                RepoTag(repo: repo, chevron: true)
+            } else {
+                HStack(spacing: 3) {
+                    Text("Todos").font(.lh(10.5, .semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold)).opacity(0.7)
+                }
+                .padding(.horizontal, 7).padding(.vertical, 2.5)
+                .foregroundStyle(.secondary)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
+                .fixedSize()
+            }
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help("Filtrar por repo")
+    }
+}
+
+/// `subscriptions #1775` como tag del color del repo.
+func refTag(_ ref: String) -> some View {
+    let parts = RunnerSearch.split(ref)
+    return RepoTag(repo: parts?.repo ?? ref, number: parts?.number)
 }
 
 /// Una card del board fuera de la bandeja: su columna y el título; clic la abre en GitHub.
@@ -393,7 +433,7 @@ struct BoardRow: View {
                 if let status = item.status { Chip(text: status).fixedSize() }
                 Text(cleanTitle(item.title)).font(.lh(12)).lineLimit(1)
                 Spacer(minLength: 4)
-                Text(item.ref.split(separator: "/").last.map(String.init) ?? item.ref).font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
+                refTag(item.ref)
             }
             .contentShape(Rectangle())
         }
@@ -409,9 +449,9 @@ struct CompactRow: View {
     var body: some View {
         Button { runner.open(item) } label: {
             HStack(spacing: 6) {
-                Text(item.shortRef).font(.lh(11.5, .bold)).foregroundStyle(.secondary)
                 Text(item.displayTitle).font(.lh(12)).lineLimit(1)
                 Spacer()
+                refTag(item.ref)
                 Text(item.kind == "dep" ? "bloqueada" : "turno").font(.lh(11)).foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())

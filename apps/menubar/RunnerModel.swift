@@ -151,9 +151,16 @@ final class RunnerModel: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: "runnerServer")
         selected = list.first { $0.baseUrl == saved } ?? list[0]
         self.inbox = inbox
+        restoreRepoFilter()
     }
 
     private var client: RunnerClient { RunnerClient(server: selected) }
+
+    /// Al arrancar, el repo que se había elegido para este server.
+    func restoreRepoFilter() {
+        guard !isFixture else { return }
+        repoFilter = UserDefaults.standard.string(forKey: "runnerRepo:\(selected.baseUrl)")
+    }
 
     // MARK: lo que se muestra
 
@@ -181,10 +188,37 @@ final class RunnerModel: ObservableObject {
 
     // MARK: buscador
 
+    /// `subscriptions` de `la-haus/subscriptions#12`.
+    func repoName(_ ref: String) -> String? { RunnerSearch.split(ref)?.repo }
+
     var search: RunnerSearch? { RunnerSearch(query) }
 
-    /// Coincide la tarea, o su épica (buscar una épica trae sus tareas).
+    /// El repo elegido en el tag del buscador (sólo el nombre, `subscriptions`); nil = todos.
+    @Published var repoFilter: String? {
+        didSet {
+            guard repoFilter != oldValue else { return }
+            if !isFixture { UserDefaults.standard.set(repoFilter, forKey: "runnerRepo:\(selected.baseUrl)") }
+            searchChanged()
+        }
+    }
+
+    /// Buscando o con un repo elegido: las secciones muestran sólo lo que coincide.
+    var filtering: Bool { search != nil || repoFilter != nil }
+
+    /// Los repos que se conocen (bandeja, board y mejoras), con cuántas tareas tiene cada uno en la bandeja.
+    var repos: [(name: String, count: Int)] {
+        let inboxRepos = (inbox?.items ?? []).compactMap { repoName($0.ref) }
+        var names = Set(inboxRepos)
+        names.formUnion((boardCache?.items ?? []).compactMap { repoName($0.ref) })
+        if let repoFilter { names.insert(repoFilter) }
+        return names.sorted().map { name in (name, inboxRepos.filter { $0 == name }.count) }
+    }
+
+    private func inRepo(_ ref: String) -> Bool { repoFilter.map { repoName(ref) == $0 } ?? true }
+
+    /// Coincide la tarea, o su épica (buscar una épica trae sus tareas); y está en el repo elegido.
     func keep(_ item: InboxItem) -> Bool {
+        guard inRepo(item.ref) else { return false }
         guard let search else { return true }
         return search.matches(ref: item.ref, title: item.title, pr: item.pr?.number)
             || item.epic.map { search.matches(ref: $0.ref, title: $0.title) } == true
@@ -194,13 +228,15 @@ final class RunnerModel: ObservableObject {
     var shownRunning: [InboxItem] { running.filter(keep) }
     var shownQueued: [InboxItem] { queued.filter(keep) }
     var shownImprovements: [Improvement] {
-        guard let search else { return improvements }
-        return improvements.filter { search.matches(ref: $0.task_ref, title: $0.title) }
+        improvements.filter { inRepo($0.task_ref) && (search?.matches(ref: $0.task_ref, title: $0.title) ?? true) }
     }
-    /// Una épica se muestra si la buscada es ella (su número) o alguna de sus tareas.
+    /// Una épica se muestra si la buscada es ella (su número) o alguna de sus tareas; con un repo, si tiene tareas ahí.
     var shownEpics: [EpicView] {
-        guard let search else { return epics }
-        return epics.filter { search.matches(ref: $0.epic.ref, title: $0.epic.title) || $0.items.contains(where: keep) }
+        guard filtering else { return epics }
+        return epics.filter { epic in
+            epic.items.contains(where: keep)
+                || (repoFilter == nil && search?.matches(ref: epic.epic.ref, title: epic.epic.title) == true)
+        }
     }
     var resultCount: Int {
         shownDecisions.count + shownRunning.count + shownQueued.count + shownImprovements.count + shownEpics.count + lookups.count
@@ -229,7 +265,9 @@ final class RunnerModel: ObservableObject {
             }
             guard !Task.isCancelled, server == selected else { return }
             let inBox = Set((inbox?.items ?? []).map(\.ref))
-            let board = (boardCache?.items ?? []).filter { !inBox.contains($0.ref) && search.matches(ref: $0.ref, title: $0.title, pr: $0.pr?.number) }
+            let board = (boardCache?.items ?? []).filter {
+                !inBox.contains($0.ref) && inRepo($0.ref) && search.matches(ref: $0.ref, title: $0.title, pr: $0.pr?.number)
+            }
             var wanted = board.prefix(3).map(\.ref)
             // La ref exacta (o `repo#n` con un owner conocido) que no aparece en ningún lado: se pide igual.
             let exact = search.fullRef ?? search.number.flatMap { n in search.repo.flatMap { ownerOf(repo: $0).map { "\($0)/\(search.repo!)#\(n)" } } }
@@ -273,6 +311,7 @@ final class RunnerModel: ObservableObject {
         improvements = []
         boardCache = nil
         query = ""
+        repoFilter = UserDefaults.standard.string(forKey: "runnerRepo:\(server.baseUrl)")
         error = nil
         login = nil
         comment = nil
@@ -500,8 +539,9 @@ extension RunnerModel {
     static func fixture() -> RunnerModel {
         let epic = TaskEpic(ref: "la-haus/subscriptions#4200", title: "feat(360): funnel configurable por empresa — etapas personalizadas", done: 19, total: 24)
         func item(_ n: Int, _ title: String, group: String, kind: String, why: String, actions: [String],
-                  epic: TaskEpic? = nil, priority: Int? = nil, said: String? = nil, pr: Int? = nil, agent: String? = nil) -> InboxItem {
-            InboxItem(ref: "la-haus/subscriptions#\(n)", project_id: "p", title: title, url: "https://github.com", group: group, kind: kind,
+                  epic: TaskEpic? = nil, priority: Int? = nil, said: String? = nil, pr: Int? = nil, agent: String? = nil,
+                  repo: String = "subscriptions") -> InboxItem {
+            InboxItem(ref: "la-haus/\(repo)#\(n)", project_id: "p", title: title, url: "https://github.com", group: group, kind: kind,
                       status: nil, why: why, since: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(n % 50) * 900)), pr: pr.map { PullRef(number: $0, url: "https://github.com") },
                       execution: agent.map { ExecutionSummary(id: "x", pipeline_id: "build", status: "running", started_at: "", agent_id: $0) },
                       blocked_by: nil, epic: epic, agent_said: said, actions: actions, action_defs: nil, priority: priority, reasons: nil)
@@ -510,7 +550,8 @@ extension RunnerModel {
             item(4281, "feat(core): el motor de asignación resuelve assignable_stages y stage_weights", group: "need", kind: "review", why: "Review sin reviewed · PR #912",
                  actions: ["rerun_review", "retry"], epic: epic, priority: 1, pr: 912),
             item(4290, "fix(crm): evento lead.profiled en EventBridge", group: "need", kind: "doubt", why: "El agente se trabó y te pregunta",
-                 actions: ["answer_and_unblock", "back_to_refine"], epic: epic, priority: 2, said: "¿El evento lleva el user_id o el lead_id?"),
+                 actions: ["answer_and_unblock", "back_to_refine"], epic: epic, priority: 2, said: "¿El evento lleva el user_id o el lead_id?",
+                 repo: "ai-cx-agents"),
             item(4301, "Migrar tabla de citas", group: "fail", kind: "crash", why: "La corrida falló por el provider (timeout)",
                  actions: ["retry"], priority: 3),
             InboxItem(ref: "la-haus/subscriptions#1271", project_id: "p", title: "Pipeline propio configurable: stages y transitions declarativas (reemplazo del if/elif)",
@@ -519,7 +560,7 @@ extension RunnerModel {
                       action_defs: [TaskActionDef(id: "approve_prd", label: "Aprobar y pasar a Build", comment: nil, confirm: "¿Aprobar el PRD?")],
                       priority: 4, reasons: nil),
             item(4295, "Pantalla de perfilado", group: "run", kind: "agent", why: "build corriendo hace 12 min",
-                 actions: ["stop"], epic: epic, agent: "aiflow-implementer"),
+                 actions: ["stop"], epic: epic, agent: "aiflow-implementer", repo: "lh-seller-v2-frontend"),
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),
         ], pipeline: InboxPipeline(running: 1, queued: 1, paused: 0, capacity: 3, free: 2), feed: nil)
         let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x")], inbox: inbox)

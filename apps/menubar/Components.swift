@@ -43,6 +43,34 @@ struct Chip: View {
     }
 }
 
+/// La etiqueta de un repo: siempre del mismo color para el mismo repo, para distinguirlos de un vistazo.
+struct RepoTag: View {
+    let repo: String
+    var number: Int? = nil
+    var chevron = false
+
+    private static let palette: [Color] = [.blue, .purple, .pink, .indigo, .orange, .green, .brown]
+
+    /// Un hash estable (no `hashValue`, que cambia entre ejecuciones).
+    static func color(_ repo: String) -> Color {
+        palette[repo.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF } % palette.count]
+    }
+
+    var body: some View {
+        let color = RepoTag.color(repo)
+        HStack(spacing: 3) {
+            Text(repo).font(.lh(10.5, .semibold)).lineLimit(1)
+            if let number { Text("#" + String(number)).font(.lh(10.5, .bold)).opacity(0.75) }
+            if chevron { Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold)).opacity(0.7) }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2.5)
+        .foregroundStyle(color)
+        .background(Capsule().fill(color.opacity(0.14)))
+        .fixedSize()
+    }
+}
+
 /// Chip seleccionable (los puertos en escucha del formulario de túnel).
 struct SelectChip: View {
     let label: String
