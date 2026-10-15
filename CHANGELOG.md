@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.11.0](https://github.com/julianjab/ia-flow/compare/v2.10.1...v2.11.0) (2026-10-15)
+
+
+### Features
+
+* **menubar:** «En vivo» — la traza de la ejecución de una tarea, paso a paso ([d197bec](https://github.com/julianjab/ia-flow/commit/d197bec429b09d8b72995bf69ae55bb8856f65e8))
+* **menubar:** abrir en una ventana y el estado del runner ([174c83e](https://github.com/julianjab/ia-flow/commit/174c83efd866bd2b0332327ba451f1fdb095427f))
+* **menubar:** buscador de tareas en la pestaña Runner ([437e59c](https://github.com/julianjab/ia-flow/commit/437e59c1422fcee2441bccbaab7735440706d031))
+* **menubar:** búsqueda aproximada por texto ([a42a412](https://github.com/julianjab/ia-flow/commit/a42a412d99982e2e3b5ff0a98be813e0261c9de2))
+* **menubar:** el buscador también busca en todos los repos de la organización ([3145494](https://github.com/julianjab/ia-flow/commit/31454946a391d68f0bfe28c8a335e0c19eb15635))
+* **menubar:** filas de la bandeja más compactas y legibles ([67407dd](https://github.com/julianjab/ia-flow/commit/67407dd997d113ba4a8151c77209cf811c0e955e))
+* **menubar:** la ventana, traslúcida como el popover ([47e0190](https://github.com/julianjab/ia-flow/commit/47e019038aa421541228cb5500d4fe614774da00))
+* **menubar:** mejoras propuestas en la pestaña Runner ([d52a184](https://github.com/julianjab/ia-flow/commit/d52a184c8f4da6e9e5054ebb58e53ea207998bbd))
+* **menubar:** pestaña Asistente y Runner como primera pestaña ([9b47467](https://github.com/julianjab/ia-flow/commit/9b47467023840736114884f09996df1db084a273))
+* **menubar:** pestaña Runner con bandeja, épicas, acciones y logs del server ([2f5ee21](https://github.com/julianjab/ia-flow/commit/2f5ee21a32b497e51a69d12f3750be7967ce593b))
+* **menubar:** recursos del runner y de sus hosts en «Estado del runner» ([34f3026](https://github.com/julianjab/ia-flow/commit/34f3026282743b85e15cdcecfbc82cbdaa06dd76))
+* **menubar:** secciones de la bandeja colapsables ([1df7d80](https://github.com/julianjab/ia-flow/commit/1df7d8087511b48409f097ccca62ac4d61300dfc))
+* **menubar:** tag de repo en cada tarea y selector de repo en el buscador ([d02ea21](https://github.com/julianjab/ia-flow/commit/d02ea21cf88e30fea2b38f167a086ecba958606b))
+* **provider-remote:** el host manda sus recursos al runner (POST /v1/hosts/&lt;session&gt;/stats) ([dbeb4c7](https://github.com/julianjab/ia-flow/commit/dbeb4c7fb4421415c506e36233f68e8a3de86c98))
+* **runner:** GET /api/logs con las últimas líneas del log del proceso ([59eb1f7](https://github.com/julianjab/ia-flow/commit/59eb1f72488eaf5951170cebb65a44ae3d687488))
+* **runner:** GET /api/resources — memoria, disco, carga y worktrees del runner y sus hosts ([bad718f](https://github.com/julianjab/ia-flow/commit/bad718f782e99f922e535ee706ad040c201d2817))
+
+
+### Bug Fixes
+
+* **llm-gateway:** reenviar las betas del cliente en el protocolo nativo ([9e54426](https://github.com/julianjab/ia-flow/commit/9e544263112373680109e7027198c155e812e407))
+* **menubar:** la traza de una ejecución sin duplicados y en orden ([a9b584d](https://github.com/julianjab/ia-flow/commit/a9b584dff6863da6f1f8f8788cc0c599ac96bcec))
+
 ## [2.10.1](https://github.com/julianjab/ia-flow/compare/v2.10.0...v2.10.1) (2026-10-15)
 
 
