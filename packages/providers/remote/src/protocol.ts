@@ -4,6 +4,7 @@
  *
  *   POST /v1/hosts/subscribe              (bearer de hosts) me llamo X, tomo esto, hasta N a la vez
  *   POST /v1/hosts/<session>/poll         (bearer de hosts) long-poll: tareas nuevas y corridas cerradas
+ *   POST /v1/hosts/<session>/stats        (bearer de hosts) sus recursos (memoria, disco, worktrees…)
  *   POST /v1/runs/<token>/tools           una tool del engine (`submit_*`, GitHub…)   ┐ el token de la
  *   POST /v1/runs/<token>/inbox           lo que llegó a la ejecución (sus `injects`) │ corrida, en el
  *   POST /v1/runs/<token>/conversation    la conversación en curso, para retomarla    │ path
@@ -75,6 +76,15 @@ export const PollRequest = z.strictObject({
   running: z.array(z.string()).default([]),
 })
 export type PollRequest = z.infer<typeof PollRequest>
+
+/**
+ * `POST /stats`: los recursos del host (memoria, disco, carga, worktrees). El protocolo los
+ * transporta sin mirarlos —qué trae lo decide quien los arma y quien los lee (el runner-v2 en los
+ * dos lados)—; sólo exige un objeto. Va aparte del poll: un runner anterior contesta 404 y el host
+ * sigue igual.
+ */
+export const HostStats = z.record(z.string(), z.unknown())
+export type HostStats = z.infer<typeof HostStats>
 
 /** Una tool del engine, como la ve el modelo del host: se corre en el runner (`/tools`). */
 export const ToolSpec = z.strictObject({

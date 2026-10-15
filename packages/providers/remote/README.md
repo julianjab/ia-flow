@@ -81,6 +81,14 @@ misma ejecución que el resto de la corrida.
 Lo que no es de una corrida (suscripción, un poll caído) no entra en la base, pero sí se reexporta.
 Y lo que pasa cuando el host no llega al runner no puede viajar por él: queda en su consola.
 
+## Los recursos del host
+
+Con `stats`, `HostClient` manda sus recursos al suscribirse y cada `statsEveryMs` (30 s):
+`POST /v1/hosts/<session>/stats`, un objeto JSON que el protocolo **no mira** —lo arma y lo lee el
+runner-v2 (memoria, disco, carga, worktrees)—. El hub guarda el último con su hora y lo devuelve en
+`list()` (`stats`, `statsAt`). Va aparte del poll a propósito: un runner anterior contesta 404
+`ruta desconocida`, el host lo anota una vez y deja de mandarlos; nunca frena el trabajo.
+
 ## Límites conocidos
 
 - **`mcpServers` viaja con sus credenciales** (resueltas en el runner): usá HTTPS.

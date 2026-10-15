@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   type AcceptRow,
   ConversationPost,
+  HostStats,
   type HostTask,
   type InboxResponse,
   PollRequest,
@@ -48,6 +49,9 @@ export interface HostInfo {
   running: number
   accepts: AcceptRow[]
   lastSeen: string
+  /** Lo último que mandó de sus recursos (`POST /stats`), tal cual, y cuándo. */
+  stats?: HostStats
+  statsAt?: string
 }
 
 /** Cómo terminó la espera de una corrida remota. */
@@ -98,6 +102,8 @@ class HostState {
   readonly runs = new Map<string, RemoteRunState>()
   private waiter: (() => void) | undefined
   conditions: Condition[] = []
+  stats: HostStats | undefined
+  statsAt: number | undefined
 
   constructor(
     public subscription: SubscribeRequest,
@@ -185,6 +191,8 @@ export class RemoteHub {
       running: host.runs.size,
       accepts: host.subscription.accepts,
       lastSeen: new Date(host.lastSeen).toISOString(),
+      ...(host.stats ? { stats: host.stats } : {}),
+      ...(host.statsAt !== undefined ? { statsAt: new Date(host.statsAt).toISOString() } : {}),
     }))
   }
 
@@ -256,6 +264,7 @@ export class RemoteHub {
       if (parts[1] === 'subscribe') return await this.onSubscribe(req)
       if (parts[1] === 'telemetry') return await this.onTelemetry(parts[2], req)
       if (parts[2] === 'poll' && parts[1]) return await this.onPoll(parts[1], req)
+      if (parts[2] === 'stats' && parts[1]) return await this.onStats(parts[1], req)
       return json(404, { error: 'ruta desconocida' })
     } catch (error) {
       if (error instanceof BadRequest) return json(400, { error: error.message })
@@ -299,6 +308,14 @@ export class RemoteHub {
       leaseMs: this.leaseMs,
     }
     return json(200, response)
+  }
+
+  private async onStats(session: string, req: Request): Promise<Response> {
+    const host = [...this.hosts.values()].find((candidate) => candidate.session === session)
+    if (!host) return json(404, { error: 'sesión desconocida: volvé a suscribirte' })
+    host.stats = parse(HostStats, await body(req))
+    host.statsAt = this.now()
+    return json(200, {})
   }
 
   private async onPoll(session: string, req: Request): Promise<Response> {

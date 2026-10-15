@@ -1,6 +1,7 @@
 import { createLogger, withRemoteTraceContext, withSpan } from '@ia-flow/telemetry'
 import {
   type AcceptRow,
+  type HostStats,
   type HostTask,
   PollResponse,
   PROTOCOL_PREFIX,
@@ -32,6 +33,11 @@ export interface HostClientOptions {
   fetchImpl?: typeof fetch
   /** Cuánto espera antes de reintentar con el runner caído. Default: 5 s. */
   retryMs?: number
+  /** Sus recursos (memoria, disco, worktrees…), para que el runner los muestre: se mandan al
+   *  suscribirse y cada `statsEveryMs`. Sin esto, no se mandan. */
+  stats?: () => HostStats | Promise<HostStats>
+  /** Default: 30 s. */
+  statsEveryMs?: number
 }
 
 /**
@@ -49,6 +55,9 @@ export class HostClient {
   private session: string | undefined
   private stopped = false
   private loop: Promise<void> | undefined
+  private statsTimer: ReturnType<typeof setInterval> | undefined
+  /** Un runner anterior a `/stats` contesta 404: se avisa una vez y se deja de insistir. */
+  private statsUnsupported = false
 
   constructor(private readonly options: HostClientOptions) {
     this.base = options.runnerUrl.replace(/\/+$/, '')
@@ -62,11 +71,19 @@ export class HostClient {
 
   start(): void {
     this.loop ??= this.run()
+    if (this.options.stats && !this.statsTimer) {
+      this.statsTimer = setInterval(
+        () => void this.sendStats(),
+        this.options.statsEveryMs ?? 30_000,
+      )
+      this.statsTimer.unref?.()
+    }
   }
 
   /** Deja de pedir tareas y corta las corridas en curso. */
   async stop(): Promise<void> {
     this.stopped = true
+    clearInterval(this.statsTimer)
     for (const controller of this.active.values()) controller.abort('el host se apaga')
     await this.loop?.catch(() => {})
   }
@@ -100,7 +117,29 @@ export class HostClient {
     if (!res.ok) throw new Error(`suscripción rechazada: HTTP ${res.status} ${await res.text()}`)
     const { session, provider, leaseMs } = SubscribeResponse.parse(await res.json())
     this.log.info(`suscrito a ${this.base} como ${provider} (lease ${leaseMs} ms)`)
+    void this.sendStats(session)
     return session
+  }
+
+  /** Nunca tira: los recursos son para mirar, no frenan el trabajo. */
+  private async sendStats(session = this.session): Promise<void> {
+    const stats = this.options.stats
+    if (!stats || !session || this.statsUnsupported || this.stopped) return
+    try {
+      const res = await this.post(`/hosts/${encodeURIComponent(session)}/stats`, await stats())
+      // 404 con la sesión vigente: el runner no conoce la ruta (es anterior). Con una sesión vieja,
+      // el poll ya se vuelve a suscribir y la próxima vuelta va con la nueva.
+      if (
+        res.status === 404 &&
+        session === this.session &&
+        (await res.text()).includes('ruta desconocida')
+      ) {
+        this.statsUnsupported = true
+        this.log.info('el runner no recibe los recursos del host (es anterior a /stats)')
+      }
+    } catch (error) {
+      this.log.debug(`recursos del host: ${(error as Error).message}`)
+    }
   }
 
   private async poll(session: string): Promise<PollResponse | 'unknown'> {

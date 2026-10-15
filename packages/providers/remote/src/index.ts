@@ -4,6 +4,7 @@ export {
   AcceptRow,
   ConversationPost,
   HostName,
+  HostStats,
   HostTask,
   InboxResponse,
   PollRequest,
