@@ -22,7 +22,7 @@ struct RootView: View {
                             IconButton(symbol: "macwindow.badge.plus", help: "Abrir en una ventana") { model.onDetach?() }
                         }
                     }
-                    .padding(.horizontal, 14).padding(.top, 12)
+                    .padding(.horizontal, 14).padding(.top, windowed ? 32 : 12)  // en la ventana, debajo de los semáforos
                 }
                 if model.form != nil { TunnelFormView(model: model) }
                 else if model.tab == .runner { RunnerScreen(runner: model.runner) }

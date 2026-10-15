@@ -22,7 +22,7 @@ las tres atenuadas en reposo; no es template, el lima es de la marca) y `build.s
 **Pestañas:** Runner (la que abre por defecto) · Asistente · Servicios.
 
 **Ventana:** el botón junto a las pestañas (o «Abrir en una ventana» con clic derecho en el ícono) abre lo mismo en
-una ventana de app: con Dock y ⌘-Tab, redimensionable (las listas usan todo el alto), recuerda posición y tamaño y,
+una ventana de app traslúcida (el mismo material que el popover): con Dock y ⌘-Tab, redimensionable (las listas usan todo el alto), recuerda posición y tamaño y,
 con el pin, queda encima de las demás. Mientras está abierta, el ícono de la barra la trae al frente; al cerrarla la
 app vuelve a ser sólo el ícono. Si se sale con la ventana abierta, vuelve a abrirse al arrancar.
 

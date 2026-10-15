@@ -261,11 +261,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let host = NSHostingController(rootView: RootView(model: model).environment(\.windowed, true))
+        let host = NSHostingView(rootView: RootView(model: model).environment(\.windowed, true))
         host.sizingOptions = []
-        let window = NSWindow(contentViewController: host)
+        // Traslúcida como el popover: el material deja ver (desenfocado) lo que hay detrás.
+        let glass = NSVisualEffectView()
+        glass.material = .popover
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        host.translatesAutoresizingMaskIntoConstraints = false
+        glass.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+            host.topAnchor.constraint(equalTo: glass.topAnchor),
+            host.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
+        ])
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 760),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.contentView = glass
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.title = "ia-flow"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -284,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
-        window?.contentViewController = nil
+        window?.contentView = nil
         window = nil
         // si la app se cierra con la ventana abierta, al volver a abrirla vuelve la ventana
         if !terminating { UserDefaults.standard.set(false, forKey: "windowOpen") }
