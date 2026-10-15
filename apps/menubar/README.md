@@ -28,7 +28,9 @@ app vuelve a ser sólo el ícono. Si se sale con la ventana abierta, vuelve a ab
 
 **Estado del runner** (el ♡ al pie de la bandeja, o el menú del server): si responde (`/health`) y en cuánto, versión,
 qué está mal (sin secreto de webhook, GitHub sin eventos hace 2 h, sin lugar libre con cola, errores en el log),
-ejecuciones y capacidad, entradas (`/api/ingress`: último evento y cuántos en 24 h), qué escucha
+ejecuciones y capacidad, **recursos** (`/api/resources`: memoria del contenedor, disco, carga y worktrees del runner
+y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memoria/disco pasan el 90 %), entradas
+(`/api/ingress`: último evento y cuántos en 24 h), qué escucha
 (`/api/webhooks/status`), el asistente y los últimos avisos de `/api/logs`. Se relee cada 6 s.
 
 **Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web

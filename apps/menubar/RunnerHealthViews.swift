@@ -44,6 +44,12 @@ struct RunnerHealthScreen: View {
         summary(health, issues: issues)
         if health.alive {
             executions(health)
+            if let resources = health.resources {
+                machine("Runner", resources.runner, slots: nil)
+                ForEach(resources.hosts) { host in
+                    machine(host.name, host.resources, slots: (host.running, host.max_concurrent), lastSeen: host.last_seen)
+                }
+            }
             if let ingress = health.ingress { sources(ingress) }
             if let webhooks = health.webhooks { listening(webhooks) }
             if let info = health.info { assistant(info) }
@@ -54,10 +60,11 @@ struct RunnerHealthScreen: View {
     // MARK: resumen
 
     private func summary(_ health: RunnerHealth, issues: [RunnerHealth.Issue]) -> some View {
-        let worst = issues.first?.tone
+        let worst = issues.map(\.tone).contains(.bad) ? Tone.bad : issues.map(\.tone).contains(.warn) ? .warn : issues.first?.tone
         let (title, tone, icon): (String, Tone, String) = !health.alive
             ? ("No responde", .bad, "xmark.octagon.fill")
             : worst == .bad ? ("Con problemas", .bad, "exclamationmark.octagon.fill")
+            : health.saturated(pipeline: runner.inbox?.pipeline) ? ("A tope", .warn, "gauge.with.dots.needle.100percent")
             : worst == .warn ? ("Responde, con avisos", .warn, "exclamationmark.triangle.fill")
             : ("Todo bien", .ok, "checkmark.seal.fill")
         return VStack(alignment: .leading, spacing: 8) {
@@ -105,6 +112,49 @@ struct RunnerHealthScreen: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+    }
+
+    // MARK: recursos de cada máquina
+
+    /// El runner o un host: sus lugares (si es host), memoria, disco, carga y worktrees.
+    private func machine(_ name: String, _ resources: MachineResources?, slots: (Int, Int)?, lastSeen: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: slots == nil ? "server.rack" : "desktopcomputer").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(name).font(.lh(12.5, .bold)).lineLimit(1)
+                if let slots {
+                    Chip(text: "\(slots.0)/\(slots.1) corriendo", tone: slots.0 >= slots.1 ? .warn : .ok)
+                }
+                Spacer(minLength: 4)
+                if let worktrees = resources?.worktrees {
+                    Label("\(worktrees)", systemImage: "arrow.triangle.branch").font(.lh(11, .semibold)).foregroundStyle(.secondary)
+                        .help("\(worktrees) worktrees de tareas en disco")
+                }
+            }
+            if let resources {
+                if let memory = resources.memory {
+                    UsageBar(label: memory.source == "cgroup" ? "Memoria (contenedor)" : "Memoria", usage: memory,
+                             detail: resources.process_rss_bytes.map { "proceso \(formatBytes($0))" })
+                }
+                if let disk = resources.disk { UsageBar(label: "Disco", usage: disk, detail: disk.path) }
+                if let load = resources.load {
+                    let ratio = load.cpus > 0 ? load.load1 / load.cpus : 0
+                    HStack {
+                        Text("Carga").font(.lh(11.5)).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(String(format: "%.2f", load.load1)) · \(formatCpus(load.cpus)) CPU").font(.lh(11.5, .semibold))
+                            .foregroundStyle(ratio >= 1.5 ? Color.orange : .primary)
+                    }
+                }
+            } else if slots != nil {
+                Text("Este host no manda sus recursos (es anterior).").font(.lh(11)).foregroundStyle(.tertiary)
+            }
+            if let lastSeen, let when = ago(lastSeen), when != "ahora" {
+                Text("último contacto hace \(when)").font(.lh(10.5)).foregroundStyle(.tertiary)
+            }
+        }
+        .card()
     }
 
     // MARK: entradas
@@ -180,4 +230,32 @@ struct RunnerHealthScreen: View {
     }
 
     private func isoString(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
+}
+
+/// Una barra de uso (memoria, disco): verde, naranja desde el 80 %, rojo desde el 90 %.
+struct UsageBar: View {
+    let label: String
+    let usage: ResourceUsage
+    var detail: String? = nil
+
+    var body: some View {
+        let ratio = min(max(usage.ratio, 0), 1)
+        let tone: Tone = ratio >= 0.9 ? .bad : ratio >= 0.8 ? .warn : .ok
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(label).font(.lh(11.5)).foregroundStyle(.secondary)
+                if let detail { Text("· \(detail)").font(.lh(10.5)).foregroundStyle(.tertiary).lineLimit(1) }
+                Spacer(minLength: 4)
+                Text("\(formatBytes(usage.used_bytes)) de \(formatBytes(usage.total_bytes))").font(.lh(11.5, .semibold))
+                Text("\(Int(ratio * 100)) %").font(.lh(11.5, .bold)).foregroundStyle(tone.color).frame(width: 38, alignment: .trailing)
+            }
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.08))
+                    Capsule().fill(tone.color).frame(width: max(4, g.size.width * ratio))
+                }
+            }
+            .frame(height: 5)
+        }
+    }
 }
