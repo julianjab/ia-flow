@@ -23,6 +23,36 @@ struct EpicView: Identifiable {
 extension InboxItem {
     /// Lo que espera a una persona: `need` y `fail`.
     var isDecision: Bool { group == "need" || group == "fail" }
+    var displayTitle: String { cleanTitle(title) }
+    /// Hace cuánto está en este estado («3 h», «2 d»).
+    var age: String? { ago(since) }
+}
+
+extension TaskEpic {
+    var displayTitle: String { cleanTitle(title) }
+}
+
+/// Sin el prefijo de Conventional Commits (`feat(crm): `) que traen los títulos de los issues: en 420 pt ocupa
+/// el lugar de lo que dice el título.
+func cleanTitle(_ title: String) -> String {
+    let stripped = title.replacingOccurrences(of: #"^[a-z]+(\([^)]*\))?!?:\s*"#, with: "", options: .regularExpression)
+    guard let first = stripped.first, !stripped.isEmpty else { return title }
+    return first.uppercased() + stripped.dropFirst()
+}
+
+private let isoFractional: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+
+func ago(_ iso: String, now: Date = Date()) -> String? {
+    guard let date = isoFractional.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else { return nil }
+    let minutes = Int(now.timeIntervalSince(date) / 60)
+    if minutes < 1 { return "ahora" }
+    if minutes < 60 { return "\(minutes) min" }
+    if minutes < 48 * 60 { return "\(minutes / 60) h" }
+    return "\(minutes / 1440) d"
 }
 
 /// Una acción como la dibuja el menú (las mismas reglas que `apps/web/src/features/inbox/queue/kinds.ts`).
@@ -333,21 +363,26 @@ final class RunnerModel: ObservableObject {
 extension RunnerModel {
     /// Datos de ejemplo para las capturas: no llama a ningún server.
     static func fixture() -> RunnerModel {
-        let epic = TaskEpic(ref: "la-haus/subscriptions#4200", title: "Funnel v2 de leads", done: 3, total: 7)
+        let epic = TaskEpic(ref: "la-haus/subscriptions#4200", title: "feat(360): funnel configurable por empresa — etapas personalizadas", done: 19, total: 24)
         func item(_ n: Int, _ title: String, group: String, kind: String, why: String, actions: [String],
                   epic: TaskEpic? = nil, priority: Int? = nil, said: String? = nil, pr: Int? = nil, agent: String? = nil) -> InboxItem {
             InboxItem(ref: "la-haus/subscriptions#\(n)", project_id: "p", title: title, url: "https://github.com", group: group, kind: kind,
-                      status: nil, why: why, since: "2026-10-15T10:00:00Z", pr: pr.map { PullRef(number: $0, url: "https://github.com") },
+                      status: nil, why: why, since: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(n % 50) * 900)), pr: pr.map { PullRef(number: $0, url: "https://github.com") },
                       execution: agent.map { ExecutionSummary(id: "x", pipeline_id: "build", status: "running", started_at: "", agent_id: $0) },
                       blocked_by: nil, epic: epic, agent_said: said, actions: actions, action_defs: nil, priority: priority, reasons: nil)
         }
         let inbox = Inbox(generated_at: "", projects: [], items: [
-            item(4281, "Endpoint de etapas del funnel", group: "need", kind: "merge", why: "Review aprobado, CI en verde: falta tu merge",
-                 actions: ["merge", "rerun_review"], epic: epic, priority: 1, pr: 912),
-            item(4290, "Evento lead.profiled en EventBridge", group: "need", kind: "doubt", why: "El agente se trabó y te pregunta",
+            item(4281, "feat(core): el motor de asignación resuelve assignable_stages y stage_weights", group: "need", kind: "review", why: "Review sin reviewed · PR #912",
+                 actions: ["rerun_review", "retry"], epic: epic, priority: 1, pr: 912),
+            item(4290, "fix(crm): evento lead.profiled en EventBridge", group: "need", kind: "doubt", why: "El agente se trabó y te pregunta",
                  actions: ["answer_and_unblock", "back_to_refine"], epic: epic, priority: 2, said: "¿El evento lleva el user_id o el lead_id?"),
             item(4301, "Migrar tabla de citas", group: "fail", kind: "crash", why: "La corrida falló por el provider (timeout)",
                  actions: ["retry"], priority: 3),
+            InboxItem(ref: "la-haus/subscriptions#1271", project_id: "p", title: "Pipeline propio configurable: stages y transitions declarativas (reemplazo del if/elif)",
+                      url: "", group: "need", kind: "prd", status: nil, why: "PRD listo para aprobar (status Refined)", since: "2026-10-13T10:00:00Z",
+                      pr: nil, execution: nil, blocked_by: nil, epic: nil, agent_said: nil, actions: ["approve_prd", "back_to_refine"],
+                      action_defs: [TaskActionDef(id: "approve_prd", label: "Aprobar y pasar a Build", comment: nil, confirm: "¿Aprobar el PRD?")],
+                      priority: 4, reasons: nil),
             item(4295, "Pantalla de perfilado", group: "run", kind: "agent", why: "build corriendo hace 12 min",
                  actions: ["stop"], epic: epic, agent: "aiflow-implementer"),
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),

@@ -68,12 +68,15 @@ struct PillButtonStyle: ButtonStyle {
     var prominent = false
     var tint: Color = .accentColor
     var enabled = true
+    /// Más chico y en una sola línea: los botones dentro de una fila (las acciones de una tarea).
+    var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.lh(12.5, .semibold))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
+            .font(.lh(compact ? 11.5 : 12.5, .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, compact ? 10 : 14)
+            .padding(.vertical, compact ? 4 : 7)
             .foregroundStyle(prominent ? Color.white : tint)
             .background(Capsule().fill(prominent ? tint : tint.opacity(0.12)))
             .opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)

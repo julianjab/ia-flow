@@ -104,8 +104,8 @@ struct RunnerInboxScreen: View {
         let decisions = runner.decisions, running = runner.running, epics = runner.epics, queued = runner.queued
         section("Te necesita", count: decisions.count, empty: "Nada esperando una decisión tuya.") {
             ForEach(Array(decisions.enumerated()), id: \.element.ref) { i, item in
-                if i > 0 { Divider().opacity(0.4).padding(.vertical, 8) }
-                TaskRow(runner: runner, item: item)
+                if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
+                TaskRow(runner: runner, item: item, primary: i == 0)
             }
         }
         if !epics.isEmpty {
@@ -118,7 +118,7 @@ struct RunnerInboxScreen: View {
         }
         section("Corriendo", count: running.count, empty: "Ningún agente trabajando ahora.") {
             ForEach(Array(running.enumerated()), id: \.element.ref) { i, item in
-                if i > 0 { Divider().opacity(0.4).padding(.vertical, 8) }
+                if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
                 TaskRow(runner: runner, item: item)
             }
         }
@@ -154,40 +154,51 @@ struct RunnerInboxScreen: View {
     }
 }
 
-/// Una tarea con su porqué y sus acciones: la principal como botón, las demás en el menú ⋯.
+/// Una tarea: qué caso es y hace cuánto, el título, por qué está acá y sus acciones. Sólo la primera decisión de la
+/// pantalla lleva el botón lleno (como en la web, un solo primario); las demás, en tono.
 struct TaskRow: View {
     @ObservedObject var runner: RunnerModel
     let item: InboxItem
+    var primary = false
 
     var body: some View {
         let actions = actionsOf(item)
         let busy = runner.busy.contains(item.ref)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Button { runner.open(item) } label: { Text(item.shortRef).font(.lh(12, .bold)).foregroundStyle(Color.accentColor) }
-                    .buttonStyle(.plain).help("Abrir \(item.ref) en GitHub")
-                Text(item.title).font(.lh(13, .semibold)).lineLimit(2)
-                Spacer(minLength: 4)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
                 kindChip
+                Text(meta).font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 4)
+                Button { runner.open(item) } label: { Text(item.shortRef).font(.lh(11.5, .semibold)).foregroundStyle(.tertiary) }
+                    .buttonStyle(.plain).help("Abrir \(item.ref) en GitHub")
             }
-            Text(item.why).font(.lh(11.5)).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            Button { runner.open(item) } label: {
+                Text(item.displayTitle).font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help(item.title)
             if let said = item.agent_said, item.isDecision {
                 Text("«\(said)»").font(.lh(11.5)).italic().foregroundStyle(.primary.opacity(0.7)).lineLimit(3)
             }
             HStack(spacing: 6) {
                 if let first = actions.first {
                     Button { runner.trigger(first, on: item) } label: {
-                        if busy { ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 40) }
+                        if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) }
                         else { Text(first.confirms ? "\(first.label)…" : first.label) }
                     }
-                    .buttonStyle(PillButtonStyle(prominent: item.isDecision, tint: first.id == "stop" ? .red : .accentColor))
+                    .buttonStyle(PillButtonStyle(prominent: primary, tint: first.id == "stop" ? .red : .accentColor, compact: true))
+                    .fixedSize()
                     .disabled(busy)
                 }
                 if let pr = item.pr {
-                    Button { runner.openPR(item) } label: { Chip(text: "PR #\(pr.number)", tone: .info, icon: "arrow.up.right") }.buttonStyle(.plain)
+                    Button { runner.openPR(item) } label: { Chip(text: "PR #\(pr.number)", tone: .info, icon: "arrow.up.right") }
+                        .buttonStyle(.plain).fixedSize()
                 }
-                if let epic = item.epic { Chip(text: epic.title, icon: "square.stack.3d.up").help("Épica \(epic.ref)") }
-                Spacer()
+                if let epic = item.epic {
+                    Chip(text: "\(epic.done)/\(epic.total) · \(epic.displayTitle)", icon: "square.stack.3d.up")
+                        .help("Épica \(epic.ref): \(epic.title)")
+                }
+                Spacer(minLength: 0)
                 Menu {
                     ForEach(actions.dropFirst()) { action in
                         Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
@@ -197,12 +208,21 @@ struct TaskRow: View {
                     if actions.count > 1 { Divider() }
                     Button("Abrir issue en GitHub") { runner.open(item) }
                     if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }
+                    if let epic = item.epic { Button("Abrir épica") { runner.openEpic(epic) } }
                 } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 26, height: 22).contentShape(Rectangle())
+                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 20).contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
             }
+            .padding(.top, 2)
         }
+    }
+
+    /// El porqué sin repetir el PR (va como chip) y con hace cuánto.
+    private var meta: String {
+        var why = item.why
+        if let pr = item.pr { why = why.replacingOccurrences(of: " · PR #\(pr.number)", with: "") }
+        return [why, item.age].compactMap { $0 }.joined(separator: " · ")
     }
 
     private var kindChip: some View {
@@ -214,12 +234,12 @@ struct TaskRow: View {
             case "crash": return ("falló", .bad)
             case "stale": return ("quieta", .warn)
             case "review": return ("review", .info)
-            case "agent": return (item.execution?.agent_id ?? "agente", .ok)
+            case "agent": return (item.execution?.agent_id?.replacingOccurrences(of: "aiflow-", with: "") ?? "agente", .ok)
             case "ci": return ("CI", .info)
             default: return (item.kind, .neutral)
             }
         }()
-        return Chip(text: text, tone: tone)
+        return Chip(text: text, tone: tone).fixedSize()
     }
 }
 
@@ -231,7 +251,7 @@ struct CompactRow: View {
         Button { runner.open(item) } label: {
             HStack(spacing: 6) {
                 Text(item.shortRef).font(.lh(11.5, .bold)).foregroundStyle(.secondary)
-                Text(item.title).font(.lh(12)).lineLimit(1)
+                Text(item.displayTitle).font(.lh(12)).lineLimit(1)
                 Spacer()
                 Text(item.kind == "dep" ? "bloqueada" : "turno").font(.lh(11)).foregroundStyle(.tertiary)
             }
@@ -250,7 +270,7 @@ struct EpicRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Button { runner.openEpic(epic.epic) } label: { Text(epic.epic.title).font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading) }
+                Button { runner.openEpic(epic.epic) } label: { Text(epic.epic.displayTitle).font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading) }
                     .buttonStyle(.plain).help("Abrir \(epic.epic.ref)")
                 Spacer()
                 Text("\(epic.epic.done)/\(epic.epic.total)").font(.lh(11.5, .semibold)).foregroundStyle(.secondary)
@@ -261,14 +281,14 @@ struct EpicRow: View {
                     Text(next.isDecision ? "Sigue" : next.group == "run" ? "Corre" : "Espera").font(.lh(11, .bold))
                         .foregroundStyle(next.isDecision ? Color.orange : .secondary)
                     Button { runner.open(next) } label: {
-                        Text("\(next.shortRef) · \(next.why)").font(.lh(11.5)).foregroundStyle(.primary.opacity(0.8)).lineLimit(2)
+                        Text("\(next.shortRef) · \(next.displayTitle)").font(.lh(11.5)).foregroundStyle(.primary.opacity(0.8)).lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                     .buttonStyle(.plain)
                     Spacer(minLength: 4)
                     if next.isDecision, let action = actionsOf(next).first {
                         Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: next) }
-                            .buttonStyle(PillButtonStyle(tint: .accentColor)).disabled(runner.busy.contains(next.ref))
+                            .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(runner.busy.contains(next.ref))
                     }
                 }
             }
