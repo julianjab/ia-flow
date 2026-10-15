@@ -10,10 +10,15 @@ struct RootView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Group {
-                if model.form != nil { TunnelFormView(model: model) } else { ListScreen(model: model) }
+            VStack(spacing: 0) {
+                if model.form == nil { TabBar(model: model, runner: model.runner).padding(.horizontal, 14).padding(.top, 12) }
+                if model.form != nil { TunnelFormView(model: model) }
+                else if model.tab == .runner { RunnerScreen(runner: model.runner) }
+                else { ListScreen(model: model) }
             }
-            if let request = model.confirm {
+            if model.runner.comment != nil {
+                CommentCard(runner: model.runner).padding(14).transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if let request = model.confirm {
                 ConfirmCard(request: request, dismiss: { model.confirm = nil })
                     .padding(14)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -60,6 +65,40 @@ struct ToastView: View {
     }
 }
 
+/// Servicios | Runner, con el número de tareas que te esperan en el server elegido.
+struct TabBar: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var runner: RunnerModel
+
+    var body: some View {
+        HStack(spacing: 4) {
+            tab("Servicios", icon: "switch.2", .services, badge: nil)
+            tab("Runner", icon: "list.bullet.rectangle", .runner, badge: runner.pendingCount)
+        }
+        .padding(3)
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
+    }
+
+    private func tab(_ title: String, icon: String, _ value: AppModel.Tab, badge: Int?) -> some View {
+        let on = model.tab == value
+        return Button { model.selectTab(value) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 10.5, weight: .semibold))
+                Text(title).font(.lh(12.5, .semibold))
+                if let badge, badge > 0 {
+                    Text("\(badge)").font(.lh(10.5, .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(Color.red))
+                }
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 5)
+            .foregroundStyle(on ? Color.primary : Color.secondary)
+            .background(Capsule().fill(on ? Color(nsColor: .controlBackgroundColor) : Color.clear).shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1, y: 0.5))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: lista
 
 struct ListScreen: View {
@@ -67,7 +106,7 @@ struct ListScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header.padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            header.padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 10)
             FittingScroll {
                 VStack(spacing: 14) {
                     ForEach(model.groups) { group in GroupCard(model: model, group: group) }

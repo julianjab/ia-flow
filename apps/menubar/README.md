@@ -19,9 +19,27 @@ avisos y confirmaciones en línea):
 las tres atenuadas en reposo; no es template, el lima es de la marca) y `build.sh` genera
 `AppIcon.icns` con `IAFlowMenu --icon <px> <ruta>` + `iconutil`, sin PNG nuevos en el repo.
 
+**Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web
+(`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
+principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
+con su acción), lo que **corre** (con «Detener…») y la **cola**. «Logs del server» muestra el log del proceso del
+runner (`GET /api/logs`, con filtro de nivel, se actualiza cada 3 s). El ícono lleva un **badge rojo** con las
+tareas que te esperan en el runner elegido (se relee cada minuto con el popover cerrado).
+
+![runner](screenshot-runner-dark.png)
+
+- **Servidores:** los de la app de escritorio (`~/Library/Application Support/IA Flow/servers.json`, con su
+  `token` = `IA_FLOW_API_TOKEN`); un `~/.config/ia-flow-menubar/runners.json` con la misma forma
+  (`{"servers": [{"baseUrl", "label", "token"}]}`) los reemplaza. Se elige en el encabezado de la pestaña.
+- **Acciones:** se firman con tu login de GitHub, como en la web: «Iniciar sesión con GitHub» hace el device
+  flow por el runner (copia el código y abre GitHub). La sesión es por server y queda en
+  `~/.config/ia-flow-menubar/github-sessions.json` (0600); se renueva sola con su refresh token. Merge, aprobar y
+  detener piden confirmación; «Responder» pide el texto.
+
 Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
-`Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo), `main.swift`
-(barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
+`Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo y badge),
+`RunnerAPI.swift` (cliente HTTP del runner y su contrato), `RunnerModel.swift` (estado de la pestaña Runner),
+`RunnerViews.swift` (sus pantallas), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
 (`IA_FLOW_MENUBAR_HOME=<dir vacío>` para no tocar la config real).
 
 ```bash

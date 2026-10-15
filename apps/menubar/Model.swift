@@ -41,7 +41,12 @@ struct ServiceGroup: Identifiable {
 }
 
 final class AppModel: ObservableObject {
+    enum Tab { case services, runner }
+
     @Published private(set) var services: [Service]
+    @Published var tab: Tab = .services
+    /// La pestaña «Runner»: la bandeja del server elegido, sus épicas y su log.
+    let runner: RunnerModel
     @Published var form: TunnelForm?
     @Published var confirm: ConfirmRequest?
     @Published var toast: String?
@@ -49,10 +54,13 @@ final class AppModel: ObservableObject {
     var onChange: (() -> Void)?
     let isFixture: Bool
 
-    init(services: [Service]? = nil) {
+    init(services: [Service]? = nil, runner: RunnerModel? = nil) {
         isFixture = services != nil
         self.services = services ?? loadAllSpecs().map { Service(spec: $0) }
+        self.runner = runner ?? RunnerModel()
         self.services.forEach(wire)
+        self.runner.toast = { [weak self] in self?.showToast($0) }
+        self.runner.confirm = { [weak self] in self?.confirm = $0 }
         refresh()
     }
 
@@ -94,6 +102,11 @@ final class AppModel: ObservableObject {
     }
 
     func restart(_ service: Service) { service.restart() }
+
+    func selectTab(_ tab: Tab) {
+        self.tab = tab
+        if tab == .runner { runner.refresh() }
+    }
 
     func openURL(_ service: Service) {
         if let url = service.spec.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
@@ -249,6 +262,6 @@ final class AppModel: ObservableObject {
             Service(spec: spec("grafana", "Grafana (OTel)", port: 3000, url: "http://localhost:3000", detached: true), state: .running),
             Service(spec: spec("otlp-proxy", "OTLP proxy", port: 4319, detached: true), state: .running),
             Service(spec: spec("tunnel-demo", "demo.julianjab.link → :5173", url: "https://demo.julianjab.link", group: "Túneles", tunnel: true), state: .starting),
-        ])
+        ], runner: RunnerModel.fixture())
     }
 }

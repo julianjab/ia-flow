@@ -56,9 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let contextMenu = NSMenu()
     private let model = AppModel()
     private var openTimer: Timer?
+    /// Con el popover cerrado, la bandeja del runner se relee cada minuto: es lo que alimenta el badge.
+    private var badgeTimer: Timer?
+    private var badge = 0
     private var signalSources: [DispatchSourceSignal] = []
-    private static let idleIcon = menuBarIcon(running: false)
-    private static let runningIcon = menuBarIcon(running: true)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let base = flagValue("--screenshot") { return screenshots(base) }
@@ -73,6 +74,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         model.onChange = { [weak self] in self?.refreshIcon() }
+        model.runner.onBadge = { [weak self] count in
+            guard let self, self.badge != count else { return }
+            self.badge = count
+            self.refreshIcon()
+        }
+        model.runner.refresh()
+        badgeTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self, !self.popover.isShown else { return }
+            self.model.runner.refresh()
+        }
+        RunLoop.main.add(badgeTimer!, forMode: .common)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusClicked(_:))
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -97,7 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func refreshIcon() {
-        statusItem.button?.image = model.activeCount > 0 ? Self.runningIcon : Self.idleIcon
+        statusItem.length = badge > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
+        statusItem.button?.image = menuBarIcon(running: model.activeCount > 0, badge: badge)
+        statusItem.button?.toolTip = badge > 0 ? "ia-flow · \(badge) tareas te esperan en \(model.runner.selected.name)" : "ia-flow"
     }
 
     // MARK: capturas (verificación visual sin la barra de menú)
@@ -112,6 +126,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.form?.ports = [(5173, "node"), (4141, "bun"), (3001, "bun"), (3000, "gvproxy")]
         model.form?.notice = .overwriteDNS("demo.julianjab.link")
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-form-\(dark ? "dark" : "light").png") }
+        model.cancelForm()
+        model.tab = .runner
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-runner-\(dark ? "dark" : "light").png") }
+        model.runner.screen = .logs
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-logs-\(dark ? "dark" : "light").png") }
+        if let tiff = menuBarIcon(running: true, badge: 3).tiffRepresentation,
+           let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: "\(base)-badge.png"))
+        }
         exit(0)
     }
 
@@ -138,7 +161,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         popover.contentViewController?.view.window?.makeKey()
         model.refresh()
-        openTimer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in self?.model.refresh() }
+        model.runner.refresh()
+        if model.tab == .runner, model.runner.screen == .logs { model.runner.pollLogs() }
+        // cada 3 s: servicios siempre; el log del server si está abierto; la bandeja cada 6 s si se mira el runner
+        var tick = 0
+        openTimer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            tick += 1
+            self.model.refresh()
+            guard self.model.tab == .runner else { return }
+            if self.model.runner.screen == .logs { self.model.runner.pollLogs() }
+            else if tick % 2 == 0 { self.model.runner.refresh() }
+        }
         RunLoop.main.add(openTimer!, forMode: .common)
     }
 
@@ -147,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openTimer = nil
         model.cancelForm()
         model.confirm = nil
+        model.runner.comment = nil
         popover.contentViewController = nil  // libera la vista SwiftUI
         // devuelve al sistema las páginas que malloc retiene tras destruir la UI (RAM en reposo)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { _ = malloc_zone_pressure_relief(nil, 0) }

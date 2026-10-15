@@ -50,11 +50,25 @@ func appIcon(size: CGFloat, running: Bool) -> NSImage {
     return image
 }
 
-/// El ícono de la barra de menú: el tile a 16 pt dentro del lienzo de 18 pt de la barra.
-func menuBarIcon(running: Bool) -> NSImage {
+/// El ícono de la barra de menú: el tile a 16 pt dentro del lienzo de 18 pt de la barra. Con `badge` > 0, un
+/// círculo rojo arriba a la derecha con cuántas tareas te esperan en el runner elegido (más de 9 → «9+»).
+func menuBarIcon(running: Bool, badge: Int = 0) -> NSImage {
     let inner = appIcon(size: 16, running: running)
-    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+    let label = badge > 9 ? "9+" : "\(badge)"
+    let font = NSFont.systemFont(ofSize: 8, weight: .heavy)
+    let text = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: NSColor.white])
+    let badgeWidth = badge > 0 ? max(10, text.size().width + 4) : 0
+    let image = NSImage(size: NSSize(width: 18 + max(0, badgeWidth - 4), height: 18), flipped: false) { rect in
         inner.draw(in: NSRect(x: 1, y: 1, width: 16, height: 16))
+        guard badge > 0 else { return true }
+        let pill = NSRect(x: rect.maxX - badgeWidth, y: rect.maxY - 10, width: badgeWidth, height: 10)
+        // un aro del color de la barra separa el badge del tile
+        NSColor.windowBackgroundColor.setFill()
+        NSBezierPath(roundedRect: pill.insetBy(dx: -1, dy: -1), xRadius: 6, yRadius: 6).fill()
+        NSColor.systemRed.setFill()
+        NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
+        let size = text.size()
+        text.draw(at: NSPoint(x: pill.midX - size.width / 2, y: pill.midY - size.height / 2))
         return true
     }
     image.accessibilityDescription = "ia-flow"
