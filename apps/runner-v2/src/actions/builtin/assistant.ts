@@ -26,6 +26,10 @@ import {
 
 const ref = z.string().describe('owner/repo#numero, p.ej. la-haus/subscriptions#420')
 
+/** `@ia-flow/shared` resuelve zod 3 y el runner zod 4: un schema de shared dentro de un input
+ *  rompe `toJSONSchema` (no tiene `_zod`). Se rearma con el zod del runner, mismos valores. */
+const ImprovementTarget = z.enum(ImprovementTargetSchema.options)
+
 /** Una tool del asistente: su input y qué le pide a la sesión del pedido. */
 class AssistantTool<S extends ToolInputSchema> extends Action<S, string> {
   override readonly sideEffects = 'none' as const
@@ -209,7 +213,7 @@ function proposeImprovement(
   options: Record<string, unknown>,
 ): Action[] {
   const repos = ImprovementRepos.parse(options)
-  const repoOf = (session: AssistantSession, target: z.infer<typeof ImprovementTargetSchema>) => {
+  const repoOf = (session: AssistantSession, target: z.infer<typeof ImprovementTarget>) => {
     if (target === 'docs') {
       if (session.scope.kind !== 'task') throw new Error('docs es el repo de una tarea')
       return session.scope.ref.split('#')[0] as string
@@ -224,7 +228,7 @@ function proposeImprovement(
       'propose_improvement',
       `Propone abrir un issue con una mejora, según DÓNDE se arregla: docs (la documentación del repo de la tarea: AGENTS.md, CLAUDE.md, README)${repos.config ? `, config (la config del runner: agentes, prompts, pipelines — ${repos.config})` : ''}${repos.engine ? `, engine (el runner o el engine — ${repos.engine})` : ''}. NO lo crea: queda pendiente y una persona lo abre con su usuario de GitHub. Una mejora por llamada.`,
       z.strictObject({
-        target: ImprovementTargetSchema.describe('Dónde se arregla'),
+        target: ImprovementTarget.describe('Dónde se arregla'),
         title: z.string().describe('Corto, en imperativo: qué hay que cambiar'),
         body: z
           .string()
