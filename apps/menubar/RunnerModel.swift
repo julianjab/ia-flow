@@ -749,10 +749,10 @@ extension RunnerModel {
         let epic = TaskEpic(ref: "la-haus/subscriptions#4200", title: "feat(360): funnel configurable por empresa — etapas personalizadas", done: 19, total: 24)
         func item(_ n: Int, _ title: String, group: String, kind: String, why: String, actions: [String],
                   epic: TaskEpic? = nil, priority: Int? = nil, said: String? = nil, pr: Int? = nil, agent: String? = nil,
-                  repo: String = "subscriptions") -> InboxItem {
+                  repo: String = "subscriptions", execution: ExecutionSummary? = nil) -> InboxItem {
             InboxItem(ref: "la-haus/\(repo)#\(n)", project_id: "p", title: title, url: "https://github.com", group: group, kind: kind,
                       status: nil, why: why, since: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(n % 50) * 900)), pr: pr.map { PullRef(number: $0, url: "https://github.com") },
-                      execution: agent.map { ExecutionSummary(id: "x", pipeline_id: "build", status: "running", started_at: "", agent_id: $0) },
+                      execution: execution ?? agent.map { ExecutionSummary(id: "x", pipeline_id: "build", status: "running", started_at: "", agent_id: $0) },
                       blocked_by: nil, epic: epic, agent_said: said, actions: actions, action_defs: nil, priority: priority, reasons: nil)
         }
         func card(_ n: Int, _ title: String, blocked: [String]? = nil, repo: String = "subscriptions") -> FeedItem {
@@ -764,6 +764,18 @@ extension RunnerModel {
         ], waiting: [
             card(4325, "feat(360): timeline usa la etapa del funnel", blocked: ["la-haus/subscriptions#4281"]),
         ])
+        // un review con dos agentes en paralelo: el reviewer ya cerró (su `agent_id` es el de la ejecución), el e2e sigue
+        func isoAgo(_ minutes: Double) -> String { ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutes * 60)) }
+        let review = ExecutionSummary(
+            id: "e2", pipeline_id: "review", status: "running", started_at: isoAgo(8), agent_id: "aiflow-reviewer",
+            usage: ExecutionUsage(input_tokens: 24, output_tokens: 4120, cache_read_tokens: 512_400),
+            agents: [
+                ExecutionAgent(agent_id: "aiflow-reviewer", state: "done", started_at: isoAgo(8), ended_at: isoAgo(2.5),
+                               exit: "approve", summary: "Sin observaciones bloqueantes; dos sugerencias de copy."),
+                ExecutionAgent(agent_id: "aiflow-e2e-visual-qa", state: "running", started_at: isoAgo(8), last_step_at: isoAgo(2.2),
+                               idle_seconds: 130),
+            ],
+            last_step_at: isoAgo(2.2), idle_seconds: 130)
         let project = InboxProject(id: "p", board_url: nil, url: nil, statuses: ["Todo", "Refine", "Refined", "Build", "Review", "Done"])
         let inbox = Inbox(generated_at: "", projects: [project], items: [
             item(4281, "feat(core): el motor de asignación resuelve assignable_stages y stage_weights", group: "need", kind: "review", why: "Review sin reviewed · PR #912",
@@ -780,8 +792,10 @@ extension RunnerModel {
                       priority: 4, reasons: nil),
             item(4295, "Pantalla de perfilado", group: "run", kind: "agent", why: "build corriendo hace 12 min",
                  actions: ["stop"], epic: epic, agent: "aiflow-implementer", repo: "lh-seller-v2-frontend"),
+            item(4296, "Estado vacío del perfil", group: "run", kind: "agent", why: "review corriendo hace 8 min",
+                 actions: ["stop"], epic: epic, pr: 918, repo: "lh-seller-v2-frontend", execution: review),
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),
-        ], pipeline: InboxPipeline(running: 1, queued: 1, paused: 0, capacity: 3, free: 2), feed: feed)
+        ], pipeline: InboxPipeline(running: 2, queued: 1, paused: 0, capacity: 3, free: 1), feed: feed)
         let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x")], inbox: inbox)
         model.improvements = [
             Improvement(id: "1", created_at: "2026-10-15T09:00:00Z", task_ref: "la-haus/subscriptions#4281", pr_url: "https://github.com",

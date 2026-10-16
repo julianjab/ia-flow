@@ -177,6 +177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             popoverMaxScroll = 520  // la traza tiene su propio scroll: con el tope real
             for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-run-\(dark ? "dark" : "light").png") }
             model.runner.closeRun()
+            // un review con dos agentes en paralelo: cada uno con su estado, y la traza filtrable por agente
+            if let review = model.runner.running.first(where: { $0.execution?.parallelAgents != nil }) {
+                model.runner.watch(review)
+                for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-run-review-\(dark ? "dark" : "light").png") }
+                model.runner.closeRun()
+            }
             popoverMaxScroll = 2000
         }
         model.runner.showGithub()

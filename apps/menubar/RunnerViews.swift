@@ -304,6 +304,9 @@ struct TaskRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain).help(item.title)
+            if let agents = item.execution?.parallelAgents {
+                AgentsLine(entries: agents.map { AgentEntry(id: $0.agent_id, agent: $0) })
+            }
             if let said = item.agent_said, item.isDecision {
                 Text("«\(said)»").font(.lh(11.5)).italic().foregroundStyle(.primary.opacity(0.7)).lineLimit(3)
             }
@@ -374,7 +377,10 @@ struct TaskRow: View {
             case "crash": return ("falló", .bad)
             case "stale": return ("quieta", .warn)
             case "review": return ("review", .info)
-            case "agent": return (item.execution?.agent_id?.replacingOccurrences(of: "aiflow-", with: "") ?? "agente", .ok)
+            // con agentes en paralelo, el pipeline: cada agente va en su línea, bajo el título
+            case "agent":
+                if let execution = item.execution, execution.parallelAgents != nil { return (execution.pipeline_id, .ok) }
+                return (item.execution?.agentLabel ?? "agente", .ok)
             case "ci": return ("CI", .info)
             default: return (item.kind, .neutral)
             }

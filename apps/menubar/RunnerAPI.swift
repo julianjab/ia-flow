@@ -83,6 +83,12 @@ struct ExecutionSummary: Codable, Hashable {
     var summary: String? = nil
     var failure: ExecutionFailure? = nil
     var usage: ExecutionUsage? = nil
+    /// Cada agente de la ejecución (ExecutionAgents.swift): en una viva, siempre; en una cerrada, sólo si corrió más
+    /// de uno y es la primera del detalle. Un runner viejo no lo manda.
+    var agents: [ExecutionAgent]? = nil
+    /// El último paso de la ejecución viva, y hace cuánto (s).
+    var last_step_at: String? = nil
+    var idle_seconds: Double? = nil
 }
 
 struct TaskActionDef: Codable, Hashable {

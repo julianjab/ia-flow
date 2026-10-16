@@ -88,6 +88,12 @@ ejecución que el runner guarda mientras corre (`GET /api/tasks/:owner/:repo/:n?
 cada tool una vez con su descripción o comando, el resultado y cuánto tardó (clic para ver input y resultado), los
 avisos del workspace, el prompt—, qué está haciendo ahora, tokens y duración; las ejecuciones anteriores en el reloj
 del encabezado; «Detener…» y «Preguntar» al pie. Las llamadas al modelo se muestran con el botón del procesador, al pie.
+**Agentes en paralelo:** un pipeline que corre más de un agente (review: `reviewer` + `e2e-visual-qa`) es una sola
+ejecución y su `agent_id` es sólo el del último que cerró; por eso, con `execution.agents` de más de uno, la fila de
+lo que corre y «En vivo» nombran el pipeline y debajo cada agente con su estado («reviewer ✓ · e2e-visual-qa ● hace
+2 min»: el que corre destacado, y hace cuánto no da un paso si pasa del minuto). En «En vivo» cada agente filtra la
+traza (`ia.agent.id` de cada entrada; lo que es de la ejecución, como el pipeline o el workspace, queda siempre) y
+otro clic vuelve a todos. Un runner que no manda `agents` se ve como antes.
 «Logs del server» muestra el log del proceso del
 runner (`GET /api/logs`, con filtro de nivel, se actualiza cada 3 s). El ícono lleva un **badge rojo** con las
 tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con el popover cerrado).
@@ -95,6 +101,8 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 ![runner](screenshot-runner-dark.png)
 
 ![en vivo](screenshot-run-dark.png)
+
+![review con dos agentes](screenshot-run-review-dark.png)
 
 ![buscar en GitHub](screenshot-search-gh-dark.png)
 
@@ -121,7 +129,7 @@ Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swi
 board), `ImprovementsViews.swift` (las mejoras propuestas y su «¿Por qué?»), `RunnerSearch.swift` (qué se busca y qué coincide), `RunnerStream.swift` (el
 stream SSE), `GithubSearch.swift` (la API de GitHub), `GithubSearchModel.swift` y `GithubSearchViews.swift` (la
 pantalla «Buscar en GitHub»), `RunTrace.swift` (la traza de
-una ejecución plegada en pasos), `RunWatch.swift` y `RunTraceViews.swift` (la pantalla «En vivo»), `RunnerHealth.swift` y `RunnerHealthViews.swift`
+una ejecución plegada en pasos), `ExecutionAgents.swift` (los agentes de una ejecución y su línea), `RunWatch.swift` y `RunTraceViews.swift` (la pantalla «En vivo»), `RunnerHealth.swift` y `RunnerHealthViews.swift`
 (el estado del runner), `AssistantAPI.swift`, `AssistantModel.swift` y `AssistantViews.swift` (el chat), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
 (`IA_FLOW_MENUBAR_HOME=<dir vacío>` para no tocar la config real).
 

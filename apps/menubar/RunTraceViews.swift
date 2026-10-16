@@ -71,7 +71,8 @@ struct RunTraceScreen: View {
             HStack(spacing: 6) {
                 if let execution {
                     Chip(text: statusLabel(execution.status), tone: tone(execution.status), icon: watch.running ? "dot.radiowaves.left.and.right" : nil)
-                    Text([execution.agent_id?.replacingOccurrences(of: "aiflow-", with: "") ?? execution.pipeline_id, elapsed(execution)]
+                    // con varios agentes, el pipeline: cada agente va en su línea (y filtra la traza)
+                    Text([watch.agents.isEmpty ? execution.agentLabel ?? execution.pipeline_id : execution.pipeline_id, elapsed(execution)]
                         .compactMap { $0 }.joined(separator: " · "))
                         .font(.lh(11.5)).foregroundStyle(.secondary).lineLimit(1)
                 } else if !watch.loaded {
@@ -86,10 +87,17 @@ struct RunTraceScreen: View {
                         .help("Salida: \(usage.output_tokens) · entrada: \(usage.input_tokens) · caché: \(usage.cache_read_tokens)")
                 }
             }
+            if !watch.agents.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    AgentsLine(entries: watch.agents, selected: watch.agentFilter) { watch.agentFilter = $0 }
+                }
+            }
             if watch.running, let current = watch.current {
+                // con varios agentes y sin filtro, de quién es lo de ahora
+                let who = watch.agents.isEmpty || watch.agentFilter != nil ? "" : current.agent.map { " (\(agentName($0)))" } ?? ""
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 12, height: 12)
-                    Text("Ahora: " + (current.tool.flatMap { RunTrace.summary(tool: $0, input: current.input) }.map { "\(current.title) · \($0)" } ?? current.title))
+                    Text("Ahora\(who): " + (current.tool.flatMap { RunTrace.summary(tool: $0, input: current.input) }.map { "\(current.title) · \($0)" } ?? current.title))
                         .font(.lh(11.5, .medium)).lineLimit(1)
                 }
             }

@@ -87,6 +87,8 @@ struct RunStep: Identifiable, Equatable {
     var tool: String?
     /// Cuándo empezó (ISO), para ordenar.
     var at = ""
+    /// El agente que lo dio (`ia.agent.id`); nil en lo que es de la ejecución (el pipeline, el workspace).
+    var agent: String? = nil
 
     var expandable: Bool { (input?.isEmpty == false) || (result?.isEmpty == false) }
 }
@@ -104,12 +106,18 @@ enum RunTrace {
         // y los logs del hook, con id. Sin id se juntan por nombre con la última de ese nombre que todavía no lo tiene.
         var anonymous: [String: Int] = [:]
         var current = ""
+        var agent: String?
 
         func upsert(_ key: String, _ make: () -> RunStep, _ update: (inout RunStep) -> Void) {
-            if let i = index[key] { update(&steps[i]); return }
+            if let i = index[key] {
+                update(&steps[i])
+                if steps[i].agent == nil { steps[i].agent = agent }
+                return
+            }
             var step = make()
             update(&step)
             step.at = current
+            step.agent = agent
             index[key] = steps.count
             steps.append(step)
         }
@@ -117,11 +125,13 @@ enum RunTrace {
         func append(_ step: RunStep) {
             var step = step
             step.at = current
+            step.agent = step.agent ?? agent
             steps.append(step)
         }
 
         for e in trace {
             current = e.start_time
+            agent = e.attr("ia.agent.id")
             let time = clock(e.start_time)
             let failed = e.status == "error"
             switch (e.kind, e.name) {
