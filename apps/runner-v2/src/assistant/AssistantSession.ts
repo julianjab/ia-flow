@@ -38,7 +38,7 @@ export interface AssistantBackend {
   /** El estado del runner: providers, ejecuciones, webhooks. */
   status: () => Record<string, unknown>
   /** Donde esperan las mejoras que propone un agente de una pipeline. */
-  improvements: Pick<ImprovementStore, 'add' | 'findOpen' | 'list'>
+  improvements: Pick<ImprovementStore, 'add' | 'findOpen' | 'list' | 'get' | 'revise'>
 }
 
 /** De dónde viene una sesión que no es un pedido de la web: el agente de una pipeline. */
@@ -78,6 +78,9 @@ const TASK_TRACE_TAIL = 40
 /** Lo que trae `get_task` de una tarea que ya no está en el board. */
 const CLOSED_EXECUTIONS = 20
 const CLOSED_EVENTS = 50
+
+/** Quién figura como autor de una mejora que el asistente agrega en una conversación. */
+const IMPROVEMENT_AUTHOR = 'assistant'
 
 /** Cuántas decididas trae `list_improvements`, de entre las últimas `DECIDED_SCAN` propuestas. */
 const DECIDED_LIMIT = 30
@@ -307,6 +310,74 @@ export class AssistantSession {
       ...(labels.length ? { labels } : {}),
     })
     return `Propuesta ${stored.id} guardada en la bandeja. El issue NO está creado: una persona decide.`
+  }
+
+  /** Una mejora del contexto (en el de una tarea, sólo las que salen de ella); con `open`, sólo
+   *  si sigue pendiente: una que una persona ya abrió o descartó no se toca. */
+  private improvement(id: unknown, open: boolean): ImprovementProposal {
+    const wanted = String(id ?? '').trim()
+    const found = this.backend.improvements.get(wanted)
+    if (!found) throw new Error(`No existe la mejora ${wanted}`)
+    if (this.scope.kind === 'task' && found.task_ref !== this.scope.ref) {
+      throw new Error(`Fuera de contexto: la mejora ${wanted} es de ${found.task_ref}`)
+    }
+    if (open && found.status !== 'open') {
+      const how = found.status === 'opened' ? 'ya se abrió como issue' : 'ya se descartó'
+      throw new Error(`La mejora ${wanted} ${how}: no se ajusta`)
+    }
+    return found
+  }
+
+  /** Ajusta una mejora pendiente: la persona ve la card nueva en la bandeja, no el texto acá. */
+  reviseImprovement(input: {
+    id: string
+    title?: string
+    body?: string
+    labels?: string[]
+    reason?: string
+  }): string {
+    const { id, ...changes } = input
+    const current = this.improvement(id, true)
+    if (Object.values(changes).every((value) => value === undefined)) {
+      throw new Error('No hay nada que ajustar: pasá title, body, labels o reason')
+    }
+    this.activity('revise_improvement', `ajustando la mejora ${current.id}`)
+    if (!this.backend.improvements.revise(current.id, changes)) {
+      throw new Error(`La mejora ${current.id} ya no está pendiente`)
+    }
+    return `Mejora ${current.id} ajustada: la card de la bandeja ya muestra la versión nueva. En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué cambiaste y por qué.`
+  }
+
+  /** Otra mejora, con el destino de una que ya existe (el repo no lo elige el modelo): una card
+   *  nueva en la bandeja, que una persona abre o descarta como las demás. */
+  addImprovement(input: {
+    based_on: string
+    title: string
+    body: string
+    labels?: string[]
+    reason: string
+  }): string {
+    const base = this.improvement(input.based_on, false)
+    const pending = this.backend.improvements.findOpen(base.repo, input.title)
+    if (pending) {
+      throw new Error(
+        `Ya hay una mejora pendiente igual (${pending.id}): ajustala en vez de repetirla`,
+      )
+    }
+    this.activity('add_improvement', `guardando una mejora nueva en ${base.repo}`)
+    const stored = this.backend.improvements.add({
+      task_ref: base.task_ref,
+      ...(base.pr_url ? { pr_url: base.pr_url } : {}),
+      agent: IMPROVEMENT_AUTHOR,
+      ...(base.execution_id ? { execution_id: base.execution_id } : {}),
+      target: base.target,
+      repo: base.repo,
+      title: input.title,
+      body: input.body,
+      ...(input.labels?.length ? { labels: input.labels } : {}),
+      reason: input.reason,
+    })
+    return `Mejora ${stored.id} guardada como card nueva en la bandeja (se abriría en ${base.repo}). En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué es y en qué se diferencia de ${base.id}.`
   }
 
   /** Las mejoras de la bandeja (de cualquier tarea): las pendientes, para no proponer otra igual,

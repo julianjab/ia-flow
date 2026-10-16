@@ -6,6 +6,7 @@ import type { Database } from 'bun:sqlite'
 import type { ImprovementProposal, ImprovementStatus, ImprovementTarget } from '@ia-flow/shared'
 import type {
   ImprovementDecision,
+  ImprovementRevision,
   ImprovementStore,
   NewImprovement,
 } from '../assistant/ImprovementStore.js'
@@ -145,6 +146,26 @@ export class SqliteImprovementStore implements ImprovementStore {
       )
       .get(repo, title)
     return row ? proposal(row) : undefined
+  }
+
+  revise(id: string, changes: ImprovementRevision): ImprovementProposal | undefined {
+    const result = this.database
+      .query(
+        `UPDATE improvement_proposal
+         SET title = coalesce(?, title), body = coalesce(?, body),
+             labels_json = coalesce(?, labels_json), reason = coalesce(?, reason)
+         WHERE id = ? AND status = 'open'`,
+      )
+      .run(
+        changes.title ?? null,
+        changes.body ?? null,
+        changes.labels ? JSON.stringify(changes.labels) : null,
+        changes.reason ?? null,
+        id,
+      )
+    if (result.changes === 0) return undefined
+    this.changed()
+    return this.get(id)
   }
 
   decide(id: string, decision: ImprovementDecision): ImprovementProposal | undefined {

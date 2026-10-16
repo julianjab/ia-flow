@@ -18,6 +18,14 @@ export interface NewImprovement {
   reason: string
 }
 
+/** Lo que se puede ajustar de una pendiente: su texto, no dónde se abre ni de qué tarea sale. */
+export interface ImprovementRevision {
+  title?: string
+  body?: string
+  labels?: string[]
+  reason?: string
+}
+
 export type ImprovementDecision =
   | { status: 'opened'; by: string; issue_url: string }
   | { status: 'dismissed'; by: string }
@@ -29,6 +37,9 @@ export interface ImprovementStore {
   list(status?: ImprovementStatus, limit?: number): ImprovementProposal[]
   /** Una pendiente en `repo` con el mismo título (sin distinguir mayúsculas): no se repite. */
   findOpen(repo: string, title: string): ImprovementProposal | undefined
+  /** Ajusta una pendiente (lo que viene en `changes`); `undefined` si no existe o ya estaba
+   *  decidida. */
+  revise(id: string, changes: ImprovementRevision): ImprovementProposal | undefined
   /** Cierra una pendiente; `undefined` si no existe o ya estaba decidida. */
   decide(id: string, decision: ImprovementDecision): ImprovementProposal | undefined
   /** Borra las decididas antes de `cutoff` (ISO). Las pendientes quedan. */

@@ -171,6 +171,45 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
       agent,
       (session, input) => session.propose(input),
     ),
+    new AssistantTool(
+      'assistant_revise_improvement',
+      'Ajusta una mejora propuesta que sigue pendiente (su título, cuerpo, labels o razón): la card de la bandeja pasa a mostrar la versión nueva y la persona la abre o la descarta como siempre. Usala cuando te pidan corregir o ajustar una mejora: NO pegues el issue en tu respuesta. Sólo cambia lo que pases.',
+      z.strictObject({
+        id: z.string().describe('El id de la mejora'),
+        title: z.string().optional().describe('Corto, en imperativo: qué hay que cambiar'),
+        body: z
+          .string()
+          .optional()
+          .describe(
+            'Markdown completo: ## Problema, ## Evidencia, ## Propuesta, ## Cómo verificarlo',
+          ),
+        labels: z.array(z.string()).optional(),
+        reason: z.string().optional().describe('Una frase: por qué conviene'),
+      }),
+      desk,
+      agent,
+      (session, input) => session.reviseImprovement(input),
+    ),
+    new AssistantTool(
+      'assistant_add_improvement',
+      'Guarda OTRA mejora como card nueva en la bandeja, con el mismo destino (repo) que una existente: cuando lo que hay que proponer es distinto de esa mejora (otro problema, o la mitad que conviene separar). Si es la misma mejora corregida, usá assistant_revise_improvement.',
+      z.strictObject({
+        based_on: z
+          .string()
+          .describe('El id de la mejora de la que sale (fija el repo y la tarea)'),
+        title: z.string().describe('Corto, en imperativo: qué hay que cambiar'),
+        body: z
+          .string()
+          .describe(
+            'Markdown completo: ## Problema, ## Evidencia, ## Propuesta, ## Cómo verificarlo',
+          ),
+        labels: z.array(z.string()).optional(),
+        reason: z.string().describe('Una frase: por qué conviene'),
+      }),
+      desk,
+      agent,
+      (session, input) => session.addImprovement(input),
+    ),
   ]
 }
 
