@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.14.0](https://github.com/julianjab/ia-flow/compare/v2.13.0...v2.14.0) (2026-10-16)
+
+
+### Features
+
+* **engine:** tokens por modelo de una ejecución y los MCP que un agente no montó ([4c5e23b](https://github.com/julianjab/ia-flow/commit/4c5e23b260127bdf30d59bb0def756ba56ae3c03))
+* mejoras propuestas sin una tarea de origen ([c02b12f](https://github.com/julianjab/ia-flow/commit/c02b12f2ee4fd6a9035131d3468e3730b9f0e949))
+* **menubar:** «Por arrancar» mueve los Todo a una etapa y «Buscar en GitHub» agrega al board ([2524728](https://github.com/julianjab/ia-flow/commit/25247286562cf22f3b1fae91a5c2d4dfd12bf86b))
+* **menubar:** cada agente de una ejecución en la bandeja y en «En vivo» ([d343346](https://github.com/julianjab/ia-flow/commit/d3433465a9413beeb28b8ae0168a7374bd6cc580))
+* **menubar:** el asistente abre un issue y lo suma al board en la columna elegida ([d4dfbdf](https://github.com/julianjab/ia-flow/commit/d4dfbdf27ccdb2e977ade2aa502adaa645e7f066))
+* **menubar:** el asistente propone mover, sumar al board y cambiar labels ([db1e1cc](https://github.com/julianjab/ia-flow/commit/db1e1cca0689fd58d382fa0b98d8e967d709b84a))
+* **menubar:** la J de jabsolutions en la barra de menú ([b9a58e9](https://github.com/julianjab/ia-flow/commit/b9a58e99a9fd0212281eb821bddffe0f8e3e3ccc))
+* **menubar:** la ventana queda casi transparente sin el mouse encima ([306de66](https://github.com/julianjab/ia-flow/commit/306de6660e8f86e69b65e5f9e6871af847983eae))
+* **menubar:** pastilla «IA» junto al tile de la barra de menú ([19d723d](https://github.com/julianjab/ia-flow/commit/19d723dc0a50aba1bc52838f1b12ac65afc2cddc))
+* **menubar:** worktree y acciones del board desde la búsqueda en GitHub ([c6ca8d1](https://github.com/julianjab/ia-flow/commit/c6ca8d10244ec10fcc02ae6d10a5fb7451ed893e))
+* **runner:** cada agente de una ejecución en la bandeja y el detalle de una tarea ([4caa4f5](https://github.com/julianjab/ia-flow/commit/4caa4f5d7acdbfdd5c203002db31a0fec6969e8b))
+* **runner:** el asistente arma un issue desde un texto y lo suma al board para refinar ([89eb802](https://github.com/julianjab/ia-flow/commit/89eb802ec4ba4bf6ac427d21f65523690ef289a7))
+* **runner:** el asistente guarda una mejora nueva sin otra en la que basarla ([be9e3f5](https://github.com/julianjab/ia-flow/commit/be9e3f5367988045181fdf9768478c39dbd3d7e6))
+* **runner:** el asistente propone mover una card, sumarla al board y cambiar labels ([6fd1953](https://github.com/julianjab/ia-flow/commit/6fd1953490b715e88ab2d367760f0525c4df610e))
+* **runner:** el asistente sabe la hora, busca en todas las trazas y distingue agentes en paralelo ([c359d40](https://github.com/julianjab/ia-flow/commit/c359d40bfa61debaf74736f75382530d22df8315))
+* **runner:** la config dice qué tiene cada agente y cada ejecución su costo estimado ([a199e5b](https://github.com/julianjab/ia-flow/commit/a199e5b45d32abc455f8b4b59b3121e45db0ff81))
+* **runner:** poner y sacar labels de una card con el login de quien lo pide ([33be42d](https://github.com/julianjab/ia-flow/commit/33be42d88913507abd4565fa77939af5353466d7))
+* **runner:** sumar un issue al board y mover una card de columna ([11e7ac1](https://github.com/julianjab/ia-flow/commit/11e7ac1e22b32014430b4854ac897be43305c67b))
+* **web:** cada agente de una ejecución en paralelo con su estado ([be60e61](https://github.com/julianjab/ia-flow/commit/be60e610fe6b5d9bb48a9a4ba32fb278ed844584))
+* **web:** el issue que propone el asistente se crea y se suma al board en la columna elegida ([b6dc474](https://github.com/julianjab/ia-flow/commit/b6dc474b89d41256a140960149f4c8f2c2d69ef1))
+* **web:** la card de propuesta del asistente mueve, suma al board y cambia labels ([bbd53ca](https://github.com/julianjab/ia-flow/commit/bbd53cae5f21038b33238b9faa043d838c985c04))
+* **web:** modelo, MCP y prompt de cada agente en /config, y costo de una ejecución ([35f3c03](https://github.com/julianjab/ia-flow/commit/35f3c036693e53a6013634c6512ef66d609bd894))
+* **web:** mover los Todo a una etapa y agregar issues al board ([6026148](https://github.com/julianjab/ia-flow/commit/6026148e30c75d075d607a04b628b5cb59f388a4))
+
+
+### Bug Fixes
+
+* **menubar:** decodificar el failure de un agente como texto ([3b766d9](https://github.com/julianjab/ia-flow/commit/3b766d926f8ac648cb9e705a7aece9ae6500d2ea))
+* **menubar:** la búsqueda en GitHub se repite al iniciar sesión ([7c9eb22](https://github.com/julianjab/ia-flow/commit/7c9eb220751c2beea2d42d127f09aded95087c43))
+* **menubar:** no ofrecer reintentar un issue cuando no se sabe si se abrió ([c70fcbb](https://github.com/julianjab/ia-flow/commit/c70fcbb1d134628e4559e69370403fce3a6350b4))
+* **runner:** agregar al board no mueve una card con agente y explica una columna fallida ([c823464](https://github.com/julianjab/ia-flow/commit/c82346448468acdbd2bc193573c17546cfc71f7b))
+
 ## [2.13.0](https://github.com/julianjab/ia-flow/compare/v2.12.1...v2.13.0) (2026-10-16)
 
 
