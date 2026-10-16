@@ -163,6 +163,7 @@ struct GithubRow: View {
             } else if !issue.isPR, issue.open {
                 BoardAddMenu(runner: runner, model: model, issue: issue)
             }
+            GithubRowMenu(runner: runner, model: model, issue: issue)
         }
     }
 
@@ -182,5 +183,48 @@ struct GithubRow: View {
         }
         .buttonStyle(.plain)
         .help("\(issue.title)\nAbrir en GitHub")
+    }
+}
+
+/// ⋯ de un resultado: abrir su worktree (en cualquier repo con clone local) y, si está en el board, las acciones que
+/// el runner le ofrece ahora («Pedir review en Slack» en Review con PR, re-review…), igual que en la bandeja.
+struct GithubRowMenu: View {
+    @ObservedObject var runner: RunnerModel
+    @ObservedObject var model: GithubSearchModel
+    let issue: GithubIssue
+
+    var body: some View {
+        let task = model.task(issue)
+        let actions = task.map(actionsOf) ?? []
+        Group {
+            if let task, runner.busy.contains(task.ref) {
+                ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 24, height: 20)
+            } else {
+                Menu {
+                    if let task {
+                        ForEach(actions) { action in
+                            Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
+                                runner.trigger(action, on: task)
+                            }
+                        }
+                        if !actions.isEmpty { Divider() }
+                    }
+                    Button(worktreePR == nil ? "Abrir worktree del issue en iTerm" : "Abrir worktree del PR en iTerm") {
+                        runner.openWorktree(ref: issue.ref, pr: worktreePR)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 20).contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
+            }
+        }
+        .task(id: model.boardRef(issue)) {
+            if let ref = model.boardRef(issue) { await model.loadTask(ref) }
+        }
+    }
+
+    /// Un PR, el suyo; un issue del board, el de su tarea; si no, el worktree es el del issue.
+    private var worktreePR: Int? {
+        issue.isPR ? RunnerSearch.split(issue.ref)?.number : model.task(issue)?.pr?.number
     }
 }

@@ -317,6 +317,22 @@ final class RunnerModel: ObservableObject {
         return known
     }
 
+    /// Una tarea del board con sus acciones: la de la bandeja si está ahí; si no, la pide al runner. nil si no está.
+    @MainActor func task(_ ref: String) async -> InboxItem? {
+        if let item = inbox?.items.first(where: { $0.ref.lowercased() == ref.lowercased() }) { return item }
+        return try? await client.task(ref)
+    }
+
+    /// El issue del board cuyo PR es `ref` (`owner/repo#n` de un PR), si la bandeja o `/api/board` lo conocen.
+    func issue(ofPR ref: String) -> String? {
+        guard let pr = RunnerSearch.split(ref) else { return nil }
+        let known = (inbox?.items ?? []).map { ($0.ref, $0.pr?.number) } + (boardCache?.items ?? []).map { ($0.ref, $0.pr?.number) }
+        return known.first { candidate in
+            guard candidate.1 == pr.number, let issue = RunnerSearch.split(candidate.0) else { return false }
+            return issue.owner.lowercased() == pr.owner.lowercased() && issue.repo.lowercased() == pr.repo.lowercased()
+        }?.0
+    }
+
     /// Trae `/api/board` si no está o tiene más de un minuto (para saber qué ya está en el board).
     func warmBoard() {
         guard !isFixture, boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 else { return }
@@ -429,9 +445,12 @@ final class RunnerModel: ObservableObject {
     /// Abre Claude Code en un worktree de la tarea, en una pestaña de iTerm: `claude --worktree owner/repo/pr-N` (o `issue-N` sin PR).
     /// No va la URL: Claude Code rechaza `:` y `#` en el nombre y una URL de PR la toma como PR del repo del cwd. El
     /// hook global `WorktreeCreate` resuelve `owner/repo/…` al clone local y a la branch del PR o del issue.
-    func openWorktree(_ item: InboxItem) {
-        guard let ref = RunnerSearch.split(item.ref) else { return }
-        let name = "\(ref.owner)/\(ref.repo)/" + (item.pr.map { "pr-\($0.number)" } ?? "issue-\(ref.number)")
+    func openWorktree(_ item: InboxItem) { openWorktree(ref: item.ref, pr: item.pr?.number) }
+
+    /// `ref` es el issue (o el PR mismo); con `pr`, el worktree es el de la branch de ese PR.
+    func openWorktree(ref raw: String, pr: Int?) {
+        guard let ref = RunnerSearch.split(raw) else { return }
+        let name = "\(ref.owner)/\(ref.repo)/" + (pr.map { "pr-\($0)" } ?? "issue-\(ref.number)")
         let command = "claude --worktree \(name)"
         // Desde ~/development (donde el hook busca los clones), y al salir de Claude queda el shell: se ve si falló.
         if !runInITerm("/bin/zsh -lc 'cd ~/development && \(command); exec /bin/zsh -l'", tab: true) {

@@ -29,6 +29,8 @@ final class GithubSearchModel: ObservableObject {
     @Published private(set) var loadingRepos = false
     /// Los que se agregaron al board desde acá (ref en minúsculas → columna): la fila lo muestra sin esperar al board.
     @Published private(set) var added: [String: String] = [:]
+    /// Las tareas del board de los resultados, con sus acciones (ref en minúsculas → tarea).
+    @Published private(set) var tasks: [String: InboxItem] = [:]
 
     let org: String
     unowned let runner: RunnerModel
@@ -59,6 +61,7 @@ final class GithubSearchModel: ObservableObject {
     }
 
     func appear() {
+        tasks = [:]
         loadRepos()
         runner.warmBoard()
         if !query.isEmpty, results.isEmpty, note == nil { schedule() }
@@ -77,10 +80,27 @@ final class GithubSearchModel: ObservableObject {
         repoFilter = ""
     }
 
-    /// La columna si ya está en el board («» si está y no se sabe en cuál); nil si no está (o no se sabe).
+    /// La columna si ya está en el board («» si está y no se sabe en cuál); nil si no está (o no se sabe). Un PR, la
+    /// de su issue.
     func boardStatus(_ issue: GithubIssue) -> String? {
-        let key = issue.ref.lowercased()
+        guard let key = taskRef(issue)?.lowercased() else { return nil }
         return added[key] ?? runner.boardStatuses[key]
+    }
+
+    /// La tarea del board de un resultado: el issue mismo o, para un PR, el issue del board que lo abrió.
+    private func taskRef(_ issue: GithubIssue) -> String? { issue.isPR ? runner.issue(ofPR: issue.ref) : issue.ref }
+
+    /// La ref de la tarea si el resultado está en el board; nil si no.
+    func boardRef(_ issue: GithubIssue) -> String? { boardStatus(issue) == nil ? nil : taskRef(issue) }
+
+    /// La tarea ya traída (con sus acciones: «Pedir review en Slack», re-review…), si está en el board.
+    func task(_ issue: GithubIssue) -> InboxItem? { boardRef(issue).flatMap { tasks[$0.lowercased()] } }
+
+    /// Trae la tarea con sus acciones, una vez cada vez que se abre la pantalla.
+    @MainActor func loadTask(_ ref: String) async {
+        let key = ref.lowercased()
+        guard !isFixture, tasks[key] == nil, let item = await runner.task(ref) else { return }
+        tasks[key] = item
     }
 
     /// Lo agrega al board del runner (sin `status`, en Todo). Un 409 (ya está, o el repo no es del board) lo dice el
