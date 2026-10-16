@@ -1,4 +1,4 @@
-import type { ExecutionSummary, ExecutionUsage, TraceEntry } from '@ia-flow/shared'
+import type { ExecutionCost, ExecutionSummary, ExecutionUsage, TraceEntry } from '@ia-flow/shared'
 import { clock } from '@/components/eventText'
 
 // La hora de un evento la comparte con la pantalla de entradas: vive en `components/`.
@@ -28,6 +28,19 @@ export function tokens(n: number): string {
 /** Lo que gastó una ejecución, en una línea. */
 export function usageLine(usage: ExecutionUsage): string {
   return `${tokens(usage.input_tokens)} in · ${tokens(usage.output_tokens)} out · ${tokens(usage.cache_read_tokens)} caché`
+}
+
+/** El costo de una ejecución, que el runner ESTIMA con sus precios: `~$1.23`, o
+ *  por qué no hay número (suscripción, un modelo sin precio). Sin costo, nada. */
+export function costLine(cost: ExecutionCost | undefined): string {
+  if (!cost) return ''
+  const parts: string[] = []
+  if (cost.usd !== undefined) {
+    parts.push(cost.usd >= 0.1 ? `~$${cost.usd.toFixed(2)}` : `~$${cost.usd.toPrecision(1)}`)
+  }
+  if (cost.subscription) parts.push('suscripción')
+  if (cost.unpriced_models?.length) parts.push(`sin precio: ${cost.unpriced_models.join(', ')}`)
+  return parts.join(' · ')
 }
 
 const STATUS_LABEL: Record<ExecutionSummary['status'], string> = {

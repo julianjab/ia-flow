@@ -2,7 +2,7 @@
 import type { ExecutionSummary, TraceEntry } from '@ia-flow/shared';
 import { computed, nextTick, ref, watch } from 'vue';
 import { formatRelative } from '@/composables/formatRelative';
-import { duration, executionStatus, traceLine, usageLine } from '@/features/inbox/format';
+import { costLine, duration, executionStatus, traceLine, usageLine } from '@/features/inbox/format';
 import ActionError from '@/features/inbox/decisions/ActionError.vue';
 import Disclosure from '@/features/inbox/Disclosure.vue';
 import { loadFailure } from '@/features/inbox/queue/advice';
@@ -85,6 +85,12 @@ watch(
     <div v-if="open" :id="`xr-${execution.id}`" class="xr__body">
       <p class="xr__facts">
         <span v-if="execution.usage" class="mono">{{ usageLine(execution.usage) }}</span>
+        <span
+          v-if="costLine(execution.cost)"
+          class="mono"
+          title="Estimado con los precios por modelo del runner (pricing: en runner.yaml); no es una factura"
+          data-test="cost"
+        >{{ costLine(execution.cost) }}</span>
         <span v-if="execution.close_reason">cerró: {{ execution.close_reason }}</span>
         <span v-if="execution.pause">
           pausada <span class="mono">{{ execution.pause.pause_id }}</span
