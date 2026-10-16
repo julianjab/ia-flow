@@ -98,7 +98,10 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     /// La velocidad (1 es la normal de la voz); la próxima lectura sale así.
     @Published var rate = rates.contains(UserDefaults.standard.double(forKey: "assistantRate"))
         ? UserDefaults.standard.double(forKey: "assistantRate") : 1 {
-        didSet { UserDefaults.standard.set(rate, forKey: "assistantRate") }
+        didSet {
+            UserDefaults.standard.set(rate, forKey: "assistantRate")
+            resume()
+        }
     }
     static let rates: [Double] = [1, 1.25, 1.5]
 
@@ -115,6 +118,10 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     private let synth = AVSpeechSynthesizer()
     private var last: AVSpeechUtterance?
     private var after: (() -> Void)?
+    /// Las frases de lo que se está leyendo y cuál suena: al cambiar la velocidad se retoma desde ésa.
+    private var parts: [String] = []
+    private var queued: [AVSpeechUtterance] = []
+    private var at = 0
 
     override init() {
         voices = Self.spanishVoices()
@@ -152,16 +159,33 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         cancel()
         let parts = Speakable.parts(markdown)
         guard !parts.isEmpty else { then?(); return }
+        speak(parts, key: key, then: then)
+    }
+
+    private func speak(_ parts: [String], key: UUID, then: (() -> Void)?) {
         speaking = key
         after = then
-        for part in parts {
+        self.parts = parts
+        at = 0
+        queued = parts.map { part in
             let utterance = AVSpeechUtterance(string: part)
             utterance.voice = voice
             // La escala de AVSpeech va de 0 a 1 con la normal en 0,5: la velocidad multiplica la normal, sin pasar el tope.
             utterance.rate = min(AVSpeechUtteranceDefaultSpeechRate * Float(rate), AVSpeechUtteranceMaximumSpeechRate)
-            synth.speak(utterance)
-            last = utterance
+            return utterance
         }
+        queued.forEach(synth.speak)
+        last = queued.last
+    }
+
+    /// Una frase empezada no cambia de velocidad: lo que se está leyendo sigue, a la nueva, desde el principio de la
+    /// frase actual.
+    private func resume() {
+        guard let key = speaking, at < parts.count else { return }
+        let rest = Array(parts[at...])
+        let then = after
+        cancel()
+        speak(rest, key: key, then: then)
     }
 
     /// Una respuesta que terminó de llegar: se lee si la voz está prendida y, en charla, después se escucha.
@@ -174,8 +198,16 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     func cancel() {
         after = nil
         last = nil
+        parts = []
+        queued = []
         speaking = nil
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [self] in
+            if let i = queued.firstIndex(where: { $0 === utterance }) { at = i }
+        }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
