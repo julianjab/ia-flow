@@ -693,6 +693,47 @@ describe('runner API', () => {
     fakeProvider.run = defaultRun
   })
 
+  it('with voice, the question asks for a spoken summary and it comes as `speech`', async () => {
+    const { call } = await start()
+    const prompts: string[] = []
+    fakeProvider.run = async (ctx) => {
+      prompts.push(ctx.prompt)
+      await tool(ctx, 'submit_done').handler({
+        result: {
+          answer: '**o/r#1** falló por timeout.',
+          spoken: 'La tarea uno falló por un timeout.',
+        },
+      })
+      return { outcome: 'success' }
+    }
+    const ask = (voice?: boolean) =>
+      call('/api/assistant', {
+        method: 'POST',
+        body: JSON.stringify({
+          scope: { kind: 'task', ref: 'o/r#1' },
+          messages: [{ role: 'user', content: '¿qué pasó?' }],
+          ...(voice === undefined ? {} : { voice }),
+        }),
+      })
+    const events = async (res: Response) =>
+      (await res.text())
+        .split('\n')
+        .filter((line) => line.startsWith('data: '))
+        .map((line) => JSON.parse(line.slice(6)) as { type: string; text?: string })
+
+    const spoken = await events(await ask(true))
+    expect(prompts[0]).toContain('completá `spoken`')
+    expect(spoken.find((e) => e.type === 'speech')?.text).toBe('La tarea uno falló por un timeout.')
+    // Llega antes de `done`, y la respuesta que se muestra no cambia.
+    expect(spoken.map((e) => e.type).slice(-2)).toEqual(['speech', 'done'])
+    expect(spoken.at(-1)?.text).toBe('**o/r#1** falló por timeout.')
+
+    const quiet = await events(await ask())
+    expect(prompts[1]).not.toContain('spoken')
+    expect(quiet.some((e) => e.type === 'speech')).toBe(false)
+    fakeProvider.run = defaultRun
+  })
+
   it('a submit_done without an answer is refused, so the model has to answer', async () => {
     const { call } = await start()
     let refused = ''
