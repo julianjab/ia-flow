@@ -109,19 +109,41 @@ struct AssistantScreen: View {
     }
 }
 
-/// El campo para preguntar: ↩ envía; mientras responde, el botón corta la respuesta.
+/// El campo para preguntar: ↩ envía; mientras responde, el botón corta la respuesta. El parlante lee las respuestas
+/// en voz alta (queda elegido para todos los chats) y el micrófono dicta la pregunta.
 struct ChatComposer: View {
     @ObservedObject var chat: AssistantModel
     let placeholder: String
+    @ObservedObject private var voice = ReadAloud.shared
+    @ObservedObject private var dictation = Dictation.shared
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            row
+            if let error = dictation.error {
+                Label(error, systemImage: "mic.slash").font(.lh(11)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var row: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            IconButton(symbol: voice.enabled ? "speaker.wave.2.fill" : "speaker.slash",
+                       help: voice.enabled ? "Dejar de leer en voz alta" : "Leer las respuestas en voz alta",
+                       tint: voice.enabled ? .accentColor : .secondary) { voice.enabled.toggle() }
+                .padding(.bottom, 2)
             FieldBox {
                 TextField(placeholder, text: $chat.input, axis: .vertical)
                     .lineLimit(1...5)
                     .onSubmit { chat.send() }
                     .disabled(chat.streaming)
             }
+            let listening = dictation.isListening(chat)
+            IconButton(symbol: listening ? "mic.fill" : "mic", help: listening ? "Dejar de dictar" : "Dictar la pregunta",
+                       tint: listening ? .red : .secondary) {
+                dictation.toggle(for: chat, base: chat.input) { chat.input = $0 }
+            }
+            .padding(.bottom, 2)
             if chat.streaming {
                 Button { chat.stop() } label: { Image(systemName: "stop.fill").font(.system(size: 11, weight: .bold)).frame(width: 30, height: 30) }
                     .buttonStyle(.plain).foregroundStyle(.white).background(Circle().fill(Color.red)).help("Detener la respuesta")

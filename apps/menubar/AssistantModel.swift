@@ -119,6 +119,7 @@ final class AssistantModel: ObservableObject {
 
     /// Conversación nueva en el mismo scope.
     func reset() {
+        ReadAloud.shared.cancel()
         stream?.cancel()
         stream = nil
         streaming = false
@@ -164,6 +165,7 @@ final class AssistantModel: ObservableObject {
     func send() {
         let question = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !streaming else { return }
+        Dictation.shared.stop()
         input = ""
         // El hilo que se manda: las preguntas y las respuestas con texto (una nota o un turno vacío no van).
         var thread = turns.filter { $0.role != .note && !$0.text.isEmpty }
@@ -197,6 +199,7 @@ final class AssistantModel: ObservableObject {
 
     /// Corta la respuesta: lo que ya llegó se queda.
     func stop() {
+        ReadAloud.shared.cancel()
         stream?.cancel()
         if let last = turns.last, last.streaming { finish(last.id) }
     }
@@ -204,7 +207,10 @@ final class AssistantModel: ObservableObject {
     private func apply(_ event: AssistantEvent, to id: UUID) {
         guard let i = turns.firstIndex(where: { $0.id == id }) else { return }
         switch event.type {
-        case "text": turns[i].text += event.delta ?? ""; turns[i].activity = nil
+        case "text":
+            turns[i].text += event.delta ?? ""
+            turns[i].activity = nil
+            ReadAloud.shared.feed(id, text: turns[i].text, final: false)
         case "tool": turns[i].activity = event.summary ?? event.name
         case "proposal": if let p = event.proposal { turns[i].proposals.append(p) }
         case "tasks": turns[i].tasks = event.items ?? []
@@ -221,6 +227,7 @@ final class AssistantModel: ObservableObject {
         guard let i = turns.firstIndex(where: { $0.id == id }) else { return }
         turns[i].streaming = false
         turns[i].activity = nil
+        ReadAloud.shared.feed(id, text: turns[i].text, final: true)
         // Un turno sin nada (cortado antes de tiempo o fallido) no queda.
         if turns[i].text.isEmpty, turns[i].proposals.isEmpty, turns[i].tasks.isEmpty { turns.remove(at: i) }
         // En «¿Por qué?» el asistente puede haber ajustado la mejora o agregado otra: la bandeja se relee.

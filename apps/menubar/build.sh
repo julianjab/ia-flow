@@ -32,6 +32,9 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
+  <!-- el dictado de los chats del asistente (Voice.swift) -->
+  <key>NSMicrophoneUsageDescription</key><string>Para dictarle preguntas al asistente.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Para convertir en texto lo que le dictás al asistente.</string>
   <!-- el runner local habla http (localhost:3001, otra máquina de la red) -->
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>IAFlowRoot</key><string>$root</string>
