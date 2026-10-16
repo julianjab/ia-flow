@@ -2,10 +2,23 @@
 // dicta (`SpeechRecognition`). Lo demás de `voice/` recibe estos puertos y no
 // toca `window`; un navegador sin la API devuelve `null` y la UI no dibuja el botón.
 
-/** Lee en voz alta, en cola: cada `speak` se dice después del anterior. */
+/** Una voz del sistema o del navegador. */
+export interface VoiceOption {
+  id: string
+  name: string
+  lang: string
+  /** Del equipo (sin red); las de red (Google, las «Natural» de Edge) suelen sonar mejor. */
+  local: boolean
+}
+
+/** Lee en voz alta. `speak` corta lo que se estaba diciendo; `onDone` llega al terminar de decir
+ *  todo (no si se cortó). */
 export interface Speaker {
-  speak(text: string): void
+  speak(parts: string[], voiceId: string | null, onDone?: () => void): void
   cancel(): void
+  voices(): VoiceOption[]
+  /** Las voces llegan tarde en algunos navegadores: avisa cuando cambian. */
+  onVoices(listener: () => void): void
 }
 
 /** Dicta: `onText` recibe lo ya firme y lo que todavía se está reconociendo. */
@@ -27,14 +40,38 @@ export function browserSpeaker(): Speaker | null {
   const synth = globalThis.speechSynthesis
   const Utterance = globalThis.SpeechSynthesisUtterance
   if (!synth || !Utterance) return null
+  /** Sube con cada `speak`/`cancel`: el `onend` de una lectura cortada no avisa. */
+  let turn = 0
   return {
-    speak(text) {
-      const utterance = new Utterance(text)
-      utterance.lang = spanish()
-      synth.speak(utterance)
+    speak(parts, voiceId, onDone) {
+      turn++
+      synth.cancel()
+      const mine = turn
+      const voice = synth.getVoices().find((v) => v.voiceURI === voiceId)
+      parts.forEach((part, i) => {
+        const utterance = new Utterance(part)
+        utterance.lang = voice?.lang ?? spanish()
+        if (voice) utterance.voice = voice
+        if (i === parts.length - 1) {
+          utterance.onend = () => {
+            if (mine === turn) onDone?.()
+          }
+        }
+        synth.speak(utterance)
+      })
+      if (parts.length === 0) onDone?.()
     },
     cancel() {
+      turn++
       synth.cancel()
+    },
+    voices() {
+      return synth
+        .getVoices()
+        .map((v) => ({ id: v.voiceURI, name: v.name, lang: v.lang, local: v.localService }))
+    },
+    onVoices(listener) {
+      synth.addEventListener?.('voiceschanged', listener)
     },
   }
 }

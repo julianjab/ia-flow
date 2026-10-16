@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import type { AssistantScope, InboxItem, InboxProject } from '@ia-flow/shared';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { dropScopeQuery, scopeQuery, typedRef } from '@/features/assistant/scope';
 import ScopeTag from '@/features/assistant/ScopeTag.vue';
 import { browserDictation } from '@/features/assistant/voice/speech';
 import { useDictation } from '@/features/assistant/voice/useDictation';
+import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
 
 // La caja de pregunta, con el contexto de la conversación encima: una chip que se
 // cambia tocándola o escribiendo `#` (una tarea) o `@` (un proyecto, o `general`).
 // Enter envía, Shift+Enter baja de línea; con la lista de contextos abierta, las
 // flechas y Enter eligen. Mientras responde, «Enviar» pasa a «Detener». 🎤 dicta
 // (si el navegador sabe): lo dicho se suma a la caja; terminar con «enviar» o
-// quedarse 4 s callado la manda (mientras responde, sólo queda escrita).
+// quedarse 4 s callado la manda (mientras responde, sólo queda escrita). En
+// charla, el micrófono se abre solo cuando la voz termina de leer. Con la voz
+// prendida, abajo se elige con qué voz se lee.
 
 const props = defineProps<{
   placeholder: string;
@@ -27,11 +30,12 @@ const emit = defineEmits<{
 }>();
 
 const dictation = useDictation(browserDictation());
+const voice = useVoiceStore();
 
-function toggleDictation() {
-  if (dictation.listening.value) dictation.stop();
-  else
-    dictation.start(text.value, {
+function listen() {
+  // Lo que se esté leyendo se calla: el micrófono no tiene que escuchar a la voz.
+  voice.cancel();
+  dictation.start(text.value, {
       write: (value) => (text.value = value),
       send: (value) => {
         text.value = value;
@@ -40,6 +44,19 @@ function toggleDictation() {
       },
     });
 }
+
+function toggleDictation() {
+  if (dictation.listening.value) dictation.stop();
+  else listen();
+}
+
+// La charla pide escuchar (al prenderla, o cuando la voz termina de leer una respuesta).
+watch(
+  () => voice.listenTick,
+  () => {
+    if (dictation.supported && !dictation.listening.value && !props.streaming) listen();
+  },
+);
 
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
@@ -177,6 +194,18 @@ function onKeydown(e: KeyboardEvent) {
       ● Escuchando · terminá con «enviar» o quedate callado 4 s para mandarla
     </p>
     <p v-else-if="dictation.error.value" class="co__err" role="alert" data-test="mic-error">✕ {{ dictation.error.value }}</p>
+    <p v-if="voice.wantsSpeech && voice.voices.length > 1" class="co__ctx">
+      <label class="co__lbl" for="assistant-voice">Voz</label>
+      <select
+        id="assistant-voice"
+        class="co__voice"
+        data-test="voice-pick"
+        :value="voice.voice?.id"
+        @change="voice.chooseVoice(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="v in voice.voices" :key="v.id" :value="v.id">{{ v.name }} · {{ v.lang }}</option>
+      </select>
+    </p>
   </form>
 </template>
 
@@ -199,5 +228,6 @@ function onKeydown(e: KeyboardEvent) {
 .co__btn { flex: none; }
 .co__mic { min-width: var(--tap-h); padding-inline: 0; }
 .co__mic[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
+.co__voice { min-width: 0; max-width: 100%; min-height: var(--tap-h-sm); font-size: var(--fs-chrome); }
 .co__err { margin: 0; color: var(--danger); font-size: var(--fs-chrome); }
 </style>
