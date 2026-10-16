@@ -6,7 +6,15 @@ vi.mock('@/composables/useServerTarget', () => ({
   serverTarget: () => ({ base: 'http://r:1', token: 'ia', url: (p: string) => `http://r:1${p}` }),
 }))
 
-import { createIssue, executeProposal, fetchRunner, streamAssistant } from '../api'
+import {
+  addToBoard,
+  changeLabels,
+  createIssue,
+  executeProposal,
+  fetchRunner,
+  moveTask,
+  streamAssistant,
+} from '../api'
 
 const REQUEST = {
   scope: { kind: 'general' as const },
@@ -185,5 +193,61 @@ describe('executeProposal / createIssue / fetchRunner', () => {
     // Un runner de antes de los agentes no los manda: no hay qué elegir.
     get.mockResolvedValue({ data: info })
     expect((await fetchRunner()).agents).toEqual([])
+  })
+})
+
+describe('propuestas del board', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  const sent = (post: { mock: { calls: unknown[][] } }) => {
+    const [url, body, config] = post.mock.calls[0] as unknown as [
+      string,
+      unknown,
+      { headers: Record<string, string> },
+    ]
+    return { url, body, token: config.headers['x-github-token'] }
+  }
+
+  it('mover pega en /status con la columna', async () => {
+    const post = vi
+      .spyOn(axios, 'post')
+      .mockResolvedValue({ status: 200, data: { ok: true, message: 'movida de Build a Refine' } })
+    await expect(moveTask({ ref: 'acme/api#7', status: 'Refine' }, 'gho_1')).resolves.toMatchObject(
+      {
+        ok: true,
+      },
+    )
+    expect(sent(post)).toEqual({
+      url: '/api/tasks/acme/api/7/status',
+      body: { status: 'Refine' },
+      token: 'gho_1',
+    })
+  })
+
+  it('sumar al board pega en /api/board/items sin mandar lo que no se eligió', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({
+      status: 200,
+      data: { ok: true, message: 'acme/api#9 agregado en Todo' },
+    })
+    await addToBoard({ issue: 'acme/api#9' }, 'gho_1')
+    expect(sent(post)).toEqual({
+      url: '/api/board/items',
+      body: { issue: 'acme/api#9' },
+      token: 'gho_1',
+    })
+  })
+
+  it('labels pega en /labels; un rechazo vuelve con su mensaje', async () => {
+    const post = vi
+      .spyOn(axios, 'post')
+      .mockResolvedValue({ status: 403, data: { ok: false, message: 'ada no tiene permiso' } })
+    await expect(
+      changeLabels({ ref: 'acme/api#7', remove: ['blocked'] }, 'gho_1'),
+    ).resolves.toEqual({ ok: false, message: 'ada no tiene permiso' })
+    expect(sent(post)).toEqual({
+      url: '/api/tasks/acme/api/7/labels',
+      body: { remove: ['blocked'] },
+      token: 'gho_1',
+    })
   })
 })

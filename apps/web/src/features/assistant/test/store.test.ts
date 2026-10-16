@@ -9,6 +9,9 @@ const streamOpts: Array<{ githubToken?: string }> = []
 
 const executeProposal = vi.fn()
 const createIssue = vi.fn()
+const moveTask = vi.fn()
+const addToBoard = vi.fn()
+const changeLabels = vi.fn()
 const fetchRunner = vi.fn()
 
 vi.mock('../api', () => ({
@@ -22,6 +25,9 @@ vi.mock('../api', () => ({
   },
   executeProposal: (...a: unknown[]) => executeProposal(...a),
   createIssue: (...a: unknown[]) => createIssue(...a),
+  moveTask: (...a: unknown[]) => moveTask(...a),
+  addToBoard: (...a: unknown[]) => addToBoard(...a),
+  changeLabels: (...a: unknown[]) => changeLabels(...a),
   fetchRunner: () => fetchRunner(),
   fetchTasks: async () => [{ ref: 'acme/api#7', title: 'Algo', group: 'need', kind: 'merge' }],
 }))
@@ -432,6 +438,87 @@ describe('useAssistantChatStore', () => {
     await chat.send('gracias')
     expect(requests.at(-1)?.messages.at(-1)?.content).toBe(
       '[Nota: el usuario ejecutó "Abrir un issue en julianjab/ia-flow" sobre "Cortar el loop" → https://github.com/julianjab/ia-flow/issues/77]\ngracias',
+    )
+  })
+})
+
+describe('propuestas del board', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    requests.length = 0
+    executeProposal.mockReset()
+    moveTask.mockReset()
+    addToBoard.mockReset()
+    changeLabels.mockReset()
+    fetchRunner.mockReset().mockResolvedValue({ projects: [], agents: [] })
+  })
+
+  const move: AssistantProposal = {
+    id: 'm1',
+    kind: 'move',
+    ref: 'acme/api#7',
+    status: 'Refine',
+    from: 'Build',
+    label: 'Mover a Refine',
+    reason: 'falta el PRD',
+  }
+  const add: AssistantProposal = {
+    id: 'a1',
+    kind: 'add_to_board',
+    issue: 'acme/api#9',
+    status: 'Todo',
+    label: 'Agregar al board en Todo',
+    reason: 'lo pidió producto',
+  }
+  const labels: AssistantProposal = {
+    id: 'l1',
+    kind: 'labels',
+    ref: 'acme/api#7',
+    remove: ['blocked'],
+    label: 'Sacar blocked',
+    reason: 'ya se contestó',
+  }
+
+  it.each([
+    ['move', move, moveTask],
+    ['add_to_board', add, addToBoard],
+    ['labels', labels, changeLabels],
+  ] as const)(
+    'una propuesta %s llama a su endpoint con el token del usuario',
+    async (_, p, call) => {
+      script = async function* () {
+        yield { type: 'proposal', proposal: p }
+        yield { type: 'done', text: 'Te propuse algo.' }
+      }
+      call.mockResolvedValue({ ok: true, message: 'hecho' })
+      const chat = useAssistantChatStore()
+      await chat.send('¿qué hago?')
+      const id = chat.turns.find((t) => t.kind === 'proposal')?.id as number
+
+      await chat.runProposal(id, 'gho_1')
+      expect(call).toHaveBeenCalledWith(p, 'gho_1')
+      expect(executeProposal).not.toHaveBeenCalled()
+      expect(chat.turns.find((t) => t.id === id)).toMatchObject({
+        status: 'done',
+        message: 'hecho',
+      })
+    },
+  )
+
+  it('la nota al modelo nombra la tarea (o el issue a sumar)', async () => {
+    script = async function* () {
+      yield { type: 'proposal', proposal: add }
+      yield { type: 'done', text: 'ok' }
+    }
+    addToBoard.mockResolvedValue({ ok: true, message: 'acme/api#9 agregado en Todo' })
+    const chat = useAssistantChatStore()
+    await chat.send('¿falta algo?')
+    const id = chat.turns.find((t) => t.kind === 'proposal')?.id as number
+    await chat.runProposal(id, 'gho_1')
+    script = say('ok')
+    await chat.send('gracias')
+    expect(requests.at(-1)?.messages.at(-1)?.content).toBe(
+      '[Nota: el usuario ejecutó "Agregar al board en Todo" sobre acme/api#9]\ngracias',
     )
   })
 })
