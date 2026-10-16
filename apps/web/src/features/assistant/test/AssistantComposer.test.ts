@@ -245,6 +245,31 @@ describe('AssistantComposer', () => {
       }
     })
 
+    it('cambiar la velocidad mientras lee sigue desde la frase actual, a la velocidad nueva', async () => {
+      localStorage.setItem('ia-flow.assistant.read-aloud', '1')
+      const speech = installFakeSpeech([{ name: 'Mónica', lang: 'es-ES' }])
+      try {
+        const w = render()
+        const voice = useVoiceStore()
+        const after = vi.fn()
+        voice.say('Uno. Dos. Tres.', 'k', after)
+        speech.next()
+        await w.get('[data-test="rate"]').trigger('click')
+        expect(speech.said).toEqual([
+          ['Uno.', 'Dos.', 'Tres.'],
+          ['Dos.', 'Tres.'],
+        ])
+        expect(speech.rateOf).toEqual([1, 1.25])
+        expect(voice.speaking).toBe('k')
+        speech.finish()
+        expect(after).toHaveBeenCalledTimes(1)
+        expect(voice.speaking).toBeNull()
+      } finally {
+        speech.uninstall()
+        localStorage.clear()
+      }
+    })
+
     it('sin permiso del micrófono lo dice', async () => {
       g.webkitSpeechRecognition = FakeRecognition
       const w = render()

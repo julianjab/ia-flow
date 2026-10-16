@@ -10,6 +10,8 @@ export interface FakeSpeech {
   cancel: ReturnType<typeof vi.fn>
   /** Termina de decir lo último (dispara el `onend` de su última frase). */
   finish(): void
+  /** Termina la frase que se está diciendo y empieza la siguiente. */
+  next(): void
   uninstall(): void
 }
 
@@ -17,6 +19,7 @@ export function installFakeSpeech(voices: Array<{ name: string; lang: string }> 
   const g = globalThis as Record<string, unknown>
   type Utterance = {
     text: string
+    onstart: (() => void) | null
     onend: (() => void) | null
     voice?: { voiceURI: string }
     rate: number
@@ -34,6 +37,10 @@ export function installFakeSpeech(voices: Array<{ name: string; lang: string }> 
       queue = []
       last?.onend?.()
     },
+    next() {
+      queue.shift()?.onend?.()
+      queue[0]?.onstart?.()
+    },
     uninstall() {
       delete g.speechSynthesis
       delete g.SpeechSynthesisUtterance
@@ -41,6 +48,7 @@ export function installFakeSpeech(voices: Array<{ name: string; lang: string }> 
   }
   let batch: string[] | null = null
   g.SpeechSynthesisUtterance = class {
+    onstart: (() => void) | null = null
     onend: (() => void) | null = null
     lang = ''
     voice?: { voiceURI: string }
@@ -54,6 +62,10 @@ export function installFakeSpeech(voices: Array<{ name: string; lang: string }> 
         fake.said.push(batch)
         fake.voiceOf.push(u.voice?.voiceURI)
         fake.rateOf.push(u.rate)
+        queue.push(u)
+        batch.push(u.text)
+        u.onstart?.()
+        return
       }
       batch?.push(u.text)
       queue.push(u)
