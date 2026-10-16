@@ -1,12 +1,17 @@
 /**
- * Lo que una persona hace con el board en sí desde la bandeja: sumar un issue que todavía no está
- * y mover una card a otra columna. Va con el token de ESA persona —en el board queda a su nombre— y
+ * Lo que una persona hace con el board en sí desde la bandeja: sumar un issue que todavía no está,
+ * mover una card a otra columna y ponerle o sacarle labels. Va con el token de ESA persona —en el board queda a su nombre— y
  * sólo si puede escribir en el repo del issue. Mover una card es lo mismo que moverla en GitHub: el
  * webhook de ese cambio arranca el pipeline de la columna.
  */
 import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
-import type { AddToBoardRequest, AddToBoardResult, TaskActionResult } from '@ia-flow/shared'
+import type {
+  AddToBoardRequest,
+  AddToBoardResult,
+  TaskActionResult,
+  TaskLabelsRequest,
+} from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
 import type { Board } from '../board/Board.js'
 import type { BoardCard } from './classify.js'
@@ -90,6 +95,58 @@ export class BoardMoves {
     })
     this.options.changed(ref)
     return { ok: true, message, github_login: github.login }
+  }
+
+  /**
+   * Pone y saca labels del issue de la card. Con el agente corriendo también: sacar `blocked` es
+   * lo que destraba una tarea, y el webhook de ese cambio es el que la vuelve a disparar.
+   */
+  async labels(
+    ref: string,
+    request: TaskLabelsRequest,
+    github: GithubActor,
+  ): Promise<TaskActionResult> {
+    const add = [...new Set(request.add ?? [])]
+    const remove = [...new Set(request.remove ?? [])]
+    const both = add.filter((label) => remove.includes(label))
+    if (both.length > 0) {
+      throw new TaskActionError(`¿poner o sacar ${both.join(', ')}? No las dos`, 400)
+    }
+    if (add.length + remove.length === 0) {
+      throw new TaskActionError('decí qué labels poner o sacar', 400)
+    }
+    const card = await this.options.inbox.card(ref)
+    if (!card) throw new TaskActionError(`${ref} no está en ningún board de este runner`, 404)
+    const client = this.client(github.token)
+    const issue = parseRef(ref)
+    await assertCanPush(client, issue, github.login)
+    const path = `/repos/${issue.owner}/${issue.repo}/issues/${issue.number}/labels`
+    try {
+      if (add.length > 0) {
+        await client.requestJson(path, { method: 'POST', body: JSON.stringify({ labels: add }) })
+      }
+      for (const label of remove) {
+        const res = await client.request(`${path}/${encodeURIComponent(label)}`, {
+          method: 'DELETE',
+        })
+        // 404: ya no la tenía — queda como se pidió.
+        if (!res.ok && res.status !== 404) throw new Error(`sacar ${label} → ${res.status}`)
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      throw new TaskActionError(`GitHub no cambió los labels de ${ref}: ${reason}`, 502)
+    } finally {
+      this.options.changed(ref)
+    }
+    const message = [
+      ...add.map((label) => `+${label}`),
+      ...remove.map((label) => `-${label}`),
+    ].join(', ')
+    this.log.info(`${github.login}: ${ref} labels ${message}`, {
+      'ia.issue': ref,
+      'ia.github.login': github.login,
+    })
+    return { ok: true, message: `labels: ${message}`, github_login: github.login }
   }
 
   private assertIdle(ref: string): void {

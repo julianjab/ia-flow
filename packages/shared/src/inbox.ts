@@ -445,6 +445,18 @@ export const AddToBoardResultSchema = TaskActionResultSchema.extend({
 })
 export type AddToBoardResult = z.infer<typeof AddToBoardResultSchema>
 
+/** `POST /api/tasks/:owner/:repo/:n/labels`: poner y sacar labels del issue, con el login de quien
+ *  lo pide. Al menos uno de los dos. Responde un `TaskActionResult`. */
+export const TaskLabelsRequestSchema = z
+  .object({
+    add: z.array(z.string().trim().min(1)).optional(),
+    remove: z.array(z.string().trim().min(1)).optional(),
+  })
+  .refine((request) => (request.add?.length ?? 0) + (request.remove?.length ?? 0) > 0, {
+    message: 'Decí qué labels poner (add) o sacar (remove)',
+  })
+export type TaskLabelsRequest = z.infer<typeof TaskLabelsRequestSchema>
+
 export const DeviceCodeSchema = z.object({
   device_code: z.string(),
   user_code: z.string(),
@@ -533,15 +545,78 @@ export const AssistantIssueProposalSchema = z.object({
 })
 export type AssistantIssueProposal = z.infer<typeof AssistantIssueProposalSchema>
 
-/** Lo que el asistente propone: una acción sobre una tarea, o abrir un issue. */
+/** Mover la card de una tarea a otra columna (`POST /api/tasks/:o/:r/:n/status`). */
+export const AssistantMoveProposalSchema = z.object({
+  id: z.string(),
+  kind: z.literal('move'),
+  ref: z.string(),
+  status: z.string(),
+  /** La columna en la que estaba al proponerla. */
+  from: z.string().optional(),
+  label: z.string(),
+  reason: z.string(),
+})
+export type AssistantMoveProposal = z.infer<typeof AssistantMoveProposalSchema>
+
+/** Sumar al board un issue que no está (`POST /api/board/items`). */
+export const AssistantAddToBoardProposalSchema = z.object({
+  id: z.string(),
+  kind: z.literal('add_to_board'),
+  /** `owner/repo#n`. */
+  issue: z.string(),
+  project_id: z.string().optional(),
+  /** Sin esto, la columna de entrada del runner (Todo). */
+  status: z.string().optional(),
+  label: z.string(),
+  reason: z.string(),
+})
+export type AssistantAddToBoardProposal = z.infer<typeof AssistantAddToBoardProposalSchema>
+
+/** Poner y sacar labels del issue de una tarea (`POST /api/tasks/:o/:r/:n/labels`). */
+export const AssistantLabelsProposalSchema = z.object({
+  id: z.string(),
+  kind: z.literal('labels'),
+  ref: z.string(),
+  add: z.array(z.string()).optional(),
+  remove: z.array(z.string()).optional(),
+  label: z.string(),
+  reason: z.string(),
+})
+export type AssistantLabelsProposal = z.infer<typeof AssistantLabelsProposalSchema>
+
+/** Lo que el asistente propone: una acción sobre una tarea, abrir un issue, mover una card,
+ *  sumar un issue al board o cambiarle labels. La de una acción va última: no trae `kind`. */
 export const AssistantProposalSchema = z.union([
   AssistantIssueProposalSchema,
+  AssistantMoveProposalSchema,
+  AssistantAddToBoardProposalSchema,
+  AssistantLabelsProposalSchema,
   AssistantTaskProposalSchema,
 ])
 export type AssistantProposal = z.infer<typeof AssistantProposalSchema>
 
+export type AssistantProposalKind = 'action' | 'issue' | 'move' | 'add_to_board' | 'labels'
+
+/** Qué propone: las de una acción no traen `kind` (las guardadas antes no lo tenían). */
+export function proposalKind(proposal: AssistantProposal): AssistantProposalKind {
+  return 'kind' in proposal ? proposal.kind : 'action'
+}
+
 export function isIssueProposal(proposal: AssistantProposal): proposal is AssistantIssueProposal {
-  return 'kind' in proposal && proposal.kind === 'issue'
+  return proposalKind(proposal) === 'issue'
+}
+
+export function isTaskActionProposal(
+  proposal: AssistantProposal,
+): proposal is AssistantTaskProposal {
+  return proposalKind(proposal) === 'action'
+}
+
+/** La tarea de la que habla la propuesta (`owner/repo#n`); un issue nuevo no tiene. */
+export function proposalRef(proposal: AssistantProposal): string | undefined {
+  if ('ref' in proposal) return proposal.ref
+  if ('issue' in proposal) return proposal.issue
+  return undefined
 }
 
 /** `POST /api/issues`: abre un issue propuesto, con el token de GitHub de quien lo confirma. */

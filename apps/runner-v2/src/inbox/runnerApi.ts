@@ -32,6 +32,7 @@ import {
   type RunnerResources,
   type RunnerStreamEvent,
   TaskActionRequestSchema,
+  TaskLabelsRequestSchema,
 } from '@ia-flow/shared'
 import { parseLogLevel } from '@ia-flow/telemetry'
 import { z } from 'zod'
@@ -39,7 +40,7 @@ import type { Assistant } from '../assistant/Assistant.js'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
 import type { ImprovementStore } from '../assistant/ImprovementStore.js'
 import { type DeviceFlow, githubLogin, RefreshRejectedError } from '../github/deviceFlow.js'
-import { ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
+import { type ApiRequest, ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
 import { openSse, type SseHub, writeSse } from '../http/sse.js'
 import type { BoardMoves } from './BoardMoves.js'
 import type { InboxService } from './InboxService.js'
@@ -54,7 +55,7 @@ export interface RunnerApiOptions {
   projects: InboxProject[]
   inbox: InboxService
   actions: TaskActions
-  /** Sumar un issue al board y mover una card de columna. Sin esto, 501. */
+  /** Sumar un issue al board, mover una card de columna y cambiarle labels. Sin esto, 501. */
   moves?: BoardMoves
   assistant: Assistant
   /** Las entradas del runner (webhook de GitHub, Slack) y lo que les llegó. */
@@ -183,26 +184,40 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     return detail
   })
 
-  // Un rechazo responde con la forma del contrato (`TaskActionResult`, `ok: false`) y su status:
-  // la web muestra el mensaje tal cual.
-  router.post('/api/tasks/:owner/:repo/:number/actions', async (req, res) => {
-    const reject = (status: number, message: string) => {
-      sendJson(res, status, { ok: false, message })
-      return undefined
-    }
-    const token = req.header('x-github-token')
-    if (!token) return reject(401, 'Iniciá sesión con GitHub para mover tareas')
-    try {
-      const request = parseBody(TaskActionRequestSchema, await req.json())
-      const login = await loginOf(token)
-      return await options.actions.run(refOf(req.params), request, { token, login })
-    } catch (err) {
-      if (err instanceof TaskActionError || err instanceof HttpError) {
-        return reject(err.status, err.message)
+  // Lo que una persona hace con una tarea o el board, firmado con su login de GitHub. Un rechazo
+  // responde con la forma del contrato (`TaskActionResult`, `ok: false`) y su status: la web
+  // muestra el mensaje tal cual.
+  const signedPost = <T>(
+    path: string,
+    schema: Parameters<typeof parseBody<T>>[0],
+    loginFirst: string,
+    run: (body: T, req: ApiRequest, actor: { token: string; login: string }) => Promise<unknown>,
+  ) =>
+    router.post(path, async (req, res) => {
+      const reject = (status: number, message: string) => {
+        sendJson(res, status, { ok: false, message })
+        return undefined
       }
-      throw err
-    }
-  })
+      const token = req.header('x-github-token')
+      if (!token) return reject(401, `Iniciá sesión con GitHub para ${loginFirst}`)
+      try {
+        const body = parseBody(schema, await req.json())
+        const login = await loginOf(token)
+        return await run(body, req, { token, login })
+      } catch (err) {
+        if (err instanceof TaskActionError || err instanceof HttpError) {
+          return reject(err.status, err.message)
+        }
+        throw err
+      }
+    })
+
+  signedPost(
+    '/api/tasks/:owner/:repo/:number/actions',
+    TaskActionRequestSchema,
+    'mover tareas',
+    (request, req, actor) => options.actions.run(refOf(req.params), request, actor),
+  )
 
   const boardMoves = () => {
     if (!options.moves) throw new HttpError(501, 'Este runner no mueve cards del board')
@@ -210,44 +225,28 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
   }
 
   // Mover la card a otra columna, con el login de quien la mueve: como moverla en GitHub.
-  router.post('/api/tasks/:owner/:repo/:number/status', async (req, res) => {
-    const reject = (status: number, message: string) => {
-      sendJson(res, status, { ok: false, message })
-      return undefined
-    }
-    const token = req.header('x-github-token')
-    if (!token) return reject(401, 'Iniciá sesión con GitHub para mover tareas')
-    try {
-      const { status } = parseBody(MoveTaskRequestSchema, await req.json())
-      const login = await loginOf(token)
-      return await boardMoves().move(refOf(req.params), status, { token, login })
-    } catch (err) {
-      if (err instanceof TaskActionError || err instanceof HttpError) {
-        return reject(err.status, err.message)
-      }
-      throw err
-    }
-  })
+  signedPost(
+    '/api/tasks/:owner/:repo/:number/status',
+    MoveTaskRequestSchema,
+    'mover tareas',
+    ({ status }, req, actor) => boardMoves().move(refOf(req.params), status, actor),
+  )
+
+  // Poner y sacar labels del issue de la card, con el login de quien lo pide.
+  signedPost(
+    '/api/tasks/:owner/:repo/:number/labels',
+    TaskLabelsRequestSchema,
+    'cambiar labels',
+    (request, req, actor) => boardMoves().labels(refOf(req.params), request, actor),
+  )
 
   // Un issue que no está en el board pasa a estarlo, a nombre de quien lo agrega.
-  router.post('/api/board/items', async (req, res) => {
-    const reject = (status: number, message: string) => {
-      sendJson(res, status, { ok: false, message })
-      return undefined
-    }
-    const token = req.header('x-github-token')
-    if (!token) return reject(401, 'Iniciá sesión con GitHub para agregar al board')
-    try {
-      const request = parseBody(AddToBoardRequestSchema, await req.json())
-      const login = await loginOf(token)
-      return await boardMoves().add(request, { token, login })
-    } catch (err) {
-      if (err instanceof TaskActionError || err instanceof HttpError) {
-        return reject(err.status, err.message)
-      }
-      throw err
-    }
-  })
+  signedPost(
+    '/api/board/items',
+    AddToBoardRequestSchema,
+    'agregar al board',
+    (request, _req, actor) => boardMoves().add(request, actor),
+  )
 
   // Un issue que propuso el asistente (`assistant_propose_issue`), con el token de quien lo
   // confirma: lo abre esa persona, en un repo donde ella puede abrirlo. El runner no pone nada suyo.
