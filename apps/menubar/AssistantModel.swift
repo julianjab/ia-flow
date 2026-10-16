@@ -84,8 +84,10 @@ final class AssistantModel: ObservableObject {
         let origin = [improvement.pr_url.map { "PR \($0)" }, improvement.execution_id.map { "ejecución \($0)" }]
             .compactMap { $0 }.joined(separator: ", ")
         return """
-        Pregunto por una mejora que propuso el agente «\(improvement.agent)» sobre \(improvement.task_ref)\(origin.isEmpty ? "" : " (\(origin))"). \
-        Se abriría como issue en \(improvement.repo) (\(improvement.target)).
+        Pregunto por la mejora \(improvement.id), que propuso el agente «\(improvement.agent)» sobre \(improvement.task_ref)\(origin.isEmpty ? "" : " (\(origin))"). \
+        Se abriría como issue en \(improvement.repo) (\(improvement.target)). Si te pido ajustarla, usá \
+        assistant_revise_improvement con id \(improvement.id); si hace falta otra mejora, assistant_add_improvement \
+        basada en \(improvement.id). No me pegues el issue en la respuesta: lo leo en la card.
         Título: \(improvement.title)
         Razón que dio: \(improvement.reason)
         Cuerpo propuesto:
@@ -210,6 +212,8 @@ final class AssistantModel: ObservableObject {
         turns[i].activity = nil
         // Un turno sin nada (cortado antes de tiempo o fallido) no queda.
         if turns[i].text.isEmpty, turns[i].proposals.isEmpty, turns[i].tasks.isEmpty { turns.remove(at: i) }
+        // En «¿Por qué?» el asistente puede haber ajustado la mejora o agregado otra: la bandeja se relee.
+        if preamble != nil { runner.refresh() }
     }
 
     // MARK: propuestas

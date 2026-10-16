@@ -383,6 +383,8 @@ final class RunnerModel: ObservableObject {
                 guard server == selected else { return }
                 inbox = fresh
                 improvements = proposals
+                // La de «¿Por qué?», como quedó: el asistente la puede haber ajustado.
+                if let current = discussing, let fresh = proposals.first(where: { $0.id == current.id }) { discussing = fresh }
                 error = nil
             } catch let e as RunnerError {
                 guard server == selected else { return }
