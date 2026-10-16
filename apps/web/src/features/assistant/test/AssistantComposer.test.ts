@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import AssistantComposer from '../AssistantComposer.vue'
 
 const tasks = [
@@ -56,5 +56,70 @@ describe('AssistantComposer', () => {
     await w.get('textarea').setValue('hola')
     await w.get('textarea').trigger('keydown', { key: 'Enter' })
     expect(w.emitted('send')).toEqual([['hola']])
+  })
+
+  describe('dictado', () => {
+    /** Un `webkitSpeechRecognition` de mentira: el test dice qué se reconoció. */
+    class FakeRecognition {
+      static last: FakeRecognition | null = null
+      lang = ''
+      continuous = false
+      interimResults = false
+      onresult: ((e: unknown) => void) | null = null
+      onerror: ((e: { error: string }) => void) | null = null
+      onend: (() => void) | null = null
+      constructor() {
+        FakeRecognition.last = this
+      }
+      start() {}
+      stop() {
+        this.onend?.()
+      }
+      hear(transcript: string, isFinal: boolean) {
+        const result = Object.assign([{ transcript }], { isFinal })
+        this.onresult?.({ resultIndex: 0, results: [result] })
+      }
+    }
+    const g = globalThis as Record<string, unknown>
+
+    afterEach(() => {
+      delete g.webkitSpeechRecognition
+      delete g.iaFlowDesktop
+    })
+
+    it('sin la API del navegador no hay micrófono', () => {
+      expect(render().find('[data-test="mic"]').exists()).toBe(false)
+    })
+
+    it('en la app de escritorio tampoco (Electron no trae el servicio)', () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      g.iaFlowDesktop = {}
+      expect(render().find('[data-test="mic"]').exists()).toBe(false)
+    })
+
+    it('lo dictado se suma a lo escrito y enviar corta el dictado', async () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      const w = render()
+      const box = w.get('textarea')
+      await box.setValue('Che,')
+      await w.get('[data-test="mic"]').trigger('click')
+      expect(w.get('[data-test="mic"]').attributes('aria-pressed')).toBe('true')
+      FakeRecognition.last?.hear('qué falló hoy', false)
+      await w.vm.$nextTick()
+      expect((box.element as HTMLTextAreaElement).value).toBe('Che, qué falló hoy')
+      await box.trigger('keydown', { key: 'Enter' })
+      expect(w.emitted('send')).toEqual([['Che, qué falló hoy']])
+      expect(w.get('[data-test="mic"]').attributes('aria-pressed')).toBe('false')
+    })
+
+    it('sin permiso del micrófono lo dice', async () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      const w = render()
+      await w.get('[data-test="mic"]').trigger('click')
+      FakeRecognition.last?.onerror?.({ error: 'not-allowed' })
+      FakeRecognition.last?.onend?.()
+      await w.vm.$nextTick()
+      expect(w.get('[data-test="mic-error"]').text()).toContain('Sin permiso')
+    })
   })
 })
