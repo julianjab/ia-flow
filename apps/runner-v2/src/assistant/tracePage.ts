@@ -29,6 +29,9 @@ const ENTRY_FIELDS = {
   origin: (entry: TraceEntry) => entry.origin,
   /** Atajo del atributo que más se busca: qué tool corrió. */
   tool: (entry: TraceEntry) => entry.attributes['gen_ai.tool.name'],
+  /** De qué agente es (lo heredan todos los spans y logs de su paso): en un grupo paralelo, las
+   *  entradas de varios agentes se intercalan en la misma ejecución. */
+  agent: (entry: TraceEntry) => entry.attributes['ia.agent.id'],
 } satisfies Record<string, (entry: TraceEntry) => unknown>
 
 export type TraceField = keyof typeof ENTRY_FIELDS
@@ -37,6 +40,7 @@ export const TRACE_FIELDS = Object.keys(ENTRY_FIELDS) as TraceField[]
 /** Sin `fields`: lo que alcanza para ver qué pasó, en orden, sin los payloads. */
 export const DEFAULT_TRACE_FIELDS: readonly string[] = [
   'at',
+  'agent',
   'kind',
   'name',
   'tool',
@@ -53,13 +57,15 @@ export interface TracePageQuery {
   fields?: readonly string[]
   /** Sólo las entradas cuyo nombre o atributos contienen esto (sin distinguir mayúsculas). */
   contains?: string
+  /** Sólo las entradas de ese agente (`ia.agent.id`). */
+  agent?: string
 }
 
 export interface TracePage {
   execution_id: string
   /** Entradas de la ejecución. */
   total: number
-  /** Las que pasan `contains` (igual a `total` sin filtro). */
+  /** Las que pasan `contains` y `agent` (igual a `total` sin filtro). */
   matched: number
   offset: number
   returned: number
@@ -135,8 +141,11 @@ export function traceWindow(
   const offset = Math.max(query.offset ?? 0, 0)
   const needle = query.contains?.trim().toLowerCase()
 
-  const indexed = entries.map((entry, index) => ({ entry, index }))
-  const matched = needle ? indexed.filter(({ entry }) => matches(entry, needle)) : indexed
+  const agent = query.agent?.trim()
+  const matched = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => !agent || entry.attributes['ia.agent.id'] === agent)
+    .filter(({ entry }) => !needle || matches(entry, needle))
 
   const page: Array<Record<string, unknown>> = []
   let chars = 0

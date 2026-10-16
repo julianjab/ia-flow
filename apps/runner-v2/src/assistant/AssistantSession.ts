@@ -23,12 +23,15 @@ import type {
 import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { InboxService } from '../inbox/InboxService.js'
 import type { ImprovementStore } from './ImprovementStore.js'
+import { isLive, withLiveness } from './liveness.js'
+import type { TraceInsight } from './TraceInsight.js'
 import {
   DEFAULT_TRACE_FIELDS,
   projectTraceEntry,
   type TracePageQuery,
   traceWindow,
 } from './tracePage.js'
+import { type SearchTracesInput, searchTraces } from './traceSearch.js'
 
 /** Lo que el asistente lee del runner. */
 export interface AssistantBackend {
@@ -39,6 +42,11 @@ export interface AssistantBackend {
   status: () => Record<string, unknown>
   /** Donde esperan las mejoras que propone un agente de una pipeline. */
   improvements: Pick<ImprovementStore, 'add' | 'findOpen' | 'list' | 'get' | 'revise'>
+  /** Búsqueda en las trazas de todas las ejecuciones y cada agente de una por separado; sin esto,
+   *  no hay búsqueda ni último paso. */
+  traces?: TraceInsight
+  /** La hora del runner (para decir cuánto hace de algo); default, el reloj del sistema. */
+  now?: () => Date
 }
 
 /** De dónde viene una sesión que no es un pedido de la web: el agente de una pipeline. */
@@ -74,6 +82,9 @@ export function asToolResult(value: unknown, options: { capped?: boolean } = {})
 
 /** Cuántas entradas del final de la traza trae `get_task`: un vistazo, sin payloads. */
 const TASK_TRACE_TAIL = 40
+
+/** Cuántas ejecuciones vivas trae `runner_status`. */
+const LIVE_LIMIT = 30
 
 /** Lo que trae `get_task` de una tarea que ya no está en el board. */
 const CLOSED_EXECUTIONS = 20
@@ -151,12 +162,36 @@ export class AssistantSession {
     return item
   }
 
+  /** La hora del runner: con ella el modelo dice cuánto hace de algo. */
+  private now(): Date {
+    return this.backend.now?.() ?? new Date()
+  }
+
   async listTasks() {
     this.activity('list_tasks', 'leyendo la bandeja')
-    if (this.scope.kind === 'task') {
-      return [brief(await this.task(this.scope.ref))]
+    const items =
+      this.scope.kind === 'task'
+        ? [await this.task(this.scope.ref)]
+        : (await this.backend.inbox.inbox(this.projectId)).items
+    const now = this.now()
+    return {
+      now: now.toISOString(),
+      tasks: items.map((item) => {
+        const execution = item.execution
+        if (!isLive(execution?.status) || !execution) return brief(item)
+        const [live] = withLiveness([execution], this.backend.traces, now)
+        const { id, pipeline_id, status, last_step_at, idle_seconds, agents } = live ?? execution
+        const running = {
+          execution_id: id,
+          pipeline_id,
+          status,
+          last_step_at,
+          idle_seconds,
+          agents,
+        }
+        return { ...brief(item), running }
+      }),
     }
-    return (await this.backend.inbox.inbox(this.projectId)).items.map(brief)
   }
 
   /**
@@ -179,13 +214,18 @@ export class AssistantSession {
     if (!detail) throw new Error(`${taskRef} ya no está en la bandeja`)
     // La cola de la traza, sin payloads: el detalle (y el resto) se pide con assistant_get_trace.
     const from = Math.max(detail.trace.length - TASK_TRACE_TAIL, 0)
+    const now = this.now()
     return {
+      now: now.toISOString(),
       ...detail,
       item: detail.item,
+      // Las vivas, con su último paso; la última y las vivas, con cada agente (un grupo paralelo
+      // corre varios en la misma ejecución).
+      executions: withLiveness(detail.executions, this.backend.traces, now, (_, i) => i === 0),
       trace: detail.trace
         .slice(from)
         .map((entry, i) => projectTraceEntry(entry, from + i, DEFAULT_TRACE_FIELDS)),
-      trace_note: `Últimas ${detail.trace.length - from} de ${detail.trace.length} entradas de la última ejecución (o de la que muestra la bandeja), sin atributos. Para buscar, ver campos o el resto: assistant_get_trace.`,
+      trace_note: `Últimas ${detail.trace.length - from} de ${detail.trace.length} entradas de la última ejecución (o de la que muestra la bandeja), sin atributos; \`agent\` dice de qué agente es cada una (en un grupo paralelo se mezclan). Para buscar, ver campos o el resto: assistant_get_trace.`,
     }
   }
 
@@ -216,10 +256,31 @@ export class AssistantSession {
   async trace(ref: unknown, executionId: unknown, query: TracePageQuery = {}) {
     const taskRef = await this.taskRef(ref)
     const id = String(executionId ?? '')
-    const owns = this.backend.activity.executions({ taskRef }).some((row) => row.id === id)
-    if (!owns) throw new Error(`La ejecución ${id} no es de ${taskRef}`)
+    const owned = this.backend.activity.executions({ taskRef }).find((row) => row.id === id)
+    if (!owned) throw new Error(`La ejecución ${id} no es de ${taskRef}`)
     this.activity('get_trace', `leyendo la traza de ${id}`)
-    return traceWindow(id, this.backend.activity.trace(id), query)
+    const now = this.now()
+    const [live] = isLive(owned.status) ? withLiveness([owned], this.backend.traces, now) : []
+    return {
+      now: now.toISOString(),
+      status: owned.status,
+      ...(live?.last_step_at ? { last_step_at: live.last_step_at } : {}),
+      ...(live?.idle_seconds !== undefined ? { idle_seconds: live.idle_seconds } : {}),
+      ...(live?.agents ? { agents: live.agents } : {}),
+      ...traceWindow(id, this.backend.activity.trace(id), query),
+    }
+  }
+
+  /** Un texto en las trazas de todas las ejecuciones del contexto (en el de una tarea, las suyas). */
+  searchTraces(input: SearchTracesInput) {
+    this.activity('search_traces', `buscando "${input.text}" en las trazas`)
+    const scope =
+      this.scope.kind === 'task'
+        ? { taskRef: this.scope.ref }
+        : this.projectId
+          ? { projectId: this.projectId }
+          : {}
+    return { now: this.now().toISOString(), ...searchTraces(this.backend.traces, input, scope) }
   }
 
   config() {
@@ -241,12 +302,30 @@ export class AssistantSession {
     return this.backend.activity.recentEvents(count, this.projectId)
   }
 
+  /** El estado del runner (leerlo es seguro en cualquier contexto) y las ejecuciones vivas del
+   *  contexto, con su último paso y cada agente. */
   status() {
-    if (this.scope.kind !== 'general') {
-      throw new Error('El estado del runner se consulta en el contexto general')
-    }
     this.activity('runner_status', 'leyendo el estado del runner')
-    return this.backend.status()
+    const now = this.now()
+    const live = this.backend.activity
+      .executions({ statuses: ['running', 'paused'], limit: LIVE_LIMIT })
+      .filter((row) =>
+        this.scope.kind === 'task'
+          ? row.task_ref === this.scope.ref
+          : !this.projectId || row.project_id === this.projectId,
+      )
+      .map(({ id, task_ref, pipeline_id, status, started_at }) => ({
+        id,
+        ...(task_ref ? { task_ref } : {}),
+        pipeline_id,
+        status,
+        started_at,
+      }))
+    return {
+      now: now.toISOString(),
+      ...this.backend.status(),
+      live_executions: withLiveness(live, this.backend.traces, now),
+    }
   }
 
   /** Muestra la propuesta de abrir un issue en `repo` para que la persona la confirme con su

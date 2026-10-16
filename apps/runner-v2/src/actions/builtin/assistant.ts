@@ -22,6 +22,9 @@ import {
   TRACE_FIELDS,
   TRACE_PAGE_LIMIT,
   TRACE_PAGE_MAX_LIMIT,
+  TRACE_SEARCH_LIMIT,
+  TRACE_SEARCH_MAX_LIMIT,
+  TRACE_SEARCH_SAMPLES,
 } from '../defineAction.js'
 
 const ref = z.string().describe('owner/repo#numero, p.ej. la-haus/subscriptions#420')
@@ -58,7 +61,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
   return [
     new AssistantTool(
       'assistant_list_tasks',
-      'La bandeja del contexto, en el orden a seguir: primero las decisiones (need=te necesita, fail=falló), cada una con `priority` (1 = lo primero que conviene hacer) y `reasons` (por qué va en ese lugar: cercanía a Done, cuántas tareas destraba —`unlocks`—, quién falló); después lo que corre (run) o espera turno (queue), sin `priority`. Cada tarea trae su caso, por qué está ahí y qué acciones aplican.',
+      'La bandeja del contexto, en el orden a seguir: primero las decisiones (need=te necesita, fail=falló), cada una con `priority` (1 = lo primero que conviene hacer) y `reasons` (por qué va en ese lugar: cercanía a Done, cuántas tareas destraba —`unlocks`—, quién falló); después lo que corre (run) o espera turno (queue), sin `priority`. Cada tarea trae su caso, por qué está ahí y qué acciones aplican; una con ejecución viva trae `running`: cuándo fue su último paso (`last_step_at`), hace cuántos segundos (`idle_seconds`) y en qué está cada agente (`agents`). `now` es la hora del runner.',
       z.strictObject({}),
       desk,
       agent,
@@ -66,7 +69,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
     ),
     new AssistantTool(
       'assistant_get_task',
-      'Una tarea: su estado en el board, sus ejecuciones (cómo terminó cada una, tokens, por qué falló), los eventos que le llegaron con qué decidió cada pipeline, y la traza de la última ejecución.',
+      'Una tarea: su estado en el board, sus ejecuciones (cómo terminó cada una, tokens, por qué falló), los eventos que le llegaron con qué decidió cada pipeline, y la traza de la última ejecución. Una ejecución viva trae `last_step_at` e `idle_seconds` (cuánto hace de su último paso); la viva y la última traen `agents` si corrió más de un agente (un grupo paralelo corre varios en la MISMA ejecución): el estado de cada uno (running, done, failed…), su último paso y su salida. `agent_id`/`exit`/`summary` de la ejecución son sólo del último que cerró. `now` es la hora del runner.',
       z.strictObject({ ref }),
       desk,
       agent,
@@ -88,7 +91,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
     ),
     new AssistantTool(
       'assistant_get_trace',
-      `Una página de la traza de una ejecución de la tarea (spans y logs: tools, mensajes del modelo con tokens, hooks del CLI), en orden. El id sale de assistant_get_task. Nada se corta: si hay más, \`next_offset\` dice desde dónde pedir la siguiente. Para "¿llamó a X?" usá \`contains\` en vez de leer todo. Sin \`fields\` trae ${DEFAULT_TRACE_FIELDS.join(', ')}; pedí \`attributes.<clave>\` (las claves vienen en \`attribute_keys\`, p.ej. \`attributes.ia.tool.input\`) o \`attributes\` para ver los payloads.`,
+      `Una página de la traza de una ejecución de la tarea (spans y logs: tools, mensajes del modelo con tokens, hooks del CLI), en orden. El id sale de assistant_get_task. Nada se corta: si hay más, \`next_offset\` dice desde dónde pedir la siguiente. Para "¿llamó a X?" usá \`contains\` en vez de leer todo. Sin \`fields\` trae ${DEFAULT_TRACE_FIELDS.join(', ')}; pedí \`attributes.<clave>\` (las claves vienen en \`attribute_keys\`, p.ej. \`attributes.ia.tool.input\`) o \`attributes\` para ver los payloads. Cada entrada dice su \`agent\`; con \`agent\` trae sólo las de ese (en un grupo paralelo se intercalan). Trae \`now\` y, si la ejecución sigue viva, \`last_step_at\`, \`idle_seconds\` y \`agents\`.`,
       z.strictObject({
         ref,
         execution_id: z.string(),
@@ -121,11 +124,40 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
           .describe(
             'Sólo las entradas cuyo nombre o atributos contienen este texto (sin distinguir mayúsculas), p.ej. el nombre de una tool.',
           ),
+        agent: z
+          .string()
+          .optional()
+          .describe('Sólo las entradas de este agente (p.ej. reviewer, e2e-visual-qa).'),
       }),
       desk,
       agent,
       (session, { ref: task, execution_id, ...query }) => session.trace(task, execution_id, query),
       false,
+    ),
+    new AssistantTool(
+      'assistant_search_traces',
+      `Busca un texto en las trazas de TODAS las ejecuciones guardadas (del contexto: en el de una tarea, sólo las suyas) — en el nombre, el mensaje de error y los atributos de cada entrada, sin distinguir mayúsculas. Para preguntas que cruzan tareas ("¿cuáles fueron los pause_turn?", "¿qué agentes escriben memoria?"), en vez de ir tarea por tarea. Devuelve, por ejecución (de la más nueva), su tarea, pipeline, estado, agentes, cuántas entradas coinciden y hasta ${TRACE_SEARCH_SAMPLES} de muestra (índice, nombre, extracto). Como mucho ${TRACE_SEARCH_MAX_LIMIT} ejecuciones: si \`truncated\`, acotá. El detalle, con assistant_get_trace.`,
+      z.strictObject({
+        text: z.string().min(2).describe('Lo que se busca, p.ej. pause_turn, memory, un error'),
+        since: z.string().optional().describe('Sólo entradas desde (ISO)'),
+        until: z.string().optional().describe('Sólo entradas hasta (ISO)'),
+        agent_id: z.string().optional().describe('Sólo entradas de ese agente'),
+        pipeline_id: z.string().optional(),
+        status: z
+          .enum(['running', 'paused', 'done', 'failed', 'superseded'])
+          .optional()
+          .describe('Sólo ejecuciones en ese estado'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(TRACE_SEARCH_MAX_LIMIT)
+          .optional()
+          .describe(`Máximo de ejecuciones (default ${TRACE_SEARCH_LIMIT})`),
+      }),
+      desk,
+      agent,
+      (session, input) => session.searchTraces(input),
     ),
     new AssistantTool(
       'assistant_get_config',
@@ -145,7 +177,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
     ),
     new AssistantTool(
       'assistant_runner_status',
-      'El estado del runner: proyectos, providers, ejecuciones en curso y webhooks. Sólo en el contexto general.',
+      'El estado del runner: la hora (`now`), proyectos, providers, ejecuciones en curso y webhooks, y las ejecuciones vivas del contexto (`live_executions`) con su último paso, hace cuántos segundos (`idle_seconds`) y cada agente. En cualquier contexto.',
       z.strictObject({}),
       desk,
       agent,

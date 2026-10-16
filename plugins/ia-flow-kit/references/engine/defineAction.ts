@@ -33,6 +33,11 @@ export {
   TRACE_PAGE_LIMIT,
   TRACE_PAGE_MAX_LIMIT,
 } from '../assistant/tracePage.js'
+export {
+  TRACE_SEARCH_LIMIT,
+  TRACE_SEARCH_MAX_LIMIT,
+  TRACE_SEARCH_SAMPLES,
+} from '../assistant/traceSearch.js'
 export type { ProjectConfig } from '../config/RunnerConfig.js'
 export { SlackReviewSchema } from '../config/RunnerConfig.js'
 

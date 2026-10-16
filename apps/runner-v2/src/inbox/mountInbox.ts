@@ -236,6 +236,7 @@ export function mountInbox(
     activity: store.activity,
     config,
     improvements: store.improvements,
+    traces: store.traceInsight,
     status: () => ({
       projects: specs.map((spec) => `${spec.projectId} (${boards.of(spec.projectId).describe()})`),
       providers: Object.keys(cfg.providers),

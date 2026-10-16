@@ -22,11 +22,13 @@ import type { TraceRecord } from '@ia-flow/telemetry'
 import { trace } from '@opentelemetry/api'
 import type { ConversationStore } from '../assistant/ConversationStore.js'
 import type { ImprovementStore } from '../assistant/ImprovementStore.js'
+import type { TraceInsight } from '../assistant/TraceInsight.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { summarizeEvent } from '../inbox/eventSummary.js'
 import { SqliteActivity } from '../inbox/SqliteActivity.js'
 import { SqliteConversationStore } from './SqliteConversationStore.js'
 import { SqliteImprovementStore } from './SqliteImprovementStore.js'
+import { SqliteTraceInsight } from './SqliteTraceInsight.js'
 
 const DAY_MS = 86_400_000
 
@@ -36,6 +38,8 @@ export interface ActivityStore {
   conversations: ConversationStore
   /** Las mejoras que propuso un agente, esperando a una persona. */
   improvements: ImprovementStore
+  /** Búsquedas sobre las trazas de todas las ejecuciones, y cada agente de una por separado. */
+  traceInsight: TraceInsight
   /** El journal del engine: anota y avisa. */
   dispatchJournal: DispatchJournal
   /** Anota un span o log de una ejecución, y avisa. */
@@ -93,6 +97,7 @@ export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): 
     activity: new SqliteActivity(new SqliteActivityReader(database)),
     conversations,
     improvements,
+    traceInsight: new SqliteTraceInsight(database),
     dispatchJournal: {
       record: (entry) => {
         events.record(entry)
