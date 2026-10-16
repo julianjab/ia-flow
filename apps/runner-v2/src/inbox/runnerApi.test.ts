@@ -24,6 +24,7 @@ import { SseHub } from '../http/sse.js'
 import { SqliteConversationStore } from '../storage/SqliteConversationStore.js'
 import { SqliteImprovementStore } from '../storage/SqliteImprovementStore.js'
 import type { ActivityPort } from './ActivityPort.js'
+import { BoardMoves } from './BoardMoves.js'
 import type { BoardCard } from './classify.js'
 import { InboxSection } from './InboxSection.js'
 import { InboxService } from './InboxService.js'
@@ -263,6 +264,17 @@ async function start(
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),
+    moves: new BoardMoves({
+      inbox,
+      isLive: () => false,
+      board: () => {
+        throw new Error('estos tests no mueven cards')
+      },
+      projects: ['p'],
+      todo: 'Todo',
+      changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
+      fetchImpl: github.fetchImpl,
+    }),
     assistant: assistantFor(inbox, conversations, improvements),
     conversations,
     improvements,
@@ -390,6 +402,28 @@ describe('runner API', () => {
     })
     expect(res.status).toBe(200)
     expect(github.calls.some((request) => request.method === 'PUT')).toBe(true)
+  })
+
+  it('labels need the GitHub login and a body that says what to change, and are signed by that user', async () => {
+    const { call, github } = await start()
+    const post = (body: unknown, headers: Record<string, string> = {}) =>
+      call('/api/tasks/o/r/1/labels', { method: 'POST', body: JSON.stringify(body), headers })
+
+    expect((await post({ remove: ['reviewed'] })).status).toBe(401)
+    const empty = await post({}, { 'x-github-token': 'gho_x' })
+    expect(empty.status).toBe(400)
+    expect(await empty.json()).toMatchObject({ ok: false })
+
+    const done = await post({ remove: ['reviewed'] }, { 'x-github-token': 'gho_x' })
+    expect(await done.json()).toEqual({
+      ok: true,
+      message: 'labels: -reviewed',
+      github_login: 'julian',
+    })
+    expect(github.calls.find((request) => request.method === 'DELETE')).toEqual({
+      method: 'DELETE',
+      url: 'https://api.github.com/repos/o/r/issues/1/labels/reviewed',
+    })
   })
 
   it('refuses an action from someone who cannot write to the repo', async () => {

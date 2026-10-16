@@ -203,3 +203,97 @@ describe('adding an issue to the board', () => {
     expect(changed).toEqual(['O/R#2'])
   })
 })
+
+describe('changing the labels of a card', () => {
+  /** GitHub de mentira que anota cada pedido; `failDelete` rechaza sacar un label. */
+  function labelsGithub(options: { push?: boolean; failDelete?: number } = {}) {
+    const calls: Array<{ method: string; path: string; body?: unknown }> = []
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const path = decodeURIComponent(new URL(String(input)).pathname)
+      const method = init?.method ?? 'GET'
+      calls.push({ method, path, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+      if (method === 'GET') return Response.json({ permissions: { push: options.push ?? true } })
+      if (method === 'DELETE' && options.failDelete) {
+        return new Response('{}', { status: options.failDelete })
+      }
+      return Response.json([])
+    }) as typeof fetch
+    return { fetchImpl, calls }
+  }
+
+  function labelsSetup(options: { push?: boolean; failDelete?: number; live?: boolean } = {}) {
+    const gh = labelsGithub(options)
+    const changed: string[] = []
+    const blocked = { ...todo, labels: ['blocked'] }
+    const moves = new BoardMoves({
+      inbox: { card: async (ref) => (ref === blocked.ref ? blocked : undefined) },
+      isLive: () => options.live ?? false,
+      board: () => {
+        throw new Error('labels no toca el board')
+      },
+      projects: ['p'],
+      todo: 'Todo',
+      changed: (ref) => changed.push(ref),
+      fetchImpl: gh.fetchImpl,
+    })
+    return { moves, calls: gh.calls, changed }
+  }
+
+  it('adds and removes with the token of whoever asks and tells the inbox', async () => {
+    const { moves, calls, changed } = labelsSetup()
+    const result = await moves.labels('o/r#1', { add: ['e2e-test'], remove: ['blocked'] }, julian)
+    expect(result).toEqual({
+      ok: true,
+      message: 'labels: +e2e-test, -blocked',
+      github_login: 'julian',
+    })
+    expect(calls).toEqual([
+      { method: 'GET', path: '/repos/o/r' },
+      { method: 'POST', path: '/repos/o/r/issues/1/labels', body: { labels: ['e2e-test'] } },
+      { method: 'DELETE', path: '/repos/o/r/issues/1/labels/blocked' },
+    ])
+    expect(changed).toEqual(['o/r#1'])
+  })
+
+  it('removes blocked even with an agent on the card: that is what unblocks it', async () => {
+    const { moves } = labelsSetup({ live: true })
+    await expect(moves.labels('o/r#1', { remove: ['blocked'] }, julian)).resolves.toMatchObject({
+      ok: true,
+    })
+  })
+
+  it('a label GitHub says the issue no longer has is not an error', async () => {
+    const { moves } = labelsSetup({ failDelete: 404 })
+    await expect(moves.labels('o/r#1', { remove: ['blocked'] }, julian)).resolves.toMatchObject({
+      ok: true,
+    })
+  })
+
+  it('refuses nothing to do, the same label both ways, and a card off the board', async () => {
+    const { moves, calls } = labelsSetup()
+    await expect(moves.labels('o/r#1', {}, julian)).rejects.toMatchObject({ status: 400 })
+    await expect(
+      moves.labels('o/r#1', { add: ['blocked'], remove: ['blocked'] }, julian),
+    ).rejects.toMatchObject({ status: 400 })
+    await expect(moves.labels('o/r#9', { add: ['x'] }, julian)).rejects.toMatchObject({
+      status: 404,
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('refuses someone who cannot write to the repo, before touching a label', async () => {
+    const { moves, calls } = labelsSetup({ push: false })
+    await expect(moves.labels('o/r#1', { remove: ['blocked'] }, julian)).rejects.toMatchObject({
+      status: 403,
+    })
+    expect(calls.map((call) => call.method)).toEqual(['GET'])
+  })
+
+  it('says GitHub refused, and the inbox still rereads the card', async () => {
+    const { moves, changed } = labelsSetup({ failDelete: 500 })
+    await expect(moves.labels('o/r#1', { remove: ['blocked'] }, julian)).rejects.toMatchObject({
+      status: 502,
+    })
+    expect(changed).toEqual(['o/r#1'])
+  })
+})
