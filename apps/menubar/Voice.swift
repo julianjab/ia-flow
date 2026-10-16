@@ -66,10 +66,17 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         didSet { UserDefaults.standard.set(voiceId, forKey: "assistantVoice") }
     }
     /// La velocidad (1 es la normal de la voz); la próxima lectura sale así.
-    @Published var rate = UserDefaults.standard.object(forKey: "assistantRate") as? Double ?? 1 {
+    @Published var rate = rates.contains(UserDefaults.standard.double(forKey: "assistantRate"))
+        ? UserDefaults.standard.double(forKey: "assistantRate") : 1 {
         didSet { UserDefaults.standard.set(rate, forKey: "assistantRate") }
     }
-    static let rates: [Double] = [1, 1.25, 1.5, 1.75, 2]
+    static let rates: [Double] = [1, 1.25, 1.5]
+
+    /// La siguiente velocidad; después de la última, vuelve a la normal.
+    func nextRate() {
+        let i = Self.rates.firstIndex(of: rate) ?? -1
+        rate = Self.rates[(i + 1) % Self.rates.count]
+    }
     /// Qué respuesta se está leyendo ahora.
     @Published private(set) var speaking: UUID?
     /// Las voces en español instaladas, la mejor primero (Premium, después Mejorada).
@@ -163,6 +170,9 @@ final class Dictation: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silence: DispatchWorkItem?
+    /// Sube con cada `stop`: un `start` que todavía esperaba los permisos y ya no es el último no abre el micrófono
+    /// (dos taps sobre el mismo bus tiran la app).
+    private var generation = 0
 
     func isListening(_ chat: AnyObject) -> Bool { owner == ObjectIdentifier(chat) }
 
@@ -176,11 +186,14 @@ final class Dictation: ObservableObject {
     func start(for chat: AnyObject, base: String, write: @escaping (String) -> Void, send: @escaping (String) -> Void) {
         stop()
         error = nil
+        let mine = generation
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
+                guard mine == self.generation else { return }
                 guard status == .authorized else { self.error = "Sin permiso para el reconocimiento de voz (Ajustes › Privacidad)."; return }
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
                     DispatchQueue.main.async {
+                        guard mine == self.generation else { return }
                         guard granted else { self.error = "Sin permiso para usar el micrófono (Ajustes › Privacidad)."; return }
                         self.begin(owner: ObjectIdentifier(chat), base: base, write: write, send: send)
                     }
@@ -196,6 +209,8 @@ final class Dictation: ObservableObject {
         }
         // La voz que lee no se dicta a sí misma.
         ReadAloud.shared.cancel()
+        // Uno a la vez: el micrófono es uno y su bus admite un solo tap.
+        stop()
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
@@ -242,6 +257,7 @@ final class Dictation: ObservableObject {
     }
 
     func stop() {
+        generation += 1
         silence?.cancel()
         silence = nil
         guard owner != nil else { return }
