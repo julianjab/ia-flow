@@ -40,12 +40,24 @@ con su acción), las **mejoras propuestas** por la retrospectiva (abrirlas como 
 **corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
 **Buscador:** un tag al inicio elige el repo (o todos; filtra todo aunque no se escriba nada) y cada tarea lleva el tag de su repo, del mismo color. Acepta `1775`, `#1775`, `subscriptions#1775`, `la-haus/subscriptions#1775`, el link del issue o del
 PR, o texto del título (aproximado: sin tildes, palabras en cualquier orden, prefijos y typos); filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
-del board (`/api/board`): las primeras coincidencias se traen con sus acciones (`/api/tasks/:owner/:repo/:n`). Con
-login de GitHub busca además en **todos los repos de la organización** (aunque no estén en el board): issues por
-título (`search/issues`, desde 3 letras, respeta el repo elegido), la ref exacta (`repo#n` también de un repo
-fuera del board) o un número suelto (se pide en el repo elegido, o en los del board y los 15 de actividad más
-reciente, en paralelo); el tag de repo suma «Más repos de la organización» (todos los que ve tu login); va directo a api.github.com con tu
-token, sólo lee y cada resultado sólo se abre en el navegador —no pasa por el runner ni toca el board—. **En vivo:** una tarea que corre trae «En vivo» (y cualquier tarea, «Ver la última ejecución» en ⋯): la traza de la
+del board (`/api/board`): las primeras coincidencias se traen con sus acciones (`/api/tasks/:owner/:repo/:n`). Es
+sólo del runner; termina en «Buscar «…» en GitHub →», que abre la pantalla de GitHub con lo escrito y el repo del tag.
+
+**Buscar en GitHub** (la 🔍 al pie de la bandeja): issues y PRs de **cualquier repo de la organización**, estén o no
+en el board. Un selector de repo propio, filtrable (todos los que ve tu login, `GET /orgs/:org/repos`, cache 1 h): los
+del board primero, después por actividad; recuerda el último. Con un repo, un número va directo a ese issue o PR y el
+texto busca en el título; con toda la organización, el texto busca por título (`search/issues`, desde 3 letras) y un
+número pide elegir repo (GitHub no busca por número en toda la org). `repo#n`, `owner/repo#n` y el link van directo.
+Va a api.github.com con tu login, sólo lee y cada resultado sólo se abre en el navegador: no pasa por el runner ni
+toca el board.
+
+**Al día:** con el popover o la ventana abiertos, el menú escucha `GET /api/stream` (SSE, como la web) y relee la
+bandeja y las mejoras cuando algo cambia (varios cambios seguidos, una sola relectura); «En vivo» se relee con la traza
+de su ejecución. El puntito del server lleva un halo mientras el stream está conectado. Si se corta, reconecta (1 s …
+30 s); tras 3 fallas (o con un runner sin stream) vuelve a releer la bandeja cada 6 s. Con todo cerrado no queda
+ninguna conexión: sólo el badge, cada minuto.
+
+**En vivo:** una tarea que corre trae «En vivo» (y cualquier tarea, «Ver la última ejecución» en ⋯): la traza de la
 ejecución que el runner guarda mientras corre (`GET /api/tasks/:owner/:repo/:n?execution=`, cada 3 s), plegada en pasos —
 cada tool una vez con su descripción o comando, el resultado y cuánto tardó (clic para ver input y resultado), los
 avisos del workspace, el prompt—, qué está haciendo ahora, tokens y duración; las ejecuciones anteriores en el reloj
@@ -57,6 +69,8 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 ![runner](screenshot-runner-dark.png)
 
 ![en vivo](screenshot-run-dark.png)
+
+![buscar en GitHub](screenshot-search-gh-dark.png)
 
 **Pestaña «Asistente»:** el chat del asistente del runner (`POST /api/assistant`, streaming), sobre todo el runner
 o sobre una tarea («Preguntar sobre esta tarea…» en el ⋯ de cada fila). Lo que propone (una acción sobre una tarea,
@@ -75,8 +89,9 @@ sigue llegando aunque se cierre el popover.
 Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
 `Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo y badge),
 `RunnerAPI.swift` (cliente HTTP del runner y su contrato), `RunnerModel.swift` (estado de la pestaña Runner),
-`RunnerViews.swift` (sus pantallas), `RunnerSearch.swift` (qué se busca y qué coincide), `GithubSearch.swift` (la
-búsqueda en toda la organización), `RunTrace.swift` (la traza de
+`RunnerViews.swift` (sus pantallas), `RunnerSearch.swift` (qué se busca y qué coincide), `RunnerStream.swift` (el
+stream SSE), `GithubSearch.swift` (la API de GitHub), `GithubSearchModel.swift` y `GithubSearchViews.swift` (la
+pantalla «Buscar en GitHub»), `RunTrace.swift` (la traza de
 una ejecución plegada en pasos), `RunWatch.swift` y `RunTraceViews.swift` (la pantalla «En vivo»), `RunnerHealth.swift` y `RunnerHealthViews.swift`
 (el estado del runner), `AssistantAPI.swift`, `AssistantModel.swift` y `AssistantViews.swift` (el chat), `main.swift` (barra de estado y popover). `main.swift --screenshot <base>` regenera las capturas con datos de ejemplo
 (`IA_FLOW_MENUBAR_HOME=<dir vacío>` para no tocar la config real).
