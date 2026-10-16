@@ -25,7 +25,8 @@ struct AssistantScreen: View {
                 }
                 thread
                 Divider().opacity(0.5)
-                composer.padding(.horizontal, 14).padding(.vertical, 10)
+                ChatComposer(chat: chat, placeholder: chat.scope.ref == nil ? "Pregunta sobre el runner…" : "Pregunta sobre esta tarea…")
+                    .padding(.horizontal, 14).padding(.vertical, 10)
             }
         }
         .onAppear { chat.appear() }
@@ -106,13 +107,17 @@ struct AssistantScreen: View {
         }
         .padding(.top, 6)
     }
+}
 
-    // MARK: el campo
+/// El campo para preguntar: ↩ envía; mientras responde, el botón corta la respuesta.
+struct ChatComposer: View {
+    @ObservedObject var chat: AssistantModel
+    let placeholder: String
 
-    private var composer: some View {
+    var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             FieldBox {
-                TextField(chat.scope.ref == nil ? "Pregunta sobre el runner…" : "Pregunta sobre esta tarea…", text: $chat.input, axis: .vertical)
+                TextField(placeholder, text: $chat.input, axis: .vertical)
                     .lineLimit(1...5)
                     .onSubmit { chat.send() }
                     .disabled(chat.streaming)

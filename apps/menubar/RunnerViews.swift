@@ -13,6 +13,11 @@ struct RunnerScreen: View {
         case .health: RunnerHealthScreen(runner: runner)
         case .github:
             if let model = runner.githubSearch { GithubSearchScreen(runner: runner, model: model) } else { RunnerInboxScreen(runner: runner) }
+        case .improvements: ImprovementsScreen(runner: runner)
+        case .improvement:
+            if let improvement = runner.discussing, let chat = runner.improvementChat {
+                ImprovementChatScreen(runner: runner, improvement: improvement, chat: chat)
+            } else { ImprovementsScreen(runner: runner) }
         case .run:
             if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { RunnerInboxScreen(runner: runner) }
         }
@@ -125,14 +130,7 @@ struct RunnerInboxScreen: View {
             }
         }
         if runner.search != nil { boardSection }
-        if !improvements.isEmpty {
-            section("Mejoras propuestas", count: improvements.count) {
-                ForEach(Array(improvements.enumerated()), id: \.element.id) { i, improvement in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
-                    ImprovementRow(runner: runner, improvement: improvement)
-                }
-            }
-        }
+        if !improvements.isEmpty { improvementsLink(improvements.count) }
         if !epics.isEmpty {
             section("Épicas", count: epics.count) {
                 ForEach(Array(epics.enumerated()), id: \.element.id) { i, epic in
@@ -183,6 +181,24 @@ struct RunnerInboxScreen: View {
                 Button("Abrir en GitHub") { runner.openTask(miss) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
             }
         }
+    }
+
+    /// Las mejoras propuestas tienen su pantalla (con su «¿Por qué?»): acá, sólo cuántas esperan.
+    private func improvementsLink(_ count: Int) -> some View {
+        Button { runner.showImprovements() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "lightbulb.fill").font(.system(size: 10.5, weight: .semibold))
+                Text(count == 1 ? "1 mejora propuesta" : "\(count) mejoras propuestas").font(.lh(12, .semibold)).lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.right").font(.system(size: 9.5, weight: .bold))
+            }
+            .foregroundStyle(Color.orange)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.orange.opacity(0.09)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Lo que propuso la retrospectiva: abrirlo como issue, descartarlo o preguntar por qué")
     }
 
     /// Lo que no es del runner se busca aparte: la pantalla «GitHub», con lo escrito y el repo del tag.
@@ -241,6 +257,7 @@ struct RunnerInboxScreen: View {
             Spacer()
             if runner.boardURL != nil { IconButton(symbol: "rectangle.split.3x1", help: "Abrir el board en GitHub") { runner.openBoard() } }
             IconButton(symbol: "server.rack", help: "Editar servidores") { runner.openServersFile() }
+            IconButton(symbol: "lightbulb", help: "Mejoras propuestas") { runner.showImprovements() }
             IconButton(symbol: "magnifyingglass", help: "Buscar en GitHub (cualquier repo)") { runner.showGithub() }
             IconButton(symbol: "heart.text.square", help: "Estado del runner") { runner.showHealth() }
         }
@@ -345,60 +362,6 @@ struct TaskRow: View {
             }
         }()
         return Chip(text: text, tone: tone).fixedSize()
-    }
-}
-
-/// Una mejora propuesta por un agente: dónde se arregla, qué y por qué; abrirla como issue o descartarla.
-struct ImprovementRow: View {
-    @ObservedObject var runner: RunnerModel
-    let improvement: Improvement
-
-    var body: some View {
-        let busy = runner.busy.contains(improvement.id)
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Chip(text: target, tone: .info).fixedSize()
-                RepoTag(repo: improvement.repo.split(separator: "/").last.map(String.init) ?? improvement.repo)
-                    .help("El issue se abre en \(improvement.repo)")
-                Text([ago(improvement.created_at), "de \(improvement.task_ref.split(separator: "/").last.map { String($0) } ?? improvement.task_ref)"]
-                        .compactMap { $0 }.joined(separator: " · "))
-                    .font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            Text(improvement.title).font(.lh(13, .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            Text(improvement.reason).font(.lh(11.5)).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                Button { runner.decide(improvement, open: true) } label: {
-                    if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) } else { Text("Abrir issue…") }
-                }
-                .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(busy)
-                Button("Descartar…") { runner.decide(improvement, open: false) }
-                    .buttonStyle(PillButtonStyle(tint: .secondary, compact: true)).fixedSize().disabled(busy)
-                Spacer(minLength: 0)
-                Menu {
-                    Button("Abrir la tarea \(improvement.task_ref)") { runner.openTask(improvement.task_ref) }
-                    if let pr = improvement.pr_url, let url = URL(string: pr) { Button("Abrir el PR") { NSWorkspace.shared.open(url) } }
-                    Button("Copiar el cuerpo del issue") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(improvement.body, forType: .string)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 20).contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
-            }
-            .padding(.top, 2)
-        }
-        .help(improvement.body)
-    }
-
-    private var target: String {
-        switch improvement.target {
-        case "docs": return "docs"
-        case "config": return "config del runner"
-        case "engine": return "ia-flow"
-        default: return improvement.target
-        }
     }
 }
 

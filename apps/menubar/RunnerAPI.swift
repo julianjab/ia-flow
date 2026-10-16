@@ -206,6 +206,8 @@ struct Improvement: Codable, Identifiable, Hashable {
     let body: String
     let reason: String
     let status: String
+    /// La ejecución del agente que la propuso: la evidencia de por qué.
+    var execution_id: String? = nil
 }
 
 private struct ImprovementList: Codable { let items: [Improvement] }

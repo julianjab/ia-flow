@@ -31,6 +31,8 @@ final class AssistantModel: ObservableObject {
     @Published private(set) var available: Bool?
     /// Las propuestas que ya se ejecutaron (o se están ejecutando) y cómo terminaron.
     @Published private(set) var proposalState: [String: String] = [:]
+    /// Lo que viaja delante de la primera pregunta sin mostrarse (la mejora de «¿Por qué?»).
+    private var preamble: String?
 
     unowned let runner: RunnerModel
     /// Abre una tarea que mencionó el asistente en la pestaña Runner (la busca por su ref).
@@ -60,16 +62,45 @@ final class AssistantModel: ObservableObject {
 
     /// «Preguntar sobre esta tarea»: otra conversación, con la tarea como scope.
     func ask(about item: InboxItem) {
-        guard scope != .task(ref: item.ref) else { return }
+        guard scope != .task(ref: item.ref) || preamble != nil else { return }
         reset()
+        preamble = nil
         scope = .task(ref: item.ref)
         scopeTitle = item.displayTitle
         loadHistory()
     }
 
+    /// «¿Por qué propuso esto?»: la tarea de la mejora como scope y la mejora delante de la primera pregunta. La
+    /// tarea suele estar cerrada (la retrospectiva corre al mergear): el runner igual la lee, con sus ejecuciones.
+    func discuss(_ improvement: Improvement) {
+        reset()
+        scope = .task(ref: improvement.task_ref)
+        scopeTitle = improvement.title
+        preamble = Self.preamble(for: improvement)
+    }
+
+    static func preamble(for improvement: Improvement) -> String {
+        let body = improvement.body.count > 4000 ? String(improvement.body.prefix(4000)) + "… [recortado]" : improvement.body
+        let origin = [improvement.pr_url.map { "PR \($0)" }, improvement.execution_id.map { "ejecución \($0)" }]
+            .compactMap { $0 }.joined(separator: ", ")
+        return """
+        Pregunto por una mejora que propuso el agente «\(improvement.agent)» sobre \(improvement.task_ref)\(origin.isEmpty ? "" : " (\(origin))"). \
+        Se abriría como issue en \(improvement.repo) (\(improvement.target)).
+        Título: \(improvement.title)
+        Razón que dio: \(improvement.reason)
+        Cuerpo propuesto:
+        \(body)
+
+        Para contestar, mira la ejecución del agente (get_task y get_trace) y apóyate en lo que muestra la traza.
+
+        Mi pregunta:
+        """
+    }
+
     func toGeneral() {
         guard scope != .general else { return }
         reset()
+        preamble = nil
         scope = .general
         scopeTitle = nil
         loadHistory()
@@ -104,6 +135,7 @@ final class AssistantModel: ObservableObject {
                 return
             }
             reset()
+            preamble = nil
             scope = conversation.scope
             scopeTitle = conversation.scope.ref.flatMap { ref in runner.inbox?.items.first { $0.ref == ref }?.displayTitle }
             conversationId = conversation.id
@@ -121,9 +153,10 @@ final class AssistantModel: ObservableObject {
         guard !question.isEmpty, !streaming else { return }
         input = ""
         // El hilo que se manda: las preguntas y las respuestas con texto (una nota o un turno vacío no van).
-        let thread = turns.filter { $0.role != .note && !$0.text.isEmpty }
+        var thread = turns.filter { $0.role != .note && !$0.text.isEmpty }
             .map { (role: $0.role == .user ? "user" : "assistant", content: $0.text) }
             + [(role: "user", content: question)]
+        if let preamble { thread[0].content = preamble + thread[0].content }
         turns.append(ChatTurn(role: .user, text: question))
         turns.append(ChatTurn(role: .assistant, text: "", activity: "Pensando…", streaming: true))
         let replyId = turns[turns.count - 1].id
@@ -236,6 +269,26 @@ extension AssistantModel {
             """, proposals: [AssistantProposal(id: "p1", kind: nil, label: "Reintentar", reason: "El fallo fue del provider, no del agente.",
                                                ref: "la-haus/subscriptions#4301", action: "retry", comment: nil, repo: nil, title: nil,
                                                body: nil, labels: nil)]),
+        ]
+        return model
+    }
+
+    /// El chat de «¿Por qué?» de las capturas.
+    static func fixture(runner: RunnerModel, improvement: Improvement) -> AssistantModel {
+        let model = AssistantModel(runner: runner)
+        model.available = true
+        model.discuss(improvement)
+        model.turns = [
+            ChatTurn(role: .user, text: "¿Por qué propusiste esto?"),
+            ChatTurn(role: .assistant, text: """
+            En la ejecución de **build** el implementer probó tres comandos antes de dar con el de integración:
+
+            - `make test` corrió sólo los unitarios y pasó.
+            - `uv run pytest tests/integration` falló porque faltaba `CRM_STUB=1`.
+            - Lo encontró leyendo el workflow de CI, 9 min después.
+
+            Ni `AGENTS.md` ni el README lo dicen: por eso la mejora va a **docs** del repo.
+            """),
         ]
         return model
     }

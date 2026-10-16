@@ -101,7 +101,7 @@ struct DeviceLogin {
 }
 
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run, health, github }
+    enum Screen { case inbox, logs, run, health, github, improvements, improvement }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
@@ -135,6 +135,9 @@ final class RunnerModel: ObservableObject {
     private let stream = RunnerStream()
     private var pendingRefresh: DispatchWorkItem?
     private var pendingTrace: DispatchWorkItem?
+    /// La mejora sobre la que se pregunta por qué (la pantalla «¿Por qué?») y su chat con el asistente.
+    @Published private(set) var discussing: Improvement?
+    @Published private(set) var improvementChat: AssistantModel?
     /// La pantalla «GitHub» (buscar en cualquier repo de la organización); se crea al abrirla y se conserva.
     @Published private(set) var githubSearch: GithubSearchModel?
     private var boardCache: (items: [BoardItem], at: Date)?
@@ -349,6 +352,9 @@ final class RunnerModel: ObservableObject {
         error = nil
         login = nil
         comment = nil
+        discussing = nil
+        improvementChat = nil
+        if screen == .improvement { screen = .improvements }
         resetLogs()
         refresh()
         // El stream es de un server: si estaba abierto, se reabre contra el nuevo.
@@ -462,9 +468,34 @@ final class RunnerModel: ObservableObject {
             let result = await RunnerClient(server: server).decide(improvement, open: open, github: session.token)
             busy.remove(improvement.id)
             toast?(result.ok ? result.message : "No se pudo: \(result.message)")
-            if result.ok { improvements.removeAll { $0.id == improvement.id }; onBadge?(pendingCount) }
+            if result.ok {
+                improvements.removeAll { $0.id == improvement.id }
+                onBadge?(pendingCount)
+                if discussing?.id == improvement.id, screen == .improvement { screen = .improvements }
+            }
             refresh()
         }
+    }
+
+    // MARK: mejoras propuestas
+
+    func showImprovements() { screen = .improvements }
+
+    /// «¿Por qué?»: un chat con el asistente sobre la tarea de la mejora, con la mejora como contexto. La misma
+    /// mejora retoma su chat; otra empieza uno nuevo.
+    func discuss(_ improvement: Improvement) {
+        if discussing?.id != improvement.id || improvementChat == nil {
+            let chat: AssistantModel
+            if isFixture { chat = AssistantModel.fixture(runner: self, improvement: improvement) } else {
+                chat = AssistantModel(runner: self)
+                chat.appear()
+                chat.discuss(improvement)
+            }
+            chat.showTask = { [weak self] ref in self?.openTask(ref) }
+            improvementChat = chat
+            discussing = improvement
+        }
+        screen = .improvement
     }
 
     func openTask(_ ref: String) { NSWorkspace.shared.open(githubURL(ref)) }

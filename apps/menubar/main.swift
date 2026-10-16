@@ -167,6 +167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-\(dark ? "dark" : "light").png") }
         model.runner.githubSearch?.pickingRepo = true
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-repos-\(dark ? "dark" : "light").png") }
+        model.runner.showImprovements()
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-improvements-\(dark ? "dark" : "light").png") }
+        if let first = model.runner.improvements.first {
+            model.runner.discuss(first)
+            popoverMaxScroll = 520  // el chat tiene su propio scroll: con el tope real
+            for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-improvement-why-\(dark ? "dark" : "light").png") }
+            popoverMaxScroll = 2000
+        }
         model.runner.screen = .inbox
         model.runner.health = RunnerHealth.fixture
         model.runner.screen = .health
@@ -217,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             case .logs: model.runner.pollLogs()
             case .run: model.runner.watching?.reload()
             case .health: model.runner.checkHealth()
-            case .inbox, .github: break
+            case .inbox, .github, .improvements, .improvement: break
             }
         }
         guard openTimer == nil else { return }
@@ -232,7 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             case .run: self.model.runner.watching?.poll()
             case .health: if tick % 2 == 0 { self.model.runner.checkHealth() }
             // Con el stream conectado la bandeja se relee cuando algo cambia: acá sólo un respaldo cada minuto.
-            case .inbox: if tick % (self.model.runner.live ? 20 : 2) == 0 { self.model.runner.refresh() }
+            // (las mejoras vienen con la bandeja)
+            case .inbox, .improvements, .improvement: if tick % (self.model.runner.live ? 20 : 2) == 0 { self.model.runner.refresh() }
             case .github: break
             }
         }
