@@ -64,21 +64,39 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     voices.value = spanishVoices(speaker.voices(), globalThis.navigator?.language)
   })
 
+  /** Lo que se está leyendo, para retomarlo desde la frase actual si cambia la velocidad. */
+  let reading: { parts: string[]; at: number; done: () => void } | null = null
+
+  function speak(parts: string[], done: () => void): void {
+    if (!speaker) return
+    const current = { parts, at: 0, done }
+    reading = current
+    speaker.speak(
+      parts,
+      {
+        voiceId: voice.value?.id ?? null,
+        rate: rate.value,
+        onPart: (i) => {
+          current.at = i
+        },
+      },
+      done,
+    )
+  }
+
   function say(markdown: string, key: string, after?: () => void): void {
     if (!speaker) return
     speaking.value = key
-    speaker.speak(
-      spokenParts(markdown),
-      { voiceId: voice.value?.id ?? null, rate: rate.value },
-      () => {
-        speaking.value = null
-        after?.()
-      },
-    )
+    speak(spokenParts(markdown), () => {
+      reading = null
+      speaking.value = null
+      after?.()
+    })
   }
 
   function cancel(): void {
     speaker?.cancel()
+    reading = null
     speaking.value = null
   }
 
@@ -111,11 +129,13 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     save(VOICE_KEY, id)
   }
 
-  /** La siguiente velocidad (después de la última, la normal). La próxima lectura sale así. */
+  /** La siguiente velocidad (después de la última, la normal). Lo que se está leyendo sigue, a la
+   *  velocidad nueva, desde el principio de la frase actual: una frase ya empezada no cambia de velocidad. */
   function nextRate(): void {
     const i = (RATES as readonly number[]).indexOf(rate.value)
     rate.value = RATES[(i + 1) % RATES.length] ?? 1
     save(RATE_KEY, String(rate.value))
+    if (reading) speak(reading.parts.slice(reading.at), reading.done)
   }
 
   return {
