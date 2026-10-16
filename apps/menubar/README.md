@@ -15,9 +15,10 @@ avisos y confirmaciones en línea):
 
 **Ícono:** el de ia-flow, tres chevrones (refine › build › review) con la gramática de la marca jabsolutions
 (chevrón a 45°, lima `#C6FF3D` sobre `#0B0B0F`); es el mismo dibujo que `apps/web/public/favicon.svg`.
-`Icon.swift` lo dibuja: en la barra de menú es el tile de 16 pt (la última etapa en lima si hay algo corriendo,
-las tres atenuadas en reposo; no es template, el lima es de la marca) y `build.sh` genera
-`AppIcon.icns` con `IAFlowMenu --icon <px> <ruta>` + `iconutil`, sin PNG nuevos en el repo.
+`Icon.swift` lo dibuja para el popover y el `.app`: `build.sh` genera `AppIcon.icns` con
+`IAFlowMenu --icon <px> <ruta>` + `iconutil`, sin PNG nuevos en el repo. En la **barra de menú** va la J de la
+marca jabsolutions (lima si hay algo corriendo, atenuada en reposo; no es template) con una pastilla lima «IA»
+abajo a la derecha: la J se comparte con otras apps de la barra (MacPulse lleva «MP») y la pastilla las distingue.
 
 **Pestañas:** Runner (la que abre por defecto) · Asistente · Servicios.
 
