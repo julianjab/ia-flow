@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 // La pestaña «Asistente»: de qué se habla (todo el runner o una tarea), los turnos con lo que propone el asistente
@@ -109,8 +110,9 @@ struct AssistantScreen: View {
     }
 }
 
-/// El campo para preguntar: ↩ envía; mientras responde, el botón corta la respuesta. El parlante lee las respuestas
-/// en voz alta (queda elegido para todos los chats) y el micrófono dicta la pregunta.
+/// El campo para preguntar: ↩ envía; mientras responde, el botón corta la respuesta. Arriba, la voz (vale para todos los
+/// chats): «Leer en voz alta» lee cada respuesta al terminar, «Charla» además vuelve a escuchar, y la voz con la que
+/// se lee. El micrófono dicta la pregunta.
 struct ChatComposer: View {
     @ObservedObject var chat: AssistantModel
     let placeholder: String
@@ -118,7 +120,8 @@ struct ChatComposer: View {
     @ObservedObject private var dictation = Dictation.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            voiceBar
             row
             if dictation.isListening(chat) {
                 Label("Escuchando · termina con «enviar» o quédate callado 4 s para mandarla", systemImage: "waveform")
@@ -129,12 +132,35 @@ struct ChatComposer: View {
         }
     }
 
+    private var voiceBar: some View {
+        HStack(spacing: 6) {
+            VoiceChip(label: "Leer en voz alta", symbol: voice.enabled ? "speaker.wave.2.fill" : "speaker.slash",
+                      on: voice.enabled, help: "Lee cada respuesta al terminar (un resumen hablado)") { voice.enabled.toggle() }
+            VoiceChip(label: "Charla", symbol: "bubble.left.and.bubble.right", on: voice.talk,
+                      help: "Hablás, lee la respuesta y vuelve a escucharte. Callarte 4 s sin decir nada la corta.") { chat.toggleTalk() }
+            Spacer(minLength: 4)
+            if voice.wantsSpeech, voice.voices.count > 1 {
+                Menu {
+                    ForEach(voice.voices, id: \.identifier) { v in
+                        Button { voice.voiceId = v.identifier } label: {
+                            if v.identifier == voice.voice?.identifier {
+                                Label(VoiceChip.name(of: v), systemImage: "checkmark")
+                            } else {
+                                Text(VoiceChip.name(of: v))
+                            }
+                        }
+                    }
+                } label: {
+                    Text(voice.voice.map(VoiceChip.name(of:)) ?? "Voz").font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                .help("Con qué voz se lee. Las Premium y Mejoradas se bajan en Ajustes › Accesibilidad › Contenido leído.")
+            }
+        }
+    }
+
     private var row: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            IconButton(symbol: voice.enabled ? "speaker.wave.2.fill" : "speaker.slash",
-                       help: voice.enabled ? "Dejar de leer en voz alta" : "Leer las respuestas en voz alta",
-                       tint: voice.enabled ? .accentColor : .secondary) { voice.enabled.toggle() }
-                .padding(.bottom, 2)
             FieldBox {
                 TextField(placeholder, text: $chat.input, axis: .vertical)
                     .lineLimit(1...5)
@@ -144,14 +170,8 @@ struct ChatComposer: View {
             let listening = dictation.isListening(chat)
             IconButton(symbol: listening ? "mic.fill" : "mic",
                        help: listening ? "Dejar de dictar" : "Dictar la pregunta (termina con «enviar» o quédate callado 4 s)",
-                       tint: listening ? .red : .secondary) {
-                dictation.toggle(for: chat, base: chat.input, write: { chat.input = $0 }, send: { text in
-                    chat.input = text
-                    // Con una respuesta en curso no se puede preguntar: queda escrita para mandarla después.
-                    if !chat.streaming { chat.send() }
-                })
-            }
-            .padding(.bottom, 2)
+                       tint: listening ? .red : .secondary) { chat.toggleListening() }
+                .padding(.bottom, 2)
             if chat.streaming {
                 Button { chat.stop() } label: { Image(systemName: "stop.fill").font(.system(size: 11, weight: .bold)).frame(width: 30, height: 30) }
                     .buttonStyle(.plain).foregroundStyle(.white).background(Circle().fill(Color.red)).help("Detener la respuesta")
@@ -161,6 +181,35 @@ struct ChatComposer: View {
                     .buttonStyle(.plain).foregroundStyle(.white).background(Circle().fill(Color.accentColor.opacity(empty ? 0.35 : 1)))
                     .disabled(empty).help("Enviar (↩)")
             }
+        }
+    }
+}
+
+/// Un interruptor de la voz con su nombre a la vista: ícono + texto, resaltado cuando está prendido.
+struct VoiceChip: View {
+    let label: String
+    let symbol: String
+    let on: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(label, systemImage: symbol).font(.lh(11, .semibold)).lineLimit(1)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .foregroundStyle(on ? Color.white : Color.primary.opacity(0.7))
+                .background(Capsule().fill(on ? Color.accentColor : Color.primary.opacity(0.07)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).help(help)
+    }
+
+    /// «Mónica · Premium»: el nombre y, si es mejor que la de serie, su calidad.
+    static func name(of voice: AVSpeechSynthesisVoice) -> String {
+        switch voice.quality {
+        case .premium: return "\(voice.name) · Premium"
+        case .enhanced: return "\(voice.name) · Mejorada"
+        default: return voice.name
         }
     }
 }
@@ -187,6 +236,7 @@ struct TurnView: View {
                 if !turn.text.isEmpty {
                     Text(markdown(turn.text)).font(.lh(12.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if !turn.streaming { ReadAloudButton(chat: chat, turn: turn) }
                 }
                 if let activity = turn.activity {
                     HStack(spacing: 6) {
@@ -363,4 +413,18 @@ func markdown(_ text: String) -> AttributedString {
     let source = lines.joined(separator: "\n")
     return (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
         ?? AttributedString(text)
+}
+
+/// El 🔊 de una respuesta: la lee de nuevo (el resumen hablado si vino); mientras la lee, ■ la calla.
+struct ReadAloudButton: View {
+    @ObservedObject var chat: AssistantModel
+    let turn: ChatTurn
+    @ObservedObject private var voice = ReadAloud.shared
+
+    var body: some View {
+        let reading = voice.speaking == turn.id
+        IconButton(symbol: reading ? "stop.circle" : "speaker.wave.2", help: reading ? "Dejar de leer" : "Leer en voz alta",
+                   tint: reading ? .accentColor : .secondary) { chat.readAloud(turn) }
+            .padding(.top, -4)
+    }
 }

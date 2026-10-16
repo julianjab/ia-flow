@@ -154,6 +154,8 @@ private struct AssistantRequest: Encodable {
     let scope: AssistantScope
     let messages: [Message]
     let conversation_id: String?
+    /// Quien pregunta escucha en voz alta: el runner suma el resumen hablado (evento `speech`).
+    let voice: Bool?
 }
 
 extension RunnerClient {
@@ -162,7 +164,7 @@ extension RunnerClient {
     /// Manda la conversación entera (el runner no guarda el hilo del modelo, sólo el registro) y entrega cada
     /// evento del stream. Con `github`, el intercambio queda guardado a nombre de ese login.
     func ask(scope: AssistantScope, messages: [(role: String, content: String)], conversationId: String?, github: String?,
-             onEvent: @escaping (AssistantEvent) -> Void) async throws {
+             voice: Bool = false, onEvent: @escaping (AssistantEvent) -> Void) async throws {
         guard let url = URL(string: server.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + "/api/assistant") else {
             throw RunnerError(status: 0, message: "URL inválida: \(server.baseUrl)")
         }
@@ -174,7 +176,7 @@ extension RunnerClient {
         if let github { req.setValue(github, forHTTPHeaderField: "x-github-token") }
         req.httpBody = try JSONEncoder().encode(AssistantRequest(
             scope: scope, messages: messages.map { .init(role: $0.role, content: $0.content) },
-            conversation_id: github == nil ? nil : conversationId))
+            conversation_id: github == nil ? nil : conversationId, voice: voice ? true : nil))
 
         let (bytes, response) = try await URLSession.shared.bytes(for: req)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

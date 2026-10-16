@@ -118,14 +118,17 @@ Queda «✓ repo#n abierto y en <columna>», con el issue a un clic; si se abri�
 motivo y no ofrece reintentar (duplicaría el issue).
 Con login, la conversación queda guardada en el server y se retoma desde el reloj del encabezado. La respuesta
 sigue llegando aunque se cierre el popover.
-**Voz** (`Voice.swift`, en todos los chats: la pestaña y «¿Por qué?»): el parlante a la izquierda de la caja lee las
-respuestas en voz alta mientras llegan, frase por frase y sin código ni tablas (`AVSpeechSynthesizer`; queda elegido
-para todos los chats). Detener, preguntar de nuevo o cambiar de conversación lo callan. El micrófono dicta la
-pregunta (`Speech`, en el equipo si el idioma lo permite) y lo suma a lo escrito. Terminar con «enviar» (o «listo»,
-«mandar») la manda sin esa palabra; 4 s callado también, si se dijo algo (si no, sólo apaga el micrófono). Con una
-respuesta en curso queda escrita para mandarla después. La primera vez macOS pide permiso
-de micrófono y de reconocimiento de voz (`NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription` en
-el Info.plist que arma `build.sh`). Es el mismo recorte de frases que la web (`apps/web/src/features/assistant/voice/`).
+**Voz** (`Voice.swift`, en todos los chats: la pestaña y «¿Por qué?»): arriba de la caja, **«Leer en voz alta»** lee
+cada respuesta al terminar y **«Charla»** además vuelve a escuchar después de leer (hablás, lee, escucha…; callarte 4 s
+sin decir nada corta la ronda). Con cualquiera de los dos prendido el pedido lleva `voice` y el runner suma un resumen
+para el oído (evento `speech`): se lee ése en vez de la respuesta, que sigue entera en el chat. Cada respuesta tiene su
+🔊 para leerla otra vez (■ la calla). La voz es la mejor en español instalada (Premium › Mejorada › Mónica/Paulina; las
+de juguete como Eddy o Grandma, al final) y se cambia en el menú de la derecha; las Premium se bajan en Ajustes ›
+Accesibilidad › Contenido leído › Voz del sistema › Gestionar voces. El micrófono dicta la pregunta (`Speech`, en el
+equipo si el idioma lo permite) y lo suma a lo escrito: terminar con «enviar» (o «listo», «mandar») la manda sin esa
+palabra, y 4 s callado también, si se dijo algo. Con una respuesta en curso queda escrita. La primera vez macOS pide
+permiso de micrófono y de reconocimiento de voz (`NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription`
+en el Info.plist que arma `build.sh`). Es el mismo recorte que la web (`apps/web/src/features/assistant/voice/`).
 
 - **Servidores:** los de la app de escritorio (`~/Library/Application Support/IA Flow/servers.json`, con su
   `token` = `IA_FLOW_API_TOKEN`); un `~/.config/ia-flow-menubar/runners.json` con la misma forma

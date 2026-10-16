@@ -2,37 +2,13 @@ import AVFoundation
 import Speech
 import SwiftUI
 
-// La voz de los chats del asistente (la pestaña y «¿Por qué?» de una mejora): leer las respuestas en voz alta mientras
-// llegan (AVSpeechSynthesizer) y dictar la pregunta (Speech, en el equipo si el idioma lo permite). Una sola voz y un
-// solo micrófono para toda la app: hablar en un chat calla al otro. Es el mismo recorte que la web
-// (`apps/web/src/features/assistant/voice/speakable.ts`): frases completas, sin código ni tablas.
+// La voz de los chats del asistente (la pestaña y «¿Por qué?» de una mejora): leer cada respuesta en voz alta al terminar
+// (AVSpeechSynthesizer, con la mejor voz en español instalada) y dictar la pregunta (Speech, en el equipo si el idioma lo
+// permite). Con la voz prendida el runner suma un resumen para el oído (`speech`), que se lee en vez de la respuesta.
+// «Charla» encadena las dos: lee y vuelve a escuchar. Una sola voz y un solo micrófono para toda la app. Es el mismo
+// recorte que la web (`apps/web/src/features/assistant/voice/`).
 
 enum Speakable {
-    private static let fence = "```"
-    private static let sentenceEnd: Set<Character> = [".", "!", "?", "…", ":"]
-
-    /// Cuántos caracteres de `buffer` se pueden leer sin cortar una frase ni entrar a un bloque de código abierto.
-    static func readyPrefix(_ buffer: String, final: Bool) -> Int {
-        let chars = Array(buffer)
-        if final { return chars.count }
-        var cut = 0, inFence = false, i = 0
-        while i < chars.count {
-            if i + 2 < chars.count, chars[i] == "`", chars[i + 1] == "`", chars[i + 2] == "`" {
-                inFence.toggle()
-                i += 3
-                if !inFence { cut = i }
-                continue
-            }
-            if !inFence {
-                let c = chars[i]
-                let next = i + 1 < chars.count ? chars[i + 1] : nil
-                if c == "\n" || (sentenceEnd.contains(c) && next?.isWhitespace == true) { cut = i + 1 }
-            }
-            i += 1
-        }
-        return cut
-    }
-
     /// El texto tal como se dice: sin bloques de código, tablas ni marcas de markdown; un link es «el enlace».
     static func text(_ markdown: String) -> String {
         var s = markdown.replacingOccurrences(of: "```[\\s\\S]*?(```|$)", with: " ", options: .regularExpression)
@@ -45,6 +21,13 @@ enum Speakable {
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `markdown` listo para decir, en frases (cada una un utterance: se corta entre frases, no en el medio).
+    static func parts(_ markdown: String) -> [String] {
+        text(markdown)
+            .replacingOccurrences(of: "([.!?…:])\\s+", with: "$1\n", options: .regularExpression)
+            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 }
 
@@ -65,56 +48,98 @@ enum DictationCommand {
     }
 }
 
-/// Lee en voz alta la respuesta que está llegando, frase por frase. Sólo la que se vio nacer: retomar una conversación
-/// no la lee entera.
-final class ReadAloud: ObservableObject {
+/// Lee en voz alta: cada respuesta al terminar de llegar (si la voz o la charla están prendidas) y la que se pida con su
+/// 🔊. En charla, al terminar de leer vuelve a escuchar.
+final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     static let shared = ReadAloud()
 
     @Published var enabled = UserDefaults.standard.bool(forKey: "assistantReadAloud") {
         didSet {
             UserDefaults.standard.set(enabled, forKey: "assistantReadAloud")
-            if !enabled { cancel() }
+            if !enabled, !talk { cancel() }
         }
     }
+    /// Charla: lee la respuesta y vuelve a escuchar. Se prende a propósito cada vez (no se guarda).
+    @Published var talk = false
+    /// La voz elegida (su `identifier`); sin elegir, la mejor.
+    @Published var voiceId = UserDefaults.standard.string(forKey: "assistantVoice") {
+        didSet { UserDefaults.standard.set(voiceId, forKey: "assistantVoice") }
+    }
+    /// Qué respuesta se está leyendo ahora.
+    @Published private(set) var speaking: UUID?
+    /// Las voces en español instaladas, la mejor primero (Premium, después Mejorada).
+    let voices: [AVSpeechSynthesisVoice]
 
     private let synth = AVSpeechSynthesizer()
-    /// La respuesta que se está leyendo y cuántos caracteres de su texto ya se mandaron a la voz.
-    private var reading: (id: UUID, spoken: Int)?
+    private var last: AVSpeechUtterance?
+    private var after: (() -> Void)?
 
-    /// El texto completo de la respuesta `id` hasta ahora; con `final`, lo que queda se lee entero.
-    func feed(_ id: UUID, text: String, final: Bool) {
-        guard enabled else { return }
-        if reading?.id != id {
-            guard !final else { return }
-            cancel()
-            reading = (id, 0)
-        }
-        guard let spoken = reading?.spoken else { return }
-        let pending = String(text.dropFirst(spoken))
-        let cut = Speakable.readyPrefix(pending, final: final)
-        if cut > 0 {
-            let say = Speakable.text(String(pending.prefix(cut)))
-            if !say.isEmpty { speak(say) }
-            reading?.spoken = spoken + cut
-        }
-        if final { reading = nil }
+    override init() {
+        voices = Self.spanishVoices()
+        super.init()
+        synth.delegate = self
     }
 
-    func cancel() {
-        reading = nil
-        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
-    }
+    /// Si el pedido lleva `voice`: el runner suma el resumen para el oído.
+    var wantsSpeech: Bool { enabled || talk }
+    var voice: AVSpeechSynthesisVoice? { voices.first { $0.identifier == voiceId } ?? voices.first }
 
-    private func speak(_ text: String) {
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: Self.language)
-        synth.speak(utterance)
+    static func spanishVoices() -> [AVSpeechSynthesisVoice] {
+        // Las de juguete (Eddy, Flo, Grandma… las «Eloquence») son las más robóticas: al final.
+        let quality: (AVSpeechSynthesisVoice) -> Int = { voice in
+            if voice.identifier.contains(".eloquence.") { return 0 }
+            switch voice.quality {
+            case .premium: return 3
+            case .enhanced: return 2
+            default: return 1
+            }
+        }
+        let score = { (v: AVSpeechSynthesisVoice) in quality(v) * 10 + (v.language == language ? 1 : 0) }
+        return AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("es") }
+            .sorted { score($0) != score($1) ? score($0) > score($1) : $0.name < $1.name }
     }
 
     /// El español del sistema si está en español; si no, el de España.
     static var language: String {
         let preferred = Locale.preferredLanguages.first ?? ""
         return preferred.lowercased().hasPrefix("es") ? preferred : "es-ES"
+    }
+
+    /// Lee `markdown` (lo que se decía se calla); `then` corre al terminar de decirlo todo, no si se cortó.
+    func say(_ markdown: String, key: UUID, then: (() -> Void)? = nil) {
+        cancel()
+        let parts = Speakable.parts(markdown)
+        guard !parts.isEmpty else { then?(); return }
+        speaking = key
+        after = then
+        for part in parts {
+            let utterance = AVSpeechUtterance(string: part)
+            utterance.voice = voice
+            synth.speak(utterance)
+            last = utterance
+        }
+    }
+
+    /// Una respuesta que terminó de llegar: se lee si la voz está prendida y, en charla, después se escucha.
+    func replied(_ markdown: String, key: UUID, listen: @escaping () -> Void) {
+        guard wantsSpeech else { return }
+        say(markdown, key: key, then: talk ? listen : nil)
+    }
+
+    func cancel() {
+        after = nil
+        last = nil
+        speaking = nil
+        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [self] in
+            guard utterance === last else { return }
+            let then = after
+            cancel()
+            then?()
+        }
     }
 }
 
@@ -137,6 +162,11 @@ final class Dictation: ObservableObject {
     /// `write` recibe la caja completa a medida que se reconoce; `send`, la pregunta que hay que mandar.
     func toggle(for chat: AnyObject, base: String, write: @escaping (String) -> Void, send: @escaping (String) -> Void) {
         if isListening(chat) { return stop() }
+        start(for: chat, base: base, write: write, send: send)
+    }
+
+    /// Empieza a escuchar para `chat` (lo que se dictaba en otro se corta).
+    func start(for chat: AnyObject, base: String, write: @escaping (String) -> Void, send: @escaping (String) -> Void) {
         stop()
         error = nil
         SFSpeechRecognizer.requestAuthorization { status in
