@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   clock,
+  costLine,
   duration,
   executionStatus,
   tokens,
@@ -26,6 +27,14 @@ describe('formato', () => {
     expect(usageLine({ input_tokens: 38_000, output_tokens: 2_000, cache_read_tokens: 900 })).toBe(
       '38k in · 2k out · 900 caché',
     )
+  })
+
+  it('costLine: el estimado, o por qué no hay número', () => {
+    expect(costLine(undefined)).toBe('')
+    expect(costLine({ usd: 1.234 })).toBe('~$1.23')
+    expect(costLine({ usd: 0.0042 })).toBe('~$0.004')
+    expect(costLine({ usd: 0.5, subscription: true })).toBe('~$0.50 · suscripción')
+    expect(costLine({ unpriced_models: ['gpt-x'] })).toBe('sin precio: gpt-x')
   })
 
   it('clock devuelve el ISO crudo si no parsea', () => {

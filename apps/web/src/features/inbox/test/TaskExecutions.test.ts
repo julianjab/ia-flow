@@ -170,6 +170,27 @@ describe('TaskExecutions', () => {
     expect(row(w, 'ex2').attributes('aria-expanded')).toBe('true')
   })
 
+  it('abierta, muestra los tokens y su costo estimado', async () => {
+    const w = mount(TaskExecutions, {
+      props: {
+        taskRef: 'o/r#1',
+        executions: [
+          execution({
+            id: 'ex1',
+            status: 'running',
+            usage: { input_tokens: 38_000, output_tokens: 2_000, cache_read_tokens: 0 },
+            cost: { usd: 0.19 },
+          }),
+        ],
+        liveTrace: [],
+      },
+    })
+    await flushPromises()
+    expect(w.text()).toContain('38k in · 2k out · 0 caché')
+    expect(w.get('[data-test="cost"]').text()).toBe('~$0.19')
+    expect(w.get('[data-test="cost"]').attributes('title')).toContain('Estimado')
+  })
+
   it('sin ejecuciones no dibuja nada', () => {
     const w = mount(TaskExecutions, { props: { taskRef: 'o/r#1', executions: [], liveTrace: [] } })
     expect(w.find('section').exists()).toBe(false)

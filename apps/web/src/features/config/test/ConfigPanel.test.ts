@@ -40,7 +40,19 @@ const config: ConfigSummary = {
     {
       id: 'reviewer',
       providers: ['claude-tmux', 'anthropic-api'],
+      models: { 'claude-tmux': 'claude-sonnet-5-5', 'anthropic-api': 'claude-opus-5-5' },
       routes: { approved: '(nada)', changes: 'implementer' },
+      mcp_servers: [
+        { id: 'github', mounted: true },
+        { id: 'figma', mounted: false },
+      ],
+      actions: ['read_file', 'add_comment'],
+      prompt: {
+        system: 'Sos el reviewer.',
+        system_chars: 4_200,
+        task: 'Revisá {{task.ref}}',
+        task_chars: 19,
+      },
     },
   ],
   providers: [{ id: 'claude-tmux', type: 'claude-cli', mode: 'tmux', max_concurrent: 2 }],
@@ -91,6 +103,22 @@ describe('ConfigPanel', () => {
     expect(text).toContain('claude-cli · tmux')
     expect(text).toContain('hasta 2 a la vez')
     expect(text).toContain('api.githubcopilot.com')
+  })
+
+  it('cada agente dice su modelo, sus MCP (y cuál no quedó montado), sus tools y su prompt plegado', async () => {
+    const w = mount(ConfigPanel)
+    await flushPromises()
+    expect(w.get('[data-test="models"]').text()).toBe('claude-sonnet-5-5 · claude-opus-5-5')
+    expect(w.text()).toContain('1 MCP sin montar')
+    expect(w.get('[data-test="mcp-figma"]').text()).toBe('figma (sin montar)')
+    expect(w.get('[data-test="mcp-github"]').text()).toBe('github')
+    expect(w.text()).toContain('read_file · add_comment')
+    const prompt = w.get('[data-test="prompt"]')
+    expect(prompt.attributes('open')).toBeUndefined()
+    expect(prompt.find('summary').text()).toContain('system 4.2k car.')
+    // El runner mandó un recorte: se dice dónde está el completo.
+    expect(prompt.text()).toContain('Recortado')
+    expect(prompt.text()).toContain('Revisá {{task.ref}}')
   })
 
   it('un error se muestra con Reintentar', async () => {
