@@ -46,6 +46,23 @@ describe('SqliteImprovementStore', () => {
     expect(store.get(added.id)).toEqual(added)
   })
 
+  it('revises only what comes, only while it is open, and tells its listeners', () => {
+    const store = storeAt(['2026-10-01T10:00:00Z'])
+    const added = store.add(proposal({ labels: ['docs'] }))
+    let changes = 0
+    store.onChange(() => changes++)
+
+    const revised = store.revise(added.id, { title: 'Otro título', body: '## Problema\nOtro.' })
+    expect(revised).toEqual({ ...added, title: 'Otro título', body: '## Problema\nOtro.' })
+    expect(store.revise(added.id, { labels: [] })?.labels).toBeUndefined()
+    expect(changes).toBe(2)
+
+    store.decide(added.id, { status: 'dismissed', by: 'julianjab' })
+    expect(store.revise(added.id, { title: 'tarde' })).toBeUndefined()
+    expect(store.revise('no-existe', { title: 'x' })).toBeUndefined()
+    expect(store.get(added.id)?.title).toBe('Otro título')
+  })
+
   it('omits what it does not have', () => {
     const added = storeAt(['2026-10-01T10:00:00Z']).add(
       proposal({ pr_url: undefined, execution_id: undefined }),

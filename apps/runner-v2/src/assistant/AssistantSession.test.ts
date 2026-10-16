@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { InboxItem } from '@ia-flow/shared'
+import type { ImprovementProposal, InboxItem } from '@ia-flow/shared'
 import { type AssistantBackend, AssistantSession } from './AssistantSession.js'
 
 const merge: InboxItem = {
@@ -75,5 +75,78 @@ describe('AssistantSession en el contexto de una tarea cerrada', () => {
   it('en el contexto general, una tarea fuera del board no se lee', async () => {
     const session = new AssistantSession({ kind: 'general' }, closed, () => {})
     await expect(session.taskDetail('o/r#5')).rejects.toThrow(/no está en ningún board/)
+  })
+})
+
+describe('AssistantSession: ajustar o agregar una mejora', () => {
+  const base: ImprovementProposal = {
+    id: 'm1',
+    created_at: '2026-10-15T09:00:00Z',
+    task_ref: 'o/r#5',
+    pr_url: 'https://github.com/o/r/pull/9',
+    agent: 'retrospective',
+    execution_id: 'e2',
+    target: 'engine',
+    repo: 'o/ia-flow',
+    title: 'Viejo',
+    body: 'cuerpo',
+    reason: 'porque',
+    status: 'open',
+  }
+  function withStore(found: ImprovementProposal[] = [base]) {
+    const revised: unknown[] = []
+    const added: unknown[] = []
+    const backend = {
+      improvements: {
+        get: (id: string) => found.find((m) => m.id === id),
+        revise: (id: string, changes: unknown) => {
+          revised.push({ id, changes })
+          return base
+        },
+        findOpen: () => undefined,
+        add: (input: Record<string, unknown>) => {
+          added.push(input)
+          return { ...base, ...input, id: 'm2' }
+        },
+        list: () => [],
+      },
+    } as unknown as AssistantBackend
+    return { backend, revised, added }
+  }
+
+  it('ajusta una pendiente de la tarea del contexto, sólo con lo que viene', () => {
+    const { backend, revised } = withStore()
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {})
+    expect(session.reviseImprovement({ id: 'm1', title: 'Nuevo' })).toContain('Mejora m1 ajustada')
+    expect(revised).toEqual([{ id: 'm1', changes: { title: 'Nuevo' } }])
+  })
+
+  it('no ajusta una de otra tarea, una ya decidida, ni sin cambios', () => {
+    const { backend } = withStore([base, { ...base, id: 'm3', status: 'dismissed' }])
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#6' }, backend, () => {})
+    expect(() => session.reviseImprovement({ id: 'm1', title: 'x' })).toThrow(/Fuera de contexto/)
+    const general = new AssistantSession({ kind: 'general' }, backend, () => {})
+    expect(() => general.reviseImprovement({ id: 'm3', title: 'x' })).toThrow(/ya se descartó/)
+    expect(() => general.reviseImprovement({ id: 'm1' })).toThrow(/nada que ajustar/)
+  })
+
+  it('una nueva hereda el destino, la tarea y la evidencia de la base', () => {
+    const { backend, added } = withStore()
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {})
+    const result = session.addImprovement({ based_on: 'm1', title: 'Otra', body: 'b', reason: 'r' })
+    expect(result).toContain('Mejora m2 guardada')
+    expect(added).toEqual([
+      {
+        task_ref: 'o/r#5',
+        pr_url: 'https://github.com/o/r/pull/9',
+        agent: 'assistant',
+        execution_id: 'e2',
+        target: 'engine',
+        repo: 'o/ia-flow',
+        title: 'Otra',
+        body: 'b',
+        reason: 'r',
+      },
+    ])
   })
 })
