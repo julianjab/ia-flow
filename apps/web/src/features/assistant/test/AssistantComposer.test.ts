@@ -1,6 +1,9 @@
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AssistantComposer from '../AssistantComposer.vue'
+import { installFakeSpeech } from '../voice/test/fakeSpeech'
+import { useVoiceStore } from '../voice/voiceStore'
 
 const tasks = [
   { ref: 'acme/api#7', title: 'Mergear el fix', group: 'need', kind: 'merge' },
@@ -8,7 +11,10 @@ const tasks = [
 ] as never
 
 function render() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
   return mount(AssistantComposer, {
+    global: { plugins: [pinia] },
     props: {
       placeholder: 'Preguntá…',
       streaming: false,
@@ -159,6 +165,39 @@ describe('AssistantComposer', () => {
       await w.vm.$nextTick()
       expect(w.emitted('send')).toBeUndefined()
       expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('y la otra')
+    })
+
+    it('en charla, el micrófono se abre solo y calla la voz', async () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      const speech = installFakeSpeech()
+      try {
+        const w = render()
+        const voice = useVoiceStore()
+        voice.toggleTalk()
+        await w.vm.$nextTick()
+        expect(w.get('[data-test="mic"]').attributes('aria-pressed')).toBe('true')
+        expect(speech.cancel).toHaveBeenCalled()
+      } finally {
+        speech.uninstall()
+      }
+    })
+
+    it('con la voz prendida, se elige con qué voz se lee', async () => {
+      localStorage.setItem('ia-flow.assistant.read-aloud', '1')
+      const speech = installFakeSpeech([
+        { name: 'Jorge', lang: 'es-ES' },
+        { name: 'Mónica (Premium)', lang: 'es-ES' },
+      ])
+      try {
+        const w = render()
+        const pick = w.get('[data-test="voice-pick"]')
+        expect((pick.element as HTMLSelectElement).value).toBe('Mónica (Premium)')
+        await pick.setValue('Jorge')
+        expect(useVoiceStore().voice?.name).toBe('Jorge')
+      } finally {
+        speech.uninstall()
+        localStorage.clear()
+      }
     })
 
     it('sin permiso del micrófono lo dice', async () => {
