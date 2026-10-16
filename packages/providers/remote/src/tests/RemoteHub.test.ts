@@ -308,6 +308,54 @@ describe('una corrida', () => {
     expect(endings).toEqual([undefined, 'failed'])
   })
 
+  it('los MCP externos viajan con su token; si el servidor lo rechaza, el host pide uno nuevo al runner', async () => {
+    const { hub, registry } = makeHub()
+    const forced: boolean[] = []
+    const tokens: string[] = []
+    started(
+      makeHost(hub, async (task) => {
+        const [github] = link(hub, task).mcpServers()
+        const token = github?.config.authorizationToken as (options?: {
+          force?: boolean
+        }) => Promise<string>
+        tokens.push(await token(), await token({ force: true }), await token())
+        return output()
+      }),
+    )
+    await until(() => registry.resolve('remote:laptop') !== undefined)
+    await (registry.resolve('remote:laptop') as Provider).run(
+      runContext({
+        mcpServers: [
+          {
+            id: 'github-mcp',
+            config: {
+              url: 'https://mcp',
+              authorizationToken: ({ force = false }: { force?: boolean } = {}) => {
+                forced.push(force)
+                return force ? 'ghs_nuevo' : 'ghs_viejo'
+              },
+            },
+          },
+        ],
+      }),
+    )
+    expect(tokens).toEqual(['ghs_viejo', 'ghs_nuevo', 'ghs_nuevo'])
+    expect(forced).toEqual([false, true])
+  })
+
+  it('un host contra un runner sin /mcp-token sigue con el token que viajó', async () => {
+    const { hub } = makeHub()
+    const task = {
+      endpoints: { tools: '/v1/runs/x/tools' },
+      mcpServers: [{ id: 'gh', config: { authorizationToken: 'ghs_viejo' } }],
+    } as unknown as HostTask
+    const [github] = link(hub, task).mcpServers()
+    const token = github?.config.authorizationToken as (options?: {
+      force?: boolean
+    }) => Promise<string>
+    expect(await token({ force: true })).toBe('ghs_viejo')
+  })
+
   it('si el host no pudo correrla, la corrida es un error que dice por qué', async () => {
     const { hub, registry } = makeHub()
     started(makeHost(hub, async () => ({ status: 'failed', message: 'el worktree no se armó' })))

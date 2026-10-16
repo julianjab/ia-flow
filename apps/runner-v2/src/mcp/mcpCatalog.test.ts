@@ -20,6 +20,38 @@ const figma = {
   },
 }
 
+describe('resolveMcpCatalog: the GitHub token', () => {
+  it('is resolved on every call, and `force` drops the cached one first', async () => {
+    local = Bun.serve({ port: 0, fetch: () => new Response('{}') })
+    // Una App de mentira: `invalidate` descarta el token, y el próximo es otro.
+    let issued = 1
+    let invalidated = 0
+    const app = {
+      getToken: async () => `ghs_${issued}`,
+      invalidate: () => {
+        invalidated++
+        issued++
+      },
+    }
+    const github = {
+      id: 'github-mcp',
+      config: {
+        type: 'http' as const,
+        url: `http://127.0.0.1:${local.port}/mcp`,
+        authorizationToken: '${GITHUB_TOKEN}',
+      },
+    }
+    const catalog = await resolveMcpCatalog([github], app, [])
+    const token = catalog['github-mcp']?.config.authorizationToken as (options?: {
+      force?: boolean
+    }) => Promise<string>
+
+    expect(await token()).toBe('ghs_1')
+    expect(await token({ force: true })).toBe('ghs_2')
+    expect(invalidated).toBe(1)
+  })
+})
+
 describe('resolveMcpCatalog with hosted MCPs', () => {
   it('probes a hosted MCP against its local process and keeps the public url for the agents', async () => {
     process.env.TEST_FIGMA_TOKEN = 'secreto'

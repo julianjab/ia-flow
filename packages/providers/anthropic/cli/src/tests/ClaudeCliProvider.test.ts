@@ -128,7 +128,12 @@ describe('ClaudeCliProvider', () => {
       return undefined
     })
 
-    await provider(cli, { env: { FOO: 'bar' } }).run(runContext())
+    const ctx = runContext()
+    ctx.mcpServers.push({
+      id: 'static-mcp',
+      config: { type: 'http', url: 'https://static.example', authorizationToken: 'fijo' },
+    })
+    await provider(cli, { env: { FOO: 'bar' } }).run(ctx)
 
     expect(files?.prompt).toBe('implementá X')
     expect(files?.sysprompt).toMatch(/^Sos un implementador\.\n\n## Sesión desatendida/)
@@ -140,10 +145,87 @@ describe('ClaudeCliProvider', () => {
     expect(files?.settings.hooks.PostToolUse[0].hooks[0].command).toMatch(
       /curl .*\/hooks\/[0-9a-f-]+\/PostToolUse' \|\| true$/,
     )
+    // Un token renovable va por el servidor local; uno fijo, como header.
     expect(files?.mcp.mcpServers['github-mcp']).toEqual({
       type: 'http',
-      url: 'https://mcp.example',
-      headers: { Authorization: 'Bearer gh-token' },
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/upstream\/[0-9a-f-]+\/github-mcp$/),
+    })
+    expect(files?.mcp.mcpServers['static-mcp']).toEqual({
+      type: 'http',
+      url: 'https://static.example',
+      headers: { Authorization: 'Bearer fijo' },
+    })
+  })
+
+  it('a refreshable MCP gets the token of the moment, and a 401 forces a new one and retries once', async () => {
+    const seen: Array<{ url: string; auth: string | null; session: string | null; body: string }> =
+      []
+    const upstream = (async (url: string, init: RequestInit) => {
+      const headers = new Headers(init.headers)
+      seen.push({
+        url,
+        auth: headers.get('authorization'),
+        session: headers.get('mcp-session-id'),
+        body: new TextDecoder().decode(init.body as Uint8Array),
+      })
+      if (headers.get('authorization') !== 'Bearer nuevo')
+        return new Response('nope', { status: 401 })
+      return new Response('{"jsonrpc":"2.0","id":1,"result":{}}', {
+        headers: { 'content-type': 'application/json', 'mcp-session-id': 's-2' },
+      })
+    }) as typeof fetch
+    const local = new RunServer(upstream)
+    const forced: boolean[] = []
+    let reply: { status: number; session: string | null; body: string } | undefined
+    const cli = new FakeCli(async (url, spec) => {
+      const config = JSON.parse(readFileSync(flag(spec.argv, '--mcp-config'), 'utf-8'))
+      const res = await fetch(`${config.mcpServers['github-mcp'].url}?x=1`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'mcp-session-id': 's-1' },
+        body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
+      })
+      reply = {
+        status: res.status,
+        session: res.headers.get('mcp-session-id'),
+        body: await res.text(),
+      }
+      await rpc(url, 'tools/call', { name: 'submit_done', arguments: {} })
+      return undefined
+    })
+
+    try {
+      await provider(cli, { server: local }).run(
+        runContext({
+          mcpServers: [
+            {
+              id: 'github-mcp',
+              config: {
+                type: 'http',
+                url: 'https://mcp.example/mcp/',
+                authorizationToken: ({ force = false }: { force?: boolean } = {}) => {
+                  forced.push(force)
+                  return force ? 'nuevo' : 'vencido'
+                },
+              },
+            },
+          ],
+        }),
+      )
+    } finally {
+      local.stop()
+    }
+
+    expect(forced).toEqual([false, true])
+    expect(seen.map((r) => r.auth)).toEqual(['Bearer vencido', 'Bearer nuevo'])
+    expect(seen[1]).toMatchObject({
+      url: 'https://mcp.example/mcp/?x=1',
+      session: 's-1',
+      body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
+    })
+    expect(reply).toEqual({
+      status: 200,
+      session: 's-2',
+      body: '{"jsonrpc":"2.0","id":1,"result":{}}',
     })
   })
 

@@ -92,6 +92,24 @@ describe('GithubAppAuth', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('invalidate drops the cached token: the next call exchanges a new one', async () => {
+    let calls = 0
+    const fetchImpl = vi.fn(async () =>
+      tokenResponse(`ghs_${++calls}`, new Date(Date.now() + 3600_000).toISOString()),
+    )
+    const auth = new GithubAppAuth({
+      appId: 'a',
+      installationId: 'i',
+      privateKey,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    expect(await auth.getToken()).toBe('ghs_1')
+    auth.invalidate()
+    expect(await auth.getToken()).toBe('ghs_2')
+    expect(await auth.getToken()).toBe('ghs_2')
+  })
+
   it('refreshes once the cached token is within the refresh margin of expiring', async () => {
     let calls = 0
     // `expires_at` relativo a la MISMA base que el `now` fake que le pasamos a `getToken` —

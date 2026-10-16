@@ -98,6 +98,24 @@ describe('McpHttpClient', () => {
     ])
   })
 
+  it('con un token renovable, un 401 pide uno nuevo (force) y reintenta una vez', async () => {
+    const server = fakeMcpServer({ tools: [{ name: 'a' }], token: 'nuevo' })
+    const forced: boolean[] = []
+    const client = new McpHttpClient({
+      url: URL,
+      fetchImpl: server.fetchImpl,
+      authorizationToken: ({ force = false } = {}) => {
+        forced.push(force)
+        return force || forced.length > 1 ? 'nuevo' : 'vencido'
+      },
+    })
+
+    expect((await client.listTools()).map((t) => t.name)).toEqual(['a'])
+    expect(server.seen[0]?.headers.authorization).toBe('Bearer vencido')
+    expect(server.seen[1]?.headers.authorization).toBe('Bearer nuevo')
+    expect(forced.slice(0, 2)).toEqual([false, true])
+  })
+
   it('abre otra sesión si el servidor olvidó la suya (404)', async () => {
     const server = fakeMcpServer({ tools: [{ name: 'a' }] })
     const client = new McpHttpClient({ url: URL, fetchImpl: server.fetchImpl })
