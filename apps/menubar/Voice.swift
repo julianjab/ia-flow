@@ -48,6 +48,36 @@ enum DictationCommand {
     }
 }
 
+/// Lo dictado hasta ahora. El reconocimiento en el equipo (macOS 13+) reinicia la transcripción parcial después de una
+/// pausa: sin juntar los tramos, decir «enviar» tras callarse dejaba sólo «enviar», la caja quedaba vacía y no se mandaba.
+struct Transcript {
+    private var committed = ""
+    private var last = ""
+    private var lastStart: TimeInterval = 0
+
+    var text: String { [committed, last].filter { !$0.isEmpty }.joined(separator: " ") }
+
+    /// `partial` es la transcripción que llegó; `start`, cuándo empieza su primer tramo (0 si no se sabe).
+    mutating func update(_ partial: String, start: TimeInterval = 0) -> String {
+        if Self.restarted(from: last, lastStart: lastStart, to: partial, start: start) {
+            committed = text
+        }
+        last = partial
+        lastStart = start
+        return text
+    }
+
+    /// Un tramo nuevo, no una corrección del anterior: empieza más tarde en el audio, o es más corto y ya no arranca
+    /// con la primera palabra de lo que había.
+    static func restarted(from last: String, lastStart: TimeInterval, to partial: String, start: TimeInterval) -> Bool {
+        guard !last.isEmpty else { return false }
+        if start > lastStart + 0.5 { return true }
+        let fold = { (s: String) in s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil) }
+        let firstWord = fold(last).split(separator: " ").first.map(String.init) ?? ""
+        return partial.count < last.count && !fold(partial).hasPrefix(firstWord)
+    }
+}
+
 /// Lee en voz alta: cada respuesta al terminar de llegar (si la voz o la charla están prendidas) y la que se pida con su
 /// 🔊. En charla, al terminar de leer vuelve a escuchar.
 final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
@@ -137,7 +167,8 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     /// Una respuesta que terminó de llegar: se lee si la voz está prendida y, en charla, después se escucha.
     func replied(_ markdown: String, key: UUID, listen: @escaping () -> Void) {
         guard wantsSpeech else { return }
-        say(markdown, key: key, then: talk ? listen : nil)
+        // Se mira `talk` al terminar de leer, no al empezar: si se apagó mientras leía, no se abre el micrófono.
+        say(markdown, key: key) { [weak self] in if self?.talk == true { listen() } }
     }
 
     func cancel() {
@@ -225,6 +256,7 @@ final class Dictation: ObservableObject {
         let head = base.isEmpty || base.last?.isWhitespace == true ? base : base + " "
         self.request = request
         self.owner = owner
+        var transcript = Transcript()
         var spoken = ""
         let finish = { [weak self] (text: String) in
             self?.stop()
@@ -245,7 +277,8 @@ final class Dictation: ObservableObject {
                 // `owner` deja de ser éste al enviar o cortar: lo que llegue tarde no vuelve a la caja.
                 guard let self, self.owner == owner else { return }
                 if let result {
-                    spoken = result.bestTranscription.formattedString
+                    let best = result.bestTranscription
+                    spoken = transcript.update(best.formattedString, start: best.segments.first?.timestamp ?? 0)
                     if let command = DictationCommand.withoutSendWord(head + spoken) { return finish(command) }
                     write(head + spoken)
                     quiet()
