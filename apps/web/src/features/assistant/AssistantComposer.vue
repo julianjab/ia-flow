@@ -3,11 +3,14 @@ import type { AssistantScope, InboxItem, InboxProject } from '@ia-flow/shared';
 import { computed, ref } from 'vue';
 import { dropScopeQuery, scopeQuery, typedRef } from '@/features/assistant/scope';
 import ScopeTag from '@/features/assistant/ScopeTag.vue';
+import { browserDictation } from '@/features/assistant/voice/speech';
+import { useDictation } from '@/features/assistant/voice/useDictation';
 
 // La caja de pregunta, con el contexto de la conversación encima: una chip que se
 // cambia tocándola o escribiendo `#` (una tarea) o `@` (un proyecto, o `general`).
 // Enter envía, Shift+Enter baja de línea; con la lista de contextos abierta, las
-// flechas y Enter eligen. Mientras responde, «Enviar» pasa a «Detener».
+// flechas y Enter eligen. Mientras responde, «Enviar» pasa a «Detener». 🎤 dicta
+// (si el navegador sabe): lo dicho se suma a la caja y enviar corta el dictado.
 
 const props = defineProps<{
   placeholder: string;
@@ -21,6 +24,13 @@ const emit = defineEmits<{
   (e: 'stop'): void;
   (e: 'scope', scope: AssistantScope): void;
 }>();
+
+const dictation = useDictation(browserDictation());
+
+function toggleDictation() {
+  if (dictation.listening.value) dictation.stop();
+  else dictation.start(text.value, (value) => (text.value = value));
+}
 
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
@@ -76,6 +86,7 @@ function onInput() {
 function submit() {
   const value = text.value.trim();
   if (!value || scopeQuery(value)?.query === '') return;
+  dictation.stop();
   emit('send', value);
   text.value = '';
 }
@@ -138,9 +149,22 @@ function onKeydown(e: KeyboardEvent) {
         @input="onInput"
         @keydown="onKeydown"
       />
+      <button
+        v-if="dictation.supported"
+        type="button"
+        class="btn co__btn co__mic"
+        data-test="mic"
+        :aria-pressed="dictation.listening.value"
+        :aria-label="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta'"
+        :title="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta'"
+        @click="toggleDictation"
+      >
+        <span aria-hidden="true">{{ dictation.listening.value ? '●' : '🎤' }}</span>
+      </button>
       <button v-if="streaming" type="button" class="btn co__btn" data-test="stop" @click="emit('stop')">Detener</button>
       <button v-else type="submit" class="btn btn--primary co__btn" :disabled="!text.trim()">Enviar</button>
     </div>
+    <p v-if="dictation.error.value" class="co__err" role="alert" data-test="mic-error">✕ {{ dictation.error.value }}</p>
   </form>
 </template>
 
@@ -161,4 +185,7 @@ function onKeydown(e: KeyboardEvent) {
 .co__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .co__input { flex: 1; min-width: 0; resize: none; font-family: var(--font-body); line-height: 1.4; }
 .co__btn { flex: none; }
+.co__mic { min-width: var(--tap-h); padding-inline: 0; }
+.co__mic[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
+.co__err { margin: 0; color: var(--danger); font-size: var(--fs-chrome); }
 </style>
