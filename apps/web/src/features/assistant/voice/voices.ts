@@ -13,7 +13,11 @@ const QUALITY: Array<[RegExp, number]> = [
   [/siri/i, 25],
 ]
 
+/** Las voces de juguete de macOS (las «Eloquence»): las más robóticas, al final. */
+const NOVELTY = /^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley)\b/i
+
 function score(voice: VoiceOption, preferred: string): number {
+  if (NOVELTY.test(voice.name)) return -10
   const quality = QUALITY.find(([pattern]) => pattern.test(voice.name))?.[1] ?? 0
   const sameLang = voice.lang.toLowerCase() === preferred.toLowerCase() ? 5 : 0
   return quality + sameLang
