@@ -196,12 +196,15 @@ struct ProposalCard: View {
         let state = chat.proposalState[proposal.id]
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: proposal.isIssue ? "plus.square.on.square" : "bolt.fill").font(.system(size: 10.5, weight: .bold))
+                Image(systemName: proposal.symbol).font(.system(size: 10.5, weight: .bold))
                     .foregroundStyle(Color.accentColor)
                 Text(proposal.isIssue ? (proposal.title ?? proposal.label) : proposal.label).font(.lh(12.5, .semibold)).lineLimit(2)
                 Spacer(minLength: 4)
-                if let ref = proposal.ref { refTag(ref) }
+                if let ref = proposal.taskRef { refTag(ref) }
                 else if let repo = proposal.repo { RepoTag(repo: repo.split(separator: "/").last.map(String.init) ?? repo) }
+            }
+            if let change = proposal.boardChange {
+                Text(change).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2)
             }
             Text(proposal.reason).font(.lh(11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {

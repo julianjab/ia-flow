@@ -226,11 +226,17 @@ final class AssistantModel: ObservableObject {
     /// Lo propuesto lo ejecuta la persona, con su login: se confirma siempre.
     func run(_ proposal: AssistantProposal) {
         guard proposalState[proposal.id] == nil || proposalState[proposal.id]?.hasPrefix("✗") == true else { return }
-        let detail = proposal.isIssue
-            ? "Abre «\(proposal.title ?? "")» en \(proposal.repo ?? "")."
-            : "\(proposal.label) en \(proposal.ref ?? "")."
+        let detail: String
+        switch proposal.kindName {
+        case "issue": detail = "Abre «\(proposal.title ?? "")» en \(proposal.repo ?? "")."
+        case "move": detail = "Mueve \(proposal.ref ?? "") de \(proposal.from ?? "sin columna") a \(proposal.status ?? ""): arranca el pipeline de esa columna."
+        case "add_to_board": detail = "Suma \(proposal.issue ?? "") al board, en \(proposal.status ?? "la columna de entrada")."
+        case "labels": detail = "En \(proposal.ref ?? ""): \(proposal.boardChange ?? "")."
+        default: detail = "\(proposal.label) en \(proposal.ref ?? "")."
+        }
+        let confirmLabel = ["issue": "Abrir issue", "move": "Mover", "add_to_board": "Agregar", "labels": "Aplicar"][proposal.kindName] ?? "Ejecutar"
         runner.confirm?(ConfirmRequest(title: "¿\(proposal.label)?", detail: "\(detail)\n\n\(proposal.reason)",
-                                       confirmLabel: proposal.isIssue ? "Abrir issue" : "Ejecutar") { [weak self] in
+                                       confirmLabel: confirmLabel) { [weak self] in
             self?.execute(proposal)
         })
     }
@@ -248,12 +254,35 @@ final class AssistantModel: ObservableObject {
                 let result = await client.createIssue(proposal, github: session.token)
                 proposalState[proposal.id] = result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
                 if result.ok, let url = result.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
+            } else if let result = await boardChange(proposal, client: client, github: session.token) {
+                proposalState[proposal.id] = result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
+                runner.refresh()
             } else if let ref = proposal.ref, let action = proposal.action {
                 let result = (try? await client.act(ref: ref, action: action, comment: proposal.comment, github: session.token))
                     ?? TaskActionResult(ok: false, message: "No responde \(server.name)")
                 proposalState[proposal.id] = result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
                 runner.refresh()
             }
+        }
+    }
+
+    /// Mover, sumar al board o cambiar labels, contra su endpoint; `nil` si no es una propuesta del board.
+    private func boardChange(_ proposal: AssistantProposal, client: RunnerClient, github: String) async -> (ok: Bool, message: String)? {
+        switch proposal.kindName {
+        case "move":
+            guard let ref = proposal.ref, let status = proposal.status else { return nil }
+            let result = await client.move(ref: ref, to: status, github: github)
+            return (result.ok, result.message)
+        case "add_to_board":
+            guard let issue = proposal.issue else { return nil }
+            let result = await client.addToBoard(issue: issue, projectId: proposal.project_id, status: proposal.status, github: github)
+            return (result.ok, result.message)
+        case "labels":
+            guard let ref = proposal.ref else { return nil }
+            let result = await client.labels(ref: ref, add: proposal.add ?? [], remove: proposal.remove ?? [], github: github)
+            return (result.ok, result.message)
+        default:
+            return nil
         }
     }
 }

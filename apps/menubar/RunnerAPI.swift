@@ -371,6 +371,22 @@ struct RunnerClient {
         }
     }
 
+    /// Pone y saca labels del issue de la card (`POST …/labels`), con tu login: p. ej. sacar `blocked` la destraba.
+    func labels(ref: String, add: [String], remove: [String], github: String) async -> TaskActionResult {
+        struct Body: Encodable { let add: [String]?; let remove: [String]? }
+        guard let parts = RunnerSearch.split(ref) else { return TaskActionResult(ok: false, message: "ref inválida: \(ref)") }
+        do {
+            let data = try await request("/api/tasks/\(parts.owner)/\(parts.repo)/\(parts.number)/labels", method: "POST",
+                                         body: Body(add: add.isEmpty ? nil : add, remove: remove.isEmpty ? nil : remove),
+                                         github: github)
+            return try JSONDecoder().decode(TaskActionResult.self, from: data)
+        } catch let error as RunnerError {
+            return TaskActionResult(ok: false, message: error.message)
+        } catch {
+            return TaskActionResult(ok: false, message: error.localizedDescription)
+        }
+    }
+
     /// Las cards que no están en la bandeja, de todas las columnas.
     func board() async throws -> [BoardItem] {
         let rest: BoardRest = try await get("/api/board")

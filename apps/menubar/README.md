@@ -102,7 +102,7 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 
 **Pestaña «Asistente»:** el chat del asistente del runner (`POST /api/assistant`, streaming), sobre todo el runner
 o sobre una tarea («Preguntar sobre esta tarea…» en el ⋯ de cada fila). Lo que propone (una acción sobre una tarea,
-abrir un issue) se ejecuta con confirmación y tu login; las tareas que menciona abren la pestaña Runner filtrada.
+abrir un issue, mover la card, sumar un issue al board, poner o sacar labels) se ejecuta con confirmación y tu login; las tareas que menciona abren la pestaña Runner filtrada.
 Con login, la conversación queda guardada en el server y se retoma desde el reloj del encabezado. La respuesta
 sigue llegando aunque se cierre el popover.
 

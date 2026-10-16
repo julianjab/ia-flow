@@ -31,13 +31,14 @@ enum AssistantScope: Equatable, Codable {
     var ref: String? { if case .task(let ref) = self { return ref } else { return nil } }
 }
 
-/// Lo que propone el asistente: una acción sobre una tarea (`ref` + `action`) o abrir un issue (`kind: issue`).
+/// Lo que propone el asistente: una acción sobre una tarea (`ref` + `action`, sin `kind`), abrir un issue
+/// (`kind: issue`), mover la card (`move`), sumar un issue al board (`add_to_board`) o cambiarle labels (`labels`).
 struct AssistantProposal: Codable, Hashable, Identifiable {
     let id: String
     let kind: String?
     let label: String
     let reason: String
-    // acción sobre una tarea
+    // acción sobre una tarea (y la tarea de `move` y `labels`)
     let ref: String?
     let action: String?
     let comment: String?
@@ -46,8 +47,39 @@ struct AssistantProposal: Codable, Hashable, Identifiable {
     let title: String?
     let body: String?
     let labels: [String]?
+    // board: la columna destino (y la de origen), el issue a sumar y su proyecto, los labels que van y vienen
+    var status: String? = nil
+    var from: String? = nil
+    var issue: String? = nil
+    var project_id: String? = nil
+    var add: [String]? = nil
+    var remove: [String]? = nil
 
+    /// `action` para las que no traen `kind` (las de antes de que hubiera otras).
+    var kindName: String { kind ?? "action" }
     var isIssue: Bool { kind == "issue" }
+    /// La tarea de la que habla: la del board, o el issue a sumar.
+    var taskRef: String? { ref ?? issue }
+
+    /// Qué cambia en el board, en una línea; `nil` si no es una propuesta del board.
+    var boardChange: String? {
+        switch kindName {
+        case "move": return "\(from ?? "sin columna") → \(status ?? "")"
+        case "add_to_board": return "→ \(status ?? "columna de entrada")" + (project_id.map { " · \($0)" } ?? "")
+        case "labels": return ((add ?? []).map { "+ \($0)" } + (remove ?? []).map { "− \($0)" }).joined(separator: "  ")
+        default: return nil
+        }
+    }
+
+    var symbol: String {
+        switch kindName {
+        case "issue": return "plus.square.on.square"
+        case "move": return "arrow.right.square"
+        case "add_to_board": return "rectangle.stack.badge.plus"
+        case "labels": return "tag"
+        default: return "bolt.fill"
+        }
+    }
 }
 
 /// Un evento del stream: `text`, `tool`, `proposal`, `tasks`, `conversation`, `done` o `error`.
