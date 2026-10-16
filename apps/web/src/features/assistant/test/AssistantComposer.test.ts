@@ -182,6 +182,28 @@ describe('AssistantComposer', () => {
       }
     })
 
+    it('apagar la charla mientras lee no vuelve a abrir el micrófono, y corta el dictado', async () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      const speech = installFakeSpeech()
+      try {
+        const w = render()
+        const voice = useVoiceStore()
+        voice.toggleTalk()
+        await w.vm.$nextTick()
+        voice.replied('Hola.', 'reply:1')
+        voice.toggleTalk()
+        await w.vm.$nextTick()
+        expect(w.get('[data-test="mic"]').attributes('aria-pressed')).toBe('false')
+        const tick = voice.listenTick
+        speech.finish()
+        await w.vm.$nextTick()
+        expect(voice.listenTick).toBe(tick)
+        expect(w.get('[data-test="mic"]').attributes('aria-pressed')).toBe('false')
+      } finally {
+        speech.uninstall()
+      }
+    })
+
     it('con la voz prendida, se elige con qué voz se lee', async () => {
       localStorage.setItem('ia-flow.assistant.read-aloud', '1')
       const speech = installFakeSpeech([
