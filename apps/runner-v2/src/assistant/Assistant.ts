@@ -17,7 +17,7 @@ import {
   type AssistantScope,
   type AssistantStreamEvent,
   DEFAULT_ASSISTANT_AGENT,
-  isIssueProposal,
+  proposalRef,
 } from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
 import { type AssistantDesk, SESSION_KEY } from './AssistantDesk.js'
@@ -111,10 +111,8 @@ export class Assistant {
       })
       const answer = result?.answer ?? ''
       emit({ type: 'text', delta: answer })
-      // Una tarea con propuesta ya tiene su card (la de la acción): no se repite.
-      const proposed = new Set(
-        proposals.flatMap((proposal) => (isIssueProposal(proposal) ? [] : [proposal.ref])),
-      )
+      // Una tarea con propuesta ya tiene su card (la de la propuesta): no se repite.
+      const proposed = new Set(proposals.map(proposalRef).filter((ref) => ref !== undefined))
       const tasks = await this.options.desk
         .sessionOf({ [SESSION_KEY]: session.id })
         .resolveTasks((result?.tasks ?? []).filter((ref) => !proposed.has(ref)))

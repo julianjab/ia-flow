@@ -270,6 +270,7 @@ En el mismo puerto que los webhooks, `--serve` expone la API de la web (contrato
 | `GET /api/stream` | SSE: qué cambió (una tarea, una traza, un evento) |
 | `POST /api/tasks/:owner/:repo/:n/actions` | mergear, aprobar el PRD, devolver, contestar y destrabar, relanzar, reintentar, re-ejecutar el review (simula que la card llegó a Review), pedir que pare — con el token de GitHub de quien lo hace (`x-github-token`): el movimiento queda a su nombre |
 | `POST /api/tasks/:owner/:repo/:n/status` | mover la card a otra columna (`{ status }`) con el token de quien la mueve, como moverla en GitHub: el webhook arranca el pipeline de esa columna. No con un agente corriendo en ella |
+| `POST /api/tasks/:owner/:repo/:n/labels` | poner y sacar labels del issue de la card (`{ add?, remove? }`, al menos uno) con el token de quien lo pide y su permiso de escritura en el repo; sacar `blocked` destraba la tarea. Con un agente corriendo también |
 | `POST /api/board/items` | sumar al board un issue abierto que no está (`{ issue, project_id?, status? }`, sin `status` entra en Todo), con el token de quien lo agrega |
 | `POST /api/auth/github/device` (+ `/poll`) | el login de GitHub de la web (device flow de la App); el runner no guarda el token |
 | `POST /api/assistant` | el asistente (SSE): la capacidad `assistant` (ver abajo). Con `x-github-token`, el intercambio se guarda a nombre de ese login |
@@ -322,8 +323,9 @@ completo.
 **El asistente es un agente más**, el de la capacidad `assistant`, y viene con el runner
 (`src/capabilities/assistant.yaml`): su prompt describe las tools del runner y lo que pinta la web,
 así que cambia con ellos, en este repo. Sus tools son `src/actions/builtin/assistant.ts` (las `assistant_*`: bandeja,
-tarea, "¿por qué?", traza, config, eventos, estado, y `assistant_propose_action`, que propone y no
-ejecuta). Cada pregunta abre una sesión con su contexto —todo el runner, un proyecto o una tarea—
+tarea, "¿por qué?", traza, config, eventos, estado, y las que proponen y no ejecutan:
+`assistant_propose_action`, y `assistant_propose_move` / `_add_to_board` / `_labels` para el board,
+que la persona confirma contra `…/status`, `/api/board/items` y `…/labels`). Cada pregunta abre una sesión con su contexto —todo el runner, un proyecto o una tarea—
 que esas tools respetan (`src/assistant/AssistantSession.ts`). La respuesta es la que el agente
 entrega en `submit_done` (`answer`, obligatoria), junto con las tareas de las que habla (`tasks`), que
 la web muestra como cards. Lee GitHub con `github-mcp-readonly` si el deploy lo declara en su `mcp`;

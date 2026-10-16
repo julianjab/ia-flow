@@ -23,6 +23,7 @@ import type {
 import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { InboxService } from '../inbox/InboxService.js'
 import { taskCost } from '../inbox/pricing.js'
+import { BoardProposals } from './BoardProposals.js'
 import type { ImprovementStore } from './ImprovementStore.js'
 import { isLive, withLiveness } from './liveness.js'
 import type { TraceInsight } from './TraceInsight.js'
@@ -568,5 +569,16 @@ export class AssistantSession {
       },
     })
     return 'Propuesta mostrada. NO está ejecutada: la persona decide.'
+  }
+
+  /** Proponer mover una card, sumar un issue al board o cambiarle labels (`BoardProposals`). */
+  get board(): BoardProposals {
+    return new BoardProposals({
+      scope: this.scope,
+      unattended: this.origin !== undefined,
+      task: (ref) => this.task(ref),
+      inbox: this.backend.inbox,
+      emit: (proposal) => this.emit({ type: 'proposal', proposal }),
+    })
   }
 }

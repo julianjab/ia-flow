@@ -1,8 +1,8 @@
 /**
  * Las tools del agente `assistant` (el asistente de la web): leer la bandeja, una tarea, por qué
  * corrió o no algo, la traza, la config, los eventos recientes y el estado del runner, y PROPONER
- * una acción —o abrir un issue (`assistant_propose_issue`, `propose_improvement`)— que la persona
- * confirma. Ninguna escribe en GitHub: `sideEffects: 'none'`.
+ * una acción, mover una card, sumar un issue al board, cambiar labels —o abrir un issue
+ * (`assistant_propose_issue`, `propose_improvement`)— que la persona confirma. Ninguna escribe en GitHub: `sideEffects: 'none'`.
  *
  * Cada una atiende el pedido que la está usando (`AssistantDesk`, por el `session` del payload de
  * la capacidad), y es ese pedido el que impone el contexto: en el de una tarea, otra ref se
@@ -208,6 +208,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
       agent,
       (session, input) => session.propose(input),
     ),
+    ...boardTools(desk, agent),
     new AssistantTool(
       'assistant_revise_improvement',
       'Ajusta una mejora propuesta que sigue pendiente (su título, cuerpo, labels o razón): la card de la bandeja pasa a mostrar la versión nueva y la persona la abre o la descarta como siempre. Usala cuando te pidan corregir o ajustar una mejora: NO pegues el issue en tu respuesta. Sólo cambia lo que pases.',
@@ -256,6 +257,59 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
       desk,
       agent,
       (session, input) => session.addImprovement(input),
+    ),
+  ]
+}
+
+/** Proponer cambios al board —mover, sumar, labels—: como las acciones, la persona confirma. */
+function boardTools(desk: AssistantDesk, agent: string | undefined): Action[] {
+  const reason = z.string().describe('Una frase: por qué conviene')
+  return [
+    new AssistantTool(
+      'assistant_propose_move',
+      'Propone mover la card de una tarea a otra columna del board (como moverla en GitHub: arranca el pipeline de esa columna). NO la mueve: la persona confirma con un botón, firmado con su usuario de GitHub. Sólo a una columna del board de la tarea, y no con un agente trabajando en ella (proponé antes stop).',
+      z.strictObject({
+        ref,
+        status: z.string().min(1).describe('La columna destino, tal como se llama en el board'),
+        reason,
+      }),
+      desk,
+      agent,
+      (session, input) => session.board.move(input),
+    ),
+    new AssistantTool(
+      'assistant_propose_add_to_board',
+      'Propone sumar al board un issue abierto que todavía no está. NO lo suma: la persona confirma con un botón, firmado con su usuario de GitHub. Si ya está en el board, proponé moverlo.',
+      z.strictObject({
+        issue: z.string().describe('owner/repo#numero o el link del issue'),
+        status: z
+          .string()
+          .optional()
+          .describe('La columna donde entra; sin esto, la de entrada del runner (Todo)'),
+        project_id: z
+          .string()
+          .optional()
+          .describe(
+            'El proyecto del runner, si tiene más de uno (en el contexto de un proyecto, ese)',
+          ),
+        reason,
+      }),
+      desk,
+      agent,
+      (session, input) => session.board.addToBoard(input),
+    ),
+    new AssistantTool(
+      'assistant_propose_labels',
+      'Propone poner o sacar labels del issue de una tarea —p.ej. sacar `blocked`, que frena a los agentes—. NO los cambia: la persona confirma con un botón, firmado con su usuario de GitHub. Sólo labels que la tarea tiene (para sacar) o no tiene (para poner).',
+      z.strictObject({
+        ref,
+        add: z.array(z.string()).optional().describe('Labels a poner'),
+        remove: z.array(z.string()).optional().describe('Labels a sacar'),
+        reason,
+      }),
+      desk,
+      agent,
+      (session, input) => session.board.labels(input),
     ),
   ]
 }
