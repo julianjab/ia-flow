@@ -36,7 +36,7 @@ y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memo
 **Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web
 (`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
-con su acción), las **mejoras propuestas** por la retrospectiva (abrirlas como issue o descartarlas), lo que
+con su acción), cuántas **mejoras propuestas** esperan (llevan a su pantalla), lo que
 **corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
 **Buscador:** un tag al inicio elige el repo (o todos; filtra todo aunque no se escriba nada) y cada tarea lleva el tag de su repo, del mismo color. Acepta `1775`, `#1775`, `subscriptions#1775`, `la-haus/subscriptions#1775`, el link del issue o del
 PR, o texto del título (aproximado: sin tildes, palabras en cualquier orden, prefijos y typos); filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
@@ -50,6 +50,12 @@ texto busca en el título; con toda la organización, el texto busca por título
 número pide elegir repo (GitHub no busca por número en toda la org). `repo#n`, `owner/repo#n` y el link van directo.
 Va a api.github.com con tu login, sólo lee y cada resultado sólo se abre en el navegador: no pasa por el runner ni
 toca el board.
+
+**Mejoras propuestas** (el enlace naranja de la bandeja o la 💡 del pie): lo que dejó la retrospectiva al mergearse
+un PR, para abrirlo como issue o descartarlo. **«¿Por qué?»** abre un chat con el asistente sobre la tarea de la
+mejora: la mejora (agente, ejecución, razón, cuerpo) viaja delante de la primera pregunta sin mostrarse, y el
+asistente lee esa ejecución aunque la tarea ya no esté en el board (su issue se cerró con el merge). Arriba queda
+la mejora con su issue a un clic y sus acciones; la misma mejora retoma su chat, ✎ empieza otro.
 
 **Al día:** con el popover o la ventana abiertos, el menú escucha `GET /api/stream` (SSE, como la web) y relee la
 bandeja y las mejoras cuando algo cambia (varios cambios seguidos, una sola relectura); «En vivo» se relee con la traza
@@ -72,6 +78,8 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 
 ![buscar en GitHub](screenshot-search-gh-dark.png)
 
+![¿por qué?](screenshot-improvement-why-dark.png)
+
 **Pestaña «Asistente»:** el chat del asistente del runner (`POST /api/assistant`, streaming), sobre todo el runner
 o sobre una tarea («Preguntar sobre esta tarea…» en el ⋯ de cada fila). Lo que propone (una acción sobre una tarea,
 abrir un issue) se ejecuta con confirmación y tu login; las tareas que menciona abren la pestaña Runner filtrada.
@@ -89,7 +97,7 @@ sigue llegando aunque se cierre el popover.
 Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
 `Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo y badge),
 `RunnerAPI.swift` (cliente HTTP del runner y su contrato), `RunnerModel.swift` (estado de la pestaña Runner),
-`RunnerViews.swift` (sus pantallas), `RunnerSearch.swift` (qué se busca y qué coincide), `RunnerStream.swift` (el
+`RunnerViews.swift` (sus pantallas), `ImprovementsViews.swift` (las mejoras propuestas y su «¿Por qué?»), `RunnerSearch.swift` (qué se busca y qué coincide), `RunnerStream.swift` (el
 stream SSE), `GithubSearch.swift` (la API de GitHub), `GithubSearchModel.swift` y `GithubSearchViews.swift` (la
 pantalla «Buscar en GitHub»), `RunTrace.swift` (la traza de
 una ejecución plegada en pasos), `RunWatch.swift` y `RunTraceViews.swift` (la pantalla «En vivo»), `RunnerHealth.swift` y `RunnerHealthViews.swift`
