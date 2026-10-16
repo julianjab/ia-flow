@@ -7,6 +7,7 @@ import { createEvent } from '@ia-flow/agent-engine'
 import type { RunnerCapacity, RunnerResources, RunnerStreamEvent } from '@ia-flow/shared'
 import { addLogSink } from '@ia-flow/telemetry'
 import { Assistant } from '../assistant/Assistant.js'
+import { withLiveness } from '../assistant/liveness.js'
 import type { Boards } from '../board/Boards.js'
 import type { MountedRunner } from '../boot.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
@@ -97,6 +98,8 @@ export function mountInbox(
     settings: cfg.inbox,
     taskActions: (projectId) => taskActionsOf(cfg, projectId),
     capacity: () => capacityOf(mounted.executions?.stats, cfg.engine.executions?.maxConcurrent),
+    liveness: (executions, withAgents) =>
+      withLiveness(executions, store.traceInsight, new Date(), withAgents),
     // La base vive en un disco de red: armarla cuesta ~1 s. Se rearma con cada cambio (`changed`).
     cacheMs: 15_000,
   })

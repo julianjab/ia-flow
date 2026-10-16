@@ -52,6 +52,12 @@ export interface InboxServiceOptions {
    *  repetidos (la web y el menubar con varios abiertos) no la recalculan. Quien la monta llama
    *  `invalidate` cuando algo cambia. Sin esto (0), se arma en cada pedido. */
   cacheMs?: number
+  /** Le suma a las ejecuciones su último paso y cada uno de sus agentes (lee la traza). A las vivas
+   *  siempre; a las demás, a las que `withAgents` elige. Sin esto, sólo `agent_id`. */
+  liveness?: <T extends ExecutionSummary>(
+    executions: T[],
+    withAgents?: (execution: T, index: number) => boolean,
+  ) => T[]
 }
 
 const TRACE_LIMIT = 200
@@ -227,7 +233,8 @@ export class InboxService {
 
   private liveByTask(): Map<string, ExecutionSummary> {
     const live = new Map<string, ExecutionSummary>()
-    for (const execution of this.options.activity.executions({ statuses: ['running', 'paused'] })) {
+    const running = this.options.activity.executions({ statuses: ['running', 'paused'] })
+    for (const execution of this.options.liveness?.(running) ?? running) {
       if (execution.task_ref && !live.has(execution.task_ref))
         live.set(execution.task_ref, execution)
     }
@@ -416,7 +423,10 @@ export class InboxService {
     const item = await this.item(ref)
     if (!item) return undefined
     const { activity } = this.options
-    const executions = activity.executions({ taskRef: ref, limit: 20 })
+    const listed = activity.executions({ taskRef: ref, limit: 20 })
+    // La última, con sus agentes aunque haya cerrado: si corrió un grupo paralelo, su `agent_id`
+    // sólo dice el último que cerró.
+    const executions = this.options.liveness?.(listed, (_, index) => index === 0) ?? listed
     const traced = executionId ?? executions.at(0)?.id
     return {
       item,

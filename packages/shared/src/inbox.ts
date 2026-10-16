@@ -94,6 +94,26 @@ export const ExecutionCostSchema = z.object({
 })
 export type ExecutionCost = z.infer<typeof ExecutionCostSchema>
 
+/**
+ * Un agente dentro de una ejecución. Los de un grupo paralelo (`reviewer` + `e2e-visual-qa`) corren
+ * en LA MISMA ejecución: `agent_id`/`exit` de la ejecución son sólo del último que cerró.
+ */
+export const ExecutionAgentSchema = z.object({
+  agent_id: z.string(),
+  /** `running` sigue; `unfinished`: la ejecución terminó sin que cerrara (se cortó). */
+  state: z.enum(['running', 'waiting', 'done', 'failed', 'interrupted', 'unfinished']),
+  started_at: z.string(),
+  ended_at: z.string().optional(),
+  /** Lo último que dejó en la traza (una tool, un request al modelo). */
+  last_step_at: z.string(),
+  /** Sólo `running`: cuánto hace de su último paso, cuando se armó la respuesta. */
+  idle_seconds: z.number().optional(),
+  exit: z.string().optional(),
+  summary: z.string().optional(),
+  failure: z.string().optional(),
+})
+export type ExecutionAgent = z.infer<typeof ExecutionAgentSchema>
+
 export const ExecutionSummarySchema = z.object({
   id: z.string(),
   pipeline_id: z.string(),
@@ -112,6 +132,12 @@ export const ExecutionSummarySchema = z.object({
   usage: ExecutionUsageSchema.optional(),
   cost: ExecutionCostSchema.optional(),
   trace_id: z.string().optional(),
+  /** Viva: lo último que dejó en la traza, y cuánto hace (`idle_seconds`). */
+  last_step_at: z.string().optional(),
+  idle_seconds: z.number().optional(),
+  /** Cada agente: en una viva, siempre; en una cerrada, si corrió más de uno. Sin esto (un runner
+   *  viejo, o la bandeja de una cerrada), sólo `agent_id`. */
+  agents: z.array(ExecutionAgentSchema).optional(),
 })
 export type ExecutionSummary = z.infer<typeof ExecutionSummarySchema>
 
