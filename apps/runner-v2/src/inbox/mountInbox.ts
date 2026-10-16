@@ -30,7 +30,7 @@ import { TaskActions } from './TaskActions.js'
 
 export interface MountedInbox {
   api: ApiRouter
-  board: Pick<Boards, 'invalidate'>
+  board: Pick<Boards, 'invalidate' | 'markStale'>
   close(): void
 }
 
@@ -108,6 +108,9 @@ export function mountInbox(
     store.onDispatch((entry) => changed(entry.event.scope?.issue as string | undefined)),
     mounted.executions?.observe((record) => changed(taskOfKey(record.key).taskRef)) ?? (() => {}),
     store.improvements.onChange(() => hub.publish({ type: 'improvements' })),
+    // La bandeja se sirve vieja mientras se relee: cuando la relectura trae cards distintas, quien
+    // mira (la web, el menubar) se entera y vuelve a pedir — sin esperar los segundos del board.
+    boards.onCardsChanged((refs) => hub.publish({ type: 'inbox', refs })),
     addLogSink(logs.sink),
   ]
 
@@ -185,8 +188,9 @@ export function mountInbox(
         store.activity.executions({ taskRef: ref, limit: 1 })[0],
         cfg.inbox.statuses,
       ),
+    // Tras una acción desde la bandeja: la relectura va en segundo plano y avisa con lo que cambió.
     changed: (ref) => {
-      boards.invalidate()
+      boards.markStale()
       changed(ref)
     },
   })

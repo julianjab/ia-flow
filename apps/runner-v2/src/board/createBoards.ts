@@ -1,10 +1,13 @@
 import type { GithubClient } from '@ia-flow/github-api'
+import { createLogger } from '@ia-flow/telemetry'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
 import { BoardReader } from '../inbox/BoardReader.js'
 import type { Board } from './Board.js'
 import { Boards } from './Boards.js'
 import { IssuesBoard } from './IssuesBoard.js'
 import { ProjectsV2Board } from './ProjectsV2Board.js'
+
+const log = createLogger('ia-flow-runner-v2.board')
 
 /** El board de cada proyecto, con la identidad del runner. */
 export function createBoards(
@@ -29,5 +32,9 @@ export function createBoards(
         })
       : new ProjectsV2Board(project.id, project.board, github, reader),
   )
-  return new Boards(boards)
+  // Una relectura en segundo plano que falla deja la bandeja con lo que tenía: sólo se anota.
+  return new Boards(boards, {
+    onError: (error) =>
+      log.warn(`relectura del board: ${error instanceof Error ? error.message : String(error)}`),
+  })
 }

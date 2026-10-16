@@ -60,12 +60,40 @@ export function toTraceEntry(record: Omit<StoredTraceRecord, 'seq'>): TraceEntry
   }
 }
 
-export class SqliteActivity implements ActivityPort {
-  constructor(private readonly reader: SqliteActivityReader) {}
+/** Una ejecución cerrada hace más que esto ya no cambia: la telemetría de un host puede llegar unos
+ *  segundos tarde, nunca minutos. */
+const SETTLED_MS = 5 * 60_000
+/** Cuántos resúmenes de ejecuciones cerradas se guardan (la bandeja pide uno por tarjeta). */
+const SETTLED_CAPACITY = 2_000
 
-  private summary(
-    row: ExecutionOverview,
-  ): ExecutionSummary & { key: string; task_ref?: string; project_id?: string } {
+type Summary = ExecutionSummary & { key: string; task_ref?: string; project_id?: string }
+
+export class SqliteActivity implements ActivityPort {
+  /** El resumen de una ejecución cerrada no cambia, y armarlo recorre su traza (tokens, cómo
+   *  terminó el agente): la bandeja lo pedía en cada carga, una vez por tarjeta. */
+  private readonly settled = new Map<string, Summary>()
+
+  constructor(
+    private readonly reader: SqliteActivityReader,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  private summary(row: ExecutionOverview): Summary {
+    const cached = this.settled.get(row.id)
+    if (cached) return cached
+    const built = this.buildSummary(row)
+    const closedAt = row.closedAt ? Date.parse(row.closedAt) : Number.NaN
+    if (row.status !== 'running' && row.status !== 'paused' && this.now() - closedAt > SETTLED_MS) {
+      if (this.settled.size >= SETTLED_CAPACITY) {
+        const oldest = this.settled.keys().next().value
+        if (oldest !== undefined) this.settled.delete(oldest)
+      }
+      this.settled.set(row.id, built)
+    }
+    return built
+  }
+
+  private buildSummary(row: ExecutionOverview): Summary {
     const outcome = this.reader.agentOutcome(row.id)
     const usage = this.reader.usage(row.id)
     const failure =
