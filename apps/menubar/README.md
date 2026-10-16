@@ -38,7 +38,7 @@ y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memo
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
 con su acción), lo que
 **corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
-**Worktree:** «Abrir worktree del issue/PR en iTerm» (en el ⋯ de cada tarea) abre una ventana de iTerm con
+**Worktree:** «Abrir worktree del issue/PR en iTerm» (en el ⋯ de cada tarea) abre una pestaña en la ventana de iTerm del frente (una ventana si no hay ninguna) con
 `claude --worktree <owner>/<repo>/pr-N` (o `issue-N` sin PR), desde `~/development`. No va la URL: Claude Code
 rechaza `:` y `#` en el nombre y toma una URL de PR como PR del repo del cwd; el hook global `WorktreeCreate`
 resuelve `owner/repo/…` al clone local y a la branch. Sin iTerm, el comando queda copiado. «Pedir review en
