@@ -33,7 +33,9 @@ const implementer = new Agent({
 
 El modelo manda un `command` como string (`"git status"`, `"npm test"`) — se tokeniza SIN pasar
 por un shell (no hay `sh -c` de por medio), así que pipes/redirecciones/`$VAR` no existen acá; si
-el modelo los usa, `bash_run` tira en vez de ejecutar algo distinto de lo que pidió.
+el modelo los usa, `bash_run` tira en vez de ejecutar algo distinto de lo que pidió. Dentro de
+comillas dobles, como en POSIX sh, `\"`, `\\`, `\$` y `` \` `` se reducen al carácter escapado
+(`git commit -m "a \"b\" c"` llega como un solo argumento); entre comillas simples no hay escapes.
 
 **El comando (`argv[0]`) nunca puede incluir un path** — `/bin/rm`, `./evil.sh`, `bin/curl` tiran,
 siempre, sin excepción de policy. Sólo se ejecutan nombres de binario resueltos por `PATH`. Sin
