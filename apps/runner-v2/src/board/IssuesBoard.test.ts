@@ -302,6 +302,14 @@ describe('IssuesBoard writes', () => {
   it('needs at least one repo', () => {
     expect(() => new IssuesBoard('p', {} as GithubClient, { repos: [] })).toThrow(/algún repo/)
   })
+
+  it('holds only the issues of its catalog repos, whatever the case', () => {
+    const board = new IssuesBoard('p', {} as GithubClient, {
+      repos: [{ owner: 'julianjab', repo: 'ia-flow' }],
+    })
+    expect(board.holds({ owner: 'JulianJab', repo: 'IA-Flow' })).toBe(true)
+    expect(board.holds({ owner: 'julianjab', repo: 'otro' })).toBe(false)
+  })
 })
 
 describe('IssuesBoard events from the runner itself', () => {
