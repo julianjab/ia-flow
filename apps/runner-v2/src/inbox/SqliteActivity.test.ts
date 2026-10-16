@@ -136,6 +136,64 @@ describe('SqliteActivity', () => {
     expect(output()).toBe(150)
   })
 
+  it('in batch: the last closed execution and the last event of each task, in one read', () => {
+    const { repository, events, activity } = setup()
+    const key = (ref: string) =>
+      JSON.stringify([
+        ['issue', ref],
+        ['projectId', 'p'],
+      ])
+    const save = (
+      id: string,
+      ref: string,
+      status: 'done' | 'failed' | 'running',
+      startedAt: string,
+    ) =>
+      repository.save({
+        id,
+        key: key(ref),
+        pipelineId: 'build',
+        status,
+        startedAt,
+        waitedMs: 0,
+        ...(status === 'running' ? {} : { closedAt: startedAt }),
+      })
+    save('a1', 'o/r#1', 'done', '2026-09-29T10:00:00.000Z')
+    save('a2', 'o/r#1', 'failed', '2026-09-29T11:00:00.000Z')
+    save('a3', 'o/r#1', 'running', '2026-09-29T12:00:00.000Z')
+    save('b1', 'o/r#2', 'done', '2026-09-29T09:00:00.000Z')
+    save('c1', 'o/r#3', 'done', '2026-09-29T09:00:00.000Z')
+    const event = (ref: string, at: string) =>
+      events.record({
+        event: {
+          ...createEvent('github.issue_comment', {}, { scope: { issue: ref } }),
+          occurredAt: at,
+        },
+        decisions: [],
+        outcome: 'dispatched',
+      })
+    event('o/r#1', '2026-09-29T10:00:00.000Z')
+    event('o/r#1', '2026-09-29T13:00:00.000Z')
+    event('o/r#2', '2026-09-29T08:00:00.000Z')
+
+    const closed = activity.lastClosedByTask(['o/r#1', 'o/r#2', 'o/r#9'])
+    expect([...closed.keys()].sort()).toEqual(['o/r#1', 'o/r#2'])
+    expect(closed.get('o/r#1')).toMatchObject({ id: 'a2', status: 'failed' })
+    // Lo mismo que la consulta de a una.
+    expect(closed.get('o/r#1')?.id).toBe(
+      activity.executions({
+        taskRef: 'o/r#1',
+        statuses: ['done', 'failed', 'superseded'],
+        limit: 1,
+      })[0]?.id,
+    )
+    const lastEvents = activity.lastEventAtByTask(['o/r#1', 'o/r#2', 'o/r#9'])
+    expect(lastEvents.get('o/r#1')).toBe(activity.lastEventAt('o/r#1'))
+    expect(lastEvents.get('o/r#2')).toBe(activity.lastEventAt('o/r#2'))
+    expect(lastEvents.has('o/r#9')).toBe(false)
+    expect(activity.lastEventAtByTask([]).size).toBe(0)
+  })
+
   it('a failed run without an agent failure is a runtime failure with its close reason', () => {
     const { repository, activity } = setup()
     repository.save({

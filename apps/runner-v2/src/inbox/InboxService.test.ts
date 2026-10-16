@@ -292,3 +292,68 @@ describe('InboxService', () => {
     expect(TasksSchema.parse(tasks).tasks.find((task) => task.ref === 'o/r#1')?.epic).toEqual(epic)
   })
 })
+
+describe('InboxService — la bandeja ya armada', () => {
+  function counting(cacheMs?: number) {
+    let reads = 0
+    const activity = fakeActivity()
+    const inbox = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'la-haus', number: 1 } }],
+      board: {
+        cards: async () => {
+          reads += 1
+          return [card('o/r#1', { status: 'Refined' })]
+        },
+      },
+      activity,
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+      ...(cacheMs !== undefined ? { cacheMs } : {}),
+      now: () => now,
+    })
+    return { inbox, reads: () => reads }
+  }
+
+  it('sin cacheMs se arma en cada pedido', async () => {
+    const { inbox, reads } = counting()
+    await inbox.inbox()
+    await inbox.inbox()
+    expect(reads()).toBe(2)
+  })
+
+  it('con cacheMs, los pedidos repetidos (y los simultáneos) comparten el armado hasta invalidate', async () => {
+    const { inbox, reads } = counting(60_000)
+    const [a, b] = await Promise.all([inbox.inbox(), inbox.inbox()])
+    expect(a).toBe(b)
+    await inbox.inbox()
+    expect(reads()).toBe(1)
+    await inbox.tasks()
+    expect(reads()).toBe(2)
+    inbox.invalidate()
+    await inbox.inbox()
+    expect(reads()).toBe(3)
+  })
+
+  it('un armado que falla no queda guardado', async () => {
+    let fail = true
+    const inbox = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'la-haus', number: 1 } }],
+      board: {
+        cards: async () => {
+          if (fail) throw new Error('GitHub caído')
+          return []
+        },
+      },
+      activity: fakeActivity(),
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+      cacheMs: 60_000,
+      now: () => now,
+    })
+    await expect(inbox.inbox()).rejects.toThrow('GitHub caído')
+    fail = false
+    await expect(inbox.inbox()).resolves.toMatchObject({ items: [] })
+  })
+})
