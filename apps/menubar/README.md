@@ -121,7 +121,9 @@ sigue llegando aunque se cierre el popover.
 **Voz** (`Voice.swift`, en todos los chats: la pestaña y «¿Por qué?»): el parlante a la izquierda de la caja lee las
 respuestas en voz alta mientras llegan, frase por frase y sin código ni tablas (`AVSpeechSynthesizer`; queda elegido
 para todos los chats). Detener, preguntar de nuevo o cambiar de conversación lo callan. El micrófono dicta la
-pregunta (`Speech`, en el equipo si el idioma lo permite) y lo suma a lo escrito; la primera vez macOS pide permiso
+pregunta (`Speech`, en el equipo si el idioma lo permite) y lo suma a lo escrito. Terminar con «enviar» (o «listo»,
+«mandar») la manda sin esa palabra; 4 s callado también, si se dijo algo (si no, sólo apaga el micrófono). Con una
+respuesta en curso queda escrita para mandarla después. La primera vez macOS pide permiso
 de micrófono y de reconocimiento de voz (`NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription` en
 el Info.plist que arma `build.sh`). Es el mismo recorte de frases que la web (`apps/web/src/features/assistant/voice/`).
 

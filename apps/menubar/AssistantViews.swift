@@ -120,7 +120,10 @@ struct ChatComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             row
-            if let error = dictation.error {
+            if dictation.isListening(chat) {
+                Label("Escuchando · termina con «enviar» o quédate callado 4 s para mandarla", systemImage: "waveform")
+                    .font(.lh(11)).foregroundStyle(.secondary)
+            } else if let error = dictation.error {
                 Label(error, systemImage: "mic.slash").font(.lh(11)).foregroundStyle(.secondary)
             }
         }
@@ -139,9 +142,14 @@ struct ChatComposer: View {
                     .disabled(chat.streaming)
             }
             let listening = dictation.isListening(chat)
-            IconButton(symbol: listening ? "mic.fill" : "mic", help: listening ? "Dejar de dictar" : "Dictar la pregunta",
+            IconButton(symbol: listening ? "mic.fill" : "mic",
+                       help: listening ? "Dejar de dictar" : "Dictar la pregunta (termina con «enviar» o quédate callado 4 s)",
                        tint: listening ? .red : .secondary) {
-                dictation.toggle(for: chat, base: chat.input) { chat.input = $0 }
+                dictation.toggle(for: chat, base: chat.input, write: { chat.input = $0 }, send: { text in
+                    chat.input = text
+                    // Con una respuesta en curso no se puede preguntar: queda escrita para mandarla después.
+                    if !chat.streaming { chat.send() }
+                })
             }
             .padding(.bottom, 2)
             if chat.streaming {

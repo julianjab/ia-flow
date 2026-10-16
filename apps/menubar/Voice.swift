@@ -48,6 +48,23 @@ enum Speakable {
     }
 }
 
+/// La palabra que envía lo dictado, como en la web (`apps/web/src/features/assistant/voice/command.ts`).
+enum DictationCommand {
+    static let sendWords: Set<String> = ["enviar", "envia", "envialo", "mandar", "manda", "mandalo", "listo"]
+    /// Cuánto silencio, después de hablar, manda lo dictado (sin nada dicho, sólo apaga el micrófono).
+    static let silence: TimeInterval = 4
+
+    /// Si `text` termina en una palabra de envío: el texto sin ella. Si no, nil.
+    static func withoutSendWord(_ text: String) -> String? {
+        let trimmed = text.replacingOccurrences(of: "[\\s.,;!¡?¿]+$", with: "", options: .regularExpression)
+        guard let range = trimmed.range(of: "\\p{L}+$", options: .regularExpression) else { return nil }
+        let word = trimmed[range].folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        let before = trimmed[..<range.lowerBound]
+        guard sendWords.contains(word), before.isEmpty || before.last?.isWhitespace == true else { return nil }
+        return before.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: ",;:")))
+    }
+}
+
 /// Lee en voz alta la respuesta que está llegando, frase por frase. Sólo la que se vio nacer: retomar una conversación
 /// no la lee entera.
 final class ReadAloud: ObservableObject {
@@ -101,7 +118,8 @@ final class ReadAloud: ObservableObject {
     }
 }
 
-/// Dicta la pregunta: lo dicho se suma a lo que ya estaba escrito y se ve mientras se reconoce.
+/// Dicta la pregunta: lo dicho se suma a lo que ya estaba escrito y se ve mientras se reconoce. Terminar con «enviar»
+/// (o «listo») la manda; 4 s callado también, si se dijo algo (si no, sólo apaga el micrófono).
 final class Dictation: ObservableObject {
     static let shared = Dictation()
 
@@ -112,10 +130,12 @@ final class Dictation: ObservableObject {
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var silence: DispatchWorkItem?
 
     func isListening(_ chat: AnyObject) -> Bool { owner == ObjectIdentifier(chat) }
 
-    func toggle(for chat: AnyObject, base: String, write: @escaping (String) -> Void) {
+    /// `write` recibe la caja completa a medida que se reconoce; `send`, la pregunta que hay que mandar.
+    func toggle(for chat: AnyObject, base: String, write: @escaping (String) -> Void, send: @escaping (String) -> Void) {
         if isListening(chat) { return stop() }
         stop()
         error = nil
@@ -125,14 +145,14 @@ final class Dictation: ObservableObject {
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
                     DispatchQueue.main.async {
                         guard granted else { self.error = "Sin permiso para usar el micrófono (Ajustes › Privacidad)."; return }
-                        self.begin(owner: ObjectIdentifier(chat), base: base, write: write)
+                        self.begin(owner: ObjectIdentifier(chat), base: base, write: write, send: send)
                     }
                 }
             }
         }
     }
 
-    private func begin(owner: ObjectIdentifier, base: String, write: @escaping (String) -> Void) {
+    private func begin(owner: ObjectIdentifier, base: String, write: @escaping (String) -> Void, send: @escaping (String) -> Void) {
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: ReadAloud.language)), recognizer.isAvailable else {
             error = "El dictado no está disponible ahora."
             return
@@ -153,16 +173,40 @@ final class Dictation: ObservableObject {
         let head = base.isEmpty || base.last?.isWhitespace == true ? base : base + " "
         self.request = request
         self.owner = owner
+        var spoken = ""
+        let finish = { [weak self] (text: String) in
+            self?.stop()
+            write(text)
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { send(text) }
+        }
+        let quiet = { [weak self] in
+            self?.silence?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, self.owner == owner else { return }
+                spoken.isEmpty ? self.stop() : finish((head + spoken).trimmingCharacters(in: .whitespaces))
+            }
+            self?.silence = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + DictationCommand.silence, execute: item)
+        }
         task = recognizer.recognitionTask(with: request) { [weak self] result, failure in
             DispatchQueue.main.async {
+                // `owner` deja de ser éste al enviar o cortar: lo que llegue tarde no vuelve a la caja.
                 guard let self, self.owner == owner else { return }
-                if let result { write(head + result.bestTranscription.formattedString) }
+                if let result {
+                    spoken = result.bestTranscription.formattedString
+                    if let command = DictationCommand.withoutSendWord(head + spoken) { return finish(command) }
+                    write(head + spoken)
+                    quiet()
+                }
                 if result?.isFinal == true || failure != nil { self.stop() }
             }
         }
+        quiet()
     }
 
     func stop() {
+        silence?.cancel()
+        silence = nil
         guard owner != nil else { return }
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
