@@ -139,6 +139,19 @@ struct ChatComposer: View {
             VoiceChip(label: "Charla", symbol: "bubble.left.and.bubble.right", on: voice.talk,
                       help: "Hablás, lee la respuesta y vuelve a escucharte. Callarte 4 s sin decir nada la corta.") { chat.toggleTalk() }
             Spacer(minLength: 4)
+            if voice.wantsSpeech {
+                Menu {
+                    ForEach(ReadAloud.rates, id: \.self) { r in
+                        Button { voice.rate = r } label: {
+                            if r == voice.rate { Label(VoiceChip.speed(r), systemImage: "checkmark") } else { Text(VoiceChip.speed(r)) }
+                        }
+                    }
+                } label: {
+                    Text(VoiceChip.speed(voice.rate)).font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                .help("A qué velocidad se lee")
+            }
             if voice.wantsSpeech, voice.voices.count > 1 {
                 Menu {
                     ForEach(voice.voices, id: \.identifier) { v in
@@ -211,6 +224,11 @@ struct VoiceChip: View {
         case .enhanced: return "\(voice.name) · Mejorada"
         default: return voice.name
         }
+    }
+
+    /// «1,5×».
+    static func speed(_ rate: Double) -> String {
+        rate.formatted(.number.precision(.fractionLength(0...2)).locale(Locale(identifier: "es"))) + "×"
     }
 }
 

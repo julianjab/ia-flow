@@ -65,6 +65,11 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var voiceId = UserDefaults.standard.string(forKey: "assistantVoice") {
         didSet { UserDefaults.standard.set(voiceId, forKey: "assistantVoice") }
     }
+    /// La velocidad (1 es la normal de la voz); la próxima lectura sale así.
+    @Published var rate = UserDefaults.standard.object(forKey: "assistantRate") as? Double ?? 1 {
+        didSet { UserDefaults.standard.set(rate, forKey: "assistantRate") }
+    }
+    static let rates: [Double] = [1, 1.25, 1.5, 1.75, 2]
     /// Qué respuesta se está leyendo ahora.
     @Published private(set) var speaking: UUID?
     /// Las voces en español instaladas, la mejor primero (Premium, después Mejorada).
@@ -115,6 +120,8 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         for part in parts {
             let utterance = AVSpeechUtterance(string: part)
             utterance.voice = voice
+            // La escala de AVSpeech va de 0 a 1 con la normal en 0,5: la velocidad multiplica la normal, sin pasar el tope.
+            utterance.rate = min(AVSpeechUtteranceDefaultSpeechRate * Float(rate), AVSpeechUtteranceMaximumSpeechRate)
             synth.speak(utterance)
             last = utterance
         }

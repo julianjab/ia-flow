@@ -123,7 +123,8 @@ cada respuesta al terminar y **«Charla»** además vuelve a escuchar después d
 sin decir nada corta la ronda). Con cualquiera de los dos prendido el pedido lleva `voice` y el runner suma un resumen
 para el oído (evento `speech`): se lee ése en vez de la respuesta, que sigue entera en el chat. Cada respuesta tiene su
 🔊 para leerla otra vez (■ la calla). La voz es la mejor en español instalada (Premium › Mejorada › Mónica/Paulina; las
-de juguete como Eddy o Grandma, al final) y se cambia en el menú de la derecha; las Premium se bajan en Ajustes ›
+de juguete como Eddy o Grandma, al final) y se cambia en el menú de la derecha, junto al de la velocidad (1× a
+2×); las Premium se bajan en Ajustes ›
 Accesibilidad › Contenido leído › Voz del sistema › Gestionar voces. El micrófono dicta la pregunta (`Speech`, en el
 equipo si el idioma lo permite) y lo suma a lo escrito: terminar con «enviar» (o «listo», «mandar») la manda sin esa
 palabra, y 4 s callado también, si se dijo algo. Con una respuesta en curso queda escrita. La primera vez macOS pide
