@@ -6,6 +6,7 @@ import { vi } from 'vitest'
 export interface FakeSpeech {
   said: string[][]
   voiceOf: Array<string | undefined>
+  rateOf: number[]
   cancel: ReturnType<typeof vi.fn>
   /** Termina de decir lo último (dispara el `onend` de su última frase). */
   finish(): void
@@ -14,10 +15,17 @@ export interface FakeSpeech {
 
 export function installFakeSpeech(voices: Array<{ name: string; lang: string }> = []): FakeSpeech {
   const g = globalThis as Record<string, unknown>
-  let queue: Array<{ text: string; onend: (() => void) | null; voice?: { voiceURI: string } }> = []
+  type Utterance = {
+    text: string
+    onend: (() => void) | null
+    voice?: { voiceURI: string }
+    rate: number
+  }
+  let queue: Utterance[] = []
   const fake: FakeSpeech = {
     said: [],
     voiceOf: [],
+    rateOf: [],
     cancel: vi.fn(() => {
       queue = []
     }),
@@ -36,14 +44,16 @@ export function installFakeSpeech(voices: Array<{ name: string; lang: string }> 
     onend: (() => void) | null = null
     lang = ''
     voice?: { voiceURI: string }
+    rate = 1
     constructor(public text: string) {}
   }
   g.speechSynthesis = {
-    speak(u: { text: string; onend: (() => void) | null; voice?: { voiceURI: string } }) {
+    speak(u: Utterance) {
       if (queue.length === 0) {
         batch = []
         fake.said.push(batch)
         fake.voiceOf.push(u.voice?.voiceURI)
+        fake.rateOf.push(u.rate)
       }
       batch?.push(u.text)
       queue.push(u)

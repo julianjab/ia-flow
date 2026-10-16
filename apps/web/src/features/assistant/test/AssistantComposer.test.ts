@@ -200,6 +200,23 @@ describe('AssistantComposer', () => {
       }
     })
 
+    it('con la voz prendida, se elige la velocidad y queda guardada', async () => {
+      localStorage.setItem('ia-flow.assistant.read-aloud', '1')
+      const speech = installFakeSpeech([{ name: 'Mónica', lang: 'es-ES' }])
+      try {
+        const w = render()
+        const pick = w.get('[data-test="rate-pick"]')
+        expect((pick.element as HTMLSelectElement).value).toBe('1')
+        await pick.setValue('1.5')
+        useVoiceStore().say('Hola.', 'k')
+        expect(speech.rateOf).toEqual([1.5])
+        expect(localStorage.getItem('ia-flow.assistant.rate')).toBe('1.5')
+      } finally {
+        speech.uninstall()
+        localStorage.clear()
+      }
+    })
+
     it('sin permiso del micrófono lo dice', async () => {
       g.webkitSpeechRecognition = FakeRecognition
       const w = render()
