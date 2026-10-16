@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.12.1](https://github.com/julianjab/ia-flow/compare/v2.12.0...v2.12.1) (2026-10-16)
+
+
+### Performance Improvements
+
+* **runner:** la bandeja en lote y armada entre cambios (la base vive en EFS) ([#307](https://github.com/julianjab/ia-flow/issues/307)) ([fd1503c](https://github.com/julianjab/ia-flow/commit/fd1503c95158285c3ff3b9b3853cb25b4ea61ac3))
+
 ## [2.12.0](https://github.com/julianjab/ia-flow/compare/v2.11.1...v2.12.0) (2026-10-16)
 
 
