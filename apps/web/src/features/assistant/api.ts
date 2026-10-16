@@ -1,9 +1,14 @@
 import {
+  type AddToBoardRequest,
+  AddToBoardResultSchema,
+  type AssistantAddToBoardProposal,
   type AssistantAgent,
   type AssistantConversation,
   AssistantConversationSchema,
   type AssistantConversationSummary,
   AssistantConversationSummarySchema,
+  type AssistantLabelsProposal,
+  type AssistantMoveProposal,
   type AssistantProposal,
   type AssistantRequest,
   type AssistantScope,
@@ -14,9 +19,11 @@ import {
   type InboxItem,
   type InboxProject,
   InboxSchema,
+  type MoveTaskRequest,
   RunnerInfoSchema,
   type TaskActionResult,
   TaskActionResultSchema,
+  type TaskLabelsRequest,
 } from '@ia-flow/shared'
 import axios from 'axios'
 import { serverTarget } from '@/composables/useServerTarget'
@@ -119,6 +126,33 @@ export async function fetchRunner(): Promise<{
 
 const REF_RE = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/
 
+/** `owner/repo#n` → `/api/tasks/owner/repo/n`; una ref inválida falla antes de la red. */
+function taskPath(ref: string): string {
+  const m = REF_RE.exec(ref)
+  if (!m) throw new Error(`Referencia de tarea inválida: ${ref}`)
+  const [, owner, repo, number] = m
+  return `/api/tasks/${encodeURIComponent(owner as string)}/${encodeURIComponent(repo as string)}/${number}`
+}
+
+/**
+ * Un POST firmado con el token de GitHub del USUARIO. Un rechazo del runner (4xx) vuelve con
+ * `ok: false` y su mensaje; sólo un 5xx o una respuesta ilegible tiran.
+ */
+async function postSigned<T>(
+  path: string,
+  body: unknown,
+  githubToken: string,
+  schema: { safeParse(data: unknown): { success: true; data: T } | { success: false } },
+): Promise<T> {
+  const res = await axios.post<unknown>(path, body, {
+    headers: { 'x-github-token': githubToken },
+    validateStatus: (s) => s < 500,
+  })
+  const parsed = schema.safeParse(res.data)
+  if (parsed.success) return parsed.data
+  throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
+}
+
 /**
  * Ejecuta una acción propuesta, firmada con el token de GitHub del USUARIO.
  * Es el mismo endpoint que usa la bandeja (`features/inbox/api.ts`): son dos
@@ -128,17 +162,46 @@ export async function executeProposal(
   proposal: Pick<AssistantTaskProposal, 'ref' | 'action' | 'comment'>,
   githubToken: string,
 ): Promise<TaskActionResult> {
-  const m = REF_RE.exec(proposal.ref)
-  if (!m) throw new Error(`Referencia de tarea inválida: ${proposal.ref}`)
-  const [, owner, repo, number] = m
-  const res = await axios.post<unknown>(
-    `/api/tasks/${encodeURIComponent(owner as string)}/${encodeURIComponent(repo as string)}/${number}/actions`,
+  return postSigned(
+    `${taskPath(proposal.ref)}/actions`,
     { action: proposal.action, ...(proposal.comment ? { comment: proposal.comment } : {}) },
-    { headers: { 'x-github-token': githubToken }, validateStatus: (s) => s < 500 },
+    githubToken,
+    TaskActionResultSchema,
   )
-  const parsed = TaskActionResultSchema.safeParse(res.data)
-  if (parsed.success) return parsed.data
-  throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
+}
+
+/** Mueve la card a la columna propuesta, con el login del usuario (como moverla en GitHub). */
+export async function moveTask(
+  proposal: Pick<AssistantMoveProposal, 'ref' | 'status'>,
+  githubToken: string,
+): Promise<TaskActionResult> {
+  const body: MoveTaskRequest = { status: proposal.status }
+  return postSigned(`${taskPath(proposal.ref)}/status`, body, githubToken, TaskActionResultSchema)
+}
+
+/** Suma al board el issue propuesto, con el login del usuario. */
+export async function addToBoard(
+  proposal: Pick<AssistantAddToBoardProposal, 'issue' | 'status' | 'project_id'>,
+  githubToken: string,
+): Promise<TaskActionResult> {
+  const body: AddToBoardRequest = {
+    issue: proposal.issue,
+    ...(proposal.status ? { status: proposal.status } : {}),
+    ...(proposal.project_id ? { project_id: proposal.project_id } : {}),
+  }
+  return postSigned('/api/board/items', body, githubToken, AddToBoardResultSchema)
+}
+
+/** Pone y saca los labels propuestos del issue de la tarea, con el login del usuario. */
+export async function changeLabels(
+  proposal: Pick<AssistantLabelsProposal, 'ref' | 'add' | 'remove'>,
+  githubToken: string,
+): Promise<TaskActionResult> {
+  const body: TaskLabelsRequest = {
+    ...(proposal.add?.length ? { add: proposal.add } : {}),
+    ...(proposal.remove?.length ? { remove: proposal.remove } : {}),
+  }
+  return postSigned(`${taskPath(proposal.ref)}/labels`, body, githubToken, TaskActionResultSchema)
 }
 
 /** Abre un issue que propuso el asistente, con el token de GitHub del USUARIO: queda a su nombre. */
@@ -149,7 +212,7 @@ export async function createIssue(
   >,
   githubToken: string,
 ): Promise<CreateIssueResult> {
-  const res = await axios.post<unknown>(
+  return postSigned(
     '/api/issues',
     {
       repo: proposal.repo,
@@ -157,11 +220,9 @@ export async function createIssue(
       body: proposal.body,
       ...(proposal.labels?.length ? { labels: proposal.labels } : {}),
     },
-    { headers: { 'x-github-token': githubToken }, validateStatus: (s) => s < 500 },
+    githubToken,
+    CreateIssueResultSchema,
   )
-  const parsed = CreateIssueResultSchema.safeParse(res.data)
-  if (parsed.success) return parsed.data
-  throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
 }
 
 // ── conversaciones guardadas: siempre del login de GitHub que las pide ─────

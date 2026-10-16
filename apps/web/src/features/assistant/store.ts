@@ -8,15 +8,18 @@ import {
   DEFAULT_ASSISTANT_AGENT,
   type InboxItem,
   type InboxProject,
-  isIssueProposal,
+  proposalRef,
 } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
+  addToBoard,
+  changeLabels,
   createIssue,
   executeProposal,
   fetchRunner,
   fetchTasks,
+  moveTask,
   streamAssistant,
 } from '@/features/assistant/api'
 import { useGithubSessionStore } from '@/stores/githubSession'
@@ -70,19 +73,28 @@ export const AGENT_SUGGESTIONS: Record<string, string[]> = {
   ],
 }
 
-/** Ejecuta una propuesta con el token del usuario: abre el issue, o aplica la acción a la tarea. */
+/** Ejecuta una propuesta con el token del usuario: abre el issue, aplica la acción, mueve la
+ *  card, la suma al board o le cambia labels — cada una contra su endpoint. */
 async function execute(
   proposal: AssistantProposal,
   githubToken: string,
 ): Promise<{ ok: boolean; message: string; url?: string }> {
-  return isIssueProposal(proposal)
-    ? createIssue(proposal, githubToken)
-    : executeProposal(proposal, githubToken)
+  if (!('kind' in proposal)) return executeProposal(proposal, githubToken)
+  switch (proposal.kind) {
+    case 'issue':
+      return createIssue(proposal, githubToken)
+    case 'move':
+      return moveTask(proposal, githubToken)
+    case 'add_to_board':
+      return addToBoard(proposal, githubToken)
+    case 'labels':
+      return changeLabels(proposal, githubToken)
+  }
 }
 
 /** Lo que muestra una propuesta para nombrarla en una nota al modelo. */
 function proposalTarget(proposal: AssistantProposal): string {
-  return isIssueProposal(proposal) ? `"${proposal.title}"` : proposal.ref
+  return proposalRef(proposal) ?? ('title' in proposal ? `"${proposal.title}"` : '')
 }
 
 export function sameScope(a: AssistantScope, b: AssistantScope): boolean {
