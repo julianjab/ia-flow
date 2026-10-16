@@ -205,6 +205,9 @@ export function mountInbox(
 
   const moves = new BoardMoves({
     inbox,
+    isLive: (ref) =>
+      store.activity.executions({ taskRef: ref, statuses: ['running', 'paused'], limit: 1 })
+        .length > 0,
     board: (projectId) => boards.of(projectId),
     projects: specs.map((spec) => spec.projectId),
     todo: cfg.inbox.statuses.todo,

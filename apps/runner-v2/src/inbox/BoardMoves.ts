@@ -15,7 +15,10 @@ import { assertCanPush, type IssueTarget, parseRef } from './pushAccess.js'
 import { TaskActionError } from './TaskActionError.js'
 
 export interface BoardMovesOptions {
-  inbox: Pick<InboxService, 'card' | 'item'>
+  inbox: Pick<InboxService, 'card'>
+  /** Si un agente está trabajando (o pausado) en la tarea. Lo dice la actividad del runner, no el
+   *  board: vale aunque la card todavía no aparezca en la bandeja. */
+  isLive(ref: string): boolean
   /** El board de un proyecto (tira si el proyecto no tiene). */
   board(projectId: string): Pick<Board, 'meta' | 'writerFor' | 'adderFor' | 'holds' | 'describe'>
   /** Los proyectos del runner, en el orden de la config. */
@@ -75,14 +78,11 @@ export class BoardMoves {
     if (card.status === status) throw new TaskActionError(`${ref} ya está en ${status}`, 409)
     const board = this.options.board(card.projectId)
     await this.assertColumn(board, status)
-    const live = (await this.options.inbox.item(ref))?.execution?.status
-    if (live === 'running' || live === 'paused') {
-      throw new TaskActionError(`${ref} tiene un agente corriendo: detenelo antes de moverla`, 409)
-    }
+    this.assertIdle(ref)
     const client = this.client(github.token)
     const issue = parseRef(ref)
     await assertCanPush(client, issue, github.login)
-    await board.writerFor(client).setFields(issue, { Status: status })
+    await this.setColumn(board, client, issue, status, '')
     const message = `movida de ${card.status ?? 'sin columna'} a ${status}`
     this.log.info(`${github.login}: ${ref} ${message}`, {
       'ia.issue': ref,
@@ -90,6 +90,31 @@ export class BoardMoves {
     })
     this.options.changed(ref)
     return { ok: true, message, github_login: github.login }
+  }
+
+  private assertIdle(ref: string): void {
+    if (this.options.isLive(ref)) {
+      throw new TaskActionError(`${ref} tiene un agente corriendo: detenelo antes de moverla`, 409)
+    }
+  }
+
+  /** Escribe la columna; si GitHub la rechaza, un error legible (con lo que ya quedó hecho). */
+  private async setColumn(
+    board: Pick<Board, 'writerFor'>,
+    client: GithubClient,
+    issue: IssueTarget,
+    status: string,
+    done: string,
+  ): Promise<void> {
+    try {
+      await board.writerFor(client).setFields(issue, { Status: status })
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      throw new TaskActionError(
+        `${done}no pude ponerle la columna ${status}: ${reason}. Movela desde el board`,
+        502,
+      )
+    }
   }
 
   /** El proyecto al que va un issue: el pedido, o el único del runner. */
@@ -151,14 +176,20 @@ export class BoardMoves {
         409,
       )
     }
+    // El cache del board puede no tenerla todavía: agregar una que ya está no falla en GitHub y
+    // le cambiaría la columna. Al menos nunca a una que un agente está trabajando.
+    this.assertIdle(ref)
     await assertCanPush(client, canonical, github.login)
     await board.adderFor(client).addIssue(raw.node_id)
-    await board.writerFor(client).setFields(canonical, { Status: status })
+    try {
+      await this.setColumn(board, client, canonical, status, `${ref} quedó en el board, pero `)
+    } finally {
+      this.options.changed(ref)
+    }
     this.log.info(`${github.login}: agregó ${ref} al board de ${projectId} en ${status}`, {
       'ia.issue': ref,
       'ia.github.login': github.login,
     })
-    this.options.changed(ref)
     return {
       ok: true,
       message: `${ref} agregado en ${status}`,
