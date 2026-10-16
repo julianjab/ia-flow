@@ -157,6 +157,20 @@ export class SqliteActivityReader {
     migrate(db)
   }
 
+  /** Cuándo llegó el último evento de cada task, de una vez (una consulta, no una por task: con la
+   *  base en un disco de red, cada consulta cuesta). Las que no tienen eventos, no están. */
+  lastEventAtByTask(taskRefs: string[]): Map<string, string> {
+    if (taskRefs.length === 0) return new Map()
+    const rows = this.db
+      .prepare(
+        `SELECT task_ref, MAX(occurred_at) AS last_at FROM event_log
+         WHERE task_ref IN (SELECT value FROM json_each($refs))
+         GROUP BY task_ref`,
+      )
+      .all({ $refs: JSON.stringify(taskRefs) }) as Array<{ task_ref: string; last_at: string }>
+    return new Map(rows.map((row) => [row.task_ref, row.last_at]))
+  }
+
   /** Los eventos de una task, del más nuevo al más viejo. */
   eventsForTask(taskRef: string, limit = 50): LoggedEvent[] {
     const rows = this.db
