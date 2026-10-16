@@ -396,7 +396,7 @@ final class RunnerModel: ObservableObject {
 
     func open(_ item: InboxItem) { _ = URL(string: item.url).map { NSWorkspace.shared.open($0) } }
     func openPR(_ item: InboxItem) { _ = item.pr.flatMap { URL(string: $0.url) }.map { NSWorkspace.shared.open($0) } }
-    /// Abre Claude Code en un worktree de la tarea, en iTerm: `claude --worktree owner/repo/pr-N` (o `issue-N` sin PR).
+    /// Abre Claude Code en un worktree de la tarea, en una pestaña de iTerm: `claude --worktree owner/repo/pr-N` (o `issue-N` sin PR).
     /// No va la URL: Claude Code rechaza `:` y `#` en el nombre y una URL de PR la toma como PR del repo del cwd. El
     /// hook global `WorktreeCreate` resuelve `owner/repo/…` al clone local y a la branch del PR o del issue.
     func openWorktree(_ item: InboxItem) {
@@ -404,7 +404,7 @@ final class RunnerModel: ObservableObject {
         let name = "\(ref.owner)/\(ref.repo)/" + (item.pr.map { "pr-\($0.number)" } ?? "issue-\(ref.number)")
         let command = "claude --worktree \(name)"
         // Desde ~/development (donde el hook busca los clones), y al salir de Claude queda el shell: se ve si falló.
-        if !runInITerm("/bin/zsh -lc 'cd ~/development && \(command); exec /bin/zsh -l'") {
+        if !runInITerm("/bin/zsh -lc 'cd ~/development && \(command); exec /bin/zsh -l'", tab: true) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(command, forType: .string)
             toast?("Sin iTerm: el comando quedó copiado")

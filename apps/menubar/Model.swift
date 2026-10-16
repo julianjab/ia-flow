@@ -281,15 +281,25 @@ final class AppModel: ObservableObject {
     }
 }
 
-/// Corre `command` en una ventana nueva de iTerm (con el shell de login, para que esté el PATH de siempre). false sin
-/// iTerm. `command` no debe traer comillas dobles: va adentro de un string de AppleScript.
+/// Corre `command` en iTerm: en una ventana nueva o, con `tab`, en una pestaña de la ventana del frente (una ventana
+/// nueva si no hay ninguna). El shell de login trae el PATH de siempre. false sin iTerm. `command` no debe traer
+/// comillas dobles: va adentro de un string de AppleScript.
 @discardableResult
-func runInITerm(_ command: String) -> Bool {
+func runInITerm(_ command: String, tab: Bool = false) -> Bool {
     guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2") != nil else { return false }
+    let open = tab ? """
+        if (count of windows) = 0 then
+            create window with default profile command "\(command)"
+        else
+            tell current window to create tab with default profile command "\(command)"
+        end if
+    """ : """
+        create window with default profile command "\(command)"
+    """
     let script = """
     tell application "iTerm"
         activate
-        create window with default profile command "\(command)"
+    \(open)
     end tell
     """
     let p = Process()
