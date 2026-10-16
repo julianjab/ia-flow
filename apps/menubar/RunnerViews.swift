@@ -11,6 +11,8 @@ struct RunnerScreen: View {
         case .inbox: RunnerInboxScreen(runner: runner)
         case .logs: RunnerLogsScreen(runner: runner)
         case .health: RunnerHealthScreen(runner: runner)
+        case .github:
+            if let model = runner.githubSearch { GithubSearchScreen(runner: runner, model: model) } else { RunnerInboxScreen(runner: runner) }
         case .run:
             if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { RunnerInboxScreen(runner: runner) }
         }
@@ -152,6 +154,7 @@ struct RunnerInboxScreen: View {
             }
         }
         if searching, runner.resultCount == 0, !runner.searching { noResults }
+        if runner.search != nil { githubHandoff }
     }
 
     /// Lo que coincide fuera de la bandeja: las primeras con sus acciones, el resto como fila corta.
@@ -171,23 +174,29 @@ struct RunnerInboxScreen: View {
                 }
             }
         }
-        if !runner.githubResults.isEmpty {
-            section("En GitHub · \(runner.organization ?? "")", count: runner.githubResults.count) {
-                ForEach(Array(runner.githubResults.enumerated()), id: \.element.ref) { i, issue in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
-                    GithubRow(runner: runner, issue: issue)
-                }
-            }
-        }
-        if let note = runner.githubNote {
-            Label(note, systemImage: "magnifyingglass").font(.lh(11.5)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
         if let miss = runner.lookupMiss {
             Banner(text: "\(miss) no está en ningún board de este runner.", tone: .neutral, icon: "magnifyingglass") {
                 Button("Abrir en GitHub") { runner.openTask(miss) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
             }
         }
+    }
+
+    /// Lo que no es del runner se busca aparte: la pantalla «GitHub», con lo escrito y el repo del tag.
+    private var githubHandoff: some View {
+        Button { runner.showGithub(query: runner.query, repo: runner.repoFilter) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 10.5, weight: .semibold))
+                Text("Buscar «\(runner.query)» en GitHub").font(.lh(12, .semibold)).lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.right").font(.system(size: 9.5, weight: .bold))
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.08)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Buscar en cualquier repo de la organización (no sólo los del board)")
     }
 
     private var noResults: some View {
@@ -228,6 +237,7 @@ struct RunnerInboxScreen: View {
             Spacer()
             if runner.boardURL != nil { IconButton(symbol: "rectangle.split.3x1", help: "Abrir el board en GitHub") { runner.openBoard() } }
             IconButton(symbol: "server.rack", help: "Editar servidores") { runner.openServersFile() }
+            IconButton(symbol: "magnifyingglass", help: "Buscar en GitHub (cualquier repo)") { runner.showGithub() }
             IconButton(symbol: "heart.text.square", help: "Estado del runner") { runner.showHealth() }
         }
     }
@@ -426,17 +436,6 @@ struct SearchField: View {
                     if runner.repoFilter == repo.name { Label(title, systemImage: "checkmark") } else { Text(title) }
                 }
             }
-            // El resto de la organización: sólo para buscar en GitHub (no están en el board).
-            let known = Set(runner.repos.map(\.name))
-            let others = runner.orgRepos.filter { !known.contains($0) }
-            if !others.isEmpty {
-                Divider()
-                Menu("Más repos de \(runner.organization ?? "la organización")") {
-                    ForEach(others, id: \.self) { repo in
-                        Button(repo) { runner.repoFilter = repo }
-                    }
-                }
-            }
         } label: {
             if let repo = runner.repoFilter {
                 RepoTag(repo: repo, chevron: true)
@@ -453,7 +452,6 @@ struct SearchField: View {
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .help("Filtrar por repo")
-        .onAppear { runner.loadOrgRepos() }
     }
 }
 
@@ -480,31 +478,6 @@ struct BoardRow: View {
         }
         .buttonStyle(.plain)
         .help(item.title)
-    }
-}
-
-/// Un issue o PR de GitHub que no es del runner: abierto o cerrado, el título y su repo; clic lo abre en el navegador
-/// (desde acá no se puede mover: no está en el board).
-struct GithubRow: View {
-    @ObservedObject var runner: RunnerModel
-    let issue: GithubIssue
-
-    var body: some View {
-        Button { runner.openIssue(issue) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: issue.isPR ? "arrow.triangle.pull" : issue.open ? "circle.circle" : "checkmark.circle")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(issue.open ? Color.green : Color.purple)
-                    .help(issue.open ? "Abierto" : "Cerrado")
-                Text(issue.title).font(.lh(12)).lineLimit(1)
-                Spacer(minLength: 4)
-                if let when = ago(issue.updatedAt) { Text(when).font(.lh(10.5)).foregroundStyle(.tertiary).fixedSize() }
-                refTag(issue.ref)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("\(issue.title)\nAbrir en GitHub")
     }
 }
 

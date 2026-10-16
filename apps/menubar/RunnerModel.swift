@@ -101,7 +101,7 @@ struct DeviceLogin {
 }
 
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run, health }
+    enum Screen { case inbox, logs, run, health, github }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
@@ -128,15 +128,10 @@ final class RunnerModel: ObservableObject {
     /// Las tareas buscadas fuera de la bandeja, ya con sus acciones (las primeras del board, o la ref exacta).
     @Published private(set) var lookups: [InboxItem] = []
     @Published private(set) var searching = false
-    /// La ref exacta que se buscó y no está en ningún board del runner (ni se encontró en GitHub).
+    /// La ref exacta que se buscó y no está en ningún board del runner.
     @Published private(set) var lookupMiss: String?
-    /// Lo que coincide en GitHub fuera del runner (toda la organización): sólo para abrirlo.
-    @Published private(set) var githubResults: [GithubIssue] = []
-    /// Por qué no se buscó en GitHub (sin login, un error de la API).
-    @Published private(set) var githubNote: String?
-    /// Todos los repos de la organización que ve tu login (para el selector y para buscar un número), por actividad.
-    @Published private(set) var orgRepos: [String] = []
-    private var orgReposAt: Date?
+    /// La pantalla «GitHub» (buscar en cualquier repo de la organización); se crea al abrirla y se conserva.
+    @Published private(set) var githubSearch: GithubSearchModel?
     private var boardCache: (items: [BoardItem], at: Date)?
     private var searchTask: Task<Void, Never>?
 
@@ -254,7 +249,7 @@ final class RunnerModel: ObservableObject {
     }
     var resultCount: Int {
         shownDecisions.count + shownRunning.count + shownQueued.count + shownImprovements.count + shownEpics.count + lookups.count
-            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count + githubResults.count
+            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count
     }
 
     func clearSearch() { query = "" }
@@ -264,7 +259,7 @@ final class RunnerModel: ObservableObject {
     private func searchChanged() {
         searchTask?.cancel()
         guard let search, !isFixture else {
-            boardResults = []; lookups = []; lookupMiss = nil; githubResults = []; githubNote = nil; searching = false
+            boardResults = []; lookups = []; lookupMiss = nil; searching = false
             return
         }
         let server = selected
@@ -297,13 +292,6 @@ final class RunnerModel: ObservableObject {
             boardResults = board
             lookups = found
             lookupMiss = miss
-            // GitHub: lo que no es del runner, en toda la organización —sólo lectura, con tu login—.
-            let shown = inBox.union(board.map(\.ref)).union(found.map(\.ref))
-            let (issues, note) = await searchGithub(search, miss: miss, hiding: shown)
-            guard !Task.isCancelled, server == selected else { return }
-            githubResults = issues
-            githubNote = note
-            if let miss, issues.contains(where: { $0.ref == miss }) { lookupMiss = nil }
         }
     }
 
@@ -313,57 +301,17 @@ final class RunnerModel: ObservableObject {
         return refs.lazy.compactMap(RunnerSearch.split).first?.owner
     }
 
-    /// Una ref exacta que el runner no tiene se pide directo; un texto (desde 3 letras), por título en la organización.
-    private func searchGithub(_ search: RunnerSearch, miss: String?, hiding shown: Set<String>) async -> ([GithubIssue], String?) {
-        guard let org = organization ?? search.owner else { return ([], nil) }
-        let wantsText = (search.text?.count ?? 0) >= 3
-        // Un número suelto (`1881`): GitHub no busca por número en toda la org, así que se pide ese número en
-        // el repo elegido, o en los del board y los de actividad reciente.
-        let wantsNumber = search.number != nil && search.repo == nil && search.owner == nil
-        guard miss != nil || wantsText || wantsNumber else { return ([], nil) }
-        guard let session = await validSession() else {
-            return ([], "Inicia sesión con GitHub para buscar también en todos los repos de \(org).")
-        }
-        let github = GithubSearch(token: session.token)
-        do {
-            if let miss { return ((try await github.issue(miss)).map { [$0] } ?? [], nil) }
-            if wantsNumber, let number = search.number {
-                await loadOrgRepos(github, org: org)
-                let candidates = repoFilter.map { [$0] } ?? Self.unique(repos.map(\.name) + orgRepos.prefix(15))
-                let found = await github.issues(number: number, owner: org, repos: candidates)
-                return (found.filter { !shown.contains($0.ref) }, nil)
-            }
-            let found = try await github.search(search.text ?? "", org: org, repo: repoFilter)
-            return (found.filter { !shown.contains($0.ref) }, nil)
-        } catch let error as RunnerError {
-            return ([], "GitHub no respondió la búsqueda: \(error.message)")
-        } catch {
-            return ([], nil)
-        }
+    /// Abre la pantalla «GitHub», con lo que se estaba buscando (y el repo del tag) si se viene de la bandeja.
+    func showGithub(query: String? = nil, repo: String? = nil) {
+        let org = organization ?? UserDefaults.standard.string(forKey: "githubOrg") ?? "la-haus"
+        if !isFixture, organization != nil { UserDefaults.standard.set(org, forKey: "githubOrg") }
+        let model = githubSearch?.org == org ? githubSearch! : (isFixture ? GithubSearchModel.fixture(runner: self)
+                                                                         : GithubSearchModel(org: org, runner: self))
+        githubSearch = model
+        if let repo { model.repo = repo }
+        if let query { model.query = query }
+        screen = .github
     }
-
-    /// Los repos de la organización, una vez por hora (con tu login).
-    func loadOrgRepos() {
-        guard !isFixture, let org = organization else { return }
-        Task { @MainActor in
-            guard let session = await validSession() else { return }
-            await loadOrgRepos(GithubSearch(token: session.token), org: org)
-        }
-    }
-
-    private func loadOrgRepos(_ github: GithubSearch, org: String) async {
-        if let at = orgReposAt, Date().timeIntervalSince(at) < 3600, !orgRepos.isEmpty { return }
-        guard let names = try? await github.repos(org: org) else { return }
-        orgRepos = names
-        orgReposAt = Date()
-    }
-
-    private static func unique(_ names: [String]) -> [String] {
-        var seen = Set<String>()
-        return names.filter { seen.insert($0.lowercased()).inserted }
-    }
-
-    func openIssue(_ issue: GithubIssue) { _ = URL(string: issue.url).map { NSWorkspace.shared.open($0) } }
 
     /// El owner de un repo según las refs que ya se conocen (la bandeja y el board).
     private func ownerOf(repo: String) -> String? {

@@ -64,16 +64,6 @@ struct GithubSearch {
         return names
     }
 
-    /// El mismo número en varios repos, en paralelo: los que existen y se pueden ver.
-    func issues(number: Int, owner: String, repos: [String]) async -> [GithubIssue] {
-        await withTaskGroup(of: GithubIssue?.self) { group in
-            for repo in repos { group.addTask { try? await issue("\(owner)/\(repo)#\(number)") } }
-            var found: [GithubIssue] = []
-            for await issue in group { if let issue { found.append(issue) } }
-            return found.sorted { $0.updatedAt > $1.updatedAt }
-        }
-    }
-
     /// Un issue o PR por su ref; nil si no existe o no se puede ver.
     func issue(_ ref: String) async throws -> GithubIssue? {
         guard let parts = RunnerSearch.split(ref),

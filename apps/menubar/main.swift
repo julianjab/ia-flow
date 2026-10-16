@@ -163,6 +163,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             model.runner.closeRun()
             popoverMaxScroll = 2000
         }
+        model.runner.showGithub()
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-\(dark ? "dark" : "light").png") }
+        model.runner.githubSearch?.pickingRepo = true
+        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-repos-\(dark ? "dark" : "light").png") }
+        model.runner.screen = .inbox
         model.runner.health = RunnerHealth.fixture
         model.runner.screen = .health
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-health-\(dark ? "dark" : "light").png") }
@@ -211,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             case .logs: model.runner.pollLogs()
             case .run: model.runner.watching?.reload()
             case .health: model.runner.checkHealth()
-            case .inbox: break
+            case .inbox, .github: break
             }
         }
         guard openTimer == nil else { return }
@@ -226,6 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             case .run: self.model.runner.watching?.poll()
             case .health: if tick % 2 == 0 { self.model.runner.checkHealth() }
             case .inbox: if tick % 2 == 0 { self.model.runner.refresh() }
+            case .github: break
             }
         }
         RunLoop.main.add(openTimer!, forMode: .common)
