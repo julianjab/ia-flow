@@ -130,6 +130,11 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var searching = false
     /// La ref exacta que se buscó y no está en ningún board del runner.
     @Published private(set) var lookupMiss: String?
+    /// El stream del runner (SSE) está conectado: la bandeja se relee cuando algo cambia, no cada 6 s.
+    @Published private(set) var live = false
+    private let stream = RunnerStream()
+    private var pendingRefresh: DispatchWorkItem?
+    private var pendingTrace: DispatchWorkItem?
     /// La pantalla «GitHub» (buscar en cualquier repo de la organización); se crea al abrirla y se conserva.
     @Published private(set) var githubSearch: GithubSearchModel?
     private var boardCache: (items: [BoardItem], at: Date)?
@@ -346,6 +351,8 @@ final class RunnerModel: ObservableObject {
         comment = nil
         resetLogs()
         refresh()
+        // El stream es de un server: si estaba abierto, se reabre contra el nuevo.
+        if stream.server != nil { startStream() }
     }
 
     func reloadServers() {
@@ -526,6 +533,49 @@ final class RunnerModel: ObservableObject {
         sessions[selected.baseUrl] = nil
         saveGithubSessions(sessions)
         objectWillChange.send()
+    }
+
+    // MARK: en vivo (SSE)
+
+    /// Con el popover o la ventana abiertos: escuchar `/api/stream` del server elegido.
+    func startStream() {
+        guard !isFixture else { return }
+        stream.onState = { [weak self] state in self?.live = state == .live }
+        stream.onEvent = { [weak self] event in self?.handle(event) }
+        stream.start(selected)
+    }
+
+    /// Con todo cerrado: en reposo no queda ninguna conexión abierta.
+    func stopStream() {
+        stream.stop()
+        live = false
+    }
+
+    private func handle(_ event: RunnerStreamEvent) {
+        switch event.type {
+        case "inbox", "improvements": refreshSoon()
+        case "trace":
+            // Sólo si «En vivo» mira esa ejecución (o la última de la tarea, que es la que corre).
+            guard let watch = watching, let id = event.entry?.execution_id,
+                  watch.execution == nil || watch.execution?.id == id else { return }
+            pendingTrace?.cancel()
+            let work = DispatchWorkItem { [weak watch] in watch?.poll() }
+            pendingTrace = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+        default: break
+        }
+    }
+
+    /// Varios cambios seguidos (un webhook mueve varias cosas) son una sola relectura; si hay una en vuelo, se
+    /// espera a que termine para no perder el cambio.
+    private func refreshSoon() {
+        pendingRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.loading { self.refreshSoon() } else { self.refresh() }
+        }
+        pendingRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     // MARK: estado del runner

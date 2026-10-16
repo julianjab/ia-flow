@@ -211,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func startLive() {
         model.refresh()
         model.runner.refresh()
+        model.runner.startStream()
         if model.tab == .runner {
             switch model.runner.screen {
             case .logs: model.runner.pollLogs()
@@ -230,7 +231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             case .logs: self.model.runner.pollLogs()
             case .run: self.model.runner.watching?.poll()
             case .health: if tick % 2 == 0 { self.model.runner.checkHealth() }
-            case .inbox: if tick % 2 == 0 { self.model.runner.refresh() }
+            // Con el stream conectado la bandeja se relee cuando algo cambia: acá sólo un respaldo cada minuto.
+            case .inbox: if tick % (self.model.runner.live ? 20 : 2) == 0 { self.model.runner.refresh() }
             case .github: break
             }
         }
@@ -241,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         guard !popover.isShown, window == nil else { return }
         openTimer?.invalidate()
         openTimer = nil
+        model.runner.stopStream()
         // devuelve al sistema las páginas que malloc retiene tras destruir la UI (RAM en reposo)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { _ = malloc_zone_pressure_relief(nil, 0) }
     }

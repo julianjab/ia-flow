@@ -59,6 +59,10 @@ struct RunnerInboxScreen: View {
             } label: {
                 HStack(spacing: 5) {
                     Circle().fill(runner.error == nil ? (runner.inbox == nil ? Color.orange : Color.green) : Color.red).frame(width: 7, height: 7)
+                        // En vivo (stream conectado): un halo; sin él, la bandeja se relee cada 6 s.
+                        .overlay(Circle().strokeBorder(Color.green.opacity(runner.live ? 0.45 : 0), lineWidth: 1.5).frame(width: 12, height: 12))
+                        .frame(width: 12, height: 12)
+                        .help(runner.live ? "En vivo: la bandeja se actualiza cuando algo cambia" : "La bandeja se relee cada 6 s")
                     Text(runner.selected.name).font(.lh(13, .semibold)).lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                 }
