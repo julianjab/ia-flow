@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import type { AssistantProposal } from '@ia-flow/shared';
 import { nextTick, onMounted, ref, watch } from 'vue';
 import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
 import AssistantStart from '@/features/assistant/AssistantStart.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
 import { parseInline } from '@/features/assistant/format';
-import { useAssistantChatStore } from '@/features/assistant/store';
+import { type ProposalChoice, useAssistantChatStore } from '@/features/assistant/store';
 import { useAssistantStore } from '@/stores/assistant';
 import { useGithubSessionStore } from '@/stores/githubSession';
 import { useTaskFocusStore } from '@/stores/taskFocus';
@@ -60,9 +61,14 @@ function openTask(ref: string) {
   taskFocus.focus(ref);
 }
 
-async function run(id: number) {
+/** Las columnas del board al que un issue propuesto se suma: de qué elegir antes de confirmar. */
+function columnsOf(proposal: AssistantProposal): string[] | undefined {
+  return 'board' in proposal && proposal.board ? chat.statuses[proposal.board.project_id] : undefined;
+}
+
+async function run(id: number, choice?: ProposalChoice) {
   const token = await session.token();
-  if (token) void chat.runProposal(id, token);
+  if (token) void chat.runProposal(id, token, choice);
   else session.requestLogin();
 }
 </script>
@@ -96,8 +102,11 @@ async function run(id: number) {
           :status="turn.status"
           :message="turn.message"
           :url="turn.url"
+          :board-status="turn.boardStatus"
+          :board-error="turn.boardError"
+          :statuses="columnsOf(turn.proposal)"
           :error="turn.error"
-          @run="run(turn.id)"
+          @run="(choice) => run(turn.id, choice)"
           @dismiss="chat.dismissProposal(turn.id)"
           @open="openTask"
         />

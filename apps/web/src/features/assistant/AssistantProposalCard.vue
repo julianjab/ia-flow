@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { type AssistantProposal, type AssistantProposalKind, proposalKind } from '@ia-flow/shared';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useGithubSessionStore } from '@/stores/githubSession';
 
 // Lo que el asistente PROPONE —una acción sobre una tarea, abrir un issue, mover
@@ -14,6 +14,12 @@ const props = defineProps<{
   message?: string;
   /** Lo que se creó (el issue abierto). */
   url?: string;
+  /** Las columnas del board al que se suma un issue (`proposal.board`), en orden: de qué elegir. */
+  statuses?: string[];
+  /** El issue se sumó al board: en qué columna quedó. */
+  boardStatus?: string;
+  /** El issue se abrió pero no quedó en el board, y por qué. No se reintenta: duplicaría el issue. */
+  boardError?: string;
   error?: string;
 }>();
 
@@ -36,6 +42,46 @@ function ofKind<K extends Exclude<AssistantProposalKind, 'action'>>(wanted: K) {
   );
 }
 const issue = ofKind('issue');
+/** El issue va además al board: se crea y se suma en una sola confirmación. */
+const board = computed(() => issue.value?.board ?? null);
+const runLabel = computed(() => {
+  const [running, idle] = board.value
+    ? ['Creando…', 'Crear y agregar al board']
+    : [copy.value.running, copy.value.run];
+  return props.status === 'running' ? running : idle;
+});
+
+/** La columna de entrada de un board: «Todo» (o «To do»), si el board la tiene. */
+const isTodo = (column: string) => column.toLowerCase().replace(/\s+/g, '') === 'todo';
+/** La que propuso el asistente si existe en el board; si no, Todo; si no, la primera. Sin columnas
+ *  conocidas, la propuesta tal cual (sin ella, el runner usa Todo). */
+function initialColumn(): string | undefined {
+  const columns = props.statuses ?? [];
+  const wanted = board.value?.status;
+  if (!columns.length) return wanted;
+  if (wanted && columns.includes(wanted)) return wanted;
+  return columns.find(isTodo) ?? columns[0];
+}
+const column = ref(initialColumn());
+// Las columnas llegan con la bandeja, quizás después que la propuesta: lo elegido se respeta.
+watch(
+  () => props.statuses,
+  (columns) => {
+    if (!column.value || !(columns ?? []).includes(column.value)) column.value = initialColumn();
+  },
+);
+const pickColumn = computed(() => !!board.value && !!props.statuses?.length && (props.status === 'open' || props.status === 'running'));
+
+/** `https://github.com/o/r/issues/7` → `o/r#7`: cómo se nombra el issue abierto. */
+const openedRef = computed(() => {
+  const m = props.url ? /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(props.url) : null;
+  return m ? `${m[1]}/${m[2]}#${m[3]}` : (props.url ?? issue.value?.repo ?? '');
+});
+
+function run() {
+  if (board.value) emit('run', column.value ? { status: column.value } : {});
+  else emit('run');
+}
 const move = ofKind('move');
 const adding = ofKind('add_to_board');
 const labels = ofKind('labels');
@@ -48,7 +94,11 @@ const issueUrl = computed(() => {
   return m ? `https://github.com/${m[1]}/${m[2]}/issues/${m[3]}` : undefined;
 });
 
-const emit = defineEmits<{ (e: 'run'): void; (e: 'dismiss'): void; (e: 'open', ref: string): void }>();
+const emit = defineEmits<{
+  (e: 'run', choice?: { status?: string }): void;
+  (e: 'dismiss'): void;
+  (e: 'open', ref: string): void;
+}>();
 
 const session = useGithubSessionStore();
 </script>
@@ -69,6 +119,17 @@ const session = useGithubSessionStore();
         <span class="pc__repo mono">{{ issue.repo }}</span>
       </p>
       <p v-if="issue.labels?.length" class="pc__labels mono">{{ issue.labels.join(' · ') }}</p>
+      <!-- Al board, en la columna que elija la persona (preseleccionada la propuesta, o Todo). -->
+      <label v-if="board && pickColumn" class="pc__col">
+        <span class="uc-label">Columna</span>
+        <select v-model="column" class="mono" data-test="board-column" :disabled="status === 'running'">
+          <option v-for="s in statuses" :key="s" :value="s">{{ s }}</option>
+        </select>
+        <span class="pc__repo mono">{{ board.project_id }}</span>
+      </label>
+      <p v-else-if="board && status !== 'done'" class="pc__change mono" data-test="board">
+        → <strong>{{ column ?? 'columna de entrada' }}</strong> · {{ board.project_id }}
+      </p>
     </template>
     <p v-else-if="adding" class="pc__what">
       <strong>{{ proposal.label }}</strong>
@@ -101,9 +162,9 @@ const session = useGithubSessionStore();
         class="btn btn--primary"
         data-test="run"
         :disabled="status === 'running'"
-        @click="emit('run')"
+        @click="run"
       >
-        {{ status === 'running' ? copy.running : copy.run }}
+        {{ runLabel }}
       </button>
       <button v-else type="button" class="btn btn--primary" data-test="login" @click="session.requestLogin()">
         Iniciar sesión con GitHub
@@ -116,7 +177,21 @@ const session = useGithubSessionStore();
       → Para ejecutarla tenés que iniciar sesión: queda firmada con tu usuario de GitHub.
     </p>
 
-    <p v-if="status === 'done' && issue" class="pc__done" role="status">
+    <p v-if="status === 'done' && board && boardStatus" class="pc__done" role="status" data-test="done">
+      ✓ <a v-if="url" class="pc__link link" :href="url" target="_blank" rel="noopener">{{ openedRef }}</a><template v-else>{{ openedRef }}</template>
+      abierto y en {{ boardStatus }}
+    </p>
+    <template v-else-if="status === 'done' && board">
+      <p class="pc__done" role="status" data-test="done">
+        ✓ <a v-if="url" class="pc__link link" :href="url" target="_blank" rel="noopener">{{ openedRef }}</a><template v-else>{{ openedRef }}</template>
+        abierto
+      </p>
+      <!-- Abierto pero fuera del board: sin «Reintentar», que abriría otro issue igual. -->
+      <p v-if="boardError" class="pc__warn" role="alert" data-test="board-error">
+        ⚠ No quedó en el board: {{ boardError }}. Sumalo desde GitHub; no lo vuelvas a crear.
+      </p>
+    </template>
+    <p v-else-if="status === 'done' && issue" class="pc__done" role="status">
       ✓ Abierto<template v-if="url"> · <a class="pc__link link" :href="url" target="_blank" rel="noopener">{{ message ?? url }}</a></template>
     </p>
     <p v-else-if="status === 'done'" class="pc__done" role="status">✓ {{ copy.done }}<template v-if="message"> · {{ message }}</template></p>
@@ -152,5 +227,8 @@ const session = useGithubSessionStore();
 .pc__hint { color: var(--info); font-size: var(--fs-body-sm); }
 .pc__done { color: var(--accent); font-size: var(--fs-body-sm); font-weight: 600; }
 .pc__dim { color: var(--fg-dim); font-size: var(--fs-body-sm); }
+.pc__col { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; }
+.pc__col select { min-height: var(--tap-h); max-width: 100%; }
+.pc__warn { color: var(--warn); font-size: var(--fs-body-sm); }
 .pc__err { color: var(--danger); font-size: var(--fs-body-sm); }
 </style>

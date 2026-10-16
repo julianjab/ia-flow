@@ -7,13 +7,14 @@ import {
   AssistantConversationSchema,
   type AssistantConversationSummary,
   AssistantConversationSummarySchema,
+  type AssistantIssueProposal,
   type AssistantLabelsProposal,
   type AssistantMoveProposal,
-  type AssistantProposal,
   type AssistantRequest,
   type AssistantScope,
   type AssistantStreamEvent,
   type AssistantTaskProposal,
+  type CreateIssueRequest,
   type CreateIssueResult,
   CreateIssueResultSchema,
   type InboxItem,
@@ -106,11 +107,20 @@ function errorText(status: number, body: string): string {
   return `El runner respondió ${status}${body ? `: ${body.slice(0, 200)}` : ''}`
 }
 
-/** Las tareas de la bandeja, para elegir de qué hablar (`#`). Se pide acá y no a la bandeja: la
- *  feature no depende de otra. */
-export async function fetchTasks(): Promise<InboxItem[]> {
+/** Las tareas de la bandeja, para elegir de qué hablar (`#`), y las columnas del board de cada
+ *  proyecto (`/api/runner` no las trae): a qué columna se suma un issue propuesto. Se pide acá y no
+ *  a la bandeja: la feature no depende de otra. */
+export async function fetchTasks(): Promise<{
+  items: InboxItem[]
+  statuses: Record<string, string[]>
+}> {
   const { data } = await axios.get<unknown>('/api/inbox')
-  return InboxSchema.parse(data).items
+  const inbox = InboxSchema.parse(data)
+  const statuses: Record<string, string[]> = {}
+  for (const project of inbox.projects) {
+    if (project.statuses?.length) statuses[project.id] = project.statuses
+  }
+  return { items: inbox.items, statuses }
 }
 
 /** Los proyectos del runner (para los chips de contexto) y los agentes del asistente (para elegir
@@ -204,25 +214,31 @@ export async function changeLabels(
   return postSigned(`${taskPath(proposal.ref)}/labels`, body, githubToken, TaskActionResultSchema)
 }
 
-/** Abre un issue que propuso el asistente, con el token de GitHub del USUARIO: queda a su nombre. */
+/**
+ * Abre un issue que propuso el asistente, con el token de GitHub del USUARIO: queda a su nombre.
+ * Con `board`, el runner además lo suma al board de ese proyecto en `status` (la columna que eligió
+ * la persona; sin ella, Todo). Si sumarlo falla el issue queda abierto igual (`board_error`).
+ */
 export async function createIssue(
-  proposal: Pick<
-    Extract<AssistantProposal, { kind: 'issue' }>,
-    'repo' | 'title' | 'body' | 'labels'
-  >,
+  proposal: Pick<AssistantIssueProposal, 'repo' | 'title' | 'body' | 'labels' | 'board'>,
   githubToken: string,
 ): Promise<CreateIssueResult> {
-  return postSigned(
-    '/api/issues',
-    {
-      repo: proposal.repo,
-      title: proposal.title,
-      body: proposal.body,
-      ...(proposal.labels?.length ? { labels: proposal.labels } : {}),
-    },
-    githubToken,
-    CreateIssueResultSchema,
-  )
+  const { board } = proposal
+  const body: CreateIssueRequest = {
+    repo: proposal.repo,
+    title: proposal.title,
+    body: proposal.body,
+    ...(proposal.labels?.length ? { labels: proposal.labels } : {}),
+    ...(board
+      ? {
+          board: {
+            project_id: board.project_id,
+            ...(board.status ? { status: board.status } : {}),
+          },
+        }
+      : {}),
+  }
+  return postSigned('/api/issues', body, githubToken, CreateIssueResultSchema)
 }
 
 // ── conversaciones guardadas: siempre del login de GitHub que las pide ─────

@@ -43,6 +43,10 @@ export type Turn =
       message?: string
       /** Lo que se creó al ejecutarla (el issue abierto). */
       url?: string
+      /** Un issue que además se sumó al board: en qué columna quedó… */
+      boardStatus?: string
+      /** …o por qué no quedó (el issue se abrió igual: no se reintenta, lo duplicaría). */
+      boardError?: string
       error?: string
     }
   | { id: number; kind: 'tasks'; items: InboxItem[] }
@@ -73,16 +77,33 @@ export const AGENT_SUGGESTIONS: Record<string, string[]> = {
   ],
 }
 
+/** Lo que la persona eligió en la card antes de confirmar: la columna del board de un issue. */
+export interface ProposalChoice {
+  status?: string
+}
+
 /** Ejecuta una propuesta con el token del usuario: abre el issue, aplica la acción, mueve la
  *  card, la suma al board o le cambia labels — cada una contra su endpoint. */
 async function execute(
   proposal: AssistantProposal,
   githubToken: string,
-): Promise<{ ok: boolean; message: string; url?: string }> {
+  choice: ProposalChoice = {},
+): Promise<{
+  ok: boolean
+  message: string
+  url?: string
+  board_status?: string
+  board_error?: string
+}> {
   if (!('kind' in proposal)) return executeProposal(proposal, githubToken)
   switch (proposal.kind) {
-    case 'issue':
-      return createIssue(proposal, githubToken)
+    case 'issue': {
+      const board =
+        proposal.board && choice.status
+          ? { ...proposal.board, status: choice.status }
+          : proposal.board
+      return createIssue({ ...proposal, board }, githubToken)
+    }
     case 'move':
       return moveTask(proposal, githubToken)
     case 'add_to_board':
@@ -95,6 +116,20 @@ async function execute(
 /** Lo que muestra una propuesta para nombrarla en una nota al modelo. */
 function proposalTarget(proposal: AssistantProposal): string {
   return proposalRef(proposal) ?? ('title' in proposal ? `"${proposal.title}"` : '')
+}
+
+/** La nota al modelo de una propuesta ejecutada: qué se hizo, qué se creó y si quedó en el board. */
+function doneNote(
+  proposal: AssistantProposal,
+  result: { url?: string; board_status?: string; board_error?: string },
+): string {
+  const url = result.url ? ` → ${result.url}` : ''
+  const board = result.board_status
+    ? ` (en el board, en ${result.board_status})`
+    : result.board_error
+      ? ` (no quedó en el board: ${result.board_error})`
+      : ''
+  return `[Nota: el usuario ejecutó "${proposal.label}" sobre ${proposalTarget(proposal)}${url}${board}]`
 }
 
 export function sameScope(a: AssistantScope, b: AssistantScope): boolean {
@@ -113,6 +148,8 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   const projects = ref<InboxProject[]>([])
   /** Las tareas de la bandeja: de qué se puede hablar con `#` (y los atajos al empezar). */
   const tasks = ref<InboxItem[]>([])
+  /** Las columnas del board de cada proyecto, en orden (de `/api/inbox`). */
+  const statuses = ref<Record<string, string[]>>({})
   const turns = ref<Turn[]>([])
   const streaming = ref(false)
   /** La conversación guardada que sigue esta charla; `null` hasta la primera respuesta con login. */
@@ -152,9 +189,12 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     // El agente elegido ya no está en este runner: vuelve el de siempre.
     if (!agents.value.some((a) => a.id === agent.value)) setAgent(DEFAULT_ASSISTANT_AGENT)
     try {
-      tasks.value = await fetchTasks()
+      const inbox = await fetchTasks()
+      tasks.value = inbox.items
+      statuses.value = inbox.statuses
     } catch {
       tasks.value = []
+      statuses.value = {}
     }
     // Un solo proyecto: es el contexto natural, salvo que ya se haya elegido otro.
     if (!scopeChosen && projects.value.length === 1 && projects.value[0]) {
@@ -366,19 +406,27 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   }
 
   /** «Ejecutar»: la acción se firma con el token de GitHub del usuario. */
-  async function runProposal(id: number, githubToken: string): Promise<void> {
+  async function runProposal(
+    id: number,
+    githubToken: string,
+    choice: ProposalChoice = {},
+  ): Promise<void> {
     const turn = turns.value.find((t) => t.id === id)
     if (turn?.kind !== 'proposal' || turn.status === 'running') return
     patch(id, { status: 'running', error: undefined } as Partial<Turn>)
     const proposal = turn.proposal
     try {
-      const result = await execute(proposal, githubToken)
+      const result = await execute(proposal, githubToken, choice)
       if (result.ok) {
         const url = result.url
-        patch(id, { status: 'done', message: result.message, url } as Partial<Turn>)
-        notes.push(
-          `[Nota: el usuario ejecutó "${proposal.label}" sobre ${proposalTarget(proposal)}${url ? ` → ${url}` : ''}]`,
-        )
+        patch(id, {
+          status: 'done',
+          message: result.message,
+          url,
+          boardStatus: result.board_status,
+          boardError: result.board_error,
+        } as Partial<Turn>)
+        notes.push(doneNote(proposal, result))
       } else {
         patch(id, { status: 'open', error: result.message } as Partial<Turn>)
       }
@@ -405,6 +453,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     agents,
     projects,
     tasks,
+    statuses,
     turns,
     streaming,
     conversationId,
