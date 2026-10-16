@@ -10,7 +10,8 @@ import { useDictation } from '@/features/assistant/voice/useDictation';
 // cambia tocándola o escribiendo `#` (una tarea) o `@` (un proyecto, o `general`).
 // Enter envía, Shift+Enter baja de línea; con la lista de contextos abierta, las
 // flechas y Enter eligen. Mientras responde, «Enviar» pasa a «Detener». 🎤 dicta
-// (si el navegador sabe): lo dicho se suma a la caja y enviar corta el dictado.
+// (si el navegador sabe): lo dicho se suma a la caja; terminar con «enviar» o
+// quedarse 4 s callado la manda (mientras responde, sólo queda escrita).
 
 const props = defineProps<{
   placeholder: string;
@@ -29,7 +30,15 @@ const dictation = useDictation(browserDictation());
 
 function toggleDictation() {
   if (dictation.listening.value) dictation.stop();
-  else dictation.start(text.value, (value) => (text.value = value));
+  else
+    dictation.start(text.value, {
+      write: (value) => (text.value = value),
+      send: (value) => {
+        text.value = value;
+        // Con una respuesta en curso no se puede preguntar: queda en la caja para mandarla después.
+        if (!props.streaming) submit();
+      },
+    });
 }
 
 const text = ref('');
@@ -156,7 +165,7 @@ function onKeydown(e: KeyboardEvent) {
         data-test="mic"
         :aria-pressed="dictation.listening.value"
         :aria-label="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta'"
-        :title="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta'"
+        :title="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta (terminá con «enviar» o quedate callado 4 s)'"
         @click="toggleDictation"
       >
         <span aria-hidden="true">{{ dictation.listening.value ? '●' : '🎤' }}</span>
@@ -164,7 +173,10 @@ function onKeydown(e: KeyboardEvent) {
       <button v-if="streaming" type="button" class="btn co__btn" data-test="stop" @click="emit('stop')">Detener</button>
       <button v-else type="submit" class="btn btn--primary co__btn" :disabled="!text.trim()">Enviar</button>
     </div>
-    <p v-if="dictation.error.value" class="co__err" role="alert" data-test="mic-error">✕ {{ dictation.error.value }}</p>
+    <p v-if="dictation.listening.value" class="co__lbl" data-test="mic-hint">
+      ● Escuchando · terminá con «enviar» o quedate callado 4 s para mandarla
+    </p>
+    <p v-else-if="dictation.error.value" class="co__err" role="alert" data-test="mic-error">✕ {{ dictation.error.value }}</p>
   </form>
 </template>
 
