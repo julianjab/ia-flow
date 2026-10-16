@@ -130,10 +130,15 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     expect(() => general.reviseImprovement({ id: 'm1' })).toThrow(/nada que ajustar/)
   })
 
-  it('una nueva hereda el destino, la tarea y la evidencia de la base', () => {
+  it('una nueva hereda el destino, la tarea y la evidencia de la base', async () => {
     const { backend, added } = withStore()
     const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {})
-    const result = session.addImprovement({ based_on: 'm1', title: 'Otra', body: 'b', reason: 'r' })
+    const result = await session.addImprovement({
+      based_on: 'm1',
+      title: 'Otra',
+      body: 'b',
+      reason: 'r',
+    })
     expect(result).toContain('Mejora m2 guardada')
     expect(added).toEqual([
       {
@@ -148,5 +153,63 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
         reason: 'r',
       },
     ])
+  })
+
+  it('sin mejoras en la bandeja, una nueva sale de la tarea del contexto y va al repo pedido', async () => {
+    const { backend, added } = withStore([])
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {})
+    const result = await session.addImprovement({
+      repo: 'o/ia-flow',
+      target: 'config',
+      title: 'Nueva',
+      body: 'b',
+      reason: 'r',
+    })
+    expect(result).toContain('Mejora m2 guardada')
+    expect(result).not.toContain('se diferencia')
+    expect(added).toEqual([
+      {
+        task_ref: 'o/r#5',
+        agent: 'assistant',
+        target: 'config',
+        repo: 'o/ia-flow',
+        title: 'Nueva',
+        body: 'b',
+        reason: 'r',
+      },
+    ])
+  })
+
+  it('sin base, en el contexto general pide una tarea del board y un repo válido', async () => {
+    const { backend, added } = withStore([])
+    const withInbox = {
+      ...backend,
+      inbox: { item: async (ref: string) => (ref === 'o/r#1' ? merge : undefined) },
+    } as unknown as AssistantBackend
+    const session = new AssistantSession({ kind: 'general' }, withInbox, () => {})
+    const input = { repo: 'o/ia-flow', title: 'Nueva', body: 'b', reason: 'r' }
+    await expect(session.addImprovement(input)).rejects.toThrow(/necesita task_ref/)
+    await expect(
+      session.addImprovement({ ...input, repo: 'ia-flow', task_ref: 'o/r#1' }),
+    ).rejects.toThrow(/necesita repo/)
+    await expect(session.addImprovement({ ...input, task_ref: 'o/r#7' })).rejects.toThrow(
+      /no está en ningún board/,
+    )
+    await session.addImprovement({ ...input, task_ref: 'o/r#1' })
+    expect(added).toEqual([expect.objectContaining({ task_ref: 'o/r#1', target: 'engine' })])
+  })
+
+  it('sin base, en el contexto de una tarea no sale de otra', async () => {
+    const { backend } = withStore([])
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {})
+    await expect(
+      session.addImprovement({
+        task_ref: 'o/r#6',
+        repo: 'o/x',
+        title: 't',
+        body: 'b',
+        reason: 'r',
+      }),
+    ).rejects.toThrow(/Fuera de contexto/)
   })
 })
