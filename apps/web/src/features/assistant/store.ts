@@ -77,15 +77,6 @@ export const SUGGESTIONS: Record<AssistantScope['kind'], string[]> = {
   task: ['¿Qué pasó con esta tarea?', '¿Por qué no corrió nada?', '¿Qué hago ahora?'],
 }
 
-/** Las preguntas típicas de los otros agentes del asistente; uno que no está acá no trae. */
-export const AGENT_SUGGESTIONS: Record<string, string[]> = {
-  'assistant.runner-improvements': [
-    '¿Qué falló en el proceso y cómo se evita?',
-    '¿Qué agente se está trabando más?',
-    '¿Qué issue abrirías para que esto no pase?',
-  ],
-}
-
 /** Lo que la persona eligió en la card antes de confirmar: la columna del board de un issue. */
 export interface ProposalChoice {
   status?: string
@@ -174,10 +165,9 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   /** Sube al cambiar de contexto: un stream viejo no puede escribir en la conversación nueva. */
   let generation = 0
 
+  /** Las preguntas típicas son del asistente de siempre: otro agente (el de un deploy) no trae. */
   const suggestions = computed(() =>
-    agent.value === DEFAULT_ASSISTANT_AGENT
-      ? SUGGESTIONS[scope.value.kind]
-      : (AGENT_SUGGESTIONS[agent.value] ?? []),
+    agent.value === DEFAULT_ASSISTANT_AGENT ? SUGGESTIONS[scope.value.kind] : [],
   )
 
   const placeholder = computed(() => {
