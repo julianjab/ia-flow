@@ -314,6 +314,7 @@ struct TaskRow: View {
                     if actions.count > 1 { Divider() }
                     Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
                     Button(item.execution?.status == "running" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
+                    Button(item.pr == nil ? "Abrir worktree del issue en iTerm" : "Abrir worktree del PR en iTerm") { runner.openWorktree(item) }
                     Divider()
                     Button("Abrir issue en GitHub") { runner.open(item) }
                     if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }

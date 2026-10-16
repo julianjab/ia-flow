@@ -145,16 +145,7 @@ final class AppModel: ObservableObject {
         if !FileManager.default.fileExists(atPath: service.logPath) {
             FileManager.default.createFile(atPath: service.logPath, contents: nil)
         }
-        let script = """
-        tell application "iTerm"
-            activate
-            create window with default profile command "tail -n 200 -f '\(service.logPath)'"
-        end tell
-        """
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", script]
-        try? p.run()
+        runInITerm("tail -n 200 -f '\(service.logPath)'")
     }
 
     func startAll() { services.forEach { if !$0.isExternal { $0.start() } } }
@@ -288,4 +279,22 @@ final class AppModel: ObservableObject {
             Service(spec: spec("tunnel-demo", "demo.julianjab.link → :5173", url: "https://demo.julianjab.link", group: "Túneles", tunnel: true), state: .starting),
         ], runner: RunnerModel.fixture())
     }
+}
+
+/// Corre `command` en una ventana nueva de iTerm (con el shell de login, para que esté el PATH de siempre). false sin
+/// iTerm. `command` no debe traer comillas dobles: va adentro de un string de AppleScript.
+@discardableResult
+func runInITerm(_ command: String) -> Bool {
+    guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2") != nil else { return false }
+    let script = """
+    tell application "iTerm"
+        activate
+        create window with default profile command "\(command)"
+    end tell
+    """
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    p.arguments = ["-e", script]
+    try? p.run()
+    return true
 }
