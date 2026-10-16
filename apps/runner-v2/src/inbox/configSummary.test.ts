@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { END } from '@ia-flow/agent-engine'
-import { configSummary } from './configSummary.js'
+import { configSummary, PROMPT_PREVIEW_CHARS } from './configSummary.js'
 
 describe('configSummary', () => {
   const summary = configSummary({
@@ -56,7 +56,15 @@ describe('configSummary', () => {
       trigger: { when: [] },
       exclusive: false,
       position: 0,
-      do: [{ kind: 'agent', id: 'refiner', candidates: [] }],
+      do: [
+        {
+          kind: 'agent',
+          id: 'refiner',
+          candidates: [],
+          definition: { prompt: 'x' },
+          toolset: { names: [] },
+        },
+      ],
     }
     const withError = configSummary({
       projects: [],
@@ -66,5 +74,85 @@ describe('configSummary', () => {
     })
     expect(withError.agents[0]?.routes.onError).toBe('update_issue')
     expect(JSON.stringify(withError)).not.toContain('secreto')
+  })
+
+  describe('what each agent has', () => {
+    const long = 'Reglas. '.repeat(400)
+    const refiner = {
+      kind: 'agent',
+      id: 'refiner',
+      candidates: [
+        { id: 'anthropic-api', config: { model: 'claude-opus-5-5', apiKey: 'sk-secreto' } },
+        { id: 'claude-tmux', config: {} },
+        { id: 'local-host', config: {} },
+        { id: 'otro', config: {} },
+      ],
+      definition: {
+        prompt: 'Refiná {{task.ref}}',
+        systemPrompts: [{ id: 'reglas', text: long }, { text: 'Propio.' }],
+        mcpServers: [
+          {
+            id: 'github',
+            config: { url: 'https://mcp.example.com/s3cr3t', authorizationToken: 'tok' },
+          },
+        ],
+        unavailableMcpServers: ['figma'],
+      },
+      toolset: { names: ['read_file', 'add_comment'] },
+    }
+    const source = {
+      projects: [],
+      pipelines: () => [
+        {
+          pipeline: {
+            id: 'p',
+            on: 'item.changed',
+            trigger: { when: [] },
+            exclusive: false,
+            position: 0,
+            do: [refiner],
+          } as never,
+          sourceId: 'runner',
+        },
+      ],
+      routesOf: () => ({ exits: [] }) as never,
+      providers: {
+        'claude-tmux': { type: 'claude-cli', model: 'claude-sonnet-5-5', token: 'tok-secreto' },
+        'local-host': { type: 'remote', provider: 'claude-tmux' },
+      },
+    }
+
+    it('shows the model of each candidate: its own, its provider default, or the target of a remote', () => {
+      expect(configSummary(source).agents[0]?.models).toEqual({
+        'anthropic-api': 'claude-opus-5-5',
+        'claude-tmux': 'claude-sonnet-5-5',
+        'local-host': 'claude-sonnet-5-5',
+      })
+    })
+
+    it('lists its MCP by id, and whether each is mounted — never a URL or a token', () => {
+      const agent = configSummary(source).agents[0]
+      expect(agent?.mcp_servers).toEqual([
+        { id: 'github', mounted: true },
+        { id: 'figma', mounted: false },
+      ])
+      expect(agent?.actions).toEqual(['read_file', 'add_comment'])
+      const json = JSON.stringify(configSummary(source))
+      expect(json).not.toContain('s3cr3t')
+      expect(json).not.toContain('secreto')
+      expect(json).not.toContain('tok')
+    })
+
+    it('clips the prompt with its full length; the full one, for the agent asked for', () => {
+      const system = `${long}\n\nPropio.`
+      const clipped = configSummary(source).agents[0]?.prompt
+      expect(clipped?.system_chars).toBe(system.length)
+      expect(clipped?.system.length).toBeLessThan(PROMPT_PREVIEW_CHARS + 20)
+      expect(clipped?.system).toEndWith('[recortado]')
+      expect(clipped?.task).toBe('Refiná {{task.ref}}')
+      expect(configSummary(source, { fullPromptOf: 'refiner' }).agents[0]?.prompt?.system).toBe(
+        system,
+      )
+    })
   })
 })

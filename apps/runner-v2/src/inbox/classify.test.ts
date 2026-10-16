@@ -46,6 +46,22 @@ describe('classify', () => {
     expect(result?.why).toBe('build-reentry → reviewer corriendo · 32k tokens')
   })
 
+  it('the tokens of an execution carry its estimated cost, when there is one', () => {
+    const result = classify(
+      card({ status: 'Review' }),
+      {
+        waiting: false,
+        live: run({
+          agent_id: 'reviewer',
+          usage: { input_tokens: 30_000, output_tokens: 2_000, cache_read_tokens: 0 },
+          cost: { usd: 0.16 },
+        }),
+      },
+      options,
+    )
+    expect(result?.why).toBe('build-reentry → reviewer corriendo · 32k tokens (~$0.16 estimado)')
+  })
+
   it('a pause on the CI shows as waiting for the CI', () => {
     const result = classify(
       card(),

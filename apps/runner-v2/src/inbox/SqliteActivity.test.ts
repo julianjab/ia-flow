@@ -9,6 +9,7 @@ import {
 } from '@ia-flow/agent-engine-datasource-sqlite'
 import type { TraceRecord } from '@ia-flow/telemetry'
 import { summarizeEvent } from './eventSummary.js'
+import { pricingTable } from './pricing.js'
 import { SqliteActivity } from './SqliteActivity.js'
 
 const KEY = JSON.stringify([
@@ -101,6 +102,41 @@ describe('SqliteActivity', () => {
       'chat claude-opus',
       'agent refiner',
     ])
+  })
+
+  it('estimates the cost of an execution from its model, with the prices of runner.yaml', () => {
+    const { repository, traces, reader } = setup()
+    const activity = new SqliteActivity(
+      reader,
+      Date.now,
+      pricingTable({ 'claude-opus-5-5': { input: 10, output: 100 } }),
+    )
+    repository.save({
+      id: 'e1',
+      key: KEY,
+      pipelineId: 'refine',
+      status: 'done',
+      startedAt: '2026-09-29T11:00:00.000Z',
+      waitedMs: 0,
+      closedAt: '2026-09-29T11:05:00.000Z',
+    })
+    const chat = (scope: string, tokens: number) =>
+      span({
+        name: 'chat claude-opus-5-5',
+        scope,
+        attributes: {
+          'ia.execution.id': 'e1',
+          'gen_ai.request.model': 'claude-opus-5-5',
+          'gen_ai.usage.input_tokens': tokens,
+          'gen_ai.usage.output_tokens': tokens / 10,
+        },
+      })
+    traces.write(chat('@ia-flow/provider-anthropic-api', 100_000))
+    // El CLI corre con la suscripción: sus tokens no suman plata.
+    traces.write(chat('@ia-flow/provider-anthropic-cli', 500_000))
+
+    const [execution] = activity.executions({ taskRef: 'o/r#1' })
+    expect(execution?.cost).toEqual({ usd: 2, subscription: true })
   })
 
   it('a settled execution summary is built once; a recently closed one is rebuilt (late host telemetry)', () => {

@@ -359,3 +359,63 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     ).rejects.toThrow(/Fuera de contexto/)
   })
 })
+
+describe('AssistantSession: config de un agente y costo de una tarea', () => {
+  const agent = (prompt: string) => ({
+    id: 'refiner',
+    providers: ['anthropic-api'],
+    models: { 'anthropic-api': 'claude-opus-5-5' },
+    routes: {},
+    mcp_servers: [],
+    actions: [],
+    prompt: { system: prompt, system_chars: 5_000, task: 't', task_chars: 1 },
+  })
+  const asked: Array<string | undefined> = []
+  const withConfig = {
+    config: (options?: { fullPromptOf?: string }) => {
+      asked.push(options?.fullPromptOf)
+      return {
+        projects: [],
+        pipelines: [],
+        agents: [agent(options?.fullPromptOf === 'refiner' ? 'completo' : 'recortado…')],
+        providers: [],
+        mcp: [],
+      }
+    },
+    inbox: { item: async () => undefined, detail: async () => undefined },
+    activity: {
+      executions: () => [
+        { id: 'e2', cost: { usd: 1.25 } },
+        { id: 'e1', cost: { usd: 0.5, subscription: true } },
+      ],
+      eventsForTask: () => [],
+      trace: () => [],
+    },
+  } as unknown as AssistantBackend
+
+  it('con agent_id trae sólo ese agente, con su prompt completo', () => {
+    const session = new AssistantSession({ kind: 'general' }, withConfig, () => {})
+    expect(session.config('refiner')).toMatchObject({
+      id: 'refiner',
+      prompt: { system: 'completo' },
+    })
+    expect(asked.at(-1)).toBe('refiner')
+    expect(() => session.config('nadie')).toThrow(/No hay un agente "nadie"/)
+  })
+
+  it('sin agent_id, la config entera con los prompts recortados', () => {
+    const session = new AssistantSession({ kind: 'general' }, withConfig, () => {})
+    const config = session.config() as { agents: Array<{ prompt?: { system: string } }> }
+    expect(config.agents[0]?.prompt?.system).toBe('recortado…')
+  })
+
+  it('get_task suma el costo estimado de sus ejecuciones y dice que es estimado', async () => {
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, withConfig, () => {})
+    const detail = await session.taskDetail('o/r#5')
+    expect(detail).toMatchObject({
+      cost_usd: 1.75,
+      cost: { usd: 1.75, subscription: true },
+    })
+    expect(detail.cost_note).toContain('ESTIMADO')
+  })
+})
