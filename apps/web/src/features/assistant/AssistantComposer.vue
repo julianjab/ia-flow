@@ -57,6 +57,13 @@ watch(
     if (dictation.supported && !dictation.listening.value && !props.streaming) listen();
   },
 );
+// Apagar la charla corta lo que se estaba dictando por ella.
+watch(
+  () => voice.talk,
+  (on) => {
+    if (!on && dictation.listening.value) dictation.stop();
+  },
+);
 
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);

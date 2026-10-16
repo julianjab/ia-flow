@@ -85,7 +85,10 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
   /** Una respuesta que terminó de llegar: se lee si la voz está prendida y, en charla, se vuelve a escuchar. */
   function replied(text: string, key: string): void {
     if (!wantsSpeech.value) return
-    say(text, key, talk.value ? () => listenTick.value++ : undefined)
+    // Se mira `talk` al terminar de leer, no al empezar: si se apagó mientras leía, no se abre el micrófono.
+    say(text, key, () => {
+      if (talk.value) listenTick.value++
+    })
   }
 
   function toggleRead(): void {
