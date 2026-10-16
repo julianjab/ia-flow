@@ -253,7 +253,8 @@ todas, comentadas: copialo a `.env`. Las principales:
 | `IA_FLOW_HOST_TOKEN` | el token de hosts: el runner lo exige a los que se suscriben, y el host lo presenta |
 | `IA_FLOW_HOST_NAME`, `IA_FLOW_HOST_RUNNER_URL` | `--host`: pisan `host.name` y `host.runner` |
 | `IA_FLOW_API_TOKEN` | el token de la API de la web (`x-ia-flow-token`); sin él, la API responde 503 |
-| `IA_FLOW_GITHUB_CLIENT_ID` | (o `github.clientId`) el client id de la GitHub App: el login de cada persona en la web |
+| `IA_FLOW_GITHUB_CLIENT_ID` | (o `github.clientId`) el client id del login de cada persona en la web (device flow). De una GitHub App: el token actúa donde la App está instalada. De una OAuth App (con «Enable Device Flow»): actúa en todo lo que la persona ve, en cualquier cuenta |
+| `IA_FLOW_GITHUB_SCOPES` | (o `github.scopes`) sólo con una OAuth App: los scopes del login, p. ej. `repo project read:org` (`project` para mover cards del board; `repo` para issues y PRs privados). Una GitHub App los ignora |
 
 ## La bandeja, el asistente y lo que pasó (`--serve`)
 
