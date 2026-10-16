@@ -51,6 +51,22 @@ func renderPNG(_ model: AppModel, dark: Bool, to path: String) {
     }
 }
 
+/// Fondo traslúcido de la ventana que avisa cuando el mouse entra o sale (barra de título incluida).
+final class HoverGlassView: NSVisualEffectView {
+    /// Opacidad de la ventana con el mouse afuera.
+    static let idleAlpha: CGFloat = 0.55
+    var onHover: ((Bool) -> Void)?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let popover = NSPopover()
@@ -282,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let host = NSHostingView(rootView: RootView(model: model).environment(\.windowed, true))
         host.sizingOptions = []
         // Traslúcida como el popover: el material deja ver (desenfocado) lo que hay detrás.
-        let glass = NSVisualEffectView()
+        let glass = HoverGlassView()
         glass.material = .popover
         glass.blendingMode = .behindWindow
         glass.state = .active
@@ -311,6 +327,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         window.setFrameAutosaveName("IAFlowWindow")  // recuerda dónde y de qué tamaño quedó
         window.level = model.floating ? .floating : .normal
         window.collectionBehavior = [.fullScreenPrimary]
+        // Sin el mouse encima queda casi transparente (fijada o no): deja ver lo de atrás sin estorbar.
+        glass.onHover = { [weak window] inside in
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                window?.animator().alphaValue = inside ? 1 : HoverGlassView.idleAlpha
+            }
+        }
         self.window = window
         UserDefaults.standard.set(true, forKey: "windowOpen")
         NSApp.activate(ignoringOtherApps: true)
