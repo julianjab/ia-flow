@@ -545,6 +545,9 @@ export const AssistantRequestSchema = z.object({
   /** La conversación guardada a la que sigue esta pregunta. Se guarda sólo con login de GitHub
    *  (`x-github-token`): sin él, el chat funciona pero no queda en ningún lado. */
   conversation_id: z.string().optional(),
+  /** Quien pregunta escucha la respuesta en voz alta: el asistente suma un resumen para el oído
+   *  (el evento `speech`). Sin esto, o en un runner viejo, la voz lee la respuesta entera. */
+  voice: z.boolean().optional(),
 })
 export type AssistantRequest = z.infer<typeof AssistantRequestSchema>
 
@@ -688,6 +691,9 @@ export const AssistantStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('tasks'), items: z.array(InboxItemSchema) }),
   /** La conversación donde quedó guardado el intercambio (sólo con login). Llega antes de `done`. */
   z.object({ type: z.literal('conversation'), id: z.string() }),
+  /** Con `voice` en el pedido: lo que se dice en voz alta en vez de la respuesta (un resumen corto,
+   *  sin markdown). No se muestra ni se guarda. Llega antes de `done`, si el asistente lo dio. */
+  z.object({ type: z.literal('speech'), text: z.string() }),
   z.object({ type: z.literal('done'), text: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ])

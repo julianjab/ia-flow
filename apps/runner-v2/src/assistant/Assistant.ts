@@ -42,6 +42,17 @@ export interface Asker {
 /** Cuántos mensajes de la conversación viajan al modelo: los últimos. */
 const MAX_TURNS = 12
 
+/** Lo que se suma a la pregunta cuando la persona escucha: va con la pregunta (y no en el prompt
+ *  del agente) para que valga también con el asistente propio de un deploy. */
+export const VOICE_NOTE =
+  '\n\n[La persona escucha la respuesta en voz alta. Además de `answer`, completá `spoken` en `submit_done`: lo que se le dice, en 1 a 3 frases habladas y naturales (como se lo dirías a alguien), sin markdown, código, refs (`owner/repo#n`) ni links: nombrá las tareas por su título o su número. Si hay más detalle, cerrá con algo como «el detalle está en el chat».]'
+
+/** La pregunta como le llega al agente. */
+export function questionText(request: AssistantRequest): string {
+  const question = request.messages.at(-1)?.content ?? ''
+  return request.voice ? `${question}${VOICE_NOTE}` : question
+}
+
 function contextText(scope: AssistantScope): string {
   switch (scope.kind) {
     case 'general':
@@ -107,10 +118,11 @@ export class Assistant {
         session: session.id,
         context: contextText(request.scope),
         history: historyText(request),
-        question: request.messages.at(-1)?.content ?? '',
+        question: questionText(request),
       })
       const answer = result?.answer ?? ''
       emit({ type: 'text', delta: answer })
+      if (request.voice && result?.spoken) emit({ type: 'speech', text: result.spoken })
       // Una tarea con propuesta ya tiene su card (la de la propuesta): no se repite.
       const proposed = new Set(proposals.map(proposalRef).filter((ref) => ref !== undefined))
       const tasks = await this.options.desk

@@ -30,6 +30,16 @@ export const ASSISTANT = defineCapability({
     /** Las tareas de las que habla la respuesta (`owner/repo#n`), en el orden en que las nombra: la
      *  web las muestra como cards que abren la tarea. */
     tasks: z.array(z.string()).max(12).optional(),
+    /** Cuando la persona escucha en voz alta (la pregunta lo pide): lo que se le dice, en vez de
+     *  `answer`. Una a tres frases habladas, sin markdown, refs ni links. */
+    spoken: z
+      .string()
+      .trim()
+      .max(600)
+      .optional()
+      .describe(
+        'Sólo si la pregunta lo pide: el resumen que se lee en voz alta, 1 a 3 frases habladas, sin markdown, código, refs ni links.',
+      ),
   }),
 })
 
