@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import AssistantComposer from '../AssistantComposer.vue'
 
 const tasks = [
@@ -110,6 +110,55 @@ describe('AssistantComposer', () => {
       await box.trigger('keydown', { key: 'Enter' })
       expect(w.emitted('send')).toEqual([['Che, qué falló hoy']])
       expect(w.get('[data-test="mic"]').attributes('aria-pressed')).toBe('false')
+    })
+
+    it('terminar con «enviar» manda la pregunta sin la palabra', async () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      const w = render()
+      await w.get('[data-test="mic"]').trigger('click')
+      expect(w.find('[data-test="mic-hint"]').exists()).toBe(true)
+      FakeRecognition.last?.hear('qué falló hoy enviar', false)
+      await w.vm.$nextTick()
+      expect(w.emitted('send')).toEqual([['qué falló hoy']])
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+      // Lo que el reconocedor mande tarde no vuelve a la caja.
+      FakeRecognition.last?.hear('qué falló hoy enviar.', true)
+      await w.vm.$nextTick()
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    })
+
+    it('4 s callado manda lo dictado; sin nada dicho sólo apaga el micrófono', async () => {
+      vi.useFakeTimers()
+      try {
+        g.webkitSpeechRecognition = FakeRecognition
+        const w = render()
+        const mic = () => w.get('[data-test="mic"]').attributes('aria-pressed')
+        await w.get('[data-test="mic"]').trigger('click')
+        await vi.advanceTimersByTimeAsync(4000)
+        expect(mic()).toBe('false')
+        expect(w.emitted('send')).toBeUndefined()
+
+        await w.get('[data-test="mic"]').trigger('click')
+        FakeRecognition.last?.hear('cómo va la épica', false)
+        await vi.advanceTimersByTimeAsync(3000)
+        expect(w.emitted('send')).toBeUndefined()
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(w.emitted('send')).toEqual([['cómo va la épica']])
+        expect(mic()).toBe('false')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('con una respuesta en curso, «enviar» deja la pregunta escrita', async () => {
+      g.webkitSpeechRecognition = FakeRecognition
+      const w = render()
+      await w.setProps({ streaming: true })
+      await w.get('[data-test="mic"]').trigger('click')
+      FakeRecognition.last?.hear('y la otra enviar', false)
+      await w.vm.$nextTick()
+      expect(w.emitted('send')).toBeUndefined()
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('y la otra')
     })
 
     it('sin permiso del micrófono lo dice', async () => {
