@@ -120,7 +120,7 @@ struct RunnerInboxScreen: View {
         // Buscando: sólo lo que coincide, sin secciones vacías ni colapsadas.
         let searching = runner.filtering
         let decisions = runner.shownDecisions, running = runner.shownRunning, epics = runner.shownEpics
-        let queued = runner.shownQueued, improvements = runner.shownImprovements
+        let queued = runner.shownQueued
         if !searching || !decisions.isEmpty {
             section("Te necesita", count: decisions.count, empty: "Nada esperando una decisión tuya.") {
                 ForEach(Array(decisions.enumerated()), id: \.element.ref) { i, item in
@@ -130,7 +130,6 @@ struct RunnerInboxScreen: View {
             }
         }
         if runner.search != nil { boardSection }
-        if !improvements.isEmpty { improvementsLink(improvements.count) }
         if !epics.isEmpty {
             section("Épicas", count: epics.count) {
                 ForEach(Array(epics.enumerated()), id: \.element.id) { i, epic in
@@ -181,24 +180,6 @@ struct RunnerInboxScreen: View {
                 Button("Abrir en GitHub") { runner.openTask(miss) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
             }
         }
-    }
-
-    /// Las mejoras propuestas tienen su pantalla (con su «¿Por qué?»): acá, sólo cuántas esperan.
-    private func improvementsLink(_ count: Int) -> some View {
-        Button { runner.showImprovements() } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "lightbulb.fill").font(.system(size: 10.5, weight: .semibold))
-                Text(count == 1 ? "1 mejora propuesta" : "\(count) mejoras propuestas").font(.lh(12, .semibold)).lineLimit(1)
-                Spacer(minLength: 4)
-                Image(systemName: "arrow.right").font(.system(size: 9.5, weight: .bold))
-            }
-            .foregroundStyle(Color.orange)
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.orange.opacity(0.09)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Lo que propuso la retrospectiva: abrirlo como issue, descartarlo o preguntar por qué")
     }
 
     /// Lo que no es del runner se busca aparte: la pantalla «GitHub», con lo escrito y el repo del tag.
@@ -253,11 +234,17 @@ struct RunnerInboxScreen: View {
     private var footer: some View {
         HStack(spacing: 4) {
             Button { runner.screen = .logs } label: { Label("Logs del server", systemImage: "text.alignleft") }
-                .buttonStyle(PillButtonStyle(prominent: true))
+                .buttonStyle(PillButtonStyle(prominent: true, compact: true)).fixedSize()
+            // Las mejoras propuestas tienen su pantalla (con su «¿Por qué?»): acá, cuántas esperan.
+            let improvements = runner.shownImprovements.count
+            Button { runner.showImprovements() } label: {
+                Label(improvements > 0 ? "Mejoras · \(improvements)" : "Mejoras", systemImage: "lightbulb.fill")
+            }
+            .buttonStyle(PillButtonStyle(prominent: improvements > 0, tint: .orange, compact: true)).fixedSize()
+            .help("Lo que propuso la retrospectiva: abrirlo como issue, descartarlo o preguntar por qué")
             Spacer()
             if runner.boardURL != nil { IconButton(symbol: "rectangle.split.3x1", help: "Abrir el board en GitHub") { runner.openBoard() } }
             IconButton(symbol: "server.rack", help: "Editar servidores") { runner.openServersFile() }
-            IconButton(symbol: "lightbulb", help: "Mejoras propuestas") { runner.showImprovements() }
             IconButton(symbol: "magnifyingglass", help: "Buscar en GitHub (cualquier repo)") { runner.showGithub() }
             IconButton(symbol: "heart.text.square", help: "Estado del runner") { runner.showHealth() }
         }
