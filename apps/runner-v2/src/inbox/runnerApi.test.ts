@@ -544,6 +544,20 @@ describe('runner API', () => {
     expect(await again.json()).toMatchObject({ ok: false })
   })
 
+  it('lists and opens an improvement that does not come from a task', async () => {
+    const { call, improvements } = await start()
+    const { task_ref: _, ...taskless } = improvement({ target: 'config', agent: 'assistant' })
+    const proposal = improvements.add(taskless)
+
+    const listed = await (await call('/api/improvements')).json()
+    expect(listed.items).toEqual([expect.not.objectContaining({ task_ref: expect.anything() })])
+    const opened = await call(`/api/improvements/${proposal.id}/open`, {
+      method: 'POST',
+      headers: { 'x-github-token': 'gho_x' },
+    })
+    expect(await opened.json()).toMatchObject({ ok: true, proposal: { status: 'opened' } })
+  })
+
   it('a dismissed improvement is signed, and one GitHub refuses stays open', async () => {
     const { call, improvements } = await start()
     const refused = improvements.add(improvement({ repo: 'otra/cosa', title: 'En otro repo' }))

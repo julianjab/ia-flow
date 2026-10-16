@@ -16,6 +16,13 @@ describe('api de mejoras', () => {
     expect(get.mock.calls[0]?.[1]).toMatchObject({ params: { status: 'open' } })
   })
 
+  it('acepta una mejora que no sale de una tarea (sin task_ref)', async () => {
+    const { task_ref: _, ...taskless } = proposal({ target: 'config' })
+    get.mockResolvedValueOnce({ status: 200, data: { items: [taskless] } })
+    const list = await getImprovements()
+    expect(list?.items[0]?.task_ref).toBeUndefined()
+  })
+
   it('un runner viejo (404) o que no las guarda (501) es "no hay", no un error', async () => {
     get.mockResolvedValueOnce({ status: 404, data: {} })
     expect(await getImprovements()).toBeNull()

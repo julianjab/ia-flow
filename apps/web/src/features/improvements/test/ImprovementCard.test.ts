@@ -46,6 +46,14 @@ describe('ImprovementCard', () => {
     expect(wrapper.emitted('open')?.[0]).toEqual(['acme/api#7'])
   })
 
+  it('sin tarea de origen no muestra el link a la tarea', () => {
+    const { task_ref: _, ...taskless } = proposal({ target: 'config', agent: 'assistant' })
+    const { wrapper } = card({ proposal: taskless })
+    expect(wrapper.find('[data-test="task"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="repo"]').text()).toBe('acme/api')
+    expect(wrapper.find('[data-test="run"]').exists()).toBe(true)
+  })
+
   it('Abrir issue y Descartar emiten', async () => {
     const { wrapper } = card({ proposal: proposal() })
     await wrapper.get('[data-test="run"]').trigger('click')

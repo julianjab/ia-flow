@@ -180,7 +180,7 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     ])
   })
 
-  it('sin base, en el contexto general pide una tarea del board y un repo válido', async () => {
+  it('sin base, en el contexto general la tarea es opcional pero tiene que estar en el board', async () => {
     const { backend, added } = withStore([])
     const withInbox = {
       ...backend,
@@ -188,7 +188,9 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     } as unknown as AssistantBackend
     const session = new AssistantSession({ kind: 'general' }, withInbox, () => {})
     const input = { repo: 'o/ia-flow', title: 'Nueva', body: 'b', reason: 'r' }
-    await expect(session.addImprovement(input)).rejects.toThrow(/necesita task_ref/)
+    await expect(session.addImprovement({ ...input, repo: 'ia-flow' })).rejects.toThrow(
+      /necesita repo/,
+    )
     await expect(
       session.addImprovement({ ...input, repo: 'ia-flow', task_ref: 'o/r#1' }),
     ).rejects.toThrow(/necesita repo/)
@@ -197,6 +199,37 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     )
     await session.addImprovement({ ...input, task_ref: 'o/r#1' })
     expect(added).toEqual([expect.objectContaining({ task_ref: 'o/r#1', target: 'engine' })])
+  })
+
+  it('sin base ni tarea, en el contexto general la guarda sin tarea', async () => {
+    const { backend, added } = withStore([])
+    const session = new AssistantSession({ kind: 'general' }, backend, () => {})
+    const result = await session.addImprovement({
+      repo: 'o/deploy',
+      target: 'config',
+      title: 'Darle memoria a todos los agentes',
+      body: 'b',
+      reason: 'r',
+    })
+    expect(result).toContain('guardada')
+    expect(added).toEqual([
+      {
+        agent: 'assistant',
+        target: 'config',
+        repo: 'o/deploy',
+        title: 'Darle memoria a todos los agentes',
+        body: 'b',
+        reason: 'r',
+      },
+    ])
+  })
+
+  it('sin base ni tarea, en el contexto de un proyecto la guarda sin tarea', async () => {
+    const { backend, added } = withStore([])
+    const session = new AssistantSession({ kind: 'project', project_id: 'p' }, backend, () => {})
+    await session.addImprovement({ repo: 'o/ia-flow', title: 'Nueva', body: 'b', reason: 'r' })
+    expect(added).toHaveLength(1)
+    expect(added[0]).not.toHaveProperty('task_ref')
   })
 
   it('sin base, en el contexto de una tarea no sale de otra', async () => {
