@@ -6,8 +6,10 @@
  *
  * Con `origin`, la sesión es la de un agente que corre en la pipeline de una tarea (la
  * retrospectiva, al mergear su PR): nadie mira, así que un issue propuesto queda en la bandeja
- * (`ImprovementStore`) en vez de mostrarse, y la tarea se lee aunque ya no esté en el board (su
- * issue se cierra con el merge).
+ * (`ImprovementStore`) en vez de mostrarse.
+ *
+ * La tarea del contexto se lee aunque ya no esté en el board (su issue se cierra con el merge): la
+ * retrospectiva la mira al mergearse, y una persona pregunta después por qué propuso lo que propuso.
  */
 import type {
   AssistantScope,
@@ -155,14 +157,14 @@ export class AssistantSession {
   }
 
   /**
-   * La ref de una tarea del contexto. En la sesión de una pipeline la tarea la fijó el runner y
-   * puede no estar ya en el board (se cerró con el merge): basta con que sea la del contexto.
+   * La ref de una tarea del contexto. En el de una tarea, la fija quien pregunta (o el runner, en
+   * una pipeline) y puede no estar ya en el board (se cerró con el merge): basta con que sea esa.
    */
   private async taskRef(ref: unknown): Promise<string> {
-    if (!this.origin) return (await this.task(ref)).ref
+    if (this.scope.kind !== 'task') return (await this.task(ref)).ref
     const wanted = String(ref ?? '').trim()
-    if (this.scope.kind === 'task' && wanted !== this.scope.ref) {
-      throw new Error(`Fuera de contexto: esta corrida es sobre ${this.scope.ref}`)
+    if (wanted !== this.scope.ref) {
+      throw new Error(`Fuera de contexto: esta conversación es sobre ${this.scope.ref}`)
     }
     return wanted
   }
@@ -184,10 +186,10 @@ export class AssistantSession {
     }
   }
 
-  /** Lo que se sabe de una tarea fuera del board —sólo en la sesión de una pipeline—: sus
-   *  ejecuciones, sus eventos y la traza de la última, sin la card. */
+  /** Lo que se sabe de la tarea del contexto fuera del board: sus ejecuciones, sus eventos y la
+   *  traza de la última, sin la card. */
   private closedDetail(ref: string) {
-    if (!this.origin) return undefined
+    if (this.scope.kind !== 'task') return undefined
     const { activity } = this.backend
     const executions = activity.executions({ taskRef: ref, limit: CLOSED_EXECUTIONS })
     const last = executions.at(0)?.id
