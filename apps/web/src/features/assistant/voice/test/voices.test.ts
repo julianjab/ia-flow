@@ -8,6 +8,7 @@ describe('spanishVoices', () => {
     const list = spanishVoices(
       [
         voice('Samantha', 'en-US'),
+        voice('Eddy (español (España))', 'es-ES'),
         voice('Jorge', 'es-ES'),
         voice('Paulina', 'es-MX'),
         voice('Mónica (Premium)', 'es-ES'),
@@ -22,6 +23,8 @@ describe('spanishVoices', () => {
       'Google español de Estados Unidos',
       'Paulina',
       'Jorge',
+      // Las de juguete, al final.
+      'Eddy (español (España))',
     ])
   })
 })
