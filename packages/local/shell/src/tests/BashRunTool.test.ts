@@ -168,6 +168,47 @@ describe('bash_run', () => {
     await expect(tool.handler({ command: 'Bash -c "id"' })).rejects.toThrow('denegado')
   })
 
+  it('un \\" dentro de comillas dobles llega como comilla: el commit sale con el mensaje entero', async () => {
+    const tool = new BashRunTool({
+      baseDir,
+      policy: { deny: [] },
+      env: {
+        PATH: process.env.PATH ?? '',
+        HOME: baseDir,
+        GIT_AUTHOR_NAME: 'test',
+        GIT_AUTHOR_EMAIL: 'test@example.com',
+        GIT_COMMITTER_NAME: 'test',
+        GIT_COMMITTER_EMAIL: 'test@example.com',
+      },
+    })
+    expect(JSON.parse(await tool.handler({ command: 'git init -q' })).status).toBe('exit 0')
+
+    const commit = JSON.parse(
+      await tool.handler({ command: 'git commit --allow-empty -q -m "a \\"b c\\" d"' }),
+    )
+    expect(commit.status).toBe('exit 0')
+    expect(commit.stderr).not.toContain('pathspec')
+
+    const log = JSON.parse(await tool.handler({ command: 'git log -1 --format=%B' }))
+    expect(log.stdout.trim()).toBe('a "b c" d')
+  }, 10_000)
+
+  it('reduce \\\\, \\$ y \\` dentro de comillas dobles', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] } })
+
+    const result = JSON.parse(
+      await tool.handler({ command: 'echo "ruta \\\\ costo \\$5 y \\`x\\`"' }),
+    )
+
+    expect(result.stdout.trim()).toBe('ruta \\ costo $5 y `x`')
+  })
+
+  it('un string que termina en \\" sin otra comilla tira sin ejecutar nada', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] } })
+
+    await expect(tool.handler({ command: 'echo "abc\\"' })).rejects.toThrow('sin cerrar')
+  })
+
   it('un env explícito reemplaza el default y sí llega al proceso', async () => {
     const tool = new BashRunTool({
       baseDir,

@@ -28,4 +28,36 @@ describe('tokenize', () => {
   it('tira con una comilla sin cerrar', () => {
     expect(() => tokenize('echo "sin cerrar')).toThrow('sin cerrar')
   })
+
+  describe('escapes dentro de comillas dobles', () => {
+    it('\\" es una comilla literal y no cierra el string', () => {
+      expect(tokenize('git commit -m "a \\"b c\\" d"')).toEqual([
+        'git',
+        'commit',
+        '-m',
+        'a "b c" d',
+      ])
+    })
+
+    it('reduce \\\\, \\$ y \\` al carácter escapado', () => {
+      expect(tokenize('echo "x \\\\ y \\$z \\`w\\`"')).toEqual(['echo', 'x \\ y $z `w`'])
+    })
+
+    it('conserva la barra ante cualquier otro carácter', () => {
+      expect(tokenize('echo "a\\nb"')).toEqual(['echo', 'a\\nb'])
+    })
+
+    it('un string que termina en \\" sigue sin cerrar', () => {
+      expect(() => tokenize('echo "abc\\"')).toThrow('sin cerrar')
+      expect(() => tokenize('echo "abc\\')).toThrow('sin cerrar')
+    })
+  })
+
+  it('las comillas simples no interpretan escapes', () => {
+    expect(tokenize("echo 'a\\\"b'")).toEqual(['echo', 'a\\"b'])
+  })
+
+  it('fuera de comillas la barra sigue siendo un carácter más', () => {
+    expect(tokenize('echo a\\b')).toEqual(['echo', 'a\\b'])
+  })
 })
