@@ -5,7 +5,7 @@ import { dropScopeQuery, scopeQuery, typedRef } from '@/features/assistant/scope
 import ScopeTag from '@/features/assistant/ScopeTag.vue';
 import { browserDictation } from '@/features/assistant/voice/speech';
 import { useDictation } from '@/features/assistant/voice/useDictation';
-import { RATES, useVoiceStore } from '@/features/assistant/voice/voiceStore';
+import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
 
 // La caja de pregunta, con el contexto de la conversación encima: una chip que se
 // cambia tocándola o escribiendo `#` (una tarea) o `@` (un proyecto, o `general`).
@@ -197,26 +197,30 @@ function onKeydown(e: KeyboardEvent) {
     <p v-if="voice.wantsSpeech" class="co__ctx">
       <template v-if="voice.voices.length > 1">
         <label class="co__lbl" for="assistant-voice">Voz</label>
-        <select
-          id="assistant-voice"
-          class="co__voice"
-          data-test="voice-pick"
-          :value="voice.voice?.id"
-          @change="voice.chooseVoice(($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="v in voice.voices" :key="v.id" :value="v.id">{{ v.name }} · {{ v.lang }}</option>
-        </select>
+        <span class="co__chip co__pick">
+          <select
+            id="assistant-voice"
+            class="co__voice"
+            data-test="voice-pick"
+            :value="voice.voice?.id"
+            @change="voice.chooseVoice(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="v in voice.voices" :key="v.id" :value="v.id">{{ v.name }} · {{ v.lang }}</option>
+          </select>
+          <span class="co__picked" aria-hidden="true">{{ voice.voice?.name }}</span>
+          <span class="co__caret" aria-hidden="true">▾</span>
+        </span>
       </template>
-      <label class="co__lbl" for="assistant-rate">Velocidad</label>
-      <select
-        id="assistant-rate"
-        class="co__voice"
-        data-test="rate-pick"
-        :value="voice.rate"
-        @change="voice.chooseRate(Number(($event.target as HTMLSelectElement).value))"
+      <button
+        type="button"
+        class="co__chip co__rate"
+        data-test="rate"
+        title="Velocidad de lectura: cada clic pasa a la siguiente"
+        :aria-label="`Velocidad de lectura ${voice.rate}×, cambiar`"
+        @click="voice.nextRate()"
       >
-        <option v-for="r in RATES" :key="r" :value="r">{{ r }}×</option>
-      </select>
+        {{ voice.rate }}×
+      </button>
     </p>
   </form>
 </template>
@@ -240,6 +244,12 @@ function onKeydown(e: KeyboardEvent) {
 .co__btn { flex: none; }
 .co__mic { min-width: var(--tap-h); padding-inline: 0; }
 .co__mic[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
-.co__voice { min-width: 0; max-width: 100%; min-height: var(--tap-h-sm); font-size: var(--fs-chrome); }
+.co__pick { position: relative; min-width: 0; }
+.co__picked { min-width: 0; overflow: hidden; color: var(--fg-mute); font-size: var(--fs-chrome); text-overflow: ellipsis; white-space: nowrap; }
+/* El select va encima, invisible: se ve el nombre como en «Contexto» y se abre la lista nativa. */
+.co__voice { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.co__pick:has(.co__voice:focus-visible) { border-color: var(--accent); }
+.co__rate { padding-inline: 0.45rem; background: var(--panel-hi); color: var(--fg-mute); font-family: var(--font-mono); font-size: var(--fs-chrome); font-variant-numeric: tabular-nums; }
+.co__rate:hover { color: var(--fg); }
 .co__err { margin: 0; color: var(--danger); font-size: var(--fs-chrome); }
 </style>

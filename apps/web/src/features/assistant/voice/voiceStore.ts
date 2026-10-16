@@ -14,7 +14,7 @@ const VOICE_KEY = 'ia-flow.assistant.voice'
 const RATE_KEY = 'ia-flow.assistant.rate'
 
 /** Las velocidades que se ofrecen (1 es la normal de la voz). */
-export const RATES = [1, 1.25, 1.5, 1.75, 2] as const
+export const RATES = [1, 1.25, 1.5] as const
 
 function loadRate(): number {
   const rate = Number(load(RATE_KEY))
@@ -108,10 +108,11 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     save(VOICE_KEY, id)
   }
 
-  /** La próxima lectura sale a esta velocidad (la que está sonando sigue igual). */
-  function chooseRate(value: number): void {
-    rate.value = value
-    save(RATE_KEY, String(value))
+  /** La siguiente velocidad (después de la última, la normal). La próxima lectura sale así. */
+  function nextRate(): void {
+    const i = (RATES as readonly number[]).indexOf(rate.value)
+    rate.value = RATES[(i + 1) % RATES.length] ?? 1
+    save(RATE_KEY, String(rate.value))
   }
 
   return {
@@ -131,6 +132,6 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     toggleRead,
     toggleTalk,
     chooseVoice,
-    chooseRate,
+    nextRate,
   }
 })
