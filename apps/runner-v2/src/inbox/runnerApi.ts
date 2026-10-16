@@ -364,10 +364,17 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
         by: login,
         issue_url: created.html_url,
       })
-      options.log(`${login}: abrió ${repo}#${created.number} (${improvementOrigin(proposal)})`)
+      const ref = `${repo}#${created.number}`
+      options.log(`${login}: abrió ${ref} (${improvementOrigin(proposal)})`)
+      // Si el repo es de un proyecto del runner, el issue entra a su board (en Todo): su pipeline
+      // lo refina e implementa como cualquier otra tarea.
+      const project = options.projects.find((p) => p.repos?.includes(repo))
+      const board = project
+        ? await addCreated(ref, { project_id: project.id }, { token, login })
+        : {}
       return {
         ok: true,
-        message: `${repo}#${created.number} abierto`,
+        message: openedResult(ref, board).message,
         ...(decided ? { proposal: decided } : {}),
       } satisfies ImprovementDecisionResult
     } catch (err) {
