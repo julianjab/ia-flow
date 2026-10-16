@@ -296,6 +296,52 @@ describe('SqliteTraceJournal + SqliteActivityReader: traces', () => {
     expect(reader.usage('nada')).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 })
   })
 
+  it('splits the token usage by model and by the scope that asked: a cost depends on both', () => {
+    const { traces, reader } = setup()
+    const chat = (scope: string, model: string, tokens: Record<string, number>) =>
+      span({
+        scope,
+        attributes: {
+          'gen_ai.request.model': model,
+          ...Object.fromEntries(
+            Object.entries(tokens).map(([key, value]) => [`gen_ai.usage.${key}`, value]),
+          ),
+        },
+      })
+    traces.write(chat('api', 'claude-opus-5-5', { input_tokens: 100, output_tokens: 10 }))
+    traces.write(
+      chat('api', 'claude-opus-5-5', {
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_read_input_tokens: 300,
+        cache_creation_input_tokens: 40,
+      }),
+    )
+    traces.write(chat('cli', 'claude-sonnet-5-5', { input_tokens: 7, output_tokens: 3 }))
+    // Sin tokens (el span del agente, una tool) no es un request al modelo.
+    traces.write(span({ name: 'agent refiner', attributes: { 'ia.agent.id': 'refiner' } }))
+
+    expect(reader.usageByModel('exec-1')).toEqual([
+      {
+        model: 'claude-opus-5-5',
+        scope: 'api',
+        inputTokens: 101,
+        outputTokens: 12,
+        cacheReadTokens: 300,
+        cacheWriteTokens: 40,
+      },
+      {
+        model: 'claude-sonnet-5-5',
+        scope: 'cli',
+        inputTokens: 7,
+        outputTokens: 3,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+    ])
+    expect(reader.usageByModel('nada')).toEqual([])
+  })
+
   it('reads how the last agent ended: exit, or who failed and why', () => {
     const { traces, reader } = setup()
     const agent = (attributes: Record<string, string>, overrides: Partial<TraceRecord> = {}) =>

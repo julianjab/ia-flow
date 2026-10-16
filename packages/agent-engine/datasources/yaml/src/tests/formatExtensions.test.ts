@@ -151,6 +151,8 @@ input:
     )
     const agent = pipelineOf(source).do[0] as Agent
     expect(agent.definition.mcpServers?.map((server) => server.id)).toEqual(['github', 'inline'])
+    // Lo que nombra y no quedó montado se recuerda, para mostrarlo: no llega al provider.
+    expect(agent.definition.unavailableMcpServers).toEqual(['figma'])
   })
 
   it('a brief or when on an agent step makes an instance of its own; without them it is shared', async () => {
