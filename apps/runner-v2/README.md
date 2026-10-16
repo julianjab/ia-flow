@@ -295,6 +295,30 @@ inbox:
   mergeMethod: squash
 ```
 
+**Cada ejecución trae su costo estimado** (`cost` en `GET /api/tasks/…`, y el total de la tarea en
+`assistant_get_task` como `cost_usd`): los tokens de cada span `chat <modelo>` de su traza
+(entrada, salida, lectura y escritura de caché) por el precio de ese modelo. Es una **estimación**
+con precios de lista, no una factura. Lo que corre con un provider de suscripción (`claude-cli`,
+`claude-tmux`) no se cobra por token: no suma y queda marcado `subscription`. Un modelo sin precio
+deja la ejecución sin `usd` y lo nombra en `unpriced_models`. El runner trae los precios de lista
+de la API de Anthropic para los modelos Claude actuales (`src/inbox/pricing.ts`); `pricing:` los
+pisa o suma otros, en USD por millón de tokens (un id con fecha, `claude-x-20260901`, usa el de
+`claude-x`; Bedrock y Vertex cobran distinto y sus ids no matchean):
+
+```yaml
+# runner.yaml — opcional; sólo lo que cambia o falta
+pricing:
+  claude-opus-5-5: { input: 4, output: 20, cacheRead: 0.2 }   # cacheRead: 0.1× input si falta
+  mi-modelo: { input: 1, output: 5, cacheWrite: 1.25 }        # cacheWrite: 1.25× input si falta
+```
+
+**`GET /api/config` dice qué tiene cada agente**: el modelo de cada provider candidato (su
+`providerConfig.model`, o el default del provider en `providers:`), sus MCP por id —con
+`mounted: false` el que nombra y no quedó montado en este runner—, sus tools y su prompt (los system
+prompts ya resueltos y la plantilla del turno, recortados a 1500 caracteres con su largo completo).
+Nada de URLs, headers ni tokens. `assistant_get_config` con `agent_id` trae ese agente con el prompt
+completo.
+
 **El asistente es un agente más**, el de la capacidad `assistant`, y viene con el runner
 (`src/capabilities/assistant.yaml`): su prompt describe las tools del runner y lo que pinta la web,
 así que cambia con ellos, en este repo. Sus tools son `src/actions/builtin/assistant.ts` (las `assistant_*`: bandeja,

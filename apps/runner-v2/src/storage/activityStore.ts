@@ -25,6 +25,7 @@ import type { ImprovementStore } from '../assistant/ImprovementStore.js'
 import type { TraceInsight } from '../assistant/TraceInsight.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { summarizeEvent } from '../inbox/eventSummary.js'
+import { pricingTable } from '../inbox/pricing.js'
 import { SqliteActivity } from '../inbox/SqliteActivity.js'
 import { SqliteConversationStore } from './SqliteConversationStore.js'
 import { SqliteImprovementStore } from './SqliteImprovementStore.js'
@@ -94,7 +95,11 @@ export function openActivityStore(cfg: RunnerConfig, path = databasePath(cfg)): 
   const improvements = new SqliteImprovementStore(database)
 
   return {
-    activity: new SqliteActivity(new SqliteActivityReader(database)),
+    activity: new SqliteActivity(
+      new SqliteActivityReader(database),
+      Date.now,
+      pricingTable(cfg.pricing),
+    ),
     conversations,
     improvements,
     traceInsight: new SqliteTraceInsight(database),

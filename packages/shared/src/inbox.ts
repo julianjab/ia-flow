@@ -78,6 +78,22 @@ export const ExecutionUsageSchema = z.object({
 })
 export type ExecutionUsage = z.infer<typeof ExecutionUsageSchema>
 
+/**
+ * Cuánto costó una ejecución, ESTIMADO: sus tokens por los precios de `pricing:` (runner.yaml,
+ * USD por millón). No es una factura: no ve descuentos, batch ni el precio de otra plataforma.
+ */
+export const ExecutionCostSchema = z.object({
+  /** USD de los tokens que se cobran por token (un provider de API). Ausente si alguno de sus
+   *  modelos no tiene precio: un número a medias engaña más que ninguno. */
+  usd: z.number().optional(),
+  /** Hubo tokens de un provider de suscripción (`claude-cli`, `claude-tmux`): no se cobran por
+   *  token, así que no suman a `usd`. */
+  subscription: z.boolean().optional(),
+  /** Los modelos cobrados por token que no tienen precio en `pricing:`. */
+  unpriced_models: z.array(z.string()).optional(),
+})
+export type ExecutionCost = z.infer<typeof ExecutionCostSchema>
+
 export const ExecutionSummarySchema = z.object({
   id: z.string(),
   pipeline_id: z.string(),
@@ -94,6 +110,7 @@ export const ExecutionSummarySchema = z.object({
   failure: z.object({ by: z.enum(['agent', 'runtime']), message: z.string() }).optional(),
   pause: z.object({ pause_id: z.string(), expires_at: z.string().optional() }).optional(),
   usage: ExecutionUsageSchema.optional(),
+  cost: ExecutionCostSchema.optional(),
   trace_id: z.string().optional(),
 })
 export type ExecutionSummary = z.infer<typeof ExecutionSummarySchema>
@@ -327,7 +344,25 @@ export const ConfigSummarySchema = z.object({
     z.object({
       id: z.string(),
       providers: z.array(z.string()),
+      /** El modelo de cada provider candidato: su `providerConfig.model`, o el default del
+       *  provider en runner.yaml. Un candidato sin modelo conocido no está. */
+      models: z.record(z.string(), z.string()).default({}),
       routes: z.record(z.string(), z.string()),
+      /** Sus MCP por id: `mounted` false si lo nombra y no quedó montado en este runner (no
+       *  respondió al arrancar, o le faltó su secreto) — corre sin él. Sin URL ni headers. */
+      mcp_servers: z.array(z.object({ id: z.string(), mounted: z.boolean() })).default([]),
+      /** Sus tools y actions (las que el modelo puede llamar), sin las `submit_<salida>`. */
+      actions: z.array(z.string()).default([]),
+      /** Su prompt: los system prompts ya resueltos (unidos) y la plantilla del turno. Cada texto
+       *  puede venir recortado; `*_chars` es su largo completo. */
+      prompt: z
+        .object({
+          system: z.string(),
+          system_chars: z.number(),
+          task: z.string(),
+          task_chars: z.number(),
+        })
+        .optional(),
     }),
   ),
   /** Los providers de runner.yaml, sin secretos: sólo tipo, modo, a qué provider apunta y su tope. */

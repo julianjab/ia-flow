@@ -69,7 +69,7 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
     ),
     new AssistantTool(
       'assistant_get_task',
-      'Una tarea: su estado en el board, sus ejecuciones (cómo terminó cada una, tokens, por qué falló), los eventos que le llegaron con qué decidió cada pipeline, y la traza de la última ejecución. Una ejecución viva trae `last_step_at` e `idle_seconds` (cuánto hace de su último paso); la viva y la última traen `agents` si corrió más de un agente (un grupo paralelo corre varios en la MISMA ejecución): el estado de cada uno (running, done, failed…), su último paso y su salida. `agent_id`/`exit`/`summary` de la ejecución son sólo del último que cerró. `now` es la hora del runner.',
+      'Una tarea: su estado en el board, sus ejecuciones (cómo terminó cada una, tokens, costo ESTIMADO en USD, por qué falló), los eventos que le llegaron con qué decidió cada pipeline, y la traza de la última ejecución. Una ejecución viva trae `last_step_at` e `idle_seconds` (cuánto hace de su último paso); la viva y la última traen `agents` si corrió más de un agente (un grupo paralelo corre varios en la MISMA ejecución): el estado de cada uno (running, done, failed…), su último paso y su salida. `agent_id`/`exit`/`summary` de la ejecución son sólo del último que cerró. `now` es la hora del runner.',
       z.strictObject({ ref }),
       desk,
       agent,
@@ -161,11 +161,16 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
     ),
     new AssistantTool(
       'assistant_get_config',
-      'La config cargada: qué eventos escucha cada pipeline, sus condiciones, qué agentes y acciones corre, y a dónde lleva cada salida de cada agente.',
-      z.strictObject({}),
+      'La config cargada: qué eventos escucha cada pipeline, sus condiciones, qué agentes y acciones corre, y a dónde lleva cada salida de cada agente. De cada agente: el modelo de cada provider (`models`), sus MCP (`mounted: false` = lo nombra y no quedó montado en este runner), sus tools/actions y su prompt (system prompts resueltos y plantilla del turno, recortados; `*_chars` es el largo completo). Con `agent_id`, sólo ese agente con el prompt completo.',
+      z.strictObject({
+        agent_id: z
+          .string()
+          .optional()
+          .describe('Opcional: un agente; trae sólo ese, con su prompt completo.'),
+      }),
       desk,
       agent,
-      (session) => session.config(),
+      (session, input) => session.config(input.agent_id),
     ),
     new AssistantTool(
       'assistant_recent_events',

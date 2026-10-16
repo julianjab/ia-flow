@@ -9,6 +9,7 @@
 import type { BoardCard } from '@ia-flow/github-tools'
 import type { ExecutionSummary, InboxGroup, InboxKind, TaskAction } from '@ia-flow/shared'
 import type { InboxSettings } from './InboxSection.js'
+import { usdText } from './pricing.js'
 
 export type { BoardCard }
 
@@ -52,7 +53,9 @@ function tokens(execution: ExecutionSummary): string {
   const usage = execution.usage
   if (!usage) return ''
   const total = usage.input_tokens + usage.output_tokens + usage.cache_read_tokens
-  return total > 0 ? ` · ${Math.round(total / 1000)}k tokens` : ''
+  if (total <= 0) return ''
+  const usd = execution.cost?.usd
+  return ` · ${Math.round(total / 1000)}k tokens${usd !== undefined && usd > 0 ? ` (${usdText(usd)} estimado)` : ''}`
 }
 
 function who(execution: ExecutionSummary): string {

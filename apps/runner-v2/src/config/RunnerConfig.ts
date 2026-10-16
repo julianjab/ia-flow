@@ -46,6 +46,7 @@ import {
   WorkingMarkerSchema,
 } from '../engine/workingMarker.js'
 import { InboxSection, type InboxSettings } from '../inbox/InboxSection.js'
+import { type Pricing, PricingSection } from '../inbox/pricing.js'
 import { type TaskActionDefs, TaskActionsSchema } from '../inbox/TaskActionDef.js'
 import { type McpHostEntry, McpHostEntrySchema } from '../mcp/mcpHost.js'
 import { BoardSchema, type ProjectBoard, readBoard } from './boardConfig.js'
@@ -233,6 +234,10 @@ export const RunnerFileSchema = z.strictObject({
   engine: EngineSection.default({}),
   /** La bandeja de la web (`inbox/InboxSection.ts`). */
   inbox: InboxSection.prefault({}),
+  /** Precios por modelo (USD por millón de tokens) para estimar el costo de cada ejecución
+   *  (`inbox/pricing.ts`): `{ <modelo>: { input, output, cacheRead?, cacheWrite? } }`. Pisa o
+   *  suma a los defaults (los modelos Claude actuales, precio de lista de la API). */
+  pricing: PricingSection,
   /** La retrospectiva (`capabilities/retrospective.ts`): al mergear el PR de una tarea, un agente
    *  revisa cómo corrió y deja mejoras propuestas en la bandeja. Viene encendida. */
   retrospective: z
@@ -316,6 +321,8 @@ export interface RunnerConfig {
   mcpHost: Record<string, McpHostEntry>
   engine: EngineSection
   inbox: InboxSettings
+  /** `pricing:` de runner.yaml, sólo lo propio (los defaults los suma `pricingTable`). */
+  pricing?: Pricing
   /** Los módulos de las actions globales. */
   actions: string[]
   /** La fuente global, releída de `runner.yaml` cuando cambia. */
@@ -496,6 +503,7 @@ export function loadRunnerConfig(path: string): RunnerConfig {
     mcpHost: file.mcpHost,
     engine: withExecutionsPath(file.engine, dir),
     inbox: file.inbox,
+    pricing: file.pricing,
     actions: actionFiles(file.sources.actions, dir, `${runnerPath}: sources`),
     source: {
       spec: () => {

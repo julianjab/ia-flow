@@ -22,6 +22,7 @@ import type {
 } from '@ia-flow/shared'
 import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { InboxService } from '../inbox/InboxService.js'
+import { taskCost } from '../inbox/pricing.js'
 import type { ImprovementStore } from './ImprovementStore.js'
 import { isLive, withLiveness } from './liveness.js'
 import type { TraceInsight } from './TraceInsight.js'
@@ -37,7 +38,8 @@ import { type SearchTracesInput, searchTraces } from './traceSearch.js'
 export interface AssistantBackend {
   inbox: Pick<InboxService, 'inbox' | 'item' | 'detail' | 'explain'>
   activity: Pick<ActivityPort, 'executions' | 'recentEvents' | 'trace' | 'eventsForTask'>
-  config: () => ConfigSummary
+  /** Con `fullPromptOf`, el prompt de ese agente va completo (el resto, recortado). */
+  config: (options?: { fullPromptOf?: string }) => ConfigSummary
   /** El estado del runner: providers, ejecuciones, webhooks. */
   status: () => Record<string, unknown>
   /** Donde esperan las mejoras que propone un agente de una pipeline. */
@@ -226,6 +228,7 @@ export class AssistantSession {
         .slice(from)
         .map((entry, i) => projectTraceEntry(entry, from + i, DEFAULT_TRACE_FIELDS)),
       trace_note: `Últimas ${detail.trace.length - from} de ${detail.trace.length} entradas de la última ejecución (o de la que muestra la bandeja), sin atributos; \`agent\` dice de qué agente es cada una (en un grupo paralelo se mezclan). Para buscar, ver campos o el resto: assistant_get_trace.`,
+      ...taskCost(detail.executions),
     }
   }
 
@@ -283,8 +286,9 @@ export class AssistantSession {
     return { now: this.now().toISOString(), ...searchTraces(this.backend.traces, input, scope) }
   }
 
-  config() {
+  config(agentId?: string) {
     this.activity('get_config', 'leyendo la config')
+    if (agentId) return this.agentConfig(agentId)
     const config = this.backend.config()
     if (!this.projectId) return config
     return {
@@ -293,6 +297,15 @@ export class AssistantSession {
         (pipeline) => pipeline.source_id === this.projectId || pipeline.source_id === 'runner',
       ),
     }
+  }
+
+  /** Un agente de la config, con su prompt completo. */
+  private agentConfig(agentId: string) {
+    const agent = this.backend
+      .config({ fullPromptOf: agentId })
+      .agents.find((entry) => entry.id === agentId)
+    if (!agent) throw new Error(`No hay un agente "${agentId}" en las pipelines de la config`)
+    return agent
   }
 
   recentEvents(limit: unknown) {

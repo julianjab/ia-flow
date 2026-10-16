@@ -1,7 +1,8 @@
 /**
  * `ActivityPort` sobre la base de ejecuciones: lo que `SqliteActivityReader` guarda (en camelCase,
  * con los tipos del engine) llevado a la forma del wire (`@ia-flow/shared`). Una ejecución se
- * completa con cómo terminó su agente y cuántos tokens gastó, leídos de su traza.
+ * completa con cómo terminó su agente y cuántos tokens gastó, leídos de su traza, con su costo
+ * estimado (`pricing.ts`).
  */
 import type {
   ExecutionOverview,
@@ -11,6 +12,7 @@ import type {
 } from '@ia-flow/agent-engine-datasource-sqlite'
 import type { EventLogEntry, ExecutionSummary, TraceEntry } from '@ia-flow/shared'
 import { type ActivityPort, type StoredEvent, taskOfKey } from './ActivityPort.js'
+import { estimateCost, type Pricing, pricingTable } from './pricing.js'
 
 /** Los eventos que el engine despachó a algo (lo que tiene sentido volver a despachar). */
 const DISPATCHED = new Set(['dispatched', 'injected', 'resumed'])
@@ -76,6 +78,8 @@ export class SqliteActivity implements ActivityPort {
   constructor(
     private readonly reader: SqliteActivityReader,
     private readonly now: () => number = Date.now,
+    /** Los precios con que se estima el costo de cada ejecución (`pricing:`, sobre los defaults). */
+    private readonly pricing: Pricing = pricingTable(),
   ) {}
 
   private summary(row: ExecutionOverview): Summary {
@@ -95,13 +99,11 @@ export class SqliteActivity implements ActivityPort {
 
   private buildSummary(row: ExecutionOverview): Summary {
     const outcome = this.reader.agentOutcome(row.id)
-    const usage = this.reader.usage(row.id)
     const failure =
       outcome?.failure ??
       (row.status === 'failed'
         ? { by: 'runtime' as const, message: row.closeReason ?? 'la corrida falló' }
         : undefined)
-    const hasUsage = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens > 0
     return {
       id: row.id,
       key: row.key,
@@ -124,17 +126,24 @@ export class SqliteActivity implements ActivityPort {
             },
           }
         : {}),
-      ...(hasUsage
-        ? {
-            usage: {
-              input_tokens: usage.inputTokens,
-              output_tokens: usage.outputTokens,
-              cache_read_tokens: usage.cacheReadTokens,
-            },
-          }
-        : {}),
+      ...this.spent(row.id),
       ...(row.taskRef ? { task_ref: row.taskRef } : {}),
       ...(row.projectId ? { project_id: row.projectId } : {}),
+    }
+  }
+
+  /** Los tokens de una ejecución y su costo estimado; sin tokens, nada. */
+  private spent(executionId: string): Pick<ExecutionSummary, 'usage' | 'cost'> {
+    const usage = this.reader.usage(executionId)
+    if (usage.inputTokens + usage.outputTokens + usage.cacheReadTokens <= 0) return {}
+    const cost = estimateCost(this.pricing, this.reader.usageByModel(executionId))
+    return {
+      usage: {
+        input_tokens: usage.inputTokens,
+        output_tokens: usage.outputTokens,
+        cache_read_tokens: usage.cacheReadTokens,
+      },
+      ...(cost ? { cost } : {}),
     }
   }
 

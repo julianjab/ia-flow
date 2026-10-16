@@ -4,6 +4,7 @@
  * lee para explicar "por qué pasó esto" sin abrir los YAML.
  */
 import {
+  type Agent,
   END,
   isAgent,
   type Pipeline,
@@ -23,6 +24,9 @@ export interface ConfigSource {
   pipelines(): Array<{ pipeline: Pipeline; sourceId: string }>
   routesOf(pipeline: Pipeline, agentId: string): ResolvedRoutes
 }
+
+/** Cuánto de cada prompt trae el resumen: el completo, de a un agente (`fullPromptOf`). */
+export const PROMPT_PREVIEW_CHARS = 1_500
 
 const stepId = (step: { id?: string; constructor: { name: string } }) =>
   step.id ?? step.constructor.name
@@ -62,6 +66,61 @@ function providerSummary(id: string, config: Record<string, unknown>) {
   }
 }
 
+const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
+
+/** El modelo de un candidato: su `providerConfig.model`, o el default de su provider en
+ *  runner.yaml (o el del provider al que apunta, si es un `remote`). */
+function modelOf(
+  candidate: { id: string; config: Record<string, unknown> },
+  providers: Record<string, Record<string, unknown>>,
+): string | undefined {
+  const own = providers[candidate.id]
+  const target = text(own?.provider)
+  return (
+    text(candidate.config.model) ??
+    text(own?.model) ??
+    (target ? text(providers[target]?.model) : undefined)
+  )
+}
+
+const clip = (value: string, full: boolean) =>
+  full || value.length <= PROMPT_PREVIEW_CHARS
+    ? value
+    : `${value.slice(0, PROMPT_PREVIEW_CHARS)}… [recortado]`
+
+/** Lo que el agente tiene: modelo, MCP, tools y prompt — nada de su config que no esté en una
+ *  lista de permitidos (un `providerConfig` puede traer un token). */
+function agentDetails(
+  agent: Agent,
+  providers: Record<string, Record<string, unknown>>,
+  fullPrompt: boolean,
+) {
+  const def = agent.definition
+  const models: Record<string, string> = {}
+  for (const candidate of agent.candidates) {
+    const model = modelOf(candidate, providers)
+    if (model) models[candidate.id] = model
+  }
+  const system = (def.systemPrompts ?? [])
+    .map((ref) => ref.text)
+    .filter((value): value is string => Boolean(value))
+    .join('\n\n')
+  return {
+    models,
+    mcp_servers: [
+      ...(def.mcpServers ?? []).map((server) => ({ id: server.id, mounted: true })),
+      ...(def.unavailableMcpServers ?? []).map((id) => ({ id, mounted: false })),
+    ],
+    actions: agent.toolset.names,
+    prompt: {
+      system: clip(system, fullPrompt),
+      system_chars: system.length,
+      task: clip(def.prompt, fullPrompt),
+      task_chars: def.prompt.length,
+    },
+  }
+}
+
 /** El host de la URL de un MCP; sin URL armable (una variable sin resolver), que viene del env. */
 function mcpHost(url: string | undefined): string {
   try {
@@ -71,7 +130,11 @@ function mcpHost(url: string | undefined): string {
   }
 }
 
-export function configSummary(source: ConfigSource): ConfigSummary {
+export function configSummary(
+  source: ConfigSource,
+  /** El agente cuyo prompt va completo (el resto, recortado a `PROMPT_PREVIEW_CHARS`). */
+  options: { fullPromptOf?: string } = {},
+): ConfigSummary {
   const agents = new Map<string, ConfigSummary['agents'][number]>()
   const pipelines = source.pipelines().map(({ pipeline, sourceId }) => {
     // Los miembros de un grupo `parallel` son agentes de la pipeline como cualquier otro.
@@ -83,6 +146,7 @@ export function configSummary(source: ConfigSource): ConfigSummary {
         id,
         providers: step.candidates.map((candidate) => candidate.id),
         routes: routeText(source.routesOf(pipeline, id)),
+        ...agentDetails(step, source.providers ?? {}, options.fullPromptOf === id),
       })
     }
     return {

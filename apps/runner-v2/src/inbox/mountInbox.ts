@@ -217,17 +217,20 @@ export function mountInbox(
     },
   })
 
-  const config = () =>
-    configSummary({
-      projects: specs.map((spec) => ({ id: spec.projectId, board: spec.board })),
-      providers: cfg.providers,
-      mcp: cfg.mcp,
-      pipelines: () =>
-        mounted.sources.flatMap(({ id, source }) =>
-          source.list().map((pipeline) => ({ pipeline, sourceId: id })),
-        ),
-      routesOf: mounted.routesOf,
-    })
+  const config = (options?: { fullPromptOf?: string }) =>
+    configSummary(
+      {
+        projects: specs.map((spec) => ({ id: spec.projectId, board: spec.board })),
+        providers: cfg.providers,
+        mcp: cfg.mcp,
+        pipelines: () =>
+          mounted.sources.flatMap(({ id, source }) =>
+            source.list().map((pipeline) => ({ pipeline, sourceId: id })),
+          ),
+        routesOf: mounted.routesOf,
+      },
+      options,
+    )
 
   // El asistente son las capacidades `assistant` y `assistant.<id>` (agentes de la fuente global);
   // sus tools leen de acá.
