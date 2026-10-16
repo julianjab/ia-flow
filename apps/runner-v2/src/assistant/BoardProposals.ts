@@ -146,6 +146,60 @@ export class BoardProposals {
     return SHOWN
   }
 
+  /**
+   * Un issue nuevo, armado a partir de lo que contó la persona, para que entre al board y se
+   * refine: se abre en un repo del catálogo del proyecto y queda en `status` (Todo si no se dice).
+   * NO lo crea: la persona lo confirma (y puede cambiar la columna) con su login.
+   */
+  async draftIssue(input: {
+    repo?: unknown
+    title?: unknown
+    body?: unknown
+    labels?: unknown
+    status?: unknown
+    project_id?: unknown
+    reason?: unknown
+  }): Promise<string> {
+    this.assertAttended()
+    if (this.ctx.scope.kind === 'task') {
+      throw new Error(
+        'En el contexto de una tarea no se abre otra: pedilo desde el chat general o del proyecto',
+      )
+    }
+    const projectId = await this.projectFor(input.project_id)
+    const project = (await this.projects()).find((candidate) => candidate.id === projectId)
+    const catalog = project?.repos ?? []
+    const repo = String(input.repo ?? '').trim()
+    const known = catalog.find((candidate) => candidate.toLowerCase() === repo.toLowerCase())
+    if (catalog.length > 0 && !known) {
+      throw new Error(
+        `"${repo}" no es un repo de ${projectId}. Elegí uno de: ${catalog.join(', ')} — si no está claro, preguntale a la persona`,
+      )
+    }
+    if (!/^[\w.-]+\/[\w.-]+$/.test(known ?? repo)) {
+      throw new Error(`El repo tiene que ser owner/repo, no "${repo}"`)
+    }
+    const title = String(input.title ?? '').trim()
+    const body = String(input.body ?? '').trim()
+    if (!title || !body) throw new Error('El issue necesita título y cuerpo')
+    const status = String(input.status ?? '').trim()
+    if (status) await this.assertColumn(projectId, status)
+    const labels = labelList(input.labels)
+    const where = known ?? repo
+    this.ctx.emit({
+      id: globalThis.crypto.randomUUID(),
+      kind: 'issue',
+      repo: where,
+      title,
+      body,
+      ...(labels.length ? { labels } : {}),
+      label: `Crear en ${where} y sumarlo al board`,
+      reason: String(input.reason ?? ''),
+      board: { project_id: projectId, ...(status ? { status } : {}) },
+    })
+    return `${SHOWN} En tu respuesta no repitas el título ni el cuerpo: la persona los ve en la card.`
+  }
+
   /** Poner y sacar labels del issue de una tarea: p.ej. sacar `blocked` para destrabarla. */
   async labels(input: {
     ref?: unknown

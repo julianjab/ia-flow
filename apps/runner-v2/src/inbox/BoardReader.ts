@@ -14,6 +14,8 @@ export interface BoardSpec {
   board: { owner: string; number: number; ownerKind?: 'orgs' | 'users' }
   /** Qué cards son del proyecto (`project.yaml` → `when`): las demás no se muestran. */
   when?: ConditionRow[]
+  /** Su catálogo de repos (`owner/repo`): donde se abre un issue para su board. */
+  repos?: string[]
 }
 
 /** El `item` de una card, con la misma forma que el evento de la task que arma el intake

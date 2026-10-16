@@ -148,6 +148,7 @@ export class InboxService {
           url,
           board_url: meta?.boardUrl ?? url,
           ...(meta?.statuses.length ? { statuses: meta.statuses } : {}),
+          ...(spec.repos?.length ? { repos: spec.repos } : {}),
         }
       }),
     )

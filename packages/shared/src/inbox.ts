@@ -211,6 +211,9 @@ export const InboxProjectSchema = z.object({
   /** Las columnas del board, en su orden: a dónde se puede mover o agregar una card. Un runner
    *  viejo no las manda. */
   statuses: z.array(z.string()).optional(),
+  /** El catálogo de repos del proyecto (`owner/repo`): donde se abre un issue para su board. Un
+   *  runner viejo no lo manda. */
+  repos: z.array(z.string()).optional(),
 })
 export type InboxProject = z.infer<typeof InboxProjectSchema>
 
@@ -568,6 +571,9 @@ export const AssistantIssueProposalSchema = z.object({
   labels: z.array(z.string()).optional(),
   label: z.string(),
   reason: z.string(),
+  /** Además de abrirlo, sumarlo al board de este proyecto (en `status`; sin él, Todo): la base de
+   *  una tarea para refinar. La persona puede cambiar la columna antes de confirmar. */
+  board: z.object({ project_id: z.string(), status: z.string().optional() }).optional(),
 })
 export type AssistantIssueProposal = z.infer<typeof AssistantIssueProposalSchema>
 
@@ -651,6 +657,10 @@ export const CreateIssueRequestSchema = z.object({
   title: z.string().trim().min(1),
   body: z.string(),
   labels: z.array(z.string().min(1)).optional(),
+  /** Sumarlo además al board (como `POST /api/board/items`), en `status` o Todo. */
+  board: z
+    .object({ project_id: z.string().optional(), status: z.string().min(1).optional() })
+    .optional(),
 })
 export type CreateIssueRequest = z.infer<typeof CreateIssueRequestSchema>
 
@@ -661,6 +671,10 @@ export const CreateIssueResultSchema = z.object({
   url: z.string().optional(),
   number: z.number().optional(),
   github_login: z.string().optional(),
+  /** Con `board` en el pedido: si quedó en el board y en qué columna. El issue se abre igual aunque
+   *  sumarlo falle: `board_error` dice por qué. */
+  board_status: z.string().optional(),
+  board_error: z.string().optional(),
 })
 export type CreateIssueResult = z.infer<typeof CreateIssueResultSchema>
 

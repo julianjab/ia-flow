@@ -342,6 +342,14 @@ lee ejecuciones y trazas buscando fallas del proceso y, con `assistant_propose_i
 fija su YAML con `with: { repo: julianjab/ia-flow }`), propone abrir un issue en ia-flow; la persona
 lo confirma en la web y `POST /api/issues` lo abre con SU token de GitHub.
 
+**Crear la base de una tarea desde un texto**: al asistente de siempre se le pasa una idea, un pedido
+o un bug y, con `assistant_draft_issue`, propone el issue ordenado (contexto, qué se necesita, lo que
+se sabe, preguntas abiertas; sin el PRD, que es del refiner) en un repo del catálogo del proyecto
+(`repos` de `project.yaml`, que la bandeja publica en `projects[].repos`). Al confirmarlo,
+`POST /api/issues` con `board: { project_id, status }` lo abre y lo suma al board en esa columna
+(Todo por defecto; Refine arranca el refiner). Si sumarlo falla, el issue queda abierto igual y la
+respuesta dice por qué (`board_error`): un error no hace reintentar y duplicar el issue.
+
 **La retrospectiva viene con el runner** (`src/capabilities/retrospective.{ts,yaml}`): una pipeline
 de la fuente global que escucha el `pull_request` de una tarea cuando queda mergeado
 (`action: closed`, `pr.merged: true`) y corre el agente `retrospective`. Ese agente lee la tarea con

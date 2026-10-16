@@ -77,6 +77,9 @@ export function mountInbox(
     projectId: project.id,
     board: project.board,
     when: project.when,
+    repos: project.repos.flatMap((repo) =>
+      repo.githubOwner && repo.githubRepo ? [`${repo.githubOwner}/${repo.githubRepo}`] : [],
+    ),
   }))
   const boards = mounted.boards
   const inbox = new InboxService({
@@ -245,6 +248,8 @@ export function mountInbox(
     traces: store.traceInsight,
     status: () => ({
       projects: specs.map((spec) => `${spec.projectId} (${boards.of(spec.projectId).describe()})`),
+      // Donde se abre un issue para el board de cada proyecto (`assistant_draft_issue`).
+      repos: Object.fromEntries(specs.map((spec) => [spec.projectId, spec.repos ?? []])),
       providers: Object.keys(cfg.providers),
       executions: mounted.executions?.stats,
       webhookSecret: Boolean(process.env.IA_FLOW_WEBHOOK_SECRET?.trim()),

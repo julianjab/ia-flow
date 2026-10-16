@@ -140,6 +140,24 @@ async function createIssue(
   return (await res.json()) as { number: number; html_url: string }
 }
 
+/** Lo que se contesta al abrir un issue, según cómo le fue al sumarlo al board (si se pidió). */
+function openedResult(
+  ref: string,
+  board: { status?: string; error?: string },
+): Pick<CreateIssueResult, 'ok' | 'message' | 'board_status' | 'board_error'> {
+  if (board.error) {
+    return {
+      ok: true,
+      message: `${ref} abierto, pero no quedó en el board: ${board.error}`,
+      board_error: board.error,
+    }
+  }
+  if (board.status) {
+    return { ok: true, message: `${ref} abierto y en ${board.status}`, board_status: board.status }
+  }
+  return { ok: true, message: `${ref} abierto` }
+}
+
 export function runnerApi(options: RunnerApiOptions): ApiRouter {
   const { inbox, hub } = options
   const router = new ApiRouter({ token: options.token, log: options.log })
@@ -250,6 +268,24 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
 
   // Un issue que propuso el asistente (`assistant_propose_issue`), con el token de quien lo
   // confirma: lo abre esa persona, en un repo donde ella puede abrirlo. El runner no pone nada suyo.
+  /** Un issue recién abierto, al board: si no se puede, el issue queda igual (ya existe) y se dice
+   *  por qué, en vez de fallar el pedido entero. */
+  const addCreated = async (
+    ref: string,
+    board: NonNullable<CreateIssueRequest['board']>,
+    actor: { token: string; login: string },
+  ): Promise<{ status?: string; error?: string }> => {
+    if (!options.moves) return { error: 'este runner no suma issues al board' }
+    try {
+      const added = await options.moves.add({ ...board, issue: ref }, actor)
+      return { status: added.status ?? '' }
+    } catch (err) {
+      // El issue ya existe: un 500 haría que la persona lo reintente y lo duplique.
+      if (!(err instanceof TaskActionError)) options.log(`${ref}: no se sumó al board: ${err}`)
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
   router.post('/api/issues', async (req, res) => {
     const reject = (status: number, message: string) => {
       sendJson(res, status, { ok: false, message } satisfies CreateIssueResult)
@@ -261,14 +297,15 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
       const request = parseBody(CreateIssueRequestSchema, await req.json())
       const login = await loginOf(token)
       const created = await createIssue(request, token, options.fetchImpl)
-      options.log(`${login}: abrió ${request.repo}#${created.number} desde el asistente`)
+      const ref = `${request.repo}#${created.number}`
+      options.log(`${login}: abrió ${ref} desde el asistente`)
+      const board = request.board ? await addCreated(ref, request.board, { token, login }) : {}
       return {
-        ok: true,
-        message: `${request.repo}#${created.number} abierto`,
+        ...openedResult(ref, board),
         url: created.html_url,
         number: created.number,
         github_login: login,
-      } satisfies CreateIssueResult
+      }
     } catch (err) {
       if (err instanceof HttpError) return reject(err.status, err.message)
       if (err instanceof IssueRejectedError) return reject(err.status, err.message)

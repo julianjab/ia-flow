@@ -299,6 +299,34 @@ function boardTools(desk: AssistantDesk, agent: string | undefined): Action[] {
       (session, input) => session.board.addToBoard(input),
     ),
     new AssistantTool(
+      'assistant_draft_issue',
+      'Propone abrir un issue NUEVO a partir de lo que la persona te contó (un texto, una idea, un bug) y sumarlo al board para refinarlo: la base de la tarea, no el PRD. NO lo crea: la persona lo confirma con un botón (puede cambiar la columna) y queda abierto con su usuario de GitHub. Sólo en un repo del catálogo del proyecto (`repos` en assistant_runner_status); si no está claro cuál, preguntá antes. No en el contexto de una tarea.',
+      z.strictObject({
+        repo: z.string().describe('owner/repo del catálogo del proyecto donde se abre'),
+        title: z.string().describe('Corto y concreto: qué hay que hacer o qué falla'),
+        body: z
+          .string()
+          .describe(
+            'Markdown con lo que contó la persona, ordenado: ## Contexto, ## Qué se necesita (o ## Qué pasa, si es un bug), ## Lo que se sabe, ## Preguntas abiertas. Sin inventar requisitos ni el PRD: eso lo hace el refiner',
+          ),
+        labels: z.array(z.string()).optional().describe('Labels que ya existen en el repo'),
+        status: z
+          .string()
+          .optional()
+          .describe(
+            'La columna donde entra: sin esto, Todo (espera); Refine si la persona quiere que el refiner arranque ya',
+          ),
+        project_id: z
+          .string()
+          .optional()
+          .describe('El proyecto, si el runner tiene más de uno (en el de un proyecto, ese)'),
+        reason,
+      }),
+      desk,
+      agent,
+      (session, input) => session.board.draftIssue(input),
+    ),
+    new AssistantTool(
       'assistant_propose_labels',
       'Propone poner o sacar labels del issue de una tarea —p.ej. sacar `blocked`, que frena a los agentes—. NO los cambia: la persona confirma con un botón, firmado con su usuario de GitHub. Sólo labels que la tarea tiene (para sacar) o no tiene (para poner).',
       z.strictObject({
