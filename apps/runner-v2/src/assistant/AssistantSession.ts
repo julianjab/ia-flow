@@ -348,16 +348,24 @@ export class AssistantSession {
     return `Mejora ${current.id} ajustada: la card de la bandeja ya muestra la versión nueva. En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué cambiaste y por qué.`
   }
 
-  /** Otra mejora, con el destino de una que ya existe (el repo no lo elige el modelo): una card
-   *  nueva en la bandeja, que una persona abre o descarta como las demás. */
-  addImprovement(input: {
-    based_on: string
+  /**
+   * Una mejora nueva como card de la bandeja, que una persona abre o descarta como las demás. Con
+   * `based_on`, hereda el destino, la tarea y la evidencia de una que ya existe; sin ella, sale de
+   * una tarea del contexto (la de la conversación, o `task_ref`) y va a `repo`.
+   */
+  async addImprovement(input: {
+    based_on?: string
+    task_ref?: string
+    repo?: string
+    target?: ImprovementTarget
     title: string
     body: string
     labels?: string[]
     reason: string
-  }): string {
-    const base = this.improvement(input.based_on, false)
+  }): Promise<string> {
+    const base = input.based_on
+      ? this.improvement(input.based_on, false)
+      : await this.improvementOrigin(input)
     const pending = this.backend.improvements.findOpen(base.repo, input.title)
     if (pending) {
       throw new Error(
@@ -377,7 +385,28 @@ export class AssistantSession {
       ...(input.labels?.length ? { labels: input.labels } : {}),
       reason: input.reason,
     })
-    return `Mejora ${stored.id} guardada como card nueva en la bandeja (se abriría en ${base.repo}). En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué es y en qué se diferencia de ${base.id}.`
+    const differs = base.id ? ` y en qué se diferencia de ${base.id}` : ''
+    return `Mejora ${stored.id} guardada como card nueva en la bandeja (se abriría en ${base.repo}). En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué es${differs}.`
+  }
+
+  /** De dónde sale una mejora sin base: la tarea del contexto y el repo donde se abriría. */
+  private async improvementOrigin(input: {
+    task_ref?: string
+    repo?: string
+    target?: ImprovementTarget
+  }): Promise<
+    Pick<ImprovementProposal, 'task_ref' | 'repo' | 'target'> &
+      Partial<Pick<ImprovementProposal, 'id' | 'pr_url' | 'execution_id'>>
+  > {
+    const repo = String(input.repo ?? '').trim()
+    if (!REPO_RE.test(repo)) {
+      throw new Error(`Sin based_on, la mejora necesita repo (owner/repo), no "${repo}"`)
+    }
+    const wanted = input.task_ref ?? (this.scope.kind === 'task' ? this.scope.ref : undefined)
+    if (!wanted) {
+      throw new Error('Sin based_on, la mejora necesita task_ref: la tarea de la que sale')
+    }
+    return { task_ref: await this.taskRef(wanted), repo, target: input.target ?? 'engine' }
   }
 
   /** Las mejoras de la bandeja (de cualquier tarea): las pendientes, para no proponer otra igual,

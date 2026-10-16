@@ -192,11 +192,19 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
     ),
     new AssistantTool(
       'assistant_add_improvement',
-      'Guarda OTRA mejora como card nueva en la bandeja, con el mismo destino (repo) que una existente: cuando lo que hay que proponer es distinto de esa mejora (otro problema, o la mitad que conviene separar). Si es la misma mejora corregida, usá assistant_revise_improvement.',
+      'Guarda una mejora como card nueva en la bandeja: una persona la abre como issue o la descarta. Con `based_on` (el id de una mejora existente) hereda su destino, su tarea y su evidencia: para proponer OTRA cosa que esa (otro problema, o la mitad que conviene separar). Sin mejoras en la bandeja, o sin relación con una, pasá `repo` (owner/repo donde se abriría), `target` y `task_ref` (la tarea de la que sale; en el contexto de una tarea, es esa). Si es la misma mejora corregida, usá assistant_revise_improvement.',
       z.strictObject({
         based_on: z
           .string()
+          .optional()
           .describe('El id de la mejora de la que sale (fija el repo y la tarea)'),
+        task_ref: ref
+          .optional()
+          .describe('Sin based_on: la tarea de la que sale (en el contexto de una tarea, esa)'),
+        repo: z.string().optional().describe('Sin based_on: owner/repo donde se abriría el issue'),
+        target: ImprovementTarget.optional().describe(
+          'Sin based_on: dónde se arregla — docs (la documentación de un repo), config (agentes, prompts, pipelines) o engine (el runner). Default engine',
+        ),
         title: z.string().describe('Corto, en imperativo: qué hay que cambiar'),
         body: z
           .string()

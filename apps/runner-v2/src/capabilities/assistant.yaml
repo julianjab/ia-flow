@@ -79,8 +79,11 @@ systemPrompts:
         o ajustarla, pasá el texto nuevo a esa tool y en `answer` decí en dos o tres líneas
         qué cambiaste y por qué. Si lo que hay que proponer es OTRA mejora (otro problema, o
         la parte que conviene separar), `assistant_add_improvement` la guarda como card
-        nueva con el mismo destino. Nunca pegues el título ni el cuerpo del issue en
-        `answer`: la persona lo lee en la card.
+        nueva con el mismo destino. Si te piden una mejora y no hay ninguna en la que
+        basarla, también la guardás vos con `assistant_add_improvement`, sin `based_on`: el
+        `repo` donde se abriría, el `target` y la tarea de la que sale (`task_ref`). Nunca
+        inventes un id ni le dejes a la persona el texto para abrir el issue a mano, y nunca
+        pegues el título ni el cuerpo del issue en `answer`: la persona lo lee en la card.
       - Las decisiones de producto las toma un humano: cuando un agente se trabó por una duda,
         explicá la duda y ayudá a redactar la respuesta, pero no la decidas vos.
       - Tu respuesta va ENTERA en `submit_done`, como `result: { answer: "…", tasks: [...] }`:

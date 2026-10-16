@@ -74,7 +74,8 @@ mejora: la mejora (agente, ejecución, razón, cuerpo) viaja delante de la prime
 asistente lee esa ejecución aunque la tarea ya no esté en el board (su issue se cerró con el merge). Arriba queda
 la mejora con su issue a un clic y sus acciones; la misma mejora retoma su chat, ✎ empieza otro. Si le pides ajustarla, el asistente
 cambia la card (`assistant_revise_improvement`) o guarda otra con el mismo destino (`assistant_add_improvement`),
-en vez de pegar el issue en el chat; la card de arriba y la lista se releen al terminar cada respuesta.
+en vez de pegar el issue en el chat; la card de arriba y la lista se releen al terminar cada respuesta. En cualquier
+chat, una mejora que pidas sin que haya otra en la que basarla también la guarda él como card (con el repo y la tarea).
 
 **Al día:** con el popover o la ventana abiertos, el menú escucha `GET /api/stream` (SSE, como la web) y relee la
 bandeja y las mejoras cuando algo cambia (varios cambios seguidos, una sola relectura); «En vivo» se relee con la traza
