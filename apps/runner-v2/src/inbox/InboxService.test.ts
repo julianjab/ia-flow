@@ -357,3 +357,69 @@ describe('InboxService — la bandeja ya armada', () => {
     await expect(inbox.inbox()).resolves.toMatchObject({ items: [] })
   })
 })
+
+describe('InboxService — los agentes de una ejecución', () => {
+  const review = (patch: Partial<Row>): Row => ({
+    id: 'e',
+    key: 'k',
+    task_ref: 'o/r#1',
+    pipeline_id: 'review',
+    status: 'running',
+    started_at: '2026-09-29T11:00:00Z',
+    ...patch,
+  })
+  const lanes = [
+    {
+      agent_id: 'reviewer',
+      state: 'done' as const,
+      started_at: '2026-09-29T11:00:00Z',
+      last_step_at: '2026-09-29T11:20:00Z',
+    },
+    {
+      agent_id: 'e2e-visual-qa',
+      state: 'running' as const,
+      started_at: '2026-09-29T11:00:00Z',
+      last_step_at: '2026-09-29T11:58:00Z',
+    },
+  ]
+  /** Le pone los agentes a las vivas y a las que elige `withAgents`, como `withLiveness`. */
+  function withLanes(rows: Row[]) {
+    const seen: string[] = []
+    const inbox = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
+      board: { cards: async () => [card('o/r#1', { status: 'Review' })] },
+      activity: fakeActivity(rows),
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+      now: () => now,
+      liveness: (executions, withAgents) =>
+        executions.map((execution, index) => {
+          seen.push(execution.id)
+          const live = execution.status === 'running' || execution.status === 'paused'
+          return live || withAgents?.(execution, index)
+            ? { ...execution, agents: lanes }
+            : execution
+        }),
+    })
+    return { inbox, seen }
+  }
+
+  it('lo que corre llega a la bandeja y a las tareas con cada uno de sus agentes', async () => {
+    const { inbox } = withLanes([review({})])
+    const item = (await inbox.inbox()).items.find((entry) => entry.ref === 'o/r#1')
+    expect(item?.execution?.agents?.map((agent) => agent.state)).toEqual(['done', 'running'])
+    const task = (await inbox.tasks()).tasks.find((entry) => entry.ref === 'o/r#1')
+    expect(task?.live_run?.agents).toHaveLength(2)
+    expect(InboxSchema.safeParse(await inbox.inbox()).success).toBe(true)
+  })
+
+  it('el detalle trae los agentes de la última ejecución aunque haya cerrado, no de las viejas', async () => {
+    const { inbox } = withLanes([
+      review({ id: 'new', status: 'done' }),
+      review({ id: 'old', status: 'done', started_at: '2026-09-29T09:00:00Z' }),
+    ])
+    const detail = await inbox.detail('o/r#1')
+    expect(detail?.executions.map((execution) => execution.agents?.length)).toEqual([2, undefined])
+  })
+})
