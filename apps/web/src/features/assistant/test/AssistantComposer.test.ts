@@ -200,17 +200,23 @@ describe('AssistantComposer', () => {
       }
     })
 
-    it('con la voz prendida, se elige la velocidad y queda guardada', async () => {
+    it('con la voz prendida, la velocidad cambia con cada clic, se aplica y queda guardada', async () => {
       localStorage.setItem('ia-flow.assistant.read-aloud', '1')
       const speech = installFakeSpeech([{ name: 'Mónica', lang: 'es-ES' }])
       try {
         const w = render()
-        const pick = w.get('[data-test="rate-pick"]')
-        expect((pick.element as HTMLSelectElement).value).toBe('1')
-        await pick.setValue('1.5')
+        const rate = w.get('[data-test="rate"]')
+        expect(rate.text()).toBe('1×')
+        await rate.trigger('click')
+        expect(rate.text()).toBe('1.25×')
         useVoiceStore().say('Hola.', 'k')
-        expect(speech.rateOf).toEqual([1.5])
-        expect(localStorage.getItem('ia-flow.assistant.rate')).toBe('1.5')
+        expect(speech.rateOf).toEqual([1.25])
+        expect(localStorage.getItem('ia-flow.assistant.rate')).toBe('1.25')
+        // Después de la última, vuelve a la normal.
+        await rate.trigger('click')
+        expect(rate.text()).toBe('1.5×')
+        await rate.trigger('click')
+        expect(rate.text()).toBe('1×')
       } finally {
         speech.uninstall()
         localStorage.clear()
