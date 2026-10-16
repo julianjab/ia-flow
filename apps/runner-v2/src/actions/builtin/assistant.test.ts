@@ -105,6 +105,17 @@ describe('the assistant tools in the pipeline of a task', () => {
     ).rejects.toThrow(/no declaró el repo de `config`/)
   })
 
+  it('an added improvement without repo goes to the repo of its target', async () => {
+    const { improvements, tool } = mount()
+    await tool('assistant_add_improvement').execute({ target: 'engine', ...proposal }, run)
+    expect(improvements.list('open')).toEqual([
+      expect.objectContaining({ target: 'engine', repo: 'julianjab/ia-flow' }),
+    ])
+    await expect(
+      tool('assistant_add_improvement').execute({ target: 'config', ...proposal }, run),
+    ).rejects.toThrow('necesita repo')
+  })
+
   it('does not repeat one already pending, and lists what is pending', async () => {
     const { improvements, tool } = mount()
     await tool('propose_improvement').execute({ target: 'docs', ...proposal }, run)
