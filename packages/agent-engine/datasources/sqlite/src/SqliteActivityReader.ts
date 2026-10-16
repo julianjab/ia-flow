@@ -53,6 +53,15 @@ export interface ExecutionUsageTotals {
   cacheReadTokens: number
 }
 
+/** Los tokens de una ejecución por modelo y por quién los pidió (el `scope` del span: el provider
+ *  de la API o el del CLI): para estimar su costo, que depende de los dos. */
+export interface ModelUsageTotals extends ExecutionUsageTotals {
+  /** `gen_ai.response.model` (o el pedido, si no vino): `unknown` si no hay ninguno. */
+  model: string
+  scope?: string
+  cacheWriteTokens: number
+}
+
 /**
  * Cómo terminó el agente de una ejecución — del último span `agent <id>` que terminó
  * (`ia.step.kind = agent`). Los atributos los pone `stepTrace` del core:
@@ -310,6 +319,43 @@ export class SqliteActivityReader {
       outputTokens: Number(row.output),
       cacheReadTokens: Number(row.cache_read),
     }
+  }
+
+  /** Como `usage`, separado por modelo y por scope del span que pidió (ver `ModelUsageTotals`). */
+  usageByModel(executionId: string): ModelUsageTotals[] {
+    const rows = this.db
+      .prepare(
+        `SELECT
+           COALESCE(json_extract(attributes_json, '$."gen_ai.response.model"'),
+                    json_extract(attributes_json, '$."gen_ai.request.model"'), 'unknown') AS model,
+           scope,
+           COALESCE(SUM(json_extract(attributes_json, '$."gen_ai.usage.input_tokens"')), 0) AS input,
+           COALESCE(SUM(json_extract(attributes_json, '$."gen_ai.usage.output_tokens"')), 0) AS output,
+           COALESCE(SUM(json_extract(attributes_json, '$."gen_ai.usage.cache_read_input_tokens"')), 0) AS cache_read,
+           COALESCE(SUM(json_extract(attributes_json, '$."gen_ai.usage.cache_creation_input_tokens"')), 0) AS cache_write
+         FROM execution_trace
+         WHERE execution_id = $executionId AND kind = 'span' AND phase = 'end'
+           AND (json_extract(attributes_json, '$."gen_ai.usage.input_tokens"') IS NOT NULL
+             OR json_extract(attributes_json, '$."gen_ai.usage.output_tokens"') IS NOT NULL)
+         GROUP BY model, scope
+         ORDER BY model, scope`,
+      )
+      .all({ $executionId: executionId }) as Array<{
+      model: string
+      scope: string | null
+      input: number
+      output: number
+      cache_read: number
+      cache_write: number
+    }>
+    return rows.map((row) => ({
+      model: String(row.model),
+      ...(row.scope ? { scope: row.scope } : {}),
+      inputTokens: Number(row.input),
+      outputTokens: Number(row.output),
+      cacheReadTokens: Number(row.cache_read),
+      cacheWriteTokens: Number(row.cache_write),
+    }))
   }
 
   /** Cómo terminó el último agente de la ejecución (ver `AgentOutcome`), si alguno terminó. */

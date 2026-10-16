@@ -117,6 +117,9 @@ export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
   maxConcurrent?: number
   providerConfig?: Record<string, unknown>
   mcpServers?: McpServerRef[]
+  /** Los MCP que el agente nombra por id y el catálogo no tiene (no respondieron al armarlo, o
+   *  faltó su secreto): corre sin ellos. Sólo para mostrarlo — no llegan al provider. */
+  unavailableMcpServers?: string[]
   /** Si el paso tira y no hay `onError` en la cascada, seguir con el siguiente `Runnable` de la
    *  Pipeline en vez de abortarla — mismo campo que cualquier otro `Runnable`. */
   continueOnError?: boolean

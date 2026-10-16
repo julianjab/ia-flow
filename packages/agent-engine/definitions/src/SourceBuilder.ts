@@ -167,6 +167,7 @@ export class SourceBuilder {
             ...(doc.maxConcurrent !== undefined ? { maxConcurrent: doc.maxConcurrent } : {}),
             providerConfig: doc.providerConfig,
             mcpServers: this.mcpServers(doc.mcpServers, where('mcpServers')),
+            ...this.unavailableMcpServers(doc.mcpServers),
             continueOnError: doc.continueOnError,
             when: [...Condition.fromRows(doc.when), ...(variant.when ?? [])],
             ...(variant.whenText
@@ -497,6 +498,16 @@ export class SourceBuilder {
       }),
     )
     return z.strictObject(shape) as unknown as ToolInputSchema
+  }
+
+  /** Los ids que el agente nombra y el catálogo no tiene (ver `mcpServers`). */
+  private unavailableMcpServers(refs: AgentDoc['mcpServers']): {
+    unavailableMcpServers?: string[]
+  } {
+    const missing = (refs ?? []).filter(
+      (ref): ref is string => typeof ref === 'string' && !this.catalogs.mcpServers?.[ref],
+    )
+    return missing.length > 0 ? { unavailableMcpServers: missing } : {}
   }
 
   /** Los MCP del agente: los inline, y los del catálogo por id. Un id que el catálogo no tiene (ej.

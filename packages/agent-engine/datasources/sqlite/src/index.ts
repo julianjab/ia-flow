@@ -4,6 +4,7 @@ export type {
   ExecutionOverview,
   ExecutionUsageTotals,
   LoggedEvent,
+  ModelUsageTotals,
   PruneResult,
   StoredEvent,
   StoredTraceRecord,
