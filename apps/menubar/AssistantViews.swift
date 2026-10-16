@@ -140,17 +140,13 @@ struct ChatComposer: View {
                       help: "Hablás, lee la respuesta y vuelve a escucharte. Callarte 4 s sin decir nada la corta.") { chat.toggleTalk() }
             Spacer(minLength: 4)
             if voice.wantsSpeech {
-                Menu {
-                    ForEach(ReadAloud.rates, id: \.self) { r in
-                        Button { voice.rate = r } label: {
-                            if r == voice.rate { Label(VoiceChip.speed(r), systemImage: "checkmark") } else { Text(VoiceChip.speed(r)) }
-                        }
-                    }
-                } label: {
-                    Text(VoiceChip.speed(voice.rate)).font(.lh(11)).foregroundStyle(.secondary).lineLimit(1)
+                Button { voice.nextRate() } label: {
+                    Text(VoiceChip.speed(voice.rate)).font(.lh(11)).monospacedDigit().foregroundStyle(.secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().strokeBorder(Color.secondary.opacity(0.35)))
                 }
-                .menuStyle(.button).buttonStyle(.plain).fixedSize()
-                .help("A qué velocidad se lee")
+                .buttonStyle(.plain).fixedSize()
+                .help("Velocidad de lectura: cada clic pasa a la siguiente (1× → 1,25× → 1,5× → 1×)")
             }
             if voice.wantsSpeech, voice.voices.count > 1 {
                 Menu {
