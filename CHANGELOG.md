@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.12.0](https://github.com/julianjab/ia-flow/compare/v2.11.1...v2.12.0) (2026-10-16)
+
+
+### Features
+
+* **menubar:** abrir el worktree de una tarea en iTerm con claude --worktree ([7047d03](https://github.com/julianjab/ia-flow/commit/7047d03c1701f9c8ce7f8eb01ed9eb38782bb9e6))
+* **menubar:** el worktree se abre como pestaña de la ventana de iTerm del frente ([318532e](https://github.com/julianjab/ia-flow/commit/318532e101b31c86caec1cf694c35b8122419e31))
+* **menubar:** las mejoras como botón al pie, junto a los logs, ambos más chicos ([033122a](https://github.com/julianjab/ia-flow/commit/033122a5ce3f263203d11da73bd73f5855adf57f))
+* **menubar:** las mejoras propuestas en su pantalla, con un «¿Por qué?» al asistente ([a8d33cb](https://github.com/julianjab/ia-flow/commit/a8d33cb748321868b0f6dea8eafa8a3f89dbf629))
+* **runner:** el asistente lee la tarea de su contexto aunque ya no esté en el board ([fb5fa73](https://github.com/julianjab/ia-flow/commit/fb5fa73eefc0339e7b6db8904bf23b3ed0e3de9f))
+
+
+### Bug Fixes
+
+* **providers:** el token de GitHub de un MCP se renueva en corridas largas y ante un 401 ([1cf6de4](https://github.com/julianjab/ia-flow/commit/1cf6de4cb248ace6697b5addf9c7fa45741e9978))
+
 ## [2.11.1](https://github.com/julianjab/ia-flow/compare/v2.11.0...v2.11.1) (2026-10-16)
 
 
