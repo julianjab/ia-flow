@@ -145,6 +145,8 @@ struct CreateIssueResult: Codable {
     /// Con `board` en el pedido: la columna donde quedó, o por qué no quedó (el issue se abrió igual).
     var board_status: String? = nil
     var board_error: String? = nil
+    /// No llegó respuesta: el runner pudo haberlo abierto igual. No se ofrece reintentar (lo duplicaría).
+    var uncertain: Bool? = nil
 }
 
 private struct AssistantRequest: Encodable {
@@ -211,8 +213,11 @@ extension RunnerClient {
             let data = try await request("/api/issues", method: "POST", body: Body(repo: proposal.repo ?? "", title: proposal.title ?? "",
                                                                                     body: proposal.body ?? "", labels: proposal.labels,
                                                                                     board: board),
-                                         github: github)
+                                         github: github, timeout: 60)
             return try JSONDecoder().decode(CreateIssueResult.self, from: data)
+        } catch let error as RunnerError where error.status == 0 {
+            return CreateIssueResult(ok: false, message: "Sin respuesta del runner: puede que se haya abierto igual. Revisá \(proposal.repo ?? "el repo") antes de volver a pedirlo",
+                                     url: nil, uncertain: true)
         } catch let error as RunnerError {
             return CreateIssueResult(ok: false, message: error.message, url: nil)
         } catch {

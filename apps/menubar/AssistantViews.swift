@@ -214,7 +214,9 @@ struct ProposalCard: View {
                 if let result = chat.issueResults[proposal.id], result.ok, proposal.isBoardIssue {
                     BoardIssueOutcome(proposal: proposal, result: result)
                 } else if let state, state != "…" {
-                    Text(state).font(.lh(11.5, .semibold)).foregroundStyle(state.hasPrefix("✓") ? Color.green : Color.red).lineLimit(2)
+                    Text(state).font(.lh(11.5, .semibold))
+                        .foregroundStyle(state.hasPrefix("✓") ? Color.green : state.hasPrefix("⚠") ? Color.orange : Color.red)
+                        .lineLimit(3)
                 }
                 Spacer(minLength: 0)
                 if state == nil || state?.hasPrefix("✗") == true {

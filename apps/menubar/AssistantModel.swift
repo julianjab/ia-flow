@@ -263,11 +263,14 @@ final class AssistantModel: ObservableObject {
                                                       github: session.token)
                 issueResults[proposal.id] = result
                 // `board_error` llega con ok: el issue ya existe, así que no es un ✗ (que ofrecería reintentar).
-                proposalState[proposal.id] = !result.ok ? "✗ \(result.message)" : result.board_error != nil ? "⚠ \(result.message)" : "✓ \(result.message)"
+                proposalState[proposal.id] = result.uncertain == true || result.board_error != nil ? "⚠ \(result.message)"
+                    : result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
                 if result.ok { runner.refresh() }
             } else if proposal.isIssue {
                 let result = await client.createIssue(proposal, github: session.token)
-                proposalState[proposal.id] = result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
+                // Sin respuesta no es un ✗: reintentar podría abrirlo dos veces.
+                proposalState[proposal.id] = result.uncertain == true ? "⚠ \(result.message)"
+                    : result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
                 if result.ok, let url = result.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
             } else if let result = await boardChange(proposal, client: client, github: session.token) {
                 proposalState[proposal.id] = result.ok ? "✓ \(result.message)" : "✗ \(result.message)"

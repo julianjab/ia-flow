@@ -290,11 +290,12 @@ struct RunnerError: LocalizedError {
 struct RunnerClient {
     let server: RunnerServer
 
-    func request(_ path: String, method: String = "GET", body: Encodable? = nil, github: String? = nil) async throws -> Data {
+    func request(_ path: String, method: String = "GET", body: Encodable? = nil, github: String? = nil,
+                 timeout: TimeInterval = 15) async throws -> Data {
         guard let url = URL(string: server.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + path) else {
             throw RunnerError(status: 0, message: "URL inválida: \(server.baseUrl)")
         }
-        var req = URLRequest(url: url, timeoutInterval: 15)
+        var req = URLRequest(url: url, timeoutInterval: timeout)
         req.httpMethod = method
         if let token = server.token, !token.isEmpty { req.setValue(token, forHTTPHeaderField: "x-ia-flow-token") }
         if let github { req.setValue(github, forHTTPHeaderField: "x-github-token") }
