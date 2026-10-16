@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.1](https://github.com/julianjab/ia-flow/compare/v2.11.0...v2.11.1) (2026-10-16)
+
+
+### Performance Improvements
+
+* **runner:** la bandeja al instante y en vivo; menubar por stream y búsqueda en GitHub aparte ([#303](https://github.com/julianjab/ia-flow/issues/303)) ([fbea5d0](https://github.com/julianjab/ia-flow/commit/fbea5d07de2c7920d97c96c707857f038a13fa5b))
+
 ## [2.11.0](https://github.com/julianjab/ia-flow/compare/v2.10.1...v2.11.0) (2026-10-15)
 
 
