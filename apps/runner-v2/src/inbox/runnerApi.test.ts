@@ -227,6 +227,7 @@ async function start(
   push = true,
   mergeableState = 'clean',
   deviceFlow?: DeviceFlow,
+  repos?: string[],
 ) {
   const github = fakeGithub(push, mergeableState)
   const hub = new SseHub<RunnerStreamEvent>()
@@ -244,7 +245,7 @@ async function start(
   const api = runnerApi({
     token: token ?? undefined,
     version: 'test',
-    projects: [{ id: 'p', board: { owner: 'o', number: 1 } }],
+    projects: [{ id: 'p', board: { owner: 'o', number: 1 }, ...(repos ? { repos } : {}) }],
     inbox,
     actions: new TaskActions({
       inbox,
@@ -598,6 +599,23 @@ describe('runner API', () => {
     const again = await decide('dismiss', { 'x-github-token': 'gho_x' })
     expect(again.status).toBe(409)
     expect(await again.json()).toMatchObject({ ok: false })
+  })
+
+  it('an improvement opened in a repo of a project goes to its board', async () => {
+    const { call, improvements } = await start(TOKEN, true, 'clean', undefined, [
+      'julianjab/ia-flow',
+    ])
+    const proposal = improvements.add(improvement())
+    const opened = await call(`/api/improvements/${proposal.id}/open`, {
+      method: 'POST',
+      headers: { 'x-github-token': 'gho_x' },
+    })
+    // El board de estos tests no acepta cards: el issue queda abierto y se dice por qué.
+    expect(await opened.json()).toMatchObject({
+      ok: true,
+      message: expect.stringContaining('julianjab/ia-flow#77 abierto, pero no quedó en el board'),
+      proposal: { status: 'opened' },
+    })
   })
 
   it('lists and opens an improvement that does not come from a task', async () => {
